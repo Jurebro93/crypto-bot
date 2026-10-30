@@ -114,6 +114,8 @@ def fragment(mint):
          f'<a href="https://solscan.io/token/{quote(mint)}" target=_blank>Solscan</a> · '
          f'<a href="https://x.com/search?q={quote(mint)}&f=live" target=_blank>X pretraga</a> · '
          f'<a href="/token/{quote(mint)}">puna analiza</a></p>']
+    from ui import narrative
+    b.append(narrative.html(mint))
 
     # confidence first: the one number, with every point explained
     from ui import confidence

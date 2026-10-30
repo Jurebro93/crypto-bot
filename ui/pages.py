@@ -237,6 +237,9 @@ def token(mint, qs):
     b = [f"<h1>{esc(sym or short(mint))}</h1><p><code>{esc(mint)}</code> · {ext_token(mint, url)}</p>"]
     if not (ev or sigs or rugs):
         b.append("<p>Ovaj token nije ni u jednoj analizi.</p>")
+    else:
+        from ui import narrative
+        b.append(narrative.html(mint))
 
     # summary
     b.append("<div class=grid>")
