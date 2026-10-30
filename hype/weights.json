@@ -16,5 +16,6 @@
  "kol_wallets": 10,
  "x_trend": 10,
  "kol_x": 12,
- "search_trend": 6
+ "search_trend": 6,
+ "kol_group": 10
 }

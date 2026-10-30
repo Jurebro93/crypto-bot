@@ -136,7 +136,13 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     for k, v in ctx["errors"].items():
         print(f"  apify {k}: {v}", file=sys.stderr)
     kol_ca, kol_tk = kol
-    found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca))
+    try:  # group calls of well-scored KOLs on X, from run_kol.py (kol.db, read-only)
+        from kol import store as kstore
+        kol_groups = kstore.signals()
+    except Exception as e:
+        print(f"  kol.db: {e}", file=sys.stderr)
+        kol_groups = {}
+    found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca) + list(kol_groups))
     pairs = client.tokens("solana", list(found))
     best = {}
     for p in pairs:
@@ -163,10 +169,12 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["x_trend"] = 1.0 if trend else 0.0
         if kol_ca or kol_tk:
             f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
+        if t in kol_groups:  # measured only when a group call happened; absence neither helps nor hurts
+            f["kol_group"] = kol_groups[t]["feature"]
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
             "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl")} if pf else None,
-            "kol_x": kol_ca.get(t, 0)}
+            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,

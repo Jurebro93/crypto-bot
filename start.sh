@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db kol.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -41,6 +41,10 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
     sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
   done
 ) &
+
+# KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
+# Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
+python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 
 # spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
 python3 run_usage.py loop --every 15 &

@@ -100,6 +100,23 @@ Stil (`style`): `bot` (300+ trejdova dnevno ili drži < 30 s), `sniper` (kupio u
 
 Budžet: `HELIUS_MONTHLY_CREDITS` (zadano 10.000.000, Helius Developer od 2026-10-30) i `WALLET_CREDIT_SHARE` (zadano 0.15, tj. 1,5M mjesečno; ostatak ide rug filteru i hype modulu, cilj ukupno 5-7M). Jedan `score` prolaz zadano troši do 20.000 kredita (oko 1.000 walleta). `score` staje kad potroši svoj dio. Prvi stvarni prolaz 2026-10-30: oko 200 walleta za 3.500 kredita (prosjek 17 po walletu).
 
+## KOL-ovi na X-u (`run_kol.py`, `kol/`, `kol.db`)
+
+Svaki X post s CA tokena postaje poziv: autor, pratitelji, link na post, i što su cijena i volumen napravili nakon njega.
+
+```
+python3 run_kol.py once        # jedan krug: collect, search, measure, score, flows
+python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
+```
+
+- Pozivi: tweetovi koje bot već plaća (`x_buzz` u hype.db apify_cache) + webhook KOL monitora, plus dvije male pretrage (Apify izvori `kol_search` i `kol_timeline`, ~$0.24/dan): ponovna pretraga tokena koje KOL-ovi zovu i zadnji postovi najboljih KOL-ova.
+- Hvalisanje ("15x on $X", "115x $X") se odvaja od poziva i ne ulazi u ocjenu.
+- Cijena i volumen 2 h prije, 1/6/24 h poslije i max u 24 h: GeckoTerminal 5-min svijeće (besplatno).
+- Grupni poziv: 2+ autora na istom tokenu unutar 30 min. Parovi KOL-ova koji često zovu zajedno.
+- Helius tokovi oko jakih poziva (`flows_per_day`, ~40 kredita svaki): insajderi kupili sat prije i prodali u poziv; na 3+ tokena = rotacijski dev, ide u wallets.db s oznakom insider.
+- Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
+- Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.

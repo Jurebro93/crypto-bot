@@ -1,0 +1,20 @@
+{
+ "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka).",
+ "group_secs": 1800,
+ "good_score": 50,
+ "signal_hours": 6,
+ "prepump_x": 1.0,
+ "hit_x": 0.5,
+ "rug_x": -0.9,
+ "prior_calls": 4,
+ "prior_score": 35,
+ "weights": {"hit": 30, "max24": 20, "r1h": 15, "vol_lift": 15, "first": 10, "no_rug": 10, "prepump": -25},
+ "measure_tokens_per_run": 80,
+ "flows_per_day": 60,
+ "flow_pre_secs": 3600,
+ "flow_post_secs": 1800,
+ "insider_min_sol": 0.1,
+ "rotation_min_tokens": 3,
+ "followup": {"per_run": 1, "max_items": 25, "after_h": 1, "again_h": 4, "max_age_h": 24},
+ "timeline": {"every_h": 3, "kols": 15, "max_items": 50, "min_calls": 2}
+}
