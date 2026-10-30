@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 
 from dexscreener import client
-from hype import evaluate, onchain, score, store, telegram, xbuzz
+from hype import apify, evaluate, onchain, score, sources, store, telegram, xbuzz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "hype.db")  # own file: SQLite on the shared mount locks badly under concurrent writers
@@ -66,7 +66,7 @@ def collect_tg(channels):
     return posts, errors
 
 
-def candidates(tg_cas, use_metas=True):
+def candidates(tg_cas, use_metas=True, pump=None, kol_cas=()):
     """token address -> set of sources that surfaced it."""
     found = {}
 
@@ -93,12 +93,50 @@ def candidates(tg_cas, use_metas=True):
             print(f"  metas: {type(e).__name__}: {e}", file=sys.stderr)
     for ca in tg_cas:
         add(ca, "telegram")
+    for mint, t in (pump or {}).items():
+        for b in t["boards"]:
+            add(mint, f"pumpfun:{b}")
+    for ca in kol_cas:
+        add(ca, "kol_x")
     return found
 
 
-def scan(a, weights, smart, tg_count, now=None):
+def apify_context(a):
+    """Everything the paid sources add to one scan; each part fails (or hits its budget) on its own."""
+    ctx = {"pump": {}, "trend_keys": {}, "trends": [], "errors": {}}
+    if not apify.enabled() or a.no_apify:
+        return ctx
+    for name, fn in (("pumpfun", sources.pumpfun_tokens), ("x_trends", sources.x_trends)):
+        try:
+            ctx["pump" if name == "pumpfun" else "trends"] = fn()
+        except Exception as e:
+            ctx["errors"][name] = f"{type(e).__name__}: {e}"
+    ctx["trend_keys"] = sources.trend_keys(ctx["trends"])
+    try:
+        con = store.connect(DB)
+        sources.gmgn_wallets(con)  # cached 24 h, so this is one paid run per day
+        con.close()
+    except Exception as e:
+        ctx["errors"]["gmgn"] = f"{type(e).__name__}: {e}"
+    return ctx
+
+
+def early_buyers_cheap(mint, n=60):
+    """getTransactionsForAddress (~10 credits per 100 tx) instead of the Enhanced API (~100 per call)."""
+    try:
+        from wallets import rpc
+        return rpc.early_buyers(mint, n=n, max_pages=1)
+    except ImportError:
+        return onchain.early_buyers(mint, n=n, pages=1)
+
+
+def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     now_ms = (now or time.time()) * 1000
-    found = candidates(tg_count, use_metas=not a.no_metas)
+    ctx = apify_context(a)
+    for k, v in ctx["errors"].items():
+        print(f"  apify {k}: {v}", file=sys.stderr)
+    kol_ca, kol_tk = kol
+    found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca))
     pairs = client.tokens("solana", list(found))
     best = {}
     for p in pairs:
@@ -119,9 +157,20 @@ def scan(a, weights, smart, tg_count, now=None):
         f["narrative"] = 0.0
         f["smart_money"] = 0.0
         f["x_buzz"] = 0.0
+        pf = ctx["pump"].get(t) or {}
+        f["kol_wallets"] = min(1.0, (pf.get("kolCount") or 0) / 5)  # pump.fun: known KOL wallets traded it
+        trend = sources.trend_match(sym, name, ctx["trend_keys"])
+        f["x_trend"] = 1.0 if trend else 0.0
+        f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
+        f["search_trend"] = 0.0
+        extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
+            "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
+            "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl")} if pf else None,
+            "kol_x": kol_ca.get(t, 0)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
-                     "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p})
+                     "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
+                     "extra": extra})
     rows.sort(key=lambda r: -r["score"])
     # expensive checks only for the best pre-scored candidates
     for r in rows[:a.deep]:
@@ -132,25 +181,36 @@ def scan(a, weights, smart, tg_count, now=None):
             print(f"  search {r['symbol']}: {e}", file=sys.stderr)
         if smart and os.environ.get("HELIUS_API_KEY"):
             try:
-                buyers = onchain.early_buyers(r["token"], n=60, pages=1)
+                buyers = early_buyers_cheap(r["token"])
                 r["smart_buyers"] = [b["wallet"] for b in buyers if b["wallet"] in smart]
                 r["features"]["smart_money"] = min(1.0, len(r["smart_buyers"]) / 4)
             except Exception as e:
                 print(f"  helius {r['symbol']}: {e}", file=sys.stderr)
         r["score"] = score.score(r["features"], weights)
-    if xbuzz.enabled():  # paid: only tokens that already look good
+    if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good
+        rows.sort(key=lambda r: -r["score"])
         for r in [r for r in rows if r["score"] >= a.x_min_score][:a.x_top]:
             try:
                 r["x"] = xbuzz.token_buzz(r["token"], r["symbol"])
                 r["features"]["x_buzz"] = r["x"]["feature"]
-                r["score"] = score.score(r["features"], weights)
             except Exception as e:
-                print(f"  apify {r['symbol']}: {e}", file=sys.stderr)
+                print(f"  x_buzz {r['symbol']}: {e}", file=sys.stderr)
+        gt = apify.config()["google_trends"]
+        for r in [r for r in rows if r["score"] >= gt["min_score"] and len(r["name"]) >= 3][:gt["per_scan"]]:
+            try:
+                rise = sources.search_rise(r["name"])
+                r["extra"]["search_rise"] = rise
+                r["features"]["search_trend"] = max(0.0, min(1.0, ((rise or 1) - 1) / 2))
+            except Exception as e:
+                print(f"  google_trends {r['symbol']}: {e}", file=sys.stderr)
+        for r in rows:
+            r["score"] = score.score(r["features"], weights)
     rows.sort(key=lambda r: -r["score"])
     con = store.connect(DB)  # fresh handle: a connection held across minutes of HTTP goes stale on the shared mount
     for r in rows:
         store.log_signal(con, r, weights)
         store.snapshot(con, r["token"], r["price"], r["mcap"], r["liquidity"])
+        store.log_details(con, r)
     con.commit()
     return rows
 
@@ -192,6 +252,10 @@ def fmt(r):
         extra.append(f"{r['copycats']} kopija")
     if r.get("x"):
         extra.append(f"X: {r['x']['authors']} autora, influenceri {[h for h, _ in r['x']['influencers']]}")
+    if r.get("extra", {}).get("x_trend"):
+        extra.append(f"X trend: {r['extra']['x_trend']}")
+    if r["features"].get("kol_wallets"):
+        extra.append(f"KOL walleti: {r['extra']['pumpfun']['kolCount']}")
     if r.get("smart_buyers"):
         extra.append(f"{len(r['smart_buyers'])} smart walleta")
     return (f"{r['score']:5.1f}  {r['symbol']:<12} mcap {_usd(r['mcap']):>7} liq {_usd(r['liquidity']):>7}  "
@@ -207,13 +271,14 @@ def cmd_scan(a):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=6)).isoformat()
     con = store.connect(DB)
     smart, tg = store.smart_set(con, a.smart_min), store.tg_counts(con, since)
+    kol = sources.kol_counts(con)
     con.close()
     try:  # profitable wallets from the shared registry, bots and snipers included (they are a signal too)
         from wallets import store as wstore
         smart |= set(wstore.signal_wallets(wstore.connect(), a.smart_min))
     except Exception as e:
         print(f"wallets.db: {e}", file=sys.stderr)
-    rows = scan(a, w, smart, tg)
+    rows = scan(a, w, smart, tg, kol=kol)
     print(f"\n{len(rows)} kandidata (liq >= {_usd(a.min_liq)}, mcap <= {_usd(a.max_mcap)}), top {a.top}:")
     for r in rows[:a.top]:
         print(fmt(r))
@@ -339,6 +404,7 @@ def main(argv=None):
         s.add_argument("--no-metas", action="store_true")
         s.add_argument("--x-top", type=int, default=5, help="X buzz via Apify for this many (needs APIFY_TOKEN)")
         s.add_argument("--x-min-score", type=float, default=40)
+        s.add_argument("--no-apify", action="store_true", help="skip every paid Apify source")
         if name == "watch":
             s.add_argument("--interval", type=int, default=120)
             s.add_argument("--alert", type=float, default=60)

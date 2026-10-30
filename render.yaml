@@ -23,5 +23,9 @@ services:
         sync: false
       - key: UI_PASSWORD
         sync: false
+      - key: HELIUS_RPC_RPS      # Developer plan: 50 RPC/s, keep headroom
+        value: "40"
+      - key: HELIUS_ENHANCED_RPS
+        value: "8"
       - key: TRADE_LIVE
         value: "0"

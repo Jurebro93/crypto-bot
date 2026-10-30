@@ -26,8 +26,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HYPE_DB = os.path.join(HERE, "hype.db")
 OUT = os.path.join(HERE, "output")
 LOOKBACK_D = 30
-MONTHLY = int(os.environ.get("HELIUS_MONTHLY_CREDITS", "1000000"))
-SHARE = float(os.environ.get("WALLET_CREDIT_SHARE", "0.5"))  # part of the monthly credits this module may use
+MONTHLY = int(os.environ.get("HELIUS_MONTHLY_CREDITS", "10000000"))
+SHARE = float(os.environ.get("WALLET_CREDIT_SHARE", "0.15"))  # 1.5M of Helius Developer's 10M; rest: rug, hype
 
 
 def _month_start():
@@ -287,7 +287,7 @@ def main(argv=None):
     h.add_argument("--sniper-secs", type=int, default=3)
     h.add_argument("--min-sol", type=float, default=0.1)
     s = sub.add_parser("score")
-    s.add_argument("--credits", type=int, default=3000, help="Helius credits for this run")
+    s.add_argument("--credits", type=int, default=20000, help="Helius credits for this run")
     s.add_argument("--max", type=int, default=100)
     s.add_argument("--pages", type=int, default=3, help="first look: up to N x 100 txs (10 credits per page)")
     t = sub.add_parser("top")

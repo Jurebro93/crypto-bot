@@ -12,13 +12,15 @@ CREATE TABLE IF NOT EXISTS hype_snapshots (
     token TEXT, ts INTEGER, price REAL, mcap REAL, liquidity REAL, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS smart_wallets (
     wallet TEXT PRIMARY KEY, score REAL, stats TEXT, found_via TEXT, updated INTEGER);
+CREATE TABLE IF NOT EXISTS hype_details (
+    token TEXT, ts INTEGER, extra TEXT, PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS tg_mentions (
     channel TEXT, post TEXT, time TEXT, ca TEXT, tickers TEXT, PRIMARY KEY (post, ca));
 """
 
 
 def connect(path):
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=60)  # other loops (paper, watch) write the same file
     con.executescript(SCHEMA)
     return con
 
@@ -28,6 +30,16 @@ def log_signal(con, row, weights):
                 (int(time.time()), row["token"], row["symbol"], row["name"], row["pair"], row["url"], row["score"],
                  row["price"], row["mcap"], row["liquidity"], json.dumps(row["features"]),
                  ",".join(sorted(row["sources"])), json.dumps(weights)))
+
+
+def log_details(con, row):
+    """What the score does not hold: X buzz authors, smart buyers, copycats, trend, pump.fun risk data."""
+    extra = dict(row.get("extra") or {})
+    for k in ("copycats", "smart_buyers", "x"):
+        if row.get(k) is not None:
+            extra[k] = row[k]
+    con.execute("INSERT OR REPLACE INTO hype_details VALUES (?,?,?)",
+                (row["token"], int(time.time()), json.dumps(extra, default=str)))
 
 
 def snapshot(con, token, price, mcap, liq, ts=None):

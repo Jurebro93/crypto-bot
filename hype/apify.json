@@ -1,0 +1,56 @@
+{
+ "_comment": "Dnevni budžeti po izvoru u USD. Zbroj ~1.0 $/dan = ~30 $/mj, ispod limita računa od 40 $. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu.",
+ "monthly_reserve_usd": 3,
+ "daily_usd": {
+  "pumpfun": 0.4,
+  "x_buzz": 0.3,
+  "x_trends": 0.15,
+  "google_trends": 0.08,
+  "gmgn": 0.06,
+  "kol_monitor": 0.0
+ },
+ "pumpfun": {
+  "boards": [
+   "kol",
+   "graduating"
+  ],
+  "max_items": 12,
+  "every_min": 90,
+  "filters": {
+   "marketCapMaxUsd": 5000000,
+   "top10HoldersMaxPercent": 45,
+   "bundlerOwnedMaxPercent": 25,
+   "devHoldingsMaxPercent": 15,
+   "hasAnySocial": true
+  }
+ },
+ "x_trends": {
+  "countries": [
+   "2"
+  ],
+  "every_min": 360
+ },
+ "google_trends": {
+  "per_scan": 2,
+  "min_score": 45,
+  "cache_h": 24
+ },
+ "gmgn": {
+  "trader_types": [
+   "smart_degen",
+   "pump_smart"
+  ],
+  "sort_by": "profit_7days",
+  "limit": 100,
+  "every_h": 24
+ },
+ "kol_handles": [],
+ "unit_usd": {
+  "pumpfun": 0.003,
+  "x_buzz": 0.0004,
+  "x_trends": 0.0004,
+  "google_trends": 0.003,
+  "gmgn": 0.01,
+  "kol_monitor": 0.0045
+ }
+}

@@ -3,11 +3,9 @@
 Needs APIFY_TOKEN. Default actor apidojo/tweet-scraper (~$0.40 per 1000 tweets); override with APIFY_X_ACTOR.
 Searching by contract address finds real shills; the $TICKER alone matches unrelated tweets.
 """
-import json
 import math
 import os
 import time
-import urllib.request
 
 ACTOR = os.environ.get("APIFY_X_ACTOR", "apidojo~tweet-scraper")
 CACHE_SECS = int(os.environ.get("XBUZZ_CACHE_SECS", "900"))
@@ -18,13 +16,11 @@ def enabled():
     return bool(os.environ.get("APIFY_TOKEN"))
 
 
-def search(terms, max_items=40, timeout=120):
-    url = (f"https://api.apify.com/v2/acts/{ACTOR}/run-sync-get-dataset-items"
-           f"?token={os.environ['APIFY_TOKEN']}&timeout={timeout}")
-    body = json.dumps({"searchTerms": terms, "maxItems": max_items, "sort": "Latest"}).encode()
-    req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout + 30) as r:
-        return json.load(r)
+def search(terms, max_items=40):
+    """Through the budget guard in hype/apify.py (source "x_buzz"), cached CACHE_SECS."""
+    from hype import apify
+    return apify.run("x_buzz", ACTOR.replace("~", "/"), {"searchTerms": terms, "maxItems": max_items, "sort": "Latest"},
+                     cache_secs=CACHE_SECS)
 
 
 def _followers(t):

@@ -98,7 +98,7 @@ Kako se računa:
 
 Stil (`style`): `bot` (300+ trejdova dnevno ili drži < 30 s), `sniper` (kupio u prvim sekundama tokena), `scalper` (drži < 10 min), `swing`. Profitabilni botovi i snajperi (score >= 40) dobiju tier S: ne kopiraju se (prebrzi su), ali se prate svaki dan i služe kao signal. `wallets.store.signal_wallets()` ih vraća, a `run_hype.py scan` ih broji u `smart_money` zajedno s ostalim dobrim walletima. Kod botova se plaća dodatna stranica povijesti samo ako je prva stranica u plusu.
 
-Budžet: `HELIUS_MONTHLY_CREDITS` (zadano 1.000.000, besplatni plan) i `WALLET_CREDIT_SHARE` (zadano 0.5). `score` staje kad potroši svoj dio. Prvi stvarni prolaz 2026-10-30: oko 200 walleta za 3.500 kredita (prosjek 17 po walletu).
+Budžet: `HELIUS_MONTHLY_CREDITS` (zadano 10.000.000, Helius Developer od 2026-10-30) i `WALLET_CREDIT_SHARE` (zadano 0.15, tj. 1,5M mjesečno; ostatak ide rug filteru i hype modulu, cilj ukupno 5-7M). Jedan `score` prolaz zadano troši do 20.000 kredita (oko 1.000 walleta). `score` staje kad potroši svoj dio. Prvi stvarni prolaz 2026-10-30: oko 200 walleta za 3.500 kredita (prosjek 17 po walletu).
 
 ## Rug filter (`run_rug.py`)
 

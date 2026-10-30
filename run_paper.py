@@ -28,7 +28,7 @@ from paper import review, sim, store
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
 HYPE_DB = os.path.join(HERE, "hype.db")
-CAL_DB = os.path.join(HERE, "calendar.db")
+RUG_DB = os.environ.get("RUG_DB", os.path.join(HERE, "rug.db"))
 OUT = os.path.join(HERE, "output", "paper")
 SUGGESTED = os.path.join(HERE, "paper", "config.suggested.json")
 
@@ -124,7 +124,7 @@ def market(tokens):
 
 def rug_verdict(con, mint, cfg, now):
     """(verdict, score, flags): a rug report from the last 6 h, else a fresh check while the Helius budget lasts."""
-    cal = _ro(CAL_DB)
+    cal = _ro(RUG_DB)
     if cal is not None:
         try:
             row = cal.execute("SELECT verdict, score, data FROM rug_reports WHERE mint=? AND checked_at>=? "
@@ -182,6 +182,8 @@ def intake(cfg, now=None, quiet=False):
             c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
         elif s < need:
             c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}"
+            if s >= cfg.get("rug_shadow_min_score", 101):  # verdicts on skips too, so the review can judge the filter
+                c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
         elif n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]:
             c["decision"], c["reason"] = "skip_full", f"{n_open} otvorenih, {n_today} danas"
         else:

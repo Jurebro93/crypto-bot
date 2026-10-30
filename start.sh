@@ -22,7 +22,15 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
   done
 ) &
 
-python3 run_paper.py run --scan &   # hype scan, demo entries/exits, daily review
+# Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
+(
+  while true; do
+    python3 run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
+    sleep 86400
+  done
+) &
+
+python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it)
 if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
