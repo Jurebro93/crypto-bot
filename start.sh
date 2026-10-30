@@ -30,6 +30,18 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
   done
 ) &
 
+# wallet registry: every WALLETS_EVERY_H hours (default 6) pull wallets from all analyses, then score the queue.
+# score stops at --credits per run and at WALLET_CREDIT_SHARE of the monthly Helius credits (default 15% = 1.5M)
+(
+  sleep 600   # let the first hype learn finish so its smart wallets are imported
+  while true; do
+    python3 run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
+    python3 run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-12000}" --max 1000 >/dev/null || echo "wallets score nije uspio"
+    python3 run_wallets.py copy >/dev/null || true
+    sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
+  done
+) &
+
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it)
