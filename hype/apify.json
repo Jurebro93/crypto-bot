@@ -1,5 +1,5 @@
 {
- "_comment": "Dnevni budžeti po izvoru u USD. Zbroj ~1.0 $/dan = ~30 $/mj, ispod limita računa od 40 $. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu.",
+ "_comment": "Dnevni budžeti po izvoru u USD. Zbroj ~1.0 $/dan = ~30 $/mj, ispod limita računa od 40 $. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20.",
  "monthly_reserve_usd": 3,
  "daily_usd": {
   "pumpfun": 0.4,
@@ -11,13 +11,14 @@
  },
  "pumpfun": {
   "boards": [
-   "kol",
+   "trending",
    "graduating"
   ],
-  "max_items": 12,
+  "max_items": 15,
   "every_min": 90,
   "filters": {
    "marketCapMaxUsd": 5000000,
+   "ageMaxSeconds": 259200,
    "top10HoldersMaxPercent": 45,
    "bundlerOwnedMaxPercent": 25,
    "devHoldingsMaxPercent": 15,
@@ -31,7 +32,7 @@
   "every_min": 360
  },
  "google_trends": {
-  "per_scan": 2,
+  "per_scan": 1,
   "min_score": 45,
   "cache_h": 24
  },
@@ -52,5 +53,15 @@
   "google_trends": 0.003,
   "gmgn": 0.01,
   "kol_monitor": 0.0045
+ },
+ "run_options": {
+  "google_trends": {
+   "memory": 1024,
+   "timeout": 150
+  },
+  "x_trends": {
+   "memory": 1024,
+   "timeout": 120
+  }
  }
 }

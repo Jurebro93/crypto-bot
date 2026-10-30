@@ -135,7 +135,7 @@ python3 run_paper.py apply               # prihvati predložene postavke (stara 
 
 S `--scan` ne pokreći usput `run_hype.py watch` (inače bi oba pisala u hype.db).
 
-Ulazi: hype signali (`hype.db`) sa score >= `min_score` i "pravi" tokeni događaja koji su za 0 do `event_days` dana (najnoviji `output/dex-*.json`, score >= `dex_min_score`). Prije ulaza rug filter (postojeći izvještaj iz zadnjih 6 h ili nova provjera, najviše `rug_budget_per_day` dnevno jer troši Helius kredite); presude iz `block_verdicts` se ne kupuju. Svaki kandidat dobije jednu odluku: `taken` ili `skip_score`, `skip_liq`, `skip_mcap`, `skip_rug`, `skip_full`. Preskočeni se prate dalje 24 h, da se vidi što su filteri spasili, a što propustili.
+Ulazi: hype signali (`hype.db`) sa score >= `min_score` i "pravi" tokeni događaja koji su za 0 do `event_days` dana (najnoviji `output/dex-*.json`, score >= `dex_min_score`). Prije ulaza rug filter (postojeći izvještaj iz zadnjih 6 h ili nova provjera, najviše `rug_budget_per_day` (200) dnevno jer troši Helius kredite; provjeravaju se i preskočeni tokeni sa score >= `rug_shadow_min_score`, da pregled može ocijeniti filter); presude iz `block_verdicts` se ne kupuju. Svaki kandidat dobije jednu odluku: `taken` ili `skip_score`, `skip_liq`, `skip_mcap`, `skip_rug`, `skip_full`. Preskočeni se prate dalje 24 h, da se vidi što su filteri spasili, a što propustili.
 
 Izlazi (`paper/config.json`): stop loss -35%, pola na 2x i četvrtina na 4x, nakon prvog TP-a stop na nulu, trailing 30% od vrha kad je bio +50%, najviše 24 h, rug (likvidnost pala ispod 20%) = izlaz odmah. Svaka kupnja i prodaja plaća 1% naknade i proklizavanje po veličini poola. Trejd zadržava pravila s kojima je otvoren.
 
@@ -158,6 +158,25 @@ Limiti u `trade/config.json`: `size_sol`, `max_sol_per_trade`, `max_sol_per_day`
 Dry-run je zadano: dohvati se pravi quote i zapiše u `trade.db`, ništa se ne potpisuje. Live traži sve troje: `"mode": "live"` u configu, `TRADE_LIVE=1` i `SOLANA_PRIVATE_KEY` (zaseban wallet samo za bota) u env secrets servera. `SOLANA_PUBLIC_KEY` je dovoljan za dry-run. Opcijski: `JUP_API_KEY` (veći limiti), `SOLANA_RPC_URL` ili `HELIUS_API_KEY` za stanje walleta. Paketi: `pip install solders base58`.
 
 Prvi stvarni dry-run 2026-10-30: 0.05 SOL u pump.fun token i natrag, ukupni trošak oko 2.8%.
+
+### Apify izvori (`hype/sources.py`, `hype/apify.py`)
+
+Uz `APIFY_TOKEN` skener koristi i plaćene izvore. Svaki ide kroz zaštitu budžeta: dnevni limit po izvoru u `hype/apify.json`, a sve staje kad do mjesečnog limita Apify računa ostane manje od `monthly_reserve_usd`. Svaki run se zapisuje u `apify_runs` (hype.db), a rezultati se keširaju.
+
+| Izvor | Actor | Što daje | Značajka |
+| --- | --- | --- | --- |
+| pump.fun | `muhammetakkurtt/pump-fun-token-scraper-monitor` | trending i graduating tokeni (mlađi od 3 dana, filtrirani po bundlerima i devu), broj KOL walleta | kandidati, `kol_wallets` |
+| X buzz | `apidojo/tweet-scraper` | tweetovi po CA i $tickeru za top kandidate | `x_buzz` |
+| X trendovi | `karamelo/twitter-trends-scraper` | trending teme | `x_trend` (ime tokena = trend) |
+| Google Trends | `apify/google-trends-scraper` | rast pretrage imena (24 h vs 6 dana), 1 token po prolazu | `search_trend` |
+| GMGN | `muhammetakkurtt/gmgn-copytrade-wallet-scraper` | 200 profitabilnih walleta dnevno, ocijenjeni u `smart_wallets` | `smart_money` |
+| KOL tracker | `xquik/x-twitter-crypto-tracker` | tweetovi odabranih KOL-ova u realnom vremenu, preko webhooka `/hook/kol` | `kol_x` |
+
+Ocjena je ponderirani prosjek samo izmjerenih značajki: provjera koja nije rađena (npr. X buzz za token izvan top 5) ne ulazi u nazivnik.
+
+KOL tracker je isključen dok mu ne daš budžet (`daily_usd.kol_monitor`) i popis računa. Svaki praćeni račun košta oko $3.24 mjesečno. Pokretanje: `KOL_HOOK_KEY=... python3 run_hype.py kol --handles a,b --base-url https://<dashboard>`; zaustavljanje s `--stop`.
+
+Stranica **Radar** u dashboardu (`run_ui.py`, `/radar`) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
 
 ## Status
 
