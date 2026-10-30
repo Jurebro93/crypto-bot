@@ -6,7 +6,8 @@ import time
 from urllib.parse import quote
 
 NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
-       ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji")]
+       ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"),
+       ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]
 
 CSS = """
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#3b5bdb;

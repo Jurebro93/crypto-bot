@@ -1,0 +1,139 @@
+"""league.db: each user's own demo account (manual picks from the bot's suggestions) and the feature-idea box.
+
+Separate from paper.db: the bot's automatic paper trading never reads or writes this file, and only the
+dashboard process writes here, so there is a single writer.
+Prices come in from the caller (live DexScreener in the UI); fills use the same fee + AMM impact as paper/sim.py.
+"""
+import os
+import sqlite3
+import time
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB = os.environ.get("LEAGUE_DB", os.path.join(HERE, "league.db"))
+START_USD = float(os.environ.get("LEAGUE_START_USD", "1000"))
+FEE = 0.01
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS accounts (user TEXT PRIMARY KEY, start_usd REAL, created INTEGER);
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, token TEXT, symbol TEXT, opened_ts INTEGER, closed_ts INTEGER,
+    status TEXT, size_usd REAL, entry_px REAL, entry_eff REAL, qty REAL, exit_px REAL, proceeds REAL, pnl_usd REAL,
+    ret REAL, source TEXT, score REAL, note TEXT);
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, ts INTEGER, text TEXT, status TEXT DEFAULT 'novo');
+"""
+
+
+def users():
+    """Players, from UI_USERS (default Ivan,Panda,Jure). Each one's password is in UI_PASS_<NAME>."""
+    return [u.strip() for u in os.environ.get("UI_USERS", "Ivan,Panda,Jure").split(",") if u.strip()]
+
+
+def connect(path=None):
+    con = sqlite3.connect(path or DB, timeout=30)
+    con.row_factory = sqlite3.Row
+    con.executescript(SCHEMA)
+    return con
+
+
+def impact(usd, liq):
+    side = (liq or 0) / 2
+    return usd / (side + usd) if side > 0 else 1.0
+
+
+def account(con, user):
+    """Cash, money in open positions and realized PnL; creates the account on first use."""
+    con.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (user, START_USD, int(time.time())))
+    start = con.execute("SELECT start_usd FROM accounts WHERE user=?", (user,)).fetchone()[0]
+    realized, in_use = con.execute(
+        "SELECT COALESCE(SUM(CASE WHEN status='closed' THEN pnl_usd END),0),"
+        " COALESCE(SUM(CASE WHEN status='open' THEN size_usd END),0) FROM trades WHERE user=?", (user,)).fetchone()
+    return {"user": user, "start": start, "realized": realized, "in_use": in_use, "cash": start + realized - in_use}
+
+
+def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None):
+    if not price or price <= 0:
+        raise ValueError("nema cijene za token")
+    if not liq or liq < 1000:
+        raise ValueError("likvidnost premala (< $1k)")
+    acc = account(con, user)
+    if size_usd <= 0 or size_usd > acc["cash"] + 1e-9:
+        raise ValueError(f"ulog mora biti između $0 i slobodnih ${acc['cash']:,.2f}")
+    if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, token)).fetchone():
+        raise ValueError("već imaš otvorenu poziciju u tom tokenu")
+    eff = price * (1 + FEE) / (1 - impact(size_usd, liq))
+    cur = con.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px, entry_eff, qty, "
+                      "source, score) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (user, token, symbol, int(time.time()), "open", size_usd, price, eff, size_usd / eff, source, score))
+    con.commit()
+    return cur.lastrowid
+
+
+def value(t, price, liq):
+    """What selling the whole position would bring now (after fee and impact). price 0 = rugged."""
+    if not price or price <= 0:
+        return 0.0
+    gross = t["qty"] * price
+    return gross * (1 - FEE) * (1 - impact(gross, liq))
+
+
+def sell(con, user, trade_id, price, liq, note=""):
+    t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
+    if not t:
+        raise ValueError("nema te otvorene pozicije")
+    proceeds = value(t, price, liq)
+    pnl = proceeds - t["size_usd"]
+    con.execute("UPDATE trades SET status='closed', closed_ts=?, exit_px=?, proceeds=?, pnl_usd=?, ret=?, note=? "
+                "WHERE id=?", (int(time.time()), price or 0, proceeds, pnl, pnl / t["size_usd"], note, trade_id))
+    con.commit()
+    return pnl
+
+
+def trades(con, user=None, status=None):
+    where, args = ["1=1"], []
+    if user:
+        where.append("user=?")
+        args.append(user)
+    if status:
+        where.append("status=?")
+        args.append(status)
+    return [dict(r) for r in con.execute(f"SELECT * FROM trades WHERE {' AND '.join(where)} ORDER BY opened_ts DESC", args)]
+
+
+def leaderboard(con, live):
+    """One row per player, best first. live: token -> (price, liquidity, url); open positions without a live
+    price count at what they cost, so a DexScreener outage does not reshuffle the table."""
+    rows = []
+    for u in users():
+        acc = account(con, u)
+        opened = trades(con, u, "open")
+        closed = trades(con, u, "closed")
+        unreal = 0.0
+        for t in opened:
+            if t["token"] in live:
+                price, liq, _ = live[t["token"]]
+                unreal += value(t, price, liq) - t["size_usd"]
+        equity = acc["start"] + acc["realized"] + unreal
+        best = max(closed, key=lambda t: t["pnl_usd"] or 0, default=None)
+        rows.append({**acc, "unrealized": unreal, "equity": equity, "profit": equity - acc["start"],
+                     "ret": (equity - acc["start"]) / acc["start"] if acc["start"] else 0, "open": len(opened),
+                     "closed": len(closed), "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "best": best})
+    con.commit()
+    return sorted(rows, key=lambda r: -r["profit"])
+
+
+def add_idea(con, user, text):
+    text = (text or "").strip()[:4000]
+    if not text:
+        raise ValueError("prazan prijedlog")
+    con.execute("INSERT INTO ideas (user, ts, text) VALUES (?,?,?)", (user, int(time.time()), text))
+    con.commit()
+
+
+def set_idea_status(con, idea_id, status):
+    con.execute("UPDATE ideas SET status=? WHERE id=?", (status, idea_id))
+    con.commit()
+
+
+def ideas(con):
+    return [dict(r) for r in con.execute("SELECT * FROM ideas ORDER BY id DESC")]
