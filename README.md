@@ -78,6 +78,10 @@ Svaki token koji sken vidi dobiva red u `token_tier` (hype.db): **klasu** (`moon
 
 T0 pada **samo na mehanici ruga** (aktivan mint ili freeze authority, LP nezaključan izvan launchpada; pump.fun tokeni prolaze bez poziva, ostali preko RugCheck izvještaja keširanog 6 h). Likvidnost, top 10 holderi, dev udio i bundleri nisu pragovi nego značajke za učenje. Tokeni ispod `--min-liq` ili iznad `--max-mcap` ulaze u `token_tier` kao `t0=nije` i `track` im prati cijenu, pa `eval` vidi i što su pragovi propustili. Oblik puta do mcapa iz snimaka (`put_brzina`, `put_skokovitost`, `put_zadrzavanje`) ulazi u značajke s težinom 0 dok ih fit ne nauči.
 
+## Petlja učenja (`run_learn.py`, `learn/`)
+
+Ništa ručno. `run_learn.py loop` jednom dnevno (05:00 UTC, `learn/config.json`): za svaku klasu izračuna **skok** (maksimalni rast u 24 h u gornjih 15% ishoda te klase u zadnjih 30 dana; početni pragovi dok klasa nema 20 ishoda), fita težine hype ocjene logističkom regresijom i primjenjuje ih **samo** ako klasa ima barem 200 ishoda, svaka težina se pomiče najviše 20% po runu, i nove težine imaju bolju preciznost gornje petine na obje vremenske polovice. Naučene težine su u `$LEARNED_DIR/weights.<klasa>.json` (na Render disku), sken ih čita po klasi; `.prev` ostaje za rollback, koji se sam dogodi kad primijenjene težine nakon 2 runa bez poboljšanja gube od prethodnih. Svaki run je u `learn_runs` (hype.db). Stranica **Učenje** pokazuje lift po značajki, udio skokova po rasponu sirovih vrijednosti (likvidnost, mcap, top 10, bundleri, smart kupci, skokovitost), parove značajki, povijest težina i "što smo propustili" (tokeni bez plaćene provjere koji su ipak skočili). `run_learn.py status|missed|fit --dry` za terminal.
+
 ## Walleti i copytrading (`run_wallets.py`)
 
 Registar svih walleta koje alat vidi (hype, rug filter, rani kupci pobjednika, ručno), ocjena profitabilnosti, PnL kroz vrijeme i shortlista za copytrading. Baza je `wallets.db` (tablice `wallets`, `wallet_sightings`, `wallet_trades`, `wallet_pnl`, `helius_credits`). Drugi moduli upisuju walleta preko `wallets/store.py` (`observe`, `label`), pa nema duplih tablica.

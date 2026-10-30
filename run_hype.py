@@ -175,6 +175,9 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
                      "extra": extra})
     tiers_for(rows, now_ms / 1000)  # class, path shape, T0 sieve
+    wcls = class_weights(rows, weights)  # learned weights per class (learn/), else the base file
+    for r in rows:
+        r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     rows.sort(key=lambda r: -r["score"])
     # expensive checks only for the best pre-scored candidates that passed the free sieve
     deep = [r for r in rows if r["tier"]["t0"] != "pad"][:a.deep]
@@ -193,7 +196,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                 r["tier"].update(razina=max(r["tier"]["razina"], 1), credits=r["tier"].get("credits", 0) + 10)
             except Exception as e:
                 print(f"  helius {r['symbol']}: {e}", file=sys.stderr)
-        r["score"] = score.score(r["features"], weights)
+        r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good and passed T0
         rows.sort(key=lambda r: -r["score"])
         ok = [r for r in rows if r["tier"]["t0"] != "pad"]
@@ -213,16 +216,26 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             except Exception as e:
                 print(f"  google_trends {r['symbol']}: {e}", file=sys.stderr)
         for r in rows:
-            r["score"] = score.score(r["features"], weights)
+            r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     rows.sort(key=lambda r: -r["score"])
     con = store.connect(DB)  # fresh handle: a connection held across minutes of HTTP goes stale on the shared mount
     for r in rows:
-        store.log_signal(con, r, weights)
+        store.log_signal(con, r, wcls[r["tier"]["klasa"]])
         store.snapshot(con, r["token"], r["price"], r["mcap"], r["liquidity"])
         store.log_details(con, r)
     con.commit()
     save_tiers(rows, skipped, now_ms / 1000)
     return rows
+
+
+def class_weights(rows, base):
+    try:
+        from learn import weights as lw
+        out = lw.for_rows(rows, base)
+    except Exception as e:
+        print(f"  learned weights: {e}", file=sys.stderr)
+        out = {}
+    return {**{r["tier"]["klasa"]: base for r in rows}, **out} if rows else {}
 
 
 def tiers_for(rows, now=None):

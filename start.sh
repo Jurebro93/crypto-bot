@@ -11,7 +11,7 @@ for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
-export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
+export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
@@ -45,6 +45,7 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
 # spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
 python3 run_usage.py loop --every 15 &
 
+python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it)

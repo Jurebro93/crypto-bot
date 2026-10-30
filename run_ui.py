@@ -52,6 +52,9 @@ def route(path, qs):
         return usage.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
+    if path == "/learn":
+        from ui import learnpage
+        return learnpage.page(qs)
     if path == "/outputs":
         return pages.outputs(qs)
     if path.startswith("/outputs/"):
