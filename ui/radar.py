@@ -5,7 +5,7 @@ import os
 import time
 
 from ui import data
-from ui.html import ago, badge, bar, esc, table, tlink, usd
+from ui.html import tdesc, ago, badge, bar, esc, table, tlink, usd
 
 HYPE_DIR = os.path.join(data.HERE, "hype")
 
@@ -147,7 +147,7 @@ def _algo():
     b.append(f"<div class=card><b>{verdict}</b> Od {len(rows)} tokena s poznatim ishodom, {base:.0%} je u 24 h "
              f"barem udvostručilo cijenu"
              + (f", a među onima s ocjenom 40+ njih {hi_rate:.0%}." if hi_rate is not None else ".") + "</div>")
-    b.append(table(["Ocjena", ("Tokena", "n"), ("Udvostručilo se", "n"), "", ("Rug", "n"), ("Medijan nakon 24 h", "n")],
+    b.append(tdesc('Provjera algoritma: tokeni grupirani po hype ocjeni i što im se dogodilo u sljedeća 24 h. Ako viši razredi ne rastu češće, ocjena ne radi.') + table(["Ocjena", ("Tokena", "n"), ("Udvostručilo se", "n"), "", ("Rug", "n"), ("Medijan nakon 24 h", "n")],
                    [[esc(x["bucket"]), (str(x["n"]), x["n"], "n"), (f"{x['hit_rate']:.0%}", x["hit_rate"], "n"),
                      bar(x["hit_rate"] * 100), (f"{x['rug_rate']:.0%}", x["rug_rate"], "n"),
                      (f"{x['median_end']:+.0%}", x["median_end"], "n")] for x in buckets]))
@@ -196,7 +196,7 @@ def _costs():
                  f"${cfg.get('monthly_reserve_usd', 3)}.</p>")
     except Exception:
         pass
-    return (month + table(["Izvor", ("Potrošeno 24 h", "n"), ("Dnevni budžet", "n"), "", ("Runova", "n"), "Zadnji"], rows)
+    return (month + tdesc('Koliko je svaki Apify izvor (X, Telegram, trendovi) potrošio u zadnja 24 h naspram dnevnog budžeta.') + table(["Izvor", ("Potrošeno 24 h", "n"), ("Dnevni budžet", "n"), "", ("Runova", "n"), "Zadnji"], rows)
             + f"<p class=mut>Ukupno u 24 h ${tot:.2f}. Procjena po cijeni po rezultatu iz Apify Storea; "
               f"budžeti se mijenjaju u <code>hype/apify.json</code>.</p>")
 
@@ -232,17 +232,17 @@ def page(qs):
                         "<span class=mut>samo tržišni signali, ništa posebno</span>", "", "wrap"),
                        ("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>" if risk else
                         "<span class=mut>nema poznatih</span>", "", "wrap")])
-        b.append(table(["Token", ("Ocjena", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
+        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima.') + table(["Token", ("Ocjena", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
 
         b.append("<h2>Narativi</h2><div class=two><div>")
         tr_rows = [r for r in rows if r["extra"].get("x_trend")]
-        b.append("<h3>Tokeni nazvani po X trendu</h3>" + table(
+        b.append("<h3>Tokeni nazvani po X trendu</h3>" + tdesc('Tokeni čije ime odgovara trenutnoj trending temi na X-u.') + table(
             ["Token", "Trend na X-u", ("Ocjena", "n")],
             [[tlink(r["token"], r["symbol"]), esc(r["extra"]["x_trend"]), (f"{r['score']:.0f}", r["score"], "n")] for r in tr_rows],
             empty="Nijedan token ne nosi ime trenutnog X trenda."))
         b.append("</div><div>")
         cc = sorted([r for r in rows if r["extra"].get("copycats")], key=lambda r: -r["extra"]["copycats"])[:10]
-        b.append("<h3>Teme s najviše kopija (3 dana)</h3>" + table(
+        b.append("<h3>Teme s najviše kopija (3 dana)</h3>" + tdesc('Imena za koja je u 3 dana napravljeno najviše tokena: znak da je tema vruća.') + table(
             ["Token", ("Kopija", "n"), ("Ocjena", "n")],
             [[tlink(r["token"], r["symbol"]), (str(r["extra"]["copycats"]), r["extra"]["copycats"], "n"),
               (f"{r['score']:.0f}", r["score"], "n")] for r in cc], empty="Nema podataka o kopijama."))

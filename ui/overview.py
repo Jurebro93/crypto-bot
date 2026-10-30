@@ -2,10 +2,9 @@
 analyses, and wallets that buy the same tokens (clusters, drawn as a graph)."""
 import json
 import time
-from urllib.parse import quote
 
-from ui import data, evidence, explain
-from ui.html import ago, badge, esc, num, scorecell, short, table, tierb, tlink, usd, wlink
+from ui import confidence, data, evidence, explain, paper
+from ui.html import tdesc, ago, badge, esc, modal, num, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
 
@@ -56,7 +55,15 @@ def token_rows(since=None):
         passed = sum(1 for _, ok, _ in cs if ok)
         failed = sum(1 for _, ok, _ in cs if ok is False)
         hard = t in rugs and rugs[t]["verdict"] == "ODBAČEN"
+        liq = (s["last"]["liquidity"] if s else None) or ((rugs[t]["data"].get("market") or {}).get("liquidity") if t in rugs else None) \
+            or (evs[t][0]["liquidity"] if t in evs else None)
+        role = "canonical" if any(e["role"] == "canonical" for e in evs.get(t, [])) else ("copycat" if t in evs else None)
+        conf, parts = confidence.score(s["last"]["score"] if s else None,
+                                       (data.js(s["last"]["features"], {}) or {}) if s else {}, dets.get(t, {}),
+                                       rugs[t]["verdict"] if t in rugs else None, role, liq, mcap)
         out.append({"token": t, "symbol": sym, "checks": cs, "passed": passed, "failed": failed, "hard": hard,
+                    "conf": conf, "conf_parts": parts, "liq": liq, "rug": rugs.get(t), "events": evs.get(t, []),
+                    "cand": cands.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
                     "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
                     "features": (data.js(s["last"]["features"], {}) or {}) if s else {}})
@@ -64,7 +71,7 @@ def token_rows(since=None):
 
 
 def _rank(r):
-    return (not r["hard"], r["passed"] - 0.5 * r["failed"], r["hype"] or 0)
+    return (r["conf"], r["passed"] - 0.5 * r["failed"], r["hype"] or 0)
 
 
 def _card(r):
@@ -77,11 +84,12 @@ def _card(r):
     bad = [lab for lab, v, _ in r["checks"] if v is False]
     return (f'<button class="cand stat" data-mint="{esc(r["token"])}" type=button>'
             f'<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:17px">{esc(r["symbol"] or short(r["token"]))}</b>'
-            f'<span class=mut>{"hype " + format(r["hype"], ".0f") if r["hype"] is not None else ""}</span></div>'
+            f'<span>{confidence.badge_html(r["conf"])}</span></div>'
             f'<div style="margin:4px 0">{badge(f"{r["passed"]}/{r["passed"] + r["failed"]} analiza", "good" if r["passed"] >= 3 and not r["hard"] else "warn")}'
             f' <span class=mut>{usd(r["mcap"])[0]} mcap · {ago(r["last_seen"])[0]}</span></div>'
             f'<div style="font-size:12px">{" ".join(badge("✓ " + x, "good") for x in ok)} {" ".join(badge("✗ " + x, "bad") for x in bad)}</div>'
-            + (f'<div class=mut style="font-size:12px;margin-top:6px">{esc(why[0])}</div>' if why else "")
+            + (f'<div class=mut style="font-size:12px;margin-top:6px">{esc(why[0])}</div>' if why else
+               f'<div class=mut style="font-size:12px;margin-top:6px">{esc(r["conf_parts"][0][1])}</div>' if r["conf_parts"] else "")
             + "<div style='font-size:12px;margin-top:6px;color:var(--acc)'>Klikni za analizu i dokaze →</div></button>")
 
 
@@ -161,7 +169,7 @@ def growth():
                 cells.append((f"{n:,} <span class={'pos' if d else 'mut'}>+{d:,}</span>", n, "n"))
         rows.append(cells)
     head = ["", ("Sada", "n")] + [(f"Prije {l}", "n") for l, _ in POINTS[1:]]
-    return (table(head, rows) + "<p class=mut>Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.</p>"
+    return (tdesc('Koliko tokena, walleta, signala i rug provjera je alat imao u svakom trenutku. Pokazuje puni li se baza i koliko brzo.') + table(head, rows) + "<p class=mut>Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.</p>"
             + _chart({k: series[k] for k in ("Tokena analizirano", "Walleta u registru", "Walleta ocijenjeno", "Rug provjera")}, now))
 
 
@@ -266,34 +274,22 @@ N.forEach(n=>{if(n.k=='w'){const r=4+n.score/10;s+=`<a href="/wallet/${n.id}"><c
 el.innerHTML=s+'</svg>'})();
 """
 
-MODAL_JS = """
-const dlg=document.getElementById('ev');
-document.querySelectorAll('[data-mint]').forEach(b=>b.addEventListener('click',async e=>{if(e.target.closest('a'))return;
- dlg.querySelector('.body').innerHTML='<p class=mut>Učitavam analizu…</p>';dlg.showModal();
- try{const r=await fetch('/api/evidence/'+encodeURIComponent(b.dataset.mint));dlg.querySelector('.body').innerHTML=await r.text()}
- catch(err){dlg.querySelector('.body').innerHTML='<p>Greška pri učitavanju.</p>'}}));
-dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
-"""
 
-CSS = """
-.cand{text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%}.cand:hover{border-color:var(--acc)}
-dialog#ev{max-width:980px;width:calc(100% - 32px);max-height:88vh;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);padding:0}
-dialog#ev::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2{position:sticky;top:0;display:flex;justify-content:flex-end;padding:8px;background:var(--bg)}
-dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
-"""
+
+
 
 
 def page(qs):
     now = time.time()
-    b = [f"<style>{CSS}</style><h1>Pregled</h1>"]
+    b = ["<h1>Pregled</h1>", "<h2>Demo trading: rezultat</h2>", paper.summary_html()]
 
     # 1. standout candidates
     recent = token_rows(since=now - 86400)
     top = sorted(recent, key=_rank, reverse=True)[:6]
     b.append("<h2>Istaknuti kandidati (24 h)</h2>")
     if top:
-        b.append("<p class=mut>Tokeni koji su prošli najviše neovisnih analiza (hype, X, smart money, KOL, holderi, rug "
-                 "filter, event, demo trading). Klikni karticu za analizu s brojkama, izvorima i linkovima na dokaze.</p>")
+        b.append("<p class=mut>Tokeni s najvišim confidenceom: hype ocjena plus neovisne potvrde (X, smart money, KOL, holderi, "
+                 "rug filter, event), minus rizici. Klikni karticu za raspis s brojkama, izvorima i linkovima na dokaze.</p>")
         b.append("<div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
                  + "".join(_card(r) for r in top) + "</div>")
     else:
@@ -307,17 +303,15 @@ def page(qs):
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
     b.append(f"<h2>Tokeni koji su prošli više analiza</h2><p class=mut>✓ prošao, ✗ pao, – nije analiziran. "
-             f"Klik na red otvara analizu. Ukupno {len(allrows)} tokena.</p>")
+             f"Poredano po confidenceu. Klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
+             f"<a href=/tokens>Tokenima</a>.</p>")
     rows = []
     for r in allrows[:40]:
-        rows.append([tlink(r["token"], r["symbol"]), (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
+        rows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+                     (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
                     + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype"]), usd(r["mcap"]), ago(r["last_seen"])])
-    tb = table(["Token", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"], rows, "mt",
-               "Nema tokena.")
-    for r in allrows[:40]:  # make rows open the pop-up
-        tb = tb.replace(f'<tr><td><a href="https://dexscreener.com/solana/{quote(r["token"])}"',
-                        f'<tr class=clk data-mint="{esc(r["token"])}"><td><a href="https://dexscreener.com/solana/{quote(r["token"])}"', 1)
-    b.append(tb)
+    b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po confidenceu; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Confidence", "n"), ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
+                   rows, "mt", "Nema tokena.", mints=[r["token"] for r in allrows[:40]]))
 
     # 4. wallet clusters
     min_shared = max(2, int(qs.get("shared", 3) or 3))
@@ -350,7 +344,7 @@ def page(qs):
                          num(len(c["shared"])), num(sum(scores) / len(scores) if scores else None, "{:.0f}"),
                          wlink(best) + " " + tierb((reg.get(best) or {}).get("tier")),
                          (" ".join(wlink(w) for w in c["wallets"][:8]) + (" …" if len(c["wallets"]) > 8 else ""), "", "wrap")])
-        b.append(table(["#", ("Walleta", "n"), ("Zajednički tokeni (koliko walleta ga ima)", "wrap"), ("Zajedničkih", "n"),
+        b.append(tdesc('Grupe walleta koje su kupile iste tokene (barem zadani broj zajedničkih). Velika grupa s istim tokenima često je jedna osoba, grupa insajdera ili walleti koji kopiraju istog trejdera.') + table(["#", ("Walleta", "n"), ("Zajednički tokeni (koliko walleta ga ima)", "wrap"), ("Zajedničkih", "n"),
                         ("Prosj. copy", "n"), "Najbolji", ("Walleti", "wrap")], crow))
     else:
         b.append(f"<div class=card>Još nema walleta koji dijele barem {min_shared} tokena.</div>")
@@ -358,7 +352,7 @@ def page(qs):
     if fc:
         b.append("<h3>Walleti financirani iz istog izvora</h3><p class=mut>Iz rug filtera: jedan wallet je poslao SOL "
                  "na više walleta koji su onda kupovali. Tipično jedna osoba ili insajderska grupa.</p>")
-        b.append(table(["Financijer", ("Financirao walleta", "n"), ("Na tokenima", "wrap"), ("Walleti", "wrap")],
+        b.append(tdesc('Svaki red je wallet koji je slao SOL drugim walletima prije njihovih kupnji.') + table(["Financijer", ("Financirao walleta", "n"), ("Na tokenima", "wrap"), ("Walleti", "wrap")],
                        [[wlink(f), num(len(v["funded"])), (", ".join(tlink(t, syms.get(t)) for t in sorted(v["tokens"])), "", "wrap"),
                          (" ".join(wlink(w) for w in sorted(v["funded"])[:10]), "", "wrap")] for f, v in fc[:15]]))
 
@@ -368,7 +362,6 @@ def page(qs):
              + table(["Baza", "Tablica", ("Redaka", "n")], [[esc(d), esc(t), num(n)] for d, t, n in data.tables()])
              + "</details>")
 
-    b.append("<dialog id=ev><div class=bar2><button onclick=\"this.closest('dialog').close()\">Zatvori ✕</button></div>"
-             "<div class=body></div></dialog>")
-    b.append(f"<script>{MODAL_JS}{GRAPH_JS}</script>")
+    b.append(modal())
+    b.append(f"<script>{GRAPH_JS}</script>")
     return "Pregled", "".join(b)

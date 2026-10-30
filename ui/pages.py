@@ -4,7 +4,7 @@ import time
 from urllib.parse import quote
 
 from ui import data, explain, jobs
-from ui.html import (ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, jsonblock, num, scorecell,
+from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, jsonblock, num, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
 ROLE = {
@@ -96,7 +96,7 @@ def wallets(qs):
     intro = ("<h1>Walleti</h1><p class=mut>Copy lista = isti uvjeti kao <code>run_wallets.py copy</code>: copy ocjena "
              f"≥ {min_score:g}, barem {min_closed} zatvorenih pozicija, bez loših oznaka. Klik na zaglavlje sortira, "
              "klik na wallet otvara detalje i raspis ocjene. Kriteriji su na stranici <a href=/criteria#walleti>Kriteriji</a>.</p>")
-    return "Walleti", intro + run + form + table(head, rows, "wt", "Nema walleta. Pokreni `run_wallets.py harvest` i `score`.")
+    return "Walleti", intro + run + form + tdesc('Svi walleti u registru s ocjenama; klik na zaglavlje sortira. Walleti s oznakom „Na listi” su kandidati za copytrading.') + table(head, rows, "wt", "Nema walleta. Pokreni `run_wallets.py harvest` i `score`.")
 
 
 def wallet(addr, qs):
@@ -185,7 +185,7 @@ def wallet(addr, qs):
                "median_buy_sol": "medijan kupnje (SOL)", "trades_per_day": "trejdova dnevno",
                "free_token_ratio": "udio tokena dobivenih besplatno", "last_trade_days": "dana od zadnjeg trejda",
                "history_days": "dana povijesti", "early_in_winners": "rano u pobjednicima", "credits": "Helius kredita"}
-        b.append(table(["Metrika", ("Vrijednost", "n")],
+        b.append(tdesc('Sirove brojke iz kojih su izračunate ocjene gore, iz zadnjeg ocjenjivanja walleta.') + table(["Metrika", ("Vrijednost", "n")],
                        [[esc(lab.get(k, k)), (esc(v), v if isinstance(v, (int, float)) else 0, "n")]
                         for k, v in s.items() if not isinstance(v, (list, dict))]))
 
@@ -202,7 +202,7 @@ def wallet(addr, qs):
     hist = data.wallet_pnl(addr)
     if hist:
         b.append("<h2>Povijest ocjena</h2>")
-        b.append(table(["Vrijeme", ("Realiz.", "n"), ("Nerealiz.", "n"), ("Win", "n"), ("Zatv.", "n"),
+        b.append(tdesc('Svako ocjenjivanje ovog walleta kroz vrijeme: vidi se popravlja li se ili kvari.') + table(["Vrijeme", ("Realiz.", "n"), ("Nerealiz.", "n"), ("Win", "n"), ("Zatv.", "n"),
                         ("Ocjena", "n"), ("Copy", "n")],
                        [[ts(h["ts"]), signed(h["realized_sol"]), signed(h["unrealized_sol"]),
                          num(h["win_rate"], "{:.0%}"), num(h["closed"]), num(h["score"]), num(h["copy_score"])]
@@ -228,42 +228,6 @@ def _positions(addr):
 
 # ---------------- tokens ----------------
 
-def tokens(qs):
-    toks = data.tokens()
-    rows = []
-    for t in sorted(toks, key=lambda t: (-(t["hype_max"] or 0), -max([e["score"] or 0 for e in t["events"]] or [0]))):
-        ev = t["events"]
-        best = max(ev, key=lambda e: e["score"] or 0) if ev else None
-        layers = []
-        if ev:
-            layers.append("event")
-        if t["hype_n"]:
-            layers.append("hype")
-        if t["rug"]:
-            layers.append("rug")
-        if t["paper"]:
-            layers.append("paper")
-        rows.append([tlink(t["token"], t["symbol"] or short(t["token"])),
-                     (esc(", ".join(layers)), "", ""),
-                     (f'{esc(best["event"])} ' + badge("pravi" if best["role"] == "canonical" else "kopija",
-                                                       "good" if best["role"] == "canonical" else "")
-                      if best else "–", best["event"] if best else "", "wrap"),
-                     scorecell(best["score"] if best else None),
-                     scorecell(t["hype_max"]), num(t["hype_n"]),
-                     verdict(t["rug"]["verdict"]) if t["rug"] else "–",
-                     scorecell(t["rug"]["score"] if t["rug"] else None),
-                     _decision(t["paper"]) if t["paper"] else "–",
-                     usd(t["mcap"]), usd(t["liquidity"]), num(t["seen"]), ago(t["hype_ts"])])
-    head = ["Token", "Slojevi", ("Event", "wrap"), ("Event ocjena", "n"), ("Hype max", "n"), ("Signala", "n"),
-            "Rug presuda", ("Rug ocjena", "n"), "Paper", ("Mcap", "n"), ("Likvidnost", "n"), ("Walleta viđeno", "n"),
-            "Zadnji hype"]
-    intro = ("<h1>Tokeni</h1><p class=mut>Svaki token iz tri sloja: <b>event</b> (DexScreener našao token za događaj "
-             "iz kalendara), <b>hype</b> (rani signal rasta) i <b>rug</b> (Helius rug filter). Klik na token za raspis "
-             "ocjene po sloju. <a href=/criteria#tokeni>Kriteriji</a>.</p>")
-    return "Tokeni", intro + f'<div class=flt>{filt("tt", "Filtriraj simbol, event, presudu…")}</div>' + table(
-        head, rows, "tt", "Nema tokena. Pokreni `run_dex.py scan`, `run_hype.py scan` ili `run_rug.py`.")
-
-
 def token(mint, qs):
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")
@@ -273,6 +237,9 @@ def token(mint, qs):
     b = [f"<h1>{esc(sym or short(mint))}</h1><p><code>{esc(mint)}</code> · {ext_token(mint, url)}</p>"]
     if not (ev or sigs or rugs):
         b.append("<p>Ovaj token nije ni u jednoj analizi.</p>")
+    else:
+        from ui import narrative
+        b.append(narrative.html(mint))
 
     # summary
     b.append("<div class=grid>")
@@ -317,13 +284,13 @@ def token(mint, qs):
         b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, izvori: "
                  f"<code>{esc(last['sources'])}</code>. Ocjena = Σ(značajka × težina) / Σ težina izmjerenih značajki × 100; "
                  f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
-        b.append(table(["Značajka", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
+        b.append(tdesc('Raspis zadnje hype ocjene: koliko je svaki signal izmjeren (0-1), koliko vrijedi i koliko je bodova donio.') + table(["Značajka", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
         snaps = data.hype_snapshots(mint)
         if len(snaps) > 1:
             b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs[-1]["price"]))
         b.append("<h3>Svi signali</h3>")
-        b.append(table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
+        b.append(tdesc('Svaki put kad ga je hype skener zabilježio, s cijenom i izvorima u tom trenutku.') + table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
                        [[ts(s["ts"]), scorecell(s["score"]), num(s["price"], "{:.8g}"), usd(s["mcap"]),
                          usd(s["liquidity"]), esc(s["sources"])] for s in sigs[:200]]))
 
@@ -359,17 +326,17 @@ def token(mint, qs):
                 ("Dev", f"{short(dv.get('wallet', ''))} · napravio {dv.get('tokens_created', '–')} tokena (živih {dv.get('tokens_alive', '–')}) · "
                         f"drži {dv.get('hold_pct', '–')}% · prodao {dv.get('sold_pct', '–')}%"),
                 ("Likvidnost / max ulaz (5% slippage)", f"${m.get('liquidity') or 0:,.0f} / ${m.get('max_entry_usd_5pct') or 0:,.0f}")]
-        b.append(table(["Provjera", ("Vrijednost", "wrap")], [[esc(k), (esc(x), "", "wrap")] for k, x in metr]))
+        b.append(tdesc('Rezultati pojedinih provjera rug filtera (Helius + RugCheck): ovlasti, dev, holderi, likvidnost.') + table(["Provjera", ("Vrijednost", "wrap")], [[esc(k), (esc(x), "", "wrap")] for k, x in metr]))
         top = h.get("top") or []
         if top:
-            b.append("<h3>Top holderi</h3>" + table(["Wallet", ("%", "n"), "Insajder"],
+            b.append("<h3>Top holderi</h3>" + tdesc('Najveći holderi i jesu li povezani s devom ili međusobno (insajderi).') + table(["Wallet", ("%", "n"), "Insajder"],
                                                      [[wlink(x["wallet"]), num(x.get("pct"), "{:g}"),
                                                        badge("da", "bad") if x.get("insider") else "ne"] for x in top]))
         md = os.path.join("rug", f"{mint}.md")
         if data.read_output(md) is not None:
             b.append(f'<p><a href="/outputs/{quote(md)}">Puni rug izvještaj</a></p>')
         if len(rugs) > 1:
-            b.append("<h3>Ranije provjere</h3>" + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
+            b.append("<h3>Ranije provjere</h3>" + tdesc('Prijašnje rug provjere istog tokena.') + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
                                                         [[ts(x["checked_at"]), verdict(x["verdict"]), num(x["score"])] for x in rugs[1:]]))
         b.append(jsonblock(d))
 
@@ -388,7 +355,7 @@ def token(mint, qs):
     sg = data.sightings(token=mint)
     b.append('<h2>Walleti viđeni na ovom tokenu</h2>')
     wmap = {w["wallet"]: w for w in data.wallets(scored_only=False)}
-    b.append(table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
+    b.append(tdesc('Walleti iz registra koji su kupovali ovaj token, s ulogom (rani kupac, top trader…) i ocjenom.') + table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
                    [[wlink(x["wallet"]), esc(ROLE.get(x["role"], (x["role"],))[0]), esc(SOURCE.get(x["source"], x["source"])),
                      num(x["sol_in"], "{:.2f}"), num((wmap.get(x["wallet"]) or {}).get("copy_score")),
                      tierb((wmap.get(x["wallet"]) or {}).get("tier")),
@@ -451,7 +418,7 @@ def events(qs):
             f'name=past value=1 {"checked" if past else ""} onchange="this.form.submit()"> i prošli</label></form>')
     intro = ("<h1>Eventi</h1><p class=mut>Događaji iz kalendara s hype ocjenom 0-100 i tokenima koje je DexScreener "
              "pronašao. <a href=/criteria#eventi>Kriteriji</a>.</p>")
-    return "Eventi", intro + form + _events_table(evs, "et")
+    return "Eventi", intro + form + tdesc('Kako alat traži tokene za evente: iz kalendara uzme ključne riječi događaja i na DexScreeneru traži tokene s tim imenom ili simbolom, a najbolje ocijenjeni postaje „pravi” token. Hype = koliko se o događaju priča, šansa za token = procjena da će netko napraviti token.') + _events_table(evs, "et")
 
 
 # ---------------- outputs ----------------
@@ -460,7 +427,7 @@ def outputs(qs):
     files = data.outputs()
     rows = [[f'<a href="/outputs/{quote(p)}">{esc(p)}</a>', ts(m), num(sz / 1024, "{:.1f} kB")] for p, m, sz in files]
     return "Izvještaji", ("<h1>Izvještaji</h1><p class=mut>Markdown izvještaji koje moduli pišu u <code>output/</code>.</p>"
-                          + table(["Datoteka", "Izmijenjeno", ("Veličina", "n")], rows, empty="Nema izvještaja."))
+                          + tdesc('Klik otvara izvještaj.') + table(["Datoteka", "Izmijenjeno", ("Veličina", "n")], rows, empty="Nema izvještaja."))
 
 
 def output(rel, qs):
