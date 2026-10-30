@@ -72,6 +72,8 @@ Petlja poboljšanja: `watch` bilježi svaki signal (`hype_signals`) i cijene (`h
 
 Alarmi u tvoj Telegram bot: postavi `TELEGRAM_BOT_TOKEN` i `TELEGRAM_CHAT_ID`. Helius (`HELIUS_API_KEY`) treba za `learn`, `buyers`, `wallet` i smart money provjeru; svaki poziv troši oko 100 kredita.
 
+Izbornik dashboarda ima pet grupa (Pregled, Tokeni, Walleti, Trading, Sustav); stranice grupe su u drugom redu, pa su sve stare rute i dalje tu. Pregled pokazuje samo demo rezultat, istaknute po klasi i tablicu tokena kroz analize; rast baze, klasteri walleta i stanje baza su sklopljeni ispod.
+
 ## Slojevita analiza (`tiers/`)
 
 Svaki token koji sken vidi dobiva red u `token_tier` (hype.db): **klasu** (`moonshot` mcap < $150k i mlađi od 3 dana, `stabilni` mcap > $2M i stariji od 7 dana, `event` pravi token iz kalendara, inače `rizican`; granice u `tiers/config.json`), **razinu** do koje je stigao (T0 besplatno sito, T1 rani kupci preko Heliusa, T2 pun rug filter ili X buzz, T3 duboko) i koliko je Helius kredita potrošio. Skupe provjere u `run_hype.py scan` i Apify izvori dobivaju samo tokene koji su prošli T0; `run_paper.py` upisuje T2 kad napravi rug check.

@@ -343,8 +343,9 @@ def page(qs):
 
     b.append(sieve_html())
 
-    # 2. growth
-    b.append("<h2>Kako se baza puni</h2>" + growth())
+    # 2. growth, folded: the overview answers "what now"; how the base grows is detail
+    b.append("<details style='margin-top:16px'><summary><b>Kako se baza puni</b> <span class=mut>(tokeni, walleti, provjere kroz 7 dana)</span></summary>"
+             + growth() + "</details>")
 
     # 3. tokens through several analyses
     allrows = sorted(token_rows(), key=_rank, reverse=True)
@@ -374,7 +375,8 @@ def page(qs):
         holds.setdefault(r["wallet"], set()).add(r["mint"])
     for c in cl:
         c["holds"] = {w: holds.get(w, set()) for w in c["wallets"]}
-    b.append("<h2 id=kl>Walleti koji kupuju iste tokene</h2>")
+    b.append("<details id=kl" + (" open" if "shared" in qs else "") + " style='margin-top:16px'><summary><b>Walleti koji kupuju iste tokene</b> "
+             f"<span class=mut>({len(cl)} klastera od {n_hold} walleta; klik otvara graf i tablicu)</span></summary>")
     b.append(f"<p class=mut>Od {n_hold} walleta s poznatim kupnjama (bez botova, devova, snajpera i bundlera), dva su "
              f"povezana ako dijele barem {min_shared} tokena (prag: <a href='?shared=2#kl'>2</a> · <a href='?shared=3#kl'>3</a> · "
              "<a href='?shared=4#kl'>4</a>); klaster = grupa tako povezanih walleta. Klaster može biti grupa koja "
@@ -405,8 +407,10 @@ def page(qs):
                        [[wlink(f), num(len(v["funded"])), (", ".join(tlink(t, syms.get(t)) for t in sorted(v["tokens"])), "", "wrap"),
                          (" ".join(wlink(w) for w in sorted(v["funded"])[:10]), "", "wrap")] for f, v in fc[:15]]))
 
+    b.append("</details>")
+
     # 5. data status, folded
-    b.append("<details style='margin-top:24px'><summary>Tehničko stanje baza</summary><p class=mut>Koliko redaka ima svaka "
+    b.append("<details style='margin-top:16px'><summary>Tehničko stanje baza</summary><p class=mut>Koliko redaka ima svaka "
              "tablica; 0 znači da taj modul još nije ništa zapisao.</p>"
              + table(["Baza", "Tablica", ("Redaka", "n")], [[esc(d), esc(t), num(n)] for d, t, n in data.tables()])
              + "</details>")

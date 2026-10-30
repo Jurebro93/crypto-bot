@@ -19,6 +19,8 @@ HELP = {
           "Likvidnost i holderi nisu pragovi nego značajke koje alat uči.",
     "Put": "Oblik puta do današnjeg mcapa iz snimaka cijene: brzina (log rast po satu), skokovitost (udio rasta u jednom "
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
+    "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
+                     "kontekst, a težinu mu uči petlja (početno 0).",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
     "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",

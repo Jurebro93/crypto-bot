@@ -144,6 +144,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         if t in found and ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
     cal = calendar_keywords()
+    regime = market_regime(now_ms / 1000)  # same for every token in the scan: context, learned like any feature
     rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
@@ -157,6 +158,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         f["takeover"] = 1.0 if {"takeover", "profile_update"} & found[t] and f["revival"] > 0 else 0.0
         f["calendar"] = 1.0 if {score._norm(sym), score._norm(name)} & cal else 0.0
         f["telegram"] = min(1.0, tg_count.get(t, 0) / 3)
+        if regime is not None:
+            f["market_regime"] = regime
         # narrative, smart_money, x_buzz and search_trend are only set for tokens the deep checks reach
         pf = ctx["pump"].get(t) or {}
         if pf:
@@ -226,6 +229,16 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     con.commit()
     save_tiers(rows, skipped, now_ms / 1000)
     return rows
+
+
+def market_regime(now):
+    """0-1 from market.db (how hot the launchpad/DEX market was yesterday), None when there is no data yet."""
+    try:
+        from market import regime
+        return regime.feature(now)
+    except Exception as e:
+        print(f"  market regime: {e}", file=sys.stderr)
+        return None
 
 
 def class_weights(rows, base):

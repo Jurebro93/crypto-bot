@@ -5,9 +5,29 @@ import json
 import time
 from urllib.parse import quote
 
-NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
-       ("/paper", "Demo trading"), ("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
-       ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]
+# five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
+NAV = [
+    ("Pregled", "/", [("/", "Pregled")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/events", "Eventi")]),
+    ("Walleti", "/wallets", [("/wallets", "Walleti")]),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]),
+    ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
+                          ("/outputs", "Izvještaji")]),
+]
+# pages that live under a group but are not in its row (detail pages)
+NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
+              "/prijedlozi/": "Trading", "/watch": "Tokeni", "/prijava": "Trading"}
+
+
+def nav_group(path):
+    for label, _, pages in NAV:
+        if any(path == h for h, _ in pages):
+            return label
+    for pre, label in NAV_PREFIX.items():
+        if path.startswith(pre):
+            return label
+    return "Pregled" if path == "/" else None
+
 
 CSS = """
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#3b5bdb;
@@ -17,7 +37,10 @@ CSS = """
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 header{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2}
 header b{margin-right:16px}header a{padding:12px 10px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
-header a.on{color:var(--fg);border-color:var(--acc)}main{max-width:1400px;margin:0 auto;padding:16px}
+header a.on{color:var(--fg);border-color:var(--acc)}
+nav.sub{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:4px;flex-wrap:wrap}
+nav.sub a{padding:8px 10px;font-size:13px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
+nav.sub a.on{color:var(--fg);border-color:var(--mut)}main{max-width:1400px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-size:14px;margin:16px 0 6px}
 .mut{color:var(--mut)}.tdesc{color:var(--mut);font-size:13px;margin:4px 0 8px;padding-left:8px;border-left:3px solid var(--line)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
@@ -72,11 +95,15 @@ def esc(x):
 
 
 def page(title, body, path="/"):
-    nav = "".join(f'<a href="{h}" class="{"on" if (h == path or (h != "/" and path.startswith(h.rstrip("s")))) else ""}">{t}</a>'
-                  for h, t in NAV)
+    group = nav_group(path)
+    nav = "".join(f'<a href="{h}" class="{"on" if g == group else ""}">{g}</a>' for g, h, _ in NAV)
+    sub = ""
+    pages = next((p for g, _, p in NAV if g == group), [])
+    if len(pages) > 1:
+        sub = "<nav class=sub>" + "".join(f'<a href="{h}" class="{"on" if h == path else ""}">{t}</a>' for h, t in pages) + "</nav>"
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}</style></head><body>"
-            f"<header><b>crypto-bot</b>{nav}</header><main>{body}</main><script>{JS}</script></body></html>")
+            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{body}</main><script>{JS}</script></body></html>")
 
 
 def tdesc(text):
