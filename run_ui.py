@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, pages, radar  # noqa: E402
+from ui import criteria, jobs, pages, radar  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -77,10 +77,33 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        """Webhook for the KOL tracker on X (hype/sources.kol_monitor): /hook/kol?key=$KOL_HOOK_KEY."""
+        """/run/<job>: start an on-demand run (button on the page), then back to the page.
+        /hook/kol?key=$KOL_HOOK_KEY: webhook for the KOL tracker on X (hype/sources.kol_monitor), its own key."""
         u = urlsplit(self.path)
+        if u.path == "/hook/kol":
+            self._kol_hook(u)
+            return
+        if PASSWORD and not self._authorized():
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="crypto-bot"')
+            self.end_headers()
+            return
+        path = unquote(urlsplit(self.path).path)
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+        if not path.startswith("/run/") or not same_site:
+            self.send_response(403)
+            self.end_headers()
+            return
+        name = path[len("/run/"):]
+        jobs.start(name)
+        self.send_response(303)
+        self.send_header("Location", f"/{name}#run")
+        self.end_headers()
+
+    def _kol_hook(self, u):
         key = os.environ.get("KOL_HOOK_KEY", "")
-        if u.path != "/hook/kol" or not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
+        if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
             self.send_response(404)
             self.end_headers()
             return

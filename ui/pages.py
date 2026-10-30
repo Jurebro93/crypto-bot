@@ -4,7 +4,7 @@ import os
 import time
 from urllib.parse import quote
 
-from ui import data, explain
+from ui import data, explain, jobs
 from ui.html import (ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, jsonblock, num, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
@@ -144,10 +144,21 @@ def wallets(qs):
     head = ["Wallet", "Tier", "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
             ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Drži min", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
             ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
+    since, last, tail = jobs.status("wallets")
+    if since:
+        state = f"pokrenuto {ago(since)[0]}, još radi"
+    elif last:
+        state = f"zadnji ručni prolaz završio {ago(last[1])[0]}" + ("" if last[2] == 0 else f", greška (kod {last[2]})")
+    else:
+        state = "od pokretanja dashboarda nije ručno pokretano (automatski ide svakih 6 h)"
+    run = (f'<form id=run method=post action=/run/wallets class=flt><button {"disabled" if since else ""}>'
+           f'Pokreni ocjenjivanje walleta</button> <span class=mut>{esc(state)}. Prikupi nove walletove, ocijeni red '
+           f'(do {jobs.CREDITS} Helius kredita) i osvježi copy listu; traje nekoliko minuta, osvježi stranicu.</span></form>'
+           + (f"<details><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
     intro = ("<h1>Walleti</h1><p class=mut>Copy lista = isti uvjeti kao <code>run_wallets.py copy</code>: copy ocjena "
              f"≥ {min_score:g}, barem {min_closed} zatvorenih pozicija, bez loših oznaka. Klik na zaglavlje sortira, "
              "klik na wallet otvara detalje i raspis ocjene. Kriteriji su na stranici <a href=/criteria#walleti>Kriteriji</a>.</p>")
-    return "Walleti", intro + form + table(head, rows, "wt", "Nema walleta. Pokreni `run_wallets.py harvest` i `score`.")
+    return "Walleti", intro + run + form + table(head, rows, "wt", "Nema walleta. Pokreni `run_wallets.py harvest` i `score`.")
 
 
 def wallet(addr, qs):
