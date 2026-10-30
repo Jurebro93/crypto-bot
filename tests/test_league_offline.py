@@ -67,6 +67,33 @@ class Login(unittest.TestCase):
         self.assertEqual(who("Ivan", "shared"), (True, None))
         self.assertEqual(who("Panda", "ivanpw"), (False, None))
         self.assertEqual(who("Jure", ""), (False, None))
+        self.assertIn("PANDA", league.login_help())          # tells which passwords are still missing
+
+        import threading
+        import urllib.error
+        import urllib.request
+        srv = run_ui.ThreadingHTTPServer(("127.0.0.1", 0), run_ui.Handler)
+        srv.verbose = False
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a):
+                return None
+
+        def get(path, name, pw):
+            auth = base64.b64encode(f"{name}:{pw}".encode()).decode()
+            req = urllib.request.Request(base + path, headers={"Authorization": "Basic " + auth})
+            try:
+                return urllib.request.build_opener(NoRedirect).open(req).status
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        self.assertEqual(get("/prijava", "x", "shared"), 401)          # shared password: ask for a player login
+        self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to the league
+        self.assertEqual(get("/prijava?kao=Ivan", "Ivan", "ivanpw"), 401)  # switching user asks again
+        self.assertEqual(get("/natjecanje", "x", "wrong"), 401)
+        srv.shutdown()
         for k in ("UI_PASSWORD", "UI_PASS_IVAN"):
             os.environ.pop(k)
         importlib.reload(run_ui)

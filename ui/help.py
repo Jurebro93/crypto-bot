@@ -9,6 +9,14 @@ HELP = {
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
     "Hype": "Hype ocjena 0-100 iz zadnjeg skeniranja: ponderirani zbroj signala (volumen, kupci, X, KOL, kopije teme…).",
+    "Razina": "Dokle je token stigao u slojevitoj analizi: T0 besplatno sito (samo mehanika ruga), T1 rani kupci preko "
+              "Heliusa, T2 pun rug filter i X buzz, T3 duboka analiza. Skupe provjere dobivaju samo tokeni koji su stigli do razine.",
+    "Klasa": "Moonshot (mcap < $150k, mlađi od 3 dana), Rizičan (između), Event (pravi token događaja iz kalendara), "
+             "Stabilni (mcap > $2M, stariji od 7 dana). Svaka klasa ima vlastiti cilj i pravila; granice su probne.",
+    "T0": "Besplatno sito: pada samo token s aktivnim mint ili freeze authorityjem ili nezaključanim LP-om izvan launchpada. "
+          "Likvidnost i holderi nisu pragovi nego značajke koje alat uči.",
+    "Put": "Oblik puta do današnjeg mcapa iz snimaka cijene: brzina (log rast po satu), skokovitost (udio rasta u jednom "
+           "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
     "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",
@@ -141,6 +149,25 @@ HELP = {
     "Značajka poziva": "Svojstvo posta ili trenutka poziva koje uspoređujemo s ishodom.",
     "Korelacija s max 24 h": "Spearman: +1 = što više značajke to veći skok, 0 = nema veze, -1 = obrnuto. Ispod ±0.15 je šum.",
     "Pitanje": "Što ta korelacija provjerava.",
+    # market (Tržište)
+    "Platforma": "Launchpad, terminal ili DEX kako ga zove DefiLlama; u zagradi što je to za trench trejdera.",
+    "Jučer": "Volumen zadnjeg punog UTC dana.",
+    "7 dana": "Zbroj volumena zadnjih 7 punih dana.",
+    "Promjena 7d": "Zadnjih 7 dana prema 7 dana prije toga.",
+    "Udio": "Koliki dio volumena grupe (ili cijelog Solana DEX-a) otpada na ovo.",
+    "30 dana": "Dnevni volumen zadnjih 30 dana.",
+    "Launchpadi": "Zbroj volumena svih launchpada tog dana (pump.fun, LaunchLab, Meteora DBC…).",
+    "Solana DEX": "Volumen svih Solana DEX-ova tog dana (bez terminala i launchpada).",
+    "Promjena DEX": "Promjena Solana DEX volumena prema danu prije.",
+    "Terminali": "Solana volumen trading terminala i botova (Axiom, GMGN, Photon…).",
+    "SOL": "Cijena SOL tog dana (DefiLlama/CoinGecko).",
+    "Promjena SOL": "Promjena cijene SOL prema danu prije.",
+    "Režim": "Vruće / neutralno / hladno i ocjena 0-100 za taj dan (objašnjenje na vrhu stranice Tržište).",
+    "Tradeova": "Broj zatvorenih demo tradeova.",
+    "Prosj. povrat": "Prosječan povrat po tradeu.",
+    "PnL $": "Ukupna demo zarada ili gubitak u dolarima.",
+    "Usporedba": "Što se s čim uspoređuje.",
+    "Vrijednost": "Korelacija od −1 do +1, ili postotak dana.",
     # misc
     "Signal": "Izmjereni signal hype ocjene.",
     "Izmjereno 0-1": "Jačina signala: 0 = nema, 1 = maksimalno.",

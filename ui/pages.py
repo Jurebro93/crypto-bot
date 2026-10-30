@@ -229,6 +229,21 @@ def _positions(addr):
 
 # ---------------- tokens ----------------
 
+def tier_html(mint):
+    """Where the token stands in the tiered analysis: class, tier reached, T0 verdict, shape of its mcap path."""
+    from ui.html import klasab, razinab
+    t = data.token_tiers().get(mint)
+    if not t:
+        return ""
+    t0 = {"prolaz": badge("T0 prošao", "good"), "pad": badge("T0 pao", "bad"), "nije": badge("izvan skena")}.get(t.get("t0"), "")
+    put = ""
+    if t.get("put_skokovitost") is not None:
+        put = (f" · put do mcapa: brzina {t['put_brzina']:+.2f}/h, skokovitost {t['put_skokovitost']:.0%}, "
+               f"zadržavanje {t['put_zadrzavanje']:.0%}")
+    return (f"<p>Slojevita analiza: {razinab(t.get('razina'))} {klasab(t.get('klasa'))} {t0} "
+            f"<span class=mut>{esc(t.get('t0_razlog') or '')}{esc(put)} · potrošeno ~{t.get('credits') or 0} Helius kredita</span></p>")
+
+
 def token(mint, qs):
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")
@@ -241,6 +256,7 @@ def token(mint, qs):
     else:
         from ui import narrative
         b.append(narrative.html(mint))
+        b.append(tier_html(mint))
 
     # summary
     b.append("<div class=grid>")

@@ -92,6 +92,26 @@ def hype_snapshots(token):
     return sorted(out, key=lambda r: r["ts"])
 
 
+def token_tiers():
+    """token -> token_tier row (class, tier reached, T0 verdict, path shape); {} when the table does not exist yet."""
+    try:
+        return {r["token"]: r for r in multi("hype", "SELECT * FROM token_tier", key=lambda r: r["token"])}
+    except Exception:
+        return {}
+
+
+def tier_summary(hours=24):
+    try:
+        from tiers import store as tstore
+        con = _connect(HYPE_DB)
+        if con is None:
+            return None
+        con.row_factory = __import__("sqlite3").Row
+        return tstore.summary(con, hours)
+    except Exception:
+        return None
+
+
 def smart_wallets():
     return multi("hype", "SELECT * FROM smart_wallets", key=lambda r: r["wallet"])
 

@@ -145,6 +145,14 @@ def rug_verdict(con, mint, cfg, now):
         import run_rug
         r = check(mint)
         run_rug.save(r)
+        try:  # the token reached T2: remember it and what it cost (~525 Helius credits per full check)
+            from tiers import store as tstore
+            tcon = tstore.connect()
+            tstore.reach(tcon, mint, 2, 525, f"rug filter {r['verdict']}", now)
+            tcon.commit()
+            tcon.close()
+        except Exception as e:
+            print(f"  token_tier {mint}: {e}", file=sys.stderr)
         return r["verdict"], r.get("score"), r["hard_fails"] + r["flags"]
     except Exception as e:
         print(f"  rug check {mint}: {type(e).__name__}: {e}", file=sys.stderr)

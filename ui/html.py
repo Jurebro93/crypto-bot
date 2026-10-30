@@ -6,7 +6,7 @@ import time
 from urllib.parse import quote
 
 NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/kol", "KOL-ovi"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
-       ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"), ("/usage", "Potrošnja"),
+       ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
        ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]
 
 CSS = """
@@ -137,7 +137,7 @@ def signed(x, fmt="{:+.2f}"):
 def usd(x):
     if x is None:
         return ("–", -1, "n")
-    s = f"${x / 1e6:,.2f}M" if x >= 1e6 else f"${x / 1e3:,.1f}k" if x >= 1e3 else f"${x:,.0f}"
+    s = f"${x / 1e9:,.2f}B" if x >= 1e9 else f"${x / 1e6:,.2f}M" if x >= 1e6 else f"${x / 1e3:,.1f}k" if x >= 1e3 else f"${x:,.0f}"
     return (s, x, "n")
 
 
@@ -161,6 +161,15 @@ VERDICT = {"PROLAZI": "good", "OPREZ": "warn", "VISOK RIZIK": "bad", "ODBAČEN":
 
 def verdict(v):
     return badge(v, VERDICT.get(v, "")) if v else "–"
+
+
+def klasab(k):
+    from tiers.classify import KLASA_HR
+    return badge(KLASA_HR.get(k, k), {"moonshot": "warn", "event": "good", "stabilni": ""}.get(k, "bad")) if k else ""
+
+
+def razinab(r):
+    return badge(f"T{r}", "good" if (r or 0) >= 2 else "") if r is not None else ""
 
 
 def tierb(t):
