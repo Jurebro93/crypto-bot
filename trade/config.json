@@ -1,0 +1,11 @@
+{
+ "mode": "dry",
+ "size_sol": 0.05,
+ "max_sol_per_trade": 0.1,
+ "max_sol_per_day": 0.5,
+ "max_open": 5,
+ "min_sol_reserve": 0.05,
+ "max_cost_pct": 6,
+ "max_signal_age_s": 180,
+ "poll_s": 5
+}

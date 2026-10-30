@@ -1,0 +1,2 @@
+# Javni Telegram kanali koje pratiš (bez @), jedan po retku. Bot čita https://t.me/s/<kanal>.
+# Upiši call kanale koje pratiš; kanal radi samo ako ima javni web preview.

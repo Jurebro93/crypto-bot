@@ -1,0 +1,205 @@
+[
+ {
+  "title": "Charlie Kirk birthday",
+  "date": "10-14",
+  "recurring": true,
+  "kind": "birthday",
+  "subject": "Charlie Kirk",
+  "keywords": [
+   "KIRK",
+   "CHARLIE",
+   "CHARLIEKIRK",
+   "TPUSA"
+  ]
+ },
+ {
+  "title": "Charlie Kirk death anniversary",
+  "date": "09-10",
+  "recurring": true,
+  "kind": "death_anniversary",
+  "subject": "Charlie Kirk",
+  "keywords": [
+   "KIRK",
+   "CHARLIE",
+   "CHARLIEKIRK"
+  ]
+ },
+ {
+  "title": "Elon Musk birthday",
+  "date": "06-28",
+  "recurring": true,
+  "kind": "birthday",
+  "subject": "Elon Musk",
+  "keywords": [
+   "ELON",
+   "MUSK",
+   "X"
+  ]
+ },
+ {
+  "title": "Donald Trump birthday",
+  "date": "06-14",
+  "recurring": true,
+  "kind": "birthday",
+  "subject": "Donald Trump",
+  "keywords": [
+   "TRUMP",
+   "MAGA",
+   "DJT"
+  ]
+ },
+ {
+  "title": "Bitcoin whitepaper anniversary",
+  "date": "10-31",
+  "recurring": true,
+  "kind": "crypto",
+  "subject": "Satoshi Nakamoto",
+  "keywords": [
+   "SATOSHI",
+   "WHITEPAPER",
+   "BTC"
+  ]
+ },
+ {
+  "title": "Halloween",
+  "date": "10-31",
+  "recurring": true,
+  "kind": "holiday",
+  "subject": "Halloween",
+  "keywords": [
+   "HALLOWEEN",
+   "SPOOKY",
+   "PUMPKIN"
+  ]
+ },
+ {
+  "title": "Thanksgiving (US)",
+  "date": "2026-11-26",
+  "kind": "holiday",
+  "subject": "Thanksgiving",
+  "keywords": [
+   "TURKEY",
+   "THANKS"
+  ]
+ },
+ {
+  "title": "Christmas",
+  "date": "12-25",
+  "recurring": true,
+  "kind": "holiday",
+  "subject": "Christmas",
+  "keywords": [
+   "XMAS",
+   "SANTA",
+   "CHRISTMAS"
+  ]
+ },
+ {
+  "title": "Tesla Roadster unveiling (date not confirmed)",
+  "date": null,
+  "kind": "launch",
+  "subject": "Tesla Roadster",
+  "keywords": [
+   "ROADSTER",
+   "TESLA",
+   "STARMAN"
+  ],
+  "note": "Date unclear: reports mention April 2026 and an October 1 2026 event. The news watcher fills it in when 2+ headlines agree.",
+  "query": "\"Tesla Roadster\" unveil OR reveal OR demo date"
+ },
+ {
+  "title": "GTA 6 release",
+  "date": "2026-11-19",
+  "kind": "game_release",
+  "subject": "GTA 6",
+  "keywords": [
+   "GTA6",
+   "GTA",
+   "GTAVI",
+   "VICECITY",
+   "LUCIA",
+   "JASON"
+  ],
+  "url": "https://www.nme.com/news/gaming-news/grand-theft-auto-6-november-release-date-4chan-delay-rumour-3946832",
+  "note": "Rockstar date 19 Nov 2026; re-check for delays."
+ },
+ {
+  "title": "GTA 6 trailer or delay news",
+  "date": null,
+  "kind": "game_release",
+  "subject": "GTA 6",
+  "query": "\"GTA 6\" trailer OR delay OR \"release date\"",
+  "keywords": [
+   "GTA6",
+   "GTAVI"
+  ]
+ },
+ {
+  "title": "SpaceX Starship flight",
+  "date": null,
+  "kind": "launch",
+  "subject": "Starship",
+  "query": "\"Starship\" flight launch date",
+  "keywords": [
+   "STARSHIP",
+   "SPACEX",
+   "MARS"
+  ]
+ },
+ {
+  "title": "Apple event",
+  "date": null,
+  "kind": "launch",
+  "subject": "Apple",
+  "query": "Apple event date announced",
+  "keywords": [
+   "APPLE",
+   "IPHONE"
+  ]
+ },
+ {
+  "title": "OpenAI launch",
+  "date": null,
+  "kind": "launch",
+  "subject": "OpenAI",
+  "query": "OpenAI launch OR release date GPT",
+  "keywords": [
+   "OPENAI",
+   "GPT"
+  ]
+ },
+ {
+  "title": "xAI Grok release",
+  "date": null,
+  "kind": "launch",
+  "subject": "Grok",
+  "query": "Grok release date xAI",
+  "keywords": [
+   "GROK",
+   "XAI"
+  ]
+ },
+ {
+  "title": "Tesla Optimus / robotaxi event",
+  "date": null,
+  "kind": "launch",
+  "subject": "Tesla Optimus",
+  "query": "Tesla Optimus OR robotaxi event date",
+  "keywords": [
+   "OPTIMUS",
+   "ROBOTAXI",
+   "TESLA"
+  ]
+ },
+ {
+  "title": "US midterm elections",
+  "date": "2026-11-03",
+  "kind": "election",
+  "subject": "Midterms",
+  "keywords": [
+   "MIDTERMS",
+   "MAGA",
+   "VOTE"
+  ]
+ }
+]

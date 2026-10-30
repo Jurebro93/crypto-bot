@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+"""Paper trading (demo, no real money) of the tokens the bot picks, and a daily review that learns from it.
+
+    python3 run_paper.py run --scan                # everything in one loop: hype scan, entries, prices, daily review
+    python3 run_paper.py run                       # same, but signals come from a separate `run_hype.py watch`
+    python3 run_paper.py status                    # open positions, demo balance
+    python3 run_paper.py review                    # daily report: mistakes, missed winners, suggested changes
+    python3 run_paper.py apply                     # accept the suggested config (old one is backed up)
+
+Picks come from hype.db (run_hype.py signals) and the newest output/dex-*.json (canonical event tokens).
+Every candidate is decided once: taken, or skipped with a reason. Skipped ones keep being tracked for
+track_h hours so the review can see what the filters cost and what they saved. Rules live in paper/config.json.
+"""
+import argparse
+import datetime as dt
+import glob
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import time
+
+from dexscreener import client
+from paper import review, sim, store
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
+HYPE_DB = os.path.join(HERE, "hype.db")
+CAL_DB = os.path.join(HERE, "calendar.db")
+OUT = os.path.join(HERE, "output", "paper")
+SUGGESTED = os.path.join(HERE, "paper", "config.suggested.json")
+
+
+def _usd(x):
+    x = x or 0
+    for unit, div in (("B", 1e9), ("M", 1e6), ("k", 1e3)):
+        if abs(x) >= div:
+            return f"${x / div:.1f}{unit}"
+    return f"${x:.2f}" if abs(x) < 100 else f"${x:.0f}"
+
+
+def _today(ts=None):
+    return dt.datetime.fromtimestamp(ts or time.time()).strftime("%Y-%m-%d")
+
+
+def notify(text):
+    try:
+        import run_hype
+        run_hype.alert(text)
+    except Exception as e:
+        print(f"  telegram: {e}", file=sys.stderr)
+
+
+def _ro(path):
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) if os.path.exists(path) else None
+
+
+def hype_signals(fresh_min=30, now=None):
+    """Newest signal per token from the last fresh_min minutes."""
+    con = _ro(HYPE_DB)
+    if con is None:
+        return []
+    try:
+        rows = con.execute("""SELECT s.token, s.symbol, s.ts, s.score, s.price, s.liquidity, s.mcap, s.features,
+                                     s.sources, s.url
+                              FROM hype_signals s JOIN (SELECT token, MAX(ts) ts FROM hype_signals WHERE ts >= ?
+                              GROUP BY token) l ON s.token = l.token AND s.ts = l.ts""",
+                           ((now or time.time()) - fresh_min * 60,)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+    return [{"token": t, "symbol": sym, "ts": ts, "score": sc, "features": json.loads(f or "{}"),
+             "sources": set((src or "").split(",")) - {""}, "url": url, "origin": "hype"}
+            for t, sym, ts, sc, _p, _l, _m, f, src, url in rows]
+
+
+def event_tokens(cfg, now=None):
+    """Canonical tokens of events from the newest DexScreener scan that are happening in the next event_days."""
+    files = sorted(glob.glob(os.path.join(HERE, "output", "dex-2*.json")))
+    if not files:
+        return []
+    with open(files[-1]) as f:
+        data = json.load(f)
+    today = dt.date.fromtimestamp(now or time.time())
+    out = []
+    for e in data.get("events", []):
+        try:
+            days = (dt.date.fromisoformat(e.get("date") or "") - today).days
+        except ValueError:
+            continue
+        if not 0 <= days <= cfg["event_days"]:
+            continue
+        for t in e.get("tokens", []):
+            if t.get("role") == "canonical" and t.get("chain") == "solana":
+                out.append({"token": t["token"], "symbol": t.get("symbol"), "ts": now or time.time(),
+                            "score": t.get("score"), "features": {}, "sources": {f"event:{e['event'][:40]}"},
+                            "url": t.get("url"), "origin": "event", "min_score": cfg["dex_min_score"]})
+    return out
+
+
+def market(tokens):
+    """token -> (price, liquidity, mcap, url) from its deepest pair; None if DexScreener failed."""
+    try:
+        pairs = client.tokens("solana", list(tokens))
+    except Exception as e:
+        print(f"  dexscreener: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    best = {}
+    for p in pairs:
+        t, liq = p["baseToken"]["address"], (p.get("liquidity") or {}).get("usd") or 0
+        if liq >= best.get(t, (0, -1))[1]:
+            best[t] = (float(p.get("priceUsd") or 0), liq, p.get("marketCap") or p.get("fdv") or 0, p.get("url"))
+    return best
+
+
+def rug_verdict(con, mint, cfg, now):
+    """(verdict, score, flags): a rug report from the last 6 h, else a fresh check while the Helius budget lasts."""
+    cal = _ro(CAL_DB)
+    if cal is not None:
+        try:
+            row = cal.execute("SELECT verdict, score, data FROM rug_reports WHERE mint=? AND checked_at>=? "
+                              "ORDER BY checked_at DESC LIMIT 1", (mint, now - 6 * 3600)).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        cal.close()
+        if row:
+            d = json.loads(row[2] or "{}")
+            return row[0], row[1], d.get("hard_fails", []) + d.get("flags", [])
+    if not (cfg["rug_check"] and os.environ.get("HELIUS_API_KEY")):
+        return None, None, []
+    if not store.rug_budget_take(con, _today(now), cfg["rug_budget_per_day"]):
+        return "BUDŽET", None, []
+    con.commit()
+    try:
+        from rugfilter.check import check
+        import run_rug
+        r = check(mint)
+        run_rug.save(r)
+        return r["verdict"], r.get("score"), r["hard_fails"] + r["flags"]
+    except Exception as e:
+        print(f"  rug check {mint}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None, None, []
+
+
+def intake(cfg, now=None, quiet=False):
+    """Decide every new candidate once; a skipped one is taken later if its hype score climbs over min_score."""
+    now = now or time.time()
+    con = store.connect(DB)
+    seen = {t: d for t, d in con.execute("SELECT token, decision FROM candidates")}
+    cands = {}
+    for c in event_tokens(cfg, now) + hype_signals(now=now):
+        if c["token"] not in seen or (seen[c["token"]] == "skip_score" and c["origin"] == "hype"
+                                      and (c["score"] or 0) >= cfg["min_score"]):
+            cands[c["token"]] = c
+    if not cands:
+        return []
+    mk = market(cands) or {}
+    n_open = len(store.open_trades(con))
+    day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
+    n_today = con.execute("SELECT COUNT(*) FROM trades WHERE opened_ts>=?", (day0,)).fetchone()[0]
+    opened = []
+    for t, c in sorted(cands.items(), key=lambda kv: -(kv[1]["score"] or 0)):
+        if t not in mk:
+            continue
+        price, liq, mcap, url = mk[t]
+        c.update(price=price, liquidity=liq, mcap=mcap, url=c.get("url") or url, ts=now)
+        s, need = c["score"] or 0, c.get("min_score", cfg["min_score"])
+        if s < cfg["shadow_min_score"] and c["origin"] == "hype":
+            c["decision"], c["reason"] = "ignored", f"score {s:.0f}"
+        elif price <= 0 or liq < cfg["min_liq"]:
+            c["decision"], c["reason"] = "skip_liq", f"likvidnost {_usd(liq)}"
+        elif mcap > cfg["max_mcap"]:
+            c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
+        elif s < need:
+            c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}"
+        elif n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]:
+            c["decision"], c["reason"] = "skip_full", f"{n_open} otvorenih, {n_today} danas"
+        else:
+            c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
+            if c["rug_verdict"] in cfg["block_verdicts"]:
+                c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
+            else:
+                pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg)
+                c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg)
+                c["decision"] = "taken"
+                c["reason"] = f"score {s:.0f}" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
+                n_open, n_today = n_open + 1, n_today + 1
+                opened.append(c)
+        if t in seen:  # upgrade of an earlier skip: keep the shadow's original entry, record the trade
+            if c["decision"] == "taken":
+                con.execute("UPDATE candidates SET decision='taken', reason=?, trade_id=?, rug_verdict=?, "
+                            "rug_score=? WHERE token=?", (c["reason"] + " (kasnije)", c["trade_id"],
+                                                         c.get("rug_verdict"), c.get("rug_score"), t))
+        else:
+            store.add_candidate(con, c)
+        if c["decision"] != "ignored":
+            store.tick(con, t, now, price, liq, mcap)
+    con.commit()
+    for c in opened:
+        msg = (f"📝 DEMO KUPNJA {c.get('symbol')}  {_usd(cfg['size_usd'])} @ {c['price']:.3g}  mcap {_usd(c['mcap'])}"
+               f"  liq {_usd(c['liquidity'])}  ({c['reason']})  {c.get('url') or ''}")
+        if not quiet:
+            print(msg)
+        notify(msg)
+    return opened
+
+
+def tick(cfg, now=None, quiet=False):
+    """Price every open trade and every candidate still inside track_h; apply exit rules."""
+    now = now or time.time()
+    con = store.connect(DB)
+    trades = store.open_trades(con)
+    tracked = {t for (t,) in con.execute("SELECT token FROM candidates WHERE decision!='ignored' AND first_ts>=?",
+                                         (now - cfg["track_h"] * 3600,))}
+    tokens = tracked | {t for _, t, _, _ in trades}
+    con.close()
+    if not tokens:
+        return []
+    mk = market(tokens)
+    if mk is None:
+        return []
+    con = store.connect(DB)
+    for t in tokens:
+        price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))  # vanished pair = liquidity 0 = rug
+        store.tick(con, t, now, price, liq, mcap)
+    closed = []
+    for tid, t, sym, pos in trades:
+        price, liq, _, _ = mk.get(t, (0, 0, 0, None))
+        cfg_t = {**cfg, **json.loads(con.execute("SELECT config FROM trades WHERE id=?", (tid,)).fetchone()[0])}
+        n_fills = len(pos["fills"])
+        sim.step(pos, price, liq, now, cfg_t)
+        res = sim.result(pos, price, liq, cfg_t)
+        store.save_trade(con, tid, pos, res)
+        for f in pos["fills"][n_fills:]:
+            msg = (f"📝 DEMO PRODAJA {sym} {f['frac']:.0%} @ {f['price']:.3g} ({f['reason']})"
+                   + (f"  zatvoreno {res['pnl_usd']:+.2f} USD ({res['ret']:+.0%})" if not pos["open"] else ""))
+            if not quiet:
+                print(msg)
+            notify(msg)
+        if not pos["open"]:
+            closed.append((sym, res))
+    con.commit()
+    return closed
+
+
+def equity(con, cfg, mk=None):
+    closed = con.execute("SELECT COALESCE(SUM(pnl_usd),0), COUNT(*) FROM trades WHERE status='closed'").fetchone()
+    opened = con.execute("SELECT COALESCE(SUM(pnl_usd),0), COUNT(*) FROM trades WHERE status='open'").fetchone()
+    return {"bankroll": cfg["bankroll_usd"], "realized": round(closed[0], 2), "unrealized": round(opened[0], 2),
+            "equity": round(cfg["bankroll_usd"] + closed[0] + opened[0], 2), "closed": closed[1], "open": opened[1]}
+
+
+def cmd_status(a):
+    cfg = sim.load_config(a.config)
+    con = store.connect(DB)
+    e = equity(con, cfg)
+    print(f"Demo račun: {_usd(e['equity'])} (start {_usd(e['bankroll'])}, ostvareno {e['realized']:+.2f}, "
+          f"otvoreno {e['unrealized']:+.2f}); zatvorenih {e['closed']}, otvorenih {e['open']}\n")
+    for tid, t, sym, pos in store.open_trades(con):
+        row = con.execute("SELECT pnl_usd, ret, max_ret FROM trades WHERE id=?", (tid,)).fetchone()
+        age = (time.time() - pos["opened_ts"]) / 3600
+        print(f"  #{tid:<4} {sym or '?':<12} {age:4.1f} h  PnL {row[0] or 0:+7.2f} USD ({row[1] or 0:+.0%})  "
+              f"max {row[2] or 0:+.0%}  ostalo {pos['left']:.0%}  {t}")
+    n = con.execute("SELECT decision, COUNT(*) FROM candidates GROUP BY decision").fetchall()
+    print(f"\nKandidati: {dict(n)}")
+
+
+def cmd_tick(a):
+    cfg = sim.load_config(a.config)
+    intake(cfg)
+    closed = tick(cfg)
+    print(f"tick gotov, zatvoreno {len(closed)}")
+
+
+def cmd_review(a):
+    cfg = sim.load_config(a.config)
+    rep = review.run(store.connect(DB), cfg, hours=a.hours, now=time.time())
+    e = equity(store.connect(DB), cfg)
+    rep["equity"] = e
+    paths = review.write(rep, OUT, SUGGESTED, cfg)
+    print(open(paths["md"]).read())
+    con = store.connect(DB)
+    con.execute("INSERT OR REPLACE INTO reviews VALUES (?,?,?)", (rep["day"], int(time.time()), json.dumps(rep)))
+    con.commit()
+    if not a.no_telegram:
+        notify(review.telegram_summary(rep))
+    return rep
+
+
+def cmd_apply(a):
+    if not os.path.exists(SUGGESTED):
+        print("Nema prijedloga (paper/config.suggested.json). Pokreni `review`.")
+        return
+    with open(SUGGESTED) as f:
+        sug = json.load(f)
+    cfg = sim.load_config()
+    changes = {k: v for k, v in sug.items() if cfg.get(k) != v}
+    if not changes:
+        print("Prijedlog je isti kao trenutna konfiguracija.")
+        return
+    backup = sim.CONFIG_PATH.replace(".json", f".{_today()}.bak.json")
+    shutil.copy(sim.CONFIG_PATH, backup)
+    cfg.update(changes)
+    with open(sim.CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=1, ensure_ascii=False)
+    print(f"Primijenjeno: {changes}\nStara konfiguracija: {backup}")
+
+
+def cmd_run(a):
+    last_scan = last_review = 0
+    hype_args = ["scan", "--top", "0"] + (a.hype_args.split() if a.hype_args else [])
+    while True:
+        cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart
+        now = time.time()
+        try:
+            if a.scan and now - last_scan >= a.scan_every:
+                import run_hype
+                run_hype.main(hype_args)
+                last_scan = now
+            intake(cfg)
+            closed = tick(cfg)
+            con = store.connect(DB)
+            e = equity(con, cfg)
+            print(f"{dt.datetime.now():%H:%M:%S}  demo {_usd(e['equity'])}  otvorenih {e['open']}  "
+                  f"zatvoreno sad {len(closed)}")
+            hh, mm = map(int, a.review_at.split(":"))
+            due = dt.datetime.now().replace(hour=hh, minute=mm, second=0).timestamp()
+            done = con.execute("SELECT 1 FROM reviews WHERE day=?", (_today(),)).fetchone()
+            con.close()
+            if now >= due and not done and now - last_review > 3600:
+                last_review = now
+                cmd_review(argparse.Namespace(config=a.config, hours=24, no_telegram=False))
+        except Exception as e:
+            print(f"greška u prolazu: {type(e).__name__}: {e}", file=sys.stderr)
+        time.sleep(a.interval)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", help="strategy JSON, default paper/config.json")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("--interval", type=int, default=60, help="seconds between price checks")
+    r.add_argument("--scan", action="store_true", help="also run the hype scan here (then don't run hype watch)")
+    r.add_argument("--scan-every", type=int, default=120)
+    r.add_argument("--hype-args", help='extra args for run_hype.py scan, e.g. "--min-liq 8000"')
+    r.add_argument("--review-at", default="08:00", help="local time of the daily review")
+    sub.add_parser("tick")
+    sub.add_parser("status")
+    v = sub.add_parser("review")
+    v.add_argument("--hours", type=float, default=24)
+    v.add_argument("--no-telegram", action="store_true")
+    sub.add_parser("apply")
+    a = p.parse_args(argv)
+    {"run": cmd_run, "tick": cmd_tick, "status": cmd_status, "review": cmd_review, "apply": cmd_apply}[a.cmd](a)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
