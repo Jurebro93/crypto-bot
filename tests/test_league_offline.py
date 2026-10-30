@@ -41,6 +41,11 @@ class League(unittest.TestCase):
         loc = league.post("/natjecanje/buy", {"token": MINT, "size": "50", "symbol": "SOL"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": "../x", "size": "50"}, "Jure"))
+        from ui import real
+        real.live = lambda mints: {m: (2e6, "SOL", None) for m in mints}
+        link = f"https://dexscreener.com/solana/{MINT}"
+        self.assertIn("err=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Jure"))  # already open
+        self.assertIn("ok=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Ivan"))
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
         league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):

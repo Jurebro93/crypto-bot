@@ -161,6 +161,9 @@ def page(qs, user):
              ("PnL $ (ako prodaš sad)", "n"), ("Likvidnost", "n"), ""], rows, empty="Nemaš otvorenih pozicija."))
 
         size = f'<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
+        b.append('<h2>Kupi bilo koji token</h2><form method=post action="/natjecanje/buy" class="card flt">'
+                 '<input name=token placeholder="adresa tokena ili DexScreener link" size=50 required>'
+                 f'{size}<button>Kupi</button><span class=mut>ne mora biti s liste prijedloga</span></form>')
         srows = []
         for r in cands:
             price, liq, _ = live.get(r["token"], (None, None, None))
@@ -182,8 +185,6 @@ def page(qs, user):
         b.append(table(["Token", ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n"), ("Hype", "n"), "Rug",
                         "Bot", ("Mcap viđen", "n"), ("Pomak", "n"), ("Likvidnost", "n"), "Zadnje", "Ulog $"], srows,
                        empty="Nijedan token ne odgovara filteru."))
-        b.append('<form method=post action="/natjecanje/buy" class=flt>Ili zalijepi adresu tokena: '
-                 f'<input name=token placeholder="mint adresa" size=46 required>{size}<button>Kupi</button></form>')
 
         closed = store.trades(con, user, "closed")
         b.append("<h3>Tvoji zatvoreni trejdovi</h3>" + table(
@@ -229,8 +230,9 @@ def post(path, form, user):
     try:
         if path == "/natjecanje/buy":
             token = form.get("token", "").strip()
-            if not MINT.fullmatch(token):
-                raise ValueError("to nije Solana adresa tokena")
+            if not MINT.fullmatch(token):   # pasted DexScreener link (token or pair) or text around the address
+                from ui import real
+                token = real.resolve(token)[0]
             live = _live({token}) if token else {}
             if token not in live:
                 raise ValueError("DexScreener ne zna cijenu tog tokena")
