@@ -23,7 +23,7 @@ import sys
 import time
 
 from dexscreener import client
-from paper import review, sim, store
+from paper import dca, review, sim, store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -192,7 +192,7 @@ def intake(cfg, now=None, quiet=False):
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
             else:
                 pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg)
-                c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg)
+                c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg, mcap)
                 c["decision"] = "taken"
                 c["reason"] = f"score {s:.0f}" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                 n_open, n_today = n_open + 1, n_today + 1
@@ -236,15 +236,24 @@ def tick(cfg, now=None, quiet=False):
         store.tick(con, t, now, price, liq, mcap)
     closed = []
     for tid, t, sym, pos in trades:
-        price, liq, _, _ = mk.get(t, (0, 0, 0, None))
+        price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))
         cfg_t = {**cfg, **json.loads(con.execute("SELECT config FROM trades WHERE id=?", (tid,)).fetchone()[0])}
         n_fills = len(pos["fills"])
         sim.step(pos, price, liq, now, cfg_t)
-        res = sim.result(pos, price, liq, cfg_t)
-        store.save_trade(con, tid, pos, res)
         for f in pos["fills"][n_fills:]:
-            msg = (f"📝 DEMO PRODAJA {sym} {f['frac']:.0%} @ {f['price']:.3g} ({f['reason']})"
+            f["mcap"] = mcap
+        res = sim.result(pos, price, liq, cfg_t)
+        store.save_trade(con, tid, pos, res, mcap)
+        for f in pos["fills"][n_fills:]:
+            msg = (f"📝 DEMO PRODAJA {sym} {f['frac']:.0%} @ {f['price']:.3g} mcap {_usd(mcap)} ({f['reason']})"
                    + (f"  zatvoreno {res['pnl_usd']:+.2f} USD ({res['ret']:+.0%})" if not pos["open"] else ""))
+            if not quiet:
+                print(msg)
+            notify(msg)
+        why = dca.check(pos, price, liq, now, cfg)  # current rules, not the trade's: it is only a suggestion
+        if why and dca.log(con, tid, t, sym, pos, price, liq, mcap, now, why, cfg):
+            msg = (f"💡 DCA PRIJEDLOG (demo, ne izvršava se) {sym} @ {price:.3g} mcap {_usd(mcap)}: {why}; "
+                   f"dokup {_usd(pos['size_usd'] * dca.rules(cfg)['size_frac'])}")
             if not quiet:
                 print(msg)
             notify(msg)
@@ -268,10 +277,10 @@ def cmd_status(a):
     print(f"Demo račun: {_usd(e['equity'])} (start {_usd(e['bankroll'])}, ostvareno {e['realized']:+.2f}, "
           f"otvoreno {e['unrealized']:+.2f}); zatvorenih {e['closed']}, otvorenih {e['open']}\n")
     for tid, t, sym, pos in store.open_trades(con):
-        row = con.execute("SELECT pnl_usd, ret, max_ret FROM trades WHERE id=?", (tid,)).fetchone()
+        row = con.execute("SELECT pnl_usd, ret, max_ret, entry_mcap FROM trades WHERE id=?", (tid,)).fetchone()
         age = (time.time() - pos["opened_ts"]) / 3600
         print(f"  #{tid:<4} {sym or '?':<12} {age:4.1f} h  PnL {row[0] or 0:+7.2f} USD ({row[1] or 0:+.0%})  "
-              f"max {row[2] or 0:+.0%}  ostalo {pos['left']:.0%}  {t}")
+              f"max {row[2] or 0:+.0%}  ostalo {pos['left']:.0%}  ulaz mcap {_usd(row[3])}  {t}")
     n = con.execute("SELECT decision, COUNT(*) FROM candidates GROUP BY decision").fetchall()
     print(f"\nKandidati: {dict(n)}")
 

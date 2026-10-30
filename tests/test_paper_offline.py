@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from paper import review, sim, store  # noqa: E402
+from paper import dca, review, sim, store  # noqa: E402
 
 CFG = sim.load_config()
 T0 = 1_800_000_000
@@ -49,6 +49,48 @@ class PaperSim(unittest.TestCase):
     def test_time_exit(self):
         r = sim.replay(1.0, 50_000, T0, _path([0.02] * 30, dt=3600), CFG)
         self.assertEqual(r["exit_reason"], "time")
+
+
+class PaperDca(unittest.TestCase):
+    def test_signal_needs_dip_bounce_and_liquidity(self):
+        pos = sim.open_position(1.0, 50_000, T0, 50, CFG)
+        late = T0 + 3600
+        sim.step(pos, 0.72, 45_000, late, CFG)  # -28%, at the low: no bounce yet
+        self.assertIsNone(dca.check(pos, 0.72, 45_000, late, CFG))
+        self.assertIsNotNone(dca.check(pos, 0.79, 45_000, late, CFG))  # bounced ~10% off the low
+        self.assertIsNone(dca.check(pos, 0.79, 20_000, late, CFG))  # liquidity leaving
+        self.assertIsNone(dca.check(pos, 0.79, 45_000, T0 + 60, CFG))  # too early
+        self.assertIsNone(dca.check(pos, 0.95, 45_000, late, CFG))  # not a dip
+
+    def test_outcome_held_to_trade_exit(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "p.db"))
+        pos = sim.open_position(1.0, 50_000, T0, 50, CFG)
+        tid = store.open_trade(con, "T", "T", pos, CFG, mcap=100_000)
+        self.assertTrue(dca.log(con, tid, "T", "T", pos, 0.75, 45_000, 75_000, T0 + 3600, "test", CFG))
+        self.assertFalse(dca.log(con, tid, "T", "T", pos, 0.7, 45_000, 70_000, T0 + 4000, "again", CFG))
+        for ts, p in [(T0 + 4000, 1.0), (T0 + 8000, 1.5)]:
+            store.tick(con, "T", ts, p, 50_000, p * 1e5)
+        pos["open"], pos["closed_ts"] = False, T0 + 8000
+        store.save_trade(con, tid, pos, sim.result(pos), mcap=150_000)
+        row = con.execute("SELECT entry_mcap, exit_mcap FROM trades WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row, (100_000, 150_000))
+        out = dca.outcomes(con)
+        self.assertEqual(len(out), 1)
+        self.assertAlmostEqual(out[0]["ret_to_exit"], 1.5 * 0.99 / (0.75 * 1.01) - 1, places=3)
+
+    def test_old_db_gets_mcap_columns_from_ticks(self):
+        import sqlite3
+        path = os.path.join(tempfile.mkdtemp(), "old.db")
+        con = sqlite3.connect(path)
+        con.executescript(store.SCHEMA)
+        con.execute("INSERT INTO trades (token, symbol, opened_ts, closed_ts, status) VALUES ('T','T',?,?,'closed')",
+                    (T0, T0 + 600))
+        con.execute("INSERT INTO ticks VALUES ('T', ?, 1, 1, 111)", (T0,))
+        con.execute("INSERT INTO ticks VALUES ('T', ?, 2, 1, 222)", (T0 + 600,))
+        con.commit()
+        con.close()
+        con = store.connect(path)
+        self.assertEqual(con.execute("SELECT entry_mcap, exit_mcap FROM trades").fetchone(), (111, 222))
 
 
 class PaperReview(unittest.TestCase):

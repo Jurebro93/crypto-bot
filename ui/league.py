@@ -11,7 +11,7 @@ from urllib.parse import quote
 from league import store
 from ui import data
 from ui.html import ago, badge, esc, num, scorecell, signed, table, tlink, ts, usd, verdict
-from ui.paper import _live
+from ui.paper import _live, _mc, market
 
 SUGGEST_H = 48
 MINT = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
@@ -89,6 +89,7 @@ def page(qs, user):
     con = store.connect()
     try:
         mine = store.trades(con, user, "open") if user else []
+        bot_dca = {d["token"]: d["reason"] for d in data.paper_dca() if not d["done"]}
         cands = _suggestions()
         everyone_open = store.trades(con, status="open")
         live = _live({t["token"] for t in everyone_open} | {c["token"] for c in cands})
@@ -109,8 +110,11 @@ def page(qs, user):
             unreal += pnl or 0
             sell_btn = _form("/natjecanje/sell", {"id": t["id"]}, "Prodaj") if price else \
                 _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)")
-            rows.append([tlink(t["token"], t["symbol"]), ago(t["opened_ts"]), usd(t["size_usd"]),
-                         num(t["entry_px"], "{:.4g}"), num(price, "{:.4g}"),
+            mc_now = t["entry_mcap"] * price / t["entry_px"] if price and t["entry_mcap"] and t["entry_px"] else None
+            dca_hint = (" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
+                        f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else ""
+            rows.append([tlink(t["token"], t["symbol"]) + dca_hint, ago(t["opened_ts"]), usd(t["size_usd"]),
+                         num(t["entry_px"], "{:.4g}"), num(price, "{:.4g}"), usd(t["entry_mcap"]), usd(mc_now),
                          signed(price / t["entry_px"] - 1 if price else None, "{:+.0%}"), signed(pnl),
                          usd(liq), sell_btn])
         b.append(f'<h2>Tvoj račun: {esc(user)}</h2><div class=grid>'
@@ -121,7 +125,8 @@ def page(qs, user):
                  f'<div class=stat><div class="v {"pos" if unreal > 0 else "neg" if unreal < 0 else ""}">{unreal:+,.2f} $</div>'
                  f'<div class=l>otvoreno (live)</div></div></div>')
         b.append("<h3>Otvorene pozicije</h3>" + table(
-            ["Token", "Kupljeno", ("Ulog", "n"), ("Ulazna cijena", "n"), ("Sada", "n"), ("Pomak", "n"),
+            ["Token", "Kupljeno", ("Ulog", "n"), ("Ulazna cijena", "n"), ("Sada", "n"), ("MC ulaz", "n"),
+             ("MC sada", "n"), ("Pomak", "n"),
              ("PnL $ (ako prodaš sad)", "n"), ("Likvidnost", "n"), ""], rows, empty="Nemaš otvorenih pozicija."))
 
         size = f'<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
@@ -145,8 +150,10 @@ def page(qs, user):
 
         closed = store.trades(con, user, "closed")
         b.append("<h3>Tvoji zatvoreni trejdovi</h3>" + table(
-            ["Token", "Kupljeno", "Prodano", ("Ulog", "n"), ("PnL $", "n"), ("Povrat", "n"), "Napomena"],
-            [[tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), ts(t["closed_ts"]), usd(t["size_usd"]),
+            ["Token", "Kupljeno", "Prodano", ("MC ulaz", "n"), ("MC izlaz", "n"), ("Ulog", "n"), ("PnL $", "n"),
+             ("Povrat", "n"), "Napomena"],
+            [[tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), ts(t["closed_ts"]), usd(t["entry_mcap"]),
+              usd(t["exit_mcap"]), usd(t["size_usd"]),
               signed(t["pnl_usd"]), signed(t["ret"], "{:+.0%}"), esc(t["note"] or "")] for t in closed],
             empty="Još ništa nisi prodao."))
         b.append("<p class=mut>Ideja kako poboljšati alat? Upiši je u <a href=/prijedlozi>Prijedloge</a>.</p>")
@@ -189,15 +196,15 @@ def post(path, form, user):
             token = form.get("token", "").strip()
             if not MINT.fullmatch(token):
                 raise ValueError("to nije Solana adresa tokena")
-            live = _live({token}) if token else {}
+            live = market({token}) if token else {}
             if token not in live:
                 raise ValueError("DexScreener ne zna cijenu tog tokena")
-            price, liq, _ = live[token]
+            price, liq, _, mcap = live[token]
             symbol = form.get("symbol") or _symbol(token)
             size = float(form.get("size") or 0)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),
-                      float(form["score"]) if form.get("score") else None)
-            return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f}')}"
+                      float(form["score"]) if form.get("score") else None, mcap)
+            return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}')}"
         if path == "/natjecanje/sell":
             tid = int(form.get("id") or 0)
             t = next((t for t in store.trades(con, user, "open") if t["id"] == tid), None)
@@ -206,11 +213,11 @@ def post(path, form, user):
             if form.get("rug"):
                 pnl = store.sell(con, user, tid, 0, 0, "otpisano: nema cijene")
             else:
-                live = _live({t["token"]})
+                live = market({t["token"]})
                 if t["token"] not in live:
                     raise ValueError("DexScreener trenutno ne daje cijenu, probaj ponovo")
-                price, liq, _ = live[t["token"]]
-                pnl = store.sell(con, user, tid, price, liq)
+                price, liq, _, mcap = live[t["token"]]
+                pnl = store.sell(con, user, tid, price, liq, mcap=mcap)
             msg = f"Prodano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
             return f"{back}?ok={quote(msg)}"
         if path == "/prijedlozi/add":

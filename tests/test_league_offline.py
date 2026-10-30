@@ -18,10 +18,11 @@ class League(unittest.TestCase):
         self.db = os.path.join(tempfile.mkdtemp(), "league.db")
         store.DB = self.db
         league._live = lambda mints: {m: (2.0, 1e6, None) for m in mints}
+        league.market = lambda mints: {m: (2.0, 1e6, None, 2e6) for m in mints}
 
     def test_buy_sell_and_leaderboard(self):
         con = store.connect()
-        tid = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6)
+        tid = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6, mcap=1e6)
         self.assertAlmostEqual(store.account(con, "Ivan")["cash"], 900)
         with self.assertRaises(ValueError):
             store.buy(con, "Ivan", MINT, "SOL", 50, 1.0, 1e6)     # already open
@@ -33,6 +34,8 @@ class League(unittest.TestCase):
         pnl = store.sell(con, "Ivan", tid, 2.0, 1e6)
         self.assertTrue(90 < pnl < 100)                            # doubled, minus fees and impact
         self.assertEqual(store.account(con, "Ivan")["in_use"], 0)
+        t = store.trades(con, "Ivan", "closed")[0]
+        self.assertEqual((t["entry_mcap"], t["exit_mcap"]), (1e6, 2e6))  # exit mcap follows price when not given
         with self.assertRaises(ValueError):
             store.sell(con, "Panda", tid, 2.0, 1e6)
 
@@ -49,6 +52,9 @@ class League(unittest.TestCase):
         con = store.connect()
         tid = store.trades(con, "Jure", "open")[0]["id"]
         self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid)}, "Jure"))
+        t = store.trades(con, "Jure", "closed")[0]
+        self.assertEqual((t["entry_mcap"], t["exit_mcap"]), (2e6, 2e6))
+        self.assertIn("MC izlaz", league.page({}, "Jure")[1])
 
 
 class Login(unittest.TestCase):

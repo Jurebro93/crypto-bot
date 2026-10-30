@@ -11,11 +11,20 @@ import time
 
 from hype import evaluate
 
-from . import sim
+from . import dca, sim
 
 MIN_N = 10
 LEARN_DAYS = 14
 BIG = 1.0  # max return that counts as a winner (2x)
+
+
+def _mc(x):
+    if not x:
+        return "?"
+    for unit, div in (("B", 1e9), ("M", 1e6), ("k", 1e3)):
+        if x >= div:
+            return f"${x / div:.1f}{unit}"
+    return f"${x:.0f}"
 
 
 def _pct(x):
@@ -83,7 +92,7 @@ def mistakes(trades, cands_by_trade):
     for t in trades:
         c = cands_by_trade.get(t["id"], {})
         top = ", ".join(k for k, v in sorted(c.get("features", {}).items(), key=lambda kv: -kv[1])[:3] if v >= 0.5)
-        tag = f"{t['symbol']} (#{t['id']})"
+        tag = f"{t['symbol']} (#{t['id']}, MC {_mc(t.get('entry_mcap'))} -> {_mc(t.get('exit_mcap'))})"
         rug = c.get("verdict") or "nije provjeren"
         if t["exit_reason"] == "rug":
             out.append({"kind": "rug", "text": f"{tag}: rug, {_pct(t['ret'])}. Rug filter: {rug}. Jaki signali: {top or '-'}."})
@@ -173,12 +182,29 @@ def suggest(learn, cfg):
     return sugg, new
 
 
+def dca_verdict(rows):
+    """Judge the DCA rule only on closed trades, same two-halves guard as the other suggestions."""
+    done = sorted([r for r in rows if r["done"]], key=lambda r: r["ts"])
+    if len(done) < MIN_N:
+        return None
+    halves = [done[:len(done) // 2], done[len(done) // 2:]]
+    avg = [sum(r["ret_to_exit"] for r in h) / len(h) for h in halves]
+    s = dca.summary(done)
+    if min(avg) > 0.05:
+        return (f"DCA signal se isplatio: {s['closed']} signala, dokup bi u prosjeku dao {_pct(s['avg'])} do izlaza "
+                f"({s['pnl']:+.0f} USD), pozitivno u obje polovice podataka. Vrijedi ga slijediti (ručno ili automatski).")
+    if max(avg) < 0:
+        return (f"DCA signal gubi: {s['closed']} signala, dokup bi u prosjeku dao {_pct(s['avg'])} ({s['pnl']:+.0f} USD), "
+                f"rug {s['rug']:.0%}. Ne kupuj u padu po ovim pravilima; pooštri ih (veći odskok, `dca.bounce`) ili isključi.")
+    return None
+
+
 def run(con, cfg, hours=24, now=None):
     now = now or time.time()
     since = now - hours * 3600
     day = time.strftime("%Y-%m-%d", time.localtime(now))
     cols = ["id", "token", "symbol", "opened_ts", "closed_ts", "status", "exit_reason", "size_usd", "ret",
-            "pnl_usd", "max_ret", "min_ret"]
+            "pnl_usd", "max_ret", "min_ret", "entry_mcap", "exit_mcap"]
     trades = [dict(zip(cols, r)) for r in con.execute(
         f"SELECT {','.join(cols)} FROM trades WHERE status='closed' AND closed_ts>=?", (since,))]
     for t in trades:
@@ -200,6 +226,11 @@ def run(con, cfg, hours=24, now=None):
     lift = evaluate.feature_lift(hit_rows) if hit_rows else []
     fit = evaluate.fit_weights(hit_rows)
     sugg, new_cfg = suggest(learn, cfg)
+    dca_rows = [r for r in dca.outcomes(con, cfg["fee"], now) if r["ts"] >= now - LEARN_DAYS * 86400]
+    dca_sum = dca.summary(dca_rows)
+    dca_note = dca_verdict(dca_rows)
+    if dca_note:
+        sugg.append({"change": {}, "text": dca_note})
     if fit:
         sugg.append({"change": {}, "weights": fit["weights"],
                      "text": f"Nove težine hype ocjene naučene na {fit['n']} tokena (pogodak = 2x) su u "
@@ -224,6 +255,7 @@ def run(con, cfg, hours=24, now=None):
         "rug_false_alarms": sorted(rug_fp.items(), key=lambda kv: -kv[1])[:8],
         "lift": sorted([x for x in lift if x["lift"] is not None], key=lambda x: -x["lift"]),
         "learn_n": len(learn), "learn_done": sum(r["done"] for r in learn),
+        "dca": {"summary": dca_sum, "signals": dca_rows[-20:]},
         "suggestions": sugg, "suggested_config": new_cfg, "weights": fit["weights"] if fit else None,
     }
 
@@ -237,8 +269,9 @@ def to_md(rep, cfg):
     if s["closed"]:
         L.append(f"Zadnja {rep['hours']:.0f} h: zatvoreno {s['closed']} trejdova, PnL **{s['pnl_usd']:+.2f} USD**, "
                  f"pogodak {s['win_rate']:.0%}, prosjek {_pct(s['avg_ret'])}. Izlazi: {s['by_exit']}.")
-        L.append(f"Najbolji {s['best']['symbol']} {s['best']['pnl_usd']:+.2f} USD, najgori {s['worst']['symbol']} "
-                 f"{s['worst']['pnl_usd']:+.2f} USD.")
+        L.append(f"Najbolji {s['best']['symbol']} {s['best']['pnl_usd']:+.2f} USD (MC {_mc(s['best'].get('entry_mcap'))} -> "
+                 f"{_mc(s['best'].get('exit_mcap'))}), najgori {s['worst']['symbol']} {s['worst']['pnl_usd']:+.2f} USD "
+                 f"(MC {_mc(s['worst'].get('entry_mcap'))} -> {_mc(s['worst'].get('exit_mcap'))}).")
     else:
         L.append(f"Zadnja {rep['hours']:.0f} h: nema zatvorenih trejdova.")
     L.append(f"Otvoreno sada: {s['open']} ({s['open_pnl']:+.2f} USD). Podaci za učenje: {rep['learn_n']} tokena, "
@@ -250,6 +283,15 @@ def to_md(rep, cfg):
     else:
         L.append(f"Nijedna promjena nije dovoljno sigurna (treba barem {MIN_N} tokena i bolji rezultat u obje "
                  "polovice podataka). Ostavljam postavke kako jesu.")
+    d = rep.get("dca") or {}
+    ds = d.get("summary") or {}
+    if ds.get("n"):
+        L += ["", "## DCA prijedlozi (kupnja u padu, samo zapis, ne izvršava se)", ""]
+        if ds.get("closed"):
+            L.append(f"{ds['n']} signala, {ds['closed']} s zatvorenim trejdom: dokup bi dao prosječno {_pct(ds['avg'])}, "
+                     f"pogodak {ds['win']:.0%}, ukupno {ds['pnl']:+.2f} USD, rug {ds['rug']:.0%}.")
+        L += [f"- {x['symbol']}: {x['reason']}; MC {_mc(x['mcap'])}, do izlaza {_pct(x['ret_to_exit'])}"
+              + ("" if x["done"] else " (još otvoreno)") for x in d.get("signals", [])[-8:]]
     L += ["", "## Greške", ""]
     L += [f"- {m['text']}" for m in rep["mistakes"]] or ["- Nema zabilježenih grešaka."]
     L += ["", "## Propušteni pobjednici", ""]
