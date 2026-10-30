@@ -19,7 +19,7 @@ header{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px
 header b{margin-right:16px}header a{padding:12px 10px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
 header a.on{color:var(--fg);border-color:var(--acc)}main{max-width:1400px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-size:14px;margin:16px 0 6px}
-.mut{color:var(--mut)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
+.mut{color:var(--mut)}.tdesc{color:var(--mut);font-size:13px;margin:4px 0 8px;padding-left:8px;border-left:3px solid var(--line)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
 .stat .v{font-size:22px;font-weight:600}.stat .l{color:var(--mut);font-size:12px}
@@ -27,6 +27,7 @@ h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-s
 .tw{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:8px}
 table{border-collapse:collapse;width:100%}th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
 td.wrap,th.wrap{white-space:normal;min-width:220px}th{font-size:12px;color:var(--mut);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card)}
+table.s th::after{content:' ⇅';opacity:.35;font-size:11px}table.s th:hover{color:var(--fg)}table.s th[data-asc='1']::after{content:' ▲';opacity:1;color:var(--acc)}table.s th[data-asc='0']::after{content:' ▼';opacity:1;color:var(--acc)}
 tr:hover td{background:color-mix(in srgb,var(--acc) 5%,transparent)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 a{color:var(--acc)}code{font:12px ui-monospace,Menlo,monospace}
 .b{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line)}
@@ -39,12 +40,26 @@ ul.r{margin:4px 0;padding-left:18px}ul.r li{margin:2px 0}li.good::marker{color:v
 .flt{margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 input,select{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
 pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow-x:auto}
-details summary{cursor:pointer;color:var(--acc)}.empty{color:var(--mut);padding:14px}
+details summary{cursor:pointer;color:var(--acc)}
+.cand{text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%}.cand:hover{border-color:var(--acc)}
+dialog#ev{max-width:980px;width:calc(100% - 32px);max-height:88vh;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);padding:0}
+dialog#ev::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2{position:sticky;top:0;display:flex;justify-content:flex-end;padding:8px;background:var(--bg)}
+dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
+.tip{color:var(--acc);cursor:help;font-weight:400;font-size:12px}
+#tipbox{position:fixed;z-index:50;max-width:300px;background:var(--fg);color:var(--bg);padding:7px 10px;border-radius:6px;font:12px/1.4 system-ui,sans-serif;white-space:normal;pointer-events:none;display:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}.empty{color:var(--mut);padding:14px}
 """
 
 JS = """
-document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach((th,i)=>th.onclick=()=>{
- const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc!=='1';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
+(()=>{const box=document.createElement('div');box.id='tipbox';document.body.appendChild(box);
+ const show=el=>{box.textContent=el.dataset.tip;box.style.display='block';const r=el.getBoundingClientRect();
+  box.style.left=Math.max(8,Math.min(innerWidth-box.offsetWidth-8,r.left-20))+'px';
+  box.style.top=(r.bottom+6+box.offsetHeight>innerHeight?r.top-box.offsetHeight-6:r.bottom+6)+'px'},hide=()=>box.style.display='none';
+ document.addEventListener('mouseover',e=>{const t=e.target.closest('.tip');t?show(t):hide()});
+ document.addEventListener('focusin',e=>{const t=e.target.closest('.tip');if(t)show(t)});
+ document.addEventListener('click',e=>{const t=e.target.closest('.tip');if(t){e.stopPropagation();show(t)}},true);
+ addEventListener('scroll',hide,true)})();
+document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach((th,i)=>th.onclick=e=>{if(e.target.closest('.tip'))return;
+ const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
  const v=r=>{const c=r.cells[i];const s=c?(c.dataset.v??c.innerText):'';const n=parseFloat(s.replace(/[$,%+ ]/g,''));return isNaN(n)?s.toLowerCase():n};
  rows.sort((a,c)=>{const x=v(a),y=v(c);return (x>y?1:x<y?-1:0)*(asc?1:-1)});rows.forEach(r=>b.appendChild(r))})});
 document.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=()=>{const q=inp.value.toLowerCase();
@@ -64,14 +79,29 @@ def page(title, body, path="/"):
             f"<header><b>crypto-bot</b>{nav}</header><main>{body}</main><script>{JS}</script></body></html>")
 
 
-def table(headers, rows, tid=None, empty="Nema podataka."):
-    """headers: [(label, cls)] or labels; rows: [[cell]] where a cell is html or (html, sort_value, cls)."""
+def tdesc(text):
+    """Short "what this table covers" line shown above a table."""
+    return f'<p class=tdesc>{text}</p>'
+
+
+def tip(text):
+    """Small ⓘ that shows `text` on hover or tap."""
+    return f'<span class=tip tabindex=0 data-tip="{esc(text)}">ⓘ</span>'
+
+
+def th(label, cls=""):
+    """Column header with its explanation from ui/help.py, if there is one."""
+    from ui.help import HELP
+    h = HELP.get(label)
+    return f'<th class="{cls}">{label}{" " + tip(h) if h else ""}</th>'
+
+
+def table(headers, rows, tid=None, empty="Nema podataka.", mints=None):
+    """headers: [(label, cls)] or labels; rows: [[cell]] where a cell is html or (html, sort_value, cls).
+    mints: one token address per row; the row then opens the evidence pop-up (needs modal() on the page)."""
     if not rows:
         return f'<div class="tw"><div class="empty">{empty}</div></div>'
-    hs = []
-    for h in headers:
-        label, cls = h if isinstance(h, tuple) else (h, "")
-        hs.append(f'<th class="{cls}">{label}</th>')
+    hs = [th(*(h if isinstance(h, tuple) else (h, ""))) for h in headers]
     body = []
     for r in rows:
         tds = []
@@ -81,7 +111,8 @@ def table(headers, rows, tid=None, empty="Nema podataka."):
                 tds.append(f'<td class="{cls}" data-v="{esc(v)}">{h}</td>')
             else:
                 tds.append(f"<td>{c}</td>")
-        body.append("<tr>" + "".join(tds) + "</tr>")
+        m = mints[len(body)] if mints else None
+        body.append((f'<tr class=clk data-mint="{esc(m)}">' if m else "<tr>") + "".join(tds) + "</tr>")
     idattr = f' id="{tid}"' if tid else ""
     return f'<div class="tw"><table class="s"{idattr}><thead><tr>{"".join(hs)}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
 
@@ -190,6 +221,22 @@ def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=Non
     if stored is not None:
         foot += f' <span class="mut">(spremljeno u bazi: {esc(stored)})</span>'
     return table(["Dio", ("Bodovi", "n"), ("Max", "n"), "", ("Objašnjenje", "wrap")], rows) + f'<p>{foot}</p>'
+
+
+MODAL_JS = """
+const dlg=document.getElementById('ev');
+document.querySelectorAll('[data-mint]').forEach(b=>b.addEventListener('click',async e=>{if(e.target.closest('a,.tip'))return;
+ dlg.querySelector('.body').innerHTML='<p class=mut>Učitavam analizu…</p>';dlg.showModal();
+ try{const r=await fetch('/api/evidence/'+encodeURIComponent(b.dataset.mint));dlg.querySelector('.body').innerHTML=await r.text()}
+ catch(err){dlg.querySelector('.body').innerHTML='<p>Greška pri učitavanju.</p>'}}));
+dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
+"""
+
+
+def modal():
+    """The evidence pop-up: any element with data-mint opens /api/evidence/<mint> in it."""
+    return ("<dialog id=ev><div class=bar2><button onclick=\"this.closest('dialog').close()\">Zatvori ✕</button></div>"
+            f"<div class=body></div></dialog><script>{MODAL_JS}</script>")
 
 
 def jsonblock(o):
