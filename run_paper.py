@@ -10,6 +10,7 @@
 Picks come from hype.db (run_hype.py signals) and the newest output/dex-*.json (canonical event tokens).
 Every candidate is decided once: taken, or skipped with a reason. Skipped ones keep being tracked for
 track_h hours so the review can see what the filters cost and what they saved. Rules live in paper/config.json.
+Buys, sells and review summaries are logged to output/paper/journal.log; Telegram is off unless PAPER_TELEGRAM=1.
 """
 import argparse
 import datetime as dt
@@ -44,7 +45,13 @@ def _today(ts=None):
     return dt.datetime.fromtimestamp(ts or time.time()).strftime("%Y-%m-%d")
 
 
-def notify(text):
+def notify(text, telegram=False):
+    """Every buy, sell and review summary goes to output/paper/journal.log; Telegram only when asked for."""
+    os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, "journal.log"), "a") as f:
+        f.write(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}  {text}\n")
+    if not (telegram or os.environ.get("PAPER_TELEGRAM") == "1"):
+        return
     try:
         import run_hype
         run_hype.alert(text)
@@ -284,8 +291,7 @@ def cmd_review(a):
     con = store.connect(DB)
     con.execute("INSERT OR REPLACE INTO reviews VALUES (?,?,?)", (rep["day"], int(time.time()), json.dumps(rep)))
     con.commit()
-    if not a.no_telegram:
-        notify(review.telegram_summary(rep))
+    notify(review.telegram_summary(rep), telegram=a.telegram)
     return rep
 
 
@@ -331,7 +337,7 @@ def cmd_run(a):
             con.close()
             if now >= due and not done and now - last_review > 3600:
                 last_review = now
-                cmd_review(argparse.Namespace(config=a.config, hours=24, no_telegram=False))
+                cmd_review(argparse.Namespace(config=a.config, hours=24, telegram=False))
         except Exception as e:
             print(f"greška u prolazu: {type(e).__name__}: {e}", file=sys.stderr)
         time.sleep(a.interval)
@@ -351,7 +357,7 @@ def main(argv=None):
     sub.add_parser("status")
     v = sub.add_parser("review")
     v.add_argument("--hours", type=float, default=24)
-    v.add_argument("--no-telegram", action="store_true")
+    v.add_argument("--telegram", action="store_true", help="also send the summary to Telegram")
     sub.add_parser("apply")
     a = p.parse_args(argv)
     {"run": cmd_run, "tick": cmd_tick, "status": cmd_status, "review": cmd_review, "apply": cmd_apply}[a.cmd](a)

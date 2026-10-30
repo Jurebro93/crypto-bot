@@ -26,15 +26,16 @@ def _pace(url):
             _last_call[suffix] = time.monotonic()
 
 
-def _fetch(req, timeout):
+def _fetch(req, timeout, retries=None):
     """GET with retries on 429/5xx, honouring Retry-After (capped at 60 s)."""
-    for attempt in range(RETRIES + 1):
+    retries = RETRIES if retries is None else retries
+    for attempt in range(retries + 1):
         _pace(req.full_url)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.load(resp)
         except urllib.error.HTTPError as e:
-            if attempt == RETRIES or not (e.code == 429 or e.code >= 500):
+            if attempt == retries or not (e.code == 429 or e.code >= 500):
                 raise
             try:
                 delay = float(e.headers.get("Retry-After") or 0)
@@ -61,7 +62,7 @@ def cache_put(key, data):
         json.dump(data, f)
 
 
-def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None):
+def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=None):
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -70,7 +71,7 @@ def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None):
         with open(path) as f:
             return json.load(f)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})})
-    data = _fetch(req, timeout)
+    data = _fetch(req, timeout, retries)
     with open(path, "w") as f:
         json.dump(data, f)
     return data

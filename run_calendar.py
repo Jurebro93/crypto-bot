@@ -110,7 +110,7 @@ def main(argv=None):
     p.add_argument("--days", type=int, default=14)
     p.add_argument("--top", type=int, default=40)
     p.add_argument("--min-sitelinks", type=int, default=60, help="fame filter for Wikipedia people")
-    p.add_argument("--pageviews-top", type=int, default=25)
+    p.add_argument("--pageviews-top", type=int, default=10)
     p.add_argument("--min-tokens", type=float, default=0.2, help="drop events below this token likelihood")
     p.add_argument("--start", help="YYYY-MM-DD, default today (useful for backtests)")
     a = p.parse_args(argv)

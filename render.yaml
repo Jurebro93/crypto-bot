@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: crypto-bot
     runtime: python
     region: frankfurt
@@ -20,6 +20,8 @@ services:
       - key: SOLANA_PUBLIC_KEY
         sync: false
       - key: SOLANA_PRIVATE_KEY
+        sync: false
+      - key: UI_PASSWORD
         sync: false
       - key: TRADE_LIVE
         value: "0"

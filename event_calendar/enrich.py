@@ -61,7 +61,7 @@ def hype_score(event, days_until):
 # How often each kind of event has historically spawned dedicated pump.fun tokens (prior, 0-1).
 KIND_PRIOR = {
     "game_release": 0.8, "launch": 0.6, "media_release": 0.5, "viral_now": 0.25, "disaster": 0.55,
-    "death_anniversary": 0.45, "birthday": 0.35, "crypto": 0.5, "holiday": 0.3,
+    "death_anniversary": 0.45, "birthday": 0.2, "crypto": 0.5, "holiday": 0.3,
     "launch_deadline": 0.4, "prediction_market": 0.15, "manual": 0.4, "election": 0.3,
     "rocket_launch": 0.05,
 }
@@ -88,6 +88,11 @@ def token_likelihood(event):
     if event["kind"] == "viral_now":
         return _viral_likelihood(event, s)
     p = KIND_PRIOR.get(event["kind"], 0.3)
+    if event["kind"] in ("birthday", "death_anniversary"):
+        years = re.search(r"\((\d+) yrs\)", event["title"])
+        if years and int(years.group(1)) % 10 and int(years.group(1)) not in (1, 5, 25):
+            p *= 0.5  # only round anniversaries get attention
+        text = f"{event['subject']} {s.get('description', '')}"  # "death anniversary" itself is no trigger
     p += 0.3 * min(25, affinity(event)) / 25
     if MEME_TRIGGERS.search(text):
         p += 0.15
@@ -120,4 +125,4 @@ def event_score(event, days_until):
     s = event.get("signals", {})
     viral = min(25, 25 * math.log10(1 + s.get("views_1d", 0)) / 7) if event["kind"] == "viral_now" else 0
     news = min(10, 3 * s.get("news_articles", 0))
-    return tl, round(min(100, (hype_score(event, days_until) + viral + news) * (0.3 + 0.7 * tl)), 1)
+    return tl, round(min(100, (hype_score(event, days_until) + viral + news) * (0.1 + 0.9 * tl)), 1)

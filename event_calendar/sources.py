@@ -33,8 +33,11 @@ def _sitelink_counts(qids, deadline=None):
         if deadline and time.monotonic() > deadline:
             break
         batch = qids[i:i + 50]
-        data = http.get_json(WIKIDATA_API, {"action": "wbgetentities", "ids": "|".join(batch),
-                                            "props": "sitelinks", "format": "json"}, ttl=7 * 86400)
+        try:
+            data = http.get_json(WIKIDATA_API, {"action": "wbgetentities", "ids": "|".join(batch),
+                                                "props": "sitelinks", "format": "json"}, ttl=7 * 86400, retries=1)
+        except Exception:
+            break  # rate-limited: keep what we have, the cache fills up over the next runs
         for qid, ent in data.get("entities", {}).items():
             counts[qid] = len(ent.get("sitelinks", {}))
     return counts
@@ -46,7 +49,7 @@ def pageviews_30d(title, today):
     end = (today - dt.timedelta(days=1)).strftime("%Y%m%d")
     url = PAGEVIEWS.format(title=title.replace(" ", "_"), start=start, end=end)
     try:
-        items = http.get_json(url).get("items", [])
+        items = http.get_json(url, ttl=86400).get("items", [])
     except Exception:
         return {"views_30d": 0, "trend": 1.0}
     views = [it["views"] for it in items]
@@ -57,8 +60,13 @@ def pageviews_30d(title, today):
     return {"views_30d": sum(views), "trend": round(trend, 2)}
 
 
+def _died(page):
+    """Wikipedia short descriptions carry life years, e.g. 'American actor (1936–2026)'."""
+    return bool(re.search(r"\(\d{3,4}\s*[–-]\s*\d{3,4}\)", page.get("description", "")))
+
+
 def wikipedia_anniversaries(start, days_ahead, min_sitelinks=60, kinds=("births", "deaths"),
-                            max_days=14, recent_deaths_years=10, budget_s=90):
+                            max_days=14, recent_deaths_years=10, max_age=95, budget_s=90):
     """Birthdays and death anniversaries of well-known people in the window.
 
     Wikidata rate-limits hard, so: only the next `max_days` days (big names far ahead belong in
@@ -77,8 +85,11 @@ def wikipedia_anniversaries(start, days_ahead, min_sitelinks=60, kinds=("births"
                 page = (item.get("pages") or [{}])[0]
                 if not page.get("wikibase_item"):
                     continue
-                if kind == "deaths" and int(item.get("year") or 0) < start.year - recent_deaths_years:
+                year = int(item.get("year") or 0)
+                if kind == "deaths" and year < start.year - recent_deaths_years:
                     continue
+                if kind == "births" and (year < start.year - max_age or _died(page)):
+                    continue  # historical figures (kings, popes, 19th-century presidents) never get tokens
                 people.append((day, kind, item, page))
     fame = _sitelink_counts(sorted({p["wikibase_item"] for _, _, _, p in people}),
                             deadline=t0 + budget_s)
