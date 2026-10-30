@@ -188,7 +188,7 @@ Ocjena je ponderirani prosjek samo izmjerenih značajki: provjera koja nije rađ
 
 KOL tracker je isključen dok mu ne daš budžet (`daily_usd.kol_monitor`) i popis računa. Svaki praćeni račun košta oko $3.24 mjesečno. Pokretanje: `KOL_HOOK_KEY=... python3 run_hype.py kol --handles a,b --base-url https://<dashboard>`; zaustavljanje s `--stop`.
 
-Stranica **Radar** u dashboardu (`run_ui.py`, `/radar`) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
+Stranica **Zadnji sken** u dashboardu (`run_ui.py`, `/radar`, grupa Tokeni) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
 
 ## Tržište: volumen po platformama (`run_market.py`)
 
