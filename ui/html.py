@@ -26,6 +26,7 @@ h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-s
 .tw{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:8px}
 table{border-collapse:collapse;width:100%}th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
 td.wrap,th.wrap{white-space:normal;min-width:220px}th{font-size:12px;color:var(--mut);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card)}
+table.s th::after{content:' ⇅';opacity:.35;font-size:11px}table.s th:hover{color:var(--fg)}table.s th[data-asc='1']::after{content:' ▲';opacity:1;color:var(--acc)}table.s th[data-asc='0']::after{content:' ▼';opacity:1;color:var(--acc)}
 tr:hover td{background:color-mix(in srgb,var(--acc) 5%,transparent)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 a{color:var(--acc)}code{font:12px ui-monospace,Menlo,monospace}
 .b{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line)}
@@ -57,7 +58,7 @@ JS = """
  document.addEventListener('click',e=>{const t=e.target.closest('.tip');if(t){e.stopPropagation();show(t)}},true);
  addEventListener('scroll',hide,true)})();
 document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach((th,i)=>th.onclick=e=>{if(e.target.closest('.tip'))return;
- const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc!=='1';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
+ const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
  const v=r=>{const c=r.cells[i];const s=c?(c.dataset.v??c.innerText):'';const n=parseFloat(s.replace(/[$,%+ ]/g,''));return isNaN(n)?s.toLowerCase():n};
  rows.sort((a,c)=>{const x=v(a),y=v(c);return (x>y?1:x<y?-1:0)*(asc?1:-1)});rows.forEach(r=>b.appendChild(r))})});
 document.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=()=>{const q=inp.value.toLowerCase();

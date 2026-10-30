@@ -303,7 +303,7 @@ def page(qs):
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
     b.append(f"<h2>Tokeni koji su prošli više analiza</h2><p class=mut>✓ prošao, ✗ pao, – nije analiziran. "
-             f"Poredano po confidenceu. Klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
+             f"Poredano po confidenceu. Klik na naslov stupca sortira po tom stupcu (⇅, ponovni klik obrne redoslijed), <b>ⓘ</b> uz naslov objašnjava stupac, klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
              f"<a href=/tokens>Tokenima</a>.</p>")
     rows = []
     for r in allrows[:40]:
