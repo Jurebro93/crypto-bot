@@ -38,6 +38,10 @@ FEATURE = {
     "revival": "stari token (>3 d) kojem je zadnji sat volumena višestruko iznad prosjeka",
     "takeover": "revival + CTO ili novi profil",
     "x_buzz": "spominjanja na X-u (autori, influenceri, engagement)",
+    "kol_wallets": "pump.fun: broj poznatih KOL walleta koji su trejdali token (5 = 1)",
+    "x_trend": "ime ili simbol tokena je trenutno trending tema na X-u",
+    "kol_x": "praćeni KOL-ovi tweetali CA ili $ticker u 6 h (2 = 1)",
+    "search_trend": "Google pretraga imena u zadnja 24 h vs prethodnih 6 dana (3x = 1)",
 }
 
 
@@ -354,15 +358,16 @@ def token(mint, qs):
         last = sigs[0]
         f = data.js(last["features"], {}) or {}
         wts = data.js(last["weights"], {}) or {}
-        tot = sum(wts.values()) or 1
+        tot = sum(wts.get(k, 0) for k in f) or 1  # same as hype/score.py: only measured features count
         rows = []
-        for k in sorted(set(f) | set(wts), key=lambda k: -(wts.get(k, 0) * f.get(k, 0))):
+        for k in sorted(set(f), key=lambda k: -(wts.get(k, 0) * f.get(k, 0))):
             val, wt = f.get(k, 0) or 0, wts.get(k, 0)
             pts = 100 * wt * val / tot
             rows.append([esc(k), (f"{val:.2f}", val, "n"), (f"{wt:g}", wt, "n"), (f"{pts:.1f}", pts, "n"),
                          bar(pts, 100 * wt / tot if wt else 1), (f'<span class=mut>{esc(FEATURE.get(k, ""))}</span>', "", "wrap")])
         b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, izvori: "
-                 f"<code>{esc(last['sources'])}</code>. Ocjena = Σ(značajka × težina) / Σ težina × 100.</p>")
+                 f"<code>{esc(last['sources'])}</code>. Ocjena = Σ(značajka × težina) / Σ težina izmjerenih značajki × 100; "
+                 f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
         b.append(table(["Značajka", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
         snaps = data.hype_snapshots(mint)

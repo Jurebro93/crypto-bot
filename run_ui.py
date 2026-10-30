@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, pages  # noqa: E402
+from ui import criteria, pages, radar  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -27,6 +27,8 @@ PASSWORD = os.environ.get("UI_PASSWORD", "")
 def route(path, qs):
     if path == "/":
         return pages.overview(qs)
+    if path == "/radar":
+        return radar.page(qs)
     if path == "/wallets":
         return pages.wallets(qs)
     if path.startswith("/wallet/"):
@@ -73,6 +75,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        """Webhook for the KOL tracker on X (hype/sources.kol_monitor): /hook/kol?key=$KOL_HOOK_KEY."""
+        u = urlsplit(self.path)
+        key = os.environ.get("KOL_HOOK_KEY", "")
+        if u.path != "/hook/kol" or not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
+            self.send_response(404)
+            self.end_headers()
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            import json
+            from hype import sources
+            sources.ingest_kol_event(json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}"),
+                                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
+            self.send_response(204)
+        except Exception:
+            self.send_response(400)
+        self.end_headers()
 
     def _authorized(self):
         h = self.headers.get("Authorization", "")

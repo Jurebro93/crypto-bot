@@ -154,15 +154,15 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         f["takeover"] = 1.0 if {"takeover", "profile_update"} & found[t] and f["revival"] > 0 else 0.0
         f["calendar"] = 1.0 if {score._norm(sym), score._norm(name)} & cal else 0.0
         f["telegram"] = min(1.0, tg_count.get(t, 0) / 3)
-        f["narrative"] = 0.0
-        f["smart_money"] = 0.0
-        f["x_buzz"] = 0.0
+        # narrative, smart_money, x_buzz and search_trend are only set for tokens the deep checks reach
         pf = ctx["pump"].get(t) or {}
-        f["kol_wallets"] = min(1.0, (pf.get("kolCount") or 0) / 5)  # pump.fun: known KOL wallets traded it
+        if pf:
+            f["kol_wallets"] = min(1.0, (pf.get("kolCount") or 0) / 5)  # pump.fun: known KOL wallets traded it
         trend = sources.trend_match(sym, name, ctx["trend_keys"])
-        f["x_trend"] = 1.0 if trend else 0.0
-        f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
-        f["search_trend"] = 0.0
+        if ctx["trend_keys"]:
+            f["x_trend"] = 1.0 if trend else 0.0
+        if kol_ca or kol_tk:
+            f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
             "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl")} if pf else None,
@@ -179,6 +179,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             r["features"]["narrative"] = min(1.0, r["copycats"] / 8)
         except Exception as e:
             print(f"  search {r['symbol']}: {e}", file=sys.stderr)
+        r["features"].setdefault("narrative", 0.0)
         if smart and os.environ.get("HELIUS_API_KEY"):
             try:
                 buyers = early_buyers_cheap(r["token"])
@@ -358,6 +359,17 @@ def auto_winners(min_mcap=1e6, max_days=7):
     return sorted(best, key=lambda t: -best[t])
 
 
+def cmd_kol(a):
+    """Start or stop the X KOL monitor (Apify xquik). Each account costs ~$3.24/month while it runs; the tweets
+    arrive at run_ui.py's /hook/kol and feed the kol_x signal. Needs a daily budget for kol_monitor in apify.json."""
+    handles = [h.strip().lstrip("@") for h in (a.handles or ",".join(apify.config().get("kol_handles", []))).split(",") if h.strip()]
+    key = os.environ.get("KOL_HOOK_KEY")
+    if not (handles or a.stop) or not key or not a.base_url:
+        sys.exit("Treba: --handles (ili kol_handles u hype/apify.json), --base-url javnog dashboarda i KOL_HOOK_KEY.")
+    hook = f"{a.base_url.rstrip('/')}/hook/kol?key={urllib.parse.quote(key)}"
+    print(sources.kol_monitor(handles, hook, stop=a.stop))
+
+
 def cmd_learn(a):
     """Wallets that were early in several winners are candidates; their own PnL decides who stays."""
     hits = {}
@@ -403,7 +415,7 @@ def main(argv=None):
         s.add_argument("--weights", help="weights JSON, default hype/weights.json")
         s.add_argument("--no-metas", action="store_true")
         s.add_argument("--x-top", type=int, default=5, help="X buzz via Apify for this many (needs APIFY_TOKEN)")
-        s.add_argument("--x-min-score", type=float, default=40)
+        s.add_argument("--x-min-score", type=float, default=30)
         s.add_argument("--no-apify", action="store_true", help="skip every paid Apify source")
         if name == "watch":
             s.add_argument("--interval", type=int, default=120)
@@ -424,6 +436,10 @@ def main(argv=None):
     b.add_argument("mint")
     b.add_argument("--n", type=int, default=40)
     b.add_argument("--smart-min", type=float, default=50)
+    k = sub.add_parser("kol")
+    k.add_argument("--handles", help="X accounts, comma-separated (default kol_handles in hype/apify.json)")
+    k.add_argument("--base-url", default=os.environ.get("PUBLIC_URL"), help="e.g. https://crypto-bot-ylvn.onrender.com")
+    k.add_argument("--stop", action="store_true")
     l = sub.add_parser("learn")
     l.add_argument("mints", nargs="*", help="tokens that already pumped (winners)")
     l.add_argument("--auto", type=int, default=0, help="also take N recent winners from DexScreener feeds")
@@ -438,7 +454,7 @@ def main(argv=None):
     l.add_argument("--skip-first-secs", type=int, default=3)
     a = p.parse_args(argv)
     {"scan": cmd_scan, "watch": cmd_watch, "track": cmd_track, "eval": cmd_eval, "wallet": cmd_wallet,
-     "buyers": cmd_buyers, "learn": cmd_learn}[a.cmd](a)
+     "buyers": cmd_buyers, "learn": cmd_learn, "kol": cmd_kol}[a.cmd](a)
     return 0
 
 
