@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -41,6 +41,9 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
     sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
   done
 ) &
+
+# spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
+python3 run_usage.py loop --every 15 &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps

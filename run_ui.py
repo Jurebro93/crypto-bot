@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, overview, pages, paper, radar, tokens  # noqa: E402
+from ui import criteria, evidence, jobs, overview, pages, paper, radar, tokens, usage  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -41,6 +41,8 @@ def route(path, qs):
         return pages.events(qs)
     if path == "/paper":
         return paper.page(qs)
+    if path == "/usage":
+        return usage.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
     if path == "/outputs":
@@ -48,6 +50,16 @@ def route(path, qs):
     if path.startswith("/outputs/"):
         return pages.output(path[len("/outputs/"):], qs)
     return None
+
+
+def _banner(path):
+    """Spend warnings on top of every page (the /usage page lists them itself)."""
+    if path == "/usage":
+        return ""
+    try:
+        return usage.banner()
+    except Exception:
+        return ""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -72,7 +84,7 @@ class Handler(BaseHTTPRequestHandler):
             if res is None:
                 code, html = 404, page("404", "<h1>Nema te stranice</h1><p><a href=/>Na pregled</a></p>", path)
             else:
-                code, html = 200, page(res[0], res[1], path)
+                code, html = 200, page(res[0], _banner(path) + res[1], path)
         except Exception:
             code = 500
             html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
