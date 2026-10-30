@@ -1,0 +1,13 @@
+{
+ "_comment": "Granice klasa su probne; petlja učenja ih smije pomicati. mcap u USD, starost u satima.",
+ "klase": {
+  "moonshot": {"mcap_max": 150000, "age_max_h": 72},
+  "stabilni": {"mcap_min": 2000000, "age_min_h": 168}
+ },
+ "t0": {
+  "recheck_h": 24,
+  "lp_locked_min_pct": 20,
+  "pumpfun_suffix": "pump"
+ },
+ "track_h": 48
+}
