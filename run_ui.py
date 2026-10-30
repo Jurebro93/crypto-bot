@@ -153,7 +153,8 @@ def main(argv=None):
         sys.exit("Slušaš na javnoj adresi bez lozinke. Postavi UI_PASSWORD=... ili koristi SSH tunel (vidi --help).")
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.verbose = a.verbose
-    print(f"crypto-bot UI: http://{'127.0.0.1' if a.host == '0.0.0.0' else a.host}:{a.port}  (Ctrl+C za kraj)")
+    print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
+          + "  (Ctrl+C za kraj)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
