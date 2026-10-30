@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -46,6 +46,9 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNB
 python3 run_usage.py loop --every 15 &
 
 python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
+# trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
+python3 run_market.py loop --every 60 &
+
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it)

@@ -188,6 +188,24 @@ KOL tracker je isključen dok mu ne daš budžet (`daily_usd.kol_monitor`) i pop
 
 Stranica **Radar** u dashboardu (`run_ui.py`, `/radar`) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
 
+## Tržište: volumen po platformama (`run_market.py`)
+
+Koliko se trejda na kojem launchpadu (pump.fun, LaunchLab = bonk.fun, Meteora DBC = Bags/Believe, StonkFun…), u kojim
+terminalima (Axiom, GMGN, Photon, BullX, Trojan…, samo Solana dio) i na cijelom Solana DEX tržištu, plus cijena SOL.
+Izvor je DefiLlama (besplatno, bez ključa), pa ništa ne ide u usage.db. Podaci idu u `market.db`.
+
+```
+python3 run_market.py collect          # jedno očitanje (prvi put skine 400 dana povijesti)
+python3 run_market.py loop --every 60  # server: svaki sat
+python3 run_market.py report           # platforme, režim, provjera hipoteze
+```
+
+Režim tržišta (`market/regime.py`): prosjek tri ranga u zadnjih 90 dana (volumen launchpada 7 d, volumen cijele Solane 7 d,
+rast launchpada tjedan na tjedan), 0-100; 66+ vruće, 33 i manje hladno. Za scoring: `regime.at(ts)["score"] / 100`
+(ili `regime.feature(ts)`) je značajka `market_regime` za trenutak ts, iz zadnjeg punog dana prije ts (bez gledanja u budućnost).
+Hipoteza "kad raste volumen na Solani, trejda se više shitcoina" provjerava se svaki sat korelacijom dnevnih promjena
+(Solana DEX bez PumpSwapa naspram launchpada). Stranica `/market` (Tržište) pokazuje sve to i demo tradeove po režimu.
+
 ## Status
 
 Logika je testirana na izmišljenim odgovorima API-ja (`tests/test_offline.py`). Od 2026-10-30 mreža radi: DexScreener, Polymarket i RocketLaunch odgovaraju; Wikipedia je tad vratila 429 (previše upita).

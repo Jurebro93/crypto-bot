@@ -6,7 +6,7 @@ import time
 from urllib.parse import quote
 
 NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
-       ("/paper", "Demo trading"), ("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"), ("/usage", "Potrošnja"),
+       ("/paper", "Demo trading"), ("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
        ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]
 
 CSS = """
@@ -137,7 +137,7 @@ def signed(x, fmt="{:+.2f}"):
 def usd(x):
     if x is None:
         return ("–", -1, "n")
-    s = f"${x / 1e6:,.2f}M" if x >= 1e6 else f"${x / 1e3:,.1f}k" if x >= 1e3 else f"${x:,.0f}"
+    s = f"${x / 1e9:,.2f}B" if x >= 1e9 else f"${x / 1e6:,.2f}M" if x >= 1e6 else f"${x / 1e3:,.1f}k" if x >= 1e3 else f"${x:,.0f}"
     return (s, x, "n")
 
 

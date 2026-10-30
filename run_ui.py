@@ -21,7 +21,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, overview, pages, paper, radar, tokens, usage  # noqa: E402
+from ui import criteria, evidence, jobs, market, overview, pages, paper, radar, tokens, usage  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 from ui import league  # noqa: E402
 from league import store as league_store  # noqa: E402
@@ -50,6 +50,8 @@ def route(path, qs):
         return paper.page(qs)
     if path == "/usage":
         return usage.page(qs)
+    if path == "/market":
+        return market.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
     if path == "/learn":
@@ -76,10 +78,13 @@ class Handler(BaseHTTPRequestHandler):
     user = os.environ.get("UI_LOCAL_USER") if not AUTH else None   # local run without passwords: play as this name
 
     def do_GET(self):
-        if AUTH and not self._authorized():
-            return self._challenge()
+        ok = not AUTH or self._authorized()
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
+        if path == "/prijava":
+            return self._login(qs)
+        if not ok:
+            return self._challenge()
         if path in ("/natjecanje", "/prijedlozi"):
             fn = league.page if path == "/natjecanje" else league.ideas_page
             try:
@@ -160,10 +165,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(400)
         self.end_headers()
 
-    def _challenge(self):
+    def _challenge(self, body=b""):
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="crypto-bot"')
+        if body:
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def _login(self, qs):
+        """/prijava: the browser only shows its name + password box after a 401, and otherwise keeps sending the
+        shared password it remembered. Answer 401 until a player logs in (?kao=<name> also switches away from them)."""
+        if self.user and self.user != qs.get("kao"):
+            self.send_response(303)
+            self.send_header("Location", "/natjecanje")
+            self.end_headers()
+            return
+        return self._challenge(page("Prijava", league.login_help(), "/prijava").encode("utf-8"))
 
     def _authorized(self):
         """A player's own name + password sets self.user; the shared UI_PASSWORD (any name) lets in without one."""
