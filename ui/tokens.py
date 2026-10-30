@@ -3,7 +3,7 @@ sense on their own: active candidates, event tokens, older ones, and rug-rejecte
 import time
 
 from ui import overview
-from ui.html import ago, badge, esc, filt, modal, scorecell, table, tlink, usd, verdict
+from ui.html import tdesc, ago, badge, esc, filt, modal, scorecell, table, tlink, usd, verdict
 
 ACTIVE_H = 24
 
@@ -49,7 +49,7 @@ def page(qs):
          f"{len(older)} starijih, {len(bad)} odbačenih</span></div>"]
 
     b.append(f"<h2>Aktivni kandidati (zadnja {ACTIVE_H} h)</h2>")
-    b.append(_main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema tokena koji nisu odbačeni."))
+    b.append(tdesc('Tokeni viđeni u zadnja 24 h koje rug filter nije odbacio, poredani po confidenceu (najjači gore). Klik na red otvara analizu s interpretacijom i dokazima.') + _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema tokena koji nisu odbačeni."))
 
     b.append("<h2>Tokeni vezani uz evente</h2><p class=mut>Tokeni koje je DexScreener našao za događaje iz kalendara. "
              "<b>Pravi</b> je najbolje ocijenjen token eventa, ostali su kopije.</p>")
@@ -61,7 +61,7 @@ def page(qs):
                           scorecell(e["score"]), (overview.confidence.badge_html(r["conf"]), r["conf"], "n"),
                           verdict(r["rug"]["verdict"]) if r["rug"] else "<span class=mut>–</span>", usd(e["mcap"]),
                           usd(e["liquidity"])])
-    b.append(table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
+    b.append(tdesc('Tokeni nazvani po nadolazećem događaju iz kalendara (rođendan, lansiranje, Polymarket…). Pravi = najbolje ocijenjen token tog eventa, kopija = ostali s istim imenom.') + table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
                     ("Mcap", "n"), ("Likv.", "n")], erows, "te", "Nijedan token nije vezan uz event.",
                    mints=[r["token"] for r in event for _ in r["events"]]))
 
@@ -70,7 +70,7 @@ def page(qs):
 
     b.append("<h2>Odbačeni i visok rizik</h2><p class=mut>Rug filter ih je odbacio (tvrdi pad) ili im dao ocjenu ispod 50. "
              "Ne ulazi se u njih bez obzira na hype.</p>")
-    b.append(table(["Token", "Rug presuda", ("Rug ocjena", "n"), ("Glavni razlog", "wrap"), ("Hype", "n"), ("Mcap", "n"), "Zadnje"],
+    b.append(tdesc('Ovdje su da se vidi zašto su izbačeni; po defaultu se ne trejdaju.') + table(["Token", "Rug presuda", ("Rug ocjena", "n"), ("Glavni razlog", "wrap"), ("Hype", "n"), ("Mcap", "n"), "Zadnje"],
                    [[tlink(r["token"], r["symbol"]), verdict(r["rug"]["verdict"]), scorecell(r["rug"]["score"]),
                      (esc(((r["rug"]["data"].get("hard_fails") or []) + (r["rug"]["data"].get("flags") or []) or ["–"])[0]), "", "wrap"),
                      scorecell(r["hype_last"]), usd(r["mcap"]), ago(r["last_seen"])] for r in bad], "tb",

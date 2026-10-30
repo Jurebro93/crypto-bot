@@ -8,7 +8,7 @@ import json
 import time
 
 from ui import confidence, data
-from ui.html import ago, badge, esc, filt, jsonblock, num, scorecell, signed, table, th, tlink, ts, usd, verdict
+from ui.html import tdesc, ago, badge, esc, filt, jsonblock, num, scorecell, signed, table, th, tlink, ts, usd, verdict
 
 REFRESH_S = 15
 EXIT = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven": "breakeven nakon TP", "time": "isteklo vrijeme",
@@ -263,7 +263,7 @@ def page(qs):
     if not (trades or cands):
         b.append("<div class=card>Još nema demo trejdova. Na Renderu ih pokreće <code>start.sh</code> "
                  "(<code>run_paper.py run --scan</code>); lokalno pokreni istu naredbu.</div>")
-    b.append("<h2>Otvorene pozicije (live)</h2><div class=tw><table><thead><tr>"
+    b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati.") + "<div class=tw><table><thead><tr>"
              + "".join(th(*h) for h in [("Token", ""), ("Otvoreno prije", ""), ("Ulog", "n"), ("Ulazna cijena", "n"),
                                         ("Sada", "n"), ("Pomak", "n"), ("PnL $", "n"), ("Povrat", "n"), ("Max", "n"),
                                         ("Min", "n"), ("Ostalo", "n"), ("Stop loss", "n"), ("Sljedeći TP", "n"),
@@ -291,7 +291,7 @@ def page(qs):
                       f'{esc(EXIT.get(t["exit_reason"] or "", t["exit_reason"] or ""))}</div>', t["pnl_usd"] or 0, "n"),
                      (confidence.badge_html(conf), conf, "n") if conf is not None else "–",
                      (why_taken(c), "", "wrap"), (lesson(t, c), "", "wrap")])
-    b.append(table(["Token", ("PnL $", "n"), ("Confidence pri ulazu", "n"), ("Zašto uzet", "wrap"), ("Ishod i lekcija", "wrap")],
+    b.append(tdesc('Svaki zatvoreni demo trejd: koliko je zaradio ili izgubio, kolika je bila procjena pri ulazu, zašto je uzet i što alat iz ishoda uči.') + table(["Token", ("PnL $", "n"), ("Confidence pri ulazu", "n"), ("Zašto uzet", "wrap"), ("Ishod i lekcija", "wrap")],
                    rows, "pt", "Još nema zatvorenih trejdova."))
     b.append(_calibration(trades, cands))
 

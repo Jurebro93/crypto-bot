@@ -18,7 +18,7 @@ header{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px
 header b{margin-right:16px}header a{padding:12px 10px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
 header a.on{color:var(--fg);border-color:var(--acc)}main{max-width:1400px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-size:14px;margin:16px 0 6px}
-.mut{color:var(--mut)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
+.mut{color:var(--mut)}.tdesc{color:var(--mut);font-size:13px;margin:4px 0 8px;padding-left:8px;border-left:3px solid var(--line)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
 .stat .v{font-size:22px;font-weight:600}.stat .l{color:var(--mut);font-size:12px}
@@ -75,6 +75,11 @@ def page(title, body, path="/"):
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}</style></head><body>"
             f"<header><b>crypto-bot</b>{nav}</header><main>{body}</main><script>{JS}</script></body></html>")
+
+
+def tdesc(text):
+    """Short "what this table covers" line shown above a table."""
+    return f'<p class=tdesc>{text}</p>'
 
 
 def tip(text):

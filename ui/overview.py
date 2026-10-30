@@ -4,7 +4,7 @@ import json
 import time
 
 from ui import confidence, data, evidence, explain, paper
-from ui.html import ago, badge, esc, modal, num, scorecell, short, table, tierb, tlink, usd, wlink
+from ui.html import tdesc, ago, badge, esc, modal, num, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
 
@@ -169,7 +169,7 @@ def growth():
                 cells.append((f"{n:,} <span class={'pos' if d else 'mut'}>+{d:,}</span>", n, "n"))
         rows.append(cells)
     head = ["", ("Sada", "n")] + [(f"Prije {l}", "n") for l, _ in POINTS[1:]]
-    return (table(head, rows) + "<p class=mut>Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.</p>"
+    return (tdesc('Koliko tokena, walleta, signala i rug provjera je alat imao u svakom trenutku. Pokazuje puni li se baza i koliko brzo.') + table(head, rows) + "<p class=mut>Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.</p>"
             + _chart({k: series[k] for k in ("Tokena analizirano", "Walleta u registru", "Walleta ocijenjeno", "Rug provjera")}, now))
 
 
@@ -310,7 +310,7 @@ def page(qs):
         rows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                      (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
                     + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype"]), usd(r["mcap"]), ago(r["last_seen"])])
-    b.append(table(["Token", ("Confidence", "n"), ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
+    b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po confidenceu; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Confidence", "n"), ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
                    rows, "mt", "Nema tokena.", mints=[r["token"] for r in allrows[:40]]))
 
     # 4. wallet clusters
@@ -344,7 +344,7 @@ def page(qs):
                          num(len(c["shared"])), num(sum(scores) / len(scores) if scores else None, "{:.0f}"),
                          wlink(best) + " " + tierb((reg.get(best) or {}).get("tier")),
                          (" ".join(wlink(w) for w in c["wallets"][:8]) + (" …" if len(c["wallets"]) > 8 else ""), "", "wrap")])
-        b.append(table(["#", ("Walleta", "n"), ("Zajednički tokeni (koliko walleta ga ima)", "wrap"), ("Zajedničkih", "n"),
+        b.append(tdesc('Grupe walleta koje su kupile iste tokene (barem zadani broj zajedničkih). Velika grupa s istim tokenima često je jedna osoba, grupa insajdera ili walleti koji kopiraju istog trejdera.') + table(["#", ("Walleta", "n"), ("Zajednički tokeni (koliko walleta ga ima)", "wrap"), ("Zajedničkih", "n"),
                         ("Prosj. copy", "n"), "Najbolji", ("Walleti", "wrap")], crow))
     else:
         b.append(f"<div class=card>Još nema walleta koji dijele barem {min_shared} tokena.</div>")
@@ -352,7 +352,7 @@ def page(qs):
     if fc:
         b.append("<h3>Walleti financirani iz istog izvora</h3><p class=mut>Iz rug filtera: jedan wallet je poslao SOL "
                  "na više walleta koji su onda kupovali. Tipično jedna osoba ili insajderska grupa.</p>")
-        b.append(table(["Financijer", ("Financirao walleta", "n"), ("Na tokenima", "wrap"), ("Walleti", "wrap")],
+        b.append(tdesc('Svaki red je wallet koji je slao SOL drugim walletima prije njihovih kupnji.') + table(["Financijer", ("Financirao walleta", "n"), ("Na tokenima", "wrap"), ("Walleti", "wrap")],
                        [[wlink(f), num(len(v["funded"])), (", ".join(tlink(t, syms.get(t)) for t in sorted(v["tokens"])), "", "wrap"),
                          (" ".join(wlink(w) for w in sorted(v["funded"])[:10]), "", "wrap")] for f, v in fc[:15]]))
 

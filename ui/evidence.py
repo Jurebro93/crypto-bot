@@ -9,7 +9,7 @@ import time
 from urllib.parse import quote
 
 from ui import data
-from ui.html import ago, badge, esc, num, short, signed, table, ts, usd, verdict, wlink
+from ui.html import tdesc, ago, badge, esc, num, short, signed, table, ts, usd, verdict, wlink
 
 SOURCES = {
     "dex": ("DexScreener API", "https://docs.dexscreener.com/api/reference"),
@@ -150,7 +150,7 @@ def fragment(mint):
             b.append("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>")
         tot = sum(w.values()) or 1
         rows = sorted(((k, f.get(k) or 0, w.get(k, 0)) for k in set(f) | set(w)), key=lambda r: -r[1] * r[2])
-        b.append(table(["Signal", ("Izmjereno 0-1", "n"), ("Težina", "n"), ("Bodova", "n")],
+        b.append(tdesc('Signali iz kojih je izračunata hype ocjena; prikazani su samo oni koji nisu nula.') + table(["Signal", ("Izmjereno 0-1", "n"), ("Težina", "n"), ("Bodova", "n")],
                        [[esc(k), (f"{v:.2f}", v, "n"), (f"{wt:g}", wt, "n"), (f"{100 * v * wt / tot:.1f}", v * wt, "n")]
                         for k, v, wt in rows if v]))
         zero = [k for k, v, wt in rows if not v and wt]
@@ -167,7 +167,7 @@ def fragment(mint):
         chg = pair.get("priceChange") or {}
         age_h = (time.time() * 1000 - (pair.get("pairCreatedAt") or time.time() * 1000)) / 3.6e6
         b.append("<h3>Tržište sada</h3>")
-        b.append(table(["Cijena", ("Mcap", "n"), ("Likvidnost", "n"), ("Volumen 1h / 24h", "n"), ("Promjena 1h / 24h", "n"),
+        b.append(tdesc('Živi podaci s DexScreenera u trenutku otvaranja.') + table(["Cijena", ("Mcap", "n"), ("Likvidnost", "n"), ("Volumen 1h / 24h", "n"), ("Promjena 1h / 24h", "n"),
                         ("Kupnje / prodaje 24h", "n"), ("Starost", "n")],
                        [[esc(pair.get("priceUsd")), usd(pair.get("marketCap") or pair.get("fdv")),
                          usd((pair.get("liquidity") or {}).get("usd")),
@@ -206,7 +206,7 @@ def fragment(mint):
                 f'<a href="https://x.com/{quote(h)}" target=_blank>@{esc(h)}</a> ({f:,})' for h, f in infl[:10]) + "</p>")
         top = sorted(tw, key=lambda t: -((t.get("viewCount") or 0) + 50 * (t.get("likeCount") or 0)))[:8]
         if top:
-            b.append(table(["Autor", ("Pratitelja", "n"), ("Pregleda", "n"), ("Lajk", "n"), ("RT", "n"), ("Objava", "wrap"), ""],
+            b.append(tdesc('Najgledanije objave na X-u koje spominju adresu ili $simbol, s linkom na objavu.') + table(["Autor", ("Pratitelja", "n"), ("Pregleda", "n"), ("Lajk", "n"), ("RT", "n"), ("Objava", "wrap"), ""],
                            [[f'<a href="https://x.com/{quote(_author(t)[0])}" target=_blank>@{esc(_author(t)[0])}</a>',
                              num(_author(t)[1]), num(t.get("viewCount")), num(t.get("likeCount")), num(t.get("retweetCount")),
                              (esc(html.unescape(t.get("text") or t.get("fullText") or "")[:220]), "", "wrap"),
@@ -234,7 +234,7 @@ def fragment(mint):
     if pf:
         pct = lambda v: (v or 0) / 100 if (v or 0) > 100 else (v or 0)  # noqa: E731
         b.append("<h3>pump.fun</h3>")
-        b.append(table(["Liste", ("KOL walleta", "n"), ("Holdera", "n"), ("Top 10", "n"), ("Bundleri", "n"),
+        b.append(tdesc('Podaci s pump.fun: koliko ga KOL walleta trejda i kako je ponuda raspodijeljena.') + table(["Liste", ("KOL walleta", "n"), ("Holdera", "n"), ("Top 10", "n"), ("Bundleri", "n"),
                         ("Snajperi", "n"), ("Dev drži", "n"), ("Bonding curve", "n")],
                        [[esc(", ".join(pf.get("boards") or [])), num(pf.get("kolCount")), num(pf.get("holders")),
                          num(pct(pf.get("top10HoldersPercent")), "{:.0f}%"), num(pct(pf.get("bundlerOwnedPercent")), "{:.0f}%"),
@@ -254,7 +254,7 @@ def fragment(mint):
     sm = det.get("smart_buyers") or []
     if sm:
         known = {w["wallet"]: w for w in data.smart_wallets()}
-        b.append("<h3>Smart walleti među prvim kupcima</h3>" + table(
+        b.append("<h3>Smart walleti među prvim kupcima</h3>" + tdesc('Walleti s dokazanim profitom koji su kupili ovaj token rano, i gdje smo ih pronašli.') + table(
             ["Wallet", ("Ocjena", "n"), "Pronađen preko", ""],
             [[wlink(w), num((known.get(w) or {}).get("score")), esc((known.get(w) or {}).get("found_via") or "–"),
               f'<a href="https://gmgn.ai/sol/address/{quote(w)}" target=_blank>GMGN</a>'] for w in sm]) + _src("smart"))
