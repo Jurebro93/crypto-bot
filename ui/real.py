@@ -5,7 +5,7 @@ import re
 from urllib.parse import quote
 
 from league import store
-from ui.html import ago, esc, num, signed, table, tlink, ts, usd
+from ui.html import esc, num, signed, table, tlink, ts, usd
 from ui.league import _err, _form, _who
 
 ADDR = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
@@ -91,7 +91,7 @@ def page(qs, user):
                             "onsubmit=\"return confirm('Obrisati ovaj trade?')\">"
                             f'<input type=hidden name=id value="{t["id"]}"><button title="obriši (krivo upisano)">✕</button></form>')
                 out.append(([] if mine else [esc(t["user"])]) + [
-                    tlink(t["token"], t["symbol"]), ago(t["opened_ts"]), usd(t["size_usd"]), usd(t["entry_mcap"]),
+                    tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), usd(t["size_usd"]), usd(t["entry_mcap"]),
                     usd(mc_show) if mc_show else ("–" if t["status"] == "open" else "$0", 0, "n"),
                     signed(mc_show / t["entry_mcap"] - 1 if mc_show is not None and t["entry_mcap"] else None, "{:+.0%}"),
                     signed(pnl), "otvoren" if t["status"] == "open" else f"zatvoren {ts(t['closed_ts'])[0]}",

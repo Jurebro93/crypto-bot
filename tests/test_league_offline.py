@@ -18,6 +18,7 @@ class League(unittest.TestCase):
         self.db = os.path.join(tempfile.mkdtemp(), "league.db")
         store.DB = self.db
         league._live = lambda mints: {m: (2.0, 1e6, None) for m in mints}
+        league._mcaps = lambda mints: {m: 2e6 for m in mints}
 
     def test_buy_sell_and_leaderboard(self):
         con = store.connect()
@@ -44,6 +45,7 @@ class League(unittest.TestCase):
         league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):
             self.assertIn("Ljestvica", league.page({}, user)[1])
+            self.assertIn("<b>Jure</b>", league.page({}, user)[1])   # everyone sees Jure's position
             body = league.ideas_page({}, user)[1]
             self.assertIn("&lt;30%&gt;", body)
         con = store.connect()

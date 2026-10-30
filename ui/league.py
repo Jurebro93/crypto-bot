@@ -9,11 +9,12 @@ import time
 from urllib.parse import quote
 
 from league import store
-from ui import data
-from ui.html import ago, badge, esc, num, scorecell, signed, table, tlink, ts, usd, verdict
+from ui import confidence, data
+from ui.html import ago, badge, esc, klasab, num, razinab, scorecell, signed, table, tlink, ts, usd, verdict
 from ui.paper import _live
 
 SUGGEST_H = 48
+SUGGEST_MAX = 80
 MINT = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
 STATUS = {"novo": "", "u izradi": "warn", "napravljeno": "good", "odbijeno": "bad"}
 
@@ -80,23 +81,58 @@ def leaderboard_html(con, live, me=None):
                   ("Otvoreno", "n"), "Dobitni / zatvoreni", "Najbolji trejd"], rows)
 
 
-def _suggestions():
-    since = time.time() - SUGGEST_H * 3600
-    return [c for c in data.paper_candidates() if (c["first_ts"] or 0) >= since][:60]
+def _suggestions(qs):
+    """The same tokens and ranking as the Pregled page's standout candidates (every module's verdicts combined into
+    confidence), filtered by the search form."""
+    from ui import overview
+    try:
+        hours = int(qs.get("h") or SUGGEST_H)
+        min_conf = float(qs.get("min") or 0)
+    except ValueError:
+        hours, min_conf = SUGGEST_H, 0
+    rows = overview.token_rows(since=time.time() - hours * 3600)
+    q = (qs.get("q") or "").strip().lower()
+    if q:
+        rows = [r for r in rows if q in (r["symbol"] or "").lower() or q in r["token"].lower()]
+    if min_conf:
+        rows = [r for r in rows if (r["conf"] or 0) >= min_conf]
+    if qs.get("klasa"):
+        rows = [r for r in rows if r["klasa"] == qs["klasa"]]
+    if not qs.get("odb") and not q:
+        rows = [r for r in rows if not r["hard"]]
+    return sorted(rows, key=overview._rank, reverse=True)[:SUGGEST_MAX]
+
+
+def _filters(qs):
+    from tiers.classify import KLASA_HR
+    sel = lambda name, opts: f"<select name={name}>" + "".join(  # noqa: E731
+        f'<option value="{esc(v)}"{" selected" if str(qs.get(name, "")) == str(v) else ""}>{esc(t)}</option>'
+        for v, t in opts) + "</select>"
+    return ('<form method=get class=flt><input name=q placeholder="traži ime ili adresu" size=26 '
+            f'value="{esc(qs.get("q", ""))}">'
+            + sel("h", [(24, "zadnja 24 h"), (48, "zadnjih 48 h"), (168, "zadnjih 7 dana")])
+            + sel("min", [("", "svaki confidence"), (40, "confidence ≥ 40"), (60, "confidence ≥ 60"), (75, "confidence ≥ 75")])
+            + sel("klasa", [("", "sve klase")] + list(KLASA_HR.items()))
+            + f'<label><input type=checkbox name=odb value=1{" checked" if qs.get("odb") else ""}> i odbačeni (rug)</label>'
+            + '<button>Filtriraj</button> <a href=/natjecanje>očisti</a></form>')
 
 
 def page(qs, user):
     con = store.connect()
     try:
         mine = store.trades(con, user, "open") if user else []
-        cands = _suggestions()
-        everyone_open = store.trades(con, status="open")
-        live = _live({t["token"] for t in everyone_open} | {c["token"] for c in cands})
+        cands = _suggestions(qs)
+        mints = {t["token"] for t in store.trades(con)} | {c["token"] for c in cands}
+        live, mcaps = _live(mints), _mcaps(mints)   # same token set = one cached DexScreener call
         b = [f"<h1>Natjecanje</h1><p class=mut>Svatko ima svoj demo račun od ${store.START_USD:,.0f}. Biraš tokene iz "
              f"prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera (uz 1% fee i slippage kao u pravoj "
              f"trgovini). Pobjeđuje tko ima najviše profita. Bot trguje sam za sebe u <a href=/paper>Demo tradingu</a>; "
              f"ovdje je samo za usporedbu.</p>", _who(user), _err(qs)]
         b.append("<h2>Ljestvica</h2>" + leaderboard_html(con, live, user))
+        b.append("<h2>Pozicije i trejdovi svih igrača</h2>"
+                 "<p class=mut>Svi vide sve: kada je tko kupio, na kojem market capu, gdje je sada i koliko je u plusu ili minusu. "
+                 "PnL otvorenih je ono što bi prodaja sada donijela, uz fee i slippage.</p>"
+                 + everyone_html(con, live, mcaps))
         if not user:
             return "Natjecanje", "".join(b)
 
@@ -126,20 +162,26 @@ def page(qs, user):
 
         size = f'<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
         srows = []
-        for c in cands:
-            price, liq, _ = live.get(c["token"], (None, None, None))
-            move = price / c["price"] - 1 if price and c["price"] else None
-            act = _form("/natjecanje/buy", {"token": c["token"], "symbol": c["symbol"] or "", "score": c["score"] or "",
-                                            "source": c["origin"] or ""}, "Kupi", size) if price else \
+        for r in cands:
+            price, liq, _ = live.get(r["token"], (None, None, None))
+            c = r["cand"] or {}
+            move = price / c["price"] - 1 if price and c.get("price") else None
+            act = _form("/natjecanje/buy", {"token": r["token"], "symbol": r["symbol"] or "", "score": r["conf"] or "",
+                                            "source": f"confidence {r['conf']}"}, "Kupi", size) if price else \
                 '<span class=mut>nema cijene</span>'
-            srows.append([tlink(c["token"], c["symbol"]), ago(c["first_ts"]), esc(c["origin"]), scorecell(c["score"]),
-                          badge("bot uzeo" if c.get("trade_id") else "bot preskočio", "good" if c.get("trade_id") else ""),
-                          (esc(c["reason"] or ""), "", "wrap"), verdict(c["rug_verdict"]),
-                          signed(move, "{:+.0%}"), usd(liq), act])
-        b.append(f"<h2>Prijedlozi alata (zadnjih {SUGGEST_H} h)</h2><p class=mut>Tokeni koje je bot razmotrio, najnoviji "
-                 "prvi. „Pomak” je promjena cijene otkad ga je alat vidio. Upiši ulog u $ i klikni Kupi.</p>")
-        b.append(table(["Token", "Viđen", "Porijeklo", ("Hype", "n"), "Bot", ("Razlog", "wrap"), "Rug", ("Pomak", "n"),
-                        ("Likvidnost", "n"), "Ulog $"], srows, empty="Alat zadnjih dana nije ništa predložio."))
+            srows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+                          (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
+                          (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype"]),
+                          verdict(r["rug"]["verdict"] if r["rug"] else None),
+                          badge("bot uzeo", "good") if c.get("trade_id") else (badge("bot preskočio") if c else "–"),
+                          usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
+        b.append(f"<h2>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
+                 "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
+                 "Tokeni koje je rug filter odbacio su skriveni osim ako ih uključiš ili tražiš po imenu. "
+                 f"Prikazano {len(cands)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>" + _filters(qs))
+        b.append(table(["Token", ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n"), ("Hype", "n"), "Rug",
+                        "Bot", ("Mcap viđen", "n"), ("Pomak", "n"), ("Likvidnost", "n"), "Zadnje", "Ulog $"], srows,
+                       empty="Nijedan token ne odgovara filteru."))
         b.append('<form method=post action="/natjecanje/buy" class=flt>Ili zalijepi adresu tokena: '
                  f'<input name=token placeholder="mint adresa" size=46 required>{size}<button>Kupi</button></form>')
 
@@ -196,7 +238,7 @@ def post(path, form, user):
             symbol = form.get("symbol") or _symbol(token)
             size = float(form.get("size") or 0)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),
-                      float(form["score"]) if form.get("score") else None)
+                      float(form["score"]) if form.get("score") else None, _mcaps({token}).get(token))
             return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f}')}"
         if path == "/natjecanje/sell":
             tid = int(form.get("id") or 0)
@@ -210,7 +252,7 @@ def post(path, form, user):
                 if t["token"] not in live:
                     raise ValueError("DexScreener trenutno ne daje cijenu, probaj ponovo")
                 price, liq, _ = live[t["token"]]
-                pnl = store.sell(con, user, tid, price, liq)
+                pnl = store.sell(con, user, tid, price, liq, mcap=_mcaps({t["token"]}).get(t["token"]))
             msg = f"Prodano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
             return f"{back}?ok={quote(msg)}"
         if path == "/prijedlozi/add":
@@ -225,6 +267,35 @@ def post(path, form, user):
         return f"{back}?err={quote(str(e))}"
     finally:
         con.close()
+
+
+def _mcaps(mints):
+    """token -> live market cap (same cached DexScreener call as the prices)."""
+    from ui import real
+    return {t: v[0] for t, v in real.live(mints).items() if v[0]}
+
+
+def everyone_html(con, live, mcaps):
+    """Every player's demo positions and trades, open and closed, so the players can see what the others did."""
+    rows = []
+    for t in store.trades(con):
+        price = (live.get(t["token"]) or (None,))[0]
+        mc_now = mcaps.get(t["token"])
+        entry_mc = t.get("entry_mcap") or (mc_now * t["entry_px"] / price if mc_now and price else None)
+        if t["status"] == "open":
+            val = store.value(t, price, live[t["token"]][1]) if price else None
+            pnl, mc, status = (val - t["size_usd"] if val is not None else None), mc_now, badge("otvoreno", "good")
+        else:
+            pnl, status = t["pnl_usd"], f"prodano {ts(t['closed_ts'])[0]}"
+            mc = t.get("exit_mcap") if t.get("exit_mcap") is not None else \
+                (entry_mc * t["exit_px"] / t["entry_px"] if entry_mc and t["entry_px"] else None)
+        rows.append([f"<b>{esc(t['user'])}</b>", tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), usd(t["size_usd"]),
+                     usd(entry_mc), usd(mc) if mc is not None else ("–", -1, "n"),
+                     signed(mc / entry_mc - 1 if mc is not None and entry_mc else None, "{:+.0%}"), signed(pnl),
+                     signed(pnl / t["size_usd"] if pnl is not None else None, "{:+.0%}"), status, esc(t["source"] or "")])
+    return table(["Igrač", "Token", "Kupljeno", ("Ulog", "n"), ("Ulazni MC", "n"), ("MC sada / izlaz", "n"), ("Pomak MC", "n"),
+                  ("PnL $", "n"), ("Povrat", "n"), "Status", "Odakle"], rows, "allp",
+                 empty="Nitko još nije kupio nijedan token.")
 
 
 def _symbol(token):
