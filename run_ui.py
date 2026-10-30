@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, jobs, pages, radar  # noqa: E402
+from ui import criteria, evidence, jobs, overview, pages, paper, radar  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -26,7 +26,7 @@ PASSWORD = os.environ.get("UI_PASSWORD", "")
 
 def route(path, qs):
     if path == "/":
-        return pages.overview(qs)
+        return overview.page(qs)
     if path == "/radar":
         return radar.page(qs)
     if path == "/wallets":
@@ -40,7 +40,7 @@ def route(path, qs):
     if path == "/events":
         return pages.events(qs)
     if path == "/paper":
-        return pages.paper(qs)
+        return paper.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
     if path == "/outputs":
@@ -59,6 +59,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
+        if path == "/api/paper":
+            return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
+        if path.startswith("/api/evidence/"):
+            try:
+                frag = evidence.fragment(path[len("/api/evidence/"):])
+            except Exception:
+                frag = f"<pre>{esc(traceback.format_exc())}</pre>"
+            return self._send(200, frag.encode("utf-8"))
         try:
             res = route(path, qs)
             if res is None:
@@ -68,9 +76,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             code = 500
             html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
-        body = html.encode("utf-8")
+        self._send(code, html.encode("utf-8"))
+
+    def _send(self, code, body, ctype="text/html"):
         self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()

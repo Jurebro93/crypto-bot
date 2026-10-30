@@ -6,7 +6,7 @@ import time
 from urllib.parse import quote
 
 NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
-       ("/paper", "Paper"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji")]
+       ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji")]
 
 CSS = """
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#3b5bdb;
@@ -144,8 +144,10 @@ def wlink(w):
 
 
 def tlink(mint, sym=None):
+    """Token name opens its DexScreener page; the small ⓘ opens our own analysis of the token."""
     label = esc(sym) if sym else f"<code>{esc(short(mint))}</code>"
-    return f'<a href="/token/{quote(mint)}">{label}</a>'
+    return (f'<a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>{label}</a> '
+            f'<a href="/token/{quote(mint)}" class=mut title="analiza tokena" style="text-decoration:none">ⓘ</a>')
 
 
 def ext_wallet(w):

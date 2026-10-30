@@ -1,5 +1,4 @@
 """One function per page. Each returns (title, body_html)."""
-import json
 import os
 import time
 from urllib.parse import quote
@@ -47,67 +46,6 @@ FEATURE = {
 
 def _sym_map():
     return data.symbols()
-
-
-# ---------------- overview ----------------
-
-def overview(qs):
-    ws = data.wallets()
-    passing = [w for w in ws if explain.shortlist(w)[0]]
-    toks = data.tokens()
-    evs = data.events()
-    now = time.time()
-    sig24 = [t for t in toks if t["hype_ts"] and t["hype_ts"] >= now - 86400]
-    rugs = data.rug_reports()
-    reg = [{"n": len(data.wallets(scored_only=False))}]
-    stats = [
-        (len(passing), "walleta na copy listi", "/wallets?only=list"),
-        (len(ws), "ocijenjenih walleta", "/wallets"),
-        (reg[0]["n"] if reg else 0, "walleta u registru", "/wallets?all=1"),
-        (len(sig24), "hype tokena u 24 h", "/tokens"),
-        (len(rugs), "rug provjera", "/tokens"),
-        (len([e for e in evs if e["date"] and e["date"] >= time.strftime("%Y-%m-%d")]), "nadolazećih eventa",
-         "/events"),
-    ]
-    body = ["<h1>Pregled</h1><p class=mut>Sve se čita iz baza i izvještaja bota, samo za čitanje. "
-            "Osvježi stranicu za nove podatke.</p><div class=grid>"]
-    body += [f'<a class=stat href="{h}" style="text-decoration:none;color:inherit"><div class=v>{v}</div>'
-             f'<div class=l>{esc(l)}</div></a>' for v, l, h in stats]
-    body.append("</div>")
-
-    body.append("<h2>Najbolji walleti za copytrading</h2>")
-    top = sorted(ws, key=lambda w: -(w["copy_score"] or 0))[:8]
-    body.append(table(["Wallet", "Tier", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("Win", "n"),
-                       "Na listi?", ("Zašto ne / napomene", "wrap")],
-                      [[wlink(w["wallet"]), tierb(w["tier"]), scorecell(w["copy_score"]), scorecell(w["score"]),
-                        signed(w["stats"].get("closed_pnl_sol")), num(w["stats"].get("win_rate"), "{:.0%}"),
-                        badge("DA", "good") if explain.shortlist(w)[0] else badge("ne"),
-                        (esc("; ".join(explain.shortlist(w)[1] + (w["stats"].get("copy_notes") or []))), "", "wrap")]
-                       for w in top], empty="Još nema ocijenjenih walleta. Pokreni `run_wallets.py harvest` pa `score`."))
-
-    body.append('<div class=two><div><h2>Najjači hype signali (24 h)</h2>')
-    sig = sorted(sig24, key=lambda t: -(t["hype_max"] or 0))[:10]
-    body.append(table(["Token", ("Hype max", "n"), ("Mcap", "n"), "Rug", "Zadnji signal"],
-                      [[tlink(t["token"], t["symbol"]), scorecell(t["hype_max"]), usd(t["mcap"]),
-                        verdict(t["rug"]["verdict"]) if t["rug"] else "–", ago(t["hype_ts"])] for t in sig],
-                      empty="Nema signala u zadnja 24 h (`run_hype.py scan` ili `watch`)."))
-    body.append('</div><div><h2>Zadnje rug provjere</h2>')
-    body.append(table(["Token", "Presuda", ("Ocjena", "n"), "Provjereno"],
-                      [[tlink(r["mint"], r["symbol"]), verdict(r["verdict"]), scorecell(r["score"]),
-                        ago(r["checked_at"])] for r in rugs[:10]],
-                      empty="Nema rug provjera (`run_rug.py`)."))
-    body.append("</div></div>")
-
-    body.append("<h2>Nadolazeći eventi</h2>")
-    up = [e for e in evs if e["date"] and e["date"] >= time.strftime("%Y-%m-%d")]
-    up = sorted(up, key=lambda e: (e["date"], -(e["hype"] or 0)))[:10]
-    body.append(_events_table(up, "ev0"))
-
-    body.append("<h2>Stanje podataka</h2>")
-    body.append(table(["Baza", "Tablica", ("Redaka", "n")],
-                      [[esc(d), esc(t), num(n)] for d, t, n in data.tables()],
-                      empty="Nema baza. Pokreni neki od run_*.py modula."))
-    return "Pregled", "".join(body)
 
 
 # ---------------- wallets ----------------
@@ -540,41 +478,3 @@ DECISION = {"taken": "good", "take": "good", "buy": "good", "skip": "", "skipped
 def _decision(c):
     d = c.get("decision") or "–"
     return badge(d, DECISION.get(d, "warn" if d.startswith("skip") else "good"))
-
-
-def paper(qs):
-    cands = data.paper_candidates()
-    trades = data.paper_trades()
-    revs = data.paper_reviews()
-    b = ["<h1>Paper trading</h1><p class=mut>Demo trgovanje bez pravog novca (<code>run_paper.py</code>). Svaki kandidat "
-         "dobije odluku: uzet ili preskočen s razlogom. Preskočeni se i dalje prate, pa se vidi je li filter spasio "
-         "ili promašio pobjednika. Pravila su u <a href=/criteria#paper>Kriterijima</a>.</p>"]
-    if not (cands or trades or revs):
-        b.append("<div class=card>Još nema <code>paper.db</code>. Pokreni <code>python3 run_paper.py run --scan</code>.</div>")
-        return "Paper trading", "".join(b)
-    closed = [t for t in trades if t["status"] == "closed"]
-    pnl = sum(t["pnl_usd"] or 0 for t in closed)
-    wins = sum(1 for t in closed if (t["pnl_usd"] or 0) > 0)
-    b.append("<div class=grid>")
-    for v, l in [(len(cands), "kandidata"), (sum(1 for c in cands if c.get("trade_id")), "uzeto"),
-                 (len([t for t in trades if t["status"] == "open"]), "otvorenih"),
-                 (f"{pnl:+,.0f} $", "PnL zatvorenih"), (f"{wins}/{len(closed)}", "dobitnih")]:
-        b.append(f"<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>")
-    b.append("</div><h2>Trejdovi</h2>")
-    b.append(table(["Token", "Status", "Otvoren", "Zatvoren", ("Ulog $", "n"), ("PnL $", "n"), ("Povrat", "n"),
-                    ("Max", "n"), ("Min", "n"), "Izlaz"],
-                   [[tlink(t["token"], t["symbol"]), esc(t["status"]), ts(t["opened_ts"]), ts(t["closed_ts"]),
-                     num(t["size_usd"]), signed(t["pnl_usd"]), signed(t["ret"], "{:+.0%}"), signed(t["max_ret"], "{:+.0%}"),
-                     signed(t["min_ret"], "{:+.0%}"), esc(t["exit_reason"] or "")] for t in trades],
-                   empty="Još nema trejdova."))
-    b.append(f'<h2>Kandidati i odluke</h2><div class=flt>{filt("pc", "Filtriraj token, razlog…")}</div>')
-    b.append(table(["Token", "Vrijeme", "Porijeklo", ("Hype", "n"), "Odluka", ("Razlog", "wrap"), "Rug", ("Mcap", "n"),
-                    ("Likvidnost", "n")],
-                   [[tlink(c["token"], c["symbol"]), ts(c["first_ts"]), esc(c["origin"]), scorecell(c["score"]),
-                     _decision(c), (esc(c["reason"] or ""), "", "wrap"), verdict(c["rug_verdict"]), usd(c["mcap"]),
-                     usd(c["liquidity"])] for c in cands], "pc"))
-    if revs:
-        b.append("<h2>Dnevni pregledi</h2>")
-        for r in revs[:7]:
-            b.append(f"<h3>{esc(r['day'])}</h3>" + jsonblock(r["data"]))
-    return "Paper trading", "".join(b)
