@@ -29,6 +29,8 @@ services:
         sync: false
       - key: UI_PASS_JURE
         sync: false
+      - key: HELIUS_PROJECT_ID   # dashboard.helius.dev/projects/<id>: real credit usage for /usage
+        sync: false
       - key: APIFY_TOKEN
         sync: false
       - key: KOL_HOOK_KEY

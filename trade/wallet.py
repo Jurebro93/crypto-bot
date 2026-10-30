@@ -54,6 +54,11 @@ def rpc(method, params):
     req = urllib.request.Request(_rpc_url(), body, {"Content-Type": "application/json", "User-Agent": http.USER_AGENT})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
+    try:
+        from usage import meter
+        meter.helius(req.full_url, body, data)
+    except ImportError:
+        pass
     if "error" in data:
         raise RuntimeError(f"RPC {method}: {data['error']}")
     return data["result"]

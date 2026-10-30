@@ -7,6 +7,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    from usage import meter
+except ImportError:  # module copied without usage/: no spend tracking
+    meter = None
+
 # Wikimedia asks for a descriptive UA with contact info; set CAL_USER_AGENT to add yours.
 USER_AGENT = os.environ.get("CAL_USER_AGENT", "crypto-event-calendar/0.2 (personal research tool)")
 RETRIES = int(os.environ.get("CAL_HTTP_RETRIES", "4"))
@@ -33,8 +38,13 @@ def _fetch(req, timeout, retries=None):
         _pace(req.full_url)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.load(resp)
+                data = json.load(resp)
+            if meter:
+                meter.helius(req.full_url, req.data, data)
+            return data
         except urllib.error.HTTPError as e:
+            if meter:
+                meter.helius(req.full_url, req.data, error=True)
             if attempt == retries or not (e.code == 429 or e.code >= 500):
                 raise
             try:

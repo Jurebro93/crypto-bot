@@ -1,0 +1,7 @@
+{
+ "_comment": "Mjesečni budžeti i pragovi za upozorenja o potrošnji (usage/watch.py). cycle_day: dan u mjesecu kad počinje ciklus naplate, koristi se samo dok nema stvarnih podataka s računa (Helius Admin API treba HELIUS_PROJECT_ID). spike_x: zadnja 2 sata naspram prosjeka zadnja 24 h. floor: ispod toga se ne diže uzbuna. hour_max_x: sat u kojem ode toliko puta više od ravnomjerne satne kvote je curenje bez obzira na povijest.",
+ "helius": {"unit": "kredita", "monthly": 10000000, "cycle_day": 30, "spike_x": 4, "spike_floor": 20000,
+            "hour_max_x": 6, "unexplained_floor": 50000, "error_calls_hour": 300},
+ "apify": {"unit": "USD", "monthly": 40, "cycle_day": 11, "spike_x": 4, "spike_floor": 0.3,
+           "hour_max_x": 8, "unexplained_floor": 0.5, "error_calls_hour": 50}
+}
