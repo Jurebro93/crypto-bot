@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, pages  # noqa: E402
+from ui import criteria, jobs, pages  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -73,6 +73,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        """/run/<job>: start an on-demand run (button on the page), then back to the page."""
+        if PASSWORD and not self._authorized():
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="crypto-bot"')
+            self.end_headers()
+            return
+        path = unquote(urlsplit(self.path).path)
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+        if not path.startswith("/run/") or not same_site:
+            self.send_response(403)
+            self.end_headers()
+            return
+        name = path[len("/run/"):]
+        jobs.start(name)
+        self.send_response(303)
+        self.send_header("Location", f"/{name}#run")
+        self.end_headers()
 
     def _authorized(self):
         h = self.headers.get("Authorization", "")
