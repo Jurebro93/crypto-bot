@@ -228,42 +228,6 @@ def _positions(addr):
 
 # ---------------- tokens ----------------
 
-def tokens(qs):
-    toks = data.tokens()
-    rows = []
-    for t in sorted(toks, key=lambda t: (-(t["hype_max"] or 0), -max([e["score"] or 0 for e in t["events"]] or [0]))):
-        ev = t["events"]
-        best = max(ev, key=lambda e: e["score"] or 0) if ev else None
-        layers = []
-        if ev:
-            layers.append("event")
-        if t["hype_n"]:
-            layers.append("hype")
-        if t["rug"]:
-            layers.append("rug")
-        if t["paper"]:
-            layers.append("paper")
-        rows.append([tlink(t["token"], t["symbol"] or short(t["token"])),
-                     (esc(", ".join(layers)), "", ""),
-                     (f'{esc(best["event"])} ' + badge("pravi" if best["role"] == "canonical" else "kopija",
-                                                       "good" if best["role"] == "canonical" else "")
-                      if best else "–", best["event"] if best else "", "wrap"),
-                     scorecell(best["score"] if best else None),
-                     scorecell(t["hype_max"]), num(t["hype_n"]),
-                     verdict(t["rug"]["verdict"]) if t["rug"] else "–",
-                     scorecell(t["rug"]["score"] if t["rug"] else None),
-                     _decision(t["paper"]) if t["paper"] else "–",
-                     usd(t["mcap"]), usd(t["liquidity"]), num(t["seen"]), ago(t["hype_ts"])])
-    head = ["Token", "Slojevi", ("Event", "wrap"), ("Event ocjena", "n"), ("Hype max", "n"), ("Signala", "n"),
-            "Rug presuda", ("Rug ocjena", "n"), "Paper", ("Mcap", "n"), ("Likvidnost", "n"), ("Walleta viđeno", "n"),
-            "Zadnji hype"]
-    intro = ("<h1>Tokeni</h1><p class=mut>Svaki token iz tri sloja: <b>event</b> (DexScreener našao token za događaj "
-             "iz kalendara), <b>hype</b> (rani signal rasta) i <b>rug</b> (Helius rug filter). Klik na token za raspis "
-             "ocjene po sloju. <a href=/criteria#tokeni>Kriteriji</a>.</p>")
-    return "Tokeni", intro + f'<div class=flt>{filt("tt", "Filtriraj simbol, event, presudu…")}</div>' + table(
-        head, rows, "tt", "Nema tokena. Pokreni `run_dex.py scan`, `run_hype.py scan` ili `run_rug.py`.")
-
-
 def token(mint, qs):
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")

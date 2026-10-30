@@ -153,7 +153,19 @@ def page(qs):
 
     # ---- paper
     cfg = _try(lambda: json.load(open(os.path.join(data.HERE, "paper", "config.json"))), {})
-    b.append("<h2 id=paper>6. Paper trading (ulaz i izlaz)</h2>")
+    b.append("<h2 id=confidence>6. Confidence (koliko alat vjeruje tokenu)</h2><p>Jedan broj 0-100 za poredak tokena. "
+             "Hype ocjena je baza, neovisne potvrde dodaju bodove, poznati rizici oduzimaju. Uz svaki token u pop-upu piše "
+             "koji je dio koliko donio. Razine: 55+ visoka, 35-54 srednja, ispod 35 niska. Na stranici Demo trading je "
+             "tablica koja pokazuje pobjeđuju li tokeni s visokom razinom stvarno češće.</p>")
+    b.append(table(["Dio", ("Bodova", "n"), ("Uvjet", "wrap")], [[esc(a), (esc(p_), 0, "n"), (esc(c), "", "wrap")] for a, p_, c in [
+        ("Hype ocjena", "do +60", "0.6 × hype ocjena"), ("X buzz", "+8", "x_buzz ≥ 0.4 ili barem jedan influencer"),
+        ("Smart money", "+10", "smart walleti među prvim kupcima"), ("KOL", "+7", "KOL walleti ili objava praćenih influencera"),
+        ("Telegram", "+4", "objavljen u call kanalima"), ("X trend", "+5", "ime je trending tema na X-u"),
+        ("Event", "+6", "pravi token nadolazećeg eventa"), ("Holderi", "+6 / -10", "top 10 < 35% i bundleri < 15%, inače kazna"),
+        ("Rug filter", "+10 / +3 / -25 / 0", "PROLAZI / OPREZ / VISOK RIZIK / ODBAČEN = confidence 0"),
+        ("Likvidnost", "-10", "ispod $10k"), ("Veličina", "-5", "mcap iznad $1M"),
+        ("Kasni ulaz", "-5", "cijena već jako skočila, a kupci više ne prevladavaju")]]))
+    b.append("<h2 id=paper>7. Paper trading (ulaz i izlaz)</h2>")
     if not cfg:
         b.append("<p class=mut>Nema <code>paper/config.json</code>.</p>")
     else:

@@ -115,6 +115,15 @@ def fragment(mint):
          f'<a href="https://x.com/search?q={quote(mint)}&f=live" target=_blank>X pretraga</a> · '
          f'<a href="/token/{quote(mint)}">puna analiza</a></p>']
 
+    # confidence first: the one number, with every point explained
+    from ui import confidence
+    role = "canonical" if any(e["role"] == "canonical" for e in ev) else None
+    mk = (rug or {}).get("data", {}).get("market") or {}
+    conf, parts = confidence.score(sig["score"] if sig else None, (data.js(sig["features"], {}) or {}) if sig else {}, det,
+                                   rug["verdict"] if rug else None, role,
+                                   (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
+    b.append("<div class=card>" + confidence.explain_html(conf, parts) + "</div>")
+
     # verdict in one place
     passed = sum(1 for _, ok, _ in cs if ok)
     done = sum(1 for _, ok, _ in cs if ok is not None)
