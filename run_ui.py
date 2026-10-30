@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, jobs, pages, paper  # noqa: E402
+from ui import criteria, jobs, pages, paper, radar  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -27,6 +27,8 @@ PASSWORD = os.environ.get("UI_PASSWORD", "")
 def route(path, qs):
     if path == "/":
         return pages.overview(qs)
+    if path == "/radar":
+        return radar.page(qs)
     if path == "/wallets":
         return pages.wallets(qs)
     if path.startswith("/wallet/"):
@@ -79,7 +81,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        """/run/<job>: start an on-demand run (button on the page), then back to the page."""
+        """/run/<job>: start an on-demand run (button on the page), then back to the page.
+        /hook/kol?key=$KOL_HOOK_KEY: webhook for the KOL tracker on X (hype/sources.kol_monitor), its own key."""
+        u = urlsplit(self.path)
+        if u.path == "/hook/kol":
+            self._kol_hook(u)
+            return
         if PASSWORD and not self._authorized():
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="crypto-bot"')
@@ -96,6 +103,23 @@ class Handler(BaseHTTPRequestHandler):
         jobs.start(name)
         self.send_response(303)
         self.send_header("Location", f"/{name}#run")
+        self.end_headers()
+
+    def _kol_hook(self, u):
+        key = os.environ.get("KOL_HOOK_KEY", "")
+        if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
+            self.send_response(404)
+            self.end_headers()
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            import json
+            from hype import sources
+            sources.ingest_kol_event(json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}"),
+                                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
+            self.send_response(204)
+        except Exception:
+            self.send_response(400)
         self.end_headers()
 
     def _authorized(self):

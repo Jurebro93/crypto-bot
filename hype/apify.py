@@ -79,7 +79,7 @@ def check(source):
         raise BudgetExceeded(f"Apify račun: ${used:.2f} od ${cap:.0f} ovaj mjesec, čuvam rezervu")
 
 
-def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=240):
+def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wait=180):
     """Dataset items of one actor run, or the cached items of an identical call within cache_secs."""
     key = f"{source}:{actor}:{json.dumps(actor_input, sort_keys=True)}"
     con = _db()
@@ -88,11 +88,15 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=240):
     if hit and time.time() - hit[0] < cache_secs:
         return json.loads(hit[1])
     check(source)
-    params = {"waitForFinish": wait}
+    params = {"waitForFinish": wait, **config().get("run_options", {}).get(source, {})}  # memory/timeout cap compute
     if max_usd:
         params["maxTotalChargeUsd"] = max_usd
     r = _api(f"/acts/{actor.replace('/', '~')}/runs", actor_input, params, timeout=wait + 30)["data"]
+    deadline = time.time() + max_wait
     while r["status"] in ("READY", "RUNNING"):  # waitForFinish caps at 60 s on some plans
+        if time.time() > deadline:  # a slow actor must not stall the scan; keep what it saved so far
+            r = _api(f"/actor-runs/{r['id']}/abort", {})["data"]
+            break
         time.sleep(5)
         r = _api(f"/actor-runs/{r['id']}")["data"]
     items = _api(f"/datasets/{r['defaultDatasetId']}/items", params={"clean": "true", "format": "json"})

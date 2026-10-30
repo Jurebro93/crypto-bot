@@ -23,6 +23,10 @@ services:
         sync: false
       - key: UI_PASSWORD
         sync: false
+      - key: APIFY_TOKEN
+        sync: false
+      - key: KOL_HOOK_KEY
+        sync: false
       - key: HELIUS_RPC_RPS      # Developer plan: 50 RPC/s, keep headroom
         value: "40"
       - key: HELIUS_ENHANCED_RPS

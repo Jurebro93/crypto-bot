@@ -65,5 +65,7 @@ def copycats(pairs, symbol, name, token, now_ms, window_h=72):
 
 
 def score(features, weights):
-    total = sum(weights.values()) or 1
+    """Weighted mean over the features that were measured for this token. A paid or deep check that did not run
+    (X buzz, smart money, Google Trends...) is left out of `features`, so it neither helps nor hurts."""
+    total = sum(weights.get(k, 0) for k in features) or 1
     return round(100 * sum(weights.get(k, 0) * v for k, v in features.items()) / total, 1)
