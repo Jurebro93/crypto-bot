@@ -20,5 +20,6 @@
  "kol_group": 10,
  "put_brzina": 0,
  "put_skokovitost": 0,
- "put_zadrzavanje": 0
+ "put_zadrzavanje": 0,
+ "market_regime": 0
 }

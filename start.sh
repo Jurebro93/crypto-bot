@@ -11,7 +11,7 @@ for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
-export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
+export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
@@ -49,6 +49,7 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 # spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
 python3 run_usage.py loop --every 15 &
 
+python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
 # trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
 python3 run_market.py loop --every 60 &
 
