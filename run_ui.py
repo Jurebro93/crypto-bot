@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, jobs, pages, paper, radar  # noqa: E402
+from ui import criteria, evidence, jobs, overview, pages, paper, radar  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -26,7 +26,7 @@ PASSWORD = os.environ.get("UI_PASSWORD", "")
 
 def route(path, qs):
     if path == "/":
-        return pages.overview(qs)
+        return overview.page(qs)
     if path == "/radar":
         return radar.page(qs)
     if path == "/wallets":
@@ -61,6 +61,12 @@ class Handler(BaseHTTPRequestHandler):
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
         if path == "/api/paper":
             return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
+        if path.startswith("/api/evidence/"):
+            try:
+                frag = evidence.fragment(path[len("/api/evidence/"):])
+            except Exception:
+                frag = f"<pre>{esc(traceback.format_exc())}</pre>"
+            return self._send(200, frag.encode("utf-8"))
         try:
             res = route(path, qs)
             if res is None:
