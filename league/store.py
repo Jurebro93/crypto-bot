@@ -29,6 +29,11 @@ def users():
     return [u.strip() for u in os.environ.get("UI_USERS", "Ivan,Panda,Jure").split(",") if u.strip()]
 
 
+def missing_passwords():
+    """Players who cannot log in yet because their UI_PASS_<NAME> is not set."""
+    return [u for u in users() if not os.environ.get(f"UI_PASS_{u.upper()}")]
+
+
 def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=30)
     con.row_factory = sqlite3.Row

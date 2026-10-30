@@ -24,6 +24,26 @@ def _form(action, fields, button, extra=""):
             f'<button>{button}</button></form>')
 
 
+def login_help():
+    """Shown when the browser's login box is cancelled, and explains how to log in."""
+    miss = store.missing_passwords()
+    note = (f"<p class=neg>Lozinke još nisu postavljene za: {esc(', '.join(miss))}. Upiši ih u Render → crypto-bot → "
+            f"Environment kao {esc(', '.join('UI_PASS_' + u.upper() for u in miss))}.</p>") if miss else ""
+    return ("<h1>Prijava</h1><p>U prozor preglednika upiši <b>svoje ime</b> "
+            f"({esc(', '.join(store.users()))}) kao korisničko ime i <b>svoju lozinku</b>.</p>{note}"
+            "<p><a href=/prijava>Pokušaj ponovo</a> · <a href=/natjecanje>Natrag</a></p>")
+
+
+def _who(user):
+    if user:
+        return (f'<p class=mut>Prijavljen si kao <b>{esc(user)}</b> · '
+                f'<a href="/prijava?kao={quote(user)}">promijeni korisnika</a></p>')
+    miss = store.missing_passwords()
+    extra = (f" <span class=neg>(lozinke još nisu postavljene za {esc(', '.join(miss))})</span>") if miss else ""
+    return (f'<div class=card>Gledaš sa zajedničkom lozinkom pa ne možeš trgovati ni slati prijedloge. '
+            f'<a href=/prijava><button>Prijavi se svojim imenom</button></a>{extra}</div>')
+
+
 def _err(qs):
     if qs.get("err"):
         return f'<div class=card style="border-color:var(--bad)"><b class=neg>Nije prošlo:</b> {esc(qs["err"])}</div>'
@@ -75,11 +95,9 @@ def page(qs, user):
         b = [f"<h1>Natjecanje</h1><p class=mut>Svatko ima svoj demo račun od ${store.START_USD:,.0f}. Biraš tokene iz "
              f"prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera (uz 1% fee i slippage kao u pravoj "
              f"trgovini). Pobjeđuje tko ima najviše profita. Bot trguje sam za sebe u <a href=/paper>Demo tradingu</a>; "
-             f"ovdje je samo za usporedbu.</p>", _err(qs)]
+             f"ovdje je samo za usporedbu.</p>", _who(user), _err(qs)]
         b.append("<h2>Ljestvica</h2>" + leaderboard_html(con, live, user))
         if not user:
-            b.append("<div class=card>Gledaš sa zajedničkom lozinkom. Za trgovanje se prijavi svojim imenom "
-                     f"({esc(', '.join(store.users()))}) i svojom lozinkom (npr. u privatnom prozoru).</div>")
             return "Natjecanje", "".join(b)
 
         acc = store.account(con, user)
@@ -141,14 +159,12 @@ def ideas_page(qs, user):
     con = store.connect()
     try:
         b = ["<h1>Prijedlozi za nove feature</h1><p class=mut>Što bi alat trebao raditi bolje ili drugačije? "
-             "Sve ideje se spremaju ovdje i svi ih vide.</p>", _err(qs)]
+             "Sve ideje se spremaju ovdje i svi ih vide.</p>", _who(user), _err(qs)]
         if user:
             b.append('<form method=post action="/prijedlozi/add" class=card><textarea name=text rows=4 required '
                      'style="width:100%;font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);'
                      'border-radius:6px;padding:8px" placeholder="npr. upozori me kad token iz mojih pozicija padne 30%…">'
                      f'</textarea><p><button>Pošalji prijedlog</button> <span class=mut>kao {esc(user)}</span></p></form>')
-        else:
-            b.append("<div class=card>Za slanje prijedloga prijavi se svojim imenom.</div>")
         rows = []
         for i in store.ideas(con):
             sel = "".join(f'<option{" selected" if s == i["status"] else ""}>{s}</option>' for s in STATUS)
