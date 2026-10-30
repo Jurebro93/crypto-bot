@@ -111,6 +111,13 @@ def interpret(mint):
         con.append("Na X-u se o njemu gotovo ne priča" + (f" ({n_auth} autora)" if n_auth else "") + ".")
     if f.get("kol_x"):
         pro.append("Praćeni KOL računi su ga objavili na X-u.")
+    kg = det.get("kol_group") or {}
+    if kg.get("dev_selling"):
+        con.append(f"Grupni KOL poziv ({kg.get('n_authors')} autora u 30 min), ali walleti koji su kupili prije poziva "
+                   "prodaju u njega.")
+    elif kg:
+        pro.append(f"Grupni KOL poziv na X-u: {kg.get('n_authors')} autora u 30 min, od toga {kg.get('n_good')} s dobrom "
+                   "poviješću poziva (stranica KOL-ovi).")
     pf = det.get("pumpfun") or {}
     if pf.get("kolCount"):
         pro.append(f"Na pump.fun ga trejda {pf['kolCount']} KOL walleta.")

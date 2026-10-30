@@ -173,3 +173,21 @@ def import_hype(con, hype_db):
         if json.loads(stats or "{}").get("bot"):
             label(con, wallet, "bot")
     return n
+
+
+def import_kol(con, kol_db=None):
+    """Rotation devs from kol.db (run_kol.py flows): bought before KOL calls and sold into them on 3+ tokens.
+    Labelled insider + rotation_dev, which keeps them off the copy list. One-off flippers stay only in kol.db."""
+    try:
+        from kol import store as kstore
+    except ImportError:
+        return 0
+    n = 0
+    for wallet, tokens, lab in kstore.rotation_wallets(kol_db):
+        if lab != "rotation_dev":
+            continue
+        observe(con, wallet, None, "kol", "insider", extra={"tokens": tokens})
+        label(con, wallet, "insider")
+        label(con, wallet, "rotation_dev")
+        n += 1
+    return n
