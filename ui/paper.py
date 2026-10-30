@@ -23,8 +23,8 @@ def _cfg():
         return {}
 
 
-def _live(mints):
-    """mint -> (price, liquidity, url) from the deepest pair, {} if DexScreener is unreachable."""
+def market(mints):
+    """mint -> (price, liquidity, url, mcap) from the deepest pair, {} if DexScreener is unreachable."""
     if not mints:
         return {}
     try:
@@ -36,8 +36,13 @@ def _live(mints):
     for p in pairs:
         t, liq = p["baseToken"]["address"], (p.get("liquidity") or {}).get("usd") or 0
         if liq >= best.get(t, (0, -1))[1]:
-            best[t] = (float(p.get("priceUsd") or 0), liq, p.get("url"))
+            best[t] = (float(p.get("priceUsd") or 0), liq, p.get("url"), p.get("marketCap") or p.get("fdv"))
     return best
+
+
+def _live(mints):
+    """mint -> (price, liquidity, url) from the deepest pair, {} if DexScreener is unreachable."""
+    return {t: v[:3] for t, v in market(mints).items()}
 
 
 def snapshot():
@@ -47,6 +52,7 @@ def snapshot():
     opened = [t for t in trades if t["status"] == "open"]
     closed = [t for t in trades if t["status"] == "closed"]
     live = _live({t["token"] for t in opened})
+    dca_open = {d["trade_id"]: d for d in data.paper_dca() if not d["done"]}
     rows = []
     for t in opened:
         pos = t["state"]
@@ -65,7 +71,9 @@ def snapshot():
                      "size": t["size_usd"], "entry": entry, "price": price, "move": price / entry - 1 if price and entry else None,
                      "pnl": pnl, "ret": ret, "max": t["max_ret"], "min": t["min_ret"], "left": pos.get("left", 1.0),
                      "sl": None if pos.get("tp_done") else cfg.get("sl"), "next_tp": tp[0][0] if tp else None,
-                     "liq": liq, "src": src})
+                     "liq": liq, "src": src, "mc_in": t.get("entry_mcap"),
+                     "mc_now": t["entry_mcap"] * price / entry if price and entry and t.get("entry_mcap") else None,
+                     "dca": dca_open.get(t["id"], {}).get("reason")})
     bank = cfg.get("bankroll_usd", 0)
     realized = sum(t["pnl_usd"] or 0 for t in closed)
     unreal = sum(r["pnl"] for r in rows)
@@ -104,7 +112,7 @@ def _curve(closed, bank):
 JS = """
 const $=s=>document.querySelector(s),f2=x=>x==null?'–':(x>=0?'+':'')+x.toFixed(2),pc=x=>x==null?'–':(x>=0?'+':'')+(x*100).toFixed(0)+'%',
 cls=x=>x>0?'pos':x<0?'neg':'',usd=x=>x==null?'–':'$'+x.toLocaleString('en',{maximumFractionDigits:2}),
-px=x=>x==null?'–':x.toPrecision(4),age=t=>{const h=(Date.now()/1e3-t)/3600;return h<1?Math.round(h*60)+' min':h.toFixed(1)+' h'};
+px=x=>x==null?'–':x.toPrecision(4),mc=x=>x==null?'–':x>=1e6?'$'+(x/1e6).toFixed(2)+'M':x>=1e3?'$'+(x/1e3).toFixed(1)+'k':'$'+x.toFixed(0),age=t=>{const h=(Date.now()/1e3-t)/3600;return h<1?Math.round(h*60)+' min':h.toFixed(1)+' h'};
 function draw(d){
  const c=[[usd(d.equity),'stanje računa (equity)',cls(d.equity-d.bankroll)],[usd(d.cash),'slobodno ($)',''],
   [usd(d.in_use),'u otvorenim pozicijama',''],[f2(d.realized)+' $','ostvareno (zatvoreni)',cls(d.realized)],
@@ -112,17 +120,44 @@ function draw(d){
   [d.wins+' / '+d.closed,'dobitnih zatvorenih','']];
  $('#cards').innerHTML=c.map(([v,l,k])=>`<div class=stat><div class="v ${k}">${v}</div><div class=l>${l}</div></div>`).join('');
  const rows=d.positions.map(p=>`<tr><td><a href="https://dexscreener.com/solana/${p.token}" target=_blank>${p.symbol||p.token.slice(0,6)}</a> <a href="/token/${p.token}" class=mut title="detalji">ⓘ</a></td>
-  <td>${age(p.opened_ts)}</td><td class=n>${usd(p.size)}</td><td class=n>${px(p.entry)}</td><td class=n>${px(p.price)}</td>
+  <td>${age(p.opened_ts)}</td><td class=n>${usd(p.size)}</td><td class=n>${px(p.entry)}</td><td class=n>${px(p.price)}</td><td class=n>${mc(p.mc_in)}</td><td class=n>${mc(p.mc_now)}</td>
   <td class="n ${cls(p.move)}">${pc(p.move)}</td><td class="n ${cls(p.pnl)}"><b>${f2(p.pnl)}</b></td><td class="n ${cls(p.ret)}">${pc(p.ret)}</td>
   <td class=n>${pc(p.max)}</td><td class=n>${pc(p.min)}</td><td class=n>${Math.round(p.left*100)}%</td>
   <td class=n>${p.sl==null?'breakeven':pc(p.sl)}</td><td class=n>${p.next_tp==null?'–':pc(p.next_tp)}</td>
-  <td class=n>${usd(p.liq)}</td><td class=mut>${p.src}</td></tr>`).join('');
- $('#open').innerHTML=rows||'<tr><td colspan=15 class=empty>Nema otvorenih pozicija.</td></tr>';
+  <td class=n>${usd(p.liq)}</td><td class=mut>${p.src}</td>
+  <td>${p.dca?'<span class="b warn" title="'+p.dca.replace(/"/g,'&quot;')+'">DCA prijedlog</span>':''}</td></tr>`).join('');
+ $('#open').innerHTML=rows||'<tr><td colspan=18 class=empty>Nema otvorenih pozicija.</td></tr>';
  $('#upd').textContent='osvježeno '+new Date(d.ts*1000).toLocaleTimeString()+(d.live?'':' · DexScreener nedostupan, prikaz iz baze');
 }
 async function poll(){try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}}
 poll();setInterval(poll,REFRESH*1000);
 """
+
+
+def _mc(x):
+    if not x:
+        return "?"
+    return f"${x / 1e6:,.2f}M" if x >= 1e6 else f"${x / 1e3:,.1f}k" if x >= 1e3 else f"${x:,.0f}"
+
+
+def dca_html():
+    """Buy-the-dip suggestions on bot trades and what the extra buy would have made (paper/dca.py)."""
+    rows = data.paper_dca()
+    if not rows:
+        return ("<h2>DCA prijedlozi (kupnja u padu)</h2><p class=mut>Još nema signala. Bot ga daje kad je otvorena pozicija "
+                "u padu (ali iznad stop lossa), likvidnost je još tu i cijena već odskače od dna. Samo se bilježi, ne kupuje.</p>")
+    from paper import dca
+    s = dca.summary(rows)
+    head = (f"{s['n']} signala" + (f", {s['closed']} sa zatvorenim trejdom: dokup bi dao prosječno {s['avg']:+.0%}, "
+                                  f"pogodak {s['win']:.0%}, ukupno {s['pnl']:+.2f} $" if s.get("closed") else ""))
+    body = table(["Token", "Kada", ("MC", "n"), ("Pad", "n"), ("Razlog", "wrap"), ("Dokup", "n"), ("Do izlaza", "n"),
+                  ("PnL dokupa", "n"), ("Max 24 h", "n"), "Trejd"],
+                 [[tlink(r["token"], r["symbol"]), ts(r["ts"]), usd(r["mcap"]), signed(r["dip"], "{:+.0%}"),
+                   (esc(r["reason"]), "", "wrap"), usd(r["size_usd"]), signed(r["ret_to_exit"], "{:+.0%}"),
+                   signed(r["pnl_usd"]), signed(r["max_24h"], "{:+.0%}"),
+                   badge("zatvoren" if r["done"] else "otvoren", "" if r["done"] else "warn")] for r in reversed(rows)])
+    return (f"<h2>DCA prijedlozi (kupnja u padu)</h2><p class=mut>{esc(head)}. Signal se samo bilježi; „Do izlaza” je što "
+            "bi dokup po cijeni signala donio da je prodan zajedno s trejdom. Dnevni pregled kaže isplati li se.</p>" + body)
 
 
 def _top(features, n=3):
@@ -265,10 +300,10 @@ def page(qs):
                  "(<code>run_paper.py run --scan</code>); lokalno pokreni istu naredbu.</div>")
     b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati.") + "<div class=tw><table><thead><tr>"
              + "".join(th(*h) for h in [("Token", ""), ("Otvoreno prije", ""), ("Ulog", "n"), ("Ulazna cijena", "n"),
-                                        ("Sada", "n"), ("Pomak", "n"), ("PnL $", "n"), ("Povrat", "n"), ("Max", "n"),
+                                        ("Sada", "n"), ("MC ulaz", "n"), ("MC sada", "n"), ("Pomak", "n"), ("PnL $", "n"), ("Povrat", "n"), ("Max", "n"),
                                         ("Min", "n"), ("Ostalo", "n"), ("Stop loss", "n"), ("Sljedeći TP", "n"),
-                                        ("Likvidnost", "n"), ("Cijena iz", "")])
-             + "</tr></thead><tbody id=open><tr><td colspan=15 class=empty>Učitavam…</td></tr></tbody></table></div>")
+                                        ("Likvidnost", "n"), ("Cijena iz", ""), ("DCA", "")])
+             + "</tr></thead><tbody id=open><tr><td colspan=18 class=empty>Učitavam…</td></tr></tbody></table></div>")
     if cfg:
         tps = ", ".join(f"+{lv:.0%} prodaj {fr:.0%}" for lv, fr in cfg.get("tp", []))
         b.append(f"<p class=mut>Pravila: ulog ${cfg.get('size_usd')}, stop loss {cfg.get('sl', 0):.0%}, take profit {esc(tps)}, "
@@ -285,7 +320,7 @@ def page(qs):
         conf, _ = confidence.for_candidate(c) if c else (None, [])
         hold = ((t["closed_ts"] or 0) - t["opened_ts"]) / 3600 if t["closed_ts"] else 0
         rows.append([(f'{tlink(t["token"], t["symbol"])}<div class=mut style="font-size:12px">{ts(t["opened_ts"])[0]} · '
-                      f'{hold:.1f} h</div>', t["opened_ts"], ""),
+                      f'{hold:.1f} h · MC {_mc(t.get("entry_mcap"))} → {_mc(t.get("exit_mcap"))}</div>', t["opened_ts"], ""),
                      (f'{signed(t["pnl_usd"])[0]}<div style="font-size:12px">{signed(t["ret"], "{:+.0%}")[0]} · max '
                       f'{(t["max_ret"] or 0):+.0%}</div><div class=mut style="font-size:12px">'
                       f'{esc(EXIT.get(t["exit_reason"] or "", t["exit_reason"] or ""))}</div>', t["pnl_usd"] or 0, "n"),
@@ -294,6 +329,7 @@ def page(qs):
     b.append(tdesc('Svaki zatvoreni demo trejd: koliko je zaradio ili izgubio, kolika je bila procjena pri ulazu, zašto je uzet i što alat iz ishoda uči.') + table(["Token", ("PnL $", "n"), ("Confidence pri ulazu", "n"), ("Zašto uzet", "wrap"), ("Ishod i lekcija", "wrap")],
                    rows, "pt", "Još nema zatvorenih trejdova."))
     b.append(_calibration(trades, cands))
+    b.append(dca_html())
 
     b.append(f'<h2>Kandidati i odluke</h2><p class=mut>Svaki token koji je bot razmotrio: uzet ili preskočen s razlogom.</p>'
              f'<div class=flt>{filt("pc", "Filtriraj token, razlog…")}</div>')

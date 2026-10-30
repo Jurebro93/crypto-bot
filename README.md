@@ -153,6 +153,10 @@ Izlazi (`paper/config.json`): stop loss -35%, pola na 2x i četvrtina na 4x, nak
 
 Dnevni pregled: rezultat, greške po vrsti (rug, kasni ulaz nakon skoka, profit vraćen, mrtav trejd), propušteni pobjednici s razlogom preskoka, tablica filtera ("da smo ušli u sve"), rug presuda vs. stvarni ishod, izvori signala, lift značajki. Prijedlozi: prag ulaza, stop/TP/trailing/trajanje, koje rug presude blokirati, minimalna likvidnost, nove težine hype ocjene (`paper/weights.suggested.json`). Prijedlog prolazi samo ako ima barem 10 tokena iza sebe i bolji je i u starijoj i u novijoj polovici podataka. Svaka demo kupnja, prodaja i dnevni sažetak zapisuju se u `output/paper/journal.log` (vidljivo i u UI-ju, koji čita `paper.db`). Telegram je isključen; uključuje se s `PAPER_TELEGRAM=1` ili `review --telegram`. Sve naučeno se skuplja u `output/paper/lessons.md`. Baza je `paper.db`.
 
+Svaki trejd pamti market cap na ulazu i na izlazu (`entry_mcap`, `exit_mcap` u `paper.db` i `league.db`; stare baze se dopune iz spremljenih cijena). Dashboard ih pokazuje u Demo tradingu i u Natjecanju.
+
+DCA prijedlog (kupnja u padu, `paper/dca.py`, pravila u `config.json` pod `dca`): kad je otvorena pozicija 20% ili više u minusu, ali barem 3 postotna boda iznad stop lossa, likvidnost je još barem 60% ulazne, cijena je već odskočila 8% od dna i trejd je star barem 20 min, bot zabilježi prijedlog da se dokupi pola uloga. Najviše jedan po trejdu, nikad nakon prvog TP-a. Prijedlog se ne izvršava; dnevni pregled mjeri što bi dokup donio da je prodan zajedno s trejdom i kaže isplati li se (barem 10 signala, isti rezultat u obje polovice podataka). Signal se pokazuje i igračima u Natjecanju ako drže isti token.
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.

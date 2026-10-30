@@ -38,6 +38,10 @@ def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=30)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    if "entry_mcap" not in {r[1] for r in con.execute("PRAGMA table_info(trades)")}:  # older league.db
+        con.execute("ALTER TABLE trades ADD COLUMN entry_mcap REAL")
+        con.execute("ALTER TABLE trades ADD COLUMN exit_mcap REAL")
+        con.commit()
     return con
 
 
@@ -56,7 +60,7 @@ def account(con, user):
     return {"user": user, "start": start, "realized": realized, "in_use": in_use, "cash": start + realized - in_use}
 
 
-def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None):
+def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, mcap=None):
     if not price or price <= 0:
         raise ValueError("nema cijene za token")
     if not liq or liq < 1000:
@@ -68,8 +72,9 @@ def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None):
         raise ValueError("već imaš otvorenu poziciju u tom tokenu")
     eff = price * (1 + FEE) / (1 - impact(size_usd, liq))
     cur = con.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px, entry_eff, qty, "
-                      "source, score) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                      (user, token, symbol, int(time.time()), "open", size_usd, price, eff, size_usd / eff, source, score))
+                      "source, score, entry_mcap) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (user, token, symbol, int(time.time()), "open", size_usd, price, eff, size_usd / eff, source, score,
+                       mcap))
     con.commit()
     return cur.lastrowid
 
@@ -82,14 +87,17 @@ def value(t, price, liq):
     return gross * (1 - FEE) * (1 - impact(gross, liq))
 
 
-def sell(con, user, trade_id, price, liq, note=""):
+def sell(con, user, trade_id, price, liq, note="", mcap=None):
     t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
     if not t:
         raise ValueError("nema te otvorene pozicije")
     proceeds = value(t, price, liq)
     pnl = proceeds - t["size_usd"]
-    con.execute("UPDATE trades SET status='closed', closed_ts=?, exit_px=?, proceeds=?, pnl_usd=?, ret=?, note=? "
-                "WHERE id=?", (int(time.time()), price or 0, proceeds, pnl, pnl / t["size_usd"], note, trade_id))
+    if mcap is None and price and t["entry_mcap"] and t["entry_px"]:  # supply is fixed: mcap moves with price
+        mcap = t["entry_mcap"] * price / t["entry_px"]
+    con.execute("UPDATE trades SET status='closed', closed_ts=?, exit_px=?, proceeds=?, pnl_usd=?, ret=?, note=?, "
+                "exit_mcap=? WHERE id=?", (int(time.time()), price or 0, proceeds, pnl, pnl / t["size_usd"], note,
+                                          mcap if price else 0, trade_id))
     con.commit()
     return pnl
 

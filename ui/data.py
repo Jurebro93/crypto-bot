@@ -261,6 +261,21 @@ def paper_trades(token=None):
     return rows
 
 
+def paper_dca():
+    """DCA suggestions on bot trades with their outcome (paper/dca.py), oldest first."""
+    con = _connect(PAPER_DB)
+    if con is None:
+        return []
+    try:
+        from paper import dca
+        con.row_factory = None
+        return dca.outcomes(con)
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
 def paper_reviews():
     rows = multi("paper", "SELECT * FROM reviews ORDER BY day DESC")
     for r in rows:
