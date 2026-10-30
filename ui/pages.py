@@ -24,6 +24,10 @@ SOURCE = {"harvest": "harvest (rani kupci pobjednika)", "hype_learn": "hype lear
 
 FEATURE = {
     "fresh": "starost: 1 ispod 1 h, 0 na 72 h",
+    "market_regime": "vrućina tržišta jučer (launchpadi + Solana DEX), 0-1, ista za sve tokene u skenu",
+    "put_brzina": "log rast mcapa po satu od prve snimke (0,7/h = 1)",
+    "put_skokovitost": "udio ukupnog rasta u jednom koraku (1 = sve odjednom)",
+    "put_zadrzavanje": "mcap prema vrhu (1 = na vrhu)",
     "turnover": "volumen zadnjeg sata / likvidnost (3x = 1)",
     "buy_pressure": "udio kupnji u zadnjem satu (iznad 50%)",
     "momentum": "rast cijene u 1 h (+200% = 1)",

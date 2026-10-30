@@ -9,6 +9,8 @@ HELP = {
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
     "Hype": "Hype ocjena 0-100 iz zadnjeg skeniranja: ponderirani zbroj signala (volumen, kupci, X, KOL, kopije teme…).",
+    "Šansa": "Šansa za skok 0-100: confidence × pokrivenost (0,5 + 0,5 × analizirano/7 slojeva) × (1 − 0,15 × palo). Nagrađuje "
+             "token kojeg je pogledalo više neovisnih analiza; neanaliziran sloj se ne računa kao prolaz.",
     "Razina": "Dokle je token stigao u slojevitoj analizi: T0 besplatno sito (samo mehanika ruga), T1 rani kupci preko "
               "Heliusa, T2 pun rug filter i X buzz, T3 duboka analiza. Skupe provjere dobivaju samo tokeni koji su stigli do razine.",
     "Klasa": "Moonshot (mcap < $150k, mlađi od 3 dana), Rizičan (između), Event (pravi token događaja iz kalendara), "
@@ -17,6 +19,8 @@ HELP = {
           "Likvidnost i holderi nisu pragovi nego značajke koje alat uči.",
     "Put": "Oblik puta do današnjeg mcapa iz snimaka cijene: brzina (log rast po satu), skokovitost (udio rasta u jednom "
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
+    "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
+                     "kontekst, a težinu mu uči petlja (početno 0).",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
     "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",

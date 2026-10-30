@@ -72,11 +72,17 @@ Petlja poboljšanja: `watch` bilježi svaki signal (`hype_signals`) i cijene (`h
 
 Alarmi u tvoj Telegram bot: postavi `TELEGRAM_BOT_TOKEN` i `TELEGRAM_CHAT_ID`. Helius (`HELIUS_API_KEY`) treba za `learn`, `buyers`, `wallet` i smart money provjeru; svaki poziv troši oko 100 kredita.
 
+Izbornik dashboarda ima pet grupa (Pregled, Tokeni, Walleti, Trading, Sustav); stranice grupe su u drugom redu, pa su sve stare rute i dalje tu. Pregled pokazuje samo demo rezultat, istaknute po klasi i tablicu tokena kroz analize; rast baze, klasteri walleta i stanje baza su sklopljeni ispod.
+
 ## Slojevita analiza (`tiers/`)
 
 Svaki token koji sken vidi dobiva red u `token_tier` (hype.db): **klasu** (`moonshot` mcap < $150k i mlađi od 3 dana, `stabilni` mcap > $2M i stariji od 7 dana, `event` pravi token iz kalendara, inače `rizican`; granice u `tiers/config.json`), **razinu** do koje je stigao (T0 besplatno sito, T1 rani kupci preko Heliusa, T2 pun rug filter ili X buzz, T3 duboko) i koliko je Helius kredita potrošio. Skupe provjere u `run_hype.py scan` i Apify izvori dobivaju samo tokene koji su prošli T0; `run_paper.py` upisuje T2 kad napravi rug check.
 
 T0 pada **samo na mehanici ruga** (aktivan mint ili freeze authority, LP nezaključan izvan launchpada; pump.fun tokeni prolaze bez poziva, ostali preko RugCheck izvještaja keširanog 6 h). Likvidnost, top 10 holderi, dev udio i bundleri nisu pragovi nego značajke za učenje. Tokeni ispod `--min-liq` ili iznad `--max-mcap` ulaze u `token_tier` kao `t0=nije` i `track` im prati cijenu, pa `eval` vidi i što su pragovi propustili. Oblik puta do mcapa iz snimaka (`put_brzina`, `put_skokovitost`, `put_zadrzavanje`) ulazi u značajke s težinom 0 dok ih fit ne nauči.
+
+## Petlja učenja (`run_learn.py`, `learn/`)
+
+Ništa ručno. `run_learn.py loop` jednom dnevno (05:00 UTC, `learn/config.json`): za svaku klasu izračuna **skok** (maksimalni rast u 24 h u gornjih 15% ishoda te klase u zadnjih 30 dana; početni pragovi dok klasa nema 20 ishoda), fita težine hype ocjene logističkom regresijom i primjenjuje ih **samo** ako klasa ima barem 200 ishoda, svaka težina se pomiče najviše 20% po runu, i nove težine imaju bolju preciznost gornje petine na obje vremenske polovice. Naučene težine su u `$LEARNED_DIR/weights.<klasa>.json` (na Render disku), sken ih čita po klasi; `.prev` ostaje za rollback, koji se sam dogodi kad primijenjene težine nakon 2 runa bez poboljšanja gube od prethodnih. Svaki run je u `learn_runs` (hype.db). Stranica **Učenje** pokazuje lift po značajki, udio skokova po rasponu sirovih vrijednosti (likvidnost, mcap, top 10, bundleri, smart kupci, skokovitost), parove značajki, povijest težina i "što smo propustili" (tokeni bez plaćene provjere koji su ipak skočili). `run_learn.py status|missed|fit --dry` za terminal.
 
 ## Walleti i copytrading (`run_wallets.py`)
 
