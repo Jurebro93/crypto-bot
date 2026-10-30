@@ -1,0 +1,13 @@
+{
+ "_comment": "Petlja učenja. skok_pct: skok = ishod u gornjih (100-skok_pct)% max rasta unutar klase u zadnjih skok_window_d dana; skok_init su početni pragovi dok klasa nema min_class_rows ishoda. Fit se primjenjuje sam kad ima min_rows ishoda, svaka težina se pomiče najviše max_step (udio) po runu, i samo ako je nova ocjena bolja na obje vremenske polovice. rollback_runs: ako je primijenjeni fit toliko puta zaredom lošiji od prethodnog, vraća se prethodni.",
+ "horizon_h": 24,
+ "min_rows": 200,
+ "max_step": 0.2,
+ "min_weight_floor": 5,
+ "skok_pct": 85,
+ "skok_window_d": 30,
+ "min_class_rows": 20,
+ "skok_init": {"moonshot": 2.0, "rizican": 1.0, "event": 0.5, "stabilni": 0.3},
+ "rollback_runs": 2,
+ "run_at_utc": "05:00"
+}

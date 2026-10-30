@@ -124,7 +124,10 @@ def fragment(mint):
     conf, parts = confidence.score(sig["score"] if sig else None, (data.js(sig["features"], {}) or {}) if sig else {}, det,
                                    rug["verdict"] if rug else None, role,
                                    (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
-    b.append("<div class=card>" + confidence.explain_html(conf, parts) + "</div>")
+    from ui import sansa
+    sn, an, pr, pa = sansa.score(conf, cs)
+    b.append("<div class=card>" + sansa.explain_html(sn, conf, an, pr, pa) + sansa.dots_html(cs)
+             + confidence.explain_html(conf, parts) + "</div>")
 
     # verdict in one place
     passed = sum(1 for _, ok, _ in cs if ok)
