@@ -76,6 +76,25 @@ def page(qs):
     b.append("<p>Najviša ocjena unutar eventa = <b>pravi</b> token, ostali su <b>kopije</b>.</p>")
 
     # ---- hype
+    b.append("<h2 id=razine>2b. Slojevita analiza: klase i razine</h2><p>Svaki token koji sken vidi dobiva <b>klasu</b> i "
+             "<b>razinu</b> u tablici <code>token_tier</code>. Skupe provjere (Helius, Apify) dobivaju samo tokeni koji su "
+             "stigli do razine; tko ne prođe ostaje u bazi i prati mu se cijena, pa petlja učenja vidi i što je propušteno.</p>")
+    tc = _try(lambda: json.load(open(os.path.join(data.HERE, "tiers", "config.json"))), {})
+    kl = tc.get("klase", {})
+    b.append(table(["Klasa", ("Tko ulazi", "wrap"), ("Cilj (početni, uči se)", "wrap")], [
+        ["Moonshot", (f"mcap &lt; ${kl.get('moonshot', {}).get('mcap_max', 0):,.0f}, mlađi od {kl.get('moonshot', {}).get('age_max_h', 0) / 24:.0f} dana", "", "wrap"), ("3x u 24 h", "", "wrap")],
+        ["Rizičan", ("sve između Moonshota i Stabilnih", "", "wrap"), ("2x u 24 h", "", "wrap")],
+        ["Event", ("pravi token događaja iz kalendara", "", "wrap"), ("+50% do dana eventa", "", "wrap")],
+        ["Stabilni", (f"mcap &gt; ${kl.get('stabilni', {}).get('mcap_min', 0):,.0f}, stariji od {kl.get('stabilni', {}).get('age_min_h', 0) / 24:.0f} dana", "", "wrap"), ("+30% u 72 h", "", "wrap")]]))
+    b.append(table(["Razina", ("Što se radi", "wrap"), ("Cijena po tokenu", "wrap"), ("Tvrdi pad", "wrap")], [
+        ["T0", ("DexScreener tržište, RugCheck authority i LP, pump.fun podaci, kalendar; oblik puta do mcapa", "", "wrap"), ("0", "", "wrap"),
+         ("samo mehanika ruga: aktivan mint/freeze authority, LP nezaključan izvan launchpada", "", "wrap")],
+        ["T1", ("rani kupci i smart walleti (1 stranica Heliusa), kopije teme", "", "wrap"), ("~10 kredita", "", "wrap"), ("nema", "", "wrap")],
+        ["T2", ("pun rug filter, X buzz", "", "wrap"), ("~525 kredita + Apify", "", "wrap"), ("rug ODBAČEN", "", "wrap")],
+        ["T3", ("Google Trends, KOL, tok walleta oko poziva, ponovna provjera dok je istaknut", "", "wrap"), ("1-3k kredita + Apify", "", "wrap"), ("nema; crvene zastavice spuštaju Šansu", "", "wrap")]]))
+    b.append("<p class=mut>Likvidnost, top 10 holderi, dev udio i bundleri <b>nisu</b> pragovi: ulaze kao značajke s težinom koju "
+             "fit uči iz ishoda. Značajke oblika puta (<code>put_brzina</code>, <code>put_skokovitost</code>, "
+             "<code>put_zadrzavanje</code>) imaju težinu 0 dok ih fit ne nauči.</p>")
     b.append("<h2 id=hype>3. Hype ocjena tokena (0-100)</h2><p>Svaka značajka je 0-1; ocjena = Σ(značajka × težina) / "
              "Σ težina × 100. Alarm u Telegram ide za ocjenu ≥ 60. <code>run_hype.py eval --fit</code> uči nove težine "
              "iz ishoda signala i piše <code>hype/weights.suggested.json</code>.</p>")

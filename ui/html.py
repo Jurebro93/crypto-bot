@@ -163,6 +163,15 @@ def verdict(v):
     return badge(v, VERDICT.get(v, "")) if v else "–"
 
 
+def klasab(k):
+    from tiers.classify import KLASA_HR
+    return badge(KLASA_HR.get(k, k), {"moonshot": "warn", "event": "good", "stabilni": ""}.get(k, "bad")) if k else ""
+
+
+def razinab(r):
+    return badge(f"T{r}", "good" if (r or 0) >= 2 else "") if r is not None else ""
+
+
 def tierb(t):
     return badge(t, {"A": "good", "B": "warn", "D": "bad"}.get(t, "")) if t else badge("neocijenjen")
 
