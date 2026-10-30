@@ -46,6 +46,20 @@ python3 run_dex.py token <adresa>               # svi parovi jednog tokena + pla
 
 Kako radi: iz događaja uzme ime (subject) i ključne riječi, izbaci šum (mjeseci, dani, BTC, SOL i sl., popis `NOISE` u `dexscreener/match.py`) i svaki pojam pretraži jednom. Token pripada događaju ako mu je simbol jednak pojmu ili ime sadrži pojam. Odbacuje prašinu (likvidnost ispod `--min-liq`), mrtve parove (volumen ispod $100) i velike tokene (mcap iznad $500M, npr. wrapped BTC). Ostale rangira ocjenom 0-100: starost, likvidnost, volumen, broj transakcija, omjer kupnji i prodaja, kazna za volumen višestruko veći od likvidnosti (wash trading), društvene mreže, CTO, točan simbol. Prvi je "pravi", ostali "kopije". Broj holdera i kvaliteta walleta nisu tu (to radi Helius rug filter). Ako kalendar ima `token_likelihood`, događaji se obrađuju tim redom. Klijent (`dexscreener/client.py`) pokriva sve endpointe iz dokumentacije i sam usporava upite ispod limita (60 ili 300 u minuti), a odgovore kešira 60 s (`DEX_CACHE_TTL`).
 
+## Praćenje prije eventa (`run_watch.py`)
+
+Od oko 14 dana prije većeg eventa prati tokene koje je `run_dex.py scan` vezao uz taj event (pravi token i dvije najjače kopije, samo eventi s `token_likelihood` od barem 0,4). Cilj je vidjeti rastu li volumen, kupnje i ulazak dobrih walleta kako se event bliži.
+
+```
+python3 run_watch.py sync              # newest output/dex-*.json -> popis za praćenje
+python3 run_watch.py snap              # snimka s DexScreenera (besplatno)
+python3 run_watch.py snap --wallets    # + novi kupci preko Heliusa (~10 kredita po tokenu)
+python3 run_watch.py analyze           # korelacije -> output/watch-<datum>.md
+python3 run_watch.py run               # petlja na serveru: snimka svaki sat, walleti svakih 6 h
+```
+
+Sve ide u `watch.db`: `watch_tokens` (što se prati), `watch_snapshots` (snimke kroz vrijeme), `watch_buyers` (svaki kupac s tierom i oznakama iz `wallets.db`) i `watch_correlation` (Spearmanova korelacija približavanja eventa s volumenom, kupnjama, novim kupcima, smart walletima i cijenom, plus zaključak). Na sučelju je stranica **Prije eventa** (`/watch`). Krediti: oko 40 tokena × 4 provjere dnevno × 10 = ~50k mjesečno, a `--credits` (zadano 3000) ograničava jedno pokretanje.
+
 ## Hype skener (`run_hype.py`)
 
 Rano otkrivanje tokena koji rastu na valu hypea, smart money walleti i petlja za mjerenje uspješnosti.

@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, overview, pages, paper, radar, tokens  # noqa: E402
+from ui import criteria, evidence, jobs, overview, pages, paper, radar, tokens, watch  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -39,6 +39,8 @@ def route(path, qs):
         return pages.token(path[len("/token/"):], qs)
     if path == "/events":
         return pages.events(qs)
+    if path == "/watch":
+        return watch.page(qs)
     if path == "/paper":
         return paper.page(qs)
     if path == "/criteria":

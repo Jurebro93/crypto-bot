@@ -5,7 +5,7 @@ import json
 import time
 from urllib.parse import quote
 
-NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"),
+NAV = [("/", "Pregled"), ("/radar", "Radar"), ("/wallets", "Walleti"), ("/tokens", "Tokeni"), ("/events", "Eventi"), ("/watch", "Prije eventa"),
        ("/paper", "Demo trading"), ("/criteria", "Kriteriji"), ("/outputs", "Izvještaji")]
 
 CSS = """
