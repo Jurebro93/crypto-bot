@@ -3,7 +3,7 @@ analyses, and wallets that buy the same tokens (clusters, drawn as a graph)."""
 import json
 import time
 
-from ui import confidence, data, evidence, explain, paper
+from ui import confidence, data, evidence, explain, paper, sansa
 from ui.html import tdesc, ago, badge, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
@@ -65,8 +65,9 @@ def token_rows(since=None):
         tier = tiers.get(t) or {}
         if tier.get("t0") == "pad":
             hard = True
+        sn, an, _, _ = sansa.score(conf, cs)
         out.append({"token": t, "symbol": sym, "checks": cs, "passed": passed, "failed": failed, "hard": hard,
-                    "tier": tier, "razina": tier.get("razina"), "klasa": tier.get("klasa"),
+                    "tier": tier, "razina": tier.get("razina"), "klasa": tier.get("klasa"), "sansa": sn, "analysed": an,
                     "conf": conf, "conf_parts": parts, "liq": liq, "rug": rugs.get(t), "events": evs.get(t, []),
                     "cand": cands.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
@@ -76,7 +77,13 @@ def token_rows(since=None):
 
 
 def _rank(r):
-    return (r["conf"], r["passed"] - 0.5 * r["failed"], r["hype"] or 0)
+    """Šansa first (passed analyses weigh in), then confidence, then hype."""
+    return (r["sansa"], r["conf"], r["hype"] or 0)
+
+
+def _class_hint(k):
+    return {"moonshot": "mcap < $150k, mlađi od 3 dana; cilj 3x", "rizican": "između; cilj 2x",
+            "event": "pravi token događaja; cilj +50% do eventa", "stabilni": "mcap > $2M, stariji od 7 dana; cilj +30%"}.get(k, "")
 
 
 def _card(r):
@@ -89,8 +96,8 @@ def _card(r):
     bad = [lab for lab, v, _ in r["checks"] if v is False]
     return (f'<button class="cand stat" data-mint="{esc(r["token"])}" type=button>'
             f'<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:17px">{esc(r["symbol"] or short(r["token"]))}</b>'
-            f'<span>{confidence.badge_html(r["conf"])}</span></div>'
-            f'<div style="margin:4px 0">{badge(f"{r["passed"]}/{r["passed"] + r["failed"]} analiza", "good" if r["passed"] >= 3 and not r["hard"] else "warn")}'
+            f'<span title="Šansa za skok"><b style="font-size:17px">{r["sansa"]}</b> <span class=mut style="font-size:12px">šansa · conf {r["conf"]}</span></span></div>'
+            f'<div style="margin:4px 0">{sansa.dots_html(r["checks"])} <span class=mut style="font-size:12px">{r["analysed"]}/{sansa.N} slojeva</span>'
             f' {razinab(r["razina"])} {klasab(r["klasa"])}'
             f' <span class=mut>{usd(r["mcap"])[0]} mcap · {ago(r["last_seen"])[0]}</span></div>'
             f'<div style="font-size:12px">{" ".join(badge("✓ " + x, "good") for x in ok)} {" ".join(badge("✗ " + x, "bad") for x in bad)}</div>'
@@ -305,17 +312,34 @@ def page(qs):
     now = time.time()
     b = ["<h1>Pregled</h1>", "<h2>Demo trading: rezultat</h2>", paper.summary_html()]
 
-    # 1. standout candidates
+    # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     recent = token_rows(since=now - 86400)
-    top = sorted(recent, key=_rank, reverse=True)[:6]
     b.append("<h2>Istaknuti kandidati (24 h)</h2>")
-    if top:
-        b.append("<p class=mut>Tokeni s najvišim confidenceom: hype ocjena plus neovisne potvrde (X, smart money, KOL, holderi, "
-                 "rug filter, event), minus rizici. Klikni karticu za raspis s brojkama, izvorima i linkovima na dokaze.</p>")
+    b.append("<p class=mut>Poredani po <b>Šansi za skok</b>: confidence puta koliko je od 7 neovisnih slojeva stvarno "
+             "analizirano, minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na "
+             "čemu tvrdom i ima barem 3 analizirana sloja; točkice pokazuju slojeve (zelena prošao, crvena pao, siva nije "
+             "analiziran). Klikni karticu za raspis s brojkama, izvorima i linkovima na dokaze.</p>")
+    from tiers.classify import KLASA_HR, KLASE
+    elig = sorted([r for r in recent if sansa.featured_ok(r)], key=_rank, reverse=True)
+    shown = 0
+    for k in KLASE:
+        top = [r for r in elig if r["klasa"] == k][:3]
+        if not top:
+            continue
+        shown += len(top)
+        b.append(f"<h3>{esc(KLASA_HR[k])} <span class=mut style='font-weight:400;font-size:13px'>{_class_hint(k)}</span></h3>")
         b.append("<div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
                  + "".join(_card(r) for r in top) + "</div>")
-    else:
-        b.append("<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
+    rest = [r for r in elig if not r["klasa"]][:3]
+    if rest:
+        shown += len(rest)
+        b.append("<h3>Bez klase</h3><div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
+                 + "".join(_card(r) for r in rest) + "</div>")
+    if not shown:
+        wait = sorted(recent, key=_rank, reverse=True)[:3]
+        b.append("<div class=card>Nijedan token u zadnja 24 h još ne zadovoljava uvjete za isticanje (T1+, bez tvrdog pada, 3+ "
+                 "analizirana sloja). Najbliži su: " + ", ".join(tlink(r["token"], r["symbol"]) + f" (šansa {r['sansa']}, T{r['razina'] or 0}, {r['analysed']} slojeva)" for r in wait)
+                 + ".</div>" if wait else "<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
 
     b.append(sieve_html())
 
@@ -327,15 +351,15 @@ def page(qs):
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
     b.append(f"<h2>Tokeni koji su prošli više analiza</h2><p class=mut>✓ prošao, ✗ pao, – nije analiziran. "
-             f"Poredano po confidenceu. Klik na naslov stupca sortira po tom stupcu (⇅, ponovni klik obrne redoslijed), <b>ⓘ</b> uz naslov objašnjava stupac, klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
+             f"Poredano po Šansi za skok. Klik na naslov stupca sortira po tom stupcu (⇅, ponovni klik obrne redoslijed), <b>ⓘ</b> uz naslov objašnjava stupac, klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
              f"<a href=/tokens>Tokenima</a>.</p>")
     rows = []
     for r in allrows[:40]:
-        rows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+        rows.append([tlink(r["token"], r["symbol"]), (f"<b>{r['sansa']}</b>", r["sansa"], "n"), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                      (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
                      (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
                     + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype"]), usd(r["mcap"]), ago(r["last_seen"])])
-    b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po confidenceu; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
+    b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po Šansi za skok; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Šansa", "n"), ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
                    rows, "mt", "Nema tokena.", mints=[r["token"] for r in allrows[:40]]))
 
     # 4. wallet clusters

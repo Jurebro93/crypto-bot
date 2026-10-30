@@ -73,3 +73,21 @@ class Store(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Sansa(unittest.TestCase):
+    def test_coverage_rewards_analysed_layers(self):
+        from ui import sansa
+        full = [(lab, True, "") for lab in sansa.LAYERS] + [("Paper uzeo", True, "")]
+        two = [("Hype ≥ 50", True, ""), ("Smart money", True, "")] + [(lab, None, "") for lab in sansa.LAYERS[3:]]
+        s_full, an, pr, pa = sansa.score(60, full)
+        s_two = sansa.score(75, two)[0]
+        self.assertEqual((an, pr, pa), (7, 7, 0))
+        self.assertEqual(s_full, 60)
+        self.assertGreater(s_full, s_two)               # 60 with everything analysed beats 75 with two layers
+        failed = sansa.score(60, full[:-2] + [("Event", False, "")])[0]
+        self.assertLess(failed, s_full)
+        self.assertTrue(sansa.featured_ok({"checks": full, "razina": 1, "hard": False}))
+        self.assertFalse(sansa.featured_ok({"checks": full, "razina": 0, "hard": False}))
+        self.assertFalse(sansa.featured_ok({"checks": two, "razina": 2, "hard": False}))
+        self.assertIn("Rug filter", sansa.dots_html(full))

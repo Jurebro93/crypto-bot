@@ -9,6 +9,8 @@ HELP = {
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
     "Hype": "Hype ocjena 0-100 iz zadnjeg skeniranja: ponderirani zbroj signala (volumen, kupci, X, KOL, kopije teme…).",
+    "Šansa": "Šansa za skok 0-100: confidence × pokrivenost (0,5 + 0,5 × analizirano/7 slojeva) × (1 − 0,15 × palo). Nagrađuje "
+             "token kojeg je pogledalo više neovisnih analiza; neanaliziran sloj se ne računa kao prolaz.",
     "Razina": "Dokle je token stigao u slojevitoj analizi: T0 besplatno sito (samo mehanika ruga), T1 rani kupci preko "
               "Heliusa, T2 pun rug filter i X buzz, T3 duboka analiza. Skupe provjere dobivaju samo tokeni koji su stigli do razine.",
     "Klasa": "Moonshot (mcap < $150k, mlađi od 3 dana), Rizičan (između), Event (pravi token događaja iz kalendara), "
