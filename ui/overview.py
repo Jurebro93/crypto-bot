@@ -1,9 +1,11 @@
 """The "Pregled" page: standout candidates (pop-up with evidence), how the data grows, tokens that passed several
 analyses, and wallets that buy the same tokens (clusters, drawn as who-bought-what grids)."""
+import datetime as dt
+import os
 import time
 
 from ui import confidence, data, evidence, explain, paper, sansa
-from ui.html import tdesc, ago, badge, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
+from ui.html import tdesc, tip, ago, badge, bar, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
 
@@ -181,35 +183,93 @@ def _first_seen():
             "Rug provjera": rug, "Na copy listi": list(copy.values())}
 
 
-def _chart(series, now, days=7, step=3600):
-    """Cumulative counts over the last `days`, one line per series (normalised to its own max)."""
-    colors = ["var(--bar)", "#e8590c", "#2b8a3e", "#ae3ec9"]
-    W, H = 640, 150
-    t0 = now - days * 86400
-    lines, legend = [], []
-    for i, (name, tss) in enumerate(list(series.items())[:4]):
-        tss = sorted(t for t in tss if t)
-        pts, j = [], 0
-        for k in range(days * 86400 // step + 1):
-            t = t0 + k * step
-            while j < len(tss) and tss[j] <= t:
-                j += 1
-            pts.append(j)
-        mx = max(pts) or 1
-        path = " ".join(f"{W * k / (len(pts) - 1):.1f},{H - 4 - (H - 8) * v / mx:.1f}" for k, v in enumerate(pts))
-        lines.append(f'<polyline points="{path}" fill=none stroke="{colors[i]}" stroke-width=2 vector-effect=non-scaling-stroke />')
-        legend.append(f'<span style="color:{colors[i]}">■</span> {esc(name)} ({pts[0]} → {pts[-1]})')
-    ticks = "".join(f'<line x1="{W * d / days:.1f}" x2="{W * d / days:.1f}" y1=0 y2={H} stroke="currentColor" stroke-opacity=.08 />'
-                    for d in range(1, days))
-    return (f'<div class=card><svg viewBox="0 0 {W} {H}" width="100%" height="{H}" preserveAspectRatio=none>{ticks}{"".join(lines)}</svg>'
-            f'<div style="display:flex;justify-content:space-between" class=mut><span>prije {days} d</span><span>sada</span></div>'
-            f'<div style="font-size:12px">{" · ".join(legend)}</div>'
-            f'<div class=mut style="font-size:12px">Svaka linija je skalirana na svoj maksimum, pa se vidi tempo rasta, ne omjer.</div></div>')
+GROWTH_MAIN = ("Tokena analizirano", "Walleta u registru", "Walleta ocijenjeno", "Rug provjera")
 
 
-def growth():
+def _daily(tss, now, days=7):
+    """New items per rolling 24 h window, oldest first; the last one is 'zadnja 24 h'."""
+    out = [0] * days
+    lo = now - days * 86400
+    for t in tss:
+        if t and lo < t <= now:
+            out[min(days - 1, int((t - lo) // 86400))] += 1
+    return out
+
+
+def _bars(daily, now):
+    """Seven thin bars, one per day; today in full colour, earlier days lighter, dashed line = average of earlier days."""
+    W, H, gap = 210, 54, 6
+    n = len(daily)
+    bw = (W - gap * (n - 1)) / n
+    mx = max(daily) or 1
+    prev = daily[:-1]
+    avg = sum(prev) / len(prev) if prev else 0
+    out = []
+    for i, v in enumerate(daily):
+        h = max(2, (H - 4) * v / mx) if v else 2
+        x = i * (bw + gap)
+        day = dt.datetime.fromtimestamp(now - (n - 1 - i) * 86400).strftime("%d.%m.")
+        lab = "zadnja 24 h" if i == n - 1 else f"dan do {day}"
+        op = "1" if i == n - 1 else ".45"
+        out.append(f'<rect x="{x:.1f}" y="{H - h:.1f}" width="{bw:.1f}" height="{h:.1f}" rx=3 fill="var(--bar)" fill-opacity="{op}">'
+                   f'<title>{lab}: +{v:,}</title></rect>')
+    if avg:
+        y = H - (H - 4) * avg / mx
+        out.append(f'<line x1=0 x2="{W}" y1="{y:.1f}" y2="{y:.1f}" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="3 3">'
+                   f'<title>prosjek prethodnih dana: +{avg:,.0f}/dan</title></line>')
+    return (f'<svg class=spark viewBox="0 0 {W} {H}" width="100%" height="{H}" preserveAspectRatio=none role=img '
+            f'aria-label="novo po danu, zadnjih {n} dana">{"".join(out)}</svg>'
+            f'<div class="spark-ax mut"><span>prije {n} d</span><span>danas</span></div>')
+
+
+def _compare(today, prev):
+    """Plain-Croatian comparison of the last 24 h with the average day before."""
+    avg = sum(prev) / len(prev) if prev else 0
+    if not avg:
+        return ("prvi dan s podacima", "mut") if today else ("ništa novo", "mut")
+    r = today / avg
+    if r >= 1.15:
+        return (f"▲ {r:.1f}× više nego prosječan dan (+{avg:,.0f})", "pos")
+    if r <= 0.85:
+        return (f"▼ {1 - r:.0%} manje nego prosječan dan (+{avg:,.0f})", "neg" if r < 0.5 else "warn")
+    return (f"≈ kao prosječan dan (+{avg:,.0f})", "mut")
+
+
+def growth_tiles(series=None, now=None):
+    """How the base fills up: one tile per kind of data with total, last 24 h vs the average day, and 7 daily bars."""
+    now = now or time.time()
+    series = series if series is not None else _first_seen()
+    tiles = []
+    for name in GROWTH_MAIN:
+        tss = series.get(name) or []
+        daily = _daily(tss, now)
+        txt, cls = _compare(daily[-1], daily[:-1])
+        tiles.append(f'<div class="stat gt"><div class=l>{esc(name)}</div>'
+                     f'<div class=v>{len(tss):,}</div>'
+                     f'<div style="font-size:13px"><b>+{daily[-1]:,}</b> u zadnja 24 h</div>'
+                     f'<div class="{cls}" style="font-size:12px;margin-bottom:6px">{esc(txt)}</div>'
+                     f'{_bars(daily, now)}</div>')
+    return "<div class='grid gtg'>" + "".join(tiles) + "</div>"
+
+
+def disk_line():
+    """One line on how full the server disk is (a full disk stops the bot from saving anything)."""
+    import shutil
+    try:
+        du = shutil.disk_usage(os.environ.get("DATA_DIR") or ".")
+    except OSError:
+        return ""
+    used = du.used / du.total if du.total else 0
+    kind = "good" if used < 0.7 else "warn" if used < 0.9 else "bad"
+    return (f"<p class=mut style='margin:8px 0 0'>Disk na serveru: {bar(used, 1, 120)} <b>{used:.0%}</b> zauzeto "
+            f"({du.used / 1e9:.2f} od {du.total / 1e9:.2f} GB) {badge({'good': 'OK', 'warn': 'puni se', 'bad': 'skoro pun'}[kind], kind)}"
+            " · detalji na <a href=/usage>Potrošnji</a></p>")
+
+
+def growth(series=None):
+    """The same history as a table (state 1 h, 6 h, 24 h, 3 d, 7 d ago) for anyone who wants exact numbers."""
     now = time.time()
-    series = _first_seen()
+    series = series if series is not None else _first_seen()
     rows = []
     for name, tss in series.items():
         cells = [esc(name)]
@@ -223,8 +283,7 @@ def growth():
                 cells.append((f"{n:,} <span class={'pos' if d else 'mut'}>+{d:,}</span>", n, "n"))
         rows.append(cells)
     head = ["", ("Sada", "n")] + [(f"Prije {l}", "n") for l, _ in POINTS[1:]]
-    return (tdesc('Koliko tokena, walleta, signala i rug provjera je alat imao u svakom trenutku. Pokazuje puni li se baza i koliko brzo.') + table(head, rows) + "<p class=mut>Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.</p>"
-            + _chart({k: series[k] for k in ("Tokena analizirano", "Walleta u registru", "Walleta ocijenjeno", "Rug provjera")}, now))
+    return (tdesc("Broj u stupcu = stanje u tom trenutku; zeleno = koliko je dodano od tada.") + table(head, rows))
 
 
 # ---------- wallet clusters ----------
@@ -333,57 +392,59 @@ def _grid(ci, c, syms, reg, max_w=14, max_t=10):
 
 def page(qs):
     now = time.time()
-    b = ["<h1>Pregled</h1>", "<h2>Demo trading: rezultat</h2>", paper.summary_html()]
+    b = ["<h1>Pregled</h1>"]
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     recent = token_rows(since=now - 86400)
-    b.append("<h2>Istaknuti kandidati (24 h)</h2>")
-    b.append("<p class=mut>Poredani po <b>Šansi za skok</b>: confidence puta koliko je od 7 neovisnih slojeva stvarno "
-             "analizirano, minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na "
-             "čemu tvrdom i ima barem 3 analizirana sloja; točkice pokazuju slojeve (zelena prošao, crvena pao, siva nije "
-             "analiziran). Klikni karticu za raspis s brojkama, izvorima i linkovima na dokaze.</p>")
+    b.append("<h2>Istaknuti kandidati <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
+             + tip("Poredani po Šansi za skok: confidence puta koliko je od 7 neovisnih slojeva stvarno analizirano, "
+                   "minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na čemu "
+                   "tvrdom i ima barem 3 analizirana sloja. Točkice su slojevi: zelena prošao, crvena pao, siva nije analiziran.")
+             + "</h2><p class=lead>Najjači tokeni po vrsti. Klikni karticu za brojke, izvore i dokaze.</p>")
     from tiers.classify import KLASA_HR, KLASE
     elig, per_class = featured(recent)
     shown = 0
-    for k in KLASE:
-        top = per_class.get(k, [])
+    groups = [(KLASA_HR[k], _class_hint(k), per_class.get(k, [])) for k in KLASE] + [("Bez klase", "", per_class.get(None, []))]
+    for name, hint, top in groups:
         if not top:
             continue
         shown += len(top)
-        b.append(f"<h3>{esc(KLASA_HR[k])} <span class=mut style='font-weight:400;font-size:13px'>{_class_hint(k)}</span></h3>")
+        b.append(f"<h3>{esc(name)} <span class=mut style='font-weight:400;font-size:13px'>{esc(hint)}</span></h3>")
         b.append("<div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
                  + "".join(_card(r) for r in top) + "</div>")
-    rest = per_class.get(None, [])
-    if rest:
-        shown += len(rest)
-        b.append("<h3>Bez klase</h3><div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
-                 + "".join(_card(r) for r in rest) + "</div>")
     if not shown:
         wait = sorted(recent, key=_rank, reverse=True)[:3]
         b.append("<div class=card>Nijedan token u zadnja 24 h još ne zadovoljava uvjete za isticanje (T1+, bez tvrdog pada, 3+ "
                  "analizirana sloja). Najbliži su: " + ", ".join(tlink(r["token"], r["symbol"]) + f" (šansa {r['sansa']}, T{r['razina'] or 0}, {r['analysed']} slojeva)" for r in wait)
                  + ".</div>" if wait else "<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
-
     b.append(sieve_html())
 
-    # 2. growth, folded: the overview answers "what now"; how the base grows is detail
-    b.append("<details style='margin-top:16px'><summary><b>Kako se baza puni</b> <span class=mut>(tokeni, walleti, provjere kroz 7 dana)</span></summary>"
-             + growth() + "</details>")
+    # 2. demo result
+    b.append("<h2>Demo trading <span class=mut style='font-weight:400'>· bi li bot zaradio</span></h2>")
+    b.append(paper.summary_html())
 
-    # 3. tokens through several analyses
+    # 3. how the base fills up, compared with earlier days
+    series = _first_seen()
+    b.append("<h2 id=baza>Kako se baza puni "
+             + tip("Za svaku vrstu podataka: koliko ih ima ukupno, koliko je novih u zadnja 24 h i kako je to u odnosu na "
+                   "prosječan dan prije. Stupci su novi zapisi po danu (zadnji = danas), crtkana linija je prosjek prethodnih dana.")
+             + "</h2><p class=lead>Novo u zadnja 24 h u usporedbi s prethodnih 6 dana.</p>")
+    b.append(growth_tiles(series, now) + disk_line())
+    b.append("<details style='margin-top:10px'><summary>Točni brojevi po vremenu (tablica)</summary>" + growth(series) + "</details>")
+
+    # 4. tokens through several analyses
     allrows = sorted(token_rows(), key=_rank, reverse=True)
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
-    b.append(f"<h2>Tokeni koji su prošli više analiza</h2><p class=mut>✓ prošao, ✗ pao, – nije analiziran. "
-             f"Poredano po Šansi za skok. Klik na naslov stupca sortira po tom stupcu (⇅, ponovni klik obrne redoslijed), <b>ⓘ</b> uz naslov objašnjava stupac, klik na red otvara analizu. Prvih 40 od {len(allrows)}; svi su na "
-             f"<a href=/tokens>Tokenima</a>.</p>")
+    b.append("<h2>Tokeni koji su prošli više analiza " + tip("Klik na naslov stupca sortira (ponovni klik obrne), ⓘ uz naslov objašnjava stupac, klik na red otvara analizu.") + "</h2>"
+             f"<p class=lead>✓ prošao · ✗ pao · – nije analiziran. Prvih 40 od {len(allrows)}, svi su na <a href=/tokens>Tokenima</a>.</p>")
     rows = []
     for r in allrows[:40]:
         rows.append([tlink(r["token"], r["symbol"]), (f"<b>{r['sansa']}</b>", r["sansa"], "n"), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                      (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
                      (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
                     + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype_last"]), usd(r["mcap"]), ago(r["last_seen"])])
-    b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po Šansi za skok; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Šansa", "n"), ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
+    b.append(table(["Token", ("Šansa", "n"), ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
                    rows, "mt", "Nema tokena.", mints=[r["token"] for r in allrows[:40]]))
 
     # 4. wallet clusters
