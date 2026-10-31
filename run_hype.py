@@ -188,8 +188,10 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
-        if liq < a.min_liq or mcap > a.max_mcap:
-            # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss
+        if (liq < a.min_liq or mcap > a.max_mcap) and t not in keep:
+            # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss.
+            # A retained token (featured on Pregled or already at a tier) is scored whatever its liquidity: it was
+            # analysed, people are watching it, and a stale card is worse than a score on thin liquidity.
             skipped.append((t, p["baseToken"].get("symbol", ""), mcap, liq, (now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6,
                             f"likvidnost {_usd(liq)} < {_usd(a.min_liq)}" if liq < a.min_liq else f"mcap {_usd(mcap)} > {_usd(a.max_mcap)}"))
             continue
