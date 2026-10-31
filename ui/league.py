@@ -197,7 +197,7 @@ def page(qs, user):
                    '<span class=mut>nema cijene</span>')
             srows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                           (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
-                          (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype"]),
+                          (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype_last"]),
                           rugcell(r),
                           badge("bot uzeo", "good") if c.get("trade_id") else (badge("bot preskočio") if c else "–"),
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])

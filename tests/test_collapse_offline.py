@@ -78,3 +78,33 @@ class LeagueRugTest(unittest.TestCase):
             self.assertIn("rugan", html)                            # warning on the open position
         finally:
             data.HYPE_DB = old
+
+
+class RadarLabelTest(unittest.TestCase):
+    def test_label_follows_confidence(self):
+        import json
+        from hype import store as hstore
+        from ui import data, radar
+        d = tempfile.mkdtemp()
+        db = os.path.join(d, "hype.db")
+        con = sqlite3.connect(db)
+        con.executescript(hstore.SCHEMA if hasattr(hstore, "SCHEMA") else "")
+        cols = [r[1] for r in con.execute("PRAGMA table_info(hype_signals)")]
+        if not cols:
+            self.skipTest("no hype schema")
+        now = int(time.time())
+        for tok, sc, liq, mc in (("LOWLIQ", 52, 5500, 6000), ("GOOD", 52, 40000, 90000)):
+            con.execute("INSERT INTO hype_signals (ts, token, symbol, score, mcap, liquidity, features) VALUES (?,?,?,?,?,?,?)",
+                        (now - 30, tok, tok, sc, mc, liq, json.dumps({})))
+        con.commit()
+        con.close()
+        old = (data.HYPE_DB, dict(data.GROUPS))
+        data.HYPE_DB = db
+        data.GROUPS["hype"] = [db]
+        try:
+            _, html = radar.page({})
+        finally:
+            data.HYPE_DB = old[0]
+            data.GROUPS.update(old[1])
+        self.assertNotIn("jak kandidat</span>", html.split("Kandidati sada")[1].split("</table>")[0])
+        self.assertIn("Confidence", html)
