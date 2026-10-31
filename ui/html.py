@@ -8,15 +8,17 @@ from urllib.parse import quote
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/events", "Eventi")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+                                ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),
 ]
 # pages that live under a group but are not in its row (detail pages)
 NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
-              "/prijedlozi/": "Trading", "/watch": "Tokeni", "/prijava": "Trading"}
+              "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni",
+              "/prijava": "Trading"}
 
 
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline

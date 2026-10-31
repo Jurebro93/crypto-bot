@@ -21,9 +21,9 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, market, overview, pages, paper, radar, tokens, usage  # noqa: E402
+from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage  # noqa: E402
 from ui.html import esc, page  # noqa: E402
-from ui import league  # noqa: E402
+from ui import league, real  # noqa: E402
 from league import store as league_store  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -36,6 +36,10 @@ def route(path, qs):
         return overview.page(qs)
     if path == "/radar":
         return radar.page(qs)
+    if path == "/kol":
+        return kol.page(qs)
+    if path.startswith("/kol/"):
+        return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
         return pages.wallets(qs)
     if path.startswith("/wallet/"):
@@ -85,8 +89,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._login(qs)
         if not ok:
             return self._challenge()
-        if path in ("/natjecanje", "/prijedlozi"):
-            fn = league.page if path == "/natjecanje" else league.ideas_page
+        if path in ("/natjecanje", "/prijedlozi", "/moji-tradeovi"):
+            fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page, "/moji-tradeovi": real.page}[path]
             try:
                 html = page(*fn(qs, self.user), path)
             except Exception:
@@ -131,11 +135,12 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
-        if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
+        if same_site and path.startswith(("/natjecanje/", "/prijedlozi/", "/moji-tradeovi/")):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
             self.send_response(303)
-            self.send_header("Location", league.post(path, form, self.user))
+            handler = real.post if path.startswith("/moji-tradeovi/") else league.post
+            self.send_header("Location", handler(path, form, self.user))
             self.end_headers()
             return
         if not path.startswith("/run/") or not same_site:

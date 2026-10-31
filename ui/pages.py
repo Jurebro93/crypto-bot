@@ -44,6 +44,7 @@ FEATURE = {
     "kol_wallets": "pump.fun: broj poznatih KOL walleta koji su trejdali token (5 = 1)",
     "x_trend": "ime ili simbol tokena je trenutno trending tema na X-u",
     "kol_x": "praćeni KOL-ovi tweetali CA ili $ticker u 6 h (2 = 1)",
+    "kol_group": "grupni poziv na X-u u 6 h: dobri KOL-ovi (ocjena 50+) zovu isti token u 30 min (2 = 1, ostali autori +0.1 do 0.5); 0 ako devovi prodaju u poziv",
     "search_trend": "Google pretraga imena u zadnja 24 h vs prethodnih 6 dana (3x = 1)",
 }
 
@@ -300,6 +301,11 @@ def token(mint, qs):
     def sec(sid, title, summary, force=False):
         return (f"<details id={sid}{' open' if opened or force else ''}><summary><b>{title}</b> "
                 f"<span class=mut>· {summary}</span></summary>")
+
+    from ui import kol
+    kol_html = kol.token_section(mint)
+    if kol_html:
+        b.append(sec("kol", "KOL sloj", "tko ga je zvao na X-u i što je cijena napravila") + kol_html + "</details>")
 
     # layer 1: event
     ev_sum = (f"{esc(best['event'])} · {'pravi' if role else 'kopija'} · ocjena {best['score']}" if best else "nije vezan uz event")

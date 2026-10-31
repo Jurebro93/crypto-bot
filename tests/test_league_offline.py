@@ -3,6 +3,7 @@ import base64
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,10 +19,11 @@ class League(unittest.TestCase):
         self.db = os.path.join(tempfile.mkdtemp(), "league.db")
         store.DB = self.db
         league._live = lambda mints: {m: (2.0, 1e6, None) for m in mints}
+        league.market = lambda mints: {m: (2.0, 1e6, None, 2e6) for m in mints}
 
     def test_buy_sell_and_leaderboard(self):
         con = store.connect()
-        tid = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6)
+        tid = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6, mcap=1e6)
         self.assertAlmostEqual(store.account(con, "Ivan")["cash"], 900)
         with self.assertRaises(ValueError):
             store.buy(con, "Ivan", MINT, "SOL", 50, 1.0, 1e6)     # already open
@@ -33,6 +35,8 @@ class League(unittest.TestCase):
         pnl = store.sell(con, "Ivan", tid, 2.0, 1e6)
         self.assertTrue(90 < pnl < 100)                            # doubled, minus fees and impact
         self.assertEqual(store.account(con, "Ivan")["in_use"], 0)
+        t = store.trades(con, "Ivan", "closed")[0]
+        self.assertEqual((t["entry_mcap"], t["exit_mcap"]), (1e6, 2e6))  # exit mcap follows price when not given
         with self.assertRaises(ValueError):
             store.sell(con, "Panda", tid, 2.0, 1e6)
 
@@ -40,15 +44,87 @@ class League(unittest.TestCase):
         loc = league.post("/natjecanje/buy", {"token": MINT, "size": "50", "symbol": "SOL"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": "../x", "size": "50"}, "Jure"))
+        from ui import real
+        real.live = lambda mints: {m: (2e6, "SOL", None) for m in mints}
+        link = f"https://dexscreener.com/solana/{MINT}"
+        self.assertIn("err=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Jure"))  # already open
+        self.assertIn("ok=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Ivan"))
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
         league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):
             self.assertIn("Ljestvica", league.page({}, user)[1])
+            self.assertIn("<b>Jure</b>", league.page({}, user)[1])   # everyone sees Jure's position
             body = league.ideas_page({}, user)[1]
             self.assertIn("&lt;30%&gt;", body)
         con = store.connect()
         tid = store.trades(con, "Jure", "open")[0]["id"]
         self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid)}, "Jure"))
+        t = store.trades(con, "Jure", "closed")[0]
+        self.assertEqual((t["entry_mcap"], t["exit_mcap"]), (2e6, 2e6))
+        self.assertIn("MC izlaz", league.page({}, "Jure")[1])
+
+
+class RealTrades(unittest.TestCase):
+    def setUp(self):
+        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
+        from ui import real
+        self.real = real
+        real.live = lambda mints: {m: (52_000, "REMARC", None) for m in mints}
+
+    def test_parse_usd(self):
+        p = self.real.parse_usd
+        self.assertEqual((p("26k"), p("$1.5M"), p("22"), p("26,000"), p(""), p("abc")),
+                         (26_000, 1_500_000, 22, 26_000, None, None))
+
+    def test_add_follow_close(self):
+        link = f"https://dexscreener.com/solana/{MINT}"
+        loc = self.real.post("/moji-tradeovi/add", {"token": link, "size": "22", "mcap": "26k"}, "Jure")
+        self.assertIn("ok=", loc)
+        self.assertIn("err=", self.real.post("/moji-tradeovi/add", {"token": "nista", "size": "22"}, "Jure"))
+        self.assertIn("err=", self.real.post("/moji-tradeovi/add", {"token": MINT, "size": "22"}, None))
+        body = self.real.page({}, "Jure")[1]
+        self.assertIn("+22.00", body)                         # MC doubled 26k -> 52k on $22
+        self.assertIn("Jure", self.real.page({}, "Ivan")[1])  # others see it under Ostali igrači
+        con = store.connect()
+        tid = store.real_trades(con, "Jure")[0]["id"]
+        self.assertIn("err=", self.real.post("/moji-tradeovi/close", {"id": str(tid)}, "Ivan"))  # not his
+        self.assertIn("ok=", self.real.post("/moji-tradeovi/close", {"id": str(tid), "mcap": "13k"}, "Jure"))
+        self.assertAlmostEqual(store.real_trades(con, "Jure")[0]["pnl_usd"], -11)
+        self.real.post("/moji-tradeovi/delete", {"id": str(tid)}, "Jure")
+        self.assertEqual(store.real_trades(con), [])
+
+
+class DiskFull(unittest.TestCase):
+    def test_cache_prune(self):
+        from event_calendar import http
+        saved = http.CACHE_DIR
+        http.CACHE_DIR = tempfile.mkdtemp()
+        try:
+            for i in range(5):
+                p = os.path.join(http.CACHE_DIR, f"{i}.json")
+                with open(p, "w") as f:
+                    f.write("x" * 400_000)
+                os.utime(p, (1000 + i, 1000 + i))   # 0 is the oldest
+            fresh = os.path.join(http.CACHE_DIR, "new.json")
+            with open(fresh, "w") as f:
+                f.write("x" * 400_000)
+            self.assertEqual(http.prune(max_mb=1.3, max_age=10**12)[0], 3)   # oldest first until under 1.3 MB
+            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["3.json", "4.json", "new.json"])
+            self.assertTrue(os.path.exists(fresh))
+            self.assertEqual(http.prune(max_mb=100, max_age=3600)[0], 2)   # older than an hour
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            rpc = os.path.join(http.CACHE_DIR, "rpc-abc.json")
+            with open(rpc, "w") as f:
+                f.write("{}")
+            os.utime(rpc, (time.time() - 7200,) * 2)               # Helius RPC cache is dead after its 10 min TTL
+            self.assertEqual(http.prune()[0], 1)
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+        finally:
+            http.CACHE_DIR = saved
+
+    def test_usage_page_shows_disk(self):
+        from ui import usage
+        self.assertIn("Disk", usage.page({})[1])
 
 
 class Login(unittest.TestCase):

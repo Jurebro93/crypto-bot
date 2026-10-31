@@ -1,0 +1,4627 @@
+{
+ "_comment": "Walleti koji su rano kupili u vi\u0161e tokena koji su kasnije sko\u010dili (retro/smart.py). run_wallets.py harvest ih uvozi u wallets.db kao source=retro, role=smart. Uzorak: pump.fun tokeni kreirani 24.9.\u201322.10.2026; pobjednik = \u22653x u 7 dana od 15. minute ili graduacije.",
+ "wallets": [
+  {
+   "wallet": "6mTSHUpN4oxxBEqB4UCrzrGtppPNShq88eZAyiV7QydL",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 4.556,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "CRdC5ENJ9M5zXTLk9fzdNxAH2qewvtrnqvC539FPbaub",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 4.423,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump"
+   ]
+  },
+  {
+   "wallet": "G45xBeeMh9CiGJK3ahDBxDi48JgfFeS1gmyTFgSeccH5",
+   "tokens": 5,
+   "wins": 5,
+   "hit_rate": 1.0,
+   "realized_sol": 4.309,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "Ft4c4oKLZVWUU4nT6oRgKSNAydFVeCRTDZC8fZ56pump",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "22222owxsBBsuyupgBM8PL8kGzUMNF9aj91BwwFBLw4u",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 4.043,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "Ft4c4oKLZVWUU4nT6oRgKSNAydFVeCRTDZC8fZ56pump",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "7D6yhRSBNwcqHZRooJUjn2wmb8VU67VPqLHkj4SRuP5J",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 4.008,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "FvfX6xmM8UPmbmQJaFpDfuz5kqnbe2pB75c4xdKLpump",
+    "AVYKJvzfXem7abP5r27RvwTAxgexDGky5BUXswUgpump",
+    "2c1ZzpZZZr7xnKWwuv5tfDU9jC1V3NjY3BoXQ6wPpump",
+    "5BjfgmtfqvNpAWx1CnZynoWLWNMnrwHLhTFzQ81vkEc8"
+   ]
+  },
+  {
+   "wallet": "6bCaVYEgGmVup1sps6d4CrfUfqVAYkoMhfSnCoUgYRS4",
+   "tokens": 5,
+   "wins": 5,
+   "hit_rate": 1.0,
+   "realized_sol": 2.922,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "Gw6VgF4XpYYx2tbsh6Tm2f76hVmBUdX9Fx353NoVEHMr",
+   "tokens": 5,
+   "wins": 5,
+   "hit_rate": 1.0,
+   "realized_sol": 2.445,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump",
+    "H7onx4sxvGkcqav1w43JqgbHhew99ctiYC98LR4ppump"
+   ]
+  },
+  {
+   "wallet": "AptyAFNxWqh7JFJ2zvrD4XrUHd4sUjqKzLHFsQh8VogW",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 2.265,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "FvfX6xmM8UPmbmQJaFpDfuz5kqnbe2pB75c4xdKLpump",
+    "AVYKJvzfXem7abP5r27RvwTAxgexDGky5BUXswUgpump",
+    "2c1ZzpZZZr7xnKWwuv5tfDU9jC1V3NjY3BoXQ6wPpump",
+    "5BjfgmtfqvNpAWx1CnZynoWLWNMnrwHLhTFzQ81vkEc8"
+   ]
+  },
+  {
+   "wallet": "BLB4MZTjn29gX46CyMytCvQWmA5aEWvzCH2Whys7qeff",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 1.677,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump"
+   ]
+  },
+  {
+   "wallet": "AvzTdDSSAJHU8ZsRJ6DoLDY8rBTpzxeXdSozWarCu7JF",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.613,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "GnoAcbkPESyBQJSVwsMWngwrqvUEQENXbxeAS5oRDNdu",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.587,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "95ccfn4UAUu3mQSvi7NJSJkHEnoLdW58qcRwwzmepump",
+    "7MKsF76rx5UMAdtUS1WLNeu4NYdpAfiCccV62upNworm",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "9KzKWxe2ZbU9aVCow1tXpsqJ2bQATSfoS3cSvsfbpump"
+   ]
+  },
+  {
+   "wallet": "12v3KmUYkPFwzyCwojZieBYyXm17rMjRoBqTfHrzEvMk",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.506,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "7uhdNpeqQpE4YNe3xH47A38ziKDqP1r18x8Pcrqhpump",
+    "7PdB7vQTirDQbGGHprEUdFkauVBjAtotHWiLTcD5pump"
+   ]
+  },
+  {
+   "wallet": "CTDHu9HzSUVN79ktXRM8QRCjAqQMY9ZYcxTqz7aPhwE1",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.486,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "AcSZ64j9ps7z4CXMJWUsre8knws9okdmMthqejuHpump",
+    "BNCVEZfkxFY3ooi2AgQYtkkXAmCLGkHdEtjFtGzUoEYH",
+    "EdAVcqLPg5gwDqjuPBghFbLr4q7SzrrSGHYq7nyfdQwP",
+    "3rZ97af6e85vNCqZPMLUSui5SmwNYhjpdRJ7RTTnG2Ff"
+   ]
+  },
+  {
+   "wallet": "g3iZcikDvMhN1jL2mccGsxYGjsk54yqedJCS5cW9vrm",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.402,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "81ut8WngXu3WbJAsHBCnd6ScvC7dUpZMJJjtDicgs9KQ",
+    "eSXQMKec2umnbkSiQKeq5B8ZfHfxTy8oxEx8ppwerps",
+    "3GPGLTH8D3eVV7RbLXdSzXdPvzvgJRocMG8hvqZApump",
+    "H7onx4sxvGkcqav1w43JqgbHhew99ctiYC98LR4ppump"
+   ]
+  },
+  {
+   "wallet": "1XXjMyxdtoWXuk9Pkz4JtXC66oFWhszVasQdraNgmM4",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.361,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "ETp64ApSVPfuAN56EZMH7bujSQQ6Keh6NV7mpf31fkf5",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.175,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "2Su1mp2yxnWqUagnGAbMkF76as8wi6NZs41pPXScpump",
+    "D9QYds4z8vSyxM4t6GvjeKFkkLLLWS5m3LdJEThxKyzB",
+    "Bqy9DSJGRbun7s8dr7mkN8fm3hPa44p64hhy3MQWpump",
+    "8qj3D1qAKjQC9hns7ChiGsa1MvGkq7TdapKsqxdPvf2f"
+   ]
+  },
+  {
+   "wallet": "F4srPz5tLBmUxFEx8bSY3kF2PeiUu4F3y2H8R2bSR6Gc",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.053,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "GxdZqQtSDChqoVDeJ2YNV1uBc6iF4PXhyk21p34Qatip",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "9EXgwcPw6iTLs4Gh2JLs3JCr9T6LqBxaMtdjbzw7Xb6w",
+    "H5Kugtkfc5vrm3oSdX6FDkxuutRK1S3GW7Rr7UgnoDhP"
+   ]
+  },
+  {
+   "wallet": "HGSLdupbQzjFuw8sZWPJk8ue7jn7iFSQwwMgArEif5gY",
+   "tokens": 7,
+   "wins": 7,
+   "hit_rate": 1.0,
+   "realized_sol": 0.038,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "8iX67wnJuJkDk2Hvsdd4nBdwNQC2hc6TNiHK2gE5svCF",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump",
+    "DREWigSAqGZ8m8firMRmfU5scjEY5PpjZpwg5eGJpump",
+    "8hiTSHpsTUY4CazYX59nGcvKXV9P2z551j9dneoHpump",
+    "3kWATYWZcHiZ948oKKu6AMQXjicD2kz8ziGNH8Rupump",
+    "FunGGCbmUU6hL3jDjf8fGDKBtTP77caokq3PTi27pump",
+    "WApCdQftZcRUNHN9S2XvmrqeRtRASE3EZxnwuNJpump"
+   ]
+  },
+  {
+   "wallet": "CGKrrrWenqWjsFFdp88rn7BQ2PwxpHhekTKXXb85HbKh",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.028,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "2YGP6ARj9kcwtTRucRP4223NMYvoPRFHNitvguGwiFL5",
+   "tokens": 4,
+   "wins": 4,
+   "hit_rate": 1.0,
+   "realized_sol": 0.008,
+   "bundle_buys": 0,
+   "score": 100.0,
+   "win_mints": [
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "6Rhs8iuUiepGYpiP6ZEhNF9jRemVV8xYdD3hVuqtKTAR",
+    "26RJptVLvch6Zu2pm1Ftv6UYhbS1gLFUc7M7VP2Gpump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "BY4hbtuP2g9bpm8skMKgGeFkYydUZFqr1p5RteJwnVqj",
+   "tokens": 10,
+   "wins": 9,
+   "hit_rate": 0.9,
+   "realized_sol": 0.319,
+   "bundle_buys": 0,
+   "score": 90.0,
+   "win_mints": [
+    "8Xg89xT8Ve34sKiYqYuMs46mycREsCA2F362UscRpump",
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN",
+    "4SzWdVbXC7JiAtY5rH5MGc8HJPFAv6sSG97QEsjSpump"
+   ]
+  },
+  {
+   "wallet": "2s7riB7vRbYTPQYbGe1tC1y4VGDPNuxh5fExYkZZwarr",
+   "tokens": 7,
+   "wins": 6,
+   "hit_rate": 0.857,
+   "realized_sol": 0.567,
+   "bundle_buys": 0,
+   "score": 85.7,
+   "win_mints": [
+    "48fBdNvo7Et1vqncqtss7XTT2Q2TNM6DCwd5NmWDpump",
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "266xwt1he2DtB39LFahETEokivhN6VaBgUage7xBpump",
+    "3MVP8r11UMc6dq9j4v8Sju1DHW7nq4utZ2jLRpvSpump",
+    "J9kjBTrWn1Ubd1ui3Qie31mFigsdbZ39WnBCXAdzpump",
+    "8zMqKceqftmjAZaxua6FddpWbQjoLoeWArg4UYBNpump"
+   ]
+  },
+  {
+   "wallet": "xMTGq3vdpDRS61uHqxY9Q36X1qWJtXKWRAyFYRoWBEt",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 6.925,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "2Dx7XJQp2LGdq14nP98swmtUhfhHz8FVs98bt11Mpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "WCTDewh3xRuMbzEgQDhrRTWfgorvfBuCesbYtzQspWN"
+   ]
+  },
+  {
+   "wallet": "EbBCyLX54fgFgNLpoR1hHzXhQBpowYt3gWmojgSJgDR9",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 1.73,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "EmT4thNMrQ4aJviLjcTdPhs4nsjuNAQ5jb6jwYUKpump"
+   ]
+  },
+  {
+   "wallet": "owvFhkPDvFRPFzzNHPeiCddFwnqkPW6RUCum389zCLv",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 1.68,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "Bd9thw3PAeyHeBGSi4R1ARBuptpG5rM4fhB8BRWJkq1e",
+    "9JkjnA4zZaKrEB79qarLDJkyMuRyCFwyru2TWNUzXMS3",
+    "26RJptVLvch6Zu2pm1Ftv6UYhbS1gLFUc7M7VP2Gpump"
+   ]
+  },
+  {
+   "wallet": "EFi9UqaBjNQvxSWEAmQiVf1U4wrJe6kkWLH4DCxJZTok",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 1.467,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "EmT4thNMrQ4aJviLjcTdPhs4nsjuNAQ5jb6jwYUKpump"
+   ]
+  },
+  {
+   "wallet": "B9mkgUms9mdsbwThg4epeWey9gEJhMx5xuXtZL1bf1eZ",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 1.315,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "31GYUbJW5vjF1o7VM5SGP9Emj5WDBHb1cdcR8BM6pump",
+    "HGCWcGN4L5rynZ4tcHFxy7PkFJwLuiee12SenXKD1cMy",
+    "9askTPDEKmYBsiwwoUmPf3mBwXqkxj9yB5UNtmD7pump",
+    "DNM1AePswCnFFydQ2dz1yUJ3m4CBEKiCEkgpQ8YYpump"
+   ]
+  },
+  {
+   "wallet": "3nFku2zFvo6ykocygmmRNd82MQ8hGHYnirdZvdMSHVBp",
+   "tokens": 6,
+   "wins": 5,
+   "hit_rate": 0.833,
+   "realized_sol": 0.068,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "GATfTKNDEydqTJwTyDhhu6UDGkZS4iE4Vctv8nBspump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "C8Y7UFotk9JUf8B6ssFy6ZXDBnuinxrRV6FYu14Xpump",
+    "39N6nzt3m1wcAGnSPXbmFadhbsLNrxbNqmZWNRTkEshm",
+    "2Atm75MTXP8tivYBqNW13LfgMknU3zmjcfWNfkvtKdkV"
+   ]
+  },
+  {
+   "wallet": "A7Fwr5j3SS8aqwNXJ9YyBPK6LaePs5fZfSHgBX4e9Xff",
+   "tokens": 12,
+   "wins": 10,
+   "hit_rate": 0.833,
+   "realized_sol": 0.014,
+   "bundle_buys": 0,
+   "score": 83.3,
+   "win_mints": [
+    "AYPvrtL9F31F99knQABWPfpqDuys5wmx82BGBxA4pump",
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "A9PDKiCRfUFKv1aYH4J5XFMa3RbTA5yJZysyjxb3pump",
+    "8tYpZbZUcd7vXwEnzjWezEfwKtTGgWEPDBD98B9bpump",
+    "AcSZ64j9ps7z4CXMJWUsre8knws9okdmMthqejuHpump",
+    "FFtp6pxteF52PX3gryHrhQdxWze23Qzh7vC3kKzVpump",
+    "CSEd3Pi5WZL7w5vmwNjDVXv8poAqSv2Dn1as1erUpump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump",
+    "75gGuxuqKhQQiHae8JKDQaetK3XguKf1rUJ1csispump"
+   ]
+  },
+  {
+   "wallet": "AiNfNi2ePcQMVE2jrkbTRvFTXYGi8C2VVneJYNZNaTyb",
+   "tokens": 34,
+   "wins": 28,
+   "hit_rate": 0.824,
+   "realized_sol": 10.451,
+   "bundle_buys": 0,
+   "score": 82.4,
+   "win_mints": [
+    "48fBdNvo7Et1vqncqtss7XTT2Q2TNM6DCwd5NmWDpump",
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "266xwt1he2DtB39LFahETEokivhN6VaBgUage7xBpump",
+    "3MVP8r11UMc6dq9j4v8Sju1DHW7nq4utZ2jLRpvSpump",
+    "J9kjBTrWn1Ubd1ui3Qie31mFigsdbZ39WnBCXAdzpump",
+    "8zMqKceqftmjAZaxua6FddpWbQjoLoeWArg4UYBNpump",
+    "7o7Dr8RTgGQYsjZ3scMVHkYgLj5PPEp7gwe54ET2pump",
+    "v3GmJzXJANY1NFu4FSAuj591YwesnLbY745JT23pump",
+    "BNCVEZfkxFY3ooi2AgQYtkkXAmCLGkHdEtjFtGzUoEYH",
+    "8zoLaVjCS51Q61WdBPAehdAT7Km7vQqL5vL6wAu5pump"
+   ]
+  },
+  {
+   "wallet": "2DSTqUUbK9SYi7zGiUbejPV8PtwGJNHmRG8QLTdUT8JT",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 10.448,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "BcMfdUvRTUFTCQdqqZ3Hbmme7gME7ZmFNfHFgut8pump",
+    "C4MCjMiieFrb7vhPahMzoJniDfiKAswF7K7GD7Uapump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump"
+   ]
+  },
+  {
+   "wallet": "3qid7CJvvmmThzzXXsozTKCS2V1kDVxVA3fFExuZCGcq",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 9.727,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "FQrt941fMDgitk3MfUcPKZT2BZbm6ujNpRiJPo92MiK6",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 6.254,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump",
+    "3WQ6QCqR3KykXyjA6aonYZ5GR5g85kNrQ1E1b9mUpump"
+   ]
+  },
+  {
+   "wallet": "eeee4Mi64FTxdg8hU96rfm3w6z6YmV8RHYFbNgr8LAD",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 3.321,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "4ZGMwBBcia2LqmpG2DLHSrQHNqMcWHzk3fGXaF7xpump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer"
+   ]
+  },
+  {
+   "wallet": "FLuGtP4i6Lu6WHqYK9oTrQtwr4NpndPVo9NxeuwvfDZH",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 3.295,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "2jgN93x44sBYHW2TBDxqS3gFfHq8Acews6WjNXbMpump",
+    "pdXfXZJgFnwNivUFyAKCw1DjH2X8eiJsdzM8QLcpump"
+   ]
+  },
+  {
+   "wallet": "AP6GnqLtmTL6XDcCfxES3d9wg5q2Brt8q3pWLGgKKqvY",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 2.393,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "EmT4thNMrQ4aJviLjcTdPhs4nsjuNAQ5jb6jwYUKpump",
+    "Bs5oWCyQBMTszdEYenKApgEwHDzx9EHinTTADZConDom"
+   ]
+  },
+  {
+   "wallet": "GU6rdyp7iLkarcTaJS3KvaDWSGY4ZijXz78fjMx3xa9B",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 1.432,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "2QVCdu24vNv2pcgzPJcg8ykgkrK32Px5Kzrtng1Zpump",
+    "CyDJMENR6Sbtwj4erhuARNa5cNbeK92GpNAGyXLVpump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "4KYdNMCQ6WFhhtNhdUET5AreWefgwqeh3cGZ8MEdzLSF",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 1.203,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "7thxAzq4B9KwPe4NqMNAntF2Njgqb9FTKQb4z6fYpump",
+    "GAiNsyzxypevTDHxdf42wU55GeVbGuwDEeb3Ca8mpump",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "9JkjnA4zZaKrEB79qarLDJkyMuRyCFwyru2TWNUzXMS3"
+   ]
+  },
+  {
+   "wallet": "649zbtTTsS9j7pqujaGAgknNUSrBQUcQsqDKs3jA9dYT",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 1.149,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "B5uNPxEWB6WU3Rej33iDuX7yobZ5N4kXXckoj8KSpump",
+    "8QB2YFkUY5VWF8Ti6nnG6b8RNqswmo3QPJi64cxBpump",
+    "HRgAXzTx4Kbbwx1oLVbjUAL67x9vP54S1QFTwFEvJcUF"
+   ]
+  },
+  {
+   "wallet": "6GpcxDvbf9CzR7F7s99fn2d3aqfUdxz3ui5VfNnkHomn",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 1.047,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "4bhV1DPku6KvsqWCL9GLDaDWgJ78M4kBRgKoNdjBpump",
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "FZHk2fo51sWy3d5DPuCbFC4maD8SEPPjxup1dzBtpump"
+   ]
+  },
+  {
+   "wallet": "FKJNqYoanzcdbP5TXvfzDHCbHm25dDetoLwVFKBJqwBo",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.89,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump"
+   ]
+  },
+  {
+   "wallet": "5fEqVU7q9Q1Ct82NkCeDdtDboahepVoSreXpe1Mnyv7u",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.816,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "FnNcduPcyrAuJKxcZjtzSYnNoSkyNnPnjKVqoafu7vqh",
+    "4ByRNjKEQbtexsJie54vCdPnSuSWibWHn49dAXmcpump",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "Ca6eFY3fbpxzpkPHrfAMqnzMYAREko2UFM4m2ncYvFAK",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.718,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "FFtp6pxteF52PX3gryHrhQdxWze23Qzh7vC3kKzVpump",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump",
+    "8HnLRKJ6XkeGq1tpmKPqn3yB5ruqbSR5LR5nVCNAshop"
+   ]
+  },
+  {
+   "wallet": "3Vus91dswGuHETyKQYC6uqhndAGmBmwT6XPafCxHg5Cq",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.494,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "2WNiZqRefcndEA9c1T6A1bdie31pbBGdFQpyR52h9TWr",
+    "85WdpEBNDSN9oNkPomBGspnBZsaKb7WF1NQ51pdouxML",
+    "7NELwkCyL2crujChTgtdKpR1jn2UHTe115v25rUSpump",
+    "6UTgBWACzB1zX2GA2uEvVn6325XE99wNvkVTXv5qpump"
+   ]
+  },
+  {
+   "wallet": "GcyTisSYW3jXJwG7XT5ehxzZEU4Gyi9MtCfCTgefhWud",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.404,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump"
+   ]
+  },
+  {
+   "wallet": "6SXfrcUmbfKZ7qi6ryMwH5r4vbV15sP7KaM1KP5BMcXA",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.385,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "BS1xEuDHvJhuqgTjCy1F2gZNkuCDQxhUMDpKSdtRpump"
+   ]
+  },
+  {
+   "wallet": "ZNUCSchuynQjydasamUkuaasvSo54di2hoqDzQsz2EY",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.163,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "8rRX2iDrBZmuLKB84jMtMcCo5C6Ys5KfNPLqAZiopump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy"
+   ]
+  },
+  {
+   "wallet": "2hJGCEWrSqhBRF9cFqL3kRcinrQZqKdvyBVbXZpuKgX6",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.092,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "Dqywq8LENBD9BkCFu1eYSDk9kEzctH5Rbby6c4Gupump",
+    "7UfcTJD2RSRg9AJ4k2V2rs71Ew8Zy2avaU5roc8bpump",
+    "9Pw7J7pqofhyeRR8Feh7GCvJabJPsGgFKrsKnNszpump",
+    "26RJptVLvch6Zu2pm1Ftv6UYhbS1gLFUc7M7VP2Gpump"
+   ]
+  },
+  {
+   "wallet": "7jtNrgEq2c2JbsvBUA5dXzxTmugNQpjbNCs2FYSC6Raa",
+   "tokens": 5,
+   "wins": 4,
+   "hit_rate": 0.8,
+   "realized_sol": 0.032,
+   "bundle_buys": 0,
+   "score": 80.0,
+   "win_mints": [
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "3NLfcS6P3RpVQ4i4he7xYp9amQScvTvoLMi5iY7cpump",
+    "ArV7g2VBDHTUvfJTwCPYzzPJRozHbdS94QigVPuFpump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "GcjzWtULkoHfQr5NwB2uhRXNz5XqrYvGS2oNUr7veCtb",
+   "tokens": 26,
+   "wins": 20,
+   "hit_rate": 0.769,
+   "realized_sol": 3.935,
+   "bundle_buys": 0,
+   "score": 76.9,
+   "win_mints": [
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "8TiMkgvsrat9tM2esko8zVTt99LZLpefUM4SnZaziXaQ",
+    "9Q29Fvgj9ttzxux7jmVpSp87EUCRX3ADM9YybMeapump",
+    "BvoAtiRyaxnmp3SkHLWAKCQLyMTiGD1mjBFy9EMkpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "7536qC4LEs3W2GtSKbhVGNJSiRfuXJhKVthxsgfkpump",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "ZQSSfpJHPEtoQLpwDHA6u4tPZ4B8TJTWYkcx7afpump",
+    "CubFbC9LjCEbRE2mGkie35pUMZDWvpyPCo9o4wNrpump",
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump"
+   ]
+  },
+  {
+   "wallet": "Hur3mR4eXWA2SQknEi4om9qZK4DrjWyB9aieJA8yLaws",
+   "tokens": 8,
+   "wins": 6,
+   "hit_rate": 0.75,
+   "realized_sol": 16.549,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "AYPvrtL9F31F99knQABWPfpqDuys5wmx82BGBxA4pump",
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "Dw8i5w3XCQqoUaYEphEaU5dzRw2mHyKpDqWmMPoJpump",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR"
+   ]
+  },
+  {
+   "wallet": "9HUoRLUVpa1o5B2KcWcTm1jrcGi7NxTiCwFnv4fbPcGX",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 6.378,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "8Y6pHi3cMhxhtHuzgGAsWgAJMyw3zaQLeFFf3qvRpump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "2w8UefTera7otuMUu4yq1JL5LpaELUWwxn8BFCkypump"
+   ]
+  },
+  {
+   "wallet": "D1XVSUPDzwkgW9GzPcsopD3DxBJzXhxkyHEpfWucruuQ",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 5.913,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "GjMrz9j5Bt5Va1tsqfi71XpcqKAbhFoyPxw9CAzZpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump",
+    "Dw8i5w3XCQqoUaYEphEaU5dzRw2mHyKpDqWmMPoJpump"
+   ]
+  },
+  {
+   "wallet": "F1mvvbvSFjsBjx5JZQt7fZMPTQ4DLc8ttCkQrGhnCRDM",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 4.226,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "GjKvZbjb8gzkRKtUDXTr6PxS1QaRa5Jqg6V8vBTDVvLy",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 3.687,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump"
+   ]
+  },
+  {
+   "wallet": "KAQhVvYH6mRFtXbiJdWamJEwdPzFzaXiUbamHhYZqYL",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 3.571,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "Bf9i7oG8We16XBtgeAnNB9rDBnmCZPW37P7b6a9Hpump",
+    "EctWxLaSn6gMzchCrpZtazJnQDZTWb8438gXwxZZUJz8",
+    "DnvwcyTPN3DHAE2HKGJ9DaNxGLHuFDUMPWEjVoMXpump"
+   ]
+  },
+  {
+   "wallet": "GJYPDu5qvf5njqJ37x86ChezAutAYebDAFsxsctvePE5",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 3.313,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump"
+   ]
+  },
+  {
+   "wallet": "Hn6vBWWySnxA8XjxRQDEmZEuH5QL7KqosnJGcLcUzFJ6",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 3.099,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "Hm3qVTr9znuY6az1immgh8kgYkH81D7LhyFV8JQApump",
+    "DnvwcyTPN3DHAE2HKGJ9DaNxGLHuFDUMPWEjVoMXpump"
+   ]
+  },
+  {
+   "wallet": "6sURZH88qaD4T5rZgMgyD9rtc3j2WAMvkusbm5k3rWnk",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 2.902,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump"
+   ]
+  },
+  {
+   "wallet": "D64ajBtPfuuAGtnGnsiqsxwTXX2EDk8j1dHqMF7bi6YR",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 2.61,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "GjMrz9j5Bt5Va1tsqfi71XpcqKAbhFoyPxw9CAzZpump",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump",
+    "F2gKX1cgmVJPUfCSymGMq6hbgWSmdsLLK4sz9UkFpump"
+   ]
+  },
+  {
+   "wallet": "7wnaqTicid2VVEv4VznamsLo9rTv4jbnv54Gjx93LZwZ",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 2.542,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "Dqywq8LENBD9BkCFu1eYSDk9kEzctH5Rbby6c4Gupump",
+    "GBTkSzep7xDoBGWK154TvaJWWzsb8rw5GWChNcoLcYM8",
+    "2Atm75MTXP8tivYBqNW13LfgMknU3zmjcfWNfkvtKdkV"
+   ]
+  },
+  {
+   "wallet": "5ixAnaNSFiPQvpAGuxKxrNLCwSqmSzUzgFSCGyuxwW9Y",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 2.395,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "8kioiYtqdtDNFSmhbMd1W5dP8wGbS8e7L1umXddEpump",
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "2jgN93x44sBYHW2TBDxqS3gFfHq8Acews6WjNXbMpump"
+   ]
+  },
+  {
+   "wallet": "82PsCv8aSMZGosuR7qf5G4GGqDrR3fhB1fmL8xR3tcoM",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 2.087,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "CSEd3Pi5WZL7w5vmwNjDVXv8poAqSv2Dn1as1erUpump",
+    "HubpDh2xftViQumoXQrKWdABqmDWzkRpddrmfph6pump",
+    "DREWigSAqGZ8m8firMRmfU5scjEY5PpjZpwg5eGJpump"
+   ]
+  },
+  {
+   "wallet": "Af9TV56oTfmn8VMyjGZsNiLbLDLMsERqHb9Ksjzcw7vQ",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.869,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "ByQ4cTwVyrZtzb7aFKW8QXPBMXdCWx6UdVMshLZipump",
+    "JCsfUhtjjHpfMuRTDk2VXTStGU2z1Uz17aWHjkPdpump",
+    "WkmJN7MRvXFe8rVoSkQoHKXwVwuNDxpuL7UqY1Qpump"
+   ]
+  },
+  {
+   "wallet": "FnTpxwwaB1qtz8tJSUuDSTfv67cbRBEEcfBmSaXXoPqd",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.658,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "GjMrz9j5Bt5Va1tsqfi71XpcqKAbhFoyPxw9CAzZpump",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump",
+    "F2gKX1cgmVJPUfCSymGMq6hbgWSmdsLLK4sz9UkFpump"
+   ]
+  },
+  {
+   "wallet": "HiNaiXMfsR9r66r3S4dKv8kY9yeRpRAMidFP48cv1Kvo",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.631,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "Amtp24ZoaKyRMRKeKpDY74kTHoXZ1j8fU4zuGkeJV2b5",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.437,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+    "Ak4cZZkr4AdcHBorJvggMziofQe4wzskys3BmSxMpump",
+    "C4MCjMiieFrb7vhPahMzoJniDfiKAswF7K7GD7Uapump"
+   ]
+  },
+  {
+   "wallet": "CmaSa4dzwrLJZx7Myqs6eTWSiZgzkmh2ys5XBuDtCtRh",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.356,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "9tpHqTJ2d8jMZJjZzsf9MCfnCEmbAjsqjPJ56PzSpump",
+    "4df1q5JNKYK7XjxHKsnwdenpjBgxAgfCXed7YFNHpump"
+   ]
+  },
+  {
+   "wallet": "Ee3tehZkepjSAV91EzRJe5kTavTvn1Qc5D1YXNxiykh1",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.217,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "EZpBNHvfrWfkAdFn9CrwEp4gaEYjyqkhYkLTRp5hpump"
+   ]
+  },
+  {
+   "wallet": "D1rtwsb2yZeVBeAzrHWNr8Ka8bcZAeYTBDuDpDGhxS8z",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.164,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "89X1RR4V5wVwqUzUSE68ksjCby6PhkAtJNmqkkBkUmu5",
+    "EdjdQeRGiWEYzjLSFMUjNC5tpc1GNPbMsNXNZTxYpump",
+    "Bd9thw3PAeyHeBGSi4R1ARBuptpG5rM4fhB8BRWJkq1e"
+   ]
+  },
+  {
+   "wallet": "GBAt1Nso5FL6TCt6XpXazH3TARZYbRsSMPYSVTgFSpLc",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 1.09,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "HubpDh2xftViQumoXQrKWdABqmDWzkRpddrmfph6pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump"
+   ]
+  },
+  {
+   "wallet": "2nuzm2HUnS31YN8nttCYspYFsx15PMEfY2kDBouKbDZz",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.994,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "E6DtJ7EMnxHJFZpXs8E2hsMupZh1KM1MQXFPar2Epump",
+    "GULJDcpdHCvNfvKazgA5JSgjWhWMxb2adqV3M7Jzpump",
+    "8iX67wnJuJkDk2Hvsdd4nBdwNQC2hc6TNiHK2gE5svCF"
+   ]
+  },
+  {
+   "wallet": "7n8831Ey11Ga9GbQrHxWLZmsSgnAkN9JL25TcdEZpHxT",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.891,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "9oijPmcPuSxKSxAJ7zcqtxzne5GzUpjhtYdNJBQHThu7",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.872,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump"
+   ]
+  },
+  {
+   "wallet": "EQrHKuLr65f8HjXHomWJ2Fj9P6mJ4BpRCRXbbyajAAdG",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.799,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "7UfcTJD2RSRg9AJ4k2V2rs71Ew8Zy2avaU5roc8bpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc",
+    "8KhKFp62yEbBoCKn452h34xxEFLheGBrJck3jLvy6mkR"
+   ]
+  },
+  {
+   "wallet": "3AXyHtXJ9GY3hjRXZk2xvHt2pUjA98EDQjrmqhTs1eQS",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.776,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "ByQ4cTwVyrZtzb7aFKW8QXPBMXdCWx6UdVMshLZipump",
+    "JCsfUhtjjHpfMuRTDk2VXTStGU2z1Uz17aWHjkPdpump",
+    "WkmJN7MRvXFe8rVoSkQoHKXwVwuNDxpuL7UqY1Qpump"
+   ]
+  },
+  {
+   "wallet": "AfhDA8FGoaFepJkLGxYBPH5gudfFfSmCmw6rXJnAYDGu",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.746,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5aJmrWcYBt8qCpqrv4m91Q62bwxfrtdX18H3ZD7Qv4SM",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "9JkjnA4zZaKrEB79qarLDJkyMuRyCFwyru2TWNUzXMS3"
+   ]
+  },
+  {
+   "wallet": "BD8FxqFTBNxHx9SPpfmRHb9sBzBWLUiufucG7sz2BxTw",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.698,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump",
+    "5Uycj5BUozB87WgocSPhFzGDvoUftvANadiWS4cKWLgG"
+   ]
+  },
+  {
+   "wallet": "GMkoHPHVvKS1GzzGzEpzHeUp4bgXoFcGFcL3qT2CdpYU",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.662,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump",
+    "5Uycj5BUozB87WgocSPhFzGDvoUftvANadiWS4cKWLgG"
+   ]
+  },
+  {
+   "wallet": "2hMWLGMKkBGBJxcbszpPgxWghekdiA3eARS1Hn8WTvy7",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.624,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "Hm3qVTr9znuY6az1immgh8kgYkH81D7LhyFV8JQApump",
+    "CNTAufyFmtdij6FFPXNFCgWx2iGuMs9fjF7AJELYhQ7Y",
+    "7cYaQc21w9dzKkGP6LgkqtmL5yzoK5UJE1GeamTRHwny"
+   ]
+  },
+  {
+   "wallet": "5WHd4RgjgfJKGWH8kaNqh4zX7KyrXjyXpZovvzyjkF6L",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.596,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump"
+   ]
+  },
+  {
+   "wallet": "FMwYYWtGz3W1tVqgZ1XDfHgorDcJhVKunAY1ybhZNoq4",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.526,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "Bd9thw3PAeyHeBGSi4R1ARBuptpG5rM4fhB8BRWJkq1e",
+    "GD17AoWMRM7pC5GP6QKK1AsCHcy22tsezfgacxdhCi3"
+   ]
+  },
+  {
+   "wallet": "42eFB5t1BisFPymV3znUpL21Cs8y3PyXFxgUPMQPhyRC",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.476,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HMroT3TAEAoQuA8KuF8KzbKWRrbyrjECGo5FqgzRpump",
+    "E6BGGdpVrV7hvGcsXN9gei679Tgvh7EW5KVsBMXwpump",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump"
+   ]
+  },
+  {
+   "wallet": "EYw5V6voiZdHPCspXAyvdDxykTtghsiHsCjXrVpndnYD",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.475,
+   "bundle_buys": 1,
+   "score": 75.0,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump"
+   ]
+  },
+  {
+   "wallet": "HrzpLRKfaKqhB1kBsPg6pM5UbncTa24yFN9NDpNn8jNE",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.441,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5aJmrWcYBt8qCpqrv4m91Q62bwxfrtdX18H3ZD7Qv4SM",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "9JkjnA4zZaKrEB79qarLDJkyMuRyCFwyru2TWNUzXMS3"
+   ]
+  },
+  {
+   "wallet": "EDesuhXdroiqqxsRUEHQXqUAJP73B2y9vHYLehWyBEGr",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.394,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump"
+   ]
+  },
+  {
+   "wallet": "45LP7scUu8B1zbk2YM332yvrj845gNh6iSGmAYYWzpiD",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.392,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HGCWcGN4L5rynZ4tcHFxy7PkFJwLuiee12SenXKD1cMy",
+    "51E4757DPwQ4bp683t8iwjnPSrKep8iepkeNch1otLKz",
+    "EgmZ2V7LeCRGTRNcEMPHRWj8iezyrHztap5vRpAkpump"
+   ]
+  },
+  {
+   "wallet": "3msFzmwyhKmYhcwjJ1shw3BXm9w7gUkvyCnN6MxpfR9A",
+   "tokens": 12,
+   "wins": 9,
+   "hit_rate": 0.75,
+   "realized_sol": 0.371,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN",
+    "4SzWdVbXC7JiAtY5rH5MGc8HJPFAv6sSG97QEsjSpump"
+   ]
+  },
+  {
+   "wallet": "HaS2RhK4uksSJdBsSZcCaQRCuyXoGVRd9m6igZLGAgrJ",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.35,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "CBLx6CRcCTtbmgTdxpqnF2dP1MpWbMUjngtNbFTApump",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "EQUfNXzAWQkDj82fqZfaAMbmGiF2dzuiZkHEhWVYMc64",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.339,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "6woEnPYSbXtMJ2zxb8zStNEeuDpCyFtP7uowPPdQpump",
+    "F2gKX1cgmVJPUfCSymGMq6hbgWSmdsLLK4sz9UkFpump",
+    "7BajcZoGi5WsZjn46Dn4Z9bZ15STUSUUyoQ7rGx5snuy"
+   ]
+  },
+  {
+   "wallet": "86ugEi2Fo5oZCHVHc9MzMDk7Tht8bzni694qpk3G5t95",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.335,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4xDu1zaBa6BuaDPX9oLEyLgksdwxkE16CcuoozSipump",
+    "86Eev7RJLnxzjGqhzbomTyVdoav8GdocewueNR1bpump",
+    "4rzygptJnVVRU5MEJckEDkP1Y1BQxD6FAaYpVWsvpump"
+   ]
+  },
+  {
+   "wallet": "AgngDHiRMSC7MUTxhU2z3PYAnnozco2iA13d1KPbd8NN",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.319,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4t78HQitjHdbCehXAvFCHigNYPjGHSm9TK2TNbbzpump",
+    "ArV7g2VBDHTUvfJTwCPYzzPJRozHbdS94QigVPuFpump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr"
+   ]
+  },
+  {
+   "wallet": "om1ggUsvJGMZLsGq8Ea1bs8yJjvaKReVwxNWv3W7Wpo",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.281,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "3WQ6QCqR3KykXyjA6aonYZ5GR5g85kNrQ1E1b9mUpump"
+   ]
+  },
+  {
+   "wallet": "5QQ8dC6hfPFWiEMzp1SfNGxywJRs8fd7YADGABwMcsYa",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.257,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "72LuwBNZwtk1GPzWEktDeD2kgvMHoKpksV2mLnhkLand",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump",
+    "D64k4D9GL3DLpfGupj3NggroHch3XGy9VbGsEm5FFeno"
+   ]
+  },
+  {
+   "wallet": "7EqThW6TDzBFkQWQSQE8SodMjZgy6gQW3Wx45vTGHqvk",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.235,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "EtV9vmJXhV4gTgxzgzn7xpbjRX2ne2Vb8T58mwabpump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump",
+    "E6BGGdpVrV7hvGcsXN9gei679Tgvh7EW5KVsBMXwpump"
+   ]
+  },
+  {
+   "wallet": "5nNMhwSXwyKjDosWEgQYYYayEzR3LRbTm344pt41ibcn",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.192,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "6ceuPfcE67PLs3Z6CbJpFpqNyAevVocP2zsDkbM1pump",
+    "8h4Cy6wgufWmonnxLmxabLYZdHPcDyRWMywYxgWYpump",
+    "AcSZ64j9ps7z4CXMJWUsre8knws9okdmMthqejuHpump"
+   ]
+  },
+  {
+   "wallet": "G6X4dYLa2HUmF9qK8sHcBSsXzyUm7nmMptUE73H2KNey",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.186,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump"
+   ]
+  },
+  {
+   "wallet": "7yUTK1S9Pr49NzG82XeG5xBgsN8cvDuPTyJnviRbZ4tT",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.133,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "Fy326jZGGzwema4LT45GDuvQ5gYPjR3uMcLr4SLMpump",
+    "G6AjY7RnwoxU7UPUh5ru53Xgv9qGLKfR4va8nsJZpump",
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer"
+   ]
+  },
+  {
+   "wallet": "DrmgKnYUfVy24NrSyAnmXSyy66pHWZvgbQp6Z2CCJToZ",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.124,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "49PU6ENTpYc3zkhgCruzCSBzgVAdix5muP2oVzRGpump",
+    "31AZgaGGQuBP8Ca4z8TRUprjjPcBqyRYLxjTFqK8XrFV",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump"
+   ]
+  },
+  {
+   "wallet": "71QLd9J9WUp4u9yi2CuDp8oMCC5QyB67nXwG7fFHNXHp",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.118,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "Dqywq8LENBD9BkCFu1eYSDk9kEzctH5Rbby6c4Gupump",
+    "RiPShcievb15Kg8KDxw2LpbGrHGRcK3i59tNbiAicbq",
+    "9Pw7J7pqofhyeRR8Feh7GCvJabJPsGgFKrsKnNszpump"
+   ]
+  },
+  {
+   "wallet": "B7WBXQq1qF76jLaYpAKKYVPRpHyGa4uPDamg9MPhLsaq",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.104,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "7o7Dr8RTgGQYsjZ3scMVHkYgLj5PPEp7gwe54ET2pump",
+    "9EXgwcPw6iTLs4Gh2JLs3JCr9T6LqBxaMtdjbzw7Xb6w",
+    "3WQ6QCqR3KykXyjA6aonYZ5GR5g85kNrQ1E1b9mUpump"
+   ]
+  },
+  {
+   "wallet": "8bznBGXDXTRC3t5DPxV1n218KDAbPoby4ViF27TK4edp",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.096,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "EtV9vmJXhV4gTgxzgzn7xpbjRX2ne2Vb8T58mwabpump",
+    "7UfcTJD2RSRg9AJ4k2V2rs71Ew8Zy2avaU5roc8bpump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr"
+   ]
+  },
+  {
+   "wallet": "2LcH5HjUhS8iBQA5PskboLfXjecCxXwe26D97ZCcoRAx",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.088,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "4LKS9yUYaBEZyzsaExmFXcWbG9pDBX7AWhseigVYpump",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump"
+   ]
+  },
+  {
+   "wallet": "5t77YBZLfGg8YdzGVJYUEwNgsYqkGCZmNjmv1fLxb9U9",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.087,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "B5uNPxEWB6WU3Rej33iDuX7yobZ5N4kXXckoj8KSpump",
+    "5sh1QmnDdXLYvPPdocMwKZSBNRGRbtzjFMt3Rs9ZQfeT",
+    "GxdZqQtSDChqoVDeJ2YNV1uBc6iF4PXhyk21p34Qatip"
+   ]
+  },
+  {
+   "wallet": "8xH1UnFfAD7ERtrJ9n6zGhp6NAKiuQe2VmDA2mGgYcSV",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.087,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "6hjaMcRPvB4DEGpHqgHxmgipb2vrGQWMewZBAVSLpump"
+   ]
+  },
+  {
+   "wallet": "F2Cx8XFXVagfmzuWHXcr4y1h7XKsCkXit1wqmgTPc18b",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.078,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5i21UkuLPaTiCqrSrF7vs6KEo1Vb1T1RWC5tdrbmpump",
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "36ef5aQyrEFRDMyRk3fBdcvDPHNjARi5bDG9ryPoWRWX"
+   ]
+  },
+  {
+   "wallet": "2hBW6u1RWncp3Sg6qCn34gAWFsmTz1hicpZza7MEb5wW",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.061,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "2Atm75MTXP8tivYBqNW13LfgMknU3zmjcfWNfkvtKdkV"
+   ]
+  },
+  {
+   "wallet": "5c7m3A5R9g1xEGhuPdENcz1qMWpYyy7AqJ9pZ6x7yZga",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.052,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4dA5ybVBHNxrDKTbwW6nEepyiVkErwksAewj26ACpump",
+    "43MxxhGRstKjLCvX5XNhDZLmAviA3ohqBXJMLdrApump",
+    "5BjfgmtfqvNpAWx1CnZynoWLWNMnrwHLhTFzQ81vkEc8"
+   ]
+  },
+  {
+   "wallet": "4crY5qte19hpPxccxV7Yw8A67j2MJE4QFpRJ7341qQ91",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.052,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "6KDpQM4BVDdtAkjtyFDiBCkbii8q8BieEyXXm6kNpump",
+    "72LuwBNZwtk1GPzWEktDeD2kgvMHoKpksV2mLnhkLand",
+    "7bYndjsetuU7tHb8YoQwtAhAzqoEfcC7oW1EpnKipump"
+   ]
+  },
+  {
+   "wallet": "8EBYyFMuMec9kx3UkWLkbMEbiXNSTLBim8gva4Zas8gU",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.05,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "9tVxVhKDmWLsG29CcfsAhLfgcZEkvemjB8TUDb4Wpump",
+    "CBLx6CRcCTtbmgTdxpqnF2dP1MpWbMUjngtNbFTApump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump"
+   ]
+  },
+  {
+   "wallet": "BYcwZMyLbBPQSNcnpkyKFBMiUsZ76f3DJe7PLag2wB2G",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.049,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "EtV9vmJXhV4gTgxzgzn7xpbjRX2ne2Vb8T58mwabpump",
+    "HMroT3TAEAoQuA8KuF8KzbKWRrbyrjECGo5FqgzRpump",
+    "8yRDUEqjDV9NhkDnBrjrmi16RYHrjCw2ULS8syVcZbDK"
+   ]
+  },
+  {
+   "wallet": "9p6576NAgHqp6kAb6hbr23DFsiecKC5zeCRFdSV4gHev",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.027,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "HubpDh2xftViQumoXQrKWdABqmDWzkRpddrmfph6pump",
+    "F5UwatuPnqETFt2bT2VLG9PhHac3W1GZ9vWswiLwpump"
+   ]
+  },
+  {
+   "wallet": "BRCLosJNWmRUdWK78tEALMioLszHuWQRvacanfJJifTw",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.021,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "9GoCKMmdKM5aTnxep3HUTb6pTLUwNu5RG7kxCZr769Ru",
+    "7LT29RDdrgqXtP5sQC3D2bnZj44rDkkQU7DuW1nc4ZKj",
+    "EctWxLaSn6gMzchCrpZtazJnQDZTWb8438gXwxZZUJz8"
+   ]
+  },
+  {
+   "wallet": "E5v4H3pnvNhsbwraWPEN8Q8QgpNR14GeYw48NdEH83Rf",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.013,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump",
+    "BS1xEuDHvJhuqgTjCy1F2gZNkuCDQxhUMDpKSdtRpump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "6CxJyxPhTuDE8yQ3Y92oumXLT8QedguVDrQTCr3fCk5i",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.01,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5bRZDjAxpZmKKgeGhEsBN7hRqzmbpfSq3FbnEu8Lpump",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "55NAYc58QFW6rCq2mwyyT9DJRGBu6xqCzTHoraHKVV8j",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.006,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "7UfcTJD2RSRg9AJ4k2V2rs71Ew8Zy2avaU5roc8bpump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "AguXBQi21sHZ9Zkt3ZvCEEpry17Wy8Xrcof7s57Kpnmh",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.005,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "Fz6mtRZohC4BoGSEEA58s2ew2M99n4WvgWm8SoP4nJDQ",
+    "9GoCKMmdKM5aTnxep3HUTb6pTLUwNu5RG7kxCZr769Ru"
+   ]
+  },
+  {
+   "wallet": "EfhvWENj36iybSU5vehK8VqAjmuhvbvcCS7UAsA6FtV6",
+   "tokens": 3,
+   "wins": 3,
+   "hit_rate": 1.0,
+   "realized_sol": 0.0,
+   "bundle_buys": 0,
+   "score": 75.0,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "6hzyHMwR1S2wAbPfDjTcQtM5fTq4XZBWFTRSdTsvZ2DH",
+    "3LiyW5yRKAC1qoU7A2EpThHGAUCHY3mLZnkw9mTJkYh7"
+   ]
+  },
+  {
+   "wallet": "4VSvEFPxNyBvB8LRfKXVGRb3bHjpx2iKChdps3YWDhus",
+   "tokens": 11,
+   "wins": 8,
+   "hit_rate": 0.727,
+   "realized_sol": 0.947,
+   "bundle_buys": 0,
+   "score": 72.7,
+   "win_mints": [
+    "266xwt1he2DtB39LFahETEokivhN6VaBgUage7xBpump",
+    "3MVP8r11UMc6dq9j4v8Sju1DHW7nq4utZ2jLRpvSpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "8iX67wnJuJkDk2Hvsdd4nBdwNQC2hc6TNiHK2gE5svCF",
+    "GtV6g1ey2NERrcbvL5bdzrxRJQDfxpMaLU9oLtRipump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr",
+    "WApCdQftZcRUNHN9S2XvmrqeRtRASE3EZxnwuNJpump"
+   ]
+  },
+  {
+   "wallet": "6aeC89rQXdS2necEULvK9PVSCyp7mP3RXAxfnjYDZKQw",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 12.108,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "7536qC4LEs3W2GtSKbhVGNJSiRfuXJhKVthxsgfkpump",
+    "Bk2pBWuFerzCVjAaJJAsCbbdL7inTHxmVPToJw4LeLTH",
+    "GguztAZZv3GsSjzFs3qp18X2jqeAr2YmbbkmY2AZpump",
+    "3uVTqaD3UyBQ8Fm9BtuDRaEtTcFPbqvjojhSQ3Jupump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW"
+   ]
+  },
+  {
+   "wallet": "GnFqSQuzxHbJzt8CcTBCadXLNevaZ8J71xcAmXZKZQep",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 5.561,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "B32RrQH7bKATY8UcoajsHSEXdUE5MfDy4fsNPmhcpump",
+    "GxdZqQtSDChqoVDeJ2YNV1uBc6iF4PXhyk21p34Qatip",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump",
+    "7bYndjsetuU7tHb8YoQwtAhAzqoEfcC7oW1EpnKipump"
+   ]
+  },
+  {
+   "wallet": "GoXn8Q9wyKJXYVuEMLm66m3tKSGhNmFR2DCePZS1Mdzi",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 2.018,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "4bhV1DPku6KvsqWCL9GLDaDWgJ78M4kBRgKoNdjBpump",
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "3MVP8r11UMc6dq9j4v8Sju1DHW7nq4utZ2jLRpvSpump",
+    "8QB2YFkUY5VWF8Ti6nnG6b8RNqswmo3QPJi64cxBpump",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump"
+   ]
+  },
+  {
+   "wallet": "miceqcgAeTsr3YMHqbDksZQBD7AMJbrAz4mqHZkPFAz",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 1.7,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump",
+    "HRgAXzTx4Kbbwx1oLVbjUAL67x9vP54S1QFTwFEvJcUF",
+    "6GUHqp7jX3j9wbSeAqPZNGvqVTSjx7sPqBk6dRWGfZHF",
+    "36ef5aQyrEFRDMyRk3fBdcvDPHNjARi5bDG9ryPoWRWX",
+    "5pTy48gtfzaR8NPUVZTbybVUGpQvFT4JsNHzwQE8pump"
+   ]
+  },
+  {
+   "wallet": "venus1NBzKNxowzKb7qCuiQUh13whmh9T2HXm6458av",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 1.137,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump",
+    "HRgAXzTx4Kbbwx1oLVbjUAL67x9vP54S1QFTwFEvJcUF",
+    "6GUHqp7jX3j9wbSeAqPZNGvqVTSjx7sPqBk6dRWGfZHF",
+    "36ef5aQyrEFRDMyRk3fBdcvDPHNjARi5bDG9ryPoWRWX",
+    "5pTy48gtfzaR8NPUVZTbybVUGpQvFT4JsNHzwQE8pump"
+   ]
+  },
+  {
+   "wallet": "5pCz5sL4MwZ6jcnAnWYZdZABR37U3iVxXVbKnQ4XuH2f",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 1.074,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "9tpHqTJ2d8jMZJjZzsf9MCfnCEmbAjsqjPJ56PzSpump",
+    "C4MCjMiieFrb7vhPahMzoJniDfiKAswF7K7GD7Uapump",
+    "FZHk2fo51sWy3d5DPuCbFC4maD8SEPPjxup1dzBtpump"
+   ]
+  },
+  {
+   "wallet": "TtaKWdDHqLh3qhxHRnvgQtzx7fDbXcveaJ1wkmpLP27",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.843,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "7eEqEXTrYjG4FbVq2PXfxJVaSRp4ZnYcD4RM1KxQpump",
+    "3jNVGYs3HCPmRnk12QWUVd1pzVckUx8dPyoaKW7zpump",
+    "2Su1mp2yxnWqUagnGAbMkF76as8wi6NZs41pPXScpump",
+    "Bqy9DSJGRbun7s8dr7mkN8fm3hPa44p64hhy3MQWpump",
+    "8qj3D1qAKjQC9hns7ChiGsa1MvGkq7TdapKsqxdPvf2f"
+   ]
+  },
+  {
+   "wallet": "NrQW2YoonGwpbdaQCDfiVicgiSyrKnSVRd5VuYxYULL",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.708,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "8Y6pHi3cMhxhtHuzgGAsWgAJMyw3zaQLeFFf3qvRpump",
+    "5VnbrKp28Qs9CAH6PyZdxBNvLxZcbeX3YBsozgWnpump",
+    "Bf9i7oG8We16XBtgeAnNB9rDBnmCZPW37P7b6a9Hpump",
+    "DnvwcyTPN3DHAE2HKGJ9DaNxGLHuFDUMPWEjVoMXpump",
+    "4SzWdVbXC7JiAtY5rH5MGc8HJPFAv6sSG97QEsjSpump"
+   ]
+  },
+  {
+   "wallet": "AFgiEBfe55eTdCQYheYr5Wy5dY25H6wztfQaH9UiRAZj",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.326,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "C4MCjMiieFrb7vhPahMzoJniDfiKAswF7K7GD7Uapump",
+    "Fz6mtRZohC4BoGSEEA58s2ew2M99n4WvgWm8SoP4nJDQ",
+    "9KzKWxe2ZbU9aVCow1tXpsqJ2bQATSfoS3cSvsfbpump",
+    "Dr7NvovzjAjHWVAmiHUCT2m7RWZhRNRwJv387QbPpump"
+   ]
+  },
+  {
+   "wallet": "HG1nK4EsRbiJM2gfPio3rSCLtitXb8FWEaDAeFAjqHcQ",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.132,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "F4KoHSZ2WAePCCnyZCWGBtLyJVUoYnxEKELnarxMpump",
+    "BjDqeXf3K6qLidvdhZeJUj3QQ93bndcYT1bs58SUpump",
+    "CqWt6SUMJuqmt1JVTTadyEpGuvn4AzDN6QFXuZeXpump",
+    "FcsDDiL22WTWo22BF6F7tsAYHcodC65Be9qkbk7bpump",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump"
+   ]
+  },
+  {
+   "wallet": "EDMPdao8hKYSaQYz6sfpBBpdY62un1jsqm3ZTw44GsoY",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.109,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "D9QYds4z8vSyxM4t6GvjeKFkkLLLWS5m3LdJEThxKyzB",
+    "Bd9thw3PAeyHeBGSi4R1ARBuptpG5rM4fhB8BRWJkq1e",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "MepJTTR6onwsgdSPEbMx4FNTYDwczPuZiJDdfZUpHYD",
+   "tokens": 7,
+   "wins": 5,
+   "hit_rate": 0.714,
+   "realized_sol": 0.103,
+   "bundle_buys": 0,
+   "score": 71.4,
+   "win_mints": [
+    "AeLonprCt3y4dZEWEeRTkPqnUPW2FngSD2YeUmPP6GDk",
+    "3A3qjns31YZA6Ung91ZpoPD7J3p1bDFbTJ4ANFAPpump",
+    "tZPasooEK7iJALGUkCSBnMmviyXZtxHtJmXaw5Epump",
+    "4gk3n1iCFj2n84MkuRenGHDRZHBRvXy81vLa35krpump",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump"
+   ]
+  },
+  {
+   "wallet": "2ZEA84d3VxXJqfHgknbDwjCfXVf9nBNrnVXxMLdt7Fi2",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 2.103,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "AeLonprCt3y4dZEWEeRTkPqnUPW2FngSD2YeUmPP6GDk",
+    "7MKsF76rx5UMAdtUS1WLNeu4NYdpAfiCccV62upNworm",
+    "2Dx7XJQp2LGdq14nP98swmtUhfhHz8FVs98bt11Mpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "72LuwBNZwtk1GPzWEktDeD2kgvMHoKpksV2mLnhkLand",
+    "9jAVyE3sTnVoWXLK4eorcU7uV6zhh5Q9WapdcstAYtas"
+   ]
+  },
+  {
+   "wallet": "9Rgm685Arn8ofrJToz967HFs78kg9F8oXsqAoJfB5An5",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 0.71,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "2Fad8taWxbaso6u1Cb91oV14p6m4PR52Gwc7TJRPpump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "BkwEy77BzTaDSwWsbKMdpTVE7dQVFN1RVFGjknyVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump"
+   ]
+  },
+  {
+   "wallet": "EqK6w9wpPWKTNfSdtoWBSH6DCsjPwipG9N7yFouQuaRR",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 0.49,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "2Fad8taWxbaso6u1Cb91oV14p6m4PR52Gwc7TJRPpump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "BkwEy77BzTaDSwWsbKMdpTVE7dQVFN1RVFGjknyVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump"
+   ]
+  },
+  {
+   "wallet": "H3oQ93RGPfx8srHCT6EzTcHmVBvDminpApwPEBD1DVxW",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 0.437,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "2Fad8taWxbaso6u1Cb91oV14p6m4PR52Gwc7TJRPpump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "BkwEy77BzTaDSwWsbKMdpTVE7dQVFN1RVFGjknyVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump"
+   ]
+  },
+  {
+   "wallet": "5RHXVaKD3nUEnmJZYzC9MNUeW5UfALzGbLANF1xajbJ",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 0.258,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "2Fad8taWxbaso6u1Cb91oV14p6m4PR52Gwc7TJRPpump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "BkwEy77BzTaDSwWsbKMdpTVE7dQVFN1RVFGjknyVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump"
+   ]
+  },
+  {
+   "wallet": "gPw8EVDfWEQ162GghnfBiiP7Yh1EmEV9CRiHbEADxFL",
+   "tokens": 10,
+   "wins": 7,
+   "hit_rate": 0.7,
+   "realized_sol": 0.159,
+   "bundle_buys": 0,
+   "score": 70.0,
+   "win_mints": [
+    "2Fad8taWxbaso6u1Cb91oV14p6m4PR52Gwc7TJRPpump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "BkwEy77BzTaDSwWsbKMdpTVE7dQVFN1RVFGjknyVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump"
+   ]
+  },
+  {
+   "wallet": "B3TraU7T1fj9Sogaq6NouaBWnPTkPQciDa1KYvJkPVkw",
+   "tokens": 13,
+   "wins": 9,
+   "hit_rate": 0.692,
+   "realized_sol": 1.594,
+   "bundle_buys": 0,
+   "score": 69.2,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "DRaEJKhtkW2e37N6hgbvzyAemQPynhSeQMQQmt9cpump",
+    "7cYaQc21w9dzKkGP6LgkqtmL5yzoK5UJE1GeamTRHwny",
+    "GD17AoWMRM7pC5GP6QKK1AsCHcy22tsezfgacxdhCi3",
+    "75gGuxuqKhQQiHae8JKDQaetK3XguKf1rUJ1csispump"
+   ]
+  },
+  {
+   "wallet": "EwMndgvbgdXuTCvT7bRGX8wPKVevyq7QZNVqWvFqFVsh",
+   "tokens": 16,
+   "wins": 11,
+   "hit_rate": 0.688,
+   "realized_sol": 1.192,
+   "bundle_buys": 0,
+   "score": 68.8,
+   "win_mints": [
+    "8TiMkgvsrat9tM2esko8zVTt99LZLpefUM4SnZaziXaQ",
+    "9Q29Fvgj9ttzxux7jmVpSp87EUCRX3ADM9YybMeapump",
+    "BvoAtiRyaxnmp3SkHLWAKCQLyMTiGD1mjBFy9EMkpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "GguztAZZv3GsSjzFs3qp18X2jqeAr2YmbbkmY2AZpump",
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump"
+   ]
+  },
+  {
+   "wallet": "4Mkajyg2yw4iecGWP7NAshFiibwnmPRweqwcqKaJMVKM",
+   "tokens": 16,
+   "wins": 11,
+   "hit_rate": 0.688,
+   "realized_sol": 0.064,
+   "bundle_buys": 0,
+   "score": 68.8,
+   "win_mints": [
+    "Ak4cZZkr4AdcHBorJvggMziofQe4wzskys3BmSxMpump",
+    "81ut8WngXu3WbJAsHBCnd6ScvC7dUpZMJJjtDicgs9KQ",
+    "CNn1zv8GsPAQddUuYn6cm3fUMTWo61XANtUjSry4pump",
+    "CSEd3Pi5WZL7w5vmwNjDVXv8poAqSv2Dn1as1erUpump",
+    "BqaDYoCj3wpepsHvQ687tiSr141jyf53u7N1FPhPpump",
+    "22A7iN7asRsSL8zDywRjUhfXi3Z8d36bSoK7YGQUpump",
+    "EVxVeEy86fPq1WE5B6h5ZCKR49UEC3ziTc8HJ68hhxu8",
+    "EThAHDXisQrhvv9MPrv5DgZuRHkjUzNcTwnLzVjCpump",
+    "GNYqrt6XCq4YG81LDZShi63pzHjCouHH91FJihSqpump",
+    "6Rhs8iuUiepGYpiP6ZEhNF9jRemVV8xYdD3hVuqtKTAR"
+   ]
+  },
+  {
+   "wallet": "G92LdmmocT3NNgHcCT5WTW3w4L1z79qid78AKzj9GEQ2",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 8.008,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "G6AjY7RnwoxU7UPUh5ru53Xgv9qGLKfR4va8nsJZpump",
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "BqaDYoCj3wpepsHvQ687tiSr141jyf53u7N1FPhPpump"
+   ]
+  },
+  {
+   "wallet": "A7kmTMz32UY1dBMHeWQNuxeLvfGu1p3d4q6TkJA6vs2c",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 7.671,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "89vavDbFk3UwmoLM7ed1pdVgXQtktEyugCZH28gKq4NV",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 6.087,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "F1H1KNxCzm9SnLjoaSk9X3xxDukujQhtnHHsndynYVmt",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 5.202,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "DTK2rjeSDJctPyjKsPBT7BH2K9ybaS2icKu4eCnFAu6f",
+   "tokens": 12,
+   "wins": 8,
+   "hit_rate": 0.667,
+   "realized_sol": 4.904,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "2dZn4npTgAexBYquT3UqQXGiBdZf4F9tDTw419jEoS6B",
+    "8Xg89xT8Ve34sKiYqYuMs46mycREsCA2F362UscRpump",
+    "9tpHqTJ2d8jMZJjZzsf9MCfnCEmbAjsqjPJ56PzSpump",
+    "2baSUcFC24ZSjBRAYz9Y66iznq7GGeo77EyBCTZopump",
+    "CubFbC9LjCEbRE2mGkie35pUMZDWvpyPCo9o4wNrpump",
+    "4Qsh4VqshszkbmMUeBT3PxbYc6ogYZMVCuQ2njrdpump",
+    "51zV2Kh2xaaUt1ALCawMFAk4HpFSzpdmLBfxRUwfpump",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump"
+   ]
+  },
+  {
+   "wallet": "79NJ7kZmwsZd66EhsKpca5Pne8ePNEdMAwYfmt2iQWJg",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 4.724,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "9J5r5HCCkebGgLkd5uzjodiZ7bgrHEU8eteyaGdkpgoJ",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 4.562,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "9rmkMpmH44JBx3HRuvyo2z5xiPzzJCKHk8t5q3hjR7gk",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 4.296,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "D9QYds4z8vSyxM4t6GvjeKFkkLLLWS5m3LdJEThxKyzB",
+    "EThAHDXisQrhvv9MPrv5DgZuRHkjUzNcTwnLzVjCpump",
+    "BS1xEuDHvJhuqgTjCy1F2gZNkuCDQxhUMDpKSdtRpump",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR"
+   ]
+  },
+  {
+   "wallet": "HB3uczHak7wD6CJhTDTmAhPLnfFg2Jbowbdj8TjxNTe7",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 4.174,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "Ak4cZZkr4AdcHBorJvggMziofQe4wzskys3BmSxMpump",
+    "8h4Cy6wgufWmonnxLmxabLYZdHPcDyRWMywYxgWYpump",
+    "EZpBNHvfrWfkAdFn9CrwEp4gaEYjyqkhYkLTRp5hpump",
+    "5Uycj5BUozB87WgocSPhFzGDvoUftvANadiWS4cKWLgG"
+   ]
+  },
+  {
+   "wallet": "8xtxrUinz1EAgmgSZBtpX6Yh7hvVhoNB3M6pGTyrDXs1",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 3.808,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "7536qC4LEs3W2GtSKbhVGNJSiRfuXJhKVthxsgfkpump",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "49PU6ENTpYc3zkhgCruzCSBzgVAdix5muP2oVzRGpump",
+    "8yRDUEqjDV9NhkDnBrjrmi16RYHrjCw2ULS8syVcZbDK"
+   ]
+  },
+  {
+   "wallet": "BHYFjRgueh1VUQAcka5Pw8fErcsT8h3Xq1MFu26cCcuq",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 2.796,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "GxdZqQtSDChqoVDeJ2YNV1uBc6iF4PXhyk21p34Qatip",
+    "8xSiWmXU9LeD5vcPS6g4m2vq92RpM1xXnwC2hbZzpump",
+    "4jxHBQ5YcUeu582x4h4firETkz1MTFAfmzys68xQpump"
+   ]
+  },
+  {
+   "wallet": "Boupxn2Rjk6ubg1vgQv3E9kBDftNHS5ybR1Vq69hdfqM",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 2.784,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "8TiMkgvsrat9tM2esko8zVTt99LZLpefUM4SnZaziXaQ",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "tZPasooEK7iJALGUkCSBnMmviyXZtxHtJmXaw5Epump"
+   ]
+  },
+  {
+   "wallet": "A2t4WepaZEa3VFrjwY7sKUcxXZjEdbf2VbubswCBkw55",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 2.783,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "cccc7Khd4YxiMgABa78HWxrrwxBp774HaoCmLiAZbU4",
+   "tokens": 9,
+   "wins": 6,
+   "hit_rate": 0.667,
+   "realized_sol": 2.285,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "4M7RYCRUsfik2gSC64UKFYYVuLsP4PTJ3fu1QW37pump",
+    "G6NnKQTgN7Dmo9yrJXwoqiDm35FznQmQ1qXVFAXPpump",
+    "4ZGMwBBcia2LqmpG2DLHSrQHNqMcWHzk3fGXaF7xpump",
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump"
+   ]
+  },
+  {
+   "wallet": "FTRPASSp2VNvA9b33vNdm419u1Ev6gbMQhMxHqujfEDa",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 2.048,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "9UoHfjoJmoZqX9VodTdjgvpmFC3BfJdEu27b8QUYv9xE",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 2.029,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "WiNCgfRnQyiNJjauG3Kg2cXK4mtjAGs6qCGPua5mECL",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 1.979,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump",
+    "HRgAXzTx4Kbbwx1oLVbjUAL67x9vP54S1QFTwFEvJcUF",
+    "6GUHqp7jX3j9wbSeAqPZNGvqVTSjx7sPqBk6dRWGfZHF",
+    "36ef5aQyrEFRDMyRk3fBdcvDPHNjARi5bDG9ryPoWRWX"
+   ]
+  },
+  {
+   "wallet": "3WRdSMEgaB8kHdhaRkA3HBQThCxsUgbrZN239mKJrVDh",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 1.96,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "9vtHqQPPhpupfGPqJBocjq4ppzpUor3sRMd52iC3cKv9",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 1.778,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "7R7NT6Z9fc5cpr21zmhgqA2dKcLcFfbM7V1TTZTvUQaa",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 1.399,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "4At7e5owcjguMyeYCjsyG9U6urLpwHqTQgmai2jXpump",
+    "HFNSKQh7bHzEKzt5m6pe79FmGiZ14PJjJScBshts8Yd8",
+    "7bYndjsetuU7tHb8YoQwtAhAzqoEfcC7oW1EpnKipump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "7XwA732oKjWSnFXxA949E5whb8zDnesUohGMXdNeVqCk",
+   "tokens": 9,
+   "wins": 6,
+   "hit_rate": 0.667,
+   "realized_sol": 1.392,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "N262mTRHaLZmsED3hEfDbJUfb4ghCmzEZjQp1ibpump",
+    "FFtp6pxteF52PX3gryHrhQdxWze23Qzh7vC3kKzVpump",
+    "9Pw7J7pqofhyeRR8Feh7GCvJabJPsGgFKrsKnNszpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "7rxSWyfrJYV6NUqncewPZyu1m2hqcM2kMGECSKxXmwaq",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 1.041,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "C1EpTQaahtydzda6WgEHyiDtwTpRc454xwp8ndNgrqGx",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.985,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "J9kjBTrWn1Ubd1ui3Qie31mFigsdbZ39WnBCXAdzpump",
+    "4eiZPXEGxFRzviWi5FtqAkUGRDRMSm8gk4g2GLzbpump",
+    "8Vb5f7enGjp2uHuRqh1F5AVoXoXrYVZHwuw2orjepump"
+   ]
+  },
+  {
+   "wallet": "HywrhsmLzGVNY5pT5VWCJxJTQzz9SZ5udcee5gDndnGy",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.824,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "HGCWcGN4L5rynZ4tcHFxy7PkFJwLuiee12SenXKD1cMy",
+    "DSdYG7MHC6WBWWquB1NYMCB8B6usxGa67LcWhNEZmexP",
+    "8QB2YFkUY5VWF8Ti6nnG6b8RNqswmo3QPJi64cxBpump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "DmD1BYHJLGY1MPaWmg9XxAzHRS1ewu7Tv6coXbUQ6P4G",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.712,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "C2bj2HbEsnv7bSqQe2bQ7uGrf7MHXNN4cSmEVRMQpump",
+    "26ZjoNtHCEoQc4GiDnC1VVq3BBn4p2A5ayKi3wBipump",
+    "EctWxLaSn6gMzchCrpZtazJnQDZTWb8438gXwxZZUJz8",
+    "A86s57CFjnPQgYsJdiJjokQvTCUWEanTHEdVfLzhpump"
+   ]
+  },
+  {
+   "wallet": "G95y6PrrocwLJHYM1n6FYaR4cGxErTjMKwnYhjRbTzyH",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.619,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "7PdB7vQTirDQbGGHprEUdFkauVBjAtotHWiLTcD5pump",
+    "DNTCnZCmfvcj57ZTC8pVnYsTCehi4xuF4ya6Jk4Qpump",
+    "8qj3D1qAKjQC9hns7ChiGsa1MvGkq7TdapKsqxdPvf2f"
+   ]
+  },
+  {
+   "wallet": "5ppXsrE9H6aiiD3ejbZeYxiQmBjz9QqLULHwwS61rddo",
+   "tokens": 9,
+   "wins": 6,
+   "hit_rate": 0.667,
+   "realized_sol": 0.617,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "8F6B9qfAPmygkxzYAdQe57qoCrSjGuCsfgbVHCeRpump",
+    "Gyk9Z93Ri2JUjqES9HTpc7pxCJTLD7vhBhEjBhyApump",
+    "ABEHCNtMm9k2BWAQDFCbjEnAWoSM7ogwWFmrB759pump",
+    "EdjdQeRGiWEYzjLSFMUjNC5tpc1GNPbMsNXNZTxYpump",
+    "4obtkx8LNfe8ma1ZGJ7UHiEexVde882veNhLePhspump",
+    "3rZ97af6e85vNCqZPMLUSui5SmwNYhjpdRJ7RTTnG2Ff"
+   ]
+  },
+  {
+   "wallet": "GBPmZUtVKuAPbwhUZKMidtHqUDMGMeSQfbuscoH9g5cm",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.242,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "BeYAs9VQV6zWpVbAfv9XcD14V4uohshVrGGDUJnHKiwn",
+    "xuXRNWGDjavKVJeVDgbbJzujBrTPAGUBRNptYySpump",
+    "EdjdQeRGiWEYzjLSFMUjNC5tpc1GNPbMsNXNZTxYpump",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW"
+   ]
+  },
+  {
+   "wallet": "8dR1r8uUkTgv2CgDeaok6vX6mSFd6MPkYeWMHwFfgmsQ",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.204,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "8kioiYtqdtDNFSmhbMd1W5dP8wGbS8e7L1umXddEpump",
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "Fz6mtRZohC4BoGSEEA58s2ew2M99n4WvgWm8SoP4nJDQ",
+    "9GoCKMmdKM5aTnxep3HUTb6pTLUwNu5RG7kxCZr769Ru"
+   ]
+  },
+  {
+   "wallet": "FBY6G4d2dbWNyvyHK4w4dBh9F3DX7tsyHBdi5Ls8DPff",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.102,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "DwbZt9xC5BRgRuFvNsvnwf5jcuvGZaERbaca59a8pump",
+    "6PS5TzY27BCuh8HYAYpfsiXHy1Y4CPvtCRSEnPz6pump",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW"
+   ]
+  },
+  {
+   "wallet": "BZoHFehjoi4Tr4Uy8BP5jVxpXff7wXoZGcxLRH6VW6KC",
+   "tokens": 12,
+   "wins": 8,
+   "hit_rate": 0.667,
+   "realized_sol": 0.074,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "8F6B9qfAPmygkxzYAdQe57qoCrSjGuCsfgbVHCeRpump",
+    "9Q29Fvgj9ttzxux7jmVpSp87EUCRX3ADM9YybMeapump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "ZQSSfpJHPEtoQLpwDHA6u4tPZ4B8TJTWYkcx7afpump",
+    "9ziUEJYHRCtD4Chn2svkGeS5ahdhNeoTiqzeRpMWpump",
+    "C4MCjMiieFrb7vhPahMzoJniDfiKAswF7K7GD7Uapump",
+    "ABEHCNtMm9k2BWAQDFCbjEnAWoSM7ogwWFmrB759pump"
+   ]
+  },
+  {
+   "wallet": "47VbJKvGHicLsos1t98KA6j8JS2g3nKKrddt3KYbjj2W",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.046,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "3SMoLKj86uBqC7mbgZ8TkeydubNRwqHpBz4YAMBEnCQt",
+   "tokens": 9,
+   "wins": 6,
+   "hit_rate": 0.667,
+   "realized_sol": 0.037,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "8rRX2iDrBZmuLKB84jMtMcCo5C6Ys5KfNPLqAZiopump",
+    "FGVQvsQktc1GyZAYRjknwQmo8pN5SvvaY59WucWEpump",
+    "31AZgaGGQuBP8Ca4z8TRUprjjPcBqyRYLxjTFqK8XrFV",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "AVYKJvzfXem7abP5r27RvwTAxgexDGky5BUXswUgpump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "BkSHyWZSLe6dJR845SpW8Rk8UAbLMaAGh9FdSTxuYhp7",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.037,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "ArV7g2VBDHTUvfJTwCPYzzPJRozHbdS94QigVPuFpump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr",
+    "GD17AoWMRM7pC5GP6QKK1AsCHcy22tsezfgacxdhCi3",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "FAYZt4kemvbpFeAo57phe6stz4MYY5G52CcAB6FpyHsD",
+   "tokens": 6,
+   "wins": 4,
+   "hit_rate": 0.667,
+   "realized_sol": 0.036,
+   "bundle_buys": 0,
+   "score": 66.7,
+   "win_mints": [
+    "2sWirxXXtQxZJGnVaWevkNNcGdv8UsFZYukHjETfpump",
+    "Bqy9DSJGRbun7s8dr7mkN8fm3hPa44p64hhy3MQWpump",
+    "6tpfCENhKozjtambBEecWoV1V6trzqNgi1AQHkTqpump",
+    "7cYaQc21w9dzKkGP6LgkqtmL5yzoK5UJE1GeamTRHwny"
+   ]
+  },
+  {
+   "wallet": "5bu8P3QAZR3sdFfE1pdCcUCQkYnmhU76hQQ4tUrvSYfM",
+   "tokens": 17,
+   "wins": 11,
+   "hit_rate": 0.647,
+   "realized_sol": 5.805,
+   "bundle_buys": 0,
+   "score": 64.7,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN"
+   ]
+  },
+  {
+   "wallet": "E7GGNLPL7GGCiiKe52uaMiodX1A8PUTCxs2JXezhZZ7s",
+   "tokens": 17,
+   "wins": 11,
+   "hit_rate": 0.647,
+   "realized_sol": 4.151,
+   "bundle_buys": 0,
+   "score": 64.7,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN"
+   ]
+  },
+  {
+   "wallet": "2FxDQ8EaY5tVEkpiJ47bNnrr8sGJFbcYtFwB1W19Xif6",
+   "tokens": 17,
+   "wins": 11,
+   "hit_rate": 0.647,
+   "realized_sol": 3.892,
+   "bundle_buys": 0,
+   "score": 64.7,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN"
+   ]
+  },
+  {
+   "wallet": "Ay1o2Xpc7JJ556ReFycr1Sf5fiNquhKjmVq8F2njB1MC",
+   "tokens": 17,
+   "wins": 11,
+   "hit_rate": 0.647,
+   "realized_sol": 3.769,
+   "bundle_buys": 0,
+   "score": 64.7,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN"
+   ]
+  },
+  {
+   "wallet": "BDCLHTNjv1rdMEeFCo8u6XRmvUp94eLB3sQmcpDQqPMj",
+   "tokens": 17,
+   "wins": 11,
+   "hit_rate": 0.647,
+   "realized_sol": 3.113,
+   "bundle_buys": 0,
+   "score": 64.7,
+   "win_mints": [
+    "HPcG2DDjb1Dk7dUrvNXka8ZcU5zwnRiSVXZE9bxGhhLZ",
+    "3sjJoPEcaMJ1azgvtkjuQJe2383etMVDAP3x6iwGpump",
+    "HpkDyHK7avch8TS3raZ6mifBjZoUHRgvWwgzRQL1RXFR",
+    "eyfwpQxwtUgC8Vmvk1daRxeLe3RTA9FrpK1HHrFpump",
+    "GYFLuEAZMDdpUsTmyGdHstuXQC3JB9ZqtZbfktpppump",
+    "7JAnpjFqw3aC6QNuDvo9bppbuWKeZ7ym6JJFXQEB9gzy",
+    "FTQZZ7qFcvAx5Nkk8nN19Z3GrxxJmCtKpnLUSSQHpump",
+    "2PuJ8eLNWeHLhG5YR5SD4mNwkQGduBiW2CWPuYq3vUPy",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR",
+    "8VYcTcvwwWMUhKMz6Masa7EovpJXKzy6JAfouLkrKAFN"
+   ]
+  },
+  {
+   "wallet": "FqYLbWdEgcpY6tsSUHVYu1vm1JghryojPA8on2o8Dtmm",
+   "tokens": 11,
+   "wins": 7,
+   "hit_rate": 0.636,
+   "realized_sol": 1.393,
+   "bundle_buys": 0,
+   "score": 63.6,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "31GYUbJW5vjF1o7VM5SGP9Emj5WDBHb1cdcR8BM6pump",
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "4Qsh4VqshszkbmMUeBT3PxbYc6ogYZMVCuQ2njrdpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump"
+   ]
+  },
+  {
+   "wallet": "BMpbP4DGW8EADLrMgMmAehyKe1rMDhnsrCwa9wY6spVJ",
+   "tokens": 11,
+   "wins": 7,
+   "hit_rate": 0.636,
+   "realized_sol": 1.321,
+   "bundle_buys": 0,
+   "score": 63.6,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "31GYUbJW5vjF1o7VM5SGP9Emj5WDBHb1cdcR8BM6pump",
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "4Qsh4VqshszkbmMUeBT3PxbYc6ogYZMVCuQ2njrdpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump"
+   ]
+  },
+  {
+   "wallet": "jmemehQbZXX7QqNE7Eyi81MdTZw6cEAT6TU4Kinwtru",
+   "tokens": 40,
+   "wins": 25,
+   "hit_rate": 0.625,
+   "realized_sol": 303.439,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "8TiMkgvsrat9tM2esko8zVTt99LZLpefUM4SnZaziXaQ",
+    "9Q29Fvgj9ttzxux7jmVpSp87EUCRX3ADM9YybMeapump",
+    "BvoAtiRyaxnmp3SkHLWAKCQLyMTiGD1mjBFy9EMkpump",
+    "Ak4DBHNiH8ihVLycJmAEtG9N2QQ8ZYVfWNPkNCpXpump",
+    "7536qC4LEs3W2GtSKbhVGNJSiRfuXJhKVthxsgfkpump",
+    "Bk2pBWuFerzCVjAaJJAsCbbdL7inTHxmVPToJw4LeLTH",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "ZQSSfpJHPEtoQLpwDHA6u4tPZ4B8TJTWYkcx7afpump"
+   ]
+  },
+  {
+   "wallet": "4DK7LaupE4pkvKoc9eZFLHZCgGRg8ZbfMiQr3yyPPJEm",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 10.015,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "8Y6pHi3cMhxhtHuzgGAsWgAJMyw3zaQLeFFf3qvRpump",
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "51zV2Kh2xaaUt1ALCawMFAk4HpFSzpdmLBfxRUwfpump",
+    "3uVTqaD3UyBQ8Fm9BtuDRaEtTcFPbqvjojhSQ3Jupump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump"
+   ]
+  },
+  {
+   "wallet": "CERkRntTQ1NncqYbzxNqEV259DU9X18ZZSscXGwbXCsY",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 3.935,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "EQ46GCkgPctvueFDt2edutfa1hKxsDzo2EZeSMiHpump",
+    "5sh1QmnDdXLYvPPdocMwKZSBNRGRbtzjFMt3Rs9ZQfeT",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump",
+    "7BajcZoGi5WsZjn46Dn4Z9bZ15STUSUUyoQ7rGx5snuy"
+   ]
+  },
+  {
+   "wallet": "41xiAEmSE8j31Y8Gw6GS5y2r5YNYrLgGFnephwaH1pNB",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 0.687,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "7o7Dr8RTgGQYsjZ3scMVHkYgLj5PPEp7gwe54ET2pump",
+    "v3GmJzXJANY1NFu4FSAuj591YwesnLbY745JT23pump",
+    "8zoLaVjCS51Q61WdBPAehdAT7Km7vQqL5vL6wAu5pump",
+    "4dA5ybVBHNxrDKTbwW6nEepyiVkErwksAewj26ACpump",
+    "Hi9TFJLXmuDYnqA8npMgFWAZXx7FfyxADNkoAAZNpump"
+   ]
+  },
+  {
+   "wallet": "GoTYj31FpuihB52gmyvsA35cUWai2iYcANMDMKSociU8",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 0.625,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "FFtp6pxteF52PX3gryHrhQdxWze23Qzh7vC3kKzVpump",
+    "8uA5fVLw2TeK3UMympuorTXNY7ni8qpuW4MdfP6apump",
+    "F5UwatuPnqETFt2bT2VLG9PhHac3W1GZ9vWswiLwpump",
+    "72LuwBNZwtk1GPzWEktDeD2kgvMHoKpksV2mLnhkLand",
+    "2d7fgeNKny7jmaJWXRNnPoGrJL7vwL6MMv45UTXgpump"
+   ]
+  },
+  {
+   "wallet": "EyUPs3DiFfCCDBfqahvxCec8YdsaJmfrtURiB8V6CWZ2",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 0.19,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "H72pex1VtfY2M7v2Tfk9D9PgvCocRuFN3owCveERSa4s",
+    "GAiNsyzxypevTDHxdf42wU55GeVbGuwDEeb3Ca8mpump",
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "GhRJXatdMGdDcGmfxZPKWyUW4FNvMM4fSHRquyvgpump"
+   ]
+  },
+  {
+   "wallet": "7aJaMXQigbqYim6pZbJ37X4tML36Fpm86pEm78KgRKSr",
+   "tokens": 8,
+   "wins": 5,
+   "hit_rate": 0.625,
+   "realized_sol": 0.142,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "GBTkSzep7xDoBGWK154TvaJWWzsb8rw5GWChNcoLcYM8",
+    "EmLPFwLkzaPdT548oKXT9CMh9bSB9Ez93fBgmmoapump",
+    "DZaQRdmPHNaqNsMVqRU8P4q5f2mErab4GipPghowFvaz",
+    "ED6AnPQNpWYswpbFqtTKAJM7RmrDYSEZRLx1bTWRpump"
+   ]
+  },
+  {
+   "wallet": "A4dNFYotdaKKG3jwGM2YM5LegZYwo6GkQSPXHoTZkX4x",
+   "tokens": 16,
+   "wins": 10,
+   "hit_rate": 0.625,
+   "realized_sol": 0.058,
+   "bundle_buys": 0,
+   "score": 62.5,
+   "win_mints": [
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "EVD9rS4kGfSnwEzsQWxBnQAgM8ha3iCfbbe6GFNMpump",
+    "A2PKWNzy2YWWjg1g3x1iSc1EkptEMBF3iShww1YwdyZM",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "H72pex1VtfY2M7v2Tfk9D9PgvCocRuFN3owCveERSa4s",
+    "GmsAcJAFKEtAXDoRUroaQP5GBdmPcGwA2sRdC9Mbpump",
+    "8uA5fVLw2TeK3UMympuorTXNY7ni8qpuW4MdfP6apump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "DRKGYsGALqr5p2aTcGLK9zqiPB5wk7JV78bJv4mPpump"
+   ]
+  },
+  {
+   "wallet": "BiBVuH4c9MA8ruSCSC5CyocVpBVrbxGdDZQVT74M9kcd",
+   "tokens": 13,
+   "wins": 8,
+   "hit_rate": 0.615,
+   "realized_sol": 14.549,
+   "bundle_buys": 0,
+   "score": 61.5,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "BnBnZRMFQjk8F31hjckk3YyNiFvDjneRB6VTEXMkpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc"
+   ]
+  },
+  {
+   "wallet": "7jbkc3PDNuWDgfsidUciKmhr9HHArMR2eRWKJ5QLDcUp",
+   "tokens": 13,
+   "wins": 8,
+   "hit_rate": 0.615,
+   "realized_sol": 9.88,
+   "bundle_buys": 0,
+   "score": 61.5,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "BnBnZRMFQjk8F31hjckk3YyNiFvDjneRB6VTEXMkpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc"
+   ]
+  },
+  {
+   "wallet": "HatjYt6MN1rqkW8NGwJqetPY1QC5kRtBHLoKy2siWNXL",
+   "tokens": 15,
+   "wins": 9,
+   "hit_rate": 0.6,
+   "realized_sol": 5.673,
+   "bundle_buys": 0,
+   "score": 60.0,
+   "win_mints": [
+    "GMbRPG7XoDra2CW7Q2KJwnVpgy7mAT1eRAsziNuooCZ9",
+    "6woEnPYSbXtMJ2zxb8zStNEeuDpCyFtP7uowPPdQpump",
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "8zMqKceqftmjAZaxua6FddpWbQjoLoeWArg4UYBNpump",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump",
+    "F5UwatuPnqETFt2bT2VLG9PhHac3W1GZ9vWswiLwpump",
+    "DJXTSst4QeaQsVXs9BFAGnRA3aVcPaBoTE5bw6c1pump",
+    "FnNcduPcyrAuJKxcZjtzSYnNoSkyNnPnjKVqoafu7vqh",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump"
+   ]
+  },
+  {
+   "wallet": "2VTqf3vJaBgChjHXNxNNyjZeGtaWUSBvH9WVcustwzyJ",
+   "tokens": 10,
+   "wins": 6,
+   "hit_rate": 0.6,
+   "realized_sol": 1.394,
+   "bundle_buys": 0,
+   "score": 60.0,
+   "win_mints": [
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "89X1RR4V5wVwqUzUSE68ksjCby6PhkAtJNmqkkBkUmu5",
+    "9askTPDEKmYBsiwwoUmPf3mBwXqkxj9yB5UNtmD7pump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "DNM1AePswCnFFydQ2dz1yUJ3m4CBEKiCEkgpQ8YYpump",
+    "9sTBzg2p71LN6THJH2ycmYqhHLH1bhnny1Z5dPFSQnHF"
+   ]
+  },
+  {
+   "wallet": "CFa91DYb6DLcvQDGr8bMDsKhZ6rfyWVLF2zNPRAbqHnj",
+   "tokens": 10,
+   "wins": 6,
+   "hit_rate": 0.6,
+   "realized_sol": 0.802,
+   "bundle_buys": 0,
+   "score": 60.0,
+   "win_mints": [
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump",
+    "Hm3qVTr9znuY6az1immgh8kgYkH81D7LhyFV8JQApump",
+    "F2gKX1cgmVJPUfCSymGMq6hbgWSmdsLLK4sz9UkFpump",
+    "DnvwcyTPN3DHAE2HKGJ9DaNxGLHuFDUMPWEjVoMXpump",
+    "V83T8UtNKxppKq5Ehqhfv6cPJPvuGExet8GMVqdpump"
+   ]
+  },
+  {
+   "wallet": "9PtbYbK5FPbFrAGxoLLwWWvA2hdjeRtXg7zEHH7YFnV",
+   "tokens": 10,
+   "wins": 6,
+   "hit_rate": 0.6,
+   "realized_sol": 0.121,
+   "bundle_buys": 0,
+   "score": 60.0,
+   "win_mints": [
+    "2Su1mp2yxnWqUagnGAbMkF76as8wi6NZs41pPXScpump",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "D9QYds4z8vSyxM4t6GvjeKFkkLLLWS5m3LdJEThxKyzB",
+    "Bqy9DSJGRbun7s8dr7mkN8fm3hPa44p64hhy3MQWpump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump",
+    "8qj3D1qAKjQC9hns7ChiGsa1MvGkq7TdapKsqxdPvf2f"
+   ]
+  },
+  {
+   "wallet": "67WYenEKZMVoRSowCE1DSYPJB6VxoPATjv3sLizLGEG7",
+   "tokens": 10,
+   "wins": 6,
+   "hit_rate": 0.6,
+   "realized_sol": 0.081,
+   "bundle_buys": 0,
+   "score": 60.0,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "ArpPsesHXKbGeJsHdquM6acT3uNs7BChyetJjiNYpump",
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "4EwkXtSRpVxMAHM8ecRDdfK3gjR2F2JgTmqqqwNQpump",
+    "DNM1AePswCnFFydQ2dz1yUJ3m4CBEKiCEkgpQ8YYpump"
+   ]
+  },
+  {
+   "wallet": "9wLN6VkQjhTsGUWGyY3JxqfyEPQAj1yXYXT37oaCzyCx",
+   "tokens": 44,
+   "wins": 26,
+   "hit_rate": 0.591,
+   "realized_sol": 6.214,
+   "bundle_buys": 0,
+   "score": 59.1,
+   "win_mints": [
+    "95ccfn4UAUu3mQSvi7NJSJkHEnoLdW58qcRwwzmepump",
+    "2dZn4npTgAexBYquT3UqQXGiBdZf4F9tDTw419jEoS6B",
+    "8tYpZbZUcd7vXwEnzjWezEfwKtTGgWEPDBD98B9bpump",
+    "3MVP8r11UMc6dq9j4v8Sju1DHW7nq4utZ2jLRpvSpump",
+    "BctFsB2NaoKZcqXxhFFvDAJ4vdgxuunsg1g5m8CSEQDN",
+    "2qAU9FxwNTiykfxwcURPoevmsMfDTwX3Fr2Kto3qhmLV",
+    "7o7Dr8RTgGQYsjZ3scMVHkYgLj5PPEp7gwe54ET2pump",
+    "77k9bRPNj8yiGd36cgHkWmA6zbSveGJFpR4bcfDMpump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump",
+    "8t1dA3q8ybEE3eLKr1jj8cF8es6mAjSYMVsXabshpump"
+   ]
+  },
+  {
+   "wallet": "BaKbPLfDRDqLtZYFewVpeqjT1PULo9wjfSNnFfnoK9LZ",
+   "tokens": 17,
+   "wins": 10,
+   "hit_rate": 0.588,
+   "realized_sol": 9.468,
+   "bundle_buys": 0,
+   "score": 58.8,
+   "win_mints": [
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump",
+    "GguztAZZv3GsSjzFs3qp18X2jqeAr2YmbbkmY2AZpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc",
+    "3uVTqaD3UyBQ8Fm9BtuDRaEtTcFPbqvjojhSQ3Jupump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump",
+    "GATfTKNDEydqTJwTyDhhu6UDGkZS4iE4Vctv8nBspump",
+    "H7onx4sxvGkcqav1w43JqgbHhew99ctiYC98LR4ppump",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump"
+   ]
+  },
+  {
+   "wallet": "7Q6RcQKsmpaRsaK17nuVyxDEWMRcPJUhboHvsqNRgTsR",
+   "tokens": 17,
+   "wins": 10,
+   "hit_rate": 0.588,
+   "realized_sol": 2.13,
+   "bundle_buys": 0,
+   "score": 58.8,
+   "win_mints": [
+    "4xDu1zaBa6BuaDPX9oLEyLgksdwxkE16CcuoozSipump",
+    "86Eev7RJLnxzjGqhzbomTyVdoav8GdocewueNR1bpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "4c1XZRqFV6y8pAckHru5oiGPYUFw1eQ3kFotPLHrpump",
+    "GATfTKNDEydqTJwTyDhhu6UDGkZS4iE4Vctv8nBspump",
+    "6hjaMcRPvB4DEGpHqgHxmgipb2vrGQWMewZBAVSLpump",
+    "3GPGLTH8D3eVV7RbLXdSzXdPvzvgJRocMG8hvqZApump",
+    "C8Y7UFotk9JUf8B6ssFy6ZXDBnuinxrRV6FYu14Xpump",
+    "4rzygptJnVVRU5MEJckEDkP1Y1BQxD6FAaYpVWsvpump",
+    "3WQ6QCqR3KykXyjA6aonYZ5GR5g85kNrQ1E1b9mUpump"
+   ]
+  },
+  {
+   "wallet": "4UPNnxeihUzLEGNq4o8m7mYYKH2dhmfAfuYPLMd2PN1w",
+   "tokens": 70,
+   "wins": 41,
+   "hit_rate": 0.586,
+   "realized_sol": 1.63,
+   "bundle_buys": 0,
+   "score": 58.6,
+   "win_mints": [
+    "6woEnPYSbXtMJ2zxb8zStNEeuDpCyFtP7uowPPdQpump",
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "G6NnKQTgN7Dmo9yrJXwoqiDm35FznQmQ1qXVFAXPpump",
+    "eYPUJqVPzCU3Rr6VVrSvbG9mvM2dawmwQK3HZrDpump",
+    "hy55PGKUaaWbt6AQS3mWUCrGLbBuL5dhder15Hbpump",
+    "2iPzs2s7GVbK48ttJCNpaCgKdyz3Su7S5DWTW8QKXxYN",
+    "4bhV1DPku6KvsqWCL9GLDaDWgJ78M4kBRgKoNdjBpump",
+    "89X1RR4V5wVwqUzUSE68ksjCby6PhkAtJNmqkkBkUmu5",
+    "2qgnTgJbZU6Tu6CMrm5Z5ePDGuUAyGTACbBoBCw6pump",
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump"
+   ]
+  },
+  {
+   "wallet": "83G1QyawkZ28nqRrNSEpaYQXiY1zB1TixPycEGAYWyAM",
+   "tokens": 12,
+   "wins": 7,
+   "hit_rate": 0.583,
+   "realized_sol": 18.742,
+   "bundle_buys": 0,
+   "score": 58.3,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "4FhHaEvSngtqnAZrFjDXPyptXZCiLQD3VftsefaSpump",
+    "4Qsh4VqshszkbmMUeBT3PxbYc6ogYZMVCuQ2njrdpump",
+    "DRaEJKhtkW2e37N6hgbvzyAemQPynhSeQMQQmt9cpump",
+    "5VnbrKp28Qs9CAH6PyZdxBNvLxZcbeX3YBsozgWnpump",
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc",
+    "JERpqiXG9wLuWcbSi51uaqjYzTDd6Tj9VGgpAgik6EW"
+   ]
+  },
+  {
+   "wallet": "AWFww5aBT6ahCx5ocuReh4QBox2psR3YN6eCFHCdj5Hf",
+   "tokens": 12,
+   "wins": 7,
+   "hit_rate": 0.583,
+   "realized_sol": 0.623,
+   "bundle_buys": 0,
+   "score": 58.3,
+   "win_mints": [
+    "Cw7Eh4HVCf1P8dn2gFpeoLV8fGBdB2BBR2PmcDuNpump",
+    "3ZczeaGrpUwCsdxPnttDDeY1kmW1yvGWYgKoy7ZEpump",
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS",
+    "D3g39SjwzNPxXo6m8CWwHe3QoDBipMqM2Zd8DT8Qpump",
+    "4bAdGJBAnyAbtuDq27da1szAfYTtP8nSvPLtbRBLpump",
+    "4rzygptJnVVRU5MEJckEDkP1Y1BQxD6FAaYpVWsvpump"
+   ]
+  },
+  {
+   "wallet": "cbjrn1hUgCUqLbP4yESRyrXZrdxotoVp5aqTKmu7ait",
+   "tokens": 12,
+   "wins": 7,
+   "hit_rate": 0.583,
+   "realized_sol": 0.124,
+   "bundle_buys": 6,
+   "score": 58.3,
+   "win_mints": [
+    "2sWirxXXtQxZJGnVaWevkNNcGdv8UsFZYukHjETfpump",
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "Gkja8tGx5Lju3Mc6BF2sSifXU9oWtGy9hqddX2jLpump",
+    "CT6XNp3FBiYMTma2SPrjh1surd8rBUyFeJspuApjpump",
+    "9fryLr7nBtNbxZe5Vts98v9nS8dgvQwVvUNrkUspump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "CKii77zzepRCAMKwHLsyrtrLFdQHjAgCDrbQH2wBiXXX",
+   "tokens": 12,
+   "wins": 7,
+   "hit_rate": 0.583,
+   "realized_sol": 0.028,
+   "bundle_buys": 1,
+   "score": 58.3,
+   "win_mints": [
+    "3htrnMWdXeJ54YaBnVC4jRJJ12ix4bmKHsMKrcTMpump",
+    "4ZGMwBBcia2LqmpG2DLHSrQHNqMcWHzk3fGXaF7xpump",
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "7PdB7vQTirDQbGGHprEUdFkauVBjAtotHWiLTcD5pump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "9sTBzg2p71LN6THJH2ycmYqhHLH1bhnny1Z5dPFSQnHF"
+   ]
+  },
+  {
+   "wallet": "CA2pYkBWpojgFzcyLvCVRgrFRMW1kMucXQkfUv826N1U",
+   "tokens": 19,
+   "wins": 11,
+   "hit_rate": 0.579,
+   "realized_sol": 0.487,
+   "bundle_buys": 0,
+   "score": 57.9,
+   "win_mints": [
+    "4At7e5owcjguMyeYCjsyG9U6urLpwHqTQgmai2jXpump",
+    "2baSUcFC24ZSjBRAYz9Y66iznq7GGeo77EyBCTZopump",
+    "ERkmk5rs8KKD9u2fxoDZUmwwuVc7rT3sSeowGTrQuBit",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "6HFJ5sxVoEtczr9siAUeGssmpfhQSS3pEoBcCycUpump",
+    "EdAVcqLPg5gwDqjuPBghFbLr4q7SzrrSGHYq7nyfdQwP",
+    "Bf9i7oG8We16XBtgeAnNB9rDBnmCZPW37P7b6a9Hpump",
+    "FnNcduPcyrAuJKxcZjtzSYnNoSkyNnPnjKVqoafu7vqh",
+    "EH9vKKVJJoxULovwZZ5seSot3ofdpeMTxWjE9tCSpump",
+    "4jxHBQ5YcUeu582x4h4firETkz1MTFAfmzys68xQpump"
+   ]
+  },
+  {
+   "wallet": "7gmjcpamkRrWmsUhQqc9H4EKN4cADnQb8SwJdgRFEkui",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 4.901,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "hy55PGKUaaWbt6AQS3mWUCrGLbBuL5dhder15Hbpump",
+    "CqWt6SUMJuqmt1JVTTadyEpGuvn4AzDN6QFXuZeXpump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump",
+    "GBTkSzep7xDoBGWK154TvaJWWzsb8rw5GWChNcoLcYM8"
+   ]
+  },
+  {
+   "wallet": "GmS8esZTzBnZQGjHB52Dmga9rnBbHBoSaVa8UTnnmo2L",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 4.854,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "hy55PGKUaaWbt6AQS3mWUCrGLbBuL5dhder15Hbpump",
+    "GeoepSP9AvW3AKWvknybTXVWibhZ3W97shjtkQ9npump",
+    "5i21UkuLPaTiCqrSrF7vs6KEo1Vb1T1RWC5tdrbmpump",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV"
+   ]
+  },
+  {
+   "wallet": "CDujVuyheykHEtwP2JGsZ1diXURf4txmh3kr5UUbk3VR",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 4.38,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "EmT4thNMrQ4aJviLjcTdPhs4nsjuNAQ5jb6jwYUKpump",
+    "WkmJN7MRvXFe8rVoSkQoHKXwVwuNDxpuL7UqY1Qpump",
+    "5Mn3VAdUW34xWJqoEXCqzXRkDYoxZvvgo4CjFgV9Xiof",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "7MiN2UdGwTwUNrLz12xMgH485nCYsNasB62HVfTesx3c",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 4.064,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "B6DTxpSYoYhjha7D6FQJeRgzQxpMngCsckgjALvNpump",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "E6BGGdpVrV7hvGcsXN9gei679Tgvh7EW5KVsBMXwpump",
+    "GJKZgTVHLGD7d31fDEkfbT4qgyThTREKHazwS6G4pump"
+   ]
+  },
+  {
+   "wallet": "CWEY2uNmHBdAffH5Q4pAJsy6agFoDPpbA7TCE4Dm2AJ5",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 3.177,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "DBQqXnVHLGXruKf75BP3GvF9DaPnEGJSLUsnzQgepump",
+    "FunGGCbmUU6hL3jDjf8fGDKBtTP77caokq3PTi27pump"
+   ]
+  },
+  {
+   "wallet": "6z4z9RTX5QZqtNxC3toksQj3vz9b1rnbRqDuLfkLfkW2",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 3.008,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "81a4zMdXnAPCkH3NkE5nYXms56E2qWcrRmxuB9TTpump",
+    "8tYpZbZUcd7vXwEnzjWezEfwKtTGgWEPDBD98B9bpump",
+    "GAiNsyzxypevTDHxdf42wU55GeVbGuwDEeb3Ca8mpump",
+    "53c62brTyYpWn9v9mWYHRQtBBZY6PHBEcXweEbEmtLtM"
+   ]
+  },
+  {
+   "wallet": "BCJP5i4MbzSBQMJ4qqDWCoGD43bH6YwaNt6Ygd35nqAi",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 3.008,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "BjDqeXf3K6qLidvdhZeJUj3QQ93bndcYT1bs58SUpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC",
+    "CSEd3Pi5WZL7w5vmwNjDVXv8poAqSv2Dn1as1erUpump",
+    "xuXRNWGDjavKVJeVDgbbJzujBrTPAGUBRNptYySpump"
+   ]
+  },
+  {
+   "wallet": "4UTnHixGn99sHrySG1L1w3doGUt7wtb2KjL2uCLy9oRB",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 1.899,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "8kioiYtqdtDNFSmhbMd1W5dP8wGbS8e7L1umXddEpump",
+    "H72pex1VtfY2M7v2Tfk9D9PgvCocRuFN3owCveERSa4s",
+    "9GoCKMmdKM5aTnxep3HUTb6pTLUwNu5RG7kxCZr769Ru",
+    "53c62brTyYpWn9v9mWYHRQtBBZY6PHBEcXweEbEmtLtM"
+   ]
+  },
+  {
+   "wallet": "kv9h5rzPPL6bS2MXbnTzA1imRohMKF8pqFd1UP1aQ2U",
+   "tokens": 77,
+   "wins": 44,
+   "hit_rate": 0.571,
+   "realized_sol": 1.388,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "81ut8WngXu3WbJAsHBCnd6ScvC7dUpZMJJjtDicgs9KQ",
+    "HKrtkEt8NMrkbpaRcchuH4q62PsroNwDgvfuVfq2pump",
+    "HxNzaehXN56aJSF2yHRA3Wbxmav9QyvgtwJDZSmMpump",
+    "GAiNsyzxypevTDHxdf42wU55GeVbGuwDEeb3Ca8mpump",
+    "BeYAs9VQV6zWpVbAfv9XcD14V4uohshVrGGDUJnHKiwn",
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "77k9bRPNj8yiGd36cgHkWmA6zbSveGJFpR4bcfDMpump",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "Dqywq8LENBD9BkCFu1eYSDk9kEzctH5Rbby6c4Gupump"
+   ]
+  },
+  {
+   "wallet": "3U2PBNAuc2idUdTmsww3XaxTEopJj7YxRrkzmSXhoANz",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 1.379,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "HCVhncF5VV5baiHKa1m14s84LkghinXsJvG4sYoVpump",
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "31GYUbJW5vjF1o7VM5SGP9Emj5WDBHb1cdcR8BM6pump",
+    "4ByRNjKEQbtexsJie54vCdPnSuSWibWHn49dAXmcpump"
+   ]
+  },
+  {
+   "wallet": "2j6nAQQ66xvNiVSTTjtUbv2bsFiVGvVDGZvQK9GHnzmb",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 1.124,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "4M7RYCRUsfik2gSC64UKFYYVuLsP4PTJ3fu1QW37pump",
+    "4ZGMwBBcia2LqmpG2DLHSrQHNqMcWHzk3fGXaF7xpump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "DRaEJKhtkW2e37N6hgbvzyAemQPynhSeQMQQmt9cpump"
+   ]
+  },
+  {
+   "wallet": "4qjARXctNQhopYGShnHKFre5CxEGTTCnsEqvxKWgc8Ab",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.993,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "9bZQPrSbzNQhMnsmT5rMXhGodx5DwT5eXCGySZFKpump",
+    "2gNrU5MMpcWpWQMfBxTRAP47EwdFfNNWkFyR1eLNpump",
+    "5tCju6YNxHq5zrA6tGndr6F7TK42mpUFmeE31cSFpump",
+    "G59zeXWwXMw2bb6UJD1ceELXRhNkLXHkYrtBYBV5agnt"
+   ]
+  },
+  {
+   "wallet": "2NJq9d5nkSWMWSYCuA9BVQivRmMJWYiDcT1KxjckqnzA",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.86,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "AB2oaJzSPfH93SPpWDgWUFNyFpCzfDo4hFpAL7qtpump",
+    "FFtp6pxteF52PX3gryHrhQdxWze23Qzh7vC3kKzVpump",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "Bf9i7oG8We16XBtgeAnNB9rDBnmCZPW37P7b6a9Hpump"
+   ]
+  },
+  {
+   "wallet": "DRTXGBq6AhLi1Th5CoNBQ5nPtnBqQ3poAMGuaUgnoMae",
+   "tokens": 28,
+   "wins": 16,
+   "hit_rate": 0.571,
+   "realized_sol": 0.776,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "AYPvrtL9F31F99knQABWPfpqDuys5wmx82BGBxA4pump",
+    "8F6B9qfAPmygkxzYAdQe57qoCrSjGuCsfgbVHCeRpump",
+    "9Q29Fvgj9ttzxux7jmVpSp87EUCRX3ADM9YybMeapump",
+    "5ySrg1R3Mgvg5jioqLneg3bd5WEjNCeooQTSgjiopump",
+    "GUKwE4r4AND9p8weovtDo1e4KoJvgGj4BG3a6NbXFpW2",
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "3eqQkKPkUT36uXUFQP1GH3XoHDmJSks19NFhN93RmVth",
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "GULJDcpdHCvNfvKazgA5JSgjWhWMxb2adqV3M7Jzpump",
+    "8tYpZbZUcd7vXwEnzjWezEfwKtTGgWEPDBD98B9bpump"
+   ]
+  },
+  {
+   "wallet": "EnuDAMGnngQa5k2MqagqZSAQMjYJkkbskG9WUUft6i26",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.588,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "A2PKWNzy2YWWjg1g3x1iSc1EkptEMBF3iShww1YwdyZM",
+    "DRaEJKhtkW2e37N6hgbvzyAemQPynhSeQMQQmt9cpump",
+    "8uA5fVLw2TeK3UMympuorTXNY7ni8qpuW4MdfP6apump"
+   ]
+  },
+  {
+   "wallet": "4UNPDCrgG8QfYTydaFMkXqYK8Bd4RVMWrEcJjprgSNgr",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.441,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "4t78HQitjHdbCehXAvFCHigNYPjGHSm9TK2TNbbzpump",
+    "DPHKccBgHK68FiBKtyAGpz9BQPskKngm98hTodJFpump",
+    "8RWd6nKXUau7jKPTTXDR6kVd6ggY1n6M9CV9pcPfpump"
+   ]
+  },
+  {
+   "wallet": "8A44rVEC5DYVfNvEWVKAne1QRAtYdHbDfs2Sucm45Fqk",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.308,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "EtV9vmJXhV4gTgxzgzn7xpbjRX2ne2Vb8T58mwabpump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump"
+   ]
+  },
+  {
+   "wallet": "4t6zofFQVqrNmi249fbKGCPMJZKE9w6zuizsJgXy4c6b",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.245,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "ByQ4cTwVyrZtzb7aFKW8QXPBMXdCWx6UdVMshLZipump",
+    "3A3qjns31YZA6Ung91ZpoPD7J3p1bDFbTJ4ANFAPpump",
+    "7MKsF76rx5UMAdtUS1WLNeu4NYdpAfiCccV62upNworm",
+    "GhRJXatdMGdDcGmfxZPKWyUW4FNvMM4fSHRquyvgpump"
+   ]
+  },
+  {
+   "wallet": "73vHt7QoKAwaP9bRW3PKt4MmiDA9w4AbJE18URwo3Pij",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.24,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "BNCVEZfkxFY3ooi2AgQYtkkXAmCLGkHdEtjFtGzUoEYH",
+    "7XoR4H5FGMtbbYGG5jypAnwsQStpJ8muAQVnotA27ecz",
+    "Bf9i7oG8We16XBtgeAnNB9rDBnmCZPW37P7b6a9Hpump",
+    "GhRJXatdMGdDcGmfxZPKWyUW4FNvMM4fSHRquyvgpump"
+   ]
+  },
+  {
+   "wallet": "GSUuthrF2VKG5GaGyAFT32g44uqSasLeHaYNJCjCYKBo",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.219,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "2qgnTgJbZU6Tu6CMrm5Z5ePDGuUAyGTACbBoBCw6pump",
+    "2Dx7XJQp2LGdq14nP98swmtUhfhHz8FVs98bt11Mpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW"
+   ]
+  },
+  {
+   "wallet": "Csa6WuGuykkFNF9jX5gfWdEVEKLuDxoqeeoZ8vJ1kRGv",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.045,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "BcMfdUvRTUFTCQdqqZ3Hbmme7gME7ZmFNfHFgut8pump",
+    "DSdYG7MHC6WBWWquB1NYMCB8B6usxGa67LcWhNEZmexP",
+    "DZaQRdmPHNaqNsMVqRU8P4q5f2mErab4GipPghowFvaz",
+    "CBcjQNdtgb4SHwKDqKFxD3yPSk7pEMpKHQiMmZrgpump"
+   ]
+  },
+  {
+   "wallet": "sVPrujze8M6cNCDa5M8JEmPo7tCS61968SpDuwno341",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.011,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "2Dx7XJQp2LGdq14nP98swmtUhfhHz8FVs98bt11Mpump",
+    "9KzKWxe2ZbU9aVCow1tXpsqJ2bQATSfoS3cSvsfbpump",
+    "9GoCKMmdKM5aTnxep3HUTb6pTLUwNu5RG7kxCZr769Ru"
+   ]
+  },
+  {
+   "wallet": "Dn37t5kATeLN6gmvSbRTUtgDRoEwUkJRGEknuV9WQi6H",
+   "tokens": 7,
+   "wins": 4,
+   "hit_rate": 0.571,
+   "realized_sol": 0.005,
+   "bundle_buys": 0,
+   "score": 57.1,
+   "win_mints": [
+    "EQ46GCkgPctvueFDt2edutfa1hKxsDzo2EZeSMiHpump",
+    "9tpHqTJ2d8jMZJjZzsf9MCfnCEmbAjsqjPJ56PzSpump",
+    "DEkyaZbndrddSc9hdQYN3nYYBz6oTRJg9P57Qup8pump",
+    "D4cYhYCPDM7trS62B7sKTTKeWtCDtG5ECjCtMSthpump"
+   ]
+  },
+  {
+   "wallet": "C5YkqPGbDaF7HGNAGd1t3j7E87WuqyPcqgpA7SXFEJkq",
+   "tokens": 30,
+   "wins": 17,
+   "hit_rate": 0.567,
+   "realized_sol": 0.061,
+   "bundle_buys": 0,
+   "score": 56.7,
+   "win_mints": [
+    "5qusVgLiR2HxhyTGhfP8y3zdGi1iNJkPXv9iopYgpump",
+    "GeoepSP9AvW3AKWvknybTXVWibhZ3W97shjtkQ9npump",
+    "Cpmh1RGTsidffX34pM8dLXSAHrY4FRbC3LAWWSGYpump",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump",
+    "8Y6pHi3cMhxhtHuzgGAsWgAJMyw3zaQLeFFf3qvRpump",
+    "EC1eBL3b16AN6zb26RcrE5CEnhuiUZR44NmR2Nqjpump",
+    "GSGErUNRVESS4CGBQ2A56rVBEVPms9BEGLMgTwv7pump",
+    "8zoLaVjCS51Q61WdBPAehdAT7Km7vQqL5vL6wAu5pump",
+    "2hkrP1P9NRQaiX28aLc6AcWnR6GMXJvtjU2mVJeApump",
+    "HMroT3TAEAoQuA8KuF8KzbKWRrbyrjECGo5FqgzRpump"
+   ]
+  },
+  {
+   "wallet": "CaVvP888jXvwrS9459yxrwFAaUQUmefme6sJiTbfjmkp",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 17.604,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "3eqQkKPkUT36uXUFQP1GH3XoHDmJSks19NFhN93RmVth",
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "2G6ZBcMWFdEh6YSXX3NipKGn5PuZ3kgA98SeH8s2fyea"
+   ]
+  },
+  {
+   "wallet": "FFPmqVLMj9TNbQXcrXyevcM3pxGaK4ApaAT4oLq2b3S7",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 9.992,
+   "bundle_buys": 2,
+   "score": 56.2,
+   "win_mints": [
+    "G6AjY7RnwoxU7UPUh5ru53Xgv9qGLKfR4va8nsJZpump",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "H5Kugtkfc5vrm3oSdX6FDkxuutRK1S3GW7Rr7UgnoDhP"
+   ]
+  },
+  {
+   "wallet": "EfqFwUiHUrcBxXcA3p6DzczW1BDXkbKbteEGhndLxocK",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 7.592,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "EHmWN6EAByxC4Rqsx9Yk9c6iPCS3m6XiFQnA3Zf4kX6N",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 6.81,
+   "bundle_buys": 2,
+   "score": 56.2,
+   "win_mints": [
+    "G6AjY7RnwoxU7UPUh5ru53Xgv9qGLKfR4va8nsJZpump",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "H5Kugtkfc5vrm3oSdX6FDkxuutRK1S3GW7Rr7UgnoDhP"
+   ]
+  },
+  {
+   "wallet": "B5m2EJxCEKhcb3tP4yNfeA2HhSXjb3Yu4QnsLNiahQB6",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 5.542,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "7uhdNpeqQpE4YNe3xH47A38ziKDqP1r18x8Pcrqhpump",
+    "8rRX2iDrBZmuLKB84jMtMcCo5C6Ys5KfNPLqAZiopump",
+    "5pSEZw1iytqYznD7crsGyKNek7q5JkjBqj2KmfqxUVZd"
+   ]
+  },
+  {
+   "wallet": "BHYpogkR7VL2DJcQkVncUMkbuvKfPg8AgS7avNNcDSGd",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 4.707,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "6tpfCENhKozjtambBEecWoV1V6trzqNgi1AQHkTqpump",
+    "CNTAufyFmtdij6FFPXNFCgWx2iGuMs9fjF7AJELYhQ7Y",
+    "2mABZ3Dsgk46ZdsbrGTCmobEpEHBcK3oPVJHY5er2QXv"
+   ]
+  },
+  {
+   "wallet": "5fkFNo12ECbqAciPPeGwDv2NLVsTkn7Lb6FMEMHg4UGN",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 4.551,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "AcSZ64j9ps7z4CXMJWUsre8knws9okdmMthqejuHpump",
+    "8Y6pHi3cMhxhtHuzgGAsWgAJMyw3zaQLeFFf3qvRpump",
+    "GD17AoWMRM7pC5GP6QKK1AsCHcy22tsezfgacxdhCi3"
+   ]
+  },
+  {
+   "wallet": "8o5UCkRgW78jdtyPHvGZTFQqxoD36SPihSemscgP3AhP",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 3.668,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "2iPzs2s7GVbK48ttJCNpaCgKdyz3Su7S5DWTW8QKXxYN",
+    "4bhV1DPku6KvsqWCL9GLDaDWgJ78M4kBRgKoNdjBpump",
+    "XLBLxbY1Mr7aadnqAbmqSBXLEyUdjvUXtXCnz8Mpump"
+   ]
+  },
+  {
+   "wallet": "5PfxA8fEiRyz31TqzS2pi3f7tFG22jUDdsKUiHU3adCt",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 3.658,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DC1MjRzGGdxptmztvHimSvgxtogysrshbi9ZH7fZpump",
+    "pdXfXZJgFnwNivUFyAKCw1DjH2X8eiJsdzM8QLcpump",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump"
+   ]
+  },
+  {
+   "wallet": "6MwreJQoUbAF8RJNr7xievZF6AEt1wMQjwRvkhHxmSdS",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 3.2,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "H9UAFu7x2mABTKzryNWSh1sdi7xsjfNFMYEaWFz1pump",
+    "7rxuFAbMqHoWLTHZwzkGPsDdGMvY9UTDGvTvQXG9pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump"
+   ]
+  },
+  {
+   "wallet": "AjoFtDxh9tiYAJ2zwCjnrk5z3HLqei5RN9eFK6wZ3agU",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.908,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "AogfgyCcnxZAbvhvTbW7UwjqSpJswZCBQAW7r6XDd7MT",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.818,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "BijGXTtrm9hxmNMZBXtfFRZxAfdEwUk4AHjhuiaStQCs",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.281,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "EjnyT5xK8aeCQHH8ThzBJiF2C7wMDDRwvtdcSWQ1Q2Mr",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.247,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BctFsB2NaoKZcqXxhFFvDAJ4vdgxuunsg1g5m8CSEQDN",
+    "EgmZ2V7LeCRGTRNcEMPHRWj8iezyrHztap5vRpAkpump",
+    "DnvwcyTPN3DHAE2HKGJ9DaNxGLHuFDUMPWEjVoMXpump"
+   ]
+  },
+  {
+   "wallet": "BmoJvjWjz6uSmZ3FGXywctJcBuUXkJXiFcSnGSNDArdV",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.239,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "3j1yXKqUXLb4miXUsbeMTx3mM3ZyNLQSGmEfnbgX2jSo",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.155,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "49PU6ENTpYc3zkhgCruzCSBzgVAdix5muP2oVzRGpump",
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "6Rhs8iuUiepGYpiP6ZEhNF9jRemVV8xYdD3hVuqtKTAR"
+   ]
+  },
+  {
+   "wallet": "DXMMHXRzanerysJWQj32gcsXC6kviw1zYPJHLAcBftU6",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.143,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EHJbGf1dPexKsy2GvahP88qeofnWErm5Cy4y5dWRpump",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "F5UwatuPnqETFt2bT2VLG9PhHac3W1GZ9vWswiLwpump"
+   ]
+  },
+  {
+   "wallet": "2CYwsa6MGjBQ9Vsxfqds2LZRKx1L7A8UkWTNX5F3TjJd",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.135,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "EZpBNHvfrWfkAdFn9CrwEp4gaEYjyqkhYkLTRp5hpump"
+   ]
+  },
+  {
+   "wallet": "6oqMBhJfxXAgp98KwLC88M1hgPngLhqjmxqCgPg81w6t",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.129,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "HSc5WNtCGh2VZHcCLdmBW2Tm84TRtW8eDUhPsDM6qY2X",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.102,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "8R4kc3zJCzTNchjW12Hn1iZm4witcrDVtF72ug7iVQ7t",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 2.08,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "4SMGrfYwD687NDgWqH56P6BJjx8n81ep1q4bbFZhQNCt",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.967,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "EZpBNHvfrWfkAdFn9CrwEp4gaEYjyqkhYkLTRp5hpump"
+   ]
+  },
+  {
+   "wallet": "7Mx5J3jbhqyDJHkgn1tgNR9spYPAFiTXvmgxxcfWKTBg",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.848,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "DMTktDnPUdAsgJhNtjFgfEn16czpiLnsK9tvprqfpump",
+    "7cNGyBBjcRZt7RSWZzh4fzXojg5mpsDLVuixgS8bpump",
+    "2Dg61W1PHZJhxBKPvbvKgMZNu1wVm9Prr6ViDi6bpump"
+   ]
+  },
+  {
+   "wallet": "GNHDPRjzuq16gyxTiwd4GLCKC8WTiPfJCsR8JBnvjJJX",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.405,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "Ar3ip7MiCfxFPcHVvdbNSFRkP1A52FxQ9NLa6zCMEN43",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV"
+   ]
+  },
+  {
+   "wallet": "4u6Mw95CuEmQvayvojnKSDsTLQnns5YQSovpWZQVUoMZ",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.36,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "2qgnTgJbZU6Tu6CMrm5Z5ePDGuUAyGTACbBoBCw6pump",
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "tZPasooEK7iJALGUkCSBnMmviyXZtxHtJmXaw5Epump"
+   ]
+  },
+  {
+   "wallet": "8Ry1vK2M76igs4rPhQhtwjdAYigyHnpPGTVdeof3vBy4",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.347,
+   "bundle_buys": 2,
+   "score": 56.2,
+   "win_mints": [
+    "BXZTSaRAgDtPefLWCaVR4ersTst79FpbPoiztvGgpump",
+    "4bhV1DPku6KvsqWCL9GLDaDWgJ78M4kBRgKoNdjBpump",
+    "4J8NgVcocCwurvMSJ3msfFNVc7VSbfxQozkK5NXtpump"
+   ]
+  },
+  {
+   "wallet": "AKGX1HH7Gegh1K3mUsLAc4pcsZ1ZWcAXApj6ZhvNAxTK",
+   "tokens": 16,
+   "wins": 9,
+   "hit_rate": 0.562,
+   "realized_sol": 1.335,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "6ibXUUf9ytPj1qKEUToDyrSwK2aQKBbwNAF2eG9Be54T",
+    "ArV7g2VBDHTUvfJTwCPYzzPJRozHbdS94QigVPuFpump",
+    "F2gKX1cgmVJPUfCSymGMq6hbgWSmdsLLK4sz9UkFpump",
+    "EVxVeEy86fPq1WE5B6h5ZCKR49UEC3ziTc8HJ68hhxu8",
+    "5NhN6zzDkzwXFGPFqtpTopV4ttBeZ6CWy1oRL9Rkpump",
+    "GhRJXatdMGdDcGmfxZPKWyUW4FNvMM4fSHRquyvgpump",
+    "Bd9thw3PAeyHeBGSi4R1ARBuptpG5rM4fhB8BRWJkq1e",
+    "7jMAxNVduVyvhh3rvunfGAhH6u46Z2qopqH9vB4hpump",
+    "3fb3MTfqU88576ZbEcHbDVaZpd9gip9ZwpT3pHy9VstR"
+   ]
+  },
+  {
+   "wallet": "3vLYWbSErE8VpgqDAVQQ4QRxAHADPkHqMQkia2MSx8sn",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.2,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "AQ6cc8BzMS1KjUbmWSiABDXXajVroFRw8GBr9BkrGugv",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.192,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "3A3qjns31YZA6Ung91ZpoPD7J3p1bDFbTJ4ANFAPpump",
+    "HtqVqejZuh9BqGPTWdggf9mUtyRzydtVcxHRCq3Vpump",
+    "5F3tCmoRksMeRwsBma93jJYRuPo7aQ5bmahdqfaProad"
+   ]
+  },
+  {
+   "wallet": "7uLJ6GSpC3eLFv997BoMH9M2qcN7Tqt5RmiMFE6AgHY5",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.173,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EXZX55Df54wZMLiZ5KJ6XP2VJGVTethHMxmNiP7Wpump",
+    "4gk3n1iCFj2n84MkuRenGHDRZHBRvXy81vLa35krpump",
+    "81ut8WngXu3WbJAsHBCnd6ScvC7dUpZMJJjtDicgs9KQ"
+   ]
+  },
+  {
+   "wallet": "8q4TmxRytSFuWP8gd6c41dBgwztJuacAmS3TnMgbkfx1",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.101,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "2Y5UatxnQWGv6URdieEZxwCi2uNE2khoqRU8ZeMyZvyh",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 1.076,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "2iPzs2s7GVbK48ttJCNpaCgKdyz3Su7S5DWTW8QKXxYN",
+    "39N6nzt3m1wcAGnSPXbmFadhbsLNrxbNqmZWNRTkEshm",
+    "26RJptVLvch6Zu2pm1Ftv6UYhbS1gLFUc7M7VP2Gpump"
+   ]
+  },
+  {
+   "wallet": "AxWPnkdYTFCdMcN16675ngQbEjeUoTKw2z2BCHfSpygk",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.783,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "DinVt7RQ2rTRmko6XuvaTrdtFY8tgdZJAYP5RxxQrWGa",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.772,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "Bk2pBWuFerzCVjAaJJAsCbbdL7inTHxmVPToJw4LeLTH",
+    "FZHk2fo51sWy3d5DPuCbFC4maD8SEPPjxup1dzBtpump",
+    "EeTcZF1mgohjWvTWDmiRkpyXCnsgR72QWpP1F2Np4BTC"
+   ]
+  },
+  {
+   "wallet": "Ay4LJyPokuceSmSUdJ8BR34fxDMJMhDFFazMcmuGzzTp",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.763,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "iMH4c35Lg4WQ89TvCFwLJasmLj68o6aWpng3QxHT9NR",
+    "BjDqeXf3K6qLidvdhZeJUj3QQ93bndcYT1bs58SUpump"
+   ]
+  },
+  {
+   "wallet": "4HwDEy6GhyLeA3ZxfwbsFQbSPGaQYZ8s5ehgoWWKMPrV",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.755,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "ArPgSFbcsqRZMremvPnmpgc6whSCDc9b9sDxmWn6PaBy",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.696,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "3QcYNgx6tNRK8V8n1rS3xD2bjMkbFeEpg3qEGY7npump",
+    "8pYzkQ23bXbwVyoWjYEUHsGcJoHCH8kUEkWaV7Bbpump",
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer"
+   ]
+  },
+  {
+   "wallet": "WvoUtyVYKm5p229a2LF3WfrhiubE2nymYmeZyCbQCGY",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.669,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "71CxZvp1iTNNNHkKCC85xqcFiwjEWL5B8RgKXYTvM9GN",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.664,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "75DjurpbbaF1fcRmo6zdipE8drirJxU8mvDzw7nckKiY",
+    "26RJptVLvch6Zu2pm1Ftv6UYhbS1gLFUc7M7VP2Gpump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "Bm3SVFbGC7EArYCKJzJzrokhTgJMy21arxqiikbgXhmD",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.644,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "6HFJ5sxVoEtczr9siAUeGssmpfhQSS3pEoBcCycUpump",
+    "Ft4c4oKLZVWUU4nT6oRgKSNAydFVeCRTDZC8fZ56pump",
+    "XRV9vMoxPdjYtrRLrmvVNsRqhoQ7KRBtcrqC2cVpump"
+   ]
+  },
+  {
+   "wallet": "EEjhqw9ZoHJRpQBKyHEMkX32wLrLfWCdHfC2XNqDYvrY",
+   "tokens": 16,
+   "wins": 9,
+   "hit_rate": 0.562,
+   "realized_sol": 0.599,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "7536qC4LEs3W2GtSKbhVGNJSiRfuXJhKVthxsgfkpump",
+    "ETVzMhc6m8WiRdi2MRvmj7k6vCVfYUNceJ29FbHjpump",
+    "HC9BMSA5coA8se2kMs6mXh1xRUk5ExbJNaqfo4mFpump",
+    "GguztAZZv3GsSjzFs3qp18X2jqeAr2YmbbkmY2AZpump",
+    "3uVTqaD3UyBQ8Fm9BtuDRaEtTcFPbqvjojhSQ3Jupump",
+    "c17N1z7KdUGeUSYyAzxXPYvBT97B29Jm55xfc4N3YaW",
+    "HNazMWySREpLBoyEdsXPPzvvc4eZ6avQDwqBko3vpump",
+    "GATfTKNDEydqTJwTyDhhu6UDGkZS4iE4Vctv8nBspump",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump"
+   ]
+  },
+  {
+   "wallet": "4HsPcDqkPU88thkyjNH6cY8dbnKtNCfpVB1xqjW8K6VF",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.593,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "9quhDJaqhNjLiFHCrZQHrL4Qqnb1TrRCWzCs3gWWpump",
+    "5F3tCmoRksMeRwsBma93jJYRuPo7aQ5bmahdqfaProad",
+    "FZHk2fo51sWy3d5DPuCbFC4maD8SEPPjxup1dzBtpump"
+   ]
+  },
+  {
+   "wallet": "ZuzWdRdU4vDWyfyRVt9NcQHQiKMt3YfY9KMZFySFfL4",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.566,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "vaJ2tXfvML8sFstrEYtza7tmJGvbmBAp8Dvx3Qxpump",
+    "G6NnKQTgN7Dmo9yrJXwoqiDm35FznQmQ1qXVFAXPpump",
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer"
+   ]
+  },
+  {
+   "wallet": "HAb7c5mNWASiwVxHkeAvSmPKfC1RQVfSZ9Ay5WULddbz",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.554,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "8xSiWmXU9LeD5vcPS6g4m2vq92RpM1xXnwC2hbZzpump",
+    "9JkjnA4zZaKrEB79qarLDJkyMuRyCFwyru2TWNUzXMS3",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr"
+   ]
+  },
+  {
+   "wallet": "9nwjwU2kumk9WwSdb5jnCLN4ycF4qh7RVREUikhnvQAP",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.538,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "95ccfn4UAUu3mQSvi7NJSJkHEnoLdW58qcRwwzmepump",
+    "6TTES6PoLh4rsLTPetfssWycYbxPvMv6Vnm2Nqb7pump",
+    "6z5YSQVw72pYTWTRsy9KSqweMJkVKGTKdYq2CSoLariS"
+   ]
+  },
+  {
+   "wallet": "4MNoQECLEFH3dPmwK9psUWYmqBzBThhvjdVSSXjtv8kK",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.533,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "G5xsthPnLuSasgodT5mFFcpKWbwz5BXDBNX6U5D9TzcZ",
+    "CNn1zv8GsPAQddUuYn6cm3fUMTWo61XANtUjSry4pump",
+    "6HFJ5sxVoEtczr9siAUeGssmpfhQSS3pEoBcCycUpump"
+   ]
+  },
+  {
+   "wallet": "3NV78ta6bUN8hqtqcfam6oo6WNUqrrsrdpjTue7yUcWF",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.507,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "8QB2YFkUY5VWF8Ti6nnG6b8RNqswmo3QPJi64cxBpump",
+    "EbJJKtnawGPhfgthRrwsyDgrCc1smGUUYbK5WNAK5E1N",
+    "Dqywq8LENBD9BkCFu1eYSDk9kEzctH5Rbby6c4Gupump"
+   ]
+  },
+  {
+   "wallet": "7NuePG4QwcEAUydrvuWYRzTuVpbkYXyHua7R6D3kqKhP",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.506,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "HEGD1uGEYqSy6QcKTHLBu81KSUjF5aqNYSD1qzpmpump",
+    "HYfusM6K5QzLKwRstUqmMtWxSbcvhKBjvmcJ8E7WkbeV",
+    "AcSZ64j9ps7z4CXMJWUsre8knws9okdmMthqejuHpump"
+   ]
+  },
+  {
+   "wallet": "5p7HW5sigM4wohXJNVTG3iVfgg1ZXrwP7HYEqeXk5TjY",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.5,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "5eVvmFQ8jjW3WvdYANPoau37N8ENQ1kZAbpvBJL2pump",
+    "HgqXvrriDxMyYgQ3yv4SGuDa6EVT1NCaszvNFA2Apump",
+    "5iTChnBiRcztmyJLjUNpW1DgJnj6HZJBGuKtBePzpump"
+   ]
+  },
+  {
+   "wallet": "9XVbi9CNE9Hk6mShFLWRwL8HYLha5h9UHGjSWwWVthEn",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.442,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EBQRGRKjw61DShkLkA3aexAD2eET7hXQjKuFjzT3pump",
+    "DNM1AePswCnFFydQ2dz1yUJ3m4CBEKiCEkgpQ8YYpump",
+    "8Vb5f7enGjp2uHuRqh1F5AVoXoXrYVZHwuw2orjepump"
+   ]
+  },
+  {
+   "wallet": "F6sk4RSq36rTSn3qWX9QTzmNFyqqghjU34qHhEm2n6if",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.388,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "EC1eBL3b16AN6zb26RcrE5CEnhuiUZR44NmR2Nqjpump",
+    "E6BGGdpVrV7hvGcsXN9gei679Tgvh7EW5KVsBMXwpump",
+    "CNTAufyFmtdij6FFPXNFCgWx2iGuMs9fjF7AJELYhQ7Y"
+   ]
+  },
+  {
+   "wallet": "EMMPXb1D4hrprV2udXEwMSLiAtwgvHyGKmsT7aJDMvh2",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.384,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "2upetsQKAaVWUDNwJiKErW13jqfwn6s5nCekLMwagEnt",
+    "6onu5YwrVVDLyBRaqgppGep36bjYaBAR2gQkJe5Jpump",
+    "54M6qVo9yLJFosGhUaq3TRgizBKaKH6xGe6YtJzRsins"
+   ]
+  },
+  {
+   "wallet": "wT7DXZ5AhpfAR4G4yD5oDZRkuJgwphnsD2yoa3Qz2fe",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.383,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer",
+    "2PLF955KTb7CDpHbA5VZH8CgunkvWqfic9wufwJFpump",
+    "9pTGUwAhG3CLAcu8rZKgu8cQaeAdQRmkbbG8hfzzpump"
+   ]
+  },
+  {
+   "wallet": "4c7sXHg84ZDb9bg8ZcRCx86Ww5TkXaJ1gkMBKjRF1ByM",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.345,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "GxdZqQtSDChqoVDeJ2YNV1uBc6iF4PXhyk21p34Qatip",
+    "76fFhcA142kf9gdg11ahYTmEiZnPXokxJkcF1axupump",
+    "92HAXUz5JSDqAjEFA5EMmYh2DkkPFkggos3PqBaGpump"
+   ]
+  },
+  {
+   "wallet": "343pfYgYsCFM1GDGCbzsSs2P3NLEdYzwTkszJkwY1bHV",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.317,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "HrEgS1C6Y4mJ5Ry9qAQah3fWs9q7Xx11bjqzfKampump",
+    "9bUR1iqs1DeAv8hSQpuPpJMcpKjTqeQFzL23ue8pump",
+    "DRaEJKhtkW2e37N6hgbvzyAemQPynhSeQMQQmt9cpump"
+   ]
+  },
+  {
+   "wallet": "Cu4dH4E4ZHZTxKeitv1cQkpA5M7yqTGLFbiNP4pfJBAS",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.315,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "BkYLw87yN5wnvJGLtTw4efceM3ZrJm21v4AeV37tpump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump",
+    "2us1WG1j2UCqDy3T3rRZKoW3jHTfQRQvJ9AsGk9Jpump"
+   ]
+  },
+  {
+   "wallet": "3kDntmwGsmUvwngC1bVDWBiYPon3cHNBp9J99h3S7TFw",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.31,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "F4KoHSZ2WAePCCnyZCWGBtLyJVUoYnxEKELnarxMpump",
+    "BjDqeXf3K6qLidvdhZeJUj3QQ93bndcYT1bs58SUpump",
+    "CqWt6SUMJuqmt1JVTTadyEpGuvn4AzDN6QFXuZeXpump"
+   ]
+  },
+  {
+   "wallet": "H7VUAzQ8WhUnGU3riyQoCJABDN2GkRJbwkdLR89Fdoup",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.239,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "8xSiWmXU9LeD5vcPS6g4m2vq92RpM1xXnwC2hbZzpump",
+    "EdjdQeRGiWEYzjLSFMUjNC5tpc1GNPbMsNXNZTxYpump",
+    "3GPGLTH8D3eVV7RbLXdSzXdPvzvgJRocMG8hvqZApump"
+   ]
+  },
+  {
+   "wallet": "A8doWjzUwjS4TthZX6iBiZ43J8o5Bkqo345U5x3FbHkQ",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.221,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "8rRX2iDrBZmuLKB84jMtMcCo5C6Ys5KfNPLqAZiopump",
+    "CNn1zv8GsPAQddUuYn6cm3fUMTWo61XANtUjSry4pump",
+    "AuNkXMTr472b9MqWEAXtR2xv1Ffj3jac33ojYt97pump"
+   ]
+  },
+  {
+   "wallet": "H8bk2F9bFeD7KNxTzfVmjssVV9vWU9aMPwMVeJDZF3GR",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.201,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "2Su1mp2yxnWqUagnGAbMkF76as8wi6NZs41pPXScpump",
+    "BeYAs9VQV6zWpVbAfv9XcD14V4uohshVrGGDUJnHKiwn",
+    "xuXRNWGDjavKVJeVDgbbJzujBrTPAGUBRNptYySpump"
+   ]
+  },
+  {
+   "wallet": "rQxiqeoJSXDbHCGztatjWb2L4V3Sb8ApV4WG9KdW39m",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.2,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "FMGe8RStdPc1YR59BBuV5Ui12DEe3Q2zVoihrJBbpump",
+    "G6AjY7RnwoxU7UPUh5ru53Xgv9qGLKfR4va8nsJZpump",
+    "48q1NH6yVUsGy57yS89RnGGqpnBvNXZD79jeySjFpump"
+   ]
+  },
+  {
+   "wallet": "AERxrTgfc75peAn8CnnJFA5tzBP98sipioVxXrE5gCFR",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.184,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "7thxAzq4B9KwPe4NqMNAntF2Njgqb9FTKQb4z6fYpump",
+    "4tf5GEXU1dt7Vfj21oCu4P96ZEKEm3zMYqpzZsoCDeer",
+    "DZaQRdmPHNaqNsMVqRU8P4q5f2mErab4GipPghowFvaz"
+   ]
+  },
+  {
+   "wallet": "EhBr2v4eDGDRmYTsHtGgvbNezZotyAFbZLfnJyFXVa3w",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.183,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "CBLx6CRcCTtbmgTdxpqnF2dP1MpWbMUjngtNbFTApump",
+    "2w8UefTera7otuMUu4yq1JL5LpaELUWwxn8BFCkypump",
+    "BhNmfTQuSdkdgVPhZ5fCJnxa1xYTPqkdjMn7LhLYhype"
+   ]
+  },
+  {
+   "wallet": "6rjH7UviHa3RvQ1WdAXm4LpWvPEFciXB9VNrzHc1uqiv",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.168,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "GeoepSP9AvW3AKWvknybTXVWibhZ3W97shjtkQ9npump",
+    "4Ts6pM5aKcd5Po3mqaLCtzZgqZrz9c1LTj8AGzDqpons",
+    "2ph34kJwe77P6A7n5DPu7iKx31BdGEXUrJU7wshKpump"
+   ]
+  },
+  {
+   "wallet": "Bz5SFEzweX3ezx6vpBoCQUNJJavgeKgF7kfu9YDxMmGb",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.154,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "3NLfcS6P3RpVQ4i4he7xYp9amQScvTvoLMi5iY7cpump",
+    "ArV7g2VBDHTUvfJTwCPYzzPJRozHbdS94QigVPuFpump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr"
+   ]
+  },
+  {
+   "wallet": "2PWyz2oyVGosiWyDgGaetygd97nB2bq5MYgsqAKdfX7C",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.116,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "31GYUbJW5vjF1o7VM5SGP9Emj5WDBHb1cdcR8BM6pump",
+    "6FDw6jns8g7czuRucp5993RBNRPvqtMfv5Jv3hjnpump",
+    "3WQ6QCqR3KykXyjA6aonYZ5GR5g85kNrQ1E1b9mUpump"
+   ]
+  },
+  {
+   "wallet": "9drazaqY5Pk6RRvchGdHTuXKsU9HNs89dKesZ1SssEpg",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.064,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "3NLfcS6P3RpVQ4i4he7xYp9amQScvTvoLMi5iY7cpump",
+    "94mo6yYt5z9t31TjS257coYsRX7b7KPTKWVRzAnuLECr",
+    "GD17AoWMRM7pC5GP6QKK1AsCHcy22tsezfgacxdhCi3"
+   ]
+  },
+  {
+   "wallet": "9nFTh661vjqMMSS7QbzijT9WkN6BDumw5i5PJen9MHRD",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.059,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "7U62Lm4CKa25eRdBdYv3QeTJjJirxTVGJpA3ePkkpump",
+    "XLBLxbY1Mr7aadnqAbmqSBXLEyUdjvUXtXCnz8Mpump",
+    "BS1xEuDHvJhuqgTjCy1F2gZNkuCDQxhUMDpKSdtRpump"
+   ]
+  },
+  {
+   "wallet": "5tM8YGyZWJqye1mC9VkoTXd91ACd6woZeAypGQXn7fa4",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.057,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "kntrct9U7DfJqb9n3uPmAWvC5Bd3STfjs5oqt1zokcc",
+    "75DjurpbbaF1fcRmo6zdipE8drirJxU8mvDzw7nckKiY",
+    "8KhKFp62yEbBoCKn452h34xxEFLheGBrJck3jLvy6mkR"
+   ]
+  },
+  {
+   "wallet": "F7z7rK8RiXL2aApddWXVHo4eFcRDy8BY2mRL7wbAw4N7",
+   "tokens": 4,
+   "wins": 3,
+   "hit_rate": 0.75,
+   "realized_sol": 0.052,
+   "bundle_buys": 0,
+   "score": 56.2,
+   "win_mints": [
+    "89X1RR4V5wVwqUzUSE68ksjCby6PhkAtJNmqkkBkUmu5",
+    "7PdB7vQTirDQbGGHprEUdFkauVBjAtotHWiLTcD5pump",
+    "4gk3n1iCFj2n84MkuRenGHDRZHBRvXy81vLa35krpump"
+   ]
+  }
+ ]
+}

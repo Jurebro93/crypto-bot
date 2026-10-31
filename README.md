@@ -112,6 +112,23 @@ Stil (`style`): `bot` (300+ trejdova dnevno ili drži < 30 s), `sniper` (kupio u
 
 Budžet: `HELIUS_MONTHLY_CREDITS` (zadano 10.000.000, Helius Developer od 2026-10-30) i `WALLET_CREDIT_SHARE` (zadano 0.15, tj. 1,5M mjesečno; ostatak ide rug filteru i hype modulu, cilj ukupno 5-7M). Jedan `score` prolaz zadano troši do 20.000 kredita (oko 1.000 walleta). `score` staje kad potroši svoj dio. Prvi stvarni prolaz 2026-10-30: oko 200 walleta za 3.500 kredita (prosjek 17 po walletu).
 
+## KOL-ovi na X-u (`run_kol.py`, `kol/`, `kol.db`)
+
+Svaki X post s CA tokena postaje poziv: autor, pratitelji, link na post, i što su cijena i volumen napravili nakon njega.
+
+```
+python3 run_kol.py once        # jedan krug: collect, search, measure, score, flows
+python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
+```
+
+- Pozivi: tweetovi koje bot već plaća (`x_buzz` u hype.db apify_cache) + webhook KOL monitora, plus dvije male pretrage (Apify izvori `kol_search` i `kol_timeline`, ~$0.24/dan): ponovna pretraga tokena koje KOL-ovi zovu i zadnji postovi najboljih KOL-ova.
+- Hvalisanje ("15x on $X", "115x $X") se odvaja od poziva i ne ulazi u ocjenu.
+- Cijena i volumen 2 h prije, 1/6/24 h poslije i max u 24 h: GeckoTerminal 5-min svijeće (besplatno).
+- Grupni poziv: 2+ autora na istom tokenu unutar 30 min. Parovi KOL-ova koji često zovu zajedno.
+- Helius tokovi oko jakih poziva (`flows_per_day`, ~40 kredita svaki): insajderi kupili sat prije i prodali u poziv; na 3+ tokena = rotacijski dev, ide u wallets.db s oznakom insider.
+- Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
+- Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.
@@ -152,6 +169,10 @@ Ulazi: hype signali (`hype.db`) sa score >= `min_score` i "pravi" tokeni događa
 Izlazi (`paper/config.json`): stop loss -35%, pola na 2x i četvrtina na 4x, nakon prvog TP-a stop na nulu, trailing 30% od vrha kad je bio +50%, najviše 24 h, rug (likvidnost pala ispod 20%) = izlaz odmah. Svaka kupnja i prodaja plaća 1% naknade i proklizavanje po veličini poola. Trejd zadržava pravila s kojima je otvoren.
 
 Dnevni pregled: rezultat, greške po vrsti (rug, kasni ulaz nakon skoka, profit vraćen, mrtav trejd), propušteni pobjednici s razlogom preskoka, tablica filtera ("da smo ušli u sve"), rug presuda vs. stvarni ishod, izvori signala, lift značajki. Prijedlozi: prag ulaza, stop/TP/trailing/trajanje, koje rug presude blokirati, minimalna likvidnost, nove težine hype ocjene (`paper/weights.suggested.json`). Prijedlog prolazi samo ako ima barem 10 tokena iza sebe i bolji je i u starijoj i u novijoj polovici podataka. Svaka demo kupnja, prodaja i dnevni sažetak zapisuju se u `output/paper/journal.log` (vidljivo i u UI-ju, koji čita `paper.db`). Telegram je isključen; uključuje se s `PAPER_TELEGRAM=1` ili `review --telegram`. Sve naučeno se skuplja u `output/paper/lessons.md`. Baza je `paper.db`.
+
+Svaki trejd pamti market cap na ulazu i na izlazu (`entry_mcap`, `exit_mcap` u `paper.db` i `league.db`; stare baze se dopune iz spremljenih cijena). Dashboard ih pokazuje u Demo tradingu i u Natjecanju.
+
+DCA prijedlog (kupnja u padu, `paper/dca.py`, pravila u `config.json` pod `dca`): kad je otvorena pozicija 20% ili više u minusu, ali barem 3 postotna boda iznad stop lossa, likvidnost je još barem 60% ulazne, cijena je već odskočila 8% od dna i trejd je star barem 20 min, bot zabilježi prijedlog da se dokupi pola uloga. Najviše jedan po trejdu, nikad nakon prvog TP-a. Prijedlog se ne izvršava; dnevni pregled mjeri što bi dokup donio da je prodan zajedno s trejdom i kaže isplati li se (barem 10 signala, isti rezultat u obje polovice podataka). Signal se pokazuje i igračima u Natjecanju ako drže isti token.
 
 ## Prave kupnje (`run_trade.py`)
 
