@@ -70,6 +70,9 @@ def kol_stats(calls, cfg):
     s["prepump_rate"] = (sum(1 for c in pre if c["pre2h"] >= cfg["prepump_x"]) / len(pre)) if pre else 0.0
     s["first_rate"] = sum(1 for c in measured if c["first_overall"]) / len(measured)
     s["med_impact"] = _med(impact(c) for c in measured)
+    s["med_views"] = _med(c["views"] or None for c in mine)
+    eng = [((c["likes"] or 0) + 2 * (c["retweets"] or 0)) / c["followers"] for c in mine if c["followers"]]
+    s["eng_rate"] = _med(eng)
     parts = {
         "hit": w["hit"] * s["hit_rate"],
         "max24": w["max24"] * _clip((s["med_max24"] or 0) / 2),
@@ -239,10 +242,33 @@ def reclassify(con):
             con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ?", (k, tid))
 
 
+def build_watch(con, cfg, now=None):
+    """Live watchlist: the best KOLs by call power with enough measured calls, who call early (few calls after
+    the price already doubled) and hit often. Size is watch.size (each costs ~$0.11/day to follow live)."""
+    now = now or int(time.time())
+    w = cfg["watch"]
+    old = dict(con.execute("SELECT handle, since FROM watch"))
+    picked = []
+    for h, sc, st in con.execute("SELECT handle, score, stats FROM kols WHERE score >= ? ORDER BY score DESC",
+                                 (cfg["good_score"],)):
+        s = json.loads(st or "{}")
+        if (s.get("measured", 0) >= w["min_calls"] and s.get("prepump_rate", 1) <= w["max_prepump"]
+                and s.get("hit_rate", 0) >= w["min_hit"]):
+            why = (f"{s['measured']} poziva, pogodak {s['hit_rate']:.0%}, medijan max 24 h {s['med_max24']:+.0%}, "
+                   f"kasnih {s['prepump_rate']:.0%}")
+            picked.append((h, sc, old.get(h, now), why))
+        if len(picked) >= w["size"]:
+            break
+    con.execute("DELETE FROM watch")
+    con.executemany("INSERT INTO watch VALUES (?,?,?,?)", picked)
+    return [p[0] for p in picked]
+
+
 def run(con, cfg, now=None):
     reclassify(con)
     mark_first(con)
     n = score_kols(con, cfg, now)
+    build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
     con.commit()

@@ -181,6 +181,47 @@ class Seed(unittest.TestCase):
         self.assertEqual(backfill.token_query(CA, T0, T0 + 3600).split()[1:], ["since:2026-10-30", "until:2026-11-01"])
 
 
+class Live(unittest.TestCase):
+    def setUp(self):
+        self.con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        good = {"measured": 8, "hit_rate": 0.75, "prepump_rate": 0.1, "med_max24": 1.2}
+        for h, sc, st in [("early", 70, good), ("late", 80, dict(good, prepump_rate=0.6)),
+                          ("few", 75, dict(good, measured=2)), ("weak", 40, good), ("ok", 60, dict(good, hit_rate=0.5))]:
+            self.con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", (h, sc, json.dumps(st)))
+
+    def test_watch_and_sync(self):
+        cfg = dict(CFG, watch=dict(CFG["watch"], size=4))
+        self.assertEqual(score.build_watch(self.con, cfg, now=1000), ["early", "ok"])
+        self.assertIn("pogodak 75%", self.con.execute("SELECT reason FROM watch WHERE handle='early'").fetchone()[0])
+        self.assertEqual(score.build_watch(self.con, cfg, now=5000), ["early", "ok"])
+        self.assertEqual(self.con.execute("SELECT since FROM watch WHERE handle='early'").fetchone()[0], 1000)
+
+        from kol import live
+        calls = []
+        env = {"RENDER_EXTERNAL_URL": "https://bot.example", "UI_PASSWORD": "pw"}
+        old = {k: os.environ.get(k) for k in [*env, "KOL_HOOK_KEY", "APIFY_TOKEN"]}
+        os.environ.update(env, APIFY_TOKEN="x")
+        os.environ.pop("KOL_HOOK_KEY", None)
+        try:
+            self.assertEqual(store.hook_key(), store.hook_key())
+            self.assertEqual(len(store.hook_key()), 32)
+            self.assertTrue(live.hook_url().startswith("https://bot.example/hook/kol?key="))
+            fake = lambda handles, url, stop=False, hours=None: calls.append((sorted(handles), stop, hours))
+            H6 = 6 * 3600
+            self.assertTrue(live.sync(self.con, cfg, fake, now=H6, log=lambda *_: None))  # start
+            self.assertFalse(live.sync(self.con, cfg, fake, now=H6 + 60))  # nothing changed, not due
+            self.assertTrue(live.sync(self.con, cfg, fake, now=2 * H6))  # periodic resync bills 6 h x 2 accounts
+            self.con.execute("DELETE FROM watch")
+            self.assertTrue(live.sync(self.con, cfg, fake, now=2 * H6 + 3600, log=lambda *_: None))  # stop
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        self.assertEqual(calls, [(["early", "ok"], False, 0), (["early", "ok"], False, 6.0),
+                                 (["early", "ok"], True, 1.0)])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM monitor").fetchone()[0], 0)
+        self.assertEqual(live.plan([], [], 0, 10 ** 9, 6), (False, False))
+
+
 class Helpers(unittest.TestCase):
     def test_groups(self):
         calls = [("A", 0, "x"), ("A", 600, "y"), ("A", 1700, "x"), ("A", 5000, "z"), ("B", 0, "x")]

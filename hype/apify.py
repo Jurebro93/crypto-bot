@@ -79,8 +79,9 @@ def check(source):
         raise BudgetExceeded(f"Apify račun: ${used:.2f} od ${cap:.0f} ovaj mjesec, čuvam rezervu")
 
 
-def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wait=180):
-    """Dataset items of one actor run, or the cached items of an identical call within cache_secs."""
+def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wait=180, units=None):
+    """Dataset items of one actor run, or the cached items of an identical call within cache_secs.
+    units: how many priced events the run charges when that is not one per result (monitor hours)."""
     key = f"{source}:{actor}:{json.dumps(actor_input, sort_keys=True)}"
     con = _db()
     hit = con.execute("SELECT ts, items FROM apify_cache WHERE key = ?", (key,)).fetchone()
@@ -102,7 +103,7 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wai
     items = _api(f"/datasets/{r['defaultDatasetId']}/items", params={"clean": "true", "format": "json"})
     # PPE charges are not in the run object; estimate from the per-result price, plus platform usage
     unit = config().get("unit_usd", {}).get(source, 0)
-    cost = (r.get("usageTotalUsd") or 0) + unit * (1 if source == "gmgn" else len(items))
+    cost = (r.get("usageTotalUsd") or 0) + unit * (units if units is not None else 1 if source == "gmgn" else len(items))
     con = _db()
     con.execute("INSERT INTO apify_runs VALUES (?,?,?,?,?,?,?)",
                 (int(time.time()), source, actor, r["id"], len(items), cost, r["status"]))

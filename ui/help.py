@@ -121,6 +121,13 @@ HELP = {
     "Prvi": "Udio poziva u kojima je on prvi autor kojeg smo vidjeli na tom tokenu.",
     "Hvalisanja": "Postovi tipa '15x on $X': hvalisanje nakon skoka, ne poziv. Ne ulaze u ocjenu.",
     "Zadnji poziv": "Kad je zadnji put zvao neki token.",
+    "Medijan pregleda": "Medijan pregleda njegovih postova s pozivom (doseg). Pregledi bolje predviđaju skok od pratitelja.",
+    "Engagement": "Medijan (lajkovi + 2× repostovi) / pratitelji po pozivu: koliko mu publika stvarno reagira.",
+    "Razlog": "Zašto je na listi za praćenje uživo: broj izmjerenih poziva, pogodak, medijan rasta, udio kasnih poziva.",
+    "Na listi od": "Otkad je KOL na listi za praćenje uživo.",
+    "Praćenje": "uživo = monitor šalje njegove nove postove odmah; čeka pokretanje = ulazi pri sljedećem krugu; "
+                "isključeno = nema javnog URL-a ili Apify ključa.",
+    "Zadnja sinkronizacija": "Zadnji put kad je bot javio monitoru listu (svakih 6 h ili kad se lista promijeni).",
     "Vrsta poziva": "poziv = post s CA prije/za vrijeme rasta; hvalisanje = '20x on…' nakon skoka; ticker = post bez CA, "
                     "samo $TICKER (možda drugi token istog imena).",
     "Post": "Link na originalni post na X-u.",

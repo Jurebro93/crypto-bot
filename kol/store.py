@@ -14,6 +14,8 @@ Tables:
   signals    per token: the newest group of well-scored KOLs, read by run_hype as feature kol_group
   seen_cache Apify cache rows already copied, so a run does not re-read old ones
   searches   when we last paid for an X search per target
+  watch      the live watchlist: best KOLs by call power, followed in real time
+  monitor    accounts the xquik monitor currently watches (synced to watch)
 """
 import os
 import sqlite3
@@ -53,6 +55,9 @@ CREATE TABLE IF NOT EXISTS kol_wallets (
 CREATE TABLE IF NOT EXISTS signals (
     token TEXT PRIMARY KEY, ts INTEGER, n_good INTEGER, n_authors INTEGER, handles TEXT, dev_selling INTEGER,
     feature REAL);
+CREATE TABLE IF NOT EXISTS watch (
+    handle TEXT PRIMARY KEY, score REAL, since INTEGER, reason TEXT);
+CREATE TABLE IF NOT EXISTS monitor (handle TEXT PRIMARY KEY, since INTEGER, last_run INTEGER);
 CREATE TABLE IF NOT EXISTS seen_cache (key TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts INTEGER, n INTEGER DEFAULT 0);
 """
@@ -134,3 +139,13 @@ def import_seed(con, path=SEED):
         con.execute("DETACH DATABASE seed")
         os.remove(tmp)
     return con.execute("SELECT COUNT(*) FROM calls").fetchone()[0] - before
+
+
+def hook_key():
+    """Key for /hook/kol: KOL_HOOK_KEY, or derived from UI_PASSWORD so nothing has to be set by hand."""
+    import hashlib
+    k = os.environ.get("KOL_HOOK_KEY")
+    if k:
+        return k
+    pw = os.environ.get("UI_PASSWORD")
+    return hashlib.sha256(f"kol-hook:{pw}".encode()).hexdigest()[:32] if pw else ""
