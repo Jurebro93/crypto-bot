@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE TABLE IF NOT EXISTS watch (
     handle TEXT PRIMARY KEY, score REAL, since INTEGER, reason TEXT);
 CREATE TABLE IF NOT EXISTS monitor (handle TEXT PRIMARY KEY, since INTEGER, last_run INTEGER);
+CREATE TABLE IF NOT EXISTS token_hours (token TEXT, hour INTEGER, volume REAL, updated INTEGER,
+    PRIMARY KEY (token, hour));
+CREATE TABLE IF NOT EXISTS sessions (key TEXT PRIMARY KEY, n INTEGER, hits INTEGER, med_max24 REAL, factor REAL,
+    updated INTEGER);
 CREATE TABLE IF NOT EXISTS seen_cache (key TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts INTEGER, n INTEGER DEFAULT 0);
 """
@@ -94,6 +98,31 @@ def signals(tokens=None, max_age_h=6, path=None):
     want = set(tokens) if tokens is not None else None
     return {t: {"n_good": g, "n_authors": n, "handles": json.loads(h or "[]"), "dev_selling": bool(d), "feature": f}
             for t, g, n, h, d, f in rows if want is None or t in want}
+
+
+def session_now(path=None, now=None):
+    """{session: asia|eu|us, factor, signal_hit_rate, signal_n} for entry and exit logic (kol/sessions.py)."""
+    from kol import sessions
+    con = ro(path)
+    try:
+        return sessions.now_info(con, now)
+    finally:
+        if con is not None:
+            con.close()
+
+
+def token_sessions(mint, path=None):
+    """{session: share of the token's volume} from its 5-min candles; {} if unknown."""
+    from kol import sessions
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        return sessions.token_shares(con, mint)
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        con.close()
 
 
 def rotation_wallets(path=None):

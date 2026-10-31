@@ -145,6 +145,8 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
             con.execute("UPDATE calls SET measured_ts = ? WHERE token = ? AND complete = 0", (now, t))
             continue
         n_tok += 1
+        from kol import sessions
+        sessions.save_hours(con, t, candles, now)
         for tid, ts in rows:
             o = outcome(candles, ts, now, cfg)
             if not o:
