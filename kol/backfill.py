@@ -12,6 +12,8 @@ import datetime as dt
 import random
 import time
 
+from hype.apify import BudgetExceeded
+
 from kol import collect
 
 ACTOR = collect.X_ACTOR
@@ -41,7 +43,7 @@ def done_targets(con, kind):
 def search_tokens(con, tokens, run, max_items=20, log=print):
     """One Apify run per token. Returns new calls."""
     seen = done_targets(con, "backfill_token")
-    n = 0
+    run, n = _safe(run, log), 0
     for i, t in enumerate(tokens):
         if t["mint"] in seen:
             continue
@@ -68,7 +70,7 @@ def top_handles(con, limit, min_followers=1000):
 
 def search_timelines(con, handles, run, since_ts, max_items=100, log=print):
     seen = done_targets(con, "backfill_timeline")
-    n = 0
+    run, n = _safe(run, log), 0
     for i, h in enumerate(handles):
         if h in seen:
             continue
@@ -81,3 +83,18 @@ def search_timelines(con, handles, run, since_ts, max_items=100, log=print):
         if i % 10 == 0:
             log(f"  timelineovi {i + 1}/{len(handles)}: {n} novih poziva")
     return n
+
+
+def _safe(run, log):
+    """run() that retries a network error once and then skips the target instead of ending a night's backfill."""
+    def call(*args, **kw):
+        for attempt in range(2):
+            try:
+                return run(*args, **kw)
+            except BudgetExceeded:
+                raise
+            except Exception as e:
+                log(f"  greška ({type(e).__name__}: {e}), {'ponavljam' if attempt == 0 else 'preskačem'}")
+                time.sleep(10)
+        return []
+    return call

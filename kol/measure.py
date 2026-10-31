@@ -4,6 +4,7 @@ One OHLCV request per token covers all its calls: from 2 h before the first call
 A call is complete once 24 h have passed and been measured; until then it is re-measured at most hourly.
 """
 import math
+import os
 import threading
 import time
 
@@ -26,7 +27,7 @@ class _Throttle:
             self.last = time.monotonic()
 
 
-_GT = _Throttle(3.0)  # free API: 30 requests per minute
+_GT = _Throttle(float(os.environ.get("KOL_GECKO_GAP", "3.0")))  # free API: ~30 requests per minute, shared per IP
 
 
 def resolve(con, tokens, now=None):
