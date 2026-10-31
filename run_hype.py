@@ -136,7 +136,13 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     for k, v in ctx["errors"].items():
         print(f"  apify {k}: {v}", file=sys.stderr)
     kol_ca, kol_tk = kol
-    found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca))
+    try:  # group calls of well-scored KOLs on X, from run_kol.py (kol.db, read-only)
+        from kol import store as kstore
+        kol_groups = kstore.signals()
+    except Exception as e:
+        print(f"  kol.db: {e}", file=sys.stderr)
+        kol_groups = {}
+    found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca) + list(kol_groups))
     pairs = client.tokens("solana", list(found))
     best = {}
     for p in pairs:
@@ -144,16 +150,22 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         if t in found and ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
     cal = calendar_keywords()
-    rows = []
+    regime = market_regime(now_ms / 1000)  # same for every token in the scan: context, learned like any feature
+    rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
         if liq < a.min_liq or mcap > a.max_mcap:
+            # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss
+            skipped.append((t, p["baseToken"].get("symbol", ""), mcap, liq, (now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6,
+                            f"likvidnost {_usd(liq)} < {_usd(a.min_liq)}" if liq < a.min_liq else f"mcap {_usd(mcap)} > {_usd(a.max_mcap)}"))
             continue
         f = score.market_features(p, now_ms)
         sym, name = p["baseToken"].get("symbol", ""), p["baseToken"].get("name", "")
         f["takeover"] = 1.0 if {"takeover", "profile_update"} & found[t] and f["revival"] > 0 else 0.0
         f["calendar"] = 1.0 if {score._norm(sym), score._norm(name)} & cal else 0.0
         f["telegram"] = min(1.0, tg_count.get(t, 0) / 3)
+        if regime is not None:
+            f["market_regime"] = regime
         # narrative, smart_money, x_buzz and search_trend are only set for tokens the deep checks reach
         pf = ctx["pump"].get(t) or {}
         if pf:
@@ -163,17 +175,24 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["x_trend"] = 1.0 if trend else 0.0
         if kol_ca or kol_tk:
             f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
+        if t in kol_groups:  # measured only when a group call happened; absence neither helps nor hurts
+            f["kol_group"] = kol_groups[t]["feature"]
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
             "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl")} if pf else None,
-            "kol_x": kol_ca.get(t, 0)}
+            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
                      "extra": extra})
+    tiers_for(rows, now_ms / 1000)  # class, path shape, T0 sieve
+    wcls = class_weights(rows, weights)  # learned weights per class (learn/), else the base file
+    for r in rows:
+        r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     rows.sort(key=lambda r: -r["score"])
-    # expensive checks only for the best pre-scored candidates
-    for r in rows[:a.deep]:
+    # expensive checks only for the best pre-scored candidates that passed the free sieve
+    deep = [r for r in rows if r["tier"]["t0"] != "pad"][:a.deep]
+    for r in deep:
         try:
             r["copycats"] = score.copycats(client.search(r["symbol"]), r["symbol"], r["name"], r["token"], now_ms)
             r["features"]["narrative"] = min(1.0, r["copycats"] / 8)
@@ -185,19 +204,22 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                 buyers = early_buyers_cheap(r["token"])
                 r["smart_buyers"] = [b["wallet"] for b in buyers if b["wallet"] in smart]
                 r["features"]["smart_money"] = min(1.0, len(r["smart_buyers"]) / 4)
+                r["tier"].update(razina=max(r["tier"]["razina"], 1), credits=r["tier"].get("credits", 0) + 10)
             except Exception as e:
                 print(f"  helius {r['symbol']}: {e}", file=sys.stderr)
-        r["score"] = score.score(r["features"], weights)
-    if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good
+        r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
+    if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good and passed T0
         rows.sort(key=lambda r: -r["score"])
-        for r in [r for r in rows if r["score"] >= a.x_min_score][:a.x_top]:
+        ok = [r for r in rows if r["tier"]["t0"] != "pad"]
+        for r in [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]:
             try:
                 r["x"] = xbuzz.token_buzz(r["token"], r["symbol"])
                 r["features"]["x_buzz"] = r["x"]["feature"]
+                r["tier"]["razina"] = max(r["tier"]["razina"], 2)
             except Exception as e:
                 print(f"  x_buzz {r['symbol']}: {e}", file=sys.stderr)
         gt = apify.config()["google_trends"]
-        for r in [r for r in rows if r["score"] >= gt["min_score"] and len(r["name"]) >= 3][:gt["per_scan"]]:
+        for r in [r for r in ok if r["score"] >= gt["min_score"] and len(r["name"]) >= 3][:gt["per_scan"]]:
             try:
                 rise = sources.search_rise(r["name"])
                 r["extra"]["search_rise"] = rise
@@ -205,21 +227,87 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             except Exception as e:
                 print(f"  google_trends {r['symbol']}: {e}", file=sys.stderr)
         for r in rows:
-            r["score"] = score.score(r["features"], weights)
+            r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     rows.sort(key=lambda r: -r["score"])
     con = store.connect(DB)  # fresh handle: a connection held across minutes of HTTP goes stale on the shared mount
     for r in rows:
-        store.log_signal(con, r, weights)
+        store.log_signal(con, r, wcls[r["tier"]["klasa"]])
         store.snapshot(con, r["token"], r["price"], r["mcap"], r["liquidity"])
         store.log_details(con, r)
     con.commit()
+    save_tiers(rows, skipped, now_ms / 1000)
     return rows
+
+
+def market_regime(now):
+    """0-1 from market.db (how hot the launchpad/DEX market was yesterday), None when there is no data yet."""
+    try:
+        from market import regime
+        return regime.feature(now)
+    except Exception as e:
+        print(f"  market regime: {e}", file=sys.stderr)
+        return None
+
+
+def class_weights(rows, base):
+    try:
+        from learn import weights as lw
+        out = lw.for_rows(rows, base)
+    except Exception as e:
+        print(f"  learned weights: {e}", file=sys.stderr)
+        out = {}
+    return {**{r["tier"]["klasa"]: base for r in rows}, **out} if rows else {}
+
+
+def tiers_for(rows, now=None):
+    """Attach r["tier"] to every scored row: class, shape of the mcap path, T0 verdict (cached 24 h in token_tier)."""
+    from tiers import classify, sieve
+    from tiers import store as tstore
+    cfg = classify.config()
+    now = now or time.time()
+    con = tstore.connect(DB)
+    for r in rows:
+        cur = tstore.get(con, r["token"]) or {}
+        snaps = con.execute("SELECT ts, mcap FROM hype_snapshots WHERE token=? ORDER BY ts", (r["token"],)).fetchall()
+        shape = classify.put([(s[0], s[1]) for s in snaps] + [(int(now or time.time()), r["mcap"])])
+        age_h = (now * 1000 - (r["raw"].get("pairCreatedAt") or 0)) / 3.6e6 if r["raw"].get("pairCreatedAt") else None
+        role = "canonical" if r["features"].get("calendar") else None
+        t0, why, t0_ts = cur.get("t0"), cur.get("t0_razlog"), cur.get("t0_ts")
+        if sieve.needs_check(cur, cfg, now):
+            t0, why = sieve.check(r["token"], cfg)
+            t0_ts = int(now or time.time())
+        r["features"].update(classify.put_features(shape))
+        r["tier"] = {"razina": cur.get("razina") or 0, "klasa": classify.klasa(r["mcap"], age_h, role, cfg),
+                     "t0": t0, "t0_razlog": why, "t0_ts": t0_ts, "age_h": age_h, "credits": 0, **shape}
+    con.close()
+
+
+def save_tiers(rows, skipped=(), now=None):
+    from tiers import store as tstore
+    con = tstore.connect(DB)
+    for r in rows:
+        t = r["tier"]
+        tstore.upsert(con, r["token"], now, symbol=r["symbol"], razina=t["razina"], klasa=t["klasa"], t0=t["t0"],
+                      t0_razlog=t["t0_razlog"], t0_ts=t["t0_ts"], mcap=r["mcap"], liquidity=r["liquidity"],
+                      age_h=t["age_h"], score=r["score"], credits=t["credits"], put_brzina=t["put_brzina"],
+                      put_skokovitost=t["put_skokovitost"], put_zadrzavanje=t["put_zadrzavanje"])
+    for t, sym, mcap, liq, age_h, why in skipped:
+        tstore.upsert(con, t, now, symbol=sym, t0="nije", t0_razlog=why, mcap=mcap, liquidity=liq, age_h=age_h,
+                      razlog=f"izvan skena: {why}")
+    con.commit()
+    con.close()
 
 
 def track(hours=48):
     since = int(time.time() - hours * 3600)
     con = store.connect(DB)
-    tokens = [t for (t,) in con.execute("SELECT DISTINCT token FROM hype_signals WHERE ts >= ?", (since,))]
+    tokens = {t for (t,) in con.execute("SELECT DISTINCT token FROM hype_signals WHERE ts >= ?", (since,))}
+    try:  # tokens the scan saw but did not score (too small, too big, T0 fail) are tracked too: outcomes for learning
+        from tiers import store as tstore
+        tokens |= set(tstore.recent_tokens(tstore.connect(DB), hours))
+    except Exception as e:
+        print(f"  token_tier: {e}", file=sys.stderr)
+    tokens = sorted(tokens)
     con.close()
     best = {}
     for p in client.tokens("solana", tokens):

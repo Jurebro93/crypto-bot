@@ -1,0 +1,77 @@
+"""Outcomes for every token, the class-relative definition of a pump, and what the sieve missed."""
+import json
+import os
+import time
+
+from hype import evaluate
+from tiers import classify
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def config():
+    with open(os.path.join(HERE, "config.json")) as f:
+        return json.load(f)
+
+
+def _tiers(con):
+    try:
+        return {r[0]: {"klasa": r[1], "razina": r[2], "t0": r[3], "t0_razlog": r[4], "razlog": r[5], "mcap": r[6],
+                       "first_ts": r[7], "symbol": r[8]}
+                for r in con.execute("SELECT token, klasa, razina, t0, t0_razlog, razlog, mcap, first_ts, symbol FROM token_tier")}
+    except Exception:
+        return {}
+
+
+def rows(con, cfg=None, now=None):
+    """evaluate.outcomes plus klasa and a class-relative hit; tokens without a token_tier row get a class from mcap."""
+    cfg = cfg or config()
+    now = now or time.time()
+    tiers = _tiers(con)
+    out = evaluate.outcomes(con, cfg["horizon_h"], hit=1.0, now=now)
+    mcaps = {r[0]: r[1] for r in con.execute(
+        "SELECT s.token, s.mcap FROM hype_signals s JOIN (SELECT token, MIN(ts) ts FROM hype_signals GROUP BY token) f "
+        "ON s.token=f.token AND s.ts=f.ts")}
+    for r in out:
+        t = tiers.get(r["token"]) or {}
+        r["klasa"] = t.get("klasa") or classify.klasa(mcaps.get(r["token"]), None)
+        r["razina"] = t.get("razina") or 0
+    thr = skok_thresholds(out, cfg, now)
+    for r in out:
+        r["skok"] = thr[r["klasa"]]
+        r["hit"] = r["max_ret"] >= thr[r["klasa"]]
+    return out, thr
+
+
+def skok_thresholds(rows, cfg=None, now=None):
+    """Per class: the (skok_pct)th percentile of max returns in the last skok_window_d days, else the initial value."""
+    cfg = cfg or config()
+    now = now or time.time()
+    since = now - cfg["skok_window_d"] * 86400
+    thr = dict(cfg["skok_init"])
+    for k in thr:
+        xs = sorted(r["max_ret"] for r in rows if r.get("klasa") == k and r["ts"] >= since)
+        if len(xs) >= cfg["min_class_rows"]:
+            thr[k] = round(max(0.1, xs[min(len(xs) - 1, int(len(xs) * cfg["skok_pct"] / 100))]), 3)
+    return thr
+
+
+def missed(con, thr, cfg=None, now=None, hours=7 * 24):
+    """Tokens that never got a paid check (razina 0, or outside the scan) and still made their class's pump."""
+    cfg = cfg or config()
+    now = now or time.time()
+    out = []
+    for r in con.execute("SELECT token, symbol, klasa, razina, t0, t0_razlog, razlog, mcap, first_ts FROM token_tier "
+                         "WHERE last_ts >= ? AND (razina = 0 OR t0 IN ('nije', 'pad'))", (now - hours * 3600,)):
+        token, sym, klasa, razina, t0, t0_why, why, mcap, first_ts = r
+        snaps = con.execute("SELECT ts, price FROM hype_snapshots WHERE token=? AND price > 0 ORDER BY ts", (token,)).fetchall()
+        if len(snaps) < 2:
+            continue
+        p0 = snaps[0][1]
+        max_ret = max(p / p0 - 1 for _, p in snaps)
+        klasa = klasa or classify.klasa(mcap, None)
+        if max_ret >= thr.get(klasa, 1.0):
+            out.append({"token": token, "symbol": sym, "klasa": klasa, "razina": razina, "t0": t0,
+                        "reason": why or t0_why or "nije stigao do plaćene provjere", "mcap": mcap,
+                        "max_ret": round(max_ret, 2), "first_ts": first_ts or snaps[0][0]})
+    return sorted(out, key=lambda x: -x["max_ret"])

@@ -41,8 +41,7 @@ def _rpc(method, params, ttl=CACHE_TTL):
     if "error" in data:
         raise RuntimeError(f"Helius {method}: {data['error']}")
     os.makedirs(http.CACHE_DIR, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data["result"], f)
+    http._write(path, json.dumps(data["result"]))
     return data["result"], False
 
 

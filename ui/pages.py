@@ -24,6 +24,10 @@ SOURCE = {"harvest": "harvest (rani kupci pobjednika)", "hype_learn": "hype lear
 
 FEATURE = {
     "fresh": "starost: 1 ispod 1 h, 0 na 72 h",
+    "market_regime": "vrućina tržišta jučer (launchpadi + Solana DEX), 0-1, ista za sve tokene u skenu",
+    "put_brzina": "log rast mcapa po satu od prve snimke (0,7/h = 1)",
+    "put_skokovitost": "udio ukupnog rasta u jednom koraku (1 = sve odjednom)",
+    "put_zadrzavanje": "mcap prema vrhu (1 = na vrhu)",
     "turnover": "volumen zadnjeg sata / likvidnost (3x = 1)",
     "buy_pressure": "udio kupnji u zadnjem satu (iznad 50%)",
     "momentum": "rast cijene u 1 h (+200% = 1)",
@@ -40,6 +44,7 @@ FEATURE = {
     "kol_wallets": "pump.fun: broj poznatih KOL walleta koji su trejdali token (5 = 1)",
     "x_trend": "ime ili simbol tokena je trenutno trending tema na X-u",
     "kol_x": "praćeni KOL-ovi tweetali CA ili $ticker u 6 h (2 = 1)",
+    "kol_group": "grupni poziv na X-u u 6 h: dobri KOL-ovi (ocjena 50+) zovu isti token u 30 min (2 = 1, ostali autori +0.1 do 0.5); 0 ako devovi prodaju u poziv",
     "search_trend": "Google pretraga imena u zadnja 24 h vs prethodnih 6 dana (3x = 1)",
 }
 
@@ -228,6 +233,21 @@ def _positions(addr):
 
 # ---------------- tokens ----------------
 
+def tier_html(mint):
+    """Where the token stands in the tiered analysis: class, tier reached, T0 verdict, shape of its mcap path."""
+    from ui.html import klasab, razinab
+    t = data.token_tiers().get(mint)
+    if not t:
+        return ""
+    t0 = {"prolaz": badge("T0 prošao", "good"), "pad": badge("T0 pao", "bad"), "nije": badge("izvan skena")}.get(t.get("t0"), "")
+    put = ""
+    if t.get("put_skokovitost") is not None:
+        put = (f" · put do mcapa: brzina {t['put_brzina']:+.2f}/h, skokovitost {t['put_skokovitost']:.0%}, "
+               f"zadržavanje {t['put_zadrzavanje']:.0%}")
+    return (f"<p>Slojevita analiza: {razinab(t.get('razina'))} {klasab(t.get('klasa'))} {t0} "
+            f"<span class=mut>{esc(t.get('t0_razlog') or '')}{esc(put)} · potrošeno ~{t.get('credits') or 0} Helius kredita</span></p>")
+
+
 def token(mint, qs):
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")
@@ -240,19 +260,56 @@ def token(mint, qs):
     else:
         from ui import narrative
         b.append(narrative.html(mint))
+        b.append(tier_html(mint))
 
-    # summary
-    b.append("<div class=grid>")
+    # summary: one card with the verdict numbers, then "za" / "protiv" from the confidence parts
+    sigs_asc = sigs[::-1]
+    sig = sigs[0] if sigs else None
+    from ui import confidence, evidence, sansa
+    _, det = evidence.details(mint)
+    pc = data.paper_candidates(mint)
+    cand = pc[0] if pc else None
+    cs = evidence.checks(mint, sig, det, rugs[0] if rugs else None, ev, cand)
+    role = "canonical" if any(e["role"] == "canonical" for e in ev) else None
+    mk = (rugs[0]["data"].get("market") if rugs else None) or {}
+    conf, parts = confidence.score(sig["score"] if sig else None, (data.js(sig["features"], {}) or {}) if sig else {}, det,
+                                   rugs[0]["verdict"] if rugs else None, role,
+                                   (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
+    sn, an, pr, pa = sansa.score(conf, cs)
     best = max(ev, key=lambda e: e["score"] or 0) if ev else None
-    for v, l in [(best["score"] if best else "–", "event ocjena (DexScreener)"),
+    b.append("<div class=grid>")
+    for v, l in [(f"<b>{sn}</b>", "šansa za skok"), (conf, "confidence"),
+                 (f"{an}/{sansa.N} {sansa.dots_html(cs)}", "slojeva analizirano"),
                  (max(s["score"] or 0 for s in sigs) if sigs else "–", "hype max"),
                  (verdict(rugs[0]["verdict"]) if rugs else "–", "rug presuda"),
-                 (rugs[0]["score"] if rugs and rugs[0]["score"] is not None else "–", "rug ocjena")]:
+                 (best["score"] if best else "–", "event ocjena")]:
         b.append(f"<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>")
     b.append("</div>")
+    za = [t for p_, t in parts if p_ > 0]
+    protiv = [t for p_, t in parts if p_ < 0]
+    if za or protiv:
+        b.append("<div class=grid style='grid-template-columns:1fr 1fr;gap:12px'>"
+                 "<div class=card><b style='color:var(--good)'>Za</b><ul class=r>"
+                 + "".join(f"<li class=good>{esc(t)}</li>" for t in za[:5]) + ("<li class=mut>ništa izmjereno</li>" if not za else "")
+                 + "</ul></div><div class=card><b style='color:var(--bad)'>Protiv</b><ul class=r>"
+                 + "".join(f"<li class=bad>{esc(t)}</li>" for t in protiv[:5]) + ("<li class=mut>nema zabilježenih rizika</li>" if not protiv else "")
+                 + "</ul></div></div>")
+    opened = qs.get("sve") == "1"
+    b.append(f"<p class=mut style='font-size:12px'>Slojevi ispod su sklopljeni; naslov svakog nosi sažetak. "
+             f"<a href='?sve={'0' if opened else '1'}'>{'Sklopi sve' if opened else 'Otvori sve'}</a>.</p>")
+
+    def sec(sid, title, summary, force=False):
+        return (f"<details id={sid}{' open' if opened or force else ''}><summary><b>{title}</b> "
+                f"<span class=mut>· {summary}</span></summary>")
+
+    from ui import kol
+    kol_html = kol.token_section(mint)
+    if kol_html:
+        b.append(sec("kol", "KOL sloj", "tko ga je zvao na X-u i što je cijena napravila") + kol_html + "</details>")
 
     # layer 1: event
-    b.append('<h2 id=event>1. Event sloj: zašto je vezan uz događaj</h2>')
+    ev_sum = (f"{esc(best['event'])} · {'pravi' if role else 'kopija'} · ocjena {best['score']}" if best else "nije vezan uz event")
+    b.append(sec("event", "1. Event sloj", ev_sum))
     if not ev:
         b.append("<p class=mut>Nije pronađen ni za jedan event iz kalendara.</p>")
     for e in ev:
@@ -265,9 +322,12 @@ def token(mint, qs):
                  f'Unutar eventa najviša ocjena je "pravi", ostali su kopije.</p>')
         b.append(breakdown(explain.organic(d), "Organska ocjena", e["score"]))
         b.append("</div>")
+    b.append("</details>")
 
     # layer 2: hype
-    b.append('<h2 id=hype>2. Hype sloj: rani signal rasta</h2>')
+    hy_sum = (f"zadnja ocjena {sigs[0]['score']}, max {max(x['score'] or 0 for x in sigs)}, {len(sigs)} signala" if sigs
+              else "hype skener ga nije uhvatio")
+    b.append(sec("hype", "2. Hype sloj", hy_sum))
     if not sigs:
         b.append("<p class=mut>Hype skener ga nije uhvatio.</p>")
     else:
@@ -288,14 +348,18 @@ def token(mint, qs):
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
         snaps = data.hype_snapshots(mint)
         if len(snaps) > 1:
-            b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs[-1]["price"]))
+            b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs_asc[0]["price"]))
         b.append("<h3>Svi signali</h3>")
         b.append(tdesc('Svaki put kad ga je hype skener zabilježio, s cijenom i izvorima u tom trenutku.') + table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
                        [[ts(s["ts"]), scorecell(s["score"]), num(s["price"], "{:.8g}"), usd(s["mcap"]),
                          usd(s["liquidity"]), esc(s["sources"])] for s in sigs[:200]]))
+    b.append("</details>")
 
     # layer 3: rug
-    b.append('<h2 id=rug>3. Rug filter: je li siguran</h2>')
+    rg_sum = (f"{esc(rugs[0]['verdict'])}, ocjena {rugs[0]['score'] if rugs[0]['score'] is not None else '–'}, "
+              f"{len(rugs[0]['data'].get('hard_fails', []))} tvrdih, {len(rugs[0]['data'].get('flags', []))} zastavica" if rugs
+              else "nije provjeren")
+    b.append(sec("rug", "3. Rug filter", rg_sum, force=bool(rugs and rugs[0]["verdict"] in ("ODBAČEN", "VISOK RIZIK"))))
     if not rugs:
         b.append("<p class=mut>Nije provjeren rug filterom (<code>python3 run_rug.py " + esc(mint) + "</code>).</p>")
     else:
@@ -339,21 +403,21 @@ def token(mint, qs):
             b.append("<h3>Ranije provjere</h3>" + tdesc('Prijašnje rug provjere istog tokena.') + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
                                                         [[ts(x["checked_at"]), verdict(x["verdict"]), num(x["score"])] for x in rugs[1:]]))
         b.append(jsonblock(d))
+    b.append("</details>")
 
-    pc = data.paper_candidates(mint)
     if pc:
         c = pc[0]
-        b.append('<h2 id=paper>4. Paper trading: je li bot uzeo token</h2>')
+        b.append(sec("paper", "4. Demo trading", f"{esc(c['decision'] or '')} {esc(c['reason'] or '')}"))
         b.append(f"<div class=card>{_decision(c)} {esc(c['reason'] or '')} <span class=mut>· {esc(c['origin'])} · "
                  f"{ts(c['first_ts'])[0]} UTC</span>" + "".join(f"<div class=mut>rug: {esc(x)}</div>" for x in c["rug_flags"]))
         for t in data.paper_trades(mint):
             b.append(f"<p>Trejd #{t['id']}: {esc(t['status'])}, povrat {(t['ret'] or 0):+.0%}, max {(t['max_ret'] or 0):+.0%}, "
                      f"izlaz {esc(t['exit_reason'] or '–')}</p>")
-        b.append("</div>")
+        b.append("</div></details>")
 
     # wallets on this token
     sg = data.sightings(token=mint)
-    b.append('<h2>Walleti viđeni na ovom tokenu</h2>')
+    b.append(sec("walleti", "5. Walleti viđeni na ovom tokenu", f"{len(sg)} iz registra"))
     wmap = {w["wallet"]: w for w in data.wallets(scored_only=False)}
     b.append(tdesc('Walleti iz registra koji su kupovali ovaj token, s ulogom (rani kupac, top trader…) i ocjenom.') + table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
                    [[wlink(x["wallet"]), esc(ROLE.get(x["role"], (x["role"],))[0]), esc(SOURCE.get(x["source"], x["source"])),
@@ -361,6 +425,7 @@ def token(mint, qs):
                      tierb((wmap.get(x["wallet"]) or {}).get("tier")),
                      " ".join(badge(l, "bad") for l in (wmap.get(x["wallet"]) or {}).get("labels", []))] for x in sg],
                    empty="Nijedan wallet nije zabilježen za ovaj token."))
+    b.append("</details>")
     return sym or short(mint), "".join(b)
 
 

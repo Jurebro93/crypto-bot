@@ -109,6 +109,11 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wai
     con.execute("INSERT OR REPLACE INTO apify_cache VALUES (?,?,?)", (key, int(time.time()), json.dumps(items)))
     con.commit()
     con.close()
+    try:
+        from usage import meter
+        meter.record("apify", source, cost)
+    except ImportError:
+        pass
     if r["status"] != "SUCCEEDED" and not items:
         raise RuntimeError(f"{actor}: {r['status']}")
     return items

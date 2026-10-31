@@ -86,6 +86,18 @@ Petlja poboljšanja: `watch` bilježi svaki signal (`hype_signals`) i cijene (`h
 
 Alarmi u tvoj Telegram bot: postavi `TELEGRAM_BOT_TOKEN` i `TELEGRAM_CHAT_ID`. Helius (`HELIUS_API_KEY`) treba za `learn`, `buyers`, `wallet` i smart money provjeru; svaki poziv troši oko 100 kredita.
 
+Izbornik dashboarda ima pet grupa (Pregled, Tokeni, Walleti, Trading, Sustav); stranice grupe su u drugom redu, pa su sve stare rute i dalje tu. Pregled pokazuje samo demo rezultat, istaknute po klasi i tablicu tokena kroz analize; rast baze, klasteri walleta i stanje baza su sklopljeni ispod.
+
+## Slojevita analiza (`tiers/`)
+
+Svaki token koji sken vidi dobiva red u `token_tier` (hype.db): **klasu** (`moonshot` mcap < $150k i mlađi od 3 dana, `stabilni` mcap > $2M i stariji od 7 dana, `event` pravi token iz kalendara, inače `rizican`; granice u `tiers/config.json`), **razinu** do koje je stigao (T0 besplatno sito, T1 rani kupci preko Heliusa, T2 pun rug filter ili X buzz, T3 duboko) i koliko je Helius kredita potrošio. Skupe provjere u `run_hype.py scan` i Apify izvori dobivaju samo tokene koji su prošli T0; `run_paper.py` upisuje T2 kad napravi rug check.
+
+T0 pada **samo na mehanici ruga** (aktivan mint ili freeze authority, LP nezaključan izvan launchpada; pump.fun tokeni prolaze bez poziva, ostali preko RugCheck izvještaja keširanog 6 h). Likvidnost, top 10 holderi, dev udio i bundleri nisu pragovi nego značajke za učenje. Tokeni ispod `--min-liq` ili iznad `--max-mcap` ulaze u `token_tier` kao `t0=nije` i `track` im prati cijenu, pa `eval` vidi i što su pragovi propustili. Oblik puta do mcapa iz snimaka (`put_brzina`, `put_skokovitost`, `put_zadrzavanje`) ulazi u značajke s težinom 0 dok ih fit ne nauči.
+
+## Petlja učenja (`run_learn.py`, `learn/`)
+
+Ništa ručno. `run_learn.py loop` jednom dnevno (05:00 UTC, `learn/config.json`): za svaku klasu izračuna **skok** (maksimalni rast u 24 h u gornjih 15% ishoda te klase u zadnjih 30 dana; početni pragovi dok klasa nema 20 ishoda), fita težine hype ocjene logističkom regresijom i primjenjuje ih **samo** ako klasa ima barem 200 ishoda, svaka težina se pomiče najviše 20% po runu, i nove težine imaju bolju preciznost gornje petine na obje vremenske polovice. Naučene težine su u `$LEARNED_DIR/weights.<klasa>.json` (na Render disku), sken ih čita po klasi; `.prev` ostaje za rollback, koji se sam dogodi kad primijenjene težine nakon 2 runa bez poboljšanja gube od prethodnih. Svaki run je u `learn_runs` (hype.db). Stranica **Učenje** pokazuje lift po značajki, udio skokova po rasponu sirovih vrijednosti (likvidnost, mcap, top 10, bundleri, smart kupci, skokovitost), parove značajki, povijest težina i "što smo propustili" (tokeni bez plaćene provjere koji su ipak skočili). `run_learn.py status|missed|fit --dry` za terminal.
+
 ## Walleti i copytrading (`run_wallets.py`)
 
 Registar svih walleta koje alat vidi (hype, rug filter, rani kupci pobjednika, ručno), ocjena profitabilnosti, PnL kroz vrijeme i shortlista za copytrading. Baza je `wallets.db` (tablice `wallets`, `wallet_sightings`, `wallet_trades`, `wallet_pnl`, `helius_credits`). Drugi moduli upisuju walleta preko `wallets/store.py` (`observe`, `label`), pa nema duplih tablica.
@@ -113,6 +125,23 @@ Kako se računa:
 Stil (`style`): `bot` (300+ trejdova dnevno ili drži < 30 s), `sniper` (kupio u prvim sekundama tokena), `scalper` (drži < 10 min), `swing`. Profitabilni botovi i snajperi (score >= 40) dobiju tier S: ne kopiraju se (prebrzi su), ali se prate svaki dan i služe kao signal. `wallets.store.signal_wallets()` ih vraća, a `run_hype.py scan` ih broji u `smart_money` zajedno s ostalim dobrim walletima. Kod botova se plaća dodatna stranica povijesti samo ako je prva stranica u plusu.
 
 Budžet: `HELIUS_MONTHLY_CREDITS` (zadano 10.000.000, Helius Developer od 2026-10-30) i `WALLET_CREDIT_SHARE` (zadano 0.15, tj. 1,5M mjesečno; ostatak ide rug filteru i hype modulu, cilj ukupno 5-7M). Jedan `score` prolaz zadano troši do 20.000 kredita (oko 1.000 walleta). `score` staje kad potroši svoj dio. Prvi stvarni prolaz 2026-10-30: oko 200 walleta za 3.500 kredita (prosjek 17 po walletu).
+
+## KOL-ovi na X-u (`run_kol.py`, `kol/`, `kol.db`)
+
+Svaki X post s CA tokena postaje poziv: autor, pratitelji, link na post, i što su cijena i volumen napravili nakon njega.
+
+```
+python3 run_kol.py once        # jedan krug: collect, search, measure, score, flows
+python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
+```
+
+- Pozivi: tweetovi koje bot već plaća (`x_buzz` u hype.db apify_cache) + webhook KOL monitora, plus dvije male pretrage (Apify izvori `kol_search` i `kol_timeline`, ~$0.24/dan): ponovna pretraga tokena koje KOL-ovi zovu i zadnji postovi najboljih KOL-ova.
+- Hvalisanje ("15x on $X", "115x $X") se odvaja od poziva i ne ulazi u ocjenu.
+- Cijena i volumen 2 h prije, 1/6/24 h poslije i max u 24 h: GeckoTerminal 5-min svijeće (besplatno).
+- Grupni poziv: 2+ autora na istom tokenu unutar 30 min. Parovi KOL-ova koji često zovu zajedno.
+- Helius tokovi oko jakih poziva (`flows_per_day`, ~40 kredita svaki): insajderi kupili sat prije i prodali u poziv; na 3+ tokena = rotacijski dev, ide u wallets.db s oznakom insider.
+- Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
+- Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 
 ## Rug filter (`run_rug.py`)
 
@@ -155,6 +184,10 @@ Izlazi (`paper/config.json`): stop loss -35%, pola na 2x i četvrtina na 4x, nak
 
 Dnevni pregled: rezultat, greške po vrsti (rug, kasni ulaz nakon skoka, profit vraćen, mrtav trejd), propušteni pobjednici s razlogom preskoka, tablica filtera ("da smo ušli u sve"), rug presuda vs. stvarni ishod, izvori signala, lift značajki. Prijedlozi: prag ulaza, stop/TP/trailing/trajanje, koje rug presude blokirati, minimalna likvidnost, nove težine hype ocjene (`paper/weights.suggested.json`). Prijedlog prolazi samo ako ima barem 10 tokena iza sebe i bolji je i u starijoj i u novijoj polovici podataka. Svaka demo kupnja, prodaja i dnevni sažetak zapisuju se u `output/paper/journal.log` (vidljivo i u UI-ju, koji čita `paper.db`). Telegram je isključen; uključuje se s `PAPER_TELEGRAM=1` ili `review --telegram`. Sve naučeno se skuplja u `output/paper/lessons.md`. Baza je `paper.db`.
 
+Svaki trejd pamti market cap na ulazu i na izlazu (`entry_mcap`, `exit_mcap` u `paper.db` i `league.db`; stare baze se dopune iz spremljenih cijena). Dashboard ih pokazuje u Demo tradingu i u Natjecanju.
+
+DCA prijedlog (kupnja u padu, `paper/dca.py`, pravila u `config.json` pod `dca`): kad je otvorena pozicija 20% ili više u minusu, ali barem 3 postotna boda iznad stop lossa, likvidnost je još barem 60% ulazne, cijena je već odskočila 8% od dna i trejd je star barem 20 min, bot zabilježi prijedlog da se dokupi pola uloga. Najviše jedan po trejdu, nikad nakon prvog TP-a. Prijedlog se ne izvršava; dnevni pregled mjeri što bi dokup donio da je prodan zajedno s trejdom i kaže isplati li se (barem 10 signala, isti rezultat u obje polovice podataka). Signal se pokazuje i igračima u Natjecanju ako drže isti token.
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.
@@ -190,7 +223,25 @@ Ocjena je ponderirani prosjek samo izmjerenih značajki: provjera koja nije rađ
 
 KOL tracker je isključen dok mu ne daš budžet (`daily_usd.kol_monitor`) i popis računa. Svaki praćeni račun košta oko $3.24 mjesečno. Pokretanje: `KOL_HOOK_KEY=... python3 run_hype.py kol --handles a,b --base-url https://<dashboard>`; zaustavljanje s `--stop`.
 
-Stranica **Radar** u dashboardu (`run_ui.py`, `/radar`) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
+Stranica **Zadnji sken** u dashboardu (`run_ui.py`, `/radar`, grupa Tokeni) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
+
+## Tržište: volumen po platformama (`run_market.py`)
+
+Koliko se trejda na kojem launchpadu (pump.fun, LaunchLab = bonk.fun, Meteora DBC = Bags/Believe, StonkFun…), u kojim
+terminalima (Axiom, GMGN, Photon, BullX, Trojan…, samo Solana dio) i na cijelom Solana DEX tržištu, plus cijena SOL.
+Izvor je DefiLlama (besplatno, bez ključa), pa ništa ne ide u usage.db. Podaci idu u `market.db`.
+
+```
+python3 run_market.py collect          # jedno očitanje (prvi put skine 400 dana povijesti)
+python3 run_market.py loop --every 60  # server: svaki sat
+python3 run_market.py report           # platforme, režim, provjera hipoteze
+```
+
+Režim tržišta (`market/regime.py`): prosjek tri ranga u zadnjih 90 dana (volumen launchpada 7 d, volumen cijele Solane 7 d,
+rast launchpada tjedan na tjedan), 0-100; 66+ vruće, 33 i manje hladno. Za scoring: `regime.at(ts)["score"] / 100`
+(ili `regime.feature(ts)`) je značajka `market_regime` za trenutak ts, iz zadnjeg punog dana prije ts (bez gledanja u budućnost).
+Hipoteza "kad raste volumen na Solani, trejda se više shitcoina" provjerava se svaki sat korelacijom dnevnih promjena
+(Solana DEX bez PumpSwapa naspram launchpada). Stranica `/market` (Tržište) pokazuje sve to i demo tradeove po režimu.
 
 ## Status
 

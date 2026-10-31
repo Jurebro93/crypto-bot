@@ -6,12 +6,21 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db watch.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
-export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
+export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
+
+# HTTP cache shares the 1 GB disk with the databases: trim it before anything else starts (a full disk makes
+# every SQLite write fail and the first loop to crash restarts the service), then every hour
+prune_cache() {
+  python3 -c "from event_calendar import http; n, mb = http.prune(); print(f'cache: obrisano {n} datoteka, {mb:.0f} MB')" \
+    || echo "cache prune nije uspio"
+}
+prune_cache
+( while true; do sleep 3600; prune_cache; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
@@ -48,6 +57,17 @@ export CAL_CACHE_DIR="$DATA_DIR/cache" PYTHONUNBUFFERED=1
     sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
   done
 ) &
+
+# KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
+# Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
+python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
+
+# spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
+python3 run_usage.py loop --every 15 &
+
+python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
+# trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
+python3 run_market.py loop --every 60 &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
