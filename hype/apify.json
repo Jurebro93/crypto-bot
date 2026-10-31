@@ -1,5 +1,5 @@
 {
- "_comment": "Dnevni budžeti po izvoru u USD. Zbroj ~1.2 $/dan = ~37 $/mj (kol_search + kol_timeline = KOL modul, run_kol.py), ispod limita računa od 40 $. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20.",
+ "_comment": "Dnevni budžeti po izvoru u USD. Zbroj ~1.2 $/dan = ~37 $/mj (kol_search + kol_timeline = KOL modul, run_kol.py), ispod limita računa od 40 $. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20. kol_backfill: jednokratno povijesno punjenje KOL baze (run_kol.py backfill --budget), na serveru 0.",
  "monthly_reserve_usd": 3,
  "daily_usd": {
   "pumpfun": 0.4,
@@ -9,7 +9,8 @@
   "gmgn": 0.06,
   "kol_monitor": 0.0,
   "kol_search": 0.12,
-  "kol_timeline": 0.12
+  "kol_timeline": 0.12,
+  "kol_backfill": 0.0
  },
  "pumpfun": {
   "boards": [
@@ -56,7 +57,8 @@
   "gmgn": 0.01,
   "kol_monitor": 0.0045,
   "kol_search": 0.0004,
-  "kol_timeline": 0.0004
+  "kol_timeline": 0.0004,
+  "kol_backfill": 0.0004
  },
  "run_options": {
   "google_trends": {

@@ -162,6 +162,25 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(store.signals(path=os.path.join(tempfile.mkdtemp(), "none.db")), {})
 
 
+class Seed(unittest.TestCase):
+    def test_import_once(self):
+        import gzip
+        import shutil
+        d = tempfile.mkdtemp()
+        src = store.connect(os.path.join(d, "src.db"))
+        collect.save(src, collect.calls_from_tweet(tweet("1", "a", f"gem {CA}", T0)))
+        src.commit()
+        src.close()
+        with open(os.path.join(d, "src.db"), "rb") as f, gzip.open(os.path.join(d, "seed.db.gz"), "wb") as g:
+            shutil.copyfileobj(f, g)
+        con = store.connect(os.path.join(d, "dst.db"))
+        self.assertEqual(store.import_seed(con, os.path.join(d, "seed.db.gz")), 1)
+        self.assertEqual(store.import_seed(con, os.path.join(d, "seed.db.gz")), 0)
+        self.assertEqual(store.import_seed(con, os.path.join(d, "none.gz")), 0)
+        from kol import backfill
+        self.assertEqual(backfill.token_query(CA, T0, T0 + 3600).split()[1:], ["since:2026-10-30", "until:2026-11-01"])
+
+
 class Helpers(unittest.TestCase):
     def test_groups(self):
         calls = [("A", 0, "x"), ("A", 600, "y"), ("A", 1700, "x"), ("A", 5000, "z"), ("B", 0, "x")]
