@@ -7,6 +7,7 @@ import glob
 import json
 import os
 import sqlite3
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAL_DB = os.path.join(HERE, "calendar.db")
@@ -89,6 +90,16 @@ def hype_signals(where="1=1", args=(), order="ts DESC", limit=5000):
 def hype_snapshots(token):
     out = multi("hype", "SELECT ts, price, mcap, liquidity FROM hype_snapshots WHERE token=? ORDER BY ts", (token,),
                 lambda r: r["ts"])
+    return sorted(out, key=lambda r: r["ts"])
+
+
+def token_pulse(token, hours=24, limit=400):
+    try:
+        out = multi("hype", "SELECT ts, price, mcap, liquidity, vol_m5, vol_h1, buys_m5, sells_m5, buys_h1, sells_h1, holders, "
+                            "holders_src FROM token_pulse WHERE token=? AND ts >= ? ORDER BY ts DESC LIMIT ?",
+                    (token, int(time.time() - hours * 3600), limit), lambda r: r["ts"])
+    except Exception:
+        return []
     return sorted(out, key=lambda r: r["ts"])
 
 

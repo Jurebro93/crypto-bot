@@ -74,6 +74,10 @@ atexit.register(flush)
 
 # ---------- Helius pricing (approximate, https://www.helius.dev/docs/billing/credits) ----------
 
+DAS_METHODS = {"getTokenAccounts", "getAsset", "getAssetBatch", "getAssetsByOwner", "searchAssets", "getAssetProof",
+               "getAssetsByGroup", "getAssetsByCreator", "getAssetsByAuthority", "getSignaturesForAsset"}
+
+
 def helius_cost(url, body=None, result=None):
     """(method, credits) for one Helius request, or None if the URL is not Helius."""
     u = urllib.parse.urlsplit(url)
@@ -90,6 +94,8 @@ def helius_cost(url, body=None, result=None):
     if method == "getTransactionsForAddress":
         n = len((result or {}).get("data") or []) if isinstance(result, dict) else 0
         return method, max(10, -(-n // 100) * 10)
+    if method in DAS_METHODS:
+        return method, 10
     return method, 1
 
 

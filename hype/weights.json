@@ -21,5 +21,9 @@
  "put_brzina": 0,
  "put_skokovitost": 0,
  "put_zadrzavanje": 0,
- "market_regime": 0
+ "market_regime": 0,
+ "snaga_volumen": 6,
+ "snaga_txn": 6,
+ "rast_holdera": 8,
+ "organski": 6
 }

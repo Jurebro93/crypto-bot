@@ -21,6 +21,12 @@ HELP = {
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
     "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
                      "kontekst, a težinu mu uči petlja (početno 0).",
+    "Snaga": "Trajna snaga iz pulsa (zadnjih 6 h, očitanje svaka 2 min): volumen i transakcije prema najboljem satu, rast "
+             "holdera po satu i omjer novih holdera i transakcija (organski). Token koji drži volumen i raste u holderima "
+             "dobiva bodove; težine uči petlja.",
+    "Puls": "Očitanja svakih 2 min za tokene koji su stigli do razine 1 u zadnjih 24 h: cijena, mcap, volumen 5 min / 1 h, "
+            "kupnje i prodaje, broj holdera (Helius svakih 30 min, pump.fun kad postoji).",
+    "Holderi (puls)": "Broj walleta s pozitivnim stanjem; izvor helius (točno, do 3000) ili pumpfun (s ploče).",
     "Zadnji sken": "Stranica s rezultatom zadnjeg prolaza hype skenera (zadnja 3 h). Nije isto što i Svi tokeni: ovdje je trenutak, tamo povijest.",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",

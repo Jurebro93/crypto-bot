@@ -145,7 +145,7 @@ def rpc(method, params, timeout=30):
     req = urllib.request.Request(f"{RPC}?api-key={_key()}", data=body,
                                  headers={"Content-Type": "application/json", "User-Agent": http.USER_AGENT})
     _RPC.wait()
-    _credits[0] += 10 if method == "getTransactionsForAddress" else 1
+    _credits[0] += 10 if method in ("getTransactionsForAddress", "getTokenAccounts") else 1
     data = http._fetch(req, timeout)
     if "error" in data:
         raise RuntimeError(f"Helius RPC {method}: {data['error']}")
