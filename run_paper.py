@@ -294,9 +294,14 @@ def intake(cfg, now=None, quiet=False):
         arm = arms.arm_of(c, cv, now)
         if explore and not konv:  # Thompson sampling: arms that keep losing get fewer exploration trades
             ok, theta = arms.allow(arm, arm_st, cfg.get("arms"))
+            band = arms.band_of(s)
+            ok_b, theta_b = arms.allow(band, arm_st, cfg.get("arms"))
             if not ok:
                 explore = False
                 c["arm_note"] = f"krak {arm} gubi (θ {theta})"
+            elif not ok_b:
+                explore = False
+                c["arm_note"] = f"{band} u istraživanju gubi (θ {theta_b})"
         if explore:
             need = s
         if s < cfg["shadow_min_score"] and c["origin"] == "hype" and not explore:
@@ -368,8 +373,9 @@ def tick(cfg, now=None, quiet=False):
                                          (now - cfg["track_h"] * 3600,))}
     # a moonbag can ride for days: price it every 10 minutes instead of every minute (fewer ticks on the 1 GB disk)
     bags = {t for _, t, _, pos in trades if pos.get("bag")} - tracked - {t for _, t, _, p in trades if not p.get("bag")}
+    asked = set(store.pending_exits(con))  # a hand sale goes through on the next minute, moonbag or not
     if int(now // 60) % 10:
-        trades = [x for x in trades if x[1] not in bags]
+        trades = [x for x in trades if x[1] not in bags or x[0] in asked]
     tokens = tracked | {t for _, t, _, _ in trades}
     con.close()
     if not tokens:
@@ -382,6 +388,7 @@ def tick(cfg, now=None, quiet=False):
         price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))  # vanished pair = liquidity 0 = rug
         store.tick(con, t, now, price, liq, mcap)
     closed = []
+    manual = store.pending_exits(con)  # sales asked for by hand on the Demo trading page
     calls = kol_calls({t for _, t, _, _ in trades}, now - 6 * 3600)
     sells = kol_sells({t for _, t, _, _ in trades}, now - 6 * 3600)
     for tid, t, sym, pos in trades:
@@ -393,6 +400,13 @@ def tick(cfg, now=None, quiet=False):
         if (cfg_t.get("entry_mode") == "konv" and (cfg.get("konv") or {}).get("exit_on_kol_sell") and pos["open"]
                 and sells.get(t, 0) > pos["opened_ts"] and price > 0):  # a KOL wallet that bought is selling
             sim.sell(pos, pos["left"], price, liq, now, "kol_prodaje", cfg_t)
+        for rid, frac in manual.pop(tid, []):
+            if pos["open"] and price > 0:
+                sim.sell(pos, pos["left"] * frac, price, liq, now, store.MANUAL, cfg_t)
+                store.exit_done(con, rid, f"prodano {frac:.0%} ostatka @ {price:.3g}", now)
+            elif not pos["open"]:
+                store.exit_done(con, rid, "pozicija je već zatvorena", now)
+            # price 0 / missing: the request waits for the next tick
         sim.step(pos, price, liq, now, cfg_t)
         for f in pos["fills"][n_fills:]:
             f["mcap"] = mcap
@@ -413,6 +427,11 @@ def tick(cfg, now=None, quiet=False):
             notify(msg)
         if not pos["open"]:
             closed.append((sym, res))
+    for reqs in manual.values():  # requests for trades that are no longer open
+        for rid, _ in reqs:
+            if not con.execute("SELECT 1 FROM trades WHERE id=(SELECT trade_id FROM manual_exits WHERE id=?) "
+                               "AND status='open'", (rid,)).fetchone():
+                store.exit_done(con, rid, "pozicija je već zatvorena", now)
     con.commit()
     return closed
 

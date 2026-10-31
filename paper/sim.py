@@ -8,6 +8,11 @@ import os
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
+# Bumped whenever the exit mechanics change meaning, so the exit learner re-fits its rules under the new mechanics
+# right away (exits.json keeps the version it was fitted with) instead of waiting for the next daily run.
+# 2: the stop after a take profit only arms once the peak has cleared it (lock_gap), see after_tp_stop().
+SIM_VERSION = 2
+
 
 def load_config(path=None, learned=True):
     """paper/config.json plus the entry rules the daily review applied itself (paper/auto.py), unless a
@@ -66,6 +71,23 @@ def trail_for(peak, cfg):
     return use
 
 
+def after_tp_stop(pos, cfg):
+    """Stop level (return vs. entry) for what is left after the first take profit, or None.
+
+    A learned lock above the price where the take profit fired (e.g. TP at +10%, lock at +30%) used to sell the
+    whole rest on the same tick, so every winner closed at ~+10% (31.10.: 11 of 12 demo winners; ANSEM kept 20%
+    only because one candle jumped over every TP level). The lock now arms only once the peak is lock_gap above
+    it; until then the rest is protected at breakeven (or at the lock, if that is below breakeven)."""
+    lock = cfg.get("sl_after_tp")
+    if lock is None and cfg.get("breakeven_after_tp"):
+        lock = 0.0
+    if lock is None or not pos.get("tp_done"):
+        return None
+    if (1 + pos.get("peak", 0.0)) >= (1 + lock) * (1 + cfg.get("lock_gap", 0.1)):
+        return lock
+    return min(lock, 0.0)
+
+
 def _tp_frac(pos, frac, price, liq, cfg):
     """"cost" = sell just enough to get the stake back (the rest rides for free); a number = share of the buy."""
     if frac != "cost":
@@ -120,11 +142,9 @@ def step(pos, price, liq, ts, cfg):
     kol = cfg.get("kol_hold_min") and pos.get("kol_until", 0) >= ts
     if kol and tr is not None:
         tr = min(0.9, tr + cfg.get("kol_trail_add", 0.0))
-    after_tp = cfg.get("sl_after_tp")  # stop for the rest after the first take profit (0 = breakeven)
-    if after_tp is None and cfg.get("breakeven_after_tp"):
-        after_tp = 0.0
+    after_tp = after_tp_stop(pos, cfg)  # stop for the rest after the first take profit (0 = breakeven)
     why = None
-    if pos["tp_done"] and after_tp is not None and ret <= after_tp:
+    if after_tp is not None and ret <= after_tp:
         why = "breakeven"
     elif tr is not None and (1 + ret) <= (1 + pos["peak"]) * (1 - tr):
         why = "trailing"

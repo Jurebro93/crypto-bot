@@ -34,15 +34,20 @@ def every(name, args, minutes):
         time.sleep(minutes * 60)
 
 
-def daily(name, args, config):
-    """Same rule as the old in-process loops: after run_at_utc, once per UTC day (again after a restart)."""
-    last_day = None
+def daily(name, args, config, due=None):
+    """Same rule as the old in-process loops: after run_at_utc, once per UTC day (again after a restart).
+    due(): an extra reason to run now (at most once per process start), e.g. exit rules fitted under old mechanics."""
+    last_day, forced = None, False
     while True:
         try:
             with open(os.path.join(ROOT, config)) as f:
                 hh, mm = map(int, json.load(f)["run_at_utc"].split(":"))
             now = dt.datetime.now(dt.timezone.utc)
-            if (now.hour, now.minute) >= (hh, mm) and last_day != now.date():
+            if not forced and due and due():
+                forced = True
+                print(f"{name}: pokrećem odmah ({due.__doc__ or 'potrebno'})", flush=True)
+                run(name, args)
+            elif (now.hour, now.minute) >= (hh, mm) and last_day != now.date():
                 run(name, args)
                 last_day = now.date()
         except Exception as e:  # noqa: BLE001 - the scheduler must not die (start.sh restarts everything)
@@ -50,9 +55,22 @@ def daily(name, args, config):
         time.sleep(300)
 
 
+def exits_refit():
+    """pravila izlaza naučena su pod starom mehanikom izlaza"""
+    # reads the small JSON itself: this process lives 24/7, so it does not import the learning code
+    try:
+        from paper import sim
+        d = os.environ.get("LEARNED_DIR") or os.path.join(os.environ.get("DATA_DIR") or ROOT, "learned")
+        with open(os.path.join(d, "exits.json")) as f:
+            state = json.load(f)
+        return bool(state.get("profiles")) and state.get("sim_version", 1) != sim.SIM_VERSION
+    except Exception:  # noqa: BLE001 - no file yet / unreadable: nothing to re-fit
+        return False
+
+
 JOBS = [
     ("learn", daily, (["run_learn.py", "fit"], "learn/config.json")),
-    ("exits", daily, (["run_exits.py", "fit"], "exits/config.json")),
+    ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),

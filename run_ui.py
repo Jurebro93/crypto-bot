@@ -264,6 +264,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", handler(path, form, self.user))
             self.end_headers()
             return
+        if same_site and path == "/paper/izlaz":  # sell an open demo position by hand
+            n = int(self.headers.get("Content-Length") or 0)
+            form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+            return self._redirect(paper.post(path, form, self.user))
         if not path.startswith("/run/") or not same_site:
             self.send_response(403)
             self.end_headers()

@@ -38,6 +38,14 @@ def save(state):
     os.replace(tmp, path())
 
 
+def needs_refit(state=None):
+    """Learned rules were fitted under older exit mechanics (paper.sim.SIM_VERSION changed): re-fit now, not at the
+    next daily run, so no trade opens with rules chosen for mechanics that no longer exist."""
+    from paper import sim
+    state = load() if state is None else state
+    return bool(state.get("profiles")) and state.get("sim_version", 1) != sim.SIM_VERSION
+
+
 def current(state, klasa, base_cfg, sess=None):
     """(params, name) the next trade of this class (and trading session) would use."""
     prof = state.get("profiles", {})

@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS trades (
     max_ret REAL, min_ret REAL, state TEXT, config TEXT);
 CREATE TABLE IF NOT EXISTS reviews (day TEXT PRIMARY KEY, created INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS rug_budget (day TEXT PRIMARY KEY, used INTEGER);
+CREATE TABLE IF NOT EXISTS manual_exits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, frac REAL, ts INTEGER, user TEXT, done_ts INTEGER,
+    note TEXT);
 """
 
 
@@ -95,3 +98,35 @@ def rug_budget_take(con, day, limit):
         return False
     con.execute("INSERT OR REPLACE INTO rug_budget VALUES (?,?)", (day, used + 1))
     return True
+
+
+MANUAL = "rucno"  # exit reason of a sale a person asked for on the Demo trading page
+
+
+def request_exit(con, trade_id, frac, user=None, now=None):
+    """A person asks to sell `frac` (0-1) of what is left of an open demo trade. The paper loop sells it at its next
+    price tick (about a minute), so the sale gets the same fee/slippage as the bot's own and nothing races the loop."""
+    frac = max(0.0, min(1.0, float(frac)))
+    row = con.execute("SELECT status FROM trades WHERE id=?", (int(trade_id),)).fetchone()
+    if not row or row[0] != "open" or frac <= 0:
+        return False
+    con.execute("INSERT INTO manual_exits (trade_id, frac, ts, user) VALUES (?,?,?,?)",
+                (int(trade_id), frac, int(now or time.time()), user))
+    return True
+
+
+def pending_exits(con):
+    """{trade_id: [(request id, frac of what is left), ...]} not yet carried out, oldest first."""
+    out = {}
+    for rid, tid, frac in con.execute("SELECT id, trade_id, frac FROM manual_exits WHERE done_ts IS NULL ORDER BY id"):
+        out.setdefault(tid, []).append((rid, frac))
+    return out
+
+
+def exit_done(con, request_id, note, now=None):
+    con.execute("UPDATE manual_exits SET done_ts=?, note=? WHERE id=?", (int(now or time.time()), note, request_id))
+
+
+def is_manual(pos):
+    """True when a person sold part of this trade by hand: its result is then not the bot's rules' result."""
+    return any(f.get("reason") == MANUAL for f in (pos or {}).get("fills") or ())
