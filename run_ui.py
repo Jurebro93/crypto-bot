@@ -21,7 +21,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage  # noqa: E402
+from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage, watch  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 from ui import league, real  # noqa: E402
 from league import store as league_store  # noqa: E402
@@ -50,6 +50,8 @@ def route(path, qs):
         return pages.token(path[len("/token/"):], qs)
     if path == "/events":
         return pages.events(qs)
+    if path == "/watch":
+        return watch.page(qs)
     if path == "/paper":
         return paper.page(qs)
     if path == "/usage":

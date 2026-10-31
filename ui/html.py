@@ -8,7 +8,7 @@ from urllib.parse import quote
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
@@ -59,6 +59,9 @@ INTRO = {
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
                  "Sirovi izlaz za provjeru; sve bitno iz njih je i u bazama i na stranicama."),
+    "/watch": ("Kreću li tokeni prije eventa", "Tokeni vezani uz veće evente prate se od 14 dana prije: satne snimke "
+               "volumena i kupnji, kupci preko Heliusa usporedno s registrom walleta, korelacija s približavanjem eventa.",
+               "Nastavak Eventa: pokazuje skuplja li se volumen i smart money prije eventa, prije nego token uđe u skener."),
     "/kol": ("Tko zove tokene i što se nakon toga dogodi", "KOL-ovi i influenceri s X-a i Telegrama, njihovi pozivi s linkovima, "
              "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Značajka koordiniranog poziva u hype ocjeni "
              "i izvor rotacijskih dev walleta."),

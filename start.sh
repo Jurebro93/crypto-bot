@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -29,6 +29,13 @@ prune_cache
     python3 run_dex.py scan --min-liq 5000 >/dev/null || echo "dex scan nije uspio"
     sleep $(( ${CALENDAR_EVERY_H:-6} * 3600 ))
   done
+) &
+
+# pre-event watch: tokens of events in the next 14 days, DexScreener snapshot every hour, buyers via Helius
+# every 6 h (~10 credits per token, capped by --credits), correlation with the event approaching -> watch.db
+(
+  sleep 900   # first calendar + dex scan must exist
+  python3 run_watch.py run --every-min "${WATCH_EVERY_MIN:-60}" --credits "${WATCH_RUN_CREDITS:-3000}" >/dev/null
 ) &
 
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
