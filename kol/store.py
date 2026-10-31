@@ -62,6 +62,14 @@ CREATE TABLE IF NOT EXISTS token_hours (token TEXT, hour INTEGER, volume REAL, u
     PRIMARY KEY (token, hour));
 CREATE TABLE IF NOT EXISTS sessions (key TEXT PRIMARY KEY, n INTEGER, hits INTEGER, med_max24 REAL, factor REAL,
     updated INTEGER);
+CREATE TABLE IF NOT EXISTS kol_ids (
+    wallet TEXT PRIMARY KEY, name TEXT, twitter TEXT, telegram TEXT, source TEXT, pnl REAL, wins INTEGER,
+    losses INTEGER, rank INTEGER, first_seen INTEGER, updated INTEGER);
+CREATE TABLE IF NOT EXISTS converge (
+    token TEXT PRIMARY KEY, ts INTEGER, first_ts INTEGER, score REAL, n_x INTEGER, n_tg INTEGER, n_chain INTEGER,
+    n_other INTEGER, platforms TEXT, handles TEXT, mcap0 REAL, dev_selling INTEGER, kol_selling INTEGER,
+    updated INTEGER);
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS seen_cache (key TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts INTEGER, n INTEGER DEFAULT 0);
 """
@@ -178,3 +186,36 @@ def hook_key():
         return k
     pw = os.environ.get("UI_PASSWORD")
     return hashlib.sha256(f"kol-hook:{pw}".encode()).hexdigest()[:32] if pw else ""
+
+
+def converge(tokens=None, max_age_min=60, path=None):
+    """token -> {score, first_ts, n_x, n_tg, n_chain, platforms, handles, ...} for fresh multi-source convergences
+    (kol/converge.py). {} if kol.db is missing."""
+    import json
+    import time
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        cur = con.execute("SELECT * FROM converge WHERE ts >= ?", (int(time.time() - max_age_min * 60),))
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur]
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        con.close()
+    want = set(tokens) if tokens is not None else None
+    out = {}
+    for r in rows:
+        if want is None or r["token"] in want:
+            r["platforms"] = json.loads(r["platforms"] or "[]")
+            r["handles"] = json.loads(r["handles"] or "[]")
+            out[r["token"]] = r
+    return out
+
+
+def chain_key():
+    """Key for /hook/chain (Helius webhook of KOL wallets), derived like hook_key."""
+    import hashlib
+    k = hook_key()
+    return hashlib.sha256(f"chain:{k}".encode()).hexdigest()[:32] if k else ""

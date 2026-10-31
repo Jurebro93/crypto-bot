@@ -61,10 +61,11 @@ def follow_once(con, cfg, since, now=None, quiet=False):
             if pid in followed:
                 continue
             tag = "LIVE" if executor.is_live(cfg) else "DRY"
-            if json.loads(pcfg or "{}").get("entry_mode") == "explore":  # demo-only learning trade: never real money
+            # demo-only learning trades (exploration, convergence until it proves itself): never real money
+            if json.loads(pcfg or "{}").get("entry_mode") in ("explore", "konv"):
                 con.execute("INSERT INTO positions (paper_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (pid, token, sym, int(now), tag.lower(), "blocked",
-                                                       "istraživački demo trade, ne kopira se"))
+                                                       "istraživački / konvergencijski demo trade, ne kopira se"))
                 con.commit()
                 continue
             if now - opened > cfg["max_signal_age_s"]:

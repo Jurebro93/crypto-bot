@@ -66,6 +66,12 @@ prune_cache
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
 python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 
+# Telegram call channels: discovery every hour, hot channels read every 30 s via t.me/s (free) -> tg.db,
+# hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
+python3 run_tg.py loop &
+# optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
+if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py telethon & fi
+
 # spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
 python3 run_usage.py loop --every 15 &
 

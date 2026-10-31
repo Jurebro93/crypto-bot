@@ -25,6 +25,8 @@ FEATURE = {
     "kol_x": "Praćeni KOL-ovi objavili token",
     "search_trend": "Rast Google pretrage",
     "kol_group": "Grupni poziv KOL-ova",
+    "konvergencija": "Više izvora zove isto (X + Telegram + novčanici)",
+    "pump_live": "Uživo stream na pump.fun",
     "put_brzina": "Brzina rasta do sadašnjeg mcapa",
     "put_skokovitost": "Rast u jednom skoku",
     "put_zadrzavanje": "Drži se blizu vrha",
@@ -80,6 +82,8 @@ FEATURE_DESC = {
     "x_trend": "ime ili simbol je trenutno trending tema na X-u",
     "kol_x": "praćeni KOL-ovi su objavili adresu ili $ticker u zadnjih 6 h",
     "kol_group": "više dobrih KOL-ova zove isti token u 30 min; 0 ako devovi prodaju u poziv",
+    "konvergencija": "dobri KOL-ovi na X-u, dobri Telegram kanali i KOL novčanici koji kupuju, sve na istom tokenu u 30 min (100 = jako; manje ako KOL već prodaje ili izgleda kao plaćena promocija)",
+    "pump_live": "token se upravo streama uživo na pump.fun (više gledatelja = više)",
     "search_trend": "Google pretraga imena u zadnja 24 h prema prethodnih 6 dana (3x = puno)",
     "krivulja_starost": "koliko je dugo token na pump.fun krivulji (6 h = puno)",
     "krivulja_bez_mayhema": "token nije pokrenut u mayhem načinu (u studiji lošiji)",
@@ -147,7 +151,7 @@ def kind(k):
 SOURCE = {
     "profile": "novi DexScreener profil", "profile_update": "ažuriran DexScreener profil", "boost": "DexScreener boost",
     "top_boost": "top boost", "takeover": "preuzimanje zajednice", "pumpfun:trending": "pump.fun trending",
-    "pumpfun:graduating": "pump.fun pred graduacijom", "pumpfun:kol": "pump.fun KOL", "telegram": "Telegram kanal",
+    "pumpfun:graduating": "pump.fun pred graduacijom", "pumpfun:kol": "pump.fun KOL", "telegram": "Telegram kanal", "konv": "konvergencija izvora", "pumpfun:live": "pump.fun uživo",
     "kol": "KOL na X-u", "calendar": "kalendar", "event": "event iz kalendara", "hype": "hype skener",
 }
 
@@ -243,6 +247,8 @@ CFG = {
     "kol_trail_add": ("Nakon KOL poziva trailing stop širi za", "%"),
     "ticks_keep_days": ("Povijest cijena čuvamo", "d"),
     "explore": ("Istraživački ulazi (manji ulog, brže učenje)", ""),
+    "konv": ("Ulaz na konvergenciju izvora (X + Telegram + KOL novčanici)", ""),
+    "arms": ("Krakovi: više ulaza za kombinacije izvora koje pobjeđuju", ""),
 }
 
 
@@ -258,6 +264,13 @@ def cfg_value(k, v):
     if k == "explore" and isinstance(v, dict):
         return (f"uključeno: gornjih {v.get('top_pct', 30):g}% ocjena, ulog ${v.get('size_usd', 0):g}"
                 if v.get("enabled", True) else "isključeno")
+    if k == "konv" and isinstance(v, dict):
+        tp = (v.get("tp") or [[0, 0]])[0]
+        return (f"uključeno: skor ≥ {v.get('min_score', 0):g}, prvi poziv mlađi od {v.get('max_age_min', 0):g} min, "
+                f"prodaj {tp[1] * 100:.0f}% na +{tp[0] * 100:.0f}%, van nakon {v.get('stale_min', 0):g} min bez "
+                f"+{v.get('stale_ret', 0) * 100:.0f}%" if v.get("enabled", True) else "isključeno")
+    if k == "arms" and isinstance(v, dict):
+        return f"krak s {v.get('min_n', 6):g}+ tradeova koji gubi dobiva manje ulaza, nikad manje od {v.get('keep_frac', 0.1) * 100:.0f}%"
     if k == "dca" and isinstance(v, dict):
         return "uključeno" if v.get("enabled") else "isključeno"
     if isinstance(v, (int, float)):

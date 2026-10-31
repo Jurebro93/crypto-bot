@@ -347,7 +347,7 @@ def _learning_box(trades, cfg):
         groups.setdefault(mode, []).append(t)
     rows = []
     for mode, label in (("core", "Glavni (score ≥ " + str(cfg.get("min_score")) + ")"),
-                        ("explore", "Istraživački (manji ulog)")):
+                        ("explore", "Istraživački (manji ulog)"), ("konv", "Konvergencija izvora")):
         g = groups.get(mode) or []
         closed = [t for t in g if t["status"] == "closed"]
         n = len(closed)
@@ -364,8 +364,35 @@ def _learning_box(trades, cfg):
         f"i {ex.get('max_per_day', '?')} dnevno. Ne troše nove Helius kredite na rug provjeru (koriste samo postojeći izvještaj) i nikad se ne kopiraju u pravi trading. Svaki ishod, i dobitak i gubitak, "
         "ide u učenje: težine ocjene uče se iz svih skeniranih tokena, izlazi iz putanja svih praćenih tokena, a dnevni "
         "pregled uspoređuje obje skupine.") if ex.get("enabled") else "<h2>Učenje</h2>")
-    return intro + table(["Vrsta ulaza", ("Ukupno", "n"), ("Zatvoreno", "n"), ("Dobitnih", "n"), ("Prosjek", "n"),
-                          ("PnL", "n")], rows)
+    kc = (cfg or {}).get("konv") or {}
+    if kc.get("enabled"):
+        intro += tdesc(f"<b>Konvergencija</b>: kad u {kc.get('max_age_min')} min isti token zovu dobri KOL-ovi na X-u, dobri "
+                       f"Telegram kanali i/ili ga kupuju KOL novčanici (skor konvergencije ≥ {kc.get('min_score')}), bot "
+                       f"ulazi malim ulogom prije gomile. Prodaje {kc.get('tp', [[0, 0]])[0][1]:.0%} na "
+                       f"+{kc.get('tp', [[0, 0]])[0][0]:.0%}, izlazi nakon {kc.get('stale_min')} min ako nema "
+                       f"+{kc.get('stale_ret', 0):.0%}, i odmah ako KOL novčanik koji je kupio počne prodavati. "
+                       "Samo demo dok ne pokaže dobit.")
+    out = intro + table(["Vrsta ulaza", ("Ukupno", "n"), ("Zatvoreno", "n"), ("Dobitnih", "n"), ("Prosjek", "n"),
+                         ("PnL", "n")], rows)
+    try:
+        import sqlite3
+        from paper import arms
+        con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=10)
+        arm_rows, reasons = arms.report(con)
+        con.close()
+    except Exception:
+        arm_rows, reasons = [], {}
+    if arm_rows:
+        out += ("<h3>Krakovi: koja kombinacija izvora radi</h3>" + tdesc(
+            "Krak = izvori koji su pokrenuli istraživački ili konvergencijski ulaz (x = KOL-ovi na X-u, tg = Telegram, "
+            "chain = KOL novčanici, pump = pump.fun, dex = DexScreener) i sesija. Krakovi koji gube dobivaju sve "
+            "manje ulaza, ali nikad nula.") + table(["Krak", ("Tradeova", "n"), ("Dobitnih", "n"), ("Prosjek", "n"),
+                                                     ("PnL", "n")],
+            [[esc(a), num(n), num(w), (f"{avg:+.0%}", avg, "n"), (f"{p:+.2f} $", p, "n")] for a, n, w, avg, p in arm_rows]))
+    if reasons:
+        out += "<h3>Zašto gubimo</h3>" + table(["Razlog", ("Tradeova", "n")],
+                                              [[esc(k), num(v)] for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])])
+    return out
 
 
 def page(qs):

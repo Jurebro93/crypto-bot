@@ -1,8 +1,8 @@
 {
- "_comment": "Dnevni budžeti po izvoru u USD. Zbroj najviše ~2.6 $/dan (kol_monitor = 10 KOL-ova uživo, $0.0045 po računu na sat; kol_search + kol_timeline = otkrivanje KOL-ova, run_kol.py). Limit računa je 60 $/mj. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20. kol_backfill: jednokratno povijesno punjenje KOL baze (run_kol.py backfill --budget), na serveru 0.",
+ "_comment": "Dnevni budžeti po izvoru u USD. Zbroj najviše ~2.6 $/dan (kol_monitor = 10 KOL-ova uživo, $0.0045 po računu na sat; kol_search + kol_timeline = otkrivanje KOL-ova, run_kol.py). Limit računa je 60 $/mj. monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20. kol_backfill: jednokratno povijesno punjenje KOL baze (run_kol.py backfill --budget), na serveru 0. fomo: FOMO top traderi jednom tjedno (~$0.23 po runu), novčanici idu u Helius webhook. pumpfun boardovi live (tokeni koji se upravo streamaju) i kol (tokeni koje su trgovali poznati KOL novčanici) od 31.10.",
  "monthly_reserve_usd": 3,
  "daily_usd": {
-  "pumpfun": 0.4,
+  "pumpfun": 0.8,
   "x_buzz": 0.3,
   "x_trends": 0.15,
   "google_trends": 0.08,
@@ -10,12 +10,15 @@
   "kol_monitor": 1.1,
   "kol_search": 0.12,
   "kol_timeline": 0.4,
-  "kol_backfill": 0.0
+  "kol_backfill": 0.0,
+  "fomo": 0.1
  },
  "pumpfun": {
   "boards": [
    "trending",
-   "graduating"
+   "graduating",
+   "live",
+   "kol"
   ],
   "max_items": 15,
   "every_min": 90,
@@ -58,7 +61,8 @@
   "kol_monitor": 0.0045,
   "kol_search": 0.0004,
   "kol_timeline": 0.0004,
-  "kol_backfill": 0.0004
+  "kol_backfill": 0.0004,
+  "fomo": 0.0015
  },
  "run_options": {
   "google_trends": {
