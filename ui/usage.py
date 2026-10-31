@@ -11,6 +11,48 @@ from usage import meter, watch
 _cache = {"ts": 0, "alerts": []}
 
 
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _size(path):
+    """Bytes in a file or (recursively) a directory."""
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+    total = 0
+    for root, _, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
+def disk_html():
+    """Free space on the persistent disk and what takes it: a full disk stops every database write."""
+    import shutil
+    from event_calendar import http
+    data_dir = os.environ.get("DATA_DIR") or HERE
+    try:
+        du = shutil.disk_usage(data_dir)
+    except OSError:
+        return ""
+    free_pct = du.free / du.total if du.total else 0
+    level = "ok" if free_pct > 0.2 else "warn" if free_pct > 0.08 else "crit"
+    parts = [("HTTP cache", http.CACHE_DIR)] + [(f, os.path.realpath(os.path.join(HERE, f)))
+                                                 for f in sorted(os.listdir(HERE)) if f.endswith(".db")] \
+        + [("output/", os.path.realpath(os.path.join(HERE, "output")))]
+    rows = sorted(((n, _size(p)) for n, p in parts if os.path.exists(p)), key=lambda x: -x[1])
+    return ("<h2>Disk</h2>" + tdesc(f"Trajni disk ({esc(data_dir)}): baze, cache i izvještaji. Pun disk ruši svako "
+                                    f"spremanje. Cache se sam čisti na {http.CACHE_MAX_MB:.0f} MB i briše sve starije od "
+                                    f"{http.CACHE_MAX_AGE // 86400} dana.")
+            + f'<div class=card>{badge({"ok": "OK", "warn": "malo mjesta", "crit": "skoro pun"}[level],
+                    {"ok": "good", "warn": "warn", "crit": "bad"}[level])} '
+              f'{bar(1 - free_pct, 1, 160)} zauzeto <b>{du.used / 1e9:.2f} GB</b> od {du.total / 1e9:.2f} GB, '
+              f'slobodno <b>{du.free / 1e6:,.0f} MB</b> ({free_pct:.0%})</div>'
+            + table(["Što", ("MB", "n")], [[esc(n), num(b / 1e6, "{:,.1f}")] for n, b in rows]))
+
+
 def _con():
     if not os.path.exists(meter.DB):
         return None
@@ -95,6 +137,7 @@ def page(qs):
     head = ("<h1>Potrošnja kredita</h1>"
             "<p class=mut>Helius krediti i Apify dolari: koliko je potrošeno ovaj ciklus, kojim tempom, tko troši, "
             "i upozorenja kad nešto curi ili raste prebrzo. Brojke s računa osvježavaju se svakih 15 min.</p>")
+    head += disk_html()
     if con is None:
         return "Potrošnja", head + '<div class=empty>Još nema usage.db: bot još nije napravio nijedan plaćeni poziv.</div>'
     try:

@@ -2,6 +2,7 @@
 live by market cap. Separate from the demo league; stored in league.db table real_trades.
 """
 import re
+import sqlite3
 from urllib.parse import quote
 
 from league import store
@@ -143,7 +144,7 @@ def post(path, form, user):
         else:
             return back
         return f"{back}?ok={quote(msg)}"
-    except (ValueError, KeyError, TypeError) as e:
+    except (ValueError, KeyError, TypeError, sqlite3.OperationalError) as e:
         return f"{back}?err={quote(str(e))}"
     finally:
         con.close()

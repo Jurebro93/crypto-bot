@@ -3,6 +3,7 @@ import base64
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -91,6 +92,39 @@ class RealTrades(unittest.TestCase):
         self.assertAlmostEqual(store.real_trades(con, "Jure")[0]["pnl_usd"], -11)
         self.real.post("/moji-tradeovi/delete", {"id": str(tid)}, "Jure")
         self.assertEqual(store.real_trades(con), [])
+
+
+class DiskFull(unittest.TestCase):
+    def test_cache_prune(self):
+        from event_calendar import http
+        saved = http.CACHE_DIR
+        http.CACHE_DIR = tempfile.mkdtemp()
+        try:
+            for i in range(5):
+                p = os.path.join(http.CACHE_DIR, f"{i}.json")
+                with open(p, "w") as f:
+                    f.write("x" * 400_000)
+                os.utime(p, (1000 + i, 1000 + i))   # 0 is the oldest
+            fresh = os.path.join(http.CACHE_DIR, "new.json")
+            with open(fresh, "w") as f:
+                f.write("x" * 400_000)
+            self.assertEqual(http.prune(max_mb=1.3, max_age=10**12)[0], 3)   # oldest first until under 1.3 MB
+            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["3.json", "4.json", "new.json"])
+            self.assertTrue(os.path.exists(fresh))
+            self.assertEqual(http.prune(max_mb=100, max_age=3600)[0], 2)   # older than an hour
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            rpc = os.path.join(http.CACHE_DIR, "rpc-abc.json")
+            with open(rpc, "w") as f:
+                f.write("{}")
+            os.utime(rpc, (time.time() - 7200,) * 2)               # Helius RPC cache is dead after its 10 min TTL
+            self.assertEqual(http.prune()[0], 1)
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+        finally:
+            http.CACHE_DIR = saved
+
+    def test_usage_page_shows_disk(self):
+        from ui import usage
+        self.assertIn("Disk", usage.page({})[1])
 
 
 class Login(unittest.TestCase):
