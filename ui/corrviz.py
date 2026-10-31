@@ -5,6 +5,7 @@ import math
 from urllib.parse import quote
 
 from ui.html import badge, esc, tlink, wlink
+from ui.labels import wallet_label
 
 CSS = """<style>
 .cz-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
@@ -250,7 +251,7 @@ def group_cards(groups, ai_groups):
             say += f' Kupuju prije poziva računa {", ".join(_acct(h) for h in g["handles"][:3])}: moguća insider ekipa.'
         if g.get("realized_sol"):
             say += f' Zajednička zarada {g["realized_sol"]:+.1f} SOL.'
-        labs = " ".join(badge(f"{k} {v}", "bad" if k in ("rugger", "insider", "dev", "bundler") else "")
+        labs = " ".join(badge(f"{wallet_label(k)} {v}", "bad" if k in ("rugger", "insider", "dev", "bundler") else "")
                         for k, v in g["labels"].items())
         kind = "good" if g["score"] >= 70 else "warn" if g["score"] >= 50 else ""
         sb = badge(f"organiziranost {g['score']}", kind)

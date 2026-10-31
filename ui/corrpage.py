@@ -4,6 +4,7 @@ Read-only from corr.db (written by run_corr.py every hour)."""
 from urllib.parse import quote
 
 from corr import store
+from ui.labels import wallet_label
 from ui.html import ago, badge, esc, num, table, tdesc, tlink, wlink
 
 CONF = {"visoko": "good", "srednje": "warn", "nisko": ""}
@@ -127,7 +128,7 @@ def page(qs):
     rows = [[wlink(x["wallet"]), (_acct(x["handle"]), x["handle"]), num(x["tokens"]), num(x["of_calls"]),
              num(x["strength"], "{:.2f}"), num(x["sold_into"]), num(x["lead_min"], "{:.0f} min"),
              num(x["sol_in"], "{:.1f}"), num(x["sol_out"], "{:.1f}"),
-             " ".join(badge(lb, "bad" if lb in ("insider", "rugger", "dev") else "") for lb in x.get("labels") or [])]
+             " ".join(badge(wallet_label(lb), "bad" if lb in ("insider", "rugger", "dev") else "") for lb in x.get("labels") or [])]
             for x in snap["links"]]
     body.append(table(["Wallet", "Račun", "Kupio prije", "Poziva računa", "Jačina veze", "Prodao u poziv",
                        "Koliko prije", "SOL uloženo", "SOL izvučeno", "Oznake"], rows, "c_links",
@@ -145,7 +146,7 @@ def page(qs):
                      _scorecell(g["score"]), num(g["size"]), num(g["shared_tokens"]), num(g["created"]),
                      ", ".join(f"{esc(k)} {v}" for k, v in g["reasons"].items()),
                      ", ".join(_acct(h) for h in g["handles"][:4]) or "–",
-                     " ".join(badge(f"{k} {v}") for k, v in g["labels"].items()) or "–",
+                     " ".join(badge(f"{wallet_label(k)} {v}") for k, v in g["labels"].items()) or "–",
                      num(g["realized_sol"], "{:+.1f}"), ago(g["last_ts"]),
                      " ".join(wlink(w) for w in g["wallets"][:3])])
     body.append(table(["Grupa walleta", "Organiziranost", "Walleta u grupi", "Tokeni više walleta", "Kreirali tokena", "Veze",

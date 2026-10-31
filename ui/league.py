@@ -12,7 +12,7 @@ from urllib.parse import quote
 from league import store
 from ui import confidence, data
 from rugfilter import collapse
-from ui.html import ago, badge, esc, klasab, num, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
+from ui.html import price as pricecell, ago, badge, esc, klasab, num, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
 from ui.paper import _live, _mc, market
 
 SUGGEST_H = 48
@@ -160,7 +160,7 @@ def page(qs, user):
             dca_hint = rug_hint + ((" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
                                     f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else "")
             rows.append([tlink(t["token"], t["symbol"]) + dca_hint + _auto_cell(t), ago(t["opened_ts"]), usd(t["size_usd"]),
-                         num(t["entry_px"], "{:.4g}"), num(price, "{:.4g}"), usd(t["entry_mcap"]), usd(mc_now),
+                         pricecell(t["entry_px"]), pricecell(price), usd(t["entry_mcap"]), usd(mc_now),
                          signed(price / t["entry_px"] - 1 if price else None, "{:+.0%}"), signed(pnl),
                          usd(liq), sell_btn])
         b.append(f'<h2>Tvoj račun: {esc(user)}</h2><div class=grid>'
