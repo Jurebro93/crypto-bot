@@ -119,8 +119,8 @@ def _card(r):
     bad = [lab for lab, v, _ in r["checks"] if v is False]
     from hype import pulse
     snaga = pulse.describe(r["features"])
-    return (f'<button class="cand stat" data-mint="{esc(r["token"])}" type=button>'
-            f'<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:17px">{esc(r["symbol"] or short(r["token"]))}</b>'
+    return (f'<div class="cand stat" data-mint="{esc(r["token"])}" role=button tabindex=0>'
+            f'<div style="display:flex;justify-content:space-between;gap:8px"><span><b style="font-size:17px">{tlink(r["token"], r["symbol"])}</b></span>'
             f'<span title="Šansa za skok"><b style="font-size:17px">{r["sansa"]}</b> <span class=mut style="font-size:12px">šansa · conf {r["conf"]}</span></span></div>'
             f'<div style="margin:4px 0">{sansa.dots_html(r["checks"])} <span class=mut style="font-size:12px">{r["analysed"]}/{sansa.N} slojeva</span>'
             f' {razinab(r["razina"])} {klasab(r["klasa"])}'
@@ -129,7 +129,7 @@ def _card(r):
             + (f'<div style="font-size:12px;margin-top:6px;color:var(--good)">{esc(snaga)}</div>' if snaga else "")
             + (f'<div class=mut style="font-size:12px;margin-top:6px">{esc(why[0])}</div>' if why else
                f'<div class=mut style="font-size:12px;margin-top:6px">{esc(r["conf_parts"][0][1])}</div>' if r["conf_parts"] else "")
-            + "<div style='font-size:12px;margin-top:6px;color:var(--acc)'>Klikni za analizu i dokaze →</div></button>")
+            + "<div style='font-size:12px;margin-top:6px;color:var(--acc)'>Klikni za analizu i dokaze →</div></div>")
 
 
 def sieve_html(hours=24):
