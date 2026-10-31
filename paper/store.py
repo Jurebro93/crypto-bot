@@ -81,6 +81,14 @@ def path(con, token, since, until=None):
                        (token, since, until or time.time() + 1)).fetchall()
 
 
+def prune_ticks(con, keep_days, now=None):
+    """Price ticks older than keep_days go (the 1 GB disk); open trades keep all of theirs. Returns rows deleted."""
+    cut = int((now or time.time()) - keep_days * 86400)
+    cur = con.execute("DELETE FROM ticks WHERE ts<? AND token NOT IN (SELECT token FROM trades WHERE status='open')",
+                      (cut,))
+    return cur.rowcount
+
+
 def rug_budget_take(con, day, limit):
     used = (con.execute("SELECT used FROM rug_budget WHERE day=?", (day,)).fetchone() or [0])[0]
     if used >= limit:

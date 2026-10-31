@@ -53,14 +53,20 @@ def follow_once(con, cfg, since, now=None, quiet=False):
     if p is None:
         return
     try:
-        trades = p.execute("SELECT id, token, symbol, opened_ts, state FROM trades WHERE opened_ts>=?",
+        trades = p.execute("SELECT id, token, symbol, opened_ts, state, config FROM trades WHERE opened_ts>=?",
                            (since,)).fetchall()
         followed = {pid: (i, st, fd) for i, pid, st, fd in
                     con.execute("SELECT id, paper_id, status, fills_done FROM positions WHERE paper_id IS NOT NULL")}
-        for pid, token, sym, opened, state in trades:
+        for pid, token, sym, opened, state, pcfg in trades:
             if pid in followed:
                 continue
             tag = "LIVE" if executor.is_live(cfg) else "DRY"
+            if json.loads(pcfg or "{}").get("entry_mode") == "explore":  # demo-only learning trade: never real money
+                con.execute("INSERT INTO positions (paper_id, token, symbol, opened_ts, mode, status, reason) "
+                            "VALUES (?,?,?,?,?,?,?)", (pid, token, sym, int(now), tag.lower(), "blocked",
+                                                       "istraživački demo trade, ne kopira se"))
+                con.commit()
+                continue
             if now - opened > cfg["max_signal_age_s"]:
                 con.execute("INSERT INTO positions (paper_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (pid, token, sym, int(now), tag.lower(), "blocked",
