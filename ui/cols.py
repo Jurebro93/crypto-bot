@@ -36,15 +36,17 @@ table.cards tr{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;paddin
 table.cards td.stk,table.cards td.wrap,table.cards td[colspan]{grid-column:1/-1}table.cards td:empty{display:none}
 table.cards td{display:block;border:0;padding:3px 0;white-space:normal;text-align:right;min-width:0;max-width:none;font-size:14px;overflow-wrap:anywhere}
 table.cards td::after{content:'';display:block;clear:both}
-table.cards td::before{content:attr(data-l);float:left;color:var(--mut);font-size:12px;text-align:left;max-width:45%;padding-right:10px;line-height:20px}
+table.cards td::before{content:attr(data-l);float:left;color:var(--mut);font-size:12px;text-align:left;max-width:48%;padding-right:10px;line-height:20px;overflow-wrap:normal;white-space:nowrap}
 table.cards td.wrap{display:block;text-align:left}table.cards td.wrap::before{float:none;display:block;max-width:none}
 table.cards td.stk{position:static;box-shadow:none;font-weight:600;font-size:15px;text-align:left;padding-bottom:4px}
-table.cards td.stk::before{display:none}table.cards td.ch{display:none}
+table.cards td.stk::before{display:none}table.cards td.stk{max-width:none;min-width:0}table.cards td.stk .mut{font-weight:400;font-size:12px;display:inline-block}table.cards td.ch{display:none}
 table.cards tr:hover td{background:none}.tw:has(table.cards){max-height:none;overflow:visible}
 @media(max-width:700px){header{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}header b{margin-right:8px;white-space:nowrap}
 header a{padding:10px 8px;white-space:nowrap}nav.sub{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}nav.sub a{white-space:nowrap}
 main{padding:10px}h1{font-size:18px}.intro{font-size:13px;padding:8px 10px}.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
-.stat .v{font-size:18px}.flt input[data-f]{width:100%}.colpan{width:min(300px,calc(100vw - 20px))}dialog#ev .body{padding:0 10px 12px}}
+.stat .v{font-size:18px}.tw th,.tw td{padding:4px 6px}
+.tw table:not(.cards) .stk{max-width:34vw;min-width:90px;white-space:normal;overflow-wrap:break-word}.tw .stk *{white-space:normal}.tw .stk .mut{font-size:11px}
+.tw td.wrap{min-width:150px;max-width:62vw}.flt input[data-f]{width:100%}.colpan{width:min(300px,calc(100vw - 20px))}dialog#ev .body{padding:0 10px 12px}}
 """
 
 JS = r"""
