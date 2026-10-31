@@ -10,13 +10,15 @@ NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/natjecanje", "Natjecanje"), ("/prijedlozi", "Prijedlozi")]),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+                                ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),
 ]
 # pages that live under a group but are not in its row (detail pages)
 NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
-              "/prijedlozi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni", "/prijava": "Trading"}
+              "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni",
+              "/prijava": "Trading"}
 
 
 def nav_group(path):
