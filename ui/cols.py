@@ -4,6 +4,9 @@ Each table with a header gets a small "⚙ Stupci" button: show/hide columns and
 The choice is stored in the browser (localStorage) per page + table, keyed by column label, so it survives reloads
 and new columns simply appear. Tables whose rows are re-rendered by JS (e.g. live demo positions) are re-applied
 automatically through a MutationObserver. Nothing is stored on the server.
+
+On phones (< 700 px, or by choice < 900 px) every table switches to cards: one card per row, first visible column
+as the title, the other visible columns as label/value pairs, with a "Sortiraj" select instead of the header.
 """
 
 CSS = """
@@ -26,6 +29,24 @@ tr:hover td{background:color-mix(in srgb,var(--acc) 5%,var(--card))}
 .colpan li:hover{background:color-mix(in srgb,var(--acc) 7%,var(--card))}.colpan li.drag{opacity:.4}
 .colpan li label{flex:1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .colpan li button{padding:0 6px}.colpan ul{margin:0;padding:0}
+.colbar select{font:12px system-ui,sans-serif;padding:2px 4px}
+.colbar .cv{display:none}@media(max-width:900px){.colbar .cv{display:inline-block}}
+table.cards,table.cards tbody{display:block;width:100%}table.cards thead{display:none}
+table.cards tr{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;padding:8px 12px;border-bottom:1px solid var(--line)}
+table.cards td.stk,table.cards td.wrap,table.cards td[colspan]{grid-column:1/-1}table.cards td:empty{display:none}
+table.cards td{display:block;border:0;padding:3px 0;white-space:normal;text-align:right;min-width:0;max-width:none;font-size:14px;overflow-wrap:anywhere}
+table.cards td::after{content:'';display:block;clear:both}
+table.cards td::before{content:attr(data-l);float:left;color:var(--mut);font-size:12px;text-align:left;max-width:48%;padding-right:10px;line-height:20px;overflow-wrap:normal;white-space:nowrap}
+table.cards td.wrap{display:block;text-align:left}table.cards td.wrap::before{float:none;display:block;max-width:none}
+table.cards td.stk{position:static;box-shadow:none;font-weight:600;font-size:15px;text-align:left;padding-bottom:4px}
+table.cards td.stk::before{display:none}table.cards td.stk{max-width:none;min-width:0}table.cards td.stk .mut{font-weight:400;font-size:12px;display:inline-block}table.cards td.ch{display:none}
+table.cards tr:hover td{background:none}.tw:has(table.cards){max-height:none;overflow:visible}
+@media(max-width:700px){header{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}header b{margin-right:8px;white-space:nowrap}
+header a{padding:10px 8px;white-space:nowrap}nav.sub{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}nav.sub a{white-space:nowrap}
+main{padding:10px}h1{font-size:18px}.intro{font-size:13px;padding:8px 10px}.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.stat .v{font-size:18px}.tw th,.tw td{padding:4px 6px}
+.tw table:not(.cards) .stk{max-width:34vw;min-width:90px;white-space:normal;overflow-wrap:break-word}.tw .stk *{white-space:normal}.tw .stk .mut{font-size:11px}
+.tw td.wrap{min-width:150px;max-width:62vw}.flt input[data-f]{width:100%}.colpan{width:min(300px,calc(100vw - 20px))}dialog#ev .body{padding:0 10px 12px}}
 """
 
 JS = r"""
@@ -35,6 +56,7 @@ const lab=th=>{const c=th.cloneNode(true);c.querySelectorAll('.tip').forEach(x=>
 const load=k=>{try{return JSON.parse(localStorage.getItem(P+k))||{}}catch(e){return {}}};
 const save=(k,s)=>{try{(s.order||s.hide&&s.hide.length)?localStorage.setItem(P+k,JSON.stringify(s)):localStorage.removeItem(P+k)}catch(e){}};
 const tables=[];let n=0;
+const cardsOn=()=>{if(innerWidth>=900)return false;const v=localStorage.getItem('cols:view');return v?v==='cards':innerWidth<700};
 function init(t){
  if(t._cols)return;const hr=t.tHead&&t.tHead.rows[t.tHead.rows.length-1];
  if(!hr||hr.cells.length<3||t.tHead.rows.length>1||[...hr.cells].some(c=>c.colSpan>1))return;
@@ -42,10 +64,16 @@ function init(t){
  t._cols={k:t.id||('t'+(n++)),labels,v:0};tables.push(t);
  [...hr.cells].forEach((c,i)=>c.dataset.c=i);
  const w=t.closest('.tw')||t,bar=document.createElement('div');bar.className='colbar';
- bar.innerHTML='<span class=hid></span><button type=button title="Odaberi koje stupce vidiš i njihov redoslijed">⚙ Stupci</button>';
+ bar.innerHTML='<span class=hid></span><select class=srt title="Sortiraj" hidden></select><button type=button class=cv></button><button type=button title="Odaberi koje stupce vidiš i njihov redoslijed">⚙ Stupci</button>';
  w.parentNode.insertBefore(bar,w);t._cols.bar=bar;
- bar.querySelector('button').onclick=e=>{e.stopPropagation();panel(t)};
+ bar.querySelector('button:last-child').onclick=e=>{e.stopPropagation();panel(t)};
+ bar.querySelector('.cv').onclick=()=>{localStorage.setItem('cols:view',cardsOn()?'table':'cards');tables.forEach(view)};
+ const sel=bar.querySelector('.srt');sel.innerHTML='<option value="">Sortiraj…</option>'+labels.map((l,i)=>'<option value='+i+'>'+l.replace(/</g,'&lt;')+'</option>').join('');
+ sel.onchange=()=>{const th=hr.querySelector('th[data-c="'+sel.value+'"]');if(th&&th.onclick)th.click();sel.value=''};
+ view(t);
  apply(t,true)}
+function view(t){const on=cardsOn(),b=t._cols.bar;t.classList.toggle('cards',on);
+ b.querySelector('.cv').textContent=on?'☰ Tablica':'▦ Kartice';b.querySelector('.srt').hidden=!(on&&t.classList.contains('s'))}
 function state(t){const C=t._cols,s=load(C.k),idx=Object.fromEntries(C.labels.map((l,i)=>[l,i]));
  let ord=(s.order||[]).filter(l=>l in idx);C.labels.forEach((l,i)=>{if(!ord.includes(l)){
   // new column: put it after its left neighbour in the default order
@@ -56,7 +84,7 @@ function fixRow(r,C,pos,hid,ncol){
  const cells=[...r.cells];if(cells.length!==ncol||cells.some(c=>c.colSpan>1))return;
  if(!r._c){cells.forEach((c,i)=>c.dataset.c=i);r._c=1}
  const by=[];cells.forEach(c=>by[+c.dataset.c]=c);
- let first=true;pos.forEach(i=>{const c=by[i];r.appendChild(c);const h=hid.has(i);c.classList.toggle('ch',h);
+ let first=true;pos.forEach(i=>{const c=by[i];r.appendChild(c);c.dataset.l=C.labels[i];const h=hid.has(i);c.classList.toggle('ch',h);
   c.classList.toggle('stk',!h&&first);if(!h)first=false});r._v=C.v}
 function apply(t,full){const C=t._cols;if(full){C.v++;C.st=state(t)}const {pos,hide}=C.st;
  const hid=new Set([...hide].map(l=>C.labels.indexOf(l))),ncol=C.labels.length;
