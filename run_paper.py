@@ -123,8 +123,9 @@ def market(tokens):
     return best
 
 
-def rug_verdict(con, mint, cfg, now):
-    """(verdict, score, flags): a rug report from the last 6 h, else a fresh check while the Helius budget lasts."""
+def rug_verdict(con, mint, cfg, now, paid=True):
+    """(verdict, score, flags): a rug report from the last 6 h, else a fresh check while the Helius budget lasts.
+    paid=False (exploration entries): only an existing report, no new Helius credits."""
     cal = _ro(RUG_DB)
     if cal is not None:
         try:
@@ -136,7 +137,7 @@ def rug_verdict(con, mint, cfg, now):
         if row:
             d = json.loads(row[2] or "{}")
             return row[0], row[1], d.get("hard_fails", []) + d.get("flags", [])
-    if not (cfg["rug_check"] and os.environ.get("HELIUS_API_KEY")):
+    if not (paid and cfg["rug_check"] and os.environ.get("HELIUS_API_KEY")):
         return None, None, []
     if not store.rug_budget_take(con, _today(now), cfg["rug_budget_per_day"]):
         return "BUDŽET", None, []
@@ -192,8 +193,34 @@ def kol_calls(tokens, since):
 
 
 def _n_open(con):
-    """Open trades that take a slot; a moonbag (stake already back, small rest riding) does not."""
-    return sum(1 for _, _, _, pos in store.open_trades(con) if not pos.get("bag"))
+    """Open trades that take a core slot; a moonbag (stake already back, small rest riding) and exploration
+    trades (own cap, explore.max_open) do not."""
+    n = 0
+    for state, cfg in con.execute("SELECT state, config FROM trades WHERE status='open'"):
+        if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") != "explore":
+            n += 1
+    return n
+
+
+def explore_need(con, cfg, now):
+    """Score an exploration entry needs: the top `top_pct`% of the last 24 h's candidates, never below min_score.
+    Relative, so the bot keeps trading (and learning) even when the scores of a whole day are low."""
+    ex = cfg.get("explore") or {}
+    if not ex.get("enabled"):
+        return None
+    scores = sorted(s for (s,) in con.execute("SELECT score FROM candidates WHERE first_ts>=? AND origin='hype' "
+                                              "AND score IS NOT NULL", (now - 86400,)))
+    if len(scores) < 20:
+        return max(ex["min_score"], cfg["min_score"] * 0.6)
+    pct = scores[min(len(scores) - 1, int(len(scores) * (1 - ex["top_pct"] / 100)))]
+    return max(ex["min_score"], pct)
+
+
+def _n_explore(con, since=None):
+    q = "SELECT COUNT(*) FROM trades WHERE config LIKE '%\"entry_mode\": \"explore\"%'"
+    if since is None:
+        return con.execute(q + " AND status='open'").fetchone()[0]
+    return con.execute(q + " AND opened_ts>=?", (since,)).fetchone()[0]
 
 
 def intake(cfg, now=None, quiet=False):
@@ -214,6 +241,9 @@ def intake(cfg, now=None, quiet=False):
     ex_state = exits_profiles.load()
     day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
     n_today = con.execute("SELECT COUNT(*) FROM trades WHERE opened_ts>=?", (day0,)).fetchone()[0]
+    ex = cfg.get("explore") or {}
+    ex_need = explore_need(con, cfg, now)
+    ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
     opened = []
     for t, c in sorted(cands.items(), key=lambda kv: -(kv[1]["score"] or 0)):
         if t not in mk:
@@ -221,9 +251,16 @@ def intake(cfg, now=None, quiet=False):
         price, liq, mcap, url = mk[t]
         c.update(price=price, liquidity=liq, mcap=mcap, url=c.get("url") or url, ts=now)
         s, need = c["score"] or 0, c.get("min_score", cfg["min_score"])
-        if s < cfg["shadow_min_score"] and c["origin"] == "hype":
+        # exploration: below the bar but in today's top scores -> small demo trade, so the bot learns faster
+        explore = (ex_need is not None and c["origin"] == "hype" and ex_need <= s < need
+                   and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
+        if explore and (ex_open >= ex["max_open"] or ex_today >= ex["max_per_day"]):
+            explore = False
+        if explore:
+            need = s
+        if s < cfg["shadow_min_score"] and c["origin"] == "hype" and not explore:
             c["decision"], c["reason"] = "ignored", f"score {s:.0f}"
-        elif price <= 0 or liq < cfg["min_liq"]:
+        elif price <= 0 or (liq < cfg["min_liq"] and not explore):
             c["decision"], c["reason"] = "skip_liq", f"likvidnost {_usd(liq)}"
         elif mcap > cfg["max_mcap"]:
             c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
@@ -231,20 +268,27 @@ def intake(cfg, now=None, quiet=False):
             c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}"
             if s >= cfg.get("rug_shadow_min_score", 101):  # verdicts on skips too, so the review can judge the filter
                 c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
-        elif n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]:
+        elif not explore and (n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]):
             c["decision"], c["reason"] = "skip_full", f"{n_open} otvorenih, {n_today} danas"
         else:
-            c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
+            c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now, paid=not explore)
             if c["rug_verdict"] in cfg["block_verdicts"]:
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
             else:
                 k = "event" if c["origin"] == "event" else klase.get(t) or "default"
                 cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state, now=now)  # learned exits of its class
-                pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg_t)
+                cfg_t["entry_mode"] = "explore" if explore else "core"
+                size = ex["size_usd"] if explore else cfg["size_usd"]
+                c["size_usd"] = size
+                pos = sim.open_position(price, liq, now, size, cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
                 c["decision"] = "taken"
-                c["reason"] = f"score {s:.0f}" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
-                n_open, n_today = n_open + 1, n_today + 1
+                c["reason"] = (f"istraživanje: score {s:.0f} u vrhu dana (prag {ex_need:.0f})" if explore else
+                               f"score {s:.0f}") + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
+                if explore:
+                    ex_open, ex_today = ex_open + 1, ex_today + 1
+                else:
+                    n_open, n_today = n_open + 1, n_today + 1
                 opened.append(c)
         if t in seen:  # upgrade of an earlier skip: keep the shadow's original entry, record the trade
             if c["decision"] == "taken":
@@ -257,7 +301,7 @@ def intake(cfg, now=None, quiet=False):
             store.tick(con, t, now, price, liq, mcap)
     con.commit()
     for c in opened:
-        msg = (f"📝 DEMO KUPNJA {c.get('symbol')}  {_usd(cfg['size_usd'])} @ {c['price']:.3g}  mcap {_usd(c['mcap'])}"
+        msg = (f"📝 DEMO KUPNJA {c.get('symbol')}  {_usd(c.get('size_usd', cfg['size_usd']))} @ {c['price']:.3g}  mcap {_usd(c['mcap'])}"
                f"  liq {_usd(c['liquidity'])}  ({c['reason']})  {c.get('url') or ''}")
         if not quiet:
             print(msg)
@@ -357,7 +401,10 @@ def cmd_review(a):
     print(open(paths["md"]).read())
     con = store.connect(DB)
     con.execute("INSERT OR REPLACE INTO reviews VALUES (?,?,?)", (rep["day"], int(time.time()), json.dumps(rep)))
+    n = store.prune_ticks(con, cfg.get("ticks_keep_days", 30))
     con.commit()
+    if n:
+        print(f"obrisano {n} starih cijena (starije od {cfg.get('ticks_keep_days', 30)} dana)")
     notify(review.telegram_summary(rep), telegram=a.telegram)
     return rep
 

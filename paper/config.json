@@ -6,7 +6,7 @@
  "min_score": 50,
  "dex_min_score": 75,
  "event_days": 2,
- "shadow_min_score": 25,
+ "shadow_min_score": 20,
  "min_liq": 10000,
  "max_mcap": 5000000,
  "fee": 0.01,
@@ -44,5 +44,16 @@
  },
  "moon_hold_h": 72,
  "kol_hold_min": 60,
- "kol_trail_add": 0.1
+ "kol_trail_add": 0.1,
+ "explore": {
+  "enabled": true,
+  "size_usd": 20,
+  "top_pct": 30,
+  "min_score": 20,
+  "min_liq": 5000,
+  "max_open": 15,
+  "max_per_day": 60
+ },
+ "_explore": "Istraživački demo ulazi: tokeni ispod min_score koji su u gornjih top_pct% ocjena zadnja 24 h (i barem explore.min_score) ulaze s manjim ulogom, da bot radi više tradeova i brže uči. Ne kopiraju se u pravi trading.",
+ "ticks_keep_days": 30
 }

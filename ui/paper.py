@@ -290,6 +290,36 @@ def summary_html(limit=5):
     return "".join(b) + "<p><a href=/paper>Svi demo trejdovi s objašnjenjima →</a></p>"
 
 
+def _learning_box(trades, cfg):
+    """Core vs. exploration trades side by side, and what feeds the learning."""
+    ex = (cfg or {}).get("explore") or {}
+    groups = {"core": [], "explore": []}
+    for t in trades:
+        mode = (data.js(t.get("config"), {}) or {}).get("entry_mode") or "core"
+        groups.setdefault(mode, []).append(t)
+    rows = []
+    for mode, label in (("core", "Glavni (score ≥ " + str(cfg.get("min_score")) + ")"),
+                        ("explore", "Istraživački (manji ulog)")):
+        g = groups.get(mode) or []
+        closed = [t for t in g if t["status"] == "closed"]
+        n = len(closed)
+        wins = sum(1 for t in closed if (t["ret"] or 0) > 0)
+        rows.append([esc(label), num(len(g)), num(n), (f"{wins}/{n}" if n else "–", wins / n if n else -1, "n"),
+                     (f"{sum(t['ret'] or 0 for t in closed) / n:+.0%}" if n else "–",
+                      sum(t["ret"] or 0 for t in closed) / n if n else -9, "n"),
+                     (f"{sum(t['pnl_usd'] or 0 for t in closed):+.2f} $" if n else "–",
+                      sum(t["pnl_usd"] or 0 for t in closed), "n")])
+    intro = ("<h2>Više tradeova, brže učenje</h2>" + tdesc(
+        f"Osim glavnih ulaza (score ≥ {cfg.get('min_score')}, ulog ${cfg.get('size_usd')}), bot radi i "
+        f"<b>istraživačke</b> demo ulaze: token ispod praga, ali u gornjih {ex.get('top_pct', '?')}% ocjena zadnja 24 h "
+        f"(i barem {ex.get('min_score', '?')}), s ulogom ${ex.get('size_usd', '?')}, najviše {ex.get('max_open', '?')} otvorenih "
+        f"i {ex.get('max_per_day', '?')} dnevno. Ne troše nove Helius kredite na rug provjeru (koriste samo postojeći izvještaj) i nikad se ne kopiraju u pravi trading. Svaki ishod, i dobitak i gubitak, "
+        "ide u učenje: težine ocjene uče se iz svih skeniranih tokena, izlazi iz putanja svih praćenih tokena, a dnevni "
+        "pregled uspoređuje obje skupine.") if ex.get("enabled") else "<h2>Učenje</h2>")
+    return intro + table(["Vrsta ulaza", ("Ukupno", "n"), ("Zatvoreno", "n"), ("Dobitnih", "n"), ("Prosjek", "n"),
+                          ("PnL", "n")], rows)
+
+
 def page(qs):
     trades = data.paper_trades()
     cands = data.paper_candidates()
@@ -298,6 +328,7 @@ def page(qs):
          f"ovdje preračunavaju po živoj cijeni s DexScreenera svakih {REFRESH_S} s, uz fee i slippage kao pri pravoj "
          "prodaji. Klik na token otvara DexScreener, ⓘ otvara analizu tokena. "
          "<span id=upd class=mut></span></p><div class=grid id=cards></div>"]
+    b.append(_learning_box(trades, cfg))
     if not (trades or cands):
         b.append("<div class=card>Još nema demo trejdova. Na Renderu ih pokreće <code>start.sh</code> "
                  "(<code>run_paper.py run --scan</code>); lokalno pokreni istu naredbu.</div>")
