@@ -80,7 +80,26 @@ def risks(r, x, rug):
     return out
 
 
-def _label(s):
+REJECTED = ("ODBAČEN",)
+
+
+def rejected(rug, tier):
+    """Why the token must not carry a candidate label: rug filter ODBAČEN or T0 fail (rug mechanics), else None."""
+    if rug and rug.get("verdict") in REJECTED:
+        return f"rug filter {rug['verdict']}"
+    if tier and tier.get("t0") == "pad":
+        return f"T0: {tier.get('t0_razlog') or 'mehanika ruga'}"
+    return None
+
+
+def _label(s, rug=None, tier=None):
+    """The hype score is what the market is doing; the label is what we think of it. A rejected token keeps its
+    score (it is still a number) but can never be a candidate."""
+    why = rejected(rug, tier)
+    if why:
+        return badge("odbačen", "bad")
+    if rug and rug.get("verdict") == "VISOK RIZIK":
+        return badge("visok rizik", "bad")
     if s >= 50:
         return badge("jak kandidat", "good")
     if s >= 35:
@@ -204,7 +223,12 @@ def _costs():
 def page(qs):
     rows = latest()
     rugs = _rugs()
-    b = ["<h1>Radar</h1>"]
+    tiers = data.token_tiers()
+    out = [r for r in rows if rejected(rugs.get(r["token"]), tiers.get(r["token"]))]
+    rows = [r for r in rows if r not in out]
+    b = ["<h1>Zadnji sken</h1><p class=mut>Što je hype skener vidio u <b>zadnjem prolazu</b> (svake 2 minute): kandidati s razlozima i "
+         "rizicima, narativi, smart money i radi li ocjena. Stranica <a href=/tokens>Svi tokeni</a> je drugo: sve što alat zna o "
+         "svakom tokenu iz zadnjih 7 dana, kroz sve analize, poredano po Šansi za skok.</p>"]
     if not rows:
         b.append("<div class=card><b>Nema svježih signala.</b> Hype skener nije radio u zadnja 3 sata "
                  "(<code>run_hype.py scan</code> ili <code>run_paper.py run --scan</code>).</div>")
@@ -213,7 +237,8 @@ def page(qs):
         strong = [r for r in rows if r["score"] >= 50]
         watch = [r for r in rows if 35 <= r["score"] < 50]
         top = rows[0]
-        lead = (f"Zadnji prolaz {ago(last)[0]}: pregledano <b>{len(rows)}</b> tokena. "
+        lead = (f"Zadnji prolaz {ago(last)[0]}: pregledano <b>{len(rows) + len(out)}</b> tokena"
+                + (f", <b>{len(out)}</b> odbačeno (rug filter ili T0). " if out else ". ")
                 + (f"<b>{len(strong)}</b> jakih kandidata, {len(watch)} za pratiti. " if strong else
                    f"Nijedan nije jak kandidat (ocjena 50+); {len(watch)} ih vrijedi pratiti. ")
                 + f"Najbolji je <b>{esc(top['symbol'])}</b> ({top['score']:.0f}/100)"
@@ -227,12 +252,19 @@ def page(qs):
             why = reasons(r["features"], r["extra"])[:3]
             risk = risks(r, r["extra"], rugs.get(r["token"]))
             tr.append([tlink(r["token"], r["symbol"]), (f"{bar(r['score'], 100, 60)} {r['score']:.0f}", r["score"], "n"),
-                       _label(r["score"]), usd(r["mcap"]), usd(r["liquidity"]),
+                       _label(r["score"], rugs.get(r["token"]), tiers.get(r["token"])), usd(r["mcap"]), usd(r["liquidity"]),
                        ("<ul class=r>" + "".join(f"<li class=good>{esc(t)}</li>" for t in why) + "</ul>" if why else
                         "<span class=mut>samo tržišni signali, ništa posebno</span>", "", "wrap"),
                        ("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>" if risk else
                         "<span class=mut>nema poznatih</span>", "", "wrap")])
-        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima.') + table(["Token", ("Ocjena", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
+        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima. Odbačeni (rug filter ODBAČEN ili T0 pad) nisu ovdje nego u tablici ispod.') + table(["Token", ("Ocjena", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
+        if out:
+            b.append("<h3>Odbačeni u ovom prolazu</h3>")
+            b.append(tdesc('Tokeni s hype signalom koje je rug filter odbacio ili su pali na T0 (mehanika ruga). Ocjena ostaje vidljiva jer mjeri tržište, ali token ne može biti kandidat.')
+                     + table(["Token", ("Hype ocjena", "n"), ("Zašto odbačen", "wrap"), ("Mcap", "n"), ("Likv.", "n")],
+                             [[tlink(r["token"], r["symbol"]), (f"{r['score']:.0f}", r["score"], "n"),
+                               (esc(rejected(rugs.get(r["token"]), tiers.get(r["token"]))), "", "wrap"), usd(r["mcap"]), usd(r["liquidity"])]
+                              for r in sorted(out, key=lambda r: -r["score"])]))
 
         b.append("<h2>Narativi</h2><div class=two><div>")
         tr_rows = [r for r in rows if r["extra"].get("x_trend")]
@@ -263,4 +295,4 @@ def page(qs):
                 "U zadnjim prolazima nijedan od njih nije bio među prvim kupcima kandidata.") + "</p>")
     b.append("<h2>Radi li algoritam?</h2>" + _algo())
     b.append("<h2>Troškovi Apifyja</h2>" + _costs())
-    return "Radar", "".join(b)
+    return "Zadnji sken", "".join(b)

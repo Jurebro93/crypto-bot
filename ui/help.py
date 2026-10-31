@@ -21,6 +21,7 @@ HELP = {
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
     "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
                      "kontekst, a težinu mu uči petlja (početno 0).",
+    "Zadnji sken": "Stranica s rezultatom zadnjeg prolaza hype skenera (zadnja 3 h). Nije isto što i Svi tokeni: ovdje je trenutak, tamo povijest.",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
     "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",
