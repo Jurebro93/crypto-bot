@@ -150,7 +150,8 @@ def page(qs):
     # skipped
     names = {"kasno": "viđen prekasno", "limit po satu": "puno poziva u tom satu", "limit po KOL-u": "isti KOL već "
              f"{cfg['per_caller_day']}× danas", "premala likvidnost": f"likvidnost ispod ${cfg['min_liq']:,}",
-             "nema cijene": "DexScreener nema cijenu"}
+             "nema cijene": "DexScreener nema cijenu",
+             "velik token": f"velik token (MC iznad ${cfg.get('max_mcap', 5e7) / 1e6:,.0f}M, npr. WBTC)"}
     rows = [[esc(SRC.get(src, src)), esc(names.get(r, r)), num(n)] for (src, r), n in sorted(sk.items())]
     rows += [["–", esc(names.get(r, r)), num(n)] for r, n in bad.items() if r]
     b.append("<h2 id=preskoceno>Pozivi bez ulaza</h2>" + tdesc(
