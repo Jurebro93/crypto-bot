@@ -63,6 +63,10 @@ def cmd_measure(a, con=None, cfg=None):
     con, cfg = con or store.connect(), cfg or config()
     t, c = measure.run(con, cfg, verbose=getattr(a, "verbose", False))
     print(f"measure: {t} tokena, {c} poziva izmjereno")
+    from kol import sessions
+    b = sessions.backfill(con, cfg, measure.ohlcv)
+    if b:
+        print(f"sesije: satni volumen za {b} starijih tokena")
 
 
 def cmd_flows(a, con=None, cfg=None):

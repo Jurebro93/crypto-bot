@@ -222,6 +222,40 @@ class Live(unittest.TestCase):
         self.assertEqual(live.plan([], [], 0, 10 ** 9, 6), (False, False))
 
 
+class Sessions(unittest.TestCase):
+    def test_session_zone_hours(self):
+        from kol import sessions
+        day = 1793318400  # 2026-10-30 00:00 UTC
+        self.assertEqual([sessions.session_of(day + h * H) for h in (0, 7, 8, 13, 14, 23)],
+                         ["asia", "asia", "eu", "eu", "us", "us"])
+        # posts every hour except 07-12 UTC (night centred on 09:00 UTC = 04:00 in New York, UTC-5)
+        ts = [day + d * 86400 + h * H for d in range(3) for h in range(24) if not 6 <= h < 12]
+        self.assertEqual(sessions.zone(ts), (-5, "us", len(ts)))
+        self.assertEqual(sessions.zone(ts[:5])[0], None)
+        flat = [day + h * H for h in range(24)] * 2  # no night: bot
+        self.assertIsNone(sessions.zone(flat)[0])
+        sh = sessions.shares(sessions.hours_from_candles([(day + 3 * H, 0, 0, 0, 0, 30.0), (day + 15 * H, 0, 0, 0, 0, 70.0)]))
+        self.assertEqual(sh, {"asia": 0.3, "eu": 0.0, "us": 0.7})
+        self.assertEqual(sessions.dominant(sh), "us")
+
+    def test_learn_factor(self):
+        from kol import sessions
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        day = 1793318400
+        rows = [(f"a{i}", day + 2 * H, 1.0) for i in range(40)] + [(f"e{i}", day + 10 * H, 0.0) for i in range(40)]
+        for tid, t, mx in rows:
+            con.execute("INSERT INTO calls (tweet_id, token, handle, ts, kind, first_by_kol, max24) "
+                        "VALUES (?,?,?,?,'call',1,?)", (tid, tid, "k", t, mx))
+        cfg = dict(CFG, sessions=dict(CFG["sessions"]))
+        sessions.learn(con, cfg, now=day)
+        f = sessions.factors(con)
+        self.assertEqual(f["asia"], cfg["sessions"]["factor_max"])  # always hit: capped
+        self.assertEqual(f["eu"], cfg["sessions"]["factor_min"])
+        self.assertEqual(f["us"], 1.0)  # no data
+        info = sessions.now_info(con, now=day + 3 * H)
+        self.assertEqual((info["session"], info["factor"]), ("asia", 1.3))
+
+
 class Helpers(unittest.TestCase):
     def test_groups(self):
         calls = [("A", 0, "x"), ("A", 600, "y"), ("A", 1700, "x"), ("A", 5000, "z"), ("B", 0, "x")]

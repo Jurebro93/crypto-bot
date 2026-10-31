@@ -2,6 +2,7 @@
 group calls, KOL pairs that call together, wallets that sell into calls, and which call features correlate
 with a pump. /kol/<handle> lists one KOL's calls. All read-only from kol.db (written by run_kol.py)."""
 import json
+import time
 import os
 from urllib.parse import quote
 
@@ -113,12 +114,42 @@ def _leaderboard(con, minf, minc):
                     lift(k["power_rel"]), num(s.get("measured")), share(s.get("hit_rate")), pct(s.get("med_max24")),
                     pct(s.get("med_r1h")), lift(s.get("med_lift")), share(s.get("rug_rate")),
                     share(s.get("prepump_rate")), share(s.get("first_rate")), num(s.get("brags")),
-                    num(s.get("med_views")), share(s.get("eng_rate")), ago(last.get(k["handle"]))])
+                    num(s.get("med_views")), share(s.get("eng_rate")), _zone(s), ago(last.get(k["handle"]))])
     return table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
                   ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
                   ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
-                  "Zadnji poziv"],
+                  "Zona", "Zadnji poziv"],
                  out, tid="kols", empty="Još nema KOL-ova s izmjerenim pozivom (mjerenje kreće 1 h nakon poziva).")
+
+
+def _zone(s):
+    from kol import sessions
+    if s.get("tz") is None:
+        return ("–", "", "mut")
+    return (f"{sessions.NAMES.get(s.get('region'), '?')} (UTC{s['tz']:+d})", s["tz"], "")
+
+
+def _sessions(con, cfg):
+    import sqlite3
+    from kol import sessions
+    try:
+        got = {r[0]: r[1:] for r in con.execute("SELECT key, n, hits, med_max24, factor FROM sessions")}
+    except sqlite3.OperationalError:
+        got = {}
+    cur = sessions.session_of(time.time())
+
+    def cell(key):
+        n, hits, med, _ = got.get(key, (0, 0, None, None))
+        return [num(n), share(hits / n if n else None), pct(med)]
+    out = []
+    for s, a, b in sessions.SESSIONS:
+        name = sessions.NAMES[s] + (" " + badge("sada", "good") if s == cur else "")
+        f = sessions.factors(con)[s] if got else 1.0
+        out.append([name, f"{a:02d}-{b:02d} UTC", *cell(f"call:{s}"), *cell(f"signal:{s}"), *cell(f"vol:{s}"),
+                    (f"×{f:.2f}", f, "n")])
+    return table(["Sesija", "Sati", ("Poziva", "n"), ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Signala", "n"),
+                  ("Točnost signala", "n"), ("Signal max 24 h", "n"), ("Tokena s volumenom", "n"),
+                  ("Pogodak (volumen)", "n"), ("Volumen max 24 h", "n"), ("Faktor signala", "n")], out, tid="sess")
 
 
 def _watch(con):
@@ -222,6 +253,15 @@ def page(qs):
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _leaderboard(con, minf, minc))
 
+        z = cfg.get("sessions", {})
+        b.append("<h2 id=sesije>Sesije trgovanja i vremenske zone</h2>" + tdesc(
+            "Američki i azijski (kineski) market makeri pokreću memecoine u različito doba dana. Sesije u UTC: Azija "
+            "00-08 (Kina 08-16), Europa 08-14, SAD 14-24 (New York 09-19); kod nas je UTC+1. Za svaku sesiju: kako su "
+            "prošli prvi pozivi KOL-ova objavljeni u njoj, koliko su točni bili KOL grupni signali koji su u njoj "
+            "krenuli i kako su prošli tokeni kojima je volumen najviše u toj sesiji (iz 5-min svijeća). Faktor "
+            f"signala = pogodak sesije naspram prosjeka, prigušen s {z.get('shrink_n', 30)} poziva i ograničen na "
+            f"×{z.get('factor_min', 0.7)}-×{z.get('factor_max', 1.3)}; njime se množi KOL signal. Uči se samo nakon "
+            "svakog bodovanja.") + _sessions(con, cfg))
         w = cfg["watch"]
         b.append("<h2 id=uzivo>Prati uživo</h2>" + tdesc(
             f"Najboljih {w['size']} KOL-ova: moć poziva {cfg['good_score']}+, barem {w['min_calls']} izmjerenih poziva, "
@@ -299,9 +339,16 @@ def token_section(mint):
     try:
         if not con.execute("SELECT 1 FROM calls WHERE token = ? LIMIT 1", (mint,)).fetchone():
             return ""
+        from kol import sessions
+        sh = sessions.token_shares(con, mint)
+        vol = ""
+        if sh:
+            vol = "<p>Volumen po sesijama: " + " · ".join(
+                f"{sessions.NAMES[s]} <b>{sh[s]:.0%}</b>" for s, _, _ in sessions.SESSIONS) + "</p>"
         return ("<h2 id=kol>Tko ga je zvao na X-u</h2>" + tdesc(
-            "KOL postovi s ovim CA, najnoviji prvi, i što je cijena napravila nakon svakog. Više na stranici KOL-ovi.")
-                + calls_table(con, "token = ?", (mint,), 100, "tcalls"))
+            "KOL postovi s ovim CA, najnoviji prvi, i što je cijena napravila nakon svakog. Više na stranici KOL-ovi. "
+            "Volumen po sesijama: udio trgovanja u satima Azije (00-08 UTC), Europe (08-14) i SAD-a (14-24).")
+                + vol + calls_table(con, "token = ?", (mint,), 100, "tcalls"))
     except Exception:
         return ""
     finally:

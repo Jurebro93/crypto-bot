@@ -165,13 +165,16 @@ def pairs(con, min_together=2, limit=30):
 
 def build_signals(con, cfg, now=None):
     """kol_group feature per token from groups in the last signal_hours: 2 good KOLs = 1.0, each other author +0.1
-    (at most 0.5: a swarm of unknown accounts is often one paid campaign), dev selling = 0."""
+    (at most 0.5: a swarm of unknown accounts is often one paid campaign), dev selling = 0. Then times the learned
+    factor of the session the group started in (kol/sessions.py)."""
+    from kol import sessions
     now = now or int(time.time())
+    fac = sessions.factors(con)
     con.execute("DELETE FROM signals")
     rows = con.execute("SELECT token, start_ts, n_authors, handles, good_authors, dev_selling FROM groups "
                        "WHERE start_ts >= ? ORDER BY start_ts", (now - cfg["signal_hours"] * H,)).fetchall()
     for token, start, n, hs, good, dev in rows:  # newest group per token wins
-        feat = 0.0 if dev else min(1.0, good / 2 + 0.1 * min(n - good, 5))
+        feat = 0.0 if dev else min(1.0, (good / 2 + 0.1 * min(n - good, 5)) * fac[sessions.session_of(start)])
         con.execute("INSERT OR REPLACE INTO signals VALUES (?,?,?,?,?,?,?)", (token, start, good, n, hs, dev, round(feat, 2)))
     return len(rows)
 
@@ -268,6 +271,9 @@ def run(con, cfg, now=None):
     reclassify(con)
     mark_first(con)
     n = score_kols(con, cfg, now)
+    from kol import sessions
+    sessions.zones(con, cfg)
+    sessions.learn(con, cfg, now)
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
