@@ -18,6 +18,10 @@ def _pct(x):
     return signed(None if x is None else 100 * x, "{:+.0f}%")
 
 
+def _share(x):
+    return num(None if x is None else 100 * x, "{:.0f}%")
+
+
 def _f(x, fmt="{:.2f}"):
     return num(x, fmt)
 
@@ -59,7 +63,7 @@ def _uzori(con, day, cfg_uzori):
             continue
         f = json.loads(r["features"])
         out.append([tlink(m, name), usd(r["mcap"]), _pct(f.get("pad_od_vrha")),
-                    num(f.get("oporavaka"), "{:.0f}"), _pct(f.get("udio_oporavaka")), _f(f.get("korelacija_btc")),
+                    num(f.get("oporavaka"), "{:.0f}"), _share(f.get("udio_oporavaka")), _f(f.get("korelacija_btc")),
                     _f(f.get("beta_btc")), _pct(f.get("povrat_30d"))])
     return out
 
@@ -96,7 +100,7 @@ def page(qs):
         b.append("<h2>Uzori: Fartcoin i Useless</h2>" + tdesc(
             "Kako izgledaju tokeni koje želimo naći. Sličnost uzoru na popisu ispod mjeri koliko je token blizu ovom "
             "profilu (pad od vrha, koliko se puta oporavio, kretanje s BTC-om, volatilnost, likvidnost)."))
-        b.append(table(["Token", "Tržišna vrijednost", "Od vrha", "Oporavaka", "Udio oporavaka", "Korelacija s BTC",
+        b.append(table(["Token", "Tržišna vrijednost", "Od vrha (6 mj.)", "Oporavaka", "Udio oporavaka", "Korelacija s BTC",
                         "Beta BTC", "30 dana"], _uzori(con, day, cfg["uzori"]), empty="Uzori još nemaju povijest."))
 
         b.append("<h2>Dugoročni kandidati</h2>" + tdesc(
@@ -106,7 +110,7 @@ def page(qs):
         rows, mints = [], []
         for m, sym, s, rk, px, liq, mc, fj, why in dug:
             f = json.loads(fj)
-            rows.append([num(rk, "{:.0f}"), tlink(m, sym), num(s, "{:.0f}"), _pct(f.get("slicnost_uzoru")),
+            rows.append([num(rk, "{:.0f}"), tlink(m, sym), num(s, "{:.0f}"), _share(f.get("slicnost_uzoru")),
                          num(f.get("starost_d"), "{:.0f} d"), usd(liq), usd(mc), _pct(f.get("pad_od_vrha")),
                          num(f.get("oporavaka"), "{:.0f}"), _pct(f.get("povrat_30d")), _f(f.get("korelacija_btc")),
                          num(f.get("kol_tjedana_60d"), "{:.0f}"), esc(why)])

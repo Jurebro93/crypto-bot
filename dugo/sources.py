@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 import time
+import urllib.error
 import urllib.request
 
 from dexscreener import client as dex
@@ -29,7 +30,14 @@ def _gecko(path, gap):
         time.sleep(wait)
     _last[0] = time.monotonic()
     req = urllib.request.Request(GECKO + path, headers={"User-Agent": http.USER_AGENT, "Accept": "application/json"})
-    return http._fetch(req, 30, retries=2)
+    try:
+        return http._fetch(req, 30, retries=1)
+    except urllib.error.HTTPError as e:
+        if e.code != 429:
+            raise
+        time.sleep(45)      # the free limit is per minute: one slow retry instead of hammering it
+        _last[0] = time.monotonic()
+        return http._fetch(req, 30, retries=0)
 
 
 def _ro(name):
@@ -111,7 +119,8 @@ def btc_closes(days=365):
     """{day: close} BTC from CoinGecko's free endpoint (one call a day)."""
     d = http.get_json("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
                       {"vs_currency": "usd", "days": days, "interval": "daily"}, ttl=6 * 3600)
-    return {int(t / 1000) // D * D: p for t, p in d.get("prices", [])}
+    # a CoinGecko point at 00:00 UTC is the close of the PREVIOUS day; GeckoTerminal candles are keyed by their open day
+    return {int(t / 1000) // D * D - D: p for t, p in d.get("prices", []) if int(t / 1000) % D < 3600}
 
 
 def holders_birdeye(mint):

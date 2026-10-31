@@ -17,7 +17,7 @@
   "candles_per_run": 60,
   "candles_refresh_h": 20,
   "dugorocni": {"min_starost_d": 60, "min_likvidnost": 100000, "min_mcap": 1000000},
-  "budjenje": {"min_starost_d": 14, "min_likvidnost": 30000, "max_pad_od_vrha": -0.5, "min_od_dna_30d": 0.2},
+  "budjenje": {"min_starost_d": 30, "min_likvidnost": 30000, "max_pad_od_vrha": -0.5, "min_od_dna_30d": 0.2},
   "mrtav": {"pad_24h": -0.7, "min_likvidnost": 10000},
   "tezine": {
     "dugorocni": {"starost_d": 1.0, "likvidnost": 1.5, "oporavaka": 1.5, "udio_oporavaka": 1.0, "korelacija_btc": 0.5,

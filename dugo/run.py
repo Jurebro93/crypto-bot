@@ -61,9 +61,17 @@ def collect(con, cfg, now=None, candle_budget=None):
         h = sources.holders_birdeye(mint)
         if h:
             con.execute("INSERT OR REPLACE INTO holders VALUES (?,?,?)", (mint, now // D * D, h))
-    # references: SOL from its own candles, BTC from CoinGecko
+    # references: SOL from its deepest pool (SOL is a quote token, so it is never in the universe), BTC from CoinGecko
     sol = cfg["temelj"]["SOL"]
-    con.execute("INSERT OR REPLACE INTO ref SELECT 'SOL', day, c FROM candles WHERE mint=?", (sol,))
+    last_sol = con.execute("SELECT MAX(day) FROM ref WHERE name='SOL'").fetchone()[0] or 0
+    if last_sol < now // D * D - D:
+        try:
+            p = sources.dex_best({sol}).get(sol)
+            if p:
+                rows = sources.candles(p["pairAddress"], cfg["gecko_gap_s"], limit=40 if last_sol else 400)
+                con.executemany("INSERT OR REPLACE INTO ref VALUES ('SOL',?,?)", [(r[0], r[4]) for r in rows])
+        except Exception as e:
+            _log(f"SOL: {e}")
     try:
         con.executemany("INSERT OR REPLACE INTO ref VALUES ('BTC',?,?)", list(sources.btc_closes().items()))
     except Exception as e:
@@ -72,6 +80,16 @@ def collect(con, cfg, now=None, candle_budget=None):
     con.commit()
     _log(f"{len(uni)} u svemiru, {len(pairs)} na DexScreeneru, {n} tokena dobilo svijeće")
     return n
+
+
+# stablecoins, wrapped coins and liquid-staking SOL move like their underlying, they are not memecoin picks
+NOT_PICKS = {"SOL", "WSOL", "USDC", "USDT", "PYUSD", "USDG", "USDS", "USDE", "EURC", "WETH", "ETH", "WBTC", "CBBTC", "ZBTC",
+             "TBTC", "XBTC", "JITOSOL", "MSOL", "BSOL", "JUPSOL", "INF", "BNSOL", "HSOL", "DSOL", "STSOL", "JSOL"}
+
+
+def not_a_pick(sym, f):
+    s = (sym or "").upper().replace(" ", "")
+    return s in NOT_PICKS or "USD" in s or (f.get("volatilnost") is not None and f["volatilnost"] < 0.015)
 
 
 def _holders_growth(con, mint, now):
@@ -86,14 +104,18 @@ def rank(con, cfg, now=None):
     now = int(now or time.time())
     day = now // D * D
     sol, btc = store.ref(con, "SOL"), store.ref(con, "BTC")
-    toks = con.execute("""SELECT mint, symbol, liquidity, mcap, vol24, buys24, sells24, ch24 FROM tokens
+    toks = con.execute("""SELECT mint, symbol, liquidity, mcap, vol24, buys24, sells24, ch24, created_ts FROM tokens
         WHERE candles_ts IS NOT NULL AND last_dex > ?""", (now - 2 * D,)).fetchall()
     soc = sources.social([t[0] for t in toks], now)
     feats, meta = {}, {}
-    for mint, sym, liq, mcap, vol, b, s, ch in toks:
+    for mint, sym, liq, mcap, vol, b, s, ch, created in toks:
         cs = store.candles(con, mint)
         f = features.compute(cs, sol, btc)
         if not f:
+            continue
+        if created:     # free daily candles reach back ~6 months; the pool's age tells how old the token really is
+            f["starost_d"] = max(f["starost_d"], (now - created) / D)
+        if not_a_pick(sym, f):
             continue
         dead = (ch is not None and ch / 100 <= cfg["mrtav"]["pad_24h"]) or (liq or 0) < cfg["mrtav"]["min_likvidnost"]
         con.execute("UPDATE tokens SET status=? WHERE mint=?", ("mrtav" if dead else "ok", mint))
@@ -113,8 +135,6 @@ def rank(con, cfg, now=None):
     con.execute("DELETE FROM snap WHERE day=?", (day,))
     for kind in ("dugorocni", "budjenje"):
         el = {m: f for m, f in feats.items() if sc.eligible(kind, f, meta[m][1], meta[m][2], cfg)}
-        if kind == "dugorocni":    # SOL itself is the benchmark, not a pick
-            el.pop(cfg["temelj"]["SOL"], None)
         s = sc.score(el, W[kind]) if el else {}
         order = sorted(s, key=lambda m: -s[m][0])
         for i, m in enumerate(order, 1):
