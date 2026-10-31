@@ -163,6 +163,87 @@ class Pipeline(unittest.TestCase):
             self.assertLess(step, 1.0)
 
 
+class Holders(unittest.TestCase):
+    def setUp(self):
+        from dugo import holders
+        self.h = holders
+        self.tmp = tempfile.mkdtemp()
+        self.con = store.connect(os.path.join(self.tmp, "dugo.db"))
+        day = TODAY
+        rows = [("LT1", day, "W1", 100, 1e5, 0.05, None), ("LT1", day, "W2", 90, 9e4, 0.04, None),
+                ("LT2", day, "W3", 50, 5e4, 0.03, None), ("LT1", day, "CEX", 300, 3e5, 0.20, "skrbnik"),
+                ("LT1", day - 14 * D, "CEX", 100, 1e5, 0.08, "skrbnik")]
+        self.con.executemany("INSERT INTO big_holders VALUES (?,?,?,?,?,?,?)", rows)
+        self.con.commit()
+        from wallets import store as wstore
+        self.wdb = os.path.join(self.tmp, "wallets.db")
+        w = wstore.connect(self.wdb)
+        t = int(__import__("time").time())
+        w.executemany("INSERT INTO wallet_trades VALUES (?,?,?,?,?,?,?)", [
+            ("W1", "s1", t - 3600, "SMALL", 1000, -2.0, "buy"), ("W3", "s2", t - 7200, "SMALL", 500, -1.0, "buy"),
+            ("W2", "s3", t - 3600, "LT1", 10, -1.0, "buy"),          # own bag: not a pick
+            ("CEX", "s4", t - 3600, "SMALL", 1, -9.0, "buy"),        # custodian: ignored
+            ("W1", "s5", t - 30 * D, "OLD", 1, -1.0, "buy")])
+        w.commit()
+        w.close()
+        from kol import store as kstore
+        self.kdb = os.path.join(self.tmp, "kol.db")
+        k = kstore.connect(self.kdb)
+        k.execute("INSERT INTO calls (tweet_id, token, handle, ts) VALUES ('x1', 'SMALL', 'caller', ?)", (t - 3 * 3600,))
+        k.commit()
+        k.close()
+        self._env = {k: os.environ.get(k) for k in ("WALLET_DB", "KOL_DB")}
+        os.environ["WALLET_DB"], os.environ["KOL_DB"] = self.wdb, self.kdb
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self.con.close()
+
+    def test_whale_buys_and_kols(self):
+        b = self.h.whale_buys(self.con)
+        self.assertEqual(set(b), {"SMALL"})
+        self.assertEqual(b["SMALL"]["n"], 2)
+        k = self.h.followed_kols(b)
+        self.assertEqual(k["caller"]["wallets"], 2)
+
+    def test_exchange_share(self):
+        sh, ch = self.h.exchange_share(self.con, "LT1")
+        self.assertAlmostEqual(sh, 0.20)
+        self.assertAlmostEqual(ch, 0.12)
+        self.assertEqual(self.h.exchange_share(self.con, "NONE"), (None, None))
+
+    def test_top_holders_drops_pools(self):
+        calls = []
+
+        def fake(method, params):
+            calls.append(method)
+            if method == "getTokenLargestAccounts":
+                return {"value": [{"address": "A1", "uiAmount": 5}, {"address": "A2", "uiAmount": 3}]}
+            if params[1]["encoding"] == "jsonParsed":
+                return {"value": [{"data": {"parsed": {"info": {"owner": "WALLET"}}}},
+                                  {"data": {"parsed": {"info": {"owner": "POOL"}}}}]}
+            return {"value": [{"owner": "11111111111111111111111111111111"}, {"owner": "SomeAmmProgram"}]}
+        old = self.h._rpc
+        self.h._rpc = fake
+        try:
+            self.assertEqual(self.h.top_holders("M"), [("WALLET", 5.0)])
+        finally:
+            self.h._rpc = old
+
+    def test_registry_import(self):
+        from wallets import store as wstore
+        w = wstore.connect(self.wdb)
+        n = wstore.import_dugo(w, os.path.join(self.tmp, "dugo.db"))
+        self.assertEqual(n, 4)
+        self.assertIn("cex", wstore.labels(w, "CEX"))
+        self.assertNotIn("cex", wstore.labels(w, "W1"))
+        w.close()
+
+
 class Seed(unittest.TestCase):
     def test_import_once(self):
         con = store.connect(os.path.join(tempfile.mkdtemp(), "dugo.db"))

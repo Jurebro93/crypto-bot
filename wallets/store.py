@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS helius_credits (ts INTEGER, method TEXT, credits INTE
 """
 
 # how much one sighting raises a wallet's place in the scoring queue
-ROLE_WEIGHT = {"early_buyer": 2.0, "smart": 3.0, "top_trader": 3.0, "holder": 0.5, "manual": 10.0,
+ROLE_WEIGHT = {"early_buyer": 2.0, "smart": 3.0, "top_trader": 3.0, "holder": 0.5, "big_holder": 3.0, "manual": 10.0,
                "group": 2.0, "dev": -5.0, "bundler": -5.0, "sniper": 1.0, "funder": -1.0, "dust": 0.0}
 
 
@@ -221,3 +221,24 @@ def import_kol(con, kol_db=None):
         label(con, wallet, "rotation_dev")
         n += 1
     return n
+
+
+def import_dugo(con, dugo_db=None):
+    """Top holders of the long-term tokens (dugo.db big_holders, run_dugo.py): bigger players whose buys of other
+    tokens are a signal. Exchanges/custodians (top holder of many tokens) are labelled cex and never scored."""
+    p = dugo_db or os.environ.get("DUGO_DB", os.path.join(os.path.dirname(__file__), "..", "dugo.db"))
+    if not os.path.exists(p):
+        return 0
+    src = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=10)
+    try:
+        rows = src.execute("""SELECT wallet, mint, MAX(day), MAX(usd), MAX(share), MAX(label) FROM big_holders
+                              WHERE day >= ? GROUP BY wallet, mint""", (int(time.time()) - 45 * 86400,)).fetchall()
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        src.close()
+    for wallet, mint, day, usd, share, lab in rows:
+        observe(con, wallet, mint, "dugo", "big_holder", day, extra={"usd": usd, "share": share})
+        if lab == "skrbnik":
+            label(con, wallet, "cex")
+    return len({r[0] for r in rows})

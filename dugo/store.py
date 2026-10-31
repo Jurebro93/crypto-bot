@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS book (id INTEGER PRIMARY KEY AUTOINCREMENT, mint TEXT
     entry_ts INTEGER, entry_price REAL, usd REAL, exit_ts INTEGER, exit_price REAL, reason TEXT,
     sol_entry REAL, sol_exit REAL);
 CREATE TABLE IF NOT EXISTS holders (mint TEXT, day INTEGER, n INTEGER, PRIMARY KEY (mint, day));
+CREATE TABLE IF NOT EXISTS big_holders (mint TEXT, day INTEGER, wallet TEXT, amount REAL, usd REAL, share REAL,
+    label TEXT, PRIMARY KEY (mint, day, wallet));
+CREATE INDEX IF NOT EXISTS big_holders_wallet ON big_holders (wallet);
+CREATE TABLE IF NOT EXISTS holder_info (mint TEXT, day INTEGER, n INTEGER, top10 REAL, rest REAL,
+    PRIMARY KEY (mint, day));
+CREATE TABLE IF NOT EXISTS listings (mint TEXT, day INTEGER, top_cex INTEGER, all_cex INTEGER, names TEXT,
+    PRIMARY KEY (mint, day));
 CREATE TABLE IF NOT EXISTS learn_runs (ts INTEGER, kind TEXT, applied INTEGER, n INTEGER, before REAL, after REAL,
     note TEXT, weights TEXT);
 """
