@@ -96,6 +96,12 @@ class Pulse(unittest.TestCase):
         pulse.apply(self.con, rows, {"A"}, NOW + 120, CFG)
         self.assertEqual(pulse.holders_last(self.con, "A"), (NOW + 120, 321))
 
+    def test_retained_bypass_liquidity_filter_in_scan_source(self):
+        import inspect
+        import run_hype
+        src = inspect.getsource(run_hype.scan)
+        self.assertIn("and t not in keep", src.split("if (liq < a.min_liq or mcap > a.max_mcap)")[1][:40])
+
     def test_weights_and_score(self):
         w = score.load_weights()
         for k in pulse.FEATURES:
