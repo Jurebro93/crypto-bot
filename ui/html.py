@@ -1,7 +1,9 @@
 """Small HTML helpers: layout, tables, badges, bars. No templates, no JS framework."""
+import contextvars
 import datetime as dt
 import html
 import json
+import os
 import time
 from urllib.parse import quote
 from ui.cols import CSS as COLS_CSS, JS as COLS_JS
@@ -11,7 +13,7 @@ NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),
@@ -191,11 +193,25 @@ def th(label, cls=""):
     return f'<th class="{cls}">{label}{" " + tip(h) if h else ""}</th>'
 
 
-def table(headers, rows, tid=None, empty="Nema podataka.", mints=None):
+# Rows a table sends by default. A 20k-row table is megabytes of HTML that a phone can't download, parse and lay
+# out in time; ?sve=1 on the page (link under the table) sends every row. Set per request by run_ui.
+MAX_ROWS = int(os.environ.get("UI_MAX_ROWS", "200"))
+SHOW_ALL = contextvars.ContextVar("show_all", default=False)
+
+
+def table(headers, rows, tid=None, empty="Nema podataka.", mints=None, limit=None):
     """headers: [(label, cls)] or labels; rows: [[cell]] where a cell is html or (html, sort_value, cls).
-    mints: one token address per row; the row then opens the evidence pop-up (needs modal() on the page)."""
+    mints: one token address per row; the row then opens the evidence pop-up (needs modal() on the page).
+    Only the first `limit` rows (default MAX_ROWS) are sent unless the page was opened with ?sve=1; rows are
+    expected in their most useful order already, sorting and filtering then work on the rows shown."""
     if not rows:
         return f'<div class="tw"><div class="empty">{empty}</div></div>'
+    limit = MAX_ROWS if limit is None else limit
+    more = ""
+    if limit and not SHOW_ALL.get() and len(rows) > limit:
+        more = (f'<p class="mut more">Prikazano prvih {limit} od {len(rows)} redova (filtar i sortiranje rade na '
+                f'prikazanima). <a href="?sve=1">Prikaži sve</a> (sporije na mobitelu)</p>')
+        rows, mints = rows[:limit], (mints[:limit] if mints else mints)
     hs = [th(*(h if isinstance(h, tuple) else (h, ""))) for h in headers]
     body = []
     for r in rows:
@@ -209,7 +225,7 @@ def table(headers, rows, tid=None, empty="Nema podataka.", mints=None):
         m = mints[len(body)] if mints else None
         body.append((f'<tr class=clk data-mint="{esc(m)}">' if m else "<tr>") + "".join(tds) + "</tr>")
     idattr = f' id="{tid}"' if tid else ""
-    return f'<div class="tw"><table class="s"{idattr}><thead><tr>{"".join(hs)}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+    return f'<div class="tw"><table class="s"{idattr}><thead><tr>{"".join(hs)}</tr></thead><tbody>{"".join(body)}</tbody></table></div>{more}'
 
 
 def filt(tid, placeholder="Filtriraj…"):

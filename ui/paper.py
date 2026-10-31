@@ -12,7 +12,8 @@ from ui.html import tdesc, ago, badge, esc, filt, jsonblock, num, scorecell, sig
 
 REFRESH_S = 15
 EXIT = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven": "breakeven nakon TP", "time": "isteklo vrijeme",
-        "rug": "rug (likvidnost nestala)", "open": "otvoreno"}
+        "rug": "rug (likvidnost nestala)", "open": "otvoreno", "stale": "nema rasta (mirovanje)",
+        "moonbag_trailing": "moonbag: trailing od vrha", "moonbag_time": "moonbag: isteklo vrijeme"}
 
 
 def _cfg():
@@ -66,11 +67,13 @@ def snapshot():
             except Exception:
                 pass
         entry = pos.get("entry_px") or t["entry_px"]
-        tp = (cfg.get("tp") or [])[pos.get("tp_done", 0):]
+        tc = {**(cfg or {}), **(data.js(t["config"], {}) or {})}  # the trade's own rules (learned exits per class)
+        tp = (tc.get("tp") or [])[pos.get("tp_done", 0):]
         rows.append({"id": t["id"], "token": t["token"], "symbol": t["symbol"], "opened_ts": t["opened_ts"],
                      "size": t["size_usd"], "entry": entry, "price": price, "move": price / entry - 1 if price and entry else None,
                      "pnl": pnl, "ret": ret, "max": t["max_ret"], "min": t["min_ret"], "left": pos.get("left", 1.0),
-                     "sl": None if pos.get("tp_done") else cfg.get("sl"), "next_tp": tp[0][0] if tp else None,
+                     "sl": (tc.get("sl_after_tp", 0.0) if pos.get("tp_done") else tc.get("sl")) if not pos.get("bag") else None,
+                     "next_tp": tp[0][0] if tp else None, "profile": tc.get("exit_profile") or "config.json",
                      "liq": liq, "src": src, "mc_in": t.get("entry_mcap"),
                      "mc_now": t["entry_mcap"] * price / entry if price and entry and t.get("entry_mcap") else None,
                      "dca": dca_open.get(t["id"], {}).get("reason")})
@@ -123,7 +126,7 @@ function draw(d){
   <td>${age(p.opened_ts)}</td><td class=n>${usd(p.size)}</td><td class=n>${px(p.entry)}</td><td class=n>${px(p.price)}</td><td class=n>${mc(p.mc_in)}</td><td class=n>${mc(p.mc_now)}</td>
   <td class="n ${cls(p.move)}">${pc(p.move)}</td><td class="n ${cls(p.pnl)}"><b>${f2(p.pnl)}</b></td><td class="n ${cls(p.ret)}">${pc(p.ret)}</td>
   <td class=n>${pc(p.max)}</td><td class=n>${pc(p.min)}</td><td class=n>${Math.round(p.left*100)}%</td>
-  <td class=n>${p.sl==null?'breakeven':pc(p.sl)}</td><td class=n>${p.next_tp==null?'–':pc(p.next_tp)}</td>
+  <td class=n title="pravila: ${p.profile}">${p.sl==null?'moonbag':pc(p.sl)}</td><td class=n>${p.next_tp==null?'–':pc(p.next_tp)}</td>
   <td class=n>${usd(p.liq)}</td><td class=mut>${p.src}</td>
   <td>${p.dca?'<span class="b warn" title="'+p.dca.replace(/"/g,'&quot;')+'">DCA prijedlog</span>':''}</td></tr>`).join('');
  $('#open').innerHTML=rows||'<tr><td colspan=18 class=empty>Nema otvorenih pozicija.</td></tr>';
@@ -305,10 +308,14 @@ def page(qs):
                                         ("Likvidnost", "n"), ("Cijena iz", ""), ("DCA", "")])
              + "</tr></thead><tbody id=open><tr><td colspan=18 class=empty>Učitavam…</td></tr></tbody></table></div>")
     if cfg:
-        tps = ", ".join(f"+{lv:.0%} prodaj {fr:.0%}" for lv, fr in cfg.get("tp", []))
-        b.append(f"<p class=mut>Pravila: ulog ${cfg.get('size_usd')}, stop loss {cfg.get('sl', 0):.0%}, take profit {esc(tps)}, "
-                 f"trailing {cfg.get('trail', 0):.0%} od vrha nakon +{cfg.get('trail_after', 0):.0%}, najdulje "
-                 f"{cfg.get('max_hold_h')} h. Sve u <a href=/criteria#paper>Kriterijima</a>.</p>")
+        try:
+            from exits import learn as xl
+            rules = xl.describe(xl.params_of(cfg))
+        except Exception:
+            rules = ""
+        b.append(f"<p class=mut>Ulog ${cfg.get('size_usd')}. Izlaze bira naučeni skup pravila klase tokena (stranica "
+                 f"<a href=/izlazi>Izlazi</a>); bez naučenog skupa vrijedi osnovni: {esc(rules)}. "
+                 "Sve u <a href=/criteria#paper>Kriterijima</a>.</p>")
 
     closed = [t for t in trades if t["status"] == "closed"]
     b.append(_curve(closed, cfg.get("bankroll_usd", 0)))

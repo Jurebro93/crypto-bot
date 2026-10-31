@@ -17,5 +17,6 @@
  "rotation_min_tokens": 3,
  "followup": {"per_run": 1, "max_items": 25, "after_h": 1, "again_h": 4, "max_age_h": 24},
  "timeline": {"every_h": 1, "kols": 12, "max_items": 40, "min_calls": 2, "min_followers": 5000, "refresh_d": 1},
- "watch": {"size": 4, "min_calls": 5, "max_prepump": 0.3, "min_hit": 0.5, "resync_h": 6}
+ "watch": {"size": 4, "min_calls": 5, "max_prepump": 0.3, "min_hit": 0.5, "resync_h": 6},
+ "sessions": {"zone_min_posts": 12, "shrink_n": 30, "factor_min": 0.7, "factor_max": 1.3, "hours_backfill": 15}
 }

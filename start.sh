@@ -13,6 +13,10 @@ done
 ln -sfn "$DATA_DIR/output" output
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
+# web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
+# Started first so the page is back as soon as possible after a deploy (it only reads the databases).
+if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
+
 # HTTP cache shares the 1 GB disk with the databases: trim it before anything else starts (a full disk makes
 # every SQLite write fail and the first loop to crash restarts the service), then every hour
 prune_cache() {
@@ -66,13 +70,12 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 python3 run_usage.py loop --every 15 &
 
 python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
+python3 run_exits.py loop &         # once a day: re-learn exit rules per class from price paths, guarded, rollback
 # trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
 python3 run_market.py loop --every 60 &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
-# web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it)
-if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 
 wait -n   # if any loop dies, exit so Render restarts the whole worker
 exit 1

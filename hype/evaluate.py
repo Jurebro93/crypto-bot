@@ -24,9 +24,11 @@ def outcomes(con, horizon_h=24, hit=1.0, rug_liq=0.2, now=None):
             continue
         path = [p / price - 1 for _, p, _ in snaps if p]
         max_ret, end_ret = max(path), path[-1]
+        # second-highest snapshot: one wick (or a dust print) does not make a pump; the retrospective used this
+        max2_ret = sorted(path)[-2] if len(path) >= 2 else max_ret
         rug = bool(liq) and (snaps[-1][2] or 0) < rug_liq * liq
         out.append({"token": token, "symbol": symbol, "ts": ts, "score": score, "features": json.loads(feats),
-                    "path": path, "max_ret": max_ret, "end_ret": -1.0 if rug else end_ret,
+                    "path": path, "max_ret": max_ret, "max2_ret": max2_ret, "end_ret": -1.0 if rug else end_ret,
                     "hit": max_ret >= hit, "rug": rug})
     return out
 
