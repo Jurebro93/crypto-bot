@@ -28,6 +28,10 @@ FEATURE = {
     "put_brzina": "log rast mcapa po satu od prve snimke (0,7/h = 1)",
     "put_skokovitost": "udio ukupnog rasta u jednom koraku (1 = sve odjednom)",
     "put_zadrzavanje": "mcap prema vrhu (1 = na vrhu)",
+    "snaga_volumen": "volumen zadnjeg sata prema najboljem satu u 6 h pulsa (1 = još na vrhu)",
+    "snaga_txn": "transakcije po satu prema najboljem satu u 6 h (1 = drži ritam)",
+    "rast_holdera": "rast broja holdera po satu (10 %/h = 1), Helius/pump.fun očitanja",
+    "organski": "novi holderi po transakciji (0,3 = 1): wash-trading vrti transakcije bez novih holdera",
     "turnover": "volumen zadnjeg sata / likvidnost (3x = 1)",
     "buy_pressure": "udio kupnji u zadnjem satu (iznad 50%)",
     "momentum": "rast cijene u 1 h (+200% = 1)",
@@ -414,6 +418,23 @@ def token(mint, qs):
             b.append(f"<p>Trejd #{t['id']}: {esc(t['status'])}, povrat {(t['ret'] or 0):+.0%}, max {(t['max_ret'] or 0):+.0%}, "
                      f"izlaz {esc(t['exit_reason'] or '–')}</p>")
         b.append("</div></details>")
+
+    # pulse: what the token did after it earned attention (retained in every scan)
+    pl = data.token_pulse(mint)
+    if pl:
+        from hype import pulse as hpulse
+        sf = hpulse.strength(pl)
+        hold = [x for x in pl if x["holders"]]
+        b.append(sec("puls", "6. Puls (osvježavanje svaka 2 min)",
+                     (hpulse.describe(sf) or f"{len(pl)} očitanja") + (f" · holderi {hold[-1]['holders']}" if hold else "")))
+        b.append(tdesc("Očitanja za token koji je stigao do razine 1: ostaje u svakom skenu dok god je zanimljiv, pa su ocjena "
+                       "i snaga svježi. Najnovije prvo; holderi iz Heliusa svakih 30 min ili s pump.fun ploče.")
+                 + table(["Vrijeme", ("Mcap", "n"), ("Vol 5 min", "n"), ("Vol 1 h", "n"), ("Kupnje 1 h", "n"), ("Prodaje 1 h", "n"),
+                          ("Holderi (puls)", "n")],
+                         [[ts(x["ts"]), usd(x["mcap"]), usd(x["vol_m5"]), usd(x["vol_h1"]), num(x["buys_h1"]), num(x["sells_h1"]),
+                           (f"{x['holders']} <span class=mut>{esc(x['holders_src'] or '')}</span>", x["holders"], "n") if x["holders"] else num(None)]
+                          for x in pl[::-1][:48]]))
+        b.append("</details>")
 
     # wallets on this token
     sg = data.sightings(token=mint)
