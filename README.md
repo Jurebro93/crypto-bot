@@ -220,7 +220,7 @@ Uz `APIFY_TOKEN` skener koristi i plaćene izvore. Svaki ide kroz zaštitu budž
 | X buzz | `apidojo/tweet-scraper` | tweetovi po CA i $tickeru za top kandidate | `x_buzz` |
 | X trendovi | `karamelo/twitter-trends-scraper` | trending teme | `x_trend` (ime tokena = trend) |
 | Google Trends | `apify/google-trends-scraper` | rast pretrage imena (24 h vs 6 dana), 1 token po prolazu | `search_trend` |
-| GMGN | `muhammetakkurtt/gmgn-copytrade-wallet-scraper` | 200 profitabilnih walleta dnevno, ocijenjeni u `smart_wallets` | `smart_money` |
+| GMGN | `muhammetakkurtt/gmgn-copytrade-wallet-scraper` | 200 profitabilnih walleta tjedno (~$0.80 po vrsti, ~$7/mj), ocijenjeni u `smart_wallets` | `smart_money` |
 | KOL tracker | `xquik/x-twitter-crypto-tracker` | tweetovi odabranih KOL-ova u realnom vremenu, preko webhooka `/hook/kol` | `kol_x` |
 
 Ocjena je ponderirani prosjek samo izmjerenih značajki: provjera koja nije rađena (npr. X buzz za token izvan top 5) ne ulazi u nazivnik.
