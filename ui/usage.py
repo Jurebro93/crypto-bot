@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 
+from ui import labels
 from ui.html import ago, badge, bar, esc, num, table, tdesc, ts
 from usage import meter, watch
 
@@ -39,12 +40,13 @@ def disk_html():
         return ""
     free_pct = du.free / du.total if du.total else 0
     level = "ok" if free_pct > 0.2 else "warn" if free_pct > 0.08 else "crit"
-    parts = [("HTTP cache", http.CACHE_DIR)] + [(f, os.path.realpath(os.path.join(HERE, f)))
+    from ui.labels import db as _db
+    parts = [("Spremljeni odgovori API-ja (cache)", http.CACHE_DIR)] + [(_db(f), os.path.realpath(os.path.join(HERE, f)))
                                                  for f in sorted(os.listdir(HERE)) if f.endswith(".db")] \
-        + [("output/", os.path.realpath(os.path.join(HERE, "output")))]
+        + [("Izvještaji", os.path.realpath(os.path.join(HERE, "output")))]
     rows = sorted(((n, _size(p)) for n, p in parts if os.path.exists(p)), key=lambda x: -x[1])
-    return ("<h2>Disk</h2>" + tdesc(f"Trajni disk ({esc(data_dir)}): baze, cache i izvještaji. Pun disk ruši svako "
-                                    f"spremanje. Cache se sam čisti na {http.CACHE_MAX_MB:.0f} MB i briše sve starije od "
+    return ("<h2>Disk</h2>" + tdesc(f"Trajni disk na serveru: svi podaci bota, spremljeni odgovori i izvještaji. Pun disk ruši svako "
+                                    f"spremanje. Spremljeni odgovori se sami čiste na {http.CACHE_MAX_MB:.0f} MB i briše sve starije od "
                                     f"{http.CACHE_MAX_AGE // 86400} dana.")
             + f'<div class=card>{badge({"ok": "OK", "warn": "malo mjesta", "crit": "skoro pun"}[level],
                     {"ok": "good", "warn": "warn", "crit": "bad"}[level])} '
@@ -105,7 +107,7 @@ def _service(con, service, cfg):
     acc = (f"Očitanje s računa {ago(st['account_ts'])[0]}" + (f", limit računa {f(st['account_limit'])}" if st["account_limit"] else "")
            + f"; bot je sam izbrojao {f(st['own'])} ovaj ciklus." if st["account_ts"] else
            "Nema očitanja s računa, brojke su samo ono što je bot sam izbrojao"
-           + (" (za Helius dodaj HELIUS_PROJECT_ID u Render env)." if service == "helius" else "."))
+           + (" (za Helius treba ID projekta u postavkama servera na Renderu)." if service == "helius" else "."))
     grid = "".join(f'<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>' for v, l in stats)
     # last 14 days and top spenders
     now = time.time()
@@ -119,7 +121,7 @@ def _service(con, service, cfg):
              for d, a in reversed(days)]
     top = con.execute("SELECT script, method, SUM(calls), SUM(errors), SUM(amount) FROM usage WHERE service=? AND hour>=? "
                       "GROUP BY script, method ORDER BY 5 DESC LIMIT 25", (service, int(now) - 86400)).fetchall()
-    trows = [[esc(s), f"<code>{esc(m)}</code>", num(n), num(e), (f(a), a, "n")] for s, m, n, e, a in top]
+    trows = [[esc(labels.script(s)), esc(labels.call(m)), num(n), num(e), (f(a), a, "n")] for s, m, n, e, a in top]
     name = "Helius" if service == "helius" else "Apify"
     unit = "kredita" if service == "helius" else "USD"
     return (f"<h2>{name}</h2><div class=grid>{grid}</div><p class=mut>{esc(acc)}</p>"
@@ -127,8 +129,9 @@ def _service(con, service, cfg):
             + tdesc(f"Ono što je bot sam izbrojao po danu (UTC). Kvota je {f(st['fair_day'])}/dan da budžet traje cijeli ciklus.")
             + table(["Dan", ("Potrošeno", "n"), ""], drows)
             + "</div><div><h3>Tko troši (zadnja 24 h)</h3>"
-            + tdesc("Skripta i vrsta poziva. Greške su 429/5xx odgovori; puno grešaka znači petlju koja ponavlja.")
-            + table(["Skripta", "Poziv", ("Poziva", "n"), ("Grešaka", "n"), (unit.capitalize(), "n")], trows,
+            + tdesc("Dio bota i vrsta poziva. Greške su odbijeni pozivi (preopterećenje ili potrošen limit); puno grešaka "
+                    "znači da nešto ponavlja pozive.")
+            + table(["Dio bota", "Poziv", ("Poziva", "n"), ("Grešaka", "n"), (unit.capitalize(), "n")], trows,
                     empty="Još nema izbrojanih poziva.") + "</div></div>")
 
 
@@ -139,7 +142,7 @@ def page(qs):
             "i upozorenja kad nešto curi ili raste prebrzo. Brojke s računa osvježavaju se svakih 15 min.</p>")
     head += disk_html()
     if con is None:
-        return "Potrošnja", head + '<div class=empty>Još nema usage.db: bot još nije napravio nijedan plaćeni poziv.</div>'
+        return "Potrošnja", head + '<div class=empty>Bot još nije napravio nijedan plaćeni poziv.</div>'
     try:
         cfg = watch.config()
         al = watch.evaluate(con, cfg)
@@ -152,10 +155,10 @@ def page(qs):
                 + tdesc("Svako upozorenje koje je provjera svakih 15 min vidjela: kad se prvi i zadnji put pojavilo.")
                 + table(["Razina", "Upozorenje", ("Detalj", "wrap"), "Prvi put", "Zadnji put"], hrows,
                         empty="Još nije bilo upozorenja.")
-                + "<p class=mut>Pragovi: <code>usage/budget.json</code>. Pravila: budžet nestaje prije kraja ciklusa; "
-                  "skripta u 2 h potroši 4x više nego inače (ili 6x ravnomjernu satnu kvotu); dnevna potrošnja raste "
+                + "<p class=mut>Kada se pali upozorenje: budžet bi nestao prije kraja ciklusa; "
+                  "neki dio bota u 2 h potroši 4x više nego inače (ili 6x ravnomjernu satnu kvotu); dnevna potrošnja raste "
                   "1.5x svaki dan 3 dana zaredom; račun raste brže nego što bot broji (troši nešto izvan bota); "
-                  "puno 429/5xx grešaka.</p>")
+                  "puno odbijenih poziva.</p>")
     finally:
         con.close()
     return "Potrošnja", body

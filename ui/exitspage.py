@@ -82,7 +82,14 @@ def _live_by_session():
 
 ENTRY = {"krivulja_10k": "na krivulji, prvi put $10k mcap", "krivulja_20k": "na krivulji, prvi put $20k mcap",
          "krivulja_40k": "na krivulji, prvi put $40k mcap", "graduacija": "u trenutku graduacije",
-         "100k": "prvi put $100k mcap nakon graduacije", "live": "naši stvarni kandidati (paper.db)"}
+         "100k": "prvi put $100k mcap nakon graduacije", "live": "naši stvarni kandidati iz demo tradinga"}
+
+
+def _note(n):
+    import re
+    n = str(n or "")
+    m = re.match(r"premalo putanja \((\d+) < (\d+)\)", n)
+    return f"premalo putanja ({m.group(1)} od potrebnih {m.group(2)})" if m else n
 
 
 def page(qs):
@@ -99,8 +106,8 @@ def page(qs):
          f"napravili 10x+, a svako pravilo se pomakne najviše {ecfg['max_steps']} koraka dnevno. Ako live tradeovi s novim "
          "pravilima prođu lošije nego što bi prošla prethodna, sam se vraća na prethodna.</p>"]
     if not ecfg.get("enabled"):
-        b.append("<div class=card>" + badge("isključeno", "bad") + " Učenje izlaza je isključeno "
-                 "(<code>exits/config.json enabled</code>); svi koriste paper/config.json.</div>")
+        b.append("<div class=card>" + badge("isključeno", "bad") + " Učenje izlaza je isključeno; svi demo trejdovi "
+                 "koriste osnovna pravila.</div>")
 
     prof = state.get("profiles", {})
     rows = []
@@ -122,7 +129,8 @@ def page(qs):
         cmp_rows, kol = _compare()
     except Exception as e:
         cmp_rows, kol = [], None
-        b.append(f"<div class=card>Usporedba se ne može izračunati: {esc(str(e))}</div>")
+        print(f"izlazi: usporedba nije uspjela: {type(e).__name__}: {e}")
+        b.append("<div class=card>Usporedba se trenutno ne može izračunati; pokušat će ponovno pri sljedećem osvježavanju.</div>")
     if cmp_rows:
         b.append("<h2>Osnovna vs. naučena pravila, po točki ulaza</h2>" + tdesc(
             "Ista putanja, dva skupa pravila. Izlazi ne mogu popraviti loš ulaz: kod graduacije 81% tokena padne 30%+ u prvom "
@@ -159,9 +167,9 @@ def page(qs):
         b.append("<h2>Zadnja učenja</h2>" + table(["Kada", "Klasa", ("Putanja", "n"), ("Live", "n"), "Odluka", "Zašto"], [
             [f"{dt.datetime.fromtimestamp(r['ts']):%d.%m. %H:%M}", klasab(i["klasa"]) if i["klasa"] != "default" else "sve",
              num(i.get("n")), num(i.get("n_live")),
-             badge("primijenjeno", "good") if i.get("applied") else badge("rollback", "bad") if i.get("rollback") else badge("bez promjene"),
-             esc(i.get("note") or "")] for r in reversed(runs) for i in r["items"]]))
+             badge("primijenjeno", "good") if i.get("applied") else badge("vraćeno na staro", "bad") if i.get("rollback") else badge("bez promjene"),
+             esc(_note(i.get("note")))] for r in reversed(runs) for i in r["items"]]))
     else:
-        b.append("<div class=card>Učenje još nije pokrenuto; na serveru ide jednom dnevno u "
-                 f"{esc(ecfg['run_at_utc'])} UTC (<code>run_exits.py loop</code>).</div>")
+        b.append("<div class=card>Učenje još nije pokrenuto; bot ga radi sam jednom dnevno u "
+                 f"{esc(ecfg['run_at_utc'])} UTC.</div>")
     return "Izlazi", "".join(b)

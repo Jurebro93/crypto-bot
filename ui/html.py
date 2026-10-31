@@ -2,7 +2,6 @@
 import contextvars
 import datetime as dt
 import html
-import json
 import os
 import time
 from urllib.parse import quote
@@ -44,25 +43,25 @@ INTRO = {
     "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar događaja s hype ocjenom i tokeni koje je DexScreener našao "
                 "za svaki (pravi vs. kopije).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
     "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
-                 "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su značajka u hype ocjeni i T1 provjeri; "
+                 "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su signal u hype ocjeni i T1 provjeri; "
                  "rotacijski devovi su upozorenje."),
     "/wallet/": ("Jedan wallet do detalja", "Trejdovi, PnL, tokeni u kojima je bio rano, oznake.",
-                 "Dokaz iza značajki smart money i klastera na stranici tokena."),
+                 "Dokaz iza signala smart money i klastera na stranici tokena."),
     "/token/": ("Jedan token kroz sve slojeve", "Šansa, confidence, klasa i razina, Za/Protiv, pa svaki sloj (event, hype, rug, "
                 "demo, walleti) sklopljen sa sažetkom.", "Mjesto gdje se svaki broj s Pregleda može provjeriti do izvora."),
     "/paper": ("Bi li bot zaradio da trguje", "Demo trgovanje bez novca: ulazi po pravilima, izlazi, rezultat, dnevni pregled "
-               "s greškama i lekcijama, kalibracija confidencea.", "Ishodi demo trejdova hrane petlju učenja; pravi trading "
-               "(run_trade) samo preslikava ove ulaze."),
+               "s greškama i lekcijama, kalibracija confidencea.", "Bot iz ishoda demo trejdova uči; pravi trading "
+               "samo preslikava ove ulaze."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
     "/prijedlozi": ("Što bi alat trebao raditi drugačije", "Prijedlozi korisnika i njihov status.", "Ulaz za sljedeće faze razvoja."),
-    "/learn": ("Što alat uči iz ishoda", "Skok po klasi, lift značajki, udio skokova po rasponu sirovih vrijednosti, parovi, "
-               "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara petlju: ishodi iz Pregleda i Demo tradinga "
+    "/learn": ("Što alat uči iz ishoda", "Skok po klasi, koliko koji signal pomaže, udio skokova po rasponu vrijednosti, parovi signala, "
+               "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara krug: ishodi iz Pregleda i Demo tradinga "
                "mijenjaju težine kojima skener ocjenjuje sutra."),
     "/criteria": ("Pravila i težine, uživo iz koda", "Svaki prag i težina po modulu: eventi, DexScreener, klase i razine, hype, "
                   "rug filter, walleti, confidence, demo.", "Referenca: kad te zanima zašto je broj takav kakav jest."),
     "/market": ("Je li tržište vruće ili hladno", "Volumen po launchpadima i Solana DEX-u (DefiLlama), režim 0-100.",
-                "Kontekstna značajka market_regime u hype ocjeni; težinu joj uči petlja."),
+                "Vrućina tržišta je jedan od signala u hype ocjeni; koliko vrijedi, bot uči sam."),
     "/usage": ("Koliko trošimo i gdje curi", "Helius krediti i Apify dolari po modulu, dnevno i mjesečno, upozorenja.",
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
@@ -71,7 +70,7 @@ INTRO = {
                "volumena i kupnji, kupci preko Heliusa usporedno s registrom walleta, korelacija s približavanjem eventa.",
                "Nastavak Eventa: pokazuje skuplja li se volumen i smart money prije eventa, prije nego token uđe u skener."),
     "/kol": ("Tko zove tokene i što se nakon toga dogodi", "KOL-ovi i influenceri s X-a i Telegrama, njihovi pozivi s linkovima, "
-             "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Značajka koordiniranog poziva u hype ocjeni "
+             "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Signal koordiniranog poziva u hype ocjeni "
              "i izvor rotacijskih dev walleta."),
 }
 
@@ -365,4 +364,5 @@ def modal():
 
 
 def jsonblock(o):
-    return f"<details><summary>Sirovi podaci (JSON)</summary><pre>{esc(json.dumps(o, indent=1, ensure_ascii=False))}</pre></details>"
+    """Raw data dumps are not for the trader: kept as a no-op so old call sites stay valid."""
+    return ""

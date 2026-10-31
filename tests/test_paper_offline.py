@@ -125,7 +125,9 @@ class PaperReview(unittest.TestCase):
         th = [s for s in rep["suggestions"] if "min_score" in s.get("change", {})]
         self.assertTrue(th and th[0]["change"]["min_score"] < 50, rep["suggestions"])
         md = review.to_md(rep, cfg)
-        self.assertIn("Prijedlozi", md)
+        self.assertIn("Moguća promjena: Najmanja ocjena za ulaz", md)
+        self.assertNotIn("run_paper.py", md)
+        self.assertNotIn(".json", md)
         json.dumps(rep, default=str)
 
 

@@ -7,8 +7,8 @@ are cached for 60 s by dexscreener/client.py, so polling does not add API load).
 import json
 import time
 
-from ui import confidence, data
-from ui.html import tdesc, ago, badge, esc, filt, jsonblock, num, scorecell, signed, table, th, tlink, ts, usd, verdict
+from ui import confidence, data, labels
+from ui.html import tdesc, ago, badge, esc, filt, num, scorecell, signed, table, th, tlink, ts, usd, verdict
 
 REFRESH_S = 15
 EXIT = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven": "breakeven nakon TP", "time": "isteklo vrijeme",
@@ -73,7 +73,7 @@ def snapshot():
                      "size": t["size_usd"], "entry": entry, "price": price, "move": price / entry - 1 if price and entry else None,
                      "pnl": pnl, "ret": ret, "max": t["max_ret"], "min": t["min_ret"], "left": pos.get("left", 1.0),
                      "sl": (tc.get("sl_after_tp", 0.0) if pos.get("tp_done") else tc.get("sl")) if not pos.get("bag") else None,
-                     "next_tp": tp[0][0] if tp else None, "profile": tc.get("exit_profile") or "config.json",
+                     "next_tp": tp[0][0] if tp else None, "profile": labels.profile(tc.get("exit_profile")),
                      "liq": liq, "src": src, "mc_in": t.get("entry_mcap"),
                      "mc_now": t["entry_mcap"] * price / entry if price and entry and t.get("entry_mcap") else None,
                      "dca": dca_open.get(t["id"], {}).get("reason")})
@@ -187,17 +187,17 @@ def why_taken(c):
 def lesson(t, c):
     """What happened and what the daily review (paper/review.py) does with this kind of outcome."""
     ret, mx = t["ret"] or 0, t["max_ret"] or 0
-    top = ", ".join(_top((c or {}).get("features"))) or "-"
+    top = ", ".join(labels.feat_low(k) for k in _top((c or {}).get("features"))) or "-"
     ex = t["exit_reason"] or ""
     if t["status"] == "open":
         return "<span class=mut>još otvoreno</span>"
     if ret > 0:
-        return (f"<span class=pos>Pobjeda {ret:+.0%}</span> ({esc(EXIT.get(ex, ex))}). Jaki signali pri ulazu: {esc(top)}. "
+        return (f"<span class=pos>Pobjeda {ret:+.0%}</span> ({esc(labels.exit_reason(ex))}). Jaki signali pri ulazu: {esc(top)}. "
                 "<span class=mut>Ishod ulazi u učenje težina: signali koji se ponavljaju kod pobjednika dobivaju na težini.</span>")
     if ex == "rug":
         return (f"<span class=neg>Rug {ret:+.0%}.</span> Rug filter je rekao: {esc((c or {}).get('rug_verdict') or 'nije provjeren')}. "
-                "<span class=mut>Lekcija: dnevni pregled broji rugove po presudi; kad barem pola od 5+ tokena s istom presudom "
-                "rugne, predlaže da se ta presuda blokira.</span>")
+                "<span class=mut>Lekcija: dnevni pregled broji rugove po presudi; kad barem pola od 10+ tokena s istom presudom "
+                "rugne, bot sam prestaje kupovati tokene s tom presudom.</span>")
     if ex == "stop_loss" and mx < 0.15:
         late = ((c or {}).get("features") or {}).get("momentum", 0) >= 0.5
         if late:
@@ -205,16 +205,15 @@ def lesson(t, c):
                     "zadnjem satu, tj. vrh. <span class=mut>Lekcija: pregled testira viši prag ulaza, a učenje težina "
                     "smanjuje težinu momentuma ako gubitnici redovno imaju jak momentum.</span>")
         return (f"<span class=neg>Stop loss {ret:+.0%}</span>, nikad iznad {mx:+.0%}. Signali ({esc(top)}) nisu predvidjeli rast. "
-                "<span class=mut>Lekcija: ishod ulazi u logističku regresiju težina; signali jaki kod gubitnika gube "
-                "težinu.</span>")
+                "<span class=mut>Lekcija: bot pri dnevnom učenju smanjuje težinu signala koji su jaki kod gubitnika.</span>")
     if mx >= 0.5 and ret <= 0.05:
         return (f"<span class=neg>Profit vraćen:</span> bio {mx:+.0%}, zatvoren {ret:+.0%}. <span class=mut>Lekcija: "
-                "pregled isprobava stroži trailing stop i raniji take profit na svim trejdovima i predlaže ga ako je bolji "
-                "i na starijoj i na novijoj polovici podataka.</span>")
+                "bot uči izlaze po klasi tokena: stroži trailing stop ili raniji take profit uzima sam ako su bolji "
+                "i na starijim i na novijim podacima.</span>")
     if ex == "time":
         return (f"<span class=neg>Ništa se nije dogodilo</span> ({ret:+.0%} nakon isteka vremena). <span class=mut>Lekcija: "
-                "pregled testira kraće držanje (6 ili 12 h) da novac ne stoji.</span>")
-    return (f"<span class=neg>Gubitak {ret:+.0%}</span> ({esc(EXIT.get(ex, ex))}). <span class=mut>Ishod ulazi u dnevni "
+                "bot pri učenju izlaza testira kraće držanje da novac ne stoji.</span>")
+    return (f"<span class=neg>Gubitak {ret:+.0%}</span> ({esc(labels.exit_reason(ex))}). <span class=mut>Ishod ulazi u dnevni "
             "pregled i učenje težina.</span>")
 
 
@@ -225,6 +224,62 @@ def suggestions():
         if sg or r["data"]:
             return r["day"], sg, (r["data"] or {}).get("mistakes") or []
     return None, [], []
+
+
+def weights_lines(hours=36):
+    """One plain sentence per token class about the last daily re-fit of the hype score weights (learn/)."""
+    try:
+        import sqlite3
+        from learn import store as lstore
+        con = sqlite3.connect(f"file:{data.HYPE_DB}?mode=ro", uri=True, timeout=10)
+        con.row_factory = sqlite3.Row
+        runs = lstore.runs(con, None, 40)
+        con.close()
+    except Exception:
+        return []
+    from ui.learnpage import HR, note_hr
+    seen, out = set(), []
+    for r in runs:
+        if r["klasa"] in seen or r["ts"] < time.time() - hours * 3600:
+            continue
+        seen.add(r["klasa"])
+        k = HR.get(r["klasa"], r["klasa"])
+        if r["applied"]:
+            out.append(f"{k}: bot je ažurirao težine hype ocjene na temelju {r['n']} tokena ({note_hr(r['note'])}).")
+        else:
+            out.append(f"{k}: težine ostaju iste, {note_hr(r['note'])}.")
+    return out
+
+
+def learned_html():
+    """"Što je bot naučio": what the daily review changed by itself, what it only observed, and the weight re-fit.
+    Everything in plain words: nothing here asks for a manual step."""
+    from ui.labels import plain
+    day, sg, _ = suggestions()
+    rep = next((r["data"] for r in data.paper_reviews() if r["day"] == day), None) or {}
+    auto = rep.get("auto")
+    items = []
+    if auto:
+        items += [f"<li class={'good' if a.get('kind') == 'primijenjeno' else 'bad' if a.get('kind') == 'vraćeno' else ''}>"
+                  f"{esc(plain(a.get('text')))}</li>" for a in auto]
+    # observations without a rule change (and, in reviews from before automatic changes, the old suggestions)
+    for x in sg:
+        if x.get("weights") or (auto is not None and x.get("change")):
+            continue
+        t = plain(x.get("text"))
+        if t:
+            items.append(f"<li>{esc(('Opažanje: ' if not x.get('change') else 'Primijećeno: ') + t)}</li>")
+    wl = weights_lines()
+    items += [f"<li>{esc(t)}</li>" for t in wl]
+    if not items:
+        if not day:
+            return ""
+        return (f"<p class=mut>Dnevni pregled {esc(day)}: bez promjena. Premalo podataka ili nijedna promjena nije bila "
+                "bolja i na starijim i na novijim trejdovima.</p>")
+    return (f"<div class=card><b>Što je bot naučio{(' (dnevni pregled ' + esc(day) + ')') if day else ''}:</b>"
+            f"<ul class=r>{''.join(items)}</ul><span class=mut>Bot sve promjene radi sam, uz zaštite: mijenja tek kad "
+            "ima dovoljno tokena i kad je novo bolje i na starijim i na novijim podacima, a ako se kasnije pokaže lošije, "
+            "sam se vraća na staro.</span></div>")
 
 
 def _calibration(trades, cands):
@@ -270,7 +325,7 @@ def summary_html(limit=5):
             why = c.get("reason") or ""
         return (f"<li class={'good' if (t['pnl_usd'] or 0) > 0 else 'bad'}>{tlink(t['token'], t['symbol'])} "
                 f"<b class={cls(t['pnl_usd'] or 0)}>{(t['pnl_usd'] or 0):+.2f} $ ({(t['ret'] or 0):+.0%})</b> "
-                f"<span class=mut>· {esc(EXIT.get(t['exit_reason'] or '', t['exit_reason'] or ''))}</span>"
+                f"<span class=mut>· {esc(labels.exit_reason(t['exit_reason']))}</span>"
                 f"<div style='font-size:12px'><b>Zašto:</b> {esc(why)}</div>"
                 f"<div style='font-size:12px'>{lesson(t, c)}</div></li>")
     b.append("<div class=two><div><h3>Najveće pobjede</h3>"
@@ -279,14 +334,7 @@ def summary_html(limit=5):
              + "</div><div><h3>Najveći porazi</h3>"
              + ("<ul class=r>" + "".join(item(t) for t in sorted(losses, key=lambda t: t["pnl_usd"] or 0)[:limit]) + "</ul>"
                 if losses else "<p class=mut>Još nema poraza.</p>") + "</div></div>")
-    day, sg, _ = suggestions()
-    if sg:
-        b.append(f"<div class=card><b>Što je alat naučio (dnevni pregled {esc(day)}):</b><ul class=r>"
-                 + "".join(f"<li>{esc(x.get('text'))}</li>" for x in sg) + "</ul><span class=mut>Prijedlozi se primjenjuju "
-                 "naredbom <code>run_paper.py apply</code>.</span></div>")
-    elif day:
-        b.append(f"<p class=mut>Dnevni pregled {esc(day)} nije predložio promjene: premalo podataka ili nijedna promjena "
-                 "nije bila bolja i na starijim i na novijim trejdovima.</p>")
+    b.append(learned_html())
     return "".join(b) + "<p><a href=/paper>Svi demo trejdovi s objašnjenjima →</a></p>"
 
 
@@ -324,14 +372,13 @@ def page(qs):
     trades = data.paper_trades()
     cands = data.paper_candidates()
     cfg = _cfg()
-    b = ["<h1>Demo trading</h1><p class=mut>Trgovanje bez pravog novca (<code>run_paper.py</code>). Otvorene pozicije se "
+    b = ["<h1>Demo trading</h1><p class=mut>Trgovanje bez pravog novca. Otvorene pozicije se "
          f"ovdje preračunavaju po živoj cijeni s DexScreenera svakih {REFRESH_S} s, uz fee i slippage kao pri pravoj "
          "prodaji. Klik na token otvara DexScreener, ⓘ otvara analizu tokena. "
          "<span id=upd class=mut></span></p><div class=grid id=cards></div>"]
     b.append(_learning_box(trades, cfg))
     if not (trades or cands):
-        b.append("<div class=card>Još nema demo trejdova. Na Renderu ih pokreće <code>start.sh</code> "
-                 "(<code>run_paper.py run --scan</code>); lokalno pokreni istu naredbu.</div>")
+        b.append("<div class=card>Još nema demo trejdova. Bot ih otvara sam čim neki token prođe pravila ulaza.</div>")
     b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati.") + "<div class=tw><table><thead><tr>"
              + "".join(th(*h) for h in [("Token", ""), ("Otvoreno prije", ""), ("Ulog", "n"), ("Ulazna cijena", "n"),
                                         ("Sada", "n"), ("MC ulaz", "n"), ("MC sada", "n"), ("Pomak", "n"), ("PnL $", "n"), ("Povrat", "n"), ("Max", "n"),
@@ -361,7 +408,7 @@ def page(qs):
                       f'{hold:.1f} h · MC {_mc(t.get("entry_mcap"))} → {_mc(t.get("exit_mcap"))}</div>', t["opened_ts"], ""),
                      (f'{signed(t["pnl_usd"])[0]}<div style="font-size:12px">{signed(t["ret"], "{:+.0%}")[0]} · max '
                       f'{(t["max_ret"] or 0):+.0%}</div><div class=mut style="font-size:12px">'
-                      f'{esc(EXIT.get(t["exit_reason"] or "", t["exit_reason"] or ""))}</div>', t["pnl_usd"] or 0, "n"),
+                      f'{esc(labels.exit_reason(t["exit_reason"]))}</div>', t["pnl_usd"] or 0, "n"),
                      (confidence.badge_html(conf), conf, "n") if conf is not None else "–",
                      (why_taken(c), "", "wrap"), (lesson(t, c), "", "wrap")])
     b.append(tdesc('Svaki zatvoreni demo trejd: koliko je zaradio ili izgubio, kolika je bila procjena pri ulazu, zašto je uzet i što alat iz ishoda uči.') + table(["Token", ("PnL $", "n"), ("Confidence pri ulazu", "n"), ("Zašto uzet", "wrap"), ("Ishod i lekcija", "wrap")],
@@ -373,8 +420,8 @@ def page(qs):
              f'<div class=flt>{filt("pc", "Filtriraj token, razlog…")}</div>')
     b.append(table(["Token", "Viđen", "Porijeklo", ("Hype", "n"), "Odluka", ("Razlog", "wrap"), "Rug", ("Mcap", "n"),
                     ("Likvidnost", "n")],
-                   [[tlink(c["token"], c["symbol"]), ago(c["first_ts"]), esc(c["origin"]), scorecell(c["score"]),
-                     badge(c["decision"] or "–", "good" if c.get("trade_id") else ""), (esc(c["reason"] or ""), "", "wrap"),
+                   [[tlink(c["token"], c["symbol"]), ago(c["first_ts"]), esc(labels.source(c["origin"])), scorecell(c["score"]),
+                     badge(labels.decision(c["decision"]), "good" if c.get("trade_id") else ""), (esc(labels.reason(c["reason"])), "", "wrap"),
                      verdict(c["rug_verdict"]), usd(c["mcap"]), usd(c["liquidity"])] for c in cands[:500]], "pc",
                    "Još nema kandidata."))
     revs = data.paper_reviews()
@@ -387,13 +434,17 @@ def page(qs):
                      + (f", pogodak {sm['win_rate']:.0%}" if sm.get("win_rate") is not None else "")
                      + f"; preskočeni koji bi izgubili: {d.get('saved', 0)} (ušteda {d.get('saved_pnl', 0):+.0f} $).</p>")
             if d.get("mistakes"):
-                b.append("<b>Greške:</b><ul class=r>" + "".join(f"<li class=bad>{esc(m['text'])}</li>" for m in d["mistakes"]) + "</ul>")
+                b.append("<b>Greške:</b><ul class=r>" + "".join(f"<li class=bad>{esc(labels.plain(m['text']))}</li>" for m in d["mistakes"]) + "</ul>")
             if d.get("missed"):
                 b.append("<b>Propušteni pobjednici:</b><ul class=r>" + "".join(
-                    f"<li class=warn>{tlink(m['token'], m['symbol'])} do {m['raw_max']:+.0%}, preskočen: {esc(m['reason'])}</li>"
+                    f"<li class=warn>{tlink(m['token'], m['symbol'])} do {m['raw_max']:+.0%}, preskočen: {esc(labels.reason(m['reason']))}</li>"
                     for m in d["missed"]) + "</ul>")
-            b.append("<b>Prijedlozi:</b><ul class=r>" + ("".join(f"<li>{esc(x.get('text'))}</li>" for x in d.get("suggestions") or [])
-                                                     or "<li class=mut>nijedan (premalo podataka ili ništa nije bilo bolje)</li>") + "</ul>")
-            b.append(jsonblock(d))
+            done = [x for x in d.get("auto") or [] if x.get("text")]
+            obs = [labels.plain(x.get("text")) for x in d.get("suggestions") or []
+                   if not x.get("weights") and not (d.get("auto") is not None and x.get("change"))]
+            b.append("<b>Što je bot promijenio ili primijetio:</b><ul class=r>"
+                     + ("".join(f"<li>{esc(labels.plain(x['text']))}</li>" for x in done)
+                        + "".join(f"<li>{esc(t)}</li>" for t in obs if t)
+                        or "<li class=mut>ništa (premalo podataka ili ništa nije bilo bolje)</li>") + "</ul>")
     b.append(f"<script>const REFRESH={REFRESH_S};{JS}</script>")
     return "Demo trading", "".join(b)

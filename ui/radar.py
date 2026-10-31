@@ -138,12 +138,12 @@ def _algo():
     """Plain-language health check of the scoring, from hype/evaluate.py on a read-only connection."""
     con = data._connect(data.HYPE_DB)
     if con is None:
-        return "<p class=mut>Nema baze hype.db.</p>"
+        return "<p class=mut>Hype skener još nije ništa zapisao.</p>"
     try:
         from hype import evaluate
         rows = evaluate.outcomes(con, horizon_h=24, hit=1.0)
     except Exception as e:
-        return f"<p class=mut>Ocjena algoritma nije uspjela: {esc(e)}</p>"
+        return "<p class=mut>Provjera ocjene trenutno nije uspjela; pokušat će ponovno pri sljedećem osvježavanju.</p>"
     finally:
         con.close()
     first = data.q(data.HYPE_DB, "SELECT MIN(ts) t, COUNT(DISTINCT token) n FROM hype_signals")
@@ -161,7 +161,7 @@ def _algo():
     hi = [x for x in buckets if x["bucket"] in ("60-80", "80-100", "40-60")]
     hi_rate = (sum(x["hit_rate"] * x["n"] for x in hi) / sum(x["n"] for x in hi)) if hi else None
     verdict = ("Viša ocjena stvarno znači veću šansu za rast." if hi_rate is not None and hi_rate > base * 1.3 else
-               "Viša ocjena zasad NE predviđa rast bolje od slučaja; težine treba promijeniti." if hi_rate is not None
+               "Viša ocjena zasad NE predviđa rast bolje od slučaja; bot zato sam mijenja težine dok ne počne pogađati." if hi_rate is not None
                else "Još nema tokena s visokom ocjenom da se usporedi.")
     b.append(f"<div class=card><b>{verdict}</b> Od {len(rows)} tokena s poznatim ishodom, {base:.0%} je u 24 h "
              f"barem udvostručilo cijenu"
@@ -170,14 +170,14 @@ def _algo():
                    [[esc(x["bucket"]), (str(x["n"]), x["n"], "n"), (f"{x['hit_rate']:.0%}", x["hit_rate"], "n"),
                      bar(x["hit_rate"] * 100), (f"{x['rug_rate']:.0%}", x["rug_rate"], "n"),
                      (f"{x['median_end']:+.0%}", x["median_end"], "n")] for x in buckets]))
-    from ui.pages import FEATURE
+    from ui.labels import FEATURE_DESC as FEATURE, feat
     lines = []
     for x in sorted(evaluate.feature_lift(rows), key=lambda x: -(x["lift"] or 0)):
         if x["n_strong"] < 8 or x["lift"] is None:
             continue
         word = ("pomaže" if x["lift"] >= 1.3 else "ne pomaže (čak šteti)" if x["lift"] <= 0.7 else "neutralan")
         kind = "good" if x["lift"] >= 1.3 else "bad" if x["lift"] <= 0.7 else ""
-        lines.append(f"<li class={kind}><b>{esc(x['feature'])}</b> {word}: kad je jak, {x['hit_strong']:.0%} tokena "
+        lines.append(f"<li class={kind}><b>{esc(feat(x['feature']))}</b> {word}: kad je jak, {x['hit_strong']:.0%} tokena "
                      f"se udvostruči (inače {x['hit_weak']:.0%}). <span class=mut>{esc(FEATURE.get(x['feature'], ''))}</span></li>")
     if lines:
         b.append("<h3>Koji signali stvarno rade</h3><ul class=r>" + "".join(lines) + "</ul>")
@@ -193,18 +193,19 @@ def _costs():
     try:
         cfg = json.load(open(os.path.join(HYPE_DIR, "apify.json")))
     except Exception:
-        return "<p class=mut>Nema hype/apify.json.</p>"
+        return "<p class=mut>Budžeti za Apify se ne mogu pročitati.</p>"
     day = int(time.time() - 86400)
     spent = {r["source"]: r for r in data.q(data.HYPE_DB, "SELECT source, SUM(cost_usd) c, SUM(items) n, COUNT(*) runs, "
                                                           "MAX(ts) last FROM apify_runs WHERE ts >= ? GROUP BY source", (day,))}
     rows, tot = [], 0
+    from ui.labels import call as _call
     names = {"pumpfun": "pump.fun feedovi", "x_buzz": "X buzz po tokenu", "x_trends": "X trending teme",
-             "google_trends": "Google Trends", "gmgn": "GMGN smart walleti", "kol_monitor": "KOL tracker na X-u"}
+             "google_trends": "Google Trends", "gmgn": "GMGN smart walleti", "kol_monitor": "KOL-ovi uživo na X-u"}
     for src, budget in cfg["daily_usd"].items():
         s = spent.get(src) or {}
         c = s.get("c") or 0
         tot += c
-        rows.append([esc(names.get(src, src)), (f"${c:.2f}", c, "n"), (f"${budget:.2f}", budget, "n"),
+        rows.append([esc(names.get(src) or _call(src)), (f"${c:.2f}", c, "n"), (f"${budget:.2f}", budget, "n"),
                      bar(c, budget or 1, 80), (str(s.get("runs") or 0), s.get("runs") or 0, "n"),
                      ago(s.get("last")) if s.get("last") else "–"])
     month = ""
@@ -215,9 +216,9 @@ def _costs():
                  f"${cfg.get('monthly_reserve_usd', 3)}.</p>")
     except Exception:
         pass
-    return (month + tdesc('Koliko je svaki Apify izvor (X, Telegram, trendovi) potrošio u zadnja 24 h naspram dnevnog budžeta.') + table(["Izvor", ("Potrošeno 24 h", "n"), ("Dnevni budžet", "n"), "", ("Runova", "n"), "Zadnji"], rows)
-            + f"<p class=mut>Ukupno u 24 h ${tot:.2f}. Procjena po cijeni po rezultatu iz Apify Storea; "
-              f"budžeti se mijenjaju u <code>hype/apify.json</code>.</p>")
+    return (month + tdesc('Koliko je svaki Apify izvor (X, Telegram, trendovi) potrošio u zadnja 24 h naspram dnevnog budžeta.') + table(["Izvor", ("Potrošeno 24 h", "n"), ("Dnevni budžet", "n"), "", ("Pokretanja", "n"), "Zadnje"], rows)
+            + f"<p class=mut>Ukupno u 24 h ${tot:.2f}. Procjena po cijeni po rezultatu iz Apify Storea. Kad izvor "
+              f"potroši svoj dnevni budžet, bot ga sam pauzira do sutra.</p>")
 
 
 def page(qs):
@@ -230,8 +231,9 @@ def page(qs):
          "rizicima, narativi, smart money i radi li ocjena. Stranica <a href=/tokens>Svi tokeni</a> je drugo: sve što alat zna o "
          "svakom tokenu iz zadnjih 7 dana, kroz sve analize, poredano po Šansi za skok.</p>"]
     if not rows:
-        b.append("<div class=card><b>Nema svježih signala.</b> Hype skener nije radio u zadnja 3 sata "
-                 "(<code>run_hype.py scan</code> ili <code>run_paper.py run --scan</code>).</div>")
+        b.append("<div class=card><b>Nema svježih signala.</b> Hype skener nije ništa zapisao u zadnja 3 sata. "
+                 "Obično to znači da se server upravo ponovno pokreće (nakon nadogradnje); ako potraje dulje od "
+                 "sat vremena, javi.</div>")
     else:
         last = max(r["ts"] for r in rows)
         strong = [r for r in rows if r["score"] >= 50]

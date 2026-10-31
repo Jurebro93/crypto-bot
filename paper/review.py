@@ -27,6 +27,50 @@ def _mc(x):
     return f"${x:.0f}"
 
 
+def _feat(k):
+    try:
+        from ui.labels import feat_low
+        return feat_low(k)
+    except Exception:
+        return k
+
+
+def _lab(name, k):
+    try:
+        from ui import labels
+        return getattr(labels, name)(k)
+    except Exception:
+        return k
+
+
+def _reason(k):
+    return _lab("reason", k)
+
+
+def _decision(k):
+    return _lab("decision", k)
+
+
+def _source(k):
+    return _lab("source", k)
+
+
+def _exit(k):
+    try:
+        from ui.labels import exit_reason
+        return exit_reason(k)
+    except Exception:
+        return k
+
+
+def _cfg_change(ch):
+    try:
+        from ui.labels import cfg_change
+        return cfg_change(ch)
+    except Exception:
+        return ", ".join(f"{k} {v}" for k, v in ch.items())
+
+
 def _pct(x):
     return f"{x:+.0%}" if x is not None else "?"
 
@@ -91,7 +135,7 @@ def mistakes(trades, cands_by_trade):
     out = []
     for t in trades:
         c = cands_by_trade.get(t["id"], {})
-        top = ", ".join(k for k, v in sorted(c.get("features", {}).items(), key=lambda kv: -kv[1])[:3] if v >= 0.5)
+        top = ", ".join(_feat(k) for k, v in sorted(c.get("features", {}).items(), key=lambda kv: -kv[1])[:3] if v >= 0.5)
         tag = f"{t['symbol']} (#{t['id']}, MC {_mc(t.get('entry_mcap'))} -> {_mc(t.get('exit_mcap'))})"
         rug = c.get("verdict") or "nije provjeren"
         if t["exit_reason"] == "rug":
@@ -104,7 +148,7 @@ def mistakes(trades, cands_by_trade):
                                 + f"Jaki signali: {top or '-'}; rug filter: {rug}."})
         elif (t["max_ret"] or 0) >= 0.5 and (t["ret"] or 0) <= 0.05:
             out.append({"kind": "gave_back", "text": f"{tag}: bio {_pct(t['max_ret'])}, zatvoren {_pct(t['ret'])} "
-                                                     f"({t['exit_reason']}). Profit vraćen."})
+                                                     f"({_exit(t['exit_reason'])}). Profit vraćen."})
         elif t["exit_reason"] == "time" and abs(t["ret"] or 0) < 0.1:
             out.append({"kind": "dead", "text": f"{tag}: ništa se nije dogodilo u {t['hold_h']:.0f} h ({_pct(t['ret'])})."})
     return out
@@ -137,9 +181,9 @@ def suggest(learn, cfg):
             best = (th, res[0], res[1])
     if best and best[0] != cfg["min_score"]:
         new["min_score"] = best[0]
-        sugg.append({"change": {"min_score": best[0]},
-                     "text": f"Prag ulaza {cfg['min_score']} -> {best[0]}: na {best[2]['n']} tokena PnL "
-                             f"{best[1]['pnl']:+.0f} -> {best[2]['pnl']:+.0f} USD, pogodak {best[2]['win']:.0%}."})
+        sugg.append({"change": {"min_score": best[0]}, "n": best[2]["n"],
+                     "text": f"Najmanja ocjena za ulaz {cfg['min_score']} → {best[0]}: na {best[2]['n']} tokena demo "
+                             f"rezultat {best[1]['pnl']:+.0f} → {best[2]['pnl']:+.0f} USD, pogodak {best[2]['win']:.0%}."})
 
     # 2. exits, on what the (possibly new) entry rules would take
     taken = [r for r in learn if would_take(r, new)]
@@ -156,19 +200,21 @@ def suggest(learn, cfg):
         if best and best[1]["pnl"] > base["pnl"] + max(5, abs(base["pnl"]) * 0.1):
             ch = {k: best[0][k] for k in ("sl", "tp", "trail", "max_hold_h") if best[0][k] != new[k]}
             new.update(ch)
-            sugg.append({"change": ch, "text": f"Izlazi {ch}: PnL {base['pnl']:+.0f} -> {best[1]['pnl']:+.0f} USD "
-                                               f"na {best[1]['n']} tokena."})
+            sugg.append({"change": ch, "n": best[1]["n"],
+                         "text": f"Drugačiji izlazi ({_cfg_change(ch)}): demo rezultat {base['pnl']:+.0f} → "
+                                 f"{best[1]['pnl']:+.0f} USD na {best[1]['n']} tokena."})
 
     # 3. rug filter verdicts
     for v in scoreboard([r for r in learn if r["verdict"]], lambda r: [r["verdict"]]):
         if v["key"] not in new["block_verdicts"] and v["n"] >= 5 and v["rug_rate"] >= 0.5:
             new["block_verdicts"] = new["block_verdicts"] + [v["key"]]
-            sugg.append({"change": {"block_verdicts": new["block_verdicts"]},
-                         "text": f"Blokiraj i '{v['key']}': {v['rug_rate']:.0%} od {v['n']} takvih je rugalo."})
+            sugg.append({"change": {"block_verdicts": new["block_verdicts"]}, "n": v["n"],
+                         "text": f"Ne kupovati ni tokene s rug presudom „{v['key']}”: {v['rug_rate']:.0%} od {v['n']} "
+                                 "takvih je rugalo."})
         if v["key"] in new["block_verdicts"] and v["n"] >= 8 and v["rug_rate"] < 0.2 and v["avg_ret"] > 0.1:
             sugg.append({"change": {}, "text": f"Rug filter je prestrog za '{v['key']}': od {v['n']} blokiranih rugalo "
                                                f"je samo {v['rug_rate']:.0%}, prosjek da smo ušli {_pct(v['avg_ret'])}. "
-                                               "Pogledaj pravila ispod (lažni alarmi) i olabavi najčešće."})
+                                               "Najčešći lažni alarmi su popisani u izvještaju."})
 
     # 4. liquidity floor
     for lo in (5000, 20000, 30000):
@@ -176,8 +222,9 @@ def suggest(learn, cfg):
         res = _robust(lambda c: [r for r in learn if would_take(r, c)], new, c2)
         if res:
             new["min_liq"] = lo
-            sugg.append({"change": {"min_liq": lo}, "text": f"Minimalna likvidnost {cfg['min_liq']:.0f} -> {lo}: PnL "
-                                                            f"{res[0]['pnl']:+.0f} -> {res[1]['pnl']:+.0f} USD."})
+            sugg.append({"change": {"min_liq": lo}, "n": res[1]["n"],
+                         "text": f"Najmanja likvidnost ${cfg['min_liq']:,.0f} → ${lo:,}: demo rezultat "
+                                 f"{res[0]['pnl']:+.0f} → {res[1]['pnl']:+.0f} USD na {res[1]['n']} tokena."})
             break
     return sugg, new
 
@@ -192,10 +239,10 @@ def dca_verdict(rows):
     s = dca.summary(done)
     if min(avg) > 0.05:
         return (f"DCA signal se isplatio: {s['closed']} signala, dokup bi u prosjeku dao {_pct(s['avg'])} do izlaza "
-                f"({s['pnl']:+.0f} USD), pozitivno u obje polovice podataka. Vrijedi ga slijediti (ručno ili automatski).")
+                f"({s['pnl']:+.0f} USD), pozitivno u obje polovice podataka. Bot ga i dalje samo bilježi; vrijedi ga uključiti u demo.")
     if max(avg) < 0:
         return (f"DCA signal gubi: {s['closed']} signala, dokup bi u prosjeku dao {_pct(s['avg'])} ({s['pnl']:+.0f} USD), "
-                f"rug {s['rug']:.0%}. Ne kupuj u padu po ovim pravilima; pooštri ih (veći odskok, `dca.bounce`) ili isključi.")
+                f"rug {s['rug']:.0%}. Kupnja u padu se po ovim pravilima ne isplati; bot je zato samo bilježi, ne izvršava.")
     return None
 
 
@@ -231,10 +278,6 @@ def run(con, cfg, hours=24, now=None):
     dca_note = dca_verdict(dca_rows)
     if dca_note:
         sugg.append({"change": {}, "text": dca_note})
-    if fit:
-        sugg.append({"change": {}, "weights": fit["weights"],
-                     "text": f"Nove težine hype ocjene naučene na {fit['n']} tokena (pogodak = 2x) su u "
-                             "paper/weights.suggested.json. Isprobaj: run_hype.py scan --weights paper/weights.suggested.json"})
     n = len(trades)
     return {
         "day": day, "hours": hours, "generated": int(now),
@@ -257,6 +300,7 @@ def run(con, cfg, hours=24, now=None):
         "learn_n": len(learn), "learn_done": sum(r["done"] for r in learn),
         "dca": {"summary": dca_sum, "signals": dca_rows[-20:]},
         "suggestions": sugg, "suggested_config": new_cfg, "weights": fit["weights"] if fit else None,
+        "weights_n": fit["n"] if fit else 0,
     }
 
 
@@ -268,7 +312,7 @@ def to_md(rep, cfg):
                  f"otvoreno {e['unrealized']:+.2f} USD).")
     if s["closed"]:
         L.append(f"Zadnja {rep['hours']:.0f} h: zatvoreno {s['closed']} trejdova, PnL **{s['pnl_usd']:+.2f} USD**, "
-                 f"pogodak {s['win_rate']:.0%}, prosjek {_pct(s['avg_ret'])}. Izlazi: {s['by_exit']}.")
+                 f"pogodak {s['win_rate']:.0%}, prosjek {_pct(s['avg_ret'])}. Izlazi: {', '.join(f'{_exit(k)} {v}' for k, v in s['by_exit'].items())}.")
         L.append(f"Najbolji {s['best']['symbol']} {s['best']['pnl_usd']:+.2f} USD (MC {_mc(s['best'].get('entry_mcap'))} -> "
                  f"{_mc(s['best'].get('exit_mcap'))}), najgori {s['worst']['symbol']} {s['worst']['pnl_usd']:+.2f} USD "
                  f"(MC {_mc(s['worst'].get('entry_mcap'))} -> {_mc(s['worst'].get('exit_mcap'))}).")
@@ -276,11 +320,18 @@ def to_md(rep, cfg):
         L.append(f"Zadnja {rep['hours']:.0f} h: nema zatvorenih trejdova.")
     L.append(f"Otvoreno sada: {s['open']} ({s['open_pnl']:+.2f} USD). Podaci za učenje: {rep['learn_n']} tokena, "
              f"od toga {rep['learn_done']} s punim praćenjem od {cfg['track_h']} h.")
-    L += ["", "## Prijedlozi poboljšanja", ""]
+    L += ["", "## Što je bot naučio i promijenio", ""]
+    auto = rep.get("auto")
+    if auto:
+        L += [f"- {x['text']}" for x in auto]
     if rep["suggestions"]:
-        L += [f"{i}. {x['text']}" for i, x in enumerate(rep["suggestions"], 1)]
-        L += ["", "Prihvati promjene konfiguracije: `python3 run_paper.py apply`"]
-    else:
+        L += [f"- Opažanje: {x['text']}" for x in rep["suggestions"] if not x.get("change")]
+        if auto is None:  # review run on its own (test, manual): changes it would make
+            L += [f"- Moguća promjena: {x['text']}" for x in rep["suggestions"] if x.get("change")]
+    if rep.get("weights_n"):
+        L.append(f"- Težine hype ocjene bot sam ažurira jednom dnevno po klasi tokena, uz zaštite (stranica Učenje); "
+                 f"danas je usporedba napravljena na {rep['weights_n']} tokena.")
+    if not auto and not rep["suggestions"] and not rep.get("weights_n"):
         L.append(f"Nijedna promjena nije dovoljno sigurna (treba barem {MIN_N} tokena i bolji rezultat u obje "
                  "polovice podataka). Ostavljam postavke kako jesu.")
     d = rep.get("dca") or {}
@@ -297,28 +348,28 @@ def to_md(rep, cfg):
     L += ["", "## Propušteni pobjednici", ""]
     if rep["missed"]:
         L += [f"- {m['symbol']}: max {_pct(m['raw_max'])}, naša strategija bi dala {_pct(m['sim_ret'])}. "
-              f"Preskočen jer: {m['reason']} ({m['decision']}). {m['url'] or ''}" for m in rep["missed"]]
+              f"Preskočen jer: {_reason(m['reason'])}. {m['url'] or ''}" for m in rep["missed"]]
     else:
         L.append("- Nijedan preskočeni token nije napravio 2x.")
     L.append(f"\nFilteri su izbjegli {rep['saved']} loših tokena (da smo ušli u sve: {rep['saved_pnl']:+.2f} USD).")
     L += ["", "## Filteri (zadnja 24 h)", "", "| Odluka | n | prosjek da smo ušli | PnL da smo ušli | 2x+ | rug |",
           "| --- | --- | --- | --- | --- | --- |"]
-    L += [f"| {f['key']} | {f['n']} | {_pct(f['avg_ret'])} | {f['pnl_if_all']:+.2f} | {f['winners']} | {f['rug_rate']:.0%} |"
+    L += [f"| {_decision(f['key'])} | {f['n']} | {_pct(f['avg_ret'])} | {f['pnl_if_all']:+.2f} | {f['winners']} | {f['rug_rate']:.0%} |"
           for f in rep["filters"]]
     if rep["verdicts"]:
         L += ["", "## Rug filter: presuda vs. ishod (14 dana)", "", "| Presuda | n | rugalo | prosjek |", "| --- | --- | --- | --- |"]
         L += [f"| {v['key']} | {v['n']} | {v['rug_rate']:.0%} | {_pct(v['avg_ret'])} |" for v in rep["verdicts"]]
     if rep["rug_false_alarms"]:
-        L += ["", "Pravila rug filtera koja su blokirala tokene koji nisu rugali i porasli su 30%+:"]
+        L += ["", "Pravila rug filtera koja su blokirala tokene koji nisu rugali i porasli su 30%+ (lažni alarmi):"]
         L += [f"- {k}: {n}x" for k, n in rep["rug_false_alarms"]]
     if rep["sources"]:
         L += ["", "## Izvori signala (14 dana, tokeni koje bismo uzeli)", "", "| Izvor | n | prosjek | 2x+ | rug |",
               "| --- | --- | --- | --- | --- |"]
-        L += [f"| {x['key']} | {x['n']} | {_pct(x['avg_ret'])} | {x['winners']} | {x['rug_rate']:.0%} |"
+        L += [f"| {_source(x['key'])} | {x['n']} | {_pct(x['avg_ret'])} | {x['winners']} | {x['rug_rate']:.0%} |"
               for x in rep["sources"][:12]]
     if rep["lift"]:
-        L += ["", "## Koji signali pomažu (lift > 1 = jak signal češće daje 2x)", ""]
-        L += [f"- {x['feature']}: lift {x['lift']} (jak u {x['n_strong']} tokena)" for x in rep["lift"]]
+        L += ["", "## Koji signali pomažu (iznad 1 = kad je signal jak, 2x dolazi češće)", ""]
+        L += [f"- {_feat(x['feature'])}: {x['lift']} puta češće (jak u {x['n_strong']} tokena)" for x in rep["lift"]]
     return "\n".join(L) + "\n"
 
 
@@ -332,12 +383,9 @@ def write(rep, out_dir, suggested_path, cfg):
         json.dump(rep, f, indent=1, ensure_ascii=False, default=str)
     with open(suggested_path, "w") as f:
         json.dump(rep["suggested_config"], f, indent=1, ensure_ascii=False)
-    if rep["weights"]:
-        with open(os.path.join(os.path.dirname(suggested_path), "weights.suggested.json"), "w") as f:
-            json.dump(rep["weights"], f, indent=1)
     with open(os.path.join(out_dir, "lessons.md"), "a") as f:  # running log of what was learned, day by day
         f.write(f"\n## {rep['day']}\n" + "".join(f"- {m['text']}\n" for m in rep["mistakes"][:5])
-                + "".join(f"- PRIJEDLOG: {x['text']}\n" for x in rep["suggestions"]))
+                + "".join(f"- {x['text']}\n" for x in rep.get("auto") or []))
     return {"md": base + ".md", "json": base + ".json"}
 
 
@@ -347,5 +395,5 @@ def telegram_summary(rep):
              f"({s['closed']} trejdova" + (f", pogodak {s['win_rate']:.0%})" if s["closed"] else ")")]
     lines += [f"⚠️ {m['text']}" for m in rep["mistakes"][:3]]
     lines += [f"👀 Propušten {m['symbol']} max {_pct(m['raw_max'])} ({m['reason']})" for m in rep["missed"][:2]]
-    lines += [f"💡 {x['text']}" for x in rep["suggestions"][:3]] or ["💡 Bez promjena danas."]
+    lines += [f"💡 {x['text']}" for x in (rep.get("auto") or [])[:3]] or ["💡 Bez promjena danas."]
     return "\n".join(lines)

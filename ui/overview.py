@@ -122,7 +122,7 @@ def sieve_html(hours=24):
     klase = ", ".join(f"{KLASA_HR.get(k, k)} {n}" for k, n in sorted(kl.items(), key=lambda kv: -kv[1]) if k != "?")
     return (f"<p class=mut>Slojevita analiza, zadnja {hours} h: " + " · ".join(parts)
             + f" · <b>{deep}</b> dobilo plaćenu provjeru (T1+). Klase: {esc(klase) or '–'}. "
-            "Pada se samo na mehanici ruga; likvidnost i holderi su značajke koje alat uči, ne pragovi.</p>")
+            "Pada se samo na mehanici ruga; likvidnost i holderi su signali čiju težinu bot uči, ne pragovi.</p>")
 
 
 # ---------- growth ----------
@@ -413,9 +413,11 @@ def page(qs):
     b.append("</details>")
 
     # 5. data status, folded
-    b.append("<details style='margin-top:16px'><summary>Tehničko stanje baza</summary><p class=mut>Koliko redaka ima svaka "
-             "tablica; 0 znači da taj modul još nije ništa zapisao.</p>"
-             + table(["Baza", "Tablica", ("Redaka", "n")], [[esc(d), esc(t), num(n)] for d, t, n in data.tables()])
+    from ui.labels import db as _db, table_name as _tn
+    b.append("<details style='margin-top:16px'><summary>Koliko podataka bot ima</summary><p class=mut>Broj zapisa po "
+             "vrsti podataka; 0 znači da taj dio bota još nije ništa zapisao.</p>"
+             + table(["Dio bota", "Podaci", ("Zapisa", "n")],
+                     [[esc(_db(d)), esc(_tn(t)), num(n)] for d, t, n in data.tables() if t != "sqlite_sequence"])
              + "</details>")
 
     b.append(modal())

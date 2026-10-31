@@ -209,6 +209,7 @@ def html(mint):
     try:
         head, paras = interpret(mint)
     except Exception as e:  # never break the page over the summary
-        return f"<div class=card><span class=mut>Interpretacija nije uspjela: {esc(e)}</span></div>"
+        print(f"narrative {mint}: {type(e).__name__}: {e}")
+        return "<div class=card><span class=mut>Sažetak za ovaj token trenutno se ne može složiti; podaci ispod su potpuni.</span></div>"
     return (f"<div class=card style='border-left:4px solid var(--acc)'><div style='font-size:16px;margin-bottom:6px'>{head}</div>"
             + "".join(paras) + "</div>")

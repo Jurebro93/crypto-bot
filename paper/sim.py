@@ -9,9 +9,18 @@ import os
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 
-def load_config(path=None):
+def load_config(path=None, learned=True):
+    """paper/config.json plus the entry rules the daily review applied itself (paper/auto.py), unless a
+    specific file is asked for or learned=False."""
     with open(path or CONFIG_PATH) as f:
-        return json.load(f)
+        cfg = json.load(f)
+    if path is None and learned:
+        try:
+            from . import auto
+            cfg = auto.overlay(cfg)
+        except Exception:
+            pass
+    return cfg
 
 
 def impact(usd, liq):

@@ -147,11 +147,11 @@ def page(qs):
             "Izvor: DefiLlama (besplatno), provjerava se svaki sat, a DefiLlama brojeve osvježava jednom dnevno, pa su svi brojevi za pune UTC dane.</p>")
     con = store.ro()
     if con is None:
-        return "Tržište", head + '<div class=empty>Još nema market.db: pokreni <code>python3 run_market.py collect</code> (server to radi svaki sat).</div>'
+        return "Tržište", head + '<div class=empty>Još nema podataka o tržištu. Bot ih skuplja sam svaki sat.</div>'
     try:
         day = con.execute("SELECT MAX(day) FROM daily WHERE slug='all:launchpad'").fetchone()[0]
         if not day:
-            return "Tržište", head + '<div class=empty>market.db je još prazan.</div>'
+            return "Tržište", head + '<div class=empty>Još nema podataka o tržištu. Bot ih skuplja sam svaki sat.</div>'
         r = regime.current(con)
         h = regime.hypothesis(con)
         snap = con.execute("SELECT MAX(ts) FROM snap").fetchone()[0]
@@ -162,7 +162,7 @@ def page(qs):
                 (f'{badge(r["label"].upper(), LEVEL.get(r["label"], ""))} {r["score"]:.0f}/100',
                  "režim tržišta " + tip("Prosjek tri ranga u zadnjih 90 dana: volumen launchpada (7 d), volumen cijele "
                                         "Solane (7 d) i rast launchpada tjedan na tjedan. 66+ vruće, 33 i manje hladno. "
-                                        "Scoring ga može koristiti kao značajku market_regime (0-1).")),
+                                        "Hype ocjena ga koristi kao signal „Vrućina tržišta” (0-1).")),
                 (usd(f["launchpad_7d"])[0] + f' <small>{_pct(f["launchpad_growth7d"])[0]}</small>', "launchpadi zadnjih 7 dana (vs tjedan prije)"),
                 (usd(f["dex_7d"])[0] + f' <small>{_pct(f["dex_growth7d"])[0]}</small>', "cijeli Solana DEX zadnjih 7 dana"),
                 (usd(f["terminal_7d"])[0] + f' <small>{_pct(f["terminal_growth7d"])[0]}</small>' if f.get("terminal_7d") else "–",

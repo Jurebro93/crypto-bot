@@ -29,8 +29,8 @@ def _form(action, fields, button, extra=""):
 def login_help():
     """Shown when the browser's login box is cancelled, and explains how to log in."""
     miss = store.missing_passwords()
-    note = (f"<p class=neg>Lozinke još nisu postavljene za: {esc(', '.join(miss))}. Upiši ih u Render → crypto-bot → "
-            f"Environment kao {esc(', '.join('UI_PASS_' + u.upper() for u in miss))}.</p>") if miss else ""
+    note = (f"<p class=neg>Lozinke još nisu postavljene za: {esc(', '.join(miss))}. Postavljaju se u postavkama "
+            "servera na Renderu.</p>") if miss else ""
     return ("<h1>Prijava</h1><p>U prozor preglednika upiši <b>svoje ime</b> "
             f"({esc(', '.join(store.users()))}) kao korisničko ime i <b>svoju lozinku</b>.</p>{note}"
             "<p><a href=/prijava>Pokušaj ponovo</a> · <a href=/natjecanje>Natrag</a></p>")
@@ -213,7 +213,7 @@ def page(qs, user):
 def ideas_page(qs, user):
     con = store.connect()
     try:
-        b = ["<h1>Prijedlozi za nove feature</h1><p class=mut>Što bi alat trebao raditi bolje ili drugačije? "
+        b = ["<h1>Prijedlozi za nove mogućnosti</h1><p class=mut>Što bi alat trebao raditi bolje ili drugačije? "
              "Sve ideje se spremaju ovdje i svi ih vide.</p>", _who(user), _err(qs)]
         if user:
             b.append('<form method=post action="/prijedlozi/add" class=card><textarea name=text rows=4 required '

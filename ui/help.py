@@ -16,14 +16,14 @@ HELP = {
     "Klasa": "Moonshot (mcap < $150k, mlađi od 3 dana), Rizičan (između), Event (pravi token događaja iz kalendara), "
              "Stabilni (mcap > $2M, stariji od 7 dana). Svaka klasa ima vlastiti cilj i pravila; granice su probne.",
     "T0": "Besplatno sito: pada samo token s aktivnim mint ili freeze authorityjem ili nezaključanim LP-om izvan launchpada. "
-          "Likvidnost i holderi nisu pragovi nego značajke koje alat uči.",
+          "Likvidnost i holderi nisu pragovi nego signali čiju težinu bot sam uči.",
     "Put": "Oblik puta do današnjeg mcapa iz snimaka cijene: brzina (log rast po satu), skokovitost (udio rasta u jednom "
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
     "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
-                     "kontekst, a težinu mu uči petlja (početno 0).",
+                     "kontekst, a težinu mu bot uči sam (početno 0).",
     "Snaga": "Trajna snaga iz pulsa (zadnjih 6 h, očitanje svaka 2 min): volumen i transakcije prema najboljem satu, rast "
              "holdera po satu i omjer novih holdera i transakcija (organski). Token koji drži volumen i raste u holderima "
-             "dobiva bodove; težine uči petlja.",
+             "dobiva bodove; težine bot uči sam.",
     "Puls": "Očitanja svakih 2 min za tokene koji su stigli do razine 1 u zadnjih 24 h: cijena, mcap, volumen 5 min / 1 h, "
             "kupnje i prodaje, broj holdera (Helius svakih 30 min, pump.fun kad postoji).",
     "Holderi (puls)": "Broj walleta s pozitivnim stanjem; izvor helius (točno, do 3000) ili pumpfun (s ploče).",
@@ -99,7 +99,7 @@ HELP = {
     "Confidence pri ulazu": "Confidence izračunat iz podataka kakvi su bili u trenutku kupnje.",
     "Viđen": "Kad je bot prvi put razmatrao token.",
     "Porijeklo": "Odakle je kandidat došao: hype skener ili event iz kalendara.",
-    "Odluka": "taken = kupljen; skip_* = preskočen (razlog u sljedećem stupcu).",
+    "Odluka": "Je li bot token kupio ili preskočio; razlog je u sljedećem stupcu.",
     "Zona": "Procjena vremenske zone KOL-a iz sati u kojima objavljuje: najtiših 6 h dana uzima se kao njegova noć "
             "(oko 04:00 lokalno). Treba barem 12 postova; – = premalo postova ili nema jasne noći (bot, više ljudi).",
     "Sesija": "Doba dana po glavnom tržištu: Azija 00-08 UTC (Kina 08-16), Europa 08-14 UTC, SAD 14-24 UTC.",
@@ -175,8 +175,8 @@ HELP = {
     "Kupio SOL": "Ukupno SOL potrošeno na kupnje u satu prije poziva.",
     "Prodao u poziv SOL": "Ukupno SOL dobiveno prodajom u 30 min nakon poziva.",
     "Tokeni": "Tokeni na kojima je to napravio.",
-    "Značajka poziva": "Svojstvo posta ili trenutka poziva koje uspoređujemo s ishodom.",
-    "Korelacija s max 24 h": "Spearman: +1 = što više značajke to veći skok, 0 = nema veze, -1 = obrnuto. Ispod ±0.15 je šum.",
+    "Svojstvo poziva": "Svojstvo posta ili trenutka poziva koje uspoređujemo s ishodom.",
+    "Korelacija s max 24 h": "+1 = što je ovo veće, to je veći skok, 0 = nema veze, -1 = obrnuto. Ispod ±0.15 je šum.",
     "Pitanje": "Što ta korelacija provjerava.",
     # market (Tržište)
     "Platforma": "Launchpad, terminal ili DEX kako ga zove DefiLlama; u zagradi što je to za trench trejdera.",
@@ -200,7 +200,18 @@ HELP = {
     # misc
     "Signal": "Izmjereni signal hype ocjene.",
     "Izmjereno 0-1": "Jačina signala: 0 = nema, 1 = maksimalno.",
-    "Težina": "Koliko signal vrijedi u hype ocjeni (hype/weights.json).",
+    "Težina": "Koliko signal vrijedi u hype ocjeni; bot je sam prilagođava iz ishoda.",
+    "Signal A": "Prvi signal para.",
+    "Signal B": "Drugi signal para.",
+    "Puta češće": "Koliko puta češće dolazi skok kad je signal jak nego kad je slab; iznad 1 = pomaže.",
+    "Tokena s jakim": "Broj tokena kod kojih je signal bio jak (0,5 ili više).",
+    "Dio bota": "Koji dio bota je potrošio kredite ili zapisao podatke.",
+    "Pravilo": "Pravilo demo tradinga koje bot upravo koristi.",
+    "Izvještaj": "Izvještaj koji bot sam piše; klik ga otvara.",
+    "Napisan": "Kad je izvještaj zadnji put napisan.",
+    "Pokretanja": "Koliko puta je izvor pokrenut u zadnja 24 h.",
+    "Zapisa": "Broj spremljenih zapisa.",
+    "Podaci": "Vrsta podataka.",
     "Bodova": "Doprinos signala ukupnoj ocjeni.",
     "Pratitelja": "Broj pratitelja autora na X-u.",
     "Pregleda": "Broj pregleda objave na X-u.",

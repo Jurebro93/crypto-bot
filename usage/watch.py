@@ -100,6 +100,14 @@ def status(con, service, cfg, now=None):
             "runs_out": runs_out, "fair_day": budget * D / max(D, end - start)}
 
 
+def _script(k):
+    try:
+        from ui.labels import script
+        return script(k)
+    except Exception:
+        return k
+
+
 def evaluate(con, cfg=None, now=None):
     """List of {key, service, level: bad|warn, title, detail}, worst first."""
     cfg = cfg or config()
@@ -125,21 +133,22 @@ def evaluate(con, cfg=None, now=None):
         first_seen = dict(con.execute("SELECT script, MIN(hour) FROM usage WHERE service=? GROUP BY script", (service,)))
         hour_quota = b / 720
         cur = now // H * H
-        for sc in {k[1] for k in by}:
-            recent = sum(v[2] for (hr, s), v in by.items() if s == sc and hr >= cur - H)
-            base = sum(v[2] for (hr, s), v in by.items() if s == sc and cur - 25 * H <= hr < cur - H) / 24
-            errs = sum(v[1] for (hr, s), v in by.items() if s == sc and hr >= cur - H)
+        for sc_key in {k[1] for k in by}:
+            sc = _script(sc_key)
+            recent = sum(v[2] for (hr, s), v in by.items() if s == sc_key and hr >= cur - H)
+            base = sum(v[2] for (hr, s), v in by.items() if s == sc_key and cur - 25 * H <= hr < cur - H) / 24
+            errs = sum(v[1] for (hr, s), v in by.items() if s == sc_key and hr >= cur - H)
             if recent > hour_quota * 2 * c["hour_max_x"]:
-                out.append(("bad", f"{service}:leak:{sc}", f"{name}: {sc} troši naglo",
+                out.append(("bad", f"{service}:leak:{sc_key}", f"{name}: {sc} troši naglo",
                             f"Zadnja 2 h {f(recent)}, a ravnomjerna kvota je {f(hour_quota * 2)} za 2 h. Moguće curenje "
                             "(petlja koja ponavlja pozive ili cache ne radi)."))
-            elif (recent > c["spike_floor"] and first_seen.get(sc, cur) <= cur - 25 * H
+            elif (recent > c["spike_floor"] and first_seen.get(sc_key, cur) <= cur - 25 * H
                   and recent > base * 2 * c["spike_x"]):
-                out.append(("warn", f"{service}:spike:{sc}", f"{name}: {sc} troši {recent / max(base * 2, 1e-9):.0f}x više nego inače",
+                out.append(("warn", f"{service}:spike:{sc_key}", f"{name}: {sc} troši {recent / max(base * 2, 1e-9):.0f}x više nego inače",
                             f"Zadnja 2 h {f(recent)}, prosjek za 2 h u zadnja 24 h {f(base * 2)}."))
             if errs > c["error_calls_hour"] * 2:
-                out.append(("warn", f"{service}:errors:{sc}", f"{name}: {sc} dobiva puno grešaka",
-                            f"{errs} neuspjelih poziva u zadnja 2 h (429/5xx ponavljanja). Ako je to 429 'max usage', "
+                out.append(("warn", f"{service}:errors:{sc_key}", f"{name}: {sc} dobiva puno grešaka",
+                            f"{errs} odbijenih poziva u zadnja 2 h. Ako ih servis odbija zbog limita, "
                             "krediti su potrošeni."))
         # 3. exponential growth of daily totals
         days = [counted(con, service, cur - (i + 1) * D, cur - i * D) for i in range(4, -1, -1)]  # oldest .. last 24 h
@@ -161,8 +170,8 @@ def evaluate(con, cfg=None, now=None):
                 hrs = (snaps[-1][0] - snaps[0][0]) / H
                 out.append(("warn", f"{service}:outside", f"{name}: troši se i izvan bota",
                             f"Račun je u zadnjih {hrs:.0f} h narastao {f(acc)}, a bot je izbrojao samo {f(mine)}. "
-                            + ("Provjeri radi li KOL monitor ili neki actor sam od sebe (Apify konzola → Runs)."
-                               if service == "apify" else "Ključ možda koristi još nešto (druga aplikacija, webhook).")))
+                            + ("Možda Apify nešto pokreće sam od sebe (u Apify konzoli pogledaj Runs)."
+                               if service == "apify" else "Isti ključ možda koristi još neka aplikacija.")))
     out.sort(key=lambda a: a[0] != "bad")
     return [{"level": lv, "key": k, "service": k.split(":")[0], "title": t, "detail": d} for lv, k, t, d in out]
 
