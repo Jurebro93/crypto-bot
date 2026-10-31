@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -84,6 +84,11 @@ python3 run_exits.py loop &         # once a day: re-learn exit rules per class 
 python3 run_market.py loop --every 60 &
 # morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
 python3 run_report.py loop &
+
+# safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
+# guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
+# A fresh process per pass, so it holds no memory in the 6 h between passes.
+( sleep 300; while true; do python3 run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
