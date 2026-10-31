@@ -8,6 +8,7 @@ per KOL, and the wallets that sell into calls. Writes kol.db (only this script w
     python3 run_kol.py flows                # who bought before / sold into a call (Helius, ~40 credits each)
     python3 run_kol.py score                # call power, groups, signals for the hype score
     python3 run_kol.py top                  # print the leaderboard
+    python3 run_kol.py live                 # sync the real-time monitor with the watchlist (xquik, on the server)
     python3 run_kol.py backfill --tokens retro.json --budget 11   # one-off history: X posts on past tokens + KOL timelines
 
 Budgets: Apify sources kol_search and kol_timeline in hype/apify.json, Helius flows_per_day in kol/config.json.
@@ -118,9 +119,17 @@ def cmd_backfill(a):
     cmd_score(a, con, cfg)
 
 
+def cmd_live(a, con=None, cfg=None):
+    from kol import live
+    con, cfg = con or store.connect(), cfg or config()
+    r = live.sync(con, cfg)
+    if r is None:
+        print("live: nema javnog URL-a (RENDER_EXTERNAL_URL) ili APIFY_TOKEN, preskačem")
+
+
 def cycle(a):
     con, cfg = store.connect(), config()
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score):
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score, cmd_live):
         try:
             step(a, con, cfg)
         except Exception as e:
@@ -146,7 +155,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "measure", "flows", "score", "once"):
+    for name in ("collect", "search", "measure", "flows", "score", "once", "live"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -162,7 +171,7 @@ def main(argv=None):
     tp.add_argument("-n", type=int, default=30)
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
-     "top": cmd_top, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill}[a.cmd](a)
+     "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill}[a.cmd](a)
 
 
 if __name__ == "__main__":

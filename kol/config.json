@@ -1,5 +1,5 @@
 {
- "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka).",
+ "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka). watch: koliko najboljih KOL-ova pratimo uživo (xquik monitor, ~$0.11 po računu dnevno) i uvjeti za ulazak na listu.",
  "group_secs": 1800,
  "good_score": 50,
  "signal_hours": 6,
@@ -16,5 +16,6 @@
  "insider_min_sol": 0.1,
  "rotation_min_tokens": 3,
  "followup": {"per_run": 1, "max_items": 25, "after_h": 1, "again_h": 4, "max_age_h": 24},
- "timeline": {"every_h": 3, "kols": 15, "max_items": 50, "min_calls": 2}
+ "timeline": {"every_h": 1, "kols": 12, "max_items": 40, "min_calls": 2, "min_followers": 5000, "refresh_d": 1},
+ "watch": {"size": 4, "min_calls": 5, "max_prepump": 0.3, "min_hit": 0.5, "resync_h": 6}
 }

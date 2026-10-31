@@ -156,7 +156,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _kol_hook(self, u):
-        key = os.environ.get("KOL_HOOK_KEY", "")
+        from kol import store as kstore
+        key = kstore.hook_key()
         if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
             self.send_response(404)
             self.end_headers()
