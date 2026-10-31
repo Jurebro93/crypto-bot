@@ -245,6 +245,8 @@ def main(argv=None):
                 cmd_analyze(con)
             except Exception as e:
                 print(f"watch nije uspio: {type(e).__name__}: {e}", file=sys.stderr)
+            from ops import mem
+            mem.trim()   # give this round's memory back before sleeping
             time.sleep(a.every_min * 60)
     return 0
 

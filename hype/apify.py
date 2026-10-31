@@ -107,7 +107,9 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wai
     con = _db()
     con.execute("INSERT INTO apify_runs VALUES (?,?,?,?,?,?,?)",
                 (int(time.time()), source, actor, r["id"], len(items), cost, r["status"]))
-    con.execute("INSERT OR REPLACE INTO apify_cache VALUES (?,?,?)", (key, int(time.time()), json.dumps(items)))
+    from ops import disk
+    if not disk.low("sirovi Apify odgovor"):   # raw answer only; spend (apify_runs) is always recorded
+        con.execute("INSERT OR REPLACE INTO apify_cache VALUES (?,?,?)", (key, int(time.time()), json.dumps(items)))
     con.commit()
     con.close()
     try:

@@ -45,13 +45,18 @@ def cmd_report(a):
         print(f"[{al['level'].upper()}] {al['title']} — {al['detail']}")
 
 
+def cmd_tick(a):
+    """One reading with its warnings in the log (what one round of the loop does; run_sched.py calls this)."""
+    try:
+        for al in cmd_snap(a):
+            print(f"potrošnja [{al['level']}] {al['title']}")
+    except Exception as e:
+        print(f"usage snap: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def cmd_loop(a):
     while True:
-        try:
-            for al in cmd_snap(a):
-                print(f"potrošnja [{al['level']}] {al['title']}")
-        except Exception as e:
-            print(f"usage snap: {type(e).__name__}: {e}", file=sys.stderr)
+        cmd_tick(a)
         time.sleep(a.every * 60)
 
 
@@ -60,10 +65,11 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("report")
     sub.add_parser("snap")
+    sub.add_parser("tick")
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=float, default=15, help="minutes between account readings")
     a = p.parse_args(argv)
-    {"report": cmd_report, "snap": cmd_snap, "loop": cmd_loop}[a.cmd](a)
+    {"report": cmd_report, "snap": cmd_snap, "tick": cmd_tick, "loop": cmd_loop}[a.cmd](a)
 
 
 if __name__ == "__main__":

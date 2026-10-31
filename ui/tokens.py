@@ -37,7 +37,8 @@ def page(qs):
     now = time.time()
     rows = sorted(overview.token_rows(), key=overview._rank, reverse=True)
     bad = [r for r in rows if r.get("collapse") or (r["rug"] and r["rug"]["verdict"] in ("ODBAČEN", "VISOK RIZIK"))]
-    ok = [r for r in rows if r not in bad]
+    bad_ids = {id(r) for r in bad}
+    ok = [r for r in rows if id(r) not in bad_ids]
     active = [r for r in ok if r["last_seen"] >= now - ACTIVE_H * 3600]
     older = [r for r in ok if r["last_seen"] < now - ACTIVE_H * 3600]
     event = [r for r in rows if r["events"]]

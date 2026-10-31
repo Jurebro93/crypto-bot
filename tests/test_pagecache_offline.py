@@ -37,11 +37,22 @@ class PageCache(unittest.TestCase):
             t0 = time.time()
             code, raw, gz = pagecache.get(("/t", "", None), self.build())
             self.assertLess(time.time() - t0, 0.1)     # did not wait for the render
-            self.assertEqual(gzip.decompress(gz), raw)
+            self.assertIsNone(raw)                     # only the gzipped copy is kept in memory
+            self.assertEqual(gzip.decompress(gz), b"<p>" + b"x" * 5000)
             time.sleep(0.4)
             self.assertEqual(self.n, 2)
         finally:
             pagecache.FRESH_S = old
+
+    def test_size_cap_drops_oldest(self):
+        old = pagecache.MAX_MB
+        pagecache.MAX_MB = 0.0001     # ~100 bytes: only the newest page fits
+        try:
+            for i in range(3):
+                pagecache._render((f"/s{i}", "", None), lambda i=i: (200, os.urandom(2000)))
+            self.assertEqual([k[0] for k in pagecache._store], ["/s2"])
+        finally:
+            pagecache.MAX_MB = old
 
     def test_errors_not_stored(self):
         pagecache.get(("/e", "", None), self.build(500))

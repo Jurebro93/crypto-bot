@@ -183,6 +183,8 @@ def cmd_loop(a):
         print(f"seed: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
         cycle(a)
+        from ops import mem
+        mem.trim()   # give this round's memory back before sleeping
         time.sleep(a.every * 60)
 
 
