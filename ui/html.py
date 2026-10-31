@@ -9,7 +9,7 @@ from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
-    ("Pregled", "/", [("/", "Pregled")]),
+    ("Pregled", "/", [("/", "Pregled"), ("/izvjestaj", "Jutarnji izvještaj")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),

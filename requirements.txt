@@ -1,4 +1,7 @@
 solders>=0.29
 base58>=2.1
 anthropic>=2.3
+<<<<<<< HEAD
 telethon>=1.36  # optional Telegram live listener (run_tg.py telethon), used only with TG_SESSION set
+=======
+>>>>>>> origin/claude/project-thread-p25kg0
