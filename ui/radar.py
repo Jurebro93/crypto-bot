@@ -81,6 +81,7 @@ def risks(r, x, rug):
 
 
 REJECTED = ("ODBAČEN",)
+STRONG, WATCH = 55, 35  # confidence levels, as ui/confidence.LEVELS
 
 
 def rejected(rug, tier):
@@ -92,17 +93,19 @@ def rejected(rug, tier):
     return None
 
 
-def _label(s, rug=None, tier=None):
-    """The hype score is what the market is doing; the label is what we think of it. A rejected token keeps its
-    score (it is still a number) but can never be a candidate."""
-    why = rejected(rug, tier)
-    if why:
+def _label(conf, rug=None, tier=None, col=None):
+    """The label is what we think of the token, so it comes from confidence (the same number as on Svi tokeni and in
+    the Natjecanje), not from the hype score alone: hype only says the market is busy, risks such as tiny liquidity
+    pull confidence down. A rejected or already dumped token can never be a candidate."""
+    if rejected(rug, tier):
         return badge("odbačen", "bad")
+    if col:
+        return badge("💀 rugan", "bad")
     if rug and rug.get("verdict") == "VISOK RIZIK":
         return badge("visok rizik", "bad")
-    if s >= 50:
+    if conf >= STRONG:
         return badge("jak kandidat", "good")
-    if s >= 35:
+    if conf >= WATCH:
         return badge("pratiti", "warn")
     return badge("slab")
 
@@ -227,6 +230,17 @@ def page(qs):
     tiers = data.token_tiers()
     out = [r for r in rows if rejected(rugs.get(r["token"]), tiers.get(r["token"]))]
     rows = [r for r in rows if r not in out]
+    from rugfilter import collapse
+    from ui import confidence
+    pk = collapse.peaks(data.HYPE_DB, [r["token"] for r in rows])
+    for r in rows:
+        rug = rugs.get(r["token"])
+        r["conf"], r["conf_parts"] = confidence.score(r["score"], r["features"], r["extra"], rug["verdict"] if rug else None,
+                                                      None, r["liquidity"], r["mcap"])
+        r["collapse"] = collapse.check(pk.get(r["token"]))
+        if r["collapse"]:
+            r["conf"] = 0
+    rows.sort(key=lambda r: (-r["conf"], -(r["score"] or 0)))
     b = ["<h1>Zadnji sken</h1><p class=mut>Što je hype skener vidio u <b>zadnjem prolazu</b> (svake 2 minute): kandidati s razlozima i "
          "rizicima, narativi, smart money i radi li ocjena. Stranica <a href=/tokens>Svi tokeni</a> je drugo: sve što alat zna o "
          "svakom tokenu iz zadnjih 7 dana, kroz sve analize, poredano po Šansi za skok.</p>"]
@@ -236,30 +250,36 @@ def page(qs):
                  "sat vremena, javi.</div>")
     else:
         last = max(r["ts"] for r in rows)
-        strong = [r for r in rows if r["score"] >= 50]
-        watch = [r for r in rows if 35 <= r["score"] < 50]
+        strong = [r for r in rows if r["conf"] >= STRONG and not r["collapse"]]
+        watch = [r for r in rows if WATCH <= r["conf"] < STRONG and not r["collapse"]]
         top = rows[0]
         lead = (f"Zadnji prolaz {ago(last)[0]}: pregledano <b>{len(rows) + len(out)}</b> tokena"
                 + (f", <b>{len(out)}</b> odbačeno (rug filter ili T0). " if out else ". ")
                 + (f"<b>{len(strong)}</b> jakih kandidata, {len(watch)} za pratiti. " if strong else
-                   f"Nijedan nije jak kandidat (ocjena 50+); {len(watch)} ih vrijedi pratiti. ")
-                + f"Najbolji je <b>{esc(top['symbol'])}</b> ({top['score']:.0f}/100)"
+                   f"Nijedan nije jak kandidat (confidence {STRONG}+); {len(watch)} ih vrijedi pratiti. ")
+                + f"Najbolji je <b>{esc(top['symbol'])}</b> (confidence {top['conf']}, hype {top['score']:.0f})"
                 + (": " + esc(reasons(top["features"], top["extra"])[0].rstrip(".").lower()) + "." if reasons(top["features"], top["extra"]) else "."))
         b.append(f"<div class=card style='font-size:15px'>{lead}</div>")
-        b.append("<p class=mut>Ocjena 0-100 je ponderirani prosjek izmjerenih signala. 50+ = jak kandidat, 35-50 = pratiti. "
-                 "Ocjena nije preporuka za kupnju dok odjeljak „Radi li algoritam“ ne pokaže da predviđa rast.</p>")
+        b.append("<p class=mut><b>Hype</b> (0-100) mjeri samo koliko je tržište živo: volumen, kupci, tema, X. "
+                 "<b>Confidence</b> je naša procjena i isti je broj kao na stranici Svi tokeni i u Natjecanju: hype plus "
+                 f"potvrde, minus rizici (npr. mala likvidnost). Oznaka ide po confidenceu: {STRONG}+ = jak kandidat, "
+                 f"{WATCH}-{STRONG} = pratiti. Ni jedno nije preporuka za kupnju dok odjeljak „Radi li algoritam“ ne pokaže "
+                 "da predviđa rast.</p>")
         b.append("<h2>Kandidati sada</h2>")
         tr = []
         for r in rows[:25]:
             why = reasons(r["features"], r["extra"])[:3]
             risk = risks(r, r["extra"], rugs.get(r["token"]))
-            tr.append([tlink(r["token"], r["symbol"]), (f"{bar(r['score'], 100, 60)} {r['score']:.0f}", r["score"], "n"),
-                       _label(r["score"], rugs.get(r["token"]), tiers.get(r["token"])), usd(r["mcap"]), usd(r["liquidity"]),
+            if r["collapse"]:
+                risk = [r["collapse"]["text"].capitalize() + "."] + risk
+            tr.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+                       (f"{bar(r['score'], 100, 60)} {r['score']:.0f}", r["score"], "n"),
+                       _label(r["conf"], rugs.get(r["token"]), tiers.get(r["token"]), r["collapse"]), usd(r["mcap"]), usd(r["liquidity"]),
                        ("<ul class=r>" + "".join(f"<li class=good>{esc(t)}</li>" for t in why) + "</ul>" if why else
                         "<span class=mut>samo tržišni signali, ništa posebno</span>", "", "wrap"),
                        ("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>" if risk else
                         "<span class=mut>nema poznatih</span>", "", "wrap")])
-        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima. Odbačeni (rug filter ODBAČEN ili T0 pad) nisu ovdje nego u tablici ispod.') + table(["Token", ("Ocjena", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
+        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima. Odbačeni (rug filter ODBAČEN ili T0 pad) nisu ovdje nego u tablici ispod.') + table(["Token", ("Confidence", "n"), ("Hype", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
         if out:
             b.append("<h3>Odbačeni u ovom prolazu</h3>")
             b.append(tdesc('Tokeni s hype signalom koje je rug filter odbacio ili su pali na T0 (mehanika ruga). Ocjena ostaje vidljiva jer mjeri tržište, ali token ne može biti kandidat.')

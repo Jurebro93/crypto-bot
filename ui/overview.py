@@ -385,7 +385,7 @@ def page(qs):
         rows.append([tlink(r["token"], r["symbol"]), (f"<b>{r['sansa']}</b>", r["sansa"], "n"), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                      (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
                      (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n")]
-                    + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype"]), usd(r["mcap"]), ago(r["last_seen"])])
+                    + [mark(ok) for _, ok, _ in r["checks"]] + [scorecell(r["hype_last"]), usd(r["mcap"]), ago(r["last_seen"])])
     b.append(tdesc('Tokeni iz zadnjih 7 dana poredani po Šansi za skok; stupci su neovisne provjere (hype, X, smart money, KOL, holderi, rug, event, demo). Klik na red otvara analizu s dokazima.') + table(["Token", ("Šansa", "n"), ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n")] + labels + [("Hype max", "n"), ("Mcap", "n"), "Zadnje"],
                    rows, "mt", "Nema tokena.", mints=[r["token"] for r in allrows[:40]]))
 
