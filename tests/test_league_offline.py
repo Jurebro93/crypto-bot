@@ -165,10 +165,38 @@ class Login(unittest.TestCase):
             except urllib.error.HTTPError as e:
                 return e.code
 
-        self.assertEqual(get("/prijava", "x", "shared"), 401)          # shared password: ask for a player login
+        self.assertEqual(get("/prijava", "x", "shared"), 200)          # shared password: login form for a player
         self.assertEqual(get("/prijava", "Ivan", "ivanpw"), 303)       # player: on to the league
-        self.assertEqual(get("/prijava?kao=Ivan", "Ivan", "ivanpw"), 401)  # switching user asks again
+        self.assertEqual(get("/prijava?kao=Ivan", "Ivan", "ivanpw"), 200)  # switching user shows the form
         self.assertEqual(get("/natjecanje", "x", "wrong"), 401)
+
+        # login form + cookie (phones / in-app browsers that never show the browser's password box)
+        import urllib.parse
+        opener = urllib.request.build_opener(NoRedirect)
+
+        def post_login(name, pw, nxt="/tokens"):
+            data = urllib.parse.urlencode({"name": name, "pw": pw, "next": nxt}).encode()
+            try:
+                r = opener.open(urllib.request.Request(base + "/prijava", data=data))
+            except urllib.error.HTTPError as e:
+                r = e
+            return r.status if hasattr(r, "status") else r.code, r.headers
+
+        try:
+            opener.open(base + "/tokens")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 401)
+            self.assertIsNone(e.headers.get("WWW-Authenticate"))     # no browser box, the page has a form
+            self.assertIn(b"name=pw", e.read())
+        code, hdr = post_login("Ivan", "ivanpw")
+        self.assertEqual((code, hdr["Location"]), (303, "/tokens"))
+        cookie = hdr["Set-Cookie"].split(";")[0]
+        r = opener.open(urllib.request.Request(base + "/natjecanje", headers={"Cookie": cookie}))
+        self.assertEqual(r.status, 200)
+        self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Ivan"))
+        self.assertEqual(post_login("Ivan", "nope")[0], 401)
+        self.assertEqual(post_login("x", "shared", "//evil.com")[1]["Location"], "/")   # no open redirect
+        self.assertEqual(run_ui.cookie_user("eA==.9999999999.bad"), (False, None))
         srv.shutdown()
         for k in ("UI_PASSWORD", "UI_PASS_IVAN"):
             os.environ.pop(k)

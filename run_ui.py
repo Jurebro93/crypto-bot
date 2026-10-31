@@ -13,9 +13,11 @@ Only the Python standard library. On a VPS prefer an SSH tunnel over opening the
 import argparse
 import base64
 import gzip
+import hashlib
 import hmac
 import os
 import sys
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
@@ -31,6 +33,68 @@ from league import store as league_store  # noqa: E402
 PASSWORD = os.environ.get("UI_PASSWORD", "")
 PLAYERS = {u.lower(): (u, os.environ.get(f"UI_PASS_{u.upper()}", "")) for u in league_store.users()}
 AUTH = bool(PASSWORD or any(pw for _, pw in PLAYERS.values()))
+# login cookie: signed with a key derived from every password, so changing a password logs everybody out
+_SECRET = hashlib.sha256(("crypto-bot-session|" + PASSWORD + "|" + "|".join(pw for _, pw in PLAYERS.values()))
+                         .encode()).digest()
+COOKIE, COOKIE_DAYS = "cb_s", 60
+
+
+def _sign(name, exp):
+    return hmac.new(_SECRET, f"{name}|{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def make_cookie(name):
+    exp = int(time.time()) + COOKIE_DAYS * 86400
+    return f"{base64.urlsafe_b64encode(name.encode()).decode()}.{exp}.{_sign(name, exp)}"
+
+
+def cookie_user(value):
+    """(ok, player or None) for a cookie value from make_cookie()."""
+    try:
+        b, exp, sig = value.split(".")
+        name, exp = base64.urlsafe_b64decode(b.encode()).decode(), int(exp)
+    except Exception:
+        return False, None
+    if exp < time.time() or not hmac.compare_digest(sig, _sign(name, exp)):
+        return False, None
+    if not name:
+        return bool(PASSWORD), None
+    player, ppw = PLAYERS.get(name.lower(), (None, ""))
+    return (True, player) if player and ppw else (False, None)
+
+
+def check_password(name, pw):
+    """(ok, player or None): a player's own name + password, or the shared UI_PASSWORD with any name."""
+    player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
+    if player and ppw and hmac.compare_digest(pw.encode(), ppw.encode()):
+        return True, player
+    return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode()), None
+
+
+def _safe_next(n):
+    return n if n.startswith("/") and not n.startswith("//") and "\\" not in n else "/"
+
+
+def login_page(qs, err=""):
+    from ui.html import esc as e
+    users = ", ".join(league_store.users())
+    nxt = e(_safe_next(qs.get("next", "/")))
+    who = e(qs.get("kao", ""))
+    body = ("<h1>Prijava</h1><form method=post action=/prijava class=card style='max-width:360px'>"
+            f"<input type=hidden name=next value=\"{nxt}\">"
+            f"<p><label>Ime<br><input name=name autocomplete=username value=\"{who}\" style='width:100%' "
+            "autocapitalize=none></label></p>"
+            "<p><label>Lozinka<br><input name=pw type=password autocomplete=current-password required "
+            "style='width:100%'></label></p>"
+            + (f"<p class=neg>{e(err)}</p>" if err else "")
+            + "<p><button type=submit>Prijavi se</button></p></form>"
+            f"<p class=mut>Igrači ({e(users)}) upisuju svoje ime i svoju lozinku. Samo za gledanje: bilo koje ime i "
+            "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>")
+    miss = league_store.missing_passwords()
+    if miss:
+        body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))} (Render → Environment: "
+                 f"{e(', '.join('UI_PASS_' + x.upper() for x in miss))}).</p>")
+    return page("Prijava", body, "/prijava")
 
 
 def route(path, qs):
@@ -109,8 +173,13 @@ class Handler(BaseHTTPRequestHandler):
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
         if path == "/prijava":
             return self._login(qs)
+        if path == "/odjava":
+            return self._redirect("/prijava", cookie=f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
         if not ok:
-            return self._challenge()
+            # a login form instead of the browser's own password box: phones and in-app browsers often never show
+            # that box, the page then just stays blank. 401 without WWW-Authenticate, so no box pops up.
+            nxt = path + (f"?{u.query}" if u.query else "")
+            return self._send(401, login_page({"next": nxt}).encode("utf-8"))
         if path in ("/natjecanje", "/prijedlozi", "/moji-tradeovi"):
             SHOW_ALL.set(qs.get("sve") == "1")
             fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page, "/moji-tradeovi": real.page}[path]
@@ -154,8 +223,10 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/kol":
             self._kol_hook(u)
             return
+        if u.path == "/prijava":
+            return self._login_post()
         if AUTH and not self._authorized():
-            return self._challenge()
+            return self._send(401, login_page({}).encode("utf-8"))
         pagecache.clear()   # a run or a trade changes what the pages show
         path = unquote(urlsplit(self.path).path)
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
@@ -196,40 +267,52 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(400)
         self.end_headers()
 
-    def _challenge(self, body=b""):
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="crypto-bot"')
-        if body:
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
     def _login(self, qs):
-        """/prijava: the browser only shows its name + password box after a 401, and otherwise keeps sending the
-        shared password it remembered. Answer 401 until a player logs in (?kao=<name> also switches away from them)."""
-        if self.user and self.user != qs.get("kao"):
-            self.send_response(303)
-            self.send_header("Location", "/natjecanje")
-            self.end_headers()
-            return
-        return self._challenge(page("Prijava", league.login_help(), "/prijava").encode("utf-8"))
+        """/prijava: login form. A logged-in player goes on to the competition unless switching (?kao=<name>)."""
+        if self.user and self.user != qs.get("kao") and not qs.get("next"):
+            return self._redirect("/natjecanje")
+        return self._send(200, login_page(qs).encode("utf-8"))
+
+    def _login_post(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+        ok, player = check_password(form.get("name", ""), form.get("pw", ""))
+        if not ok:
+            time.sleep(1)   # slows down guessing
+            return self._send(401, login_page({"next": form.get("next", "/"), "kao": form.get("name", "")},
+                                              "Pogrešno ime ili lozinka.").encode("utf-8"))
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        cookie = (f"{COOKIE}={make_cookie(player or '')}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
+                  f"SameSite=Lax{secure}")
+        return self._redirect(_safe_next(form.get("next", "/")), cookie=cookie)
+
+    def _redirect(self, location, cookie=None):
+        self.send_response(303)
+        self.send_header("Location", location)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _authorized(self):
         """A player's own name + password sets self.user; the shared UI_PASSWORD (any name) lets in without one."""
         self.user = None
-        h = self.headers.get("Authorization", "")
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == COOKIE:
+                ok, player = cookie_user(v)
+                if ok:
+                    self.user = player
+                    return True
+        h = self.headers.get("Authorization", "")   # old browser password box still works
         if not h.startswith("Basic "):
             return False
         try:
             name, _, pw = base64.b64decode(h[6:]).decode().partition(":")
         except Exception:
             return False
-        player, ppw = PLAYERS.get(name.strip().lower(), (None, ""))
-        if player and ppw and hmac.compare_digest(pw.encode(), ppw.encode()):
-            self.user = player
-            return True
-        return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode())
+        ok, self.user = check_password(name, pw)
+        return ok
 
     def log_message(self, fmt, *args):
         if self.server.verbose:
