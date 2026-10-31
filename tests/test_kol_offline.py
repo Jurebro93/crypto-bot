@@ -158,6 +158,30 @@ class Pipeline(unittest.TestCase):
         finally:
             store.DB = old
 
+    def test_wallet_trades_not_posts(self):
+        """Wallet buys/sells (Helius) get their own table with a Solscan transaction link, never a 'post' link."""
+        self.con.execute("INSERT INTO kol_ids (wallet, name, twitter, source) VALUES ('F6GTuHabcdef', NULL, NULL, 'kolscan')")
+        self.con.execute("""INSERT INTO calls (tweet_id, token, handle, ts, url, text, followers, likes, retweets, views,
+            kind, match, source) VALUES ('sig:XYZ', ?, 'w:F6GTuH', ?, 'https://solscan.io/tx/XYZ', 'buy 0.05 SOL',
+            0, 0, 0, 0, 'buy', 'wallet', 'chain')""", (CA, self.now - 60))
+        self.con.commit()
+        from ui import kol as ukol
+        old = store.DB
+        store.DB = self.path
+        try:
+            sec = ukol.token_section(CA)
+            self.assertIn("transakcija ↗", sec)
+            self.assertIn("https://solscan.io/tx/XYZ", sec)
+            self.assertIn("https://solscan.io/account/F6GTuHabcdef", sec)
+            self.assertNotIn('solscan.io/tx/XYZ" target=_blank rel=noopener>post', sec)
+            head, _, rest = sec.partition("KOL novčanici")
+            self.assertNotIn("solscan.io/tx", head)  # posts table has no wallet rows
+            self.assertIn("0.05", rest)
+            self.assertIn("Kupnje i prodaje", ukol._wallet_page(self.con, "w:F6GTuH")[1])
+            self.assertIn("Kupnje i prodaje KOL novčanika", ukol.page({})[1])
+        finally:
+            store.DB = old
+
     def test_missing_db(self):
         self.assertEqual(store.signals(path=os.path.join(tempfile.mkdtemp(), "none.db")), {})
 

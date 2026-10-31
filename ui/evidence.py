@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from ui import data
 from ui.labels import feat, feat_low, sources as sources_hr
-from ui.html import tdesc, ago, badge, esc, ext_token, num, short, signed, table, ts, usd, verdict, wlink
+from ui.html import tdesc, ago, badge, esc, ext_token, num, price, short, signed, table, ts, usd, verdict, wlink
 
 SOURCES = {
     "dex": ("DexScreener API", "https://docs.dexscreener.com/api/reference"),
@@ -25,6 +25,16 @@ SOURCES = {
     "paper": ("demo trading", None),
     "wallets": ("registar walleta (Helius)", None),
 }
+
+
+def _iso(t):
+    """Telegram post time (ISO text) as '2026-10-31 17:05 UTC'; unknown formats unchanged."""
+    import datetime as dt
+    try:
+        d = dt.datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+        return d.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return str(t or "")
 
 
 def _src(key, when=None):
@@ -155,7 +165,7 @@ def fragment(mint):
         if zero:
             b.append(f"<p class=mut>Nula (nije izmjereno ili nema signala): {esc(', '.join(sorted(feat_low(k) for k in zero)))}.</p>")
         b.append(f"<p>Ocjena <b>{sig['score']:.0f}</b>/100 · prvi signal {ts(sigs[-1]['ts'])[0]} UTC po cijeni "
-                 f"{sigs[-1]['price']:.3g} · {len(sigs)} signala · otkud je došao: {esc(sources_hr(sig['sources']))}</p>"
+                 f"{price(sigs[-1]['price'])[0]} · {len(sigs)} signala · otkud je došao: {esc(sources_hr(sig['sources']))}</p>"
                  + _src("hype", sig["ts"]))
 
     # market, live
@@ -167,7 +177,7 @@ def fragment(mint):
         b.append("<h3>Tržište sada</h3>")
         b.append(tdesc('Živi podaci s DexScreenera u trenutku otvaranja.') + table(["Cijena", ("Mcap", "n"), ("Likvidnost", "n"), ("Volumen 1h / 24h", "n"), ("Promjena 1h / 24h", "n"),
                         ("Kupnje / prodaje 24h", "n"), ("Starost", "n")],
-                       [[esc(pair.get("priceUsd")), usd(pair.get("marketCap") or pair.get("fdv")),
+                       [[price(pair.get("priceUsd")), usd(pair.get("marketCap") or pair.get("fdv")),
                          usd((pair.get("liquidity") or {}).get("usd")),
                          f"${vol.get('h1') or 0:,.0f} / ${vol.get('h24') or 0:,.0f}",
                          f"{chg.get('h1') or 0:+.0f}% / {chg.get('h24') or 0:+.0f}%",
@@ -208,7 +218,8 @@ def fragment(mint):
                            [[f'<a href="https://x.com/{quote(_author(t)[0])}" target=_blank>@{esc(_author(t)[0])}</a>',
                              num(_author(t)[1]), num(t.get("viewCount")), num(t.get("likeCount")), num(t.get("retweetCount")),
                              (esc(html.unescape(t.get("text") or t.get("fullText") or "")[:220]), "", "wrap"),
-                             f'<a href="{esc(t.get("url") or t.get("twitterUrl") or "")}" target=_blank>otvori</a>']
+                             (f'<a href="{esc(t.get("url") or t.get("twitterUrl"))}" target=_blank rel=noopener>objava ↗</a>'
+                              if (t.get("url") or t.get("twitterUrl")) else "–")]
                             for t in top]))
         b.append(_src("x", x_ts or det_ts))
 
@@ -226,7 +237,7 @@ def fragment(mint):
     if tg:
         b.append("<h3>Telegram</h3><ul class=r>" + "".join(
             f'<li><a href="https://t.me/{esc(t["post"])}" target=_blank>{esc(t["channel"] or t["post"])}</a> '
-            f'<span class=mut>{esc(t["time"])}</span></li>' for t in tg) + "</ul>" + _src("tg"))
+            f'<span class=mut>{esc(_iso(t["time"]))}</span></li>' for t in tg) + "</ul>" + _src("tg"))
 
     pf = det.get("pumpfun") or {}
     if pf:

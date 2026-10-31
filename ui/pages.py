@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from ui import data, explain, jobs, labels
 from ui.labels import FEATURE_DESC
-from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, num, scorecell,
+from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, mins, num, price, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
 ROLE = {
@@ -49,8 +49,8 @@ def wallets(qs):
                      scorecell(w["copy_score"]), scorecell(w["score"]),
                      signed(s.get("closed_pnl_sol")), signed(s.get("roi_on_cost"), "{:+.0%}"),
                      num(s.get("win_rate"), "{:.0%}"), num(s.get("closed")), num(s.get("big_wins")),
-                     num(s.get("median_hold_min"), "{:g}"), num(s.get("median_buy_sol"), "{:g}"),
-                     num(s.get("trades_per_day"), "{:g}"), num(s.get("last_trade_days"), "{:g}"),
+                     mins(s.get("median_hold_min")), num(s.get("median_buy_sol"), "{:.2f}"),
+                     num(s.get("trades_per_day"), "{:.1f}"), num(s.get("last_trade_days"), "{:.0f}"),
                      num(s.get("early_in_winners")),
                      esc(", ".join(f"{SOURCE.get(k, k)}" for k in w["sources"])),
                      " ".join(badge(labels.wallet_label(l), "bad") for l in w["labels"]),
@@ -62,7 +62,7 @@ def wallets(qs):
             f'<label><input type=checkbox name=all value=1 {"checked" if show_all else ""}> i neocijenjeni</label>'
             f'<button>Primijeni</button></form>')
     head = ["Wallet", "Tier", "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
-            ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Drži min", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
+            ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Medijan držanja", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
             ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
     since, last, tail = jobs.status("wallets")
     if since:
@@ -79,6 +79,29 @@ def wallets(qs):
              f"≥ {min_score:g}, barem {min_closed} zatvorenih pozicija, bez loših oznaka. Klik na zaglavlje sortira, "
              "klik na wallet otvara detalje i raspis ocjene. Kriteriji su na stranici <a href=/criteria#walleti>Kriteriji</a>.</p>")
     return "Walleti", intro + run + form + tdesc('Svi walleti u registru s ocjenama; klik na zaglavlje sortira. Walleti s oznakom „Na listi” su kandidati za copytrading.') + table(head, rows, "wt", "Još nema walleta. Bot ih skuplja sam svakih 6 h.")
+
+
+POS_STATUS = {"closed": "zatvoreno", "open": "otvoreno", "moved": "prebačeno na drugi wallet",
+              "no_cost": "bez kupnje (dobio ga je)"}
+# stats that are shares (0.38 -> 38%) and ones that are signed SOL amounts
+_SHARE = {"win_rate", "roi_on_cost", "median_roi", "top_trade_share", "free_token_ratio"}
+_SOL = {"realized_sol", "unrealized_sol", "closed_pnl_sol"}
+
+
+def _statval(k, v, style):
+    if v is True or v is False:
+        return ("da" if v else "ne", int(v), "n")
+    if k == "style":
+        return (esc(style.get(v, v)), 0, "n")
+    if not isinstance(v, (int, float)):
+        return (esc(v), 0, "n")
+    if k in _SHARE:
+        return (f"{v * 100:+.0f}%" if k in ("roi_on_cost", "median_roi") else f"{v * 100:.0f}%", v, "n")
+    if k in _SOL:
+        return (f"{v:+.2f} SOL", v, "n")
+    if k == "median_hold_min":
+        return mins(v)
+    return (f"{v:,.0f}" if float(v).is_integer() or abs(v) >= 100 else f"{v:.1f}" if k != "profit_factor" and k != "median_buy_sol" else f"{v:.2f}", v, "n")
 
 
 def wallet(addr, qs):
@@ -170,9 +193,7 @@ def wallet(addr, qs):
                "score": "ocjena profitabilnosti", "copy_score": "copy ocjena", "bot": "izgleda kao bot", "style": "stil trgovanja"}
         style = {"swing": "swing (drži satima)", "scalper": "scalper (brzi ulaz/izlaz)", "bot": "bot", "sniper": "snajper", "holder": "holder"}
         b.append(tdesc('Sirove brojke iz kojih su izračunate ocjene gore, iz zadnjeg ocjenjivanja walleta.') + table(["Metrika", ("Vrijednost", "n")],
-                       [[esc(lab.get(k, k.replace("_", " "))),
-                         (esc("da" if v is True else "ne" if v is False else style.get(v, v) if k == "style" else v),
-                          v if isinstance(v, (int, float)) else 0, "n")]
+                       [[esc(lab.get(k, k.replace("_", " "))), _statval(k, v, style)]
                         for k, v in s.items() if not isinstance(v, (list, dict))]))
 
     pos = _positions(addr)
@@ -180,10 +201,10 @@ def wallet(addr, qs):
         b.append("<h2>Pozicije (iz spremljenih trejdova)</h2><p class=mut>Nerealizirani PnL ovdje nije izračunat "
                  "(treba živa cijena); status otvoreno/zatvoreno je po udjelu prodanog.</p>")
         b.append(table(["Token", "Status", ("Uloženo SOL", "n"), ("Realizirano SOL", "n"), ("ROI (realiz.)", "n"),
-                        ("Kupnji", "n"), ("Prodaja", "n"), ("Drži min", "n"), "Zadnje"],
-                       [[tlink(p["mint"], syms.get(p["mint"])), esc(p["status"]), num(p.get("cost"), "{:.3f}"),
-                         signed(p.get("realized"), "{:+.3f}"), signed(p.get("roi"), "{:+.0%}"), num(p["buys"]),
-                         num(p["sells"]), num(p.get("hold_min"), "{:.0f}"), ts(p["last_ts"])]
+                        ("Kupnji", "n"), ("Prodaja", "n"), ("Držao", "n"), "Zadnje"],
+                       [[tlink(p["mint"], syms.get(p["mint"])), esc(POS_STATUS.get(p["status"], p["status"])), num(p.get("cost"), "{:.2f}"),
+                         signed(p.get("realized"), "{:+.2f}"), signed(p.get("roi"), "{:+.0%}"), num(p["buys"]),
+                         num(p["sells"]), mins(p.get("hold_min")), ts(p["last_ts"])]
                         for p in sorted(pos.values(), key=lambda p: -(p["last_ts"] or 0))]))
     hist = data.wallet_pnl(addr)
     if hist:
@@ -336,7 +357,7 @@ def token(mint, qs):
             b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs_asc[0]["price"]))
         b.append("<h3>Svi signali</h3>")
         b.append(tdesc('Svaki put kad ga je hype skener zabilježio, s cijenom i izvorima u tom trenutku.') + table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
-                       [[ts(s["ts"]), scorecell(s["score"]), num(s["price"], "{:.8g}"), usd(s["mcap"]),
+                       [[ts(s["ts"]), scorecell(s["score"]), price(s["price"]), usd(s["mcap"]),
                          usd(s["liquidity"]), (esc(labels.sources(s["sources"])), "", "wrap")] for s in sigs[:200]]))
     b.append("</details>")
 
@@ -379,7 +400,7 @@ def token(mint, qs):
         top = h.get("top") or []
         if top:
             b.append("<h3>Top holderi</h3>" + tdesc('Najveći holderi i jesu li povezani s devom ili međusobno (insajderi).') + table(["Wallet", ("%", "n"), "Insajder"],
-                                                     [[wlink(x["wallet"]), num(x.get("pct"), "{:g}"),
+                                                     [[wlink(x["wallet"]), num(x.get("pct"), "{:.1f}"),
                                                        badge("da", "bad") if x.get("insider") else "ne"] for x in top]))
         md = os.path.join("rug", f"{mint}.md")
         if data.read_output(md) is not None:

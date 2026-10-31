@@ -292,6 +292,26 @@ def usd(x):
     return (s, x, "n")
 
 
+def price(x):
+    """Token price in dollars, readable for tiny memecoin prices: $1.23, $0.0042, $0.000001625."""
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return ("–", -1, "n")
+    s = f"${x:,.2f}" if x >= 1 else f"${x:.4g}"
+    if "e" in s:  # 1.62e-07 -> 0.000000162
+        s = "$" + f"{x:.12f}".rstrip("0")
+    return (s, x, "n")
+
+
+def mins(x):
+    """Duration given in minutes, in words: 34 min, 25 h, 5 d."""
+    if x is None:
+        return ("–", -1e18, "n")
+    s = f"{x:.0f} min" if x < 90 else f"{x / 60:.0f} h" if x < 48 * 60 else f"{x / 1440:.0f} d"
+    return (s, x, "n")
+
+
 def bar(v, mx=100, w=120):
     pct = 0 if not mx else max(0, min(100, 100 * (v or 0) / mx))
     return f'<span class="bar" style="width:{w}px"><i style="width:{pct:.0f}%"></i></span>'
