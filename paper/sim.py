@@ -44,9 +44,37 @@ def sell(pos, frac, price, liq, ts, reason, cfg):
         pos["closed_ts"] = ts
 
 
+def trail_for(peak, cfg):
+    """Trailing distance for the current peak. `trail_tiers` [[peak, trail], ...] widens it as the token grows, so a
+    moonshot gets room to breathe; without tiers the single `trail` applies once the peak passes `trail_after`."""
+    tiers = cfg.get("trail_tiers")
+    if not tiers:
+        return cfg["trail"] if peak >= cfg["trail_after"] else None
+    use = None
+    for level, tr in sorted(tiers):
+        if peak >= level:
+            use = tr
+    return use
+
+
+def _tp_frac(pos, frac, price, liq, cfg):
+    """"cost" = sell just enough to get the stake back (the rest rides for free); a number = share of the buy."""
+    if frac != "cost":
+        return frac
+    gross_all = pos["qty"] * price
+    if gross_all <= 0:
+        return 0
+    need = (pos["size_usd"] - pos["realized"]) / ((1 - cfg["fee"]) * (1 - impact(pos["size_usd"], liq)))
+    return max(0.0, min(pos["left"], need / gross_all))
+
+
 def step(pos, price, liq, ts, cfg):
     """Apply one price observation. Fills at the observed price, so a gap through the stop costs extra,
-    as it would for real."""
+    as it would for real.
+
+    Moonbag (cfg moonbag > 0): once a take profit has locked in a gain, the last `moonbag` share of the buy is
+    never sold by the normal exits; it rides with its own wide trailing stop (moon_trail) until rug or
+    moon_hold_h, so a trade that already paid for itself keeps a ticket to a moonshot."""
     if not pos["open"]:
         return pos
     if price <= 0 or liq < cfg["rug_liq"] * pos["entry_liq"]:
@@ -54,21 +82,51 @@ def step(pos, price, liq, ts, cfg):
         return pos
     ret = price / pos["entry_px"] - 1
     pos["peak"], pos["low"] = max(pos["peak"], ret), min(pos["low"], ret)
+    age = ts - pos["opened_ts"]
+    if pos.get("bag"):
+        if (1 + ret) <= (1 + pos["peak"]) * (1 - cfg.get("moon_trail", 0.6)):
+            sell(pos, 1.0, price, liq, ts, "moonbag_trailing", cfg)
+        elif age >= cfg.get("moon_hold_h", cfg["max_hold_h"]) * 3600:
+            sell(pos, 1.0, price, liq, ts, "moonbag_time", cfg)
+        return pos
     if pos["tp_done"] == 0 and ret <= cfg["sl"]:
         sell(pos, 1.0, price, liq, ts, "stop_loss", cfg)
         return pos
+    bag = cfg.get("moonbag") or 0
     for i, (level, frac) in enumerate(cfg["tp"]):
         if i >= pos["tp_done"] and ret >= level:
-            sell(pos, frac, price, liq, ts, f"take_profit_{level:g}x", cfg)
+            f = _tp_frac(pos, frac, price, liq, cfg)
+            if bag:
+                f = min(f, max(0.0, pos["left"] - bag))
+            sell(pos, f, price, liq, ts, f"take_profit_{level:g}x", cfg)
             pos["tp_done"] = i + 1
     if not pos["open"]:
         return pos
-    if pos["tp_done"] and cfg.get("breakeven_after_tp") and ret <= 0:
-        sell(pos, 1.0, price, liq, ts, "breakeven", cfg)
-    elif pos["peak"] >= cfg["trail_after"] and (1 + ret) <= (1 + pos["peak"]) * (1 - cfg["trail"]):
-        sell(pos, 1.0, price, liq, ts, "trailing", cfg)
-    elif ts - pos["opened_ts"] >= cfg["max_hold_h"] * 3600:
-        sell(pos, 1.0, price, liq, ts, "time", cfg)
+    # after a take profit with a moonbag, the normal exits sell down to the bag and the bag rides on
+    rest = max(0.0, pos["left"] - bag) if (bag and pos["tp_done"]) else 1.0
+    tr = trail_for(pos["peak"], cfg)
+    # KOL wave: influencers called it in the last kol_hold_min minutes (caller sets pos["kol_until"]). After a call
+    # a token often pumps, pauses and finds its rhythm: no "nothing happens" exit then, and a looser trail.
+    kol = cfg.get("kol_hold_min") and pos.get("kol_until", 0) >= ts
+    if kol and tr is not None:
+        tr = min(0.9, tr + cfg.get("kol_trail_add", 0.0))
+    after_tp = cfg.get("sl_after_tp")  # stop for the rest after the first take profit (0 = breakeven)
+    if after_tp is None and cfg.get("breakeven_after_tp"):
+        after_tp = 0.0
+    why = None
+    if pos["tp_done"] and after_tp is not None and ret <= after_tp:
+        why = "breakeven"
+    elif tr is not None and (1 + ret) <= (1 + pos["peak"]) * (1 - tr):
+        why = "trailing"
+    elif (cfg.get("stale_min") and not kol and age >= cfg["stale_min"] * 60 and pos["tp_done"] == 0
+          and pos["peak"] < cfg.get("stale_ret", 0.1)):
+        why = "stale"  # nothing happened in the first minutes: the pump is not coming
+    elif age >= cfg["max_hold_h"] * 3600:
+        why = "time"
+    if why:
+        sell(pos, rest, price, liq, ts, why, cfg)
+    if pos["open"] and bag and pos["tp_done"] and pos["left"] <= bag + 1e-9:
+        pos["bag"] = True
     return pos
 
 
@@ -83,13 +141,23 @@ def result(pos, mark_price=None, mark_liq=None, cfg=None):
             "min_ret": round(pos["low"], 4), "exit_reason": pos.get("exit_reason") or ("open" if pos["open"] else "")}
 
 
-def replay(entry_price, entry_liq, entry_ts, path, cfg, size_usd=None):
-    """Simulate a whole trade over [(ts, price, liq), ...]; unfinished trades are marked at the last tick."""
+def kol_until(calls, ts, cfg):
+    """Until when the newest influencer call at or before ts keeps the KOL hold on (0 = none)."""
+    hold = cfg.get("kol_hold_min") or 0
+    last = max((c for c in calls or () if c <= ts), default=None)
+    return last + hold * 60 if (hold and last is not None) else 0
+
+
+def replay(entry_price, entry_liq, entry_ts, path, cfg, size_usd=None, calls=None):
+    """Simulate a whole trade over [(ts, price, liq), ...]; unfinished trades are marked at the last tick.
+    calls: timestamps of influencer calls on the token (KOL hold)."""
     pos = open_position(entry_price, entry_liq, entry_ts, size_usd or cfg["size_usd"], cfg)
     last = (entry_ts, entry_price, entry_liq)
     for ts, price, liq in path:
         if ts <= entry_ts:
             continue
+        if calls:
+            pos["kol_until"] = kol_until(calls, ts, cfg)
         step(pos, price or 0, liq or 0, ts, cfg)
         last = (ts, price, liq)
         if not pos["open"]:

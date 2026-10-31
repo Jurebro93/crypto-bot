@@ -10,7 +10,7 @@ NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),

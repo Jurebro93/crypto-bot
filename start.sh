@@ -59,6 +59,7 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 python3 run_usage.py loop --every 15 &
 
 python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
+python3 run_exits.py loop &         # once a day: re-learn exit rules per class from price paths, guarded, rollback
 # trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
 python3 run_market.py loop --every 60 &
 

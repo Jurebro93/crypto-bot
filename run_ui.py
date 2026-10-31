@@ -58,6 +58,9 @@ def route(path, qs):
         return market.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
+    if path == "/izlazi":
+        from ui import exitspage
+        return exitspage.page(qs)
     if path == "/learn":
         from ui import learnpage
         return learnpage.page(qs)
@@ -220,6 +223,11 @@ def main(argv=None):
         sys.exit("Slušaš na javnoj adresi bez lozinke. Postavi UI_PASSWORD=... ili koristi SSH tunel (vidi --help).")
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.verbose = a.verbose
+    if os.environ.get("LEAGUE_AUTO_SELL", "1") == "1":  # competition auto sell; this process is league.db's only writer
+        import threading
+        from league import auto
+        from ui.paper import market
+        threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
     print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
           + "  (Ctrl+C za kraj)")
     try:

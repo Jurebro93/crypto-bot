@@ -41,5 +41,8 @@
   "bounce": 0.08,
   "min_age_min": 20,
   "size_frac": 0.5
- }
+ },
+ "moon_hold_h": 72,
+ "kol_hold_min": 60,
+ "kol_trail_add": 0.1
 }
