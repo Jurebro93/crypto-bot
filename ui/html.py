@@ -13,6 +13,7 @@ NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
+    ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),
     ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
@@ -27,6 +28,10 @@ NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav",
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
+    "/korelacije": ("Tko radi zajedno i kako", "KOL grupe koje zovu iste tokene, walleti koji kupe prije poziva određenog "
+                    "računa, walleti istog vlasnika, signali koji idu uz pumpu i što poznate grupe diraju sada, s AI "
+                    "tumačenjem na vrhu.", "Spaja X, Telegram i on-chain podatke: praćene grupe idu u registar walleta, "
+                    "a njihova aktivnost je rani signal za ulaz prije gomile."),
     "/": ("Odgovor na pitanje \"što sad?\"", "Demo rezultat, istaknuti tokeni po klasi poredani po Šansi za skok i tablica tokena "
           "koji su prošli više analiza. Sve ostalo (rast baze, klasteri walleta, stanje baza) je sklopljeno ispod.",
           "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
