@@ -43,7 +43,7 @@ def page(qs):
     if st.get("sent"):
         line += f" · zadnji poslan: {esc(st['sent'])}"
     if st.get("error"):
-        line += f"<br><span class=bad>Zadnja greška: {esc(st['error'])}</span>"
+        line += f"<br><span class=bad>{esc(_err(st['error']))}</span>"
     b.append(f"<div class=card>{line}</div>")
     if not sel:
         b.append("<div class=card>Još nema izvještaja. Prvi nastaje nakon deploya (ako je prošlo "
@@ -54,3 +54,12 @@ def page(qs):
     b.append(f'<iframe src="/izvjestaj/raw/{sel}" style="width:100%;height:2400px;border:0;background:#f6f7f9;'
              f'border-radius:8px"></iframe>')
     return "Izvještaj", "".join(b)
+
+
+def _err(e):
+    """Last send error in plain words: no exception names or setting names."""
+    e = str(e or "")
+    if "nije podešen" in e or "SMTP" in e or "RESEND" in e:
+        return ("Izvještaj se ne može poslati e-mailom: na serveru još nije upisana lozinka za slanje e-maila "
+                "(Gmail lozinka za aplikaciju). Izvještaj se i dalje radi i vidi ovdje.")
+    return "Zadnje slanje nije uspjelo: " + (e.split(": ", 1)[1] if ": " in e and e.split(": ", 1)[0].endswith("Error") else e)
