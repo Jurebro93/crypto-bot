@@ -9,7 +9,7 @@
   "gmgn": 0.06,
   "kol_monitor": 0.6,
   "kol_search": 0.12,
-  "kol_timeline": 0.12,
+  "kol_timeline": 0.4,
   "kol_backfill": 0.0
  },
  "pumpfun": {
