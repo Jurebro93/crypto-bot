@@ -241,6 +241,8 @@ CFG = {
     "dca": ("Dokup u padu (samo zapis)", ""), "moon_hold_h": ("Moonbag držimo najdulje", "h"),
     "kol_hold_min": ("Nakon KOL poziva držimo barem", "min"),
     "kol_trail_add": ("Nakon KOL poziva trailing stop širi za", "%"),
+    "ticks_keep_days": ("Povijest cijena čuvamo", "d"),
+    "explore": ("Istraživački ulazi (manji ulog, brže učenje)", ""),
 }
 
 
@@ -253,6 +255,9 @@ def cfg_value(k, v):
         return ", ".join(f"+{a * 100:.0f}% → prodaj {b * 100:.0f}%" for a, b in v)
     if k == "block_verdicts" and isinstance(v, list):
         return ", ".join(v) or "nijedna"
+    if k == "explore" and isinstance(v, dict):
+        return (f"uključeno: gornjih {v.get('top_pct', 30):g}% ocjena, ulog ${v.get('size_usd', 0):g}"
+                if v.get("enabled", True) else "isključeno")
     if k == "dca" and isinstance(v, dict):
         return "uključeno" if v.get("enabled") else "isključeno"
     if isinstance(v, (int, float)):

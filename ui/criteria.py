@@ -189,5 +189,5 @@ def page(qs):
                  "rug presude) bot svaki dan sam prilagođava iz dnevnog pregleda, a izlaze uči po klasi tokena "
                  "(<a href=/izlazi>Izlazi</a>). Svaka promjena prolazi zaštite i sama se vraća ako se pokaže lošijom.</p>")
         b.append(table(["Pravilo", "Vrijednost"],
-                       [[esc(labels.cfg_name(k)), esc(labels.cfg_value(k, v))] for k, v in cfg.items()]))
+                       [[esc(labels.cfg_name(k)), esc(labels.cfg_value(k, v))] for k, v in cfg.items() if not k.startswith("_")]))
     return "Kriteriji", "".join(b)
