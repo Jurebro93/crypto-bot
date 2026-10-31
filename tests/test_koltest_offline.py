@@ -102,6 +102,16 @@ class Book(unittest.TestCase):
         con.close()
         self.assertEqual(rows, [(B, "skip", "premala likvidnost")])
 
+    def test_big_caps_skipped(self):
+        self.step(T0)
+        self.events = [(A, T0 + 5, "chain", "w:abc", 0)]
+        self.mk = lambda toks: {A: (60000.0, 5e7, 3e8, "WBTC", None)}
+        self.step(T0 + 60)
+        con = store.connect(self.db)
+        rows = con.execute("SELECT status, close_reason FROM positions").fetchall()
+        con.close()
+        self.assertEqual(rows, [("skip", "velik token")])
+
     def test_grid_and_levels(self):
         cfg = self.cfg
         base = {"status": "done", "entry_liq": 1e9, "rets": {"24h": 0.05}, "last_px": 1.05, "entry_px": 1.0}

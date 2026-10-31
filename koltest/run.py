@@ -159,11 +159,15 @@ def step(now=None, cfg=None, path=None, market_fn=None, events_fn=None, quiet=Fa
         entered = done = 0
         for rid, tok, seen in pending:
             m = mk.get(tok)
-            if m and m[0] > 0 and (m[1] or 0) >= cfg["min_liq"]:
+            if m and m[0] > 0 and (m[1] or 0) >= cfg["min_liq"] and (m[2] or 0) <= cfg.get("max_mcap", 5e7):
                 pos = book.new_position(m[0], m[1], m[2], int(now), cfg)
                 con.execute("UPDATE positions SET symbol=?, url=? WHERE id=?", (m[3], m[4], rid))
                 _save(con, rid, pos, "open")
                 entered += 1
+            elif m and m[0] > 0 and (m[2] or 0) > cfg.get("max_mcap", 5e7):
+                # wrapped BTC/ETH, stablecoins, big caps a KOL wallet parks money in: not a call, frees the slot
+                con.execute("UPDATE positions SET status='skip', close_reason='velik token', symbol=? WHERE id=?",
+                            (m[3], rid))
             elif m and m[0] > 0 and (m[1] or 0) < cfg["min_liq"]:
                 con.execute("UPDATE positions SET status='skip', close_reason='premala likvidnost', symbol=? "
                             "WHERE id=?", (m[3], rid))
