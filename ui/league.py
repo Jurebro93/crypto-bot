@@ -5,6 +5,7 @@ Pages get the logged-in player (Basic auth user name, see run_ui.py); None means
 which can look but not trade.
 """
 import re
+import sqlite3
 import time
 from urllib.parse import quote
 
@@ -274,7 +275,7 @@ def post(path, form, user):
                 store.set_idea_status(con, int(form.get("id") or 0), form["status"])
             return back
         return back
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, sqlite3.OperationalError) as e:
         return f"{back}?err={quote(str(e))}"
     finally:
         con.close()

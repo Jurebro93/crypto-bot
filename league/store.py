@@ -40,7 +40,10 @@ def missing_passwords():
 def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=30)
     con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
+    try:
+        con.executescript(SCHEMA)
+    except sqlite3.OperationalError:   # disk full: the tables usually exist already, reads still work
+        pass
     for col in ("entry_mcap", "exit_mcap"):   # added after the first release
         try:
             con.execute(f"ALTER TABLE trades ADD COLUMN {col} REAL")
@@ -56,8 +59,12 @@ def impact(usd, liq):
 
 def account(con, user):
     """Cash, money in open positions and realized PnL; creates the account on first use."""
-    con.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (user, START_USD, int(time.time())))
-    start = con.execute("SELECT start_usd FROM accounts WHERE user=?", (user,)).fetchone()[0]
+    try:
+        con.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (user, START_USD, int(time.time())))
+    except sqlite3.OperationalError:   # disk full or locked: show the default account instead of failing the page
+        pass
+    row = con.execute("SELECT start_usd FROM accounts WHERE user=?", (user,)).fetchone()
+    start = row[0] if row else START_USD
     realized, in_use = con.execute(
         "SELECT COALESCE(SUM(CASE WHEN status='closed' THEN pnl_usd END),0),"
         " COALESCE(SUM(CASE WHEN status='open' THEN size_usd END),0) FROM trades WHERE user=?", (user,)).fetchone()
@@ -135,7 +142,10 @@ def leaderboard(con, live):
         rows.append({**acc, "unrealized": unreal, "equity": equity, "profit": equity - acc["start"],
                      "ret": (equity - acc["start"]) / acc["start"] if acc["start"] else 0, "open": len(opened),
                      "closed": len(closed), "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "best": best})
-    con.commit()
+    try:
+        con.commit()
+    except sqlite3.OperationalError:
+        pass
     return sorted(rows, key=lambda r: -r["profit"])
 
 
