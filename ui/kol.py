@@ -31,6 +31,9 @@ def lift(x):
     if x is None:
         return ("–", -1, "n")
     c = "pos" if x >= 2 else "neg" if x < 1 else ""
+    if x >= 50:  # measure.py caps at 50×: almost no volume in the hour before, so the ratio has no real ceiling
+        return (f'<span class="{c}" title="Sat prije gotovo nije bilo trgovanja, pa omjer nema smisla računati točno">'
+                f'50×+</span>', x, "n")
     return (f'<span class="{c}">{x:.1f}×</span>', x, "n")
 
 
@@ -168,6 +171,9 @@ def trades_table(con, where="1=1", args=(), limit=200, tid="trades", show_who=Tr
     return table(head, out, tid=tid, empty="Još nema kupnji ni prodaja praćenih novčanika.")
 
 
+FEW = 5  # fewer measured calls than this: medians are shown faded
+
+
 def _leaderboard(con, minf, minc):
     rows = _rows(con, "SELECT * FROM kols WHERE score IS NOT NULL AND COALESCE(followers, 0) >= ? ORDER BY score DESC",
                  (minf,))
@@ -177,11 +183,21 @@ def _leaderboard(con, minf, minc):
         s = json.loads(k["stats"] or "{}")
         if s.get("measured", 0) < minc:
             continue
+        few = s.get("measured", 0) < FEW
+
+        def m(cell):  # stats from 1-4 calls are anecdotes, not medians: shown faded
+            if not few:
+                return cell
+            return (f'<span class=mut title="Samo {s.get("measured", 0)} izmjerenih poziva: premalo za pouzdan '
+                    f'medijan">{cell[0]}</span>', cell[1], cell[2])
+        eng = s.get("eng_rate")
         out.append([klink(k["handle"]), num(k["followers"]), (f"<b>{k['score']:.0f}</b>", k["score"], "n"),
-                    lift(k["power_rel"]), num(s.get("measured")), share(s.get("hit_rate")), pct(s.get("med_max24")),
-                    pct(s.get("med_r1h")), lift(s.get("med_lift")), share(s.get("rug_rate")),
-                    share(s.get("prepump_rate")), share(s.get("first_rate")), num(s.get("brags")),
-                    num(s.get("med_views")), share(s.get("eng_rate")), _zone(s), ago(last.get(k["handle"]))])
+                    m(lift(k["power_rel"])), num(s.get("measured")), m(share(s.get("hit_rate"))),
+                    m(pct(s.get("med_max24"))), m(pct(s.get("med_r1h"))), m(lift(s.get("med_lift"))),
+                    m(share(s.get("rug_rate"))), m(share(s.get("prepump_rate"))), m(share(s.get("first_rate"))),
+                    num(s.get("brags")), num(s.get("med_views")),
+                    ("–", -1, "n") if eng is None else (f"{eng * 100:.2g}%" if eng < 0.1 else f"{eng * 100:.0f}%", eng, "n"),
+                    _zone(s), ago(last.get(k["handle"]))])
     return table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
                   ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
                   ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
