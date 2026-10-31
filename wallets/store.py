@@ -175,6 +175,19 @@ def import_hype(con, hype_db):
     return n
 
 
+def import_seed(con, path=None):
+    """wallets/seed_retro.json: early buyers of several past pumps, found offline by retro/smart.py."""
+    path = path or os.path.join(os.path.dirname(__file__), "seed_retro.json")
+    if not os.path.exists(path):
+        return 0
+    with open(path) as f:
+        rows = json.load(f).get("wallets", [])
+    for r in rows:
+        extra = {k: r[k] for k in ("tokens", "wins", "hit_rate", "realized_sol", "score") if k in r}
+        observe(con, r["wallet"], None, "retro", "smart", extra=extra)
+    return len(rows)
+
+
 def import_kol(con, kol_db=None):
     """Rotation devs from kol.db (run_kol.py flows): bought before KOL calls and sold into them on 3+ tokens.
     Labelled insider + rotation_dev, which keeps them off the copy list. One-off flippers stay only in kol.db."""

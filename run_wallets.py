@@ -77,6 +77,8 @@ def cmd_harvest(a):
     n = wstore.import_hype(con, HYPE_DB)
     con.commit()
     print(f"iz hype.db smart_wallets: {n} viđenja")
+    n = wstore.import_seed(con)
+    print(f"seed_retro.json: {n} walleta")
     n = wstore.import_kol(con)
     con.commit()
     print(f"iz kol.db rotacijski devovi (prodaju u KOL pozive na 3+ tokena): {n} walleta")
