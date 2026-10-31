@@ -551,6 +551,43 @@ def active_now(calls, clusters, groups, trades, c, now=None):
     return rows
 
 
+def group_names(snap):
+    """Human names for group ids, so nothing on the page or in the AI text shows internal ids like k78a61d4e."""
+    names = {}
+    for cl in snap.get("clusters", []):
+        lead = cl.get("leader") or (cl.get("members") or ["?"])[0]
+        names[cl["id"]] = f"ekipa oko @{lead.removeprefix('tg:')} ({cl['size']} računa)"
+    for g in snap.get("groups", []):
+        if g.get("handles"):
+            names[g["id"]] = f"novčanici povezani s @{g['handles'][0]} ({g['size']})"
+        else:
+            names[g["id"]] = f"skupina od {g['size']} novčanika ({g['wallets'][0][:4]}…)"
+    return names
+
+
+def active_summary(a, names=None):
+    """One plain sentence per active token: KOL crews by leader, wallet groups added up (no internal ids)."""
+    names = names or {}
+    lead = {}
+    kol = [w for w in a["who"] if w["kind"] == "kol"]
+    wal = [w for w in a["who"] if w["kind"] != "kol"]
+    parts = []
+    for w in kol:
+        nm = names.get(w["id"], "")
+        lead = nm.split("@", 1)[1].split(" ", 1)[0] if "@" in nm else (w["names"] or ["?"])[0]
+        parts.append(f"zove ga {w['n']} računa iz ekipe oko @{lead} ({', '.join('@' + h for h in w['names'][:4])})")
+    if wal:
+        n_w = sum(w["n"] for w in wal)
+        s = (f"kupilo ga je {n_w} novčanika iz {len(wal)} poznatih skupina" if len(wal) > 1 else
+             f"kupilo ga je {n_w} novčanika iz jedne poznate skupine")
+        best = max(wal, key=lambda w: (w["n"], w["score"]))
+        if best["n"] >= 2 and len(wal) > 1:
+            s += f", najviše {best['n']} iz iste ({names.get(best['id'], 'skupina novčanika')})"
+        parts.append(s)
+    out = "; ".join(parts)
+    return out[:1].upper() + out[1:] + "."
+
+
 # ---------------------------------------------------------------- all together
 
 def build(kol_db, wallet_db, rug_db, hype_db, c=None, now=None):
