@@ -86,8 +86,9 @@ python3 run_market.py loop --every 60 &
 python3 run_report.py loop &
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
-# guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni
-python3 run_dugo.py loop --every "${DUGO_EVERY_MIN:-360}" &
+# guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
+# A fresh process per pass, so it holds no memory in the 6 h between passes.
+( sleep 300; while true; do python3 run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps

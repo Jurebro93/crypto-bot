@@ -1,7 +1,7 @@
 """Dugoročni i oživljeni tokeni: the safer list next to the new-token hunt (page Tokeni -> Dugoročni).
 
-    python3 run_dugo.py once                 # one pass: collect, rank, demo book
-    python3 run_dugo.py loop --every 360     # start.sh: every 6 h; learning once every 7 days
+    python3 run_dugo.py once                 # one pass: collect, rank, demo book (+ learning when due, every 7 days)
+    python3 run_dugo.py loop --every 360     # same in one long-lived process
     python3 run_dugo.py learn                # one guarded learning step for both lists
     python3 run_dugo.py report               # top of both lists in the terminal
 
@@ -18,14 +18,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dugo import learn, run, store  # noqa: E402
 
 
-def cmd_loop(a):
+def cmd_once(a):
+    """One pass; learning too when the last learning run is older than ucenje.svaki_d days."""
     cfg = run.config()
+    con = store.connect()
+    try:
+        last = con.execute("SELECT MAX(ts) FROM learn_runs").fetchone()[0] or 0
+        run.once(con, cfg, learn_too=time.time() - last > cfg["ucenje"]["svaki_d"] * 86400)
+    finally:
+        con.close()
+
+
+def cmd_loop(a):
     while True:
         try:
-            con = store.connect()
-            last = con.execute("SELECT MAX(ts) FROM learn_runs").fetchone()[0] or 0
-            run.once(con, cfg, learn_too=time.time() - last > cfg["ucenje"]["svaki_d"] * 86400)
-            con.close()
+            cmd_once(a)
         except Exception as e:
             print(f"dugo: {type(e).__name__}: {e}", file=sys.stderr)
         time.sleep(a.every * 60)
@@ -51,7 +58,7 @@ def cmd_report(a):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("once").set_defaults(fn=lambda a: run.once())
+    sub.add_parser("once").set_defaults(fn=cmd_once)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=360)
     lp.set_defaults(fn=cmd_loop)
