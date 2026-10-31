@@ -162,6 +162,12 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception as e:
         print(f"  konvergencija: {e}", file=sys.stderr)
         conv = {}
+    try:  # big holders of the long-term tokens buying it (dugo/holders.py + wallet registry, read-only)
+        from dugo import holders as dholders
+        whales = dholders.signals()
+    except Exception as e:
+        print(f"  veliki holderi: {e}", file=sys.stderr)
+        whales = {}
     found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca) + list(kol_groups))
     for t in conv:
         found.setdefault(t, set()).add("konv")
@@ -208,6 +214,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["kol_wallets"] = min(1.0, (pf.get("kolCount") or 0) / 5)  # pump.fun: known KOL wallets traded it
             if "live" in (pf.get("boards") or []) or pf.get("isCurrentlyLive"):  # dev/community streaming now
                 f["pump_live"] = min(1.0, 0.5 + (pf.get("liveParticipants") or 0) / 200)
+        if whales.get(t):  # only set when it happened: 3+ different big holders = full signal
+            f["veliki_kupuju"] = round(min(1.0, whales[t] / 3), 2)
         if t in conv:  # only set when it happened, like kol_group
             f["konvergencija"] = round(conv[t]["score"] / 100, 2)
         trend = sources.trend_match(sym, name, ctx["trend_keys"])

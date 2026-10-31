@@ -39,7 +39,8 @@ def load_learned():
 def current(cfg):
     """{kind: weights} in use: learned when present, else config.json."""
     L = load_learned()
-    return {k: dict(L.get(k) or cfg["tezine"][k]) for k in ("dugorocni", "budjenje")}
+    # new features added to config.json later keep their starting weight until learning touches them
+    return {k: {**cfg["tezine"][k], **(L.get(k) or {})} for k in ("dugorocni", "budjenje")}
 
 
 def samples(con, cfg, kind, step_d=7):
@@ -118,7 +119,7 @@ def fit(con, cfg, kind, now=None, write=True):
     now = int(now or time.time())
     uc = cfg["ucenje"]
     L = load_learned()
-    cur = dict(L.get(kind) or cfg["tezine"][kind])
+    cur = {**cfg["tezine"][kind], **(L.get(kind) or {})}
     smp = samples(con, cfg, kind)
     res = {"kind": kind, "n": len(smp), "applied": 0, "before": None, "after": None, "note": ""}
     if len(smp) < uc["min_uzoraka"]:
