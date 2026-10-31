@@ -13,14 +13,14 @@ done
 ln -sfn "$DATA_DIR/output" output
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
-# HTTP cache shares the 1 GB disk with the databases: trim it now (frees a full disk on redeploy) and every hour
-(
-  while true; do
-    python3 -c "from event_calendar import http; n, mb = http.prune(); print(f'cache: obrisano {n} datoteka, {mb:.0f} MB')" \
-      || echo "cache prune nije uspio"
-    sleep 3600
-  done
-) &
+# HTTP cache shares the 1 GB disk with the databases: trim it before anything else starts (a full disk makes
+# every SQLite write fail and the first loop to crash restarts the service), then every hour
+prune_cache() {
+  python3 -c "from event_calendar import http; n, mb = http.prune(); print(f'cache: obrisano {n} datoteka, {mb:.0f} MB')" \
+    || echo "cache prune nije uspio"
+}
+prune_cache
+( while true; do sleep 3600; prune_cache; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
