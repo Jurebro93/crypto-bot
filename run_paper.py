@@ -242,16 +242,62 @@ def _n_explore(con, since=None):
     return con.execute(q + " AND opened_ts>=?", (since,)).fetchone()[0]
 
 
+def konv_now(tokens, now):
+    """{token: convergence} for these tokens: kol.db's stored copy (refreshed each run_kol round) overlaid with a live
+    computation from kol.db / tg.db / hype.db (read-only), so a cluster that formed in the last minutes counts now."""
+    if not tokens:
+        return {}
+    out = {}
+    try:
+        from kol import store as kstore
+        out = kstore.converge(list(tokens), max_age_min=60)
+    except Exception as e:  # noqa: BLE001
+        print(f"  konvergencija: {e}", file=sys.stderr)
+    try:
+        from kol import converge
+        with open(os.path.join(HERE, "kol", "config.json")) as f:
+            kcfg = json.load(f)
+        live = converge.compute(now=int(now), cfg=kcfg.get("converge"), good=kcfg.get("good_score", 50))
+        out.update({t: v for t, v in live.items() if t in tokens})
+    except Exception as e:  # noqa: BLE001
+        print(f"  konvergencija (live): {type(e).__name__}: {e}", file=sys.stderr)
+    return out
+
+
+def konv_fresh(cv, kc, now):
+    """Strong enough, still happening (newest call/buy within max_age_min), the whole cluster within window_min of
+    its first event (not a slow drip over hours), and no tracked wallet selling."""
+    if not cv or cv.get("kol_selling") or cv.get("score", 0) < kc.get("min_score", 101):
+        return False
+    last = cv.get("last_ts") or cv.get("ts") or cv.get("first_ts") or 0
+    return (now - last <= kc.get("max_age_min", 10) * 60
+            and now - (cv.get("first_ts") or last) <= kc.get("window_min", 30) * 60)
+
+
 def intake(cfg, now=None, quiet=False):
     """Decide every new candidate once; a skipped one is taken later if its hype score climbs over min_score."""
     now = now or time.time()
     con = store.connect(DB)
     seen = {t: d for t, d in con.execute("SELECT token, decision FROM candidates")}
     cands = {}
-    for c in event_tokens(cfg, now) + hype_signals(now=now):
+    sigs = event_tokens(cfg, now) + hype_signals(now=now)
+    for c in sigs:
         if c["token"] not in seen or (seen[c["token"]] == "skip_score" and c["origin"] == "hype"
                                       and (c["score"] or 0) >= cfg["min_score"]):
             cands[c["token"]] = c
+    kc = cfg.get("konv") or {}
+    conv = {}
+    if kc.get("enabled"):
+        # Convergence builds up over minutes (one KOL wallet buys, then a second, then a Telegram call), so a token
+        # that was skipped when it first showed up is looked at again once its convergence is strong now. Computed
+        # live here: kol.db's stored copy is refreshed only every 20-45 min (run_kol round), far too late for a
+        # 10-minute entry window (31.10.: 68 convergence tokens at 17:21, 0 convergence trades all day).
+        again = {c["token"]: c for c in sigs if c["origin"] == "hype" and c["token"] in seen
+                 and c["token"] not in cands and seen[c["token"]] in ("skip_score", "ignored", "skip_liq")}
+        conv = konv_now(set(cands) | set(again), now)
+        for t, c in again.items():
+            if konv_fresh(conv.get(t), kc, now):
+                cands[t] = c
     if not cands:
         return []
     mk = market(cands) or {}
@@ -263,18 +309,12 @@ def intake(cfg, now=None, quiet=False):
     ex = cfg.get("explore") or {}
     ex_need = explore_need(con, cfg, now)
     ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
-    kc = cfg.get("konv") or {}
-    try:  # multi-source convergence (X + Telegram + KOL wallets), kol.db read-only
-        from kol import store as kstore
-        conv = kstore.converge(list(cands), max_age_min=60) if kc.get("enabled") else {}
-    except Exception as e:
-        print(f"  konvergencija: {e}", file=sys.stderr)
-        conv = {}
     arm_st = arms.stats(con, cfg.get("arms"))
     from rugfilter import collapse
     pk = collapse.peaks(HYPE_DB, list(cands), now=now)
     opened = []
-    for t, c in sorted(cands.items(), key=lambda kv: -(kv[1]["score"] or 0)):
+    # strong convergence first: when the exploration slots are nearly full, KOL/wallet clusters get them first
+    for t, c in sorted(cands.items(), key=lambda kv: (not konv_fresh(conv.get(kv[0]), kc, now), -(kv[1]["score"] or 0))):
         if t not in mk:
             continue
         price, liq, mcap, url = mk[t]
@@ -285,8 +325,7 @@ def intake(cfg, now=None, quiet=False):
                    and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
         cv = conv.get(t)
         # convergence: several good sources on it in the last minutes -> small early entry, whatever the score
-        konv = bool(cv and c["origin"] == "hype" and cv["score"] >= kc.get("min_score", 101) and s < need
-                    and now - cv["first_ts"] <= kc.get("max_age_min", 10) * 60 and not cv.get("kol_selling")
+        konv = bool(c["origin"] == "hype" and konv_fresh(cv, kc, now) and s < need
                     and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
         explore = explore or konv
         if explore and (ex_open >= ex["max_open"] or ex_today >= ex["max_per_day"]):
