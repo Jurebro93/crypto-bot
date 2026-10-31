@@ -110,6 +110,9 @@ def route(path, qs):
         return radar.page(qs)
     if path == "/kol":
         return kol.page(qs)
+    if path == "/kol-test":
+        from ui import koltest
+        return koltest.page(qs)
     if path == "/izvori":
         from ui import izvori
         return izvori.page(qs)
