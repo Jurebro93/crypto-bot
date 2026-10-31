@@ -119,28 +119,38 @@ def from_hype_cache(con, hype_db=None):
     if not os.path.exists(path):
         return 0
     src = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+    n = 0
     try:
         where = " OR ".join("key LIKE ?" for _ in CACHE_PREFIXES)
-        rows = src.execute(f"SELECT key, ts, items FROM apify_cache WHERE {where}",
-                           [p + "%" for p in CACHE_PREFIXES]).fetchall()
-    except sqlite3.OperationalError:
-        rows = []
+        try:
+            keys = src.execute(f"SELECT key, ts FROM apify_cache WHERE {where}",
+                               [p + "%" for p in CACHE_PREFIXES]).fetchall()
+        except sqlite3.OperationalError:
+            keys = []
+        seen = dict(con.execute("SELECT key, ts FROM seen_cache"))
+        # only the searches not copied yet are read with their tweets (all of them at once held every raw
+        # Apify answer in memory on each 20-minute round)
+        for key, ts in keys:
+            if seen.get(key) == ts:
+                continue
+            row = src.execute("SELECT ts, items FROM apify_cache WHERE key = ?", (key,)).fetchone()
+            if row is None:
+                continue
+            ts, items = row
+            if seen.get(key) == ts:
+                continue
+            ca, sym = _target(key)
+            source = key.split(":", 1)[0]
+            try:
+                tweets = json.loads(items)
+            except ValueError:
+                tweets = []
+            del items
+            for t in tweets:
+                n += save(con, calls_from_tweet(t, ca, sym, source))
+            con.execute("INSERT OR REPLACE INTO seen_cache VALUES (?,?)", (key, ts))
     finally:
         src.close()
-    seen = dict(con.execute("SELECT key, ts FROM seen_cache"))
-    n = 0
-    for key, ts, items in rows:
-        if seen.get(key) == ts:
-            continue
-        ca, sym = _target(key)
-        source = key.split(":", 1)[0]
-        try:
-            tweets = json.loads(items)
-        except ValueError:
-            tweets = []
-        for t in tweets:
-            n += save(con, calls_from_tweet(t, ca, sym, source))
-        con.execute("INSERT OR REPLACE INTO seen_cache VALUES (?,?)", (key, ts))
     return n
 
 

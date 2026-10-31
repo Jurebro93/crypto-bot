@@ -23,22 +23,13 @@ def _iso_ts(s):
 def token_rows(since=None):
     """One row per token with its latest signal, details, rug report, events and paper decision."""
     from rugfilter import collapse
-    sigs, pk = {}, {}
+    pk = {}
     day = time.time() - collapse.WINDOW_H * 3600
-    for s in data.hype_signals(limit=50000):
-        if s["ts"] >= day:
-            collapse.add(pk, s["token"], s["ts"], s["mcap"], s["liquidity"])
-        r = sigs.setdefault(s["token"], {"last": s, "first_ts": s["ts"], "max": 0})
-        r["first_ts"] = min(r["first_ts"], s["ts"])
-        r["max"] = max(r["max"], s["score"] or 0)
-        if s["ts"] > r["last"]["ts"]:
-            r["last"] = s
-    dets = {}
-    for d in data.q(data.HYPE_DB, "SELECT token, ts, extra FROM hype_details ORDER BY ts DESC"):
-        dets.setdefault(d["token"], data.js(d["extra"], {}) or {})
-    rugs = {}
-    for r in data.rug_reports():
-        rugs.setdefault(r["mint"], r)
+    sigs, recent = data.signal_summary(limit=50000, recent_since=day)
+    for tok, ts, mcap, liq in recent:
+        collapse.add(pk, tok, ts, mcap, liq)
+    dets = data.latest_details()
+    rugs = data.rug_latest()
     evs = {}
     for e in data.event_tokens():
         evs.setdefault(e["token"], []).append(e)
@@ -65,8 +56,9 @@ def token_rows(since=None):
             or (evs[t][0]["liquidity"] if t in evs else None)
         role = "canonical" if any(e["role"] == "canonical" for e in evs.get(t, [])) else ("copycat" if t in evs else None)
         tier = tiers.get(t) or {}
+        feats = (data.js(s["last"]["features"], {}) or {}) if s else {}
         conf, parts = confidence.score(s["last"]["score"] if s else None,
-                                       (data.js(s["last"]["features"], {}) or {}) if s else {}, dets.get(t, {}),
+                                       feats, dets.get(t, {}),
                                        rugs[t]["verdict"] if t in rugs else None, role, liq, mcap, klasa=tier.get("klasa"))
         if tier.get("t0") == "pad":
             hard = True
@@ -80,7 +72,7 @@ def token_rows(since=None):
                     "cand": cands.get(t), "collapse": col, "peak": pk.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
                     "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
-                    "features": (data.js(s["last"]["features"], {}) or {}) if s else {}})
+                    "features": feats})
     return out
 
 
@@ -395,7 +387,8 @@ def page(qs):
     b = ["<h1>Pregled</h1>"]
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
-    recent = token_rows(since=now - 86400)
+    allrows = sorted(token_rows(), key=_rank, reverse=True)   # built once: the 24 h list is a filter of it
+    recent = [r for r in allrows if r["last_seen"] >= now - 86400]
     b.append("<h2>Istaknuti kandidati <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
              + tip("Poredani po Šansi za skok: confidence puta koliko je od 7 neovisnih slojeva stvarno analizirano, "
                    "minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na čemu "
@@ -433,7 +426,6 @@ def page(qs):
     b.append("<details style='margin-top:10px'><summary>Točni brojevi po vremenu (tablica)</summary>" + growth(series) + "</details>")
 
     # 4. tokens through several analyses
-    allrows = sorted(token_rows(), key=_rank, reverse=True)
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
     b.append("<h2>Tokeni koji su prošli više analiza " + tip("Klik na naslov stupca sortira (ponovni klik obrne), ⓘ uz naslov objašnjava stupac, klik na red otvara analizu.") + "</h2>"

@@ -44,13 +44,29 @@ def connect(path=None):
         con.executescript(SCHEMA)
     except sqlite3.OperationalError:   # disk full: the tables usually exist already, reads still work
         pass
-    for col, typ in (("entry_mcap", "REAL"), ("exit_mcap", "REAL"),   # added after the first release
-                     ("realized", "REAL DEFAULT 0"), ("auto", "TEXT"), ("auto_state", "TEXT")):  # auto sell
-        try:
-            con.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
-        except sqlite3.OperationalError:
-            pass
+    _migrate(con)
     return con
+
+
+_MIGRATED = set()
+
+
+def _migrate(con):
+    """Columns added after the first release, once per process and only the missing ones (an ALTER on every
+    connect failed with "database or disk is full" and took the loop down with it)."""
+    key = con.execute("PRAGMA database_list").fetchone()[2]
+    if key in _MIGRATED:
+        return
+    have = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
+    for col, typ in (("entry_mcap", "REAL"), ("exit_mcap", "REAL"),
+                     ("realized", "REAL DEFAULT 0"), ("auto", "TEXT"), ("auto_state", "TEXT")):  # auto sell
+        if col not in have:
+            try:
+                con.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError as e:
+                print(f"league: stupac {col} nije dodan ({e})", flush=True)
+                return
+    _MIGRATED.add(key)
 
 
 def impact(usd, liq):

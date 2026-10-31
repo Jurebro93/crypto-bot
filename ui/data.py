@@ -87,6 +87,90 @@ def hype_signals(where="1=1", args=(), order="ts DESC", limit=5000):
                  lambda r: (r["token"], r["ts"]))
 
 
+SIG_COLS = "ts, token, symbol, name, pair, url, score, price, mcap, liquidity, features, sources"
+
+
+def signal_summary(limit=50000, recent_since=None):
+    """Per token over the newest `limit` hype signals of each file (same window as hype_signals(limit=...)):
+    {"last": newest row without the weights column, "first_ts", "max": highest score (0 floor)}, plus the
+    (token, ts, mcap, liquidity) rows since `recent_since`. The grouping runs in SQLite, so only one row per
+    token reaches Python instead of every signal with its JSON (the Pregled page used to hold all of them)."""
+    sigs, recent, first = {}, [], None
+    win = "(SELECT ts, token, score, mcap, liquidity FROM hype_signals ORDER BY ts DESC LIMIT ?)"
+    for path in GROUPS["hype"]:
+        con = _connect(path)
+        if con is None:
+            continue
+        try:
+            if first is None:  # newest file: aggregated in SQL
+                agg = {r["token"]: r for r in con.execute(
+                    f"SELECT token, MIN(ts) f, MAX(COALESCE(score, 0)) m, MAX(ts) l FROM {win} GROUP BY token", (limit,))}
+                for r in con.execute(f"SELECT {', '.join('h.' + c.strip() for c in SIG_COLS.split(','))} FROM hype_signals h "
+                                     f"JOIN (SELECT token, MAX(ts) l FROM {win} GROUP BY token) a "
+                                     "ON h.token = a.token AND h.ts = a.l", (limit,)):
+                    a = agg[r["token"]]
+                    sigs[r["token"]] = {"last": dict(r), "first_ts": a["f"], "max": max(0, a["m"] or 0)}
+                if recent_since is not None:
+                    recent += [tuple(r) for r in con.execute(
+                        f"SELECT token, ts, mcap, liquidity FROM {win} WHERE ts >= ? ORDER BY ts DESC", (limit, recent_since))]
+                first = path
+                continue
+            # older files (calendar.db from before the split): few rows, folded one by one like before
+            rows = [dict(r) for r in con.execute(f"SELECT {SIG_COLS} FROM hype_signals ORDER BY ts DESC LIMIT ?", (limit,))]
+        except sqlite3.OperationalError:
+            continue
+        finally:
+            con.close()
+        dup = set()
+        toks = sorted({r["token"] for r in rows})
+        if toks and first:
+            c0 = _connect(first)
+            try:
+                for i in range(0, len(toks), 500):
+                    part = toks[i:i + 500]
+                    dup |= {(t, ts) for t, ts in c0.execute(
+                        f"SELECT token, ts FROM {win} WHERE token IN ({','.join('?' * len(part))})", (limit, *part))}
+            except sqlite3.OperationalError:
+                pass
+            finally:
+                c0.close()
+        for s in rows:
+            if (s["token"], s["ts"]) in dup:
+                continue
+            dup.add((s["token"], s["ts"]))
+            if recent_since is not None and s["ts"] >= recent_since:
+                recent.append((s["token"], s["ts"], s["mcap"], s["liquidity"]))
+            r = sigs.setdefault(s["token"], {"last": s, "first_ts": s["ts"], "max": 0})
+            r["first_ts"] = min(r["first_ts"], s["ts"])
+            r["max"] = max(r["max"], s["score"] or 0)
+            if s["ts"] > r["last"]["ts"]:
+                r["last"] = s
+    return sigs, recent
+
+
+def latest_details():
+    """token -> parsed `extra` of its newest hype_details row (grouped in SQL, one JSON parse per token)."""
+    out = {}
+    for d in q(HYPE_DB, "SELECT token, extra, MAX(ts) ts FROM hype_details GROUP BY token"):
+        out[d["token"]] = js(d["extra"], {}) or {}
+    return out
+
+
+def rug_latest():
+    """mint -> newest rug report (same as the first per mint of rug_reports()), picked in SQL."""
+    best = {}
+    for path in GROUPS["rug"]:
+        for r in q(path, "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY mint ORDER BY checked_at DESC) rn "
+                         "FROM rug_reports) WHERE rn = 1"):
+            r.pop("rn", None)
+            cur = best.get(r["mint"])
+            if cur is None or (r["checked_at"] or 0) > (cur["checked_at"] or 0):
+                best[r["mint"]] = r
+    for r in best.values():
+        r["data"] = js(r["data"], {}) or {}
+    return best
+
+
 def hype_snapshots(token):
     out = multi("hype", "SELECT ts, price, mcap, liquidity FROM hype_snapshots WHERE token=? ORDER BY ts", (token,),
                 lambda r: r["ts"])

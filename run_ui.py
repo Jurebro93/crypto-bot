@@ -218,7 +218,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="text/html", gz=None):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
-        zipped = "gzip" in (self.headers.get("Accept-Encoding") or "") and len(body) > 1024
+        accepts = "gzip" in (self.headers.get("Accept-Encoding") or "")
+        if body is None:            # cached page: only the gzipped copy is kept
+            zipped = accepts
+            if not zipped:
+                body = gzip.decompress(gz)
+        else:
+            zipped = accepts and len(body) > 1024
         if zipped and gz is None:
             gz = gzip.compress(body, 5)
         out = gz if zipped else body

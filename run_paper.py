@@ -521,6 +521,8 @@ def cmd_run(a):
                 cmd_review(argparse.Namespace(config=a.config, hours=24, telegram=False))
         except Exception as e:
             print(f"greška u prolazu: {type(e).__name__}: {e}", file=sys.stderr)
+        from ops import mem
+        mem.trim()   # give this round's memory back before sleeping
         time.sleep(a.interval)
 
 

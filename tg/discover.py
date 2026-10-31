@@ -37,11 +37,14 @@ def from_x_cache(con, hype_db=None):
     seen = store.kv_get(con, "disc_cache", {})
     n = 0
     try:
-        for key, ts, items in src.execute("SELECT key, ts, items FROM apify_cache"):
+        for key, ts in src.execute("SELECT key, ts FROM apify_cache").fetchall():   # items only when new
             if seen.get(key) == ts:
                 continue
-            n += store.add_candidates(con, names_in_blob(items), "x")
-            seen[key] = ts
+            row = src.execute("SELECT ts, items FROM apify_cache WHERE key = ?", (key,)).fetchone()
+            if row is None or seen.get(key) == row[0]:
+                continue
+            n += store.add_candidates(con, names_in_blob(row[1]), "x")
+            seen[key] = row[0]
     except sqlite3.OperationalError:
         pass
     finally:

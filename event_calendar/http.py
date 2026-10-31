@@ -102,6 +102,9 @@ def _write(path, text):
     _writes += 1
     if _writes % PRUNE_EVERY == 1:
         prune()
+    from ops import disk
+    if disk.low("HTTP cache"):
+        return
     try:
         with open(path, "w") as f:
             f.write(text)

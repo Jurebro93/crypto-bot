@@ -15,16 +15,24 @@ import time
 FRESH_S = int(os.environ.get("UI_CACHE_FRESH_S", "45"))
 STALE_S = int(os.environ.get("UI_CACHE_STALE_S", "900"))
 MAX_ENTRIES = 60
+MAX_MB = float(os.environ.get("UI_CACHE_MAX_MB", "25"))   # gzipped bytes kept in all entries together
+BUILDS = int(os.environ.get("UI_BUILDS", "2"))            # pages built at the same time (each holds its rows in RAM)
 SLOW_S = 2.0
 
 _lock = threading.Lock()
-_store = {}          # key -> (ts, code, raw bytes, gzipped bytes)
+_store = {}          # key -> (ts, code, None, gzipped bytes): only the gzipped copy is kept, run_ui unzips when needed
+_build_slots = threading.BoundedSemaphore(BUILDS)
 _busy = set()        # keys being rendered in the background
 _inflight = {}       # key -> Event while some thread renders it: a second visitor waits for that one
 
 
 def _pack(code, raw):
-    return time.time(), code, raw, gzip.compress(raw, 5)
+    return time.time(), code, None, gzip.compress(raw, 5)
+
+
+def trim():
+    from ops import mem   # the dashboard keeps a page build's memory otherwise
+    mem.trim()
 
 
 def _render(key, build):
@@ -50,18 +58,24 @@ def _render(key, build):
 
 
 def _build(key, build):
-    t0 = time.time()
-    code, raw = build()
-    dt = time.time() - t0
+    with _build_slots:
+        t0 = time.time()
+        code, raw = build()
+        dt = time.time() - t0
+    entry = _pack(code, raw)
+    del raw
+    trim()
     if dt > SLOW_S:
         print(f"ui: {key[0]} se gradio {dt:.1f} s", flush=True)
-    entry = _pack(code, raw)
     if code == 200:
         with _lock:
             _store[key] = entry
-            if len(_store) > MAX_ENTRIES:
-                for k, _ in sorted(_store.items(), key=lambda kv: kv[1][0])[:len(_store) - MAX_ENTRIES]:
-                    _store.pop(k, None)
+            old = sorted(_store.items(), key=lambda kv: kv[1][0])
+            total = sum(len(v[3]) for _, v in old)
+            while old and (len(_store) > MAX_ENTRIES or total > MAX_MB * 1e6) and old[0][0] != key:
+                k, v = old.pop(0)
+                _store.pop(k, None)
+                total -= len(v[3])
     return entry
 
 

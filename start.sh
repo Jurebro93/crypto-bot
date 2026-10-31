@@ -6,25 +6,25 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db tg.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
+# databases once before anything opens them: old raw Apify answers out, auto_vacuum switched on (one VACUUM per
+# file, only when the disk has room), WAL journal on (ops/dbs.py). A full disk (<100 MB free) no longer stops this.
+python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
+
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
 if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 
-# HTTP cache shares the 1 GB disk with the databases: trim it before anything else starts (a full disk makes
-# every SQLite write fail and the first loop to crash restarts the service), then every hour
-prune_cache() {
-  python3 -c "from event_calendar import http; n, mb = http.prune(); print(f'cache: obrisano {n} datoteka, {mb:.0f} MB')" \
-    || echo "cache prune nije uspio"
-}
-prune_cache
-( while true; do sleep 3600; prune_cache; done ) &
+# every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
+# every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
+( while true; do sleep 3600; python3 -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
+( while true; do python3 -m ops.health || true; sleep 600; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
@@ -72,16 +72,11 @@ python3 run_tg.py loop &
 # optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
 if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py telethon & fi
 
-# spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
-python3 run_usage.py loop --every 15 &
-
-# correlations: KOL groups, wallets tied to X accounts, one-owner wallet groups, pump factors (no API calls), plus a
-# Claude reading of it once a day if ANTHROPIC_API_KEY is set -> corr.db, page Korelacije
-python3 run_corr.py loop --every "${CORR_EVERY_MIN:-60}" &
-python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
-python3 run_exits.py loop &         # once a day: re-learn exit rules per class from price paths, guarded, rollback
-# trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
-python3 run_market.py loop --every 60 &
+# loops that work only now and then, each run a short process that ends and hands its memory back (run_sched.py):
+#   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every
+#   CORR_EVERY_MIN (KOL groups, wallet groups, pump factors, a Claude reading once a day if ANTHROPIC_API_KEY is set),
+#   once a day re-fit of hype weights and of exit rules per class (guarded, rollback), market volume every hour
+python3 run_sched.py &
 # morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
 python3 run_report.py loop &
 
