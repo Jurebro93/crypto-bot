@@ -3,8 +3,10 @@
 HELP = {
     # tokens
     "Token": "Simbol tokena. Klik otvara DexScreener, ⓘ otvara našu analizu tokena.",
-    "Confidence": "Koliko alat vjeruje da će token rasti, 0-100: hype ocjena plus neovisne potvrde (X, smart money, KOL, "
-                  "holderi, rug filter), minus rizici. Raspis je u pop-upu i na stranici Kriteriji.",
+    "Confidence": "Koliko alat vjeruje da će token napraviti skok svoje klase, 0-100. Dok model ne nauči: hype ocjena plus "
+                  "neovisne potvrde (X, smart money, KOL, rug filter) minus rizici, ručne težine. Kad nauči iz barem 200 ishoda "
+                  "(dnevno, sa zaštitom): iste činjenice vagane po tome što je stvarno prethodilo skoku; 50 = prosječan token "
+                  "klase, 75 = tri puta češći skok. Raspis je u pop-upu, kalibracija na stranici Učenje.",
     "Zašto": "Najjači razlozi zbog kojih je token istaknut, iz izmjerenih signala.",
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
@@ -37,7 +39,7 @@ HELP = {
     "Rug filter": "Helius + RugCheck provjera: PROLAZI ili OPREZ = ✓, VISOK RIZIK ili ODBAČEN = ✗.",
     "Event": "Token je vezan uz nadolazeći događaj iz kalendara; ✓ ako je pravi token eventa, ✗ ako je kopija.",
     "Paper uzeo": "Je li ga demo trading kupio.",
-    "Rug": "Presuda rug filtera: PROLAZI, OPREZ, VISOK RIZIK ili ODBAČEN.",
+    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako se token u međuvremenu srušio: cijena 70%+ ispod vrha u zadnja 24 h ili izvučena likvidnost. Rugani se ne nude i ne mogu se kupiti.",
     "Rug presuda": "Presuda rug filtera: PROLAZI, OPREZ, VISOK RIZIK ili ODBAČEN (tvrdi pad).",
     "Rug ocjena": "0-100, kreće od 100 i svaka zastavica oduzima bodove. Prazno kad je tvrdi pad.",
     "Glavni razlog": "Prvi tvrdi pad ili najteža zastavica rug filtera.",

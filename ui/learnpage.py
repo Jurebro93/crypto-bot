@@ -1,6 +1,7 @@
 """The "Učenje" page: what the data says (correlations), what the loop changed and why, and what it missed."""
 import datetime as dt
 import json
+import math
 import os
 import sqlite3
 
@@ -114,6 +115,35 @@ def page(qs):
         runs = lstore.runs(con, klasa or None, 30)
     except Exception:
         runs = []
+    # 5b. confidence: does the number mean what it says?
+    try:
+        from learn import confmodel
+        crows, _ = confmodel.dataset(con, cfg)
+        model = confmodel.load()
+        b.append("<h2>Confidence: pogađa li broj</h2>")
+        if not crows:
+            b.append("<div class=card>Još nema ishoda za provjeru confidencea.</div>")
+        else:
+            cal_h = confmodel.calibration(crows, confmodel.hand_scorer)
+            cal_m = confmodel.calibration(crows, lambda r: confmodel.conf_of(model, r)) if model else []
+            b.append(f"<p>{'<b>Naučeni model je uključen</b>' if model else 'Ručne težine (model još nije prošao zaštitu)'}: "
+                     f"{len(crows)} tokena s ishodom. Ako confidence vrijedi, udio skokova raste s pojasom.</p>")
+            b.append(tdesc("Svaki pojas confidencea: koliko je tokena u njemu i koliki je dio napravio skok svoje klase. Lijevo ručne "
+                           "težine, desno naučeni model ako je uključen.")
+                     + table(["Confidence", ("Tokena (ručno)", "n"), ("Skok % (ručno)", "n"), ("Tokena (model)", "n"), ("Skok % (model)", "n")],
+                             [[esc(bk), num(n), (f"{hr:.0%}", hr, "n"),
+                               num(next((n2 for bk2, n2, _ in cal_m if bk2 == bk), None)),
+                               (lambda h2: (f"{h2:.0%}", h2, "n") if h2 is not None else num(None))(next((h2 for bk2, _, h2 in cal_m if bk2 == bk), None))]
+                              for bk, n, hr in cal_h]))
+            if model:
+                co = sorted(model["coef"].items(), key=lambda kv: -abs(kv[1]))
+                b.append(tdesc("Što je model naučio: koliko puta svaka činjenica množi izglede za skok (1 = ništa, 2 = dvostruko, 0,5 = upola).")
+                         + table(["Činjenica", ("Množi izglede", "n")],
+                                 [[esc(confmodel.HR.get(k, k)), (f"×{math.exp(v):.2f}", v, "n")] for k, v in co]
+                                 + [[esc("hype ocjena (0→100)"), (f"×{math.exp(model['hype']):.2f}", model["hype"], "n")]]))
+    except Exception as e:
+        print(f"učenje: confidence: {type(e).__name__}: {e}")
+
     b.append("<h2>Što je bot promijenio</h2>")
     if not runs:
         b.append("<div class=card>Učenje još nije pokrenuto. Prvi put kreće u " + esc(cfg["run_at_utc"]) + " UTC, a mijenja težine tek s "
@@ -123,7 +153,8 @@ def page(qs):
         for r in runs:
             diff = ", ".join(f"{feat(k)} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
                              if abs(v - r["old"].get(k, 0)) >= 0.1)[:200] if r["new"] else ""
-            rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")), klasab(r["klasa"]), num(r["n"]),
+            rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")),
+                       badge("confidence", "good") if r["klasa"] == "confidence" else klasab(r["klasa"]), num(r["n"]),
                        badge("primijenjeno", "good") if r["applied"] else badge("bez promjene"),
                        (f"{r['metric_old'] if r['metric_old'] is not None else '–'} → {r['metric_new'] if r['metric_new'] is not None else '–'}", r["metric_new"] or 0, "n"),
                        (esc(note_hr(r["note"])), "", "wrap"), (esc(diff), "", "wrap")])

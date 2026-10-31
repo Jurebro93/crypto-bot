@@ -9,7 +9,7 @@ from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
-    ("Pregled", "/", [("/", "Pregled")]),
+    ("Pregled", "/", [("/", "Pregled"), ("/izvjestaj", "Jutarnji izvještaj")]),
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),
@@ -141,6 +141,7 @@ ul.r{margin:4px 0;padding-left:18px}ul.r li{margin:2px 0}li.good::marker{color:v
 input,select{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
 pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow-x:auto}
 details summary{cursor:pointer;color:var(--acc)}
+.xl{display:inline-flex;gap:5px;vertical-align:middle;margin-left:2px;flex-wrap:wrap}.xl a{display:inline-flex;align-items:center;gap:3px;opacity:.75;text-decoration:none}.xl a:hover{opacity:1}.xl img{width:14px;height:14px;border-radius:3px;display:block}td .xl{display:flex;margin:4px 0 0;min-width:150px}.xlb{gap:10px}.xlb a{opacity:1}
 .cand{text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%}.cand:hover{border-color:var(--acc)}
 dialog#ev{max-width:980px;width:calc(100% - 32px);max-height:88vh;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);padding:0}
 dialog#ev::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2{position:sticky;top:0;display:flex;justify-content:flex-end;padding:8px;background:var(--bg)}
@@ -281,6 +282,15 @@ def verdict(v):
     return badge(v, VERDICT.get(v, "")) if v else "–"
 
 
+def rugcell(r):
+    """Rug column for a token row: collapsed after the fact wins over the rug filter's verdict from before."""
+    col = r.get("collapse")
+    if col:
+        lab = badge("💀 RUGAN −{:.0%}".format(col["drop"]), "bad")
+        return f'<span title="{esc(col["text"])}">{lab}</span>', "ZZ", ""
+    return verdict(r["rug"]["verdict"]) if r.get("rug") else "<span class=mut>–</span>"
+
+
 def klasab(k):
     from tiers.classify import KLASA_HR
     return badge(KLASA_HR.get(k, k), {"moonshot": "warn", "event": "good", "stabilni": ""}.get(k, "bad")) if k else ""
@@ -302,11 +312,40 @@ def wlink(w):
     return f'<a href="/wallet/{quote(w)}"><code>{esc(short(w))}</code></a>'
 
 
+# Small external links shown next to every token: (name shown on hover, site for the icon, url builder).
+EXT_SITES = [
+    ("DexScreener", "dexscreener.com", lambda m: f"https://dexscreener.com/solana/{m}"),
+    ("pump.fun", "pump.fun", lambda m: f"https://pump.fun/coin/{m}"),
+    ("GMGN", "gmgn.ai", lambda m: f"https://gmgn.ai/sol/token/{m}"),
+    ("Birdeye", "birdeye.so", lambda m: f"https://birdeye.so/token/{m}?chain=solana"),
+    ("Solscan", "solscan.io", lambda m: f"https://solscan.io/token/{m}"),
+    ("RugCheck", "rugcheck.xyz", lambda m: f"https://rugcheck.xyz/tokens/{m}"),
+    ("Jupiter (kupi)", "jup.ag", lambda m: f"https://jup.ag/swap/SOL-{m}"),
+    ("X (objave o tokenu)", "x.com", lambda m: f"https://x.com/search?q={m}&f=live"),
+]
+
+
+def ext_icons(mint, url=None, labels=False):
+    """Row of small site icons, each opens the token on that site in a new tab. pump.fun only for pump.fun tokens.
+    url: the exact DexScreener pair page when we have it. labels=True also writes the site name (token page)."""
+    if not mint:
+        return ""
+    m = quote(mint)
+    out = []
+    for name, dom, mk in EXT_SITES:
+        if dom == "pump.fun" and not mint.endswith("pump"):
+            continue
+        href = url if (url and dom == "dexscreener.com") else mk(m)
+        out.append(f'<a href="{esc(href)}" target=_blank rel=noopener title="Otvori na: {esc(name)}">'
+                   f'<img src="https://www.google.com/s2/favicons?domain={dom}&sz=32" alt="" loading=lazy width=14 height=14>'
+                   + (f"<span>{esc(name)}</span>" if labels else "") + "</a>")
+    return f'<span class="xl{" xlb" if labels else ""}">' + "".join(out) + "</span>"
+
+
 def tlink(mint, sym=None):
-    """Token name opens its DexScreener page; the small ⓘ opens our own analysis of the token."""
+    """Token name opens our own page for the token; the small icons next to it open it on outside sites."""
     label = esc(sym) if sym else f"<code>{esc(short(mint))}</code>"
-    return (f'<a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>{label}</a> '
-            f'<a href="/token/{quote(mint)}" class=mut title="analiza tokena" style="text-decoration:none">ⓘ</a>')
+    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena">{label}</a> ' + ext_icons(mint)
 
 
 def ext_wallet(w):
@@ -315,12 +354,7 @@ def ext_wallet(w):
 
 
 def ext_token(mint, url=None):
-    parts = [f'<a href="{esc(url)}" target=_blank>DexScreener</a>'] if url else [
-        f'<a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank>DexScreener</a>']
-    parts += [f'<a href="https://gmgn.ai/sol/token/{quote(mint)}" target=_blank>GMGN</a>',
-              f'<a href="https://rugcheck.xyz/tokens/{quote(mint)}" target=_blank>RugCheck</a>',
-              f'<a href="https://solscan.io/token/{quote(mint)}" target=_blank>Solscan</a>']
-    return " · ".join(parts)
+    return ext_icons(mint, url, labels=True)
 
 
 def ts(t, fmt="%Y-%m-%d %H:%M"):

@@ -82,6 +82,8 @@ python3 run_learn.py loop &         # once a day: re-fit hype weights per token 
 python3 run_exits.py loop &         # once a day: re-learn exit rules per class from price paths, guarded, rollback
 # trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour
 python3 run_market.py loop --every 60 &
+# morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
+python3 run_report.py loop &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps

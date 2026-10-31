@@ -11,7 +11,8 @@ from urllib.parse import quote
 
 from league import store
 from ui import confidence, data
-from ui.html import ago, badge, esc, klasab, num, razinab, scorecell, signed, table, tlink, ts, usd, verdict
+from rugfilter import collapse
+from ui.html import ago, badge, esc, klasab, num, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
 from ui.paper import _live, _mc, market
 
 SUGGEST_H = 48
@@ -114,7 +115,7 @@ def _filters(qs):
             + sel("h", [(24, "zadnja 24 h"), (48, "zadnjih 48 h"), (168, "zadnjih 7 dana")])
             + sel("min", [("", "svaki confidence"), (40, "confidence ≥ 40"), (60, "confidence ≥ 60"), (75, "confidence ≥ 75")])
             + sel("klasa", [("", "sve klase")] + list(KLASA_HR.items()))
-            + f'<label><input type=checkbox name=odb value=1{" checked" if qs.get("odb") else ""}> i odbačeni (rug)</label>'
+            + f'<label><input type=checkbox name=odb value=1{" checked" if qs.get("odb") else ""}> i odbačeni i rugani</label>'
             + '<button>Filtriraj</button> <a href=/natjecanje>očisti</a></form>')
 
 
@@ -142,6 +143,7 @@ def page(qs, user):
 
         acc = store.account(con, user)
         unreal, rows = 0.0, []
+        mpk = collapse.peaks(data.HYPE_DB, {t["token"] for t in mine})
         for t in mine:
             price, liq, _ = live.get(t["token"], (None, None, None))
             val = store.value(t, price, liq) if price else None
@@ -150,8 +152,13 @@ def page(qs, user):
             sell_btn = _form("/natjecanje/sell", {"id": t["id"]}, "Prodaj") if price else \
                 _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)")
             mc_now = t["entry_mcap"] * price / t["entry_px"] if price and t["entry_mcap"] and t["entry_px"] else None
-            dca_hint = (" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
-                        f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else ""
+            if mc_now and t["entry_mcap"]:
+                collapse.add(mpk, t["token"], t["opened_ts"], t["entry_mcap"], None)
+            col = collapse.check(mpk.get(t["token"]), mc_now, liq) if mc_now else None
+            rug_hint = (" " + badge("💀 rugan", "bad") + f'<div class=neg style="font-size:12px">{esc(col["text"])}; '
+                        'oporavak je rijedak, razmisli o prodaji.</div>') if col else ""
+            dca_hint = rug_hint + ((" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
+                                    f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else "")
             rows.append([tlink(t["token"], t["symbol"]) + dca_hint + _auto_cell(t), ago(t["opened_ts"]), usd(t["size_usd"]),
                          num(t["entry_px"], "{:.4g}"), num(price, "{:.4g}"), usd(t["entry_mcap"]), usd(mc_now),
                          signed(price / t["entry_px"] - 1 if price else None, "{:+.0%}"), signed(pnl),
@@ -179,19 +186,26 @@ def page(qs, user):
             price, liq, _ = live.get(r["token"], (None, None, None))
             c = r["cand"] or {}
             move = price / c["price"] - 1 if price and c.get("price") else None
-            act = _form("/natjecanje/buy", {"token": r["token"], "symbol": r["symbol"] or "", "score": r["conf"] or "",
-                                            "source": f"confidence {r['conf']}"}, "Kupi", size) if price else \
-                '<span class=mut>nema cijene</span>'
+            col = collapse.check(r.get("peak"), mcaps.get(r["token"]), liq) if price else None
+            r["collapse"] = col or r.get("collapse")
+            if r["collapse"] and not (qs.get("odb") or qs.get("q")):
+                continue  # dumped since it was suggested: off the list so nobody buys it
+            act = ('<span class=neg title="Token se već srušio; kupnja je zaključana.">rugan, ne kupuj</span>'
+                   if r["collapse"] else
+                   _form("/natjecanje/buy", {"token": r["token"], "symbol": r["symbol"] or "", "score": r["conf"] or "",
+                                             "source": f"confidence {r['conf']}"}, "Kupi", size) if price else
+                   '<span class=mut>nema cijene</span>')
             srows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
                           (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
-                          (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype"]),
-                          verdict(r["rug"]["verdict"] if r["rug"] else None),
+                          (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype_last"]),
+                          rugcell(r),
                           badge("bot uzeo", "good") if c.get("trade_id") else (badge("bot preskočio") if c else "–"),
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
         b.append(f"<h2>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
                  "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
-                 "Tokeni koje je rug filter odbacio su skriveni osim ako ih uključiš ili tražiš po imenu. "
-                 f"Prikazano {len(cands)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>" + _filters(qs))
+                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: 70%+ ispod vrha ili "
+                 "izvučena likvidnost) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
+                 f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>" + _filters(qs))
         b.append(table(["Token", ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n"), ("Hype", "n"), "Rug",
                         "Bot", ("Mcap viđen", "n"), ("Pomak", "n"), ("Likvidnost", "n"), "Zadnje", "Ulog $"], srows,
                        empty="Nijedan token ne odgovara filteru."))
@@ -273,6 +287,9 @@ def post(path, form, user):
             if token not in live:
                 raise ValueError("DexScreener ne zna cijenu tog tokena")
             price, liq, _, mcap = live[token]
+            col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+            if col:
+                raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
             symbol = form.get("symbol") or _symbol(token)
             size = float(form.get("size") or 0)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),

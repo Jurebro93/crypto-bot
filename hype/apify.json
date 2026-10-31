@@ -6,7 +6,7 @@
   "x_buzz": 0.3,
   "x_trends": 0.15,
   "google_trends": 0.08,
-  "gmgn": 0.06,
+  "gmgn": 1.7,
   "kol_monitor": 1.1,
   "kol_search": 0.12,
   "kol_timeline": 0.4,
@@ -49,7 +49,7 @@
   ],
   "sort_by": "profit_7days",
   "limit": 100,
-  "every_h": 24
+  "every_h": 168
  },
  "kol_handles": [],
  "unit_usd": {

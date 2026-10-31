@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from ui import data
 from ui.labels import feat, feat_low, sources as sources_hr
-from ui.html import tdesc, ago, badge, esc, num, short, signed, table, ts, usd, verdict, wlink
+from ui.html import tdesc, ago, badge, esc, ext_token, num, short, signed, table, ts, usd, verdict, wlink
 
 SOURCES = {
     "dex": ("DexScreener API", "https://docs.dexscreener.com/api/reference"),
@@ -108,13 +108,7 @@ def fragment(mint):
         or (ev[0]["symbol"] if ev else None) or short(mint)
     cs = checks(mint, sig, det, rug, ev, cand)
     b = [f"<h2 style='margin-top:0'>{esc(sym)} <span class=mut style='font-size:13px'><code>{esc(mint)}</code></span></h2>",
-         f'<p><a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank>DexScreener</a> · '
-         f'<a href="https://pump.fun/coin/{quote(mint)}" target=_blank>pump.fun</a> · '
-         f'<a href="https://gmgn.ai/sol/token/{quote(mint)}" target=_blank>GMGN</a> · '
-         f'<a href="https://rugcheck.xyz/tokens/{quote(mint)}" target=_blank>RugCheck</a> · '
-         f'<a href="https://solscan.io/token/{quote(mint)}" target=_blank>Solscan</a> · '
-         f'<a href="https://x.com/search?q={quote(mint)}&f=live" target=_blank>X pretraga</a> · '
-         f'<a href="/token/{quote(mint)}">puna analiza</a></p>']
+         f'<p>{ext_token(mint)}</p><p><a href="/token/{quote(mint)}"><b>Otvori stranicu tokena →</b></a></p>']
     from ui import narrative
     b.append(narrative.html(mint))
 

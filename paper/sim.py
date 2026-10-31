@@ -86,7 +86,8 @@ def step(pos, price, liq, ts, cfg):
     moon_hold_h, so a trade that already paid for itself keeps a ticket to a moonshot."""
     if not pos["open"]:
         return pos
-    if price <= 0 or liq < cfg["rug_liq"] * pos["entry_liq"]:
+    # rug: liquidity pulled, or the price dumped so far (rug_drop, default 70% below entry) that it is a rug, not a dip
+    if price <= 0 or liq < cfg["rug_liq"] * pos["entry_liq"] or price <= pos["entry_px"] * (1 - cfg.get("rug_drop", 0.7)):
         sell(pos, 1.0, price, liq, ts, "rug", cfg)
         return pos
     ret = price / pos["entry_px"] - 1

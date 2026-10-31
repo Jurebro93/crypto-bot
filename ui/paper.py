@@ -69,7 +69,7 @@ def snapshot():
         entry = pos.get("entry_px") or t["entry_px"]
         tc = {**(cfg or {}), **(data.js(t["config"], {}) or {})}  # the trade's own rules (learned exits per class)
         tp = (tc.get("tp") or [])[pos.get("tp_done", 0):]
-        rows.append({"id": t["id"], "token": t["token"], "symbol": t["symbol"], "opened_ts": t["opened_ts"],
+        rows.append({"id": t["id"], "token": t["token"], "symbol": t["symbol"], "name_html": tlink(t["token"], t["symbol"]), "opened_ts": t["opened_ts"],
                      "size": t["size_usd"], "entry": entry, "price": price, "move": price / entry - 1 if price and entry else None,
                      "pnl": pnl, "ret": ret, "max": t["max_ret"], "min": t["min_ret"], "left": pos.get("left", 1.0),
                      "sl": (tc.get("sl_after_tp", 0.0) if pos.get("tp_done") else tc.get("sl")) if not pos.get("bag") else None,
@@ -122,7 +122,7 @@ function draw(d){
   [f2(d.unrealized)+' $','otvoreno (live)',cls(d.unrealized)],[d.open+(d.max_open?' / '+d.max_open:''),'otvorenih pozicija',''],
   [d.wins+' / '+d.closed,'dobitnih zatvorenih','']];
  $('#cards').innerHTML=c.map(([v,l,k])=>`<div class=stat><div class="v ${k}">${v}</div><div class=l>${l}</div></div>`).join('');
- const rows=d.positions.map(p=>`<tr><td><a href="https://dexscreener.com/solana/${p.token}" target=_blank>${p.symbol||p.token.slice(0,6)}</a> <a href="/token/${p.token}" class=mut title="detalji">ⓘ</a></td>
+ const rows=d.positions.map(p=>`<tr><td>${p.name_html}</td>
   <td>${age(p.opened_ts)}</td><td class=n>${usd(p.size)}</td><td class=n>${px(p.entry)}</td><td class=n>${px(p.price)}</td><td class=n>${mc(p.mc_in)}</td><td class=n>${mc(p.mc_now)}</td>
   <td class="n ${cls(p.move)}">${pc(p.move)}</td><td class="n ${cls(p.pnl)}"><b>${f2(p.pnl)}</b></td><td class="n ${cls(p.ret)}">${pc(p.ret)}</td>
   <td class=n>${pc(p.max)}</td><td class=n>${pc(p.min)}</td><td class=n>${Math.round(p.left*100)}%</td>
