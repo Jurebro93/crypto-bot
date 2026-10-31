@@ -46,7 +46,10 @@ def _ai_block(ai, snap):
     else:
         from corr import ai as cai
         d = cai.fallback(snap)
-        src = ("Tumačenje iz pravila. AI tumačenje se uključuje sam čim je postavljen isti AI ključ kao za jutarnji "
+        import os
+        src = ("Tumačenje iz pravila. AI ključ je postavljen, AI tumačenje stiže s idućom analizom (svaki sat)."
+               if os.environ.get("ANTHROPIC_API_KEY") else
+               "Tumačenje iz pravila. AI tumačenje se uključuje sam čim je postavljen isti AI ključ kao za jutarnji "
                "e-mail izvještaj.")
     out = [f'<div class=card><h2 style="margin-top:0">{esc(d.get("naslov", ""))}</h2>']
     if d.get("zakljucci"):
@@ -80,10 +83,11 @@ def page(qs):
     body.append("<h2>Aktivno sada</h2>" + tdesc(
         "Tokeni koje poznata grupa dira u zadnjih nekoliko sati: dva ili više računa iste KOL grupe su ih pozvala ili "
         "su walleti iz iste grupe kupili. Ovo je mjesto za brz ulaz prije gomile ako grupa ima dobar rezultat."))
+    from corr.analyze import active_summary, group_names
+    names = group_names(snap)
     rows = []
     for a in act:
-        who = "; ".join((f'{w["n"]} računa iz grupe <a href="#{w["id"]}">{esc(w["id"])}</a>' if w["kind"] == "kol"
-                         else f'{w["n"]} walleta iz grupe <a href="#{w["id"]}">{esc(w["id"])}</a>') for w in a["who"])
+        who = esc(active_summary(a, names))
         rows.append([tlink(a["token"], a.get("symbol")), ago(a["first_ts"]), who,
                      _scorecell(max(w["score"] for w in a["who"]))])
     body.append(table(["Token", "Prvi signal", "Tko", "Organiziranost"], rows, "c_act",

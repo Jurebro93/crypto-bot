@@ -34,7 +34,9 @@ koristi samo brojeve iz JSON-a, i kad je uzorak mali (n < 10) reci "malo podatak
 (povjerenje: visoko / srednje / nisko). Ne obećavaj zaradu; govori o signalima. Za svaku grupu reci kako bi je
 bot mogao iskoristiti (npr. "ulaz kad drugi član grupe pozove u 10 min nakon vođe", "izbjegavaj: kasni pozivi,
 prodaju u poziv"). Grupe označi s pratiti=true samo ako praćenje ima smisla za ulaze ili kao upozorenje.
-Za id grupe koristi točno id iz podataka."""
+Za polje id grupe koristi točno id iz podataka, ali u tekstu (tumačenje, sada, zaključci) NIKAD ne piši
+interne oznake poput k78a61d4e ili w9397d734: grupe zovi ljudskim imenom (polje ime, npr. "ekipa oko @vođa").
+U "sada" za svaki token jedna kratka rečenica (polje sazetak), najviše 5 tokena."""
 
 SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -77,8 +79,14 @@ def compact(snap):
     for g in d.get("groups", []):
         g["wallets"] = [w[:6] for w in g["wallets"]][:8]
         g.pop("token_list", None)
-    for a in d.get("active", []):
-        a["token"] = (a.get("symbol") or a["token"][:6])
+    from corr.analyze import active_summary, group_names
+    names = group_names(snap)
+    for k in ("clusters", "groups"):
+        for x in d.get(k, []):
+            x["ime"] = names.get(x["id"], "")
+    d["active"] = [{"token": a.get("symbol") or a["token"][:6], "first_ts": a["first_ts"],
+                    "sazetak": active_summary(a, names), "id_grupa": [w["id"] for w in a["who"]][:6]}
+                   for a in d.get("active", [])[:15]]
     d["links"] = d.get("links", [])[:40]
     d.pop("secs", None)
     return d
@@ -91,6 +99,8 @@ def interpret(snap):
     try:
         import anthropic
     except ImportError:
+        import sys
+        print("korelacije: paket anthropic nije instaliran; pravila", file=sys.stderr)
         return fallback(snap), "pravila", 0.0
     client = anthropic.Anthropic(timeout=300, max_retries=2)
     prompt = ("Korelacije iz podataka bota (JSON, vremena su unix UTC). Protumači ih.\n\n"
@@ -111,7 +121,8 @@ def interpret(snap):
         cost = (resp.usage.input_tokens * pin + resp.usage.output_tokens * pout) / 1e6
         return out, getattr(resp, "model", MODEL), round(cost, 4)
     except Exception as e:  # never break the page because of the interpretation
-        print(f"korelacije: Claude nije uspio ({type(e).__name__}: {e}); pravila")
+        import sys
+        print(f"korelacije: Claude nije uspio ({type(e).__name__}: {str(e)[:300]}); pravila", file=sys.stderr)
         return fallback(snap), "pravila", 0.0
 
 
@@ -119,8 +130,21 @@ def _p(x):
     return "?" if x is None else f"{x:.0%}"
 
 
+def _dedup(active):
+    """The same symbol can be several tokens (copycats); keep the strongest one per symbol."""
+    seen, out = set(), []
+    for a in active:
+        k = (a.get("symbol") or a["token"]).upper()
+        if k not in seen:
+            seen.add(k)
+            out.append(a)
+    return out
+
+
 def fallback(snap):
     """Plain lines straight from the numbers, used without an API key."""
+    from corr.analyze import active_summary, group_names
+    names = group_names(snap)
     grupe, zak = [], []
     for cl in snap.get("clusters", [])[:8]:
         better = cl["hit_together"] is not None and cl["hit_solo"] is not None and cl["hit_together"] > cl["hit_solo"]
@@ -133,7 +157,7 @@ def fallback(snap):
             "kako_iskoristiti": ("Kad vođa pozove, pratiti ulaze li ostali u idućih 30 min." if better else
                                  "Više kao upozorenje: zajednički pozivi nisu bolji od pojedinačnih.")})
     for g in snap.get("groups", [])[:6]:
-        grupe.append({"id": g["id"], "ime": f"Walleti {g['wallets'][0][:4]}…",
+        grupe.append({"id": g["id"], "ime": names[g["id"]].capitalize(),
                       "tumacenje": f"{g['size']} walleta, veze: " + ", ".join(f"{k} {v}" for k, v in g["reasons"].items())
                       + (f"; povezani s @{', @'.join(g['handles'][:3])}" if g["handles"] else ""),
                       "povjerenje": "nisko", "pratiti": g["score"] >= 60,
@@ -141,8 +165,8 @@ def fallback(snap):
     f = snap.get("factors", {})
     for x in f.get("factors", [])[:3]:
         zak.append(f"{x['factor']}: 2x u {_p(x['hit_yes'])} slučajeva (n={x['n_yes']}) naspram {_p(x['hit_no'])} bez.")
-    return {"naslov": "Korelacije (bez AI tumačenja: AI ključ još nije postavljen)", "zakljucci": zak, "grupe": grupe,
+    return {"naslov": "Korelacije (tumačenje iz pravila)", "zakljucci": zak, "grupe": grupe,
             "signali": [], "sada": [{"token": a.get("symbol") or a["token"][:6],
-                                     "zasto": ", ".join(f"{w['n']} iz grupe {w['id']}" for w in a["who"])}
-                                    for a in snap.get("active", [])[:5]],
+                                     "zasto": active_summary(a, names)}
+                                    for a in _dedup(snap.get("active", []))[:5]],
             "upozorenja": [], "sto_jos": []}
