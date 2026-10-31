@@ -1,0 +1,33 @@
+{
+  "_opis": "Dugoročni i oživljeni tokeni. Pragovi su početne vrijednosti; težine uči dugo/learn.py (LEARNED_DIR/dugo.json).",
+  "uzori": {"FARTCOIN": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+            "USELESS": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk"},
+  "temelj": {"SOL": "So11111111111111111111111111111111111111112",
+             "BONK": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "WIF": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+             "POPCAT": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", "PENGU": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+             "SPX": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr", "MEW": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+             "GOAT": "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump", "PNUT": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+             "MOODENG": "ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzPJBY", "CHILLGUY": "Df6yfrKC8kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump",
+             "TRUMP": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN", "JUP": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+             "PUMP": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn", "RAY": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+             "JTO": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL"},
+  "hype_min_liq": 20000,
+  "gecko_top_pages": 3,
+  "gecko_gap_s": 6,
+  "candles_per_run": 60,
+  "candles_refresh_h": 20,
+  "dugorocni": {"min_starost_d": 60, "min_likvidnost": 100000, "min_mcap": 1000000},
+  "budjenje": {"min_starost_d": 14, "min_likvidnost": 30000, "max_pad_od_vrha": -0.5, "min_od_dna_30d": 0.2},
+  "mrtav": {"pad_24h": -0.7, "min_likvidnost": 10000},
+  "tezine": {
+    "dugorocni": {"starost_d": 1.0, "likvidnost": 1.5, "oporavaka": 1.5, "udio_oporavaka": 1.0, "korelacija_btc": 0.5,
+                  "rast_s_btc": 1.0, "rast_s_sol": 0.5, "ma30_iznad_ma90": 0.5, "iznad_ma30": 0.5, "pad_od_vrha": 0.5,
+                  "kol_tjedana_60d": 1.0, "kol_autora": 0.5, "tg_30d": 0.5, "volumen_mcap": 0.5, "kupci_udio": 0.3,
+                  "slicnost_uzoru": 1.5, "volatilnost": -0.5},
+    "budjenje": {"od_dna_30d": 1.5, "volumen_trend": 1.5, "iznad_ma30": 1.0, "povrat_7d": 0.5, "kol_7d": 1.0,
+                 "tg_7d": 0.5, "kupci_udio": 0.5, "likvidnost": 0.5, "oporavaka": 0.5, "slicnost_uzoru": 0.5,
+                 "pregrijan": -1.0}
+  },
+  "knjiga": {"usd": 100, "top": 5, "drzi_izvan_top_d": 14, "stop_budjenje": -0.5, "svaki_d": 7},
+  "ucenje": {"min_uzoraka": 200, "korak": 0.2, "horizont_d": 30, "svaki_d": 7}
+}

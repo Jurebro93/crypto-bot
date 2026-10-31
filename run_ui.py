@@ -132,6 +132,9 @@ def route(path, qs):
     if path == "/izlazi":
         from ui import exitspage
         return exitspage.page(qs)
+    if path == "/dugorocno":
+        from ui import dugo
+        return dugo.page(qs)
     if path == "/korelacije":
         from ui import corrpage
         return corrpage.page(qs)

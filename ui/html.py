@@ -10,7 +10,7 @@ from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
     ("Pregled", "/", [("/", "Pregled"), ("/izvjestaj", "Jutarnji izvještaj")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/dugorocno", "Dugoročni"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),
     ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
@@ -72,6 +72,10 @@ INTRO = {
     "/izvori": ("Telegram kanali, KOL novčanici i konvergencija", "Javni Telegram call kanali, KOL novčanici na lancu i "
                 "trenutci kad više izvora zove isti token.", "Izvor značajki telegram i konvergencija u hype ocjeni i "
                 "konvergencijskih demo ulaza."),
+    "/dugorocno": ("Sigurniji sloj: preživjeli i oživljeni tokeni", "Stariji tokeni koji se oporavljaju od padova i rastu s "
+                   "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
+                   "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
+                   "vlastito učenje na povijesti cijena."),
     "/kol": ("Tko zove tokene i što se nakon toga dogodi", "KOL-ovi i influenceri s X-a i Telegrama, njihovi pozivi s linkovima, "
              "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Signal koordiniranog poziva u hype ocjeni "
              "i izvor rotacijskih dev walleta."),
