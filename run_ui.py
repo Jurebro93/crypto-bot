@@ -66,6 +66,9 @@ def route(path, qs):
     if path == "/learn":
         from ui import learnpage
         return learnpage.page(qs)
+    if path == "/izvjestaj":
+        from ui import reportpage
+        return reportpage.page(qs)
     if path == "/outputs":
         return pages.outputs(qs)
     if path.startswith("/outputs/"):
@@ -101,6 +104,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path.startswith("/izvjestaj/raw/"):
+            from ui import reportpage
+            body = reportpage.raw(path[len("/izvjestaj/raw/"):])
+            return self._send(200 if body else 404, body or b"nema izvjestaja")
         if path == "/api/paper":
             return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
         if path.startswith("/api/evidence/"):

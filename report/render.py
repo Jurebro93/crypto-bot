@@ -1,0 +1,272 @@
+"""Email-safe HTML: tables and inline styles only (Gmail/Outlook drop <style>, SVG and scripts), charts are
+table-cell bars. Every section links to the dashboard page with the details."""
+import html
+import os
+import time
+
+from .collect import NAMES, SESSIONS
+
+INK, MUT, LINE, BG = "#111827", "#6b7280", "#e5e7eb", "#f6f7f9"
+GOOD, BAD, ACC = "#15803d", "#b91c1c", "#4338ca"
+SESS_COLOR = {"asia": "#d97706", "eu": "#2563eb", "us": "#7c3aed"}
+FONT = "font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+
+
+def base_url():
+    return (os.environ.get("REPORT_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+            or "https://crypto-bot-ylvn.onrender.com").rstrip("/")
+
+
+def e(x):
+    return html.escape("" if x is None else str(x))
+
+
+def link(path, text):
+    return f'<a href="{base_url()}{path}" style="color:{ACC};text-decoration:none">{text}</a>'
+
+
+def pct(x, signed=False):
+    if x is None:
+        return "–"
+    return f"{x:+.0%}" if signed else f"{x:.0%}"
+
+
+def money(x):
+    if x is None:
+        return "–"
+    a = abs(x)
+    s = f"${a / 1e6:.1f}M" if a >= 1e6 else f"${a / 1e3:.0f}k" if a >= 1e3 else f"${a:.0f}"
+    return ("-" if x < 0 else "") + s
+
+
+def mult(x):
+    return "–" if x is None else f"{x:.1f}x" if x < 10 else f"{x:.0f}x"
+
+
+def hbar(frac, color=ACC, width=110):
+    frac = max(0.0, min(1.0, frac or 0))
+    w = max(1, int(width * frac))
+    return (f'<table cellpadding=0 cellspacing=0 style="border-collapse:collapse"><tr>'
+            f'<td style="width:{w}px;height:8px;background:{color};border-radius:4px;font-size:0;line-height:0">&nbsp;</td>'
+            f'<td style="width:{width - w}px;height:8px;background:{LINE};font-size:0;line-height:0">&nbsp;</td></tr></table>')
+
+
+def stacked(shares, width=120):
+    if not shares:
+        return f'<span style="color:{MUT}">nema svijeća</span>'
+    cells = ""
+    for s, _, _ in SESSIONS:
+        w = int(width * (shares.get(s) or 0))
+        if w > 0:
+            cells += (f'<td title="{NAMES[s]} {shares[s]:.0%}" style="width:{w}px;height:10px;background:{SESS_COLOR[s]};'
+                      f'font-size:0;line-height:0">&nbsp;</td>')
+    return f'<table cellpadding=0 cellspacing=0 style="border-collapse:collapse"><tr>{cells}</tr></table>'
+
+
+def spark(vals, color=GOOD, h=26, w=4):
+    vals = [v for v in vals if v is not None]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1
+    cells = "".join(
+        f'<td valign=bottom style="padding:0 1px 0 0"><div style="width:{w}px;height:{max(2, int(2 + (h - 2) * (v - lo) / rng))}px;'
+        f'background:{color};font-size:0;line-height:0">&nbsp;</div></td>' for v in vals)
+    return f'<table cellpadding=0 cellspacing=0 style="border-collapse:collapse;height:{h}px"><tr>{cells}</tr></table>'
+
+
+def vbars(items, h=60):
+    """[(label, value)] signed column chart (green up, red down)."""
+    if not items:
+        return ""
+    mx = max(abs(v) for _, v in items) or 1
+    top, bottom, labels = "", "", ""
+    for lab, v in items:
+        bh = max(2, int(h * abs(v) / mx))
+        col = GOOD if v >= 0 else BAD
+        bar = f'<div style="width:26px;height:{bh}px;background:{col};margin:0 auto;font-size:0;line-height:0">&nbsp;</div>'
+        top += f'<td valign=bottom style="height:{h}px;padding:0 4px">{bar if v >= 0 else ""}</td>'
+        bottom += f'<td valign=top style="height:{h // 2}px;padding:0 4px">{bar if v < 0 else ""}</td>'
+        labels += (f'<td style="font-size:11px;color:{MUT};text-align:center;padding:2px 4px">{e(lab)}<br>'
+                   f'<b style="color:{col}">{money(v)}</b></td>')
+    return (f'<table cellpadding=0 cellspacing=0 style="border-collapse:collapse"><tr>{top}</tr>'
+            f'<tr><td colspan={len(items)} style="border-top:1px solid {LINE};font-size:0;height:1px">&nbsp;</td></tr>'
+            f'<tr>{bottom}</tr><tr>{labels}</tr></table>')
+
+
+def table(headers, rows):
+    th = "".join(f'<th align="left" style="font-size:11px;color:{MUT};font-weight:600;padding:6px 8px;'
+                 f'border-bottom:1px solid {LINE};text-transform:uppercase;letter-spacing:.03em">{h}</th>' for h in headers)
+    trs = "".join("<tr>" + "".join(f'<td style="font-size:13px;padding:6px 8px;border-bottom:1px solid {LINE};'
+                                   f'vertical-align:middle">{c}</td>' for c in r) + "</tr>" for r in rows)
+    return f'<table width="100%" cellpadding=0 cellspacing=0 style="border-collapse:collapse"><tr>{th}</tr>{trs}</table>'
+
+
+def bullets(items):
+    if not items:
+        return ""
+    lis = "".join(f'<li style="margin:0 0 6px">{e(x)}</li>' for x in items)
+    return f'<ul style="margin:8px 0 4px;padding-left:20px;font-size:14px;line-height:1.5">{lis}</ul>'
+
+
+def para(text):
+    return f'<p style="margin:6px 0 10px;font-size:14px;line-height:1.5">{e(text)}</p>' if text else ""
+
+
+def section(title, body, more=None):
+    m = f'<div style="margin-top:10px;font-size:13px">{link(*more)} →</div>' if more else ""
+    return (f'<tr><td style="background:#fff;border:1px solid {LINE};border-radius:10px;padding:16px 18px">'
+            f'<div style="font-size:16px;font-weight:700;margin-bottom:6px">{title}</div>{body}{m}</td></tr>'
+            f'<tr><td style="height:12px;font-size:0">&nbsp;</td></tr>')
+
+
+def kpi(label, value, sub="", color=INK):
+    return (f'<td width="25%" style="padding:10px 12px;background:#fff;border:1px solid {LINE};border-radius:10px">'
+            f'<div style="font-size:11px;color:{MUT};text-transform:uppercase;letter-spacing:.03em">{label}</div>'
+            f'<div style="font-size:20px;font-weight:700;color:{color};margin-top:2px">{value}</div>'
+            f'<div style="font-size:11px;color:{MUT}">{sub}</div></td>')
+
+
+def tlink(mint, sym):
+    return link(f"/token/{e(mint)}", e(sym or (mint or "")[:6]))
+
+
+def render(data, ai, source):
+    now = data["ts"]
+    p, k, acc, today = data["paper"], data["kols"], data["sessions"], data["today"]
+    day = time.strftime("%d.%m.%Y.", time.localtime(now))
+    cur = today["now"]
+    cur_sig = (acc.get(cur) or {}).get("signal") or (acc.get(cur) or {}).get("call") or {}
+    wr = (p["wins"] / p["closed"]) if p["closed"] else None
+    mk = data.get("market")
+    kpis = "".join([
+        kpi("Demo PnL 24 h", money(p["pnl"]), f"{p['closed']} zatvorenih, {p['open_now']} otvoreno",
+            GOOD if p["pnl"] >= 0 else BAD),
+        "<td width=8></td>", kpi("Win rate", pct(wr), f"medijan {pct(p['median_ret'], True)}"),
+        "<td width=8></td>", kpi("KOL pozivi 24 h", f"{k['calls_24h']}", f"{k['new_kols']} novih KOL-ova"),
+        "<td width=8></td>", kpi("Tržište", f"{mk['score']:.0f}/100" if mk else "–", e(mk["label"]) if mk else ""),
+    ])
+    out = [section("Ukratko", bullets(ai.get("ukratko")))]
+
+    # what was learned
+    body = bullets(ai.get("naucio"))
+    wrows = []
+    for r in data["weights"]["runs"]:
+        for t in r["top"][:4]:
+            d = t["new"] - t["old"]
+            wrows.append([e(r["klasa"]), e(t["feature"]), f"{t['old']:+.2f} → <b>{t['new']:+.2f}</b>",
+                          f'<span style="color:{GOOD if d > 0 else BAD}">{d:+.2f}</span>',
+                          "da" if r["applied"] else f'<span style="color:{MUT}">ne</span>'])
+    if wrows:
+        body += '<div style="font-size:13px;font-weight:600;margin:10px 0 2px">Najveće promjene težina</div>'
+        body += table(["Klasa", "Faktor", "Težina", "Pomak", "Primijenjeno"], wrows[:10])
+    srows = []
+    for s, a, b in SESSIONS:
+        v = acc.get(s) or {}
+        sig = v.get("signal") or v.get("call")
+        name = f'<b style="color:{SESS_COLOR[s]}">{NAMES[s]}</b> <span style="color:{MUT}">{a:02d}-{b:02d} UTC</span>'
+        if s == cur:
+            name += f' <span style="font-size:11px;color:{GOOD}">● sada</span>'
+        if sig:
+            srows.append([name, hbar(sig["hit"], SESS_COLOR[s]) + f'<span style="font-size:12px">{pct(sig["hit"])}</span>',
+                          f"{sig['n']}", f"×{sig['factor']:.2f}" if sig.get("factor") else "–"])
+        else:
+            srows.append([name, f'<span style="color:{MUT}">još nema mjerenja</span>', "0", "×1.00"])
+    body += f'<div style="font-size:13px;font-weight:600;margin:12px 0 2px">Točnost KOL signala po sesiji (pogodak = {e(data.get("kol_hit_definition"))})</div>'
+    body += table(["Sesija", "Pogodak", "n", "Faktor"], srows)
+    ex = data["exits"]["changed"]
+    if ex:
+        body += '<div style="font-size:13px;font-weight:600;margin:12px 0 2px">Nova pravila izlaza</div>'
+        body += table(["Profil", "Verzija", "Win", "Medijan"],
+                      [[e(c["profil"]), f"v{c['v']}", pct((c["eval"] or {}).get("win")),
+                        pct((c["eval"] or {}).get("median"), True)] for c in ex])
+    out.append(section("Što sam naučio jučer", body, ("/learn", "Učenje i težine")))
+
+    # KOLs
+    body = para(ai.get("kol_komentar"))
+    pr = ai.get("kol_pratiti") or []
+    if pr:
+        body += '<div style="font-size:13px;font-weight:600;margin:6px 0 2px">Prati</div>'
+        body += bullets([f"@{x['handle']}: {x['zasto']}" for x in pr])
+    krows = [[link(f"/kol/{e(x['handle'])}", "@" + e(x["handle"])), f"<b>{x['score']:.0f}</b>",
+              hbar(x["hit_rate"], GOOD, 80) + f'<span style="font-size:12px">{pct(x["hit_rate"])} od {x["measured"]}</span>',
+              mult(1 + x["med_max24"]) if x.get("med_max24") is not None else "–", pct(x.get("late")),
+              f"{x['followers']:,}" if x.get("followers") else "–",
+              ("★" if x["handle"] in k["watch"] else "")] for x in k["top"][:8]]
+    if krows:
+        body += table(["KOL", "Score", "Pogodak", "Med. max 24 h", "Kasni", "Followeri", "Live"], krows)
+    bc = [c for c in k["best_calls"] if c.get("max24") or c.get("r6h")][:5]
+    if bc:
+        body += '<div style="font-size:13px;font-weight:600;margin:12px 0 2px">Najbolji pozivi zadnja 48 h</div>'
+        body += table(["KOL", "Token", "MC na pozivu", "Max 24 h", "Post"],
+                      [["@" + e(c["handle"]), tlink(c["token"], c["symbol"]), money(c["mcap0"]),
+                        mult(1 + c["max24"]) if c.get("max24") is not None else pct(c.get("r6h"), True) + " (6 h)",
+                        f'<a href="{e(c["url"])}" style="color:{ACC}">otvori</a>' if c.get("url") else ""] for c in bc])
+    out.append(section("Influenceri (KOL)", body, ("/kol", "Svi KOL-ovi i sesije")))
+
+    # today
+    body = para(ai.get("danas_komentar"))
+    ist = ai.get("danas_istaknuti") or []
+    if ist:
+        body += bullets([f"{x['simbol']}: {x['zasto']}" for x in ist])
+    trows = [[tlink(t["token"], t["symbol"]), e(t.get("klasa") or "–"), money(t.get("mcap")),
+              stacked(t["shares"]) + (f'<span style="font-size:11px;color:{SESS_COLOR[t["dominant"]]}">'
+                                      f'{NAMES[t["dominant"]]}</span>' if t.get("dominant") else ""),
+              f"{t['score']:.0f}" if t.get("score") is not None else "–",
+              ("KOL ✓" if t.get("kol") else "")] for t in today["tokens"]]
+    if trows:
+        legend = " ".join(f'<span style="color:{SESS_COLOR[s]}">■ {NAMES[s]}</span>' for s, _, _ in SESSIONS)
+        body += table(["Token", "Klasa", "MC", "Volumen po sesiji", "Score", ""], trows)
+        body += f'<div style="font-size:11px;color:{MUT};margin-top:4px">{legend}</div>'
+    else:
+        body += para("Nema tokena razine 1+ u zadnja 24 h.")
+    out.append(section(f"Tokeni za danas (sada: {NAMES[cur]})", body, ("/tokens", "Svi tokeni")))
+
+    # pulse
+    body = para(ai.get("puls_komentar"))
+    prow = [[tlink(x["token"], x["symbol"]), spark(x["holders_series"]),
+             f"{x['holders0']:,} → <b>{x['holders1']:,}</b> ({pct(x['growth'], True)})", pct(x["consistency"]),
+             pct(x["vol_trend"], True), money(x.get("mcap"))] for x in data["pulse"]]
+    body += table(["Token", "Holderi 24 h", "Holderi", "Sati rasta", "Volumen 2. pol.", "MC"], prow) if prow else \
+        para("Još nema tokena s dovoljno mjerenja pulsa (treba 3+ sata).")
+    out.append(section("Konstantan rast holdera i volumena", body, ("/tokens", "Tokeni (stupac Snaga)")))
+
+    # demo trading
+    body = vbars([(d["day"], d["pnl"]) for d in p["week"]])
+    if p["best"]:
+        body += '<div style="font-size:13px;font-weight:600;margin:12px 0 2px">Najbolji i najgori jučer</div>'
+        body += table(["Token", "Rezultat", "Vrh", "Izlaz"],
+                      [[tlink(t["token"], t["symbol"]),
+                        f'<span style="color:{GOOD if (t["ret"] or 0) >= 0 else BAD}">{pct(t["ret"], True)}</span>',
+                        pct(t.get("max_ret"), True), e(t.get("exit_reason"))] for t in p["best"] + p["worst"]])
+    out.append(section("Demo trading (7 dana)", body or para("Još nema zatvorenih tradeova."),
+                       ("/paper", "Demo trading")))
+
+    # suggestions
+    sg = ai.get("prijedlozi") or []
+    if sg:
+        col = {"visok": BAD, "srednji": "#d97706", "nizak": MUT}
+        body = "".join(f'<div style="margin:8px 0 10px"><span style="font-size:11px;color:#fff;background:'
+                       f'{col.get(x["prioritet"], MUT)};border-radius:4px;padding:1px 6px">{e(x["prioritet"])}</span> '
+                       f'<b style="font-size:14px">{e(x["naslov"])}</b>'
+                       f'<div style="font-size:13px;line-height:1.5;color:#374151;margin-top:3px">{e(x["opis"])}</div></div>'
+                       for x in sg)
+        out.append(section("Prijedlozi za bolji algoritam", body))
+    if ai.get("upozorenja"):
+        out.append(section("Upozorenja", bullets(ai["upozorenja"])))
+
+    src = "AI interpretacija: " + e(source) if source and not source.startswith("pravila") else \
+        "Bez AI interpretacije (pravila)"
+    return f"""<!DOCTYPE html><html lang="hr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Jutarnji izvještaj {day}</title></head>
+<body style="margin:0;padding:0;background:{BG};{FONT};color:{INK}">
+<table width="100%" cellpadding=0 cellspacing=0 style="background:{BG}"><tr><td align="center" style="padding:20px 10px">
+<table width="680" cellpadding=0 cellspacing=0 style="max-width:680px;width:100%">
+<tr><td style="padding:0 2px 12px"><div style="font-size:12px;color:{MUT}">Crypto bot · jutarnji izvještaj · {day}</div>
+<div style="font-size:22px;font-weight:800;line-height:1.25;margin-top:4px">{e(ai.get("naslov"))}</div></td></tr>
+<tr><td><table width="100%" cellpadding=0 cellspacing=0><tr>{kpis}</tr></table></td></tr>
+<tr><td style="height:12px;font-size:0">&nbsp;</td></tr>
+{"".join(out)}
+<tr><td style="font-size:11px;color:{MUT};padding:4px 2px 20px">{src} · podaci iz baza bota, bez dodatnih Helius/Apify poziva ·
+{link("/izvjestaj", "svi izvještaji")} · {link("/", "dashboard")}</td></tr>
+</table></td></tr></table></body></html>"""

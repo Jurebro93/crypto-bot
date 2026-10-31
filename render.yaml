@@ -39,5 +39,15 @@ services:
         value: "40"
       - key: HELIUS_ENHANCED_RPS
         value: "8"
+      - key: ANTHROPIC_API_KEY   # morning report: Claude writes the interpretation (~$0.15/day)
+        sync: false
+      - key: REPORT_EMAIL_TO     # morning report recipient(s), comma separated
+        sync: false
+      - key: SMTP_USER           # Gmail address that sends the report (with SMTP_PASSWORD = Gmail app password)
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: REPORT_HOUR         # local hour (Europe/Zagreb) of the morning report
+        value: "7"
       - key: TRADE_LIVE
         value: "0"
