@@ -141,7 +141,7 @@ def fit_profile(paths, base, current, ecfg):
     n = len(paths)
     out = {"n": n, "n_live": sum(p["src"] == "live" for p in paths)}
     if n < ecfg["min_paths"]:
-        out["note"] = f"premalo putanja ({n} < {ecfg['min_paths']})"
+        out["note"] = f"premalo putanja ({n} od potrebnih {ecfg['min_paths']})"
         return out, None
     old, new = split(paths)
     cand = search(old, base, current, ecfg)  # learn on the older half only ...

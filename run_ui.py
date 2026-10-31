@@ -92,8 +92,8 @@ def login_page(qs, err=""):
             "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>")
     miss = league_store.missing_passwords()
     if miss:
-        body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))} (Render → Environment: "
-                 f"{e(', '.join('UI_PASS_' + x.upper() for x in miss))}).</p>")
+        body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))}. Postavljaju se u postavkama "
+                 "servera na Renderu.</p>")
     return page("Prijava", body, "/prijava")
 
 

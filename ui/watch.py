@@ -51,7 +51,7 @@ def page(qs):
     corr_t = table(["Event", "Datum", "Token", ("Snimki", "n"), ("Volumen", "n"), ("Kupnje", "n"),
                     ("Novi kupci", "n"), ("Smart", "n"), ("Cijena", "n"), ("Promjena vol.", "n"),
                     ("Kupaca", "n"), ("Smart kupaca", "n"), ("Loših", "n"), "Zaključak"], rows, "wc",
-                   empty="Još nema praćenih tokena. Pokreće se samo na serveru (run_watch.py run).")
+                   empty="Još nema praćenih tokena. Bot ih počinje pratiti sam kad u kalendaru ima eventa s tokenima.")
 
     snaps = _q("SELECT s.*, w.symbol, w.event, w.url FROM watch_snapshots s JOIN watch_tokens w "
                "ON w.token=s.token AND w.event_date=s.event_date "

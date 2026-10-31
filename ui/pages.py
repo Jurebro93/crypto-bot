@@ -3,8 +3,9 @@ import os
 import time
 from urllib.parse import quote
 
-from ui import data, explain, jobs
-from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, jsonblock, num, scorecell,
+from ui import data, explain, jobs, labels
+from ui.labels import FEATURE_DESC
+from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, num, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
 ROLE = {
@@ -12,45 +13,17 @@ ROLE = {
     "smart": ("smart money", "označen kao uspješan trader"),
     "top_trader": ("top trader", "među najboljim traderima tokena"),
     "holder": ("holder", "među top holderima tokena u rug provjeri"),
-    "manual": ("ručno", "dodan ručno (`run_wallets.py wallet`)"),
+    "manual": ("ručno", "dodan ručno"),
     "dev": ("dev", "kreator tokena: nikad se ne kopira"),
     "bundler": ("bundler", "kupio u istom bloku kao kreacija (bundle)"),
     "sniper": ("snajper", "kupio u prvih par sekundi: bot, ne kopira se"),
     "funder": ("financijer", "poslao SOL devu ili ranim kupcima"),
     "dust": ("sitni kupac", "kupio premalo (ispod 0.1 SOL) da bi se računao"),
 }
-SOURCE = {"harvest": "harvest (rani kupci pobjednika)", "hype_learn": "hype learn (smart walleti)",
+SOURCE = {"harvest": "rani kupci pobjedničkih tokena", "hype_learn": "smart walleti iz hype skenera",
           "rug": "rug filter", "manual": "ručno"}
 
-FEATURE = {
-    "fresh": "starost: 1 ispod 1 h, 0 na 72 h",
-    "market_regime": "vrućina tržišta jučer (launchpadi + Solana DEX), 0-1, ista za sve tokene u skenu",
-    "put_brzina": "log rast mcapa po satu od prve snimke (0,7/h = 1)",
-    "put_skokovitost": "udio ukupnog rasta u jednom koraku (1 = sve odjednom)",
-    "put_zadrzavanje": "mcap prema vrhu (1 = na vrhu)",
-    "snaga_volumen": "volumen zadnjeg sata prema najboljem satu u 6 h pulsa (1 = još na vrhu)",
-    "snaga_txn": "transakcije po satu prema najboljem satu u 6 h (1 = drži ritam)",
-    "rast_holdera": "rast broja holdera po satu (10 %/h = 1), Helius/pump.fun očitanja",
-    "organski": "novi holderi po transakciji (0,3 = 1): wash-trading vrti transakcije bez novih holdera",
-    "turnover": "volumen zadnjeg sata / likvidnost (3x = 1)",
-    "buy_pressure": "udio kupnji u zadnjem satu (iznad 50%)",
-    "momentum": "rast cijene u 1 h (+200% = 1)",
-    "activity": "broj transakcija u 1 h (log, 2000 = 1)",
-    "paid": "plaćeni DexScreener profil ili boost",
-    "socials": "broj društvenih mreža i web",
-    "narrative": "broj kopija iste teme u 72 h (8 = 1)",
-    "calendar": "simbol/ime pogađa ključnu riječ iz kalendara",
-    "telegram": "broj Telegram kanala koji su objavili CA u 6 h (3 = 1)",
-    "smart_money": "poznati smart walleti među ranim kupcima (4 = 1)",
-    "revival": "stari token (>3 d) kojem je zadnji sat volumena višestruko iznad prosjeka",
-    "takeover": "revival + CTO ili novi profil",
-    "x_buzz": "spominjanja na X-u (autori, influenceri, engagement)",
-    "kol_wallets": "pump.fun: broj poznatih KOL walleta koji su trejdali token (5 = 1)",
-    "x_trend": "ime ili simbol tokena je trenutno trending tema na X-u",
-    "kol_x": "praćeni KOL-ovi tweetali CA ili $ticker u 6 h (2 = 1)",
-    "kol_group": "grupni poziv na X-u u 6 h: dobri KOL-ovi (ocjena 50+) zovu isti token u 30 min (2 = 1, ostali autori +0.1 do 0.5); 0 ako devovi prodaju u poziv",
-    "search_trend": "Google pretraga imena u zadnja 24 h vs prethodnih 6 dana (3x = 1)",
-}
+FEATURE = FEATURE_DESC  # kept for older imports
 
 
 def _sym_map():
@@ -80,7 +53,7 @@ def wallets(qs):
                      num(s.get("trades_per_day"), "{:g}"), num(s.get("last_trade_days"), "{:g}"),
                      num(s.get("early_in_winners")),
                      esc(", ".join(f"{SOURCE.get(k, k)}" for k in w["sources"])),
-                     " ".join(badge(l, "bad") for l in w["labels"]),
+                     " ".join(badge(labels.wallet_label(l), "bad") for l in w["labels"]),
                      (esc("; ".join(why + (s.get("copy_notes") or []))) or "–", "", "wrap")])
     form = (f'<form class=flt method=get>{filt("wt", "Filtriraj adresu, oznaku…")}'
             f'<label>min copy <input name=min_score value="{min_score:g}" size=4></label>'
@@ -102,10 +75,10 @@ def wallets(qs):
            f'Pokreni ocjenjivanje walleta</button> <span class=mut>{esc(state)}. Prikupi nove walletove, ocijeni red '
            f'(do {jobs.CREDITS} Helius kredita) i osvježi copy listu; traje nekoliko minuta, osvježi stranicu.</span></form>'
            + (f"<details><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
-    intro = ("<h1>Walleti</h1><p class=mut>Copy lista = isti uvjeti kao <code>run_wallets.py copy</code>: copy ocjena "
+    intro = ("<h1>Walleti</h1><p class=mut>Copy lista = walleti s copy ocjenom "
              f"≥ {min_score:g}, barem {min_closed} zatvorenih pozicija, bez loših oznaka. Klik na zaglavlje sortira, "
              "klik na wallet otvara detalje i raspis ocjene. Kriteriji su na stranici <a href=/criteria#walleti>Kriteriji</a>.</p>")
-    return "Walleti", intro + run + form + tdesc('Svi walleti u registru s ocjenama; klik na zaglavlje sortira. Walleti s oznakom „Na listi” su kandidati za copytrading.') + table(head, rows, "wt", "Nema walleta. Pokreni `run_wallets.py harvest` i `score`.")
+    return "Walleti", intro + run + form + tdesc('Svi walleti u registru s ocjenama; klik na zaglavlje sortira. Walleti s oznakom „Na listi” su kandidati za copytrading.') + table(head, rows, "wt", "Još nema walleta. Bot ih skuplja sam svakih 6 h.")
 
 
 def wallet(addr, qs):
@@ -159,7 +132,7 @@ def wallet(addr, qs):
                  + (f": copy ocjena dobiva +{5 * min(3, s['early_in_winners'] - 1)} bonusa." if s['early_in_winners'] > 1 else ".")
                  + "</p>")
     if w["labels"]:
-        b.append("<p>Oznake: " + " ".join(badge(l, "bad") for l in w["labels"]) +
+        b.append("<p>Oznake: " + " ".join(badge(labels.wallet_label(l), "bad") for l in w["labels"]) +
                  " <span class=mut>(oznake iz popisa loših nikad ne idu na copy listu)</span></p>")
     b.append(("<p>" + badge("NA COPY LISTI", "good") + " prolazi sve uvjete.</p>") if ok else
              ("<p><b>Nije na copy listi jer:</b> " + esc("; ".join(why)) + "</p>"))
@@ -193,9 +166,13 @@ def wallet(addr, qs):
                "top_trade_share": "udio najvećeg trejda u dobiti", "median_hold_min": "medijan držanja (min)",
                "median_buy_sol": "medijan kupnje (SOL)", "trades_per_day": "trejdova dnevno",
                "free_token_ratio": "udio tokena dobivenih besplatno", "last_trade_days": "dana od zadnjeg trejda",
-               "history_days": "dana povijesti", "early_in_winners": "rano u pobjednicima", "credits": "Helius kredita"}
+               "history_days": "dana povijesti", "early_in_winners": "rano u pobjednicima", "credits": "Helius kredita",
+               "score": "ocjena profitabilnosti", "copy_score": "copy ocjena", "bot": "izgleda kao bot", "style": "stil trgovanja"}
+        style = {"swing": "swing (drži satima)", "scalper": "scalper (brzi ulaz/izlaz)", "bot": "bot", "sniper": "snajper", "holder": "holder"}
         b.append(tdesc('Sirove brojke iz kojih su izračunate ocjene gore, iz zadnjeg ocjenjivanja walleta.') + table(["Metrika", ("Vrijednost", "n")],
-                       [[esc(lab.get(k, k)), (esc(v), v if isinstance(v, (int, float)) else 0, "n")]
+                       [[esc(lab.get(k, k.replace("_", " "))),
+                         (esc("da" if v is True else "ne" if v is False else style.get(v, v) if k == "style" else v),
+                          v if isinstance(v, (int, float)) else 0, "n")]
                         for k, v in s.items() if not isinstance(v, (list, dict))]))
 
     pos = _positions(addr)
@@ -217,10 +194,9 @@ def wallet(addr, qs):
                          num(h["win_rate"], "{:.0%}"), num(h["closed"]), num(h["score"]), num(h["copy_score"])]
                         for h in reversed(hist)]))
     if sm:
-        b.append("<h2>Hype modul (smart_wallets)</h2>")
+        b.append("<h2>Smart wallet iz hype skenera</h2>")
         b.append(f"<p>Ocjena hype modula: <b>{sm['score']}</b> · pronađen preko: "
                  + ", ".join(tlink(m, syms.get(m)) for m in (sm.get("found_via") or "").split(",") if m) + "</p>")
-        b.append(jsonblock(data.js(sm["stats"], {})))
     return f"Wallet {short(addr)}", "".join(b)
 
 
@@ -343,12 +319,12 @@ def token(mint, qs):
         for k in sorted(set(f), key=lambda k: -(wts.get(k, 0) * f.get(k, 0))):
             val, wt = f.get(k, 0) or 0, wts.get(k, 0)
             pts = 100 * wt * val / tot
-            rows.append([esc(k), (f"{val:.2f}", val, "n"), (f"{wt:g}", wt, "n"), (f"{pts:.1f}", pts, "n"),
+            rows.append([esc(labels.feat(k)), (f"{val:.2f}", val, "n"), (f"{wt:g}", wt, "n"), (f"{pts:.1f}", pts, "n"),
                          bar(pts, 100 * wt / tot if wt else 1), (f'<span class=mut>{esc(FEATURE.get(k, ""))}</span>', "", "wrap")])
-        b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, izvori: "
-                 f"<code>{esc(last['sources'])}</code>. Ocjena = Σ(značajka × težina) / Σ težina izmjerenih značajki × 100; "
+        b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, otkud je došao: "
+                 f"{esc(labels.sources(last['sources']))}. Ocjena = Σ(signal × težina) / Σ težina izmjerenih signala × 100; "
                  f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
-        b.append(tdesc('Raspis zadnje hype ocjene: koliko je svaki signal izmjeren (0-1), koliko vrijedi i koliko je bodova donio.') + table(["Značajka", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
+        b.append(tdesc('Raspis zadnje hype ocjene: koliko je svaki signal izmjeren (0-1), koliko vrijedi i koliko je bodova donio.') + table(["Signal", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
         snaps = data.hype_snapshots(mint)
         if len(snaps) > 1:
@@ -356,7 +332,7 @@ def token(mint, qs):
         b.append("<h3>Svi signali</h3>")
         b.append(tdesc('Svaki put kad ga je hype skener zabilježio, s cijenom i izvorima u tom trenutku.') + table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
                        [[ts(s["ts"]), scorecell(s["score"]), num(s["price"], "{:.8g}"), usd(s["mcap"]),
-                         usd(s["liquidity"]), esc(s["sources"])] for s in sigs[:200]]))
+                         usd(s["liquidity"]), (esc(labels.sources(s["sources"])), "", "wrap")] for s in sigs[:200]]))
     b.append("</details>")
 
     # layer 3: rug
@@ -365,7 +341,7 @@ def token(mint, qs):
               else "nije provjeren")
     b.append(sec("rug", "3. Rug filter", rg_sum, force=bool(rugs and rugs[0]["verdict"] in ("ODBAČEN", "VISOK RIZIK"))))
     if not rugs:
-        b.append("<p class=mut>Nije provjeren rug filterom (<code>python3 run_rug.py " + esc(mint) + "</code>).</p>")
+        b.append("<p class=mut>Nije provjeren rug filterom: puna provjera ide samo tokenima koji prođu prve razine analize.</p>")
     else:
         r = rugs[0]
         d = r["data"]
@@ -406,17 +382,16 @@ def token(mint, qs):
         if len(rugs) > 1:
             b.append("<h3>Ranije provjere</h3>" + tdesc('Prijašnje rug provjere istog tokena.') + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
                                                         [[ts(x["checked_at"]), verdict(x["verdict"]), num(x["score"])] for x in rugs[1:]]))
-        b.append(jsonblock(d))
     b.append("</details>")
 
     if pc:
         c = pc[0]
-        b.append(sec("paper", "4. Demo trading", f"{esc(c['decision'] or '')} {esc(c['reason'] or '')}"))
-        b.append(f"<div class=card>{_decision(c)} {esc(c['reason'] or '')} <span class=mut>· {esc(c['origin'])} · "
+        b.append(sec("paper", "4. Demo trading", f"{esc(labels.decision(c['decision']))} · {esc(labels.reason(c['reason']))}"))
+        b.append(f"<div class=card>{_decision(c)} {esc(labels.reason(c['reason']))} <span class=mut>· {esc(labels.source(c['origin']))} · "
                  f"{ts(c['first_ts'])[0]} UTC</span>" + "".join(f"<div class=mut>rug: {esc(x)}</div>" for x in c["rug_flags"]))
         for t in data.paper_trades(mint):
-            b.append(f"<p>Trejd #{t['id']}: {esc(t['status'])}, povrat {(t['ret'] or 0):+.0%}, max {(t['max_ret'] or 0):+.0%}, "
-                     f"izlaz {esc(t['exit_reason'] or '–')}</p>")
+            b.append(f"<p>Trejd #{t['id']}: {'otvoren' if t['status'] == 'open' else 'zatvoren'}, povrat {(t['ret'] or 0):+.0%}, "
+                     f"max {(t['max_ret'] or 0):+.0%}" + (f", izlaz: {esc(labels.exit_reason(t['exit_reason']))}" if t['exit_reason'] else "") + "</p>")
         b.append("</div></details>")
 
     # pulse: what the token did after it earned attention (retained in every scan)
@@ -484,14 +459,14 @@ def _events_table(evs, tid):
         det = (f"<details><summary>raspis</summary>"
                + "".join(f"<div>{esc(n)}: <b>{p:.1f}</b>/{m} <span class=mut>{esc(x)}</span></div>" for n, p, m, x in parts)
                + "</details>")
-        rows.append([(esc(e["date"]), e["date"], ""), esc(e["kind"]),
+        rows.append([(esc(e["date"]), e["date"], ""), esc(labels.kind(e["kind"])),
                      (f'<a href="{esc(e["url"])}" target=_blank>{esc(e["title"])}</a>' if e.get("url") else esc(e["title"]), e["title"], "wrap"),
                      scorecell(e["hype"]), num(e.get("token_likelihood"), "{:.2f}"),
-                     esc(" ".join(e["keywords"])), esc(e["source"]),
+                     esc(" ".join(e["keywords"])), esc(labels.event_source(e["source"])),
                      (tl or "–", len(toks), "wrap"), (det, "", "wrap")])
     return table(["Datum", "Vrsta", ("Event", "wrap"), ("Hype", "n"), ("Šansa za token", "n"), "Ključne riječi",
                   "Izvor", ("Tokeni (★ = pravi)", "wrap"), ("Zašto ta ocjena", "wrap")], rows, tid,
-                 "Nema evenata. Pokreni `run_calendar.py`.")
+                 "Još nema evenata. Bot osvježava kalendar sam svakih 6 h.")
 
 
 def events(qs):
@@ -511,16 +486,20 @@ def events(qs):
 
 def outputs(qs):
     files = data.outputs()
-    rows = [[f'<a href="/outputs/{quote(p)}">{esc(p)}</a>', ts(m), num(sz / 1024, "{:.1f} kB")] for p, m, sz in files]
-    return "Izvještaji", ("<h1>Izvještaji</h1><p class=mut>Markdown izvještaji koje moduli pišu u <code>output/</code>.</p>"
-                          + tdesc('Klik otvara izvještaj.') + table(["Datoteka", "Izmijenjeno", ("Veličina", "n")], rows, empty="Nema izvještaja."))
+    syms = data.symbols()
+    rows = [[f'<a href="/outputs/{quote(p)}">{esc(labels.report_name(p, syms))}</a>', ts(m)] for p, m, sz in files]
+    return "Izvještaji", ("<h1>Izvještaji</h1><p class=mut>Izvještaji koje bot sam piše: dnevni pregled demo tradinga, "
+                          "kalendar, rug provjere, copy lista walleta.</p>"
+                          + tdesc('Klik otvara izvještaj.') + table([("Izvještaj", "wrap"), "Napisan"], rows, empty="Još nema izvještaja."))
 
 
 def output(rel, qs):
     txt = data.read_output(rel)
     if txt is None:
         return None
-    return rel, f'<p><a href="/outputs">← izvještaji</a></p><h1>{esc(rel)}</h1><pre>{esc(txt)}</pre>'
+    name = labels.report_name(rel, data.symbols())
+    return name, (f'<p><a href="/outputs">← izvještaji</a></p><h1>{esc(name)}</h1>'
+                  f'<pre style="white-space:pre-wrap">{esc(labels.plain_md(txt))}</pre>')
 
 
 # ---------------- paper trading ----------------
@@ -530,4 +509,4 @@ DECISION = {"taken": "good", "take": "good", "buy": "good", "skip": "", "skipped
 
 def _decision(c):
     d = c.get("decision") or "–"
-    return badge(d, DECISION.get(d, "warn" if d.startswith("skip") else "good"))
+    return badge(labels.decision(d), DECISION.get(d, "warn" if d.startswith("skip") else "good"))

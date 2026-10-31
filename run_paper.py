@@ -4,8 +4,10 @@
     python3 run_paper.py run --scan                # everything in one loop: hype scan, entries, prices, daily review
     python3 run_paper.py run                       # same, but signals come from a separate `run_hype.py watch`
     python3 run_paper.py status                    # open positions, demo balance
-    python3 run_paper.py review                    # daily report: mistakes, missed winners, suggested changes
-    python3 run_paper.py apply                     # accept the suggested config (old one is backed up)
+    python3 run_paper.py review                    # daily report: mistakes, missed winners, changes the bot applied
+    python3 run_paper.py apply                     # (old, optional) write the suggested config into paper/config.json
+
+The daily review applies safe entry-rule changes itself (paper/auto.py: guardrails + rollback), nothing manual.
 
 Picks come from hype.db (run_hype.py signals) and the newest output/dex-*.json (canonical event tokens).
 Every candidate is decided once: taken, or skipped with a reason. Skipped ones keep being tracked for
@@ -24,7 +26,7 @@ import time
 
 from dexscreener import client
 from exits import profiles as exits_profiles
-from paper import dca, review, sim, store
+from paper import auto, dca, review, sim, store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -350,9 +352,22 @@ def cmd_tick(a):
 
 def cmd_review(a):
     cfg = sim.load_config(a.config)
-    rep = review.run(store.connect(DB), cfg, hours=a.hours, now=time.time())
-    e = equity(store.connect(DB), cfg)
+    con = store.connect(DB)
+    rep = review.run(con, cfg, hours=a.hours, now=time.time())
+    e = equity(con, cfg)
     rep["equity"] = e
+    if not a.config:  # learned rules only for the real config, not a test file
+        try:
+            from exits import learn as exits_learn
+            exl = bool(exits_learn.load_config().get("enabled"))
+        except Exception:
+            exl = False
+        try:
+            rows = review.load(con, cfg, time.time() - review.LEARN_DAYS * 86400)
+            rep["auto"] = auto.apply(rep, cfg, rows, exits_learned=exl)
+        except Exception as ex:
+            print(f"auto primjena nije uspjela: {type(ex).__name__}: {ex}", file=sys.stderr)
+            rep["auto"] = []
     paths = review.write(rep, OUT, SUGGESTED, cfg)
     print(open(paths["md"]).read())
     con = store.connect(DB)

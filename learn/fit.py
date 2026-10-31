@@ -61,22 +61,22 @@ def run(con, cfg=None, now=None, apply=True, base=None):
         rec = {"klasa": klasa, "n": len(rk), "skok": thr[klasa], "applied": False, "old": old, "new": None,
                "metric_old": None, "metric_new": None, "note": ""}
         if len(rk) < cfg["min_rows"]:
-            rec["note"] = f"premalo ishoda ({len(rk)} < {cfg['min_rows']})"
+            rec["note"] = f"premalo ishoda ({len(rk)} od potrebnih {cfg['min_rows']})"
         else:
             fit = evaluate.fit_weights(rk)
             if not fit:
-                rec["note"] = "fit nije uspio (nema pogodaka)"
+                rec["note"] = "još nema nijednog skoka u podacima, nema se iz čega učiti"
             else:
                 new = step(old, fit["weights"], cfg)
                 ok, mo, mn = better(rk, old, new)
                 rec.update(new=new, metric_old=mo, metric_new=mn)
                 if ok:
-                    rec["note"] = f"preciznost gornje petine {mo} -> {mn}"
+                    rec["note"] = f"pogađanje među 20% najbolje ocijenjenih {mo} → {mn}"
                     if apply:
                         weights.save(klasa, new, now)
                         rec["applied"] = True
                 else:
-                    rec["note"] = f"nove težine nisu bolje na obje polovice ({mo} vs {mn})"
+                    rec["note"] = f"nove težine nisu bile bolje i na starijim i na novijim podacima ({mo} prema {mn})"
         rec["rollback"] = _maybe_rollback(con, klasa, rk, cfg, apply) if rec["applied"] is False and rec["new"] else False
         store.log_run(con, now, klasa, rec["n"], rec["skok"], rec["applied"], rec["metric_old"], rec["metric_new"],
                       old, rec["new"] or {}, rec["note"])

@@ -132,7 +132,7 @@ class Page(unittest.TestCase):
         usage._cache["ts"] = 0
         self.assertIn("/usage", usage.banner())
         meter.DB = os.path.join(tempfile.mkdtemp(), "none.db")
-        self.assertIn("Još nema usage.db", usage.page({})[1])
+        self.assertIn("Bot još nije napravio nijedan plaćeni poziv", usage.page({})[1])
 
 
 if __name__ == "__main__":

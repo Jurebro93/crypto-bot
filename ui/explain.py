@@ -84,7 +84,7 @@ def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
     s = w.get("stats") or {}
     why = []
     if not s:
-        return False, ["još nije ocijenjen (čeka `run_wallets.py score`)"]
+        return False, ["još nije ocijenjen (bot ga ocjenjuje u sljedećem krugu, svakih 6 h)"]
     bad = set(w.get("labels") or []) & BAD_LABELS
     if bad:
         why.append(f"oznaka {', '.join(sorted(bad))}")
@@ -138,8 +138,8 @@ def event_hype(e):
         ("Rast interesa", min(10, max(0, (s.get("trend", 1.0) - 1) * 10)), 10, f"trend {s.get('trend', 1.0)}x"),
         ("Polymarket volumen", min(20, 20 * math.log10(1 + s.get("pm_volume", 0)) / 8), 20,
          f"${s.get('pm_volume', 0):,.0f}; $100M = max"),
-        ("Veza s kripto publikom", aff or 0, 25, "popis CRYPTO_AFFINITY u enrich.py (Elon, Trump, Doge...)"),
-        ("Ručno dodan", 10 if e.get("source") == "manual" else 0, 10, "events_manual.json"),
+        ("Veza s kripto publikom", aff or 0, 25, "osobe i teme koje kripto publika prati (Elon, Trump, Doge...)"),
+        ("Ručno dodan", 10 if e.get("source") == "manual" else 0, 10, "event je netko ručno dodao u kalendar"),
         ("Blizina datuma", max(0, 5 - days * 0.5) if days is not None else 0, 5,
          f"za {days} dana" if days is not None else "datum nepoznat"),
     ]

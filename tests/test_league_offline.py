@@ -143,7 +143,7 @@ class Login(unittest.TestCase):
         self.assertEqual(who("Ivan", "shared"), (True, None))
         self.assertEqual(who("Panda", "ivanpw"), (False, None))
         self.assertEqual(who("Jure", ""), (False, None))
-        self.assertIn("PANDA", league.login_help())          # tells which passwords are still missing
+        self.assertIn("Panda", league.login_help())          # tells which passwords are still missing
 
         import threading
         import urllib.error

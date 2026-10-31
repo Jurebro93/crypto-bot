@@ -98,7 +98,7 @@ def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True
             lift(c["vol_lift"]), _gcell(gs, c["token"], c["ts"]), _flowcell(fl.get((c["tweet_id"], c["token"]))),
             (f'<span class=mut>{esc((c["text"] or "")[:160])}</span>', "", "wrap")]
         out.append(r)
-    return table(head, out, tid=tid, empty="Još nema poziva. run_kol.py ih kopira iz X pretraga koje bot već plaća.")
+    return table(head, out, tid=tid, empty="Još nema poziva. Bot ih skuplja sam iz X pretraga koje ionako plaća.")
 
 
 def _leaderboard(con, minf, minc):
@@ -221,16 +221,16 @@ def _corr(con):
         kind = "" if rho is None or abs(rho) < 0.15 else ("pos" if rho > 0 else "neg")
         cell = ("–", -9, "n") if rho is None else (f'<span class="{kind}">{rho:+.2f}</span>', rho, "n")
         rows.append([esc(name), cell, num(n), (esc(MEANING.get(name, "")), "", "wrap mut")])
-    return table(["Značajka poziva", ("Korelacija s max 24 h", "n"), ("Poziva", "n"), ("Pitanje", "wrap")], rows)
+    return table(["Svojstvo poziva", ("Korelacija s max 24 h", "n"), ("Poziva", "n"), ("Pitanje", "wrap")], rows)
 
 
 def page(qs):
     con = store.ro()
     b = ["<h1>KOL-ovi i njihovi pozivi</h1><p class=mut>Svaki X post koji spominje CA tokena (iz pretraga koje bot ionako "
          "plaća, plus praćenje najboljih KOL-ova), što su cijena i volumen napravili nakon njega, tko je zvao zajedno i "
-         "tko je prodavao u poziv. Mjeri <code>run_kol.py</code> svakih 20 min; ništa ne treba ručno.</p>"]
+         "tko je prodavao u poziv. Bot to mjeri sam svakih 20 min; ništa ne treba ručno.</p>"]
     if con is None:
-        return "KOL-ovi", "".join(b) + "<p>Baza kol.db još ne postoji: prvi krug run_kol.py kreće nakon deploya.</p>"
+        return "KOL-ovi", "".join(b) + "<p>Još nema podataka: prvo mjerenje kreće nekoliko minuta nakon pokretanja servera.</p>"
     try:
         cfg = _cfg()
         st = con.execute("""SELECT (SELECT COUNT(*) FROM kols), (SELECT COUNT(*) FROM calls WHERE kind='call'),
@@ -283,7 +283,7 @@ def page(qs):
             f"{cfg['rotation_min_tokens']}+ tokena = rotacijski dev: seli s tokena na token i prodaje u pozive. "
             "Rotacijski devovi ulaze u registar walleta s oznakom insider (nikad na copy listu).") + _wallets(con))
         b.append("<h2 id=korelacije>Što predviđa skok nakon poziva</h2>" + tdesc(
-            "Spearman korelacija svake značajke poziva s najvećim rastom u 24 h, preko svih izmjerenih prvih poziva. "
+            "Korelacija svakog svojstva poziva s najvećim rastom u 24 h, preko svih izmjerenih prvih poziva. "
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
     finally:
@@ -322,7 +322,7 @@ def kol_page(handle, qs):
                      "no_rug": "Bez ruga", "prepump": "Kasni pozivi"}
             b.append("<h2>Kako je dobio ocjenu</h2>" + tdesc(
                 f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
-                f"{s.get('confidence', 0):.0%}, ostatak je {s.get('prior', cfg['prior_score'])}. Težine su u kol/config.json.")
+                f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
                      + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta.")
                  + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False))

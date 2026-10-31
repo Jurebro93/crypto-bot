@@ -9,20 +9,21 @@ import time
 from urllib.parse import quote
 
 from ui import data
+from ui.labels import feat, feat_low, sources as sources_hr
 from ui.html import tdesc, ago, badge, esc, num, short, signed, table, ts, usd, verdict, wlink
 
 SOURCES = {
     "dex": ("DexScreener API", "https://docs.dexscreener.com/api/reference"),
-    "hype": ("hype skener (run_hype.py)", None),
+    "hype": ("hype skener", None),
     "x": ("X / Twitter preko Apify apidojo/tweet-scraper", "https://apify.com/apidojo/tweet-scraper"),
     "pumpfun": ("pump.fun preko Apify pump-fun-token-scraper", "https://apify.com/muhammetakkurtt/pump-fun-token-scraper-monitor"),
-    "kol": ("KOL tracker na X-u (xquik monitor, webhook)", None),
+    "kol": ("praćenje KOL-ova na X-u", None),
     "tg": ("javni Telegram kanali (t.me/s)", None),
-    "rug": ("Helius RPC + RugCheck API (run_rug.py)", "https://rugcheck.xyz"),
+    "rug": ("Helius + RugCheck", "https://rugcheck.xyz"),
     "event": ("kalendar: Polymarket, Wikipedia, RocketLaunch, ručni eventi", None),
     "smart": ("smart walleti: naša Helius analiza + GMGN preko Apifyja", None),
-    "paper": ("paper trading (run_paper.py)", None),
-    "wallets": ("registar walleta (run_wallets.py, Helius)", None),
+    "paper": ("demo trading", None),
+    "wallets": ("registar walleta (Helius)", None),
 }
 
 
@@ -154,13 +155,13 @@ def fragment(mint):
         tot = sum(w.values()) or 1
         rows = sorted(((k, f.get(k) or 0, w.get(k, 0)) for k in set(f) | set(w)), key=lambda r: -r[1] * r[2])
         b.append(tdesc('Signali iz kojih je izračunata hype ocjena; prikazani su samo oni koji nisu nula.') + table(["Signal", ("Izmjereno 0-1", "n"), ("Težina", "n"), ("Bodova", "n")],
-                       [[esc(k), (f"{v:.2f}", v, "n"), (f"{wt:g}", wt, "n"), (f"{100 * v * wt / tot:.1f}", v * wt, "n")]
+                       [[esc(feat(k)), (f"{v:.2f}", v, "n"), (f"{wt:g}", wt, "n"), (f"{100 * v * wt / tot:.1f}", v * wt, "n")]
                         for k, v, wt in rows if v]))
         zero = [k for k, v, wt in rows if not v and wt]
         if zero:
-            b.append(f"<p class=mut>Nula (nije izmjereno ili nema signala): {esc(', '.join(sorted(zero)))}.</p>")
+            b.append(f"<p class=mut>Nula (nije izmjereno ili nema signala): {esc(', '.join(sorted(feat_low(k) for k in zero)))}.</p>")
         b.append(f"<p>Ocjena <b>{sig['score']:.0f}</b>/100 · prvi signal {ts(sigs[-1]['ts'])[0]} UTC po cijeni "
-                 f"{sigs[-1]['price']:.3g} · {len(sigs)} signala · izvori kandidata: <code>{esc(sig['sources'])}</code></p>"
+                 f"{sigs[-1]['price']:.3g} · {len(sigs)} signala · otkud je došao: {esc(sources_hr(sig['sources']))}</p>"
                  + _src("hype", sig["ts"]))
 
     # market, live

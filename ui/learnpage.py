@@ -5,9 +5,28 @@ import os
 import sqlite3
 
 from ui import data
+from ui.labels import feat
 from ui.html import tdesc, ago, badge, bar, esc, klasab, num, razinab, table, tlink
 
-HR = {"moonshot": "Moonshot", "rizican": "Rizičan", "event": "Event", "stabilni": "Stabilni"}
+HR = {"moonshot": "Moonshot", "rizican": "Rizičan", "event": "Event", "stabilni": "Stabilni", "default": "Ostali"}
+
+
+def note_hr(note):
+    """learn_runs.note in plain words (old runs were written in shorthand)."""
+    import re
+    n = str(note or "")
+    m = re.match(r"premalo ishoda \((\d+) < (\d+)\)", n)
+    if m:
+        return f"premalo ishoda ({m.group(1)} od potrebnih {m.group(2)})"
+    m = re.match(r"preciznost gornje petine (\S+) -> (\S+)", n)
+    if m:
+        return f"pogađanje među 20% najbolje ocijenjenih {m.group(1)} → {m.group(2)}"
+    m = re.match(r"nove težine nisu bolje na obje polovice \((\S+) vs (\S+)\)", n)
+    if m:
+        return f"nove težine nisu bile bolje i na starijim i na novijim podacima ({m.group(1)} prema {m.group(2)})"
+    if n.startswith("fit nije uspio"):
+        return "još nema nijednog skoka u podacima, nema se iz čega učiti"
+    return n
 
 
 def _con():
@@ -27,17 +46,18 @@ def _rows(con):
 def page(qs):
     from learn import correlations, outcomes, weights
     b = ["<h1>Učenje</h1><p class=mut>Alat sam uči iz ishoda: svaki dan ponovno računa što je \"skok\" po klasi, "
-         "ponovno fita težine hype ocjene po klasi i primjenjuje ih ako prolaze zaštitu (barem 200 ishoda, pomak najviše "
+         "ponovno računa težine hype ocjene po klasi i primjenjuje ih ako prolaze zaštitu (barem 200 ishoda, pomak najviše "
          "20% po težini, bolje na obje vremenske polovice). Ovdje vidiš što je našlo, što je promijenilo i što je propustilo. "
          "Ništa se ne radi ručno.</p>"]
     con = _con()
     cfg = outcomes.config()
     if con is None:
-        return "Učenje", "".join(b) + "<div class=card>Još nema baze.</div>"
+        return "Učenje", "".join(b) + "<div class=card>Još nema podataka za učenje.</div>"
     try:
         rows, thr = _rows(con)
     except Exception as e:
-        return "Učenje", "".join(b) + f"<div class=card>Ishodi se ne mogu izračunati: {esc(str(e))}</div>"
+        print(f"učenje: ishodi nisu uspjeli: {type(e).__name__}: {e}")
+        return "Učenje", "".join(b) + "<div class=card>Ishodi se trenutno ne mogu izračunati; pokušat će ponovno pri sljedećem osvježavanju.</div>"
     klasa = qs.get("klasa") or ""
     sel = [r for r in rows if not klasa or r["klasa"] == klasa]
 
@@ -53,16 +73,16 @@ def page(qs):
                       for k in sorted(thr)]))
 
     if len(sel) < 10:
-        b.append(f"<div class=card>Premalo ishoda ({len(sel)}) za korelacije; treba barem 10, za fit {cfg['min_rows']}. "
+        b.append(f"<div class=card>Premalo ishoda ({len(sel)}) za korelacije; treba barem 10, za promjenu težina {cfg['min_rows']}. "
                  "Ishod nastaje 24 h nakon prvog signala, pa tablice ispod rastu same.</div>")
     else:
         # 2. feature lift
-        b.append(f"<h2>Koliko svaka značajka pomaže{(' · ' + HR.get(klasa, klasa)) if klasa else ''}</h2>")
+        b.append(f"<h2>Koliko svaki signal pomaže{(' · ' + HR.get(klasa, klasa)) if klasa else ''}</h2>")
         lf = sorted(correlations.lift(sel), key=lambda x: -(x["lift"] or 0))
-        b.append(tdesc("Udio skokova kad je značajka jaka (≥ 0,5) i kad je slaba. Lift > 1 znači da značajka pomaže; "
-                       "lift blizu 1 znači da ne nosi informaciju. Ovo je ono iz čega fit mijenja težine.")
-                 + table(["Značajka", ("n jakih", "n"), ("Skok kad jaka", "n"), ("Skok kad slaba", "n"), ("Lift", "n")],
-                         [[esc(x["feature"]), num(x["n_strong"]), (f"{x['hit_strong']:.0%}", x["hit_strong"], "n"),
+        b.append(tdesc("Koliko često token napravi skok kad je signal jak, a koliko kad je slab. „Puta češće” iznad 1 znači da "
+                       "signal pomaže; blizu 1 znači da ne govori ništa. Iz ovoga bot sam mijenja težine.")
+                 + table(["Signal", ("Tokena s jakim", "n"), ("Skok kad jaka", "n"), ("Skok kad slaba", "n"), ("Puta češće", "n")],
+                         [[esc(feat(x["feature"])), num(x["n_strong"]), (f"{x['hit_strong']:.0%}", x["hit_strong"], "n"),
                            (f"{x['hit_weak']:.0%}", x["hit_weak"], "n"),
                            (f"<b>{x['lift']}</b>" if x["lift"] else "–", x["lift"] or 0, "n")] for x in lf]))
 
@@ -81,11 +101,11 @@ def page(qs):
         # 4. pairs
         pr = correlations.pairs(sel)
         if pr:
-            b.append("<h2>Parovi značajki koji zajedno znače više</h2>")
-            b.append(tdesc("Kad su obje značajke jake: udio skokova prema onome što bi svaka zasebno predvidjela. Lift > 1 znači da "
-                           "kombinacija nosi nešto što pojedinačne težine ne vide.")
-                     + table(["Značajka A", "Značajka B", ("n", "n"), ("Skok", "n"), ("Lift", "n")],
-                             [[esc(p["a"]), esc(p["b"]), num(p["n"]), (f"{p['hit_rate']:.0%}", p["hit_rate"], "n"),
+            b.append("<h2>Parovi signala koji zajedno znače više</h2>")
+            b.append(tdesc("Kad su oba signala jaka: koliko češće dolazi skok nego što bi svaki zasebno predvidio. Iznad 1 znači "
+                           "da kombinacija govori nešto što pojedinačni signali ne vide.")
+                     + table(["Signal A", "Signal B", ("Tokena", "n"), ("Skok", "n"), ("Puta češće", "n")],
+                             [[esc(feat(p["a"])), esc(feat(p["b"])), num(p["n"]), (f"{p['hit_rate']:.0%}", p["hit_rate"], "n"),
                                (f"<b>{p['lift']}</b>", p["lift"], "n")] for p in pr]))
 
     # 5. weight history
@@ -94,22 +114,22 @@ def page(qs):
         runs = lstore.runs(con, klasa or None, 30)
     except Exception:
         runs = []
-    b.append("<h2>Što je petlja promijenila</h2>")
+    b.append("<h2>Što je bot promijenio</h2>")
     if not runs:
-        b.append("<div class=card>Još nijedan run. Prvi se pokreće u " + esc(cfg["run_at_utc"]) + " UTC, a mijenja težine tek s "
+        b.append("<div class=card>Učenje još nije pokrenuto. Prvi put kreće u " + esc(cfg["run_at_utc"]) + " UTC, a mijenja težine tek s "
                  f"{cfg['min_rows']} ishoda po klasi.</div>")
     else:
         rr = []
         for r in runs:
-            diff = ", ".join(f"{k} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
+            diff = ", ".join(f"{feat(k)} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
                              if abs(v - r["old"].get(k, 0)) >= 0.1)[:200] if r["new"] else ""
             rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")), klasab(r["klasa"]), num(r["n"]),
                        badge("primijenjeno", "good") if r["applied"] else badge("bez promjene"),
                        (f"{r['metric_old'] if r['metric_old'] is not None else '–'} → {r['metric_new'] if r['metric_new'] is not None else '–'}", r["metric_new"] or 0, "n"),
-                       (esc(r["note"]), "", "wrap"), (esc(diff), "", "wrap")])
-        b.append(tdesc("Svaki dnevni run: koliko je ishoda imao, je li promijenio težine i zašto. Metrika je preciznost gornje petine "
-                       "tokena po ocjeni (udio skokova među 20% najbolje ocijenjenih).")
-                 + table(["Kad", "Klasa", ("Ishoda", "n"), "Odluka", ("Preciznost staro → novo", "n"), ("Zašto", "wrap"), ("Pomaci težina", "wrap")], rr))
+                       (esc(note_hr(r["note"])), "", "wrap"), (esc(diff), "", "wrap")])
+        b.append(tdesc("Svako dnevno učenje: koliko je ishoda imao, je li promijenio težine i zašto. Mjeri se koliko skokova "
+                       "ima među 20% najbolje ocijenjenih tokena (više = ocjena bolje pogađa).")
+                 + table(["Kad", "Klasa", ("Ishoda", "n"), "Odluka", ("Pogađanje staro → novo", "n"), ("Zašto", "wrap"), ("Pomaci težina", "wrap")], rr))
 
     # 6. missed
     try:
