@@ -25,5 +25,22 @@
  "snaga_volumen": 6,
  "snaga_txn": 6,
  "rast_holdera": 8,
- "organski": 6
+ "organski": 6,
+ "krivulja_bez_mayhema": 6,
+ "krivulja_organski_volumen": 4,
+ "krivulja_dev_drzi": 4,
+ "krivulja_pad_od_vrha": 3,
+ "krivulja_opis": 3,
+ "krivulja_dev_prodao": 3,
+ "krivulja_bez_telegrama": 3,
+ "krivulja_web": 3,
+ "krivulja_starost": 3,
+ "krivulja_postupnost": 3,
+ "krivulja_male_kupnje": 2,
+ "krivulja_top1": 2,
+ "krivulja_top10": 2,
+ "krivulja_mirna_zadnjih5": 2,
+ "krivulja_malo_holdera": 2,
+ "krivulja_bundle_umjeren": 2,
+ "krivulja_medijan_kupnje": 2
 }

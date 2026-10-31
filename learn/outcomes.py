@@ -43,6 +43,26 @@ def rows(con, cfg=None, now=None):
     return out, thr
 
 
+def event_rows(con, point="B100000", cfg=None, now=None):
+    """Outcomes judged from a decision point (tier_events: first time at/above $100k or $1M) instead of the first
+    signal: features as they were then, max/2nd-max return over the horizon. The study's best entry was $100k."""
+    from tiers import store as tstore
+    cfg = cfg or config()
+    now = now or time.time()
+    out = []
+    for e in tstore.events(con, point):
+        if e["ts"] > now - cfg["horizon_h"] * 3600 or not e["price"]:
+            continue
+        snaps = con.execute("SELECT ts, price FROM hype_snapshots WHERE token=? AND ts>? AND ts<=? ORDER BY ts",
+                            (e["token"], e["ts"], e["ts"] + cfg["horizon_h"] * 3600)).fetchall()
+        path = [p / e["price"] - 1 for _, p in snaps if p]
+        if not path:
+            continue
+        out.append({**e, "max_ret": max(path), "max2_ret": sorted(path)[-2] if len(path) >= 2 else max(path),
+                    "end_ret": path[-1]})
+    return out
+
+
 def skok_thresholds(rows, cfg=None, now=None):
     """Per class: the (skok_pct)th percentile of max returns in the last skok_window_d days, else the initial value."""
     cfg = cfg or config()
