@@ -7,6 +7,7 @@ are cached for 60 s by dexscreener/client.py, so polling does not add API load).
 import json
 import time
 
+from paper import sim
 from ui import confidence, data, labels
 from ui.html import tdesc, ago, badge, esc, filt, num, scorecell, signed, table, th, tlink, ts, usd, verdict
 
@@ -55,6 +56,7 @@ def snapshot():
     live = _live({t["token"] for t in opened})
     dca_open = {d["trade_id"]: d for d in data.paper_dca() if not d["done"]}
     rows = []
+    pend = _pending() if opened else {}
     for t in opened:
         pos = t["state"]
         price, liq, url = live.get(t["token"], (None, None, None))
@@ -72,11 +74,11 @@ def snapshot():
         rows.append({"id": t["id"], "token": t["token"], "symbol": t["symbol"], "name_html": tlink(t["token"], t["symbol"]), "opened_ts": t["opened_ts"],
                      "size": t["size_usd"], "entry": entry, "price": price, "move": price / entry - 1 if price and entry else None,
                      "pnl": pnl, "ret": ret, "max": t["max_ret"], "min": t["min_ret"], "left": pos.get("left", 1.0),
-                     "sl": (tc.get("sl_after_tp", 0.0) if pos.get("tp_done") else tc.get("sl")) if not pos.get("bag") else None,
+                     "sl": (sim.after_tp_stop(pos, tc) if pos.get("tp_done") else tc.get("sl")) if not pos.get("bag") else None,
                      "next_tp": tp[0][0] if tp else None, "profile": labels.profile(tc.get("exit_profile")),
                      "liq": liq, "src": src, "mc_in": t.get("entry_mcap"),
                      "mc_now": t["entry_mcap"] * price / entry if price and entry and t.get("entry_mcap") else None,
-                     "dca": dca_open.get(t["id"], {}).get("reason")})
+                     "dca": dca_open.get(t["id"], {}).get("reason"), "pending": pend.get(t["id"])})
     bank = cfg.get("bankroll_usd", 0)
     realized = sum(t["pnl_usd"] or 0 for t in closed)
     unreal = sum(r["pnl"] for r in rows)
@@ -90,6 +92,39 @@ def snapshot():
 
 def api(qs):
     return json.dumps(snapshot())
+
+
+def post(path, form, user=None):
+    """POST /paper/izlaz: sell part or all of an open demo position by hand (25/50/100% of what is left). The paper
+    loop carries it out at its next price tick (about a minute) with the usual fee and slippage."""
+    from paper import store
+    try:
+        tid, frac = int(form.get("trade", "")), float(form.get("frac", ""))
+    except ValueError:
+        return "/paper#open"
+    if frac not in (0.25, 0.5, 1.0):
+        return "/paper#open"
+    con = store.connect(data.PAPER_DB)
+    try:
+        store.request_exit(con, tid, frac, user)
+        con.commit()
+    finally:
+        con.close()
+    return "/paper?izlaz=1#open"
+
+
+def _pending():
+    """{trade_id: share of what is left that is waiting to be sold by hand}."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = con.execute("SELECT trade_id, MAX(frac) FROM manual_exits WHERE done_ts IS NULL GROUP BY trade_id")
+            return {t: f for t, f in rows}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return {}
 
 
 def _curve(closed, bank):
@@ -128,8 +163,9 @@ function draw(d){
   <td class=n>${pc(p.max)}</td><td class=n>${pc(p.min)}</td><td class=n>${Math.round(p.left*100)}%</td>
   <td class=n title="pravila: ${p.profile}">${p.sl==null?'moonbag':pc(p.sl)}</td><td class=n>${p.next_tp==null?'–':pc(p.next_tp)}</td>
   <td class=n>${usd(p.liq)}</td><td class=mut>${p.src}</td>
-  <td>${p.dca?'<span class="b warn" title="'+p.dca.replace(/"/g,'&quot;')+'">DCA prijedlog</span>':''}</td></tr>`).join('');
- $('#open').innerHTML=rows||'<tr><td colspan=18 class=empty>Nema otvorenih pozicija.</td></tr>';
+  <td>${p.dca?'<span class="b warn" title="'+p.dca.replace(/"/g,'&quot;')+'">DCA prijedlog</span>':''}</td>
+  <td class=nw>${p.pending?'<span class=mut>prodajem '+Math.round(p.pending*100)+'%…</span>':[0.25,0.5,1].map(f=>`<form method=post action=/paper/izlaz style="display:inline" onsubmit="return confirm('Prodati ${f*100}% ostatka ${p.symbol||''} po trenutnoj cijeni?')"><input type=hidden name=trade value=${p.id}><input type=hidden name=frac value=${f}><button class=sm title="prodaj ${f*100}% onoga što je ostalo">${f==1?'Sve':f*100+'%'}</button></form>`).join(' ')}</td></tr>`).join('');
+ $('#open').innerHTML=rows||'<tr><td colspan=19 class=empty>Nema otvorenih pozicija.</td></tr>';
  $('#upd').textContent='osvježeno '+new Date(d.ts*1000).toLocaleTimeString()+(d.live?'':' · DexScreener nedostupan, prikaz iz baze');
 }
 async function poll(){try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}}
@@ -406,12 +442,12 @@ def page(qs):
     b.append(_learning_box(trades, cfg))
     if not (trades or cands):
         b.append("<div class=card>Još nema demo trejdova. Bot ih otvara sam čim neki token prođe pravila ulaza.</div>")
-    b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati.") + "<div class=tw><table><thead><tr>"
+    b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati. Gumbi u stupcu Ručni izlaz prodaju 25%, 50% ili sve što je ostalo: bot to izvrši u idućoj minuti po živoj cijeni, uz isti fee i slippage. Ručno prodani tradeovi ne ulaze u učenje izlaza i krakova.") + "<div class=tw><table><thead><tr>"
              + "".join(th(*h) for h in [("Token", ""), ("Otvoreno prije", ""), ("Ulog", "n"), ("Ulazna cijena", "n"),
                                         ("Sada", "n"), ("MC ulaz", "n"), ("MC sada", "n"), ("Pomak", "n"), ("PnL $", "n"), ("Povrat", "n"), ("Max", "n"),
                                         ("Min", "n"), ("Ostalo", "n"), ("Stop loss", "n"), ("Sljedeći TP", "n"),
-                                        ("Likvidnost", "n"), ("Cijena iz", ""), ("DCA", "")])
-             + "</tr></thead><tbody id=open><tr><td colspan=18 class=empty>Učitavam…</td></tr></tbody></table></div>")
+                                        ("Likvidnost", "n"), ("Cijena iz", ""), ("DCA", ""), ("Ručni izlaz", "")])
+             + "</tr></thead><tbody id=open><tr><td colspan=19 class=empty>Učitavam…</td></tr></tbody></table></div>")
     if cfg:
         try:
             from exits import learn as xl

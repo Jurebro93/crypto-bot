@@ -43,6 +43,8 @@ def live_trades(paper_db, profile_name):
             if c.get("exit_profile") != profile_name:
                 continue
             st = json.loads(state or "{}")
+            if any(f.get("reason") == "rucno" for f in st.get("fills") or ()):
+                continue  # sold by hand: not what the rules did
             rows = con.execute("SELECT ts, price, liquidity FROM ticks WHERE token=? AND ts>? ORDER BY ts",
                                (token, opened)).fetchall()
             out.append({"ret": ret or 0, "entry_px": st.get("entry_px"), "entry_liq": st.get("entry_liq"),
@@ -96,6 +98,7 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
                                                                         "big_loss", "moon_n", "moon_mult")}, now)
         report.append(dec)
     if apply:
+        state["sim_version"] = sim.SIM_VERSION  # fitted under these exit mechanics (profiles.needs_refit)
         state.setdefault("runs", []).append({"ts": int(now), "items": [
             {k: r.get(k) for k in ("klasa", "n", "n_live", "applied", "rollback", "note")} for r in report]})
         profiles.save(state)
