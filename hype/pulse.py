@@ -51,17 +51,36 @@ def _clip(x):
 
 # ---------- which tokens stay in the scan ----------
 
-def retained(con, cfg=None, now=None):
-    """Tokens that reached razina >= 1 in the last `sati` hours and did not fail T0, best score first."""
+def featured_now(hours=24):
+    """Mints the Pregled page features right now (same code as the page), [] when the UI modules are unavailable."""
+    try:
+        from ui import overview
+        return overview.featured_tokens(hours)
+    except Exception as e:
+        print(f"  istaknuti: {type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
+def retained(con, cfg=None, now=None, featured=None):
+    """Tokens kept in every scan: first what Pregled features right now (never dropped, whatever their hype score),
+    then tokens that reached a tier in the last `sati` hours and did not fail T0, highest tier and score first, up
+    to `max` in all. Ordering by razina first matters: 20 tokens a pass get razina 1 from the early-buyer check, so
+    ordering by hype score alone pushed yesterday's featured candidates out within an hour."""
     cfg = cfg or config()
     now = now or time.time()
+    out = list(dict.fromkeys(featured_now(cfg["sati"]) if featured is None else featured))
     try:
         rows = con.execute("SELECT token FROM token_tier WHERE last_ts >= ? AND razina >= 1 AND COALESCE(t0, '') != 'pad' "
-                           "ORDER BY COALESCE(score, 0) DESC, last_ts DESC LIMIT ?",
+                           "ORDER BY razina DESC, COALESCE(score, 0) DESC, last_ts DESC LIMIT ?",
                            (int(now - cfg["sati"] * 3600), int(cfg["max"]))).fetchall()
     except sqlite3.OperationalError:  # no token_tier yet
-        return []
-    return [r[0] for r in rows]
+        rows = []
+    for (t,) in rows:
+        if len(out) >= cfg["max"] and t not in out:
+            break
+        if t not in out:
+            out.append(t)
+    return out
 
 
 # ---------- recording ----------

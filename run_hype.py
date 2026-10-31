@@ -175,6 +175,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         keep = []
     for t in keep:
         found.setdefault(t, set()).add("zadrzan")
+    if keep:
+        print(f"  zadržano {len(keep)} tokena (istaknuti + razina, zadnja {pcfg['sati']} h)", file=sys.stderr)
     pairs = client.tokens("solana", list(found))
     best = {}
     for p in pairs:

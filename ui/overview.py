@@ -86,6 +86,22 @@ def _class_hint(k):
             "event": "pravi token događaja; cilj +50% do eventa", "stabilni": "mcap > $2M, stariji od 7 dana; cilj +30%"}.get(k, "")
 
 
+def featured(recent, per_class=3):
+    """(eligible rows by Šansa, {klasa or None: top rows}) — the one definition of "istaknuti kandidati", used by the
+    Pregled page and by the scan (featured tokens are re-scored every pass, see hype.pulse.retained)."""
+    from tiers.classify import KLASE
+    elig = sorted([r for r in recent if sansa.featured_ok(r)], key=_rank, reverse=True)
+    out = {k: [r for r in elig if r["klasa"] == k][:per_class] for k in KLASE}
+    out[None] = [r for r in elig if not r["klasa"]][:per_class]
+    return elig, {k: v for k, v in out.items() if v}
+
+
+def featured_tokens(hours=24, per_class=3):
+    """Mints currently shown as featured on Pregled, best first."""
+    _, per = featured(token_rows(since=time.time() - hours * 3600), per_class)
+    return [r["token"] for rows in per.values() for r in rows]
+
+
 def _card(r):
     try:
         from ui.radar import reasons
@@ -323,17 +339,17 @@ def page(qs):
              "čemu tvrdom i ima barem 3 analizirana sloja; točkice pokazuju slojeve (zelena prošao, crvena pao, siva nije "
              "analiziran). Klikni karticu za raspis s brojkama, izvorima i linkovima na dokaze.</p>")
     from tiers.classify import KLASA_HR, KLASE
-    elig = sorted([r for r in recent if sansa.featured_ok(r)], key=_rank, reverse=True)
+    elig, per_class = featured(recent)
     shown = 0
     for k in KLASE:
-        top = [r for r in elig if r["klasa"] == k][:3]
+        top = per_class.get(k, [])
         if not top:
             continue
         shown += len(top)
         b.append(f"<h3>{esc(KLASA_HR[k])} <span class=mut style='font-weight:400;font-size:13px'>{_class_hint(k)}</span></h3>")
         b.append("<div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
                  + "".join(_card(r) for r in top) + "</div>")
-    rest = [r for r in elig if not r["klasa"]][:3]
+    rest = per_class.get(None, [])
     if rest:
         shown += len(rest)
         b.append("<h3>Bez klase</h3><div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
