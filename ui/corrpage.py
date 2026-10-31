@@ -13,6 +13,8 @@ def _acct(h):
     if h.startswith("tg:"):
         name = h[3:]
         return f'<a href="https://t.me/{quote(name)}" target=_blank rel=noopener>✈ {esc(name)}</a>'
+    if h.startswith("w:"):  # tracked wallet without a known X account: no X profile to open
+        return f'<a href="/kol/{quote(h)}">👛 {esc(h[2:])}</a>'
     return (f'<a href="/kol/{quote(h)}">@{esc(h)}</a> '
             f'<a href="https://x.com/{quote(h)}" target=_blank rel=noopener class=mut style="text-decoration:none">↗</a>')
 

@@ -32,6 +32,8 @@ def _pc(x):
 def _acct(h, short=False):
     if h.startswith("tg:"):
         return f'<a href="https://t.me/{quote(h[3:])}" target=_blank rel=noopener>✈ {esc(h[3:])}</a>'
+    if h.startswith("w:"):
+        return f'<a href="/kol/{quote(h)}">👛 {esc(h[2:])}</a>'
     return f'<a href="/kol/{quote(h)}">@{esc(h)}</a>'
 
 

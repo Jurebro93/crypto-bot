@@ -49,14 +49,51 @@ def profile_url(h):
 
 def klink(h):
     u = profile_url(h)
-    name = f"✈ {h[3:]}" if h.startswith("tg:") else f"@{h}"
+    name = f"✈ {h[3:]}" if h.startswith("tg:") else f"👛 {h[2:]}" if h.startswith("w:") else f"@{h}"
     return (f'<a href="/kol/{quote(h)}">{esc(name)}</a> ' + (
         f'<a href="{u}" target=_blank rel=noopener class=mut style="text-decoration:none">↗</a>' if u else ""))
 
 
 def post(url):
-    ok = url and ("/status/" in url or "t.me/" in url or "solscan.io/tx/" in url)
+    """Link to the original post on X or Telegram; anything else (e.g. a Solscan transaction) is not a post."""
+    ok = url and ("/status/" in url or "t.me/" in url)
     return f'<a href="{esc(url)}" target=_blank rel=noopener>post ↗</a>' if ok else "–"
+
+
+def txlink(url):
+    ok = url and "solscan.io/tx/" in url
+    return f'<a href="{esc(url)}" target=_blank rel=noopener>transakcija ↗</a>' if ok else "–"
+
+
+# Wallet trades (Helius -> kol.db calls with kind buy/sell) are not posts: they get their own table.
+TRADES = "kind IN ('buy', 'sell')"
+POSTS = "kind NOT IN ('buy', 'sell')"
+
+
+def _wallet_of(con):
+    """handle in calls ('w:<name>' or the KOL's X handle) -> wallet address, from kol_ids."""
+    try:
+        from kol.collect import wallet_handles
+        return {h: w for w, h in wallet_handles(con).items()}
+    except Exception:
+        return {}
+
+
+def wallet_cell(h, wmap):
+    """Who traded: wallet name (opens its page with all trades) + Solscan account; for a known KOL his X handle too."""
+    w = wmap.get(h)
+    sol = (f' <a href="https://solscan.io/account/{quote(w)}" target=_blank rel=noopener class=mut '
+           f'title="Novčanik na Solscanu" style="text-decoration:none">↗</a>') if w else ""
+    if h.startswith("w:"):
+        return f'<a href="/kol/{quote(h)}">👛 {esc(h[2:])}</a>{sol}'
+    return klink(h) + (f' <span class=mut>novčanik</span>{sol}' if w else "")
+
+
+def _sol(text):
+    try:
+        return float((text or "").split()[1])
+    except (IndexError, ValueError):
+        return None
 
 
 def kindb(kind, match):
@@ -99,8 +136,8 @@ def _gcell(gs, token, t):
 
 def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True):
     syms, fl, gs = _syms(con), _flows(con), _groupsize(con)
-    rows = _rows(con, f"SELECT * FROM calls WHERE {where} ORDER BY ts DESC LIMIT ?", (*args, limit))
-    head = ["Vrijeme"] + (["X račun", ("Pratitelji", "n")] if show_kol else []) + [
+    rows = _rows(con, f"SELECT * FROM calls WHERE ({where}) AND {POSTS} ORDER BY ts DESC LIMIT ?", (*args, limit))
+    head = ["Vrijeme"] + (["Račun", ("Pratitelji", "n")] if show_kol else []) + [
         "Token", "Vrsta poziva", "Post", ("Mcap u pozivu", "n"), ("2 h prije", "n"), ("1 h", "n"), ("6 h", "n"),
         ("24 h", "n"), ("Max 24 h", "n"), ("Volumen ×", "n"), ("Grupa", "n"), ("Prodaja u poziv", "n"), ("Tekst", "wrap")]
     out = []
@@ -112,6 +149,23 @@ def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True
             (f'<span class=mut>{esc((c["text"] or "")[:160])}</span>', "", "wrap")]
         out.append(r)
     return table(head, out, tid=tid, empty="Još nema poziva. Bot ih skuplja sam iz X pretraga koje ionako plaća.")
+
+
+def trades_table(con, where="1=1", args=(), limit=200, tid="trades", show_who=True):
+    """Buys and sells of tracked KOL wallets (Helius); the link opens the transaction on Solscan."""
+    syms, wmap = _syms(con), _wallet_of(con)
+    rows = _rows(con, f"SELECT * FROM calls WHERE ({where}) AND {TRADES} ORDER BY ts DESC LIMIT ?", (*args, limit))
+    head = ["Vrijeme"] + (["Novčanik"] if show_who else []) + [
+        "Token", "Kupio/prodao", ("Iznos SOL", "n"), ("Mcap u trenutku", "n"), ("2 h prije", "n"), ("1 h", "n"),
+        ("6 h", "n"), ("24 h", "n"), ("Max 24 h", "n"), "Transakcija"]
+    out = []
+    for c in rows:
+        sol = _sol(c["text"])
+        out.append([ts(c["ts"])] + ([wallet_cell(c["handle"], wmap)] if show_who else []) + [
+            tlink(c["token"], syms.get(c["token"]) or c["symbol"]), kindb(c["kind"], None),
+            num(sol, "{:.2f}"), usd(c["mcap0"]), pct(c["pre2h"]), pct(c["r1h"]), pct(c["r6h"]), pct(c["r24h"]),
+            pct(c["max24"]), txlink(c["url"])])
+    return table(head, out, tid=tid, empty="Još nema kupnji ni prodaja praćenih novčanika.")
 
 
 def _leaderboard(con, minf, minc):
@@ -291,6 +345,10 @@ def page(qs):
             "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
             "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
             "prodano/kupljeno u 30 min nakon posta.") + calls_table(con))
+        b.append("<h2 id=kupnje>Kupnje i prodaje KOL novčanika</h2>" + tdesc(
+            "Kupnje i prodaje novčanika KOL-ova koje pratimo (Helius javlja svaku). To nisu postovi: link otvara "
+            "transakciju na Solscanu. KOL obično kupi prije nego što objavi, pa je ovo najraniji trag.")
+                 + trades_table(con, limit=200, tid="ktrades"))
         b.append("<h2 id=devovi>Walleti koji prodaju u pozive</h2>" + tdesc(
             f"Kupili sat prije poziva i prodali do {cfg['flow_post_secs'] // 60} min nakon njega. Na "
             f"{cfg['rotation_min_tokens']}+ tokena = rotacijski dev: seli s tokena na token i prodaje u pozive. "
@@ -310,6 +368,8 @@ def kol_page(handle, qs):
         return None
     try:
         k = (_rows(con, "SELECT * FROM kols WHERE handle = ?", (handle,)) or [None])[0]
+        if not k and handle.startswith("w:"):
+            return _wallet_page(con, handle)
         if not k:
             return "KOL", f"<h1>@{esc(handle)}</h1><p>Nema poziva od ovog računa.</p>"
         s = json.loads(k["stats"] or "{}")
@@ -341,9 +401,26 @@ def kol_page(handle, qs):
                      + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta.")
                  + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False))
+        if con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone():
+            b.append("<h2>Kupnje i prodaje s njegovog novčanika</h2>" + tdesc(
+                "Što je njegov novčanik kupio i prodao, najnovije prvo. Link otvara transakciju na Solscanu.")
+                     + trades_table(con, "handle = ?", (handle,), 500, "ktrades", show_who=False))
     finally:
         con.close()
     return f"@{handle}", "".join(b)
+
+
+def _wallet_page(con, handle):
+    """/kol/w:<name>: a tracked KOL wallet without a known X account: its buys and sells."""
+    w = _wallet_of(con).get(handle)
+    link = (f'<p><code>{esc(w)}</code> · <a href="https://solscan.io/account/{quote(w)}" target=_blank '
+            f'rel=noopener>Novčanik na Solscanu ↗</a> · <a href="https://gmgn.ai/sol/address/{quote(w)}" '
+            f'target=_blank rel=noopener>GMGN ↗</a></p>') if w else ""
+    return (f"Novčanik {handle[2:]}",
+            f'<p><a href="/kol#kupnje">← KOL-ovi</a></p><h1>👛 {esc(handle[2:])} <span class=mut>KOL novčanik</span></h1>'
+            + link + "<h2>Kupnje i prodaje</h2>" + tdesc(
+                "Novčanik s KOL liste (KOLscan / Solana Tracker) za koji ne znamo X račun. Link u zadnjem stupcu "
+                "otvara transakciju na Solscanu.") + trades_table(con, "handle = ?", (handle,), 500, "ktrades", show_who=False))
 
 
 def token_section(mint):
@@ -352,7 +429,9 @@ def token_section(mint):
     if con is None:
         return ""
     try:
-        if not con.execute("SELECT 1 FROM calls WHERE token = ? LIMIT 1", (mint,)).fetchone():
+        has_posts = con.execute(f"SELECT 1 FROM calls WHERE token = ? AND {POSTS} LIMIT 1", (mint,)).fetchone()
+        has_trades = con.execute(f"SELECT 1 FROM calls WHERE token = ? AND {TRADES} LIMIT 1", (mint,)).fetchone()
+        if not has_posts and not has_trades:
             return ""
         from kol import sessions
         sh = sessions.token_shares(con, mint)
@@ -360,10 +439,18 @@ def token_section(mint):
         if sh:
             vol = "<p>Volumen po sesijama: " + " · ".join(
                 f"{sessions.NAMES[s]} <b>{sh[s]:.0%}</b>" for s, _, _ in sessions.SESSIONS) + "</p>"
-        return ("<h2 id=kol>Tko ga je zvao na X-u</h2>" + tdesc(
-            "KOL postovi s ovim CA, najnoviji prvi, i što je cijena napravila nakon svakog. Više na stranici KOL-ovi. "
-            "Volumen po sesijama: udio trgovanja u satima Azije (00-08 UTC), Europe (08-14) i SAD-a (14-24).")
-                + vol + calls_table(con, "token = ?", (mint,), 100, "tcalls"))
+        out = ""
+        if has_posts:
+            out += ("<h2 id=kol>Tko ga je zvao na X-u i Telegramu</h2>" + tdesc(
+                "KOL postovi s ovim CA, najnoviji prvi, i što je cijena napravila nakon svakog. Link „post“ otvara "
+                "sam post. Više na stranici KOL-ovi. Volumen po sesijama: udio trgovanja u satima Azije (00-08 UTC), "
+                "Europe (08-14) i SAD-a (14-24).") + vol + calls_table(con, "token = ?", (mint,), 100, "tcalls"))
+        if has_trades:
+            out += ("<h2 id=kol-novcanici>Koji su ga KOL novčanici kupili ili prodali</h2>" + tdesc(
+                "Kupnje i prodaje novčanika KOL-ova koje pratimo, najnovije prve. To nisu postovi: link otvara "
+                "transakciju na Solscanu.") + ("" if has_posts else vol)
+                    + trades_table(con, "token = ?", (mint,), 100, "ttrades"))
+        return out
     except Exception:
         return ""
     finally:
