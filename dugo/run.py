@@ -22,6 +22,9 @@ def _log(msg):
 def collect(con, cfg, now=None, candle_budget=None):
     """Refresh DexScreener stats for the universe and daily candles for tokens that could qualify."""
     now = int(now or time.time())
+    n_seed = store.import_seed(con, now=now)
+    if n_seed:
+        _log(f"uvezeno {n_seed} tokena s poviješću cijena iz početnog paketa")
     uni = sources.universe(cfg, now)
     try:
         for m in sources.gecko_top(cfg["gecko_top_pages"], cfg["gecko_gap_s"]):
@@ -54,9 +57,13 @@ def collect(con, cfg, now=None, candle_budget=None):
             rows = sources.candles(pair, cfg["gecko_gap_s"], limit=40 if cts else 400)
         except Exception as e:
             _log(f"svijeće {mint[:6]}: {e}")
+            if "429" in str(e):     # free limit used up (shared with the KOL module): try again next pass
+                _log("GeckoTerminal ograničenje: ostatak svijeća u sljedećem prolazu")
+                break
             continue
         store.put_candles(con, mint, rows)
         con.execute("UPDATE tokens SET candles_ts=? WHERE mint=?", (now, mint))
+        con.commit()        # keep progress if the service restarts mid-pass
         n += 1
         h = sources.holders_birdeye(mint)
         if h:
