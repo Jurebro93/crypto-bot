@@ -32,9 +32,11 @@ from league import store as league_store  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
 PLAYERS = {u.lower(): (u, os.environ.get(f"UI_PASS_{u.upper()}", "")) for u in league_store.users()}
-AUTH = bool(PASSWORD or any(pw for _, pw in PLAYERS.values()))
+# view-only test account for Claude's checks of the live dashboard (no player, no trading, not in Natjecanje)
+VIEWER, VIEWER_PASS = os.environ.get("UI_TEST_USER", "Claude"), os.environ.get("UI_TEST_PASSWORD", "")
+AUTH = bool(PASSWORD or VIEWER_PASS or any(pw for _, pw in PLAYERS.values()))
 # login cookie: signed with a key derived from every password, so changing a password logs everybody out
-_SECRET = hashlib.sha256(("crypto-bot-session|" + PASSWORD + "|" + "|".join(pw for _, pw in PLAYERS.values()))
+_SECRET = hashlib.sha256(("crypto-bot-session|" + PASSWORD + "|" + VIEWER_PASS + "|" + "|".join(pw for _, pw in PLAYERS.values()))
                          .encode()).digest()
 COOKIE, COOKIE_DAYS = "cb_s", 60
 
@@ -59,6 +61,8 @@ def cookie_user(value):
         return False, None
     if not name:
         return bool(PASSWORD), None
+    if VIEWER_PASS and name.lower() == VIEWER.lower():
+        return True, None
     player, ppw = PLAYERS.get(name.lower(), (None, ""))
     return (True, player) if player and ppw else (False, None)
 
@@ -68,6 +72,8 @@ def check_password(name, pw):
     player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
     if player and ppw and hmac.compare_digest(pw.encode(), ppw.encode()):
         return True, player
+    if VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower():
+        return hmac.compare_digest(pw.encode(), VIEWER_PASS.encode()), None
     return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode()), None
 
 
@@ -329,7 +335,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, login_page({"next": form.get("next", "/"), "kao": form.get("name", "")},
                                               "Pogrešno ime ili lozinka.").encode("utf-8"))
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
-        cookie = (f"{COOKIE}={make_cookie(player or '')}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
+        viewer = VIEWER if not player and VIEWER_PASS and form.get("name", "").strip().lower() == VIEWER.lower() else ""
+        cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         return self._redirect(_safe_next(form.get("next", "/")), cookie=cookie)
 
