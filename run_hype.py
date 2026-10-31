@@ -192,6 +192,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     rows.sort(key=lambda r: -r["score"])
     # expensive checks only for the best pre-scored candidates that passed the free sieve
     deep = [r for r in rows if r["tier"]["t0"] != "pad"][:a.deep]
+    curve_for(deep, now_ms / 1000)
     for r in deep:
         try:
             r["copycats"] = score.copycats(client.search(r["symbol"]), r["symbol"], r["name"], r["token"], now_ms)
@@ -261,13 +262,15 @@ def class_weights(rows, base):
 
 def tiers_for(rows, now=None):
     """Attach r["tier"] to every scored row: class, shape of the mcap path, T0 verdict (cached 24 h in token_tier)."""
-    from tiers import classify, sieve
+    from tiers import classify, curve, sieve
     from tiers import store as tstore
     cfg = classify.config()
     now = now or time.time()
     con = tstore.connect(DB)
     for r in rows:
         cur = tstore.get(con, r["token"]) or {}
+        if cur.get("krivulja"):  # bonding-curve features fetched on an earlier scan: free from here on
+            r["features"].update(curve.hype_features(json.loads(cur["krivulja"])))
         snaps = con.execute("SELECT ts, mcap FROM hype_snapshots WHERE token=? ORDER BY ts", (r["token"],)).fetchall()
         shape = classify.put([(s[0], s[1]) for s in snaps] + [(int(now or time.time()), r["mcap"])])
         age_h = (now * 1000 - (r["raw"].get("pairCreatedAt") or 0)) / 3.6e6 if r["raw"].get("pairCreatedAt") else None
@@ -278,8 +281,45 @@ def tiers_for(rows, now=None):
             t0_ts = int(now or time.time())
         r["features"].update(classify.put_features(shape))
         r["tier"] = {"razina": cur.get("razina") or 0, "klasa": classify.klasa(r["mcap"], age_h, role, cfg),
-                     "t0": t0, "t0_razlog": why, "t0_ts": t0_ts, "age_h": age_h, "credits": 0, **shape}
+                     "t0": t0, "t0_razlog": why, "t0_ts": t0_ts, "age_h": age_h, "credits": 0, **shape,
+                     "krivulja_cur": cur, "crossings": tstore.crossings(cur, r["mcap"])}
     con.close()
+
+
+def curve_for(rows, now=None):
+    """Bonding-curve history (tiers/curve.py) for pump.fun tokens in the deep list that have none yet.
+
+    One fetch per token, ever (incomplete curves once more after graduation); at most CURVE_PER_DAY tokens a day.
+    The features join r["features"] under krivulja_* and the raw snapshot is stored in token_tier by save_tiers.
+    """
+    from tiers import curve, sieve
+    from tiers import store as tstore
+    if not os.environ.get("HELIUS_API_KEY"):
+        return 0
+    con = tstore.connect(DB)
+    left = curve.budget_left(con, now)
+    con.close()
+    done = 0
+    for r in rows:
+        cur = r["tier"].get("krivulja_cur") or {}
+        if left <= 0 or not sieve.pumpfun(r["token"]) or not curve.needs_fetch(cur, now):
+            continue
+        try:
+            snap = curve.fetch(r["token"])
+        except Exception as e:
+            print(f"  krivulja {r['symbol']}: {type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        left -= 1
+        done += 1
+        if not snap:
+            r["tier"]["krivulja"] = {"raw": {}, "flags": {}, "complete": 1, "credits": 10}
+            continue
+        r["tier"]["krivulja"] = snap
+        r["tier"]["credits"] = r["tier"].get("credits", 0) + snap["credits"]
+        r["tier"]["razina"] = max(r["tier"]["razina"], 1)
+        r["features"].update(curve.hype_features(snap["raw"]))
+        r["extra"]["krivulja"] = {**snap["flags"], "opis": curve.describe(snap["flags"], snap["raw"])}
+    return done
 
 
 def save_tiers(rows, skipped=(), now=None):
@@ -287,10 +327,18 @@ def save_tiers(rows, skipped=(), now=None):
     con = tstore.connect(DB)
     for r in rows:
         t = r["tier"]
+        for point in t.get("crossings") or ():  # first time at/above a band: the study's decision point
+            tstore.record_event(con, r["token"], point, r["mcap"], r["price"], r["score"], r["features"], now)
+        extra = {}
+        if t.get("krivulja"):
+            k = t["krivulja"]
+            extra = {"krivulja": json.dumps(k["raw"]), "krivulja_ts": int(now or time.time()),
+                     "krivulja_complete": k.get("complete", 1), **{f: k["flags"].get(f) for f in
+                                                                   ("grad_min", "bundle_launch", "mayhem", "quote_sol")}}
         tstore.upsert(con, r["token"], now, symbol=r["symbol"], razina=t["razina"], klasa=t["klasa"], t0=t["t0"],
                       t0_razlog=t["t0_razlog"], t0_ts=t["t0_ts"], mcap=r["mcap"], liquidity=r["liquidity"],
                       age_h=t["age_h"], score=r["score"], credits=t["credits"], put_brzina=t["put_brzina"],
-                      put_skokovitost=t["put_skokovitost"], put_zadrzavanje=t["put_zadrzavanje"])
+                      put_skokovitost=t["put_skokovitost"], put_zadrzavanje=t["put_zadrzavanje"], **extra)
     for t, sym, mcap, liq, age_h, why in skipped:
         tstore.upsert(con, t, now, symbol=sym, t0="nije", t0_razlog=why, mcap=mcap, liquidity=liq, age_h=age_h,
                       razlog=f"izvan skena: {why}")
