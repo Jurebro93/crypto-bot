@@ -3,8 +3,10 @@
 HELP = {
     # tokens
     "Token": "Simbol tokena. Klik otvara DexScreener, ⓘ otvara našu analizu tokena.",
-    "Confidence": "Koliko alat vjeruje da će token rasti, 0-100: hype ocjena plus neovisne potvrde (X, smart money, KOL, "
-                  "holderi, rug filter), minus rizici. Raspis je u pop-upu i na stranici Kriteriji.",
+    "Confidence": "Koliko alat vjeruje da će token napraviti skok svoje klase, 0-100. Dok model ne nauči: hype ocjena plus "
+                  "neovisne potvrde (X, smart money, KOL, rug filter) minus rizici, ručne težine. Kad nauči iz barem 200 ishoda "
+                  "(dnevno, sa zaštitom): iste činjenice vagane po tome što je stvarno prethodilo skoku; 50 = prosječan token "
+                  "klase, 75 = tri puta češći skok. Raspis je u pop-upu, kalibracija na stranici Učenje.",
     "Zašto": "Najjači razlozi zbog kojih je token istaknut, iz izmjerenih signala.",
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",

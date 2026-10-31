@@ -59,10 +59,10 @@ def token_rows(since=None):
         liq = (s["last"]["liquidity"] if s else None) or ((rugs[t]["data"].get("market") or {}).get("liquidity") if t in rugs else None) \
             or (evs[t][0]["liquidity"] if t in evs else None)
         role = "canonical" if any(e["role"] == "canonical" for e in evs.get(t, [])) else ("copycat" if t in evs else None)
+        tier = tiers.get(t) or {}
         conf, parts = confidence.score(s["last"]["score"] if s else None,
                                        (data.js(s["last"]["features"], {}) or {}) if s else {}, dets.get(t, {}),
-                                       rugs[t]["verdict"] if t in rugs else None, role, liq, mcap)
-        tier = tiers.get(t) or {}
+                                       rugs[t]["verdict"] if t in rugs else None, role, liq, mcap, klasa=tier.get("klasa"))
         if tier.get("t0") == "pad":
             hard = True
         sn, an, _, _ = sansa.score(conf, cs)

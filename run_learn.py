@@ -22,10 +22,17 @@ DB = os.path.join(HERE, "hype.db")
 
 
 def cmd_fit(a):
-    rep = fit.run(store.connect(DB), now=time.time(), apply=not a.dry)
+    con = store.connect(DB)
+    rep = fit.run(con, now=time.time(), apply=not a.dry)
     for r in rep:
         flag = "PRIMIJENJENO" if r["applied"] else ("ROLLBACK" if r.get("rollback") else "bez promjene")
         print(f"{r['klasa']:<9} n={r['n']:<5} skok ≥ {r['skok']:+.0%}  {flag}: {r['note']}")
+    try:  # confidence: the same facts the pop-up lists, re-weighed from outcomes (learn/confmodel.py)
+        from learn import confmodel
+        c = confmodel.run(con, now=time.time(), apply_model=not a.dry)
+        print(f"confidence n={c['n']:<5} {'PRIMIJENJENO' if c['applied'] else 'bez promjene'}: {c['note']}")
+    except Exception as e:
+        print(f"confidence fit: {type(e).__name__}: {e}", file=sys.stderr)
     return rep
 
 
