@@ -3,7 +3,7 @@ sense on their own: active candidates, event tokens, older ones, and rug-rejecte
 import time
 
 from ui import overview
-from ui.html import tdesc, ago, badge, esc, filt, modal, scorecell, table, tlink, usd, verdict
+from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, table, tlink, usd
 
 ACTIVE_H = 24
 
@@ -29,14 +29,14 @@ def _main_table(rows, tid, empty):
                   ("Likv.", "n"), "Zadnje"],
                  [[tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"), (_why(r), "", "wrap"),
                    (_checks(r), r["passed"], "wrap"), scorecell(r["hype_last"]),
-                   verdict(r["rug"]["verdict"]) if r["rug"] else "<span class=mut>–</span>", usd(r["mcap"]), usd(r["liq"]),
+                   rugcell(r), usd(r["mcap"]), usd(r["liq"]),
                    ago(r["last_seen"])] for r in rows], tid, empty, mints=[r["token"] for r in rows])
 
 
 def page(qs):
     now = time.time()
     rows = sorted(overview.token_rows(), key=overview._rank, reverse=True)
-    bad = [r for r in rows if r["rug"] and r["rug"]["verdict"] in ("ODBAČEN", "VISOK RIZIK")]
+    bad = [r for r in rows if r.get("collapse") or (r["rug"] and r["rug"]["verdict"] in ("ODBAČEN", "VISOK RIZIK"))]
     ok = [r for r in rows if r not in bad]
     active = [r for r in ok if r["last_seen"] >= now - ACTIVE_H * 3600]
     older = [r for r in ok if r["last_seen"] < now - ACTIVE_H * 3600]
@@ -59,7 +59,7 @@ def page(qs):
             erows.append([tlink(r["token"], r["symbol"]), (f"{esc(e['event'])}", e["event"], "wrap"), esc(e["event_date"]),
                           badge("pravi", "good") if e["role"] == "canonical" else badge("kopija"),
                           scorecell(e["score"]), (overview.confidence.badge_html(r["conf"]), r["conf"], "n"),
-                          verdict(r["rug"]["verdict"]) if r["rug"] else "<span class=mut>–</span>", usd(e["mcap"]),
+                          rugcell(r), usd(e["mcap"]),
                           usd(e["liquidity"])])
     b.append(tdesc('Tokeni nazvani po nadolazećem događaju iz kalendara (rođendan, lansiranje, Polymarket…). Pravi = najbolje ocijenjen token tog eventa, kopija = ostali s istim imenom.') + table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
                     ("Mcap", "n"), ("Likv.", "n")], erows, "te", "Nijedan token nije vezan uz event.",
@@ -68,11 +68,13 @@ def page(qs):
     b.append(f"<details style='margin-top:18px'><summary>Stariji tokeni ({len(older)}), nisu viđeni u zadnja {ACTIVE_H} h"
              f"</summary>{_main_table(older, 'to', 'Nema.')}</details>")
 
-    b.append("<h2>Odbačeni i visok rizik</h2><p class=mut>Rug filter ih je odbacio (tvrdi pad) ili im dao ocjenu ispod 50. "
+    b.append("<h2>Odbačeni, rugani i visok rizik</h2><p class=mut>Rug filter ih je odbacio (tvrdi pad) ili im dao ocjenu "
+             "ispod 50, ili su se već srušili (rug: cijena 70%+ ispod vrha u zadnja 24 h ili izvučena likvidnost). "
              "Ne ulazi se u njih bez obzira na hype.</p>")
     b.append(tdesc('Ovdje su da se vidi zašto su izbačeni; po defaultu se ne trejdaju.') + table(["Token", "Rug presuda", ("Rug ocjena", "n"), ("Glavni razlog", "wrap"), ("Hype", "n"), ("Mcap", "n"), "Zadnje"],
-                   [[tlink(r["token"], r["symbol"]), verdict(r["rug"]["verdict"]), scorecell(r["rug"]["score"]),
-                     (esc(((r["rug"]["data"].get("hard_fails") or []) + (r["rug"]["data"].get("flags") or []) or ["–"])[0]), "", "wrap"),
+                   [[tlink(r["token"], r["symbol"]), rugcell(r), scorecell(r["rug"]["score"]) if r["rug"] else "–",
+                     (esc(r["collapse"]["text"] if r.get("collapse") else
+                          ((r["rug"]["data"].get("hard_fails") or []) + (r["rug"]["data"].get("flags") or []) or ["–"])[0]), "", "wrap"),
                      scorecell(r["hype_last"]), usd(r["mcap"]), ago(r["last_seen"])] for r in bad], "tb",
                    "Nijedan token nije odbačen.", mints=[r["token"] for r in bad]))
     b.append(modal())

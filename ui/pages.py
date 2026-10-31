@@ -238,6 +238,11 @@ def token(mint, qs):
     if not (ev or sigs or rugs):
         b.append("<p>Ovaj token nije ni u jednoj analizi.</p>")
     else:
+        from rugfilter import collapse
+        col = collapse.check(collapse.peaks(data.HYPE_DB, [mint]).get(mint))
+        if col:
+            b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
+                     'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')
         from ui import narrative
         b.append(narrative.html(mint))
         b.append(tier_html(mint))
