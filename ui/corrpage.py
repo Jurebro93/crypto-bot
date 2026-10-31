@@ -1,7 +1,6 @@
 """The "Korelacije" page: organised KOL groups, wallets tied to X accounts, wallet groups of one owner, which signals
 go with pumps, what known groups touch right now, and Claude's plain-language reading of it all.
 Read-only from corr.db (written by run_corr.py every hour)."""
-import math
 from urllib.parse import quote
 
 from corr import store
@@ -34,31 +33,6 @@ def _scorecell(v):
     return (badge(f"{v:.0f}", kind), v, "n")
 
 
-def graph(cl, w=340, h=260):
-    """Small circle layout: one dot per account, line thickness = how much of their calls they share."""
-    ms = cl["members"][:16]
-    if len(ms) < 2:
-        return ""
-    cx, cy, r = w / 2, h / 2, min(w, h) / 2 - 34
-    pos = {m: (cx + r * math.cos(2 * math.pi * i / len(ms) - math.pi / 2),
-               cy + r * math.sin(2 * math.pi * i / len(ms) - math.pi / 2)) for i, m in enumerate(ms)}
-    lines = []
-    for a, b, ov, n in cl.get("edges", []):
-        if a in pos and b in pos:
-            (x1, y1), (x2, y2) = pos[a], pos[b]
-            lines.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#7aa2f7" '
-                         f'stroke-opacity="{min(0.9, 0.25 + ov):.2f}" stroke-width="{1 + 6 * ov:.1f}"><title>'
-                         f'{esc(a)} + {esc(b)}: {n} zajedničkih tokena</title></line>')
-    dots = []
-    for m, (x, y) in pos.items():
-        lead = m == cl.get("leader")
-        dots.append(f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{7 if lead else 5}" fill="{"#e0af68" if lead else "#9ece6a"}"/>'
-                    f'<text x="{x:.0f}" y="{y + (16 if y >= cy else -10):.0f}" font-size="10" text-anchor="middle" '
-                    f'fill="currentColor">{esc(m[:14])}</text>')
-    return (f'<svg viewBox="0 0 {w} {h}" style="max-width:{w}px;width:100%;height:auto" role=img>'
-            + "".join(lines) + "".join(dots) + "</svg>")
-
-
 def _ai_block(ai, snap):
     if ai:
         d = ai["data"]
@@ -79,7 +53,8 @@ def _ai_block(ai, snap):
     if d.get("upozorenja"):
         out.append("<p><b>Oprez:</b></p><ul>" + "".join(f'<li class=neg>{esc(x)}</li>' for x in d["upozorenja"]) + "</ul>")
     out.append(f'<p class=mut>{src}</p></div>')
-    return "".join(out), {g["id"]: g for g in d.get("grupe", [])}, d
+    # rule lines only repeat the numbers the cards already show, so the cards get AI words only from the real AI
+    return "".join(out), ({g["id"]: g for g in d.get("grupe", [])} if ai else {}), d
 
 
 def page(qs):
@@ -110,6 +85,21 @@ def page(qs):
     body.append(table(["Token", "Prvi signal", "Tko", "Organiziranost"], rows, "c_act",
                       empty="Trenutno nijedna poznata grupa ne dira novi token."))
 
+    from ui import corrviz
+    body.append(corrviz.CSS)
+    body.append("<h2>Što diže šansu za 2x</h2>" + corrviz.factors(snap["factors"]))
+    body.append("<h2>KOL grupe</h2>" + tdesc(
+        "Računi koji opetovano zovu iste tokene u razmaku od par minuta: najčešće ista ekipa ili plaćena kampanja. "
+        "Oznaka u naslovu kaže što s grupom napraviti.") + corrviz.kol_cards(snap["clusters"], ai_groups))
+    body.append("<h2>Tko kupuje prije poziva</h2>" + tdesc(
+        "Walleti koji kupe token prije nego ga određeni račun pozove, i to opetovano. Zelena točka je kupnja, plava "
+        "crta poziv, crvena prodaja nakon poziva.") + corrviz.link_cards(snap["links"]))
+    body.append("<h2>Walleti jednog vlasnika</h2>" + tdesc(
+        "Skupine walleta iza kojih je vjerojatno ista osoba ili ekipa. Svaka točka je jedan wallet.")
+        + corrviz.group_cards(snap["groups"], ai_groups))
+    body.append('<details class=card style="margin-top:18px"><summary><b>Sve tablice</b> '
+                '<span class=mut>(svi brojevi za detaljnu provjeru)</span></summary>')
+
     # KOL groups
     body.append("<h2>KOL grupe</h2>" + tdesc(
         "Računi koji opetovano zovu iste tokene unutar 30 minuta, puno češće nego što bi bilo slučajno. Čvrsto vremenski "
@@ -119,7 +109,7 @@ def page(qs):
     for cl in snap["clusters"]:
         g = ai_groups.get(cl["id"], {})
         name = esc(g.get("ime") or f"Grupa oko @{cl['leader']}")
-        rows.append([f'<a id="{cl["id"]}"></a><b>{name}</b>' + (" " + badge("TG + X", "warn") if cl.get("cross_platform") else ""),
+        rows.append([f'<b>{name}</b>' + (" " + badge("TG + X", "warn") if cl.get("cross_platform") else ""),
                      _scorecell(cl["score"]), num(cl["size"]), num(cl["tokens"]),
                      (_acct(cl["leader"]) if cl["leader"] else "–", cl["leader"] or ""), _pct(cl["leader_share"]),
                      num(cl["spread_min"], "{:.0f} min"), _pct(cl["hit_together"]), _pct(cl["hit_solo"]),
@@ -127,24 +117,6 @@ def page(qs):
     body.append(table(["KOL grupa", "Organiziranost", "Računa", "Zajedno tokena", "Vođa", "Vođa prvi", "Razmak",
                        "2x zajedno", "2x sami", "Kasni", "Povezanih walleta", "Zadnji zajednički"], rows, "c_kol",
                       empty="Još nema dovoljno zajedničkih poziva za grupu."))
-    for cl in snap["clusters"][:8]:
-        g = ai_groups.get(cl["id"], {})
-        conf = g.get("povjerenje")
-        ex = "".join(f'<li>{tlink(e["token"], e.get("symbol"))}: {e["n"]} računa, prvi @{esc(e["first"])}'
-                     + (f', max 24 h {e["max24"] * 100:+.0f}%' if e.get("max24") is not None else "") + "</li>"
-                     for e in cl.get("examples", []))
-        members = ", ".join(_acct(m) for m in cl["members"])
-        body.append(f'<details class=card><summary><b>{esc(g.get("ime") or cl["id"])}</b> · {cl["size"]} računa'
-                    + (f' · povjerenje {badge(conf, CONF.get(conf, ""))}' if conf else "")
-                    + (" · " + badge("pratimo", "good") if g.get("pratiti") or cl["score"] >= 60 else "")
-                    + f'</summary><div class=two><div>{graph(cl)}</div><div>'
-                    + (f'<p>{esc(g["tumacenje"])}</p>' if g.get("tumacenje") else "")
-                    + (f'<p><b>Kako iskoristiti:</b> {esc(g["kako_iskoristiti"])}</p>' if g.get("kako_iskoristiti") else "")
-                    + f'<p class=mut>Članovi: {members}</p><p>Zadnji zajednički pozivi:</p><ul>{ex}</ul>'
-                    + (f'<p>Walleti koji kupuju prije njihovih poziva: {", ".join(wlink(w) for w in cl["wallets"][:8])}</p>'
-                       if cl.get("wallets") else "")
-                    + "</div></div></details>")
-
     # wallet <-> account links
     body.append("<h2>Walleti povezani s računima</h2>" + tdesc(
         "Wallet koji kupi token malo prije nego ga određeni račun pozove, i to na više tokena. Ako još i proda nakon "
@@ -167,7 +139,7 @@ def page(qs):
     rows = []
     for g in snap["groups"]:
         a = ai_groups.get(g["id"], {})
-        rows.append([f'<a id="{g["id"]}"></a>' + esc(a.get("ime") or f"Walleti {g['wallets'][0][:4]}…"),
+        rows.append([esc(a.get("ime") or f"Walleti {g['wallets'][0][:4]}…"),
                      _scorecell(g["score"]), num(g["size"]), num(g["shared_tokens"]), num(g["created"]),
                      ", ".join(f"{esc(k)} {v}" for k, v in g["reasons"].items()),
                      ", ".join(_acct(h) for h in g["handles"][:4]) or "–",
@@ -208,6 +180,7 @@ def page(qs):
              _pct(p["a_first"]), num(p["gap_min"], "{:.0f} min")] for p in snap["pairs"]]
     body.append(table(["Račun A", "Račun B", "Zajedno tokena", "Udio zajedničkih", "Iznad slučajnosti", "A prvi",
                        "Razmak"], rows, "c_pairs"))
+    body.append("</details>")
     if d.get("sto_jos"):
         body.append("<h2>Što bi još pomoglo</h2><ul>" + "".join(f"<li>{esc(x)}</li>" for x in d["sto_jos"]) + "</ul>")
     return "Korelacije", "".join(body)

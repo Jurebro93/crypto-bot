@@ -263,6 +263,13 @@ def describe_cluster(members, calls, pairs, c):
         hs = {x["handle"] for x in xs if x["ts"] - xs[0]["ts"] <= c["window_secs"]}
         (together if len(hs) >= 2 else solo).append((tok, xs, hs))
     firsts = Counter(xs[0]["handle"] for _, xs, _ in together)
+    offs = defaultdict(list)          # minutes after the first member, per member, on shared tokens
+    for _, xs, hs in together:
+        seen = set()
+        for x in xs:
+            if x["handle"] in hs and x["handle"] not in seen:
+                seen.add(x["handle"])
+                offs[x["handle"]].append((x["ts"] - xs[0]["ts"]) / 60)
     spreads = [(max(x["ts"] for x in xs if x["handle"] in hs) - xs[0]["ts"]) / 60 for _, xs, hs in together]
     t_out = [xs[0]["max24"] for _, xs, _ in together]
     s_out = [xs[0]["max24"] for _, xs, _ in solo]
@@ -290,6 +297,7 @@ def describe_cluster(members, calls, pairs, c):
         "cohesion": round(cohesion, 2),
         "score": round(100 * (0.4 * min(1.0, cohesion / 0.5) + 0.35 * tight + 0.25 * rep)),
         "last_ts": max((xs[0]["ts"] for _, xs, _ in together), default=None),
+        "order": sorted(([h, round(_med(v), 1), len(v)] for h, v in offs.items()), key=lambda o: (o[1], -o[2])),
         "edges": sorted(([a, b, round(p["overlap"], 2), p["n"]] for (a, b), p in pairs.items()
                          if a in members and b in members and p["n"] >= 2), key=lambda e: -e[3])[:40],
         "examples": [{"token": tok, "symbol": xs[0].get("symbol"), "ts": xs[0]["ts"], "first": xs[0]["handle"],
