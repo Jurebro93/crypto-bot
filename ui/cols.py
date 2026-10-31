@@ -58,7 +58,7 @@ const save=(k,s)=>{try{(s.order||s.hide&&s.hide.length)?localStorage.setItem(P+k
 const tables=[];let n=0;
 const cardsOn=()=>{if(innerWidth>=900)return false;const v=localStorage.getItem('cols:view');return v?v==='cards':innerWidth<700};
 function init(t){
- if(t._cols)return;const hr=t.tHead&&t.tHead.rows[t.tHead.rows.length-1];
+ if(t._cols||t.classList.contains('nocols'))return;const hr=t.tHead&&t.tHead.rows[t.tHead.rows.length-1];
  if(!hr||hr.cells.length<3||t.tHead.rows.length>1||[...hr.cells].some(c=>c.colSpan>1))return;
  const labels=[...hr.cells].map(lab);
  t._cols={k:t.id||('t'+(n++)),labels,v:0};tables.push(t);

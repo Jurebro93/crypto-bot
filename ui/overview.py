@@ -1,6 +1,5 @@
 """The "Pregled" page: standout candidates (pop-up with evidence), how the data grows, tokens that passed several
-analyses, and wallets that buy the same tokens (clusters, drawn as a graph)."""
-import json
+analyses, and wallets that buy the same tokens (clusters, drawn as who-bought-what grids)."""
 import time
 
 from ui import confidence, data, evidence, explain, paper, sansa
@@ -291,43 +290,41 @@ def funding_clusters():
     return sorted(((f, v) for f, v in by.items() if len(v["funded"]) >= 2), key=lambda x: -len(x[1]["funded"]))
 
 
-def _graph(cl, syms, reg, max_w=30, max_t=12):
-    """Bipartite wallet-token graph of the biggest clusters, laid out in the browser (tiny force simulation)."""
-    nodes, links, seen_t = [], [], {}
-    for ci, c in enumerate(cl[:4]):
-        ws = sorted(c["wallets"], key=lambda w: -((reg.get(w) or {}).get("copy_score") or 0))[:max_w]
-        toks = [t for t, _ in c["shared"][:max_t]]
-        for w in ws:
-            r = reg.get(w) or {}
-            nodes.append({"id": w, "k": "w", "c": ci, "label": short(w), "score": r.get("copy_score") or 0, "tier": r.get("tier")})
-        for t in toks:
-            if t not in seen_t:
-                seen_t[t] = True
-                nodes.append({"id": t, "k": "t", "c": ci, "label": syms.get(t) or short(t)})
-        tset = set(toks)
-        for w in ws:
-            for t in (c.get("holds", {}).get(w) or ()):
-                if t in tset:
-                    links.append([w, t])
-    return nodes, links
+COLS = ["#4c6ef5", "#e8590c", "#2b8a3e", "#ae3ec9"]
+GRID_CSS = """<style>
+.kg{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;margin:8px 0}
+.kg .card{margin:0;overflow-x:auto}.kg table{border-collapse:collapse;width:auto}
+.kg th,.kg td{padding:2px 3px;border:0;white-space:nowrap}.kg th.t{writing-mode:vertical-rl;transform:rotate(180deg);
+font-weight:500;font-size:11px;max-height:90px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.kg th.t::after,.kg th.t:hover{content:none}.kg td.c{width:16px;height:16px;text-align:center}
+.kg td.c i{display:inline-block;width:12px;height:12px;border-radius:3px}
+.kg td.c i.o{background:var(--line);width:6px;height:6px;border-radius:50%}.kg td.w{font-size:12px;padding-right:8px}
+</style>"""
 
 
-GRAPH_JS = """
-(()=>{const el=document.getElementById('g');if(!el)return;const G=JSON.parse(el.dataset.g);if(!G.nodes.length)return;
-const W=el.clientWidth||900,H=480,N=G.nodes,idx={},k=Math.sqrt(W*H/N.length)*.75;
-N.forEach((n,i)=>{idx[n.id]=i;const a=2*Math.PI*n.c/4;n.x=W/2+Math.cos(a)*W/5+(Math.random()-.5)*80;n.y=H/2+Math.sin(a)*H/5+(Math.random()-.5)*80});
-const L=G.links.map(([a,b])=>[idx[a],idx[b]]).filter(([a,b])=>a!=null&&b!=null);
-let T=W/8;for(let it=0;it<300;it++){N.forEach(n=>{n.dx=0;n.dy=0});
- for(let i=0;i<N.length;i++)for(let j=i+1;j<N.length;j++){let dx=N[i].x-N[j].x,dy=N[i].y-N[j].y,d=Math.max(.01,Math.hypot(dx,dy)),f=k*k/d;dx/=d;dy/=d;N[i].dx+=dx*f;N[i].dy+=dy*f;N[j].dx-=dx*f;N[j].dy-=dy*f}
- L.forEach(([a,b])=>{let dx=N[a].x-N[b].x,dy=N[a].y-N[b].y,d=Math.max(.01,Math.hypot(dx,dy)),f=d*d/k;dx/=d;dy/=d;N[a].dx-=dx*f;N[a].dy-=dy*f;N[b].dx+=dx*f;N[b].dy+=dy*f});
- N.forEach(n=>{n.dx+=(W/2-n.x)*.02*k/10;n.dy+=(H/2-n.y)*.02*k/10;const d=Math.max(.01,Math.hypot(n.dx,n.dy)),m=Math.min(d,T);n.x=Math.max(24,Math.min(W-90,n.x+n.dx/d*m));n.y=Math.max(14,Math.min(H-14,n.y+n.dy/d*m))});
- T*=.985}
-const col=['#4c6ef5','#e8590c','#2b8a3e','#ae3ec9'];let s=`<svg width="${W}" height="${H}" style="max-width:100%">`;
-L.forEach(([a,b])=>s+=`<line x1="${N[a].x}" y1="${N[a].y}" x2="${N[b].x}" y2="${N[b].y}" stroke="${col[N[a].c]}" stroke-opacity=".25"/>`);
-N.forEach(n=>{if(n.k=='w'){const r=4+n.score/10;s+=`<a href="/wallet/${n.id}"><circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${col[n.c]}" fill-opacity=".85"><title>${n.label} · copy ${n.score} · tier ${n.tier||'-'}</title></circle></a>`}
- else s+=`<a href="https://dexscreener.com/solana/${n.id}" target=_blank><rect x="${n.x-5}" y="${n.y-5}" width=10 height=10 fill="var(--card)" stroke="currentColor"/><text x="${n.x+8}" y="${n.y+4}" font-size=11 fill="currentColor">${n.label}</text></a>`});
-el.innerHTML=s+'</svg>'})();
-"""
+def _grid(ci, c, syms, reg, max_w=14, max_t=10):
+    """One cluster as a "who bought what" grid: rows = wallets, columns = the tokens they share, a filled square =
+    that wallet bought that token. Readable at a glance, unlike a hairball graph."""
+    col = COLS[ci % len(COLS)]
+    toks = [t for t, _ in c["shared"][:max_t]]
+    holds = c.get("holds") or {}
+    ws = sorted(c["wallets"], key=lambda w: (-len(set(holds.get(w) or ()) & set(toks)),
+                                             -((reg.get(w) or {}).get("copy_score") or 0)))[:max_w]
+    head = "".join(f'<th class=t title="{esc(syms.get(t) or t)}">{esc((syms.get(t) or short(t))[:12])}</th>' for t in toks)
+    rows = []
+    for w in ws:
+        h = set(holds.get(w) or ())
+        sc = (reg.get(w) or {}).get("copy_score")
+        cells = "".join(f'<td class=c>{"<i style=background:" + col + "></i>" if t in h else "<i class=o></i>"}</td>'
+                        for t in toks)
+        rows.append(f'<tr><td class=w>{wlink(w)}{f" <span class=mut>{sc:.0f}</span>" if sc is not None else ""}</td>{cells}</tr>')
+    top = ", ".join(f"{esc(syms.get(t) or short(t))} ({n})" for t, n in c["shared"][:3])
+    more = len(c["wallets"]) - len(ws)
+    say = (f'{len(c["wallets"])} walleta kupuje iste tokene. Najčešće: {top}.'
+           + (f' Prikazano {len(ws)} walleta s najviše zajedničkih tokena.' if more > 0 else ""))
+    return (f'<div class=card><b style="color:{col}">Klaster {ci + 1}</b><p class=mut style="margin:4px 0 8px">{say}</p>'
+            f'<table class=nocols><thead><tr><th></th>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+
 
 
 
@@ -408,10 +405,10 @@ def page(qs):
              "<a href='?shared=4#kl'>4</a>); klaster = grupa tako povezanih walleta. Klaster može biti grupa koja "
              "trejda zajedno (jedna osoba s više walleta ili call grupa) ili samo walleti koji love iste narative.</p>")
     if cl:
-        nodes, links = _graph(cl, syms, reg)
-        b.append(f"<div class=card><b>Graf 4 najveća klastera</b> <span class=mut>(krug = wallet, veći = bolja copy ocjena, "
-                 f"boja = klaster; kvadrat = token; klik otvara wallet ili DexScreener)</span>"
-                 f"<div id=g data-g='{esc(json.dumps({'nodes': nodes, 'links': links}))}' style='min-height:460px'></div></div>")
+        b.append(GRID_CSS + "<p><b>4 najveća klastera: tko je kupio što</b> <span class=mut>(red = wallet, stupac = token; "
+                 "obojeni kvadrat = wallet je kupio taj token, siva točkica = nije. Što je više obojenih kvadrata u istim "
+                 "stupcima, to walleti više rade zajedno. Broj uz wallet je njegova copy ocjena.)</span></p><div class=kg>"
+                 + "".join(_grid(i, c, syms, reg) for i, c in enumerate(cl[:4])) + "</div>")
         crow = []
         for i, c in enumerate(cl[:15], 1):
             scores = [reg[w]["copy_score"] for w in c["wallets"] if w in reg and reg[w].get("copy_score") is not None]
@@ -444,5 +441,4 @@ def page(qs):
              + "</details>")
 
     b.append(modal())
-    b.append(f"<script>{GRAPH_JS}</script>")
     return "Pregled", "".join(b)
