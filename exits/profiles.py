@@ -38,21 +38,23 @@ def save(state):
     os.replace(tmp, path())
 
 
-def current(state, klasa, base_cfg):
-    """(params, name) the next trade of this class would use."""
+def current(state, klasa, base_cfg, sess=None):
+    """(params, name) the next trade of this class (and trading session) would use."""
     prof = state.get("profiles", {})
-    for k in (klasa, "default"):
+    for k in ((f"{klasa}/{sess}" if klasa and sess else None), klasa, "default"):
         if k and k in prof:
             return prof[k]["params"], f"{k}@{prof[k]['v']}"
     return learn.params_of(base_cfg), "paper/config.json"
 
 
-def for_trade(base_cfg, klasa, ecfg=None, state=None):
-    """Paper config for a new trade: learned exits of its class applied, tagged with the profile name."""
+def for_trade(base_cfg, klasa, ecfg=None, state=None, now=None):
+    """Paper config for a new trade: learned exits of its class (and of the trading session it opens in, when
+    that has its own) applied, tagged with the profile name."""
+    from . import paths
     ecfg = ecfg or learn.load_config()
     if not ecfg.get("enabled"):
         return base_cfg
-    params, name = current(state or load(), klasa, base_cfg)
+    params, name = current(state or load(), klasa, base_cfg, paths.session_of(now or time.time()))
     cfg = learn.to_sim(base_cfg, params)
     cfg["exit_profile"] = name
     return cfg

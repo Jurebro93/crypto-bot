@@ -239,7 +239,7 @@ def intake(cfg, now=None, quiet=False):
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
             else:
                 k = "event" if c["origin"] == "event" else klase.get(t) or "default"
-                cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state)  # learned exits of its class
+                cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state, now=now)  # learned exits of its class
                 pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
                 c["decision"] = "taken"

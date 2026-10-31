@@ -14,10 +14,19 @@ def groups(live, seed, max_paths):
     the rest up to max_paths, so as live data grows the old study weighs less and less."""
     out = {}
     classes = {p["klasa"] for p in live + seed}
+
+    def pick(match):
+        lv = sorted([p for p in live if match(p)], key=lambda p: -p["ts"])[:max_paths]
+        sd = sorted([p for p in seed if match(p)], key=lambda p: -p["ts"])
+        return lv + sd[:max(0, max_paths - len(lv))]
+
     for k in sorted(classes) + ["default"]:
-        lv = sorted([p for p in live if k == "default" or p["klasa"] == k], key=lambda p: -p["ts"])[:max_paths]
-        sd = sorted([p for p in seed if k == "default" or p["klasa"] == k], key=lambda p: -p["ts"])
-        out[k] = lv + sd[:max(0, max_paths - len(lv))]
+        out[k] = pick(lambda p, k=k: k == "default" or p["klasa"] == k)
+    # per trading session (asia/eu/us by entry hour): volume and who is awake differ, so may the best exits.
+    # A class+session gets its own rules only with enough paths (fit_profile's min_paths), else the class ones.
+    for k in sorted(classes):
+        for s, _, _ in paths.SESSIONS:
+            out[f"{k}/{s}"] = pick(lambda p, k=k, s=s: p["klasa"] == k and paths.session_of(p["ts"]) == s)
     return out
 
 
@@ -77,7 +86,8 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
         if k in rolled:
             continue
         own = state.get("profiles", {}).get(k)
-        current = own["params"] if own else profiles.current(state, "default" if k != "default" else None, base)[0]
+        parent = k.split("/")[0] if "/" in k else ("default" if k != "default" else None)
+        current = own["params"] if own else profiles.current(state, parent, base)[0]
         dec, cand = learn.fit_profile(ps, base, current, ecfg)
         dec["klasa"] = k
         dec["applied"] = bool(cand and apply)

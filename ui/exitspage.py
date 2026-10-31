@@ -34,6 +34,20 @@ def _compare():
         a = learn.evaluate(sub, learn.to_sim(base, learn.params_of(base)), lam, cap)
         b = learn.evaluate(sub, learn.to_sim(base, profiles.current(state, k, base)[0]), lam, cap)
         rows.append((name, k, a, b))
+    sess = []
+    for s, a_h, b_h in paths.SESSIONS:
+        sub = [p for p in ps if paths.session_of(p["ts"]) == s]
+        if not sub:
+            continue
+        rets = []
+        for p in sub:  # each path with the rules its class+session would get now
+            cfg = learn.to_sim(base, profiles.current(state, p["klasa"], base, s)[0])
+            rets.append(learn.replay_path(p, cfg)["ret"])
+        n = len(rets)
+        sess.append({"s": s, "hours": f"{a_h:02d}-{b_h:02d} UTC", "n": n, "win": sum(r > 0 for r in rets) / n,
+                     "mean": sum(rets) / n, "median": sorted(rets)[n // 2],
+                     "own": sorted(k for k in state.get("profiles", {}) if k.endswith("/" + s))})
+    _CACHE["sess"] = sess
     with_kol = [p for p in ps if p.get("kol")]
     kol = None
     if with_kol:
@@ -43,6 +57,27 @@ def _compare():
                "x2_rest": pk(rest, 2), "x10_rest": pk(rest, 10)}
     _CACHE.update(ts=time.time(), rows=rows, kol=kol)
     return rows, kol
+
+
+def _live_by_session():
+    """session -> (closed paper trades, share in profit), by the hour the trade was opened."""
+    import os
+    import sqlite3
+    from exits import paths
+    if not os.path.exists(data.PAPER_DB):
+        return {}
+    try:
+        con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=10)
+        rows = con.execute("SELECT opened_ts, ret FROM trades WHERE status='closed'").fetchall()
+        con.close()
+    except sqlite3.OperationalError:
+        return {}
+    out = {}
+    for ts, ret in rows:
+        s = paths.session_of(ts)
+        n, w = out.get(s, (0, 0))
+        out[s] = (n + 1, w + ((ret or 0) > 0))
+    return {s: (n, w / n) for s, (n, w) in out.items()}
 
 
 ENTRY = {"krivulja_10k": "na krivulji, prvi put $10k mcap", "krivulja_20k": "na krivulji, prvi put $20k mcap",
@@ -98,6 +133,20 @@ def page(qs):
                          [[esc(ENTRY.get(n, n)), klasab(k), num(a["n"]), _pct(a["mean"]), _pct(a["median"]), _share(a["win"]),
                            _pct(c["mean"]), _pct(c["median"]), _share(c["win"]), _share(c["big_loss"])]
                           for n, k, a, c in cmp_rows]))
+    sess = _CACHE.get("sess") or []
+    live_sess = _live_by_session()
+    if sess:
+        HRS = {"asia": "Azija/Kina", "eu": "Europa", "us": "SAD"}
+        b.append("<h2>Po trading sesiji</h2>" + tdesc(
+            "Sesija po satu ulaza (UTC): Azija 00-08, Europa 08-14, SAD 14-24. Ako sesija unutar klase ima dovoljno putanja i "
+            "njezina pravila prođu iste zaštite, dobije vlastita pravila (npr. moonshot/us); inače vrijede pravila klase. "
+            "\"Demo tradeovi\" su stvarni zatvoreni paper tradeovi otvoreni u toj sesiji, da se vidi točnost uživo.")
+                 + table(["Sesija", "Sati", ("Putanja", "n"), ("U plusu", "n"), ("Prosjek", "n"), ("Medijan", "n"),
+                          "Vlastita pravila", ("Demo tradeova", "n"), ("Demo u plusu", "n")],
+                         [[esc(HRS.get(x["s"], x["s"])), x["hours"], num(x["n"]), _share(x["win"]), _pct(x["mean"]),
+                           _pct(x["median"]), esc(", ".join(x["own"]) or "ne (pravila klase)"),
+                           num(live_sess.get(x["s"], (0, None))[0]), _share(live_sess.get(x["s"], (0, None))[1])]
+                          for x in sess]))
     if kol:
         b.append("<h2>Influenceri i izlaz</h2>" + tdesc(
             "Tokeni na koje je bio call influencera (X) za vrijeme putanje, iz povijesti KOL-ova. Pravilo \"KOL hold\" nakon calla "
