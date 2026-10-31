@@ -270,5 +270,14 @@ def collect(now=None):
         hit_x = 0.5
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
-            "market": market(now)}
+            "market": market(now), "koltest": koltest(now)}
     return data
+
+
+def koltest(now):
+    """The separate 7-day KOL test book (koltest/, page /kol-test); None before it starts."""
+    try:
+        from ui import koltest as kt
+        return kt.report_data(now)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None

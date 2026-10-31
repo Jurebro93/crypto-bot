@@ -242,6 +242,28 @@ def render(data, ai, source):
     out.append(section("Demo trading (7 dana)", body or para("Još nema zatvorenih tradeova."),
                        ("/paper", "Demo trading")))
 
+    # KOL test book (separate, measuring only)
+    kt = data.get("koltest")
+    if kt and kt["all"]["n"]:
+        a, d = kt["all"], kt["day"]
+        body = para(f"Dan {min(kt['day_n'], kt['days'])} od {kt['days']} (do kraja: {kt['left']}). Na svaki svjež KOL "
+                    f"poziv demo ulaz ${kt['size']}, odvojeno od glavnog demo tradinga. Zadnja 24 h: {d['n']} ulaza, "
+                    f"{d['hit20']} doseglo +20%, {d['hit50']} doseglo +50%, knjiga {money(d['pnl'])}. Ukupno: {a['n']} "
+                    f"ulaza, {a['never20']} nikad nije došlo do +20%, knjiga {money(a['pnl'])}.")
+        lv = [[f"+{r['level']:.0%}", f"{r['hit']}/{r['n']} ({pct(r['share'])})",
+               f"{r['med_min']:.0f} min" if r["med_min"] is not None else "–", pct(r["med_drop"], True)]
+              for r in kt["levels"] if r["level"] <= 1.0]
+        body += table(["Razina", "Doseglo", "Medijan vremena", "Medijan pada prije"], lv)
+        if kt.get("best"):
+            g = kt["best"]
+            body += para(f"Najbolji izlaz dosad: prodaj na +{g['tp']:.0%}"
+                         + (" bez stopa" if g["sl"] is None else f" sa stopom {g['sl']:.0%}")
+                         + f": prosjek {pct(g['avg'], True)} po ulazu, {g['wins']} od {g['n']} u plusu.")
+        if kt.get("top"):
+            body += bullets([f"{x['caller']}: {x['n']} ulaza, {x['hit20']} do +20%, knjiga {money(x['pnl'])}"
+                             for x in kt["top"]])
+        out.append(section("KOL test: ulaz odmah na poziv", body, ("/kol-test", "KOL test")))
+
     # suggestions
     sg = ai.get("prijedlozi") or []
     if sg:

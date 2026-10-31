@@ -13,7 +13,7 @@ NAV = [
     ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/dugorocno", "Dugoročni"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/kol-test", "KOL test"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),
@@ -76,6 +76,10 @@ INTRO = {
                    "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
                    "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
                    "vlastito učenje na povijesti cijena."),
+    "/kol-test": ("Isplati li se ući odmah na KOL poziv", "Odvojena 7-dnevna demo knjiga: $50 na svaki svjež poziv KOL-a "
+                  "(X, Telegram, KOL novčanici), koliko daleko i koliko brzo token ode, pad prije toga i što bi zaradio "
+                  "izlaz na +20, +30, +40 ili +50%.", "Samo mjerenje: ne miješa se s glavnim demo tradingom i bot iz nje "
+                  "ne uči; rezultat pokazuje koje KOL-ove i koje izlaze vrijedi uključiti u glavnu strategiju."),
     "/kol": ("Tko zove tokene i što se nakon toga dogodi", "KOL-ovi i influenceri s X-a i Telegrama, njihovi pozivi s linkovima, "
              "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Signal koordiniranog poziva u hype ocjeni "
              "i izvor rotacijskih dev walleta."),
