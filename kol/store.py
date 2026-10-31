@@ -102,3 +102,35 @@ def rotation_wallets(path=None):
         return []
     finally:
         con.close()
+
+
+SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.db.gz")
+
+
+def import_seed(con, path=SEED):
+    """Merge a kol.db made off-server (run_kol.py backfill) into this one, once per seed file: calls, kols, tokens,
+    flows, insiders. Rows already here win. Returns new calls, or 0 if missing or already imported."""
+    import gzip
+    import hashlib
+    import shutil
+    import tempfile
+    if not os.path.exists(path):
+        return 0
+    with open(path, "rb") as f:
+        key = "seed:" + hashlib.sha1(f.read()).hexdigest()
+    if con.execute("SELECT 1 FROM seen_cache WHERE key = ?", (key,)).fetchone():
+        return 0
+    tmp = os.path.join(tempfile.mkdtemp(), "seed.db")
+    with gzip.open(path, "rb") as src, open(tmp, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    before = con.execute("SELECT COUNT(*) FROM calls").fetchone()[0]
+    con.execute("ATTACH DATABASE ? AS seed", (tmp,))
+    try:
+        for t in ("calls", "kols", "tokens", "flows", "insiders", "searches"):
+            con.execute(f"INSERT OR IGNORE INTO main.{t} SELECT * FROM seed.{t}")
+        con.execute("INSERT OR REPLACE INTO seen_cache VALUES (?, strftime('%s','now'))", (key,))
+        con.commit()
+    finally:
+        con.execute("DETACH DATABASE seed")
+        os.remove(tmp)
+    return con.execute("SELECT COUNT(*) FROM calls").fetchone()[0] - before

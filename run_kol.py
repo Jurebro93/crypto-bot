@@ -8,6 +8,7 @@ per KOL, and the wallets that sell into calls. Writes kol.db (only this script w
     python3 run_kol.py flows                # who bought before / sold into a call (Helius, ~40 credits each)
     python3 run_kol.py score                # call power, groups, signals for the hype score
     python3 run_kol.py top                  # print the leaderboard
+    python3 run_kol.py backfill --tokens retro.json --budget 11   # one-off history: X posts on past tokens + KOL timelines
 
 Budgets: Apify sources kol_search and kol_timeline in hype/apify.json, Helius flows_per_day in kol/config.json.
 """
@@ -88,6 +89,35 @@ def cmd_top(a):
               f"pogodak {st.get('hit_rate', 0):.0%}  moć/pratitelj {p or 0:.2f}x")
 
 
+def _load_tokens(path):
+    """JSON list or JSONL of {mint, launch_ts, peak_ts, winner, peak_mult?, symbol?}."""
+    with open(path) as f:
+        txt = f.read().strip()
+    return json.loads(txt) if txt.startswith("[") else [json.loads(l) for l in txt.splitlines() if l.strip()]
+
+
+def cmd_backfill(a):
+    """History in one night: posts on past winners and non-winners, then the found KOLs' timelines, then prices."""
+    from hype import apify
+    from kol import backfill
+    cfg_a = apify.config()
+    cfg_a["daily_usd"]["kol_backfill"] = a.budget  # one-off budget for this run only, the server keeps 0
+    apify.config = lambda: cfg_a
+    con, cfg = store.connect(), config()
+    toks = backfill.pick(_load_tokens(a.tokens), a.winners, a.losers)
+    print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}")
+    try:
+        backfill.search_tokens(con, toks, apify.run, a.per_token)
+        since = min(t["launch_ts"] for t in toks) if toks else int(time.time()) - 30 * 86400
+        backfill.search_timelines(con, backfill.top_handles(con, a.kols), apify.run, since, a.per_kol)
+    except apify.BudgetExceeded as e:
+        print(f"backfill: {e}")
+    cmd_collect(a, con, cfg)
+    cfg["measure_tokens_per_run"] = 100000
+    cmd_measure(a, con, cfg)
+    cmd_score(a, con, cfg)
+
+
 def cycle(a):
     con, cfg = store.connect(), config()
     for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score):
@@ -99,6 +129,14 @@ def cycle(a):
 
 
 def cmd_loop(a):
+    try:  # history collected off-server (backfill), shipped as kol/seed.db.gz; imported once
+        con = store.connect()
+        n = store.import_seed(con)
+        con.close()
+        if n:
+            print(f"seed: {n} povijesnih poziva uvezeno")
+    except Exception as e:
+        print(f"seed: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
         cycle(a)
         time.sleep(a.every * 60)
@@ -112,11 +150,19 @@ def main(argv=None):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
+    bp = sub.add_parser("backfill")
+    bp.add_argument("--tokens", required=True, help="JSON/JSONL s tokenima iz retrospektive")
+    bp.add_argument("--winners", type=int, default=400)
+    bp.add_argument("--losers", type=int, default=400)
+    bp.add_argument("--per-token", type=int, default=20, help="postova po tokenu")
+    bp.add_argument("--kols", type=int, default=150, help="koliko KOL-ova dobiva povijest timelinea")
+    bp.add_argument("--per-kol", type=int, default=100)
+    bp.add_argument("--budget", type=float, default=11.0, help="USD za cijeli backfill (Apify)")
     tp = sub.add_parser("top")
     tp.add_argument("-n", type=int, default=30)
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
-     "top": cmd_top, "loop": cmd_loop, "once": cycle}[a.cmd](a)
+     "top": cmd_top, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill}[a.cmd](a)
 
 
 if __name__ == "__main__":
