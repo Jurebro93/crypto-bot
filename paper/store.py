@@ -25,6 +25,17 @@ CREATE TABLE IF NOT EXISTS rug_budget (day TEXT PRIMARY KEY, used INTEGER);
 def connect(path):
     con = sqlite3.connect(path, timeout=30)
     con.executescript(SCHEMA)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
+    if "entry_mcap" not in cols:  # older paper.db: add market cap at entry/exit, filled from the ticks
+        con.execute("ALTER TABLE trades ADD COLUMN entry_mcap REAL")
+        con.execute("ALTER TABLE trades ADD COLUMN exit_mcap REAL")
+        con.execute("""UPDATE trades SET
+            entry_mcap = (SELECT mcap FROM ticks k WHERE k.token=trades.token AND k.ts<=trades.opened_ts
+                          ORDER BY k.ts DESC LIMIT 1),
+            exit_mcap = CASE WHEN closed_ts IS NULL THEN NULL ELSE
+                (SELECT mcap FROM ticks k WHERE k.token=trades.token AND k.ts<=trades.closed_ts
+                 ORDER BY k.ts DESC LIMIT 1) END""")
+        con.commit()
     return con
 
 
@@ -44,19 +55,20 @@ def tick(con, token, ts, price, liq, mcap):
     con.execute("INSERT OR REPLACE INTO ticks VALUES (?,?,?,?,?)", (token, int(ts), price, liq, mcap))
 
 
-def open_trade(con, token, symbol, pos, cfg):
+def open_trade(con, token, symbol, pos, cfg, mcap=None):
     cur = con.execute("INSERT INTO trades (token, symbol, opened_ts, status, size_usd, entry_px, entry_eff, state, "
-                      "config) VALUES (?,?,?,?,?,?,?,?,?)",
+                      "config, entry_mcap) VALUES (?,?,?,?,?,?,?,?,?,?)",
                       (token, symbol, int(pos["opened_ts"]), "open", pos["size_usd"], pos["entry_px"],
-                       pos["entry_eff"], json.dumps(pos), json.dumps(cfg)))
+                       pos["entry_eff"], json.dumps(pos), json.dumps(cfg), mcap))
     return cur.lastrowid
 
 
-def save_trade(con, trade_id, pos, res):
+def save_trade(con, trade_id, pos, res, mcap=None):
+    """mcap: market cap at this observation; stored as the exit market cap once the trade closes."""
     con.execute("UPDATE trades SET status=?, closed_ts=?, exit_reason=?, pnl_usd=?, ret=?, max_ret=?, min_ret=?, "
-                "state=? WHERE id=?",
+                "state=?, exit_mcap=COALESCE(?, exit_mcap) WHERE id=?",
                 ("open" if pos["open"] else "closed", pos.get("closed_ts"), res["exit_reason"], res["pnl_usd"],
-                 res["ret"], res["max_ret"], res["min_ret"], json.dumps(pos), trade_id))
+                 res["ret"], res["max_ret"], res["min_ret"], json.dumps(pos), None if pos["open"] else mcap, trade_id))
 
 
 def open_trades(con):

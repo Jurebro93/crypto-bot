@@ -1,0 +1,177 @@
+"""KOL module on synthetic data: tweet -> calls, price path after a call, groups, call power, flows, signals, page."""
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from kol import collect, flows, measure, score, store  # noqa: E402
+
+CFG = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))
+CA = "HgxEGTZ1Epb64RrYqcuHkqb1gGWWnF5WcPTCDWzApump"
+CA2 = "8uBobWMhu6hRUn4jaA4kjcgWCjTxgHwHJtPgBePXpump"
+T0 = 1793390000 // 300 * 300
+H = 3600
+
+
+def tweet(tid, handle, text, ts, followers=5000, **kw):
+    import datetime as dt
+    created = dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%a %b %d %H:%M:%S +0000 %Y")
+    return dict({"id": tid, "url": f"https://x.com/{handle}/status/{tid}", "text": text, "createdAt": created,
+                 "likeCount": "3", "viewCount": 100, "author": {"userName": handle, "followers": followers}}, **kw)
+
+
+def candles(path):
+    """path: [(minutes_from_T0, price, volume)] -> 5-min candles with that close and high."""
+    return [(T0 + m * 60, p, p, p, p, v) for m, p, v in path]
+
+
+class Tweets(unittest.TestCase):
+    def test_ca_ticker_retweet_brag(self):
+        c = collect.calls_from_tweet(tweet("1", "a", f"new gem {CA} go", T0), CA, "ICOIN")
+        self.assertEqual([(x["token"], x["match"], x["kind"]) for x in c], [(CA, "ca", "call")])
+        c = collect.calls_from_tweet(tweet("2", "b", "$ICOIN sending", T0), CA, "ICOIN")
+        self.assertEqual(c[0]["match"], "ticker")
+        self.assertEqual(collect.calls_from_tweet(tweet("3", "c", "$ICOIN", T0, isRetweet=True), CA, "ICOIN"), [])
+        self.assertEqual(collect.calls_from_tweet(tweet("4", "d", "$OTHER only", T0), CA, "ICOIN"), [])
+        # a tweet that names another CA is a call on that one, not a ticker hit on the searched token
+        c = collect.calls_from_tweet(tweet("5", "e", f"$ICOIN {CA2}", T0), CA, "ICOIN")
+        self.assertEqual([x["token"] for x in c], [CA2])
+        self.assertEqual(collect.kind_of("15X on $ICOIN"), "brag")
+        self.assertEqual(collect.kind_of("115x $ICOIN\nCA"), "brag")
+        self.assertEqual(collect.kind_of("this is the next 100x"), "call")
+        self.assertEqual(collect.tweet_ts("Fri Oct 30 21:58:58 +0000 2026"), 1793397538)
+
+    def test_cache_target(self):
+        key = 'x_buzz:apidojo/tweet-scraper:{"maxItems": 40, "searchTerms": ["%s", "$TUSK"], "sort": "Latest"}' % CA
+        self.assertEqual(collect._target(key), (CA, "TUSK"))
+        self.assertEqual(collect._target('kol_timeline:x:{"searchTerms": ["from:a OR from:b"]}'), (None, None))
+
+
+class Measure(unittest.TestCase):
+    def test_outcome(self):
+        # flat at 1.0 for 2 h, call at T0+120 min, doubles by +60 min, peaks 3.0, ends at 0.05 (rug)
+        path = [(m, 1.0, 100) for m in range(0, 125, 5)] + [(150, 2.0, 5000), (240, 3.0, 500), (1560, 0.05, 10)]
+        ts = T0 + 120 * 60 + 30
+        o = measure.outcome(candles(path), ts, ts + 30 * H, CFG)
+        self.assertAlmostEqual(o["p0"], 1.0)
+        self.assertAlmostEqual(o["pre2h"], 0.0)
+        self.assertAlmostEqual(o["r1h"], 1.0)
+        self.assertAlmostEqual(o["max24"], 2.0)
+        self.assertAlmostEqual(o["r24h"], -0.95)
+        self.assertEqual(o["rug"], 1)
+        self.assertEqual(o["complete"], 1)
+        self.assertGreater(o["vol_lift"], 4)
+        # not yet an hour after the call: no 1 h number, not complete
+        o = measure.outcome(candles(path), ts, ts + 600, CFG)
+        self.assertIsNone(o["r1h"])
+        self.assertEqual(o["complete"], 0)
+
+
+class Pipeline(unittest.TestCase):
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "kol.db")
+        self.con = store.connect(self.path)
+        ts = T0 + 120 * 60
+        tw = [tweet("10", "alpha", f"aping {CA}", ts, 20000), tweet("11", "beta", f"{CA} 🚀", ts + 600, 3000),
+              tweet("12", "gamma", f"20x on {CA}", ts + 900, 800),  # brag: not part of the group
+              tweet("13", "alpha", f"early {CA2}", ts + 5 * H, 20000)]
+        for t in tw:
+            collect.save(self.con, collect.calls_from_tweet(t))
+        self.con.executemany("INSERT INTO tokens (token, symbol, pair, supply, tries, updated) VALUES (?,?,?,?,0,0)",
+                             [(CA, "ICOIN", "POOL1", 1e9, ), (CA2, "TUSK", "POOL2", 1e9)])
+        self.con.commit()
+        self.now = ts + 30 * H
+
+        def fake(pool, start, end):
+            if pool == "POOL1":
+                return candles([(m, 0.0001, 50) for m in range(0, 120, 5)] + [(150, 0.0003, 5000), (300, 0.0004, 800)])
+            return candles([(m, 0.0002, 50) for m in range(0, 420, 5)] + [(480, 0.00001, 10)])
+        self.fake = fake
+
+    def test_end_to_end(self):
+        con, cfg = self.con, dict(CFG, good_score=30)
+        t, n = measure.run(con, cfg, now=self.now, fetch=self.fake)
+        self.assertEqual(t, 2)
+        mc = con.execute("SELECT mcap0, max24 FROM calls WHERE tweet_id='10'").fetchone()
+        self.assertAlmostEqual(mc[0], 1e5)
+        self.assertAlmostEqual(mc[1], 3.0)
+        score.run(con, cfg, now=self.now)
+        g = con.execute("SELECT n_authors, handles, first_handle FROM groups").fetchall()
+        self.assertEqual(len(g), 1)
+        self.assertEqual(json.loads(g[0][1]), ["alpha", "beta"])
+        firsts = dict(con.execute("SELECT tweet_id, first_overall FROM calls"))
+        self.assertEqual((firsts["10"], firsts["11"], firsts["12"]), (1, 0, 0))
+        k = dict(con.execute("SELECT handle, stats FROM kols"))
+        alpha = json.loads(k["alpha"])
+        self.assertEqual(alpha["measured"], 2)
+        self.assertEqual(alpha["rug_rate"], 0.5)
+        self.assertEqual(json.loads(k["gamma"])["brags"], 1)
+        sc = dict(con.execute("SELECT handle, score FROM kols"))
+        self.assertGreater(sc["beta"], sc["gamma"] or 0)
+        # one measured call is pulled towards prior_score
+        self.assertLess(abs(sc["beta"] - cfg["prior_score"]), abs(json.loads(k["beta"])["raw"] - cfg["prior_score"]))
+
+        # flows: alpha's call; insider bought 2 SOL before, sold 3 after; a rotation dev sold too
+        con.execute("INSERT INTO kol_wallets VALUES ('ROT','rotation_dev',3,1,1,'[]',0,0)")
+        due = flows.due(con, cfg, self.now)
+        self.assertEqual(due[0][0], "10")
+
+        def fetch(mint, since_ts=None, until_ts=None, max_pages=2, oldest_first=False, on_credits=None):
+            on_credits(10)
+            if oldest_first:
+                return [("INS", since_ts + 60, "sell", 3.0), ("ROT", since_ts + 90, "sell", 1.0)], True
+            return [("INS", since_ts + 60, "buy", 2.0), ("SMALL", since_ts + 70, "buy", 0.01)], True
+        orig = flows._swaps
+        flows._swaps = lambda txs, mint: txs
+        try:
+            n, cr = flows.run(con, cfg, now=self.now, fetch=fetch)
+        finally:
+            flows._swaps = orig
+        self.assertGreaterEqual(n, 1)
+        f = con.execute("SELECT insiders, insider_sol, rotation_selling FROM flows WHERE tweet_id='10'").fetchone()
+        self.assertEqual(f, (1, 3.0, 1))
+        self.assertEqual({w for w, in con.execute("SELECT wallet FROM insiders")}, {"INS"})
+
+        score.run(con, cfg, now=T0 + 120 * 60 + 2 * H)
+        self.assertEqual(con.execute("SELECT dev_selling FROM groups").fetchone()[0], 1)
+        con.commit()
+        sig = store.signals(path=self.path, max_age_h=10 ** 6)
+        self.assertEqual(sig[CA]["feature"], 0.0)  # devs sold into the call: no signal
+
+    def test_page_renders(self):
+        measure.run(self.con, CFG, now=self.now, fetch=self.fake)
+        score.run(self.con, CFG, now=self.now)
+        self.con.commit()
+        from ui import kol as ukol
+        old = store.DB
+        store.DB = self.path
+        try:
+            title, body = ukol.page({})
+            self.assertIn("@alpha", body)
+            self.assertIn("https://x.com/alpha/status/10", body)
+            self.assertIn("Grupni pozivi", body)
+            self.assertIn("ICOIN", ukol.token_section(CA))
+            self.assertIn("Kako je dobio ocjenu", ukol.kol_page("alpha", {})[1])
+        finally:
+            store.DB = old
+
+    def test_missing_db(self):
+        self.assertEqual(store.signals(path=os.path.join(tempfile.mkdtemp(), "none.db")), {})
+
+
+class Helpers(unittest.TestCase):
+    def test_groups(self):
+        calls = [("A", 0, "x"), ("A", 600, "y"), ("A", 1700, "x"), ("A", 5000, "z"), ("B", 0, "x")]
+        self.assertEqual(list(score.find_groups(calls, 1800)), [("A", 0, 1700, ["x", "y"])])
+
+    def test_spearman(self):
+        self.assertEqual(score.spearman([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]), 1.0)
+        self.assertEqual(score.spearman([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]), -1.0)
+        self.assertIsNone(score.spearman([1, 2], [1, 2]))
+
+
+if __name__ == "__main__":
+    unittest.main()

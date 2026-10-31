@@ -8,7 +8,7 @@ from urllib.parse import quote
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/events", "Eventi")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
     ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
@@ -17,7 +17,8 @@ NAV = [
 ]
 # pages that live under a group but are not in its row (detail pages)
 NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
-              "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/prijava": "Trading"}
+              "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni",
+              "/prijava": "Trading"}
 
 
 def nav_group(path):

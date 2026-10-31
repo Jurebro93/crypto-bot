@@ -97,6 +97,8 @@ def sell(con, user, trade_id, price, liq, note="", mcap=None):
         raise ValueError("nema te otvorene pozicije")
     proceeds = value(t, price, liq)
     pnl = proceeds - t["size_usd"]
+    if mcap is None and price and t["entry_mcap"] and t["entry_px"]:  # supply is fixed: mcap moves with price
+        mcap = t["entry_mcap"] * price / t["entry_px"]
     con.execute("UPDATE trades SET status='closed', closed_ts=?, exit_px=?, proceeds=?, pnl_usd=?, ret=?, note=?, "
                 "exit_mcap=? WHERE id=?", (int(time.time()), price or 0, proceeds, pnl, pnl / t["size_usd"], note,
                                            mcap if price else 0, trade_id))
