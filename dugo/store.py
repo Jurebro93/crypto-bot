@@ -29,10 +29,43 @@ CREATE TABLE IF NOT EXISTS learn_runs (ts INTEGER, kind TEXT, applied INTEGER, n
 """
 
 
+SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.db.gz")
+
+
 def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=60)
     con.executescript(SCHEMA)
     return con
+
+
+def import_seed(con, path=SEED, now=None):
+    """First run only (no candles yet): load the daily candles collected on 31.10.2026 (~110 survivors, SOL and BTC),
+    so the page is full at once instead of after days of rate-limited downloads. Returns tokens imported."""
+    import gzip
+    import shutil
+    import tempfile
+    import time
+    if not os.path.exists(path) or con.execute("SELECT 1 FROM candles LIMIT 1").fetchone():
+        return 0
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        with gzip.open(path, "rb") as f, open(tmp, "wb") as g:
+            shutil.copyfileobj(f, g)
+        src = sqlite3.connect(tmp)
+        con.executemany("INSERT OR IGNORE INTO candles VALUES (?,?,?,?,?,?,?)", src.execute("SELECT * FROM candles"))
+        con.executemany("INSERT OR IGNORE INTO ref VALUES (?,?,?)", src.execute("SELECT * FROM ref"))
+        ts = int(now or time.time())
+        rows = src.execute("SELECT mint, symbol, pair, source, created_ts FROM tokens").fetchall()
+        for m, sym, pair, source, created in rows:
+            # candles_ts a day old: the next pass tops them up with a short download instead of the full 400 days
+            con.execute("""INSERT INTO tokens (mint, symbol, pair, source, created_ts, first_seen, candles_ts)
+                VALUES (?,?,?,?,?,?,?) ON CONFLICT(mint) DO UPDATE SET candles_ts=excluded.candles_ts""",
+                        (m, sym, pair, source, created, ts, ts - 86400))
+        src.close()
+        con.commit()
+        return len(rows)
+    finally:
+        os.remove(tmp)
 
 
 def ro(path=None):

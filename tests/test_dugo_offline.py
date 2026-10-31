@@ -163,5 +163,17 @@ class Pipeline(unittest.TestCase):
             self.assertLess(step, 1.0)
 
 
+class Seed(unittest.TestCase):
+    def test_import_once(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "dugo.db"))
+        n = store.import_seed(con, now=NOW)
+        self.assertGreater(n, 50)
+        self.assertGreater(con.execute("SELECT COUNT(DISTINCT mint) FROM candles").fetchone()[0], 50)
+        self.assertGreater(len(store.ref(con, "SOL")), 100)
+        self.assertGreater(len(store.ref(con, "BTC")), 300)
+        self.assertEqual(store.import_seed(con, now=NOW), 0)      # second time: nothing
+        con.close()
+
+
 if __name__ == "__main__":
     unittest.main()
