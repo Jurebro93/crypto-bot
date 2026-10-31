@@ -39,7 +39,6 @@ services:
         value: "40"
       - key: HELIUS_ENHANCED_RPS
         value: "8"
-<<<<<<< HEAD
       - key: TGSTAT_TOKEN         # paid: TGStat Search API, Telegram posts by CA across all channels
         sync: false
       - key: SOLANATRACKER_API_KEY # paid: Solana Tracker KOL leaderboard (all KOL wallets with PnL)
@@ -50,7 +49,6 @@ services:
         sync: false
       - key: TG_SESSION           # made once with: python3 run_tg.py login
         sync: false
-=======
       - key: ANTHROPIC_API_KEY   # morning report: Claude writes the interpretation (~$0.15/day)
         sync: false
       - key: REPORT_EMAIL_TO     # morning report recipient(s), comma separated
@@ -61,6 +59,5 @@ services:
         sync: false
       - key: REPORT_HOUR         # local hour (Europe/Zagreb) of the morning report
         value: "7"
->>>>>>> origin/claude/project-thread-p25kg0
       - key: TRADE_LIVE
         value: "0"
