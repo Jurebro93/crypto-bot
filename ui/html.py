@@ -31,8 +31,8 @@ INTRO = {
                     "računa, walleti istog vlasnika, signali koji idu uz pumpu i što poznate grupe diraju sada, s AI "
                     "tumačenjem na vrhu.", "Spaja X, Telegram i on-chain podatke: praćene grupe idu u registar walleta, "
                     "a njihova aktivnost je rani signal za ulaz prije gomile."),
-    "/": ("Odgovor na pitanje \"što sad?\"", "Demo rezultat, istaknuti tokeni po klasi poredani po Šansi za skok i tablica tokena "
-          "koji su prošli više analiza. Sve ostalo (rast baze, klasteri walleta, stanje baza) je sklopljeno ispod.",
+    "/": ("Odgovor na pitanje \"što sad?\"", "Istaknuti tokeni po klasi poredani po Šansi za skok, demo rezultat, kako se baza "
+          "puni u odnosu na prethodne dane i tablica tokena koji su prošli više analiza. Klasteri walleta i stanje baza su sklopljeni ispod.",
           "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
     "/tokens": ("Sve što alat zna o svakom tokenu", "Svaki token viđen u zadnjih 7 dana kroz sve analize (hype, X, smart money, "
                 "KOL, holderi, rug, event, demo), poredan po Šansi; odvojeno event tokeni, stariji i odbačeni.",
@@ -83,7 +83,8 @@ def intro_html(path):
     if key is None:
         return ""
     cilj, sto, uloga = INTRO[key]
-    return (f"<div class=intro><b>{esc(cilj)}.</b> {esc(sto)} <span class=mut>Uloga u cjelini: {esc(uloga)}</span></div>")
+    return (f"<details class=intro><summary><b>{esc(cilj)}</b> <span class=mut>· što je na ovoj stranici</span></summary>"
+            f"<div>{esc(sto)}</div><div class=mut style='margin-top:4px'>Uloga u cjelini: {esc(uloga)}</div></details>")
 
 
 def with_intro(body, path):
@@ -148,6 +149,31 @@ dialog#ev::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2{position:sticky;t
 dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
 .tip{color:var(--acc);cursor:help;font-weight:400;font-size:12px}
 #tipbox{position:fixed;z-index:50;max-width:300px;background:var(--fg);color:var(--bg);padding:7px 10px;border-radius:6px;font:12px/1.4 system-ui,sans-serif;white-space:normal;pointer-events:none;display:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}.empty{color:var(--mut);padding:14px}
+
+/* design pass 2026-10-31: calmer surfaces, clear hierarchy */
+body{font:14.5px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+header{padding:0 20px;backdrop-filter:saturate(1.4) blur(6px);background:color-mix(in srgb,var(--card) 92%,transparent)}
+header b{font-size:15px;letter-spacing:-.01em;margin-right:20px}header b::before{content:'◆ ';color:var(--acc)}
+header a{padding:14px 12px;font-weight:500}header a:hover,nav.sub a:hover{color:var(--fg)}
+nav.sub{padding:0 20px}nav.sub a.on{border-color:var(--acc)}
+main{padding:20px 20px 48px}
+h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:6px 0 10px}
+h2{font-size:18px;font-weight:650;letter-spacing:-.01em;margin:36px 0 4px;padding-top:4px}
+h2 .tip,h3 .tip{font-size:13px}h3{font-size:14.5px;margin:18px 0 8px}
+.lead{color:var(--mut);margin:0 0 12px;font-size:14px}
+.card,.stat,.tw,.intro,pre{border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.card{padding:14px 16px}.stat{padding:12px 16px}.stat .v{font-size:24px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.stat .l{font-size:12.5px}.grid{gap:12px}
+.intro{border-left:3px solid var(--acc);padding:8px 14px;font-size:13.5px;margin:0 0 16px}
+.intro summary{color:var(--fg);list-style:none}.intro summary::-webkit-details-marker{display:none}
+.intro summary::after{content:' ▾';color:var(--mut)}.intro[open] summary{margin-bottom:6px}
+details>summary{padding:4px 0}main>details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px}
+.cand{transition:border-color .15s,box-shadow .15s}.cand:hover{box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.b{border-radius:999px}th{text-transform:none;letter-spacing:.01em}
+.gt .l{font-weight:600;color:var(--fg);font-size:13px}.spark{display:block;margin-top:4px;overflow:visible}
+.spark rect:hover{fill-opacity:1}.gtg{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:1000px){.gtg{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.spark-ax{display:flex;justify-content:space-between;font-size:11px}
+@media(max-width:700px){h2{font-size:16px;margin-top:26px}main>details{padding:8px 12px}.gt .v{font-size:18px}.gt{padding:10px}.spark{height:40px}}
 """
 
 JS = """
