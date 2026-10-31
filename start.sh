@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -69,6 +69,9 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 # spend on Helius/Apify: account readings every 15 min, warnings on the dashboard (/usage and a banner on every page)
 python3 run_usage.py loop --every 15 &
 
+# correlations: KOL groups, wallets tied to X accounts, one-owner wallet groups, pump factors (no API calls), plus a
+# Claude reading of it once a day if ANTHROPIC_API_KEY is set -> corr.db, page Korelacije
+python3 run_corr.py loop --every "${CORR_EVERY_MIN:-60}" &
 python3 run_learn.py loop &         # once a day: re-fit hype weights per token class, guarded, no human step
 python3 run_exits.py loop &         # once a day: re-learn exit rules per class from price paths, guarded, rollback
 # trading volume per launchpad/terminal and the whole Solana DEX (DefiLlama, free) + market regime, every hour

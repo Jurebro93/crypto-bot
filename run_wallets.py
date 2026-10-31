@@ -81,6 +81,9 @@ def cmd_harvest(a):
     print(f"seed_retro.json: {n} walleta")
     n = wstore.import_kol(con)
     con.commit()
+    m = wstore.import_corr(con)
+    con.commit()
+    print(f"iz corr.db praćene grupe walleta (Korelacije): {m} walleta")
     print(f"iz kol.db rotacijski devovi (prodaju u KOL pozive na 3+ tokena): {n} walleta")
     toks = _harvest_tokens(con, a)
     now_ms = time.time() * 1000

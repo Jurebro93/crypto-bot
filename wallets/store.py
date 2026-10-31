@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS helius_credits (ts INTEGER, method TEXT, credits INTE
 
 # how much one sighting raises a wallet's place in the scoring queue
 ROLE_WEIGHT = {"early_buyer": 2.0, "smart": 3.0, "top_trader": 3.0, "holder": 0.5, "manual": 10.0,
-               "dev": -5.0, "bundler": -5.0, "sniper": 1.0, "funder": -1.0, "dust": 0.0}
+               "group": 2.0, "dev": -5.0, "bundler": -5.0, "sniper": 1.0, "funder": -1.0, "dust": 0.0}
 
 
 def connect(path=None):
@@ -186,6 +186,23 @@ def import_seed(con, path=None):
         extra = {k: r[k] for k in ("tokens", "wins", "hit_rate", "realized_sol", "score") if k in r}
         observe(con, r["wallet"], None, "retro", "smart", extra=extra)
     return len(rows)
+
+
+def import_corr(con, corr_db=None):
+    """Wallets of followed one-owner groups from corr.db (run_corr.py, page Korelacije). Labelled 'grupa' (not a bad
+    label: a group that buys before calls may be worth copying, its PnL decides); the sighting raises the wallet's
+    place in the scoring queue so its trades stay fresh."""
+    try:
+        from corr import store as cstore
+    except ImportError:
+        return 0
+    n = 0
+    for g in cstore.followed(corr_db, kind="wallets"):
+        for w in g["members"]:
+            observe(con, w, None, "corr", "group", extra={"group": g["id"], "score": g["score"]})
+            label(con, w, "grupa")
+            n += 1
+    return n
 
 
 def import_kol(con, kol_db=None):
