@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 
 from dexscreener import client
-from hype import apify, evaluate, onchain, score, sources, store, telegram, xbuzz
+from hype import apify, evaluate, onchain, pulse, score, sources, store, telegram, xbuzz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "hype.db")  # own file: SQLite on the shared mount locks badly under concurrent writers
@@ -121,13 +121,27 @@ def apify_context(a):
     return ctx
 
 
-def early_buyers_cheap(mint, n=60):
-    """getTransactionsForAddress (~10 credits per 100 tx) instead of the Enhanced API (~100 per call)."""
+_EARLY = {}  # mint -> (ts, buyers): the first buyers of a token do not change, so one Helius call per 6 h is enough
+EARLY_TTL = 6 * 3600
+
+
+def early_buyers_cheap(mint, n=60, now=None):
+    """getTransactionsForAddress (~10 credits per 100 tx) instead of the Enhanced API (~100 per call); cached 6 h so a
+    token that stays in the scan (retained candidates come back every 2 minutes) is not paid for again each pass."""
+    now = now or time.time()
+    hit = _EARLY.get(mint)
+    if hit and now - hit[0] < EARLY_TTL:
+        return hit[1]
     try:
         from wallets import rpc
-        return rpc.early_buyers(mint, n=n, max_pages=1)
+        out = rpc.early_buyers(mint, n=n, max_pages=1)
     except ImportError:
-        return onchain.early_buyers(mint, n=n, pages=1)
+        out = onchain.early_buyers(mint, n=n, pages=1)
+    _EARLY[mint] = (now, out)
+    if len(_EARLY) > 2000:
+        for k in [k for k, (ts, _) in _EARLY.items() if now - ts >= EARLY_TTL]:
+            _EARLY.pop(k, None)
+    return out
 
 
 def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
@@ -143,6 +157,16 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         print(f"  kol.db: {e}", file=sys.stderr)
         kol_groups = {}
     found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca) + list(kol_groups))
+    pcfg = pulse.config()
+    try:  # tokens that already earned attention stay in every scan, feeds or not (fresh score, pulse, holders)
+        pcon = store.connect(DB)
+        keep = pulse.retained(pcon, pcfg, now_ms / 1000)
+        pcon.close()
+    except Exception as e:
+        print(f"  zadržani: {e}", file=sys.stderr)
+        keep = []
+    for t in keep:
+        found.setdefault(t, set()).add("zadrzan")
     pairs = client.tokens("solana", list(found))
     best = {}
     for p in pairs:
@@ -185,6 +209,17 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
                      "extra": extra})
+    rows.sort(key=lambda r: -r["score"])
+    try:  # pulse for retained tokens and the current best: volume/txn/holder series -> strength features
+        pcon = store.connect(DB)
+        n_h = pulse.apply(pcon, rows, set(keep) | {r["token"] for r in rows[:pcfg["max"]]}, now_ms / 1000, pcfg)
+        pulse.prune(pcon, pcfg["cuvaj_dana"])
+        pcon.commit()
+        pcon.close()
+        if n_h:
+            print(f"  holderi: {n_h} tokena preko Heliusa", file=sys.stderr)
+    except Exception as e:
+        print(f"  puls: {type(e).__name__}: {e}", file=sys.stderr)
     tiers_for(rows, now_ms / 1000)  # class, path shape, T0 sieve
     wcls = class_weights(rows, weights)  # learned weights per class (learn/), else the base file
     for r in rows:

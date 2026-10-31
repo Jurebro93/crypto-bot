@@ -21,7 +21,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage  # noqa: E402
+from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage, watch  # noqa: E402
 from ui.html import esc, page  # noqa: E402
 from ui import league, real  # noqa: E402
 from league import store as league_store  # noqa: E402
@@ -50,6 +50,8 @@ def route(path, qs):
         return pages.token(path[len("/token/"):], qs)
     if path == "/events":
         return pages.events(qs)
+    if path == "/watch":
+        return watch.page(qs)
     if path == "/paper":
         return paper.page(qs)
     if path == "/usage":
@@ -58,6 +60,9 @@ def route(path, qs):
         return market.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
+    if path == "/izlazi":
+        from ui import exitspage
+        return exitspage.page(qs)
     if path == "/learn":
         from ui import learnpage
         return learnpage.page(qs)
@@ -154,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _kol_hook(self, u):
-        key = os.environ.get("KOL_HOOK_KEY", "")
+        from kol import store as kstore
+        key = kstore.hook_key()
         if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
             self.send_response(404)
             self.end_headers()
@@ -220,6 +226,11 @@ def main(argv=None):
         sys.exit("Slušaš na javnoj adresi bez lozinke. Postavi UI_PASSWORD=... ili koristi SSH tunel (vidi --help).")
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.verbose = a.verbose
+    if os.environ.get("LEAGUE_AUTO_SELL", "1") == "1":  # competition auto sell; this process is league.db's only writer
+        import threading
+        from league import auto
+        from ui.paper import market
+        threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
     print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
           + "  (Ctrl+C za kraj)")
     try:

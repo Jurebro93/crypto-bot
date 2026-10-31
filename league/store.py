@@ -44,9 +44,10 @@ def connect(path=None):
         con.executescript(SCHEMA)
     except sqlite3.OperationalError:   # disk full: the tables usually exist already, reads still work
         pass
-    for col in ("entry_mcap", "exit_mcap"):   # added after the first release
+    for col, typ in (("entry_mcap", "REAL"), ("exit_mcap", "REAL"),   # added after the first release
+                     ("realized", "REAL DEFAULT 0"), ("auto", "TEXT"), ("auto_state", "TEXT")):  # auto sell
         try:
-            con.execute(f"ALTER TABLE trades ADD COLUMN {col} REAL")
+            con.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
             pass
     return con
@@ -90,12 +91,33 @@ def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, m
     return cur.lastrowid
 
 
-def value(t, price, liq):
-    """What selling the whole position would bring now (after fee and impact). price 0 = rugged."""
-    if not price or price <= 0:
+def _realized(t):
+    try:
+        return t["realized"] or 0.0
+    except (KeyError, IndexError):
         return 0.0
+
+
+def value(t, price, liq):
+    """What the position is worth if the rest is sold now (after fee and impact), plus what auto sell already
+    took out of it in partial sales. price 0 = rugged."""
+    if not price or price <= 0:
+        return _realized(t)
     gross = t["qty"] * price
-    return gross * (1 - FEE) * (1 - impact(gross, liq))
+    return _realized(t) + gross * (1 - FEE) * (1 - impact(gross, liq))
+
+
+def sell_part(con, trade_id, frac_of_rest, price, liq):
+    """Auto sell: sell a share of what is left; proceeds stay in the trade (realized) until it closes."""
+    t = con.execute("SELECT * FROM trades WHERE id=? AND status='open'", (trade_id,)).fetchone()
+    if not t or not price or price <= 0 or frac_of_rest <= 0:
+        return 0.0
+    q = t["qty"] * min(1.0, frac_of_rest)
+    gross = q * price
+    net = gross * (1 - FEE) * (1 - impact(gross, liq))
+    con.execute("UPDATE trades SET qty=qty-?, realized=COALESCE(realized,0)+? WHERE id=?", (q, net, trade_id))
+    con.commit()
+    return net
 
 
 def sell(con, user, trade_id, price, liq, note="", mcap=None):

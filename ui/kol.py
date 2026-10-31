@@ -113,11 +113,30 @@ def _leaderboard(con, minf, minc):
                     lift(k["power_rel"]), num(s.get("measured")), share(s.get("hit_rate")), pct(s.get("med_max24")),
                     pct(s.get("med_r1h")), lift(s.get("med_lift")), share(s.get("rug_rate")),
                     share(s.get("prepump_rate")), share(s.get("first_rate")), num(s.get("brags")),
-                    ago(last.get(k["handle"]))])
+                    num(s.get("med_views")), share(s.get("eng_rate")), ago(last.get(k["handle"]))])
     return table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
                   ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
-                  ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), "Zadnji poziv"],
+                  ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
+                  "Zadnji poziv"],
                  out, tid="kols", empty="Još nema KOL-ova s izmjerenim pozivom (mjerenje kreće 1 h nakon poziva).")
+
+
+def _watch(con):
+    import sqlite3
+    from kol import live
+    try:  # tables appear with the first run_kol.py round after the deploy
+        mon = dict(con.execute("SELECT handle, last_run FROM monitor"))
+        rows = con.execute("SELECT handle, score, since, reason FROM watch ORDER BY score DESC").fetchall()
+    except sqlite3.OperationalError:
+        mon, rows = {}, []
+    on = live.hook_url() is not None
+    out = []
+    for h, sc, since, why in rows:
+        st = (badge("uživo", "good") if h in mon else badge("čeka pokretanje", "warn")) if on else badge("isključeno", "bad")
+        out.append([klink(h), (f"<b>{sc:.0f}</b>", sc, "n"), (esc(why), "", "wrap"), ago(since), st, ago(mon.get(h))])
+    return table(["X račun", ("Moć poziva", "n"), ("Razlog", "wrap"), "Na listi od", "Praćenje", "Zadnja sinkronizacija"],
+                 out, tid="watch", empty="Još nijedan KOL ne prolazi uvjete (dovoljno poziva, rani i česti pogoci). "
+                                         "Lista se puni sama kako se skupljaju izmjereni pozivi.")
 
 
 def _groups(con):
@@ -203,6 +222,12 @@ def page(qs):
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _leaderboard(con, minf, minc))
 
+        w = cfg["watch"]
+        b.append("<h2 id=uzivo>Prati uživo</h2>" + tdesc(
+            f"Najboljih {w['size']} KOL-ova: moć poziva {cfg['good_score']}+, barem {w['min_calls']} izmjerenih poziva, "
+            f"pogodak {w['min_hit']:.0%}+ i najviše {w['max_prepump']:.0%} kasnih poziva. Njihove nove postove dobivamo "
+            "za nekoliko sekundi (xquik monitor, oko $0.11 po računu dnevno), pa hype sken unutar 2 min vidi token kao "
+            "kandidata sa signalom kol_x. Lista se sama mijenja nakon svakog bodovanja.") + _watch(con))
         b.append("<h2 id=grupe>Grupni pozivi</h2>" + tdesc(
             f"Dva ili više različitih autora zovu isti token unutar {cfg['group_secs'] // 60} min. Brojke su od prvog poziva "
             "u grupi. Dva dobra KOL-a bez prodaje devova = signal kol_group u hype ocjeni.") + _groups(con))

@@ -46,6 +46,20 @@ python3 run_dex.py token <adresa>               # svi parovi jednog tokena + pla
 
 Kako radi: iz događaja uzme ime (subject) i ključne riječi, izbaci šum (mjeseci, dani, BTC, SOL i sl., popis `NOISE` u `dexscreener/match.py`) i svaki pojam pretraži jednom. Token pripada događaju ako mu je simbol jednak pojmu ili ime sadrži pojam. Odbacuje prašinu (likvidnost ispod `--min-liq`), mrtve parove (volumen ispod $100) i velike tokene (mcap iznad $500M, npr. wrapped BTC). Ostale rangira ocjenom 0-100: starost, likvidnost, volumen, broj transakcija, omjer kupnji i prodaja, kazna za volumen višestruko veći od likvidnosti (wash trading), društvene mreže, CTO, točan simbol. Prvi je "pravi", ostali "kopije". Broj holdera i kvaliteta walleta nisu tu (to radi Helius rug filter). Ako kalendar ima `token_likelihood`, događaji se obrađuju tim redom. Klijent (`dexscreener/client.py`) pokriva sve endpointe iz dokumentacije i sam usporava upite ispod limita (60 ili 300 u minuti), a odgovore kešira 60 s (`DEX_CACHE_TTL`).
 
+## Praćenje prije eventa (`run_watch.py`)
+
+Od oko 14 dana prije većeg eventa prati tokene koje je `run_dex.py scan` vezao uz taj event (pravi token i dvije najjače kopije, samo eventi s `token_likelihood` od barem 0,4). Cilj je vidjeti rastu li volumen, kupnje i ulazak dobrih walleta kako se event bliži.
+
+```
+python3 run_watch.py sync              # newest output/dex-*.json -> popis za praćenje
+python3 run_watch.py snap              # snimka s DexScreenera (besplatno)
+python3 run_watch.py snap --wallets    # + novi kupci preko Heliusa (~10 kredita po tokenu)
+python3 run_watch.py analyze           # korelacije -> output/watch-<datum>.md
+python3 run_watch.py run               # petlja na serveru: snimka svaki sat, walleti svakih 6 h
+```
+
+Sve ide u `watch.db`: `watch_tokens` (što se prati), `watch_snapshots` (snimke kroz vrijeme), `watch_buyers` (svaki kupac s tierom i oznakama iz `wallets.db`) i `watch_correlation` (Spearmanova korelacija približavanja eventa s volumenom, kupnjama, novim kupcima, smart walletima i cijenom, plus zaključak). Na sučelju je stranica **Prije eventa** (`/watch`). Krediti: oko 40 tokena × 4 provjere dnevno × 10 = ~50k mjesečno, a `--credits` (zadano 3000) ograničava jedno pokretanje.
+
 ## Hype skener (`run_hype.py`)
 
 Rano otkrivanje tokena koji rastu na valu hypea, smart money walleti i petlja za mjerenje uspješnosti.
@@ -79,6 +93,10 @@ Izbornik dashboarda ima pet grupa (Pregled, Tokeni, Walleti, Trading, Sustav); s
 Svaki token koji sken vidi dobiva red u `token_tier` (hype.db): **klasu** (`moonshot` mcap < $150k i mlađi od 3 dana, `stabilni` mcap > $2M i stariji od 7 dana, `event` pravi token iz kalendara, inače `rizican`; granice u `tiers/config.json`), **razinu** do koje je stigao (T0 besplatno sito, T1 rani kupci preko Heliusa, T2 pun rug filter ili X buzz, T3 duboko) i koliko je Helius kredita potrošio. Skupe provjere u `run_hype.py scan` i Apify izvori dobivaju samo tokene koji su prošli T0; `run_paper.py` upisuje T2 kad napravi rug check.
 
 T0 pada **samo na mehanici ruga** (aktivan mint ili freeze authority, LP nezaključan izvan launchpada; pump.fun tokeni prolaze bez poziva, ostali preko RugCheck izvještaja keširanog 6 h). Likvidnost, top 10 holderi, dev udio i bundleri nisu pragovi nego značajke za učenje. Tokeni ispod `--min-liq` ili iznad `--max-mcap` ulaze u `token_tier` kao `t0=nije` i `track` im prati cijenu, pa `eval` vidi i što su pragovi propustili. Oblik puta do mcapa iz snimaka (`put_brzina`, `put_skokovitost`, `put_zadrzavanje`) ulazi u značajke s težinom 0 dok ih fit ne nauči.
+
+### Puls i snaga (`hype/pulse.py`)
+
+Token koji je stigao do razine 1 u zadnjih 24 h ostaje u **svakom** skenu (svake 2 min) i kad ga feedovi više ne nose (izvor `zadrzan`, najviše 30 tokena, `tiers/config.json` → `zadrzi`), pa su njegova ocjena, confidence i Šansa uvijek svježi. Svaki prolaz upisuje red u `token_pulse` (cijena, mcap, volumen 5 min / 1 h, kupnje i prodaje), a broj holdera dolazi iz Heliusa (`getTokenAccounts`, 10 kredita po stranici, najviše 3 stranice) najviše svakih 30 min po tokenu i do 20.000 kredita dnevno, ili besplatno s pump.fun ploče. Iz te serije (zadnjih 6 h) nastaju značajke koje petlja uči kao i sve druge: `snaga_volumen` i `snaga_txn` (zadnji sat prema najboljem satu), `rast_holdera` (%/h, 10 = 1) i `organski` (novi holderi po transakciji; wash-trading vrti transakcije bez novih holdera). Početne težine 6/6/8/6. Rani kupci preko Heliusa keširaju se 6 h po tokenu, pa zadržani token ne plaća tu provjeru svaka 2 min. Puls se čuva 7 dana.
 
 ## Petlja učenja (`run_learn.py`, `learn/`)
 
@@ -209,7 +227,7 @@ Ocjena je ponderirani prosjek samo izmjerenih značajki: provjera koja nije rađ
 
 KOL tracker je isključen dok mu ne daš budžet (`daily_usd.kol_monitor`) i popis računa. Svaki praćeni račun košta oko $3.24 mjesečno. Pokretanje: `KOL_HOOK_KEY=... python3 run_hype.py kol --handles a,b --base-url https://<dashboard>`; zaustavljanje s `--stop`.
 
-Stranica **Radar** u dashboardu (`run_ui.py`, `/radar`) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
+Stranica **Zadnji sken** u dashboardu (`run_ui.py`, `/radar`, grupa Tokeni) prikazuje kandidate iz zadnjeg prolaza s razlozima i rizicima jednostavnim jezikom, narative, smart money, radi li algoritam i Apify potrošnju.
 
 ## Tržište: volumen po platformama (`run_market.py`)
 

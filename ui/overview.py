@@ -94,6 +94,8 @@ def _card(r):
         why = []
     ok = [lab for lab, v, _ in r["checks"] if v]
     bad = [lab for lab, v, _ in r["checks"] if v is False]
+    from hype import pulse
+    snaga = pulse.describe(r["features"])
     return (f'<button class="cand stat" data-mint="{esc(r["token"])}" type=button>'
             f'<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:17px">{esc(r["symbol"] or short(r["token"]))}</b>'
             f'<span title="Šansa za skok"><b style="font-size:17px">{r["sansa"]}</b> <span class=mut style="font-size:12px">šansa · conf {r["conf"]}</span></span></div>'
@@ -101,6 +103,7 @@ def _card(r):
             f' {razinab(r["razina"])} {klasab(r["klasa"])}'
             f' <span class=mut>{usd(r["mcap"])[0]} mcap · {ago(r["last_seen"])[0]}</span></div>'
             f'<div style="font-size:12px">{" ".join(badge("✓ " + x, "good") for x in ok)} {" ".join(badge("✗ " + x, "bad") for x in bad)}</div>'
+            + (f'<div style="font-size:12px;margin-top:6px;color:var(--good)">{esc(snaga)}</div>' if snaga else "")
             + (f'<div class=mut style="font-size:12px;margin-top:6px">{esc(why[0])}</div>' if why else
                f'<div class=mut style="font-size:12px;margin-top:6px">{esc(r["conf_parts"][0][1])}</div>' if r["conf_parts"] else "")
             + "<div style='font-size:12px;margin-top:6px;color:var(--acc)'>Klikni za analizu i dokaze →</div></button>")

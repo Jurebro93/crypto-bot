@@ -4,13 +4,14 @@ import html
 import json
 import time
 from urllib.parse import quote
+from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
     ("Pregled", "/", [("/", "Pregled")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Radar"), ("/kol", "KOL-ovi"), ("/events", "Eventi")]),
+    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/kol", "KOL-ovi"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
     ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
+    ("Trading", "/paper", [("/paper", "Demo trading"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
                                 ("/prijedlozi", "Prijedlozi")]),
     ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
                           ("/outputs", "Izvještaji")]),
@@ -19,6 +20,69 @@ NAV = [
 NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
               "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni",
               "/prijava": "Trading"}
+
+
+# one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
+# (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
+INTRO = {
+    "/": ("Odgovor na pitanje \"što sad?\"", "Demo rezultat, istaknuti tokeni po klasi poredani po Šansi za skok i tablica tokena "
+          "koji su prošli više analiza. Sve ostalo (rast baze, klasteri walleta, stanje baza) je sklopljeno ispod.",
+          "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
+    "/tokens": ("Sve što alat zna o svakom tokenu", "Svaki token viđen u zadnjih 7 dana kroz sve analize (hype, X, smart money, "
+                "KOL, holderi, rug, event, demo), poredan po Šansi; odvojeno event tokeni, stariji i odbačeni.",
+                "Povijest i puna slika; za trenutak zadnjeg prolaza služi Zadnji sken, za odluku Pregled."),
+    "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (svake 2 min) s razlozima i rizicima, "
+               "odbačeni, narativi (X trendovi, kopije), smart money, radi li ocjena, Apify trošak.",
+               "Prvi sloj cjevovoda: sirovi signali s DexScreenera, pump.funa i X-a prije skupljih provjera."),
+    "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar događaja s hype ocjenom i tokeni koje je DexScreener našao "
+                "za svaki (pravi vs. kopije).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
+    "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
+                 "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su značajka u hype ocjeni i T1 provjeri; "
+                 "rotacijski devovi su upozorenje."),
+    "/wallet/": ("Jedan wallet do detalja", "Trejdovi, PnL, tokeni u kojima je bio rano, oznake.",
+                 "Dokaz iza značajki smart money i klastera na stranici tokena."),
+    "/token/": ("Jedan token kroz sve slojeve", "Šansa, confidence, klasa i razina, Za/Protiv, pa svaki sloj (event, hype, rug, "
+                "demo, walleti) sklopljen sa sažetkom.", "Mjesto gdje se svaki broj s Pregleda može provjeriti do izvora."),
+    "/paper": ("Bi li bot zaradio da trguje", "Demo trgovanje bez novca: ulazi po pravilima, izlazi, rezultat, dnevni pregled "
+               "s greškama i lekcijama, kalibracija confidencea.", "Ishodi demo trejdova hrane petlju učenja; pravi trading "
+               "(run_trade) samo preslikava ove ulaze."),
+    "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
+                    "Usporedba ljudskog izbora s botovim na istim tokenima."),
+    "/prijedlozi": ("Što bi alat trebao raditi drugačije", "Prijedlozi korisnika i njihov status.", "Ulaz za sljedeće faze razvoja."),
+    "/learn": ("Što alat uči iz ishoda", "Skok po klasi, lift značajki, udio skokova po rasponu sirovih vrijednosti, parovi, "
+               "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara petlju: ishodi iz Pregleda i Demo tradinga "
+               "mijenjaju težine kojima skener ocjenjuje sutra."),
+    "/criteria": ("Pravila i težine, uživo iz koda", "Svaki prag i težina po modulu: eventi, DexScreener, klase i razine, hype, "
+                  "rug filter, walleti, confidence, demo.", "Referenca: kad te zanima zašto je broj takav kakav jest."),
+    "/market": ("Je li tržište vruće ili hladno", "Volumen po launchpadima i Solana DEX-u (DefiLlama), režim 0-100.",
+                "Kontekstna značajka market_regime u hype ocjeni; težinu joj uči petlja."),
+    "/usage": ("Koliko trošimo i gdje curi", "Helius krediti i Apify dolari po modulu, dnevno i mjesečno, upozorenja.",
+               "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
+    "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
+                 "Sirovi izlaz za provjeru; sve bitno iz njih je i u bazama i na stranicama."),
+    "/watch": ("Kreću li tokeni prije eventa", "Tokeni vezani uz veće evente prate se od 14 dana prije: satne snimke "
+               "volumena i kupnji, kupci preko Heliusa usporedno s registrom walleta, korelacija s približavanjem eventa.",
+               "Nastavak Eventa: pokazuje skuplja li se volumen i smart money prije eventa, prije nego token uđe u skener."),
+    "/kol": ("Tko zove tokene i što se nakon toga dogodi", "KOL-ovi i influenceri s X-a i Telegrama, njihovi pozivi s linkovima, "
+             "pomak cijene i volumena poslije, grupe koje zovu zajedno, moć poziva.", "Značajka koordiniranog poziva u hype ocjeni "
+             "i izvor rotacijskih dev walleta."),
+}
+
+
+def intro_html(path):
+    key = path if path in INTRO else next((k for k in INTRO if k != "/" and path.startswith(k.rstrip("/") + "/")), None)
+    if key is None:
+        return ""
+    cilj, sto, uloga = INTRO[key]
+    return (f"<div class=intro><b>{esc(cilj)}.</b> {esc(sto)} <span class=mut>Uloga u cjelini: {esc(uloga)}</span></div>")
+
+
+def with_intro(body, path):
+    """The intro box goes right under the page title, or at the top when the page has no <h1>."""
+    intro = intro_html(path)
+    if not intro:
+        return body
+    return body.replace("</h1>", "</h1>" + intro, 1) if "</h1>" in body else intro + body
 
 
 def nav_group(path):
@@ -42,7 +106,9 @@ header b{margin-right:16px}header a{padding:12px 10px;color:var(--mut);text-deco
 header a.on{color:var(--fg);border-color:var(--acc)}
 nav.sub{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:4px;flex-wrap:wrap}
 nav.sub a{padding:8px 10px;font-size:13px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
-nav.sub a.on{color:var(--fg);border-color:var(--mut)}main{max-width:1400px;margin:0 auto;padding:16px}
+nav.sub a.on{color:var(--fg);border-color:var(--mut)}
+.intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:14px}
+main{max-width:1400px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-size:14px;margin:16px 0 6px}
 .mut{color:var(--mut)}.tdesc{color:var(--mut);font-size:13px;margin:4px 0 8px;padding-left:8px;border-left:3px solid var(--line)}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
@@ -83,8 +149,8 @@ JS = """
  document.addEventListener('focusin',e=>{const t=e.target.closest('.tip');if(t)show(t)});
  document.addEventListener('click',e=>{const t=e.target.closest('.tip');if(t){e.stopPropagation();show(t)}},true);
  addEventListener('scroll',hide,true)})();
-document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach((th,i)=>th.onclick=e=>{if(e.target.closest('.tip'))return;
- const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
+document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach(th=>th.onclick=e=>{if(e.target.closest('.tip'))return;
+ const i=[...th.parentNode.cells].indexOf(th),b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
  const v=r=>{const c=r.cells[i];const s=c?(c.dataset.v??c.innerText):'';const n=parseFloat(s.replace(/[$,%+ ]/g,''));return isNaN(n)?s.toLowerCase():n};
  rows.sort((a,c)=>{const x=v(a),y=v(c);return (x>y?1:x<y?-1:0)*(asc?1:-1)});rows.forEach(r=>b.appendChild(r))})});
 document.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=()=>{const q=inp.value.toLowerCase();
@@ -104,8 +170,8 @@ def page(title, body, path="/"):
     if len(pages) > 1:
         sub = "<nav class=sub>" + "".join(f'<a href="{h}" class="{"on" if h == path else ""}">{t}</a>' for h, t in pages) + "</nav>"
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
-            f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}</style></head><body>"
-            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{body}</main><script>{JS}</script></body></html>")
+            f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}{COLS_CSS}</style></head><body>"
+            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{with_intro(body, path)}</main><script>{JS}{COLS_JS}</script></body></html>")
 
 
 def tdesc(text):

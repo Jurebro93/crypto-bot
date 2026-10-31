@@ -23,6 +23,7 @@ import sys
 import time
 
 from dexscreener import client
+from exits import profiles as exits_profiles
 from paper import dca, review, sim, store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -159,6 +160,42 @@ def rug_verdict(con, mint, cfg, now):
         return None, None, []
 
 
+def klasa_of(tokens):
+    """token -> class from token_tier (hype.db, read-only); event tokens are tagged by the caller."""
+    con = _ro(HYPE_DB)
+    if con is None or not tokens:
+        return {}
+    try:
+        q = ",".join("?" * len(tokens))
+        return dict(con.execute(f"SELECT token, klasa FROM token_tier WHERE token IN ({q}) AND klasa IS NOT NULL",
+                                list(tokens)))
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        con.close()
+
+
+def kol_calls(tokens, since):
+    """token -> newest influencer call timestamp (kol.db, read-only), for the KOL hold in the exit rules."""
+    path = os.path.join(HERE, "kol.db")
+    con = _ro(path) if os.path.exists(path) and os.path.getsize(path) else None
+    if con is None or not tokens:
+        return {}
+    try:
+        q = ",".join("?" * len(tokens))
+        return dict(con.execute(f"SELECT token, MAX(ts) FROM calls WHERE kind='call' AND ts>=? AND token IN ({q}) "
+                                "GROUP BY token", [since] + list(tokens)))
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        con.close()
+
+
+def _n_open(con):
+    """Open trades that take a slot; a moonbag (stake already back, small rest riding) does not."""
+    return sum(1 for _, _, _, pos in store.open_trades(con) if not pos.get("bag"))
+
+
 def intake(cfg, now=None, quiet=False):
     """Decide every new candidate once; a skipped one is taken later if its hype score climbs over min_score."""
     now = now or time.time()
@@ -172,7 +209,9 @@ def intake(cfg, now=None, quiet=False):
     if not cands:
         return []
     mk = market(cands) or {}
-    n_open = len(store.open_trades(con))
+    n_open = _n_open(con)
+    klase = klasa_of(cands)
+    ex_state = exits_profiles.load()
     day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
     n_today = con.execute("SELECT COUNT(*) FROM trades WHERE opened_ts>=?", (day0,)).fetchone()[0]
     opened = []
@@ -199,8 +238,10 @@ def intake(cfg, now=None, quiet=False):
             if c["rug_verdict"] in cfg["block_verdicts"]:
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
             else:
-                pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg)
-                c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg, mcap)
+                k = "event" if c["origin"] == "event" else klase.get(t) or "default"
+                cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state)  # learned exits of its class
+                pos = sim.open_position(price, liq, now, cfg["size_usd"], cfg_t)
+                c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
                 c["decision"] = "taken"
                 c["reason"] = f"score {s:.0f}" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                 n_open, n_today = n_open + 1, n_today + 1
@@ -231,6 +272,10 @@ def tick(cfg, now=None, quiet=False):
     trades = store.open_trades(con)
     tracked = {t for (t,) in con.execute("SELECT token FROM candidates WHERE decision!='ignored' AND first_ts>=?",
                                          (now - cfg["track_h"] * 3600,))}
+    # a moonbag can ride for days: price it every 10 minutes instead of every minute (fewer ticks on the 1 GB disk)
+    bags = {t for _, t, _, pos in trades if pos.get("bag")} - tracked - {t for _, t, _, p in trades if not p.get("bag")}
+    if int(now // 60) % 10:
+        trades = [x for x in trades if x[1] not in bags]
     tokens = tracked | {t for _, t, _, _ in trades}
     con.close()
     if not tokens:
@@ -243,9 +288,12 @@ def tick(cfg, now=None, quiet=False):
         price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))  # vanished pair = liquidity 0 = rug
         store.tick(con, t, now, price, liq, mcap)
     closed = []
+    calls = kol_calls({t for _, t, _, _ in trades}, now - 6 * 3600)
     for tid, t, sym, pos in trades:
         price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))
         cfg_t = {**cfg, **json.loads(con.execute("SELECT config FROM trades WHERE id=?", (tid,)).fetchone()[0])}
+        if t in calls:
+            pos["kol_until"] = sim.kol_until([calls[t]], now, cfg_t)
         n_fills = len(pos["fills"])
         sim.step(pos, price, liq, now, cfg_t)
         for f in pos["fills"][n_fills:]:

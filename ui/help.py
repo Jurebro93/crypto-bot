@@ -21,6 +21,13 @@ HELP = {
            "koraku, 1 = sve odjednom), zadržavanje (mcap prema vrhu, 1 = na vrhu).",
     "market_regime": "Koliko je tržište (launchpadi i Solana DEX) bilo vruće jučer, 0-1 sa stranice Tržište. Isto za sve tokene u skenu: "
                      "kontekst, a težinu mu uči petlja (početno 0).",
+    "Snaga": "Trajna snaga iz pulsa (zadnjih 6 h, očitanje svaka 2 min): volumen i transakcije prema najboljem satu, rast "
+             "holdera po satu i omjer novih holdera i transakcija (organski). Token koji drži volumen i raste u holderima "
+             "dobiva bodove; težine uči petlja.",
+    "Puls": "Očitanja svakih 2 min za tokene koji su stigli do razine 1 u zadnjih 24 h: cijena, mcap, volumen 5 min / 1 h, "
+            "kupnje i prodaje, broj holdera (Helius svakih 30 min, pump.fun kad postoji).",
+    "Holderi (puls)": "Broj walleta s pozitivnim stanjem; izvor helius (točno, do 3000) ili pumpfun (s ploče).",
+    "Zadnji sken": "Stranica s rezultatom zadnjeg prolaza hype skenera (zadnja 3 h). Nije isto što i Svi tokeni: ovdje je trenutak, tamo povijest.",
     "Hype max": "Najviša hype ocjena koju je token ikad dobio.",
     "Hype ≥ 50": "Hype ocjena je bila barem 50 (prag za ulaz u demo trading).",
     "X buzz": "Na X-u ga spominje barem 5 različitih autora ili barem jedan influencer (10k+ pratitelja).",
@@ -120,6 +127,13 @@ HELP = {
     "Prvi": "Udio poziva u kojima je on prvi autor kojeg smo vidjeli na tom tokenu.",
     "Hvalisanja": "Postovi tipa '15x on $X': hvalisanje nakon skoka, ne poziv. Ne ulaze u ocjenu.",
     "Zadnji poziv": "Kad je zadnji put zvao neki token.",
+    "Medijan pregleda": "Medijan pregleda njegovih postova s pozivom (doseg). Pregledi bolje predviđaju skok od pratitelja.",
+    "Engagement": "Medijan (lajkovi + 2× repostovi) / pratitelji po pozivu: koliko mu publika stvarno reagira.",
+    "Razlog": "Zašto je na listi za praćenje uživo: broj izmjerenih poziva, pogodak, medijan rasta, udio kasnih poziva.",
+    "Na listi od": "Otkad je KOL na listi za praćenje uživo.",
+    "Praćenje": "uživo = monitor šalje njegove nove postove odmah; čeka pokretanje = ulazi pri sljedećem krugu; "
+                "isključeno = nema javnog URL-a ili Apify ključa.",
+    "Zadnja sinkronizacija": "Zadnji put kad je bot javio monitoru listu (svakih 6 h ili kad se lista promijeni).",
     "Vrsta poziva": "poziv = post s CA prije/za vrijeme rasta; hvalisanje = '20x on…' nakon skoka; ticker = post bez CA, "
                     "samo $TICKER (možda drugi token istog imena).",
     "Post": "Link na originalni post na X-u.",

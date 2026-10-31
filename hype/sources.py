@@ -199,10 +199,10 @@ def kol_counts(con, hours=6):
     return {k: len(v) for k, v in by_ca.items()}, {k: len(v) for k, v in by_tk.items()}
 
 
-def kol_monitor(handles, webhook_url, stop=False):
+def kol_monitor(handles, webhook_url, stop=False, hours=None):
     """Start (or stop) the xquik monitor for these X accounts; it posts each new tweet to webhook_url.
     Costs ~$0.0045 per account per hour (~$3.24 per account per month) while it runs."""
     inp = {"twitterHandles": handles, "monitorName": "crypto-bot-kol", "webhookUrls": webhook_url,
            "newPosts": True, "replies": False, "quotes": True, "reposts": True, "deletedPosts": True,
            "profileChanges": False, "stop": stop}
-    return apify.run("kol_monitor", KOL, inp)
+    return apify.run("kol_monitor", KOL, inp, units=None if hours is None else hours * len(handles))
