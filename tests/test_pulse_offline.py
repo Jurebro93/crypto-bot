@@ -36,8 +36,21 @@ class Pulse(unittest.TestCase):
         tstore.upsert(self.con, "C", NOW - 3600, razina=0, score=95, t0="prolaz")    # never reached T1: out
         tstore.upsert(self.con, "D", NOW - 30 * 3600, razina=1, score=99, t0="prolaz")  # too old: out
         tstore.upsert(self.con, "E", NOW - 600, razina=1, score=80, t0="prolaz")
-        self.assertEqual(pulse.retained(self.con, CFG, NOW), ["E", "A"])
-        self.assertEqual(pulse.retained(self.con, {**CFG, "max": 1}, NOW), ["E"])
+        self.assertEqual(pulse.retained(self.con, CFG, NOW, featured=[]), ["E", "A"])
+        self.assertEqual(pulse.retained(self.con, {**CFG, "max": 1}, NOW, featured=[]), ["E"])
+
+    def test_retained_keeps_featured_and_prefers_higher_tier(self):
+        for i in range(40):  # 40 fresh T1 tokens with better hype scores than the featured one
+            tstore.upsert(self.con, f"T{i}", NOW - 60, razina=1, score=90 - i * 0.5, t0="prolaz")
+        tstore.upsert(self.con, "FEAT", NOW - 7 * 3600, razina=1, score=20, t0="prolaz")   # featured on Pregled, low hype
+        tstore.upsert(self.con, "T2X", NOW - 5 * 3600, razina=2, score=10, t0="prolaz")    # reached T2: ahead of T1 crowd
+        kept = pulse.retained(self.con, CFG, NOW, featured=["FEAT"])
+        self.assertEqual(kept[0], "FEAT")
+        self.assertEqual(kept[1], "T2X")
+        self.assertEqual(len(kept), CFG["max"])
+        # featured tokens are never cut by max
+        kept = pulse.retained(self.con, {**CFG, "max": 2}, NOW, featured=["FEAT", "F2", "F3"])
+        self.assertEqual(kept, ["FEAT", "F2", "F3"])
 
     def test_strength_needs_an_hour(self):
         rows = [{"ts": NOW - 600, "vol_h1": 1, "buys_h1": 1, "sells_h1": 1, "buys_m5": 0, "sells_m5": 0, "holders": None},
