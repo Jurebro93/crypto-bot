@@ -4,6 +4,7 @@ import html
 import json
 import time
 from urllib.parse import quote
+from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
 # five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
 NAV = [
@@ -148,8 +149,8 @@ JS = """
  document.addEventListener('focusin',e=>{const t=e.target.closest('.tip');if(t)show(t)});
  document.addEventListener('click',e=>{const t=e.target.closest('.tip');if(t){e.stopPropagation();show(t)}},true);
  addEventListener('scroll',hide,true)})();
-document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach((th,i)=>th.onclick=e=>{if(e.target.closest('.tip'))return;
- const b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
+document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach(th=>th.onclick=e=>{if(e.target.closest('.tip'))return;
+ const i=[...th.parentNode.cells].indexOf(th),b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
  const v=r=>{const c=r.cells[i];const s=c?(c.dataset.v??c.innerText):'';const n=parseFloat(s.replace(/[$,%+ ]/g,''));return isNaN(n)?s.toLowerCase():n};
  rows.sort((a,c)=>{const x=v(a),y=v(c);return (x>y?1:x<y?-1:0)*(asc?1:-1)});rows.forEach(r=>b.appendChild(r))})});
 document.querySelectorAll('input[data-f]').forEach(inp=>inp.oninput=()=>{const q=inp.value.toLowerCase();
@@ -169,8 +170,8 @@ def page(title, body, path="/"):
     if len(pages) > 1:
         sub = "<nav class=sub>" + "".join(f'<a href="{h}" class="{"on" if h == path else ""}">{t}</a>' for h, t in pages) + "</nav>"
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
-            f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}</style></head><body>"
-            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{with_intro(body, path)}</main><script>{JS}</script></body></html>")
+            f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}{COLS_CSS}</style></head><body>"
+            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{with_intro(body, path)}</main><script>{JS}{COLS_JS}</script></body></html>")
 
 
 def tdesc(text):
