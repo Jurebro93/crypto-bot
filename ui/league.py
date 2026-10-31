@@ -152,7 +152,7 @@ def page(qs, user):
             mc_now = t["entry_mcap"] * price / t["entry_px"] if price and t["entry_mcap"] and t["entry_px"] else None
             dca_hint = (" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
                         f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else ""
-            rows.append([tlink(t["token"], t["symbol"]) + dca_hint, ago(t["opened_ts"]), usd(t["size_usd"]),
+            rows.append([tlink(t["token"], t["symbol"]) + dca_hint + _auto_cell(t), ago(t["opened_ts"]), usd(t["size_usd"]),
                          num(t["entry_px"], "{:.4g}"), num(price, "{:.4g}"), usd(t["entry_mcap"]), usd(mc_now),
                          signed(price / t["entry_px"] - 1 if price else None, "{:+.0%}"), signed(pnl),
                          usd(liq), sell_btn])
@@ -167,6 +167,8 @@ def page(qs, user):
             ["Token", "Kupljeno", ("Ulog", "n"), ("Ulazna cijena", "n"), ("Sada", "n"), ("MC ulaz", "n"),
              ("MC sada", "n"), ("Pomak", "n"),
              ("PnL $ (ako prodaš sad)", "n"), ("Likvidnost", "n"), ""], rows, empty="Nemaš otvorenih pozicija."))
+        if mine:
+            b.append(_auto_form(mine))
 
         size = f'<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
         b.append('<h2>Kupi bilo koji token</h2><form method=post action="/natjecanje/buy" class="card flt">'
@@ -231,6 +233,30 @@ def ideas_page(qs, user):
         con.close()
 
 
+def _auto_cell(t):
+    from league import auto
+    d = auto.describe(t.get("auto"))
+    part = f" · već prodano za ${t['realized']:,.2f}" if t.get("realized") else ""
+    return f'<div class=mut style="font-size:12px">{esc(d + part)}</div>' if d or part else ""
+
+
+def _auto_form(mine):
+    """Auto sell: smart exit (learned rules) or your own TP/SL in percent or market cap."""
+    opts = "".join(f'<option value={t["id"]}>{esc(t["symbol"] or t["token"][:6])} (MC ulaz {_mc(t["entry_mcap"])})</option>'
+                   for t in mine)
+    return ('<h3>Auto sell</h3><p class=tdesc>Alat prodaje umjesto tebe (provjera svake minute, i preko noći). '
+            '<b>Pametni izlaz</b> koristi pravila naučena iz povijesti za klasu tokena (djelomične prodaje, trailing, moonbag, '
+            'pauza nakon calla influencera; vidi <a href=/izlazi>Izlazi</a>). <b>Moj TP/SL</b>: upiši postotak '
+            '(<code>100%</code>, <code>-30%</code>; SL <code>30</code> znači -30%) ili market cap (<code>$500k</code>, '
+            '<code>1.2M</code>), alat sam preračuna cijenu. Djelomične prodaje se vide uz poziciju, a novac se vraća na račun '
+            'kad se pozicija zatvori.</p>'
+            '<form method=post action="/natjecanje/auto" class="card flt">'
+            f'<select name=id>{opts}</select><select name=mode><option value=smart>pametni izlaz</option>'
+            '<option value=tpsl>moj TP/SL</option><option value=off>isključi auto sell</option></select>'
+            '<input name=tp placeholder="TP: 100% ili $500k" size=16><input name=sl placeholder="SL: -30% ili $40k" size=16>'
+            '<button>Postavi</button></form>')
+
+
 def post(path, form, user):
     """Handle a form; returns where to send the browser next."""
     back = "/prijedlozi" if path.startswith("/prijedlozi") else "/natjecanje"
@@ -267,6 +293,11 @@ def post(path, form, user):
                 pnl = store.sell(con, user, tid, price, liq, mcap=mcap)
             msg = f"Prodano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
             return f"{back}?ok={quote(msg)}"
+        if path == "/natjecanje/auto":
+            from league import auto
+            a = auto.set_auto(con, user, int(form.get("id") or 0), form.get("mode", ""), form.get("tp", ""),
+                              form.get("sl", ""))
+            return f"{back}?ok={quote(auto.describe(a) or 'Auto sell isključen')}"
         if path == "/prijedlozi/add":
             store.add_idea(con, user, form.get("text"))
             return f"{back}?ok={quote('Hvala, prijedlog je spremljen.')}"
