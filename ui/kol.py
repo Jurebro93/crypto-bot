@@ -75,11 +75,24 @@ POSTS = "kind NOT IN ('buy', 'sell')"
 
 def _wallet_of(con):
     """handle in calls ('w:<name>' or the KOL's X handle) -> wallet address, from kol_ids."""
+    out = {}
     try:
         from kol.collect import wallet_handles
-        return {h: w for w, h in wallet_handles(con).items()}
+        out = {h: w for w, h in wallet_handles(con).items()}
     except Exception:
-        return {}
+        pass
+    try:  # tracked wallets that are not in kol_ids are stored as 'w:<first 6 chars>': find them in the swap feed
+        import sqlite3
+        from kol.collect import HYPE_DB
+        src = sqlite3.connect(f"file:{HYPE_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            for w, in src.execute("SELECT DISTINCT wallet FROM chain_trades"):
+                out.setdefault("w:" + w[:6], w)
+        finally:
+            src.close()
+    except Exception:
+        pass
+    return out
 
 
 def wallet_cell(h, wmap):

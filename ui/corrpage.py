@@ -13,7 +13,8 @@ CONF = {"visoko": "good", "srednje": "warn", "nisko": ""}
 def _acct(h):
     if h.startswith("tg:"):
         name = h[3:]
-        return f'<a href="https://t.me/{quote(name)}" target=_blank rel=noopener>✈ {esc(name)}</a>'
+        return (f'<a href="/kol/{quote(h)}">✈ {esc(name)}</a> <a href="https://t.me/{quote(name)}" target=_blank '
+                f'rel=noopener class=mut style="text-decoration:none">↗</a>')
     if h.startswith("w:"):  # tracked wallet without a known X account: no X profile to open
         return f'<a href="/kol/{quote(h)}">👛 {esc(h[2:])}</a>'
     return (f'<a href="/kol/{quote(h)}">@{esc(h)}</a> '
@@ -186,4 +187,12 @@ def page(qs):
     body.append("</details>")
     if d.get("sto_jos"):
         body.append("<h2>Što bi još pomoglo</h2><ul>" + "".join(f"<li>{esc(x)}</li>" for x in d["sto_jos"]) + "</ul>")
-    return "Korelacije", "".join(body)
+    return "Korelacije", _handles("".join(body))
+
+
+def _handles(html):
+    """Stored group names and AI texts carry raw handles ('@tg:chan', 'Grupa tg:chan', '@w:name'): show them the way the
+    rest of the page does (✈ chan, 👛 name). Attribute values (data-v="tg:…") are left alone."""
+    import re
+    html = re.sub(r'(?<!=")@?tg:([A-Za-z0-9_]+)', r"✈ \1", html)
+    return re.sub(r'(?<!=")@w:([A-Za-z0-9_]+)', r"👛 \1", html)

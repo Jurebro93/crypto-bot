@@ -36,7 +36,7 @@ def reasons(f, x):
         n = len(x.get("smart_buyers") or [])
         out.append((1.0, f"{n} provjerenih smart walleta je među prvim kupcima."))
     if g("kol_wallets") >= 0.4:
-        out.append((g("kol_wallets"), f"KOL walleti ga trejdaju ({(x.get('pumpfun') or {}).get('kolCount')} na pump.fun)."))
+        out.append((g("kol_wallets"), "KOL walleti ga trejdaju" + (f" ({n} na pump.fun)." if (n := (x.get('pumpfun') or {}).get('kolCount')) else " (pump.fun).")))
     if g("kol_x"):
         out.append((g("kol_x"), "Praćeni influenceri su ga objavili na X-u."))
     if g("x_buzz") >= 0.25:
