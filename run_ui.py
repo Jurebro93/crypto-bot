@@ -12,6 +12,7 @@ Only the Python standard library. On a VPS prefer an SSH tunnel over opening the
 """
 import argparse
 import base64
+import gzip
 import hmac
 import os
 import sys
@@ -22,7 +23,8 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage, watch  # noqa: E402
-from ui.html import esc, page  # noqa: E402
+from ui.html import SHOW_ALL, esc, page  # noqa: E402
+from ui import pagecache  # noqa: E402
 from ui import league, real  # noqa: E402
 from league import store as league_store  # noqa: E402
 
@@ -73,6 +75,21 @@ def route(path, qs):
     return None
 
 
+def build(path, qs):
+    """(code, html bytes) of a route() page with the banner; used through ui/pagecache."""
+    SHOW_ALL.set(qs.get("sve") == "1")
+    try:
+        res = route(path, qs)
+        if res is None:
+            code, html = 404, page("404", "<h1>Nema te stranice</h1><p><a href=/>Na pregled</a></p>", path)
+        else:
+            code, html = 200, page(res[0], _banner(path) + res[1], path)
+    except Exception:
+        code = 500
+        html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+    return code, html.encode("utf-8")
+
+
 def _banner(path):
     """Spend warnings on top of every page (the /usage page lists them itself)."""
     if path == "/usage":
@@ -95,6 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             return self._challenge()
         if path in ("/natjecanje", "/prijedlozi", "/moji-tradeovi"):
+            SHOW_ALL.set(qs.get("sve") == "1")
             fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page, "/moji-tradeovi": real.page}[path]
             try:
                 html = page(*fn(qs, self.user), path)
@@ -109,24 +127,25 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
-        try:
-            res = route(path, qs)
-            if res is None:
-                code, html = 404, page("404", "<h1>Nema te stranice</h1><p><a href=/>Na pregled</a></p>", path)
-            else:
-                code, html = 200, page(res[0], _banner(path) + res[1], path)
-        except Exception:
-            code = 500
-            html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
-        self._send(code, html.encode("utf-8"))
+        key = (path, u.query, None)    # route() pages are the same for every user
+        code, raw, gz = pagecache.get(key, lambda: build(path, qs))
+        self._send(code, raw, gz=gz)
 
-    def _send(self, code, body, ctype="text/html"):
+    def _send(self, code, body, ctype="text/html", gz=None):
+        """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
+        zipped = "gzip" in (self.headers.get("Accept-Encoding") or "") and len(body) > 1024
+        if zipped and gz is None:
+            gz = gzip.compress(body, 5)
+        out = gz if zipped else body
         self.send_response(code)
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Vary", "Accept-Encoding")
+        if zipped:
+            self.send_header("Content-Encoding", "gzip")
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(out)
 
     def do_POST(self):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
@@ -137,6 +156,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if AUTH and not self._authorized():
             return self._challenge()
+        pagecache.clear()   # a run or a trade changes what the pages show
         path = unquote(urlsplit(self.path).path)
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
@@ -231,6 +251,8 @@ def main(argv=None):
         from league import auto
         from ui.paper import market
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
+    # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
+    pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
           + "  (Ctrl+C za kraj)")
     try:
