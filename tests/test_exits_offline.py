@@ -150,3 +150,16 @@ class AutoSell(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Sessions(unittest.TestCase):
+    def test_session_split_and_profile_choice(self):
+        from exits import paths, profiles
+        self.assertEqual(paths.session_of(1_800_000_000 - 1_800_000_000 % 86400 + 3 * 3600), "asia")
+        self.assertEqual(paths.session_of(1_800_000_000 - 1_800_000_000 % 86400 + 10 * 3600), "eu")
+        self.assertEqual(paths.session_of(1_800_000_000 - 1_800_000_000 % 86400 + 20 * 3600), "us")
+        state = {"profiles": {}}
+        profiles.put(state, "moonshot", {"sl": -0.2}, {})
+        profiles.put(state, "moonshot/us", {"sl": -0.3}, {})
+        self.assertEqual(profiles.current(state, "moonshot", CFG, "us")[1], "moonshot/us@1")
+        self.assertEqual(profiles.current(state, "moonshot", CFG, "eu")[1], "moonshot@1")

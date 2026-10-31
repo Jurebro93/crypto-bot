@@ -45,6 +45,16 @@ def make(src, klasa, ts, liq0, mcap0, points, tol=0.03, max_points=160, **extra)
             "pts": compress(points, tol, max_points), **extra}
 
 
+SESSIONS = (("asia", 0, 8), ("eu", 8, 14), ("us", 14, 24))  # UTC hours, same split as kol/sessions.py
+
+
+def session_of(ts):
+    """Trading session by UTC hour: asia 00-08, eu 08-14, us 14-24."""
+    import datetime as dt
+    h = dt.datetime.fromtimestamp(int(ts), dt.timezone.utc).hour
+    return next(name for name, a, b in SESSIONS if a <= h < b)
+
+
 def peak(path):
     return max((m for _, m, _ in path["pts"]), default=1.0)
 
