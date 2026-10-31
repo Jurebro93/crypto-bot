@@ -21,8 +21,12 @@ def _iso_ts(s):
 
 def token_rows(since=None):
     """One row per token with its latest signal, details, rug report, events and paper decision."""
-    sigs = {}
+    from rugfilter import collapse
+    sigs, pk = {}, {}
+    day = time.time() - collapse.WINDOW_H * 3600
     for s in data.hype_signals(limit=50000):
+        if s["ts"] >= day:
+            collapse.add(pk, s["token"], s["ts"], s["mcap"], s["liquidity"])
         r = sigs.setdefault(s["token"], {"last": s, "first_ts": s["ts"], "max": 0})
         r["first_ts"] = min(r["first_ts"], s["ts"])
         r["max"] = max(r["max"], s["score"] or 0)
@@ -65,11 +69,14 @@ def token_rows(since=None):
                                        rugs[t]["verdict"] if t in rugs else None, role, liq, mcap, klasa=tier.get("klasa"))
         if tier.get("t0") == "pad":
             hard = True
+        col = collapse.check(pk.get(t))  # already dumped: never a candidate, whatever the rug filter said
+        if col:
+            hard = True
         sn, an, _, _ = sansa.score(conf, cs)
         out.append({"token": t, "symbol": sym, "checks": cs, "passed": passed, "failed": failed, "hard": hard,
                     "tier": tier, "razina": tier.get("razina"), "klasa": tier.get("klasa"), "sansa": sn, "analysed": an,
                     "conf": conf, "conf_parts": parts, "liq": liq, "rug": rugs.get(t), "events": evs.get(t, []),
-                    "cand": cands.get(t),
+                    "cand": cands.get(t), "collapse": col, "peak": pk.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
                     "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
                     "features": (data.js(s["last"]["features"], {}) or {}) if s else {}})

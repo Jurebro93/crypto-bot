@@ -281,6 +281,15 @@ def verdict(v):
     return badge(v, VERDICT.get(v, "")) if v else "–"
 
 
+def rugcell(r):
+    """Rug column for a token row: collapsed after the fact wins over the rug filter's verdict from before."""
+    col = r.get("collapse")
+    if col:
+        lab = badge("💀 RUGAN −{:.0%}".format(col["drop"]), "bad")
+        return f'<span title="{esc(col["text"])}">{lab}</span>', "ZZ", ""
+    return verdict(r["rug"]["verdict"]) if r.get("rug") else "<span class=mut>–</span>"
+
+
 def klasab(k):
     from tiers.classify import KLASA_HR
     return badge(KLASA_HR.get(k, k), {"moonshot": "warn", "event": "good", "stabilni": ""}.get(k, "bad")) if k else ""

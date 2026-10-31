@@ -271,6 +271,8 @@ def intake(cfg, now=None, quiet=False):
         print(f"  konvergencija: {e}", file=sys.stderr)
         conv = {}
     arm_st = arms.stats(con, cfg.get("arms"))
+    from rugfilter import collapse
+    pk = collapse.peaks(HYPE_DB, list(cands), now=now)
     opened = []
     for t, c in sorted(cands.items(), key=lambda kv: -(kv[1]["score"] or 0)):
         if t not in mk:
@@ -303,6 +305,8 @@ def intake(cfg, now=None, quiet=False):
             c["decision"], c["reason"] = "skip_liq", f"likvidnost {_usd(liq)}"
         elif mcap > cfg["max_mcap"]:
             c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
+        elif collapse.check(pk.get(t), mcap, liq):  # already dumped: never enter after the fact
+            c["decision"], c["reason"] = "skip_rug", "rugan: " + collapse.check(pk.get(t), mcap, liq)["text"]
         elif s < need:
             c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}" + (
                 f"; {c['arm_note']}" if c.get("arm_note") else "")
