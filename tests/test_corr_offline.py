@@ -187,6 +187,9 @@ class Pipeline(unittest.TestCase):
             from ui import corrpage
             title, html = corrpage.page({})
         self.assertIn("Trojka", html)
+        self.assertIn("Malo podataka", html)       # 6 shared tokens: too few for a verdict
+        self.assertIn("Tko kupuje prije poziva", html)
+        self.assertIn("<svg", html)
         self.assertIn("Aktivno sada", html)
         self.assertNotIn("run_corr", html)
 
