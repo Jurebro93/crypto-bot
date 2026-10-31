@@ -1,5 +1,5 @@
 {
- "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka). watch: koliko najboljih KOL-ova pratimo uživo (xquik monitor, ~$0.11 po računu dnevno) i uvjeti za ulazak na listu.",
+ "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka). watch: koliko najboljih KOL-ova pratimo uživo (xquik monitor, ~$0.11 po računu dnevno) i uvjeti za ulazak na listu. converge: skor konvergencije više izvora (X, Telegram, KOL novčanici na lancu), vidi kol/converge.py. chain: koliko KOL novčanika prati Helius webhook. idents: koliko često čitamo javne liste KOL novčanika (KOLscan, Solana Tracker, FOMO tjedno).",
  "group_secs": 1800,
  "good_score": 50,
  "signal_hours": 6,
@@ -8,15 +8,66 @@
  "rug_x": -0.9,
  "prior_calls": 4,
  "prior_score": 35,
- "weights": {"hit": 30, "max24": 20, "r1h": 15, "vol_lift": 15, "first": 10, "no_rug": 10, "prepump": -25},
+ "weights": {
+  "hit": 30,
+  "max24": 20,
+  "r1h": 15,
+  "vol_lift": 15,
+  "first": 10,
+  "no_rug": 10,
+  "prepump": -25
+ },
  "measure_tokens_per_run": 80,
  "flows_per_day": 60,
  "flow_pre_secs": 3600,
  "flow_post_secs": 1800,
  "insider_min_sol": 0.1,
  "rotation_min_tokens": 3,
- "followup": {"per_run": 1, "max_items": 25, "after_h": 1, "again_h": 4, "max_age_h": 24},
- "timeline": {"every_h": 1, "kols": 12, "max_items": 40, "min_calls": 2, "min_followers": 5000, "refresh_d": 1},
- "watch": {"size": 10, "min_calls": 5, "max_prepump": 0.3, "min_hit": 0.5, "resync_h": 6},
- "sessions": {"zone_min_posts": 12, "shrink_n": 30, "factor_min": 0.7, "factor_max": 1.3, "hours_backfill": 15}
+ "followup": {
+  "per_run": 1,
+  "max_items": 25,
+  "after_h": 1,
+  "again_h": 4,
+  "max_age_h": 24
+ },
+ "timeline": {
+  "every_h": 1,
+  "kols": 12,
+  "max_items": 40,
+  "min_calls": 2,
+  "min_followers": 5000,
+  "refresh_d": 1
+ },
+ "watch": {
+  "size": 10,
+  "min_calls": 5,
+  "max_prepump": 0.3,
+  "min_hit": 0.5,
+  "resync_h": 6
+ },
+ "sessions": {
+  "zone_min_posts": 12,
+  "shrink_n": 30,
+  "factor_min": 0.7,
+  "factor_max": 1.3,
+  "hours_backfill": 15
+ },
+ "converge": {
+  "window_min": 30,
+  "fresh_min": 15,
+  "pts_good": 18,
+  "pts_wallet": 22,
+  "pts_other": 3,
+  "pts_platform": 12,
+  "promo_channels": 5,
+  "promo_secs": 120,
+  "min_score": 20
+ },
+ "chain": {
+  "max_wallets": 100,
+  "resync_h": 24
+ },
+ "idents": {
+  "every_h": 24
+ }
 }

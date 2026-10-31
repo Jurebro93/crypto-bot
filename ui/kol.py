@@ -38,17 +38,30 @@ def share(x):
     return ("–", -1, "n") if x is None else (f"{x * 100:.0f}%", x, "n")
 
 
+def profile_url(h):
+    """X profile, Telegram channel ('tg:<name>') or the wallet on Solscan ('w:<name>' has no page)."""
+    if h.startswith("tg:"):
+        return f"https://t.me/{quote(h[3:])}"
+    if h.startswith("w:"):
+        return None
+    return f"https://x.com/{quote(h)}"
+
+
 def klink(h):
-    return (f'<a href="/kol/{quote(h)}">@{esc(h)}</a> '
-            f'<a href="https://x.com/{quote(h)}" target=_blank rel=noopener class=mut style="text-decoration:none">↗</a>')
+    u = profile_url(h)
+    name = f"✈ {h[3:]}" if h.startswith("tg:") else f"@{h}"
+    return (f'<a href="/kol/{quote(h)}">{esc(name)}</a> ' + (
+        f'<a href="{u}" target=_blank rel=noopener class=mut style="text-decoration:none">↗</a>' if u else ""))
 
 
 def post(url):
-    return f'<a href="{esc(url)}" target=_blank rel=noopener>post ↗</a>' if url and "/status/" in url else "–"
+    ok = url and ("/status/" in url or "t.me/" in url or "solscan.io/tx/" in url)
+    return f'<a href="{esc(url)}" target=_blank rel=noopener>post ↗</a>' if ok else "–"
 
 
 def kindb(kind, match):
-    b = badge("poziv", "good") if kind == "call" else badge("hvalisanje", "warn")
+    b = {"call": badge("poziv", "good"), "repost": badge("proslijeđeno"), "buy": badge("kupio", "good"),
+         "sell": badge("prodao", "bad")}.get(kind) or badge("hvalisanje", "warn")
     return b + (" " + badge("ticker") if match == "ticker" else "")
 
 
@@ -301,8 +314,10 @@ def kol_page(handle, qs):
             return "KOL", f"<h1>@{esc(handle)}</h1><p>Nema poziva od ovog računa.</p>"
         s = json.loads(k["stats"] or "{}")
         cfg = _cfg()
-        b = [f'<p><a href="/kol">← KOL-ovi</a></p><h1>@{esc(handle)} <span class=mut>{esc(k["name"] or "")}</span></h1>'
-             f'<p><a href="https://x.com/{quote(handle)}" target=_blank rel=noopener>Profil na X-u ↗</a></p><div class=grid>']
+        b = [f'<p><a href="/kol">← KOL-ovi</a></p><h1>{esc("✈ " + handle[3:] if handle.startswith("tg:") else "@" + handle)} <span class=mut>{esc(k["name"] or "")}</span></h1>'
+             + (f'<p><a href="{profile_url(handle)}" target=_blank rel=noopener>'
+                f'{"Kanal na Telegramu" if handle.startswith("tg:") else "Profil na X-u"} ↗</a></p>' if profile_url(handle) else "")
+             + '<div class=grid>']
         for v, l in [(f"{k['score']:.0f}" if k["score"] is not None else "–", "moć poziva"),
                      (f"{k['power_rel']:.2f}×" if k["power_rel"] is not None else "–", "moć po pratitelju"),
                      (f"{k['followers'] or 0:,}", "pratitelja"), (s.get("measured", 0), "izmjerenih poziva"),

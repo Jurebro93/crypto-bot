@@ -212,6 +212,7 @@ def timeline_handles(con, cfg, now=None):
     watch = [r[0] for r in con.execute("SELECT handle FROM watch ORDER BY score DESC")]
     rows = con.execute("""
         SELECT k.handle FROM kols k JOIN calls c ON c.handle = k.handle AND c.kind = 'call'
+        WHERE k.handle NOT LIKE 'tg:%' AND k.handle NOT LIKE 'w:%'
         GROUP BY k.handle HAVING COUNT(DISTINCT c.token) >= ? OR MAX(COALESCE(k.followers, 0)) >= ?
         ORDER BY COALESCE(k.score, 0) DESC, COUNT(DISTINCT c.token) DESC, COALESCE(k.followers, 0) DESC""",
                        (t["min_calls"], t["min_followers"])).fetchall()
@@ -238,3 +239,77 @@ def timeline(con, cfg, run=None, now=None):
     for h in handles:
         _searched(con, f"tl:{h}", "timeline_kol", now)
     return save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
+
+
+# ---------------- Telegram (tg.db, run_tg.py) and KOL wallets on chain (hype.db chain_trades) ----------------
+
+def from_telegram(con, tg_db=None):
+    """Telegram posts with a CA become calls: author 'tg:<channel>', followers = subscribers, views = post views.
+    A forwarded post is kind 'repost' (the original channel made the call; it is a candidate of its own)."""
+    from tg import store as tstore
+    src = tstore.ro(tg_db)
+    if src is None:
+        return 0
+    last = (con.execute("SELECT ts FROM seen_cache WHERE key='tg:posts'").fetchone() or (0,))[0]
+    try:
+        rows = src.execute("""SELECT p.channel, p.post, p.ts, p.seen_ts, p.text, p.cas, p.views, p.fwd_from, p.source,
+                                     c.subs, c.title
+                              FROM posts p LEFT JOIN channels c ON c.name = p.channel
+                              WHERE p.seen_ts >= ? AND p.cas != '' ORDER BY p.seen_ts""", (last,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        src.close()
+    n, top = 0, last
+    for ch, post, ts, seen, text, cas, views, fwd, source, subs, title in rows:
+        top = max(top, seen)
+        if not ts:
+            continue
+        kind = "repost" if fwd else kind_of(text)
+        base = {"tweet_id": f"tg:{ch}/{post}", "handle": f"tg:{ch}", "ts": ts, "url": f"https://t.me/{ch}/{post}",
+                "text": (text or "")[:600], "followers": subs or 0, "likes": 0, "retweets": 0, "views": views or 0,
+                "kind": kind, "match": "ca", "source": "tg" if source != "tgstat" else "tgstat", "symbol": None,
+                "author": {"name": title, "verified": False}}
+        n += save(con, [dict(base, token=c) for c in cas.split(",") if c])
+    con.execute("INSERT OR REPLACE INTO seen_cache VALUES ('tg:posts', ?)", (top,))
+    return n
+
+
+def wallet_handles(con):
+    """wallet -> author handle: the KOL's X handle as we know it in kols (case-insensitive), else 'w:<name>'."""
+    known = {h.lower(): h for h, in con.execute("SELECT handle FROM kols WHERE handle NOT LIKE 'tg:%'")}
+    out = {}
+    for wallet, name, tw in con.execute("SELECT wallet, name, twitter FROM kol_ids"):
+        if tw:
+            out[wallet] = known.get(tw.lower(), tw)
+        else:
+            out[wallet] = "w:" + (name or wallet[:6])
+    return out
+
+
+def from_chain(con, hype_db=None):
+    """Swaps of tracked KOL wallets (Helius webhook -> hype.db chain_trades) as calls of kind 'buy' / 'sell'.
+    They do not count in the KOL's call score; kol/converge.py uses them (a KOL usually buys before posting)."""
+    path = hype_db or HYPE_DB
+    if not os.path.exists(path):
+        return 0
+    src = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+    last = (con.execute("SELECT ts FROM seen_cache WHERE key='chain:trades'").fetchone() or (0,))[0]
+    try:
+        rows = src.execute("SELECT sig, wallet, mint, side, ts, sol FROM chain_trades WHERE ts >= ? ORDER BY ts",
+                           (last,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        src.close()
+    who = wallet_handles(con)
+    n, top = 0, last
+    for sig, wallet, mint, side, ts, sol in rows:
+        top = max(top, ts)
+        h = who.get(wallet) or "w:" + wallet[:6]
+        n += con.execute("""INSERT OR IGNORE INTO calls (tweet_id, token, handle, ts, url, text, followers, likes,
+            retweets, views, kind, match, source, symbol) VALUES (?,?,?,?,?,?,0,0,0,0,?,?,?,NULL)""",
+                         (f"sig:{sig}", mint, h, ts, f"https://solscan.io/tx/{sig}", f"{side} {sol or 0:.2f} SOL",
+                          side, "wallet", "chain")).rowcount
+    con.execute("INSERT OR REPLACE INTO seen_cache VALUES ('chain:trades', ?)", (top,))
+    return n

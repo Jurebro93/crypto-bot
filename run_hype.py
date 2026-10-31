@@ -156,7 +156,15 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception as e:
         print(f"  kol.db: {e}", file=sys.stderr)
         kol_groups = {}
+    try:  # several good callers across X, Telegram and KOL wallets on chain, live (kol/converge.py, read-only)
+        from kol import converge
+        conv = converge.compute()
+    except Exception as e:
+        print(f"  konvergencija: {e}", file=sys.stderr)
+        conv = {}
     found = candidates(tg_count, use_metas=not a.no_metas, pump=ctx["pump"], kol_cas=list(kol_ca) + list(kol_groups))
+    for t in conv:
+        found.setdefault(t, set()).add("konv")
     pcfg = pulse.config()
     try:  # tokens that already earned attention stay in every scan, feeds or not (fresh score, pulse, holders)
         pcon = store.connect(DB)
@@ -194,6 +202,10 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         pf = ctx["pump"].get(t) or {}
         if pf:
             f["kol_wallets"] = min(1.0, (pf.get("kolCount") or 0) / 5)  # pump.fun: known KOL wallets traded it
+            if "live" in (pf.get("boards") or []) or pf.get("isCurrentlyLive"):  # dev/community streaming now
+                f["pump_live"] = min(1.0, 0.5 + (pf.get("liveParticipants") or 0) / 200)
+        if t in conv:  # only set when it happened, like kol_group
+            f["konvergencija"] = round(conv[t]["score"] / 100, 2)
         trend = sources.trend_match(sym, name, ctx["trend_keys"])
         if ctx["trend_keys"]:
             f["x_trend"] = 1.0 if trend else 0.0
@@ -203,8 +215,9 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["kol_group"] = kol_groups[t]["feature"]
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
-            "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl")} if pf else None,
-            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t)}
+            "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
+            "liveParticipants")} if pf else None,
+            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,

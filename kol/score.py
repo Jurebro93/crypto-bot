@@ -238,7 +238,7 @@ def correlations(con):
 def reclassify(con):
     """Apply the current call/brag rule to every stored tweet, so a better rule also fixes old rows."""
     from kol.collect import kind_of
-    rows = con.execute("SELECT DISTINCT tweet_id, text, kind FROM calls").fetchall()
+    rows = con.execute("SELECT DISTINCT tweet_id, text, kind FROM calls WHERE kind IN ('call', 'brag')").fetchall()
     for tid, text, kind in rows:
         k = kind_of(text)
         if k != kind:
@@ -252,7 +252,8 @@ def build_watch(con, cfg, now=None):
     w = cfg["watch"]
     old = dict(con.execute("SELECT handle, since FROM watch"))
     picked = []
-    for h, sc, st in con.execute("SELECT handle, score, stats FROM kols WHERE score >= ? ORDER BY score DESC",
+    for h, sc, st in con.execute("SELECT handle, score, stats FROM kols WHERE score >= ? AND handle NOT LIKE 'tg:%' "
+                                 "AND handle NOT LIKE 'w:%' ORDER BY score DESC",
                                  (cfg["good_score"],)):
         s = json.loads(st or "{}")
         if (s.get("measured", 0) >= w["min_calls"] and s.get("prepump_rate", 1) <= w["max_prepump"]

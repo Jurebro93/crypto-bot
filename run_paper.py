@@ -26,7 +26,7 @@ import time
 
 from dexscreener import client
 from exits import profiles as exits_profiles
-from paper import auto, dca, review, sim, store
+from paper import auto, dca, review, sim, store, arms
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -194,12 +194,28 @@ def kol_calls(tokens, since):
         con.close()
 
 
+def kol_sells(tokens, since):
+    """token -> newest sell by a tracked KOL wallet (kol.db calls kind 'sell', from the Helius webhook)."""
+    path = os.path.join(HERE, "kol.db")
+    con = _ro(path) if os.path.exists(path) and os.path.getsize(path) else None
+    if con is None or not tokens:
+        return {}
+    try:
+        q = ",".join("?" * len(tokens))
+        return dict(con.execute(f"SELECT token, MAX(ts) FROM calls WHERE kind='sell' AND ts>=? AND token IN ({q}) "
+                                "GROUP BY token", [since] + list(tokens)))
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        con.close()
+
+
 def _n_open(con):
     """Open trades that take a core slot; a moonbag (stake already back, small rest riding) and exploration
     trades (own cap, explore.max_open) do not."""
     n = 0
     for state, cfg in con.execute("SELECT state, config FROM trades WHERE status='open'"):
-        if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") != "explore":
+        if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") not in ("explore", "konv"):
             n += 1
     return n
 
@@ -219,7 +235,8 @@ def explore_need(con, cfg, now):
 
 
 def _n_explore(con, since=None):
-    q = "SELECT COUNT(*) FROM trades WHERE config LIKE '%\"entry_mode\": \"explore\"%'"
+    q = ("SELECT COUNT(*) FROM trades WHERE (config LIKE '%\"entry_mode\": \"explore\"%' "
+         "OR config LIKE '%\"entry_mode\": \"konv\"%')")
     if since is None:
         return con.execute(q + " AND status='open'").fetchone()[0]
     return con.execute(q + " AND opened_ts>=?", (since,)).fetchone()[0]
@@ -246,6 +263,14 @@ def intake(cfg, now=None, quiet=False):
     ex = cfg.get("explore") or {}
     ex_need = explore_need(con, cfg, now)
     ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
+    kc = cfg.get("konv") or {}
+    try:  # multi-source convergence (X + Telegram + KOL wallets), kol.db read-only
+        from kol import store as kstore
+        conv = kstore.converge(list(cands), max_age_min=60) if kc.get("enabled") else {}
+    except Exception as e:
+        print(f"  konvergencija: {e}", file=sys.stderr)
+        conv = {}
+    arm_st = arms.stats(con, cfg.get("arms"))
     opened = []
     for t, c in sorted(cands.items(), key=lambda kv: -(kv[1]["score"] or 0)):
         if t not in mk:
@@ -256,8 +281,20 @@ def intake(cfg, now=None, quiet=False):
         # exploration: below the bar but in today's top scores -> small demo trade, so the bot learns faster
         explore = (ex_need is not None and c["origin"] == "hype" and ex_need <= s < need
                    and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
+        cv = conv.get(t)
+        # convergence: several good sources on it in the last minutes -> small early entry, whatever the score
+        konv = bool(cv and c["origin"] == "hype" and cv["score"] >= kc.get("min_score", 101) and s < need
+                    and now - cv["first_ts"] <= kc.get("max_age_min", 10) * 60 and not cv.get("kol_selling")
+                    and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
+        explore = explore or konv
         if explore and (ex_open >= ex["max_open"] or ex_today >= ex["max_per_day"]):
-            explore = False
+            explore = konv = False
+        arm = arms.arm_of(c, cv, now)
+        if explore and not konv:  # Thompson sampling: arms that keep losing get fewer exploration trades
+            ok, theta = arms.allow(arm, arm_st, cfg.get("arms"))
+            if not ok:
+                explore = False
+                c["arm_note"] = f"krak {arm} gubi (θ {theta})"
         if explore:
             need = s
         if s < cfg["shadow_min_score"] and c["origin"] == "hype" and not explore:
@@ -267,7 +304,8 @@ def intake(cfg, now=None, quiet=False):
         elif mcap > cfg["max_mcap"]:
             c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
         elif s < need:
-            c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}"
+            c["decision"], c["reason"] = "skip_score", f"score {s:.0f} < {need}" + (
+                f"; {c['arm_note']}" if c.get("arm_note") else "")
             if s >= cfg.get("rug_shadow_min_score", 101):  # verdicts on skips too, so the review can judge the filter
                 c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
         elif not explore and (n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]):
@@ -279,14 +317,20 @@ def intake(cfg, now=None, quiet=False):
             else:
                 k = "event" if c["origin"] == "event" else klase.get(t) or "default"
                 cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state, now=now)  # learned exits of its class
-                cfg_t["entry_mode"] = "explore" if explore else "core"
+                cfg_t["entry_mode"] = "konv" if konv else "explore" if explore else "core"
+                cfg_t["arm"] = arm
+                if konv:  # quick +40% target for most of it, out in 45 min if the crowd does not come
+                    cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
+                                 max_hold_h=kc["max_hold_h"])
                 size = ex["size_usd"] if explore else cfg["size_usd"]
                 c["size_usd"] = size
                 pos = sim.open_position(price, liq, now, size, cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
                 c["decision"] = "taken"
-                c["reason"] = (f"istraživanje: score {s:.0f} u vrhu dana (prag {ex_need:.0f})" if explore else
-                               f"score {s:.0f}") + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
+                c["reason"] = (f"konvergencija {cv['score']:.0f}: {'+'.join(cv['platforms'])}, "
+                               f"{cv['n_x']} X / {cv['n_tg']} TG / {cv['n_chain']} novčanika" if konv else
+                               f"istraživanje: score {s:.0f} u vrhu dana (prag {ex_need:.0f})" if explore else
+                               f"score {s:.0f}") + f" [{arm}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                 if explore:
                     ex_open, ex_today = ex_open + 1, ex_today + 1
                 else:
@@ -335,12 +379,16 @@ def tick(cfg, now=None, quiet=False):
         store.tick(con, t, now, price, liq, mcap)
     closed = []
     calls = kol_calls({t for _, t, _, _ in trades}, now - 6 * 3600)
+    sells = kol_sells({t for _, t, _, _ in trades}, now - 6 * 3600)
     for tid, t, sym, pos in trades:
         price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))
         cfg_t = {**cfg, **json.loads(con.execute("SELECT config FROM trades WHERE id=?", (tid,)).fetchone()[0])}
         if t in calls:
             pos["kol_until"] = sim.kol_until([calls[t]], now, cfg_t)
         n_fills = len(pos["fills"])
+        if (cfg_t.get("entry_mode") == "konv" and (cfg.get("konv") or {}).get("exit_on_kol_sell") and pos["open"]
+                and sells.get(t, 0) > pos["opened_ts"] and price > 0):  # a KOL wallet that bought is selling
+            sim.sell(pos, pos["left"], price, liq, now, "kol_prodaje", cfg_t)
         sim.step(pos, price, liq, now, cfg_t)
         for f in pos["fills"][n_fills:]:
             f["mcap"] = mcap

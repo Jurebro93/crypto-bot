@@ -39,5 +39,15 @@ services:
         value: "40"
       - key: HELIUS_ENHANCED_RPS
         value: "8"
+      - key: TGSTAT_TOKEN         # paid: TGStat Search API, Telegram posts by CA across all channels
+        sync: false
+      - key: SOLANATRACKER_API_KEY # paid: Solana Tracker KOL leaderboard (all KOL wallets with PnL)
+        sync: false
+      - key: TG_API_ID            # optional Telegram account for the live listener (my.telegram.org)
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: TG_SESSION           # made once with: python3 run_tg.py login
+        sync: false
       - key: TRADE_LIVE
         value: "0"

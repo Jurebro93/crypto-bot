@@ -104,6 +104,9 @@ def route(path, qs):
         return radar.page(qs)
     if path == "/kol":
         return kol.page(qs)
+    if path == "/izvori":
+        from ui import izvori
+        return izvori.page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -226,6 +229,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/kol":
             self._kol_hook(u)
             return
+        if u.path == "/hook/chain":
+            self._chain_hook(u)
+            return
         if u.path == "/prijava":
             return self._login_post()
         if AUTH and not self._authorized():
@@ -266,6 +272,24 @@ class Handler(BaseHTTPRequestHandler):
             sources.ingest_kol_event(json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}"),
                                      os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
             self.send_response(204)
+        except Exception:
+            self.send_response(400)
+        self.end_headers()
+
+    def _chain_hook(self, u):
+        """/hook/chain?key=...: Helius enhanced webhook with swaps of the KOL wallets (kol/chainwatch.py)."""
+        from kol import chainwatch, store as kstore
+        key = kstore.chain_key()
+        if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
+            self.send_response(404)
+            self.end_headers()
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            import json
+            chainwatch.ingest(json.loads(self.rfile.read(min(n, 5_000_000)) or b"[]"),
+                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
+            self.send_response(200)
         except Exception:
             self.send_response(400)
         self.end_headers()

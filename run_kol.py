@@ -34,6 +34,14 @@ def config():
 def cmd_collect(a, con=None, cfg=None):
     con = con or store.connect()
     n = collect.from_hype_cache(con) + collect.from_webhook(con)
+    for name, fn in (("telegram", collect.from_telegram), ("chain", collect.from_chain)):
+        try:
+            k = fn(con)
+            n += k
+            if k:
+                print(f"collect {name}: {k} novih")
+        except Exception as e:
+            print(f"collect {name}: {type(e).__name__}: {e}", file=sys.stderr)
     con.commit()
     print(f"collect: {n} novih poziva")
     return n
@@ -131,9 +139,32 @@ def cmd_live(a, con=None, cfg=None):
         print("live: nema javnog URL-a (RENDER_EXTERNAL_URL) ili APIFY_TOKEN, preskačem")
 
 
+def cmd_chain(a, con=None, cfg=None):
+    """KOL wallets from public lists (daily) and the Helius webhook that follows their swaps."""
+    from kol import chainwatch, idents
+    con, cfg = con or store.connect(), cfg or config()
+    got = idents.refresh(con, cfg)
+    if got:
+        print(f"kol novčanici: {got}")
+    r = chainwatch.sync(con, cfg["chain"])
+    if r is None:
+        print("chain: nema HELIUS_API_KEY ili javnog URL-a, preskačem")
+
+
+def cmd_converge(a, con=None, cfg=None):
+    from kol import converge
+    con, cfg = con or store.connect(), cfg or config()
+    conv = converge.compute(cfg=cfg.get("converge"), good=cfg["good_score"])
+    converge.save(con, conv)
+    con.commit()
+    best = sorted(conv.items(), key=lambda kv: -kv[1]["score"])[:5]
+    print(f"konvergencija: {len(conv)} tokena" + "".join(f"\n  {t} {r['score']:.0f} {'+'.join(r['platforms'])}" for t, r in best))
+
+
 def cycle(a):
     con, cfg = store.connect(), config()
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score, cmd_live):
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score, cmd_live, cmd_chain,
+                 cmd_converge):
         try:
             step(a, con, cfg)
         except Exception as e:
@@ -159,7 +190,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "measure", "flows", "score", "once", "live"):
+    for name in ("collect", "search", "measure", "flows", "score", "once", "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -175,7 +206,8 @@ def main(argv=None):
     tp.add_argument("-n", type=int, default=30)
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
-     "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill}[a.cmd](a)
+     "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
+     "chain": cmd_chain, "converge": cmd_converge}[a.cmd](a)
 
 
 if __name__ == "__main__":
