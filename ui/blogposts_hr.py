@@ -561,3 +561,272 @@ meme coina drži je na razini koju bi prihvatio kao cijeli trošak i prilagodi i
 <p>Dalje: <a href=/hr/blog/kako-trgovati-meme-coinima>kako trgovati meme coinima</a> ili provjere u
 <a href=/hr/blog/kako-prepoznati-rug-pull>kako prepoznati rug pull</a>.</p>
 """)
+
+
+# 11 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+EXCH_SRC = "HANFA registar, objave ESMA-e i nacionalnih regulatora, cjenici mjenjačnica; provjereno 1. 11. 2026."
+FEE_SRC = "cjenici mjenjačnica i usporedba top7.hr od 28. 9. 2026.; naknade se mijenjaju, provjeri prije plaćanja"
+HANFA_URL = ("https://www.hanfa.hr/registri/trziste-kriptoimovine/"
+             "registar-drustava-ovlastenih-pruzati-usluge-povezane-s-kriptoimovinom/")
+post(
+    "best-crypto-exchanges-croatia", "najbolje-kripto-mjenjacnice-hrvatska", "Mjenjačnice",
+    "Najbolje kripto mjenjačnice u Hrvatskoj i EU (2026.): s MiCA licencom, usporedba",
+    "Najbolje kripto mjenjačnice u Hrvatskoj 2026.: MiCA licenca i naknade | KriptoRadar",
+    "Koje kripto mjenjačnice smiju raditi u Hrvatskoj 2026.? 5 hrvatskih tvrtki s HANFA licencom i 9 MiCA mjenjačnica "
+    "uspoređenih po regulatoru, naknadama, podršci na hrvatskom i gotovini.", 9,
+    "Od 1. srpnja 2026. svaka kripto mjenjačnica koja radi s hrvatskim klijentima mora imati MiCA licencu. U HANFA-inom "
+    "registru je pet hrvatskih tvrtki (Electrocoin, Bitcoin Store, Kriptomat, Whitely, IN Kapital), a velike EU "
+    "mjenjačnice (Kraken, Coinbase, Bitstamp, Bitpanda, Revolut, OKX, Bybit, Crypto.com, Bitvavo) svoju licencu "
+    "prenose u Hrvatsku. Najjeftinije trgovanje: OKX, Bitstamp i Kraken Pro. Najlakše na hrvatskom: Electrocoin i "
+    "Bitcoin Store.",
+    f"""
+<h2>Zašto je licenca sad važna</h2>
+<p>EU uredba o tržištima kriptoimovine (<b>MiCA</b>) zamijenila je nacionalna pravila. Prijelazno razdoblje završilo je
+<b>1. srpnja 2026.</b>: od tog dana tvrtka smije raditi s klijentima u Hrvatskoj samo uz MiCA licencu, od HANFA-e ili od
+drugog EU regulatora uz prijenos (passporting) u Hrvatsku. Licenca znači kapitalne zahtjeve, odvojena sredstva
+klijenata, rješavanje prigovora i regulatora kojem se možeš obratiti. Ne znači da su coini koje kupuješ sigurni; meme
+coini ostaju meme coini.</p>
+{stats([("5", "hrvatskih tvrtki u HANFA registru"), ("9+", "velikih EU mjenjačnica s MiCA licencom"),
+        ("1. 7. 2026.", "kraj prijelaznog razdoblja")])}
+
+<h2>Hrvatske mjenjačnice s HANFA licencom</h2>
+<p>Ove tvrtke su u HANFA-inom registru društava ovlaštenih pružati usluge povezane s kriptoimovinom. Electrocoin je prvi
+dobio punu MiCA licencu od HANFA-e.</p>
+<div class=tw><table><thead><tr><th>Mjenjačnica</th><th>Tvrtka</th><th>Sjedište</th><th>Dobra za</th></tr></thead><tbody>
+<tr><td><b>Electrocoin</b></td><td>Electrocoin d.o.o.</td><td>Zagreb</td><td>Podrška na hrvatskom 0-24, kupnja u eurima, plaćanje u trgovinama</td></tr>
+<tr><td><b>Bitcoin Store</b></td><td>Digital Assets d.o.o.</td><td>Split</td><td>Poslovnice s gotovinom, bez naknada za uplatu i isplatu</td></tr>
+<tr><td><b>Kriptomat</b></td><td>Bitblock d.o.o.</td><td>Zagreb</td><td>Jednostavna aplikacija na hrvatskom</td></tr>
+<tr><td><b>Whitely</b></td><td>White Tech d.o.o.</td><td>Zagreb</td><td>Kupnja i čuvanje, podrška na hrvatskom</td></tr>
+<tr><td><b>IN Kapital</b></td><td>IN Kapital d.o.o.</td><td>Sesvete</td><td>Zamjena kripta za eure</td></tr>
+</tbody></table></div>
+<p class=mut>Izvor: <a href="{HANFA_URL}" rel=nofollow>HANFA registar</a>, provjereno 1. 11. 2026.</p>
+
+<h2>EU mjenjačnice s MiCA licencom</h2>
+<p>Ove imaju MiCA licencu iz druge EU države i mogu raditi u Hrvatskoj preko prijenosa licence.</p>
+<div class=tw><table><thead><tr><th>Mjenjačnica</th><th>Regulator</th><th>Datum licence</th></tr></thead><tbody>
+<tr><td><b>Crypto.com</b></td><td>MFSA (Malta)</td><td>27. 1. 2025.</td></tr>
+<tr><td><b>OKX</b></td><td>MFSA (Malta)</td><td>27. 1. 2025.</td></tr>
+<tr><td><b>Bitpanda</b></td><td>BaFin (Njemačka), i Austrija</td><td>2025.</td></tr>
+<tr><td><b>Bitstamp</b></td><td>CSSF (Luksemburg)</td><td>15. 5. 2025.</td></tr>
+<tr><td><b>Bybit</b></td><td>FMA (Austrija)</td><td>28. 5. 2025.</td></tr>
+<tr><td><b>Coinbase</b></td><td>CSSF (Luksemburg)</td><td>20. 6. 2025.</td></tr>
+<tr><td><b>Kraken</b></td><td>Središnja banka Irske</td><td>25. 6. 2025.</td></tr>
+<tr><td><b>Bitvavo</b></td><td>AFM (Nizozemska)</td><td>26. 6. 2025.</td></tr>
+<tr><td><b>Revolut</b></td><td>CySEC (Cipar)</td><td>2025.</td></tr>
+</tbody></table></div>
+<p>Binance nije imao MiCA licencu kad smo provjerili (1. 11. 2026.), pa su mu usluge za korisnike u EU ograničene. Prije
+uplate uvijek provjeri registar samog regulatora; stranica na kojoj piše "regulirano" nije dokaz.</p>
+
+<h2>Koliko kupnja košta</h2>
+<p>Mjenjačnice naplaćuju na dva načina: vidljivu <b>naknadu za trgovanje</b> na platformi s knjigom naloga (Kraken Pro,
+Bitstamp, OKX) ili <b>spread</b> skriven u cijeni na jednostavnom gumbu "Kupi". Spread je obično veći trošak. Grafikon
+pokazuje najniži objavljeni trošak kupnje:</p>
+{B("Najniži objavljeni trošak kupnje kripta",
+   [("OKX (knjiga naloga, taker)", 0.10, "maker 0,08%"),
+    ("Bitstamp (knjiga naloga, taker)", 0.40, "jednostavna kupnja: spread oko 1,8% plus do 0,5%"),
+    ("Kraken Pro (taker)", 0.40, "jednostavna kupnja: 1% plus spread"),
+    ("Bitcoin Store (spread)", 0.50, "spread 0,5-5% ovisno o coinu i iznosu"),
+    ("Revolut (standardni paket)", 1.49, "plus 0-3% spreada; 0,99% na Premium/Metal"),
+    ("Electrocoin (Trade račun)", 1.75, "oko 2% pri kupnji na webu")],
+   sub="Postotak iznosa, prije naknada za uplatu i isplatu", fmt="pct2", hl=(0, 1, 2), source=FEE_SRC)}
+<div class=tw><table><thead><tr><th>Mjenjačnica</th><th>Uplata eura</th><th>Isplata eura</th><th>Podrška na hrvatskom</th></tr></thead><tbody>
+<tr><td>Kraken</td><td>SEPA besplatno</td><td>1 €</td><td>Ne</td></tr>
+<tr><td>Bitstamp</td><td>SEPA besplatno; kartica 4%</td><td>3 €</td><td>Ne</td></tr>
+<tr><td>Revolut</td><td>S Revolut računa</td><td>Besplatno unutar Revoluta</td><td>Da (aplikacija)</td></tr>
+<tr><td>Electrocoin</td><td>Bankovni prijenos, trgovine</td><td>0,50 € (najmanje 5 €)</td><td>Da, 0-24</td></tr>
+<tr><td>Bitcoin Store</td><td>Besplatno, gotovina u poslovnicama</td><td>Besplatno</td><td>Da</td></tr>
+</tbody></table></div>
+<p class=mut>Naknade iz cjenika mjenjačnica i top7.hr (28. 9. 2026.). Često se mijenjaju: provjeri cjenik na dan kupnje.</p>
+
+<h2>Koju odabrati</h2>
+<ul>
+<li><b>Želiš najmanji trošak:</b> platforma s knjigom naloga (OKX, Bitstamp, Kraken Pro). Koristi limit nalog i preskoči
+jednostavni gumb "Kupi".</li>
+<li><b>Želiš hrvatski jezik i broj telefona:</b> Electrocoin ili Bitcoin Store. Plaćaš više po kupnji, ali podrška i
+gotovina su lokalni.</li>
+<li><b>Već koristiš Revolut:</b> najbrži početak, ali plaćaš 1,49% plus spread, što se zbraja kod čestih kupnji.</li>
+<li><b>Želiš kupiti Solana meme coine:</b> nijedna od ovih ne nudi većinu meme coina. Kupi <b>SOL</b> na bilo kojoj,
+pošalji ga na Solana mreži u svoj novčanik i tamo zamijeni. Taj put je u vodiču
+<a href=/hr/blog/kako-kupiti-solana-meme-coine>kako kupiti Solana meme coine</a>, a svaki coin ima svoju stranicu, npr.
+<a href=/hr/kako-kupiti/bonk>kako kupiti Bonk</a>.</li>
+</ul>
+
+<h2>Prije uplate</h2>
+<ul>
+<li>Pronađi tvrtku u <a href="{HANFA_URL}" rel=nofollow>HANFA registru</a> ili u ESMA registru MiCA pružatelja.</li>
+<li>Uključi prijavu u dva koraka s aplikacijom, ne SMS-om.</li>
+<li>Prvo napravi malu probnu isplatu i provjeri da se mreža (npr. Solana) poklapa s novčanikom.</li>
+<li>Nikad nikome ne daj frazu za oporavak. Nijedna mjenjačnica, podrška ni aplikacija je nikad ne treba.</li>
+<li>U Hrvatskoj se dobit od kripta oporezuje (12% porez na kapitalnu dobit; što držiš dulje od dvije godine je
+oslobođeno). Čuvaj izvode s mjenjačnice.</li>
+</ul>
+<p class=mut>Na ovoj stranici nemamo affiliate linkova ni plaćanja od mjenjačnica. Izvor: {EXCH_SRC}</p>
+""")
+
+
+# 12 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-buy-solana-meme-coins", "kako-kupiti-solana-meme-coine", "Vodiči",
+    "Kako kupiti Solana meme coine: siguran put, korak po korak",
+    "Kako kupiti Solana meme coine (2026.): vodič korak po korak | KriptoRadar",
+    "Kako sigurno kupiti Solana meme coine: kupi SOL na licenciranoj mjenjačnici, prebaci ga u Phantom, zamijeni na "
+    "Jupiteru i provjeri token prije kupnje. Korak po korak, sa stvarnim brojkama.", 6,
+    "Kupi SOL na mjenjačnici s MiCA licencom, pošalji ga na Solana mreži u novčanik kao što je Phantom, pa na Jupiteru "
+    "zamijeni SOL za meme coin koristeći točnu adresu ugovora. Prije swapa provjeri likvidnost, mint i freeze authority "
+    "i najveće holdere: od novih pump.fun tokena kupljenih 15 minuta nakon lansiranja samo se 0,8% ikad udvostručilo.",
+    f"""
+<h2>Put u jednoj rečenici</h2>
+<p>Euro → <b>SOL</b> na licenciranoj mjenjačnici → tvoj Solana novčanik → swap na <b>DEX</b>-u (Jupiter) → meme coin.
+Gotovo nijedan Solana meme coin nije na reguliranoj mjenjačnici, pa se zamjena radi na blockchainu.</p>
+
+<h2>1. Kupi SOL na licenciranoj mjenjačnici</h2>
+<p>Odaberi mjenjačnicu s MiCA licencom. Usporedili smo ih u članku
+<a href=/hr/blog/najbolje-kripto-mjenjacnice-hrvatska>najbolje kripto mjenjačnice u Hrvatskoj i EU</a>: najjeftinije su
+platforme s knjigom naloga (oko 0,1-0,4% po tradeu); hrvatske koštaju više, ali imaju lokalnu podršku.</p>
+
+<h2>2. Instaliraj novčanik i čuvaj frazu</h2>
+<p>Instaliraj Phantom ili Solflare (vidi <a href=/hr/najbolji-kripto-alati/kripto-novcanici>najbolje kripto
+novčanike</a>). Zapiši frazu za oporavak od 12 ili 24 riječi na papir. Tko ima frazu, ima novac; nijedna stranica,
+podrška ni bot je nikad ne treba.</p>
+
+<h2>3. Pošalji SOL u svoj novčanik</h2>
+<p>Kopiraj adresu novčanika, na mjenjačnici odaberi mrežu <b>Solana</b> i prvo pošalji mali probni iznos. Ostavi oko
+0,02 SOL u novčaniku za naknade mreže.</p>
+
+<h2>4. Pronađi pravu adresu ugovora</h2>
+<p>Lažni tokeni kopiraju ime i logo. Uzmi adresu s pouzdane stranice, npr. naših stranica coina kao što je
+<a href=/hr/coin/bonk>Bonk</a> ili <a href=/hr/solana-meme-coini>top 100 Solana meme coina</a>, i provjeri da se simbol,
+logo i market cap poklapaju.</p>
+
+<h2>5. Provjeri token prije swapa</h2>
+{B("Novi pump.fun tokeni koji su se kasnije udvostručili",
+   [("15 minuta nakon lansiranja (nasumično)", 0.8, "6.104 tokena"),
+    ("Pri prelasku u DEX bazen", 9.5, "2.784 tokena"),
+    ("Prvi prelazak market capa od $100k", 24.0, "217 tokena")],
+   sub="Kupljeno u tom trenutku, cijena je kasnije dosegla barem 2x", hl=(2,), source=RETRO)}
+<ul>
+<li><b>Likvidnost</b> barem $10k, a tvoja kupnja ispod otprilike 2% nje (vidi
+<a href=/hr/blog/market-cap-likvidnost-slippage>market cap, likvidnost i slippage</a>).</li>
+<li><b>Mint authority</b> i freeze authority isključeni.</li>
+<li>Top 10 holdera ispod otprilike 35%, developer ispod 5%.</li>
+</ul>
+<p>Svaki coin iz našeg top 100 ima automatsku provjeru, npr. <a href=/hr/provjera/bonk>je li Bonk siguran?</a></p>
+
+<h2>6. Zamijeni na Jupiteru</h2>
+<p>Otvori jup.ag (ili swap u Phantomu), spoji novčanik, odaberi SOL → zalijepi adresu ugovora, upiši iznos i toleranciju
+<b>slippagea</b> koju možeš prihvatiti, pa potvrdi. Postavke su u našem
+<a href=/hr/blog/kako-koristiti-jupiter-swap>vodiču za Jupiter swap</a>.</p>
+
+<h2>7. Planiraj izlaz prije kupnje</h2>
+<p>Odluči gdje uzimaš dobit, a gdje režeš gubitak, i zapiši to. Meme coini se pomaknu 50% u sat vremena; bez plana
+odluku donose emocije. Vidi <a href=/hr/blog/kako-trgovati-meme-coinima>kako trgovati meme coinima</a>.</p>
+""")
+
+
+# 13 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-use-jupiter-swap", "kako-koristiti-jupiter-swap", "Vodiči",
+    "Kako koristiti Jupiter swap na Solani: postavke koje štede novac",
+    "Kako koristiti Jupiter swap (jup.ag): slippage, priority fee, limit nalozi | KriptoRadar",
+    "Praktični vodič za Jupiter swap: spajanje novčanika, provjera tokena, postavke slippagea i priority feeja, limit "
+    "nalozi i DCA te greške koje najviše koštaju.", 6,
+    "Jupiter (jup.ag) je agregator swapova na Solani: dijeli tvoj nalog po bazenima da dobiješ najbolju cijenu. Spoji "
+    "novčanik, odaberi SOL i zalijepi adresu ugovora tokena, drži kupnju malom u odnosu na likvidnost bazena, postavi "
+    "slippage koji prihvaćaš kao cijeli trošak i koristi limit naloge kad ti se ne žuri.",
+    f"""
+<h2>Što je Jupiter</h2>
+<p>Jupiter nije mjenjačnica s vlastitom knjigom naloga; to je <b>agregator</b>. Gleda bazene na Solana <b>DEX</b>-ovima
+(Raydium, Orca, Meteora, pump.fun bazeni i drugi) i vodi tvoj trade najjeftinijim putem, ponekad podijeljen na više
+bazena. Coini su cijelo vrijeme u tvom novčaniku.</p>
+
+<h2>Korak po korak</h2>
+<ol>
+<li>Otvori <b>jup.ag</b> (upiši sam; lažne Jupiter stranice čest su trik za pražnjenje novčanika) i spoji Phantom ili
+Solflare.</li>
+<li>"You pay": SOL ili USDC. "You receive": zalijepi <b>adresu ugovora</b> tokena, ne ime.</li>
+<li>Pogledaj oznake upozorenja: Jupiter označava neprovjerene tokene. Neprovjeren nije dokaz prevare, ali prvo pogledaj
+<a href=/hr/provjera>provjeru ruga</a>.</li>
+<li>Prije potvrde pogledaj redak "price impact".</li>
+<li>Potvrdi u novčaniku i pročitaj što novčanik kaže da potpisuješ.</li>
+</ol>
+
+<h2>Slippage i price impact</h2>
+<p><b>Price impact</b> je koliko tvoj vlastiti trade pomakne bazen; tolerancija <b>slippagea</b> je koliko lošije od
+ponude prihvaćaš prije nego trade propadne. U tankom bazenu sam impact može biti velik:</p>
+{grid("Price impact po iznosu kupnje i likvidnosti bazena",
+      ["$100", "$500", "$1.000", "$5.000"],
+      [("Bazen $10k", [2.0, 9.1, 16.7, 50.0]), ("Bazen $50k", [0.4, 2.0, 3.8, 16.7]),
+       ("Bazen $250k", [0.1, 0.4, 0.8, 3.8]), ("Bazen $1M", [0.0, 0.1, 0.2, 1.0])],
+      sub="Bazen s konstantnim produktom, pola likvidnosti na svakoj strani, prije naknada", cap=50, lang="hr")}
+<p>Jupiterov automatski slippage je u redu za likvidne coine. Kod svježih tokena vrlo visoka tolerancija privlači
+"sandwich" botove koji kupe tik prije tebe i prodaju tik poslije.</p>
+
+<h2>Priority fee</h2>
+<p>Kad je Solana zagušena, mala dodatna naknada (priority fee) brže ubacuje tvoju transakciju. Za običan swap dovoljna
+je zadana; plaćanje više pomaže samo u prvim minutama lansiranja, a tad je i rizik najveći.</p>
+
+<h2>Limit nalozi i DCA</h2>
+<p>Jupiter nudi i <b>limit naloge</b> (kupi ili prodaj kad cijena dođe do tvoje razine) i ponavljajuće kupnje
+(<a href=/hr/blog/sto-je-dca>DCA</a>). Limit nalozi sprječavaju jurenje za pumpama; DCA razvlači jednu odluku kroz
+vrijeme.</p>
+
+<h2>Greške koje najviše koštaju</h2>
+<ul>
+<li>Traženje tokena po imenu i odabir kopije s istim logom.</li>
+<li>Kupnja više od otprilike 2% likvidnosti bazena odjednom.</li>
+<li>Odobravanje transakcije na stranici do koje si došao preko linka iz poruke.</li>
+<li>Potrošiti sav SOL i nemati ništa za naknadu pri prodaji.</li>
+</ul>
+<p>Kako uopće doći do SOL-a: <a href=/hr/blog/najbolje-kripto-mjenjacnice-hrvatska>licencirane mjenjačnice u Hrvatskoj i
+EU</a>.</p>
+""")
+
+
+# 14 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-a-pump-and-dump", "sto-je-pump-and-dump", "Rugovi",
+    "Što je pump and dump u kriptu? Kako radi i kako ga prepoznati",
+    "Što je pump and dump u kriptu? Znakovi i primjeri iz podataka | KriptoRadar",
+    "Pump and dump je dogovoreno guranje cijene nakon kojeg insajderi prodaju kupcima. Kako radi kod Solana meme coina, "
+    "znakovi upozorenja i što o tome pokazuju naši podaci.", 6,
+    "Pump and dump je kad grupa rano kupi token, napuhne cijenu hypeom (plaćeni pozivi, grupe na chatu, lažni volumen) "
+    "i proda ljudima koji dođu kasno. Znakovi: nekoliko novčanika drži većinu ponude, bundlane kupnje pri lansiranju, "
+    "puno poziva u par minuta s računa koji se pojave samo za taj coin i volumen koji nestane nakon vrha.",
+    f"""
+<h2>Kako radi</h2>
+<ol>
+<li><b>Skupljanje:</b> insajderi kupe jeftino, često u istom bloku kao lansiranje (<b>bundlovi</b> i
+<b>snajperi</b>).</li>
+<li><b>Pumpa:</b> stvaraju pažnju: plaćeni postovi influencera, Telegram "alpha" grupe, botovi koji trguju sami sa sobom
+da napuhnu volumen.</li>
+<li><b>Dump:</b> novi kupci guraju cijenu gore; insajderi im prodaju. Graf pada brže nego što je rastao.</li>
+</ol>
+<p>Za razliku od <a href=/hr/blog/kako-prepoznati-rug-pull>rug pulla</a>, likvidnost obično ostaje; token se samo vrati
+blizu nule jer je jedina stvarna potražnja bio hype.</p>
+
+<h2>Što pokazuju naši podaci</h2>
+<p>Jako bundlani tokeni češće pumpaju (25,5% je doseglo 2x kad je više od 20% ponude bundlano, naspram 3,6% ispod 2%),
+i baš to privlači kasne kupce. Ali pad s vrha je najdublji:</p>
+{B("Tipičan pad s najviše cijene, po bundlanom udjelu ponude",
+   [("2-10% bundlano", 17, ""), ("10-20%", 35, ""), ("Više od 20%", 54, "insajderi prodaju u pumpu")],
+   sub="Medijan najvećeg pada u prvim satima, %", hl=(2,), source=RETRO)}
+<p>Snajperi pokazuju isti obrazac: gdje su snajperi uzeli više od 30% ponude, medijan pada s vrha bio je 58%.</p>
+<p>Ni puno istovremenih poziva influencera nije uvijek organsko: grupe od tri ili više <b>KOL</b> poziva u 15 minuta
+dosegle su 2x u 59% slučajeva naspram 33% inače, ali neke grupe su isti ljudi s više računa. Zato grupiramo
+influencere (<a href=/hr/blog/grupiranje-influencera>kako radi grupiranje influencera</a>) i isključujemo bot račune.</p>
+
+<h2>Znakovi upozorenja</h2>
+<ul>
+<li>Top 10 novčanika drži više od otprilike 35% ponude ili developer više od 5%.</li>
+<li>Puno kupnji u prvom bloku iz novčanika financiranih iz istog izvora.</li>
+<li>Nalet postova s računa koji se pojavljuju samo za ovaj coin.</li>
+<li>Pritisak "zadnja prilika", odbrojavanja, zajamčeni ciljevi.</li>
+<li>Volumen i holderi koji se uruše par sati nakon vrha.</li>
+</ul>
+<p>Svaki coin iz našeg top 100 ima automatsku provjeru tih brojki, npr. <a href=/hr/provjera/wif>je li WIF siguran?</a></p>
+
+<h2>Je li to nezakonito?</h2>
+<p>U EU MiCA izričito zabranjuje manipulaciju tržištem kriptoimovine, uključujući širenje obmanjujućih informacija radi
+pomicanja cijene. Provedba protiv anonimnih projekata na blockchainu je teška, pa je u praksi zaštita na tebi: mali
+iznos, jasan izlaz i nikakva kupnja samo zato što chat kaže "sad".</p>
+""")
