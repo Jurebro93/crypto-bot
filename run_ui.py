@@ -20,6 +20,31 @@ import re
 import sys
 import time
 import traceback
+
+# Own domain: SITE_URL=https://kriptoradar.app makes every canonical/sitemap/hreflang/og link use it (they read
+# RENDER_EXTERNAL_URL), and public pages opened on the old onrender.com address move there with a 301.
+SITE_URL = os.environ.get("SITE_URL", "").strip().rstrip("/")
+if SITE_URL:
+    os.environ.setdefault("RENDER_ORIGINAL_URL", os.environ.get("RENDER_EXTERNAL_URL", ""))
+    os.environ["RENDER_EXTERNAL_URL"] = SITE_URL
+PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
+                         r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
+                         r"static/landing/.*)$")
+
+
+def moved_to_site(host, path, logged_in):
+    """301 target on the own domain for a public page opened on another host (onrender.com), else None."""
+    if not SITE_URL:
+        return None
+    site_host = SITE_URL.split("://", 1)[-1].split("/")[0].lower()
+    h = (host or "").split(":")[0].lower()
+    if not h or h == site_host or h in ("localhost", "127.0.0.1") or not h.endswith(".onrender.com") and h != "www." + site_host:
+        return None
+    if path == "/" and logged_in and h != "www." + site_host:
+        return None      # the dashboard itself stays where the login cookie is
+    if path == "/" or PUBLIC_PATH.match(path) or h == "www." + site_host:
+        return SITE_URL + path
+    return None
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -253,6 +278,9 @@ class Handler(BaseHTTPRequestHandler):
         ok = not AUTH or self._authorized()
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
+        to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
+        if to:
+            return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
         if path == "/jezik":
             return self._lang_switch(qs)
         if path == "/prijava":
@@ -636,8 +664,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _redirect(self, location, cookie=None):
-        self.send_response(303)
+    def _redirect(self, location, cookie=None, code=303):
+        self.send_response(code)
         self.send_header("Location", location)
         for c in ([cookie] if isinstance(cookie, str) else cookie or []):
             self.send_header("Set-Cookie", c)
