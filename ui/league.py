@@ -144,10 +144,14 @@ def page(qs, user):
              "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
              "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
         if user:
+            from ui import register
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'
                      '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
                      '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
-                     '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a></div>')
+                     '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a>'
+                     + ('<a class=chip href="#pozovi" onclick="document.getElementById(\'pozovi\').open=true">'
+                        '👥 Pozovi prijatelja</a>' if register.can_invite(user) else '') + '</div>')
+            b.append(register.invite_box(user))
         b.append(leaguedash.dashboard(con, mk, user))
         if not user:
             return "Natjecanje", "".join(b)
@@ -297,6 +301,12 @@ def _post(path, form, user):
     _API["ts"] = 0   # a trade changes the live numbers
     if not user:
         return f"{back}?err={quote('prijavi se svojim imenom')}"
+    if path.startswith("/natjecanje/pozivnica/"):
+        from ui import register
+        try:
+            return register.post_invite(path, form, user)
+        except sqlite3.OperationalError as e:
+            return f"{back}?err={quote(db_error(e))}"
     con = store.connect()
     try:
         if path == "/natjecanje/buy":
