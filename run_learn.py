@@ -5,6 +5,7 @@
     python3 run_learn.py fit --dry        # same, but only reports
     python3 run_learn.py status           # current per-class weights, pump thresholds, last runs
     python3 run_learn.py missed           # tokens that never got a paid check and still pumped
+    python3 run_learn.py shadow           # shadow book: collect decision points, label the due ones (hourly, run_sched)
     python3 run_learn.py loop             # on the server: one run a day at learn/config.json run_at_utc
 
 Learned weights go to LEARNED_DIR (default $DATA_DIR/learned); runs are logged to learn_runs in hype.db.
@@ -26,7 +27,7 @@ def cmd_fit(a):
     rep = fit.run(con, now=time.time(), apply=not a.dry)
     for r in rep:
         flag = "PRIMIJENJENO" if r["applied"] else ("ROLLBACK" if r.get("rollback") else "bez promjene")
-        print(f"{r['klasa']:<9} n={r['n']:<5} skok ≥ {r['skok']:+.0%}  {flag}: {r['note']}")
+        print(f"{r['klasa']:<9} n={r['n']:<5} cilj {r.get('cilj', 'vrh')} ≥ {r['skok'] or 0:+.0%}  {flag}: {r['note']}")
     try:  # confidence: the same facts the pop-up lists, re-weighed from outcomes (learn/confmodel.py)
         from learn import confmodel
         c = confmodel.run(con, now=time.time(), apply_model=not a.dry)
@@ -62,6 +63,13 @@ def cmd_missed(a):
         print(f"{m['max_ret']:+6.0%}  {m['symbol'] or m['token'][:8]:<12} {m['klasa']:<9} T{m['razina']}  {m['reason']}")
 
 
+def cmd_shadow(a):
+    from learn import shadow
+    r = shadow.run()
+    new = ", ".join(f"{shadow.POINTS.get(k, k)} {v}" for k, v in sorted(r["new"].items())) or "nema novih"
+    print(f"sjenovita knjiga: novih točaka {new}; označeno {r['labeled']}; obrisano starih {r['pruned']}")
+
+
 def cmd_loop(a):
     cfg = outcomes.config()
     hh, mm = map(int, cfg["run_at_utc"].split(":"))
@@ -86,9 +94,10 @@ def main(argv=None):
     m = sub.add_parser("missed")
     m.add_argument("--hours", type=float, default=168)
     m.add_argument("--top", type=int, default=30)
+    sub.add_parser("shadow")
     sub.add_parser("loop")
     a = p.parse_args(argv)
-    {"fit": cmd_fit, "status": cmd_status, "missed": cmd_missed, "loop": cmd_loop}[a.cmd](a)
+    {"fit": cmd_fit, "status": cmd_status, "missed": cmd_missed, "shadow": cmd_shadow, "loop": cmd_loop}[a.cmd](a)
     return 0
 
 

@@ -62,6 +62,45 @@ def rugs_html():
     return "".join(out)
 
 
+def _pct(x):
+    return "–" if x is None else f"{x:+.1%}"
+
+
+def shadow_html():
+    """Shadow book (learn/shadow.py): a virtual demo trade at every decision point, labelled with the return the bot
+    could actually have taken. Since 2.11. the hype weights learn from it."""
+    from learn import shadow
+    sm = shadow.summary(days=7)
+    out = ["<h2>Sjenovita knjiga: učenje iz svake prilike</h2>", tdesc(
+        "Na svakoj točki odluke (prvi signal, prvi prelazak $100k i $1M, svaki demo kandidat, kupljen ili preskočen) alat "
+        "\"na papiru\" kupi token i nakon 24 h izračuna koliko bi zaradio s istim pravilima izlaza, naknadama i slippageom "
+        "kao demo. Lažne pojedinačne cijene se izbace prije računa. Iz toga uči hype ocjena: pogodak je trade koji je "
+        f"nakon troškova zaradio barem {shadow.config()['hit_ret']:.0%}. Zarada je ograničena na +300% da jedan sretan "
+        "pogodak ne odluči sve; stupac \"bez 1% najboljih\" to provjerava.")]
+    st = sm.get("status") or {}
+    if not st:
+        return "".join(out) + "<div class=card>Knjiga se puni svaki sat; prve ocjene stižu 24 h nakon prve točke.</div>"
+    out.append(f"<p>U knjizi <b>{sum(st.values()):,}</b> točaka: ocijenjeno {st.get('gotovo', 0):,}, čeka 24 h "
+               f"{st.get('ceka', 0):,}, bez cijene {st.get('bez_cijene', 0):,}.</p>")
+
+    def row(name, x):
+        return [esc(name), num(x["n"]), (_pct(x.get("mean")), x.get("mean") or 0, "n"), (_pct(x.get("median")), x.get("median") or 0, "n"),
+                (f"{x['win']:.0%}" if x.get("n") else "–", x.get("win") or 0, "n"),
+                (f"{x['pf']:.2f}" if x.get("pf") is not None else "–", x.get("pf") or 0, "n"),
+                (_pct(x.get("mean_trim")), x.get("mean_trim") or 0, "n")]
+    rr = [row(shadow.POINTS[p], sm["by_point"][p]) for p in shadow.POINTS if sm["by_point"][p].get("n")]
+    k = sm["kandidat"]
+    if k["kupljeno"].get("n"):
+        rr.append(row("demo kandidat: kupljen", k["kupljeno"]))
+    if k["preskoceno"].get("n"):
+        rr.append(row("demo kandidat: preskočen", k["preskoceno"]))
+    out.append(tdesc(f"Zadnjih {sm['days']} dana. \"Prelazak $100k\" je i kontrola: da smo kupili svaki prvi prelazak. "
+                     "Ako preskočeni kandidati zarađuju više od kupljenih, filteri režu dobre tokene.")
+               + table(["Točka odluke", ("Trgovina", "n"), ("Prosjek", "n"), ("Medijan", "n"), ("U plusu", "n"),
+                        ("Profit faktor", "n"), ("Bez 1% najboljih", "n")], rr, empty="Još nema ocijenjenih točaka."))
+    return "".join(out)
+
+
 def _con():
     if not os.path.exists(data.HYPE_DB):
         return None
@@ -78,8 +117,8 @@ def _rows(con):
 
 def page(qs):
     from learn import correlations, outcomes, weights
-    b = ["<h1>Učenje</h1><p class=mut>Alat sam uči iz ishoda: svaki dan ponovno računa što je \"skok\" po klasi, "
-         "ponovno računa težine hype ocjene po klasi i primjenjuje ih ako prolaze zaštitu (barem 200 ishoda, pomak najviše "
+    b = ["<h1>Učenje</h1><p class=mut>Alat sam uči iz ishoda: svaki dan ponovno računa težine hype ocjene po klasi iz "
+         "ostvarive zarade u sjenovitoj knjizi (dok klasa nema dovoljno točaka, iz \"skoka\") i primjenjuje ih ako prolaze zaštitu (barem 200 ishoda, pomak najviše "
          "20% po težini, bolje na obje vremenske polovice). Ovdje vidiš što je našlo, što je promijenilo i što je propustilo. "
          "Ništa se ne radi ručno.</p>"]
     con = _con()
@@ -177,6 +216,10 @@ def page(qs):
         print(f"učenje: confidence: {type(e).__name__}: {e}")
 
     b.append(rugs_html())
+    try:
+        b.append(shadow_html())
+    except Exception as e:  # noqa: BLE001
+        print(f"učenje: sjenovita knjiga: {type(e).__name__}: {e}")
 
     b.append("<h2>Što je bot promijenio</h2>")
     if not runs:

@@ -48,20 +48,31 @@ def better(rows, old, new):
     return True, mo, mn
 
 
-def run(con, cfg=None, now=None, apply=True, base=None):
+def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
     """One learning run over all classes. Returns [{klasa, n, applied, ...}]."""
     cfg = cfg or outcomes.config()
     now = now or time.time()
     base = base or score.load_weights()
     rows, thr = outcomes.rows(con, cfg, now)
+    sh = []
+    if cfg.get("cilj") == "zarada":
+        try:
+            sh = outcomes.shadow_rows(cfg, now, shadow_path)
+        except Exception as e:  # noqa: BLE001 - a missing/locked shadow.db must not stop the daily learning
+            print(f"učenje: sjenovita knjiga nije dostupna: {type(e).__name__}: {e}")
     report = []
-    for klasa in sorted(set(r["klasa"] for r in rows) | set(thr)):
-        rk = [r for r in rows if r["klasa"] == klasa]
+    for klasa in sorted(set(r["klasa"] for r in rows) | set(thr) | set(r["klasa"] for r in sh)):
+        rk_sh = [r for r in sh if r["klasa"] == klasa]
+        use_sh = len(rk_sh) >= cfg["min_rows"]
+        rk = rk_sh if use_sh else [r for r in rows if r["klasa"] == klasa]
         old = weights.load(klasa, base)
-        rec = {"klasa": klasa, "n": len(rk), "skok": thr[klasa], "applied": False, "old": old, "new": None,
+        rec = {"klasa": klasa, "n": len(rk), "skok": (cfg.get("shadow") or {}).get("hit_ret", 0.1) if use_sh else thr.get(klasa, 0),
+               "cilj": "zarada" if use_sh else "vrh", "n_shadow": len(rk_sh), "applied": False, "old": old, "new": None,
                "metric_old": None, "metric_new": None, "note": ""}
         if len(rk) < cfg["min_rows"]:
             rec["note"] = f"premalo ishoda ({len(rk)} od potrebnih {cfg['min_rows']})"
+            if cfg.get("cilj") == "zarada":
+                rec["note"] += f"; u sjenovitoj knjizi {len(rk_sh)}"
         else:
             fit = evaluate.fit_weights(rk)
             if not fit:
@@ -72,6 +83,8 @@ def run(con, cfg=None, now=None, apply=True, base=None):
                 rec.update(new=new, metric_old=mo, metric_new=mn)
                 if ok:
                     rec["note"] = f"pogađanje među 20% najbolje ocijenjenih {mo} → {mn}"
+                    if use_sh:
+                        rec["note"] += " (cilj: ostvariva zarada, sjenovita knjiga)"
                     if apply:
                         weights.save(klasa, new, now)
                         rec["applied"] = True
