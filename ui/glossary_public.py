@@ -260,9 +260,8 @@ _E = [
      ("/solana-market", "Solana meme coin market today")),
     ("sesija", "trading-session", "Trading session", "What are crypto trading sessions?",
      "The part of the day by which market is awake: Asia 00-08 UTC, Europe 08-14 UTC, United States 14-24 UTC.",
-     "Crypto trades around the clock, but people sleep. Volume, prices and how well influencer calls work all change "
-     "with the session. In our data meme coin calls did differently in each session, and the busiest hours are also the "
-     "most crowded with bots.", "14:00-24:00 UTC is the US session (09:00-19:00 in New York).",
+     "Crypto trades around the clock, but people sleep, so volume and prices change with the session. The busiest "
+     "hours give the best prices to buy and sell, but they are also the most crowded with bots and fast traders.", "14:00-24:00 UTC is the US session (09:00-19:00 in New York).",
      ("/best-time-to-trade-crypto", "Best time to trade crypto, by hour")),
     ("dugorocni-token", "long-term-tokens", "Long-term token", "What makes a meme coin a long-term token?",
      "An older token (3+ weeks, $5M+ market cap, $100k+ daily volume) that survives and keeps growing.",
