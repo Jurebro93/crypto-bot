@@ -79,18 +79,8 @@ def status(con, service, cfg, now=None):
     own = counted(con, service, start, now + H)
     used = last[1] if last else own
     budget = c["monthly"]
-    # burn rate per day; when several estimates exist take the highest (a warning too early beats one too late)
-    rates = []
-    meter_from = con.execute("SELECT MIN(hour) FROM usage WHERE service=?", (service,)).fetchone()[0]
-    if meter_from is not None and now - meter_from >= 2 * H:
-        span = min(D, now - meter_from)
-        rates.append((counted(con, service, now - span, now + H) * D / span, "brojač bota"))
-    same = [s for s in snaps if s[0] >= now - 26 * H and last and s[3] == last[3]]
-    if len(same) >= 2 and same[-1][0] - same[0][0] >= 6 * H:
-        rates.append(((same[-1][1] - same[0][1]) * D / (same[-1][0] - same[0][0]), "račun"))
-    if not rates and last and now - start >= D:
-        rates.append((used * D / (now - start), "prosjek ciklusa"))
-    rate, src = max(rates) if rates else (0.0, "nema podataka")
+    # burn rate per day without one-off bursts and without stretching a few hours of data to a day (_window_rates)
+    rate, src = steady_rate(con, service, now, start, last)
     left_s = max(0, end - now)
     projected = used + rate * left_s / D
     runs_out = now + (budget - used) / rate * D if rate > 0 and used < budget else None
@@ -98,6 +88,104 @@ def status(con, service, cfg, now=None):
             "account_limit": last[2] if last else None, "account_ts": last[0] if last else None,
             "start": start, "end": end, "rate_day": rate, "rate_src": src, "projected": projected,
             "runs_out": runs_out, "fair_day": budget * D / max(D, end - start)}
+
+
+BUCKET_H, LOOKBACK_H = 6, 72
+
+
+def _window_rates(points, now):
+    """Steady spend per day from cumulative (ts, used) points, oldest first: the last 72 h cut into 6 h pieces, each
+    piece capped at 3x a normal piece, so one burst (a backfill, a first pass over many tokens) counts as a normal
+    piece instead of being stretched over the month, while a lasting rise still shows within hours (and bursts
+    have their own warnings). Returns [(rate per day, hours covered)], empty under 3 h of data."""
+    if len(points) < 2:
+        return []
+    t_first, end = points[0][0], points[-1]
+
+    def at(t):
+        return max((p for p in points if p[0] <= t), key=lambda p: p[0], default=points[0])[1]
+    edges, t = [end[0]], end[0]
+    while t - BUCKET_H * H > max(t_first, now - LOOKBACK_H * H):
+        t -= BUCKET_H * H
+        edges.append(t)
+    edges.append(max(t_first, now - LOOKBACK_H * H, edges[-1] - BUCKET_H * H))
+    edges = sorted(set(edges))
+    span = edges[-1] - edges[0]
+    if span < 3 * H:
+        return []
+    inc = [max(0.0, at(b) - at(a)) for a, b in zip(edges, edges[1:])]
+    lens = [b - a for a, b in zip(edges, edges[1:])]
+    if len(inc) >= 3:
+        per_h = sorted(i / max(1, ln / H) for i, ln in zip(inc, lens))
+        normal = max(statistics.median(per_h), statistics.mean(per_h[:-1]))
+        inc = [min(i, 3 * normal * ln / H) for i, ln in zip(inc, lens)]
+    steady = sum(inc) * D / span
+
+    def raw(hours):
+        t0 = max(t_first, end[0] - hours * H)
+        return (end[1] - at(t0)) * D / (end[0] - t0) if end[0] - t0 >= 3 * H else None
+    # a lasting rise shows in both the last 6 h and the last 24 h, a burst that is over only in the 24 h
+    recent = [r for r in (raw(6), raw(24)) if r is not None]
+    return [(max(steady, min(recent) if recent else 0.0), round(span / H))]
+
+
+def steady_rate(con, service, now, start, last):
+    """(credits or USD per day, source label). Account readings when there are any, else our own counter."""
+    if last:
+        pts = [(s[0], s[1]) for s in snapshots(con, service, max(start, now - 74 * H)) if s[3] == last[3]]
+        rates = _window_rates(pts, now)
+        if rates:
+            return rates[0][0], f"račun, zadnjih {rates[0][1]} h bez jednokratnih skokova"
+    meter_from = con.execute("SELECT MIN(hour) FROM usage WHERE service=?", (service,)).fetchone()[0]
+    if meter_from is None:
+        return 0.0, "nema podataka"
+    pts, acc = [], 0.0
+    for hr, amt in con.execute("SELECT hour, SUM(amount) FROM usage WHERE service=? AND hour>=? GROUP BY hour ORDER BY hour",
+                               (service, max(meter_from, start, now - 74 * H))):
+        if not pts:
+            pts.append((hr, 0.0))
+        acc += amt
+        pts.append((min(hr + H, now), acc))
+    rates = _window_rates(pts, now)
+    if not rates:
+        return 0.0, "premalo podataka (bot broji kraće od 3 h)"
+    return rates[0][0], f"brojač bota, zadnjih {rates[0][1]} h bez jednokratnih skokova"
+
+
+CATEGORY = {"rpc": "obični RPC pozivi", "enhancedApi": "Enhanced API", "das": "DAS (holderi, podaci o tokenu)",
+            "webhooks": "webhook događaji", "walletApi": "Wallet API", "archival": "arhivski upiti",
+            "photon": "Photon", "preConfirmations": "pre-potvrde", "laserstreamGrpc": "LaserStream",
+            "laserstreamWebsocket": "LaserStream websocket", "other": "ostalo"}
+
+
+def _credits(extra):
+    try:
+        c = (json.loads(extra or "{}") or {}).get("credits") or {}
+        return {k: float(v) for k, v in c.items() if isinstance(v, (int, float))}
+    except (ValueError, AttributeError):
+        return {}
+
+
+def category_gaps(con, t0, t1):
+    """[(category, account − bot, account, bot)] between two Helius account readings, biggest gap first. The
+    Admin API splits usage into categories (rpc, das, webhooks, ...); our meter's methods map onto the same ones."""
+    rows = con.execute("SELECT ts, extra FROM account WHERE service='helius' AND ts IN (?, ?) ORDER BY ts", (t0, t1)).fetchall()
+    if len(rows) < 2:
+        return []
+    a, b = _credits(rows[0][1]), _credits(rows[-1][1])
+    if not b:
+        return []
+    from usage import meter
+    mine = {}
+    for m, amt in con.execute("SELECT method, SUM(amount) FROM usage WHERE service='helius' AND hour>=? AND hour<? "
+                              "GROUP BY method", (t0 // H * H, t1)):
+        k = meter.helius_category(m)
+        mine[k] = mine.get(k, 0) + amt
+    out = []
+    for k in set(b) | set(mine):
+        acc = max(0.0, b.get(k, 0) - a.get(k, 0))
+        out.append((k, acc - mine.get(k, 0), acc, mine.get(k, 0)))
+    return sorted(out, key=lambda r: -r[1])
 
 
 def _script(k):
@@ -122,7 +210,7 @@ def evaluate(con, cfg=None, now=None):
         if st["used"] >= b * 0.95:
             out.append(("bad", f"{service}:spent", f"{name}: budžet skoro potrošen",
                         f"Potrošeno {f(st['used'])} od {f(b)} ovaj ciklus."))
-        elif st["projected"] > b:
+        elif st["projected"] > b * 1.05:   # 5% margin: no warning flapping on and off around the limit
             day = dt.datetime.fromtimestamp(st["runs_out"], dt.timezone.utc).strftime("%d.%m.") if st["runs_out"] else "?"
             out.append(("bad" if st["projected"] > b * 1.2 else "warn", f"{service}:pace",
                         f"{name}: ovim tempom budžet nestaje {day}",
@@ -168,10 +256,17 @@ def evaluate(con, cfg=None, now=None):
             mine = counted(con, service, snaps[0][0], snaps[-1][0])
             if acc - mine > c["unexplained_floor"] and acc > mine * 1.5:
                 hrs = (snaps[-1][0] - snaps[0][0]) / H
+                where = ""
+                if service == "helius":
+                    gaps = category_gaps(con, snaps[0][0], snaps[-1][0])
+                    if gaps:
+                        where = "Razlika po vrsti poziva (račun − bot): " + ", ".join(
+                            f"{CATEGORY.get(k, k)} {f(g)}" for k, g, _, _ in gaps[:3] if g > 0) + ". "
                 out.append(("warn", f"{service}:outside", f"{name}: troši se i izvan bota",
-                            f"Račun je u zadnjih {hrs:.0f} h narastao {f(acc)}, a bot je izbrojao samo {f(mine)}. "
+                            f"Račun je u zadnjih {hrs:.0f} h narastao {f(acc)}, a bot je izbrojao samo {f(mine)}. " + where
                             + ("Možda Apify nešto pokreće sam od sebe (u Apify konzoli pogledaj Runs)."
-                               if service == "apify" else "Isti ključ možda koristi još neka aplikacija.")))
+                               if service == "apify" else "Isti ključ možda koristi još neka aplikacija "
+                               "(npr. analiza pokrenuta izvan servera).")))
     out.sort(key=lambda a: a[0] != "bad")
     return [{"level": lv, "key": k, "service": k.split(":")[0], "title": t, "detail": d} for lv, k, t, d in out]
 
@@ -180,8 +275,27 @@ def remember(con, alerts, now=None):
     """Keep first/last time each warning was seen (history on the dashboard)."""
     now = int(now or time.time())
     for a in alerts:
-        con.execute("""INSERT INTO alerts VALUES (?,?,?,?,?,?,?) ON CONFLICT (key) DO UPDATE SET level=excluded.level,
+        con.execute("""INSERT INTO alerts (key, service, level, title, detail, first_ts, last_ts) VALUES (?,?,?,?,?,?,?) ON CONFLICT (key) DO UPDATE SET level=excluded.level,
             title=excluded.title, detail=excluded.detail, last_ts=excluded.last_ts,
             first_ts=CASE WHEN alerts.last_ts < ? THEN excluded.first_ts ELSE alerts.first_ts END""",
                     (a["key"], a["service"], a["level"], a["title"], a["detail"], now, now, now - 3 * H))
     con.commit()
+
+
+def to_log(con, alerts, now=None, every=D):
+    """The warnings worth a line in the server log: new ones, ones that got worse (warn -> bad), and the rest once a
+    day. The check runs every 15 min, so without this one ongoing warning filled the log ~100 times a day."""
+    now = int(now or time.time())
+    cols = {r[1] for r in con.execute("PRAGMA table_info(alerts)")}
+    for c in ("logged_ts", "logged_level"):
+        if c not in cols:
+            con.execute(f"ALTER TABLE alerts ADD COLUMN {c} {'INTEGER' if c == 'logged_ts' else 'TEXT'}")
+    out = []
+    for a in alerts:
+        row = con.execute("SELECT logged_ts, logged_level FROM alerts WHERE key=?", (a["key"],)).fetchone()
+        lts, llv = row if row else (None, None)
+        if lts is None or now - lts >= every or (a["level"] == "bad" and llv != "bad"):
+            out.append(a)
+            con.execute("UPDATE alerts SET logged_ts=?, logged_level=? WHERE key=?", (now, a["level"], a["key"]))
+    con.commit()
+    return out

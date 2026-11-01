@@ -18,6 +18,7 @@ import time
 import urllib.parse
 
 from event_calendar import http
+from dugo import sources
 
 D = 86400
 SYSTEM = "11111111111111111111111111111111"
@@ -232,9 +233,11 @@ def refresh(con, cfg, now=None, log=print):
                 if r:
                     con.execute("INSERT OR REPLACE INTO holder_info VALUES (?,?,?,?,?)", (mint, day, *r))
                     done_c += 1
+            except sources.GeckoBusy:       # free limit used up (shared with the KOL module): next pass, quietly
+                gecko_blocked = True
+                log("broj holdera: besplatni GeckoTerminal trenutno zauzet, ostatak u sljedećem prolazu")
             except Exception as e:
                 log(f"broj holdera {mint[:6]}: {e}")
-                gecko_blocked = "429" in str(e)     # free limit used up: next pass
         lastl = con.execute("SELECT MAX(day) FROM listings WHERE mint=?", (mint,)).fetchone()[0] or 0
         if lastl <= now - h["svakih_d"] * D and done_l < h["coingecko_po_prolazu"]:
             r = listings(mint)

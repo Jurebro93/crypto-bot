@@ -22,22 +22,29 @@ QUOTES = {"So11111111111111111111111111111111111111112", "EPjFWdd5AufqSSqeM2qZxE
 _last = [0.0]
 
 
+class GeckoBusy(Exception):
+    """GeckoTerminal's free per-minute limit is used up (by us or the KOL module): not an error, try next pass."""
+
+
 def _gecko(path, gap):
     """GeckoTerminal GET without the disk cache (candles are stored in dugo.db anyway). The free API allows ~30
-    calls a minute per IP and the KOL module uses the same IP, so calls are spaced `gap` seconds."""
+    calls a minute per IP and the KOL module uses the same IP: calls are spaced `gap` seconds here and queue with
+    the other processes through http's shared gate. The Dugoročni lists refresh slowly anyway, so on a 429 (or
+    while the gate is paused after someone else's 429) we give way to the KOL measurements instead of waiting."""
+    url = GECKO + path
+    if http.cooling(url) > 0:
+        raise GeckoBusy()
     wait = _last[0] + gap - time.monotonic()
     if wait > 0:
         time.sleep(wait)
     _last[0] = time.monotonic()
-    req = urllib.request.Request(GECKO + path, headers={"User-Agent": http.USER_AGENT, "Accept": "application/json"})
+    req = urllib.request.Request(url, headers={"User-Agent": http.USER_AGENT, "Accept": "application/json"})
     try:
-        return http._fetch(req, 30, retries=1)
-    except urllib.error.HTTPError as e:
-        if e.code != 429:
-            raise
-        time.sleep(45)      # the free limit is per minute: one slow retry instead of hammering it
-        _last[0] = time.monotonic()
         return http._fetch(req, 30, retries=0)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise GeckoBusy() from None
+        raise
 
 
 def _ro(name):

@@ -29,6 +29,8 @@ def collect(con, cfg, now=None, candle_budget=None):
     try:
         for m in sources.gecko_top(cfg["gecko_top_pages"], cfg["gecko_gap_s"]):
             uni.setdefault(m, "gecko")
+    except sources.GeckoBusy:
+        _log("gecko top: besplatni GeckoTerminal trenutno zauzet, popis najprometnijih u sljedećem prolazu")
     except Exception as e:
         _log(f"gecko top: {e}")
     known = {r[0] for r in con.execute("SELECT mint FROM tokens")}
@@ -55,11 +57,12 @@ def collect(con, cfg, now=None, candle_budget=None):
     for mint, pair, cts in todo[:candle_budget or cfg["candles_per_run"]]:
         try:
             rows = sources.candles(pair, cfg["gecko_gap_s"], limit=40 if cts else 400)
+        except sources.GeckoBusy:   # free limit used up (shared with the KOL module): not an error, next pass
+            _log(f"svijeće: besplatni GeckoTerminal trenutno zauzet, {len(todo[:candle_budget or cfg['candles_per_run']]) - n} "
+                 "tokena čeka sljedeći prolaz")
+            break
         except Exception as e:
             _log(f"svijeće {mint[:6]}: {e}")
-            if "429" in str(e):     # free limit used up (shared with the KOL module): try again next pass
-                _log("GeckoTerminal ograničenje: ostatak svijeća u sljedećem prolazu")
-                break
             continue
         store.put_candles(con, mint, rows)
         con.execute("UPDATE tokens SET candles_ts=? WHERE mint=?", (now, mint))
@@ -77,6 +80,8 @@ def collect(con, cfg, now=None, candle_budget=None):
             if p:
                 rows = sources.candles(p["pairAddress"], cfg["gecko_gap_s"], limit=40 if last_sol else 400)
                 con.executemany("INSERT OR REPLACE INTO ref VALUES ('SOL',?,?)", [(r[0], r[4]) for r in rows])
+        except sources.GeckoBusy:
+            _log("SOL: besplatni GeckoTerminal trenutno zauzet, sljedeći prolaz")
         except Exception as e:
             _log(f"SOL: {e}")
     try:

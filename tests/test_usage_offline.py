@@ -117,6 +117,86 @@ class Rules(unittest.TestCase):
         self.assertEqual(con.execute("SELECT first_ts, last_ts FROM alerts").fetchone(), (NOW - 600, NOW))
 
 
+class Fixes20261101(unittest.TestCase):
+    """01.11.2026: one ongoing warning was logged ~100x a day, the Helius forecast jumped from 03.11. to 16.11. as a
+    one-off burst slid out of the 26 h window, and webhook events were billed but never counted."""
+
+    def snaps(self, con, points, extra=None):
+        cs, ce = watch.cycle(30, NOW)
+        for hrs, used in points:
+            con.execute("INSERT INTO account VALUES (?,?,?,?,?,?,?)",
+                        (NOW - int(hrs * H), "helius", used, 10e6, cs, ce, json.dumps(extra(hrs) if extra else {})))
+
+    def test_one_off_burst_is_not_the_monthly_pace(self):
+        con = fresh()
+        # 200k/day steady for 3 days, plus a single 1.2M burst 20 h ago (a backfill)
+        pts = [(h, 200000 * (72 - h) / 24 + (1.2e6 if h <= 20 else 0)) for h in range(72, -1, -1)]
+        self.snaps(con, pts)
+        con.commit()
+        st = watch.status(con, "helius", watch.config(), NOW)
+        self.assertLess(st["rate_day"], 400000)            # the 24 h window alone would say ~1.4M/day
+        self.assertIn("račun", st["rate_src"])
+        self.assertNotIn("helius:pace", keys(con))
+
+    def test_lasting_rise_still_counts(self):
+        con = fresh()
+        pts, used = [], 0.0
+        for h in range(72, -1, -1):
+            pts.append((h, used))
+            used += (900000 if h <= 12 else 200000) / 24
+        self.snaps(con, pts)
+        con.commit()
+        st = watch.status(con, "helius", watch.config(), NOW)
+        self.assertGreater(st["rate_day"], 500000)
+
+    def test_short_meter_is_not_extrapolated(self):
+        con = fresh()
+        add(con, 0, 2.0, service="apify")                 # $2 in the first hour of counting: not $48/day
+        con.commit()
+        st = watch.status(con, "apify", watch.config(), NOW)
+        self.assertEqual(st["rate_day"], 0.0)
+        self.assertNotIn("apify:pace", keys(con))
+
+    def test_ongoing_warning_logged_once_a_day(self):
+        con = fresh()
+        a = [{"key": "helius:pace", "service": "helius", "level": "warn", "title": "t", "detail": "d"}]
+        logged = 0
+        for i in range(96):                                # one day of 15-min checks
+            watch.remember(con, a, NOW + i * 900)
+            logged += len(watch.to_log(con, a, NOW + i * 900))
+        self.assertEqual(logged, 1)
+        a[0]["level"] = "bad"                              # got worse: logged again at once
+        watch.remember(con, a, NOW + 96 * 900)
+        self.assertEqual(len(watch.to_log(con, a, NOW + 96 * 900)), 1)
+        self.assertEqual(len(watch.to_log(con, a, NOW + 97 * 900)), 0)
+
+    def test_nested_rpc_answer_and_webhook_events(self):
+        body = json.dumps({"method": "getTransactionsForAddress", "params": ["W", {"limit": 1000}]}).encode()
+        self.assertEqual(meter.helius_cost("https://mainnet.helius-rpc.com/", body,
+                                           {"jsonrpc": "2.0", "result": {"data": [0] * 450}})[1], 50)
+        fresh()
+        meter.helius_webhook(37)
+        meter.helius_webhook(0, managed=True)
+        meter.flush()
+        con = meter.connect()
+        got = dict(con.execute("SELECT method, SUM(amount) FROM usage GROUP BY method"))
+        self.assertEqual(got, {"webhook događaji": 37.0, "webhook upravljanje": 100.0})
+        self.assertEqual(meter.helius_category("webhook događaji"), "webhooks")
+        self.assertEqual(meter.helius_category("getTokenAccounts"), "das")
+
+    def test_outside_names_the_category(self):
+        con = fresh()
+        for h in range(12):
+            add(con, h, 1000, method="getBalance")
+        self.snaps(con, [(10, 1e6), (0.02, 1e6 + 300000)],
+                   extra=lambda h: {"credits": {"rpc": 500000 + (12000 if h < 1 else 0),
+                                                "webhooks": 100000 + (288000 if h < 1 else 0)}})
+        con.commit()
+        out = {a["key"]: a for a in watch.evaluate(con, now=NOW)}
+        self.assertIn("helius:outside", out)
+        self.assertIn("webhook događaji", out["helius:outside"]["detail"])
+
+
 class Page(unittest.TestCase):
     def test_page_and_banner(self):
         con = fresh()
