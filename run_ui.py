@@ -239,6 +239,9 @@ def route(path, qs):
         return usage.page(qs)
     if path == "/market":
         return market.page(qs)
+    if path == "/analitika":
+        from ui import analitika
+        return analitika.page(qs)
     if path == "/criteria":
         return criteria.page(qs)
     if path == "/izlazi":
@@ -773,6 +776,11 @@ def main(argv=None):
         print(f"marketpub: {e}", flush=True)
     from ui import coins
     coins.start()     # public top-100 Solana meme coins (Jupiter list every 3 h) -> public.db
+    try:
+        from analytics import gsc
+        gsc.start()   # Google Search Console every 6 h -> analytics.db (only with GSC_SERVICE_ACCOUNT_JSON)
+    except Exception as e:  # noqa: BLE001
+        print(f"gsc: {e}", flush=True)
     pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading

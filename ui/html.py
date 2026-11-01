@@ -62,6 +62,8 @@ SECTIONS = [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
+        _p("/analitika", "📈", "Analitika", "Koliko nas ljudi nađe na Googleu i preko kojih riječi.",
+           "google search console gsc seo klikovi prikazi upiti posjete"),
         _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise i hoće li budžet izdržati.", "trošak helius apify budžet"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
     ]),
@@ -184,6 +186,9 @@ INTRO = {
                   "rug filter, walleti, confidence, demo.", "Referenca: kad te zanima zašto je broj takav kakav jest."),
     "/market": ("Je li tržište vruće ili hladno", "Volumen po launchpadima i Solana DEX-u (DefiLlama), režim 0-100.",
                 "Vrućina tržišta je jedan od signala u hype ocjeni; koliko vrijedi, bot uči sam."),
+    "/analitika": ("Kako nas ljudi nalaze na Googleu", "Klikovi, prikazi, CTR i prosječna pozicija iz Google Search "
+                   "Consolea, upiti blizu vrha, najjače stranice, zemlje i uređaji.", "Pokazuje koje javne stranice "
+                   "rade i koje vrijedi poboljšati; podaci kasne oko 2 dana."),
     "/usage": ("Koliko trošimo i gdje curi", "Helius krediti i Apify dolari po modulu, dnevno i mjesečno, upozorenja.",
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
