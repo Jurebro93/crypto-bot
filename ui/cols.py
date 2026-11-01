@@ -35,7 +35,7 @@ table.cards,table.cards tbody{display:block;width:100%}table.cards thead{display
 table.cards tr{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;padding:8px 12px;border-bottom:1px solid var(--line)}
 table.cards td.stk,table.cards td.wrap,table.cards td[colspan]{grid-column:1/-1}table.cards td:empty{display:none}
 table.cards td{display:block;border:0;padding:3px 0;white-space:normal;text-align:right;min-width:0;max-width:none;font-size:14px;overflow-wrap:anywhere}
-table.cards td::after{content:'';display:block;clear:both}
+table.cards td::after{content:'';display:block;clear:both}.ctip{display:none}table.cards td>.ctip{display:inline-block;float:left;line-height:20px;margin:0 6px 0 -4px}table.cards td.stk>.ctip{display:none}table.cards td.wrap{position:relative}table.cards td.wrap>.ctip{float:none;position:absolute;right:0;top:3px;margin:0}
 table.cards td::before{content:attr(data-l);float:left;color:var(--mut);font-size:12px;text-align:left;max-width:48%;padding-right:10px;line-height:20px;overflow-wrap:normal;white-space:nowrap}
 table.cards td.wrap{display:block;text-align:left}table.cards td.wrap::before{float:none;display:block;max-width:none}
 table.cards td.stk{position:static;box-shadow:none;font-weight:600;font-size:15px;text-align:left;padding-bottom:4px}
@@ -60,7 +60,7 @@ function init(t){
  if(t._cols||t.classList.contains('nocols'))return;const hr=t.tHead&&t.tHead.rows[t.tHead.rows.length-1];
  if(!hr||hr.cells.length<3||t.tHead.rows.length>1||[...hr.cells].some(c=>c.colSpan>1))return;
  const labels=[...hr.cells].map(lab);
- t._cols={k:t.id||('t'+(n++)),labels,v:0};tables.push(t);
+ t._cols={k:t.id||('t'+(n++)),labels,v:0,tips:[...hr.cells].map(c=>c.querySelector('.tip'))};tables.push(t);
  [...hr.cells].forEach((c,i)=>c.dataset.c=i);
  const w=t.closest('.tw')||t,bar=document.createElement('div');bar.className='colbar';
  bar.innerHTML='<span class=hid></span><select class=srt title="Sortiraj" hidden></select><button type=button class=cv></button><button type=button title="Odaberi koje stupce vidiš i njihov redoslijed">⚙ Stupci</button>';
@@ -84,7 +84,7 @@ function fixRow(r,C,pos,hid,ncol){
  if(!r._c){cells.forEach((c,i)=>c.dataset.c=i);r._c=1}
  const by=[];cells.forEach(c=>by[+c.dataset.c]=c);
  let first=true;pos.forEach(i=>{const c=by[i];r.appendChild(c);c.dataset.l=C.labels[i];const h=hid.has(i);c.classList.toggle('ch',h);
-  c.classList.toggle('stk',!h&&first);if(!h)first=false});r._v=C.v}
+  c.classList.toggle('stk',!h&&first);if(!h)first=false;if(C.tips[i]&&!c.querySelector(':scope>.ctip')&&c.tagName==='TD'){const x=C.tips[i].cloneNode(true);x.classList.add('ctip');c.prepend(x)}});r._v=C.v}
 function apply(t,full){const C=t._cols;if(full){C.v++;C.st=state(t)}const {pos,hide}=C.st;
  const hid=new Set([...hide].map(l=>C.labels.indexOf(l))),ncol=C.labels.length;
  for(const r of t.rows)if(full||r._v!==C.v)fixRow(r,C,pos,hid,ncol);

@@ -453,6 +453,33 @@ def _influence(con, handle, cfg):
                     [[esc(a), b, (f'<span class=mut>{esc(c)}</span>', "", "wrap")] for a, b, c in out]))
 
 
+def _charts(con, handle):
+    """How his calls did over time: one bar per call (24 h result) and the running result of $10 on every call."""
+    from ui import charts
+    syms = _syms(con)
+    rows = _rows(con, f"SELECT ts, token, symbol, text, r24h, max24 FROM calls WHERE handle = ? AND {POSTS} "
+                      "AND r24h IS NOT NULL ORDER BY ts", (handle,))
+    if len(rows) < 2:
+        return ""
+    rows = rows[-300:]
+    name = lambda c: "$" + str(syms.get(c["token"]) or c["symbol"] or _ticker(c["text"]) or c["token"][:6]).strip()
+    run, pts = 0.0, []
+    for c in rows:
+        run += 10 * max(-1.0, c["r24h"])
+        pts.append((c["ts"], run))
+    ups = sum(1 for c in rows if c["r24h"] > 0)
+    return ("<h2>Kako su mu prolazili pozivi kroz vrijeme</h2>" + tdesc(
+        f"{len(rows)} izmjerenih poziva, {ups} u plusu nakon 24 h. Gornji graf: jedan stupac po pozivu, koliko je "
+        "token bio gore (plavo) ili dolje (crveno) 24 sata nakon posta. Donji graf: da si na svaki njegov poziv uložio "
+        "$10 i prodao nakon 24 h, ovoliko bi bio u plusu ili minusu (bez naknada). Pređi prstom ili mišem preko grafa "
+        "za točan broj.")
+            + charts.bars([(c["ts"], name(c), c["r24h"]) for c in rows], "Rezultat svakog poziva nakon 24 h",
+                          "plavo = token je narastao, crveno = pao", fmt="pct")
+            + charts.line([{"name": "Zbroj", "pts": [(rows[0]["ts"] - 1, 0.0)] + pts}],
+                          "Da si uložio $10 u svaki njegov poziv", "prodano nakon 24 h, zbroj kroz vrijeme",
+                          fmt="usd+", base=0, base_label="nula"))
+
+
 def kol_page(handle, qs):
     con = store.ro()
     if con is None:
@@ -497,6 +524,7 @@ def kol_page(handle, qs):
                 f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
                 f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
                      + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
+        b.append(_charts(con, handle))
         b.append(_influence(con, handle, cfg))
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta. Cijena i volumen: iz "
                  "5-min svijeća (GeckoTerminal) kad su dostupne, inače iz snimki DexScreenera svakih 20 min (tada je "

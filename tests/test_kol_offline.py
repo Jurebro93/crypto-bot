@@ -155,6 +155,9 @@ class Pipeline(unittest.TestCase):
             self.assertIn("Grupni pozivi", body)
             self.assertIn("ICOIN", ukol.token_section(CA))
             self.assertIn("Kako je dobio ocjenu", ukol.kol_page("alpha", {})[1])
+            body = ukol.kol_page("alpha", {})[1]
+            self.assertIn("Kako su mu prolazili pozivi", body)  # 2 measured calls: bar + running-result chart
+            self.assertIn("Da si uložio $10", body)
         finally:
             store.DB = old
 

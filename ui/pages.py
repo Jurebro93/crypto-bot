@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from ui import data, explain, jobs, labels
 from ui.labels import FEATURE_DESC
-from ui.html import (tdesc, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, mins, num, price, scorecell,
+from ui.html import (tdesc, info, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, mins, num, price, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
 ROLE = {
@@ -217,7 +217,17 @@ def wallet(addr, qs):
                          signed(p.get("roi"), "{:+.0%}") if p["status"] != "open" or p["mint"] in priced else ("–", -9, "n"),
                          num(p["buys"]), num(p["sells"]), mins(p.get("hold_min")), ts(p["last_ts"])]
                         for p in sorted(pos.values(), key=lambda p: (p["status"] != "open", -(p["last_ts"] or 0)))]))
+    if pos:
+        b.append(_wallet_charts(pos, syms))
     hist = data.wallet_pnl(addr)
+    if hist and len(hist) >= 2:
+        from ui import charts
+        b.append("<h2>Kako mu se mijenjala ocjena</h2>" + tdesc(
+            "Ocjena profitabilnosti i copy ocjena (0-100) iz svakog ocjenjivanja. Rastuća linija = novčanik postaje "
+            "bolji; pad znači da je zadnjih tjedana gubio ili trguje teže za kopiranje.")
+            + charts.line([{"name": "Ocjena profitabilnosti", "pts": [(h["ts"], h["score"]) for h in hist if h["score"] is not None]},
+                           {"name": "Copy ocjena", "pts": [(h["ts"], h["copy_score"]) for h in hist if h["copy_score"] is not None]}],
+                          "Ocjene kroz vrijeme", "0-100", fmt="num", ymin=0, ymax=100))
     if hist:
         b.append("<h2>Povijest ocjena</h2>")
         b.append(tdesc('Svako ocjenjivanje ovog walleta kroz vrijeme: vidi se popravlja li se ili kvari.') + table(["Vrijeme", ("Realiz.", "n"), ("Nerealiz.", "n"), ("Win", "n"), ("Zatv.", "n"),
@@ -230,6 +240,29 @@ def wallet(addr, qs):
         b.append(f"<p>Ocjena hype modula: <b>{sm['score']}</b> · pronađen preko: "
                  + ", ".join(tlink(m, syms.get(m)) for m in (sm.get("found_via") or "").split(",") if m) + "</p>")
     return f"Wallet {short(addr)}", "".join(b)
+
+
+def _wallet_charts(pos, syms):
+    """Running realized profit over time and one bar per closed position."""
+    from ui import charts
+    closed = sorted((p for p in pos.values() if p["status"] == "closed" and p.get("last_ts") and p.get("realized") is not None),
+                    key=lambda p: p["last_ts"])
+    if len(closed) < 2:
+        return ""
+    run, pts = 0.0, [(closed[0]["last_ts"] - 1, 0.0)]
+    for p in closed:
+        run += p["realized"]
+        pts.append((p["last_ts"], run))
+    nm = lambda p: "$" + str(syms.get(p["mint"]) or p["mint"][:6]).strip()
+    wins = sum(1 for p in closed if p["realized"] > 0)
+    return ("<h2>Kako je zarađivao kroz vrijeme</h2>" + tdesc(
+        f"{len(closed)} zatvorenih pozicija, {wins} u plusu. Gornji graf: ukupna ostvarena zarada u SOL-u nakon svake "
+        "prodaje (raste = zarađuje, pada = gubi). Donji: svaka zatvorena pozicija, plavo dobit, crveno gubitak. "
+        "Pređi prstom ili mišem preko grafa za točan broj.")
+            + charts.line([{"name": "Ostvareno", "pts": pts}], "Ukupna ostvarena zarada (SOL)",
+                          "zbroj nakon svake zatvorene pozicije", fmt="sol", base=0, base_label="nula")
+            + charts.bars([(p["last_ts"], nm(p), p.get("roi")) for p in closed[-200:]], "Svaka zatvorena pozicija",
+                          "povrat na uloženo", fmt="pct"))
 
 
 def _positions(addr):
@@ -524,7 +557,7 @@ def _events_table(evs, tid):
         tl = ", ".join(tlink(t["token"], t["symbol"]) + ("★" if t["role"] == "canonical" else "") for t in toks[:6])
         parts = explain.event_hype(e)
         det = (f"<details><summary>raspis</summary>"
-               + "".join(f"<div>{esc(n)}: <b>{p:.1f}</b>/{m} <span class=mut>{esc(x)}</span></div>" for n, p, m, x in parts)
+               + "".join(f"<div>{esc(n)} {info(n)}: <b>{p:.1f}</b>/{m} <span class=mut>{esc(x)}</span></div>" for n, p, m, x in parts)
                + "</details>")
         rows.append([(esc(e["date"]), e["date"], ""), esc(labels.kind(e["kind"])),
                      (f'<a href="{esc(e["url"])}" target=_blank>{esc(e["title"])}</a>' if e.get("url") else esc(e["title"]), e["title"], "wrap"),
