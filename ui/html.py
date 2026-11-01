@@ -6,6 +6,7 @@ import os
 import re
 import time
 from urllib.parse import quote
+from ui.urls import home_link as _home_link
 from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
 # Menu: a few plain groups, every page with an icon and a one-line description. The same list drives the side menu
@@ -446,7 +447,7 @@ def side_menu(cur):
     svg, name = logo(26)
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>',
-         '<a class=pub href="/dobrodosli" target=_blank rel=noopener><span class=mi>🚀</span>Naslovna stranica ↗</a>']
+         f'<a class=pub href="{_home_link()}" target=_blank rel=noopener><span class=mi>🚀</span>Naslovna stranica ↗</a>']
     for sec, items in SECTIONS:
         b.append(f'<div class="{"sec-n" if sec == "Natjecanje" else ""}"><h4>{esc(sec)}</h4>' + "".join(
             f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'

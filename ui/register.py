@@ -20,7 +20,8 @@ def can_invite(user):
 
 
 def _base():
-    return os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    from ui import urls
+    return urls.app() or urls.site()
 
 
 def link(tok):

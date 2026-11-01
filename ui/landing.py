@@ -366,7 +366,8 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     v, ts = stats()
     svg, name = logo(30)
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    app_href, app_label = ("/", t["app"]) if logged_in else ("/prijava", t["login"])
+    from ui import urls
+    app_href, app_label = (urls.app_link("/"), t["app"]) if logged_in else (urls.app_link("/prijava"), t["login"])
     num = _n_en if en else _n
 
     nums = [(v.get(k), t["n_" + k]) for k in ("tokens", "wallets", "kols", "calls")]
