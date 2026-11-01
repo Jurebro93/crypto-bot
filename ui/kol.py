@@ -196,9 +196,14 @@ def trades_table(con, where="1=1", args=(), limit=200, tid="trades", show_who=Tr
 FEW = 5  # fewer measured calls than this: medians are shown faded
 
 
-def _leaderboard(con, minf, minc):
+def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
+    """star None: everyone; True: only stars (100k+ followers or on the followed-stars list); False: rising stars."""
+    from ui.public import is_star, star_handles
+    stars = star_handles()
     rows = _rows(con, "SELECT * FROM kols WHERE score IS NOT NULL AND COALESCE(followers, 0) >= ? ORDER BY score DESC",
                  (minf,))
+    if star is not None:
+        rows = [k for k in rows if is_star(k, stars) == star]
     last = dict(con.execute("SELECT handle, MAX(ts) FROM calls WHERE kind = 'call' GROUP BY handle"))
     out = []
     for k in rows:
@@ -220,11 +225,44 @@ def _leaderboard(con, minf, minc):
                     num(s.get("brags")), num(s.get("med_views")),
                     ("–", -1, "n") if eng is None else (f"{eng * 100:.2g}%" if eng < 0.1 else f"{eng * 100:.0f}%", eng, "n"),
                     _zone(s), ago(last.get(k["handle"]))])
-    return table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
+    html = table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
                   ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
                   ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
                   "Zona", "Zadnji poziv"],
-                 out, tid="kols", empty="Još nema KOL-ova s izmjerenim pozivom (mjerenje kreće 1 h nakon poziva).")
+                 out, tid=tid, empty="Još nema KOL-ova s izmjerenim pozivom u ovoj skupini (mjerenje kreće 1 h nakon "
+                                     "poziva).")
+    return (html, len(out)) if count else html
+
+
+def _star_tabs(con, minf, minc):
+    """Leaderboard in two tabs: rising stars (lesser-known accounts, the ones worth finding; default) and stars."""
+    from ui.public import STAR_FOLLOWERS
+    from ui.html import info
+    rising, n_r = _leaderboard(con, minf, minc, star=False, tid="kols", count=True)
+    stars, n_s = _leaderboard(con, minf, minc, star=True, tid="kolstars", count=True)
+    btn = ("padding:7px 14px;border:1px solid var(--line,#ddd);border-radius:8px;cursor:pointer;font-weight:600;"
+           "margin:0 6px 10px 0;background:var(--card,#fff)")
+    return (
+        f'<div class=kst><button type=button data-t=rising class=on style="{btn}">⭐ Rastuće zvijezde ({n_r})'
+        f'</button><button type=button data-t=stars style="{btn}">🌟 Zvijezde ({n_s})</button> '
+        f'{info("Zvijezde i rastuće zvijezde", "zvijezde-i-rastuce-zvijezde")}</div>'
+        '<div class=ksp data-p=rising>' + tdesc(
+            "Manje poznati računi (ispod " + f"{STAR_FOLLOWERS:,}".replace(",", ".") + " pratitelja) koji rano zovu "
+            "tokene koji kasnije porastu. Njih tražimo: malo ih ljudi prati, pa nakon njihovog poziva još ima mjesta "
+            "za ulaz.") + rising + "</div>"
+        '<div class=ksp data-p=stars hidden>' + tdesc(
+            "Najpoznatiji influenceri (" + f"{STAR_FOLLOWERS:,}".replace(",", ".") + "+ pratitelja ili s naše liste: "
+            "Murad, Ansem i ekipa). Njihov poziv vidi masa ljudi u istoj sekundi, a snajper botovi čekaju baš njihove "
+            "objave. Na Solani, kad puno kupnji stigne odjednom, mreža prvo obradi one s većom prioritetnom naknadom "
+            f"{info('prioritetna naknada', 'prioritetna-naknada')}: bot plati više i kupi prije svih, a ljudi kupe "
+            f"njemu po višoj cijeni (front-running {info('front-running', 'front-running')}). Zato su pozivi zvijezda "
+            "lošiji za trgovanje nego što izgleda, iako najviše pomaknu cijenu.") + stars + "</div>"
+        "<script>document.querySelectorAll('.kst button').forEach(t=>t.onclick=()=>{"
+        "document.querySelectorAll('.kst button').forEach(b=>{b.classList.toggle('on',b===t);"
+        "b.style.background=b===t?'var(--accent,#4f46e5)':'';b.style.color=b===t?'#fff':''});"
+        "document.querySelectorAll('.ksp').forEach(p=>p.hidden=p.dataset.p!==t.dataset.t)});"
+        "document.querySelector('.kst button.on').click();"
+        "if(location.hash==='#zvijezde')document.querySelector('.kst button[data-t=stars]').click()</script>")
 
 
 def _zone(s):
@@ -356,7 +394,7 @@ def page(qs):
         b.append(tdesc(f"Moć poziva 0-100 iz KOL-ovih prvih poziva na token: pogodak (+{cfg['hit_x']:.0%} u 24 h), "
                        "medijan rasta, volumen nakon poziva, je li prvi, rugovi; kasni pozivi (cijena već 2× prije poziva) "
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
-                       f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _leaderboard(con, minf, minc))
+                       f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
 
         z = cfg.get("sessions", {})
         b.append("<h2 id=sesije>Sesije trgovanja i vremenske zone</h2>" + tdesc(
