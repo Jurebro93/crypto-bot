@@ -388,6 +388,14 @@ T("Stop loss", "trading", "Automatska prodaja ako cijena padne za zadani postota
   vidi=["take-profit"], alias=["sl"])
 T("Trailing stop", "trading", "Stop koji se penje s cijenom: prodaje kad cijena padne zadani postotak ispod najvišeg vrha.",
   "Tako se uhvati većina skoka, a izađe se čim krene ozbiljan pad.", vidi=["stop-loss"])
+T("Auto sell", "trading", "Alat sam prodaje tvoju demo poziciju kad cijena dođe do tvog take profita ili stop lossa "
+  "(ili po naučenim pravilima), provjera svake minute.",
+  "Pravilo možeš postaviti jednoj poziciji ili kvačicom 'sve otvorene pozicije' svima odjednom. Kvačica 'sve nove "
+  "kupnje' pamti pravilo i stavlja ga na svaku sljedeću kupnju. Postotak (npr. 100% i -30%) računa se od ulaza "
+  "svake pozicije posebno, a market cap (npr. $500k) je isti za sve; stop iznad ulaza neke pozicije se za nju preskoči.",
+  primjer="TP 100%, SL -30% na sve: token kupljen na $50k prodaje se na $100k ili na $35k.",
+  vidi=["take-profit", "stop-loss"], gdje=[("/natjecanje#autosell", "Natjecanje")],
+  alias=["pravilo za sve pozicije", "globalni tp/sl", "pametni izlaz", "moj tp/sl"])
 T("Izlaz", "trading", "Prodaja pozicije i razlog: take profit, stop loss, trailing stop, isteklo vrijeme ili rug.",
   gdje=[("/izlazi", "Izlazi")], alias=["izlazi"])
 T("Ulog", "trading", "Koliko je dolara uloženo u jednu poziciju.", alias=["ulog $"])

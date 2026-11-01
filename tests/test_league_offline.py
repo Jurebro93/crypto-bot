@@ -66,6 +66,71 @@ class League(unittest.TestCase):
         self.assertIn("MC izlaz", league.page({}, "Jure")[1])
 
 
+class GlobalTpSl(unittest.TestCase):
+    """One TP/SL rule for all open positions and (checkbox) for every new buy."""
+    def setUp(self):
+        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
+        league.market = lambda mints: {m: (2.0, 1e6, None, 2e6) for m in mints}
+
+    def test_rule_on_all_open_and_new_buys(self):
+        import json
+        from league import auto, dca
+        con = store.connect()
+        a = store.buy(con, "Ivan", "MintA", "AAA", 100, 1.0, 1e6, mcap=1e5)
+        b = store.buy(con, "Ivan", "MintB", "BBB", 100, 2.0, 1e6, mcap=2e6)
+        p = store.buy(con, "Panda", "MintA", "AAA", 100, 1.0, 1e6, mcap=1e5)
+        loc = league.post("/natjecanje/auto", {"all": "1", "new": "1", "mode": "tpsl", "tp": "100%", "sl": "$1.5M"},
+                          "Ivan")
+        self.assertIn("ok=", loc)
+        from urllib.parse import unquote
+        self.assertIn("Preskočeno: AAA", unquote(loc))   # SL $1.5M is above AAA's $100k entry: would sell at once, skipped
+        con = store.connect()
+        self.assertIsNone(con.execute("SELECT auto FROM trades WHERE id=?", (a,)).fetchone()[0])
+        league.post("/natjecanje/auto", {"all": "1", "new": "1", "mode": "tpsl", "tp": "100%", "sl": "-30%"}, "Ivan")
+        ta = json.loads(con.execute("SELECT auto FROM trades WHERE id=?", (a,)).fetchone()[0])
+        self.assertAlmostEqual(ta["sl_px"], 0.7)
+        league.post("/natjecanje/auto", {"all": "1", "new": "1", "mode": "tpsl", "tp": "100%", "sl": "$1.5M"}, "Ivan")
+        ta = json.loads(con.execute("SELECT auto FROM trades WHERE id=?", (a,)).fetchone()[0])
+        tb = json.loads(con.execute("SELECT auto FROM trades WHERE id=?", (b,)).fetchone()[0])
+        self.assertAlmostEqual(ta["tp_px"], 2.0)          # percent from each position's own entry
+        self.assertAlmostEqual(tb["tp_px"], 4.0)
+        self.assertAlmostEqual(tb["sl_px"], 1.5)          # $1.5M on a $2M entry = price 1.5
+        self.assertIsNone(con.execute("SELECT auto FROM trades WHERE id=?", (p,)).fetchone()[0])  # not Panda's
+        # new buy gets the rule, copy trading entries don't
+        c = store.buy(con, "Ivan", "MintC", "CCC", 50, 1.0, 1e6, mcap=1e6)
+        self.assertIn('"tp": "+100%"', con.execute("SELECT auto FROM trades WHERE id=?", (c,)).fetchone()[0])
+        d = store.buy(con, "Ivan", "MintD", "DDD", 50, 1.0, 1e6, "copy KOL x", mcap=1e6)
+        self.assertIsNone(con.execute("SELECT auto FROM trades WHERE id=?", (d,)).fetchone()[0])
+        # DCA moves the average entry: a percent TP follows it
+        dca.add_to(con, c, 50, 3.0, 1e6)
+        tc = json.loads(con.execute("SELECT auto FROM trades WHERE id=?", (c,)).fetchone()[0])
+        self.assertAlmostEqual(tc["tp_px"], 3.0, places=2)   # avg entry 1.5 -> +100% = 3.0
+        body = league.page({}, "Ivan")[1]
+        self.assertIn("sve otvorene pozicije", body)
+        self.assertIn("Pravilo za nove kupnje je uključeno", body)
+        # switch the rule off for new buys: positions keep theirs
+        self.assertIn("ok=", league.post("/natjecanje/auto", {"all": "1", "mode": "off", "keep": "1"}, "Ivan"))
+        self.assertIsNone(auto.get_rule(con, "Ivan"))
+        self.assertIsNotNone(con.execute("SELECT auto FROM trades WHERE id=?", (a,)).fetchone()[0])
+        e = store.buy(con, "Ivan", "MintE", "EEE", 50, 1.0, 1e6, mcap=1e6)
+        self.assertIsNone(con.execute("SELECT auto FROM trades WHERE id=?", (e,)).fetchone()[0])
+        # off for all open positions
+        league.post("/natjecanje/auto", {"all": "1", "mode": "off"}, "Ivan")
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM trades WHERE user='Ivan' AND auto IS NOT NULL").fetchone()[0], 0)
+        # a typo is refused before anything changes
+        self.assertIn("err=", league.post("/natjecanje/auto", {"all": "1", "mode": "tpsl", "tp": "abc"}, "Ivan"))
+
+    def test_rule_without_positions(self):
+        from league import auto
+        body = league.page({}, "Filip")[1]
+        self.assertIn("sve nove kupnje", body)
+        self.assertIn("ok=", league.post("/natjecanje/auto", {"all": "1", "new": "1", "mode": "smart"}, "Filip"))
+        con = store.connect()
+        self.assertEqual(auto.get_rule(con, "Filip")["mode"], "smart")
+        t = store.buy(con, "Filip", "MintA", "AAA", 50, 1.0, 1e6, mcap=1e6)
+        self.assertIn("smart", con.execute("SELECT auto FROM trades WHERE id=?", (t,)).fetchone()[0])
+
+
 class Dashboard(unittest.TestCase):
     """Podium, leaderboard extras, account history, chart data and the live refresh JSON."""
     def setUp(self):

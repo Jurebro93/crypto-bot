@@ -116,6 +116,11 @@ def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, m
                       (user, token, symbol, int(time.time()), "open", size_usd, price, eff, size_usd / eff, source, score,
                        mcap))
     con.commit()
+    try:   # the player's TP/SL rule for new buys (league/auto.py, "primijeni i na nove kupnje")
+        from league import auto
+        auto.on_buy(con, user, cur.lastrowid, source)
+    except Exception as e:  # noqa: BLE001 - never fails the buy
+        print(f"league: pravilo auto sell nije primijenjeno ({e})", flush=True)
     return cur.lastrowid
 
 
