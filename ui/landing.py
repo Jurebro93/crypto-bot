@@ -279,112 +279,200 @@ def _img(name, eager=False):
             f'{"" if eager else "loading=lazy "}decoding=async>')
 
 
-def page_html(qs=None, logged_in=False, ok=False, err="", form=None):
+FEATURES_EN = [
+    ("📡", "New token radar", "Scans new Solana tokens every 2 minutes and shows only the ones with the best odds."),
+    ("📣", "Influencer scores", "We measure what the price did after every call. See who moves the market and who just shouts."),
+    ("🔁", "Copy the best", "Pick an influencer or a wallet. The tool buys and sells when they do, even at night."),
+    ("🛡", "Rug shield", "Fake pools, pulled liquidity and selling devs are filtered out before you ever see them."),
+    ("🌱", "Strong tokens", "Tokens that survived for weeks with steady volume, for the calmer part of your portfolio."),
+    ("🏆", "Trader league", "A $1,000 demo account, live prices and a leaderboard with friends. No real money."),
+]
+GALLERY_EN = [("pregled.jpg", "New token radar"), ("kol.jpg", "Influencer scores"), ("copy.jpg", "Copy the best"),
+              ("natjecanje.jpg", "Trader league"), ("token.jpg", "Token analysis")]
+
+T = {
+    "hr": dict(
+        title="KriptoRadar · pametniji ulaz u Solana tokene",
+        desc="Radar novih Solana tokena, ocjena influencera, kopiranje najboljih i liga tradera. Samo na pozivnicu.",
+        pill="Samo na pozivnicu", h1a="Pametniji ulaz u", h1b="Solana tokene.",
+        sub="KriptoRadar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
+        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri",
+        n_tokens="tokena provjereno", n_wallets="novčanika praćeno", n_kols="influencera ocijenjeno",
+        n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
+        feat_lead="Šest alata koji rade 24/7, da ti ne moraš.",
+        pw_h="Veća šansa za udvostručenje kad token zove 3+ influencera u 15 minuta.",
+        pw_p="Alat to vidi u trenutku i javi ti, prije nego cijena ode.", pw_m="Izmjereno na {n} poziva.",
+        pw_a="3+ influencera", pw_b="1 ili 2 influencera",
+        inf_eye="Javno", inf_h="Ljestvica influencera.", inf_p="Pogledaj kako su prošli pozivi najpoznatijih "
+        "crypto influencera na Solani. Besplatno, bez prijave.", inf_btn="Otvori ljestvicu",
+        gal_eye="Iznutra", gal_h="Pogledaj kako izgleda.", gal_p="Prave slike iz aplikacije. Povuci lijevo za još.",
+        rq_eye="Samo na pozivnicu", rq_h="Zatraži svoje mjesto.",
+        rq_p="Mjesta puštamo postupno. Ostavi kontakt i javimo ti se s osobnim linkom.",
+        f_name="Ime", f_ph_name="Marko", f_contact="E-mail, mobitel ili Telegram", f_ph_contact="marko@mail.com",
+        f_exp="Koliko tradaš?", f_opts=("Odaberi", "Tek počinjem", "Povremeno", "Aktivno", "Svaki dan"),
+        f_fine="Bez novca, kartice i seed fraze. Kontakt koristimo samo za pozivnicu.",
+        f_ok="<b>Zahtjev je poslan.</b> Javit ćemo ti se s osobnim linkom za registraciju.",
+        faq_h="Pitanja", faq=[
+            ("Trebam li pravi novac?", "Ne. Dobiješ demo račun od $1.000 i trguješ po živim cijenama. Ako kasnije želiš "
+             "pravi novac, to radiš u svom novčaniku, a alat ti samo da adresu tokena."),
+            ("Je li ovo financijski savjet?", "Nije. Alat mjeri i pokazuje podatke. Memecoini su vrlo rizični i odluka je "
+             "uvijek tvoja."),
+            ("Koliko košta?", "Za pozvane je trenutno besplatno."),
+            ("Radi li na mobitelu?", "Da. Otvoriš link, prijaviš se jednom i alat te pamti 60 dana.")],
+        foot="Nije financijski savjet. Kripto nosi visok rizik.", feats=FEATURES, gallery=GALLERY,
+        fallback=[("2 min", "novi sken"), ("24/7", "radi bez pauze"), ("7", "slojeva provjere"), ("0 €", "za pozvane")]),
+    "en": dict(
+        title="KriptoRadar · smarter entries into Solana tokens",
+        desc="New Solana token radar, influencer call scores, copy trading and a trader league. Invite only.",
+        pill="Invite only", h1a="Smarter entries into", h1b="Solana tokens.",
+        sub="KriptoRadar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
+        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers",
+        n_tokens="tokens checked", n_wallets="wallets tracked", n_kols="influencers scored", n_calls="calls measured",
+        live="Live from the database · updated", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
+        feat_lead="Six tools working 24/7, so you don't have to.",
+        pw_h="Higher chance of a 2× when 3+ influencers call a token within 15 minutes.",
+        pw_p="The tool sees it the moment it happens and tells you, before the price runs.", pw_m="Measured on {n} calls.",
+        pw_a="3+ influencers", pw_b="1 or 2 influencers",
+        inf_eye="Public", inf_h="Influencer leaderboard.", inf_p="See how the calls of well-known Solana crypto "
+        "influencers actually played out. Free, no login.", inf_btn="Open the leaderboard",
+        gal_eye="Inside", gal_h="See what it looks like.", gal_p="Real screenshots from the app. Swipe for more.",
+        rq_eye="Invite only", rq_h="Request your spot.",
+        rq_p="We open spots gradually. Leave your contact and we'll send you a personal invite link.",
+        f_name="Name", f_ph_name="Alex", f_contact="E-mail, phone or Telegram", f_ph_contact="alex@mail.com",
+        f_exp="How often do you trade?", f_opts=("Choose", "Just starting", "Now and then", "Actively", "Every day"),
+        f_fine="No money, no card, no seed phrase. We use your contact only to send the invite.",
+        f_ok="<b>Request sent.</b> We'll get back to you with a personal sign-up link.",
+        faq_h="Questions", faq=[
+            ("Do I need real money?", "No. You get a $1,000 demo account and trade at live prices. If you later want to "
+             "use real money, you do it in your own wallet; the tool only gives you the token address."),
+            ("Is this financial advice?", "No. The tool measures and shows data. Memecoins are very risky and the "
+             "decision is always yours."),
+            ("How much does it cost?", "It's currently free for invited members."),
+            ("Does it work on my phone?", "Yes. Open the link, log in once and the app remembers you for 60 days.")],
+        foot="Not financial advice. Crypto carries a high risk.", feats=FEATURES_EN, gallery=GALLERY_EN,
+        fallback=[("2 min", "new scan"), ("24/7", "always on"), ("7", "layers of checks"), ("$0", "for members")]),
+}
+
+
+def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     qs = qs or {}
     form = form or {}
+    t = T["en" if lang == "en" else "hr"]
+    en = lang == "en"
+    home = "/" if en else "/hr"
     v, ts = stats()
     svg, name = logo(30)
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    app_href, app_label = ("/", "Otvori aplikaciju") if logged_in else ("/prijava", "Prijava")
+    app_href, app_label = ("/", t["app"]) if logged_in else ("/prijava", t["login"])
+    num = _n_en if en else _n
 
-    nums = [(v.get(k), lab) for k, lab in (("tokens", "tokena provjereno"), ("wallets", "novčanika praćeno"),
-                                           ("kols", "influencera ocijenjeno"), ("calls", "poziva izmjereno"))]
+    nums = [(v.get(k), t["n_" + k]) for k in ("tokens", "wallets", "kols", "calls")]
     nums = [(x, lab) for x, lab in nums if x]
-    if len(nums) < 2:
-        nums = [("2 min", "novi sken"), ("24/7", "radi bez pauze"), ("7", "slojeva provjere"), ("0 €", "za pozvane")]
-    else:
-        nums = [(_n(x), lab) for x, lab in nums]
-    nums_html = f"<div class=nums style='--n:{min(4, len(nums))}'>" + "".join(f"<div class=num><b>{x}</b><span>{lab}</span></div>" for x, lab in nums[:4]) + "</div>"
+    nums = [(num(x), lab) for x, lab in nums] if len(nums) >= 2 else t["fallback"]
+    nums_html = (f"<div class=nums style='--n:{min(4, len(nums))}'>"
+                 + "".join(f"<div class=num><b>{x}</b><span>{lab}</span></div>" for x, lab in nums[:4]) + "</div>")
     if ts and v:
-        nums_html += f"<div class=live><span class=dot></span>Uživo iz baze · osvježeno {ago(ts)[0]}</div>"
+        age = ago(ts)[0]
+        if en:
+            age = age.replace("prije ", "").replace(" min", " min ago").replace(" h", " h ago").replace(" d", " d ago")
+        nums_html += f"<div class=live><span class=dot></span>{t['live']} {age}</div>"
 
     g, s = v.get("group_rate") or .57, v.get("solo_rate") or .33
-    measured = f" Izmjereno na {_n(v['measured'])} poziva." if v.get("measured") else ""
+    measured = (" " + t["pw_m"].format(n=num(v["measured"]))) if v.get("measured") else ""
     power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
-             "<h3>Veća šansa za udvostručenje kad token zove 3+ influencera u 15 minuta.</h3>"
-             f"<p>Alat to vidi u trenutku i javi ti, prije nego cijena ode.{measured}</p><div class=bars>"
-             f"<div class=bar><div>3+ influencera<i><em style='width:{min(100, g * 100):.0f}%;"
+             f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
+             f"<div class=bar><div>{t['pw_a']}<i><em style='width:{min(100, g * 100):.0f}%;"
              f"background:linear-gradient(90deg,#818cf8,#2dd4bf)'></em></i></div><b>{_pct(g)}</b></div>"
-             f"<div class=bar><div>1 ili 2 influencera<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
+             f"<div class=bar><div>{t['pw_b']}<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
              f"</em></i></div><b>{_pct(s)}</b></div></div></div></div>")
 
-    feats = "".join(f"<div class=f><div class=i>{i}</div><h3>{t}</h3><p>{d}</p></div>" for i, t, d in FEATURES)
-    gal = "".join(f"<figure><img src=\"/static/landing/{f}\" alt=\"{esc(SHOTS[f])}\" data-zoom loading=lazy "
-                  f"decoding=async><figcaption>{esc(c)}</figcaption></figure>" for f, c in GALLERY)
+    feats = "".join(f"<div class=f><div class=i>{i}</div><h3>{a}</h3><p>{d}</p></div>" for i, a, d in t["feats"])
+    gal = "".join(f"<figure><img src=\"/static/landing/{f}\" alt=\"{esc(c)}\" data-zoom loading=lazy "
+                  f"decoding=async><figcaption>{esc(c)}</figcaption></figure>" for f, c in t["gallery"])
+    inf_href = "/influencers" if en else "/hr/influenceri"
 
-    msg = ""
-    if ok:
-        msg = ("<div class=ok><b>Zahtjev je poslan.</b> Javit ćemo ti se s osobnim linkom za registraciju.</div>")
-    elif err:
-        msg = f"<div class=err>{esc(err)}</div>"
+    msg = f"<div class=ok>{t['f_ok']}</div>" if ok else (f"<div class=err>{esc(err)}</div>" if err else "")
     fv = {k: esc(form.get(k, "")) for k in ("name", "contact")}
     exp = form.get("experience", "")
-
-    def opt(val, label):
-        return f"<option value=\"{val}\"{' selected' if exp == val else ''}>{label}</option>"
-
+    opts = "".join(f"<option value=\"{val}\"{' selected' if exp == val else ''}>{lab}</option>"
+                   for val, lab in zip(("", "pocetnik", "povremeno", "aktivno", "profi"), t["f_opts"]))
     request_form = (
         f"<form class=rq method=post action=/zatrazi-pristup id=forma>{msg}"
-        f"<label>Ime<input name=name required maxlength=40 autocomplete=name value=\"{fv['name']}\" placeholder='Marko'></label>"
-        f"<label>E-mail, mobitel ili Telegram<input name=contact required maxlength=120 value=\"{fv['contact']}\" "
-        "placeholder='marko@mail.com'></label>"
-        "<label>Koliko tradaš?<select name=experience>" + opt("", "Odaberi") + opt("pocetnik", "Tek počinjem")
-        + opt("povremeno", "Povremeno") + opt("aktivno", "Aktivno") + opt("profi", "Svaki dan") + "</select></label>"
+        f"<input type=hidden name=lang value={'en' if en else 'hr'}>"
+        f"<label>{t['f_name']}<input name=name required maxlength=40 autocomplete=name value=\"{fv['name']}\" "
+        f"placeholder='{t['f_ph_name']}'></label>"
+        f"<label>{t['f_contact']}<input name=contact required maxlength=120 value=\"{fv['contact']}\" "
+        f"placeholder='{t['f_ph_contact']}'></label>"
+        f"<label>{t['f_exp']}<select name=experience>{opts}</select></label>"
         "<div class=hp aria-hidden=true><label>Web<input name=web tabindex=-1 autocomplete=off></label></div>"
         f"<input type=hidden name=src value=\"{esc(qs.get('src', qs.get('utm_source', ''))[:40])}\">"
-        "<button class='btn p' type=submit>Zatraži pristup</button>"
-        "<p class=fine>Bez novca, kartice i seed fraze. Kontakt koristimo samo za pozivnicu.</p></form>")
+        f"<button class='btn p' type=submit>{t['req']}</button><p class=fine>{t['f_fine']}</p></form>")
+    faq = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in t["faq"])
 
-    title = "KriptoRadar · pametniji ulaz u Solana tokene"
-    desc = "Radar novih Solana tokena, ocjena influencera, kopiranje najboljih i liga tradera. Samo na pozivnicu."
-    og_img = f"{base}/static/landing/pregled.jpg" if base else "/static/landing/pregled.jpg"
-    return f"""<!doctype html><html lang=hr><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(title)}</title>
-<meta name=description content="{esc(desc)}"><meta property="og:type" content="website">
-<meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}">
-<meta property="og:image" content="{esc(og_img)}"><meta name="twitter:card" content="summary_large_image">
+    og_img = f"{base}/static/landing/pregled.jpg"
+    canon = f"{base}{home}"
+    switch = (f"<a class=lnk href=/hr hreflang=hr lang=hr>HR</a>" if en else
+              f"<a class=lnk href=/ hreflang=en lang=en>EN</a>")
+    return f"""<!doctype html><html lang={'en' if en else 'hr'}><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(t['title'])}</title>
+<meta name=description content="{esc(t['desc'])}"><link rel=canonical href="{canon}">
+<link rel=alternate hreflang=en href="{base}/"><link rel=alternate hreflang=hr href="{base}/hr">
+<link rel=alternate hreflang=x-default href="{base}/">
+<meta property="og:type" content="website"><meta property="og:title" content="{esc(t['title'])}">
+<meta property="og:description" content="{esc(t['desc'])}"><meta property="og:image" content="{esc(og_img)}">
+<meta property="og:url" content="{canon}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">
+<script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
+"url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
+"offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>
 <style>{CSS}</style></head><body>
-<nav><div class=w><a class=brand href=/dobrodosli>{svg}<span>{esc(name)}</span></a><span class=sp></span>
-<a class='lnk hm' href=#funkcije>Funkcije</a><a class=lnk href={app_href}>{app_label}</a>
-<a class='btn p sm' href=#pristup>Zatraži pristup</a></div></nav>
+<nav><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
+<a class='lnk hm' href=#funkcije>{t['nav_feat']}</a><a class='lnk hm' href={inf_href}>{t['nav_inf']}</a>{switch}
+<a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a></div></nav>
 
 <header class=hero><div class=w>
-<span class=pill><span class=dot></span>Samo na pozivnicu</span>
-<h1>Pametniji ulaz u <span class=g>Solana tokene.</span></h1>
-<p class=sub>KriptoRadar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.</p>
-<div class=ctas><a class='btn p' href=#pristup>Zatraži pristup</a><a class='btn g' href={app_href}>{app_label}</a></div>
+<span class=pill><span class=dot></span>{t['pill']}</span>
+<h1>{t['h1a']} <span class=g>{t['h1b']}</span></h1>
+<p class=sub>{t['sub']}</p>
+<div class=ctas><a class='btn p' href=#pristup>{t['req']}</a><a class='btn g' href={app_href}>{app_label}</a></div>
 <div class=phones><div class='ph main'>{_img("mob-pregled.jpg", True)}</div><div class='ph side'>{_img("mob-kol.jpg", True)}</div>
 <div class='ph side'>{_img("mobitel.jpg", True)}</div></div>
 </div></header>
 
 <section style='padding-top:40px'><div class=w>{nums_html}</div></section>
 
-<section class=soft id=funkcije><div class=w><div class=center><div class=eyebrow>Funkcije</div>
-<h2>Sve bitno, ništa viška.</h2><p class=lead>Šest alata koji rade 24/7, da ti ne moraš.</p></div>
+<section class=soft id=funkcije><div class=w><div class=center><div class=eyebrow>{t['feat_eye']}</div>
+<h2>{t['feat_h']}</h2><p class=lead>{t['feat_lead']}</p></div>
 <div class=feats>{feats}</div></div></section>
 
 <section id=moc><div class=w>{power}</div></section>
 
-<section class='soft gsec' style='padding-bottom:64px'><div class=w><div class=eyebrow>Iznutra</div><h2>Pogledaj kako izgleda.</h2>
-<p class=lead>Prave slike iz aplikacije. Povuci lijevo za još.</p><div class=gal>{gal}</div></div></section>
+<section style='padding-top:0'><div class='w center'><div class=eyebrow>{t['inf_eye']}</div><h2>{t['inf_h']}</h2>
+<p class=lead>{t['inf_p']}</p><a class='btn g' href={inf_href}>{t['inf_btn']} →</a></div></section>
 
-<section id=pristup><div class='w center'><div class=eyebrow>Samo na pozivnicu</div><h2>Zatraži svoje mjesto.</h2>
-<p class=lead>Mjesta puštamo postupno. Ostavi kontakt i javimo ti se s osobnim linkom.</p>
-<div class=req>{request_form}</div></div></section>
+<section class='soft gsec' style='padding-bottom:64px'><div class=w><div class=eyebrow>{t['gal_eye']}</div>
+<h2>{t['gal_h']}</h2><p class=lead>{t['gal_p']}</p><div class=gal>{gal}</div></div></section>
 
-<section class=soft><div class=w><div class=faq><h2 class=center style='margin-bottom:24px'>Pitanja</h2>
-<details><summary>Trebam li pravi novac?</summary><p>Ne. Dobiješ demo račun od $1.000 i trguješ po živim cijenama.
-Ako kasnije želiš pravi novac, to radiš u svom novčaniku, a alat ti samo da adresu tokena.</p></details>
-<details><summary>Je li ovo financijski savjet?</summary><p>Nije. Alat mjeri i pokazuje podatke. Memecoini su vrlo
-rizični i odluka je uvijek tvoja.</p></details>
-<details><summary>Koliko košta?</summary><p>Za pozvane je trenutno besplatno.</p></details>
-<details><summary>Radi li na mobitelu?</summary><p>Da. Otvoriš link, prijaviš se jednom i alat te pamti 60 dana.</p></details>
-</div></div></section>
+<section id=pristup><div class='w center'><div class=eyebrow>{t['rq_eye']}</div><h2>{t['rq_h']}</h2>
+<p class=lead>{t['rq_p']}</p><div class=req>{request_form}</div></div></section>
 
-<footer><div class=w>© {time.gmtime().tm_year} {esc(name)} · Nije financijski savjet. Kripto nosi visok rizik.</div></footer>
-<div class='mcta h'><a class='btn p' href=#pristup>Zatraži pristup</a></div>
+<section class=soft><div class=w><div class=faq><h2 class=center style='margin-bottom:24px'>{t['faq_h']}</h2>
+{faq}</div></div></section>
+
+<footer><div class=w>© {time.gmtime().tm_year} {esc(name)} · {t['foot']} ·
+<a href={inf_href}>{t['nav_inf']}</a> · {switch.replace("class=lnk ", "")}</div></footer>
+<div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
 <dialog id=lb><img alt=""></dialog><script>{JS}</script></body></html>"""
+
+
+def _n_en(x):
+    if x is None:
+        return "–"
+    x = float(x)
+    if x >= 1_000_000:
+        return f"{x / 1_000_000:.1f}M"
+    return f"{x:,.0f}"
+
 
 
 # ---------- access requests ----------------------------------------------------------------------------------------
@@ -394,6 +482,15 @@ def _con():
     con = store.connect()
     con.executescript(SCHEMA)
     return con
+
+
+ERR_EN = {
+    "Upiši ime ili nadimak.": "Please enter your name.",
+    "Upiši kontakt: e-mail, broj mobitela ili Telegram @ime.": "Please enter a contact: e-mail, phone or Telegram @name.",
+    "Previše zahtjeva s ove adrese. Pokušaj ponovno za sat vremena.": "Too many requests from this address. Try again in an hour.",
+    "Lista čekanja je trenutno puna. Pokušaj ponovno za par dana.": "The waiting list is full right now. Try again in a few days.",
+    "Zahtjev trenutno nije moguće spremiti. Pokušaj ponovno za par minuta.": "We couldn't save your request. Try again in a few minutes.",
+}
 
 
 def submit(form, ip=""):
