@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ui import criteria, evidence, jobs, kol, market, overview, pages, paper, radar, tokens, usage, watch  # noqa: E402
 from ui.html import SHOW_ALL, esc, page  # noqa: E402
 from ui import pagecache  # noqa: E402
+from ui import i18n  # noqa: E402
 from ui import league  # noqa: E402
 from league import store as league_store  # noqa: E402
 
@@ -68,9 +69,12 @@ def cookie_user(value):
         return bool(PASSWORD), None
     if VIEWER_PASS and name.lower() == VIEWER.lower():
         return True, None
+    from league import profiles
+    if not profiles.session_ok(name, exp - COOKIE_DAYS * 86400):   # "odjavi me svugdje" or a new password
+        return False, None
     player, ppw = PLAYERS.get(name.lower(), (None, ""))
     if player:
-        return (True, player) if ppw else (False, None)
+        return (True, player) if ppw or profiles.has_password(player) else (False, None)
     from league import members   # registered through an invite link
     member = members.exists(name)
     return (True, member) if member else (False, None)
@@ -79,8 +83,13 @@ def cookie_user(value):
 def check_password(name, pw):
     """(ok, player or None): a player's own name + password, or the shared UI_PASSWORD with any name."""
     player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
-    if player and ppw and hmac.compare_digest(pw.encode(), ppw.encode()):
-        return True, player
+    if player:
+        from league import profiles
+        own = profiles.check_password(player, pw)   # a password the player set in ⚙️ Postavke replaces UI_PASS_<NAME>
+        if own:
+            return True, player
+        if own is None and ppw and hmac.compare_digest(pw.encode(), ppw.encode()):
+            return True, player
     if VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower():
         return hmac.compare_digest(pw.encode(), VIEWER_PASS.encode()), None
     if not player:
@@ -89,6 +98,13 @@ def check_password(name, pw):
         if member:
             return True, member
     return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode()), None
+
+
+def user_kind(user):
+    """'env' (UI_USERS player), 'member' (invite link) or 'viewer' (no player: look only)."""
+    if not user:
+        return "viewer"
+    return "env" if user.lower() in PLAYERS else "member"
 
 
 def _safe_next(n):
@@ -184,8 +200,10 @@ def route(path, qs):
     return None
 
 
-def build(path, qs):
-    """(code, html bytes) of a route() page with the banner; used through ui/pagecache."""
+def build(path, qs, lang="hr"):
+    """(code, html bytes) of a route() page with the banner, in `lang`; used through ui/pagecache (which may
+    run it in a background thread, so the language is set here and not taken from the request)."""
+    i18n.LANG.set(lang)
     SHOW_ALL.set(qs.get("sve") == "1")
     try:
         res = route(path, qs)
@@ -196,7 +214,7 @@ def build(path, qs):
     except Exception:
         code = 500
         html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
-    return code, html.encode("utf-8")
+    return code, i18n.translate(html).encode("utf-8")
 
 
 def _banner(path):
@@ -212,17 +230,31 @@ def _banner(path):
 class Handler(BaseHTTPRequestHandler):
     user = os.environ.get("UI_LOCAL_USER") if not AUTH else None   # local run without passwords: play as this name
 
+    def _set_lang(self):
+        """cb_lang cookie -> self.lang and the i18n context of this request."""
+        self.lang = "hr"
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == i18n.COOKIE and v in ("hr", "en"):
+                self.lang = v
+        i18n.LANG.set(self.lang)
+
     def do_GET(self):
         self._index = False   # every page is noindex unless it is one of the public, indexable ones
+        self._public = False  # public pages have their own English version and are never run through ui/i18n
+        self._set_lang()
         ok = not AUTH or self._authorized()
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
+        if path == "/jezik":
+            return self._lang_switch(qs)
         if path == "/prijava":
             return self._login(qs)
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
         if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and not ok):   # public sales page (English main)
+            self._public = True
             from ui import landing
             if path == "/en" and not ok:
                 return self._redirect("/")
@@ -233,6 +265,7 @@ class Handler(BaseHTTPRequestHandler):
         from ui import public
         pub = public.route(path)
         if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
+            self._public = True
             self._index = pub[0] == 200
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
@@ -244,11 +277,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200 if body else 404, (body or "{}").encode("utf-8"), "application/json")
         if path == "/odjava":
             return self._redirect("/prijava", cookie=f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+        if path.startswith("/avatar/") and ok:
+            return self._avatar(path[len("/avatar/"):])
         if not ok:
             # a login form instead of the browser's own password box: phones and in-app browsers often never show
             # that box, the page then just stays blank. 401 without WWW-Authenticate, so no box pops up.
             nxt = path + (f"?{u.query}" if u.query else "")
             return self._send(401, login_page({"next": nxt}).encode("utf-8"))
+        if path == "/postavke":
+            from ui import settings
+            try:
+                html = page(*settings.page(qs, self.user, user_kind(self.user), self.lang), path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/zahtjevi":
             from ui import landing
             try:
@@ -308,12 +350,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
-        key = (path, u.query, None)    # route() pages are the same for every user
-        code, raw, gz = pagecache.get(key, lambda: build(path, qs))
-        self._send(code, raw, gz=gz)
+        key = (path, u.query, None) + ((self.lang,) if self.lang != "hr" else ())   # same for every user, per language
+        lang = self.lang
+        code, raw, gz = pagecache.get(key, lambda: build(path, qs, lang))
+        self._send(code, raw, gz=gz, translated=True)
 
-    def _send(self, code, body, ctype="text/html", gz=None):
+    def _send(self, code, body, ctype="text/html", gz=None, translated=False):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
+        if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
+                and not getattr(self, "_public", False)):
+            body = i18n.translate(body.decode("utf-8")).encode("utf-8")
         accepts = "gzip" in (self.headers.get("Accept-Encoding") or "")
         if body is None:            # cached page: only the gzipped copy is kept
             zipped = accepts
@@ -340,6 +386,8 @@ class Handler(BaseHTTPRequestHandler):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
         /hook/kol?key=$KOL_HOOK_KEY: webhook for the KOL tracker on X (hype/sources.kol_monitor), its own key."""
         u = urlsplit(self.path)
+        self._public = False
+        self._set_lang()
         if u.path == "/hook/kol":
             self._kol_hook(u)
             return
@@ -382,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
             form = dict(parse_qsl(self.rfile.read(min(n, 20_000)).decode("utf-8", "replace")))
             from ui import nastoken
             return self._redirect(nastoken.post(path, form, self.user))
+        if same_site and path.startswith("/postavke/"):
+            return self._settings_post(path)
         if same_site and path.startswith("/zahtjevi/"):
             from ui import landing
             return self._redirect(landing.admin_post(path, self.user))
@@ -464,7 +514,67 @@ class Handler(BaseHTTPRequestHandler):
         viewer = VIEWER if not player and VIEWER_PASS and form.get("name", "").strip().lower() == VIEWER.lower() else ""
         cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
-        return self._redirect(_safe_next(form.get("next", "/")), cookie=cookie)
+        cookies = [cookie]
+        if player:   # the language chosen in ⚙️ Postavke follows the player to a new device
+            from league import profiles
+            lang = profiles.get(player).get("lang")
+            if lang in ("hr", "en"):
+                cookies.append(self._lang_cookie(lang))
+        return self._redirect(_safe_next(form.get("next", "/")), cookie=cookies)
+
+    def _lang_cookie(self, lang):
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        return f"{i18n.COOKIE}={lang}; Max-Age={400 * 86400}; Path=/; SameSite=Lax{secure}"
+
+    def _lang_switch(self, qs):
+        """/jezik?l=en: switch the app language (cookie + the player's settings), back to the page you were on."""
+        lang = qs.get("l") if qs.get("l") in ("hr", "en") else "hr"
+        if self.user:
+            try:
+                from league import profiles
+                profiles.set_lang(self.user, lang)
+            except Exception:
+                pass
+        nxt = qs.get("next")
+        if not nxt:
+            ref = urlsplit(self.headers.get("Referer") or "")
+            nxt = (ref.path + (f"?{ref.query}" if ref.query else "")) if ref.netloc == self.headers.get("Host") else "/"
+        if lang == "en":
+            i18n.seed()   # first English visitor: queue the whole app for translation (no-op once done)
+        return self._redirect(_safe_next(nxt or "/"), cookie=self._lang_cookie(lang))
+
+    def _avatar(self, file):
+        from league import profiles
+        p = profiles.avatar_path(file.split("?")[0])
+        if not p:
+            return self._send(404, b"", "image/jpeg")
+        with open(p, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=604800")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _settings_post(self, path):
+        """⚙️ Postavke forms. A password change or "log out everywhere" gives this device a fresh login."""
+        from ui import settings
+        n = int(self.headers.get("Content-Length") or 0)
+        form = dict(parse_qsl(self.rfile.read(min(n, 600_000)).decode("utf-8", "replace")))
+        kind = user_kind(self.user)
+        loc, extra = settings.post(path, form, self.user, kind, lambda u, pw: check_password(u, pw)[1] == u)
+        msg = loc.split("err=", 1)[1].split("#")[0] if "err=" in loc else "ok"
+        print(f"postavke: {self.user} {path[len('/postavke/'):]} -> {unquote(msg)[:120]}", flush=True)
+        pagecache.clear()
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        if extra == "relogin":
+            cookie = (f"{COOKIE}={make_cookie(self.user)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
+                      f"SameSite=Lax{secure}")
+            return self._redirect(loc, cookie=cookie)
+        if extra == "logout":
+            return self._redirect(loc, cookie=f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+        return self._redirect(loc)
 
     def _register_post(self):
         """Invite link form: makes the player, logs them in and opens the competition."""
@@ -518,8 +628,8 @@ class Handler(BaseHTTPRequestHandler):
     def _redirect(self, location, cookie=None):
         self.send_response(303)
         self.send_header("Location", location)
-        if cookie:
-            self.send_header("Set-Cookie", cookie)
+        for c in ([cookie] if isinstance(cookie, str) else cookie or []):
+            self.send_header("Set-Cookie", c)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -569,6 +679,11 @@ def main(argv=None):
     from ui import coins
     coins.start()     # public top-100 Solana meme coins (Jupiter list every 3 h) -> public.db
     pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
+        import threading
+        # English version: every known text of the app is translated in the background a few minutes after start
+        # (after the maintenance run); already translated ones are skipped, so after the first time this is a no-op
+        threading.Timer(float(os.environ.get("I18N_SEED_DELAY_S", "240")), i18n.seed).start()
     print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
           + "  (Ctrl+C za kraj)")
     try:

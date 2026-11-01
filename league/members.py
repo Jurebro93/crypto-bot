@@ -34,7 +34,19 @@ def connect():
         con.executescript(SCHEMA)
     except sqlite3.OperationalError:
         pass
+    _migrate(con)
     return con
+
+
+def _migrate(con):
+    """`deleted`: the player removed his account in ⚙️ Postavke (the name stays taken)."""
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(members)")}
+        if cols and "deleted" not in cols:
+            con.execute("ALTER TABLE members ADD COLUMN deleted INTEGER")
+            con.commit()
+    except sqlite3.OperationalError:
+        pass
 
 
 def _hash(pw, salt):
@@ -46,7 +58,8 @@ def names(con=None):
     own = con is None
     try:
         con = con or store.connect()
-        return [r[0] for r in con.execute("SELECT name FROM members ORDER BY created, rowid")]
+        _migrate(con)
+        return [r[0] for r in con.execute("SELECT name FROM members WHERE deleted IS NULL ORDER BY created, rowid")]
     except sqlite3.OperationalError:
         return []
     finally:
@@ -61,7 +74,9 @@ def verify(name, pw):
     except sqlite3.OperationalError:
         return None
     try:
-        r = con.execute("SELECT name, salt, hash FROM members WHERE name=?", ((name or "").strip(),)).fetchone()
+        _migrate(con)
+        r = con.execute("SELECT name, salt, hash FROM members WHERE name=? AND deleted IS NULL",
+                        ((name or "").strip(),)).fetchone()
     except sqlite3.OperationalError:
         r = None
     finally:
@@ -71,11 +86,13 @@ def verify(name, pw):
     return None
 
 
-def exists(name):
+def exists(name, with_deleted=False):
     try:
         con = store.connect()
         try:
-            r = con.execute("SELECT name FROM members WHERE name=?", ((name or "").strip(),)).fetchone()
+            _migrate(con)
+            r = con.execute("SELECT name FROM members WHERE name=?" + ("" if with_deleted else " AND deleted IS NULL"),
+                            ((name or "").strip(),)).fetchone()
         finally:
             con.close()
     except sqlite3.OperationalError:
@@ -147,14 +164,14 @@ def register(con, token, name, pw, pw2, taken=()):
     if not NAME.fullmatch(name):
         raise ValueError("ime mora imati 2 do 20 slova ili brojki, bez razmaka (dopušteni su - i _).")
     low = name.lower()
-    if low in RESERVED or low in {t.lower() for t in taken} or exists(name):
+    if low in RESERVED or low in {t.lower() for t in taken} or exists(name, with_deleted=True):
         raise ValueError(f"ime {name} je već zauzeto, odaberi drugo.")
     if len(pw or "") < 6:
         raise ValueError("lozinka mora imati barem 6 znakova.")
     if pw != pw2:
         raise ValueError("lozinke se ne podudaraju, upiši ih ponovo.")
     salt = secrets.token_hex(16)
-    con.execute("INSERT INTO members VALUES (?,?,?,?,?)", (name, salt, _hash(pw, salt), int(time.time()), token))
+    con.execute("INSERT INTO members (name, salt, hash, created, invite) VALUES (?,?,?,?,?)", (name, salt, _hash(pw, salt), int(time.time()), token))
     if inv["kind"] == "jednokratni":
         con.execute("UPDATE invites SET used_by=?, used_ts=? WHERE token=?", (name, int(time.time()), token))
     con.commit()
