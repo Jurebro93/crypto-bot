@@ -68,13 +68,19 @@ def retained(con, cfg=None, now=None, featured=None):
     ordering by hype score alone pushed yesterday's featured candidates out within an hour."""
     cfg = cfg or config()
     now = now or time.time()
-    out = list(dict.fromkeys(featured_now(cfg["sati"]) if featured is None else featured))
+    try:  # archived rugs never come back (rugfilter/archive.py)
+        from rugfilter import archive
+        gone = archive.blocked()
+    except Exception:
+        gone = frozenset()
+    out = [t for t in dict.fromkeys(featured_now(cfg["sati"]) if featured is None else featured) if t not in gone]
     try:
         rows = con.execute("SELECT token FROM token_tier WHERE last_ts >= ? AND razina >= 1 AND COALESCE(t0, '') != 'pad' "
                            "ORDER BY razina DESC, COALESCE(score, 0) DESC, last_ts DESC LIMIT ?",
-                           (int(now - cfg["sati"] * 3600), int(cfg["max"]))).fetchall()
+                           (int(now - cfg["sati"] * 3600), int(cfg["max"]) + min(len(gone), 200))).fetchall()
     except sqlite3.OperationalError:  # no token_tier yet
         rows = []
+    rows = [r for r in rows if r[0] not in gone]
     for (t,) in rows:
         if len(out) >= cfg["max"] and t not in out:
             break

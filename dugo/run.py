@@ -6,6 +6,8 @@ import time
 
 from dugo import features, holders, learn, score as sc, sources, store
 
+KINDS = sc.KINDS
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = 86400
 
@@ -48,8 +50,8 @@ def collect(con, cfg, now=None, candle_budget=None):
                      t.get("sells"), (p.get("priceChange") or {}).get("h24"), p.get("url"), m))
     con.commit()
     # candles: tokens old enough with liquidity, most liquid first, each refreshed about once a day
-    lo = min(cfg["budjenje"]["min_likvidnost"], cfg["dugorocni"]["min_likvidnost"])
-    min_age = min(cfg["budjenje"]["min_starost_d"], cfg["dugorocni"]["min_starost_d"])
+    lo = min(cfg[k]["min_likvidnost"] for k in KINDS)
+    min_age = min(cfg[k]["min_starost_d"] for k in KINDS)
     todo = con.execute("""SELECT mint, pair, candles_ts FROM tokens WHERE liquidity >= ? AND created_ts <= ?
         AND (candles_ts IS NULL OR candles_ts < ?) ORDER BY source='uzor' DESC, candles_ts IS NOT NULL, liquidity DESC""",
                        (lo, now - min_age * D, now - cfg["candles_refresh_h"] * 3600)).fetchall()
@@ -174,7 +176,7 @@ def rank(con, cfg, now=None):
     W = learn.current(cfg)
     out = {}
     con.execute("DELETE FROM snap WHERE day=?", (day,))
-    for kind in ("dugorocni", "budjenje"):
+    for kind in KINDS:
         el = {m: f for m, f in feats.items() if sc.eligible(kind, f, meta[m][1], meta[m][2], cfg)}
         s = sc.score(el, W[kind]) if el else {}
         order = sorted(s, key=lambda m: -s[m][0])
@@ -221,7 +223,7 @@ def book(con, cfg, now=None):
     last = con.execute("SELECT MAX(entry_ts) FROM book").fetchone()[0]
     if not last or last < now - k["svaki_d"] * D + 3600:
         mx = cfg["mix"]
-        for kind in ("dugorocni", "budjenje"):
+        for kind in KINDS:
             ranked = con.execute("""SELECT s.mint, t.symbol, s.price, s.mcap FROM snap s JOIN tokens t ON t.mint=s.mint
                 WHERE s.day=? AND s.kind=? ORDER BY s.rank""", (day, kind)).fetchall()
             if kind == "dugorocni":     # healthy mix: the best big, mid and small caps, not only the riskiest small ones
@@ -250,7 +252,7 @@ def once(con=None, cfg=None, now=None, learn_too=False):
     try:
         collect(con, cfg, now)
         if learn_too:
-            for kind in ("dugorocni", "budjenje"):
+            for kind in KINDS:
                 r = learn.fit(con, cfg, kind, now)
                 _log(f"učenje {kind}: {r['note']}")
         rank(con, cfg, now)

@@ -282,8 +282,15 @@ def token(mint, qs):
     if not (ev or sigs or rugs):
         b.append("<p>Ovaj token nije ni u jednoj analizi.</p>")
     else:
-        from rugfilter import collapse
-        col = collapse.check(collapse.peaks(data.HYPE_DB, [mint]).get(mint))
+        from rugfilter import archive, collapse
+        arch = archive.get(mint, data.HYPE_DB)
+        col = None if arch else collapse.check(collapse.peaks(data.HYPE_DB, [mint]).get(mint))
+        if arch:
+            import time as _t
+            b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan i izbačen iz praćenja:</b> '
+                     f'{esc(arch["reason"])} ({esc(archive.KIND_HR.get(arch["kind"], arch["kind"]))}). '
+                     f'Izbačen {_t.strftime("%d.%m. %H:%M", _t.gmtime(arch["archived_ts"]))} UTC: bot ga više ne prati i ne troši '
+                     'API kredite na njega, a čuva samo podatke s ulaza da iz njih uči kako izgleda rug. Kupnja je zaključana.</div>')
         if col:
             b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
                      'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')

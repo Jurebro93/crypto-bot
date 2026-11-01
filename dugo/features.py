@@ -75,6 +75,11 @@ def compute(candles, sol=None, btc=None):
     v7 = sum(vols[-7:]) / 7
     v21 = sum(vols[-28:-7]) / max(1, len(vols[-28:-7]))
     f["volumen_trend"] = v7 / v21 if v21 else None
+    # constant trading: daily volume of the last 14 days without big gaps (1 = same every day, 0 = spikes and dead days)
+    v14 = vols[-14:]
+    m14 = sum(v14) / len(v14)
+    f["volumen_dan"] = m14
+    f["stalnost_volumena"] = max(0.0, min(1.0, 1 - st.pstdev(v14) / m14)) if m14 > 0 else 0.0
     ma30 = sum(closes[-30:]) / len(closes[-30:])
     ma90 = sum(closes[-90:]) / len(closes[-90:])
     f["iznad_ma30"] = last / ma30 - 1

@@ -354,7 +354,9 @@ def trigger_entries(con, cfg, rst, now):
         return []
     traded = {t for (t,) in con.execute("SELECT token FROM trades WHERE status='open' OR opened_ts>=?",
                                         (now - 86400,))}
-    want = {t: v for t, v in want.items() if t not in traded}
+    from rugfilter import archive
+    gone = archive.blocked(HYPE_DB)   # rugged earlier and archived: no entry, no market lookup
+    want = {t: v for t, v in want.items() if t not in traded and t not in gone}
     if not want:
         return []
     mk = market(want) or {}
@@ -467,8 +469,9 @@ def intake(cfg, now=None, quiet=False):
     ex_need = explore_need(con, cfg, now)
     ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
     arm_st = arms.stats(con, cfg.get("arms"))
-    from rugfilter import collapse
+    from rugfilter import archive, collapse
     pk = collapse.peaks(HYPE_DB, list(cands), now=now)
+    archived = archive.blocked(HYPE_DB)
     t0s = t0_of(cands)
     rst = rules.load()
     rules.since(rst, "gate", now)
@@ -511,6 +514,8 @@ def intake(cfg, now=None, quiet=False):
             c["decision"], c["reason"] = "skip_liq", f"likvidnost {_usd(liq)}"
         elif mcap > cfg["max_mcap"]:
             c["decision"], c["reason"] = "skip_mcap", f"mcap {_usd(mcap)}"
+        elif t in archived:  # rugged earlier and archived (rugfilter/archive.py)
+            c["decision"], c["reason"] = "skip_rug", "rugan ranije, izbačen iz praćenja"
         elif collapse.check(pk.get(t), mcap, liq):  # already dumped: never enter after the fact
             c["decision"], c["reason"] = "skip_rug", "rugan: " + collapse.check(pk.get(t), mcap, liq)["text"]
         elif s < need:

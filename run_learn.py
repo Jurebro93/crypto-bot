@@ -35,6 +35,12 @@ def cmd_fit(a):
         con.commit()
     except Exception as e:
         print(f"confidence fit: {type(e).__name__}: {e}", file=sys.stderr)
+    try:  # rug profile: entry profiles that ended as rugs (learn/rugprofile.py, labels from rugfilter/archive.py)
+        from learn import rugprofile
+        r = rugprofile.run(con, now=time.time(), apply_model=not a.dry)
+        print(f"profil ruga n={r['n']:<5} rugova {r['rugs']}: {r['note']}")
+    except Exception as e:
+        print(f"profil ruga: {type(e).__name__}: {e}", file=sys.stderr)
     return rep
 
 

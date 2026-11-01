@@ -1,9 +1,10 @@
 """The "Tokeni" page: every token the bot has seen, by priority (confidence), split into tables that each make
-sense on their own: active candidates, event tokens, older ones, and rug-rejected / high-risk at the bottom."""
+sense on their own: active candidates, event tokens and older ones. Rugged, rejected and weak tokens are not listed
+(one line says how many were left out)."""
 import time
 
 from ui import overview
-from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, table, tlink, usd
+from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, table, tlink, usd  # noqa: F401
 
 ACTIVE_H = 24
 
@@ -33,24 +34,61 @@ def _main_table(rows, tid, empty):
                    ago(r["last_seen"])] for r in rows], tid, empty, mints=[r["token"] for r in rows])
 
 
+def _strong(n=5):
+    """Top of the "jaki" list from the long-term layer (dugo.db): older, bigger tokens with steady volume and holders."""
+    try:
+        import json
+        from dugo import store as dstore
+        con = dstore.ro()
+        if con is None:
+            return ""
+        try:
+            rows = con.execute("""SELECT s.mint, t.symbol, s.score, s.mcap, s.features, s.why FROM snap s JOIN tokens t
+                ON t.mint=s.mint WHERE s.kind='jaki' AND s.day=(SELECT MAX(day) FROM snap) ORDER BY s.rank LIMIT ?""",
+                               (n,)).fetchall()
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001 - a side box must not break the page
+        print(f"tokeni: jaki tokeni: {type(e).__name__}: {e}")
+        return ""
+    if not rows:
+        return ""
+    from ui.html import num
+    tr = []
+    for m, sym, sc, mc, fj, why in rows:
+        f = json.loads(fj or "{}")
+        tr.append([tlink(m, sym), num(sc, "{:.0f}"), usd(mc), usd(f.get("volumen_dan")),
+                   num(None if f.get("holderi_30d") is None else 100 * f["holderi_30d"], "{:+.0f}%"), (esc(why), "", "wrap")])
+    return ("<h2>Jaki tokeni <span class=mut style='font-weight:400'>· stariji, veća vrijednost, stalan volumen</span></h2>"
+            + tdesc("Najbolji s popisa Jaki na stranici Dugoročni: tokeni koji su tu već tjednima, vrijede barem 5 M$, imaju "
+                    "stalan volumen svaki dan i holderi im rastu. Sigurniji od novih tokena ispod.")
+            + table(["Token", ("Ocjena", "n"), ("Vrijednost", "n"), ("Volumen dnevno", "n"), ("Rast holdera 30 d", "n"),
+                     ("Zašto", "wrap")], tr, "tj", "", mints=[r[0] for r in rows])
+            + "<p class=mut><a href=/dugorocno#jaki>Cijeli popis jakih tokena →</a></p>")
+
+
 def page(qs):
     now = time.time()
     rows = sorted(overview.token_rows(), key=overview._rank, reverse=True)
-    bad = [r for r in rows if r.get("collapse") or (r["rug"] and r["rug"]["verdict"] in ("ODBAČEN", "VISOK RIZIK"))]
-    bad_ids = {id(r) for r in bad}
-    ok = [r for r in rows if id(r) not in bad_ids]
-    active = [r for r in ok if r["last_seen"] >= now - ACTIVE_H * 3600]
-    older = [r for r in ok if r["last_seen"] < now - ACTIVE_H * 3600]
-    event = [r for r in rows if r["events"]]
+    good = [r for r in rows if overview.relevant(r)]
+    n_hidden = len(rows) - len(good)
+    active = [r for r in good if r["last_seen"] >= now - ACTIVE_H * 3600]
+    older = [r for r in good if r["last_seen"] < now - ACTIVE_H * 3600]
+    event = [r for r in rows if r["events"] and not overview.bad(r)]
 
-    b = ["<h1>Tokeni</h1><p class=mut>Poredani po <b>confidenceu</b>: hype ocjena plus neovisne potvrde (X, smart money, "
-         "KOL, holderi, rug filter, event), minus rizici. Klik na red otvara raspis s dokazima, klik na ime otvara "
-         "DexScreener. ⓘ uz stupac objašnjava što znači. Pravila su na stranici <a href=/criteria>Kriteriji</a>.</p>",
+    b = ["<h1>Tokeni</h1><p class=mut>Samo tokeni koji su još kandidati, poredani po <b>confidenceu</b>: hype ocjena plus "
+         "neovisne potvrde (X, smart money, KOL, holderi, rug filter, event), minus rizici. Rugani, odbačeni i slabi "
+         f"(confidence ispod {overview.MIN_SHOW_CONF}) se ne prikazuju. Klik na red otvara raspis s dokazima, klik na ime "
+         "otvara DexScreener. Starije, jače tokene s većom tržišnom vrijednošću i stalnim volumenom vidi na "
+         "<a href=/dugorocno>Dugoročnima</a>.</p>",
          f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}<span class=mut>{len(active)} aktivnih, {len(event)} uz event, "
-         f"{len(older)} starijih, {len(bad)} odbačenih</span></div>"]
+         f"{len(older)} starijih</span></div>", overview.hidden_line(n_hidden)]
 
+    b.append(_strong())
     b.append(f"<h2>Aktivni kandidati (zadnja {ACTIVE_H} h)</h2>")
-    b.append(tdesc('Tokeni viđeni u zadnja 24 h koje rug filter nije odbacio, poredani po confidenceu (najjači gore). Klik na red otvara analizu s interpretacijom i dokazima.') + _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema tokena koji nisu odbačeni."))
+    b.append(tdesc('Tokeni viđeni u zadnja 24 h koji nisu rugani ni odbačeni i imaju confidence barem '
+                   f'{overview.MIN_SHOW_CONF}, poredani po confidenceu (najjači gore). Klik na red otvara analizu s '
+                   'interpretacijom i dokazima.') + _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena."))
 
     b.append("<h2>Tokeni vezani uz evente</h2><p class=mut>Tokeni koje je DexScreener našao za događaje iz kalendara. "
              "<b>Pravi</b> je najbolje ocijenjen token eventa, ostali su kopije.</p>")
@@ -66,17 +104,7 @@ def page(qs):
                     ("Mcap", "n"), ("Likv.", "n")], erows, "te", "Nijedan token nije vezan uz event.",
                    mints=[r["token"] for r in event for _ in r["events"]]))
 
-    b.append(f"<details style='margin-top:18px'><summary>Stariji tokeni ({len(older)}), nisu viđeni u zadnja {ACTIVE_H} h"
+    b.append(f"<details style='margin-top:18px'><summary>Stariji dobri tokeni ({len(older)}), nisu viđeni u zadnja {ACTIVE_H} h"
              f"</summary>{_main_table(older, 'to', 'Nema.')}</details>")
-
-    b.append("<h2>Odbačeni, rugani i visok rizik</h2><p class=mut>Rug filter ih je odbacio (tvrdi pad) ili im dao ocjenu "
-             "ispod 50, ili su se već srušili (rug: cijena 70%+ ispod vrha u zadnja 24 h ili izvučena likvidnost). "
-             "Ne ulazi se u njih bez obzira na hype.</p>")
-    b.append(tdesc('Ovdje su da se vidi zašto su izbačeni; po defaultu se ne trejdaju.') + table(["Token", "Rug presuda", ("Rug ocjena", "n"), ("Glavni razlog", "wrap"), ("Hype", "n"), ("Mcap", "n"), "Zadnje"],
-                   [[tlink(r["token"], r["symbol"]), rugcell(r), scorecell(r["rug"]["score"]) if r["rug"] else "–",
-                     (esc(r["collapse"]["text"] if r.get("collapse") else
-                          ((r["rug"]["data"].get("hard_fails") or []) + (r["rug"]["data"].get("flags") or []) or ["–"])[0]), "", "wrap"),
-                     scorecell(r["hype_last"]), usd(r["mcap"]), ago(r["last_seen"])] for r in bad], "tb",
-                   "Nijedan token nije odbačen.", mints=[r["token"] for r in bad]))
     b.append(modal())
     return "Tokeni", "".join(b)
