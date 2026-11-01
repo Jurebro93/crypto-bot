@@ -29,7 +29,7 @@ SECTIONS = [
         _p("/moji-tradeovi", "💼", "Moji pravi tradeovi", "Upiši svoje prave kupnje i prati koliko zarađuješ.",
            "real pravi novac portfelj"),
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
-           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja"),
+           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
         _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
     ("Tokeni", [
@@ -146,6 +146,10 @@ INTRO = {
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
                       "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
+    "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
+                              "ideje do prvog mjeseca, besplatne i plaćene metode, uloge za tim od 4, gotovi "
+                              "Claude Code promptovi, brojke za praćenje i izvori istraživanja.", "Marketinški dio "
+                              "Našeg tokena; spaja istraživanje s našim podacima o influencerima i vremenu objava."),
     "/nas-token": ("Naš vlastiti token, od ideje do lansiranja", "Popis naših tokena, zajednički trezor (tko je "
                    "koliko uplatio), generator s troškom lansiranja, paket za pump.fun, marketinški plan i "
                    "influenceri za suradnju, a nakon lansiranja brojke tokena i prijedlozi.", "Koristi sve što alat "

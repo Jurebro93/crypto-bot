@@ -247,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/nas-token/"):]
             try:
                 res = nastoken.page(qs, self.user) if path == "/nas-token" or not rest else \
+                    nastoken.strategy_page(qs, self.user) if rest == "strategija" else \
                     nastoken.project_page(int(rest), qs, self.user, self.headers.get("Host")) if rest.isdigit() else None
                 html = page(*res, path) if res else page("404", "<h1>Nema te stranice</h1>", path)
             except Exception:

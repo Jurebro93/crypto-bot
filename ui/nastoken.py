@@ -200,7 +200,7 @@ def page(qs, user):
     try:
         ps = store.projects(con)
         goal_p = next((p for p in ps if p["status"] != "live"), None)
-        b = ["<h1>🪙 Naš token</h1>", _msg(qs),
+        b = ["<h1>🪙 Naš token</h1>", tabs("/nas-token"), _msg(qs),
              "<p class=lead>Ovdje radimo vlastiti Solana meme token: skupimo novac u zajednički trezor, složimo token, "
              "lansiramo ga iz svog Phantoma, a alat iz svih podataka koje prati predlaže marketing i influencere "
              "za suradnju i prati brojke tokena nakon lansiranja.</p>", RISK]
@@ -412,7 +412,9 @@ def _plan_html(p):
         b.append(f"<h3>{esc(phase)}</h3><ul>" + "".join(
             f"<li>{esc(s)}" + (f" {badge(c, 'good' if free else 'warn')}" if c else "") + "</li>"
             for s, c, free in steps) + "</ul>")
-    b.append("<h2>🤝 S kojim influencerima surađivati</h2>")
+    b.append("<p><a href='/nas-token/strategija?t=" + str(p["id"]) + "'>📣 Cijela strategija za marketing "
+             "(ideja, plan po danima, tim od 4, Claude Code) →</a></p>")
+    b.append("<h2 id=influenceri>🤝 S kojim influencerima surađivati</h2>")
     b.append(tdesc("Iz KOL-ova koje alat prati: doseg (pratitelji), koliko njihovih poziva stvarno naraste, rijetki "
                    "rugovi i kasni pozivi. Bot računi su isključeni. Cijena objave je gruba procjena; prijedlog "
                    "dogovora daje tokene postupno, samo za odrađene objave."))
@@ -675,3 +677,105 @@ def tx_ok(raw, payer, mint):
     except (IndexError, ValueError):
         return False
     return n == nsig == 2 and keys[:2] == [payer, mint] and PUMP_PROGRAM in keys
+
+
+# ---------- marketing strategy (sub-tab) -------------------------------------------------------------------------
+
+def tabs(cur):
+    items = [("/nas-token", "🪙 Tokeni i trezor"), ("/nas-token/strategija", "📣 Strategija za marketing")]
+    return ("<nav style='display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px'>" + "".join(
+        f"<a href='{h}' class=card style='margin:0;padding:6px 12px;text-decoration:none;"
+        f"{'border-color:var(--acc);font-weight:600' if h == cur else ''}'>{t}</a>" for h, t in items) + "</nav>")
+
+
+def strategy_page(qs, user):
+    from ourtoken import strategy as st
+    con = store.connect()
+    try:
+        ps = store.projects(con)
+    finally:
+        con.close()
+    pick = next((p for p in ps if str(p["id"]) == qs.get("t")), ps[0] if ps else None)
+    sym = "$" + pick["symbol"] if pick else "$NAŠ"
+
+    def s(x):
+        return esc(x.replace("{SYM}", sym))
+
+    hours = advisor._cached("hours", advisor.best_hours)
+    lift = advisor._cached("lift", advisor.cocall_lift)
+    partners = advisor._cached("partners", advisor.influencers) or []
+    b = ["<h1>📣 Strategija za marketing</h1>", tabs("/nas-token/strategija"),
+         f"<p class=lead>Od ideje do prvih mjeseci za {esc(sym)}: što radi kod meme tokena (istraživanje vodiča, "
+         "studija i podataka s pump.funa), raspored za tim od 4 čovjeka i kako Claude Code ubrzava svaki korak. "
+         "Prilagođeno našim podacima o influencerima i vremenu objava.</p>"]
+    if len(ps) > 1:
+        b.append("<form method=get class=card style='padding:8px 12px'>Strategija za token: <select name=t "
+                 "onchange='this.form.submit()'>" + "".join(
+                     f"<option value={p['id']} {'selected' if pick and p['id'] == pick['id'] else ''}>"
+                     f"${esc(p['symbol'])} · {esc(p['name'])}</option>" for p in ps) + "</select></form>")
+    b.append("<div class=card style='border-left:4px solid var(--acc)'><b>Ukratko: što stvarno radi</b><ol>"
+             + "".join(f"<li>{esc(x)}</li>" for x in st.SUMMARY) + "</ol></div>")
+    facts = []
+    if hours:
+        facts.append(f"Lansirati i objavljivati u <b>{hours['start_zg']:02d}-{(hours['start_zg'] + 3) % 24:02d} h</b> "
+                     f"po našem vremenu: tada objave imaju najviše pregleda ({hours['n']} izmjerenih poziva).")
+    if lift:
+        facts.append(f"Val od 3+ influencera u 15 minuta: token se udvostruči u <b>{lift['group_rate']:.0%}</b> "
+                     f"slučajeva, inače u {lift['solo_rate']:.0%}.")
+    if partners:
+        facts.append("Najbolji kandidati za suradnju: " + ", ".join(
+            f"<a href='/kol/{quote(r['handle'])}'>@{esc(r['handle'])}</a>" for r in partners[:6])
+            + (f" (tablica na <a href='/nas-token/{pick['id']}#influenceri'>stranici tokena</a>)" if pick else ""))
+    if facts:
+        b.append("<div class=card>📊 <b>Iz naših podataka</b><ul>" + "".join(f"<li>{f}</li>" for f in facts)
+                 + "</ul></div>")
+
+    def sec(title, body, open_=False):
+        return f"<details class=card {'open' if open_ else ''}><summary><b>{title}</b></summary>{body}</details>"
+
+    b.append(sec("💡 1. Ideja, priča i use case: tri koncepta", "".join(
+        f"<div class=card style='{'border-color:var(--good)' if c['best'] else ''}'><b>{esc(c['name'])}</b>"
+        + (" " + badge("preporuka", "good") if c["best"] else "")
+        + f"<p><b>Priča:</b> {esc(c['story'])}</p><p><b>Use case:</b> {esc(c['use'])}</p>"
+          f"<p class=mut><b>Zašto:</b> {esc(c['why'])}</p></div>" for c in st.CONCEPTS)
+        + "<p class=mut>Pravilo iz studija: maskota ili šala koju svatko može remiksati (WIF kapa, Useless "
+          "\"ne radi ništa\", BONK pas za cijelu Solanu). Ako se ne može nacrtati u 10 situacija, nije dovoljno "
+          "jednostavna.</p>", True))
+    b.append(sec("🎮 2. Interaktivne igrice i korist za holdere", table(
+        ["Ideja", "Kako", "Trošak"], [[esc(n), s(h), esc(c)] for n, h, c in st.GAMES], tid="stgame")))
+    tl = []
+    for phase, rows in st.TIMELINE:
+        tl.append(f"<h3>{esc(phase)}</h3>" + table(
+            ["Kada", "Što", "Tko"], [[esc(w), s(x), esc("svi" if who == "svi" else f"uloga {who}")]
+                                     for w, x, who in rows], tid=None))
+    b.append(sec("🗓 3. Plan od ideje do prvog mjeseca", "".join(tl)))
+    b.append(sec("🆓 4. Besplatne i 💵 plaćene metode",
+                 "<h3>Besplatno (prvo ovo)</h3>" + table(["Metoda", "Zašto"], [[esc(a), esc(c)] for a, c in st.FREE],
+                                                         tid="stfree")
+                 + "<h3>Plaćeno (tek kad besplatno krene)</h3>" + table(
+                     ["Metoda", "Cijena", "Napomena"], [[esc(a), esc(c), esc(n)] for a, c, n in st.PAID], tid="stpaid")))
+    b.append(sec("👥 5. Raspodjela zadataka za tim od 4 čovjeka", "<div style='display:flex;gap:10px;flex-wrap:wrap'>"
+                 + "".join(f"<div class=card style='min-width:220px;flex:1'><b>{esc(r)}</b><br><span class=mut>"
+                           f"{esc(who)}</span><ul>" + "".join(f"<li>{esc(t)}</li>" for t in tasks) + "</ul></div>"
+                           for r, who, tasks in st.ROLES)
+                 + "</div><p class=mut>Svaki dan 15 minuta dogovor u WhatsApp grupi: što je objavljeno, brojke sa "
+                   "stranice Naš token i tko što radi danas. Uloge 2-4 dogovorite sami; uloga 1 treba Phantom i "
+                   "Claude Code.</p>"))
+    b.append(sec("🤖 6. Claude Code: kako ubrzati i automatizirati", tdesc(
+        "Svaki prompt se zalijepi u Claude Code (claude.ai/code ili terminal) i za par sati dobijete gotov dio. "
+        "Isto kao što je napravljen ovaj alat.") + table(
+        ["Što", "Koliko traje", "Prompt", ""],
+        [[esc(w), esc(t), s(pr), _copy(pr.replace("{SYM}", sym), "📋")] for w, t, pr in st.CLAUDE], tid="stclaude")
+        + "<p class=mut>Slike maskote: AI generator slika (besplatni ili ~$10/mj). Claude Code ne crta slike, ali "
+          "napiše opise za generator i složi ih u web, memeove i igre.</p>"))
+    b.append(sec("📏 7. Brojke koje pratimo i kada mijenjati smjer", table(
+        ["Brojka", "Cilj", "Ako ne ide"], [[esc(a), esc(c), esc(d)] for a, c, d in st.KPIS], tid="stkpi")
+        + "<p class=mut>Sve se vidi uživo na stranici tokena čim upišete adresu, uz prijedloge alata.</p>"))
+    b.append(sec("🚫 8. Što ne raditi", "<ul>" + "".join(f"<li>{esc(x)}</li>" for x in st.DONT) + "</ul>"))
+    b.append(sec("📚 Izvori istraživanja (1.11.2026)", "<p class=mut>Velik dio vodiča pišu marketinške agencije "
+                 "koje prodaju te usluge; uzeto je ono u čemu se slažu i što potvrđuju podaci (pump.fun statistika, "
+                 "naša mjerenja).</p><ul>" + "".join(
+                     f"<li><a href='{esc(u)}' target=_blank rel=noopener>{esc(t)} ↗</a></li>" for t, u in st.SOURCES)
+                 + "</ul>"))
+    b.append(RISK)
+    return "Strategija za marketing · Naš token", "".join(b)
