@@ -220,7 +220,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
-    from ui import blog, blogviz, calcs, tools
+    from ui import blog, blogviz, botguides, calcs, tools
     canon = base + (path_en if lang == "en" or not path_hr else path_hr)
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
@@ -234,7 +234,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{calcs.CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
@@ -886,13 +886,15 @@ _HR_LIVE = {"/solana-meme-coins": "/hr/solana-meme-coini", "/influencers": "/hr/
             "/best-crypto-tools/trading-bots": "/hr/najbolji-kripto-alati/trading-botovi",
             "/best-crypto-tools/rug-checkers": "/hr/najbolji-kripto-alati/provjera-ruga",
             "/best-crypto-tools/crypto-apis": "/hr/najbolji-kripto-alati/kripto-api",
-            "/best-crypto-tools/copy-trading-platforms": "/hr/najbolji-kripto-alati/copy-trading-platforme"}
+            "/best-crypto-tools/copy-trading-platforms": "/hr/najbolji-kripto-alati/copy-trading-platforme",
+            "/best-crypto-tools/telegram-trading-bots": "/hr/najbolji-kripto-alati/telegram-trading-botovi"}
 _HR_LABEL = {"/hr/solana-meme-coini": "najveći Solana meme coini", "/hr/influenceri": "ljestvica influencera",
              "/hr/najbolji-kripto-alati/kripto-novcanici": "usporedba kripto novčanika",
              "/hr/najbolji-kripto-alati/trading-botovi": "usporedba trading botova i naknada",
              "/hr/najbolji-kripto-alati/provjera-ruga": "usporedba alata za provjeru ruga",
              "/hr/najbolji-kripto-alati/kripto-api": "usporedba kripto API-ja",
-             "/hr/najbolji-kripto-alati/copy-trading-platforme": "usporedba copy trading platformi"}
+             "/hr/najbolji-kripto-alati/copy-trading-platforme": "usporedba copy trading platformi",
+             "/hr/najbolji-kripto-alati/telegram-trading-botovi": "objašnjene postavke Telegram botova"}
 
 
 def _gterm(e, lang):

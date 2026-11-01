@@ -141,6 +141,12 @@ T("Trading bot", "trading", "Aplikacija ili Telegram bot koji kupuje i prodaje t
   "Kupnja i prodaja od $100 uz 1% naknade košta ukupno $2 plus mrežne naknade.",
   vidi=["copy-trading", "slippage"], alias=["trading terminal", "terminal", "telegram bot", "trading botovi"],
   k="trading-bot")
+T("MEV zaštita", "trading", "Postavka u trading botu koja šalje kupnju privatnim putem da je drugi botovi ne vide unaprijed.",
+  "Bez nje botovi za \"sendvič\" napad vide tvoju kupnju, kupe prije tebe i prodaju odmah nakon, pa ti platiš višu "
+  "cijenu. Uključi je kod kupnje svježih tokena. Transakcija može biti sporija ili treba viši prioritet.",
+  "U BonkBotu je to MEV Protect (Turbo ili Secure), u Maestru Anti-MEV.",
+  vidi=["trading-bot", "prioritetna-naknada"], alias=["mev", "anti-mev", "mev protect", "sendvič napad"],
+  k="mev-zastita")
 T("Rug checker", "osnove", "Besplatan alat (npr. RugCheck) koji prije kupnje provjeri token na znakove prevare.",
   "Pokaže može li kreator kovati nove tokene ili zamrznuti novčanike, koliko je likvidnosti, je li zaključana i "
   "koliko drže najveći holderi. Ne vidi povijest kreatora ni polagano prodavanje, pa prolaz nije jamstvo.",

@@ -27,6 +27,8 @@ def _fmt_en(v, fmt):
         return f"${v:,.0f}" if float(v).is_integer() else f"${v:,.2f}"
     if fmt == "pct2":   # fees: 0.75%, 1%
         return f"{v:g}%"
+    if fmt == "sol":    # network fees: 0.002 SOL
+        return f"{v:.6f}".rstrip("0").rstrip(".") + " SOL"
     if fmt == "min":
         return f"{v:g} min"
     return f"{v:,.0f}" if float(v).is_integer() else f"{v:,.1f}"

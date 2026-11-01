@@ -218,6 +218,12 @@ _E = [
      "launch. Most charge about 1% on every buy and every sell. They make you faster, not better at picking tokens.",
      "A $100 buy and a $100 sell at 1% cost $2 plus network fees.",
      ("/best-crypto-tools/trading-bots", "Trading bots and fees compared")),
+    ("mev-zastita", "mev-protection", "MEV protection", "What is MEV protection in a trading bot?",
+     "A bot setting that sends your buy privately so other bots cannot see it in advance.",
+     "Without it, sandwich bots see your pending buy, buy just before you and sell right after, so you pay a higher "
+     "price. Turn it on when buying fresh tokens. The trade can be a little slower or need a higher priority fee.",
+     "BonkBot calls it MEV Protect (Turbo or Secure); Maestro calls it Anti-MEV.",
+     ("/best-crypto-tools/telegram-trading-bots", "Telegram bot settings explained")),
     ("rug-checker", "rug-checker", "Rug checker", "What is a rug checker?",
      "A free tool such as RugCheck that scans a token for signs of a scam before you buy.",
      "It shows whether the creator can still mint tokens or freeze wallets, how much liquidity there is and whether it "
