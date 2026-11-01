@@ -122,14 +122,21 @@ def waste(path):
         return None
 
 
-def compact(path, min_waste=COMPACT_WASTE):
+def compact(path, min_waste=COMPACT_WASTE, offline=False):
     """VACUUM when at least min_waste of the file is dead space and the disk can hold the rewritten copy (in WAL
-    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None."""
+    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None.
+
+    offline=True (start-up only, nothing else has the file open): when the data disk is too full for that, the
+    packed copy is built on the container's own temporary disk (VACUUM INTO), copied next to the file and swapped
+    in, so only the packed size has to fit on the data disk."""
     w = waste(path)
     mb = os.path.getsize(path) / 1e6
-    need = mb * (1 - (w or 0)) + 50
-    if w is None or w < min_waste or mb * w < 10 or (disk.free_mb() or 0) < need:   # < 10 MB to win: not worth it
+    new_mb = mb * (1 - (w or 0))
+    need = new_mb + 50
+    if w is None or w < min_waste or mb * w < 10:   # < 10 MB to win: not worth it
         return None
+    if (disk.free_mb() or 0) < need:
+        return _compact_via_tmp(path, mb, new_mb) if offline else None
     t = time.time()
     con = _con(path, timeout=120)
     try:
@@ -141,6 +148,50 @@ def compact(path, min_waste=COMPACT_WASTE):
     finally:
         con.close()
     return f"{os.path.basename(path)} {mb:.0f}->{os.path.getsize(path) / 1e6:.0f} MB ({time.time() - t:.0f} s)"
+
+
+def _compact_via_tmp(path, mb, new_mb):
+    import shutil
+    import tempfile
+    tmpdir = tempfile.gettempdir()
+    if (disk.free_mb(tmpdir) or 0) < mb + 50 or (disk.free_mb() or 0) < new_mb + 20:
+        print(f"baze: {os.path.basename(path)} se ne može sažeti, premalo mjesta ({disk.free_mb():.0f} MB slobodno)",
+              flush=True)
+        return None
+    t = time.time()
+    tmp = os.path.join(tmpdir, os.path.basename(path) + ".packed")
+    new = path + ".packed"
+    for p in (tmp, new):
+        if os.path.exists(p):
+            os.remove(p)
+    con = _con(path, timeout=120)
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.execute("VACUUM INTO ?", (tmp,))
+    except sqlite3.OperationalError as e:
+        print(f"baze: {os.path.basename(path)} nije sažeta ({e})", flush=True)
+        return None
+    finally:
+        con.close()
+    chk = sqlite3.connect(tmp)
+    ok = chk.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    chk.close()
+    if not ok:
+        os.remove(tmp)
+        print(f"baze: {os.path.basename(path)} kopija nije ispravna, original ostaje", flush=True)
+        return None
+    shutil.copyfile(tmp, new)
+    with open(new, "rb") as f:
+        os.fsync(f.fileno())
+    os.remove(tmp)
+    os.replace(new, path)          # the old -wal was emptied by the checkpoint above; a stale one must not replay
+    for ext in ("-wal", "-shm"):
+        if os.path.exists(path + ext):
+            os.remove(path + ext)
+    c = sqlite3.connect(path)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.close()
+    return f"{os.path.basename(path)} {mb:.0f}->{os.path.getsize(path) / 1e6:.0f} MB (preko privremenog diska, {time.time() - t:.0f} s)"
 
 
 def startup():
@@ -168,7 +219,7 @@ def startup():
             vacuumed = bool(msgs) and msgs[-1].startswith(name + " ")
             con.execute("PRAGMA journal_mode=WAL")
             con.close()
-            done = None if vacuumed else compact(path)
+            done = None if vacuumed else compact(path, offline=True)
             if done:
                 msgs.append(done)
         except sqlite3.OperationalError as e:

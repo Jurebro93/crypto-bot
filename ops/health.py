@@ -73,7 +73,8 @@ def line(tables=False):
 def main(argv):
     if "--startup" in argv or "--hourly" in argv:
         from event_calendar import http   # HTTP cache first: it shares the disk the databases need to work
-        n, mb = http.prune()
+        free = disk.free_mb() or 0
+        n, mb = http.prune(max_mb=100 if free < 250 else None)   # tight disk: the cache gives way to the databases
         print(f"cache: obrisano {n} datoteka, {mb:.0f} MB", flush=True)
     if "--startup" in argv:
         dbs.startup()
