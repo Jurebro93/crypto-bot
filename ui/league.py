@@ -154,7 +154,10 @@ def page(qs, user):
         mine = store.trades(con, user, "open") if user else []
         bot_dca = {d["token"]: d["reason"] for d in data.paper_dca() if not d["done"]}
         cands = _suggestions(qs) if user else []   # suggestions only for players: guests can't buy
-        mints = {t["token"] for t in store.trades(con, status="open")} | {c["token"] for c in cands}
+        from ui import quickbuy
+        strong = quickbuy.strong()
+        mints = ({t["token"] for t in store.trades(con, status="open")} | {c["token"] for c in cands}
+                 | {t["mint"] for t in strong})
         mk = market(mints)
         live = {t: v[:3] for t, v in mk.items()}
         mcaps = {t: v[3] for t, v in mk.items() if v[3]}
@@ -167,13 +170,15 @@ def page(qs, user):
                  '📲 Pošalji stanje u WhatsApp grupu</a></p>')
         if user:
             from ui import register
-            b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'
+            b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#predlozeni">⭐ Predloženi tokeni</a>'
+                     '<a class=chip href="#moj">💼 Moj račun</a>'
                      '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#dca">🔄 Automatski DCA</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
                      '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
                      '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a>'
                      + ('<a class=chip href="#pozovi" onclick="document.getElementById(\'pozovi\').open=true">'
                         '👥 Pozovi prijatelja</a>' if register.can_invite(user) else '') + '</div>')
             b.append(register.invite_box(user))
+        b.append(quickbuy.block(strong + quickbuy.fresh(cands, mk), mk, user))
         b.append(leaguedash.dashboard(con, mk, user))
         if not user:
             return "Natjecanje", "".join(b)
@@ -234,7 +239,8 @@ def page(qs, user):
                    _form("/natjecanje/buy", {"token": r["token"], "symbol": r["symbol"] or "", "score": r["conf"] or "",
                                              "source": f"confidence {r['conf']}"}, "Kupi", size) if price else
                    '<span class=mut>nema cijene</span>')
-            srows.append([tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+            srows.append([tlink(r["token"], r["symbol"]) + " " + quickbuy.copy_btn(r["token"], "📋", small=True),
+                          (confidence.badge_html(r["conf"]), r["conf"], "n"),
                           (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
                           (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype_last"]),
                           rugcell(r),
@@ -389,6 +395,9 @@ def post(path, form, user):
 
 def _post(path, form, user):
     back = "/prijedlozi" if path.startswith("/prijedlozi") else "/natjecanje"
+    tb = form.get("back") or ""
+    if path == "/natjecanje/buy" and tb.startswith("/token/") and MINT.fullmatch(tb[len("/token/"):]):
+        back = tb   # bought from the token page: stay there
     _API["ts"] = 0   # a trade changes the live numbers
     if not user:
         return f"{back}?err={quote('prijavi se svojim imenom')}"
