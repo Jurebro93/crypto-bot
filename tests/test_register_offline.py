@@ -45,6 +45,19 @@ class Register(unittest.TestCase):
         self.assertAlmostEqual(store.account(con, "Ana")["cash"], store.START_USD)
         con.close()
 
+    def test_viewer_is_no_player(self):
+        old = {k: os.environ.get(k) for k in ("UI_USERS", "UI_PASS_IVAN", "UI_PASS_CLAUDE")}
+        os.environ.update(UI_USERS="Ivan,Claude,Mario", UI_PASS_IVAN="x")
+        os.environ.pop("UI_PASS_CLAUDE", None)
+        try:
+            self.assertEqual(store.env_users(), ["Ivan", "Mario"])
+            self.assertEqual(store.missing_passwords(), ["Mario"])     # the view-only account is not listed
+            os.environ["UI_PASS_CLAUDE"] = "y"                        # with its own password it plays
+            self.assertIn("Claude", store.env_users())
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
     def test_http_flow(self):
         os.environ.update(UI_PASSWORD="shared", UI_PASS_IVAN="ivanpw")
         import importlib

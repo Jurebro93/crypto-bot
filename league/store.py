@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS ideas (
 
 def env_users():
     """Players set on the server: UI_USERS (default Ivan,Panda,Jure), each one's password in UI_PASS_<NAME>."""
-    return [u.strip() for u in os.environ.get("UI_USERS", "Ivan,Panda,Jure").split(",") if u.strip()]
+    viewer = os.environ.get("UI_TEST_USER", "Claude").strip().lower()
+    # the view-only test account (UI_TEST_USER) is no player unless it has its own UI_PASS_<NAME>: on 1.11. "Claude"
+    # sat in UI_USERS and the banner listed it as a player whose password is missing
+    return [u.strip() for u in os.environ.get("UI_USERS", "Ivan,Panda,Jure").split(",")
+            if u.strip() and (u.strip().lower() != viewer or os.environ.get(f"UI_PASS_{u.strip().upper()}"))]
 
 
 def users():
