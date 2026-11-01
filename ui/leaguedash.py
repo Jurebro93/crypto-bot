@@ -145,11 +145,15 @@ def compute(con, mk):
                         "avg": sum(t["ret"] or 0 for t in closed) / len(closed) if closed else None,
                         "in_open": sum(t["size_usd"] for t in opened)})
     eqs = [p["equity"] for p in players]
-    prevs = [p["prev"] for p in players]
-    flat = all(v is None for v in prevs) or len({round(v or 0, 2) for v in prevs}) <= 1
+    # rank change only among players who already had an account 24 h ago, compared with their own ranks then and now
+    had = [p for p in players if p["prev"] is not None]
+    flat = len({round(p["prev"], 2) for p in had}) <= 1
     for p in players:
         p["rank"] = _tie_rank(eqs, p["equity"])
-        p["move"] = None if flat or p["prev"] is None else _tie_rank([v or 0 for v in prevs], p["prev"]) - p["rank"]
+        p["move"] = None
+        if not flat and p["prev"] is not None:
+            p["move"] = (_tie_rank([q["prev"] for q in had], p["prev"])
+                         - _tie_rank([q["equity"] for q in had], p["equity"]))
     bot = _bot(t0)
     if bot:
         bot["pts"] = bot["pts"] + [(int(now), bot["equity"])]
@@ -257,7 +261,11 @@ def highlights(d):
     tiles = []
     if d["players"]:
         lead = d["players"][0]
-        tiles.append(("Vodi", f'{esc(lead["user"])}', f'{lead["profit"]:+,.2f} $ ({lead["ret"]:+.1%})', _cls(lead["profit"])))
+        top = [p["user"] for p in d["players"] if p["rank"] == 1]
+        if len(top) > 1:
+            tiles.append(("Vodi", "izjednačeno", f'{esc(", ".join(top))} · {lead["profit"]:+,.2f} $', ""))
+        else:
+            tiles.append(("Vodi", esc(lead["user"]), f'{lead["profit"]:+,.2f} $ ({lead["ret"]:+.1%})', _cls(lead["profit"])))
     if trades:
         best = max(trades, key=lambda x: x[0])
         worst = min(trades, key=lambda x: x[0])
