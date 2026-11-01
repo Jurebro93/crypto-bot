@@ -126,6 +126,9 @@ DECISION = {
     "skip_mcap": "preskočen: prevelik mcap",
     "skip_full": "preskočen: dosegnut limit pozicija",
     "skip_rug": "preskočen: rug filter",
+    "skip_gate": "preskočen: tvrdi filter protiv rugova",
+    "skip_sesija": "preskočen: sesija na pauzi",
+    "skip_ab": "preskočen: A/B test ulaza",
     "skip_event": "preskočen: event predaleko",
     "ignored": "zanemaren",
 }

@@ -264,6 +264,38 @@ def render(data, ai, source):
                              for x in kt["top"]])
         out.append(section("KOL test: ulaz odmah na poziv", body, ("/kol-test", "KOL test")))
 
+    # the 1.11. entry rules and their effect
+    ru = data.get("rules")
+    if ru:
+        sess = {"asia": "Azija", "eu": "Europa", "us": "Amerika"}
+        rug = {r["label"]: r for r in ru["rug"]}
+        pr, po = rug.get("prije filtra") or {}, rug.get("nakon filtra") or {}
+        items = []
+        if po.get("n"):
+            items.append(f"Rugovi u demo tradeovima: {pct(po['share'])} ({po['rugs']} od {po['n']}) nakon tvrdog filtra"
+                         + (f", prije {pct(pr['share'])} ({pr['rugs']} od {pr['n']})" if pr.get("n") else "") + ".")
+        g = ru["gate"]
+        if g["n"]:
+            items.append(f"Filtar je odbio {g['n']} tokena (zadnja 24 h: {ru['refused_day']}); {g['collapsed']} od njih "
+                         "se kasnije srušilo, što bi bio gubitak.")
+        ab = ru.get("ab") or {}
+        if ab:
+            A, B = ab.get("A") or {}, ab.get("B") or {}
+            items.append(f"A/B ulaza: uobičajeni {A.get('n', 0)} zatvorenih (prosjek {pct(A.get('mean'), True)}), "
+                         f"prvi prelazak 100k $ {B.get('n', 0)} zatvorenih (prosjek {pct(B.get('mean'), True)}). "
+                         + ("Pobjednik: " + ("100k $." if ab.get("winner") == "B" else "uobičajeni ulaz.")
+                            if ab.get("winner") else "Još nema dovoljno tradeova za odluku."))
+        k3 = ru.get("kol3") or {}
+        if k3:
+            items.append("Okidač 3+ KOL autora u 15 min: " + ", ".join(
+                f"{sess[s]} {v['win']:.0%} dobitnih od {v['n']}" for s, v in k3.items() if s in sess) + ".")
+        ss = ru.get("sessions") or {}
+        small = [f"{sess[s]} " + ("pauza" if v.get("factor") == 0 else f"ulog {v['factor']:.0%}")
+                 for s, v in ss.items() if s in sess and v.get("factor", 1) < 1]
+        items.append("Ulog po sesiji: " + (", ".join(small) if small else "sve sesije puni ulog") + ".")
+        items += [h["text"] for h in ru.get("history") or []]
+        out.append(section("Nova pravila ulaza: učinak", bullets(items), ("/paper", "Demo trading")))
+
     # suggestions
     sg = ai.get("prijedlozi") or []
     if sg:

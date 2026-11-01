@@ -270,8 +270,34 @@ def collect(now=None):
         hit_x = 0.5
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
-            "market": market(now), "koltest": koltest(now)}
+            "market": market(now), "koltest": koltest(now), "rules": rules(now)}
     return data
+
+
+def rules(now):
+    """The 1.11. entry rules (paper/rules.py): rug share before/after the hard gate, what the gate refused, the
+    $100k A/B, the 3-KOL trigger per session and the stake per session. None when nothing ran yet."""
+    try:
+        import sqlite3
+        from paper import rules as R
+        st = R.load()
+        start = (st.get("since") or {}).get("gate")
+        if not start:
+            return None
+        path = db_path("paper.db")
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        try:
+            out = {"since": start, "rug": R.rug_share(con, start), "gate": R.gate_shadow(con, start),
+                   "kol3": R.by_session(con, "kol3", 14, now), "ab": st.get("ab"),
+                   "sessions": (st.get("sessions") or {}).get("by") or {},
+                   "refused_day": con.execute("SELECT COUNT(*) FROM candidates WHERE decision='skip_gate' AND "
+                                              "first_ts>=?", (now - DAY,)).fetchone()[0]}
+        finally:
+            con.close()
+        out["history"] = [h for h in st.get("history") or [] if h.get("ts", 0) >= now - DAY]
+        return out
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def koltest(now):

@@ -23,8 +23,9 @@ def _path(rets, liq=50_000, dt=600):
 class PaperSim(unittest.TestCase):
     def test_fill_costs_fee_and_impact(self):
         pos = sim.open_position(1.0, 50_000, T0, 50, CFG)
-        self.assertGreater(pos["entry_eff"], 1.01)
-        self.assertLess(pos["entry_eff"], 1.02)
+        slip = CFG.get("slip", 0.0)  # execution slippage on top of fee + pool impact (1.11.)
+        self.assertGreater(pos["entry_eff"], 1.01 * (1 + slip))
+        self.assertLess(pos["entry_eff"], 1.02 * (1 + slip))
 
     def test_stop_loss(self):
         r = sim.replay(1.0, 50_000, T0, _path([0.05, -0.1, -0.4, 0.5]), CFG)

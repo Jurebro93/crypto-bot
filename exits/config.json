@@ -282,5 +282,12 @@
   ]
  },
  "moon_keep": 0.8,
- "_moon_keep": "novi skup mora zadržati barem 80% prosječnog ishoda na tokenima koji su napravili 10x+ (ne gubimo moonshote)"
+ "_moon_keep": "novi skup mora zadržati barem 80% prosječnog ishoda na tokenima koji su napravili 10x+ (ne gubimo moonshote)",
+ "live_share": 0.5,
+ "live_w_max": 10,
+ "coarse_s": 300,
+ "reality_min_n": 20,
+ "robust_top": 0.01,
+ "robust_min": 3,
+ "_reality": "Simulacija bliža stvarnosti: slippage na svakoj prodaji/kupnji (paper slip), stop na grubim povijesnim putanjama puni se gdje bi ga minutna provjera uhvatila (izmjereno na našim live stopovima), live putanje zajedno nose barem live_share ocjene, a novi skup mora biti bolji i bez robust_top najboljih pogodaka."
 }

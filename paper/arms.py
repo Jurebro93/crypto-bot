@@ -109,7 +109,7 @@ def report(con):
             "SELECT t.config, t.ret, t.pnl_usd, t.exit_reason, t.max_ret, t.min_ret, c.score FROM trades t "
             "LEFT JOIN candidates c ON c.trade_id=t.id WHERE t.status='closed'"):
         c = json.loads(conf or "{}")
-        if c.get("entry_mode") not in ("explore", "konv"):
+        if c.get("entry_mode") not in ("explore", "konv", "mc100k", "kol3"):
             continue
         keys = [c.get("arm") or "bez kraka"] + ([band_of(score)] if c.get("entry_mode") == "explore"
                                                  and score is not None else [])

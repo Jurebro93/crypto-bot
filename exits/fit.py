@@ -75,9 +75,49 @@ def check_rollback(state, paper_db, base, ecfg, now):
     return notes
 
 
+COARSE_DEFAULT = {"p_caught": 0.7, "gap": -0.05}
+
+
+def reality(paper_db, ecfg=None, since=0):
+    """How our live demo stops really filled: {n, p_caught, gap, secs, measured}. p_caught = share of stop/rug exits
+    sold within 15 points of the stop (the minute check caught it), gap = median distance below the stop of those.
+    With fewer than reality_min_n exits the defaults hold (70%, 5 points)."""
+    ecfg = ecfg or {}
+    out = {**COARSE_DEFAULT, "secs": ecfg.get("coarse_s", 300), "n": 0, "measured": False}
+    if not paper_db or not os.path.exists(paper_db):
+        return out
+    try:
+        con = sqlite3.connect(f"file:{paper_db}?mode=ro", uri=True, timeout=30)
+        rows = con.execute("SELECT ret, config, state FROM trades WHERE status='closed' AND exit_reason IN "
+                           "('stop_loss', 'rug') AND opened_ts>=?", (since,)).fetchall()
+        con.close()
+    except sqlite3.OperationalError:
+        return out
+    caught, n = [], 0
+    for ret, cfg, state in rows:
+        st = json.loads(state or "{}")
+        if st.get("tp_done") or any(f.get("reason") == "rucno" for f in st.get("fills") or ()):
+            continue  # a stop after a take profit, or sold by hand: not a first stop
+        sl = json.loads(cfg or "{}").get("sl")
+        if sl is None or ret is None:
+            continue
+        n += 1
+        if ret >= sl - 0.15:
+            caught.append(ret - sl)
+    out["n"] = n
+    if n >= ecfg.get("reality_min_n", 20):
+        caught.sort()
+        out["p_caught"] = round(len(caught) / n, 3)
+        out["gap"] = round(max(-0.15, min(0.0, caught[len(caught) // 2])), 3) if caught else -0.15
+        out["measured"] = True
+    return out
+
+
 def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
     now = now or time.time()
     ecfg, base = learn.load_config(), sim.load_config()
+    real = reality(paper_db, ecfg, since=now - ecfg["live_days"] * 86400)
+    base = {**base, "coarse": {k: real[k] for k in ("secs", "p_caught", "gap")}}
     state = profiles.load()
     report = check_rollback(state, paper_db, base, ecfg, now) if apply else []
     rolled = {r["klasa"] for r in report}
@@ -99,6 +139,7 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
         report.append(dec)
     if apply:
         state["sim_version"] = sim.SIM_VERSION  # fitted under these exit mechanics (profiles.needs_refit)
+        state["reality"] = {**real, "slip": base.get("slip", 0.0), "ts": int(now)}
         state.setdefault("runs", []).append({"ts": int(now), "items": [
             {k: r.get(k) for k in ("klasa", "n", "n_live", "applied", "rollback", "note")} for r in report]})
         profiles.save(state)

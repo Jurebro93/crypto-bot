@@ -11,7 +11,9 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 # Bumped whenever the exit mechanics change meaning, so the exit learner re-fits its rules under the new mechanics
 # right away (exits.json keeps the version it was fitted with) instead of waiting for the next daily run.
 # 2: the stop after a take profit only arms once the peak has cleared it (lock_gap), see after_tp_stop().
-SIM_VERSION = 2
+# 3: execution slippage on every fill (cfg slip) and, in replays of coarse historical paths, a stop that fills near
+#    the stop level like the bot's minute checks do (cfg coarse, see coarse_fill()).
+SIM_VERSION = 3
 
 
 def load_config(path=None, learned=True):
@@ -36,7 +38,7 @@ def impact(usd, liq):
 
 def open_position(price, liq, ts, size_usd, cfg):
     """Buy size_usd at market price; effective price is worse by fee + impact."""
-    eff = price * (1 + cfg["fee"]) / (1 - impact(size_usd, liq))
+    eff = price * (1 + cfg["fee"]) * (1 + cfg.get("slip", 0.0)) / (1 - impact(size_usd, liq))
     return {"entry_px": price, "entry_eff": eff, "entry_liq": liq, "opened_ts": ts, "size_usd": size_usd,
             "qty": size_usd / eff, "left": 1.0, "realized": 0.0, "peak": 0.0, "low": 0.0,
             "tp_done": 0, "open": True, "fills": []}
@@ -48,7 +50,7 @@ def sell(pos, frac, price, liq, ts, reason, cfg):
     if frac <= 0:
         return
     gross = pos["qty"] * frac * price
-    net = gross * (1 - cfg["fee"]) * (1 - impact(gross, liq)) if price > 0 else 0.0
+    net = gross * (1 - cfg["fee"]) * (1 - cfg.get("slip", 0.0)) * (1 - impact(gross, liq)) if price > 0 else 0.0
     pos["left"] = round(pos["left"] - frac, 9)
     pos["realized"] += net
     pos["fills"].append({"ts": ts, "price": price, "frac": frac, "usd": round(net, 4), "reason": reason})
@@ -95,8 +97,29 @@ def _tp_frac(pos, frac, price, liq, cfg):
     gross_all = pos["qty"] * price
     if gross_all <= 0:
         return 0
-    need = (pos["size_usd"] - pos["realized"]) / ((1 - cfg["fee"]) * (1 - impact(pos["size_usd"], liq)))
+    need = (pos["size_usd"] - pos["realized"]) / ((1 - cfg["fee"]) * (1 - cfg.get("slip", 0.0))
+                                                  * (1 - impact(pos["size_usd"], liq)))
     return max(0.0, min(pos["left"], need / gross_all))
+
+
+def coarse_fill(pos, price, ts, cfg):
+    """Fill price for a stop on a coarse historical path (cfg coarse = {secs, p_caught, gap}), else `price`.
+
+    The retrospective paths have points up to an hour apart, so a token that slid from -5% to -80% between two
+    points was "sold" at -80% in the replay, while the live bot checks every minute and its stop fills near the stop
+    level (1.11.: stop -15%, live median about -15%, replayed median -65% to -83%). Between two far-apart points the
+    replay now fills at the expected price: with probability p_caught (measured on our live stop exits) the minute
+    check caught it at stop + gap, otherwise it gapped through to the observed price."""
+    c = cfg.get("coarse")
+    prev = pos.get("prev_ts", pos.get("opened_ts"))  # before the first point: the entry itself
+    if not c or prev is None or ts - prev <= c.get("secs", 300) or pos.get("prev_ret", 0) <= cfg["sl"]:
+        return price
+    ret_obs = price / pos["entry_px"] - 1
+    caught = cfg["sl"] + c.get("gap", -0.05)
+    if ret_obs >= caught:
+        return price
+    p = c.get("p_caught", 0.7)
+    return pos["entry_px"] * (1 + p * caught + (1 - p) * ret_obs)
 
 
 def step(pos, price, liq, ts, cfg):
@@ -108,9 +131,22 @@ def step(pos, price, liq, ts, cfg):
     moon_hold_h, so a trade that already paid for itself keeps a ticket to a moonshot."""
     if not pos["open"]:
         return pos
+    try:
+        return _step(pos, price, liq, ts, cfg)
+    finally:
+        if price > 0 and pos.get("entry_px"):
+            pos["prev_ts"], pos["prev_ret"] = ts, price / pos["entry_px"] - 1
+
+
+def _step(pos, price, liq, ts, cfg):
     # rug: liquidity pulled, or the price dumped so far (rug_drop, default 70% below entry) that it is a rug, not a dip
-    if price <= 0 or liq < cfg["rug_liq"] * pos["entry_liq"] or price <= pos["entry_px"] * (1 - cfg.get("rug_drop", 0.7)):
+    if price <= 0:
         sell(pos, 1.0, price, liq, ts, "rug", cfg)
+        return pos
+    if liq < cfg["rug_liq"] * pos["entry_liq"] or price <= pos["entry_px"] * (1 - cfg.get("rug_drop", 0.7)):
+        # on a coarse path the pool shrinking with the price is a dump the minute check would have stopped earlier
+        fill = coarse_fill(pos, price, ts, cfg) if pos["tp_done"] == 0 else price
+        sell(pos, 1.0, fill, liq, ts, "rug" if fill == price else "stop_loss", cfg)
         return pos
     ret = price / pos["entry_px"] - 1
     pos["peak"], pos["low"] = max(pos["peak"], ret), min(pos["low"], ret)
@@ -122,7 +158,7 @@ def step(pos, price, liq, ts, cfg):
             sell(pos, 1.0, price, liq, ts, "moonbag_time", cfg)
         return pos
     if pos["tp_done"] == 0 and ret <= cfg["sl"]:
-        sell(pos, 1.0, price, liq, ts, "stop_loss", cfg)
+        sell(pos, 1.0, coarse_fill(pos, price, ts, cfg), liq, ts, "stop_loss", cfg)
         return pos
     bag = cfg.get("moonbag") or 0
     for i, (level, frac) in enumerate(cfg["tp"]):
@@ -165,7 +201,7 @@ def result(pos, mark_price=None, mark_liq=None, cfg=None):
     value = pos["realized"]
     if pos["open"] and mark_price and cfg:
         gross = pos["qty"] * pos["left"] * mark_price
-        value += gross * (1 - cfg["fee"]) * (1 - impact(gross, mark_liq))
+        value += gross * (1 - cfg["fee"]) * (1 - cfg.get("slip", 0.0)) * (1 - impact(gross, mark_liq))
     pnl = value - pos["size_usd"]
     return {"pnl_usd": round(pnl, 2), "ret": round(pnl / pos["size_usd"], 4), "max_ret": round(pos["peak"], 4),
             "min_ret": round(pos["low"], 4), "exit_reason": pos.get("exit_reason") or ("open" if pos["open"] else "")}

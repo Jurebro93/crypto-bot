@@ -28,10 +28,17 @@ def score(conf, checks):
     return round(s), an, pr, pa
 
 
+MIN_VOL_KEEP = 0.2  # Puls: volume of the last hour must hold at least 20% of its best hour (1.11. review)
+
+
 def featured_ok(r, min_razina=1, min_analysed=3):
-    """Only tokens that reached a paid tier, failed nothing hard, and had enough layers actually analysed."""
+    """Only tokens that reached a paid tier, failed nothing hard, had enough layers actually analysed, passed T0 (not
+    'nije' = never checked, 1.11.: such tokens were on the list) and whose volume has not died (Puls)."""
     an, _, _ = coverage(r["checks"])
-    return (r.get("razina") or 0) >= min_razina and not r.get("hard") and an >= min_analysed
+    t0 = (r.get("tier") or {}).get("t0")
+    sv = (r.get("features") or {}).get("snaga_volumen")
+    return ((r.get("razina") or 0) >= min_razina and not r.get("hard") and an >= min_analysed
+            and t0 not in ("nije", "pad") and (sv is None or sv >= MIN_VOL_KEEP))
 
 
 def dots_html(checks):

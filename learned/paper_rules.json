@@ -1,0 +1,40 @@
+{
+ "sessions": {
+  "ts": 1793532338,
+  "by": {
+   "asia": {
+    "n": 0,
+    "win": null,
+    "pf": null,
+    "factor": 1.0
+   },
+   "eu": {
+    "n": 0,
+    "win": null,
+    "pf": null,
+    "factor": 1.0
+   },
+   "us": {
+    "n": 0,
+    "win": null,
+    "pf": null,
+    "factor": 1.0
+   }
+  }
+ },
+ "history": [],
+ "since": {
+  "ab": 1793532338
+ },
+ "ab": {
+  "since": 1793532338,
+  "A": {
+   "n": 0
+  },
+  "B": {
+   "n": 0
+  },
+  "winner": null,
+  "ts": 1793532338
+ }
+}

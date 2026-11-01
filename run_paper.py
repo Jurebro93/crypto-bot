@@ -26,7 +26,7 @@ import time
 
 from dexscreener import client
 from exits import profiles as exits_profiles
-from paper import auto, dca, review, sim, store, arms
+from paper import auto, dca, review, sim, store, arms, rules
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -178,6 +178,42 @@ def klasa_of(tokens):
         con.close()
 
 
+def t0_of(tokens, col="t0"):
+    """token -> T0 verdict from token_tier (hype.db, read-only): 'prolaz' / 'pad' / 'nije'; missing = no row.
+    col="symbol" gives the ticker instead."""
+    con = _ro(HYPE_DB)
+    if con is None or not tokens:
+        return {}
+    try:
+        q = ",".join("?" * len(tokens))
+        return dict(con.execute(f"SELECT token, {col} FROM token_tier WHERE token IN ({q})", list(tokens)))
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        con.close()
+
+
+_T0_CACHE = {}
+
+
+def t0_check(token, now):
+    """Free T0 check (RugCheck, cached 6 h) for a mint the scan never checked, e.g. a non-pump.fun token that came in
+    through a KOL trigger. Returns 'prolaz' / 'pad' / None (failed)."""
+    hit = _T0_CACHE.get(token)
+    if hit and now - hit[1] < 6 * 3600:
+        return hit[0]
+    try:
+        from tiers import sieve
+        t0, _why = sieve.check(token)
+    except Exception as e:  # noqa: BLE001
+        print(f"  T0 {token}: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if len(_T0_CACHE) > 500:
+        _T0_CACHE.clear()
+    _T0_CACHE[token] = (t0, now)
+    return t0
+
+
 def kol_calls(tokens, since):
     """token -> newest influencer call timestamp (kol.db, read-only), for the KOL hold in the exit rules."""
     path = os.path.join(HERE, "kol.db")
@@ -215,7 +251,8 @@ def _n_open(con):
     trades (own cap, explore.max_open) do not."""
     n = 0
     for state, cfg in con.execute("SELECT state, config FROM trades WHERE status='open'"):
-        if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") not in ("explore", "konv"):
+        if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") not in (
+                "explore", "konv", "mc100k", "kol3"):
             n += 1
     return n
 
@@ -269,9 +306,124 @@ def konv_fresh(cv, kc, now):
     its first event (not a slow drip over hours), and no tracked wallet selling."""
     if not cv or cv.get("kol_selling") or cv.get("score", 0) < kc.get("min_score", 101):
         return False
+    if not (cv.get("n_x") or cv.get("n_tg")) and (cv.get("n_chain") or 0) < kc.get("chain_only_min", 6):
+        return False  # wallets only, not one post: 1.11. night 11 such entries ended at -100% (fake pools)
     last = cv.get("last_ts") or cv.get("ts") or cv.get("first_ts") or 0
     return (now - last <= kc.get("max_age_min", 10) * 60
             and now - (cv.get("first_ts") or last) <= kc.get("window_min", 30) * 60)
+
+
+def _announce(opened, cfg, quiet):
+    for c in opened:
+        msg = (f"📝 DEMO KUPNJA {c.get('symbol')}  {_usd(c.get('size_usd', cfg['size_usd']))} @ {c['price']:.3g}  mcap {_usd(c['mcap'])}"
+               f"  liq {_usd(c['liquidity'])}  ({c['reason']})  {c.get('url') or ''}")
+        if not quiet:
+            print(msg)
+        notify(msg)
+
+
+TRIGGER_MODES = ("mc100k", "kol3")
+
+
+def _n_mode(con, mode, since=None):
+    q = f"SELECT COUNT(*) FROM trades WHERE config LIKE '%\"entry_mode\": \"{mode}\"%'"
+    if since is None:
+        return con.execute(q + " AND status='open'").fetchone()[0]
+    return con.execute(q + " AND opened_ts>=?", (since,)).fetchone()[0]
+
+
+def trigger_entries(con, cfg, rst, now):
+    """Entries that do not come from a hype score (paper/rules.py): B of the entry A/B = first crossing of $100k MC
+    with T0 passed, and >= 3 different KOL authors within 15 minutes. Same hard rug gate, same session stake, own
+    small caps; one trade per token a day. Returns the opened candidates."""
+    R = rules.config(cfg)
+    if not (R["ab"]["enabled"] or R["kol3"]["enabled"]):
+        return []
+    from exits.paths import session_of
+    from rugfilter import collapse
+    want = {}
+    if R["ab"]["enabled"]:
+        if now - (rst.get("ab") or {}).get("ts", 0) >= 3600:
+            rules.ab_judge(con, rst, cfg, now)
+        for tok, ts, mc, px, sc in rules.ab_events(HYPE_DB, R["ab"]["band"], R["ab"]["fresh_min"], now):
+            want.setdefault(tok, ("mc100k", {"score": sc, "mcap_cross": mc}))
+    if R["kol3"]["enabled"]:
+        for tok, k in rules.kol3(os.path.join(HERE, "kol.db"), now, cfg).items():
+            want.setdefault(tok, ("kol3", k))
+    if not want:
+        return []
+    traded = {t for (t,) in con.execute("SELECT token FROM trades WHERE status='open' OR opened_ts>=?",
+                                        (now - 86400,))}
+    want = {t: v for t, v in want.items() if t not in traded}
+    if not want:
+        return []
+    mk = market(want) or {}
+    t0s = t0_of(want)
+    syms = t0_of(want, "symbol")
+    klase = klasa_of(want)
+    pk = collapse.peaks(HYPE_DB, list(want), now=now)
+    known_c = store.known(con)
+    ex_state = exits_profiles.load()
+    day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
+    cnt = {m: [_n_mode(con, m), _n_mode(con, m, day0)] for m in TRIGGER_MODES}
+    kc = cfg.get("konv") or {}
+    t0_left = R["gate"]["t0_checks_per_pass"]
+    sess = session_of(now)
+    out = []
+    for tok, (mode, info) in want.items():
+        if tok not in mk:
+            continue
+        r = R["ab" if mode == "mc100k" else mode]
+        if cnt[mode][0] >= r["max_open"] or cnt[mode][1] >= r["max_per_day"]:
+            continue
+        price, liq, mcap, url = mk[tok]
+        t0 = t0s.get(tok)
+        if t0 in (None, "nije") and not (t0 is None and rules.is_pump(tok)) and t0_left > 0:
+            t0_left -= 1
+            t0 = t0_check(tok, now) or t0
+        c = {"token": tok, "symbol": syms.get(tok), "ts": now, "origin": mode, "sources": {mode}, "score": info.get("score"),
+             "features": {}, "price": price, "liquidity": liq, "mcap": mcap, "url": url}
+        why = rules.gate(tok, price, liq, mcap, t0, None, cfg)
+        if not why and collapse.check(pk.get(tok), mcap, liq):
+            why = "rugan: " + collapse.check(pk.get(tok), mcap, liq)["text"]
+        size, note = rules.size_for(rst, tok, r["size_usd"], now, cfg)
+        if why:
+            c["decision"], c["reason"] = "skip_gate", why
+        elif mode == "mc100k" and not rules.ab_allow(rst, mode, tok, cfg):
+            c["decision"], c["reason"] = "skip_ab", "A/B: uobičajeni ulaz se pokazao boljim od čekanja 100k $"
+        elif mode == "kol3" and not rules.kol3_allow(con, tok, now, cfg):
+            c["decision"], c["reason"] = "skip_sesija", "okidač 3 KOL-a u ovoj sesiji gubi"
+        elif size <= 0:
+            c["decision"], c["reason"] = "skip_sesija", note
+        else:
+            c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, tok, cfg, now, paid=False)
+            if c["rug_verdict"] in cfg["block_verdicts"]:
+                c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
+        if not c.get("decision"):
+            size = rules.high_risk_size(c.get("rug_verdict"), size, r["size_usd"])
+            cfg_t = exits_profiles.for_trade(cfg, klase.get(tok) or "default", state=ex_state, now=now)
+            cfg_t["entry_mode"], cfg_t["arm"] = mode, f"{mode}|{sess}"
+            if mode == "kol3" and kc.get("tp"):  # a KOL wave: quick target, out if the crowd does not come
+                cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
+                             max_hold_h=kc["max_hold_h"])
+            pos = sim.open_position(price, liq, now, size, cfg_t)
+            c["trade_id"] = store.open_trade(con, tok, c["symbol"], pos, cfg_t, mcap)
+            c["size_usd"], c["decision"] = size, "taken"
+            c["reason"] = ((f"prvi prelazak 100k $ (A/B test, ulaz B)" if mode == "mc100k" else
+                            f"{info['n']} KOL autora u 15 min: " + ", ".join(info["handles"][:5]))
+                           + f" [{cfg_t['arm']}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
+                           + (f"; {note}" if note else ""))
+            cnt[mode][0] += 1
+            cnt[mode][1] += 1
+            out.append(c)
+        if tok in known_c:
+            if c["decision"] == "taken":
+                con.execute("UPDATE candidates SET trade_id=? WHERE token=? AND trade_id IS NULL", (c["trade_id"], tok))
+        else:
+            store.add_candidate(con, c)
+            known_c.add(tok)
+        store.tick(con, tok, now, price, liq, mcap)
+    return out
 
 
 def intake(cfg, now=None, quiet=False):
@@ -299,7 +451,12 @@ def intake(cfg, now=None, quiet=False):
             if konv_fresh(conv.get(t), kc, now):
                 cands[t] = c
     if not cands:
-        return []
+        rst = rules.load()
+        opened = trigger_entries(con, cfg, rst, now)
+        rules.save(rst)
+        con.commit()
+        _announce(opened, cfg, quiet)
+        return opened
     mk = market(cands) or {}
     n_open = _n_open(con)
     klase = klasa_of(cands)
@@ -312,6 +469,11 @@ def intake(cfg, now=None, quiet=False):
     arm_st = arms.stats(con, cfg.get("arms"))
     from rugfilter import collapse
     pk = collapse.peaks(HYPE_DB, list(cands), now=now)
+    t0s = t0_of(cands)
+    rst = rules.load()
+    rules.since(rst, "gate", now)
+    rules.session_sizes(con, rst, cfg, now)
+    t0_left = rules.config(cfg)["gate"]["t0_checks_per_pass"]
     opened = []
     # strong convergence first: when the exploration slots are nearly full, KOL/wallet clusters get them first
     for t, c in sorted(cands.items(), key=lambda kv: (not konv_fresh(conv.get(kv[0]), kc, now), -(kv[1]["score"] or 0))):
@@ -359,18 +521,38 @@ def intake(cfg, now=None, quiet=False):
         elif not explore and (n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]):
             c["decision"], c["reason"] = "skip_full", f"{n_open} otvorenih, {n_today} danas"
         else:
-            c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now, paid=not explore)
-            if c["rug_verdict"] in cfg["block_verdicts"]:
+            t0 = t0s.get(t)
+            if t0 in (None, "nije") and not (t0 is None and rules.is_pump(t)) and t0_left > 0:
+                t0_left -= 1  # never checked (non-pump.fun mint, or outside the scan): the free check first
+                t0 = t0_check(t, now) or t0
+            gate = rules.gate(t, price, liq, mcap, t0, c.get("features"), cfg)
+            mode = "konv" if konv else "explore" if explore else "core"
+            size = ex["size_usd"] if explore else cfg["size_usd"]
+            ex_size = ex.get("size_usd", cfg["size_usd"])
+            size_note = None
+            if not gate:
+                size, size_note = rules.size_for(rst, t, size, now, cfg)
+            if gate:
+                c["decision"], c["reason"] = "skip_gate", gate
+            elif mode != "konv" and (mcap or 0) < rules.config(cfg)["ab"]["band"] and not rules.ab_allow(rst, mode, t, cfg):
+                c["decision"], c["reason"] = "skip_ab", "A/B: ulaz na prvom prelasku 100k $ se pokazao boljim"
+            elif size <= 0:
+                c["decision"], c["reason"] = "skip_sesija", size_note
+            else:
+                c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now, paid=not explore)
+            if c.get("decision"):
+                pass
+            elif c["rug_verdict"] in cfg["block_verdicts"]:
                 c["decision"], c["reason"] = "skip_rug", "; ".join(c["rug_flags"][:3]) or c["rug_verdict"]
             else:
                 k = "event" if c["origin"] == "event" else klase.get(t) or "default"
                 cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state, now=now)  # learned exits of its class
-                cfg_t["entry_mode"] = "konv" if konv else "explore" if explore else "core"
+                cfg_t["entry_mode"] = mode
                 cfg_t["arm"] = arm
                 if konv:  # quick +40% target for most of it, out in 45 min if the crowd does not come
                     cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
                                  max_hold_h=kc["max_hold_h"])
-                size = ex["size_usd"] if explore else cfg["size_usd"]
+                size = rules.high_risk_size(c.get("rug_verdict"), size, ex_size)
                 c["size_usd"] = size
                 pos = sim.open_position(price, liq, now, size, cfg_t)
                 c["trade_id"] = store.open_trade(con, t, c.get("symbol"), pos, cfg_t, mcap)
@@ -378,7 +560,8 @@ def intake(cfg, now=None, quiet=False):
                 c["reason"] = (f"konvergencija {cv['score']:.0f}: {'+'.join(cv['platforms'])}, "
                                f"{cv['n_x']} X / {cv['n_tg']} TG / {cv['n_chain']} novčanika" if konv else
                                f"istraživanje: score {s:.0f} u vrhu dana (prag {ex_need:.0f})" if explore else
-                               f"score {s:.0f}") + f" [{arm}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
+                               f"score {s:.0f}") + f" [{arm}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "") + (
+                               f"; {size_note}" if size_note else "")
                 if explore:
                     ex_open, ex_today = ex_open + 1, ex_today + 1
                 else:
@@ -393,13 +576,10 @@ def intake(cfg, now=None, quiet=False):
             store.add_candidate(con, c)
         if c["decision"] != "ignored":
             store.tick(con, t, now, price, liq, mcap)
+    opened += trigger_entries(con, cfg, rst, now)
+    rules.save(rst)
     con.commit()
-    for c in opened:
-        msg = (f"📝 DEMO KUPNJA {c.get('symbol')}  {_usd(c.get('size_usd', cfg['size_usd']))} @ {c['price']:.3g}  mcap {_usd(c['mcap'])}"
-               f"  liq {_usd(c['liquidity'])}  ({c['reason']})  {c.get('url') or ''}")
-        if not quiet:
-            print(msg)
-        notify(msg)
+    _announce(opened, cfg, quiet)
     return opened
 
 
