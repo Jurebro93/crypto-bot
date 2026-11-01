@@ -207,9 +207,11 @@ class Handler(BaseHTTPRequestHandler):
             # that box, the page then just stays blank. 401 without WWW-Authenticate, so no box pops up.
             nxt = path + (f"?{u.query}" if u.query else "")
             return self._send(401, login_page({"next": nxt}).encode("utf-8"))
-        if path in ("/natjecanje", "/prijedlozi", "/moji-tradeovi"):
+        if path in ("/natjecanje", "/prijedlozi", "/moji-tradeovi", "/copy-trading"):
             SHOW_ALL.set(qs.get("sve") == "1")
-            fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page, "/moji-tradeovi": real.page}[path]
+            from ui import copytrade
+            fn = {"/natjecanje": league.page, "/prijedlozi": league.ideas_page, "/moji-tradeovi": real.page,
+                  "/copy-trading": copytrade.page}[path]
             try:
                 html = page(*fn(qs, self.user), path)
             except Exception:
@@ -280,7 +282,9 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
             self.send_response(303)
-            handler = real.post if path.startswith("/moji-tradeovi/") else league.post
+            from ui import copytrade
+            handler = real.post if path.startswith("/moji-tradeovi/") else \
+                copytrade.post if path.startswith("/natjecanje/copy/") else league.post
             self.send_header("Location", handler(path, form, self.user))
             self.end_headers()
             return
