@@ -62,7 +62,7 @@ def ohlcv(pool, start, end):
     _GT.wait()
     d = http.get_json(f"{GECKO}/pools/{pool}/ohlcv/minute",
                       {"aggregate": CANDLE // 60, "before_timestamp": int(end) + CANDLE, "limit": limit, "currency": "usd"},
-                      ttl=600, headers={"Accept": "application/json"}, retries=4)
+                      ttl=600, headers={"Accept": "application/json"}, retries=1)
     rows = ((d or {}).get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
     return sorted((int(r[0]), *map(float, r[1:6])) for r in rows)
 
@@ -175,6 +175,8 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
             continue
         if time.monotonic() > stop_at:  # leave the rest for the next round, so scoring and the rest of the cycle run
             break
+        if fetch is ohlcv and http.cooling(GECKO) > 30:  # free limit used up (shared IP): snapshots cover it
+            break
         start = min(ts for _, ts in rows) - 2 * H - CANDLE
         end = min(now, max(ts for _, ts in rows) + 24 * H + CANDLE)
         try:
@@ -203,7 +205,7 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
                 for k in ("pre2h", "r1h", "r6h", "r24h", "max24", "vol_lift", "rug"):
                     o[k] = None
             con.execute("""UPDATE calls SET p0=?, mcap0=?, pre2h=?, r1h=?, r6h=?, r24h=?, max24=?, vol_before=?,
-                vol_after=?, vol_lift=?, rug=?, complete=?, measured_ts=?, bad=?, mver=? WHERE tweet_id=? AND token=?""",
+                vol_after=?, vol_lift=?, rug=?, complete=?, measured_ts=?, bad=?, mver=?, msrc='gecko' WHERE tweet_id=? AND token=?""",
                         (o["p0"], mcap0, o["pre2h"], o["r1h"], o["r6h"], o["r24h"],
                          o["max24"], o["vol_before"], o["vol_after"], o["vol_lift"], o["rug"], o["complete"], now,
                          bad, MVER, tid, t))

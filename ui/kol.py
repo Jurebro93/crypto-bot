@@ -445,7 +445,8 @@ def _influence(con, handle, cfg):
          "(Lajkovi + 2 × reposti) / pratitelji, medijan. Ispod 0,1% = slabo; 1%+ = jako vjerna publika."],
     ]
     return ("<h2>Koliko ga tržište sluša</h2>" + tdesc(
-        f"Iz {len(rows)} izmjerenih objava (prva objava po tokenu; cijena i volumen iz 5-min svijeća GeckoTerminala). "
+        f"Iz {len(rows)} izmjerenih objava (prva objava po tokenu; cijena i volumen iz 5-min svijeća GeckoTerminala "
+        "ili snimki DexScreenera svakih 20 min). "
         "Ne znamo tko je točno kupio, pa reakciju pratitelja mjerimo onim što se vidi na grafu: volumen i cijena u "
         "satu nakon objave naspram sata prije.")
             + table(["Mjera", ("Vrijednost", "n"), ("Što znači", "wrap")],
@@ -497,7 +498,9 @@ def kol_page(handle, qs):
                 f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
                      + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
         b.append(_influence(con, handle, cfg))
-        b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta.")
+        b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta. Cijena i volumen: iz "
+                 "5-min svijeća (GeckoTerminal) kad su dostupne, inače iz snimki DexScreenera svakih 20 min (tada je "
+                 "Max 24 h približan). Stupci 1 h / 6 h / 24 h se pune kad to vrijeme prođe.")
                  + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False))
         if con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone():
             b.append("<h2>Kupnje i prodaje s njegovog novčanika</h2>" + tdesc(

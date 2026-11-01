@@ -95,6 +95,31 @@ class Due(unittest.TestCase):
         self.assertEqual(measure.due(con, 1000, 1), ["OLD"])
 
 
+class Snapshots(unittest.TestCase):
+    def test_snapshot_outcome(self):
+        from kol import snap
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        t0 = 1793500000
+        con.execute("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES ('1', ?, 'a', ?, 'call')", (CA, t0))
+        price = {0: 0.001, 1: 0.002, 2: 0.003, 3: 0.0015}
+
+        def fetch(step):
+            return lambda toks: [{"baseToken": {"address": CA, "symbol": "SHARK"}, "priceUsd": str(price[step]),
+                                  "volume": {"h1": [100, 5000, 9000, 2000][step]}, "liquidity": {"usd": 20000},
+                                  "marketCap": price[step] * 1e9, "pairAddress": "P"}]
+        for step, at in enumerate((t0 + 120, t0 + 1800, t0 + H + 300, t0 + 6 * H)):
+            snap.take(con, now=at, fetch=fetch(step))
+        self.assertEqual(snap.measure(con, score_cfg(), now=t0 + 6 * H + 60), 1)
+        p0, mcap0, r1h, r6h, mx, lift, src = con.execute(
+            "SELECT p0, mcap0, r1h, r6h, max24, vol_lift, msrc FROM calls").fetchone()
+        self.assertEqual((p0, mcap0, src), (0.001, 1e6, "dex"))
+        self.assertAlmostEqual(r1h, 2.0)
+        self.assertAlmostEqual(r6h, 0.5)
+        self.assertAlmostEqual(mx, 2.0)
+        self.assertAlmostEqual(lift, 50.0)   # 9000 / max(100, 50) capped at 50
+        self.assertEqual(con.execute("SELECT symbol FROM tokens").fetchone()[0], "SHARK")
+
+
 class BotStats(unittest.TestCase):
     def test_bot_keeps_numbers_but_no_score(self):
         import json
