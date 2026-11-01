@@ -353,7 +353,7 @@ a.mapcard{display:grid;grid-template-columns:auto 1fr;align-content:start;column
  border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-decoration:none;color:var(--fg);transition:border-color .15s,box-shadow .15s,transform .15s}
 a.mapcard:hover{border-color:var(--acc);box-shadow:0 6px 18px rgba(16,24,40,.08);transform:translateY(-1px)}
 a.mapcard .mi{grid-row:span 2;font-size:24px;line-height:1.1}a.mapcard b{font-size:15px}a.mapcard .mut{font-size:13px;line-height:1.4}
-a.mapcard.hot{border-color:#f59f00;background:linear-gradient(135deg,color-mix(in srgb,#f59f00 10%,var(--card)),var(--card))}
+details.homemap{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:0 0 16px}details.homemap>summary{list-style:none;color:var(--fg)}details.homemap>summary::-webkit-details-marker{display:none}details.homemap>summary::after{content:' ▾';color:var(--mut)}.mapgrid.hm{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:10px}.mapgrid.hm a.mapcard{padding:9px 12px}@media(max-width:700px){.mapgrid.hm{grid-template-columns:1fr 1fr}.mapgrid.hm a.mapcard{grid-template-columns:1fr}.mapgrid.hm a.mapcard .mi{grid-row:auto;font-size:20px}.mapgrid.hm a.mapcard b{font-size:14px}.mapgrid.hm a.mapcard .mut{font-size:12px}}a.mapcard.hot{border-color:#f59f00;background:linear-gradient(135deg,color-mix(in srgb,#f59f00 10%,var(--card)),var(--card))}
 .quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:4px 0 18px}
 .quick a{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;
  text-decoration:none;color:var(--fg);font-weight:600;font-size:14px}.quick a:hover{border-color:var(--acc)}
@@ -468,15 +468,28 @@ def map_page(qs=None):
     return "Gdje je što", "".join(b)
 
 
-QUICK = [("/natjecanje", "🏆", "Natjecanje"), ("#istaknuti", "⭐", "Istaknuti tokeni"), ("/paper", "🤖", "Demo trading"),
-         ("/dugorocno", "🌱", "Dugoročni"), ("/kol", "📣", "KOL-ovi"), ("/whatsapp", "📲", "Za WhatsApp"),
-         ("/mapa", "🧭", "Gdje je što"), ("/pojmovnik", "📖", "Pojmovnik")]
+HOME_MAP = ["/natjecanje", "/copy-trading", "#istaknuti", "/dugorocno", "/kol", "/wallets", "/paper", "/events",
+            "/whatsapp", "/pojmovnik", "/mapa"]
+_EXTRA = {"#istaknuti": {"href": "#istaknuti", "icon": "⭐", "name": "Istaknuti tokeni",
+                         "desc": "Najbolji tokeni upravo sada, odmah ispod na ovoj stranici."},
+          "/mapa": {"href": "/mapa", "icon": "🧭", "name": "Sve stranice", "desc": "Popis svih stranica s kratkim opisom."}}
 
 
 def quick_links():
-    """Row of big shortcuts at the top of Pregled."""
-    return "<nav class=quick aria-label='Brzi pristup'>" + "".join(
-        f'<a href="{h}" class="{"hot" if h == "/natjecanje" else ""}"><span>{i}</span>{t}</a>' for h, i, t in QUICK) + "</nav>"
+    """"Gdje je što" at the top of Pregled: the most important places, one click each, with one line on what's
+    there. Collapsible; the browser remembers if the user closed it."""
+    pages = {p["href"]: p for _, items in SECTIONS for p in items}
+    cards = []
+    for h in HOME_MAP:
+        p = _EXTRA.get(h) if h in _EXTRA else pages.get(h)
+        if p:
+            cards.append(f'<a class="mapcard{" hot" if h == "/natjecanje" else ""}" href="{p["href"]}"><span class=mi>'
+                         f'{p["icon"]}</span><b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>')
+    return ("<details class=homemap id=homemap open><summary><b>🧭 Gdje je što</b> <span class=mut>· najvažnije "
+            "stranice jednim klikom; ⓘ uz svaki pojam objašnjava što znači</span></summary>"
+            f"<div class='mapgrid hm'>{''.join(cards)}</div></details>"
+            "<script>(()=>{const d=document.getElementById('homemap');try{if(localStorage.getItem('homemap')==='0')d.open=false}catch(e){}"
+            "d.addEventListener('toggle',()=>{try{localStorage.setItem('homemap',d.open?'1':'0')}catch(e){}})})();</script>")
 
 
 def tdesc(text):
