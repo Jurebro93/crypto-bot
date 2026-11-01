@@ -222,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/trazi":
             from ui import search
             return self._send(200, search.api(qs.get("q", "")).encode("utf-8"), "application/json")
+        if path == "/api/natjecanje":
+            return self._send(200, league.api().encode("utf-8"), "application/json")
         if path == "/api/paper":
             return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
         if path.startswith("/api/evidence/"):
