@@ -921,6 +921,20 @@ def _weekday(d, lang):
     return [sum(v) / len(v) if v else None for v in by]
 
 
+def _zbest(rated, best):
+    """Two-proportion z score: the best session's hit rate against all other sessions together."""
+    import math
+    a = rated[best]
+    n2 = sum(v["n"] for k, v in rated.items() if k != best)
+    h2 = sum(v["hits"] for k, v in rated.items() if k != best)
+    if not a["n"] or not n2:
+        return 0.0
+    p1, p2 = a["hits"] / a["n"], h2 / n2
+    p = (a["hits"] + h2) / (a["n"] + n2)
+    se = math.sqrt(p * (1 - p) * (1 / a["n"] + 1 / n2))
+    return (p1 - p2) / se if se else 0.0
+
+
 def besttime(lang):
     d = snapshot()
     if not d:
@@ -929,10 +943,14 @@ def besttime(lang):
     hrs = d["hours"]
     sn = SESSION_NAMES[lang]
     body = []
-    best_s = None
+    best_s, same = None, None
     if hrs and hrs["n"]:
         rated = {s: v for s, v in hrs["sess"].items() if v["rate"] is not None and v["n"] >= 30}
         best_s = max(rated, key=lambda s: rated[s]["rate"]) if rated else None
+        rr = [v["rate"] for v in rated.values()]
+        if best_s and len(rr) > 1 and _zbest(rated, best_s) < 2:
+            same = (min(rr), max(rr))      # not clearly better than the other sessions together: noise, not "best"
+            best_s = None
     vol = hrs["vol"] if hrs else None
     peak = None
     if vol:
@@ -943,14 +961,18 @@ def besttime(lang):
         lead = ("Crypto trades 24/7, but meme coins don't move the same way all day. We measured it: "
                 + (f"meme coin volume peaks between <b>{peak:02d}:00 and {(peak + 3) % 24:02d}:00 UTC</b>" if peak is not None else "")
                 + (f", and influencer calls posted during the <b>{sn[best_s]}</b> session worked best "
-                   f"({pct(hrs['sess'][best_s]['rate'], signed=False)} rose 50%+ within 24 h)." if best_s else ".")
+                   f"({pct(hrs['sess'][best_s]['rate'], signed=False)} rose 50%+ within 24 h)." if best_s else
+                   f", while influencer calls worked about the same in every session ({pct(same[0], signed=False)}–"
+                   f"{pct(same[1], signed=False)} rose 50%+ within 24 h)." if same else ".")
                 + " Pick your time zone below to see it in your own hours.")
         h1 = "Best time to trade crypto and meme coins"
     else:
         lead = ("Kripto se trguje 0-24, ali meme coini se ne miču jednako cijeli dan. Izmjerili smo: "
                 + (f"volumen meme coina najveći je između <b>{peak:02d}:00 i {(peak + 3) % 24:02d}:00 UTC</b>" if peak is not None else "")
                 + (f", a pozivi influencera objavljeni u sesiji <b>{sn[best_s]}</b> prošli su najbolje "
-                   f"({pct(hrs['sess'][best_s]['rate'], lang, signed=False)} ih je naraslo 50%+ u 24 h)." if best_s else ".")
+                   f"({pct(hrs['sess'][best_s]['rate'], lang, signed=False)} ih je naraslo 50%+ u 24 h)." if best_s else
+                   f", a pozivi influencera radili su otprilike jednako u svakoj sesiji ({pct(same[0], lang, signed=False)}–"
+                   f"{pct(same[1], lang, signed=False)} ih je naraslo 50%+ u 24 h)." if same else ".")
                 + " Odaberi svoju vremensku zonu ispod i vidi to u svojim satima.")
         h1 = "Najbolje vrijeme za trgovanje kriptom i meme coinima"
     body.append(_head("besttime", lang, h1, lead, d))
@@ -1041,6 +1063,8 @@ def besttime(lang):
               ("Which trading session is best for meme coins?",
                (f"Influencer calls posted in the {sn[best_s]} session did best: {pct(hrs['sess'][best_s]['rate'], signed=False)} "
                 f"rose 50%+ within 24 hours, against {pct(hrs['rate'], signed=False)} on average." if best_s else
+                f"None stands out: influencer calls did about the same in every session ({pct(same[0], signed=False)}–"
+                f"{pct(same[1], signed=False)} rose 50%+ within 24 hours), so the hour matters less than the token." if same else
                 "We need more measured calls to say.") + " Busy sessions also bring more competition from bots."),
               ("What are the crypto trading sessions?", "Asia 00:00-08:00 UTC, Europe 08:00-14:00 UTC and the United States "
                "14:00-24:00 UTC. They are named after where most traders are awake."),
@@ -1061,6 +1085,8 @@ def besttime(lang):
               ("Koja je sesija najbolja za meme coine?",
                (f"Pozivi influencera objavljeni u sesiji {sn[best_s]} prošli su najbolje: {pct(hrs['sess'][best_s]['rate'], lang, signed=False)} "
                 f"ih je naraslo 50%+ u 24 sata, prema prosjeku od {pct(hrs['rate'], lang, signed=False)}." if best_s else
+                f"Nijedna se ne ističe: pozivi influencera prošli su otprilike jednako u svakoj sesiji ({pct(same[0], lang, signed=False)}–"
+                f"{pct(same[1], lang, signed=False)} ih je naraslo 50%+ u 24 sata), pa je token važniji od sata." if same else
                 "Treba nam više izmjerenih poziva.") + " Žive sesije donose i više konkurencije botova."),
               ("Koje su sesije trgovanja kriptom?", "Azija 00:00-08:00 UTC, Europa 08:00-14:00 UTC i SAD 14:00-24:00 UTC "
                "(kod nas UTC+1 zimi, UTC+2 ljeti). Nazvane su po tome gdje je većina trejdera budna."),
