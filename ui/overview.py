@@ -329,6 +329,26 @@ def clusters(min_shared=3, max_wallets_per_token=80):
     return sorted(out, key=lambda c: (-len(c["wallets"]), -len(c["shared"]))), len(holds)
 
 
+def _clusters_with_holds(min_shared):
+    """(number of clusters, the 15 shown with every token each of their wallets touched, wallets with buys); kept
+    30 min by the page (both reads scan all wallet trades). Only what the page shows is kept, not every edge."""
+    cl, n_hold = clusters(min_shared)
+    n_cl = len(cl)
+    cl = [{"wallets": c["wallets"], "shared": c["shared"][:10], "n_shared": len(c["shared"])} for c in cl[:15]]
+    want = {w for c in cl for w in c["wallets"]}
+    holds = {}
+    for r in data.multi("wallets", "SELECT DISTINCT wallet, token FROM wallet_sightings"):
+        if r["wallet"] in want:
+            holds.setdefault(r["wallet"], set()).add(r["token"])
+    for r in data.multi("wallets", "SELECT DISTINCT wallet, mint FROM wallet_trades WHERE kind='buy'"):
+        if r["wallet"] in want:
+            holds.setdefault(r["wallet"], set()).add(r["mint"])
+    for c in cl:
+        top = {t for t, _ in c["shared"]}   # the grid only draws a cluster's 10 most shared tokens
+        c["holds"] = {w: holds.get(w, set()) & top for w in c["wallets"]}
+    return n_cl, cl, n_hold
+
+
 def funding_clusters():
     """Wallets funded by the same wallet (from the rug filter's funder tracing)."""
     by = {}
@@ -441,18 +461,11 @@ def page(qs):
 
     # 4. wallet clusters
     min_shared = max(2, int(qs.get("shared", 3) or 3))
-    cl, n_hold = clusters(min_shared)
+    n_cl, cl, n_hold = data.ttl_cache(f"clusters:{min_shared}", 1800, lambda: _clusters_with_holds(min_shared))
     reg = {w["wallet"]: w for w in data.wallets(scored_only=False)}
     syms = data.symbols()
-    holds = {}
-    for r in data.multi("wallets", "SELECT DISTINCT wallet, token FROM wallet_sightings"):
-        holds.setdefault(r["wallet"], set()).add(r["token"])
-    for r in data.multi("wallets", "SELECT DISTINCT wallet, mint FROM wallet_trades WHERE kind='buy'"):
-        holds.setdefault(r["wallet"], set()).add(r["mint"])
-    for c in cl:
-        c["holds"] = {w: holds.get(w, set()) for w in c["wallets"]}
     b.append("<details id=kl" + (" open" if "shared" in qs else "") + " style='margin-top:16px'><summary><b>Walleti koji kupuju iste tokene</b> "
-             f"<span class=mut>({len(cl)} klastera od {n_hold} walleta; klik otvara graf i tablicu)</span></summary>")
+             f"<span class=mut>({n_cl} klastera od {n_hold} walleta; klik otvara graf i tablicu)</span></summary>")
     b.append(f"<p class=mut>Od {n_hold} walleta s poznatim kupnjama (bez botova, devova, snajpera i bundlera), dva su "
              f"povezana ako dijele barem {min_shared} tokena (prag: <a href='?shared=2#kl'>2</a> · <a href='?shared=3#kl'>3</a> · "
              "<a href='?shared=4#kl'>4</a>); klaster = grupa tako povezanih walleta. Klaster može biti grupa koja "
@@ -468,7 +481,7 @@ def page(qs):
             best = max(c["wallets"], key=lambda w: (reg.get(w) or {}).get("copy_score") or -1)
             crow.append([num(i), num(len(c["wallets"])),
                          (", ".join(tlink(t, syms.get(t)) + f" <span class=mut>×{n}</span>" for t, n in c["shared"][:6]), "", "wrap"),
-                         num(len(c["shared"])), num(sum(scores) / len(scores) if scores else None, "{:.0f}"),
+                         num(c["n_shared"]), num(sum(scores) / len(scores) if scores else None, "{:.0f}"),
                          wlink(best) + " " + tierb((reg.get(best) or {}).get("tier")),
                          (" ".join(wlink(w) for w in c["wallets"][:8]) + (" …" if len(c["wallets"]) > 8 else ""), "", "wrap")])
         b.append(tdesc('Grupe walleta koje su kupile iste tokene (barem zadani broj zajedničkih). Velika grupa s istim tokenima često je jedna osoba, grupa insajdera ili walleti koji kopiraju istog trejdera.') + table(["#", ("Walleta", "n"), ("Zajednički tokeni (koliko walleta ga ima)", "wrap"), ("Zajedničkih", "n"),

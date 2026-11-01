@@ -61,8 +61,27 @@ def multi(group, sql, args=(), key=None):
     return out
 
 
+_TTL = {}   # name -> (ts, value): slow-changing results shared by page builds (small values only)
+
+
+def ttl_cache(name, seconds, fn):
+    """fn() at most once per `seconds` for this process (counts over whole tables, wallet clusters: they change
+    slowly, but each read scans hundreds of MB on the server's 0.5 CPU and network disk)."""
+    import pickle   # kept as one bytes block: small objects that outlive a page build would pin whole heap
+    hit = _TTL.get(name)  # arenas of that build and keep tens of MB from going back to the OS
+    if hit and time.time() - hit[0] < seconds:
+        return pickle.loads(hit[1])
+    val = fn()
+    _TTL[name] = (time.time(), pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    return val
+
+
 def tables():
-    """[(db, table, rows)] for the data-status box."""
+    """[(db, table, rows)] for the data-status box (counted at most every 30 min)."""
+    return ttl_cache("tables", 1800, _tables)
+
+
+def _tables():
     out = []
     for path in (CAL_DB, HYPE_DB, WALLET_DB, RUG_DB, PAPER_DB):
         for r in q(path, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
@@ -282,8 +301,10 @@ def symbols():
     m = {}
     for r in cal("SELECT token, symbol FROM event_tokens"):
         m.setdefault(r["token"], r["symbol"])
-    for r in hype_signals(limit=20000):
-        m.setdefault(r["token"], r["symbol"])
+    for path in GROUPS["hype"]:   # symbol of each token's newest signal among the newest 20000 (covering index)
+        for r in q(path, "SELECT token, symbol FROM (SELECT ts, token, symbol FROM hype_signals ORDER BY ts DESC "
+                         "LIMIT 20000) ORDER BY ts DESC"):
+            m.setdefault(r["token"], r["symbol"])
     for r in multi("rug", "SELECT mint, symbol FROM rug_reports"):
         m.setdefault(r["mint"], r["symbol"])
     for r in multi("paper", "SELECT token, symbol FROM candidates"):
