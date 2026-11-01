@@ -117,13 +117,14 @@ def invite_box(user):
                 "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅ Kopirano'\">"
                 f"📋 Kopiraj</button>{extra}</div>")
 
-    sing = "".join(row(s["token"], f"<span class=mut style='font-size:12px'>napravljen {ago(s['created'])}</span>"
+    sing = "".join(row(s["token"], f"<span class=mut style='font-size:12px'>napravljen {ago(s['created'])[0]}</span>"
                        f"<form method=post action=/natjecanje/pozivnica/ukini style='margin:0'>"
                        f"<input type=hidden name=k value=\"{esc(s['token'])}\"><button>Poništi</button></form>")
                    for s in singles)
-    who = ", ".join(f"{esc(j['name'])} ({ago(j['created'])})" for j in joined)
+    who = ", ".join(f"{esc(j['name'])} ({ago(j['created'])[0]})" for j in joined)
     return ("<details class=card id=pozovi><summary><b>👥 Pozovi prijatelja</b> "
-            "<span class=mut>pošalji mu link, sam si napravi račun</span></summary>"
+            "<span class=mut>pošalji mu link, sam si napravi račun</span>" + _pending_badge() + "</summary>"
+            + _requests_note() +
             "<p>Prijatelj otvori link, upiše ime i lozinku i odmah dobije svoj demo račun od "
             f"${store.START_USD:,.0f} na ljestvici. Ti ne moraš ništa namještati.</p>"
             "<p><b>Stalni link</b> (vrijedi za koliko god ljudi, dok ga ne zamijeniš):</p>" + row(tok)
@@ -140,6 +141,30 @@ def invite_box(user):
             + (f"<p class=mut>Registrirali su se: {who}</p>" if who else "")
             + js_fill + "<script>if(location.hash=='#pozovi')document.getElementById('pozovi').open=true</script>"
             "</details>")
+
+
+def _pending_badge():
+    try:
+        from ui import landing
+        n = landing.pending_count()
+    except Exception:  # noqa: BLE001
+        n = 0
+    return f" <span class='b warn'>📨 {n} čeka</span>" if n else ""
+
+
+def _requests_note():
+    """Pending 'Zatraži pristup' requests from the public page."""
+    try:
+        from ui import landing
+        n = landing.pending_count()
+    except Exception:  # noqa: BLE001
+        n = 0
+    if not n:
+        return ("<p class=mut style='font-size:13px'>Ljudi koje ne poznaješ mogu zatražiti pristup na "
+                "<a href=/dobrodosli target=_blank>naslovnoj stranici</a>; zahtjevi stižu na "
+                "<a href=/zahtjevi>Zahtjevi za pristup</a>.</p>")
+    return (f"<p class=card style='border-color:var(--warn)'>📨 <b>{n} {'novi zahtjev' if n == 1 else 'novih zahtjeva'} "
+            "za pristup</b> s naslovne stranice. <a href=/zahtjevi>Pogledaj i pošalji pozivnicu →</a></p>")
 
 
 def post_invite(path, form, user):

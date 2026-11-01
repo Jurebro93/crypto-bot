@@ -32,6 +32,10 @@ SECTIONS = [
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
            "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
         _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
+        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je na naslovnoj stranici zatražio pristup; pozivnica jednim klikom.",
+           "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
+        _p("/dobrodosli", "🚀", "Naslovna stranica", "Javna prodajna stranica koju vide ljudi bez računa.",
+           "landing naslovnica reklama marketing javna stranica home"),
     ]),
     ("Tokeni", [
         _p("/tokens", "🪙", "Svi tokeni", "Svaki token iz zadnjih 7 dana sa svim provjerama.", "lista coin"),
@@ -146,6 +150,9 @@ INTRO = {
     "/paper": ("Bi li bot zaradio da trguje", "Demo trgovanje bez novca: ulazi po pravilima, izlazi, rezultat, dnevni pregled "
                "s greškama i lekcijama, kalibracija confidencea.", "Bot iz ishoda demo trejdova uči; pravi trading "
                "samo preslikava ove ulaze."),
+    "/zahtjevi": ("Novi ljudi koji žele ući", "Zahtjevi s javne naslovne stranice: ime, kontakt, iskustvo i što ih "
+                  "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u Natjecanje: od zahtjeva do "
+                  "pozivnice i demo računa od $1.000."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
