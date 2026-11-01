@@ -5,6 +5,9 @@
     section you are reading is highlighted. A new page gets it automatically as soon as it has 3+ visible <h2>.
     A heading can set its own short chip name with data-sec="…"; data-sec="" (or class nosec) leaves it out.
     The chip text is the heading's own text (not the ⓘ, filters or note inside it), cut at " · " or "(".
+  * Long tables: a table with more than 25 body rows shows the first 25; "Vidi još 25" under it adds the next 25
+    ("Prikaži sve" shows the rest). Sorting, the row filter and live updates re-apply it; a filter shows all matches.
+    class nopage on the table (or a parent) turns it off.
   * Back to top: a round ↑ button bottom right, shown once you are more than about a screen down. On phones it
     sits above the bottom menu bar (dashboard) or the "Request access" bar (public site).
 
@@ -28,7 +31,13 @@ CSS = """
  font-size:22px;line-height:1;cursor:pointer;box-shadow:0 8px 22px -8px rgba(0,0,0,.45);opacity:0;transform:translateY(12px);
  transition:opacity .2s,transform .2s;pointer-events:none;display:flex;align-items:center;justify-content:center}
 .totop.show{opacity:1;transform:none;pointer-events:auto}.totop:hover{border-color:var(--acc,#4f46e5);color:var(--acc,#4f46e5)}
-@media print{.secnav,.totop{display:none}}
+tr.pgh{display:none!important}
+.pgbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 4px;font-size:13px;color:var(--mut,#667)}
+.pgbar[hidden]{display:none}
+.pgbar button{font:inherit;font-weight:600;padding:8px 16px;border-radius:999px;cursor:pointer;border:1px solid var(--acc,#4f46e5);
+ background:var(--card,var(--bg,#fff));color:var(--acc,#4f46e5)}
+.pgbar button.pgm{background:var(--acc,#4f46e5);color:#fff}.pgbar button:hover{filter:brightness(1.08)}
+@media print{.secnav,.totop,.pgbar{display:none}tr.pgh{display:table-row!important}}
 """
 
 JS = r"""
@@ -83,12 +92,41 @@ let raf=0;addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(()=>{
 let t=0;const later=()=>{clearTimeout(t);t=setTimeout(()=>{build();place();spy()},250)};
 addEventListener('resize',later);document.addEventListener('click',later);document.addEventListener('toggle',later,true);
 if(top)top.onclick=()=>scrollTo({top:0,behavior:'smooth'});
+/* long tables: show PG rows, then "Vidi još 25" adds the next PG; sorting/filters/live updates re-apply it */
+const PG=25,pgL=(()=>{const d=document.getElementById('pglab'),s=d?[...d.children].map(x=>x.textContent.trim()):[];
+  return {more:s[0]||'Vidi još',all:s[1]||'Prikaži sve',shown:s[2]||'prikazano',of:s[3]||'od'}})();
+function pg(t){
+  if(t.closest('.nopage'))return;const b=t.tBodies[0];if(!b)return;const rs=[...b.rows];
+  let st=t._pg;if(!st){if(rs.length<=PG)return;st=t._pg={n:PG};
+    const bar=st.bar=document.createElement('div');bar.className='pgbar';
+    bar.innerHTML='<button type=button class=pgm></button><button type=button class=pga></button><span class=pgc></span>';
+    bar.querySelector('.pgm').onclick=()=>{st.n+=PG;pg(t)};bar.querySelector('.pga').onclick=()=>{st.n=1e9;pg(t)};
+    const w=t.closest('.tw')||t;w.parentNode.insertBefore(bar,w.nextSibling)}
+  const f=t.id&&[...document.querySelectorAll('input[data-f="'+t.id+'"]')].some(i=>i.value.trim());
+  let k=0;for(const r of rs){if(r.style.display==='none'){r.classList.remove('pgh');continue}k++;r.classList.toggle('pgh',!f&&k>st.n)}
+  const shownN=f?k:Math.min(k,st.n);st.bar.hidden=f||k<=st.n;
+  st.bar.querySelector('.pgm').textContent=pgL.more+' '+Math.min(PG,k-shownN);
+  st.bar.querySelector('.pga').textContent=pgL.all+' ('+k+')';st.bar.querySelector('.pga').hidden=k-shownN<=PG;
+  st.bar.querySelector('.pgc').textContent=pgL.shown+' '+shownN+' '+pgL.of+' '+k}
+const pgAll=()=>{document.querySelectorAll('table').forEach(pg);
+  const h=location.hash&&document.getElementById(decodeURIComponent(location.hash.slice(1)));const r=h&&h.closest('tr.pgh');
+  if(r){const t=r.closest('table');if(t._pg){t._pg.n=1e9;pg(t)}}};
+let pq=0;const pgSoon=()=>{if(!pq){pq=1;requestAnimationFrame(()=>{pq=0;pgAll()})}};
+new MutationObserver(ms=>{if(ms.some(m=>m.target.closest&&!m.target.closest('.pgbar,.secnav')))pgSoon()}).observe(document.body,{childList:true,subtree:true});
+document.addEventListener('input',e=>{if(e.target.matches&&e.target.matches('input[data-f]'))setTimeout(pgAll,0)});
+pgAll();
 build();place();spy();addEventListener('load',later);
 })();
 """
 
 
-def markup(nav_label="Sekcije stranice", top_label="Povratak na vrh"):
-    """Empty chip bar (filled by JS) + the ↑ button. Put it at the top of <main>; the JS moves the bar into place."""
+PG_LABELS = {"hr": ("Vidi još", "Prikaži sve", "prikazano", "od"), "en": ("See more:", "Show all", "showing", "of")}
+
+
+def markup(nav_label="Sekcije stranice", top_label="Povratak na vrh", lang="hr"):
+    """Empty chip bar (filled by JS) + the ↑ button + the words of the table "Vidi još" bar (hidden; the dashboard's
+    i18n layer translates them, public English pages pass lang="en"). Put it at the top of <main>."""
+    pgl = "".join(f"<span>{w}</span>" for w in PG_LABELS.get(lang, PG_LABELS["hr"]))
     return (f'<nav class=secnav id=secnav aria-label="{nav_label}" hidden></nav>'
-            f'<button type=button class=totop id=totop aria-label="{top_label}" title="{top_label}" hidden>↑</button>')
+            f'<button type=button class=totop id=totop aria-label="{top_label}" title="{top_label}" hidden>↑</button>'
+            f'<div id=pglab hidden>{pgl}</div>')
