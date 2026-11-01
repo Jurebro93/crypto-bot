@@ -181,26 +181,30 @@ def influencers():
     return out
 
 
-def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld=""):
+def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image="/static/landing/kol.jpg",
+           og_type="website"):
+    """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr)."""
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
-    canon = base + (path_en if lang == "en" else path_hr)
-    switch = (f"<a class=lnk href={path_hr} hreflang=hr>HR</a>" if lang == "en" else
+    from ui import blog, blogviz
+    canon = base + (path_en if lang == "en" or not path_hr else path_hr)
+    switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
+    alt = (f'<link rel=alternate hreflang=en href="{base}{path_en}"><link rel=alternate hreflang=hr href="{base}{path_hr}">'
+           f'\n<link rel=alternate hreflang=x-default href="{base}{path_en}">') if path_hr else ""
     return f"""<!doctype html><html lang={lang}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{esc(title)}</title>
 <meta name=description content="{esc(desc)}"><link rel=canonical href="{canon}">
-<link rel=alternate hreflang=en href="{base}{path_en}"><link rel=alternate hreflang=hr href="{base}{path_hr}">
-<link rel=alternate hreflang=x-default href="{base}{path_en}">
-<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}">
+{alt}
+<meta property="og:type" content="{og_type}"><meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
-<meta property="og:image" content="{base}/static/landing/kol.jpg"><meta name="twitter:card" content="summary_large_image">
+<meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
-<a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a>{switch}
+<a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href=/blog>Blog</a>{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a></div></nav>
 <main class=w>{body}</main>
 <footer style='margin-top:64px'><div class=w>© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
@@ -305,7 +309,7 @@ def profile(handle, lang):
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
-            "Allow: /hr/influencer/\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/influencer/\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -322,6 +326,9 @@ def sitemap():
             out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>"
                        f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
                        f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
+    from ui import blog
+    for loc, pr in blog.urls():   # English only, no alternates
+        out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority></url>")
     out.append("</urlset>")
     return "\n".join(out)
 
@@ -333,6 +340,10 @@ def route(path):
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
+    elif path == "/blog" or path.startswith("/blog/"):
+        from ui import blog
+        slug = path[len("/blog/"):].strip("/") if path != "/blog" else ""
+        fn, ctype = ((lambda: blog.page(slug)) if slug else blog.index), "text/html"
     else:
         m = re.fullmatch(r"(/hr)?/influencer/([^/]+)", path)
         if not m:
