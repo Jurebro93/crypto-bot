@@ -117,6 +117,32 @@ def _link_terms(body, lang="en"):
     return re.sub(r"<b>([^<]{2,40})</b>", sub, body)
 
 
+# Matching "best tools" comparison pages (ui/tools.py), EN slug -> HR slug.
+TOOLS = {"wallet-trackers": "pracenje-novcanika", "crypto-analysis-tools": "alati-za-analizu",
+         "trading-bots": "trading-botovi", "rug-checkers": "provjera-ruga",
+         "copy-trading-platforms": "copy-trading-platforme"}
+TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trading": ("copy-trading-platforms",),
+             "what-is-a-kol-in-crypto": ("crypto-analysis-tools",), "influencer-clustering": ("crypto-analysis-tools",),
+             "how-to-spot-a-rug-pull": ("rug-checkers",), "what-is-pump-fun": ("trading-bots", "rug-checkers"),
+             "bundles-and-snipers": ("rug-checkers", "trading-bots"), "how-to-trade-meme-coins": ("trading-bots",),
+             "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",)}
+TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
+                    "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
+                    "copy-trading-platforms": "Best copy trading platforms"},
+             "hr": {"wallet-trackers": "Najbolji alati za praćenje novčanika", "crypto-analysis-tools": "Najbolji alati za analizu",
+                    "trading-bots": "Najbolji Solana trading botovi", "rug-checkers": "Najbolji alati za provjeru ruga",
+                    "copy-trading-platforms": "Najbolje copy trading platforme"}}
+
+
+def _tools(en_slug, lang="en"):
+    ts = TOOLS_FOR.get(en_slug, ())
+    if not ts:
+        return ""
+    base = "/best-crypto-tools/" if lang == "en" else "/hr/najbolji-kripto-alati/"
+    links = " · ".join(f"<a href={base}{t if lang == 'en' else TOOLS[t]}>{TOOL_NAME[lang][t]}</a>" for t in ts)
+    return f"<p class=note>{'Compare tools' if lang == 'en' else 'Usporedi alate'}: {links}</p>"
+
+
 def _chips(en_slug, lang="en"):
     t = L[lang]
     links = [(h, _gl_name(g, lang)) for g in TERMS.get(en_slug, ()) for h in [_gl_href(g, lang)] if h]
@@ -224,7 +250,7 @@ def page(slug, lang="en"):
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
             f"{esc(p['tag'])}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
             f"{t['read']} · {t['by']}</div><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
-            f"{_link_terms(p['body'], lang)}<div class=lock><p>{t['lock']}</p>"
+            f"{_link_terms(p['body'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
             f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
     en = f"/blog/{p['en']}"

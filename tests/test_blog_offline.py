@@ -78,6 +78,16 @@ class Blog(unittest.TestCase):
         self.assertIn('hreflang=hr href="https://example.com/hr/blog/sto-je-pump-fun"', en_page)
         self.assertIn("/hr/blog/sto-je-pump-fun", public.route("/sitemap.xml")[1].decode())
 
+    def test_tools_links_resolve(self):
+        for lang, base in (("en", "/blog/"), ("hr", "/hr/blog/")):
+            for p in POSTS:
+                v = blog.view(p, lang)
+                html = public.route(base + v["slug"])[1].decode()
+                links = re.findall(r"href=(/best-crypto-tools/[a-z-]+|/hr/najbolji-kripto-alati/[a-z-]+)", html)
+                self.assertTrue(links, v["slug"])
+                for h in set(links):
+                    self.assertEqual(public.route(h)[0], 200, h)
+
     def test_404(self):
         self.assertEqual(public.route("/blog/nope")[0], 404)
 
