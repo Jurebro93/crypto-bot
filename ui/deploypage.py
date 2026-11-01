@@ -135,11 +135,15 @@ if(news.length){var k=0,show=function(){var n=news[k%news.length],v=en?n.en:n.hr
 // countdown ring + a quiet check every 3 s: back as soon as the real site answers
 var left=30,C=2*Math.PI*14,ring=$('ring');ring.style.strokeDasharray=C;
 function paint(){ring.style.strokeDashoffset=C*(1-left/30);$('cl').textContent=left>0?T.cnt.replace('{s}',left):T.soon}
-function check(){fetch(location.href,{cache:'no-store',credentials:'same-origin',redirect:'manual'}).then(function(r){
+// opened at /cekamo-deploy itself (a link, a preview): that address always answers 200 with this same page, so
+// check and go to the home page instead, or the page would reload itself forever
+var target=location.pathname==='/cekamo-deploy'?'/':location.href;
+function go(){if(target===location.href)location.reload();else location.href=target}
+function check(){fetch(target,{cache:'no-store',credentials:'same-origin',redirect:'manual'}).then(function(r){
   var dep=r.headers.get('X-MemeSonar-Deploy');
-  if(!dep&&[502,503,504].indexOf(r.status)<0){$('cl').textContent=T.back;location.reload()}}).catch(function(){})}
+  if(!dep&&[502,503,504].indexOf(r.status)<0){$('cl').textContent=T.back;go()}}).catch(function(){})}
 paint();setInterval(function(){if(left>0)left--;paint();if(left%3===0)check()},1000);
-$('again').onclick=function(){location.reload()};
+$('again').onclick=go;
 // pump it while you wait: every tap a green candle, now and then the market answers with a red one
 var g=$('g'),h=40,ath=0,taps=0;try{ath=+localStorage.getItem('ms_deploy_ath')||0}catch(e){}
 function candle(up){var s=document.createElement('span');var d=up?(8+Math.random()*14):-(6+Math.random()*12);h=Math.max(8,Math.min(78,h+d));

@@ -43,6 +43,19 @@ def rows(con, cfg=None, now=None):
     return out, thr
 
 
+def shadow_rows(cfg=None, now=None, path=None):
+    """Labelled shadow-book points (learn/shadow.py) in the shape fit.run expects: features as they were at the
+    decision point, hit = the trade the bot could actually have taken (paper/sim replay with the class's exit rules)
+    made at least shadow.hit_ret after costs. This is the target since 2.11.; the max price in 24 h after the first
+    signal (rows()) is kept for the Učenje correlations and as a fallback while a class has too few points."""
+    from learn import shadow
+    cfg = cfg or config()
+    now = now or time.time()
+    since = now - cfg["skok_window_d"] * 86400
+    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"]} for r in shadow.rows(path, since=since)
+            if r["features"]]
+
+
 def event_rows(con, point="B100000", cfg=None, now=None):
     """Outcomes judged from a decision point (tier_events: first time at/above $100k or $1M) instead of the first
     signal: features as they were then, max/2nd-max return over the horizon. The study's best entry was $100k."""
