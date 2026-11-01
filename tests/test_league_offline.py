@@ -97,6 +97,15 @@ class PartialSell(unittest.TestCase):
         league.post("/natjecanje/buy", {"token": MINT, "size": "50", "symbol": "SOL"}, "Jure")
         body = league.page({}, "Jure")[1]
         self.assertIn("pos-all", body)
+        self.assertIn("posView", body)                                   # list / tiles choice remembered
+        con = store.connect()
+        t = store.trades(con, "Jure", "open")[0]
+        con.close()
+        self.assertIn("ok=", league.post("/natjecanje/add", {"id": str(t["id"]), "size": "25"}, "Jure"))
+        con = store.connect()
+        self.assertAlmostEqual(store.trades(con, "Jure", "open")[0]["size_usd"], 75)
+        con.close()
+        self.assertIn("err=", league.post("/natjecanje/add", {"id": str(t["id"]), "size": "99999"}, "Jure"))
         self.assertIn("confirm(", body)
         order = [body.index(k) for k in ("id=pozicije", "id=autosell", "id=dca", "id=moj", "id=zatvoreni", "id=kupi")]
         self.assertEqual(order, sorted(order))

@@ -331,35 +331,66 @@ def _dca_box(con, user, qs, live, mine):
     return "".join(b)
 
 
-POS_CSS = (".pos-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:10px;"
-           "margin:6px 0 12px}.pos-c{box-sizing:border-box;max-width:100%;min-width:0;padding:12px 14px;margin:0;"
-           "overflow-wrap:anywhere}.pos-c *{box-sizing:border-box}"
-           ".pos-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}"
-           ".pos-n{font-size:17px;font-weight:700;min-width:0}.pos-p{font-size:20px;font-weight:700;text-align:right;"
-           "white-space:nowrap}.pos-p small{font-size:13px;font-weight:600}"
-           ".pos-m{color:var(--mut);font-size:13px;margin:4px 0 8px;line-height:1.45}"
-           ".pos-s{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.pos-s form{margin:0}"
-           ".pos-s button,.pos-a button{width:100%;min-height:44px;font-size:16px;font-weight:700;border-radius:10px}"
+POS_CSS = (".pos-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 8px}"
+           ".pos-bar button{padding:6px 12px;border-radius:999px;font-size:14px}.pos-bar button.on{background:var(--acc,#2563eb);"
+           "color:#fff;border-color:var(--acc,#2563eb)}"
+           ".pos-list{display:grid;grid-template-columns:1fr;gap:6px;margin:6px 0 12px}"
+           ".pos-list.tiles{grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:8px}"
+           ".pos-c{box-sizing:border-box;max-width:100%;min-width:0;padding:8px 12px;margin:0;overflow-wrap:anywhere}"
+           ".pos-c *{box-sizing:border-box}.pos-c>summary{list-style:none;cursor:pointer;display:flex;align-items:center;"
+           "gap:8px}.pos-c>summary::-webkit-details-marker{display:none}"
+           ".pos-n{font-size:15px;font-weight:700;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;"
+           "white-space:nowrap}.pos-p{font-size:15px;font-weight:700;text-align:right;white-space:nowrap}"
+           ".pos-p small{font-size:12px;font-weight:600}.pos-v{font-size:12px;color:var(--mut);white-space:nowrap}"
+           ".pos-x{font-size:12px;color:var(--mut);transition:transform .15s}.pos-c[open] .pos-x{transform:rotate(180deg)}"
+           ".pos-m{color:var(--mut);font-size:12.5px;margin:6px 0;line-height:1.45}"
+           ".pos-s{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.pos-s form,.pos-d form{margin:0}"
+           ".pos-s button,.pos-a button,.pos-d button{width:100%;min-height:38px;font-size:14px;font-weight:700;"
+           "border-radius:8px}"
            ".pos-all{background:var(--bad,#dc2626)!important;color:#fff!important;border-color:var(--bad,#dc2626)!important}"
            ".pos-a{display:flex;gap:6px;margin-top:6px}.pos-a input{flex:1 1 auto;min-width:0;width:100%;font-size:16px;"
-           "padding:10px;border-radius:10px}.pos-a button{flex:0 0 auto;width:auto;padding:0 14px}"
-           ".pos-l{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:14px}"
-           ".pos-w{font-size:12.5px;margin:4px 0;line-height:1.4}")
+           "padding:7px 10px;border-radius:8px}.pos-a button{flex:0 0 auto;width:auto;padding:0 14px}"
+           ".pos-k{font-size:12px;color:var(--mut);margin:8px 0 3px}"
+           ".pos-d{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}"
+           ".pos-l{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:13px}"
+           ".pos-w{font-size:12px;margin:4px 0;line-height:1.4}")
+
+POS_JS = ("<script>(function(){var L=document.getElementById('poslist');if(!L)return;"
+          "function set(v,save){L.classList.toggle('tiles',v=='tiles');"
+          "L.querySelectorAll('details').forEach(function(d){d.open=v=='tiles'});"
+          "document.querySelectorAll('[data-posv]').forEach(function(b){b.classList.toggle('on',b.dataset.posv==v)});"
+          "if(save){try{localStorage.setItem('posView',v)}catch(e){}}}"
+          "var v='list';try{v=localStorage.getItem('posView')||'list'}catch(e){}set(v);"
+          "document.querySelectorAll('[data-posv]').forEach(function(b){b.onclick=function(){set(b.dataset.posv,1)}})})();"
+          "function posDca(m){var f=document.getElementById('dcaf');if(!f)return true;f.token.value=m;"
+          "f.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(function(){f.amount.focus()},400);"
+          "f.style.outline='3px solid var(--good,#16a34a)';return false}</script>")
+
+
+def _sym(t):
+    return esc((t["symbol"] or t["token"][:6]).replace("'", "").replace('"', ""))
 
 
 def _sell_btn(t, frac, label, worth, cls=""):
-    sym = esc((t["symbol"] or t["token"][:6]).replace("'", ""))
     what = "CIJELU poziciju" if frac == 1 else f"{frac:.0%} pozicije"
     approx = f" (oko ${worth * frac:,.2f})" if worth else ""
-    return (f'<form method=post action="/natjecanje/sell" onsubmit="return confirm(\'Prodati {what} {sym}{approx} '
+    return (f'<form method=post action="/natjecanje/sell" onsubmit="return confirm(\'Prodati {what} {_sym(t)}{approx} '
             f'po trenutnoj cijeni?\')"><input type=hidden name=id value={t["id"]}><input type=hidden name=frac '
             f'value={frac}><button{cls}>{label}</button></form>')
 
 
+def _add_btn(t, size):
+    return (f'<form method=post action="/natjecanje/add" onsubmit="return confirm(\'Dokupiti još ${size} {_sym(t)} '
+            f'po trenutnoj cijeni? Ulazna cijena pozicije postaje prosjek svih kupnji.\')">'
+            f'<input type=hidden name=id value={t["id"]}><input type=hidden name=size value={size}>'
+            f'<button>+ ${size}</button></form>')
+
+
 def _positions(mine, live, bot_dca):
-    """Open positions as phone-sized cards with selling right on them (Nicholas 1.11. 20:46: the table ran off the
-    screen, the sell button was hidden and one tap sold everything). 25% / 50% / Sve or a dollar amount, each asks
-    first; DCA and TP/SL one tap away. Returns (html, unrealized PnL)."""
+    """Open positions on top of Natjecanje (Nicholas 1.11.). Default a compact list (one line per position: name,
+    value, PnL; tap to open the actions), or tiles; the choice is remembered. Actions: sell 25% / 50% / Sve or a
+    dollar amount, buy more now (+$10/25/50 into the same position) and automatic DCA, TP/SL. Every trade asks
+    first. Returns (html, unrealized PnL)."""
     if not mine:
         return ('<p class="card mut">Nemaš otvorenih pozicija. Kupi token u okviru „🛒 Kupi token odmah” niže '
                 'ili iz Predloženih tokena.</p>', 0.0)
@@ -385,29 +416,38 @@ def _positions(mine, live, bot_dca):
         pct = f' <small class={"pos" if (move or 0) > 0 else "neg" if (move or 0) < 0 else ""}>{move:+.0%}</small>' \
             if move is not None else ""
         meta = (f'Ulog {usd(t["size_usd"])[0]}' + (f' · vrijedi oko <b>${worth:,.2f}</b>' if worth is not None else "")
-                + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · {ago(t["opened_ts"])[0]}'
+                + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · kupljeno {ago(t["opened_ts"])[0]}'
                 + (f' · likvidnost {usd(liq)[0]}' if liq else ""))
         if price:
-            sell = ('<div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth) + _sell_btn(t, 0.5, "50%", worth)
-                    + _sell_btn(t, 1, "Sve", worth, " class=pos-all") + '</div>'
-                    f'<form method=post action="/natjecanje/sell" class=pos-a onsubmit="var v=this.usd.value;'
-                    f'return v&&confirm(\'Prodati za $\'+v+\' od {esc((t["symbol"] or "").replace(chr(39), ""))}?\')">'
-                    f'<input type=hidden name=id value={t["id"]}><input name=usd type=number inputmode=decimal min=1 '
-                    f'step=any placeholder="ili upiši iznos u $" aria-label="iznos u $"><button>Prodaj</button></form>')
+            act = ('<div class=pos-k>Prodaj</div><div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth)
+                   + _sell_btn(t, 0.5, "50%", worth) + _sell_btn(t, 1, "Sve", worth, " class=pos-all") + '</div>'
+                   f'<form method=post action="/natjecanje/sell" class=pos-a onsubmit="var v=this.usd.value;'
+                   f'return v&&confirm(\'Prodati za $\'+v+\' od {_sym(t)}?\')">'
+                   f'<input type=hidden name=id value={t["id"]}><input name=usd type=number inputmode=decimal min=1 '
+                   f'step=any placeholder="ili iznos u $" aria-label="iznos u $"><button>Prodaj</button></form>'
+                   '<div class=pos-k>Dokupi odmah u istu poziciju (ulazna cijena postaje prosjek)</div><div class=pos-d>'
+                   + "".join(_add_btn(t, s) for s in (10, 25, 50)) + '</div>')
         else:
-            sell = ('<div class=pos-w mut>DexScreener trenutno ne daje cijenu.</div>'
-                    + _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)"))
+            act = ('<div class="pos-w mut">DexScreener trenutno ne daje cijenu.</div>'
+                   + _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)"))
         auto_js = (f"var s=document.getElementById('autoid'),a=document.getElementById('autoall');"
                    f"if(s){{s.value='{t['id']}'}}if(a&&a.checked){{a.click()}}")
-        links = (f'<div class=pos-l><a href="/natjecanje?dca={quote(t["token"])}#dca">🔄 DCA (dokupi)</a>'
+        links = (f'<div class=pos-l><a href="/natjecanje?dca={quote(t["token"])}#dca" '
+                 f'onclick="return posDca(\'{esc(t["token"])}\')" title="isti iznos svakih nekoliko sati ili dana, '
+                 f'sam od sebe">🔄 Automatski DCA (kupuj redovito)</a>'
                  f'<a href="#autosell" onclick="{auto_js}">🎯 TP/SL auto sell</a></div>')
-        cards.append(f'<div class="card pos-c"><div class=pos-h><div class=pos-n>{tlink(t["token"], t["symbol"])}</div>'
-                     f'<div class=pos-p>{leaguedash.live_pnl(t["id"], pnl)} ${pct}</div></div>'
-                     f'<div class=pos-m>{meta}</div>{_auto_cell(t)}{warn}{sell}{links}</div>')
-    note = ('<p class=tdesc>Gumbi prodaju dio ili cijelu poziciju po živoj cijeni (1% naknade + klizanje). '
-            'Prije prodaje uvijek pitaju za potvrdu. Prodani dio odmah vraća novac na račun i vidi se u '
-            '„Moje kupnje i prodaje”, a ostatak pozicije ostaje otvoren s istim ulazom i auto sell pravilom.</p>')
-    return f'<style>{POS_CSS}</style>{note}<div class=pos-list>{"".join(cards)}</div>', unreal
+        sym = ("💀 " if col else "") + esc(t["symbol"] or t["token"][:6])
+        cards.append(f'<details class="card pos-c"><summary><span class=pos-n>{sym}</span>'
+                     + (f'<span class=pos-v>${worth:,.0f}</span>' if worth is not None else "")
+                     + f'<span class=pos-p>{leaguedash.live_pnl(t["id"], pnl)} ${pct}</span>'
+                     '<span class=pos-x>▾</span></summary>'
+                     f'<div style="margin-top:6px">{tlink(t["token"], t["symbol"])}</div>'
+                     f'<div class=pos-m>{meta}</div>{_auto_cell(t)}{warn}{act}{links}</details>')
+    bar = ('<div class=pos-bar><span class=mut style="font-size:13px">Prikaz:</span>'
+           '<button type=button data-posv=list>☰ Lista</button><button type=button data-posv=tiles>▦ Kartice</button>'
+           '<span class=mut style="font-size:12px">Dodirni poziciju za prodaju, dokup i TP/SL. Svaka kupnja i prodaja '
+           'prvo pita za potvrdu.</span></div>')
+    return f'<style>{POS_CSS}</style>{bar}<div class=pos-list id=poslist>{"".join(cards)}</div>{POS_JS}', unreal
 
 
 def _auto_cell(t):
@@ -528,6 +568,27 @@ def _post(path, form, user):
                        f"Prodano {frac:.0%} pozicije {sym}: {pnl:+.2f} $. Ostatak je i dalje otvoren.")
                 return f"{back}?ok={quote(msg)}#pozicije"
             msg = f"Otpisano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
+            return f"{back}?ok={quote(msg)}#pozicije"
+        if path == "/natjecanje/add":   # "Dokupi +$N" on a position card
+            from league import dca
+            tid = int(form.get("id") or 0)
+            t = next((t for t in store.trades(con, user, "open") if t["id"] == tid), None)
+            if not t:
+                raise ValueError("nema te otvorene pozicije")
+            size = float(form.get("size") or 0)
+            cash = store.account(con, user)["cash"]
+            if size <= 0 or size > cash + 1e-9:
+                raise ValueError(f"za dokup treba ${size:,.0f}, a slobodno je ${cash:,.2f}")
+            live = market({t["token"]})
+            if t["token"] not in live:
+                raise ValueError("DexScreener trenutno ne daje cijenu, probaj ponovo")
+            price, liq, _, mcap = live[t["token"]]
+            if collapse.check(collapse.peaks(data.HYPE_DB, [t["token"]]).get(t["token"]), mcap, liq):
+                raise ValueError("token je rugan, dokup je zaključan")
+            if not liq or liq < 1000:
+                raise ValueError("likvidnost premala (< $1k)")
+            dca.add_to(con, tid, size, price, liq)
+            msg = f"Dokupljeno {t['symbol'] or t['token'][:6]} za ${size:,.0f}; ulazna cijena je sad prosjek svih kupnji."
             return f"{back}?ok={quote(msg)}#pozicije"
         if path == "/natjecanje/dca/start":
             from league import dca
