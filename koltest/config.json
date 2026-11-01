@@ -1,0 +1,63 @@
+{
+ "_comment": "KOL test knjiga (koltest/): 7 dana odvojenih demo ulaza na svaki svjež KOL poziv (X, Telegram, kupnja KOL novčanika). Ne miješa se s glavnim demo tradingom ni s učenjem. days: trajanje testa od prvog pokretanja. size_usd: ulog po ulazu. max_delay_min: poziv stariji od ovoga kad ga vidimo ne ulazi (mjerili bismo tuđi pump). per_hour: najviše ulaza po izvoru na sat (KOL novčanici kupuju stotine tokena dnevno). per_caller_day: najviše ulaza po jednom KOL-u/kanalu/novčaniku na dan. track_h: koliko dugo mjerimo pomak nakon ulaza. ladder: prodaja po dijelovima na rastu cijene (udio pozicije). stop: prodaj ostatak na ovom padu. fee: trošak po strani (Jupiter, prioritet). levels: razine rasta koje mjerimo. min_liq: ispod ove likvidnosti $50 se ne može realno izaći, ne ulazimo. max_mcap: veći tokeni (WBTC, JUP, stabilni) nisu KOL memecoin pozivi, ne ulaze.",
+ "enabled": true,
+ "days": 7,
+ "size_usd": 50,
+ "max_delay_min": 10,
+ "lookback_min": 120,
+ "price_wait_min": 10,
+ "per_hour": {
+  "x": 20,
+  "tg": 12,
+  "chain": 10
+ },
+ "per_caller_day": 8,
+ "track_h": 24,
+ "fast_h": 2,
+ "slow_every_min": 5,
+ "ladder": [
+  [
+   0.2,
+   0.25
+  ],
+  [
+   0.3,
+   0.25
+  ],
+  [
+   0.4,
+   0.25
+  ],
+  [
+   0.5,
+   0.25
+  ]
+ ],
+ "stop": -0.35,
+ "fee": 0.01,
+ "levels": [
+  0.2,
+  0.3,
+  0.4,
+  0.5,
+  1.0,
+  2.0
+ ],
+ "grid_tp": [
+  0.2,
+  0.3,
+  0.4,
+  0.5,
+  1.0
+ ],
+ "grid_sl": [
+  null,
+  -0.2,
+  -0.35
+ ],
+ "min_liq": 1000,
+ "rug_liq": 500,
+ "missing_h": 6,
+ "keep_skips_days": 10,
+ "max_mcap": 50000000
+}

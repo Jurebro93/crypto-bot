@@ -24,8 +24,9 @@ def cmd_snap(a):
         print(f"  {k} račun: {v}", file=sys.stderr)
     alerts = watch.evaluate(con)
     watch.remember(con, alerts)
+    fresh = watch.to_log(con, alerts)
     con.close()
-    return alerts
+    return fresh
 
 
 def cmd_report(a):
@@ -46,10 +47,10 @@ def cmd_report(a):
 
 
 def cmd_tick(a):
-    """One reading with its warnings in the log (what one round of the loop does; run_sched.py calls this)."""
+    """One reading; new or worse warnings go to the log, an ongoing one once a day (run_sched.py calls this)."""
     try:
         for al in cmd_snap(a):
-            print(f"potrošnja [{al['level']}] {al['title']}")
+            print(f"potrošnja [{al['level']}] {al['title']} | {al['detail']}")
     except Exception as e:
         print(f"usage snap: {type(e).__name__}: {e}", file=sys.stderr)
 

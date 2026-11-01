@@ -17,7 +17,9 @@ NAMES = {
     "slicnost_uzoru": "ponaša se kao Fartcoin/Useless", "volatilnost": "mirnija cijena",
     "od_dna_30d": "odbio se od dna", "volumen_trend": "volumen se vraća", "povrat_7d": "raste zadnji tjedan",
     "kol_7d": "novi KOL pozivi ovaj tjedan", "tg_7d": "novi Telegram spomeni", "pregrijan": "već previše narastao",
-    "holderi_30d": "broj holdera raste",
+    "holderi_30d": "broj holdera stalno raste", "sirenje_vlasnistva": "vlasništvo se širi izvan najvećih walleta",
+    "veliki_kupuju": "kupuju ga veliki holderi drugih dugoročnih tokena", "burze_velike": "izlistan na velikim burzama",
+    "nova_burza": "nova burza u zadnjem tjednu", "rast_udjela_burzi": "burze primaju sve veći dio supplyja",
 }
 # features that describe "behaviour like the reference tokens"
 PROFILE = ["pad_od_vrha", "udio_oporavaka", "oporavaka", "korelacija_btc", "beta_btc", "rast_s_btc", "volatilnost",

@@ -34,6 +34,8 @@ def run_once(force_ai=False, no_ai=False, now=None):
     last_ts, last_hash = store.last_ai(con)
     interp = None
     want = force_ai or (last_hash != dg and now - last_ts >= c["ai_every_h"] * 3600)
+    if not no_ai and want and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("korelacije: ANTHROPIC_API_KEY nije u okruženju servisa; tumačenje iz pravila", file=sys.stderr)
     if not no_ai and want and (snap["clusters"] or snap["groups"] or snap["links"]):
         interp, model, cost = ai.interpret(snap)
         if model.startswith("pravila"):

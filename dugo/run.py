@@ -4,7 +4,7 @@ import os
 import sys
 import time
 
-from dugo import features, learn, score as sc, sources, store
+from dugo import features, holders, learn, score as sc, sources, store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = 86400
@@ -29,6 +29,8 @@ def collect(con, cfg, now=None, candle_budget=None):
     try:
         for m in sources.gecko_top(cfg["gecko_top_pages"], cfg["gecko_gap_s"]):
             uni.setdefault(m, "gecko")
+    except sources.GeckoBusy:
+        _log("gecko top: besplatni GeckoTerminal trenutno zauzet, popis najprometnijih u sljedećem prolazu")
     except Exception as e:
         _log(f"gecko top: {e}")
     known = {r[0] for r in con.execute("SELECT mint FROM tokens")}
@@ -55,11 +57,12 @@ def collect(con, cfg, now=None, candle_budget=None):
     for mint, pair, cts in todo[:candle_budget or cfg["candles_per_run"]]:
         try:
             rows = sources.candles(pair, cfg["gecko_gap_s"], limit=40 if cts else 400)
+        except sources.GeckoBusy:   # free limit used up (shared with the KOL module): not an error, next pass
+            _log(f"svijeće: besplatni GeckoTerminal trenutno zauzet, {len(todo[:candle_budget or cfg['candles_per_run']]) - n} "
+                 "tokena čeka sljedeći prolaz")
+            break
         except Exception as e:
             _log(f"svijeće {mint[:6]}: {e}")
-            if "429" in str(e):     # free limit used up (shared with the KOL module): try again next pass
-                _log("GeckoTerminal ograničenje: ostatak svijeća u sljedećem prolazu")
-                break
             continue
         store.put_candles(con, mint, rows)
         con.execute("UPDATE tokens SET candles_ts=? WHERE mint=?", (now, mint))
@@ -77,6 +80,8 @@ def collect(con, cfg, now=None, candle_budget=None):
             if p:
                 rows = sources.candles(p["pairAddress"], cfg["gecko_gap_s"], limit=40 if last_sol else 400)
                 con.executemany("INSERT OR REPLACE INTO ref VALUES ('SOL',?,?)", [(r[0], r[4]) for r in rows])
+        except sources.GeckoBusy:
+            _log("SOL: besplatni GeckoTerminal trenutno zauzet, sljedeći prolaz")
         except Exception as e:
             _log(f"SOL: {e}")
     try:
@@ -99,11 +104,34 @@ def not_a_pick(sym, f):
     return s in NOT_PICKS or "USD" in s or (f.get("volatilnost") is not None and f["volatilnost"] < 0.015)
 
 
+def _growth(con, table, col, mint, ratio=True):
+    """Change of `col` scaled to 30 days, newest reading vs the oldest one 7-60 days before it (None without two)."""
+    r = con.execute(f"SELECT day, {col} FROM {table} WHERE mint=? AND {col} IS NOT NULL ORDER BY day DESC LIMIT 1",
+                    (mint,)).fetchone()
+    if not r:
+        return None
+    o = con.execute(f"""SELECT day, {col} FROM {table} WHERE mint=? AND {col} IS NOT NULL AND day <= ? AND day >= ?
+        ORDER BY day LIMIT 1""", (mint, r[0] - 7 * D, r[0] - 60 * D)).fetchone()
+    if not o or (ratio and not o[1]):
+        return None
+    ch = r[1] / o[1] - 1 if ratio else r[1] - o[1]
+    return ch * 30 / ((r[0] - o[0]) / D)
+
+
 def _holders_growth(con, mint, now):
-    r = con.execute("SELECT n FROM holders WHERE mint=? ORDER BY day DESC LIMIT 1", (mint,)).fetchone()
-    o = con.execute("SELECT n FROM holders WHERE mint=? AND day <= ? ORDER BY day DESC LIMIT 1",
-                    (mint, now - 30 * D)).fetchone()
-    return r[0] / o[0] - 1 if r and o and o[0] else None
+    """Organic growth of holders per 30 days: GeckoTerminal count (free), else Birdeye (paid key)."""
+    g = _growth(con, "holder_info", "n", mint)
+    return g if g is not None else _growth(con, "holders", "n", mint)
+
+
+def _listing(con, mint):
+    """(top exchanges now, 1 if it got a new exchange vs a reading at least 7 days older else 0) or (None, None)."""
+    rows = con.execute("SELECT day, top_cex, all_cex FROM listings WHERE mint=? ORDER BY day DESC", (mint,)).fetchall()
+    if not rows:
+        return None, None
+    old = next((r for r in rows[1:] if r[0] <= rows[0][0] - 7 * D), None)
+    new = None if old is None else int(rows[0][2] > old[2] or rows[0][1] > old[1])
+    return rows[0][1], new
 
 
 def rank(con, cfg, now=None):
@@ -130,14 +158,20 @@ def rank(con, cfg, now=None):
             continue
         feats[mint] = sc.derive(f, liq, mcap, vol, b, s, soc.get(mint), _holders_growth(con, mint, now))
         meta[mint] = (sym, liq, mcap, cs[-1][4])
+    whales = holders.whale_buys(con, now=now)
+    for m, f in feats.items():
+        f["veliki_kupuju"] = whales.get(m, {}).get("n", 0) if whales else None
+        f["burze_velike"], f["nova_burza"] = _listing(con, m)
+        f["udio_burzi"], f["rast_udjela_burzi"] = holders.exchange_share(con, m, now)
+        # ownership spreading out: share held outside the top 40 wallets going up (percentage points per 30 days)
+        f["sirenje_vlasnistva"] = _growth(con, "holder_info", "rest", m, ratio=False)
+        hi = con.execute("SELECT n FROM holder_info WHERE mint=? ORDER BY day DESC LIMIT 1", (m,)).fetchone()
+        f["holderi"] = hi[0] if hi else None
     refs = list(cfg["uzori"].values())
     sim = sc.similarity(feats, refs)
     for m, f in feats.items():
         f["slicnost_uzoru"] = sim.get(m)
     W = learn.current(cfg)
-    if any(f.get("holderi_30d") is not None for f in feats.values()):    # only with the paid Birdeye key
-        for k in W:
-            W[k].setdefault("holderi_30d", 1.0)
     out = {}
     con.execute("DELETE FROM snap WHERE day=?", (day,))
     for kind in ("dugorocni", "budjenje"):
@@ -186,9 +220,20 @@ def book(con, cfg, now=None):
                         (now, px, reason, sol_now, pid))
     last = con.execute("SELECT MAX(entry_ts) FROM book").fetchone()[0]
     if not last or last < now - k["svaki_d"] * D + 3600:
+        mx = cfg["mix"]
         for kind in ("dugorocni", "budjenje"):
-            top = con.execute("""SELECT s.mint, t.symbol, s.price FROM snap s JOIN tokens t ON t.mint=s.mint
-                WHERE s.day=? AND s.kind=? ORDER BY s.rank LIMIT ?""", (day, kind, k["top"])).fetchall()
+            ranked = con.execute("""SELECT s.mint, t.symbol, s.price, s.mcap FROM snap s JOIN tokens t ON t.mint=s.mint
+                WHERE s.day=? AND s.kind=? ORDER BY s.rank""", (day, kind)).fetchall()
+            if kind == "dugorocni":     # healthy mix: the best big, mid and small caps, not only the riskiest small ones
+                quota = {"veliki": mx["veliki"], "srednji": mx["srednji"], "mali": mx["mali"]}
+                top = []
+                for mint, sym, px, mc in ranked:
+                    b = "veliki" if (mc or 0) >= mx["veliki_mcap"] else "srednji" if (mc or 0) >= mx["srednji_mcap"] else "mali"
+                    if quota[b] > 0:
+                        quota[b] -= 1
+                        top.append((mint, sym, px))
+            else:
+                top = [(m, sym, px) for m, sym, px, _ in ranked[:k["top"]]]
             for mint, sym, px in top:
                 if not px or con.execute("SELECT 1 FROM book WHERE mint=? AND kind=? AND exit_ts IS NULL",
                                          (mint, kind)).fetchone():
@@ -209,6 +254,11 @@ def once(con=None, cfg=None, now=None, learn_too=False):
                 r = learn.fit(con, cfg, kind, now)
                 _log(f"učenje {kind}: {r['note']}")
         rank(con, cfg, now)
+        try:    # top holders, organic holder counts, exchange listings: weekly per token, small Helius sample
+            holders.refresh(con, cfg, now, log=_log)
+            rank(con, cfg, now)
+        except Exception as e:
+            _log(f"holderi: {type(e).__name__}: {e}")
         book(con, cfg, now)
     finally:
         if own:

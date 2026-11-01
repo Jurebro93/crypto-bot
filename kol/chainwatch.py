@@ -33,7 +33,13 @@ def _api(method, path="", body=None):
     req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
         txt = r.read().decode()
-        return json.loads(txt) if txt else None
+    if method in ("POST", "PUT", "DELETE"):
+        try:
+            from usage import meter
+            meter.helius_webhook(0, managed=True)
+        except Exception:
+            pass
+    return json.loads(txt) if txt else None
 
 
 def wanted(con, cfg):

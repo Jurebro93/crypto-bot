@@ -92,7 +92,14 @@ def helius_cost(url, body=None, result=None):
     except Exception:
         pass
     if method == "getTransactionsForAddress":
-        n = len((result or {}).get("data") or []) if isinstance(result, dict) else 0
+        # the full JSON-RPC answer nests the page under "result"; with transactionDetails "signatures" it is 10 flat
+        res = result.get("result", result) if isinstance(result, dict) else None
+        n = len(res.get("data") or []) if isinstance(res, dict) else 0
+        try:
+            if (json.loads(body)["params"][1] or {}).get("transactionDetails") == "signatures":
+                n = 0
+        except Exception:
+            pass
         return method, max(10, -(-n // 100) * 10)
     if method in DAS_METHODS:
         return method, 10
@@ -103,3 +110,24 @@ def helius(url, body=None, result=None, error=False):
     c = helius_cost(url, body, result)
     if c:
         record("helius", c[0], 0 if error else c[1], error=error)
+
+
+def helius_webhook(events, managed=False):
+    """Helius bills 1 credit per webhook event it delivers (whatever our answer) and 100 per create/edit/delete.
+    Before 01.11.2026 these were not counted, which showed up as "troši se i izvan bota"."""
+    if managed:
+        record("helius", "webhook upravljanje", 100)
+    if events:
+        record("helius", "webhook događaji", float(events), calls=int(events))
+
+
+# Helius account usage comes split into these categories (Admin API "credits"); our methods map onto them so the
+# dashboard can say in which category the account grows faster than our own count.
+def helius_category(method):
+    if method.startswith("enhanced "):
+        return "enhancedApi"
+    if method.startswith("webhook"):
+        return "webhooks"
+    if method in DAS_METHODS:
+        return "das"
+    return "rpc"

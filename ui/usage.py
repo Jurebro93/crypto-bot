@@ -124,6 +124,7 @@ def _service(con, service, cfg):
     trows = [[esc(labels.script(s)), esc(labels.call(m)), num(n), num(e), (f(a), a, "n")] for s, m, n, e, a in top]
     name = "Helius" if service == "helius" else "Apify"
     unit = "kredita" if service == "helius" else "USD"
+    kinds = _kinds(con, now) if service == "helius" else ""
     return (f"<h2>{name}</h2><div class=grid>{grid}</div><p class=mut>{esc(acc)}</p>"
             f"<div class=two><div><h3>Po danu ({unit})</h3>"
             + tdesc(f"Ono što je bot sam izbrojao po danu (UTC). Kvota je {f(st['fair_day'])}/dan da budžet traje cijeli ciklus.")
@@ -132,7 +133,28 @@ def _service(con, service, cfg):
             + tdesc("Dio bota i vrsta poziva. Greške su odbijeni pozivi (preopterećenje ili potrošen limit); puno grešaka "
                     "znači da nešto ponavlja pozive.")
             + table(["Dio bota", "Poziv", ("Poziva", "n"), ("Grešaka", "n"), (unit.capitalize(), "n")], trows,
-                    empty="Još nema izbrojanih poziva.") + "</div></div>")
+                    empty="Još nema izbrojanih poziva.") + "</div></div>" + kinds)
+
+
+def _kinds(con, now):
+    """Helius account vs our own count per kind of call over the last ~24 h: shows where uncounted spend goes."""
+    snaps = con.execute("SELECT ts, cycle_start FROM account WHERE service='helius' AND ts>=? ORDER BY ts",
+                        (int(now) - 26 * 3600,)).fetchall()
+    snaps = [x for x in snaps if snaps and x[1] == snaps[-1][1]]
+    if len(snaps) < 2 or snaps[-1][0] - snaps[0][0] < 3 * 3600:
+        return ""
+    rows = watch.category_gaps(con, snaps[0][0], snaps[-1][0])
+    if not rows:
+        return ""
+    f = lambda x: watch.fmt("helius", x)  # noqa: E731
+    hrs = (snaps[-1][0] - snaps[0][0]) / 3600
+    trs = [[esc(watch.CATEGORY.get(k, k)), (f(acc), acc, "n"), (f(mine), mine, "n"),
+            (f(gap), gap, "n") if abs(gap) >= 1000 else ("≈ isto", 0, "n")]
+           for k, gap, acc, mine in rows if acc or mine]
+    return ("<h3>Račun naspram brojača bota, po vrsti poziva (zadnjih " + f"{hrs:.0f} h)</h3>"
+            + tdesc("Helius sam dijeli potrošnju po vrsti. Ako je račun u nekoj vrsti puno veći od onoga što je bot izbrojao, "
+                    "ondje troši nešto što bot ne broji (ili netko drugi s istim ključem).")
+            + table(["Vrsta", ("Račun", "n"), ("Bot izbrojao", "n"), ("Razlika", "n")], trs))
 
 
 def page(qs):

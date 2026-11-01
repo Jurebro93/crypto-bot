@@ -566,6 +566,11 @@ def cmd_run(a):
                 last_scan = now
             intake(cfg)
             closed = tick(cfg)
+            try:   # separate 7-day KOL test book (koltest/, own koltest.db): $50 on every fresh KOL call, measured
+                from koltest import run as koltest
+                koltest.step()
+            except Exception as e:  # noqa: BLE001 - the test must never stop the main demo
+                print(f"KOL test: {type(e).__name__}: {e}", file=sys.stderr)
             con = store.connect(DB)
             e = equity(con, cfg)
             print(f"{dt.datetime.now():%H:%M:%S}  demo {_usd(e['equity'])}  otvorenih {e['open']}  "

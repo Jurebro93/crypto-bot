@@ -57,7 +57,16 @@ def spent(source=None, since=None):
     return v
 
 
-_month = {"ts": 0, "usage": 0.0, "cap": 0.0}
+_month = {"ts": 0, "usage": 0.0, "cap": 0.0, "end": 0}
+
+
+def _cycle_end(d):
+    try:
+        import datetime as dt
+        s = ((d.get("monthlyUsageCycle") or {}).get("endAt") or "").replace("Z", "+00:00")
+        return int(dt.datetime.fromisoformat(s).timestamp()) if s else 0
+    except ValueError:
+        return 0
 
 
 def monthly():
@@ -65,8 +74,23 @@ def monthly():
     if time.time() - _month["ts"] > 600:
         d = _api("/users/me/limits")["data"]
         _month.update(ts=time.time(), usage=d["current"].get("monthlyUsageUsd") or 0,
-                      cap=d["limits"].get("maxMonthlyUsageUsd") or 0)
+                      cap=d["limits"].get("maxMonthlyUsageUsd") or 0, end=_cycle_end(d))
     return _month["usage"], _month["cap"]
+
+
+def pace_factor(cfg=None, used=None, cap=None, end=None, now=None):
+    """Share (0-1) of the normal daily budget the throttled sources may use today, so the money left lasts until
+    the cycle resets: (cap - reserve - used) / days left, against the sum of all daily budgets. 1 = no throttle."""
+    cfg = cfg or config()
+    if used is None:
+        used, cap = monthly()
+        end = _month["end"]
+    now = now or time.time()
+    if not cap or not end or end <= now:
+        return 1.0
+    allowed = max(0.0, cap - cfg.get("monthly_reserve_usd", 3) - used) / max(0.5, (end - now) / 86400)
+    planned = sum(cfg["daily_usd"].values()) or 1
+    return max(0.0, min(1.0, allowed / planned))
 
 
 def check(source):
@@ -77,6 +101,12 @@ def check(source):
     used, cap = monthly()
     if cap and used >= cap - cfg.get("monthly_reserve_usd", 3):
         raise BudgetExceeded(f"Apify račun: ${used:.2f} od ${cap:.0f} ovaj mjesec, čuvam rezervu")
+    # automatic brake: when the month's money would not last at the normal daily budgets, the costly scanner checks
+    # (X buzz, trends, pump.fun boards, GMGN) get a smaller daily budget; KOL tracking (and with it the KOL test) keeps its own
+    if source not in cfg.get("bez_kocnice", []):
+        k = pace_factor(cfg, used, cap, _month["end"])
+        if k < 1 and spent(source) >= budget * k:
+            raise BudgetExceeded(f"{source}: kočnica tempa, danas smije {k:.0%} dnevnog budžeta da novac potraje do kraja ciklusa")
 
 
 def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wait=180, units=None):
