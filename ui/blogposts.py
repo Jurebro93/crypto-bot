@@ -6,6 +6,7 @@
 - KOL: influencer calls measured by the app (price 1 h / 24 h after each call, bots excluded).
 Keep numbers here in sync with the text; each post states its sample and date.
 """
+from ui import calcs as CALC
 from ui.blogviz import bars, grid, stats
 
 RETRO = "KriptoRadar retrospective of 10,650 pump.fun tokens, October 2026"
@@ -571,6 +572,7 @@ tokens you receive than at the quoted price:</p>
       [("Pool $10k", [2.0, 9.1, 16.7, 50.0]), ("Pool $50k", [0.4, 2.0, 3.8, 16.7]),
        ("Pool $250k", [0.1, 0.4, 0.8, 3.8]), ("Pool $1M", [0.0, 0.1, 0.2, 1.0])],
       sub="Constant-product pool, half of the liquidity on each side, before fees (about 0.25-1%)", cap=50)}
+{CALC.slippage("en")}
 <p>Selling costs the same again on the way out. A $1,000 round trip in a $10k pool loses roughly a third of the
 money before the price has even moved.</p>
 
@@ -788,6 +790,7 @@ quote you accept before the trade fails. In a thin pool the impact alone can be 
       [("Pool $10k", [2.0, 9.1, 16.7, 50.0]), ("Pool $50k", [0.4, 2.0, 3.8, 16.7]),
        ("Pool $250k", [0.1, 0.4, 0.8, 3.8]), ("Pool $1M", [0.0, 0.1, 0.2, 1.0])],
       sub="Constant-product pool, half the liquidity on each side, before fees", cap=50)}
+{CALC.slippage("en")}
 <p>Jupiter's automatic slippage is fine for liquid coins. For fresh tokens, a very high tolerance invites
 "sandwich" bots that buy right before you and sell right after.</p>
 
@@ -964,6 +967,8 @@ Porezna uprava guidance or an adviser for your case.</p>
        ("€5,000 gain and €2,000 loss in the same year", 360, "12% of the €3,000 net gain")],
       sub="Individuals, Croatian tax resident", fmt="eur", hl=(0, 3), source=TAX_SRC)}
 
+{CALC.tax("en")}
+
 <h2>Swaps: the rule that matters for meme coins</h2>
 <p>Porezna uprava's opinion is that exchanging one cryptocurrency for another does not create a taxable gain at that
 moment, because no money changes hands. Its example: 10 BTC bought for $6,000, swapped for ETH, later sold for $35,400:
@@ -1043,6 +1048,8 @@ VAT as usual.</li>
        ("d.o.o. with revenue up to €1M, then paid out", 2080, "10% profit tax, then 12% dividend tax on the rest"),
        ("d.o.o. with revenue over €1M, then paid out", 2784, "18% profit tax, then 12% dividend tax on the rest")],
       sub="Simplified: no other income or costs; amounts in euros", fmt="eur", hl=(0, 1), source=CO_SRC)}
+
+{CALC.company("en")}
 
 <h2>When a company still makes sense</h2>
 <ul>

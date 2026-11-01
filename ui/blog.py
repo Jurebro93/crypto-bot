@@ -24,6 +24,9 @@ color:var(--fg)}
 .bl a:hover{border-color:#cfd5e1;box-shadow:0 10px 30px -18px rgba(11,18,32,.35)}
 .bl b{display:block;font-size:19px;line-height:1.3;margin:6px 0 8px}.bl span{color:var(--mut);font-size:15px}
 .bl em{font-style:normal;color:var(--acc);font-weight:650;font-size:13px}
+.bcat{margin:4px 0 22px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;scrollbar-width:none}.bcat::-webkit-scrollbar{display:none}
+.bcat a{white-space:nowrap}.bcat a.on{background:var(--fg);color:#fff;border-color:var(--fg)}
+h2.s a{color:inherit}h2.s a:hover{color:var(--acc)}
 """
 
 
@@ -59,24 +62,70 @@ TERMS = {
 }
 
 
+# Blog categories: key -> (EN slug, HR slug, EN name, HR name, EN intro, HR intro, posts by EN slug in reading order).
+CATS = [
+    ("guides", "vodici", "Guides", "Vodiči",
+     "Step by step: buying meme coins, swapping on Jupiter, trading plans, DCA and what slippage costs.",
+     "Korak po korak: kupnja meme coina, swap na Jupiteru, plan trgovanja, DCA i koliko košta slippage.",
+     ("how-to-buy-solana-meme-coins", "how-to-use-jupiter-swap", "how-to-trade-meme-coins", "what-is-pump-fun",
+      "market-cap-liquidity-slippage", "what-is-dca-in-crypto")),
+    ("exchanges-and-cards", "mjenjacnice-i-kartice", "Exchanges and cards", "Mjenjačnice i kartice",
+     "Where to buy crypto legally in Croatia and the EU, and which cards let you spend it.",
+     "Gdje legalno kupiti kripto u Hrvatskoj i EU i kojim karticama ga možeš trošiti.",
+     ("best-crypto-exchanges-croatia", "crypto-cards-croatia")),
+    ("tax-and-law", "porez-i-zakon", "Tax and law", "Porez i zakon",
+     "Crypto tax in Croatia, JOPPD, MiCA and investing through a company.",
+     "Porez na kripto u Hrvatskoj, JOPPD, MiCA i ulaganje preko firme.",
+     ("crypto-tax-croatia", "company-crypto-investment-croatia")),
+    ("rugs-and-scams", "rugovi-i-prevare", "Rugs and scams", "Rugovi i prevare",
+     "How rug pulls, pump and dumps, bundles and snipers work, measured on thousands of tokens.",
+     "Kako rade rug pullovi, pump and dump, bundleri i snajperi, izmjereno na tisućama tokena.",
+     ("how-to-spot-a-rug-pull", "what-is-a-pump-and-dump", "bundles-and-snipers")),
+    ("wallets-and-influencers", "novcanici-i-influenceri", "Wallets and influencers", "Novčanici i influenceri",
+     "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
+     "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
+     ("what-is-wallet-tracking", "what-is-copy-trading", "what-is-a-kol-in-crypto", "influencer-clustering")),
+]
+CAT_OF = {en: c for c in CATS for en in c[6]}
+
+
+def cat_path(c, lang):
+    return f"/blog/category/{c[0]}" if lang == "en" else f"/hr/blog/kategorija/{c[1]}"
+
+
+def cat_by_slug(slug, lang):
+    return next((c for c in CATS if c[0 if lang == "en" else 1] == slug), None)
+
+
+def cat_nav(lang, active=None):
+    """Category chip row (index, category pages, under each post)."""
+    t = L[lang]
+    chips = [f"<a href={t['base']}{' class=on' if active is None else ''}>{t['all']}</a>"]
+    chips += [f"<a href={cat_path(c, lang)}{' class=on' if active and active[0] == c[0] else ''}>{c[2 if lang == 'en' else 3]}</a>"
+              for c in CATS]
+    return f"<nav class='chips bcat' aria-label=Blog>{''.join(chips)}</nav>"
+
+
 L = {
-    "en": dict(base="/blog", home="/", crumb="← Blog", read="min read", by="KriptoRadar research", short="Short answer",
+    "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: KriptoRadar blog",
+               c_more="More on KriptoRadar", read="min read", by="KriptoRadar research", short="Short answer",
                terms="Terms in this post", all_terms="All terms →", next="Read next", cta="Request access",
                lock="KriptoRadar does this for you in real time: every new Solana token, every influencer call and every "
                     "tracked wallet, scored and filtered for rugs.",
                note="Not financial advice. Numbers are measurements of past tokens and calls; meme coins are extremely "
                     "risky and most go to zero.",
                i_h1="Solana meme coin research, in plain words",
-               i_lead="How wallet tracking, copy trading, influencer calls and rug pulls really work, measured on "
-                      "thousands of tokens we track every day.",
+               i_lead="How to buy, trade and stay safe with Solana meme coins, where to buy crypto legally in Croatia and "
+                      "the EU, and how it is taxed. Measured on thousands of tokens we track every day.",
                i_lock="Members see these signals live: new tokens, influencer calls and wallets worth copying, with a rug "
                       "shield on every buy.",
-               i_title="KriptoRadar blog: Solana meme coins, wallet tracking, copy trading and rug pulls",
-               i_desc="Data-backed guides to Solana meme coin trading: wallet tracking, copy trading, crypto influencers "
-                      "(KOLs), pump.fun and how to spot a rug pull.",
+               i_title="KriptoRadar blog: Solana meme coins, exchanges, crypto tax in Croatia and rug pulls",
+               i_desc="Data-backed crypto guides: buying Solana meme coins, MiCA-licensed exchanges and cards in Croatia, "
+                      "crypto tax, wallet tracking, copy trading and how to spot a rug pull.",
                months=("January", "February", "March", "April", "May", "June", "July", "August", "September",
                        "October", "November", "December")),
-    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", read="min čitanja", by="KriptoRadar istraživanje",
+    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: KriptoRadar blog",
+               c_more="Još na KriptoRadaru", read="min čitanja", by="KriptoRadar istraživanje",
                short="Kratki odgovor", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
                cta="Zatraži pristup",
                lock="KriptoRadar to radi za tebe u stvarnom vremenu: svaki novi Solana token, svaki poziv influencera i "
@@ -84,13 +133,13 @@ L = {
                note="Nije financijski savjet. Brojke su mjerenja prošlih tokena i poziva; meme coini su izuzetno "
                     "rizični i većina završi na nuli.",
                i_h1="Istraživanje Solana meme coina, jednostavnim riječima",
-               i_lead="Kako stvarno rade praćenje novčanika, copy trading, pozivi influencera i rug pullovi, izmjereno "
-                      "na tisućama tokena koje pratimo svaki dan.",
+               i_lead="Kako kupiti, trgovati i ostati siguran sa Solana meme coinima, gdje legalno kupiti kripto u "
+                      "Hrvatskoj i EU i kako se oporezuje. Izmjereno na tisućama tokena koje pratimo svaki dan.",
                i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koje vrijedi "
                       "kopirati, uz zaštitu od ruga na svakoj kupnji.",
-               i_title="KriptoRadar blog: Solana meme coini, praćenje novčanika, copy trading i rug pullovi",
-               i_desc="Vodiči za trgovanje Solana meme coinima uz stvarne podatke: praćenje novčanika, copy trading, "
-                      "kripto influenceri (KOL), pump.fun i kako prepoznati rug pull.",
+               i_title="KriptoRadar blog: Solana meme coini, mjenjačnice, porez na kripto i rug pullovi",
+               i_desc="Kripto vodiči uz stvarne podatke: kupnja Solana meme coina, mjenjačnice i kartice s MiCA licencom u "
+                      "Hrvatskoj, porez na kriptovalute, praćenje novčanika, copy trading i rug pullovi.",
                months=("siječnja", "veljače", "ožujka", "travnja", "svibnja", "lipnja", "srpnja", "kolovoza", "rujna",
                        "listopada", "studenoga", "prosinca")),
 }
@@ -198,7 +247,7 @@ def views(lang):
 
 def urls():
     """[(path_en, path_hr or None, priority)] for the sitemap."""
-    out = [("/blog", "/hr/blog", "0.8")]
+    out = [("/blog", "/hr/blog", "0.8")] + [(cat_path(c, "en"), cat_path(c, "hr"), "0.7") for c in CATS]
     for p in _posts():
         h = _hr().get(p["slug"])
         out.append((f"/blog/{p['slug']}", f"/hr/blog/{h['slug']}" if h else None, "0.7"))
@@ -221,15 +270,73 @@ def index(lang="en"):
     t = L[lang]
     vs = views(lang)
     body = (f"<div class=art style='max-width:none'><section class=ph1><div class=eyebrow>KriptoRadar blog</div>"
-            f"<h1>{t['i_h1']}</h1><p class=lead>{t['i_lead']}</p></section>"
-            f"<div class=bl>{''.join(_card(v, lang) for v in vs)}</div>"
-            f"<div class=lock><p>{t['i_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div></div>")
+            f"<h1>{t['i_h1']}</h1><p class=lead>{t['i_lead']}</p></section>{cat_nav(lang)}"
+            + "".join(f"<h2 class=s><a href={cat_path(c, lang)}>{c[2 if lang == 'en' else 3]} →</a></h2>"
+                      f"<div class=bl>{''.join(_card(v, lang) for en in c[6] for v in [get_en(en, lang)] if v)}</div>" for c in CATS)
+            + (f"<div class=bl>{''.join(_card(v, lang) for v in vs if v['en'] not in CAT_OF)}</div>"
+               if any(v["en"] not in CAT_OF for v in vs) else "")
+            + f"<div class=lock><p>{t['i_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div></div>")
     jsonld = _ld({"@context": "https://schema.org", "@type": "Blog", "name": "KriptoRadar blog", "inLanguage": lang,
                   "url": _base() + t["base"],
                   "blogPost": [{"@type": "BlogPosting", "headline": v["h1"], "url": f"{_base()}{t['base']}/{v['slug']}",
                                 "datePublished": v["date"]} for v in vs]})
     return _shell(lang, t["i_title"], t["i_desc"], "/blog", "/hr/blog", body, jsonld=jsonld,
                   og_image="/static/landing/kol.jpg")
+
+
+def category(slug, lang="en"):
+    """A category page: intro, chip nav, its posts, related public sections. None if unknown."""
+    from ui.public import _shell
+    t = L[lang]
+    c = cat_by_slug(slug, lang)
+    if not c:
+        return None
+    name, intro = c[2 if lang == "en" else 3], c[4 if lang == "en" else 5]
+    vs = [v for en in c[6] for v in [get_en(en, lang)] if v]
+    extra = CAT_LINKS.get(c[0], {}).get(lang, ())
+    more = (f"<h2 class=s>{t['c_more']}</h2><div class=chips>"
+            + "".join(f"<a href={h}>{esc(n)}</a>" for h, n in extra) + "</div>") if extra else ""
+    body = (f"<div class=art style='max-width:none'><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a>"
+            f"</div><h1>{esc(name)}</h1><p class=lead>{esc(intro)}</p></section>{cat_nav(lang, c)}"
+            f"<div class=bl>{''.join(_card(v, lang) for v in vs)}</div>{more}"
+            f"<div class=lock><p>{t['i_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div></div>")
+    jsonld = _ld({"@context": "https://schema.org", "@type": "CollectionPage", "name": name, "inLanguage": lang,
+                  "url": _base() + cat_path(c, lang), "hasPart": [
+                      {"@type": "BlogPosting", "headline": v["h1"], "url": f"{_base()}{t['base']}/{v['slug']}"} for v in vs]})
+    return _shell(lang, t["c_title"].format(c=name), intro, cat_path(c, "en"), cat_path(c, "hr"), body, jsonld=jsonld)
+
+
+def get_en(en_slug, lang):
+    p = next((x for x in _posts() if x["slug"] == en_slug), None)
+    return view(p, lang) if p else None
+
+
+# Public sections linked from each category page (internal links beyond the blog).
+CAT_LINKS = {
+    "guides": {"en": (("/how-to-buy", "How to buy the top 100 meme coins"), ("/solana-meme-coins", "Top 100 Solana meme coins"),
+                      ("/best-crypto-tools/crypto-wallets", "Best crypto wallets"), ("/glossary/slippage", "Slippage")),
+               "hr": (("/hr/kako-kupiti", "Kako kupiti top 100 meme coina"), ("/hr/solana-meme-coini", "Top 100 Solana meme coina"),
+                      ("/hr/najbolji-kripto-alati/kripto-novcanici", "Najbolji kripto novčanici"), ("/hr/rjecnik/slippage", "Slippage"))},
+    "exchanges-and-cards": {"en": (("/how-to-buy", "How to buy guides per coin"), ("/glossary/cex", "What is a CEX"),
+                                   ("/best-crypto-tools/crypto-wallets", "Best crypto wallets")),
+                            "hr": (("/hr/kako-kupiti", "Vodiči za kupnju po coinu"), ("/hr/rjecnik/cex", "Što je CEX"),
+                                   ("/hr/najbolji-kripto-alati/kripto-novcanici", "Najbolji kripto novčanici"))},
+    "tax-and-law": {"en": (("/blog/best-crypto-exchanges-croatia", "MiCA-licensed exchanges"), ("/glossary/pnl", "PnL"),
+                           ("/glossary/multisig", "Multisig wallet")),
+                    "hr": (("/hr/blog/najbolje-kripto-mjenjacnice-hrvatska", "Mjenjačnice s MiCA licencom"),
+                           ("/hr/rjecnik/pnl", "PnL"), ("/hr/rjecnik/multisig", "Multisig novčanik"))},
+    "rugs-and-scams": {"en": (("/rug-check", "Rug check for the top 100 coins"), ("/best-crypto-tools/rug-checkers", "Best rug checkers"),
+                              ("/glossary/rug-pull", "Rug pull")),
+                       "hr": (("/hr/provjera", "Provjera ruga za top 100 coina"),
+                              ("/hr/najbolji-kripto-alati/provjera-ruga", "Najbolji alati za provjeru ruga"),
+                              ("/hr/rjecnik/rug-pull", "Rug pull"))},
+    "wallets-and-influencers": {"en": (("/influencers", "Crypto influencer leaderboard"),
+                                       ("/best-crypto-tools/wallet-trackers", "Best wallet trackers"),
+                                       ("/best-crypto-tools/copy-trading-platforms", "Copy trading platforms")),
+                                "hr": (("/hr/influenceri", "Ljestvica kripto influencera"),
+                                       ("/hr/najbolji-kripto-alati/pracenje-novcanika", "Najbolji alati za praćenje novčanika"),
+                                       ("/hr/najbolji-kripto-alati/copy-trading-platforme", "Copy trading platforme"))},
+}
 
 
 def _base():
@@ -258,9 +365,13 @@ def page(slug, lang="en"):
          "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
         {"@type": "BreadcrumbList", "itemListElement": [
             {"@type": "ListItem", "position": 1, "name": "Blog", "item": _base() + t["base"]},
-            {"@type": "ListItem", "position": 2, "name": p["h1"], "item": url}]}]})
+            *([{"@type": "ListItem", "position": 2, "name": CAT_OF[p["en"]][2 if lang == "en" else 3],
+                "item": _base() + cat_path(CAT_OF[p["en"]], lang)}] if p["en"] in CAT_OF else []),
+            {"@type": "ListItem", "position": 3 if p["en"] in CAT_OF else 2, "name": p["h1"], "item": url}]}]})
+    c = CAT_OF.get(p["en"])
+    crumb_cat = (f"<a href={cat_path(c, lang)}>{c[2 if lang == 'en' else 3]}</a>" if c else esc(p["tag"]))
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
-            f"{esc(p['tag'])}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
+            f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
             f"{t['read']} · {t['by']}</div><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
             f"{_link_terms(p['body'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
@@ -275,3 +386,23 @@ def _date(d, lang="en"):
     y, m, dd = d.split("-")
     mon = L[lang]["months"][int(m) - 1]
     return f"{int(dd)} {mon} {y}" if lang == "en" else f"{int(dd)}. {mon} {y}."
+
+
+# Short menu descriptions per category (ui/sitenav.py picks nav_items up for the menus and footer).
+_CAT_SHORT = {"guides": ("Step-by-step how-tos", "Upute korak po korak"),
+              "exchanges-and-cards": ("Licensed exchanges and crypto cards", "Licencirane mjenjačnice i kartice"),
+              "tax-and-law": ("Crypto tax in Croatia, companies", "Porez na kripto, firme"),
+              "rugs-and-scams": ("Rug pulls and pump and dumps", "Rug pullovi i pump and dump"),
+              "wallets-and-influencers": ("Wallet tracking, copy trading, KOLs", "Praćenje novčanika, copy trading, KOL")}
+
+
+def nav_items(lang):
+    """[(group, href, label, description)] for the site menu: blog categories plus the two key Croatia articles."""
+    i = 0 if lang == "en" else 1
+    out = [("learn", cat_path(c, lang), c[2 + i], _CAT_SHORT[c[0]][i]) for c in CATS]
+    for en, d in (("best-crypto-exchanges-croatia", ("Best exchanges in Croatia", "Najbolje mjenjačnice u Hrvatskoj")),
+                  ("crypto-tax-croatia", ("Crypto tax calculator", "Kalkulator poreza na kripto"))):
+        v = get_en(en, lang)
+        if v:
+            out.append(("learn", f"{L[lang]['base']}/{v['slug']}", d[i], v["tag"]))
+    return out

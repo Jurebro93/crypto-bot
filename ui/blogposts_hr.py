@@ -1,5 +1,6 @@
 """Hrvatske verzije deset blog postova (/hr/blog/<slug>). Iste brojke kao engleske (ui/blogposts.py), isti izvori.
 Ključ rječnika = engleski slug, tako da se dvije verzije povezuju (hreflang)."""
+from ui import calcs as CALC
 from ui.blogviz import bars, grid, stats
 
 RETRO = "KriptoRadar retrospektiva 10.650 pump.fun tokena, listopad 2026."
@@ -544,6 +545,7 @@ dobiješ nego po prikazanoj cijeni:</p>
        ("Bazen $250k", [0.1, 0.4, 0.8, 3.8]), ("Bazen $1M", [0.0, 0.1, 0.2, 1.0])],
       sub="Bazen s konstantnim produktom, pola likvidnosti na svakoj strani, prije naknada (oko 0,25-1%)", cap=50,
       lang="hr")}
+{CALC.slippage("hr")}
 <p>Prodaja na izlazu košta isto toliko. Kupnja i prodaja od $1.000 u bazenu od $10k izgubi otprilike trećinu novca
 prije nego što se cijena uopće pomaknula.</p>
 
@@ -760,6 +762,7 @@ ponude prihvaćaš prije nego trade propadne. U tankom bazenu sam impact može b
       [("Bazen $10k", [2.0, 9.1, 16.7, 50.0]), ("Bazen $50k", [0.4, 2.0, 3.8, 16.7]),
        ("Bazen $250k", [0.1, 0.4, 0.8, 3.8]), ("Bazen $1M", [0.0, 0.1, 0.2, 1.0])],
       sub="Bazen s konstantnim produktom, pola likvidnosti na svakoj strani, prije naknada", cap=50, lang="hr")}
+{CALC.slippage("hr")}
 <p>Jupiterov automatski slippage je u redu za likvidne coine. Kod svježih tokena vrlo visoka tolerancija privlači
 "sandwich" botove koji kupe tik prije tebe i prodaju tik poslije.</p>
 
@@ -932,6 +935,8 @@ slučaj provjeri aktualne upute Porezne uprave ili poreznog savjetnika.</p>
     ("5.000 € dobiti i 2.000 € gubitka iste godine", 360, "12% od 3.000 € neto dobiti")],
    sub="Fizičke osobe, porezni rezidenti Hrvatske", fmt="eur", hl=(0, 3), source=TAX_SRC)}
 
+{CALC.tax("hr")}
+
 <h2>Zamjene: pravilo važno za meme coine</h2>
 <p>Prema mišljenju Porezne uprave zamjena jedne kriptovalute za drugu ne stvara oporezivu dobit u tom trenutku, jer
 nema novčanog toka. Njihov primjer: 10 BTC kupljenih za 6.000 $, zamijenjenih za ETH, kasnije prodanih za 35.400 $:
@@ -1009,6 +1014,8 @@ Hedqvist). Ako tvrtka prima kripto kao plaćanje za svoju robu ili usluge, sama 
     ("d.o.o. s prihodom do 1 mil. €, pa isplata", 2080, "10% porez na dobit, pa 12% na dividendu"),
     ("d.o.o. s prihodom iznad 1 mil. €, pa isplata", 2784, "18% porez na dobit, pa 12% na dividendu")],
    sub="Pojednostavljeno: bez drugih prihoda i troškova", fmt="eur", hl=(0, 1), source=CO_SRC)}
+
+{CALC.company("hr")}
 
 <h2>Kad firma ipak ima smisla</h2>
 <ul>
