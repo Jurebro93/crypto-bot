@@ -554,27 +554,55 @@ STATUS = {"novi": ("novi", "warn"), "pozvan": ("pozvan", "good"), "odbijen": ("o
           "registriran": ("registriran", "good")}
 
 
-def _share(row, url):
-    """Links to send the invite: WhatsApp (phone number or chooser), e-mail, Telegram."""
-    text = (f"Bok {row['name']}! Evo tvoje pozivnice za KriptoRadar: {url}\n"
+def _invite_text(row, url):
+    return (f"Bok {row['name']}! Evo tvoje pozivnice za KriptoRadar: {url}\n"
             "Otvori link, upiši ime i lozinku i dobiješ demo račun od $1.000.")
+
+
+def _share(row, url):
+    """Buttons to send the invite: WhatsApp (to the number when we have one), e-mail (to the address when we have one),
+    Telegram share, and the phone's own share sheet when the browser has one."""
+    text = _invite_text(row, url)
     c = (row["contact"] or "").strip()
-    out = []
     digits = re.sub(r"[^\d+]", "", c)
-    if re.fullmatch(r"\+?\d{8,15}", digits):
+    if re.fullmatch(r"\+?\d{8,15}", digits) and "@" not in c:
         num = digits.lstrip("+")
         if num.startswith("0"):
             num = "385" + num[1:]   # Croatian number written locally
-        out.append(f"<a class=b href=\"https://wa.me/{num}?text={quote(text)}\" target=_blank rel=noopener>📲 WhatsApp</a>")
+        wa = f"https://wa.me/{num}?text={quote(text)}"
     else:
-        out.append(f"<a class=b href=\"https://wa.me/?text={quote(text)}\" target=_blank rel=noopener>📲 WhatsApp</a>")
-    if "@" in c and "." in c.split("@")[-1] and not c.startswith("@"):
-        out.append(f"<a class=b href=\"mailto:{esc(c)}?subject={quote('Tvoja pozivnica za KriptoRadar')}&body={quote(text)}\">"
-                   "✉️ E-mail</a>")
-    if c.startswith("@") or "t.me/" in c:
-        h = c.split("t.me/")[-1].lstrip("@")
-        out.append(f"<a class=b href=\"https://t.me/{esc(h)}\" target=_blank rel=noopener>✈️ Telegram</a>")
-    return " ".join(out)
+        wa = f"https://wa.me/?text={quote(text)}"
+    to = esc(c) if ("@" in c and "." in c.split("@")[-1] and not c.startswith("@")) else ""
+    mail = f"mailto:{to}?subject={quote('Tvoja pozivnica za KriptoRadar')}&body={quote(text)}"
+    tg = f"https://t.me/share/url?url={quote(url)}&text={quote(text.split(': ')[0] + ':')}"
+    return (f"<a class='sh wa' href=\"{wa}\" target=_blank rel=noopener>📲 WhatsApp</a>"
+            f"<a class='sh em' href=\"{mail}\">✉️ E-mail</a>"
+            f"<a class='sh tg' href=\"{tg}\" target=_blank rel=noopener>✈️ Telegram</a>"
+            f"<button type=button class='sh ns' hidden data-t=\"{esc(text)}\" "
+            "onclick=\"navigator.share({text:this.dataset.t}).catch(function(){})\">📤 Više…</button>")
+
+
+INV_CSS = """<style>
+.inv{border:1px solid var(--line,#2a3446);border-radius:16px;padding:14px;margin:12px 0;display:grid;gap:10px}
+.inv h3{margin:0;font-size:17px}.inv .ct{color:var(--mut,#8b95a7);font-size:14px;word-break:break-all}
+.inv .lk{display:flex;gap:8px;align-items:stretch}
+.inv .lk input{flex:1;min-width:0;width:100%;font-size:14px;padding:10px 12px;border-radius:10px}
+.inv .cp{white-space:nowrap;padding:10px 14px;border-radius:10px;font-weight:600}
+.inv .shs{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.inv .sh{display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;border-radius:12px;font-weight:650;
+font-size:15px;text-decoration:none!important;color:#fff!important;border:0;cursor:pointer;font-family:inherit}
+.inv .sh[hidden]{display:none}.inv .wa{background:#16a34a}.inv .em{background:#2563eb}.inv .tg{background:#0ea5e9}.inv .ns{background:#475569}
+</style>"""
+
+
+def _invite_card(r, url):
+    return (f"<div class=inv id=inv{r['id']}><h3>📨 Pozivnica za {esc(r['name'])}</h3>"
+            f"<div class=ct>{esc(r['contact'] or '')}</div>"
+            f"<div class=lk><input readonly value=\"{esc(url)}\" data-inv=\"{esc('/registracija?k=' + quote(r['invite']))}\" "
+            "onclick='this.select()' aria-label='Link pozivnice'>"
+            "<button type=button class=cp onclick=\"var i=this.previousElementSibling;i.select();"
+            "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅ Kopirano'\">📋 Kopiraj</button></div>"
+            f"<div class=shs>{_share(r, url)}</div></div>")
 
 
 def admin_page(qs, user):
@@ -603,7 +631,7 @@ def admin_page(qs, user):
              f"„Zatraži pristup”. <b>{novi}</b> čeka odgovor. Klikni <b>Pozovi</b> i alat napravi jednokratni link "
              "za tu osobu, pa ga pošalješ na WhatsApp, e-mail ili Telegram jednim klikom.</p>")
     from ui.html import table
-    out = []
+    out, cards = [], []
     from ui.register import link
     for r in rows:
         st = r["status"]
@@ -617,17 +645,21 @@ def admin_page(qs, user):
                    "<button class=sm onclick=\"return confirm('Odbiti zahtjev?')\">Odbij</button></form>")
         elif r["status"] == "pozvan" and r["invite"]:
             url = link(r["invite"])
-            act = ("" if st == "registriran" else
-                   f"<input readonly value=\"{esc(url)}\" data-inv=\"{esc('/registracija?k=' + quote(r['invite']))}\" "
-                   "onclick='this.select()' style='width:210px'> "
-                   "<button type=button onclick=\"var i=this.previousElementSibling;i.select();"
-                   "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅'\">📋</button> "
-                   + _share(r, url)) + (f" <span class=mut>kao {esc(joined[r['invite']])}</span>" if st == "registriran" else "")
+            if st == "registriran":
+                act = f"<span class=mut>kao {esc(joined[r['invite']])}</span>"
+            else:
+                cards.append(_invite_card(r, url))
+                act = f"<a href=#inv{r['id']}>📨 Pošalji pozivnicu ↑</a>"
         else:
             act = f"<span class=mut>{esc(r['handled_by'] or '')}</span>"
         out.append([ago(r["ts"]), f"<b>{esc(r['name'])}</b>", esc(r["contact"]), esc(EXP.get(r["experience"], "–")),
                     f"<span style='white-space:normal'>{esc(r['interest'] or '')}</span>",
                     f"<span class='b {kind}'>{esc(lab)}</span>", act])
+    if cards:
+        b.append(INV_CSS + "<h2 style='margin:18px 0 4px'>Pozivnice spremne za slanje</h2>"
+                 "<p class=mut style='margin:0'>Pošalji link jednim gumbom. Link vrijedi jednom; kad se osoba registrira, "
+                 "nestaje s ovog popisa.</p>" + "".join(cards[:20])
+                 + "<script>if(navigator.share)document.querySelectorAll('.sh.ns').forEach(function(b){b.hidden=false})</script>")
     b.append(table(["Kada", "Ime", "Kontakt", "Iskustvo", "Zanima ga", "Status", "Akcija"], out, tid="zahtjevi",
                    empty="Još nema zahtjeva. Pošalji link naslovne stranice ljudima koje želiš privući."))
     if not os.environ.get("RENDER_EXTERNAL_URL"):
@@ -655,7 +687,7 @@ def admin_post(path, user):
             tok = members.single(con, user)
             con.execute("UPDATE access_requests SET status='pozvan', invite=?, handled_by=?, handled_ts=? WHERE id=?",
                         (tok, user, int(time.time()), rid))
-            msg = f"Pozivnica za {r['name']} je spremna: kopiraj link ili ga pošalji gumbom u retku."
+            msg = f"Pozivnica za {r['name']} je spremna: kopiraj link ili ga pošalji gumbom ispod."
         else:
             con.execute("UPDATE access_requests SET status='odbijen', handled_by=?, handled_ts=? WHERE id=?",
                         (user, int(time.time()), rid))
