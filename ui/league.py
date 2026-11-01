@@ -164,6 +164,7 @@ def page(qs, user):
         b = [f"<h1>Natjecanje</h1><p class=lead>Svatko ima svoj demo račun od ${store.START_USD:,.0f} (bez pravog novca). "
              "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
              "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
+        b.append(quickbuy.top_buy(user))
         b.append(_copy_card(con, user))
         b.append('<p style="margin:6px 0 10px"><a href=/whatsapp style="display:inline-flex;align-items:center;gap:6px;'
                  'background:#25d366;color:#fff;border-radius:10px;padding:8px 14px;font-weight:600;text-decoration:none">'
@@ -172,7 +173,7 @@ def page(qs, user):
             from ui import register
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#predlozeni">⭐ Predloženi tokeni</a>'
                      '<a class=chip href="#moj">💼 Moj račun</a>'
-                     '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#dca">🔄 Automatski DCA</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
+                     '<a class=chip href="#dca">🔄 Automatski DCA</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
                      '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
                      '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a>'
                      + ('<a class=chip href="#pozovi" onclick="document.getElementById(\'pozovi\').open=true">'
@@ -220,10 +221,7 @@ def page(qs, user):
         if mine:
             b.append(_auto_form(mine))
 
-        size = f'<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
-        b.append('<h2 id=kupi>Kupi bilo koji token</h2><form method=post action="/natjecanje/buy" class="card flt">'
-                 '<input name=token placeholder="adresa tokena ili DexScreener link" size=50 required>'
-                 f'{size}<button>Kupi</button><span class=mut>ne mora biti s liste prijedloga</span></form>')
+        size = '<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
         b.append(_dca_box(con, user, qs, live, mine))
         srows = []
         for r in cands:
@@ -327,7 +325,7 @@ def _dca_box(con, user, qs, live, mine):
          'kao i svaku drugu (ili joj uključiš auto sell). DCA staje sam kad obavi sve kupnje, kad ti ponestane novca ili '
          'ako se token sruši.</p>',
          '<form method=post action="/natjecanje/dca/start" class="card flt" id=dcaf>'
-         f'<input name=token placeholder="adresa tokena ili DexScreener link" size=44 required value="{pre}">'
+         f'<input name=token placeholder="adresa tokena ili DexScreener link" size=44 style="max-width:100%;min-width:0" required value="{pre}">'
          '<label>$ po kupnji <input name=amount type=number min=5 max=500 step=1 value=20 style="width:70px"></label>'
          f'<select name=every>{every}</select>'
          '<label>broj kupnji <input name=n type=number min=2 max=100 step=1 value=10 style="width:60px"></label>'
