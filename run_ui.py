@@ -184,26 +184,9 @@ def _safe_next(n):
 
 
 def login_page(qs, err=""):
-    from ui.html import esc as e
-    users = ", ".join(league_store.users())
-    nxt = e(_safe_next(qs.get("next", "/")))
-    who = e(qs.get("kao", ""))
-    body = ("<h1>Prijava</h1><form method=post action=/prijava class=card style='max-width:360px'>"
-            f"<input type=hidden name=next value=\"{nxt}\">"
-            f"<p><label>Ime<br><input name=name autocomplete=username value=\"{who}\" style='width:100%' "
-            "autocapitalize=none></label></p>"
-            "<p><label>Lozinka<br><input name=pw type=password autocomplete=current-password required "
-            "style='width:100%'></label></p>"
-            + (f"<p class=neg>{e(err)}</p>" if err else "")
-            + "<p><button type=submit>Prijavi se</button></p></form>"
-            f"<p class=mut>Igrači ({e(users)}) upisuju svoje ime i svoju lozinku. Samo za gledanje: bilo koje ime i "
-            "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>"
-            "<p>Nemaš račun? MemeSonar je samo na pozivnicu: <a href=/dobrodosli#pristup><b>zatraži pristup</b></a>.</p>")
-    miss = league_store.missing_passwords()
-    if miss:
-        body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))}. Postavljaju se u postavkama "
-                 "servera na Renderu.</p>")
-    return page("Prijava", body, "/prijava")
+    from ui import loginpage
+    return loginpage.html(_safe_next(qs.get("next", "/")), qs.get("kao", ""), err, league_store.missing_passwords(),
+                          SITE_URL)
 
 
 def route(path, qs):
