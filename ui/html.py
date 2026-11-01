@@ -66,7 +66,7 @@ SECTIONS = [
     ]),
 ]
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
+NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
               "/prijava": "/natjecanje", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar: the four places people go most, Natjecanje in the middle
@@ -120,6 +120,9 @@ def nav_group(path):
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
+    "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
+                  "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
+                  "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
     "/pojmovnik": ("Što znači svaki pojam u alatu", "Svaki pojam, ocjena, stupac i stranica objašnjeni običnim riječima, "
                    "s primjerom, gdje ga vidiš i povezanim pojmovima. Svaki ⓘ u aplikaciji otvara objašnjenje odavde.",
                    "Jedno mjesto istine za objašnjenja: kad se doda novi pojam, objašnjenje se pojavi svugdje."),
@@ -349,7 +352,10 @@ aside.side{position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;wi
 .side a.on{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc);font-weight:650}
 .side .sec-n{background:color-mix(in srgb,#f59f00 9%,transparent);border-radius:12px;padding:2px 0 6px;margin-top:10px}
 .side .sec-n h4{color:#d9480f;margin-top:10px}
-.side .pub{font-weight:650;margin:0 0 10px}.side .out{color:var(--mut);font-size:13px;margin-top:20px}.side-head{display:none}
+.side .pub{font-weight:650;margin:0 0 10px}.side .out{color:var(--mut);font-size:13px;flex:1}
+.side a.set{margin-top:18px;border-top:1px solid var(--line);border-radius:0 0 9px 9px;padding-top:11px}
+.outrow{display:flex;align-items:center;gap:6px;margin-top:4px}.lsw{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:none}
+.side .lsw a{padding:3px 9px;font-size:12px;border-radius:0;color:var(--mut);font-weight:600}.side .lsw a.on{background:var(--acc);color:#fff}.side-head{display:none}
 .scrim{display:none}.bbar{display:none}
 .mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:8px 0 6px}
 a.mapcard{display:grid;grid-template-columns:auto 1fr;align-content:start;column-gap:12px;row-gap:2px;align-items:start;background:var(--card);
@@ -421,7 +427,9 @@ document.addEventListener('keydown',ev=>{if(ev.key==='/'&&!/INPUT|TEXTAREA|SELEC
 
 def _pages_json():
     import json
-    return json.dumps([{"href": p["href"], "icon": p["icon"], "name": p["name"], "desc": p["desc"], "kw": p["kw"], "sec": sec}
+    from ui.i18n import t
+    return json.dumps([{"href": p["href"], "icon": p["icon"], "name": t(p["name"]), "desc": t(p["desc"]),
+                        "kw": p["kw"] + " " + p["name"], "sec": t(sec)}
                        for sec, items in SECTIONS for p in items], ensure_ascii=False).replace("</", "<\\/")
 
 
@@ -434,7 +442,13 @@ def side_menu(cur):
         b.append(f'<div class="{"sec-n" if sec == "Natjecanje" else ""}"><h4>{esc(sec)}</h4>' + "".join(
             f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'
             for p in items) + "</div>")
-    b.append('<a class=out href="/odjava"><span class=mi>↩</span>Odjava</a></aside>')
+    from ui.i18n import lang
+    en = lang() == "en"
+    b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}"><span class=mi>⚙️</span>Postavke</a>'
+             '<div class=outrow><a class=out href="/odjava"><span class=mi>↩</span>Odjava</a>'
+             '<span class=lsw translate=no aria-label="Jezik / Language">'
+             f'<a href="/jezik?l=hr" class="{"" if en else "on"}" title="Hrvatski">HR</a>'
+             f'<a href="/jezik?l=en" class="{"on" if en else ""}" title="English">EN</a></span></div></aside>')
     return "".join(b)
 
 
@@ -451,11 +465,12 @@ def page(title, body, path="/"):
     bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
         f'<a href="{h}" class="{"on" if h == cur else ""}{" n" if h == "/natjecanje" else ""}"><span class=bi>{i}</span>{t}</a>'
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
-    return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
+    from ui import i18n
+    return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title><link rel=icon href=\"data:image/svg+xml,"
             f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}</style></head><body>"
             f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
-            f"{bbar}<script>{JS}{GL_JS}{CH_JS}{COLS_JS}{NAV_JS.replace('__PAGES__', _pages_json())}</script></body></html>")
+            f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}</script></body></html>")
 
 
 def map_page(qs=None):
@@ -727,7 +742,7 @@ def ext_icons(mint, url=None, labels=False):
 def tlink(mint, sym=None):
     """Token name opens our own page for the token; the small icons next to it open it on outside sites."""
     label = esc(sym) if sym else f"<code>{esc(short(mint))}</code>"
-    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena">{label}</a> ' + copy_icon(mint) + ext_icons(mint)
+    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena" translate=no>{label}</a> ' + copy_icon(mint) + ext_icons(mint)
 
 
 _COPY_JS = ("var m=this.dataset.m,b=this;(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject())"

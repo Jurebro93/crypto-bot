@@ -15,7 +15,24 @@ from email.message import EmailMessage
 
 
 def recipients():
-    return [x.strip() for x in (os.environ.get("REPORT_EMAIL_TO") or "").split(",") if x.strip()]
+    """REPORT_EMAIL_TO plus players who ticked "šalji mi jutarnji izvještaj" in ⚙️ Postavke."""
+    env = [x.strip() for x in (os.environ.get("REPORT_EMAIL_TO") or "").split(",") if x.strip()]
+    return env + [e for e in player_emails() if e.lower() not in {x.lower() for x in env}]
+
+
+def player_emails():
+    """Read-only look at league.db (the dashboard is its only writer)."""
+    import sqlite3
+    try:
+        from league import store
+        con = sqlite3.connect(f"file:{store.DB}?mode=ro", uri=True, timeout=5)
+        try:
+            return [r[0] for r in con.execute(
+                "SELECT email FROM profiles WHERE email_report=1 AND email IS NOT NULL AND email!=''")]
+        finally:
+            con.close()
+    except Exception:
+        return []
 
 
 def method():
@@ -29,7 +46,7 @@ def method():
 def missing():
     """Env vars still needed before the report can be emailed (for the dashboard page and the log)."""
     out = []
-    if not recipients():
+    if not [x for x in (os.environ.get("REPORT_EMAIL_TO") or "").split(",") if x.strip()] and not recipients():
         out.append("REPORT_EMAIL_TO")
     if not method():
         out.append("SMTP_USER + SMTP_PASSWORD (ili RESEND_API_KEY)")

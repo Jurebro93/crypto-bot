@@ -19,8 +19,11 @@ CSS = """
 .lg{--p1:#2a78d6;--p2:#eb6834;--p3:#1baf7a;--p4:#eda100;--p5:#e87ba4;--p6:#008300;--p7:#6250d6;--p8:#e34948;--pb:#8a8f98}
 @media (prefers-color-scheme:dark){.lg{--p1:#3987e5;--p2:#d95926;--p3:#199e70;--p4:#c98500;--p5:#d55181;--p6:#008300;--p7:#9085e9;--p8:#e66767;--pb:#7d838c}}
 .lg h2{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.lg h2 small{font-weight:400;color:var(--mut);font-size:13px}
+.about{margin:0 0 10px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13px}
+.about .soc{border:1px solid var(--line);border-radius:999px;padding:2px 10px;text-decoration:none;color:var(--fg)}
 .av{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;color:#fff;
- font-weight:700;font-size:14px;flex:none;background:var(--c)}.av.sm{width:22px;height:22px;font-size:11px}
+ font-weight:700;font-size:14px;flex:none;background:var(--c)}.av.img{background:var(--c) center/cover no-repeat;
+ box-shadow:0 0 0 2px var(--c)}.av.sm{width:22px;height:22px;font-size:11px}
 .pod{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:12px 0}
 .pc{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px 12px;
  border-top:4px solid var(--c);cursor:pointer;transition:box-shadow .15s,transform .15s}
@@ -189,6 +192,15 @@ def _cls(x):
 
 
 def _av(u, color, sm=False):
+    """Round badge: the player's profile picture (⚙️ Postavke) or the first letter in his colour."""
+    try:
+        from league import profiles
+        url = profiles.avatar_url(u)
+    except Exception:
+        url = None
+    if url:
+        return (f'<span class="av{" sm" if sm else ""} img" style="--c:{color};background-image:url({esc(url)})" '
+                f'role=img aria-label="{esc(u)}"></span>')
     return f'<span class="av{" sm" if sm else ""}" style="--c:{color}">{esc(u[:1].upper())}</span>'
 
 
@@ -351,6 +363,21 @@ def all_trades(d):
     return chips + table(["Igrač"] + TRADE_HEAD, rows, "allp", empty="Nitko još nije kupio nijedan token.")
 
 
+def _about(u):
+    """Short bio + social links the player entered in ⚙️ Postavke (nothing when empty)."""
+    try:
+        from league import profiles
+        bio, links = profiles.get(u).get("bio"), profiles.links(u)
+    except Exception:
+        return ""
+    if not bio and not links:
+        return ""
+    ls = " ".join(
+        (f'<a class=soc href="{esc(url)}" target=_blank rel="noopener nofollow">{icon} {esc(h if label != "Web stranica" else "web")}</a>'
+         if url else f'<span class=soc title="{esc(label)}">{icon} {esc(h)}</span>') for label, icon, url, h in links)
+    return (f'<div class=about>{"<i>" + esc(bio) + "</i> " if bio else ""}{ls}</div>')
+
+
 def player_cards(d, me):
     col = _colors(d["users"])
     out = []
@@ -369,12 +396,13 @@ def player_cards(d, me):
                  ("Serija", _streak_text(p["streak"]), "")]
         grid = "".join(f'<div class=stat><div class=l>{lbl}</div><div class="v {c}">{v}</div></div>' for lbl, v, c in stats)
         rows = _trade_rows([p], col, with_player=False)
+        about = _about(u)
         out.append(
             f'<details class=pl id="pl-{esc(u)}" style="--c:{col[u]}"><summary>{_av(u, col[u])}<b>{_medal(p["rank"])} {esc(u)}'
             f'{" (ti)" if u == me else ""}</b> {_mv(p["move"])}<span>{_live("eq:" + u, eq)}</span>'
             f'<span class="{_cls(p["profit"])}" data-live-cls="pr:{esc(u)}">{_live("pr:" + u, pr + " $")}</span>'
             f'<span class=mut>{p["open"]} otvoreno · {p["closed"]} zatvoreno</span></summary>'
-            f'<div class=in><div class=grid>{grid}</div>'
+            f'<div class=in>{about}<div class=grid>{grid}</div>'
             + table(TRADE_HEAD, rows, f"pt-{esc(u)}", empty=f"{esc(u)} još nije kupio nijedan token.")
             + "</div></details>")
     return "".join(out)

@@ -494,6 +494,34 @@ T("Jutarnji izvještaj", "sustav", "Dnevni sažetak svega bitnog, napisan svako 
   gdje=[("/izvjestaj", "Jutarnji izvještaj")])
 
 
+# ---------------------------------------------------------------- postavke (⚙️ Postavke, 1.11.2026)
+T("Postavke", "stranice", "Tvoj račun: lozinka, profilna slika, jezik, društvene mreže, e-mail i odjava.",
+  "Otvaraš ih na dnu izbornika (⚙️ Postavke). Ovdje mijenjaš lozinku (vrijedi odmah, ostali uređaji se odjave), "
+  "postavljaš sliku koja se vidi u Natjecanju, biraš hrvatski ili engleski, upisuješ X, Telegram i ostale profile da "
+  "te prijatelji mogu pratiti i, ako si se sam registrirao, možeš obrisati račun.",
+  "Promijeniš lozinku na mobitelu: laptop te traži da se ponovo prijaviš novom lozinkom.",
+  vidi=["profilna-slika", "jezik-aplikacije", "odjava-sa-svih-uredaja"], gdje=[("/postavke", "Otvori Postavke")],
+  alias=["⚙️ postavke", "settings", "moj račun"], k="str-postavke")
+T("Profilna slika", "trading", "Tvoja slika uz ime na ljestvici, podiju i kartici igrača u Natjecanju.",
+  "Odabereš bilo koju sliku s mobitela ili računala; aplikacija je sama izreže na kvadrat i smanji (256×256), pa "
+  "slanje traje sekundu. Bez slike se prikazuje prvo slovo imena u tvojoj boji.",
+  vidi=["str-postavke"], gdje=[("/postavke#slika", "Promijeni sliku")], alias=["slika", "avatar"])
+T("Jezik aplikacije", "sustav", "Hrvatski ili engleski: prekidač HR / EN pored Odjave u izborniku.",
+  "Hrvatski je osnovni jezik. Kad odabereš English, cijela aplikacija se prikazuje na engleskom. Izbor se pamti na "
+  "uređaju i u tvom računu. Novi tekstovi se prevode sami u pozadini, pa se rijetko koja rečenica na minutu-dvije "
+  "pokaže na hrvatskom dok se ne prevede.",
+  vidi=["str-postavke"], gdje=[("/postavke#jezik", "Promijeni jezik")], alias=["jezik", "language", "hr / en"])
+T("Odjava sa svih uređaja", "sustav", "Jednim klikom odjavljuje tvoj račun na svim ostalim mobitelima i računalima.",
+  "Prijava se inače pamti 60 dana. Ako si se prijavio na tuđem uređaju ili misliš da netko zna tvoju lozinku, klikni "
+  "ovo u Postavkama (i promijeni lozinku). Ti ostaješ prijavljen na uređaju na kojem si kliknuo.",
+  vidi=["str-postavke"], gdje=[("/postavke#sesije", "Postavke → Prijave na uređajima")],
+  alias=["prijave na uređajima", "odjavi me sa svih ostalih uređaja"])
+T("Društvene mreže igrača", "trading", "X, Telegram, Instagram i ostali profili koje je igrač upisao u Postavkama.",
+  "Prikazuju se na kartici igrača u Natjecanju, da se prijatelji mogu pratiti. Upisuje se samo ime računa ili link "
+  "profila; e-mail se nikad ne prikazuje drugima.",
+  vidi=["str-postavke"], gdje=[("/postavke#profil", "Uredi profil")], alias=["profil i društvene mreže", "o meni"])
+
+
 def _merge_help():
     """Every column explanation from ui/help.py is also a glossary entry (category 'stupci') unless a hand-written
     term already covers that label."""
