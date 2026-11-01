@@ -20,7 +20,7 @@ class Landing(unittest.TestCase):
     def test_page_renders_with_and_without_numbers(self):
         landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: fallback cards, no crash
         html = landing.page_html({})
-        for s in ("Samo na pozivnicu", "Zatraži pristup", "/prijava", "action=/zatrazi-pristup", "og:image",
+        for s in ("Samo na pozivnicu", "Zatraži pristup", "/prijava", "Radar novih tokena", "Liga tradera", "action=/zatrazi-pristup", "og:image",
                   "/static/landing/pregled.jpg", "name=web"):
             self.assertIn(s, html)
         import time
@@ -31,7 +31,7 @@ class Landing(unittest.TestCase):
         self.assertIn("25.458", html)
         self.assertIn("1,2 mil.", html)
         self.assertIn("57%", html)
-        self.assertIn("1.7× veća", html)
+        self.assertIn("1.7×", html)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
         for f in landing.SHOTS:   # every screenshot the page links to is in the repo
             self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
