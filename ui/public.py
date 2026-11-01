@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from ui.html import esc, logo
 from ui.urls import app_link as _app_link
+from ui import favicon as _fav  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC_DELAY_S = 86400          # calls younger than this are members-only
@@ -244,7 +245,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:type" content="{og_type}"><meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
-<meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
+<meta name=theme-color content="#ffffff">{_fav.HEAD}{jsonld}
 <style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}{secnav.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
@@ -514,7 +515,7 @@ def _seo_robots():
 
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    return ("User-agent: *\nAllow: /$\nAllow: /sitemap.xml\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
+    return ("User-agent: *\nAllow: /$\nAllow: /sitemap.xml\nAllow: /favicon\nAllow: /apple-touch-icon.png\nAllow: /icon-\nAllow: /site.webmanifest\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
             "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
             + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"

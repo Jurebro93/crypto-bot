@@ -8,6 +8,7 @@ import time
 from urllib.parse import quote
 from ui.urls import home_link as _home_link
 from ui.cols import CSS as COLS_CSS, JS as COLS_JS
+from ui import favicon as _fav  # noqa: E402
 
 # Menu: a few plain groups, every page with an icon and a one-line description. The same list drives the side menu
 # (laptop), the drawer + bottom bar (phone), the "Gdje je što" page and the page part of the search box.
@@ -482,8 +483,8 @@ def page(title, body, path="/"):
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
     from ui import deploypage, i18n, secnav
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
-            f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title><link rel=icon href=\"data:image/svg+xml,"
-            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}</style></head><body>"
+            f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
+            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}</style></head><body>"
             f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 

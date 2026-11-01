@@ -14,6 +14,7 @@ import hashlib
 import html as _html
 import json
 import os
+from ui import favicon as _fav  # noqa: E402
 
 PATH = "/cekamo-deploy"      # the page itself: preview + what the service worker caches
 HEADER = "X-MemeSonar-Deploy"  # marks our own page, so the service worker never swaps it for the cached copy
@@ -182,7 +183,7 @@ def html():
         j = JOKES[0]
         _cache["p"] = f"""<!doctype html><html lang=hr><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content="noindex,nofollow">
-<meta name=theme-color content="#ffffff"><title>Deploy u tijeku · {_html.escape(name)}</title>
+<meta name=theme-color content="#ffffff"><title>Deploy u tijeku · {_html.escape(name)}</title>{_fav.HEAD}
 <style>{CSS}</style></head><body><main>
 <div class=top>{svg}<span>{_html.escape(name)}</span></div>
 <div class=pill><span class=dot></span><span id=pill>{TEXT['hr']['pill']}</span></div>
