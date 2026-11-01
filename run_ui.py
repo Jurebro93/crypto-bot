@@ -153,6 +153,12 @@ def route(path, qs):
     if path == "/izvjestaj":
         from ui import reportpage
         return reportpage.page(qs)
+    if path == "/mapa":
+        from ui.html import map_page
+        return map_page(qs)
+    if path == "/trazi":
+        from ui import search
+        return search.page(qs)
     if path == "/outputs":
         return pages.outputs(qs)
     if path.startswith("/outputs/"):
@@ -213,6 +219,9 @@ class Handler(BaseHTTPRequestHandler):
             from ui import reportpage
             body = reportpage.raw(path[len("/izvjestaj/raw/"):])
             return self._send(200 if body else 404, body or b"nema izvjestaja")
+        if path == "/api/trazi":
+            from ui import search
+            return self._send(200, search.api(qs.get("q", "")).encode("utf-8"), "application/json")
         if path == "/api/paper":
             return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
         if path.startswith("/api/evidence/"):

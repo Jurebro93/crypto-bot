@@ -41,8 +41,7 @@ table.cards td.wrap{display:block;text-align:left}table.cards td.wrap::before{fl
 table.cards td.stk{position:static;box-shadow:none;font-weight:600;font-size:15px;text-align:left;padding-bottom:4px}
 table.cards td.stk::before{display:none}table.cards td.stk{max-width:none;min-width:0}table.cards td.stk .mut{font-weight:400;font-size:12px;display:inline-block}table.cards td.ch{display:none}
 table.cards tr:hover td{background:none}.tw:has(table.cards){max-height:none;overflow:visible}
-@media(max-width:700px){header{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}header b{margin-right:8px;white-space:nowrap}
-header a{padding:10px 8px;white-space:nowrap}nav.sub{padding:0 8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}nav.sub a{white-space:nowrap}
+@media(max-width:700px){
 main{padding:10px}h1{font-size:18px}.intro{font-size:13px;padding:8px 10px}.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 .stat .v{font-size:18px}.tw th,.tw td{padding:4px 6px}
 .tw table:not(.cards) .stk{max-width:34vw;min-width:90px;white-space:normal;overflow-wrap:break-word}.tw .stk *{white-space:normal}.tw .stk .mut{font-size:11px}
