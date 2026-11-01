@@ -3,6 +3,7 @@ import contextvars
 import datetime as dt
 import html
 import os
+import re
 import time
 from urllib.parse import quote
 from ui.cols import CSS as COLS_CSS, JS as COLS_JS
@@ -17,6 +18,8 @@ SECTIONS = [
     ("Početak", [
         _p("/", "🏠", "Pregled", "Najjači tokeni upravo sada i kako bot stoji danas.", "home početna dashboard kandidati"),
         _p("/mapa", "🧭", "Gdje je što", "Sve stranice na jednom mjestu, s kratkim opisom.", "izbornik mapa pomoć help"),
+        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam, broj i stranica, običnim riječima.",
+           "objašnjenje pojmovi rječnik značenje help pomoć info"),
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak svega bitnog, gotov prije 8 h.", "email mail report sažetak"),
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za vašu WhatsApp grupu: ljestvica, tradeovi, novosti.",
            "whatsapp grupa podijeli pošalji share novosti"),
@@ -117,6 +120,9 @@ def nav_group(path):
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
+    "/pojmovnik": ("Što znači svaki pojam u alatu", "Svaki pojam, ocjena, stupac i stranica objašnjeni običnim riječima, "
+                   "s primjerom, gdje ga vidiš i povezanim pojmovima. Svaki ⓘ u aplikaciji otvara objašnjenje odavde.",
+                   "Jedno mjesto istine za objašnjenja: kad se doda novi pojam, objašnjenje se pojavi svugdje."),
     "/korelacije": ("Tko radi zajedno i kako", "KOL grupe koje zovu iste tokene, walleti koji kupe prije poziva određenog "
                     "računa, walleti istog vlasnika, signali koji idu uz pumpu i što poznate grupe diraju sada, s AI "
                     "tumačenjem na vrhu.", "Spaja X, Telegram i on-chain podatke: praćene grupe idu u registar walleta, "
@@ -195,6 +201,15 @@ def intro_html(path):
             f"<div>{esc(sto)}</div><div class=mut style='margin-top:4px'>Uloga u cjelini: {esc(uloga)}</div></details>")
 
 
+def _h1_info(body, path):
+    """The page title gets an ⓘ that explains the whole page."""
+    i = body.find("</h1>")
+    if i < 0:
+        return body
+    pi = page_info(path)
+    return body[:i] + (" " + pi if pi else "") + body[i:] if pi else body
+
+
 def with_intro(body, path):
     """The intro box goes right under the page title, or at the top when the page has no <h1>."""
     intro = intro_html(path)
@@ -244,6 +259,19 @@ dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
 .tip{color:var(--acc);cursor:help;font-weight:400;font-size:12px}
 #tipbox{position:fixed;z-index:50;max-width:300px;background:var(--fg);color:var(--bg);padding:7px 10px;border-radius:6px;font:12px/1.4 system-ui,sans-serif;white-space:normal;pointer-events:none;display:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}.empty{color:var(--mut);padding:14px}
 
+dialog#gl{max-width:620px;width:calc(100% - 24px);max-height:85vh;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);padding:0;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+dialog#gl::backdrop{background:rgba(0,0,0,.45)}dialog#gl .bar2{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--line)}
+dialog#gl .bar2 button{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font:inherit;cursor:pointer}
+dialog#gl .body{padding:6px 18px 18px;font-size:15px;line-height:1.55}dialog#gl h3{font-size:18px;margin:6px 0 6px}
+.gl-cat{font-size:12px;color:var(--mut);margin-top:10px}.gl-short{font-weight:600}.gl-here{background:var(--bg);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:14px}
+.gl-ex{border-left:3px solid var(--acc);padding:4px 10px;margin:10px 0;font-size:14px}.gl-where,.gl-rel{margin:8px 0;font-size:14px}
+.gl-chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 9px;margin:2px 2px 2px 0;text-decoration:none;font-size:13px}
+.tip{display:inline-block;min-width:18px;text-align:center}
+.gl-top input{width:100%;max-width:560px;font-size:16px;padding:9px 12px;border-radius:10px}
+.gl-cats{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.gl-cats a{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 11px;text-decoration:none;font-size:13px}
+.gl-term{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;margin:8px 0;scroll-margin-top:80px}
+.gl-term h3{margin:4px 0}.gl-term p{margin:6px 0}.gl-term.hl{border-color:var(--acc);box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 25%,transparent)}
+.gl-a{margin-left:6px;opacity:.3;text-decoration:none;font-weight:400}.gl-al{font-size:12px}
 /* design pass 2026-10-31: calmer surfaces, clear hierarchy */
 body{font:14.5px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 main{padding:20px 20px 48px}
@@ -273,7 +301,6 @@ JS = """
   box.style.top=(r.bottom+6+box.offsetHeight>innerHeight?r.top-box.offsetHeight-6:r.bottom+6)+'px'},hide=()=>box.style.display='none';
  document.addEventListener('mouseover',e=>{const t=e.target.closest('.tip');t?show(t):hide()});
  document.addEventListener('focusin',e=>{const t=e.target.closest('.tip');if(t)show(t)});
- document.addEventListener('click',e=>{const t=e.target.closest('.tip');if(t){e.stopPropagation();show(t)}},true);
  addEventListener('scroll',hide,true)})();
 document.querySelectorAll('table.s').forEach(t=>{t.querySelectorAll('th').forEach(th=>th.onclick=e=>{if(e.target.closest('.tip'))return;
  const i=[...th.parentNode.cells].indexOf(th),b=t.tBodies[0],rows=[...b.rows],asc=th.dataset.asc==='0';t.querySelectorAll('th').forEach(x=>delete x.dataset.asc);th.dataset.asc=asc?'1':'0';
@@ -408,6 +435,7 @@ def side_menu(cur):
 
 
 def page(title, body, path="/"):
+    from ui.charts import CSS as CH_CSS, JS as CH_JS
     cur = nav_item(path)
     svg, name = logo(30)
     header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
@@ -421,9 +449,9 @@ def page(title, body, path="/"):
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title><link rel=icon href=\"data:image/svg+xml,"
-            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}</style></head><body>"
-            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{with_intro(body, path)}</main></div>"
-            f"{bbar}<script>{JS}{COLS_JS}{NAV_JS.replace('__PAGES__', _pages_json())}</script></body></html>")
+            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}</style></head><body>"
+            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
+            f"{bbar}<script>{JS}{GL_JS}{CH_JS}{COLS_JS}{NAV_JS.replace('__PAGES__', _pages_json())}</script></body></html>")
 
 
 def map_page(qs=None):
@@ -442,7 +470,7 @@ def map_page(qs=None):
 
 QUICK = [("/natjecanje", "🏆", "Natjecanje"), ("#istaknuti", "⭐", "Istaknuti tokeni"), ("/paper", "🤖", "Demo trading"),
          ("/dugorocno", "🌱", "Dugoročni"), ("/kol", "📣", "KOL-ovi"), ("/whatsapp", "📲", "Za WhatsApp"),
-         ("/mapa", "🧭", "Gdje je što")]
+         ("/mapa", "🧭", "Gdje je što"), ("/pojmovnik", "📖", "Pojmovnik")]
 
 
 def quick_links():
@@ -456,16 +484,66 @@ def tdesc(text):
     return f'<p class=tdesc>{text}</p>'
 
 
-def tip(text):
-    """Small ⓘ that shows `text` on hover or tap."""
-    return f'<span class=tip tabindex=0 data-tip="{esc(text)}">ⓘ</span>'
+def tip(text, k=None, label=None):
+    """Small ⓘ: hover shows `text`; click/tap opens the glossary pop-up (term `k` from ui/glossary.py, if any)."""
+    extra = (f' data-gk="{esc(k)}"' if k else "") + (f' data-gl="{esc(label)}"' if label else "")
+    return f'<span class=tip tabindex=0 role=button aria-label="Objašnjenje" data-tip="{esc(text)}"{extra}>ⓘ</span>'
+
+
+def info(label, k=None):
+    """ⓘ for a glossary term found by its visible label (or key `k`); "" when the glossary doesn't know it."""
+    from ui import glossary
+    k = k or glossary.lookup(label)
+    t = glossary.get(k) if k else None
+    return tip(t["short"], k, label) if t else ""
 
 
 def th(label, cls=""):
-    """Column header with its explanation from ui/help.py, if there is one."""
+    """Column header with its explanation from ui/help.py and the matching glossary term, if there is one."""
     from ui.help import HELP
-    h = HELP.get(label)
-    return f'<th class="{cls}">{label}{" " + tip(h) if h else ""}</th>'
+    from ui import glossary
+    h, k = HELP.get(label), glossary.lookup(label)
+    if not h and k:
+        h = glossary.get(k)["short"]
+    return f'<th class="{cls}">{label}{" " + tip(h, k, label) if h else ""}</th>'
+
+
+_ANN = re.compile(r'(<h[23](?:\s[^>]*)?>|<div class=l>)([^<>]{2,70})(?=</h[23]>|</div>)')
+
+
+def annotate(body):
+    """Add a glossary ⓘ to every section heading and stat-tile label whose text is a known term, so a new page
+    is explained without touching its code."""
+    from ui import glossary
+    idx = glossary.index()
+
+    def sub(m):
+        k = idx.get(glossary.norm(m.group(2)))
+        return m.group(0) + (" " + info(m.group(2), k) if k else "")
+    return _ANN.sub(sub, body)
+
+
+def page_info(path):
+    """ⓘ next to the page title explaining the whole page."""
+    from ui import glossary
+    k = glossary.page_key(path)
+    return info("", k) if k else ""
+
+
+GL_JS = """
+(()=>{const d=document.createElement('dialog');d.id='gl';d.innerHTML='<div class=bar2><a href=/pojmovnik class=glall>📖 Pojmovnik</a><button type=button>Zatvori ✕</button></div><div class=body></div>';
+document.body.appendChild(d);const body=d.querySelector('.body');d.querySelector('button').onclick=()=>d.close();
+d.addEventListener('click',e=>{if(e.target===d)d.close()});
+const open=async(k,l,t)=>{const tb=document.getElementById('tipbox');if(tb)tb.style.display='none';
+ body.innerHTML='<p class=mut>Učitavam objašnjenje…</p>';if(!d.open)d.showModal();d.scrollTop=0;
+ try{const r=await fetch('/api/pojam?k='+encodeURIComponent(k||'')+'&l='+encodeURIComponent(l||'')+'&t='+encodeURIComponent(t||''));
+  body.innerHTML=await r.text()}catch(e){const p=document.createElement('p');p.textContent=t||'Greška pri učitavanju.';body.replaceChildren(p)}};
+document.addEventListener('click',e=>{const t=e.target.closest('.tip,[data-gk].gl-chip');if(!t)return;
+ if(t.classList.contains('gl-chip')&&!d.contains(t))return;
+ e.preventDefault();e.stopPropagation();open(t.dataset.gk,t.dataset.gl,t.dataset.tip)},true);
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('tip')){e.preventDefault();e.target.click()}});
+})();
+"""
 
 
 # Rows a table sends by default. A 20k-row table is megabytes of HTML that a phone can't download, parse and lay
@@ -660,7 +738,7 @@ def ago(t):
 
 def breakdown(parts, total_label="Zbroj", stored=None, mult=None, mult_label=None):
     """Score parts as a table with bars."""
-    rows = [[esc(n), (f"{p:+.1f}" if p < 0 else f"{p:.1f}", p, "n"), (f"/ {m}", m, "n mut"),
+    rows = [[esc(n) + (" " + info(n) if info(n) else ""), (f"{p:+.1f}" if p < 0 else f"{p:.1f}", p, "n"), (f"/ {m}", m, "n mut"),
              bar(p, m) if m else "", f'<span class="mut">{esc(x)}</span>'] for n, p, m, x in parts]
     raw = sum(p for _, p, _, _ in parts)
     foot = f"<b>{total_label}: {raw:.1f}</b>"
