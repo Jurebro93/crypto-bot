@@ -224,10 +224,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, register.page_html(qs).encode("utf-8"))
         if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and not ok):   # public sales page (English main)
             from ui import landing
-            if path == "/en":
+            if path == "/en" and not ok:
                 return self._redirect("/")
-            lang = "en" if path == "/" else "hr"
-            self._index = path != "/dobrodosli"
+            lang = "en" if path in ("/", "/en") else "hr"   # /en: the English page for logged-in users (canonical /)
+            self._index = path not in ("/dobrodosli", "/en")
             return self._send(200, landing.page_html(qs, logged_in=ok and AUTH, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public

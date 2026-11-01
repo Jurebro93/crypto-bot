@@ -351,7 +351,7 @@ aside.side{position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;wi
 .side a.on{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc);font-weight:650}
 .side .sec-n{background:color-mix(in srgb,#f59f00 9%,transparent);border-radius:12px;padding:2px 0 6px;margin-top:10px}
 .side .sec-n h4{color:#d9480f;margin-top:10px}
-.side .out{color:var(--mut);font-size:13px;margin-top:20px}.side-head{display:none}
+.side .pub{margin-top:20px;font-weight:600}.side .out{color:var(--mut);font-size:13px;margin-top:4px}.side-head{display:none}
 .scrim{display:none}.bbar{display:none}
 .mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:8px 0 6px}
 a.mapcard{display:grid;grid-template-columns:auto 1fr;align-content:start;column-gap:12px;row-gap:2px;align-items:start;background:var(--card);
@@ -435,7 +435,8 @@ def side_menu(cur):
         b.append(f'<div class="{"sec-n" if sec == "Natjecanje" else ""}"><h4>{esc(sec)}</h4>' + "".join(
             f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'
             for p in items) + "</div>")
-    b.append('<a class=out href="/odjava"><span class=mi>↩</span>Odjava</a></aside>')
+    b.append('<a class=pub href="/dobrodosli" target=_blank rel=noopener><span class=mi>🌐</span>Javna stranica ↗</a>'
+             '<a class=out href="/odjava"><span class=mi>↩</span>Odjava</a></aside>')
     return "".join(b)
 
 
