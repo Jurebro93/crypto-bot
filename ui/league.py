@@ -59,7 +59,7 @@ def _copy_card(con, user):
     return ('<div class=card style="border:2px solid var(--acc,#f97316);display:flex;gap:14px;align-items:center;'
             'flex-wrap:wrap;margin:10px 0"><div style="font-size:30px">🔁</div><div style="flex:1;min-width:220px">'
             '<b style="font-size:17px">Copy trading: prati KOL-ove i wallete</b><br>'
-            '<span class=mut>Detaljna statistika svakog influencera i walleta. Klikni „Uđi na njihov call prvi” ili '
+            '<span class=mut>Detaljna statistika svakog influencera i walleta. Klikni „Prati i ulazi na svaki njegov call” ili '
             f'„Copy trade-aj ovaj wallet” i alat trguje umjesto tebe na ovom demo računu. {now}</span></div>'
             '<a href="/copy-trading"><button style="font-size:15px;padding:8px 16px">Otvori copy trading →</button></a>'
             '</div>')
