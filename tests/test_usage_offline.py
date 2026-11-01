@@ -138,6 +138,18 @@ class Fixes20261101(unittest.TestCase):
         self.assertIn("račun", st["rate_src"])
         self.assertNotIn("helius:pace", keys(con))
 
+    def test_busy_yesterday_is_not_todays_pace(self):
+        con = fresh()
+        # 31.10.-like: 2.4M spread over a whole busy day 26-50 h ago, then a calm 220k/day
+        pts, used = [], 0.0
+        for h in range(72, -1, -1):
+            pts.append((h, used))
+            used += 100000 if 26 <= h < 50 else 220000 / 24
+        self.snaps(con, pts)
+        con.commit()
+        st = watch.status(con, "helius", watch.config(), NOW)
+        self.assertLess(st["rate_day"], 300000)
+
     def test_lasting_rise_still_counts(self):
         con = fresh()
         pts, used = [], 0.0

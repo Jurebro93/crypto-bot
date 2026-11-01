@@ -90,14 +90,15 @@ def status(con, service, cfg, now=None):
             "runs_out": runs_out, "fair_day": budget * D / max(D, end - start)}
 
 
-BUCKET_H, LOOKBACK_H = 6, 72
+BUCKET_H, LOOKBACK_H = 6, 24
 
 
 def _window_rates(points, now):
-    """Steady spend per day from cumulative (ts, used) points, oldest first: the last 72 h cut into 6 h pieces, each
-    piece capped at 3x a normal piece, so one burst (a backfill, a first pass over many tokens) counts as a normal
-    piece instead of being stretched over the month, while a lasting rise still shows within hours (and bursts
-    have their own warnings). Returns [(rate per day, hours covered)], empty under 3 h of data."""
+    """Steady spend per day from cumulative (ts, used) points, oldest first: the last 24 h (a whole day, so quiet
+    night hours do not fool it) cut into 6 h pieces, each capped at 3x a normal piece, so one burst (a backfill, a
+    first pass over many tokens) counts as a normal piece instead of being stretched over the month. Anything older
+    than a day is not today's pace (01.11.2026: a busy 31.10. kept the forecast at "budget gone 06.11." while the
+    real pace was 220k/day). Bursts have their own warnings. Returns [(rate per day, hours)], empty under 3 h."""
     if len(points) < 2:
         return []
     t_first, end = points[0][0], points[-1]
@@ -119,14 +120,7 @@ def _window_rates(points, now):
         per_h = sorted(i / max(1, ln / H) for i, ln in zip(inc, lens))
         normal = max(statistics.median(per_h), statistics.mean(per_h[:-1]))
         inc = [min(i, 3 * normal * ln / H) for i, ln in zip(inc, lens)]
-    steady = sum(inc) * D / span
-
-    def raw(hours):
-        t0 = max(t_first, end[0] - hours * H)
-        return (end[1] - at(t0)) * D / (end[0] - t0) if end[0] - t0 >= 3 * H else None
-    # a lasting rise shows in both the last 6 h and the last 24 h, a burst that is over only in the 24 h
-    recent = [r for r in (raw(6), raw(24)) if r is not None]
-    return [(max(steady, min(recent) if recent else 0.0), round(span / H))]
+    return [(sum(inc) * D / span, round(span / H))]
 
 
 def steady_rate(con, service, now, start, last):
