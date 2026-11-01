@@ -145,6 +145,8 @@ def post(path, form, user):
             return back
         return f"{back}?ok={quote(msg)}"
     except (ValueError, KeyError, TypeError, sqlite3.OperationalError) as e:
-        return f"{back}?err={quote(str(e))}"
+        from ui.league import db_error, log_action
+        log_action(user, path, f"NIJE PROŠLO: {e}")
+        return f"{back}?err={quote(db_error(e))}"
     finally:
         con.close()

@@ -49,10 +49,29 @@ def _who(user):
 
 def _err(qs):
     if qs.get("err"):
-        return f'<div class=card style="border-color:var(--bad)"><b class=neg>Nije prošlo:</b> {esc(qs["err"])}</div>'
+        return (f'<div class=card style="border:2px solid var(--bad);background:var(--badbg)"><b class=neg>❌ Nije prošlo, '
+                f'ništa nije spremljeno:</b> {esc(qs["err"])}</div>')
     if qs.get("ok"):
-        return f'<div class=card style="border-color:var(--good)">{esc(qs["ok"])}</div>'
+        return f'<div class=card style="border:2px solid var(--good);background:var(--goodbg)">✅ {esc(qs["ok"])}</div>'
     return ""
+
+
+def db_error(e):
+    """SQLite errors in plain Croatian: on 1.11. the server disk was full for three hours and every buy failed with
+    the English 'database or disk is full', which the players did not notice."""
+    msg = str(e)
+    if isinstance(e, sqlite3.OperationalError):
+        if "full" in msg or "I/O" in msg:
+            return "disk servera je trenutno pun pa se trade nije mogao spremiti. Pokušaj ponovo za par minuta."
+        if "locked" in msg:
+            return "baza je bila zauzeta. Pokušaj ponovo."
+        return f"greška baze ({msg}). Pokušaj ponovo."
+    return msg
+
+
+def log_action(user, path, result):
+    """Every competition action in the server log, so 'I made a trade but it is not there' can be checked."""
+    print(f"natjecanje: {user or 'gost'} {path.rsplit('/', 1)[-1]} -> {result}", flush=True)
 
 
 # leaderboard, podium, chart, player cards: ui/leaguedash.py
@@ -127,7 +146,8 @@ def page(qs, user):
         if user:
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'
                      '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
-                     '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a></div>')
+                     '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
+                     '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a></div>')
         b.append(leaguedash.dashboard(con, mk, user))
         if not user:
             return "Natjecanje", "".join(b)
@@ -264,7 +284,15 @@ def _auto_form(mine):
 
 
 def post(path, form, user):
-    """Handle a form; returns where to send the browser next."""
+    """Handle a form; returns where to send the browser next. Successful actions are logged too."""
+    loc = _post(path, form, user)
+    if "ok=" in loc:
+        from urllib.parse import unquote
+        log_action(user, path, unquote(loc.split("ok=", 1)[1]))
+    return loc
+
+
+def _post(path, form, user):
     back = "/prijedlozi" if path.startswith("/prijedlozi") else "/natjecanje"
     _API["ts"] = 0   # a trade changes the live numbers
     if not user:
@@ -317,7 +345,8 @@ def post(path, form, user):
             return back
         return back
     except (ValueError, KeyError, sqlite3.OperationalError) as e:
-        return f"{back}?err={quote(str(e))}"
+        log_action(user, path, f"NIJE PROŠLO: {e}")
+        return f"{back}?err={quote(db_error(e))}"
     finally:
         con.close()
 

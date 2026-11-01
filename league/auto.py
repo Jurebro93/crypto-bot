@@ -152,6 +152,12 @@ def loop(market, every=EVERY_S):
             con = store.connect()
             for user, name, what in run_once(con, market):
                 print(f"natjecanje {user} {name}: {what}", flush=True)
+            try:   # copy trading: followed KOLs' calls and wallets' buys/sells (league/copy.py)
+                from . import copy
+                for user, what in copy.run_once(con):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
             from . import history
             history.maybe_snapshot(con, market)  # account values for the Natjecanje chart, every 15 min
             con.close()

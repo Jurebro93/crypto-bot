@@ -22,6 +22,8 @@ SECTIONS = [
     ("Natjecanje", [
         _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
            "liga ljestvica igra igrači demo račun kupi"),
+        _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
+           "kopiraj prati influencer kol wallet novčanik copy trade"),
         _p("/moji-tradeovi", "💼", "Moji pravi tradeovi", "Upiši svoje prave kupnje i prati koliko zarađuješ.",
            "real pravi novac portfelj"),
         _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
@@ -138,6 +140,8 @@ INTRO = {
                "samo preslikava ove ulaze."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
+    "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
+                      "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/prijedlozi": ("Što bi alat trebao raditi drugačije", "Prijedlozi korisnika i njihov status.", "Ulaz za sljedeće faze razvoja."),
     "/learn": ("Što alat uči iz ishoda", "Skok po klasi, koliko koji signal pomaže, udio skokova po rasponu vrijednosti, parovi signala, "
                "povijest automatskih promjena težina, propušteni tokeni.", "Zatvara krug: ishodi iz Pregleda i Demo tradinga "
