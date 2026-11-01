@@ -220,7 +220,8 @@ SECNAV_L = {"en": ("Page sections", "Back to top"), "hr": ("Sekcije stranice", "
 
 def _ga_tag(lang):
     from analytics import ga4
-    return ga4.tag(lang)
+    from ui import deploypage
+    return ga4.tag(lang) + deploypage.register_tag()   # + friendly deploy page instead of Render's 502
 
 
 def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image="/static/landing/kol.jpg",

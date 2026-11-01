@@ -36,7 +36,7 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
-SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik)$")   # served on every host
+SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz)$")   # served on every host
 
 
 def _host(url_or_host):
@@ -102,6 +102,7 @@ from ui.html import SHOW_ALL, esc, page  # noqa: E402
 from ui import pagecache  # noqa: E402
 from ui import i18n  # noqa: E402
 from ui import league  # noqa: E402
+from ui import deploypage  # noqa: E402
 from league import store as league_store  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -316,6 +317,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
         if path == "/jezik":
             return self._lang_switch(qs)
+        if path in ("/sw.js", deploypage.PATH, "/healthz"):   # deploy page + its service worker, every host, no login
+            if path == "/sw.js":
+                return self._send(200, deploypage.sw_js().encode("utf-8"), "text/javascript")
+            if path == "/healthz":
+                return self._send(200, b"ok", "text/plain")
+            self._public = True
+            return self._send(200, deploypage.html().encode("utf-8"))
         if path == "/prijava":
             return self._login(qs)
         if path == "/registracija":
@@ -734,6 +742,24 @@ class Handler(BaseHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
+def _bind(host, port):
+    """Take the port over from deploy_wait.py (the funny deploy page that holds it while we load): tell it to let
+    go, then retry the bind for a few seconds instead of failing on "address in use"."""
+    wait_flag = os.environ.get("DEPLOY_WAIT_FLAG", "/tmp/memesonar-ui-starting")
+    try:
+        open(wait_flag, "w").close()
+    except OSError:
+        pass
+    ThreadingHTTPServer.allow_reuse_address = True
+    for i in range(200):
+        try:
+            return ThreadingHTTPServer((host, port), Handler)
+        except OSError:
+            if i == 199:
+                raise
+            time.sleep(0.05)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
@@ -742,7 +768,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.host not in ("127.0.0.1", "localhost", "::1") and not AUTH:
         sys.exit("Slušaš na javnoj adresi bez lozinke. Postavi UI_PASSWORD=... ili koristi SSH tunel (vidi --help).")
-    srv = ThreadingHTTPServer((a.host, a.port), Handler)
+    srv = _bind(a.host, a.port)
     srv.verbose = a.verbose
     if os.environ.get("LEAGUE_AUTO_SELL", "1") == "1":  # competition auto sell; this process is league.db's only writer
         import threading
