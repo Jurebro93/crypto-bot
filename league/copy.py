@@ -79,8 +79,9 @@ def _paths():
 
 # ---------- follows -----------------------------------------------------------------------------------------------
 
-def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode="", tp="", sl=""):
-    """Start following (or update an existing follow of the same target). Returns the follow id."""
+def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode="", tp="", sl="", once=False):
+    """Start following (or update an existing follow of the same target). Returns the follow id.
+    once (KOLs only): enter their next call, then stop following by itself."""
     from . import auto
     ensure(con)
     if kind not in KIND_HR:
@@ -99,6 +100,8 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
     if exit_mode not in allowed:
         raise ValueError("nepoznat način izlaza")
     ex = {"mode": exit_mode}
+    if once and kind == "kol":
+        ex["once"] = True
     if exit_mode == "tpsl":
         # checked now on a made-up entry so a typo shows here and not silently on the first copied trade
         tp_px, _ = auto.parse_level(tp, 1.0, 1e6, "tp")
@@ -147,7 +150,7 @@ def follows(con, user=None, active=True):
 
 
 def describe_exit(ex):
-    s = EXIT_HR.get(ex.get("mode"), "")
+    s = ("samo sljedeći call, " if ex.get("once") else "") + EXIT_HR.get(ex.get("mode"), "")
     if ex.get("mode") == "tpsl":
         s += " (" + ", ".join(p for p in (f"TP {ex.get('tp')}" if ex.get("tp") else "",
                                           f"SL {ex.get('sl')}" if ex.get("sl") else "") if p) + ")"
@@ -299,7 +302,10 @@ def run_once(con, market_fn=None, now=None, paths=None):
         return []
     mk = (market_fn or market)({t for _, t, _, _ in todo}) or {}
     done = []
+    stopped = set()   # "only the next call" follows that already entered this minute
     for f, tok, side, ts in todo:
+        if f["id"] in stopped:
+            continue
         if _logged(con, f["id"], tok, side):
             continue   # the same token twice in this minute (X post + live webhook)
         m = mk.get(tok)
@@ -365,6 +371,9 @@ def run_once(con, market_fn=None, now=None, paths=None):
         _log(con, f, tok, side, ts, now, "ulaz", f"kupljeno za ${f['size_usd']:,.0f} na MC ${mcap or 0:,.0f}, "
              f"{late // 60} min {late % 60} s nakon {'poziva' if f['kind'] == 'kol' else 'njegove kupnje'}", sym, tid)
         done.append((f["user"], f"copy {name}: kupljeno {sym or tok[:6]} za ${f['size_usd']:,.0f}"))
+        if f["exit"].get("once"):
+            con.execute("UPDATE follows SET active=0, stopped=? WHERE id=?", (now, f["id"]))
+            stopped.add(f["id"])
     con.execute("DELETE FROM copy_log WHERE ts < ?", (now - CFG["keep_log_days"] * 86400,))
     con.commit()
     return done
