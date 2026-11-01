@@ -62,7 +62,7 @@ def window(con, cfg, now):
     return start, start + int(cfg.get("days", 7) * 86400)
 
 
-def rows(con, where="status != 'skip'", args=()):
+def rows(con, where="status IN ('open', 'done')", args=()):
     cur = con.execute(f"SELECT * FROM positions WHERE {where}", args)
     cols = [d[0] for d in cur.description]
     import json
