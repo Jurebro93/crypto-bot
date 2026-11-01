@@ -151,8 +151,10 @@ def verdict(weeks, cfg):
 def walk_forward(con, cfg, now=None):
     now = now or int(time.time())
     v = vcfg(cfg)
-    calls = kscore._rows(con, "SELECT * FROM calls WHERE kind = 'call' AND first_by_kol = 1 AND max24 IS NOT NULL "
-                              "AND ts < ?", (now - DAY,))
+    # only the columns kol_stats needs: SELECT * would also load every post's text (RAM on the 512 MB instance)
+    calls = kscore._rows(con, "SELECT handle, token, ts, kind, first_by_kol, max24, r1h, vol_lift, rug, pre2h, "
+                              "first_overall, views, likes, retweets, followers FROM calls WHERE kind = 'call' "
+                              "AND first_by_kol = 1 AND max24 IS NOT NULL AND ts < ?", (now - DAY,))
     foll = dict(con.execute("SELECT handle, COALESCE(followers, 0) FROM kols"))
     bots = {h for h, in con.execute("SELECT handle FROM kols WHERE bot = 1")}
     end = now - DAY  # the last day's calls have no 24 h outcome yet
