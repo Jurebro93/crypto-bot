@@ -162,6 +162,12 @@ class Timeline(unittest.TestCase):
 
 
 class TwitterApiIo(unittest.TestCase):
+    def setUp(self):  # keep test spend out of the shared usage meter
+        from unittest import mock
+        p = mock.patch("usage.meter.record")
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_round_budget_and_paging(self):
         import datetime as dt
         from kol import collect, twapi
