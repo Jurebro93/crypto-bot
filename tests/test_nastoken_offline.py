@@ -232,5 +232,17 @@ class Launch(Base):
         self.assertFalse(nastoken.tx_ok(raw[:50], payer, mint))
 
 
+class Strategy(Base):
+    def test_page(self):
+        title, body = nastoken.strategy_page({}, "Jure")
+        self.assertIn("$NAŠ", body)                  # no project yet: generic ticker
+        con = store.connect()
+        pid = store.save(con, "Jure", {"name": "Radar", "symbol": "RADAR"})
+        title, body = nastoken.strategy_page({"t": str(pid)}, "Jure")
+        for part in ("Ukratko", "tim od 4", "Claude Code", "Besplatno", "Izvori", "$RADAR"):
+            self.assertIn(part, body)
+        self.assertNotIn("{SYM}", body)
+
+
 if __name__ == "__main__":
     unittest.main()
