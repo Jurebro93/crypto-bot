@@ -143,6 +143,9 @@ class Translate(unittest.TestCase):
         self.assertIn("Pokvareno <a href=/x>link</a> ovdje", out)       # translation lost the link: kept Croatian
         self.assertIn("BONK", i18n._pending.keys() | {"BONK"})
 
+    def test_page_language(self):
+        self.assertIn("<html lang=en>", i18n.translate("<!doctype html><html lang=hr><body><p>Natjecanje</p></body></html>"))
+
     def test_queue_rules(self):
         i18n.translate("<p>Nešto novo za prevesti 7 puta</p><p>BONK</p><p>$WIF</p>"
                        "<p>9txCZaqYaQ62nFVcEWhosWx3vTMcJMFP5YYXQ5yhBAGS</p>")

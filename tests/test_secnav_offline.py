@@ -31,6 +31,13 @@ class SecnavTest(unittest.TestCase):
         self.assertEqual(d["Povratak na vrh"], "Back to top")
         self.assertEqual(d["Sekcije stranice"], "Page sections")
 
+    def test_table_paging_labels(self):
+        out = html.page("T", "<h1>T</h1>", "/")
+        self.assertIn("<div id=pglab hidden><span>Vidi još</span>", out)
+        self.assertIn("const PG=25", out)
+        en = public._shell("en", "T", "d", "/x", "/hr/x", "<h1>T</h1>")
+        self.assertIn("<span>See more:</span>", en)
+
     def test_js_has_no_script_close(self):
         self.assertNotIn("</script", secnav.JS)
 
