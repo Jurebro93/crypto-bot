@@ -109,7 +109,8 @@ def login_page(qs, err=""):
             + (f"<p class=neg>{e(err)}</p>" if err else "")
             + "<p><button type=submit>Prijavi se</button></p></form>"
             f"<p class=mut>Igrači ({e(users)}) upisuju svoje ime i svoju lozinku. Samo za gledanje: bilo koje ime i "
-            "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>")
+            "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>"
+            "<p>Nemaš račun? KriptoRadar je samo na pozivnicu: <a href=/dobrodosli#pristup><b>zatraži pristup</b></a>.</p>")
     miss = league_store.missing_passwords()
     if miss:
         body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))}. Postavljaju se u postavkama "
@@ -220,6 +221,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
+        if path == "/dobrodosli" or (path == "/" and not ok):   # public sales page; "/" for visitors not logged in
+            from ui import landing
+            return self._send(200, landing.page_html(qs, logged_in=ok and AUTH, ok=qs.get("poslano") == "1")
+                              .encode("utf-8"))
+        if path.startswith("/static/landing/"):
+            return self._static(path[len("/static/landing/"):])
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
@@ -232,6 +239,13 @@ class Handler(BaseHTTPRequestHandler):
             # that box, the page then just stays blank. 401 without WWW-Authenticate, so no box pops up.
             nxt = path + (f"?{u.query}" if u.query else "")
             return self._send(401, login_page({"next": nxt}).encode("utf-8"))
+        if path == "/zahtjevi":
+            from ui import landing
+            try:
+                html = page(*landing.admin_page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200, html.encode("utf-8"))
         if path in ("/natjecanje", "/prijedlozi", "/copy-trading"):
             SHOW_ALL.set(qs.get("sve") == "1")
             from ui import copytrade
@@ -324,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._login_post()
         if u.path == "/registracija":
             return self._register_post()
+        if u.path == "/zatrazi-pristup":
+            return self._request_post()
         if AUTH and not self._authorized():
             return self._send(401, login_page({}).encode("utf-8"))
         pagecache.clear()   # a run or a trade changes what the pages show
@@ -354,6 +370,9 @@ class Handler(BaseHTTPRequestHandler):
             form = dict(parse_qsl(self.rfile.read(min(n, 20_000)).decode("utf-8", "replace")))
             from ui import nastoken
             return self._redirect(nastoken.post(path, form, self.user))
+        if same_site and path.startswith("/zahtjevi/"):
+            from ui import landing
+            return self._redirect(landing.admin_post(path, self.user))
         if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
             from ui import whatsapp
             whatsapp.post_shared()
@@ -453,6 +472,35 @@ class Handler(BaseHTTPRequestHandler):
         msg = f"Dobrodošao, {name}! Tvoj demo račun od ${league_store.START_USD:,.0f} je spreman. Kupi prvi token ispod."
         return self._redirect(f"/natjecanje?ok={quote(msg)}#kupi", cookie=cookie)
 
+    def _request_post(self):
+        """'Zatraži pristup' on the public page: stored for the organiser (/zahtjevi)."""
+        from ui import landing
+        n = int(self.headers.get("Content-Length") or 0)
+        form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+        ip = (self.headers.get("X-Forwarded-For") or self.client_address[0] or "").split(",")[0].strip()
+        ok, err = landing.submit(form, ip)
+        if not ok:
+            return self._send(400, landing.page_html({}, err=err, form=form).encode("utf-8"))
+        return self._redirect("/dobrodosli?poslano=1#forma")
+
+    def _static(self, name):
+        """Screenshots of the public page: only plain file names from ui/static/landing."""
+        from ui import landing
+        if not re.fullmatch(r"[a-z0-9\-]+\.(jpg|png|webp)", name):
+            return self._send(404, b"")
+        fp = os.path.join(landing.STATIC, name)
+        if not os.path.isfile(fp):
+            return self._send(404, b"")
+        with open(fp, "rb") as f:
+            body = f.read()
+        ctype = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[name.rsplit(".", 1)[1]]
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _redirect(self, location, cookie=None):
         self.send_response(303)
         self.send_header("Location", location)
@@ -502,6 +550,8 @@ def main(argv=None):
         from ui.paper import market
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
+    from ui import landing
+    landing.start()   # live numbers of the public page, counted in the background
     pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     print(f"crypto-bot UI sluša na {a.host}:{a.port}" + ("  (sve adrese, lozinka uključena)" if a.host == "0.0.0.0" else "")
           + "  (Ctrl+C za kraj)")
