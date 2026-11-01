@@ -79,7 +79,15 @@ def path(c, lang):
 
 def urls():
     """[(path_en, path_hr, priority)] for the sitemap."""
-    return [(BASE["en"], BASE["hr"], "0.8")] + [(path(c, "en"), path(c, "hr"), "0.7") for c in _data().CATS]
+    return [(BASE["en"], BASE["hr"], "0.8")] + [(path(c, "en"), path(c, "hr"), "0.7") for c in _data().CATS] + _bot_urls()
+
+
+def _bot_urls():
+    try:
+        from ui import botguides
+        return botguides.urls()
+    except Exception:
+        return []
 
 
 def _chart(ch, lang):
@@ -167,7 +175,8 @@ def page(slug, lang="en"):
     from ui.public import _shell
     c = get(slug, lang)
     if not c:
-        return None
+        from ui import botguides   # Telegram bot overview + setup guides live under the same base path
+        return botguides.page(slug, lang)
     s, x = L[lang], c[lang]
     url = _base() + path(c, lang)
     faq_html, faq_ld = _faq(x["faq"], lang)
@@ -179,7 +188,7 @@ def page(slug, lang="en"):
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={BASE[lang]}>{s['crumb']}</a> · "
             f"{esc(x['tag'])}</div><h1>{esc(x['h1'])}</h1><div class=meta>{s['checked']} · {len(tools)} "
             f"{s['n_tools']} · {s['by']}</div><div class=tldr><b>{s['short']}</b><p>{x['tldr']}</p></div></section>"
-            f"{x['intro']}<h2>{s['table_h']}</h2></article>{_table(tools, lang)}<article class=art>"
+            f"{x['intro']}{_bot_box(c, lang)}<h2>{s['table_h']}</h2></article>{_table(tools, lang)}<article class=art>"
             f"<h2>{s['chart_h']}</h2>{x['chart_note']}{_chart(c['chart'], lang)}"
             f"<h2>{s['detail_h']}</h2>{''.join(_tool_card(t, lang) for t in tools)}"
             f"<h2>{s['choose_h']}</h2><ol>{choose}</ol><h2>{s['faq_h']}</h2>{faq_html}"
@@ -201,6 +210,14 @@ def page(slug, lang="en"):
             {"@type": "ListItem", "position": 2, "name": x["short"], "item": url}]},
         faq_ld]})
     return _shell(lang, x["title"], x["desc"], path(c, "en"), path(c, "hr"), body, jsonld=jsonld, og_type="article")
+
+
+def _bot_box(c, lang):
+    """On the trading-bots page: a box linking the Telegram bot overview and setup guides."""
+    if c["key"] != "trading":
+        return ""
+    from ui import botguides
+    return botguides.promo(lang)
 
 
 def index(lang="en"):

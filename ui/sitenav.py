@@ -53,7 +53,7 @@ ITEMS = {
     ],
 }
 
-PLUGINS = ("ui.blog", "ui.coinseo")
+PLUGINS = ("ui.blog", "ui.coinseo", "ui.botguides")
 
 
 def _tools_items(lang):
