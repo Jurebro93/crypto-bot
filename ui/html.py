@@ -465,12 +465,12 @@ def page(title, body, path="/"):
     bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
         f'<a href="{h}" class="{"on" if h == cur else ""}{" n" if h == "/natjecanje" else ""}"><span class=bi>{i}</span>{t}</a>'
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
-    from ui import i18n
+    from ui import i18n, secnav
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title><link rel=icon href=\"data:image/svg+xml,"
-            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}</style></head><body>"
-            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
-            f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}</script></body></html>")
+            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}</style></head><body>"
+            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
+            f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script></body></html>")
 
 
 def map_page(qs=None):
