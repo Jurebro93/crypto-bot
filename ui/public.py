@@ -212,11 +212,10 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{NAV_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
-<a class='lnk hm' href={'/solana-meme-coins' if lang == 'en' else '/hr/solana-meme-coini'}>{'Meme coins' if lang == 'en' else 'Meme coini'}</a>
-<a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href={'/blog' if lang == 'en' else '/hr/blog'}>Blog</a>{switch}
-<a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a></div></nav>
+{nav_links(lang)}{switch}
+<a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
 <main class=w>{body}</main>
 <footer style='margin-top:64px'><div class=w><p class=fl>{_foot_links(lang)}</p>© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 </body></html>"""
@@ -317,12 +316,55 @@ def profile(handle, lang):
     return _shell(lang, title, desc, f"/influencer/{h}", f"/hr/influencer/{h}", body, jsonld=jsonld)
 
 
+# One list of public sections, used by the nav, the mobile menu, the footer and the landing page "Explore" block.
+# (path, short nav label, footer label, one-line description). New public clusters: add one row per language here.
+SECTIONS = {
+    "en": [("/solana-meme-coins", "Meme coins", "Solana meme coins", "Top 100 Solana meme coins with charts and safety checks"),
+           ("/influencers", "Influencers", "Crypto influencers", "Every influencer call measured: hit rate, rugs, late calls"),
+           ("/glossary", "Glossary", "Crypto glossary", "Crypto and meme coin terms explained in plain words"),
+           ("/blog", "Blog", "Blog", "Guides on wallet tracking, copy trading and rug pulls, with our data")],
+    "hr": [("/hr/solana-meme-coini", "Meme coini", "Solana meme coini", "Top 100 Solana meme coina s grafovima i sigurnosnom provjerom"),
+           ("/hr/influenceri", "Influenceri", "Kripto influenceri", "Svaki poziv influencera izmjeren: pogodak, rugovi, kasni pozivi"),
+           ("/hr/rjecnik", "Rječnik", "Kripto rječnik", "Kripto i meme coin pojmovi objašnjeni jednostavno"),
+           ("/hr/blog", "Blog", "Blog", "Vodiči o praćenju novčanika, copy tradingu i rug pullovima, s našim podacima")],
+}
+
+
+def nav_links(lang):
+    return "".join(f"<a class='lnk hm' href={h}>{n}</a>" for h, n, _f, _d in SECTIONS[lang])
+
+
+def mobile_menu(lang):
+    """Phones: the section links collapse into a ☰ menu (no JS, a <details> element)."""
+    items = "".join(f"<a href={h}>{f}</a>" for h, _n, f, _d in SECTIONS[lang])
+    home, req = ("/", "Request access") if lang == "en" else ("/hr", "Zatraži pristup")
+    return (f"<details class=mnav><summary aria-label=Menu>☰</summary><div>{items}"
+            f"<a class='btn p sm' href={home}#pristup>{req}</a></div></details>")
+
+
+def explore(lang):
+    """Cards linking to every public section (landing page)."""
+    return "".join(f"<a class=ex href={h}><b>{f} →</b><span>{d}</span></a>" for h, _n, f, d in SECTIONS[lang])
+
+
+NAV_CSS = """
+.mnav{display:none;position:relative}.mnav summary{list-style:none;cursor:pointer;font-size:22px;line-height:1;padding:6px 4px}
+.mnav summary::-webkit-details-marker{display:none}.mnav summary:after{content:none!important}
+.mnav>div a.btn{display:flex!important}
+.mnav>div{position:absolute;right:0;top:44px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px;
+min-width:230px;box-shadow:0 20px 50px -20px rgba(11,18,32,.35);display:grid;gap:2px;z-index:40}
+.mnav>div a{padding:12px 14px;border-radius:10px;font-weight:550}.mnav>div a:hover{background:var(--soft)}
+.mnav>div .btn{margin-top:6px;color:#fff}
+@media(max-width:760px){.mnav{display:block}}
+.exg{margin-top:22px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}@media(max-width:900px){.exg{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.exg{grid-template-columns:1fr}}
+.ex{display:block;border:1px solid var(--line);border-radius:20px;padding:22px;background:#fff;transition:border-color .15s}
+.ex:hover{border-color:#cfd5e1}.ex b{display:block;font-size:17px;color:var(--acc)}.ex span{color:var(--mut);font-size:14.5px;display:block;margin-top:6px}
+"""
+
+
 def _foot_links(lang):
-    links = ([("/solana-meme-coins", "Solana meme coins"), ("/influencers", "Crypto influencers"),
-              ("/glossary", "Crypto glossary"), ("/blog", "Blog")] if lang == "en" else
-             [("/hr/solana-meme-coini", "Solana meme coini"), ("/hr/influenceri", "Kripto influenceri"),
-              ("/hr/rjecnik", "Kripto rječnik"), ("/hr/blog", "Blog")])
-    return " · ".join(f"<a href={h}>{x}</a>" for h, x in links)
+    return " · ".join(f"<a href={h}>{f}</a>" for h, _n, f, _d in SECTIONS[lang])
 
 
 def robots():
