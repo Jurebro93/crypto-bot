@@ -61,7 +61,7 @@ SECTIONS = [
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/moji-tradeovi/": "/moji-tradeovi", "/kol/": "/kol",
-              "/prijava": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
+              "/prijava": "/natjecanje", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar: the four places people go most, Natjecanje in the middle
 BOTTOM = [("/", "🏠", "Pregled"), ("/tokens", "🪙", "Tokeni"), ("/natjecanje", "🏆", "Natjecanje"), ("/paper", "🤖", "Demo")]
 

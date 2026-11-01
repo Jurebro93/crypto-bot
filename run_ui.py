@@ -31,7 +31,7 @@ from ui import league, real  # noqa: E402
 from league import store as league_store  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
-PLAYERS = {u.lower(): (u, os.environ.get(f"UI_PASS_{u.upper()}", "")) for u in league_store.users()}
+PLAYERS = {u.lower(): (u, os.environ.get(f"UI_PASS_{u.upper()}", "")) for u in league_store.env_users()}
 # view-only test account for Claude's checks of the live dashboard (no player, no trading, not in Natjecanje)
 VIEWER, VIEWER_PASS = os.environ.get("UI_TEST_USER", "Claude"), os.environ.get("UI_TEST_PASSWORD", "")
 AUTH = bool(PASSWORD or VIEWER_PASS or any(pw for _, pw in PLAYERS.values()))
@@ -39,6 +39,10 @@ AUTH = bool(PASSWORD or VIEWER_PASS or any(pw for _, pw in PLAYERS.values()))
 _SECRET = hashlib.sha256(("crypto-bot-session|" + PASSWORD + "|" + VIEWER_PASS + "|" + "|".join(pw for _, pw in PLAYERS.values()))
                          .encode()).digest()
 COOKIE, COOKIE_DAYS = "cb_s", 60
+
+
+def PLAYERS_NAMES():
+    return [p for p, _ in PLAYERS.values()]
 
 
 def _sign(name, exp):
@@ -64,7 +68,11 @@ def cookie_user(value):
     if VIEWER_PASS and name.lower() == VIEWER.lower():
         return True, None
     player, ppw = PLAYERS.get(name.lower(), (None, ""))
-    return (True, player) if player and ppw else (False, None)
+    if player:
+        return (True, player) if ppw else (False, None)
+    from league import members   # registered through an invite link
+    member = members.exists(name)
+    return (True, member) if member else (False, None)
 
 
 def check_password(name, pw):
@@ -74,6 +82,11 @@ def check_password(name, pw):
         return True, player
     if VIEWER_PASS and (name or "").strip().lower() == VIEWER.lower():
         return hmac.compare_digest(pw.encode(), VIEWER_PASS.encode()), None
+    if not player:
+        from league import members   # registered through an invite link
+        member = members.verify(name, pw)
+        if member:
+            return True, member
     return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode()), None
 
 
@@ -200,6 +213,9 @@ class Handler(BaseHTTPRequestHandler):
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
         if path == "/prijava":
             return self._login(qs)
+        if path == "/registracija":
+            from ui import register
+            return self._send(200, register.page_html(qs).encode("utf-8"))
         if path == "/odjava":
             return self._redirect("/prijava", cookie=f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
         if not ok:
@@ -272,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/prijava":
             return self._login_post()
+        if u.path == "/registracija":
+            return self._register_post()
         if AUTH and not self._authorized():
             return self._send(401, login_page({}).encode("utf-8"))
         pagecache.clear()   # a run or a trade changes what the pages show
@@ -362,6 +380,24 @@ class Handler(BaseHTTPRequestHandler):
         cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         return self._redirect(_safe_next(form.get("next", "/")), cookie=cookie)
+
+    def _register_post(self):
+        """Invite link form: makes the player, logs them in and opens the competition."""
+        from ui import register
+        n = int(self.headers.get("Content-Length") or 0)
+        form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+        name, err = register.post(form, list(PLAYERS_NAMES()) + [VIEWER])
+        if err:
+            time.sleep(1)   # slows down guessing invite links
+            return self._send(400, register.page_html({"k": form.get("k", ""), "name": form.get("name", "")}, err)
+                              .encode("utf-8"))
+        pagecache.clear()
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        cookie = (f"{COOKIE}={make_cookie(name)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
+                  f"SameSite=Lax{secure}")
+        from urllib.parse import quote
+        msg = f"Dobrodošao, {name}! Tvoj demo račun od ${league_store.START_USD:,.0f} je spreman. Kupi prvi token ispod."
+        return self._redirect(f"/natjecanje?ok={quote(msg)}#kupi", cookie=cookie)
 
     def _redirect(self, location, cookie=None):
         self.send_response(303)

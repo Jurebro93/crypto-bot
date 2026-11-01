@@ -27,14 +27,22 @@ CREATE TABLE IF NOT EXISTS ideas (
 """
 
 
-def users():
-    """Players, from UI_USERS (default Ivan,Panda,Jure). Each one's password is in UI_PASS_<NAME>."""
+def env_users():
+    """Players set on the server: UI_USERS (default Ivan,Panda,Jure), each one's password in UI_PASS_<NAME>."""
     return [u.strip() for u in os.environ.get("UI_USERS", "Ivan,Panda,Jure").split(",") if u.strip()]
+
+
+def users():
+    """All players: the server's list first (their colours stay), then those who registered via an invite link."""
+    base = env_users()
+    have = {u.lower() for u in base}
+    from league import members
+    return base + [m for m in members.names() if m.lower() not in have]
 
 
 def missing_passwords():
     """Players who cannot log in yet because their UI_PASS_<NAME> is not set."""
-    return [u for u in users() if not os.environ.get(f"UI_PASS_{u.upper()}")]
+    return [u for u in env_users() if not os.environ.get(f"UI_PASS_{u.upper()}")]
 
 
 def connect(path=None):
