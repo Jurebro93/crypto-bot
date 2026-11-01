@@ -389,6 +389,9 @@ def dashboard(con, mk, me):
             "sada (uz naknadu i klizanje cijene). ▲▼ je promjena mjesta u zadnja 24 sata. Klikni karticu igrača za "
             "njegove tradeove.</p>"
             + podium(d, me) + highlights(d)
+            + "<h2>Svi tradeovi</h2><p class=tdesc>Svi vide sve: tko je kada kupio, na kojem market capu, gdje je sada i koliko "
+              "je u plusu ili minusu. Filtriraj po igraču i statusu bez ponovnog učitavanja. PnL otvorenih je ono što bi "
+              "prodaja sada donijela.</p>" + all_trades(d)
             + "<details class=more id=allnum open><summary>Sve brojke po igraču</summary><p class=tdesc>Klikni naslov stupca za sortiranje. Uspješnost = udio zatvorenih "
               "tradeova u plusu. Serija = koliko zadnjih zatvorenih tradeova zaredom je bilo u plusu (🔥) ili minusu (🧊). "
               "Bot je račun koji alat vodi sam, preračunat na istih $1,000 od početka natjecanja; cijela njegova "
@@ -401,9 +404,7 @@ def dashboard(con, mk, me):
               f"${store.START_USD:,.0f}.</p>" + chart(d)
             + "<h2>Igrači</h2><p class=tdesc>Otvori igrača za njegove brojke i sve tradeove, otvorene i zatvorene.</p>"
             + player_cards(d, me)
-            + "<h2>Svi tradeovi</h2><p class=tdesc>Svi vide sve: tko je kada kupio, na kojem market capu, gdje je sada i koliko "
-              "je u plusu ili minusu. Filtriraj po igraču i statusu bez ponovnog učitavanja. PnL otvorenih je ono što bi "
-              "prodaja sada donijela.</p>" + all_trades(d)
+
             + f"</div><script>{JS.replace('__REFRESH__', str(REFRESH_S * 1000))}</script>")
 
 
