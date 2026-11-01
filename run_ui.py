@@ -16,6 +16,7 @@ import gzip
 import hashlib
 import hmac
 import os
+import re
 import sys
 import time
 import traceback
@@ -216,6 +217,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
+        m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
+        if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
+            from ui import nastoken
+            body = nastoken.meta_json(int(m.group(1)))
+            return self._send(200 if body else 404, (body or "{}").encode("utf-8"), "application/json")
         if path == "/odjava":
             return self._redirect("/prijava", cookie=f"{COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
         if not ok:
@@ -233,12 +239,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/nas-token/launch.js":
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "nastoken_launch.js"), "rb") as f:
+                return self._send(200, f.read(), "text/javascript")
         if path == "/nas-token" or path.startswith("/nas-token/"):
             from ui import nastoken
             rest = path[len("/nas-token/"):]
             try:
                 res = nastoken.page(qs, self.user) if path == "/nas-token" or not rest else \
-                    nastoken.project_page(int(rest), qs, self.user) if rest.isdigit() else None
+                    nastoken.project_page(int(rest), qs, self.user, self.headers.get("Host")) if rest.isdigit() else None
                 html = page(*res, path) if res else page("404", "<h1>Nema te stranice</h1>", path)
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
@@ -323,6 +332,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", handler(path, form, self.user))
             self.end_headers()
             return
+        if same_site and (path == "/nas-token/rpc" or path.endswith("/pump-tx")) and path.startswith("/nas-token/"):
+            import json
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(self.rfile.read(min(n, 200_000)) or b"{}")
+            except ValueError:
+                body = {}
+            from ui import nastoken
+            code, out = nastoken.api_post(path, body if isinstance(body, dict) else {}, self.user, self.headers.get("Host"))
+            return self._send(code, json.dumps(out).encode("utf-8"), "application/json")
         if same_site and path.startswith("/nas-token/"):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 20_000)).decode("utf-8", "replace")))

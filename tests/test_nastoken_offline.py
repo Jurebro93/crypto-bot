@@ -183,5 +183,54 @@ class Pages(Base):
         self.assertIn("Nema tog", nastoken.project_page(99, {}, "Jure")[1])
 
 
+class Launch(Base):
+    def test_test_mint_kept_apart(self):
+        con = store.connect()
+        pid = store.save(con, "Jure", {"name": "Naš", "symbol": "NASH"})
+        store.set_mint(con, pid, MINT, "test")
+        p = store.get(con, pid)
+        self.assertEqual((p["test_mint"], p["mint"], p["status"]), (MINT, None, "test"))
+
+    def test_buttons_locked_until_test_and_go_ahead(self):
+        os.environ.pop("NAS_TOKEN_MAINNET", None)
+        con = store.connect()
+        pid = store.save(con, "Jure", {"name": "Naš", "symbol": "NASH", "image_url": "https://x.hr/a.png"})
+        html = nastoken.launch_html(store.get(con, pid), "h")
+        self.assertIn("data-net=devnet", html)
+        self.assertNotIn("data-net=mainnet", html)
+        store.set_mint(con, pid, MINT, "test")
+        self.assertNotIn("data-net=mainnet", nastoken.launch_html(store.get(con, pid), "h"))
+        os.environ["NAS_TOKEN_MAINNET"] = "1"
+        try:
+            html = nastoken.launch_html(store.get(con, pid), "h")
+            self.assertIn("data-launch=pump data-net=mainnet", html)
+            self.assertIn("/nas-token/1/meta.json", html)
+        finally:
+            os.environ.pop("NAS_TOKEN_MAINNET", None)
+
+    def test_api_gates(self):
+        os.environ.pop("NAS_TOKEN_MAINNET", None)
+        self.assertEqual(nastoken.api_post("/nas-token/rpc", {"net": "devnet", "method": "getLatestBlockhash"}, None)[0], 401)
+        self.assertEqual(nastoken.api_post("/nas-token/rpc", {"net": "devnet", "method": "getBalance"}, "Jure")[0], 400)
+        self.assertEqual(nastoken.api_post("/nas-token/rpc", {"net": "mainnet", "method": "sendTransaction"}, "Jure")[0], 403)
+        self.assertEqual(nastoken.api_post("/nas-token/1/pump-tx", {}, "Jure")[0], 403)
+
+    def test_meta_json(self):
+        import json
+        con = store.connect()
+        pid = store.save(con, "Jure", {"name": "Naš", "symbol": "NASH", "image_url": "https://x.hr/a.png",
+                                       "x_url": "x.com/nash"})
+        m = json.loads(nastoken.meta_json(pid))
+        self.assertEqual((m["symbol"], m["image"], m["twitter"]), ("NASH", "https://x.hr/a.png", "https://x.com/nash"))
+        self.assertIsNone(nastoken.meta_json(99))
+
+    def test_pumpportal_tx_check(self):
+        raw = open(os.path.join(os.path.dirname(__file__), "fixtures", "pumpportal_create.bin"), "rb").read()
+        payer, mint = VAULT, "7Hx2bP4o1Dc6b2fKjnS5xCw3J3bm9yZ1xTqT5rWk5uZp"
+        self.assertTrue(nastoken.tx_ok(raw, payer, mint))
+        self.assertFalse(nastoken.tx_ok(raw, mint, payer))
+        self.assertFalse(nastoken.tx_ok(raw[:50], payer, mint))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -248,7 +248,7 @@ def _ways():
 
 # ---------- project page -----------------------------------------------------------------------------------------
 
-def project_page(pid, qs, user):
+def project_page(pid, qs, user, host=None):
     con = store.connect()
     try:
         p = store.get(con, pid)
@@ -273,6 +273,7 @@ def project_page(pid, qs, user):
         b.append(_cost_html(p))
         b.append(_package_html(p))
         if user:
+            b.append(launch_html(p, host))
             b.append(_mint_form(p))
         b.append(_plan_html(p))
         b.append(vault_html(con, user, p if p["status"] != "live" else None))
@@ -380,7 +381,7 @@ def _package_html(p):
 
 
 def _mint_form(p):
-    opts = "".join(f"<option value={k} {'selected' if p['status'] == k else ''}>{esc(v)}</option>"
+    opts = "".join(f"<option value={k} {'selected' if k == 'live' else ''}>{esc(v)}</option>"
                    for k, v in store.STATUS.items() if k != "nacrt")
     return (f"<form method=post action=/nas-token/{p['id']}/adresa class=card style='max-width:720px'>"
             "<b>Token je lansiran? Upiši njegovu adresu</b> <span class=mut>(mint adresa s pump.fun, Solscana ili "
@@ -466,3 +467,211 @@ def post(path, form, user):
 
 def _log(user, what, detail):
     print(f"nas-token: {user} {what} -> {detail}", flush=True)
+
+
+# ---------- launch from Phantom ----------------------------------------------------------------------------------
+
+import json as _json   # noqa: E402
+import os as _os   # noqa: E402
+
+DEVNET_RPC = "https://api.devnet.solana.com"
+RPC_METHODS = {"getLatestBlockhash", "sendTransaction", "getSignatureStatuses"}
+PUMPPORTAL = "https://pumpportal.fun/api/trade-local"
+WEB3 = "https://esm.sh/@solana/web3.js@1.98.0"
+SPL = "https://esm.sh/@solana/spl-token@0.4.9"
+
+
+def mainnet_on():
+    """Real-network buttons stay locked until Nicholas confirms the devnet test (Render env NAS_TOKEN_MAINNET=1)."""
+    return _os.environ.get("NAS_TOKEN_MAINNET") == "1"
+
+
+def base_url(host=None):
+    u = (_os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    return u or (f"https://{host}" if host else "")
+
+
+def meta_json(pid):
+    """Public token metadata (Metaplex / pump.fun format) for /nas-token/<id>/meta.json; None if no such project."""
+    con = store.connect()
+    try:
+        p = store.get(con, pid)
+    finally:
+        con.close()
+    if not p:
+        return None
+    out = {"name": p["name"], "symbol": p["symbol"], "description": p.get("description") or "",
+           "image": p.get("image_url") or "", "showName": True, "createdOn": "https://pump.fun"}
+    for k, v in (("website", "website"), ("twitter", "x_url"), ("telegram", "tg_url")):
+        if p.get(v):
+            out[k] = p[v]
+    if p.get("image_url"):
+        out["properties"] = {"files": [{"uri": p["image_url"], "type": "image/png"}], "category": "image"}
+    return _json.dumps(out, ensure_ascii=False)
+
+
+def launch_html(p, host=None):
+    pid = p["id"]
+    uri = f"{base_url(host)}/nas-token/{pid}/meta.json"
+    cfg = {"pid": pid, "name": p["name"][:32], "symbol": p["symbol"][:10], "uri": uri,
+           "decimals": int(p["decimals"] if p["launch"] != "pumpfun" else 6),
+           "supply": int(p["supply"] if p["launch"] != "pumpfun" else 1_000_000_000)}
+    b = ["<h2 id=lansiraj>🦊 Lansiraj iz Phantoma</h2>",
+         tdesc("Transakciju potpisuješ ti u svom Phantomu. Server ne dobiva ni ključ ni seed frazu; privremeni ključ "
+               "nove adrese tokena živi samo u ovoj kartici preglednika.")]
+    test = p.get("test_mint")
+    b.append("<div class=card><b>1. Test na testnoj mreži (devnet), besplatno</b><br>"
+             "Napravi pravi token s ovim imenom, slikom i supplyjem, ali na testnoj mreži gdje SOL ne vrijedi ništa. "
+             "Prije toga: u Phantomu Postavke → Developer Settings → uključi <b>Testnet Mode</b> i odaberi "
+             "<b>Solana Devnet</b>, pa uzmi besplatni testni SOL na <a href='https://faucet.solana.com' target=_blank "
+             "rel=noopener>faucet.solana.com ↗</a> (zalijepi svoju adresu, 1 SOL je dovoljan).<br>"
+             + (f"✅ Test je prošao: <a target=_blank rel=noopener href='https://solscan.io/token/{esc(test)}"
+                f"?cluster=devnet'>{esc(test[:6])}… na Solscanu ↗</a><br>" if test else "")
+             + f"<button type=button data-launch=spl data-net=devnet>🧪 {'Ponovi test' if test else 'Napravi testni token'}"
+               "</button> <span class=nt-out></span></div>")
+    real = "pump.fun" if p["launch"] == "pumpfun" else "pravu mrežu (vlastiti token, pa pool na " + \
+        costs.PATHS[p["launch"]]["short"] + ")"
+    if p.get("mint") and p["status"] == "live":
+        b.append(f"<div class=card>🚀 Token je već lansiran: <code>{esc(p['mint'])}</code></div>")
+    elif not test:
+        b.append(f"<div class=card><b>2. Lansiranje na {esc(real)}</b><br><span class=mut>Otključava se "
+                 "kad testni token prođe i Nicholas potvrdi test.</span></div>")
+    elif not mainnet_on():
+        b.append(f"<div class=card><b>2. Lansiranje na {esc(real)}</b><br>Test je prošao. Gumb za pravu mrežu "
+                 "uključujemo kad Nicholas potvrdi da je test u redu (javi u chatu).</div>")
+    else:
+        need = costs.launch_cost(p, sol_usd())
+        sol = need["sol"] - (float(p.get("liq_sol") or 0) if p["launch"] != "pumpfun" else 0)
+        warn = "" if p["launch"] != "pumpfun" or p.get("image_url") else \
+            "<p class=neg>Za pump.fun treba slika: dodaj link na sliku u Uredi podatke.</p>"
+        kind = "pump" if p["launch"] == "pumpfun" else "spl"
+        b.append(f"<div class=card style='border-color:var(--warn)'><b>2. Lansiranje na {esc(real)}: PRAVI NOVAC</b>"
+                 f"<br>Phantom treba oko <b>{sol:.2f} SOL</b> na pravoj mreži (isključi Testnet Mode). "
+                 + ("Kreiranje i naša prva kupnja idu u istoj transakciji (PumpPortal, ~0.5% naknade na kupnju). "
+                    if kind == "pump" else "Cijeli supply dolazi u tvoj novčanik; pool se zatim radi na "
+                    f"{esc(costs.PATHS[p['launch']]['short'])} (paket gore). ")
+                 + f"Ovo se ne može poništiti.{warn}<br><button type=button data-launch={kind} data-net=mainnet "
+                   f"data-confirm=\"Lansirati ${esc(p['symbol'])} na pravu mrežu? Troši pravi SOL i ne može se "
+                   "poništiti.\">🚀 Lansiraj</button> <span class=nt-out></span></div>")
+    b.append("<script type=module>"
+             f"import * as web3 from '{WEB3}';import * as spl from '{SPL}';"
+             "import {launchSpl, launchPump} from '/nas-token/launch.js';"
+             f"const cfg={_json.dumps(cfg, ensure_ascii=False).replace('</', '<' + chr(92) + '/')};"
+             "document.querySelectorAll('[data-launch]').forEach(function(btn){btn.onclick=function(){"
+             "if(btn.dataset.confirm&&!confirm(btn.dataset.confirm))return;"
+             "var out=btn.parentNode.querySelector('.nt-out');btn.disabled=true;"
+             "var c=Object.assign({},cfg,{net:btn.dataset.net});"
+             "(btn.dataset.launch==='pump'?launchPump(web3,c,out):launchSpl(web3,spl,c,out))"
+             ".finally(function(){btn.disabled=false});};});</script>")
+    return "".join(b)
+
+
+def _http_json(url, body, timeout=30):
+    import urllib.request
+    req = urllib.request.Request(url, data=_json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "kriptoradar/1"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status, r.read()
+
+
+def api_post(path, body, user, host=None):
+    """JSON endpoints for the launch buttons: (code, dict)."""
+    if not user:
+        return 401, {"error": "prijavi se svojim imenom"}
+    if path == "/nas-token/rpc":
+        net, method = body.get("net"), body.get("method")
+        if method not in RPC_METHODS:
+            return 400, {"error": "nedozvoljena metoda"}
+        if net == "devnet":
+            url = DEVNET_RPC
+        elif net == "mainnet" and mainnet_on():
+            key = _os.environ.get("HELIUS_API_KEY")
+            if not key:
+                return 503, {"error": "nema HELIUS_API_KEY"}
+            url = f"https://mainnet.helius-rpc.com/?api-key={key}"
+        else:
+            return 403, {"error": "prava mreža još nije uključena"}
+        try:
+            _, raw = _http_json(url, {"jsonrpc": "2.0", "id": 1, "method": method, "params": body.get("params") or []})
+            j = _json.loads(raw)
+        except Exception as e:  # noqa: BLE001
+            return 502, {"error": f"mreža ne odgovara ({str(e)[:120]})"}
+        if method == "sendTransaction":
+            _log(user, f"poslao transakciju ({net})", j.get("result") or j.get("error"))
+        return 200, {"result": j.get("result"), "error": (j.get("error") or {}).get("message") if j.get("error") else None}
+    m = re.fullmatch(r"/nas-token/(\d+)/pump-tx", path)
+    if m:
+        if not mainnet_on():
+            return 403, {"error": "prava mreža još nije uključena"}
+        con = store.connect()
+        try:
+            p = store.get(con, int(m.group(1)))
+        finally:
+            con.close()
+        if not p or p["launch"] != "pumpfun":
+            return 400, {"error": "ovaj token nije za pump.fun"}
+        if not p.get("test_mint"):
+            return 400, {"error": "prvo napravi testni token"}
+        if p.get("mint") and p["status"] == "live":
+            return 400, {"error": "token je već lansiran"}
+        if not p.get("image_url"):
+            return 400, {"error": "dodaj sliku tokena (link) u Uredi podatke"}
+        pk, mint = body.get("publicKey", ""), body.get("mint", "")
+        if not (store.ADDR.fullmatch(pk) and store.ADDR.fullmatch(mint)):
+            return 400, {"error": "neispravna adresa"}
+        req = {"publicKey": pk, "action": "create", "mint": mint, "denominatedInSol": "true",
+               "amount": float(p.get("dev_buy_sol") or 0), "slippage": 10, "priorityFee": 0.0005, "pool": "pump",
+               "tokenMetadata": {"name": p["name"][:32], "symbol": p["symbol"][:10],
+                                 "uri": f"{base_url(host)}/nas-token/{p['id']}/meta.json"}}
+        try:
+            code, raw = _http_json(PUMPPORTAL, req)
+        except Exception as e:  # noqa: BLE001
+            return 502, {"error": f"PumpPortal ne odgovara ({str(e)[:120]})"}
+        if code != 200 or raw[:1] == b"{":
+            return 502, {"error": f"PumpPortal: {raw[:200].decode('utf-8', 'replace')}"}
+        if not tx_ok(raw, pk, mint):
+            return 502, {"error": "PumpPortal je vratio neočekivanu transakciju, ne potpisuj; javi u chatu"}
+        import base64
+        _log(user, "pump.fun transakcija složena", mint)
+        return 200, {"tx": base64.b64encode(raw).decode()}
+    return 404, {"error": "nema te radnje"}
+
+
+PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _b58(b):
+    n, s = int.from_bytes(b, "big"), ""
+    while n:
+        n, r = divmod(n, 58)
+        s = _B58[r] + s
+    return "1" * (len(b) - len(b.lstrip(b"\0"))) + s
+
+
+def _cu16(b, i):
+    v = shift = 0
+    while True:
+        x = b[i]
+        i += 1
+        v |= (x & 0x7F) << shift
+        if not x & 0x80:
+            return v, i
+        shift += 7
+
+
+def tx_ok(raw, payer, mint):
+    """The transaction PumpPortal built: signed by exactly the player (fee payer) and the new mint, and it calls the
+    pump.fun program. Anything else is refused before it reaches Phantom."""
+    try:
+        n, i = _cu16(raw, 0)
+        i += 64 * n
+        if raw[i] & 0x80:
+            i += 1
+        nsig = raw[i]
+        i += 3
+        nk, i = _cu16(raw, i)
+        keys = [_b58(raw[i + 32 * k:i + 32 * k + 32]) for k in range(nk)]
+    except (IndexError, ValueError):
+        return False
+    return n == nsig == 2 and keys[:2] == [payer, mint] and PUMP_PROGRAM in keys
