@@ -144,7 +144,10 @@ def page(qs):
     head = ("<h1>Tržište: volumen po platformama</h1>"
             "<p class=mut>Koliko se trejda na kojem launchpadu (pump.fun, bonk.fun, Meteora…) i u kojim terminalima, "
             "kako se kreće cijeli Solana DEX volumen i je li tržište trencheva sada vruće ili hladno. "
-            "Izvor: DefiLlama (besplatno), provjerava se svaki sat, a DefiLlama brojeve osvježava jednom dnevno, pa su svi brojevi za pune UTC dane.</p>")
+            "Izvor: DefiLlama (besplatno), provjerava se svaki sat, a DefiLlama brojeve osvježava jednom dnevno, pa su svi brojevi za pune UTC dane.</p> "
+            "<p class=mut>🌐 Javne stranice iz ovih podataka (za Google i prijatelje): <a href=/hr/solana-trziste>Tržište danas</a> · "
+            "<a href=/hr/indeks-sezone-meme-coina>Indeks sezone</a> · <a href=/hr/solana-launchpadi>Launchpadi</a> · "
+            "<a href=/hr/solana-dex-volumen>DEX volumen</a> · <a href=/hr/najbolje-vrijeme-za-trgovanje-kriptom>Najbolje vrijeme</a></p>")
     con = store.ro()
     if con is None:
         return "Tržište", head + '<div class=empty>Još nema podataka o tržištu. Bot ih skuplja sam svaki sat.</div>'

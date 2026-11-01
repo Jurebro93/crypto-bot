@@ -56,6 +56,12 @@ class Collect(unittest.TestCase):
         self.assertNotIn("bridge", v)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM daily WHERE day>=?", (TODAY,)).fetchone()[0], 0)
 
+    def test_partial_last_day(self):
+        tot = {(TODAY - i * D, "all:dex"): 1000.0 for i in range(1, 12)}
+        self.assertIsNone(collect.partial_day(tot))
+        tot[(TODAY - D, "all:dex")] = 400.0
+        self.assertEqual(collect.partial_day(tot), TODAY - D)
+
     def test_snapshot(self):
         con = store.connect(os.path.join(tempfile.mkdtemp(), "market.db"))
         collect.snapshot(con, overview(), now=NOW)
