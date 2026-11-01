@@ -1159,3 +1159,7 @@ good record is rarely on their list.</li>
 </ul>
 <p>Members see both tabs live, with every call measured within minutes and copy-trading on the influencers that hit.</p>
 """, related=("what-is-a-kol-in-crypto", "influencer-clustering", "bundles-and-snipers"))
+
+
+# Posts added on 1 November 2026 live in their own module (sources noted per figure).
+from ui import blogposts_nov  # noqa: E402,F401

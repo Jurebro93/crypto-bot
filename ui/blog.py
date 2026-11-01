@@ -62,6 +62,16 @@ TERMS = {
     "company-crypto-investment-croatia": ("multisig", "hardware-wallet", "cex", "pnl"),
     "why-big-influencer-calls-are-hard-to-trade": ("kol", "stars-vs-rising-stars", "priority-fee", "front-running",
                                                    "sniper-bot", "hit-rate"),
+    "address-poisoning": ("crypto-wallet", "contract-address", "cex", "hardware-wallet"),
+    "zero-trust-support-calls": ("hardware-wallet", "crypto-wallet", "cex", "multisig"),
+    "polymarket-rules-checklist": ("token", "liquidity", "crypto-wallet"),
+    "polymarket-insider-moves": ("smart-money", "insider-wallet", "wallet-cluster", "memecoin"),
+    "perps-settings-after-october-10": ("liquidity", "stop-loss", "take-profit", "pnl", "cex"),
+    "tokens-sent-to-kol-wallets": ("copy-trading", "kol", "smart-money", "dev-wallet", "dex"),
+    "what-to-do-with-an-airdrop": ("token", "fdv", "liquidity", "take-profit"),
+    "fake-volume-check": ("trading-volume", "liquidity", "dex", "cex", "wallet-cluster"),
+    "after-kaito-yaps": ("kol", "crypto-call", "bot-account"),
+    "fair-token-launch-cca": ("launchpad", "sniper-bot", "bundler", "liquidity", "fdv"),
 }
 
 
@@ -71,7 +81,8 @@ CATS = [
      "Step by step: buying meme coins, swapping on Jupiter, trading plans, DCA and what slippage costs.",
      "Korak po korak: kupnja meme coina, swap na Jupiteru, plan trgovanja, DCA i koliko košta slippage.",
      ("how-to-buy-solana-meme-coins", "how-to-use-jupiter-swap", "how-to-trade-meme-coins", "what-is-pump-fun",
-      "market-cap-liquidity-slippage", "what-is-dca-in-crypto")),
+      "market-cap-liquidity-slippage", "what-is-dca-in-crypto", "perps-settings-after-october-10",
+      "what-to-do-with-an-airdrop")),
     ("exchanges-and-cards", "mjenjacnice-i-kartice", "Exchanges and cards", "Mjenjačnice i kartice",
      "Where to buy crypto legally in Croatia and the EU, and which cards let you spend it.",
      "Gdje legalno kupiti kripto u Hrvatskoj i EU i kojim karticama ga možeš trošiti.",
@@ -83,12 +94,21 @@ CATS = [
     ("rugs-and-scams", "rugovi-i-prevare", "Rugs and scams", "Rugovi i prevare",
      "How rug pulls, pump and dumps, bundles and snipers work, measured on thousands of tokens.",
      "Kako rade rug pullovi, pump and dump, bundleri i snajperi, izmjereno na tisućama tokena.",
-     ("how-to-spot-a-rug-pull", "what-is-a-pump-and-dump", "bundles-and-snipers")),
+     ("how-to-spot-a-rug-pull", "what-is-a-pump-and-dump", "bundles-and-snipers", "fake-volume-check",
+      "address-poisoning", "zero-trust-support-calls")),
     ("wallets-and-influencers", "novcanici-i-influenceri", "Wallets and influencers", "Novčanici i influenceri",
      "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
      "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
      ("what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
-      "what-is-wallet-tracking", "what-is-copy-trading")),
+      "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets")),
+    ("prediction-markets", "prediction-marketi", "Prediction markets", "Prediction marketi",
+     "How Polymarket markets resolve, how to read the rules and how to spot odds that move before the news.",
+     "Kako se rješavaju Polymarket tržišta, kako čitati pravila i kako uočiti kvote koje se pomaknu prije vijesti.",
+     ("polymarket-rules-checklist", "polymarket-insider-moves")),
+    ("for-crypto-projects", "za-kripto-projekte", "For crypto projects", "Za kripto projekte",
+     "For founders: fair token launches without snipers and getting real visibility on X.",
+     "Za osnivače: fer lansiranje tokena bez snajpera i stvarna vidljivost na X-u.",
+     ("fair-token-launch-cca", "after-kaito-yaps")),
 ]
 CAT_OF = {en: c for c in CATS for en in c[6]}
 
@@ -192,7 +212,11 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers", "telegram-trading-bots"),
              "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets", "telegram-trading-bots"), "what-is-a-pump-and-dump": ("rug-checkers",),
              "crypto-cards-croatia": ("crypto-wallets",), "company-crypto-investment-croatia": ("crypto-wallets",),
-             "why-big-influencer-calls-are-hard-to-trade": ("trading-bots", "crypto-analysis-tools", "telegram-trading-bots")}
+             "why-big-influencer-calls-are-hard-to-trade": ("trading-bots", "crypto-analysis-tools", "telegram-trading-bots"),
+             "address-poisoning": ("crypto-wallets",), "zero-trust-support-calls": ("crypto-wallets",),
+             "tokens-sent-to-kol-wallets": ("wallet-trackers", "copy-trading-platforms"),
+             "fake-volume-check": ("crypto-analysis-tools", "rug-checkers"), "what-to-do-with-an-airdrop": ("crypto-wallets",),
+             "perps-settings-after-october-10": ("trading-bots",)}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets",
@@ -401,6 +425,8 @@ _CAT_SHORT = {"guides": ("Step-by-step how-tos", "Upute korak po korak"),
               "exchanges-and-cards": ("Licensed exchanges and crypto cards", "Licencirane mjenjačnice i kartice"),
               "tax-and-law": ("Crypto tax in Croatia, companies", "Porez na kripto, firme"),
               "rugs-and-scams": ("Rug pulls and pump and dumps", "Rug pullovi i pump and dump"),
+              "prediction-markets": ("Polymarket rules and odds", "Pravila i kvote na Polymarketu"),
+              "for-crypto-projects": ("Token launches and marketing", "Lansiranje tokena i marketing"),
               "wallets-and-influencers": ("Wallet tracking, copy trading, KOLs", "Praćenje novčanika, copy trading, KOL")}
 
 
