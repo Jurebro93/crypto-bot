@@ -24,6 +24,9 @@ color:var(--fg)}
 .bl a:hover{border-color:#cfd5e1;box-shadow:0 10px 30px -18px rgba(11,18,32,.35)}
 .bl b{display:block;font-size:19px;line-height:1.3;margin:6px 0 8px}.bl span{color:var(--mut);font-size:15px}
 .bl em{font-style:normal;color:var(--acc);font-weight:650;font-size:13px}
+.bl a.cvr{padding:0;overflow:hidden}.bl a.cvr .cv{display:block;width:100%;height:auto;border-bottom:1px solid var(--line)}
+.bl a.cvr .bt{display:block;padding:16px 20px 20px}
+.art .bcov{margin:0 0 22px;border:1px solid var(--line);border-radius:18px;overflow:hidden}.art .bcov .cv{display:block;width:100%;height:auto}
 .bcat{margin:4px 0 22px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;scrollbar-width:none}.bcat::-webkit-scrollbar{display:none}
 .bcat a{white-space:nowrap}.bcat a.on{background:var(--fg);color:#fff;border-color:var(--fg)}
 h2.s a{color:inherit}h2.s a:hover{color:var(--acc)}
@@ -262,15 +265,19 @@ def urls():
     return out
 
 
-def _og(p):
-    name = f"blog-{p['en']}.png"
+def _og(p, lang="en"):
+    """Share image: the post's cover JPG in its language (scripts/blog_covers.py), else the EN one, else a screenshot."""
     from ui.landing import STATIC
-    return f"/static/landing/{name}" if os.path.isfile(os.path.join(STATIC, name)) else "/static/landing/kol.jpg"
+    for name in ((f"blog-{p['en']}-hr.jpg",) if lang == "hr" else ()) + (f"blog-{p['en']}.jpg",):
+        if os.path.isfile(os.path.join(STATIC, name)):
+            return f"/static/landing/{name}"
+    return "/static/landing/kol.jpg"
 
 
 def _card(v, lang):
-    return (f"<a href={L[lang]['base']}/{v['slug']}><em>{esc(v['tag'])}</em><b>{esc(v['h1'])}</b>"
-            f"<span>{esc(v['desc'])}</span></a>")
+    from ui.blogcover import svg
+    return (f"<a class=cvr href={L[lang]['base']}/{v['slug']}>{svg(v, lang, decorative=True)}<div class=bt>"
+            f"<em>{esc(v['tag'])}</em><b>{esc(v['h1'])}</b><span>{esc(v['desc'])}</span></div></a>")
 
 
 def index(lang="en"):
@@ -358,6 +365,7 @@ def _ld(obj):
 def page(slug, lang="en"):
     """HTML of one post in that language, or None."""
     from ui.public import _shell
+    from ui.blogcover import svg
     t = L[lang]
     p = get(slug, lang)
     if not p:
@@ -368,7 +376,7 @@ def page(slug, lang="en"):
     url = f"{_base()}{t['base']}/{slug}"
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "BlogPosting", "headline": p["h1"], "description": p["desc"], "datePublished": p["date"],
-         "dateModified": p.get("updated", p["date"]), "mainEntityOfPage": url, "image": _base() + _og(p),
+         "dateModified": p.get("updated", p["date"]), "mainEntityOfPage": url, "image": _base() + _og(p, lang),
          "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "MemeSonar"},
          "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "BreadcrumbList", "itemListElement": [
@@ -380,14 +388,14 @@ def page(slug, lang="en"):
     crumb_cat = (f"<a href={cat_path(c, lang)}>{c[2 if lang == 'en' else 3]}</a>" if c else esc(p["tag"]))
     body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
             f"{crumb_cat}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
-            f"{t['read']} · {t['by']}</div><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
+            f"{t['read']} · {t['by']}</div><figure class=bcov>{svg(p, lang)}</figure><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
             f"{_link_terms(p['body'], lang)}{_tools(p['en'], lang)}<div class=lock><p>{t['lock']}</p>"
             f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
             f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
     en = f"/blog/{p['en']}"
     hr_v = view(next(x for x in _posts() if x["slug"] == p["en"]), "hr")
     hr = f"/hr/blog/{hr_v['slug']}" if hr_v else None
-    return _shell(lang, p["title"], p["desc"], en, hr, body, jsonld=jsonld, og_image=_og(p), og_type="article")
+    return _shell(lang, p["title"], p["desc"], en, hr, body, jsonld=jsonld, og_image=_og(p, lang), og_type="article")
 
 
 def _date(d, lang="en"):
