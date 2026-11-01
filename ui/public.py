@@ -43,7 +43,7 @@ L = {
              "Rugs: share of called tokens that dropped 90% or more.",
              "Late calls: calls made after the price had already doubled in the 2 hours before.",
              "Bots that post every new token are excluded. Few measured calls means a less certain score."),
-        p_title="@{h} crypto calls: score {sc}, {hit} hit rate | KriptoRadar",
+        p_title="@{h} crypto: calls, track record and score {sc} ({hit} hit rate) | KriptoRadar",
         p_desc="How did @{h}'s Solana token calls play out? {m} calls measured: {hit} gained 50%+ within 24h, median "
                "peak {mx}, {rug} rugged. Updated daily.",
         summary="@{h} has posted {m} measured Solana token calls. {hit} of them gained at least 50% within 24 hours, "
@@ -74,7 +74,7 @@ L = {
              "Rugovi: udio pozvanih tokena koji su pali 90% ili više.",
              "Kasni pozivi: pozivi nakon što se cijena već udvostručila u 2 sata prije.",
              "Botovi koji objavljuju svaki novi token su izbačeni. Malo izmjerenih poziva znači manje sigurnu ocjenu."),
-        p_title="@{h} crypto pozivi: ocjena {sc}, pogodak {hit} | KriptoRadar",
+        p_title="@{h} kripto: pozivi, rezultati i ocjena {sc} (pogodak {hit}) | KriptoRadar",
         p_desc="Kako su prošli pozivi Solana tokena od @{h}? Izmjereno {m} poziva: {hit} je naraslo 50%+ u 24 h, medijan "
                "vrha {mx}, {rug} rugova. Osvježava se svaki dan.",
         summary="@{h} je objavio {m} izmjerenih poziva Solana tokena. {hit} ih je naraslo barem 50% u 24 sata, tipičan "
@@ -369,11 +369,30 @@ def _foot_links(lang):
     return " · ".join(f"<a href={h}>{f}</a>" for h, _n, f, _d in SECTIONS[lang])
 
 
+def _seo_extra(fn):
+    """Internal links from ui/coinseo.py ('' if that module fails, so the coin pages never break)."""
+    try:
+        from ui import coinseo
+        return fn(coinseo)
+    except Exception as e:  # noqa: BLE001
+        print(f"coinseo: {e}", flush=True)
+        return ""
+
+
+def _seo_robots():
+    try:
+        from ui import coinseo
+        return coinseo.ROBOTS
+    except Exception:  # noqa: BLE001
+        return ()
+
+
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
+            + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -390,6 +409,11 @@ def sitemap():
     from ui import glossary_public as GP
     urls.append(("/glossary", "/hr/rjecnik", "0.8"))
     urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
+    try:
+        from ui import coinseo
+        urls += coinseo.urls()
+    except Exception as e:  # noqa: BLE001
+        print(f"sitemap: coinseo nedostupan: {e}", flush=True)
     try:
         from ui import tools
         urls += tools.urls()
@@ -417,6 +441,16 @@ def sitemap():
     return "\n".join(out)
 
 
+def _seo_page(path):
+    """Coin SEO pages (price prediction, how to buy, rug check, daily lists) from ui/coinseo.py, or None."""
+    try:
+        from ui import coinseo
+        return coinseo.match(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"coinseo: {e}", flush=True)
+        return None
+
+
 def route(path):
     """(code, body bytes, content type) for a public path, or None when the path is not public."""
     if path in ("/robots.txt", "/sitemap.xml"):
@@ -424,6 +458,8 @@ def route(path):
     elif path in ("/solana-meme-coins", "/hr/solana-meme-coini"):
         lang = "en" if path == "/solana-meme-coins" else "hr"
         fn, ctype = (lambda: coin_list(lang)), "text/html"
+    elif _seo_page(path):
+        fn, ctype = _seo_page(path), "text/html"
     elif re.fullmatch(r"(/hr)?/coin/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
         fn, ctype = (lambda: coin_page(slug, lang)), "text/html"
@@ -600,7 +636,8 @@ def coin_list(lang):
              if trs else f"<p class=mut>{base_t['none']}</p>")
     body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1>"
             f"<p class=lead>{t['lb_lead'].format(n=len(rows) or 100)}</p></section>{table}"
-            f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>")
+            f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>"
+            + _seo_extra(lambda S: S.list_links(lang)))
     jsonld = ('<script type="application/ld+json">' + json.dumps({
         "@context": "https://schema.org", "@type": "ItemList", "name": t["lb_h1"],
         "itemListElement": [{"@type": "ListItem", "position": r["rank"], "name": f"{r['name']} ({r['symbol']})",
@@ -702,6 +739,7 @@ def coin_page(slug, lang):
             f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
             f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
             f"{addr}<h2 class=s>{t['faq_h'].format(sym=sym)}</h2><div class=faq style='margin:0'>{faq_html}</div>"
+            f"{_seo_extra(lambda S: S.more(r, lang, 'coin'))}"
             + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))
     title = t["p_title"].format(name=r["name"] or r["symbol"], sym=r["symbol"])
     desc = t["p_desc"].format(name=r["name"] or r["symbol"], sym=r["symbol"], rank=r["rank"] or "–",

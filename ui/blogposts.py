@@ -588,3 +588,275 @@ at a level you could live with as the full cost, and size the trade to the pool.
 <p>Next: <a href=/blog/how-to-trade-meme-coins>how to trade meme coins</a>, or the checks in
 <a href=/blog/how-to-spot-a-rug-pull>how to spot a rug pull</a>.</p>
 """, related=("how-to-trade-meme-coins", "what-is-dca-in-crypto", "how-to-spot-a-rug-pull"))
+
+
+# 11 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+EXCH_SRC = "HANFA register, ESMA/national regulator announcements, published fee pages; checked 1 Nov 2026"
+FEE_SRC = "exchanges' published fee pages and the top7.hr comparison of 28 Sep 2026; fees change, check before you pay"
+post(
+    "best-crypto-exchanges-croatia", "Exchanges",
+    "Best crypto exchanges in Croatia and the EU (2026): licensed under MiCA, compared",
+    "Best crypto exchanges in Croatia 2026: MiCA-licensed, fees compared | KriptoRadar",
+    "Which crypto exchanges are licensed for Croatia in 2026? 5 HANFA-licensed Croatian firms and 9 MiCA exchanges "
+    "compared by regulator, fees, Croatian support and cash options.",
+    ["best crypto exchange croatia", "crypto exchange eu regulated", "mica licensed exchanges", "kriptomjenjačnica"], 9,
+    "Since 1 July 2026 every crypto exchange serving Croatians must hold a MiCA licence. Five Croatian firms are on "
+    "HANFA's register (Electrocoin, Bitcoin Store, Kriptomat, Whitely, IN Kapital), and the big EU exchanges (Kraken, "
+    "Coinbase, Bitstamp, Bitpanda, Revolut, OKX, Bybit, Crypto.com, Bitvavo) passport their licence into Croatia. "
+    "Cheapest to trade: OKX, Bitstamp and Kraken Pro. Easiest in Croatian: Electrocoin and Bitcoin Store.",
+    f"""
+<h2>Why the licence matters now</h2>
+<p>The EU's Markets in Crypto-Assets regulation (<b>MiCA</b>) replaced national rules. The transition period ended on
+<b>1 July 2026</b>: from that day a company may serve customers in Croatia only with a MiCA licence, either from
+HANFA (the Croatian regulator) or from another EU regulator, passported into Croatia. A licence means capital
+requirements, segregated customer funds, complaint handling and a regulator you can write to. It does not mean the
+coins you buy are safe; meme coins stay meme coins.</p>
+{stats([("5", "Croatian firms on HANFA's register"), ("9+", "big EU exchanges licensed under MiCA"),
+        ("1 Jul 2026", "end of the transition period")])}
+
+<h2>Croatian exchanges licensed by HANFA</h2>
+<p>These companies are on HANFA's register of firms authorised to provide crypto-asset services. Electrocoin was the
+first to receive a full MiCA licence from HANFA.</p>
+<div class=tw><table><thead><tr><th>Exchange</th><th>Company</th><th>Based in</th><th>Good for</th></tr></thead><tbody>
+<tr><td><b>Electrocoin</b></td><td>Electrocoin d.o.o.</td><td>Zagreb</td><td>Croatian support 24/7, buying in euros, pay at shops</td></tr>
+<tr><td><b>Bitcoin Store</b></td><td>Digital Assets d.o.o.</td><td>Split</td><td>Branches with cash, no deposit or withdrawal fees</td></tr>
+<tr><td><b>Kriptomat</b></td><td>Bitblock d.o.o.</td><td>Zagreb</td><td>Simple app, Croatian interface</td></tr>
+<tr><td><b>Whitely</b></td><td>White Tech d.o.o.</td><td>Zagreb</td><td>Buy and store, Croatian support</td></tr>
+<tr><td><b>IN Kapital</b></td><td>IN Kapital d.o.o.</td><td>Sesvete</td><td>Exchange of crypto for euros</td></tr>
+</tbody></table></div>
+<p class=mut>Source: <a href="https://www.hanfa.hr/registri/trziste-kriptoimovine/registar-drustava-ovlastenih-pruzati-usluge-povezane-s-kriptoimovinom/" rel=nofollow>HANFA register</a>, checked 1 Nov 2026.</p>
+
+<h2>EU exchanges licensed under MiCA</h2>
+<p>These hold a MiCA licence from another EU country and can serve Croatia through passporting.</p>
+<div class=tw><table><thead><tr><th>Exchange</th><th>Regulator</th><th>Licence date</th></tr></thead><tbody>
+<tr><td><b>Crypto.com</b></td><td>MFSA (Malta)</td><td>27 Jan 2025</td></tr>
+<tr><td><b>OKX</b></td><td>MFSA (Malta)</td><td>27 Jan 2025</td></tr>
+<tr><td><b>Bitpanda</b></td><td>BaFin (Germany), also Austria</td><td>2025</td></tr>
+<tr><td><b>Bitstamp</b></td><td>CSSF (Luxembourg)</td><td>15 May 2025</td></tr>
+<tr><td><b>Bybit</b></td><td>FMA (Austria)</td><td>28 May 2025</td></tr>
+<tr><td><b>Coinbase</b></td><td>CSSF (Luxembourg)</td><td>20 Jun 2025</td></tr>
+<tr><td><b>Kraken</b></td><td>Central Bank of Ireland</td><td>25 Jun 2025</td></tr>
+<tr><td><b>Bitvavo</b></td><td>AFM (Netherlands)</td><td>26 Jun 2025</td></tr>
+<tr><td><b>Revolut</b></td><td>CySEC (Cyprus)</td><td>2025</td></tr>
+</tbody></table></div>
+<p>Binance did not hold a MiCA licence when we checked (1 Nov 2026), so its services for EU users are restricted.
+Always check the regulator's own register before you deposit; a website that says "regulated" is not proof.</p>
+
+<h2>What buying costs</h2>
+<p>Exchanges charge in two ways: a visible <b>trading fee</b> on an order-book platform (Kraken Pro, Bitstamp, OKX), or
+a <b>spread</b> hidden in the price on a simple "Buy" button. The spread is usually the bigger cost. The chart shows
+the lowest published cost of a buy:</p>
+{bars("Lowest published cost of buying crypto",
+      [("OKX (order book, taker)", 0.10, "maker 0.08%"),
+       ("Bitstamp (order book, taker)", 0.40, "simple buy: spread about 1.8% plus up to 0.5%"),
+       ("Kraken Pro (taker)", 0.40, "simple buy: 1% plus spread"),
+       ("Bitcoin Store (spread)", 0.50, "spread 0.5-5% depending on coin and amount"),
+       ("Revolut (standard plan)", 1.49, "plus 0-3% spread; 0.99% on Premium/Metal"),
+       ("Electrocoin (Trade account)", 1.75, "about 2% on the web buy")],
+      sub="Percent of the amount, before deposit and withdrawal fees", fmt="pct2", hl=(0, 1, 2), source=FEE_SRC)}
+<div class=tw><table><thead><tr><th>Exchange</th><th>Euro deposit</th><th>Euro withdrawal</th><th>Croatian support</th></tr></thead><tbody>
+<tr><td>Kraken</td><td>SEPA free</td><td>€1</td><td>No</td></tr>
+<tr><td>Bitstamp</td><td>SEPA free; card 4%</td><td>€3</td><td>No</td></tr>
+<tr><td>Revolut</td><td>From your Revolut account</td><td>Free inside Revolut</td><td>Yes (app)</td></tr>
+<tr><td>Electrocoin</td><td>Bank transfer, shops</td><td>€0.50 (min €5)</td><td>Yes, 24/7</td></tr>
+<tr><td>Bitcoin Store</td><td>Free, cash at branches</td><td>Free</td><td>Yes</td></tr>
+</tbody></table></div>
+<p class=mut>Fees from the exchanges' fee pages and top7.hr (28 Sep 2026). They change often: check the fee page on the
+day you buy.</p>
+
+<h2>Which one to pick</h2>
+<ul>
+<li><b>You want the lowest cost:</b> an order-book platform (OKX, Bitstamp, Kraken Pro). Use a limit order and skip the
+simple "Buy" button.</li>
+<li><b>You want Croatian and a phone number:</b> Electrocoin or Bitcoin Store. You pay more per buy, but support and
+cash options are local.</li>
+<li><b>You already use Revolut:</b> fastest to start, but you pay 1.49% plus spread, and the cost adds up on frequent buys.</li>
+<li><b>You want to buy Solana meme coins:</b> none of these lists most meme coins. Buy <b>SOL</b> on any of them, withdraw
+it on the Solana network to your own wallet, and swap there. That route is in our guide
+<a href=/blog/how-to-buy-solana-meme-coins>how to buy Solana meme coins</a>, and every coin has its own page, for example
+<a href=/how-to-buy/bonk>how to buy Bonk</a>.</li>
+</ul>
+
+<h2>Before you deposit</h2>
+<ul>
+<li>Find the company on <a href="https://www.hanfa.hr/registri/trziste-kriptoimovine/registar-drustava-ovlastenih-pruzati-usluge-povezane-s-kriptoimovinom/" rel=nofollow>HANFA's register</a> or the ESMA register of MiCA providers.</li>
+<li>Turn on two-factor login with an app, not SMS.</li>
+<li>Send a small test withdrawal first and check that the network (for example Solana) matches your wallet.</li>
+<li>Never give anyone your recovery phrase. No exchange, support agent or app will ever need it.</li>
+<li>In Croatia, gains on crypto are taxed (12% capital gains tax; holdings kept longer than two years are exempt). Keep
+your exchange statements.</li>
+</ul>
+<p class=mut>We have no affiliate links and no payment from any exchange on this page. Source: {EXCH_SRC}.</p>
+""", related=("how-to-buy-solana-meme-coins", "market-cap-liquidity-slippage", "how-to-spot-a-rug-pull"))
+
+
+# 12 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-buy-solana-meme-coins", "Guides",
+    "How to buy Solana meme coins: the safe route, step by step",
+    "How to buy Solana meme coins (2026): step-by-step guide | KriptoRadar",
+    "How to buy Solana meme coins safely: buy SOL on a licensed exchange, move it to Phantom, swap on Jupiter, and "
+    "check the token before you buy. Step by step, with real numbers.",
+    ["how to buy solana meme coins", "how to buy meme coins", "buy solana meme coins", "where to buy meme coins"], 6,
+    "Buy SOL on a MiCA-licensed exchange, withdraw it on the Solana network to a wallet such as Phantom, then swap SOL "
+    "for the meme coin on Jupiter using the exact contract address. Before you swap, check liquidity, mint and freeze "
+    "authority and top holders: of new pump.fun tokens bought 15 minutes after launch, only 0.8% ever doubled.",
+    f"""
+<h2>The route in one line</h2>
+<p>Euro → <b>SOL</b> on a licensed exchange → your own Solana wallet → swap on a <b>DEX</b> (Jupiter) → the meme coin.
+Almost no Solana meme coin is listed on a regulated exchange, so the swap happens on-chain.</p>
+
+<h2>1. Buy SOL on a licensed exchange</h2>
+<p>Pick an exchange with a MiCA licence. We compared them in
+<a href=/blog/best-crypto-exchanges-croatia>the best crypto exchanges in Croatia and the EU</a>: the cheapest are
+order-book platforms (around 0.1-0.4% per trade); Croatian ones cost more but have local support.</p>
+
+<h2>2. Install a wallet and protect the phrase</h2>
+<p>Install Phantom or Solflare (see <a href=/best-crypto-tools/crypto-wallets>the best crypto wallets</a>). Write the
+12 or 24-word recovery phrase on paper. Anyone with the phrase owns the money; no site, support agent or bot will ever
+need it.</p>
+
+<h2>3. Withdraw SOL to your wallet</h2>
+<p>Copy your wallet address, choose the <b>Solana</b> network on the exchange and send a small test amount first.
+Keep about 0.02 SOL in the wallet for network fees.</p>
+
+<h2>4. Find the real contract address</h2>
+<p>Scam tokens copy names and logos. Get the address from a trusted page, for example our coin pages such as
+<a href=/coin/bonk>Bonk</a> or the <a href=/solana-meme-coins>top 100 Solana meme coins</a>, and check that the
+symbol, logo and market cap match.</p>
+
+<h2>5. Check the token before you swap</h2>
+{bars("Share of new pump.fun tokens that later doubled",
+      [("15 minutes after launch (random)", 0.8, "6,104 tokens"),
+       ("At graduation to a DEX pool", 9.5, "2,784 tokens"),
+       ("First cross of $100k market cap", 24.0, "217 tokens")],
+      sub="Bought at that moment, price later reached at least 2x", hl=(2,), source=RETRO)}
+<ul>
+<li><b>Liquidity</b> at least $10k, and your buy below about 2% of it (see
+<a href=/blog/market-cap-liquidity-slippage>market cap, liquidity and slippage</a>).</li>
+<li><b>Mint authority</b> and freeze authority switched off.</li>
+<li>Top 10 holders under about 35%, developer under 5%.</li>
+</ul>
+<p>Every coin in our top 100 has an automatic check, for example <a href=/rug-check/bonk>is Bonk safe?</a></p>
+
+<h2>6. Swap on Jupiter</h2>
+<p>Open jup.ag (or the swap inside Phantom), connect the wallet, choose SOL → paste the contract address, set the
+amount and a <b>slippage</b> tolerance you could live with, and confirm. Our <a href=/blog/how-to-use-jupiter-swap>Jupiter
+swap guide</a> covers the settings.</p>
+
+<h2>7. Plan the exit before you buy</h2>
+<p>Decide where you take profit and where you cut the loss, and write it down. Meme coins move 50% in an hour; without
+a plan the decision gets made by emotion. See <a href=/blog/how-to-trade-meme-coins>how to trade meme coins</a>.</p>
+""", related=("best-crypto-exchanges-croatia", "how-to-use-jupiter-swap", "how-to-spot-a-rug-pull"))
+
+
+# 13 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-use-jupiter-swap", "Guides",
+    "How to use Jupiter swap on Solana: settings that save you money",
+    "How to use Jupiter swap (jup.ag): slippage, priority fees, limit orders | KriptoRadar",
+    "A practical Jupiter swap guide: connecting a wallet, checking the token, slippage and priority fee settings, "
+    "limit orders and DCA, and the mistakes that cost the most.",
+    ["jupiter swap", "how to use jupiter swap", "jup.ag", "jupiter exchange solana"], 6,
+    "Jupiter (jup.ag) is a Solana swap aggregator: it splits your order across pools to get the best price. Connect a "
+    "wallet, pick SOL and paste the token's contract address, keep the buy small relative to the pool's liquidity, set "
+    "slippage you can accept as the full cost, and use limit orders when you are not in a hurry.",
+    f"""
+<h2>What Jupiter is</h2>
+<p>Jupiter is not an exchange with its own order book; it is an <b>aggregator</b>. It looks at the Solana
+<b>DEX</b> pools (Raydium, Orca, Meteora, pump.fun's pools and others) and routes your trade through the cheapest
+path, sometimes splitting it across several pools. You keep your coins in your own wallet the whole time.</p>
+
+<h2>Step by step</h2>
+<ol>
+<li>Open <b>jup.ag</b> (type it yourself; fake Jupiter sites are a common wallet-drainer trick) and connect Phantom or
+Solflare.</li>
+<li>"You pay": SOL or USDC. "You receive": paste the token's <b>contract address</b>, not its name.</li>
+<li>Check the warning badges: Jupiter flags unverified tokens. Unverified is not proof of a scam, but check the
+<a href=/rug-check>rug check</a> first.</li>
+<li>Look at the price impact line before you confirm.</li>
+<li>Confirm in the wallet and read what the wallet says it will sign.</li>
+</ol>
+
+<h2>Slippage and price impact</h2>
+<p><b>Price impact</b> is how far your own trade moves the pool; <b>slippage</b> tolerance is how much worse than the
+quote you accept before the trade fails. In a thin pool the impact alone can be large:</p>
+{grid("Price impact by buy size and pool liquidity",
+      ["$100", "$500", "$1,000", "$5,000"],
+      [("Pool $10k", [2.0, 9.1, 16.7, 50.0]), ("Pool $50k", [0.4, 2.0, 3.8, 16.7]),
+       ("Pool $250k", [0.1, 0.4, 0.8, 3.8]), ("Pool $1M", [0.0, 0.1, 0.2, 1.0])],
+      sub="Constant-product pool, half the liquidity on each side, before fees", cap=50)}
+<p>Jupiter's automatic slippage is fine for liquid coins. For fresh tokens, a very high tolerance invites
+"sandwich" bots that buy right before you and sell right after.</p>
+
+<h2>Priority fee</h2>
+<p>When Solana is busy, a small priority fee gets your transaction in sooner. For a normal swap the default is enough;
+paying more only helps in the first minutes of a launch, which is also when risk is highest.</p>
+
+<h2>Limit orders and DCA</h2>
+<p>Jupiter also offers <b>limit orders</b> (buy or sell when the price reaches your level) and recurring buys
+(<a href=/blog/what-is-dca-in-crypto>DCA</a>). Limit orders avoid chasing pumps; DCA spreads one decision over time.</p>
+
+<h2>Mistakes that cost the most</h2>
+<ul>
+<li>Searching the token by name and picking a copy with the same logo.</li>
+<li>Buying more than about 2% of the pool's liquidity in one go.</li>
+<li>Approving a transaction on a site you reached from a link in a DM.</li>
+<li>Spending all the SOL and having nothing left for the fee to sell.</li>
+</ul>
+<p>Getting SOL in the first place: <a href=/blog/best-crypto-exchanges-croatia>licensed exchanges in Croatia and the EU</a>.</p>
+""", related=("how-to-buy-solana-meme-coins", "market-cap-liquidity-slippage", "what-is-dca-in-crypto"))
+
+
+# 14 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-a-pump-and-dump", "Rugs",
+    "What is a pump and dump in crypto? How it works and how to spot one",
+    "What is a pump and dump in crypto? Signs, examples from data | KriptoRadar",
+    "A pump and dump is a coordinated price push followed by insiders selling into the buyers. How it works on Solana "
+    "meme coins, the warning signs, and what our data shows about it.",
+    ["pump and dump crypto", "what is a pump and dump", "crypto pump and dump", "pump and dump scheme"], 6,
+    "A pump and dump is when a group buys a token early, pushes the price up with hype (paid calls, group chats, fake "
+    "volume) and sells into the people who arrive late. Warning signs: a few wallets holding most of the supply, "
+    "bundled buys at launch, many calls within minutes from accounts that never call the same coin twice, and "
+    "volume that disappears after the peak.",
+    f"""
+<h2>How it works</h2>
+<ol>
+<li><b>Accumulate:</b> insiders buy cheaply, often in the same block as the launch (<b>bundles</b> and
+<b>snipers</b>).</li>
+<li><b>Pump:</b> they create attention: paid influencer posts, Telegram "alpha" groups, bots that trade back and forth
+to fake volume.</li>
+<li><b>Dump:</b> new buyers push the price up; the insiders sell into them. The chart drops faster than it rose.</li>
+</ol>
+<p>Unlike a <a href=/blog/how-to-spot-a-rug-pull>rug pull</a>, the liquidity usually stays; the token just goes back
+to near nothing because the only real demand was the hype.</p>
+
+<h2>What our data shows</h2>
+<p>Heavily bundled tokens do pump more often (25.5% reached 2x when over 20% of the supply was bundled, against 3.6%
+under 2%), which is exactly what attracts late buyers. But the fall from the top is the deepest:</p>
+{bars("Typical fall from the highest price, by bundled share of supply",
+      [("2-10% bundled", 17, ""), ("10-20%", 35, ""), ("Over 20%", 54, "insiders sell into the pump")],
+      sub="Median maximum drawdown in the first hours, %", hl=(2,), source=RETRO)}
+<p>Snipers show the same pattern: where snipers took more than 30% of the supply, the median fall from the top was 58%.</p>
+<p>And many simultaneous influencer calls are not always organic: groups of three or more <b>KOL</b> calls within 15
+minutes reached 2x 59% of the time versus 33% otherwise, but some groups are the same people posting from several
+accounts. That is why we cluster influencers (<a href=/blog/influencer-clustering>how influencer clustering works</a>)
+and exclude bot accounts.</p>
+
+<h2>Warning signs</h2>
+<ul>
+<li>Top 10 wallets hold more than about 35% of the supply, or the developer wallet holds more than 5%.</li>
+<li>Many buys in the first block from wallets funded by the same source.</li>
+<li>A burst of posts from accounts that appear only for this coin.</li>
+<li>"Last chance" urgency, countdowns, guaranteed targets.</li>
+<li>Volume and holders that collapse a few hours after the peak.</li>
+</ul>
+<p>Every coin in our top 100 has an automatic check of these numbers, for example
+<a href=/rug-check/wif>is WIF safe?</a></p>
+
+<h2>Is it illegal?</h2>
+<p>In the EU, MiCA explicitly bans market manipulation in crypto-assets, including spreading misleading information to
+move a price. Enforcement on anonymous on-chain projects is hard, so in practice protecting yourself is your job: small
+size, a clear exit, and no buying because a chat says "now".</p>
+""", related=("how-to-spot-a-rug-pull", "bundles-and-snipers", "influencer-clustering"))

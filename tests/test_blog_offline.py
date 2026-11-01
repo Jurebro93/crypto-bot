@@ -18,9 +18,9 @@ class Blog(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("RENDER_EXTERNAL_URL", None)
 
-    def test_ten_unique_posts(self):
-        self.assertEqual(len(POSTS), 10)
-        self.assertEqual(len({p["slug"] for p in POSTS}), 10)
+    def test_unique_posts(self):
+        self.assertEqual(len(POSTS), 14)
+        self.assertEqual(len({p["slug"] for p in POSTS}), 14)
         for p in POSTS:
             self.assertRegex(p["slug"], r"^[a-z0-9-]+$")
             self.assertLessEqual(len(p["desc"]), 200, p["slug"])

@@ -31,6 +31,8 @@ color:var(--fg)}
 GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper": "sniper-bot", "rug pull": "rug-pull",
          "mint authority": "mint-authority", "graduates": "graduation", "call": "crypto-call", "bundle": "bundler",
          "slippage": "slippage", "market cap": "market-cap", "liquidity": "liquidity", "kol": "kol", "fdv": "fdv",
+         "dex": "dex", "contract address": "contract-address", "bundles": "bundler", "snipers": "sniper-bot",
+         "adresa ugovora": "contract-address", "adresu ugovora": "contract-address", "bundlovi": "bundler",
          "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet",
          # Croatian versions
          "poziv": "crypto-call", "serijski kreator": "dev-wallet", "diplomira": "graduation", "snajper": "sniper-bot",
@@ -47,6 +49,10 @@ TERMS = {
     "how-to-trade-meme-coins": ("memecoin", "market-cap", "take-profit", "x-multiplier", "pnl"),
     "what-is-dca-in-crypto": ("dca", "stop-loss", "liquidity"),
     "market-cap-liquidity-slippage": ("market-cap", "fdv", "liquidity", "slippage", "trading-volume"),
+    "best-crypto-exchanges-croatia": ("cex", "dex", "crypto-wallet", "hardware-wallet"),
+    "how-to-buy-solana-meme-coins": ("crypto-wallet", "contract-address", "dex", "slippage", "rug-pull"),
+    "how-to-use-jupiter-swap": ("dex", "slippage", "contract-address", "dca", "liquidity"),
+    "what-is-a-pump-and-dump": ("rug-pull", "bundler", "sniper-bot", "kol", "wallet-cluster"),
 }
 
 
@@ -120,18 +126,20 @@ def _link_terms(body, lang="en"):
 # Matching "best tools" comparison pages (ui/tools.py), EN slug -> HR slug.
 TOOLS = {"wallet-trackers": "pracenje-novcanika", "crypto-analysis-tools": "alati-za-analizu",
          "trading-bots": "trading-botovi", "rug-checkers": "provjera-ruga",
-         "copy-trading-platforms": "copy-trading-platforme"}
+         "copy-trading-platforms": "copy-trading-platforme", "crypto-wallets": "kripto-novcanici"}
 TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trading": ("copy-trading-platforms",),
              "what-is-a-kol-in-crypto": ("crypto-analysis-tools",), "influencer-clustering": ("crypto-analysis-tools",),
              "how-to-spot-a-rug-pull": ("rug-checkers",), "what-is-pump-fun": ("trading-bots", "rug-checkers"),
              "bundles-and-snipers": ("rug-checkers", "trading-bots"), "how-to-trade-meme-coins": ("trading-bots",),
-             "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",)}
+             "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",),
+             "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers"),
+             "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets"), "what-is-a-pump-and-dump": ("rug-checkers",)}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
-                    "copy-trading-platforms": "Best copy trading platforms"},
+                    "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets"},
              "hr": {"wallet-trackers": "Najbolji alati za praćenje novčanika", "crypto-analysis-tools": "Najbolji alati za analizu",
                     "trading-bots": "Najbolji Solana trading botovi", "rug-checkers": "Najbolji alati za provjeru ruga",
-                    "copy-trading-platforms": "Najbolje copy trading platforme"}}
+                    "copy-trading-platforms": "Najbolje copy trading platforme", "crypto-wallets": "Najbolji kripto novčanici"}}
 
 
 def _tools(en_slug, lang="en"):
