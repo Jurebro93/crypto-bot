@@ -198,7 +198,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
-    from ui import blog, blogviz
+    from ui import blog, blogviz, tools
     canon = base + (path_en if lang == "en" or not path_hr else path_hr)
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
@@ -212,7 +212,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}{NAV_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{NAV_CSS}{blog.CSS}{blogviz.CSS}{tools.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
@@ -322,11 +322,13 @@ SECTIONS = {
     "en": [("/solana-meme-coins", "Meme coins", "Solana meme coins", "Top 100 Solana meme coins with charts and safety checks"),
            ("/influencers", "Influencers", "Crypto influencers", "Every influencer call measured: hit rate, rugs, late calls"),
            ("/glossary", "Glossary", "Crypto glossary", "Crypto and meme coin terms explained in plain words"),
-           ("/blog", "Blog", "Blog", "Guides on wallet tracking, copy trading and rug pulls, with our data")],
+           ("/blog", "Blog", "Blog", "Guides on wallet tracking, copy trading and rug pulls, with our data"),
+           ("/best-crypto-tools", "Tools", "Best crypto tools", "Wallet trackers, trading bots, wallets, rug checkers and APIs compared, with prices")],
     "hr": [("/hr/solana-meme-coini", "Meme coini", "Solana meme coini", "Top 100 Solana meme coina s grafovima i sigurnosnom provjerom"),
            ("/hr/influenceri", "Influenceri", "Kripto influenceri", "Svaki poziv influencera izmjeren: pogodak, rugovi, kasni pozivi"),
            ("/hr/rjecnik", "Rječnik", "Kripto rječnik", "Kripto i meme coin pojmovi objašnjeni jednostavno"),
-           ("/hr/blog", "Blog", "Blog", "Vodiči o praćenju novčanika, copy tradingu i rug pullovima, s našim podacima")],
+           ("/hr/blog", "Blog", "Blog", "Vodiči o praćenju novčanika, copy tradingu i rug pullovima, s našim podacima"),
+           ("/hr/najbolji-kripto-alati", "Alati", "Najbolji kripto alati", "Usporedba alata za praćenje novčanika, botova, novčanika, provjere ruga i API-ja, s cijenama")],
 }
 
 
@@ -371,7 +373,7 @@ def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\nAllow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -388,6 +390,11 @@ def sitemap():
     from ui import glossary_public as GP
     urls.append(("/glossary", "/hr/rjecnik", "0.8"))
     urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
+    try:
+        from ui import tools
+        urls += tools.urls()
+    except Exception as e:  # noqa: BLE001
+        print(f"sitemap: alati nedostupni: {e}", flush=True)
     try:
         urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
                  if r["s"].get("measured", 0) >= SITEMAP_MEASURED]
@@ -429,6 +436,11 @@ def route(path):
     elif re.fullmatch(r"/glossary/[^/]+|/hr/rjecnik/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
         fn, ctype = (lambda: glossary_term(slug, lang)), "text/html"
+    elif re.fullmatch(r"(/best-crypto-tools|/hr/najbolji-kripto-alati)(/[^/]+)?/?", path):
+        from ui import tools
+        m = re.fullmatch(r"(/best-crypto-tools|/hr/najbolji-kripto-alati)(?:/([^/]+))?/?", path)
+        lang, slug = ("hr" if m.group(1).startswith("/hr") else "en"), m.group(2)
+        fn, ctype = ((lambda: tools.page(slug, lang)) if slug else (lambda: tools.index(lang))), "text/html"
     elif re.fullmatch(r"(/hr)?/blog(/[^/]+)?/?", path):
         from ui import blog
         m = re.fullmatch(r"(/hr)?/blog(?:/([^/]+))?/?", path)
@@ -715,8 +727,18 @@ G_T = {
                all="← Svi pojmovi", live="Pogledaj uživo", path="/hr/rjecnik/", idx="/hr/rjecnik",
                t_title="{q} {name} objašnjeno | KriptoRadar", faq="Česta pitanja"),
 }
-_HR_LIVE = {"/solana-meme-coins": "/hr/solana-meme-coini", "/influencers": "/hr/influenceri"}
-_HR_LABEL = {"/hr/solana-meme-coini": "najveći Solana meme coini", "/hr/influenceri": "ljestvica influencera"}
+_HR_LIVE = {"/solana-meme-coins": "/hr/solana-meme-coini", "/influencers": "/hr/influenceri",
+            "/best-crypto-tools/crypto-wallets": "/hr/najbolji-kripto-alati/kripto-novcanici",
+            "/best-crypto-tools/trading-bots": "/hr/najbolji-kripto-alati/trading-botovi",
+            "/best-crypto-tools/rug-checkers": "/hr/najbolji-kripto-alati/provjera-ruga",
+            "/best-crypto-tools/crypto-apis": "/hr/najbolji-kripto-alati/kripto-api",
+            "/best-crypto-tools/copy-trading-platforms": "/hr/najbolji-kripto-alati/copy-trading-platforme"}
+_HR_LABEL = {"/hr/solana-meme-coini": "najveći Solana meme coini", "/hr/influenceri": "ljestvica influencera",
+             "/hr/najbolji-kripto-alati/kripto-novcanici": "usporedba kripto novčanika",
+             "/hr/najbolji-kripto-alati/trading-botovi": "usporedba trading botova i naknada",
+             "/hr/najbolji-kripto-alati/provjera-ruga": "usporedba alata za provjeru ruga",
+             "/hr/najbolji-kripto-alati/kripto-api": "usporedba kripto API-ja",
+             "/hr/najbolji-kripto-alati/copy-trading-platforme": "usporedba copy trading platformi"}
 
 
 def _gterm(e, lang):

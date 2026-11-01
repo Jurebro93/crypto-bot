@@ -183,6 +183,38 @@ _E = [
      "A group of wallets that look like one owner or one team: same source of money, same buys in the same second.",
      "Clusters can fake many independent buyers. KriptoRadar links wallets by funding and timing so a group counts once.",
      "", None),
+    ("hardverski-novcanik", "hardware-wallet", "Hardware wallet", "What is a hardware wallet?",
+     "A small device (Ledger, Trezor, a Tangem card) that keeps your private key offline.",
+     "You confirm every transaction on the device, so malware on your computer or browser cannot reach the key. Keep a "
+     "small trading amount in a hot wallet such as Phantom and your savings on a hardware wallet. Prices start around "
+     "$50.", "A Ledger connected to Phantom: the app stays the same, but every buy needs a click on the device.",
+     ("/best-crypto-tools/crypto-wallets", "Best crypto wallets compared")),
+    ("multisig", "multisig", "Multisig wallet", "What is a multisig wallet?",
+     "A shared wallet that needs several people to approve each transaction, for example 2 of 3.",
+     "On Solana the standard is Squads. Nobody can spend the funds alone, which is why project treasuries and shared "
+     "funds use it. Members can be hardware wallets.", "", ("/best-crypto-tools/crypto-wallets", "Wallets and multisig")),
+    ("trading-bot", "trading-bot", "Trading bot", "What is a crypto trading bot?",
+     "An app or Telegram bot that buys and sells tokens in one click or automatically.",
+     "Terminals (Axiom, Photon, GMGN) and Telegram bots (Trojan, BonkBot) keep a wallet ready and show new tokens as they "
+     "launch. Most charge about 1% on every buy and every sell. They make you faster, not better at picking tokens.",
+     "A $100 buy and a $100 sell at 1% cost $2 plus network fees.",
+     ("/best-crypto-tools/trading-bots", "Trading bots and fees compared")),
+    ("rug-checker", "rug-checker", "Rug checker", "What is a rug checker?",
+     "A free tool such as RugCheck that scans a token for signs of a scam before you buy.",
+     "It shows whether the creator can still mint tokens or freeze wallets, how much liquidity there is and whether it "
+     "is locked, and how much the top holders own. It cannot see the creator's history or slow selling, so passing is "
+     "not a guarantee.", "", ("/best-crypto-tools/rug-checkers", "Best rug checkers compared")),
+    ("api", "crypto-api", "Crypto API", "What is a crypto API?",
+     "A way for a program (a bot, an app) to ask another service for data, such as a token's price.",
+     "Crypto apps use an RPC node (for example Helius) to read the blockchain and send transactions, and a data API "
+     "(DexScreener, Birdeye, CoinGecko) for prices, pools and holders. Free tiers limit how many calls you can make.",
+     "KriptoRadar uses Helius for wallets and DexScreener for prices.",
+     ("/best-crypto-tools/crypto-apis", "Best crypto APIs compared")),
+    ("udio-u-dobiti", "profit-share", "Profit share", "What is profit share in copy trading?",
+     "The share of your profit (usually 10-20%) that goes to the trader you copy on an exchange.",
+     "It is charged only on profitable trades. On-chain copy trading charges about 1% on every trade instead, winners "
+     "and losers alike.", "A copied trade makes $100; a lead trader with a 10% share gets $10.",
+     ("/best-crypto-tools/copy-trading-platforms", "Copy trading platforms compared")),
     ("dugorocni-token", "long-term-tokens", "Long-term token", "What makes a meme coin a long-term token?",
      "An older token (3+ weeks, $5M+ market cap, $100k+ daily volume) that survives and keeps growing.",
      "A safer layer than hunting brand-new tokens. KriptoRadar looks for tokens that recover from drops, outgrow SOL and "
