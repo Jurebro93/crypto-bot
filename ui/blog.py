@@ -386,3 +386,23 @@ def _date(d, lang="en"):
     y, m, dd = d.split("-")
     mon = L[lang]["months"][int(m) - 1]
     return f"{int(dd)} {mon} {y}" if lang == "en" else f"{int(dd)}. {mon} {y}."
+
+
+# Short menu descriptions per category (ui/sitenav.py picks nav_items up for the menus and footer).
+_CAT_SHORT = {"guides": ("Step-by-step how-tos", "Upute korak po korak"),
+              "exchanges-and-cards": ("Licensed exchanges and crypto cards", "Licencirane mjenjačnice i kartice"),
+              "tax-and-law": ("Crypto tax in Croatia, companies", "Porez na kripto, firme"),
+              "rugs-and-scams": ("Rug pulls and pump and dumps", "Rug pullovi i pump and dump"),
+              "wallets-and-influencers": ("Wallet tracking, copy trading, KOLs", "Praćenje novčanika, copy trading, KOL")}
+
+
+def nav_items(lang):
+    """[(group, href, label, description)] for the site menu: blog categories plus the two key Croatia articles."""
+    i = 0 if lang == "en" else 1
+    out = [("learn", cat_path(c, lang), c[2 + i], _CAT_SHORT[c[0]][i]) for c in CATS]
+    for en, d in (("best-crypto-exchanges-croatia", ("Best exchanges in Croatia", "Najbolje mjenjačnice u Hrvatskoj")),
+                  ("crypto-tax-croatia", ("Crypto tax calculator", "Kalkulator poreza na kripto"))):
+        v = get_en(en, lang)
+        if v:
+            out.append(("learn", f"{L[lang]['base']}/{v['slug']}", d[i], v["tag"]))
+    return out
