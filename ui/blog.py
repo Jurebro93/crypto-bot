@@ -32,7 +32,7 @@ GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper"
          "mint authority": "mint-authority", "graduates": "graduation", "call": "crypto-call", "bundle": "bundler",
          "slippage": "slippage", "market cap": "market-cap", "liquidity": "liquidity", "kol": "kol", "fdv": "fdv",
          "dex": "dex", "contract address": "contract-address", "bundles": "bundler", "snipers": "sniper-bot",
-         "adresa ugovora": "contract-address", "adresu ugovora": "contract-address", "bundlovi": "bundler",
+         "adresa ugovora": "contract-address", "adresu ugovora": "contract-address", "bundlovi": "bundler", "spread": "cex",
          "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet",
          # Croatian versions
          "poziv": "crypto-call", "serijski kreator": "dev-wallet", "diplomira": "graduation", "snajper": "sniper-bot",
@@ -53,6 +53,9 @@ TERMS = {
     "how-to-buy-solana-meme-coins": ("crypto-wallet", "contract-address", "dex", "slippage", "rug-pull"),
     "how-to-use-jupiter-swap": ("dex", "slippage", "contract-address", "dca", "liquidity"),
     "what-is-a-pump-and-dump": ("rug-pull", "bundler", "sniper-bot", "kol", "wallet-cluster"),
+    "crypto-cards-croatia": ("cex", "crypto-wallet", "pnl"),
+    "crypto-tax-croatia": ("pnl", "roi", "cex", "dca"),
+    "company-crypto-investment-croatia": ("multisig", "hardware-wallet", "cex", "pnl"),
 }
 
 
@@ -133,7 +136,8 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "bundles-and-snipers": ("rug-checkers", "trading-bots"), "how-to-trade-meme-coins": ("trading-bots",),
              "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",),
              "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers"),
-             "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets"), "what-is-a-pump-and-dump": ("rug-checkers",)}
+             "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets"), "what-is-a-pump-and-dump": ("rug-checkers",),
+             "crypto-cards-croatia": ("crypto-wallets",), "company-crypto-investment-croatia": ("crypto-wallets",)}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets"},

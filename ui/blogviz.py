@@ -21,6 +21,8 @@ def _fmt_en(v, fmt):
         return f"{v:.0f}%" if float(v).is_integer() else f"{v:.1f}%"
     if fmt == "usd":
         return f"${v:,.0f}"
+    if fmt == "eur":
+        return f"€{v:,.0f}"
     if fmt == "usd2":   # prices: $12.95, $49
         return f"${v:,.0f}" if float(v).is_integer() else f"${v:,.2f}"
     if fmt == "pct2":   # fees: 0.75%, 1%
