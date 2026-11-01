@@ -95,5 +95,27 @@ class Due(unittest.TestCase):
         self.assertEqual(measure.due(con, 1000, 1), ["OLD"])
 
 
+class BotStats(unittest.TestCase):
+    def test_bot_keeps_numbers_but_no_score(self):
+        import json
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        rows = [(str(i), f"T{i}", "scanbot", 1000 + i, "bot", 0.0001, 5e4, 0.0, 0.1, 0.6, 3.0, 100, 900)
+                for i in range(6)]
+        con.executemany("""INSERT INTO calls (tweet_id, token, handle, ts, kind, p0, mcap0, pre2h, r1h, max24, vol_lift,
+            vol_before, vol_after) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+        con.execute("INSERT INTO kols (handle, followers, bot) VALUES ('scanbot', 1000, 1)")
+        score.mark_first(con)
+        score.score_kols(con, dict(score_cfg()))
+        sc, st = con.execute("SELECT score, stats FROM kols WHERE handle = 'scanbot'").fetchone()
+        self.assertIsNone(sc)
+        self.assertEqual(json.loads(st)["measured"], 6)
+        self.assertIsNotNone(json.loads(st)["bot_score"])
+
+
+def score_cfg():
+    import json
+    return json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -400,6 +400,58 @@ def page(qs):
     return "KOL-ovi", "".join(b)
 
 
+def _influence(con, handle, cfg):
+    """'Koliko ga tržište sluša': what happened in the hour after his posts, from the measured first posts per token."""
+    import statistics
+    rows = _rows(con, """SELECT token, ts, r1h, max24, vol_before, vol_after, vol_lift, views, followers, likes, retweets
+        FROM calls WHERE handle = ? AND kind IN ('call', 'bot') AND first_by_kol = 1 AND p0 IS NOT NULL AND bad IS NULL""",
+                 (handle,))
+    if not rows:
+        return ""
+
+    def med(xs):
+        xs = [x for x in xs if x is not None]
+        return statistics.median(xs) if xs else None
+    lifts = [r["vol_lift"] for r in rows if r["vol_lift"] is not None]
+    r1 = [r["r1h"] for r in rows if r["r1h"] is not None]
+    extra = med((r["vol_after"] or 0) - (r["vol_before"] or 0) for r in rows if r["vol_after"] is not None)
+    after = con.execute("""SELECT COUNT(DISTINCT c.tweet_id) FROM calls c WHERE c.handle = ? AND c.kind IN ('call', 'bot')
+        AND c.first_by_kol = 1 AND EXISTS (SELECT 1 FROM calls o WHERE o.token = c.token AND o.handle != c.handle
+        AND o.kind IN ('call', 'bot') AND o.ts > c.ts AND o.ts <= c.ts + ?)""", (handle, cfg["group_secs"])).fetchone()[0]
+    total = con.execute("SELECT COUNT(DISTINCT tweet_id) FROM calls WHERE handle = ? AND kind IN ('call', 'bot') "
+                        "AND first_by_kol = 1", (handle,)).fetchone()[0]
+    views = med(r["views"] or None for r in rows)
+    foll = med(r["followers"] or None for r in rows)
+    eng = med(((r["likes"] or 0) + 2 * (r["retweets"] or 0)) / r["followers"] for r in rows if r["followers"])
+
+    def p(n, d):
+        return f"{n / d:.0%} ({n} od {d})" if d else "–"
+    out = [
+        ["Volumen se barem udvostručio", p(sum(1 for x in lifts if x >= 2), len(lifts)),
+         "U koliko njegovih objava je trgovanje u satu poslije bilo barem 2× veće nego u satu prije. Ovo je "
+         "najizravniji znak da ljudi reagiraju na objavu."],
+        ["Medijan volumena poslije / prije", lift(med(lifts))[0] if lifts else "–",
+         "Tipičan omjer trgovanja sat poslije i sat prije objave (50×+ = prije gotovo nije bilo trgovanja)."],
+        ["Tipičan dodatni volumen u satu poslije", usd(extra)[0] if extra is not None else "–",
+         "Koliko je dolara trgovanja više nego u satu prije (medijan po objavi)."],
+        ["Cijena viša nakon 1 h", p(sum(1 for x in r1 if x > 0), len(r1)),
+         "Udio objava nakon kojih je cijena sat kasnije bila viša."
+         + (f" Medijan promjene: {med(r1) * 100:+.0f}%." if r1 else "")],
+        ["Drugi računi zvali isti token poslije njega", p(after, total),
+         f"U koliko njegovih objava je unutar {cfg['group_secs'] // 60} min isti token objavio još netko (KOL ili bot)."],
+        ["Pratitelja", num(foll)[0] if foll else "–", "Broj pratitelja u trenutku objave."],
+        ["Medijan pregleda objave", num(views)[0] if views else "–", "Koliko ljudi tipično vidi njegovu objavu (X)."],
+        ["Engagement", "–" if eng is None else f"{eng * 100:.2g}%",
+         "(Lajkovi + 2 × reposti) / pratitelji, medijan. Ispod 0,1% = slabo; 1%+ = jako vjerna publika."],
+    ]
+    return ("<h2>Koliko ga tržište sluša</h2>" + tdesc(
+        f"Iz {len(rows)} izmjerenih objava (prva objava po tokenu; cijena i volumen iz 5-min svijeća GeckoTerminala). "
+        "Ne znamo tko je točno kupio, pa reakciju pratitelja mjerimo onim što se vidi na grafu: volumen i cijena u "
+        "satu nakon objave naspram sata prije.")
+            + table(["Mjera", ("Vrijednost", "n"), ("Što znači", "wrap")],
+                    [[esc(a), b, (f'<span class=mut>{esc(c)}</span>', "", "wrap")] for a, b, c in out]))
+
+
 def kol_page(handle, qs):
     con = store.ro()
     if con is None:
@@ -416,8 +468,10 @@ def kol_page(handle, qs):
              + (f'<p><a href="{profile_url(handle)}" target=_blank rel=noopener>'
                 f'{"Kanal na Telegramu" if handle.startswith("tg:") else "Profil na X-u"} ↗</a></p>' if profile_url(handle) else "")
              + '<div class=grid>']
-        for v, l in [(f"{k['score']:.0f}" if k["score"] is not None else "–", "moć poziva"),
-                     (f"{k['power_rel']:.2f}×" if k["power_rel"] is not None else "–", "moć po pratitelju"),
+        sc = k["score"] if k["score"] is not None else s.get("bot_score")
+        rel = k["power_rel"] if k["power_rel"] is not None else s.get("bot_rel")
+        for v, l in [(f"{sc:.0f}" if sc is not None else "–", "moć objava (bot)" if k.get("bot") else "moć poziva"),
+                     (f"{rel:.2f}×" if rel is not None else "–", "moć po pratitelju"),
                      (f"{k['followers'] or 0:,}", "pratitelja"), (s.get("measured", 0), "izmjerenih poziva"),
                      (f"{s['hit_rate']:.0%}" if "hit_rate" in s else "–", "pogodak"), (s.get("brags", 0), "hvalisanja")]:
             b.append(f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{l}</div></div>")
@@ -425,7 +479,8 @@ def kol_page(handle, qs):
         if k.get("bot"):
             b.append('<p><span class="b warn">bot</span> <b>Automatski ili promo račun, ne KOL.</b> Objavljuje velik broj novih tokena, uglavnom po istom '
                      f'predlošku ({esc(k.get("bot_why") or "")}), pa se njegove objave ne broje kao pozivi: ne ulaze u '
-                     'grupe KOL-ova, ocjenu, konvergenciju ni demo ulaze.</p>')
+                     'grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, konvergenciju ni demo ulaze. Brojke niže '
+                     'svejedno pokazuju što su njegove objave napravile s cijenom i volumenom.</p>')
         if s.get("parts"):
             w, p = cfg["weights"], s["parts"]
             expl = {"hit": f"{s['hit_rate']:.0%} poziva s barem +{cfg['hit_x']:.0%} u 24 h",
@@ -441,6 +496,7 @@ def kol_page(handle, qs):
                 f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
                 f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
                      + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
+        b.append(_influence(con, handle, cfg))
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta.")
                  + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False))
         if con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone():
