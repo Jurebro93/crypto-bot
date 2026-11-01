@@ -248,3 +248,48 @@ class MallocArenaTest(unittest.TestCase):
         sh = open(os.path.join(os.path.dirname(__file__), "..", "start.sh")).read()
         i = sh.index('export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"')
         self.assertLess(i, sh.index("python3 "))
+
+
+class ShortProcessRoundsTest(unittest.TestCase):
+    """1.11.: long loops hand a round's memory back by running it in a child process."""
+
+    def test_kol_loop_runs_each_round_as_a_child(self):
+        import argparse
+        import run_kol
+        calls = []
+
+        class Stop(Exception):
+            pass
+
+        def fake_sleep(s):
+            raise Stop
+
+        with mock.patch("subprocess.run", side_effect=lambda args, **kw: calls.append(args)), \
+                mock.patch.object(run_kol.store, "connect", side_effect=RuntimeError("no db")), \
+                mock.patch.object(run_kol.time, "sleep", side_effect=fake_sleep):
+            with self.assertRaises(Stop):
+                run_kol.cmd_loop(argparse.Namespace(every=20, verbose=False))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][-1], "once")
+        self.assertTrue(calls[0][1].endswith("run_kol.py"))
+
+    def test_paper_scan_runs_as_a_child(self):
+        src = open(os.path.join(os.path.dirname(__file__), "..", "run_paper.py")).read()
+        self.assertNotIn("run_hype.main(hype_args)", src)
+        self.assertIn('"run_hype.py")]', src)
+
+
+class UiChildRenderTest(unittest.TestCase):
+    def test_warm_pages_are_built_in_a_child(self):
+        src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
+        self.assertIn('pagecache.warm(["/", "/tokens"], build_in_child', src)
+
+    def test_child_failure_falls_back_to_building_here(self):
+        import run_ui
+
+        class R:
+            returncode, stdout, stderr = 1, b"", b"boom"
+        with mock.patch("subprocess.run", return_value=R()), \
+                mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b:
+            self.assertEqual(run_ui.build_in_child("/"), (200, b"here"))
+        b.assert_called_once_with("/", {})

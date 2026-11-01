@@ -827,8 +827,10 @@ def cmd_run(a):
         now = time.time()
         try:
             if a.scan and now - last_scan >= a.scan_every:
-                import run_hype
-                run_hype.main(hype_args)
+                # in its own short process (1.11.: the scan in this loop kept ~65 MB on the 512 MB server)
+                import subprocess
+                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_hype.py")]
+                               + hype_args, timeout=1800)
                 last_scan = now
             intake(cfg)
             closed = tick(cfg)

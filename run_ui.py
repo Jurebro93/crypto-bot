@@ -278,6 +278,25 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
+def build_in_child(path):
+    """(code, html bytes) of `path` rendered by a short child process (`run_ui.py --render PATH`).
+
+    The overview and the token list read every hype signal; built inside this long-lived server that memory stayed
+    with it (~200 MB) and the 512 MB server ran out of memory every few minutes (1.11.). A child gives it all back
+    when it ends. Falls back to building here if the child fails."""
+    import subprocess
+    try:
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
+                           timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+        if r.returncode == 0 and r.stdout:
+            return 200, r.stdout
+        print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",
+              flush=True)
+    except subprocess.TimeoutExpired:
+        print(f"ui: dijete za {path} predugo, gradim ovdje", flush=True)
+    return build(path, {})
+
+
 def english(raw, gz, lang):
     """(200, html bytes) in `lang` from a Croatian page as pagecache keeps it."""
     html = (raw if raw is not None else gzip.decompress(gz)).decode("utf-8")
@@ -775,7 +794,15 @@ def main(argv=None):
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8050)
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--render", metavar="PATH", help="ispiši jednu stranicu na stdout i izađi (za build_in_child)")
     a = p.parse_args(argv)
+    if a.render:
+        code, raw = build(a.render, {})
+        if code != 200:
+            sys.exit(1)
+        sys.stdout.buffer.write(raw)
+        sys.stdout.flush()
+        return
     if a.host not in ("127.0.0.1", "localhost", "::1") and not AUTH:
         sys.exit("Slušaš na javnoj adresi bez lozinke. Postavi UI_PASSWORD=... ili koristi SSH tunel (vidi --help).")
     srv = _bind(a.host, a.port)
@@ -802,7 +829,7 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(["/", "/tokens"], build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

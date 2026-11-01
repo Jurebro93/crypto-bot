@@ -35,7 +35,8 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 # every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
 ( while true; do sleep 3600; python3 -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
-( while true; do python3 -m ops.health || true; sleep 600; done ) &
+# (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
+( i=0; while true; do python3 -m ops.health || true; i=$((i+1)); if [ $i -le 10 ]; then sleep 60; else sleep 600; fi; done ) &
 # rugged tokens out of hype.db (rugfilter/archive.py): 2 min after every start, then hourly. Not tied to the hourly
 # upkeep above: deploys restart the service more often than once an hour, and that loop sleeps first.
 ( sleep 120; while true; do python3 -m rugfilter.archive || true; sleep 3600; done ) &

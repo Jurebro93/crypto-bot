@@ -193,9 +193,14 @@ def cmd_loop(a):
     except Exception as e:
         print(f"seed: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
-        cycle(a)
-        from ops import mem
-        mem.trim()   # give this round's memory back before sleeping
+        # each round in its own short process (1.11.: this loop sat at ~85 MB between rounds on the 512 MB server,
+        # trim could not hand it back); the round's memory goes back to the system when it ends
+        import subprocess
+        args = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else []) + ["once"]
+        try:
+            subprocess.run(args, timeout=max(600, a.every * 60 * 3))
+        except subprocess.TimeoutExpired:
+            print("krug: predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)
 
 
