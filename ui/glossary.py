@@ -68,6 +68,11 @@ T("Mcap", "osnove", "Tržišna kapitalizacija: cijena tokena × broj tokena. Kol
   "da je najbolji trenutak za ulaz kad mcap prvi put prijeđe $100k.",
   "Token po cijeni $0,0005 s milijardu komada ima mcap $500k.",
   vidi=["likvidnost", "volumen"], alias=["market cap", "mc", "tržišna kapitalizacija", "ulazni mc", "mcap u pozivu"])
+T("FDV", "osnove", "Fully diluted valuation: koliko bi token vrijedio da su svi tokeni koji ikad mogu postojati već u opticaju.",
+  "FDV = cijena × najveća moguća količina tokena. Kad je FDV puno veći od tržišne vrijednosti (mcap), velik dio tokena je "
+  "još zaključan i kasnije će se prodavati, što gura cijenu dolje. Kod većine pump.fun meme coina sva količina postoji od "
+  "prvog dana, pa su FDV i mcap isti.", "Cijena $0,01, u opticaju 100 mil., najviše 1 mlrd.: mcap $1M, FDV $10M.",
+  vidi=["mcap", "likvidnost"], alias=["fully diluted valuation"], k="fdv")
 T("Likvidnost", "osnove", "Koliko je novca u bazenu (poolu) iz kojeg se kupuje i prodaje token.",
   "Kad kupuješ token, ne kupuješ od osobe nego iz bazena u kojem su token i SOL. Što je u bazenu više novca, to manje tvoja "
   "kupnja pomakne cijenu i lakše izađeš. Mala likvidnost (ispod $10k) znači da ćeš pri prodaji izgubiti puno na klizanju "

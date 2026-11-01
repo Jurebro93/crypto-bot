@@ -111,6 +111,10 @@ h2.s{font-size:24px;margin:40px 0 12px}ul.how{color:var(--mut);padding-left:20px
 ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#cbd2df}
 .cards .card{min-width:0}.cards .card b{overflow-wrap:anywhere}@media(max-width:600px){.cards .card b{font-size:19px}}
 .m{display:none;font-size:12px}@media(max-width:600px){table.coins .x{display:none}table.coins .m{display:block}table.coins td,table.coins th{white-space:normal;padding:10px 8px}table.coins td.n{white-space:nowrap}table.coins{font-size:14px}table.coins td{overflow-wrap:anywhere}}
+.gl{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}@media(max-width:900px){.gl{grid-template-columns:1fr 1fr}}@media(max-width:560px){.gl{grid-template-columns:1fr}}
+.gi{border:1px solid var(--line);border-radius:16px;padding:16px;background:#fff;display:block}.gi:hover{border-color:#cfd5e1}.gi b{display:block;color:var(--acc)}.gi span{color:var(--mut);font-size:14px;line-height:1.45;display:block;margin-top:4px}
+.fl{margin:0 0 10px}.fl a{color:var(--fg);font-weight:500}
+.gbody{max-width:720px;font-size:17.5px}.gbody p{margin:0 0 14px}
 .rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
@@ -214,7 +218,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href=/blog>Blog</a>{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a></div></nav>
 <main class=w>{body}</main>
-<footer style='margin-top:64px'><div class=w>© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
+<footer style='margin-top:64px'><div class=w><p class=fl>{_foot_links(lang)}</p>© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 </body></html>"""
 
 
@@ -313,11 +317,19 @@ def profile(handle, lang):
     return _shell(lang, title, desc, f"/influencer/{h}", f"/hr/influencer/{h}", body, jsonld=jsonld)
 
 
+def _foot_links(lang):
+    links = ([("/solana-meme-coins", "Solana meme coins"), ("/influencers", "Crypto influencers"),
+              ("/glossary", "Crypto glossary"), ("/blog", "Blog")] if lang == "en" else
+             [("/hr/solana-meme-coini", "Solana meme coini"), ("/hr/influenceri", "Kripto influenceri"),
+              ("/hr/rjecnik", "Kripto rječnik"), ("/blog", "Blog")])
+    return " · ".join(f"<a href={h}>{x}</a>" for h, x in links)
+
+
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -331,6 +343,9 @@ def sitemap():
         urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
     except Exception:  # noqa: BLE001
         pass
+    from ui import glossary_public as GP
+    urls.append(("/glossary", "/hr/rjecnik", "0.8"))
+    urls += [(f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", "0.6") for e in GP.ENTRIES]
     try:
         urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
                  if r["s"].get("measured", 0) >= SITEMAP_MEASURED]
@@ -363,6 +378,12 @@ def route(path):
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
+    elif path in ("/glossary", "/hr/rjecnik"):
+        lang = "en" if path == "/glossary" else "hr"
+        fn, ctype = (lambda: glossary_index(lang)), "text/html"
+    elif re.fullmatch(r"/glossary/[^/]+|/hr/rjecnik/[^/]+", path):
+        lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
+        fn, ctype = (lambda: glossary_term(slug, lang)), "text/html"
     elif path == "/blog" or path.startswith("/blog/"):
         from ui import blog
         slug = path[len("/blog/"):].strip("/") if path != "/blog" else ""
@@ -628,3 +649,88 @@ def coin_page(slug, lang):
     desc = t["p_desc"].format(name=r["name"] or r["symbol"], sym=r["symbol"], rank=r["rank"] or "–",
                               mcap=_usd(r["mcap"]).lstrip("$"), holders=hold)
     return _shell(lang, title, desc, f"/coin/{slug}", f"/hr/coin/{slug}", body, jsonld=jsonld)
+
+
+# ---------- public glossary ----------------------------------------------------------------------------------------
+
+G_T = {
+    "en": dict(title="Crypto & Solana meme coin glossary: {n} terms explained | KriptoRadar",
+               desc="Plain-English explanations of crypto, Solana meme coin, trading and influencer terms: market cap, "
+                    "liquidity, rug pull, KOL, copy trading, DCA, slippage and more.",
+               h1="Crypto glossary", lead="{n} terms from Solana meme coin trading, explained in plain words, with "
+               "examples and how KriptoRadar measures them.", ex="Example", rel="Related terms", all="← All terms",
+               live="See it live", path="/glossary/", idx="/glossary", t_title="{q} {name} explained | KriptoRadar",
+               faq="Frequently asked"),
+    "hr": dict(title="Kripto rječnik: {n} pojmova o Solana meme coinima objašnjeno | KriptoRadar",
+               desc="Jednostavna objašnjenja kripto pojmova: tržišna vrijednost, likvidnost, rug pull, KOL, copy "
+                    "trading, DCA, slippage i drugo.",
+               h1="Kripto rječnik", lead="{n} pojmova iz trgovanja Solana meme coinima, objašnjeno jednostavno, s "
+               "primjerima i načinom na koji ih KriptoRadar mjeri.", ex="Primjer", rel="Povezani pojmovi",
+               all="← Svi pojmovi", live="Pogledaj uživo", path="/hr/rjecnik/", idx="/hr/rjecnik",
+               t_title="{q} {name} objašnjeno | KriptoRadar", faq="Česta pitanja"),
+}
+_HR_LIVE = {"/solana-meme-coins": "/hr/solana-meme-coini", "/influencers": "/hr/influenceri"}
+_HR_LABEL = {"/hr/solana-meme-coini": "najveći Solana meme coini", "/hr/influenceri": "ljestvica influencera"}
+
+
+def _gterm(e, lang):
+    """(slug, name, question, short, long, example) of one public glossary entry in a language."""
+    if lang == "en":
+        return e["en"], e["name"], e["q"], e["short"], e["long"], e["ex"]
+    from ui import glossary_public as GP
+    t = GP.hr_term(e)
+    return e["hr"], t["name"], f"Što je {t['name']}?", t["short"], t["long"], t["primjer"]
+
+
+def glossary_index(lang):
+    from ui import glossary_public as GP
+    g = G_T[lang]
+    items = sorted((_gterm(e, lang) for e in GP.ENTRIES), key=lambda x: x[1].lower())
+    lis = "".join(f"<a class=gi href=\"{g['path']}{s_}\"><b>{esc(n)}</b><span>{esc(sh)}</span></a>"
+                  for s_, n, _q, sh, _l, _e in items)
+    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{g['h1']}</h1>"
+            f"<p class=lead>{g['lead'].format(n=len(items))}</p></section><div class=gl>{lis}</div>"
+            f"<div class=lock><p>{L[lang]['lb_lock']}</p><a class='btn sm' href={L[lang]['home']}#pristup>"
+            f"{L[lang]['cta']}</a></div>")
+    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    jsonld = ('<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "DefinedTermSet", "name": g["h1"], "url": base + g["idx"],
+        "hasDefinedTerm": [{"@type": "DefinedTerm", "name": n, "description": sh, "url": f"{base}{g['path']}{s_}"}
+                           for s_, n, _q, sh, _l, _e in items]}, ensure_ascii=False) + "</script>")
+    return _shell(lang, g["title"].format(n=len(items)), g["desc"], "/glossary", "/hr/rjecnik", body, jsonld=jsonld)
+
+
+def glossary_term(slug, lang):
+    from ui import glossary_public as GP
+    e = (GP.BY_EN if lang == "en" else GP.BY_HR).get(slug)
+    if not e:
+        return None
+    g = G_T[lang]
+    s_, name, q, short, long, ex = _gterm(e, lang)
+    live = ""
+    if e["live"]:
+        href, label = e["live"]
+        href = href if lang == "en" else _HR_LIVE.get(href, href)
+        label = label if lang == "en" else _HR_LABEL.get(href, label)
+        live = f"<p><a class='btn g sm' href={href}>{g['live']}: {esc(label)} →</a></p>"
+    rel = "".join(f"<a href=\"{g['path']}{_gterm(r, lang)[0]}\">{esc(_gterm(r, lang)[1])}</a>" for r in GP.related(e, lang))
+    body = (f"<section class=ph1><div class=crumb><a href={g['idx']}>{g['all']}</a></div><h1>{esc(q)}</h1>"
+            f"<p class=lead><b style='color:var(--fg)'>{esc(name)}:</b> {esc(short)}</p></section>"
+            f"<div class=gbody>" + (f"<p>{esc(long)}</p>" if long else "")
+            + (f"<div class=card style='margin:18px 0'><span class=mut style='font-size:13px'>{g['ex']}</span>"
+               f"<p style='margin:6px 0 0'>{esc(ex)}</p></div>" if ex else "") + live + "</div>"
+            + (f"<h2 class=s>{g['rel']}</h2><div class=chips>{rel}</div>" if rel else "")
+            + f"<div class=lock><p>{L[lang]['lb_lock']}</p><a class='btn sm' href={L[lang]['home']}#pristup>"
+              f"{L[lang]['cta']}</a></div>")
+    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    answer = short + (" " + long if long else "")
+    jsonld = ('<script type="application/ld+json">' + json.dumps([
+        {"@context": "https://schema.org", "@type": "DefinedTerm", "name": name, "description": short,
+         "url": f"{base}{g['path']}{s_}",
+         "inDefinedTermSet": {"@type": "DefinedTermSet", "name": g["h1"], "url": base + g["idx"]}},
+        {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": answer}}]}],
+        ensure_ascii=False) + "</script>")
+    title = g["t_title"].format(q=q, name=name)
+    desc = (short + " " + long)[:155].rsplit(" ", 1)[0] + "…" if len(short + " " + long) > 155 else short
+    return _shell(lang, title, desc, f"/glossary/{e['en']}", f"/hr/rjecnik/{e['hr']}", body, jsonld=jsonld)
