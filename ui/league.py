@@ -218,8 +218,8 @@ def page(qs, user):
             ["Token", "Kupljeno", ("Ulog", "n"), ("Ulazna cijena", "n"), ("Sada", "n"), ("MC ulaz", "n"),
              ("MC sada", "n"), ("Pomak", "n"),
              ("PnL $ (ako prodaš sad)", "n"), ("Likvidnost", "n"), ""], rows, empty="Nemaš otvorenih pozicija."))
-        if mine:
-            b.append(_auto_form(mine))
+        from league import auto as autosell
+        b.append(_auto_form(mine, autosell.get_rule(con, user)))
 
         size = '<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
         b.append(_dca_box(con, user, qs, live, mine))
@@ -365,21 +365,44 @@ def _auto_cell(t):
     return f'<div class=mut style="font-size:12px">{esc(d + part)}</div>' if d or part else ""
 
 
-def _auto_form(mine):
-    """Auto sell: smart exit (learned rules) or your own TP/SL in percent or market cap."""
+def _auto_form(mine, rule=None):
+    """Auto sell: smart exit (learned rules) or your own TP/SL in percent or market cap, for one position or (checkbox)
+    for all open positions at once, optionally also for every new buy."""
+    from league import auto
     opts = "".join(f'<option value={t["id"]}>{esc(t["symbol"] or t["token"][:6])} (MC ulaz {_mc(t["entry_mcap"])})</option>'
                    for t in mine)
-    return ('<h3>Auto sell</h3><p class=tdesc>Alat prodaje umjesto tebe (provjera svake minute, i preko noći). '
+    now = ""
+    if rule:
+        now = ('<div class="card" style="margin:8px 0">✅ <b>Pravilo za nove kupnje je uključeno:</b> '
+               f'{esc(auto.describe_rule(rule))}. Svaka nova pozicija ga dobije odmah nakon kupnje (osim copy tradinga, '
+               'koji ima svoj izlaz). '
+               + _form("/natjecanje/auto", {"all": 1, "mode": "off", "keep": 1}, "Isključi pravilo") + '</div>')
+    one = (f'<select name=id id=autoid style="max-width:100%">{opts}</select>' if mine else '')
+    all_box = (f'<label style="flex-basis:100%;line-height:1.5"><input type=checkbox name=all value=1 id=autoall'
+               f'{" checked" if not mine or rule else ""}> primijeni na <b>sve otvorene pozicije</b> ({len(mine)})</label>'
+               if mine else '<input type=hidden name=all value=1>')
+    new_box = ('<label style="flex-basis:100%;line-height:1.5"><input type=checkbox name=new value=1'
+               f'{" checked" if rule or not mine else ""}> i na <b>sve nove kupnje</b> (ručne, brza kupnja, DCA)</label>')
+    return ('<h3 id=autosell>Auto sell</h3><p class=tdesc>Alat prodaje umjesto tebe (provjera svake minute, i preko noći). '
             '<b>Pametni izlaz</b> koristi pravila naučena iz povijesti za klasu tokena (djelomične prodaje, trailing, moonbag, '
             'pauza nakon calla influencera; vidi <a href=/izlazi>Izlazi</a>). <b>Moj TP/SL</b>: upiši postotak '
             '(<code>100%</code>, <code>-30%</code>; SL <code>30</code> znači -30%) ili market cap (<code>$500k</code>, '
-            '<code>1.2M</code>), alat sam preračuna cijenu. Djelomične prodaje se vide uz poziciju, a novac se vraća na račun '
-            'kad se pozicija zatvori.</p>'
-            '<form method=post action="/natjecanje/auto" class="card flt">'
-            f'<select name=id>{opts}</select><select name=mode><option value=smart>pametni izlaz</option>'
-            '<option value=tpsl>moj TP/SL</option><option value=off>isključi auto sell</option></select>'
-            '<input name=tp placeholder="TP: 100% ili $500k" size=16><input name=sl placeholder="SL: -30% ili $40k" size=16>'
-            '<button>Postavi</button></form>')
+            '<code>1.2M</code>), alat sam preračuna cijenu za svaku poziciju. Postotak se računa od ulaza svake pozicije. '
+            'Kvačica <b>sve otvorene pozicije</b> postavi isto pravilo na sve odjednom; <b>sve nove kupnje</b> ga '
+            'pamti i stavlja na svaku sljedeću kupnju. Pojedinoj poziciji i dalje možeš promijeniti pravilo ručno. '
+            'Djelomične prodaje se vide uz poziciju, a novac se vraća na račun kad se pozicija zatvori.</p>'
+            + now +
+            '<form method=post action="/natjecanje/auto" class="card flt" id=autof>'
+            + one + '<select name=mode><option value=tpsl>moj TP/SL</option><option value=smart>pametni izlaz</option>'
+            '<option value=off>isključi auto sell</option></select>'
+            f'<input name=tp placeholder="TP: 100% ili $500k" size=16 value="{esc((rule or {}).get("tp") or "")}" '
+            'style="max-width:100%">'
+            f'<input name=sl placeholder="SL: -30% ili $40k" size=16 value="{esc((rule or {}).get("sl") or "")}" '
+            'style="max-width:100%">'
+            + all_box + new_box + '<button>Postavi</button></form>'
+            '<script>(function(){var a=document.getElementById("autoall"),s=document.getElementById("autoid");'
+            'if(!a||!s)return;function u(){s.disabled=a.checked;s.style.opacity=a.checked?.4:1}'
+            'a.addEventListener("change",u);u()})()</script>')
 
 
 def post(path, form, user):
@@ -464,6 +487,27 @@ def _post(path, form, user):
             from league import dca
             dca.stop(con, user, int(form.get("id") or 0))
             return f"{back}?ok={quote('DCA zaustavljen. Već kupljeno ostaje u tvojoj poziciji.')}#dca"
+        if path == "/natjecanje/auto" and (form.get("all") or form.get("new")):
+            from league import auto
+            mode = form.get("mode", "")
+            if form.get("keep"):   # "Isključi pravilo": only stop it for new buys, positions keep what they have
+                n, skipped = auto.apply_all(con, user, "off", all_open=False)
+                return f"{back}?ok={quote('Pravilo za nove kupnje je isključeno. Otvorene pozicije zadržavaju svoj auto sell.')}#autosell"
+            all_open = bool(form.get("all")) and con.execute(
+                "SELECT 1 FROM trades WHERE user=? AND status='open'", (user,)).fetchone() is not None
+            n, skipped = auto.apply_all(con, user, mode, form.get("tp", ""), form.get("sl", ""),
+                                        apply_new=bool(form.get("new")) and mode not in ("", "off"), all_open=all_open)
+            if not form.get("all") and form.get("id"):   # one position from the dropdown + the rule for new buys
+                auto.set_auto(con, user, int(form["id"]), mode, form.get("tp", ""), form.get("sl", ""))
+                n = 1
+            what = auto.describe_rule({"mode": mode, "tp": form.get("tp"), "sl": form.get("sl")}) \
+                if mode not in ("", "off") else "auto sell isključen"
+            msg = f"{what[:1].upper() + what[1:]}: postavljeno na {n} " + ("otvorenu poziciju" if n == 1 else "otvorenih pozicija")
+            if mode not in ("", "off") and form.get("new"):
+                msg += " i na sve nove kupnje"
+            if skipped:
+                msg += ". Preskočeno: " + "; ".join(f"{sym} ({why})" for sym, why in skipped[:5])
+            return f"{back}?ok={quote(msg)}#autosell"
         if path == "/natjecanje/auto":
             from league import auto
             a = auto.set_auto(con, user, int(form.get("id") or 0), form.get("mode", ""), form.get("tp", ""),

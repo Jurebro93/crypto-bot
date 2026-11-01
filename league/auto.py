@@ -63,12 +63,105 @@ def set_auto(con, user, trade_id, mode, tp="", sl=""):
             raise ValueError("TP mora biti iznad ulazne cijene")
         if sl_px is not None and sl_px >= t["entry_px"] and tp_px is None:
             pass  # a stop above entry locks in a profit: allowed
-        auto = {"mode": "tpsl", "tp_px": tp_px, "sl_px": sl_px, "tp": tp_l, "sl": sl_l}
+        auto = {"mode": "tpsl", "tp_px": tp_px, "sl_px": sl_px, "tp": tp_l, "sl": sl_l,
+                "tp_in": tp or "", "sl_in": sl or ""}   # typed text: a DCA buy re-reads a percent from the new average
     else:
         raise ValueError("nepoznat način")
     con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(auto) if auto else None, trade_id))
     con.commit()
     return auto
+
+
+# ---------- one rule for all positions -----------------------------------------------------------------------------
+# Nicholas 1.11.: setting TP/SL position by position from a dropdown is slow. A player's rule (table auto_rules) is
+# applied with one click to every open position and, if he ticks it, to every new buy as well. It writes the same
+# per-position trades.auto entry as set_auto, so selling is unchanged (run_once below).
+
+RULES = """CREATE TABLE IF NOT EXISTS auto_rules (user TEXT PRIMARY KEY, mode TEXT, tp TEXT, sl TEXT,
+    apply_new INTEGER DEFAULT 0, ts INTEGER)"""
+
+
+def _rules(con):
+    con.execute(RULES)
+
+
+def get_rule(con, user):
+    try:
+        _rules(con)
+        r = con.execute("SELECT * FROM auto_rules WHERE user=?", (user,)).fetchone()
+    except Exception:  # noqa: BLE001 - disk full / locked: no rule shown, nothing breaks
+        return None
+    return dict(r) if r else None
+
+
+def check_rule(mode, tp="", sl=""):
+    """Validate a rule before saving it (on a made-up entry, so a typo shows now and not on the next buy)."""
+    if mode == "smart":
+        return
+    if mode != "tpsl":
+        raise ValueError("nepoznat način")
+    tp_px, _ = parse_level(tp, 1.0, 1e6, "tp")
+    sl_px, _ = parse_level(sl, 1.0, 1e6, "sl")
+    if tp_px is None and sl_px is None:
+        raise ValueError("upiši barem TP ili SL")
+
+
+def apply_all(con, user, mode, tp="", sl="", apply_new=False, all_open=True):
+    """Save the player's rule and (all_open) put it on every open position.
+    Returns (number of positions set, [(symbol, why skipped)])."""
+    if mode in ("", "off"):
+        _rules(con)
+        con.execute("DELETE FROM auto_rules WHERE user=?", (user,))
+        n = 0
+        if all_open:
+            n = con.execute("UPDATE trades SET auto=NULL, auto_state=NULL WHERE user=? AND status='open' AND auto IS NOT NULL",
+                            (user,)).rowcount
+        con.commit()
+        return n, []
+    check_rule(mode, tp, sl)
+    _rules(con)
+    if apply_new:
+        con.execute("INSERT OR REPLACE INTO auto_rules VALUES (?,?,?,?,?,?)",
+                    (user, mode, tp or "", sl or "", 1, int(time.time())))
+    else:
+        con.execute("DELETE FROM auto_rules WHERE user=?", (user,))
+    con.commit()
+    n, skipped = 0, []
+    if all_open:
+        for t in con.execute("SELECT id, symbol, token, entry_px, entry_mcap FROM trades WHERE user=? AND status='open' "
+                             "ORDER BY id", (user,)).fetchall():
+            try:
+                if mode == "tpsl" and sl:   # one MC stop for all: on a token bought below it, it would sell at once
+                    sl_px, _ = parse_level(sl, t["entry_px"], t["entry_mcap"], "sl")
+                    if sl_px is not None and sl_px >= t["entry_px"]:
+                        raise ValueError(f"SL {sl} je iznad ulaza ove pozicije")
+                set_auto(con, user, t["id"], mode, tp, sl)
+                n += 1
+            except ValueError as e:   # e.g. TP $500k on a token bought at $1M
+                skipped.append((t["symbol"] or t["token"][:6], str(e)))
+    return n, skipped
+
+
+def on_buy(con, user, trade_id, source=""):
+    """A new position: put the player's rule on it if he chose 'also for new buys'. Copy trading entries keep the
+    exit chosen for that follow (league/copy.py sets it right after the buy)."""
+    if (source or "").startswith("copy"):
+        return None
+    r = get_rule(con, user)
+    if not r or not r.get("apply_new"):
+        return None
+    try:
+        return set_auto(con, user, trade_id, r["mode"], r["tp"], r["sl"])
+    except ValueError:
+        return None
+
+
+def describe_rule(r):
+    if not r:
+        return ""
+    if r["mode"] == "smart":
+        return "pametni izlaz (naučena pravila)"
+    return ", ".join(([f"TP {r['tp']}"] if r.get("tp") else []) + ([f"SL {r['sl']}"] if r.get("sl") else []))
 
 
 def describe(auto_json):

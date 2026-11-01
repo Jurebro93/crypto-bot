@@ -123,6 +123,13 @@ def add_to(con, trade_id, size_usd, price, liq):
         con.execute("UPDATE trades SET auto_state=NULL WHERE id=?", (trade_id,))  # smart exit restarts on the new average
     con.execute("UPDATE trades SET size_usd=?, qty=qty+?, entry_px=?, entry_eff=?, entry_mcap=? WHERE id=?",
                 (total, size_usd / eff, entry_px, entry_eff, mcap, trade_id))
+    a = json.loads(auto) if auto else None
+    if a and a.get("mode") == "tpsl" and ("tp_in" in a or "sl_in" in a):
+        from league import auto as autosell   # a TP/SL typed in percent follows the new average entry
+        try:
+            autosell.set_auto(con, t["user"], trade_id, "tpsl", a.get("tp_in", ""), a.get("sl_in", ""))
+        except ValueError:
+            pass
     con.commit()
 
 
