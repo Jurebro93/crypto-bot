@@ -76,7 +76,7 @@ def kind_of(text):
 
 def calls_from_tweet(t, target=None, symbol=None, source="x_buzz"):
     """List of call dicts for one scraped tweet. Retweets are skipped (the original author made the call)."""
-    if not isinstance(t, dict) or t.get("noResults") or t.get("isRetweet"):
+    if not isinstance(t, dict) or t.get("noResults") or t.get("isRetweet") or t.get("retweeted_tweet"):
         return []
     a = t.get("author") or t.get("user") or {}
     handle = a.get("userName") or a.get("screen_name") or a.get("username")
@@ -334,6 +334,9 @@ def timeline(con, cfg, run=None, now=None):
     scanner has not seen yet. Handles go in queries of timeline.per_query ("from:a OR from:b ..."), all queries of
     a round in one actor run (the actor takes up to 5); each query only asks for posts since the last round."""
     from hype import apify
+    from kol import twapi
+    if twapi.key() and run is None:
+        return timeline_twapi(con, cfg, now=now)
     run = run or apify.run
     now = now or int(time.time())
     t = cfg["timeline"]
@@ -355,6 +358,41 @@ def timeline(con, cfg, run=None, now=None):
     _searched(con, "timeline", "timeline", now)
     for h in handles:
         _searched(con, f"tl:{h}", "timeline_kol", now)
+    return n
+
+
+def timeline_twapi(con, cfg, get=None, now=None):
+    """Same as timeline(), through twitterapi.io (kol/twapi.py): more accounts, more often (timeline_twapi in
+    config overrides timeline: every_min, kols, core, per_query, daily_usd). Each query only asks for posts since the
+    previous round (5 min overlap); a failed query is skipped, the round still counts."""
+    from kol import twapi
+    now = now or int(time.time())
+    t = dict(cfg["timeline"], **(cfg.get("timeline_twapi") or {}))
+    last = con.execute("SELECT last_ts FROM searches WHERE target = 'timeline_tw'").fetchone()
+    if last and now - last[0] < t.get("every_min", 30) * 60:
+        return 0
+    handles = timeline_handles(con, dict(cfg, timeline=t), now)
+    if not handles:
+        return 0
+    since = (last[0] if last else now - 6 * 3600) - 300
+    per, n, budget = t.get("per_query", 25), 0, t.get("daily_usd", 0.7)
+    done = []
+    for i in range(0, len(handles), per):
+        chunk = handles[i:i + per]
+        if twapi.spent(con, now) >= budget:
+            print(f"kol twitterapi: dnevni budžet ${budget} potrošen, ostatak u sljedećem krugu", flush=True)
+            break
+        try:
+            items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, budget, get=get, now=now)
+        except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
+            print(f"kol twitterapi: upit nije uspio ({type(e).__name__}: {e})", flush=True)
+            continue
+        n += save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
+        done += chunk
+    _searched(con, "timeline_tw", "timeline", now)
+    for h in done:
+        _searched(con, f"tl:{h}", "timeline_kol", now)
+    con.commit()
     return n
 
 
