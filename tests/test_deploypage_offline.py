@@ -15,6 +15,13 @@ class DeployPageTest(unittest.TestCase):
         self.assertNotIn("<link rel=stylesheet", h)   # nothing from outside: the server is down when it shows
         self.assertNotIn("src=\"http", h)
 
+    def test_own_address_never_reloads_itself(self):
+        # /cekamo-deploy always answers 200 with this page: opened there, it must check and go to "/" instead
+        h = deploypage.html()
+        self.assertIn("location.pathname==='/cekamo-deploy'?'/'", h)
+        self.assertIn("fetch(target,", h)
+        self.assertNotIn("onclick=function(){location.reload()}", h)
+
     def test_service_worker_only_touches_page_loads(self):
         js = deploypage.sw_js()
         self.assertIn("r.mode!=='navigate'", js)
