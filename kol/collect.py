@@ -186,8 +186,54 @@ def from_hype_cache(con, hype_db=None):
     return n
 
 
+_STATUS = re.compile(r"https?://(?:www\.)?(?:x|twitter)\.com/(\w{1,15})/status/(\d{6,})")
+# the webhook text is every string of the payload joined: "<id> <url> <id> <createdAt ms> <lang> <post text> ..."
+_HOOK_HEAD = re.compile(r"^\s*(?:\d{6,}\s+)?(?:https?://\S+/status/\d+\s+)(?:\d{6,}\s+){0,3}(?:[a-z]{2,3}\s+)?")
+SNOWFLAKE_EPOCH = 1288834974657
+
+
+def snowflake_ts(tid):
+    """Post time (unix s) hidden in an X post id; None for ids from before 2010 or not numeric."""
+    try:
+        i = int(tid)
+    except (TypeError, ValueError):
+        return None
+    return ((i >> 22) + SNOWFLAKE_EPOCH) // 1000 if i > 1 << 40 else None
+
+
+def hook_post(handle, ts, text):
+    """(tweet_id, handle, ts, url, text) of one webhook row. The payload carries the post's own link: from it come
+    the real post id (so the same post found by a search is not stored twice), the exact time and the link that
+    the table shows. Without one: the old synthetic id and the profile link."""
+    text = text or ""
+    links = _STATUS.findall(text)
+    if not links:
+        return f"hook-{handle}-{ts}", handle, ts, f"https://x.com/{handle}", text
+    h, tid = next(((a, b) for a, b in links if a.lower() == (handle or "").lower()), links[0])
+    return (tid, h, snowflake_ts(tid) or ts, f"https://x.com/{h}/status/{tid}",
+            _HOOK_HEAD.sub("", text, count=1) if _HOOK_HEAD.match(text) else text)
+
+
+def fix_hook_rows(con):
+    """Rows saved from the webhook before hook_post: give them the real post id, link, time and text, and drop the
+    ones that a search already stored under the real id (the same post twice, one copy without a link)."""
+    n = 0
+    for tid0, token, handle, ts, text in con.execute(
+            "SELECT tweet_id, token, handle, ts, text FROM calls WHERE tweet_id LIKE 'hook-%'").fetchall():
+        tid, h, t, url, clean = hook_post(handle, ts, text)
+        if tid.startswith("hook-"):
+            continue
+        if con.execute("SELECT 1 FROM calls WHERE tweet_id = ? AND token = ?", (tid, token)).fetchone():
+            con.execute("DELETE FROM calls WHERE tweet_id = ? AND token = ?", (tid0, token))
+        else:
+            con.execute("UPDATE calls SET tweet_id = ?, handle = ?, ts = ?, url = ?, text = ? WHERE tweet_id = ? "
+                        "AND token = ?", (tid, h, t, url, clean[:600], tid0, token))
+        n += 1
+    return n
+
+
 def from_webhook(con, hype_db=None):
-    """kol_mentions rows written by the xquik monitor webhook (no link, no followers in that payload)."""
+    """kol_mentions rows written by the xquik monitor webhook (no followers in that payload)."""
     path = hype_db or HYPE_DB
     if not os.path.exists(path):
         return 0
@@ -198,12 +244,15 @@ def from_webhook(con, hype_db=None):
         rows = []
     finally:
         src.close()
+    fix_hook_rows(con)
     n = 0
     for ts, handle, ca, text in rows:
-        tid = f"hook-{handle}-{ts}"
-        n += save(con, [{"tweet_id": tid, "token": ca, "handle": handle, "ts": ts, "url": f"https://x.com/{handle}",
-                         "text": (text or "")[:600], "followers": 0, "likes": 0, "retweets": 0, "views": 0,
-                         "kind": kind_of(text), "match": "ca", "source": "webhook", "symbol": None}])
+        if ca not in cas_in(ca):  # EVM address tail ("x3ea...7777") from before the check: not a Solana token
+            continue
+        tid, h, t, url, clean = hook_post(handle, ts, text)
+        n += save(con, [{"tweet_id": tid, "token": ca, "handle": h, "ts": t, "url": url,
+                         "text": clean[:600], "followers": 0, "likes": 0, "retweets": 0, "views": 0,
+                         "kind": kind_of(clean), "match": "ca", "source": "webhook", "symbol": None}])
     return n
 
 

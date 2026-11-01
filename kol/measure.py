@@ -134,16 +134,26 @@ def revalidate(con, cfg):
     return n
 
 
+LAG = 600  # GeckoTerminal candles show up a few minutes late: a checkpoint is measured 10 min after it passes
+RETRY = 1200  # after a failed or empty fetch (API busy, no pair yet) the token waits 20 min
+
+
 def due(con, now, limit):
-    """Tokens with calls that still need a (re)measure, newest calls first."""
-    return [r[0] for r in con.execute("""
-        SELECT token FROM calls WHERE complete = 0 AND (measured_ts IS NULL OR measured_ts < ?)
-        GROUP BY token ORDER BY MAX(ts) DESC LIMIT ?""", (now - H, limit))]
+    """Tokens with calls that need a measure now: never measured, or a checkpoint (1 h, 6 h, 24 h after the post)
+    passed since the last measure. Real KOL calls first, then newest. Re-measuring every token every hour (before
+    1.11.) asked GeckoTerminal for ~24 fetches per token a day; the free API (shared with other jobs) could not keep
+    up, the newest calls took every slot and older ones never got their 1 h / 6 h / 24 h numbers."""
+    marks = " OR ".join(f"(measured_ts < ts + {h * H} AND ts + {h * H + LAG} <= :now)" for h in (1, 6, 24))
+    return [r[0] for r in con.execute(f"""
+        SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
+          AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
+        GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
 
 
 def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
     """Measure due calls. Returns (tokens measured, calls updated)."""
     now = now or int(time.time())
+    stop_at = time.monotonic() + cfg.get("measure_budget_s", 480)
     toks = due(con, now, cfg["measure_tokens_per_run"])
     known = {r[0]: r[1:] for r in con.execute("SELECT token, pair, supply, tries FROM tokens")}
     unresolved = [t for t in toks if t not in known or (not known[t][0] and known[t][2] < 3)]
@@ -161,8 +171,10 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
             if tries >= 3:  # not a tradable Solana token (or a pair address in a link): stop trying
                 con.execute("UPDATE calls SET complete = 1, measured_ts = ? WHERE token = ?", (now, t))
             else:
-                con.execute("UPDATE calls SET measured_ts = ? WHERE token = ? AND complete = 0", (now, t))
+                con.execute("UPDATE calls SET mtry = ? WHERE token = ? AND complete = 0", (now + RETRY, t))
             continue
+        if time.monotonic() > stop_at:  # leave the rest for the next round, so scoring and the rest of the cycle run
+            break
         start = min(ts for _, ts in rows) - 2 * H - CANDLE
         end = min(now, max(ts for _, ts in rows) + 24 * H + CANDLE)
         try:
@@ -170,7 +182,11 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
         except Exception as e:
             if verbose:
                 print(f"  gecko {t}: {type(e).__name__}: {e}")
-            con.execute("UPDATE calls SET measured_ts = ? WHERE token = ? AND complete = 0", (now, t))
+            con.execute("UPDATE calls SET mtry = ? WHERE token = ? AND complete = 0", (now + RETRY, t))
+            continue
+        if not candles:  # busy API or no trades yet: try again soon instead of waiting for the next checkpoint
+            con.execute("UPDATE calls SET mtry = ?, complete = (ts + 24 * ? + ? <= ?) WHERE token = ? AND complete = 0",
+                        (now + RETRY, H, CANDLE, now, t))
             continue
         n_tok += 1
         from kol import sessions

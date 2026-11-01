@@ -2,7 +2,7 @@
 
 HELP = {
     # tokens
-    "Token": "Simbol tokena. Klik otvara DexScreener, ⓘ otvara našu analizu tokena.",
+    "Token": "Klik na ime otvara našu stranicu tokena; male ikone pored njega otvaraju token na DexScreeneru, GMGN-u, Birdeyeu, Solscanu i drugdje.",
     "Confidence": "Koliko alat vjeruje da će token napraviti skok svoje klase, 0-100. Dok model ne nauči: hype ocjena plus "
                   "neovisne potvrde (X, smart money, KOL, rug filter) minus rizici, ručne težine. Kad nauči iz barem 200 ishoda "
                   "(dnevno, sa zaštitom): iste činjenice vagane po tome što je stvarno prethodilo skoku; 50 = prosječan token "

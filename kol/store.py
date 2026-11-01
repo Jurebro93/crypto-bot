@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts
 
 # columns added after the first release (ALTER on old files; CREATE above stays as it was for seed imports)
 MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
-           ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER")]
+           ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER"), ("calls", "mtry", "INTEGER")]
 
 
 def connect(path=None):

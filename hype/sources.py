@@ -169,7 +169,8 @@ def _handle(x):
 def ingest_kol_event(payload, db_path):
     """Store the CAs and $tickers of one webhook event. The payload shape is not documented, so search all text."""
     text = " ".join(_strings(payload))
-    cas = sorted({c for c in telegram._CA.findall(text) if any(ch.isdigit() for ch in c)})
+    from kol.collect import cas_in  # skips the tail of an EVM address ("0x3ea...7777" -> "x3ea...7777")
+    cas = cas_in(text)
     tickers = sorted({t.upper() for t in telegram._TICKER.findall(text)})
     if not cas and not tickers:
         return 0
