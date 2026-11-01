@@ -194,6 +194,7 @@ class TwitterApiIo(unittest.TestCase):
         cfg = dict(CFG, timeline_twapi={"every_min": 30, "kols": 30, "core": 20, "per_query": 25, "daily_usd": 0.7})
         n = collect.timeline_twapi(con, cfg, get=get, now=NOW)
         self.assertEqual(len([q for q in asked if not q[1]]), 2)  # 30 handles, 25 per query
+        self.assertTrue(all(len(q.split(" since_time")[0]) <= 300 for q, _ in asked))
         self.assertTrue(all("since_time:" in q for q, _ in asked))
         self.assertNotIn("c3", [c for _, c in asked])  # stopped paging at a post older than the last round
         self.assertGreaterEqual(n, 1)
