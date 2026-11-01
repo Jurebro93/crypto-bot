@@ -103,6 +103,9 @@ HELP = {
     "Viđen": "Kad je bot prvi put razmatrao token.",
     "Porijeklo": "Odakle je kandidat došao: hype skener ili event iz kalendara.",
     "Odluka": "Je li bot token kupio ili preskočio; razlog je u sljedećem stupcu.",
+    "Vrijedi sada SOL": "Preostali tokeni otvorene pozicije × trenutna cijena s DexScreenera (u SOL-u).",
+    "Nerealizirano SOL": "Vrijednost preostalih tokena sada minus koliko su koštali. Plus = otvorena pozicija je u profitu.",
+    "ROI": "Ukupni povrat pozicije: već prodano + vrijednost preostalog sada, naspram uloženog. – = nema cijene.",
     "Zona": "Procjena vremenske zone KOL-a iz sati u kojima objavljuje: najtiših 6 h dana uzima se kao njegova noć "
             "(oko 04:00 lokalno). Treba barem 12 postova; – = premalo postova ili nema jasne noći (bot, više ljudi).",
     "Sesija": "Doba dana po glavnom tržištu: Azija 00-08 UTC (Kina 08-16), Europa 08-14 UTC, SAD 14-24 UTC.",

@@ -196,16 +196,27 @@ def wallet(addr, qs):
                        [[esc(lab.get(k, k.replace("_", " "))), _statval(k, v, style)]
                         for k, v in s.items() if not isinstance(v, (list, dict))]))
 
-    pos = _positions(addr)
+    pos, priced = _positions(addr)
     if pos:
-        b.append("<h2>Pozicije (iz spremljenih trejdova)</h2><p class=mut>Nerealizirani PnL ovdje nije izračunat "
-                 "(treba živa cijena); status otvoreno/zatvoreno je po udjelu prodanog.</p>")
-        b.append(table(["Token", "Status", ("Uloženo SOL", "n"), ("Realizirano SOL", "n"), ("ROI (realiz.)", "n"),
-                        ("Kupnji", "n"), ("Prodaja", "n"), ("Držao", "n"), "Zadnje"],
+        op = [p for p in pos.values() if p["status"] == "open"]
+        unr = [p["unrealized"] for p in op if p.get("unrealized") is not None]
+        b.append("<h2>Pozicije (iz spremljenih trejdova)</h2>" + tdesc(
+            "Otvorene pozicije vrednuju se trenutnom cijenom s DexScreenera (besplatno, osvježava se pri svakom "
+            "učitavanju stranice, najviše 1 min stara). Nerealizirano = vrijednost preostalih tokena danas minus "
+            "ono što su koštali; ROI uključuje i već prodano. Status otvoreno/zatvoreno je po udjelu prodanog; "
+            "token bez ikakvog para na DexScreeneru ostaje bez cijene.")
+            + (f"<p>Otvoreno: <b>{len(op)}</b> pozicija, s cijenom {len(unr)}, nerealizirano ukupno "
+               f"<b>{signed(sum(unr), '{:+.2f}')[0] if unr else '–'}</b> SOL · <a href='?'>osvježi</a></p>" if op else ""))
+        b.append(table(["Token", "Status", ("Uloženo SOL", "n"), ("Realizirano SOL", "n"), ("Vrijedi sada SOL", "n"),
+                        ("Nerealizirano SOL", "n"), ("ROI", "n"), ("Kupnji", "n"), ("Prodaja", "n"), ("Držao", "n"),
+                        "Zadnje"],
                        [[tlink(p["mint"], syms.get(p["mint"])), esc(POS_STATUS.get(p["status"], p["status"])), num(p.get("cost"), "{:.2f}"),
-                         signed(p.get("realized"), "{:+.2f}"), signed(p.get("roi"), "{:+.0%}"), num(p["buys"]),
-                         num(p["sells"]), mins(p.get("hold_min")), ts(p["last_ts"])]
-                        for p in sorted(pos.values(), key=lambda p: -(p["last_ts"] or 0))]))
+                         signed(p.get("realized"), "{:+.2f}"),
+                         num(p.get("value"), "{:.3f}") if p["status"] == "open" else ("", "", ""),
+                         signed(p.get("unrealized"), "{:+.3f}") if p["status"] == "open" else ("", "", ""),
+                         signed(p.get("roi"), "{:+.0%}") if p["status"] != "open" or p["mint"] in priced else ("–", -9, "n"),
+                         num(p["buys"]), num(p["sells"]), mins(p.get("hold_min")), ts(p["last_ts"])]
+                        for p in sorted(pos.values(), key=lambda p: (p["status"] != "open", -(p["last_ts"] or 0)))]))
     hist = data.wallet_pnl(addr)
     if hist:
         b.append("<h2>Povijest ocjena</h2>")
@@ -222,14 +233,26 @@ def wallet(addr, qs):
 
 
 def _positions(addr):
+    """({mint: position}, {mint: live SOL price}) with open positions valued at the DexScreener price."""
     rows = data.wallet_trades(addr)
     if not rows:
-        return {}
+        return {}, {}
     try:
         from wallets import pnl
-        return {m: p for m, p in pnl.positions(rows).items() if p.get("status") in ("open", "closed")}
+        pos = pnl.positions(rows)
+        prices = {}
+        open_ = [m for m, p in pos.items() if p.get("status") == "open"]
+        if open_:
+            try:
+                from wallets import prices as wprices
+                prices = wprices.sol_prices(open_)
+            except Exception:
+                prices = {}
+            if prices:
+                pos = pnl.positions(rows, prices)
+        return {m: p for m, p in pos.items() if p.get("status") in ("open", "closed")}, prices
     except Exception:
-        return {}
+        return {}, {}
 
 
 # ---------------- tokens ----------------
