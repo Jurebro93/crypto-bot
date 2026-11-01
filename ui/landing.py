@@ -358,6 +358,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     qs = qs or {}
     form = form or {}
     from ui import public as P
+    from ui import sitenav as SN
     lang = "en" if lang == "en" else "hr"
     t = T[lang]
     en = lang == "en"
@@ -427,7 +428,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
 "url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
 "offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>
-<style>{CSS}{P.NAV_CSS}</style></head><body>
+<style>{CSS}{P._nav_css()}</style></head><body>
 <nav><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {P.nav_links(lang)}{switch}
 <a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
@@ -453,7 +454,9 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <p class=lead>{t['inf_p']}</p><a class='btn g' href={inf_href}>{t['inf_btn']} →</a></div></section>
 
 <section style='padding-top:0'><div class=w><div class=eyebrow>{t['ex_eye']}</div><h2>{t['ex_h']}</h2>
-<div class=exg>{P.explore(lang)}</div></div></section>
+{P.explore(lang)}</div></section>
+
+<section style='padding-top:0'><div class=w>{SN.coin_board(lang)}</div></section>
 
 <section class='soft gsec' style='padding-bottom:64px'><div class=w><div class=eyebrow>{t['gal_eye']}</div>
 <h2>{t['gal_h']}</h2><p class=lead>{t['gal_p']}</p><div class=gal>{gal}</div></div></section>
@@ -464,7 +467,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <section class=soft><div class=w><div class=faq><h2 class=center style='margin-bottom:24px'>{t['faq_h']}</h2>
 {faq}</div></div></section>
 
-<footer><div class=w><p style='margin:0 0 10px'>{P._foot_links(lang)} · {switch.replace("class=lnk ", "")}</p>
+<footer><div class=w>{P._foot_links(lang)}<p style='margin:0 0 10px'>{switch.replace("class=lnk ", "")}</p>
 © {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 <div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
 <dialog id=lb><img alt=""></dialog><script>{JS}</script></body></html>"""
