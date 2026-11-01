@@ -81,7 +81,8 @@ def update(pos, px, liq, mcap, ts, cfg):
             while b["tp_done"] < len(lad) and ret >= lad[b["tp_done"]][0]:
                 lv, frac = lad[b["tp_done"]]
                 last = b["tp_done"] == len(lad) - 1
-                _sell(b, b["left"] if last else frac, px, liq, ts, f"+{lv:.0%}", cfg)
+                # a limit order at the level: a jump far past it (thin pool, one wild tick) still fills at the level
+                _sell(b, b["left"] if last else frac, min(px, b["px0"] * (1 + lv)), liq, ts, f"+{lv:.0%}", cfg)
                 b["tp_done"] += 1
             if b["open"] and ret <= cfg["stop"]:
                 _sell(b, b["left"], px, liq, ts, f"stop {cfg['stop']:.0%}", cfg)

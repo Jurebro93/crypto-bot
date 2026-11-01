@@ -738,8 +738,22 @@ def cmd_apply(a):
     print(f"Primijenjeno: {changes}\nStara konfiguracija: {backup}")
 
 
+def _koltest_loop(every=30):
+    """Separate 7-day KOL test book (koltest/, own koltest.db) in its own thread of this process: every 30 s, so an
+    entry follows a call within a minute even while a hype scan holds the main loop for minutes."""
+    from koltest import run as koltest
+    while True:
+        try:
+            koltest.step()
+        except Exception as e:  # noqa: BLE001 - the test must never stop the main demo
+            print(f"KOL test: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(every)
+
+
 def cmd_run(a):
     last_scan = last_review = 0
+    import threading
+    threading.Thread(target=_koltest_loop, name="koltest", daemon=True).start()
     hype_args = ["scan", "--top", "0"] + (a.hype_args.split() if a.hype_args else [])
     while True:
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart
@@ -751,11 +765,6 @@ def cmd_run(a):
                 last_scan = now
             intake(cfg)
             closed = tick(cfg)
-            try:   # separate 7-day KOL test book (koltest/, own koltest.db): $50 on every fresh KOL call, measured
-                from koltest import run as koltest
-                koltest.step()
-            except Exception as e:  # noqa: BLE001 - the test must never stop the main demo
-                print(f"KOL test: {type(e).__name__}: {e}", file=sys.stderr)
             con = store.connect(DB)
             e = equity(con, cfg)
             print(f"{dt.datetime.now():%H:%M:%S}  demo {_usd(e['equity'])}  otvorenih {e['open']}  "
