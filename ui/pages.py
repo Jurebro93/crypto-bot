@@ -278,9 +278,17 @@ def token(mint, qs):
     rugs = data.rug_reports(mint)
     sym = (ev[0]["symbol"] if ev else None) or (sigs[0]["symbol"] if sigs else None) or (rugs[0]["symbol"] if rugs else None)
     url = (ev[0]["url"] if ev else None) or (sigs[0]["url"] if sigs else None)
-    b = [f"<h1>{esc(sym or short(mint))}</h1><p><code>{esc(mint)}</code> · {ext_token(mint, url)}</p>"]
+    from ui import league as _league, quickbuy
+    dsym, dlist = quickbuy.dugo_info(mint)
+    sym = sym or dsym
+    b = [f"<h1>{esc(sym or short(mint))}</h1><p><code>{esc(mint)}</code> {quickbuy.copy_btn(mint, small=True)} · "
+         f"{ext_token(mint, url)}</p>", _league._err(qs)
+         + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
+    locked = None
     if not (ev or sigs or rugs):
-        b.append("<p>Ovaj token nije ni u jednoj analizi.</p>")
+        b.append(f'<p>Na popisu <a href="/dugorocno"><b>{esc(dlist)}</b></a> (stariji token koji je preživio). Analize '
+                 'novih tokena ispod ga ne prate.</p>' if dlist else "<p>Ovaj token nije ni u jednoj analizi.</p>")
+        b.append(quickbuy.token_box(mint, sym))
     else:
         from rugfilter import archive, collapse
         arch = archive.get(mint, data.HYPE_DB)
@@ -294,6 +302,9 @@ def token(mint, qs):
         if col:
             b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
                      'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')
+        if arch or col:
+            locked = "token je rugan"
+        b.append(quickbuy.token_box(mint, sym, locked))
         from ui import narrative
         b.append(narrative.html(mint))
         b.append(tier_html(mint))
