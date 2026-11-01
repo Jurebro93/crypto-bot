@@ -95,6 +95,9 @@ class Dashboard(unittest.TestCase):
         d = leaguedash.compute(con, mk({MINT}))
         self.assertEqual(d["players"][0]["user"], "Ivan")
         self.assertEqual(d["players"][0]["rank"], 1)
+        p = d["players"]
+        p[0]["prev"], p[1]["prev"], p[2]["prev"], p[3]["prev"] = None, 1000, 1000, None
+        self.assertEqual(leaguedash._tie_rank([1000, 1000], 1000), 1)
         j = json.loads(leaguedash.api(con, mk({MINT})))
         self.assertIn("eq:Ivan", j["v"])
         tid = store.trades(con, "Panda", "open")[0]["id"]
