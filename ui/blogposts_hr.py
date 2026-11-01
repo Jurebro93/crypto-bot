@@ -1125,3 +1125,7 @@ Jupitera</a>).</li>
 </ul>
 <p>Članovi vide oba taba uživo, svaki poziv izmjeren u par minuta i copy trading na influencere koji pogađaju.</p>
 """)
+
+
+# Croatian versions of the 1 November 2026 posts.
+from ui import blogposts_hr_nov  # noqa: E402,F401
