@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT, created_ts INTEGER, updated_ts INTEGER, created_by TEXT,
     name TEXT, symbol TEXT, description TEXT, image_url TEXT, website TEXT, x_url TEXT, tg_url TEXT,
     supply INTEGER, decimals INTEGER, launch TEXT, liq_sol REAL, dev_buy_sol REAL, mkt_usd REAL,
-    infl_pct REAL, team_pct REAL, status TEXT DEFAULT 'nacrt', mint TEXT);
+    infl_pct REAL, team_pct REAL, status TEXT DEFAULT 'nacrt', mint TEXT, test_mint TEXT);
 CREATE TABLE IF NOT EXISTS donors (user TEXT PRIMARY KEY, address TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS stats (
     project_id INTEGER, ts INTEGER, price REAL, mcap REAL, liq REAL, vol24 REAL, buys24 INTEGER, sells24 INTEGER,
@@ -37,6 +37,8 @@ def connect(path=None):
     con.row_factory = sqlite3.Row
     try:
         con.executescript(SCHEMA)
+        if "test_mint" not in {r[1] for r in con.execute("PRAGMA table_info(projects)")}:
+            con.execute("ALTER TABLE projects ADD COLUMN test_mint TEXT")
     except sqlite3.OperationalError:   # disk full: tables usually exist, reads still work
         pass
     return con
@@ -107,6 +109,12 @@ def set_mint(con, pid, mint, status="live"):
         raise ValueError("to nije Solana adresa tokena (32-44 znaka)")
     if status not in STATUS:
         raise ValueError("nepoznat status")
+    if status == "test":   # a devnet test token never replaces the real one
+        p = get(con, pid) or {}
+        con.execute("UPDATE projects SET test_mint=?, status=?, updated_ts=? WHERE id=?",
+                    (mint, "live" if p.get("status") == "live" else "test", int(time.time()), pid))
+        con.commit()
+        return
     con.execute("UPDATE projects SET mint=?, status=?, updated_ts=? WHERE id=?", (mint, status, int(time.time()), pid))
     con.commit()
 
