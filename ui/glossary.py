@@ -426,6 +426,34 @@ T("Sesija", "kol", "Doba dana po tome koje tržište je budno: Azija, Europa ili
   alias=["sesije", "azija", "europa", "sad"])
 
 # ---------------------------------------------------------------- KOL metrike
+T("Provjera točnosti", "kol", "Alat sam provjerava predviđa li ocjena KOL-ova budućnost, na pozivima koje ocjena još nije vidjela.",
+  "Svaki tjedan alat zamisli da je ponedjeljak: KOL-ove ocijeni samo iz poziva koji su tada već bili izmjereni, pa pogleda "
+  "kako su prošli njihovi pozivi u tom tjednu. Najboljih 20% po ocjeni mora pogađati češće od ostalih i od 20% s najviše "
+  "pratitelja. Ako ne pogađa, piše 'pada' i dobri KOL-ovi privremeno ne pojačavaju signal; broji se samo koliko ih zove "
+  "zajedno. Tako se ograđujemo od ocjene koja dobro izgleda, a ništa ne predviđa.",
+  "Top 20% pogodio 67%, ostali 49%, najveći po pratiteljima 53%: ocjena prolazi.",
+  vidi=["moc-poziva", "raspon-ocjene", "test-slucajnosti"], gdje=[("/kol#provjera", "KOL-ovi")],
+  alias=["provjera točnosti ocjene", "rekli smo / dogodilo se"])
+T("Raspon ocjene", "kol", "Između kojih brojeva je vjerojatno prava ocjena KOL-a, s obzirom na to koliko poziva imamo.",
+  "Uz ocjenu pišu dva broja u zagradi, npr. 48 (35-61). Alat 100 puta nasumično ponovno složi KOL-ove pozive i svaki "
+  "put izračuna ocjenu; raspon pokriva srednjih 80% tih ocjena. Malo poziva ili vrlo različiti pozivi = širok raspon. "
+  "KOL s tri sretna poziva ima širok raspon, pa mu ne vjerujemo kao KOL-u s 80 poziva i uskim rasponom.",
+  "55 (52-58) je pouzdano; 55 (30-70) je još nagađanje.",
+  vidi=["moc-poziva", "provjera-tocnosti"], gdje=[("/kol#ljestvica", "KOL-ovi")], alias=["raspon"])
+T("Tko koga kopira", "grupe", "Veliki KOL-ovi koji redovito zovu tokene tek nakon što ih je zvao neki mali KOL.",
+  "Za svaki token alat gleda redoslijed poziva. Kad račun s barem 5× više pratitelja (i 20.000+) zove isti token unutar "
+  "48 h nakon manjeg računa, i to na više tokena, veliki vjerojatno čita malog ili ima istu ekipu. Mali je tada zlatan: "
+  "tko prati njega, ulazi prije gomile koju kasnije dovede veliki. Ako se često događa i obrnuto, to nije kopiranje "
+  "nego isti krug ljudi.",
+  "Mali račun s 3.000 pratitelja prvi na 8 tokena, veliki s 200.000 isti token medijan 49 min kasnije.",
+  vidi=["test-slucajnosti", "zvijezde-i-rastuce-zvijezde"], gdje=[("/kol#kopiraju", "KOL-ovi")],
+  alias=["kopira", "isti krug", "kopiraju"])
+T("Test slučajnosti", "grupe", "Provjera rade li dva KOL-a stvarno zajedno ili se njihovi pozivi poklapaju slučajno.",
+  "Kad dva računa zovu puno tokena, poneki se poklope i bez dogovora. Alat izračuna koliko bi se poklapanja dobilo čistom "
+  "slučajnošću (koliko tokena zove svaki i koliko se tokena u to vrijeme uopće zvalo) i usporedi sa stvarnim brojem. "
+  "Par je dokazan s 3+ zajednička tokena, 3× češće od slučaja i manje od 1% šanse da je slučajno.",
+  "Dva računa zajedno na 18 tokena, a slučaj bi dao 1: 20× više, dokazana ekipa.",
+  vidi=["provjera-tocnosti"], gdje=[("/kol#parovi", "KOL-ovi")], alias=["dokazano", "moguća slučajnost"])
 T("Moć poziva", "kol", "0-100: koliko KOL-ovi pozivi u prosjeku pomaknu cijenu i volumen.",
   "Sastoji se od: Pogodak (koliko poziva naraste 50%+ u 24 h), Rast 24 h, Rast 1 h, Volumen (koliko kupaca post dovede), "
   "Prvi (je li prvi zvao token) i Bez ruga; Kasni pozivi oduzimaju. Dok KOL nema puno izmjerenih poziva, ocjena je bliže "

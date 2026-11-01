@@ -218,7 +218,10 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
             return (f'<span class=mut title="Samo {s.get("measured", 0)} izmjerenih poziva: premalo za pouzdan '
                     f'medijan">{cell[0]}</span>', cell[1], cell[2])
         eng = s.get("eng_rate")
-        out.append([klink(k["handle"]), num(k["followers"]), (f"<b>{k['score']:.0f}</b>", k["score"], "n"),
+        rng = (f' <span class=mut title="80% raspon: s ovoliko poziva prava ocjena je vjerojatno između '
+               f'{s["score_lo"]:.0f} i {s["score_hi"]:.0f}">({s["score_lo"]:.0f}-{s["score_hi"]:.0f})</span>'
+               if s.get("score_lo") is not None else "")
+        out.append([klink(k["handle"]), num(k["followers"]), (f"<b>{k['score']:.0f}</b>{rng}", k["score"], "n"),
                     m(lift(k["power_rel"])), num(s.get("measured")), m(share(s.get("hit_rate"))),
                     m(pct(s.get("med_max24"))), m(pct(s.get("med_r1h"))), m(lift(s.get("med_lift"))),
                     m(share(s.get("rug_rate"))), m(share(s.get("prepump_rate"))), m(share(s.get("first_rate"))),
@@ -326,12 +329,83 @@ def _groups(con):
 
 
 def _pairs(con):
+    import sqlite3
     syms = _syms(con)
     ps = kscore.pairs(con, 2) or kscore.pairs(con, 1, 20)
-    out = [[klink(a), klink(b), num(n), (", ".join(tlink(t, syms.get(t)) for t in toks[:8]), "", "wrap")]
-           for a, b, n, toks in ps]
-    return table(["KOL A", "KOL B", ("Puta zajedno", "n"), ("Zajednički tokeni", "wrap")], out,
+    try:  # table appears with the first scoring round after the deploy
+        tests = {(r[0], r[1]): r[2:] for r in con.execute("SELECT a, b, expected, lift, p, ok FROM pair_tests")}
+    except sqlite3.OperationalError:
+        tests = {}
+    out = []
+    for a, b, n, toks in ps:
+        exp, lf, p, ok = tests.get((a, b), (None, None, None, None))
+        st = ("–", -1, "") if ok is None else (badge("dokazano", "good"), 2, "") if ok else (
+            (badge("moguća slučajnost", "warn"), 1, "") if n >= 2 else ("–", 0, ""))
+        out.append([klink(a), klink(b), num(n), num(exp, "{:.1f}"), lift(lf), st,
+                    (", ".join(tlink(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
+    return table(["KOL A", "KOL B", ("Puta zajedno", "n"), ("Slučajno očekivano", "n"), ("Puta više od slučaja", "n"),
+                  "Test slučajnosti", ("Zajednički tokeni", "wrap")], out, tid="kpairs",
                  empty="Još nema KOL-ova koji su zajedno zvali isti token.")
+
+
+def _copies(con, cfg):
+    """Big accounts that keep calling tokens after a small one (kol/validate.copies)."""
+    from kol import validate
+    syms = _syms(con)
+    foll = dict(con.execute("SELECT handle, COALESCE(followers, 0) FROM kols"))
+    out = []
+    for a, b, n, lag, rev, toks in validate.copies(con, cfg):
+        lagtxt = f"{lag:.0f} min" if lag < 120 else f"{lag / 60:.1f} h"
+        sure = badge("kopira", "good") if n >= 3 and rev * 2 <= n else badge("isti krug", "warn") if rev >= n / 2 else ""
+        out.append([klink(a), num(foll.get(a)), klink(b), num(foll.get(b)), num(n), num(rev), (lagtxt, lag, "n"),
+                    (sure, n - rev, ""), (", ".join(tlink(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
+    return table(["Mali KOL", ("Pratitelji malog", "n"), ("Veliki KOL", ""), ("Pratitelji velikog", "n"),
+                  ("Mali prvi", "n"), ("Veliki prvi", "n"), ("Medijan kašnjenja", "n"), "Ocjena veze",
+                  ("Tokeni", "wrap")], out, tid="kcopy",
+                 empty="Još nema velikih računa koji su na 2+ tokena zvali nakon manjeg.")
+
+
+def _validate(con, cfg):
+    """Walk-forward check of the KOL score (kol/validate.py): verdict, the weeks, and 'said vs happened'."""
+    from kol import validate
+    from ui.html import info
+    v = validate.load(con)
+    if not v:
+        return "<p class=mut>Prva provjera stiže s prvim bodovanjem nakon objave nove verzije.</p>"
+    hx = f"+{cfg['hit_x']:.0%}"
+    lab = {"prolazi": ("✅ Ocjena prolazi test", "good",
+                       "Najbolji KOL-ovi po našoj ocjeni stvarno su pogađali češće od ostalih na pozivima koje "
+                       "ocjena nije vidjela. Ocjena smije pojačavati signale."),
+           "pada": ("❌ Ocjena pada test", "bad",
+                    "Najbolji po ocjeni nisu bili bolji od ostalih na novim pozivima. Dok ne prođe, \"dobri KOL-ovi\" "
+                    "ne pojačavaju signal; broji se samo koliko ih zove zajedno."),
+           "nejasno": ("🤔 Ocjena još nije dokazana", "warn",
+                       "Najbolji po ocjeni pogađaju malo češće od ostalih, ali razlika je premala da isključimo sreću. "
+                       "Ocjena radi kao i prije; čekamo više poziva."),
+           "malo": ("⏳ Premalo novih poziva", "warn",
+                    "Još nema dovoljno izmjerenih poziva da test išta kaže. Ocjena radi kao i prije.")}[v["state"]]
+    tile = (lambda x: "–" if x is None else f"{x:.0%}")
+    b = [f'<p>{badge(lab[0], lab[1])} {info("Provjera točnosti", "provjera-tocnosti")}</p><p>{esc(lab[2])}</p>',
+         "<div class=grid>"]
+    for val, l in [(tile(v["hit_top"]), f"top 20% po ocjeni došlo do {hx} ({v['n_top']} poziva)"),
+                   (tile(v["hit_rest"]), f"ostali KOL-ovi ({v['n_rest']} poziva)"),
+                   (tile(v["hit_foll"]), f"top 20% po pratiteljima ({v['n_foll']} poziva)"),
+                   (tile(v["hit_all"]), f"svi pozivi ({v['n_all']})")]:
+        b.append(f"<div class=stat><div class=v>{val}</div><div class=l>{esc(l)}</div></div>")
+    b.append("</div>")
+    rows = [[ts(w["start"], "%d.%m."), num(w["kols"]),
+             num(w["n_top"]), share(w["hit_top"]), num(w["n_rest"]), share(w["hit_rest"]), share(w["hit_foll"])]
+            for w in v.get("weeks", [])]
+    b.append(tdesc("Svaki tjedan: ocjene izračunate samo iz poziva prije tog tjedna, pa uspoređene s pozivima u tom "
+                   "tjednu.") + table(["Tjedan od", ("Ocijenjenih KOL-ova", "n"), ("Poziva top 20%", "n"),
+                                       ("Pogodak top 20%", "n"), ("Poziva ostali", "n"), ("Pogodak ostali", "n"),
+                                       ("Pogodak po pratiteljima", "n")], rows, tid="kvweeks"))
+    cal = [[f"{c['lo']:.0%}-{c['hi']:.0%}", num(c["n"]), share(c["said"]), share(c["real"])] for c in v.get("calib", [])]
+    b.append(tdesc("Rekli smo / dogodilo se: kad je alat iz prošlih poziva procijenio da KOL pogađa x% puta, koliko "
+                   "je njegovih sljedećih poziva stvarno pogodilo. Blizu = procjene su poštene.")
+             + table(["Procjena", ("Poziva", "n"), ("Rekli smo", "n"), ("Dogodilo se", "n")], cal, tid="kvcal",
+                     empty="Još nema dovoljno poziva."))
+    return "".join(b)
 
 
 def _wallets(con):
@@ -397,6 +471,9 @@ def page(qs):
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
 
         z = cfg.get("sessions", {})
+        b.append("<h2 id=provjera>Provjera točnosti ocjene</h2>" + tdesc(
+            "Alat svaki krug sam provjerava predviđa li njegova ocjena budućnost: ocjene iz starijih poziva uspoređuje "
+            "s novim pozivima koje nije vidio, i s glupim pravilom \"najviše pratitelja\".") + _validate(con, cfg))
         b.append("<h2 id=sesije>Sesije trgovanja i vremenske zone</h2>" + tdesc(
             "Američki i azijski (kineski) market makeri pokreću memecoine u različito doba dana. Sesije u UTC: Azija "
             "00-08 (Kina 08-16), Europa 08-14, SAD 14-24 (New York 09-19); kod nas je UTC+1. Za svaku sesiju: kako su "
@@ -410,13 +487,21 @@ def page(qs):
             f"Najboljih {w['size']} KOL-ova: moć poziva {cfg['good_score']}+, barem {w['min_calls']} izmjerenih poziva, "
             f"pogodak {w['min_hit']:.0%}+ i najviše {w['max_prepump']:.0%} kasnih poziva. Njihove nove postove dobivamo "
             "za nekoliko sekundi (xquik monitor, oko $0.11 po računu dnevno), pa hype sken unutar 2 min vidi token kao "
-            "kandidata sa signalom kol_x. Lista se sama mijenja nakon svakog bodovanja.") + _watch(con))
+            "kandidata sa signalom kol_x. Redoslijed ide po donjoj granici raspona ocjene, pa dokazani KOL-ovi imaju prednost "
+            "pred sretnicima s par poziva. Lista se sama mijenja nakon svakog bodovanja.") + _watch(con))
         b.append("<h2 id=grupe>Grupni pozivi</h2>" + tdesc(
             f"Dva ili više različitih autora zovu isti token unutar {cfg['group_secs'] // 60} min. Brojke su od prvog poziva "
             "u grupi. Dva dobra KOL-a bez prodaje devova = signal kol_group u hype ocjeni.") + _groups(con))
         b.append("<h2 id=parovi>KOL-ovi koji zovu zajedno</h2>" + tdesc(
-            "Parovi računa koji su više puta zvali isti token u istom prozoru. Isti par na puno tokena često je "
-            "ista grupa ili plaćena kampanja.") + _pairs(con))
+            "Parovi računa koji su više puta zvali isti token u istom prozoru. Test slučajnosti uspoređuje to s "
+            "koliko bi zajedničkih tokena dala sama slučajnost (koliko tokena svaki zove i koliko se tokena tada "
+            "uopće zvalo). Dokazano = 3+ tokena, 3× češće od slučaja i manje od 1% šanse da je slučajno: vjerojatno "
+            "ista ekipa ili plaćena kampanja.") + _pairs(con))
+        b.append("<h2 id=kopiraju>Tko koga kopira</h2>" + tdesc(
+            "Veliki računi (5× više pratitelja i barem 20.000) koji zovu token nakon što ga je manji račun već zvao, "
+            "unutar 48 h, na 2+ tokena. Takav mali KOL je izvor: tko njega prati, ulazi prije gomile koju dovede "
+            "veliki. Veliki prvi = koliko je puta bilo obrnuto; ako je to podjednako, nije kopiranje nego isti krug "
+            "ljudi.") + _copies(con, cfg))
         b.append(f"<h2 id=pozivi>Zadnji pozivi</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
             "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
             "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
