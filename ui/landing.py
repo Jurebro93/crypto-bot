@@ -296,7 +296,7 @@ T = {
         desc="Radar novih Solana tokena, ocjena influencera, kopiranje najboljih i liga tradera. Samo na pozivnicu.",
         pill="Samo na pozivnicu", h1a="Pametniji ulaz u", h1b="Solana tokene.",
         sub="KriptoRadar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
-        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri",
+        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri", ex_eye="Istraži besplatno", ex_h="Javni podaci KriptoRadara",
         n_tokens="tokena provjereno", n_wallets="novčanika praćeno", n_kols="influencera ocijenjeno",
         n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
         feat_lead="Šest alata koji rade 24/7, da ti ne moraš.",
@@ -326,7 +326,7 @@ T = {
         desc="New Solana token radar, influencer call scores, copy trading and a trader league. Invite only.",
         pill="Invite only", h1a="Smarter entries into", h1b="Solana tokens.",
         sub="KriptoRadar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
-        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers",
+        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers", ex_eye="Explore for free", ex_h="Public KriptoRadar data",
         n_tokens="tokens checked", n_wallets="wallets tracked", n_kols="influencers scored", n_calls="calls measured",
         live="Live from the database · updated", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
         feat_lead="Six tools working 24/7, so you don't have to.",
@@ -357,7 +357,9 @@ T = {
 def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     qs = qs or {}
     form = form or {}
-    t = T["en" if lang == "en" else "hr"]
+    from ui import public as P
+    lang = "en" if lang == "en" else "hr"
+    t = T[lang]
     en = lang == "en"
     home = "/" if en else "/hr"
     v, ts = stats()
@@ -425,10 +427,10 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
 "url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
 "offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>
-<style>{CSS}</style></head><body>
+<style>{CSS}{P.NAV_CSS}</style></head><body>
 <nav><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
-<a class='lnk hm' href=#funkcije>{t['nav_feat']}</a><a class='lnk hm' href={inf_href}>{t['nav_inf']}</a>{switch}
-<a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a></div></nav>
+{P.nav_links(lang)}{switch}
+<a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
 
 <header class=hero><div class=w>
 <span class=pill><span class=dot></span>{t['pill']}</span>
@@ -450,6 +452,9 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <section style='padding-top:0'><div class='w center'><div class=eyebrow>{t['inf_eye']}</div><h2>{t['inf_h']}</h2>
 <p class=lead>{t['inf_p']}</p><a class='btn g' href={inf_href}>{t['inf_btn']} →</a></div></section>
 
+<section style='padding-top:0'><div class=w><div class=eyebrow>{t['ex_eye']}</div><h2>{t['ex_h']}</h2>
+<div class=exg>{P.explore(lang)}</div></div></section>
+
 <section class='soft gsec' style='padding-bottom:64px'><div class=w><div class=eyebrow>{t['gal_eye']}</div>
 <h2>{t['gal_h']}</h2><p class=lead>{t['gal_p']}</p><div class=gal>{gal}</div></div></section>
 
@@ -459,8 +464,8 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <section class=soft><div class=w><div class=faq><h2 class=center style='margin-bottom:24px'>{t['faq_h']}</h2>
 {faq}</div></div></section>
 
-<footer><div class=w>© {time.gmtime().tm_year} {esc(name)} · {t['foot']} ·
-<a href={inf_href}>{t['nav_inf']}</a> · {switch.replace("class=lnk ", "")}</div></footer>
+<footer><div class=w><p style='margin:0 0 10px'>{P._foot_links(lang)} · {switch.replace("class=lnk ", "")}</p>
+© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 <div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
 <dialog id=lb><img alt=""></dialog><script>{JS}</script></body></html>"""
 
