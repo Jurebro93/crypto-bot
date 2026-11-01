@@ -12,8 +12,8 @@ from urllib.parse import quote
 from league import store
 from ui import confidence, data, leaguedash
 from rugfilter import collapse
-from ui.html import price as pricecell, ago, badge, esc, klasab, num, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
-from ui.paper import _live, _mc, market
+from ui.html import ago, badge, esc, klasab, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
+from ui.paper import _mc, market
 
 SUGGEST_H = 48
 SUGGEST_MAX = 80
@@ -161,52 +161,29 @@ def page(qs, user):
         mk = market(mints)
         live = {t: v[:3] for t, v in mk.items()}
         mcaps = {t: v[3] for t, v in mk.items() if v[3]}
-        b = [f"<h1>Natjecanje</h1><p class=lead>Svatko ima svoj demo račun od ${store.START_USD:,.0f} (bez pravog novca). "
-             "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
-             "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
-        b.append(quickbuy.top_buy(user))
-        b.append(_copy_card(con, user))
-        b.append('<p style="margin:6px 0 10px"><a href=/whatsapp style="display:inline-flex;align-items:center;gap:6px;'
-                 'background:#25d366;color:#fff;border-radius:10px;padding:8px 14px;font-weight:600;text-decoration:none">'
-                 '📲 Pošalji stanje u WhatsApp grupu</a></p>')
-        if user:
-            from ui import register
-            b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#predlozeni">⭐ Predloženi tokeni</a>'
-                     '<a class=chip href="#moj">💼 Moj račun</a>'
-                     '<a class=chip href="#dca">🔄 Automatski DCA</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
-                     '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
-                     '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a>'
-                     + ('<a class=chip href="#pozovi" onclick="document.getElementById(\'pozovi\').open=true">'
-                        '👥 Pozovi prijatelja</a>' if register.can_invite(user) else '') + '</div>')
-            b.append(register.invite_box(user))
-        b.append(quickbuy.block(strong + quickbuy.fresh(cands, mk), mk, user))
-        b.append(leaguedash.dashboard(con, mk, user))
+        head = [f"<h1>Natjecanje</h1><p class=lead>Svatko ima svoj demo račun od ${store.START_USD:,.0f} (bez pravog novca). "
+                "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
+                "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
+        wa = ('<p style="margin:6px 0 10px"><a href=/whatsapp style="display:inline-flex;align-items:center;gap:6px;'
+              'background:#25d366;color:#fff;border-radius:10px;padding:8px 14px;font-weight:600;text-decoration:none">'
+              '📲 Pošalji stanje u WhatsApp grupu</a></p>')
         if not user:
+            b = head + [_copy_card(con, user), wa, quickbuy.block(strong, mk, user, compact=True),
+                        leaguedash.dashboard(con, mk, user)]
             return "Natjecanje", "".join(b)
-
+        # Nicholas 1.11. 20:46: own positions and selling them first, then the account and buys/sells, then the rest
+        from ui import register
+        rest = "".join([quickbuy.top_buy(user), _copy_card(con, user), register.invite_box(user), wa])
+        b = list(head)
         acc = store.account(con, user)
-        unreal, rows = 0.0, []
-        mpk = collapse.peaks(data.HYPE_DB, {t["token"] for t in mine})
-        for t in mine:
-            price, liq, _ = live.get(t["token"], (None, None, None))
-            val = store.value(t, price, liq) if price else None
-            pnl = val - t["size_usd"] if val is not None else None
-            unreal += pnl or 0
-            sell_btn = _form("/natjecanje/sell", {"id": t["id"]}, "Prodaj") if price else \
-                _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)")
-            mc_now = t["entry_mcap"] * price / t["entry_px"] if price and t["entry_mcap"] and t["entry_px"] else None
-            if mc_now and t["entry_mcap"]:
-                collapse.add(mpk, t["token"], t["opened_ts"], t["entry_mcap"], None)
-            col = collapse.check(mpk.get(t["token"]), mc_now, liq) if mc_now else None
-            rug_hint = (" " + badge("💀 rugan", "bad") + f'<div class=neg style="font-size:12px">{esc(col["text"])}; '
-                        'oporavak je rijedak, razmisli o prodaji.</div>') if col else ""
-            dca_hint = rug_hint + ((" " + badge("bot: DCA prijedlog", "warn") + f'<div class=mut style="font-size:12px">'
-                                    f'{esc(bot_dca[t["token"]])}</div>') if t["token"] in bot_dca else "")
-            rows.append([tlink(t["token"], t["symbol"]) + dca_hint + _auto_cell(t), ago(t["opened_ts"]), usd(t["size_usd"]),
-                         pricecell(t["entry_px"]), pricecell(price), usd(t["entry_mcap"]), usd(mc_now),
-                         signed(price / t["entry_px"] - 1 if price else None, "{:+.0%}"),
-                         (leaguedash.live_pnl(t["id"], pnl), pnl if pnl is not None else -1e18, "n"),
-                         usd(liq), sell_btn])
+        pos_html, unreal = _positions(mine, live, bot_dca)
+        b.append(f'<h2 id=pozicije>💼 Moje pozicije ({len(mine)})</h2>'
+                 f'<p class=mut style="margin:2px 0 8px">Stanje računa <b>${acc["start"] + acc["realized"] + unreal:,.2f}</b>'
+                 f' · slobodno <b>${acc["cash"]:,.2f}</b> · otvoreno <b class={"pos" if unreal > 0 else "neg" if unreal < 0 else ""}>'
+                 f'{unreal:+,.2f} $</b></p>' + pos_html)
+        from league import auto as autosell
+        b.append(_auto_form(mine, autosell.get_rule(con, user)))
+        b.append(_dca_box(con, user, qs, live, mine))
         b.append(f'<h2 id=moj>Tvoj račun: {esc(user)}</h2><div class=grid>'
                  f'<div class=stat><div class=v>${acc["start"] + acc["realized"] + unreal:,.2f}</div><div class=l>stanje računa</div></div>'
                  f'<div class=stat><div class=v>${acc["cash"]:,.2f}</div><div class=l>slobodno za ulaganje</div></div>'
@@ -214,15 +191,19 @@ def page(qs, user):
                  f'{acc["realized"]:+,.2f} $</div><div class=l>ostvareno (zatvoreni)</div></div>'
                  f'<div class=stat><div class="v {"pos" if unreal > 0 else "neg" if unreal < 0 else ""}">{unreal:+,.2f} $</div>'
                  f'<div class=l>otvoreno (live)</div></div></div>')
-        b.append("<h3>Otvorene pozicije</h3>" + table(
-            ["Token", "Kupljeno", ("Ulog", "n"), ("Ulazna cijena", "n"), ("Sada", "n"), ("MC ulaz", "n"),
-             ("MC sada", "n"), ("Pomak", "n"),
-             ("PnL $ (ako prodaš sad)", "n"), ("Likvidnost", "n"), ""], rows, empty="Nemaš otvorenih pozicija."))
-        from league import auto as autosell
-        b.append(_auto_form(mine, autosell.get_rule(con, user)))
+        closed = store.trades(con, user, "closed")
+        b.append("<h3 id=zatvoreni>Moje kupnje i prodaje (zatvoreno)</h3>" + table(
+            ["Token", "Kupljeno", "Prodano", ("MC ulaz", "n"), ("MC izlaz", "n"), ("Ulog", "n"), ("PnL $", "n"),
+             ("Povrat", "n"), "Napomena"],
+            [[tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), ts(t["closed_ts"]), usd(t["entry_mcap"]),
+              usd(t["exit_mcap"]), usd(t["size_usd"]),
+              signed(t["pnl_usd"]), signed(t["ret"], "{:+.0%}"), esc(t["note"] or "")] for t in closed],
+            empty="Još ništa nisi prodao."))
+        b.append(rest)
+        b.append(quickbuy.block(strong + quickbuy.fresh(cands, mk), mk, user, compact=True))
+        b.append(leaguedash.dashboard(con, mk, user))
 
         size = '<input name=size type=number min=1 step=1 value=50 style="width:70px" title="ulog u $">'
-        b.append(_dca_box(con, user, qs, live, mine))
         srows = []
         for r in cands:
             price, liq, _ = live.get(r["token"], (None, None, None))
@@ -253,14 +234,6 @@ def page(qs, user):
                         "Bot", ("Mcap viđen", "n"), ("Pomak", "n"), ("Likvidnost", "n"), "Zadnje", "Ulog $"], srows,
                        empty="Nijedan token ne odgovara filteru."))
 
-        closed = store.trades(con, user, "closed")
-        b.append("<h3 id=zatvoreni>Tvoji zatvoreni trejdovi</h3>" + table(
-            ["Token", "Kupljeno", "Prodano", ("MC ulaz", "n"), ("MC izlaz", "n"), ("Ulog", "n"), ("PnL $", "n"),
-             ("Povrat", "n"), "Napomena"],
-            [[tlink(t["token"], t["symbol"]), ts(t["opened_ts"]), ts(t["closed_ts"]), usd(t["entry_mcap"]),
-              usd(t["exit_mcap"]), usd(t["size_usd"]),
-              signed(t["pnl_usd"]), signed(t["ret"], "{:+.0%}"), esc(t["note"] or "")] for t in closed],
-            empty="Još ništa nisi prodao."))
         b.append("<p class=mut>Ideja kako poboljšati alat? Upiši je u <a href=/prijedlozi>Prijedloge</a>.</p>")
         return "Natjecanje", "".join(b)
     finally:
@@ -356,6 +329,85 @@ def _dca_box(con, user, qs, live, mine):
     else:
         b.append('<p class=mut>Još nemaš DCA planova.</p>')
     return "".join(b)
+
+
+POS_CSS = (".pos-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:10px;"
+           "margin:6px 0 12px}.pos-c{box-sizing:border-box;max-width:100%;min-width:0;padding:12px 14px;margin:0;"
+           "overflow-wrap:anywhere}.pos-c *{box-sizing:border-box}"
+           ".pos-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}"
+           ".pos-n{font-size:17px;font-weight:700;min-width:0}.pos-p{font-size:20px;font-weight:700;text-align:right;"
+           "white-space:nowrap}.pos-p small{font-size:13px;font-weight:600}"
+           ".pos-m{color:var(--mut);font-size:13px;margin:4px 0 8px;line-height:1.45}"
+           ".pos-s{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.pos-s form{margin:0}"
+           ".pos-s button,.pos-a button{width:100%;min-height:44px;font-size:16px;font-weight:700;border-radius:10px}"
+           ".pos-all{background:var(--bad,#dc2626)!important;color:#fff!important;border-color:var(--bad,#dc2626)!important}"
+           ".pos-a{display:flex;gap:6px;margin-top:6px}.pos-a input{flex:1 1 auto;min-width:0;width:100%;font-size:16px;"
+           "padding:10px;border-radius:10px}.pos-a button{flex:0 0 auto;width:auto;padding:0 14px}"
+           ".pos-l{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:14px}"
+           ".pos-w{font-size:12.5px;margin:4px 0;line-height:1.4}")
+
+
+def _sell_btn(t, frac, label, worth, cls=""):
+    sym = esc((t["symbol"] or t["token"][:6]).replace("'", ""))
+    what = "CIJELU poziciju" if frac == 1 else f"{frac:.0%} pozicije"
+    approx = f" (oko ${worth * frac:,.2f})" if worth else ""
+    return (f'<form method=post action="/natjecanje/sell" onsubmit="return confirm(\'Prodati {what} {sym}{approx} '
+            f'po trenutnoj cijeni?\')"><input type=hidden name=id value={t["id"]}><input type=hidden name=frac '
+            f'value={frac}><button{cls}>{label}</button></form>')
+
+
+def _positions(mine, live, bot_dca):
+    """Open positions as phone-sized cards with selling right on them (Nicholas 1.11. 20:46: the table ran off the
+    screen, the sell button was hidden and one tap sold everything). 25% / 50% / Sve or a dollar amount, each asks
+    first; DCA and TP/SL one tap away. Returns (html, unrealized PnL)."""
+    if not mine:
+        return ('<p class="card mut">Nemaš otvorenih pozicija. Kupi token u okviru „🛒 Kupi token odmah” niže '
+                'ili iz Predloženih tokena.</p>', 0.0)
+    unreal, cards = 0.0, []
+    mpk = collapse.peaks(data.HYPE_DB, {t["token"] for t in mine})
+    for t in mine:
+        price, liq, _ = live.get(t["token"], (None, None, None))
+        val = store.value(t, price, liq) if price else None
+        pnl = val - t["size_usd"] if val is not None else None
+        worth = val - store._realized(t) if val is not None else None
+        unreal += pnl or 0
+        mc_now = t["entry_mcap"] * price / t["entry_px"] if price and t["entry_mcap"] and t["entry_px"] else None
+        if mc_now and t["entry_mcap"]:
+            collapse.add(mpk, t["token"], t["opened_ts"], t["entry_mcap"], None)
+        col = collapse.check(mpk.get(t["token"]), mc_now, liq) if mc_now else None
+        warn = ""
+        if col:
+            warn += (f'<div class="pos-w neg">💀 <b>Rugan:</b> {esc(col["text"])}. Oporavak je rijedak, razmisli o '
+                     'prodaji.</div>')
+        if t["token"] in bot_dca:
+            warn += f'<div class="pos-w mut">🔄 Bot predlaže DCA: {esc(bot_dca[t["token"]])}</div>'
+        move = price / t["entry_px"] - 1 if price and t["entry_px"] else None
+        pct = f' <small class={"pos" if (move or 0) > 0 else "neg" if (move or 0) < 0 else ""}>{move:+.0%}</small>' \
+            if move is not None else ""
+        meta = (f'Ulog {usd(t["size_usd"])[0]}' + (f' · vrijedi oko <b>${worth:,.2f}</b>' if worth is not None else "")
+                + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · {ago(t["opened_ts"])[0]}'
+                + (f' · likvidnost {usd(liq)[0]}' if liq else ""))
+        if price:
+            sell = ('<div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth) + _sell_btn(t, 0.5, "50%", worth)
+                    + _sell_btn(t, 1, "Sve", worth, " class=pos-all") + '</div>'
+                    f'<form method=post action="/natjecanje/sell" class=pos-a onsubmit="var v=this.usd.value;'
+                    f'return v&&confirm(\'Prodati za $\'+v+\' od {esc((t["symbol"] or "").replace(chr(39), ""))}?\')">'
+                    f'<input type=hidden name=id value={t["id"]}><input name=usd type=number inputmode=decimal min=1 '
+                    f'step=any placeholder="ili upiši iznos u $" aria-label="iznos u $"><button>Prodaj</button></form>')
+        else:
+            sell = ('<div class=pos-w mut>DexScreener trenutno ne daje cijenu.</div>'
+                    + _form("/natjecanje/sell", {"id": t["id"], "rug": 1}, "Otpiši (nema cijene)"))
+        auto_js = (f"var s=document.getElementById('autoid'),a=document.getElementById('autoall');"
+                   f"if(s){{s.value='{t['id']}'}}if(a&&a.checked){{a.click()}}")
+        links = (f'<div class=pos-l><a href="/natjecanje?dca={quote(t["token"])}#dca">🔄 DCA (dokupi)</a>'
+                 f'<a href="#autosell" onclick="{auto_js}">🎯 TP/SL auto sell</a></div>')
+        cards.append(f'<div class="card pos-c"><div class=pos-h><div class=pos-n>{tlink(t["token"], t["symbol"])}</div>'
+                     f'<div class=pos-p>{leaguedash.live_pnl(t["id"], pnl)} ${pct}</div></div>'
+                     f'<div class=pos-m>{meta}</div>{_auto_cell(t)}{warn}{sell}{links}</div>')
+    note = ('<p class=tdesc>Gumbi prodaju dio ili cijelu poziciju po živoj cijeni (1% naknade + klizanje). '
+            'Prije prodaje uvijek pitaju za potvrdu. Prodani dio odmah vraća novac na račun i vidi se u '
+            '„Moje kupnje i prodaje”, a ostatak pozicije ostaje otvoren s istim ulazom i auto sell pravilom.</p>')
+    return f'<style>{POS_CSS}</style>{note}<div class=pos-list>{"".join(cards)}</div>', unreal
 
 
 def _auto_cell(t):
@@ -459,9 +511,24 @@ def _post(path, form, user):
                 if t["token"] not in live:
                     raise ValueError("DexScreener trenutno ne daje cijenu, probaj ponovo")
                 price, liq, _, mcap = live[t["token"]]
-                pnl = store.sell(con, user, tid, price, liq, mcap=mcap)
-            msg = f"Prodano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
-            return f"{back}?ok={quote(msg)}"
+                frac = 1.0
+                if form.get("usd"):   # "upiši iznos u $": share of what the rest is worth now
+                    want = float(form["usd"])
+                    rest = store.value(t, price, liq) - store._realized(t)
+                    if want <= 0 or rest <= 0:
+                        raise ValueError("upiši iznos veći od $0")
+                    frac = min(1.0, want / rest)
+                elif form.get("frac"):
+                    frac = float(form["frac"])
+                    if not 0 < frac <= 1:
+                        raise ValueError("neispravan dio pozicije")
+                pnl, whole = store.sell_partial(con, user, tid, frac, price, liq, mcap=mcap)
+                sym = t['symbol'] or t['token'][:6]
+                msg = (f"Prodano sve: {sym}, {pnl:+.2f} $" if whole else
+                       f"Prodano {frac:.0%} pozicije {sym}: {pnl:+.2f} $. Ostatak je i dalje otvoren.")
+                return f"{back}?ok={quote(msg)}#pozicije"
+            msg = f"Otpisano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
+            return f"{back}?ok={quote(msg)}#pozicije"
         if path == "/natjecanje/dca/start":
             from league import dca
             token = form.get("token", "").strip()

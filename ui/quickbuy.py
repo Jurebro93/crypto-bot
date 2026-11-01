@@ -99,7 +99,7 @@ def _buy_form(mint, symbol, source, size=50, button="🛒 Kupi", back=""):
             + f'<select name=size title="ulog u $">{stakes}</select><button>{button}</button></form>')
 
 
-def _card(t, live, user):
+def _card(t, live, user, compact=False):
     label, cls = KIND[t["kind"]]
     price, liq, _, mcap = live.get(t["mint"], (None, None, None, None))
     mcap = mcap or t["mcap"]
@@ -112,21 +112,29 @@ def _card(t, live, user):
         act = '<span class=mut>trenutno nema cijene</span>'
     else:
         act = _buy_form(t["mint"], t["symbol"], f"predloženo: {label[2:].strip().lower()}")
-    return (f'<div class=card style="min-width:210px;max-width:250px;flex:0 0 auto;margin:0;display:flex;'
+    w = "min-width:170px;max-width:190px;padding:10px" if compact else "min-width:210px;max-width:250px"
+    return (f'<div class=card style="{w};flex:0 0 auto;margin:0;display:flex;'
             f'flex-direction:column;gap:6px"><div><span class="b {cls}">{esc(label)}</span></div>'
             f'<div style="font-size:17px"><a href="/token/{esc(t["mint"])}"><b>{esc(sym)}</b></a></div>'
             f'<div class=mut style="font-size:12px">vrijednost {usd(mcap)[0]}'
-            f'{ret_html}</div><div class=mut style="font-size:12px;flex:1">{esc(t["why"][:110])}</div>'
+            f'{ret_html}</div><div class=mut style="font-size:12px;flex:1">{esc(t["why"][:60 if compact else 110])}</div>'
             f'{act}<div style="display:flex;gap:6px;flex-wrap:wrap">{copy_btn(t["mint"], small=True)}'
             + (f'<a href="/natjecanje?dca={esc(t["mint"])}#dca" style="font-size:12px;align-self:center" '
                'title="kupuj isti iznos u pravilnim razmacima">🔄 DCA</a>' if user else "")
             + f'<a href="/token/{esc(t["mint"])}" style="font-size:12px;align-self:center">detalji →</a></div></div>')
 
 
-def block(tokens, live, user):
-    """The "Predloženi tokeni" strip on Natjecanje."""
+def block(tokens, live, user, compact=False):
+    """The "Predloženi tokeni" strip on Natjecanje. compact (Nicholas 1.11. 20:46: it took too much room near the top):
+    one short line and narrower cards in a single sideways-scrolling row."""
     if not tokens:
         return ""
+    if compact:
+        cards = "".join(_card(t, live, user, compact=True) for t in tokens)
+        return ('<h2 id=predlozeni>⭐ Predloženi tokeni</h2><p class=mut style="font-size:13px;margin:2px 0 6px">'
+                'Jaki i dugoročni tokeni su sigurniji, novi kandidati rizičniji. Povuci vodoravno za više.'
+                + ("" if user else " Za kupnju se prijavi.") + '</p>'
+                f'<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;max-width:100%">{cards}</div>')
     intro = ("Sigurniji izbor su jaki i dugoročni tokeni (kao Fartcoin i Useless: preživjeli su tjednima, imaju stalan "
              "volumen i oporavljaju se od padova). Novi kandidati su rizičniji, ali mogu narasti brže. Odaberi ulog i "
              "klikni Kupi, trade ide na tvoj račun u natjecanju po živoj cijeni.")
