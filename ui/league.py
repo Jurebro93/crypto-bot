@@ -146,7 +146,8 @@ def page(qs, user):
         if user:
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'
                      '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
-                     '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a></div>')
+                     '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
+                     '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a></div>')
         b.append(leaguedash.dashboard(con, mk, user))
         if not user:
             return "Natjecanje", "".join(b)

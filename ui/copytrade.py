@@ -84,7 +84,8 @@ def kol_rows():
             continue
         out.append({"handle": h, "followers": fol, "score": sc, "s": s, "live": h in live, "week": week.get(h, 0),
                     "last": last.get(h), "kt": kt.get(h, {}).get("x")})
-    return out
+    # live-watched first: only their calls arrive fast enough to be copied; then call power
+    return sorted(out, key=lambda r: (r["live"], r["score"] or 0), reverse=True)
 
 
 def wallet_rows():
@@ -277,7 +278,7 @@ def page(qs, user):
         elif qs.get("ok"):
             msg = f'<div class=card style="border-color:var(--good)">{esc(qs["ok"])}</div>'
         b = ['<h1>Copy trading</h1><p class=lead>Odaberi influencera ili wallet i alat trguje umjesto tebe na tvom '
-             f'<a href=/natjecanje>demo računu u Natjecanju</a> (bez pravog novca). <b>Influencer:</b> čim objavi novi '
+             '<a href=/natjecanje>demo računu u Natjecanju</a> (bez pravog novca). <b>Influencer:</b> čim objavi novi '
              'token, kupuješ ga i ti. <b>Wallet:</b> kad on kupi, kupiš i ti; kad on proda, prodaš i ti. '
              'Provjera ide svake minute, i preko noći.</p>', msg]
         if not user:
@@ -293,7 +294,7 @@ def page(qs, user):
                  f'size=30 value="{esc(qs.get("q", ""))}"><button>Traži</button> <a href=/copy-trading>očisti</a></form>')
 
         b.append('<h2 id=influenceri>Influenceri: uđi na njihov sljedeći call</h2>' + tdesc(
-            "Influenceri s barem 3 izmjerena poziva, najjači prvi (bot računi koji samo objavljuju svaki novi token su "
+            "Influenceri s barem 3 izmjerena poziva; prvo oni koje pratimo uživo, pa najjači (bot računi koji samo objavljuju svaki novi token su "
             "izbačeni). <b>Pogodak</b> = token je narastao +50% u 24 h nakon poziva. <b>Kasni pozivi</b> = token je već "
             "skočio prije poziva. <b>KOL test</b> = kako je prošao naš probni ulaz od $50 na svaki svjež poziv tog "
             "influencera. <b>⚡ uživo</b> znači da njegove objave vidimo u sekundama; ostale vidimo tek pri skeniranju, "
