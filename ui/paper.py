@@ -384,7 +384,8 @@ def _learning_box(trades, cfg):
     rows = []
     for mode, label in (("core", "Glavni (score ≥ " + str(cfg.get("min_score")) + ")"),
                         ("explore", "Istraživački (manji ulog)"), ("konv", "Konvergencija izvora"),
-                        ("mc100k", "Prvi prelazak 100k $ (A/B, ulaz B)"), ("kol3", "3+ KOL autora u 15 min")):
+                        ("mc100k", "Prvi prelazak 100k $ (A/B, ulaz B)"),
+                        ("mc100k2", "Ponovni prelazak 100k $ nakon pada"), ("kol3", "3+ KOL autora u 15 min")):
         g = groups.get(mode) or []
         closed = [t for t in g if t["status"] == "closed"]
         n = len(closed)
@@ -454,7 +455,7 @@ def rules_html(now=None):
         "(tokenizirane dionice) ili ako mu je volumen pao ispod 20% najboljeg sata. Konvergencija samo iz novčanika, bez "
         "ijednog posta, traži barem 6 novčanika. Token s rug ocjenom „visok rizik” dobiva samo mali ulog.".replace(",", "."),
         "<b>Ulaz na prvom prelasku 100k $.</b> Uz uobičajene ulaze (A) bot sad ulazi i kad token prvi put prijeđe 100k $ "
-        f"vrijednosti uz prolaz T0 (B), istim ulogom. Kad obje strane imaju barem {R['ab']['min_n']} zatvorenih tradeova, "
+        f"vrijednosti uz prolaz T0 (B), istim ulogom. Ako nakon izlaza token padne ispod 80k $ i ponovno prijeđe 100k $, bot ulazi još jednom (mjeri se zasebno). Kad obje strane imaju barem {R['ab']['min_n']} zatvorenih tradeova, "
         f"bolja dobiva većinu ulaza, a slabija {R['ab']['keep_frac']:.0%} da se usporedba nastavi. Provjerava se svaki dan.",
         "<b>Simulacija izlaza bliža stvarnosti.</b> Svaka kupnja i prodaja plaća proklizavanje "
         f"({cfg.get('slip', 0):.0%}), stop na grubim povijesnim podacima puni se tamo gdje bi ga minutna provjera stvarno "
