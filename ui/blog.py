@@ -182,22 +182,25 @@ def _link_terms(body, lang="en"):
 # Matching "best tools" comparison pages (ui/tools.py), EN slug -> HR slug.
 TOOLS = {"wallet-trackers": "pracenje-novcanika", "crypto-analysis-tools": "alati-za-analizu",
          "trading-bots": "trading-botovi", "rug-checkers": "provjera-ruga",
-         "copy-trading-platforms": "copy-trading-platforme", "crypto-wallets": "kripto-novcanici"}
+         "copy-trading-platforms": "copy-trading-platforme", "crypto-wallets": "kripto-novcanici",
+         "telegram-trading-bots": "telegram-trading-botovi"}
 TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trading": ("copy-trading-platforms",),
              "what-is-a-kol-in-crypto": ("crypto-analysis-tools",), "influencer-clustering": ("crypto-analysis-tools",),
              "how-to-spot-a-rug-pull": ("rug-checkers",), "what-is-pump-fun": ("trading-bots", "rug-checkers"),
-             "bundles-and-snipers": ("rug-checkers", "trading-bots"), "how-to-trade-meme-coins": ("trading-bots",),
+             "bundles-and-snipers": ("rug-checkers", "trading-bots"), "how-to-trade-meme-coins": ("trading-bots", "telegram-trading-bots"),
              "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",),
-             "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers"),
-             "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets"), "what-is-a-pump-and-dump": ("rug-checkers",),
+             "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers", "telegram-trading-bots"),
+             "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets", "telegram-trading-bots"), "what-is-a-pump-and-dump": ("rug-checkers",),
              "crypto-cards-croatia": ("crypto-wallets",), "company-crypto-investment-croatia": ("crypto-wallets",),
-             "why-big-influencer-calls-are-hard-to-trade": ("trading-bots", "crypto-analysis-tools")}
+             "why-big-influencer-calls-are-hard-to-trade": ("trading-bots", "crypto-analysis-tools", "telegram-trading-bots")}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
-                    "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets"},
+                    "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets",
+                    "telegram-trading-bots": "Telegram trading bots and setup guides"},
              "hr": {"wallet-trackers": "Najbolji alati za praćenje novčanika", "crypto-analysis-tools": "Najbolji alati za analizu",
                     "trading-bots": "Najbolji Solana trading botovi", "rug-checkers": "Najbolji alati za provjeru ruga",
-                    "copy-trading-platforms": "Najbolje copy trading platforme", "crypto-wallets": "Najbolji kripto novčanici"}}
+                    "copy-trading-platforms": "Najbolje copy trading platforme", "crypto-wallets": "Najbolji kripto novčanici",
+                    "telegram-trading-bots": "Telegram trading botovi i vodiči za postavljanje"}}
 
 
 def _tools(en_slug, lang="en"):
