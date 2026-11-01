@@ -257,7 +257,9 @@ def translate(page):
         flush_all()      # any block element ends the sentence
     flush_all()
     # placeholders whose element was skipped (code, translate=no): close them at the matching end tag
-    return "".join(out)
+    # the page itself says it is English (the Croatian copy it came from said lang=hr; browsers then offer to
+    # "translate from Croatian" and screen readers read English with Croatian rules)
+    return re.sub(r"<html lang=(hr|\"hr\")>", "<html lang=en>", "".join(out), count=1)
 
 
 def _render_run(items, out, toks):
