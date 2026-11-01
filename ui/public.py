@@ -8,6 +8,7 @@ copy trading and everything else stay behind the login (and are sent with X-Robo
 Pages are cached for CACHE_S, so search-engine crawlers cost almost nothing.
 """
 import json
+import math
 import os
 import re
 import sqlite3
@@ -106,6 +107,11 @@ letter-spacing:-.02em;font-weight:760}.card span{color:var(--mut);font-size:13px
 .lock{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--fg);color:#fff;
 border-radius:18px;padding:20px 22px;margin:18px 0}.lock p{margin:0;color:#cbd2df}.lock .btn{background:#fff;color:var(--fg)}
 h2.s{font-size:24px;margin:40px 0 12px}ul.how{color:var(--mut);padding-left:20px}ul.how li{margin:6px 0}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 18px}@media(max-width:760px){.charts{grid-template-columns:1fr}}
+ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#cbd2df}
+.cards .card{min-width:0}.cards .card b{overflow-wrap:anywhere}@media(max-width:600px){.cards .card b{font-size:19px}}
+.m{display:none;font-size:12px}@media(max-width:600px){table.coins .x{display:none}table.coins .m{display:block}table.coins td,table.coins th{white-space:normal;padding:10px 8px}table.coins td.n{white-space:nowrap}table.coins{font-size:14px}table.coins td{overflow-wrap:anywhere}}
+.rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
 """
@@ -204,6 +210,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
 <style>{CSS}{EXTRA_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
+<a class='lnk hm' href={'/solana-meme-coins' if lang == 'en' else '/hr/solana-meme-coini'}>{'Meme coins' if lang == 'en' else 'Meme coini'}</a>
 <a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href=/blog>Blog</a>{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a></div></nav>
 <main class=w>{body}</main>
@@ -224,7 +231,7 @@ def leaderboard(lang):
                    f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")
     c = t["cols"]
     head = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(c))
-    table = (f"<div class=tw><table><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
+    table = (f"<div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
              if trs else f"<p class=mut>{t['none']}</p>")
     how = "".join(f"<li>{x}</li>" for x in t["how"])
     body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
@@ -309,7 +316,8 @@ def profile(handle, lang):
 def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
-            "Allow: /hr/influencer/\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
+            "Allow: /hr/coin/\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -317,8 +325,17 @@ def sitemap():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     day = time.strftime("%Y-%m-%d", time.gmtime())
     urls = [("/", "/hr", "1.0"), ("/influencers", "/hr/influenceri", "0.9")]
-    urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
-             if r["s"].get("measured", 0) >= SITEMAP_MEASURED]
+    urls.append(("/solana-meme-coins", "/hr/solana-meme-coini", "0.9"))
+    try:
+        from ui import coins as K
+        urls += [(f"/coin/{c['slug']}", f"/hr/coin/{c['slug']}", "0.8") for c in K.top()]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        urls += [(f"/influencer/{r['handle']}", f"/hr/influencer/{r['handle']}", "0.7") for r in influencers()
+                 if r["s"].get("measured", 0) >= SITEMAP_MEASURED]
+    except Exception as e:  # noqa: BLE001  (one broken source must not empty the whole sitemap)
+        print(f"sitemap: influenceri nedostupni: {e}", flush=True)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
     for en, hr, pr in urls:
@@ -337,6 +354,12 @@ def route(path):
     """(code, body bytes, content type) for a public path, or None when the path is not public."""
     if path in ("/robots.txt", "/sitemap.xml"):
         fn, ctype = (robots, "text/plain") if path == "/robots.txt" else (sitemap, "application/xml")
+    elif path in ("/solana-meme-coins", "/hr/solana-meme-coini"):
+        lang = "en" if path == "/solana-meme-coins" else "hr"
+        fn, ctype = (lambda: coin_list(lang)), "text/html"
+    elif re.fullmatch(r"(/hr)?/coin/[^/]+", path):
+        lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
+        fn, ctype = (lambda: coin_page(slug, lang)), "text/html"
     elif path in ("/influencers", "/hr/influenceri"):
         lang = "en" if path == "/influencers" else "hr"
         fn, ctype = (lambda: leaderboard(lang)), "text/html"
@@ -372,3 +395,236 @@ def route(path):
             _cache.clear()
         _cache[path] = (now, code, raw)
     return code, raw, ctype
+
+
+# ---------- top Solana meme coins ----------------------------------------------------------------------------------
+
+C = {
+    "en": dict(
+        lb_title="Top 100 Solana meme coins by market cap (live) | KriptoRadar",
+        lb_desc="The biggest Solana meme coins ranked by market cap: price, 24h change, holders, liquidity and volume, "
+                "with an analysis page for every coin. Updated every few hours.",
+        lb_h1="Top Solana meme coins by market cap",
+        lb_lead="The {n} largest Solana meme coins with real liquidity and holders, ranked by market cap. Click a coin "
+                "for its chart, safety check and which influencers called it.",
+        cols=("#", "Coin", "Price", "24h", "Market cap", "Liquidity", "Holders", "24h volume"),
+        updated="Updated", p_title="{sym} price, market cap & holder analysis: is {name} safe? | KriptoRadar",
+        p_desc="{name} ({sym}) is the #{rank} Solana meme coin with a ${mcap} market cap and {holders} holders. Price "
+               "chart, safety check, liquidity and the influencers who called it.",
+        p_h1="{name} ({sym})", p_sub="price, holders and influencer calls",
+        summary="{name} is the #{rank} Solana meme coin by market cap ({mcap}). It has {holders} holders, {liq} of "
+                "liquidity and {vol} traded in the last 24 hours. The price moved {chg} in 24 hours.",
+        cards=("Price", "Market cap", "24h change", "Holders", "Liquidity", "24h volume"),
+        chart_p="Price", chart_h="Holders", chart_src_d="daily, last {n} days", chart_src_h="since we started tracking", chart_src_24="last 24 hours",
+        safe_h="Safety check", safe=("Mint authority", "Freeze authority", "Top holders own", "Dev wallet holds",
+                                     "Organic trading score", "Top 10 wallets (our data)", "Listed on exchanges"),
+        yes_off="revoked ✓", no_on="active ⚠", calls_h="Influencer calls",
+        calls_note="Calls older than 24 hours and what the price did after them.",
+        ccols=("Date", "Influencer", "Market cap at call", "1 h", "24 h", "24h peak"), no_calls="No influencer calls "
+        "measured for this coin yet.", lock_h="What members see on top",
+        lock=("KriptoRadar score and odds of a jump, updated every 2 minutes", "Smart-money wallets buying or selling now",
+              "{n} influencer calls from the last 24 hours, live",
+              "Live influencer calls from the last 24 hours", "Copy trading and alerts on the next move"),
+        similar="Similar coins", addr="Contract address", copy="Copy", faq_h="Questions about {sym}",
+        faq=[("What is the {sym} contract address?", "The Solana contract address of {name} is {mint}."),
+             ("How many holders does {sym} have?", "{name} has {holders} holders right now."),
+             ("Is {sym} safe?", "{safe} This is not financial advice; meme coins are very risky.")],
+        safe_ok="Mint and freeze authority are revoked, so no one can print new tokens or freeze wallets.",
+        safe_bad="Mint or freeze authority is still active, which is a risk.", back="← Top Solana meme coins",
+        lb_path="/solana-meme-coins", prof="/coin/"),
+    "hr": dict(
+        lb_title="Top 100 Solana meme coina po tržišnoj vrijednosti (uživo) | KriptoRadar",
+        lb_desc="Najveći Solana meme coini po tržišnoj vrijednosti: cijena, promjena u 24 h, holderi, likvidnost i "
+                "volumen, uz stranicu s analizom za svaki coin. Osvježava se svakih par sati.",
+        lb_h1="Najveći Solana meme coini po tržišnoj vrijednosti",
+        lb_lead="{n} najvećih Solana meme coina s pravom likvidnošću i holderima, poredano po tržišnoj vrijednosti. "
+                "Klikni coin za graf, sigurnosnu provjeru i koji su ga influenceri zvali.",
+        cols=("#", "Coin", "Cijena", "24 h", "Tržišna vrij.", "Likvidnost", "Holderi", "Volumen 24 h"),
+        updated="Osvježeno", p_title="{sym} cijena, market cap i analiza holdera: je li {name} siguran? | KriptoRadar",
+        p_desc="{name} ({sym}) je #{rank} Solana meme coin s tržišnom vrijednošću ${mcap} i {holders} holdera. Graf "
+               "cijene, sigurnosna provjera, likvidnost i influenceri koji su ga zvali.",
+        p_h1="{name} ({sym})", p_sub="cijena, holderi i pozivi influencera",
+        summary="{name} je #{rank} Solana meme coin po tržišnoj vrijednosti ({mcap}). Ima {holders} holdera, {liq} "
+                "likvidnosti i {vol} trgovanja u zadnja 24 sata. Cijena se u 24 sata promijenila {chg}.",
+        cards=("Cijena", "Tržišna vrijednost", "Promjena 24 h", "Holderi", "Likvidnost", "Volumen 24 h"),
+        chart_p="Cijena", chart_h="Holderi", chart_src_d="dnevno, zadnjih {n} dana", chart_src_h="otkad ga pratimo", chart_src_24="zadnja 24 sata",
+        safe_h="Sigurnosna provjera", safe=("Mint ovlast", "Freeze ovlast", "Najveći holderi drže", "Dev novčanik drži",
+                                            "Organsko trgovanje", "Top 10 novčanika (naši podaci)", "Na burzama"),
+        yes_off="ukinuta ✓", no_on="aktivna ⚠", calls_h="Pozivi influencera",
+        calls_note="Pozivi stariji od 24 sata i što je cijena napravila nakon njih.",
+        ccols=("Datum", "Influencer", "Vrijednost kod poziva", "1 h", "24 h", "Vrh 24 h"), no_calls="Još nema "
+        "izmjerenih poziva influencera za ovaj coin.", lock_h="Što članovi vide uz to",
+        lock=("KriptoRadar ocjena i šansa za skok, osvježava se svake 2 minute", "Pametni novčanici koji upravo kupuju ili prodaju",
+              "{n} poziva influencera iz zadnja 24 sata, uživo",
+              "Pozivi influencera iz zadnja 24 sata, uživo", "Copy trading i obavijest o sljedećem pomaku"),
+        similar="Slični coini", addr="Adresa ugovora", copy="Kopiraj", faq_h="Pitanja o {sym}",
+        faq=[("Koja je adresa ugovora za {sym}?", "Solana adresa ugovora za {name} je {mint}."),
+             ("Koliko holdera ima {sym}?", "{name} trenutno ima {holders} holdera."),
+             ("Je li {sym} siguran?", "{safe} Ovo nije financijski savjet; meme coini su vrlo rizični.")],
+        safe_ok="Mint i freeze ovlast su ukinute, pa nitko ne može tiskati nove tokene ni zamrznuti novčanike.",
+        safe_bad="Mint ili freeze ovlast je još aktivna, što je rizik.", back="← Najveći Solana meme coini",
+        lb_path="/hr/solana-meme-coini", prof="/hr/coin/"),
+}
+
+
+def _hist_or_day(hist, key, day, t):
+    """Our own snapshots once they cover 2+ days, else the last 24 h rebuilt from the window changes."""
+    pts = [(h["ts"], h[key]) for h in hist if h[key] is not None]
+    if len(pts) >= 6 and pts[-1][0] - pts[0][0] >= 2 * 86400:
+        return pts, t["chart_src_h"]
+    return (day, t["chart_src_24"]) if day else (pts, t["chart_src_h"])
+
+
+def _price(p):
+    if not p:
+        return "–"
+    if p >= 1:
+        return f"${p:,.2f}"
+    if p >= 0.01:
+        return f"${p:.4f}"
+    dec = min(14, 3 - math.floor(math.log10(p)))      # 4 significant digits: $0.007281, $0.00001234
+    return f"${p:.{dec}f}"
+
+
+def _chg(x):
+    """Jupiter gives percent (e.g. -0.45 = -0.45%)."""
+    if x is None:
+        return "–"
+    return f"<span class={'pos' if x > 0 else 'neg' if x < 0 else 'mut'}>{x:+.1f}%</span>"
+
+
+def _icon(u, sym):
+    if u and str(u).startswith("https://"):
+        return (f"<img src=\"{esc(u)}\" alt=\"\" width=24 height=24 loading=lazy referrerpolicy=no-referrer "
+                "onerror=\"this.style.visibility='hidden'\" "
+                "style='border-radius:50%;display:inline-block;vertical-align:middle;margin-right:8px;background:#eef'>")
+    return ""
+
+
+def coin_list(lang):
+    from ui import coins as K
+    t, base_t = C[lang], L[lang]
+    rows = K.top()
+    trs = []
+    for r in rows:
+        trs.append(f"<tr><td class=mut>{r['rank']}</td><td><a href=\"{t['prof']}{r['slug']}\">{_icon(r['icon'], r['symbol'])}"
+                   f"{esc(r['name'] or r['symbol'])}</a> <span class=mut>{esc(r['symbol'])}</span>"
+                   f"<div class='m mut'>{t['cols'][4]} {_usd(r['mcap'])}</div></td>"
+                   f"<td class=n>{_price(r['price'])}</td><td class=n>{_chg(r['chg24h'])}</td>"
+                   f"<td class='n x'>{_usd(r['mcap'])}</td><td class='n x'>{_usd(r['liq'])}</td>"
+                   f"<td class='n x'>{_int(r['holders'], lang)}</td><td class='n x'>{_usd(r['vol24'])}</td></tr>")
+    head = "".join(f"<th class='{'n' if j > 1 else ''}{' x' if j > 3 else ''}'>{x}</th>" for j, x in enumerate(t["cols"]))
+    upd = max((r["updated"] or 0 for r in rows), default=0)
+    when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(upd)) if upd else ""
+    table = (f"<div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
+             f"<p class=mut style='font-size:13px'>{t['updated']} {when} · Jupiter, KriptoRadar</p>"
+             if trs else f"<p class=mut>{base_t['none']}</p>")
+    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1>"
+            f"<p class=lead>{t['lb_lead'].format(n=len(rows) or 100)}</p></section>{table}"
+            f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>")
+    jsonld = ('<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "ItemList", "name": t["lb_h1"],
+        "itemListElement": [{"@type": "ListItem", "position": r["rank"], "name": f"{r['name']} ({r['symbol']})",
+                             "url": f"{os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')}{t['prof']}{r['slug']}"}
+                            for r in rows[:100]]}) + "</script>")
+    return _shell(lang, t["lb_title"], t["lb_desc"], "/solana-meme-coins", "/hr/solana-meme-coini", body, jsonld=jsonld)
+
+
+def coin_page(slug, lang):
+    from ui import coins as K
+    if not re.fullmatch(r"[a-z0-9\-]{1,40}", slug or ""):
+        return None
+    r, hist = K.coin(slug)
+    if not r:
+        return None
+    t, base_t = C[lang], L[lang]
+    o = K.ours(r["mint"], PUBLIC_DELAY_S)
+    name, sym = esc(r["name"] or r["symbol"]), esc(r["symbol"])
+    same = name.lower().lstrip("$") == sym.lower().lstrip("$")
+    a = json.loads(r["audit"] or "{}")
+    hold = _int(r["holders"], lang)
+    summary = t["summary"].format(name=name, rank=r["rank"] or "–", mcap=_usd(r["mcap"]), holders=hold,
+                                  liq=_usd(r["liq"]), vol=_usd(r["vol24"]),
+                                  chg=(f"{r['chg24h']:+.1f}%" if r["chg24h"] is not None else "–"))
+    c24 = r["chg24h"]
+    chg_card = (f"<b class={'pos' if c24 > 0 else 'neg'}>{c24:+.1f}%</b>" if c24 is not None else "<b>–</b>")
+    cards = "".join(f"<div class=card>{v if v.startswith('<b') else f'<b>{v}</b>'}<span>{lab}</span></div>"
+                    for v, lab in zip((_price(r["price"]), _usd(r["mcap"]), chg_card, hold, _usd(r["liq"]),
+                                       _usd(r["vol24"])), t["cards"]))
+    # price chart: our daily candles when we have them, else our own snapshots
+    if len(o["candles"]) >= 7:
+        pp, psrc = [(c["day"], c["c"]) for c in o["candles"]], t["chart_src_d"].format(n=len(o["candles"]))
+    else:
+        pp, psrc = _hist_or_day(hist, "price", K.day_series(r, 0, r["price"]), t)
+    if len(o["holders"]) >= 7:
+        hp, hsrc = [(h["day"], h["n"]) for h in o["holders"]], t["chart_src_d"].format(n=len(o["holders"]))
+    else:
+        hp, hsrc = _hist_or_day(hist, "holders", K.day_series(r, 1, r["holders"]), t)
+    up = len(pp) >= 2 and pp[-1][1] >= pp[0][1]
+    charts = ""
+    for title, pts, src, col, fmt in ((t["chart_p"], pp, psrc, "#16a34a" if up else "#dc2626", _price),
+                                      (t["chart_h"], hp, hsrc, "#4f46e5", lambda v: _int(round(v), lang))):
+        svg = K.svg_line(pts, color=col, label=f"{sym} {title}")
+        if svg:
+            charts += (f"<div class=card style='padding:18px'><div style='display:flex;justify-content:space-between'>"
+                       f"<b style='font-size:16px'>{title}</b><span class=mut style='font-size:13px'>{src}</span></div>"
+                       f"{svg}<div class=rng><span>{fmt(pts[0][1])}</span><span>{fmt(pts[-1][1])}</span></div></div>")
+    charts = f"<div class=charts>{charts}</div>" if charts else ""
+    ok_auth = a.get("mintAuthorityDisabled") and a.get("freezeAuthorityDisabled")
+    sv = [t["yes_off"] if a.get("mintAuthorityDisabled") else t["no_on"],
+          t["yes_off"] if a.get("freezeAuthorityDisabled") else t["no_on"],
+          f"{a['topHoldersPercentage']:.0f}%" if a.get("topHoldersPercentage") is not None else "–",
+          f"{a['devBalancePercentage']:.1f}%" if a.get("devBalancePercentage") is not None else "–",
+          f"{r['organic']:.0f}/100" if r["organic"] is not None else "–",
+          f"{o['top10'] * 100:.0f}%" if o["top10"] is not None and o["top10"] <= 1 else
+          (f"{o['top10']:.0f}%" if o["top10"] is not None else "–"),
+          (f"{o['cex'][0]}" + (f" · {esc(o['cex'][1])[:80]}" if o["cex"][1] else "")) if o["cex"] else "–"]
+    safe = ("<div class=tw><table><tbody>" + "".join(f"<tr><td>{k}</td><td class=n><b>{v}</b></td></tr>"
+                                                    for k, v in zip(t["safe"], sv) if v != "–") + "</tbody></table></div>")
+    crow = []
+    for c in o["calls"]:
+        h = c["handle"] or ""
+        who = (f"<a href=\"{base_t['prof']}{esc(h)}\">@{esc(h)}</a>" if HANDLE.fullmatch(h) else esc(h))
+        crow.append(f"<tr><td class=mut>{time.strftime('%Y-%m-%d', time.gmtime(c['ts']))}</td><td>{who}</td>"
+                    f"<td class=n>{_usd(c['mcap0'])}</td>"
+                    + "".join(f"<td class='n {_cls(c[k])}'>{_pct(c[k], True)}</td>" for k in ("r1h", "r24h", "max24"))
+                    + "</tr>")
+    ch = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(t["ccols"]))
+    calls = (f"<div class=tw><table><thead><tr>{ch}</tr></thead><tbody>{''.join(crow)}</tbody></table></div>"
+             if crow else f"<p class=mut>{t['no_calls']}</p>")
+    lock = ("<div class=lock style='display:block'><b style='font-size:18px'>" + t["lock_h"] + "</b><ul class=lk>"
+            + "".join(f"<li>🔒 {x.format(n=o['fresh'])}</li>" for j, x in enumerate(t["lock"])
+                      if j != (3 if o["fresh"] else 2))
+            + f"</ul><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>")
+    rows = K.top()
+    idx = next((i for i, x in enumerate(rows) if x["mint"] == r["mint"]), None)
+    near = [x for x in rows[max(0, (idx or 0) - 4):(idx or 0) + 5] if x["mint"] != r["mint"]][:8] if idx is not None else []
+    sim = "".join(f"<a href=\"{t['prof']}{x['slug']}\">{esc(x['symbol'])} · {_usd(x['mcap'])}</a>" for x in near)
+    mint = esc(r["mint"])
+    links = (f"<a href=\"https://dexscreener.com/solana/{mint}\" target=_blank rel=\"nofollow noopener\">DexScreener ↗</a> · "
+             f"<a href=\"https://solscan.io/token/{mint}\" target=_blank rel=\"nofollow noopener\">Solscan ↗</a>")
+    addr = (f"<div class=card style='margin:18px 0'><span class=mut style='font-size:13px'>{t['addr']}</span>"
+            f"<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px'><code style='font-size:13px;"
+            f"word-break:break-all'>{mint}</code><button class='btn g sm' type=button onclick=\"navigator.clipboard&&"
+            f"navigator.clipboard.writeText('{mint}');this.textContent='✓'\">{t['copy']}</button></div>"
+            f"<div style='margin-top:8px;font-size:14px'>{links}</div></div>")
+    safe_txt = t["safe_ok"] if ok_auth else t["safe_bad"]
+    faq = [(q.format(sym=sym, name=name), ans.format(sym=sym, name=name, mint=mint, holders=hold, safe=safe_txt))
+           for q, ans in t["faq"]]
+    faq_html = "".join(f"<details><summary>{q}</summary><p>{x}</p></details>" for q, x in faq)
+    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    jsonld = ('<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "FAQPage",
+        "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": x}}
+                       for q, x in faq]}) + "</script>")
+    body = (f"<section class=ph1><div class=crumb><a href={t['lb_path']}>{t['back']}</a></div>"
+            f"<h1>{_icon(r['icon'], sym).replace('24', '44', 2)}{t['p_h1'].format(name=name, sym=sym)} "
+            f"<span class=mut style='font-weight:500;font-size:.5em'>{t['p_sub']}</span></h1>"
+            f"<p class=lead>{summary}</p></section><div class=cards>{cards}</div>{charts}{lock}"
+            f"<h2 class=s>{t['safe_h']}</h2>{safe}<h2 class=s>{t['calls_h']}</h2><p class=mut>{t['calls_note']}</p>{calls}"
+            f"{addr}<h2 class=s>{t['faq_h'].format(sym=sym)}</h2><div class=faq style='margin:0'>{faq_html}</div>"
+            + (f"<h2 class=s>{t['similar']}</h2><div class=chips>{sim}</div>" if sim else ""))
+    title = t["p_title"].format(name=r["name"] or r["symbol"], sym=r["symbol"])
+    desc = t["p_desc"].format(name=r["name"] or r["symbol"], sym=r["symbol"], rank=r["rank"] or "–",
+                              mcap=_usd(r["mcap"]).lstrip("$"), holders=hold)
+    return _shell(lang, title, desc, f"/coin/{slug}", f"/hr/coin/{slug}", body, jsonld=jsonld)
