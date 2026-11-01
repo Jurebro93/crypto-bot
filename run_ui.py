@@ -217,6 +217,13 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
+def english(raw, gz, lang):
+    """(200, html bytes) in `lang` from a Croatian page as pagecache keeps it."""
+    html = (raw if raw is not None else gzip.decompress(gz)).decode("utf-8")
+    i18n.LANG.set(lang)
+    return 200, i18n.translate(html).encode("utf-8")
+
+
 def _banner(path):
     """Spend warnings on top of every page (the /usage page lists them itself)."""
     if path == "/usage":
@@ -350,9 +357,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
-        key = (path, u.query, None) + ((self.lang,) if self.lang != "hr" else ())   # same for every user, per language
-        lang = self.lang
-        code, raw, gz = pagecache.get(key, lambda: build(path, qs, lang))
+        key = (path, u.query, None)    # route() pages are the same for every user
+        if self.lang == "hr":
+            code, raw, gz = pagecache.get(key, lambda: build(path, qs))
+        else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
+            code, raw, gz = pagecache.get(key, lambda: build(path, qs))   # cached Croatian page, then translated
+            if code == 200:
+                code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
         self._send(code, raw, gz=gz, translated=True)
 
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
