@@ -198,7 +198,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
-    from ui import blog, blogviz, tools
+    from ui import blog, blogviz, calcs, tools
     canon = base + (path_en if lang == "en" or not path_hr else path_hr)
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
@@ -212,7 +212,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}{NAV_CSS}{blog.CSS}{blogviz.CSS}{tools.CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{NAV_CSS}{blog.CSS}{blogviz.CSS}{tools.CSS}{calcs.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
@@ -477,6 +477,10 @@ def route(path):
         m = re.fullmatch(r"(/best-crypto-tools|/hr/najbolji-kripto-alati)(?:/([^/]+))?/?", path)
         lang, slug = ("hr" if m.group(1).startswith("/hr") else "en"), m.group(2)
         fn, ctype = ((lambda: tools.page(slug, lang)) if slug else (lambda: tools.index(lang))), "text/html"
+    elif re.fullmatch(r"/blog/category/[a-z0-9-]+/?|/hr/blog/kategorija/[a-z0-9-]+/?", path):
+        from ui import blog
+        lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rstrip("/").rsplit("/", 1)[1]
+        fn, ctype = (lambda: blog.category(slug, lang)), "text/html"
     elif re.fullmatch(r"(/hr)?/blog(/[^/]+)?/?", path):
         from ui import blog
         m = re.fullmatch(r"(/hr)?/blog(?:/([^/]+))?/?", path)

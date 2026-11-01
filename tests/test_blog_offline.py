@@ -44,7 +44,7 @@ class Blog(unittest.TestCase):
             self.assertIn('og:type" content="article"', html)
             self.assertIn("#pristup", html)
             self.assertIn("class=bv", html)                        # at least one chart
-            for href in re.findall(r"href=/blog/([a-z0-9-]+)", html):   # internal links resolve
+            for href in re.findall(r"href=/blog/(?!category/)([a-z0-9-]+)", html):   # internal links resolve
                 self.assertIsNotNone(blog.get(href), href)
 
     def test_glossary_links_resolve(self):
@@ -70,7 +70,7 @@ class Blog(unittest.TestCase):
             self.assertIn(f'hreflang=en href="https://example.com/blog/{en}"', page)
             self.assertIn("Zatraži pristup", page)
             self.assertNotIn("Show as table", page)
-            for href in re.findall(r"href=/hr/blog/([a-z0-9-]+)", page):
+            for href in re.findall(r"href=/hr/blog/(?!kategorija/)([a-z0-9-]+)", page):
                 self.assertIsNotNone(blog.get(href, "hr"), href)
             for g in set(re.findall(r"href=(/hr/rjecnik/[a-z0-9_-]+)", page)):
                 self.assertEqual(public.route(g)[0], 200, g)
@@ -88,6 +88,28 @@ class Blog(unittest.TestCase):
                     self.assertTrue(links, v["slug"])
                 for h in set(links):
                     self.assertEqual(public.route(h)[0], 200, h)
+
+    def test_categories(self):
+        seen = set()
+        for c in blog.CATS:
+            for lang in ("en", "hr"):
+                path = blog.cat_path(c, lang)
+                code, raw, _ = public.route(path)
+                self.assertEqual(code, 200, path)
+                html = raw.decode()
+                self.assertIn("CollectionPage", html)
+                for en in c[6]:
+                    self.assertIn(f"{blog.L[lang]['base']}/{blog.get_en(en, lang)['slug']}", html, (path, en))
+            seen.update(c[6])
+        self.assertEqual(seen, {p["slug"] for p in POSTS})            # every post sits in a category
+        sm = public.route("/sitemap.xml")[1].decode()
+        self.assertIn("/hr/blog/kategorija/porez-i-zakon<", sm)
+        self.assertEqual(public.route("/blog/category/nope")[0], 404)
+
+    def test_calculators(self):
+        for path, cid in (("/blog/crypto-tax-croatia", "id=txen"), ("/hr/blog/porez-na-kriptovalute", "id=txhr"),
+                          ("/blog/company-crypto-investment-croatia", "id=coen"), ("/blog/how-to-use-jupiter-swap", "id=slen")):
+            self.assertIn(cid, public.route(path)[1].decode(), path)
 
     def test_404(self):
         self.assertEqual(public.route("/blog/nope")[0], 404)
