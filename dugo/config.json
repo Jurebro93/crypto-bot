@@ -38,6 +38,16 @@
     "max_pad_od_vrha": -0.5,
     "min_od_dna_30d": 0.2
   },
+  "jaki": {
+    "_opis": "Jači tokeni: stariji od par tjedana, veća tržišna vrijednost, stalan volumen svaki dan, holderi rastu (Nicholas 1.11.).",
+    "min_starost_d": 21,
+    "min_likvidnost": 150000,
+    "min_mcap": 5000000,
+    "min_volumen_dan": 100000,
+    "min_stalnost_volumena": 0.35,
+    "min_pad_od_vrha": -0.6,
+    "min_holderi_30d": 0.0
+  },
   "mrtav": {
     "pad_24h": -0.7,
     "min_likvidnost": 10000
@@ -86,6 +96,25 @@
       "nova_burza": 1.0,
       "rast_udjela_burzi": 0.8,
       "sirenje_vlasnistva": 1.0
+    },
+    "jaki": {
+      "stalnost_volumena": 2.0,
+      "holderi_30d": 2.0,
+      "sirenje_vlasnistva": 1.0,
+      "volumen_mcap": 1.0,
+      "likvidnost": 1.0,
+      "starost_d": 0.5,
+      "ma30_iznad_ma90": 1.0,
+      "iznad_ma30": 0.5,
+      "povrat_30d": 0.5,
+      "kupci_udio": 0.5,
+      "veliki_kupuju": 1.0,
+      "burze_velike": 0.5,
+      "nova_burza": 0.8,
+      "rast_udjela_burzi": 0.5,
+      "kol_tjedana_60d": 0.5,
+      "pregrijan": -1.0,
+      "volatilnost": -0.5
     }
   },
   "knjiga": {

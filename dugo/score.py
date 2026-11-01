@@ -6,6 +6,8 @@ Percentiles keep the score stable when the market as a whole moves: the list say
 """
 import math
 
+KINDS = ("dugorocni", "budjenje", "jaki")   # the lists; "jaki" added 1.11. (older, bigger, steady volume, growing holders)
+
 # plain Croatian names for the dashboard and the "zašto" text
 NAMES = {
     "starost_d": "star token (preživio mjesecima)", "likvidnost": "duboka likvidnost", "oporavaka": "više oporavaka od padova",
@@ -20,6 +22,7 @@ NAMES = {
     "holderi_30d": "broj holdera stalno raste", "sirenje_vlasnistva": "vlasništvo se širi izvan najvećih walleta",
     "veliki_kupuju": "kupuju ga veliki holderi drugih dugoročnih tokena", "burze_velike": "izlistan na velikim burzama",
     "nova_burza": "nova burza u zadnjem tjednu", "rast_udjela_burzi": "burze primaju sve veći dio supplyja",
+    "stalnost_volumena": "stalan volumen svaki dan", "povrat_30d": "raste zadnji mjesec",
 }
 # features that describe "behaviour like the reference tokens"
 PROFILE = ["pad_od_vrha", "udio_oporavaka", "oporavaka", "korelacija_btc", "beta_btc", "rast_s_btc", "volatilnost",
@@ -110,5 +113,16 @@ def eligible(kind, f, liq, mcap, cfg):
         return False
     if kind == "dugorocni":
         return (mcap or 0) >= g["min_mcap"]
+    if kind == "jaki":
+        return (mcap or 0) >= g["min_mcap"] and strong_shape(f, g)
     return (f.get("pad_od_vrha") is not None and f["pad_od_vrha"] <= g["max_pad_od_vrha"]
             and (f.get("od_dna_30d") or 0) >= g["min_od_dna_30d"])
+
+
+def strong_shape(f, g):
+    """"Jaki": steady daily volume, not collapsed, holders not shrinking (unknown holder growth does not block)."""
+    hg = f.get("holderi_30d")
+    return ((f.get("volumen_dan") or 0) >= g["min_volumen_dan"]
+            and (f.get("stalnost_volumena") or 0) >= g["min_stalnost_volumena"]
+            and (f.get("pad_od_vrha") is None or f["pad_od_vrha"] >= g["min_pad_od_vrha"])
+            and (hg is None or hg >= g["min_holderi_30d"]))

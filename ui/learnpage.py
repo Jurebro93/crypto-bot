@@ -30,6 +30,38 @@ def note_hr(note):
     return n
 
 
+def rugs_html():
+    """Archived rugs and the learned rug profile: what is learned from the tokens thrown out of the database."""
+    from learn import rugprofile
+    from rugfilter import archive
+    sm = archive.summary(data.HYPE_DB)
+    out = ["<h2>Rugovi: izbačeni iz baze, ali bot uči iz njih</h2>", tdesc(
+        "Svaki sat bot pogleda tokene starije od dan: tko se srušio 70%+ od vrha, kome je izvučena likvidnost ili ima "
+        "mehaniku ruga, izbaci se iz baze i više se ne prati (nema API troška). Zadrži se samo kako je token izgledao kad "
+        "ga je bot prvi put vidio i koliko je pao. Iz toga bot svaki dan uči profil ruga: koje kombinacije signala na ulazu "
+        "najčešće završe rugom. Novi token koji jako sliči rugovima zaustavi se odmah, ali samo ako je profil na provjeri "
+        f"bio u pravu barem {rugprofile.MIN_PRECISION:.0%} puta i ne bi izgubio više od {rugprofile.MAX_HIT_LOSS:.0%} pravih skokova.")]
+    if not sm["n"]:
+        out.append("<div class=card>Još nijedan token nije izbačen; prvo čišćenje kreće unutar sat vremena od pokretanja.</div>")
+    else:
+        kinds = ", ".join(f"{archive.KIND_HR.get(k, k)} {n}" for k, n in sorted(sm["by_kind"].items(), key=lambda kv: -kv[1]))
+        out.append(f"<p>Izbačeno <b>{sm['n']}</b> tokena ({esc(kinds)}), od toga {sm['n24']} u zadnja 24 h; obrisano "
+                   f"{sm['rows_deleted']:,} zapisa.</p>")
+    saved = rugprofile.load()
+    if not saved:
+        out.append(f"<div class=card>Profil ruga se računa jednom dnevno uz ostalo učenje. Treba barem {rugprofile.MIN_ROWS} "
+                   f"tokena i {rugprofile.MIN_RUGS} rugova.</div>")
+    else:
+        state = (badge(f"aktivan: zaustavlja sličnost ≥ {saved['thr']:.0%}", "good") if saved.get("active")
+                 else badge("samo prikaz, ne zaustavlja"))
+        out.append(f"<p>Profil ruga: {state} <span class=mut>{esc(saved.get('note') or '')}</span></p>")
+        ex = rugprofile.explain(saved)
+        if ex:
+            out.append(table(["Signal na ulazu", "Smjer", ("Težina", "n")],
+                             [[esc(feat(k) if k not in rugprofile.NAMES.values() else k), esc(d), num(w, "{:+.2f}")] for k, d, w in ex]))
+    return "".join(out)
+
+
 def _con():
     if not os.path.exists(data.HYPE_DB):
         return None
@@ -144,6 +176,8 @@ def page(qs):
     except Exception as e:
         print(f"učenje: confidence: {type(e).__name__}: {e}")
 
+    b.append(rugs_html())
+
     b.append("<h2>Što je bot promijenio</h2>")
     if not runs:
         b.append("<div class=card>Učenje još nije pokrenuto. Prvi put kreće u " + esc(cfg["run_at_utc"]) + " UTC, a mijenja težine tek s "
@@ -154,7 +188,7 @@ def page(qs):
             diff = ", ".join(f"{feat(k)} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
                              if abs(v - r["old"].get(k, 0)) >= 0.1)[:200] if r["new"] else ""
             rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")),
-                       badge("confidence", "good") if r["klasa"] == "confidence" else klasab(r["klasa"]), num(r["n"]),
+                       badge("confidence", "good") if r["klasa"] == "confidence" else badge("profil ruga", "bad") if r["klasa"] == "rugprofil" else klasab(r["klasa"]), num(r["n"]),
                        badge("primijenjeno", "good") if r["applied"] else badge("bez promjene"),
                        (f"{r['metric_old'] if r['metric_old'] is not None else '–'} → {r['metric_new'] if r['metric_new'] is not None else '–'}", r["metric_new"] or 0, "n"),
                        (esc(note_hr(r["note"])), "", "wrap"), (esc(diff), "", "wrap")])

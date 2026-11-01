@@ -37,8 +37,10 @@ def token_rows(since=None):
     for c in data.paper_candidates():
         cands.setdefault(c["token"], c)
     tiers = data.token_tiers()
+    from rugfilter import archive
+    gone = archive.blocked(data.HYPE_DB)   # rugged and archived: out of the live data, on no page
     out = []
-    for t in set(sigs) | set(rugs) | set(evs) | set(cands):
+    for t in (set(sigs) | set(rugs) | set(evs) | set(cands)) - gone:
         s = sigs.get(t)
         last_seen = max([s["last"]["ts"] if s else 0, rugs[t]["checked_at"] if t in rugs else 0,
                          cands[t]["first_ts"] if t in cands else 0]
@@ -74,6 +76,33 @@ def token_rows(since=None):
                     "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
                     "features": feats})
     return out
+
+
+MIN_SHOW_CONF = 35   # = "pratiti" on the confidence scale (ui/confidence.LEVELS); below it a token is not a candidate
+
+
+def bad(r):
+    """Rugged, rejected by the rug filter or high risk: never shown as a candidate."""
+    return bool(r.get("hard") or r.get("collapse")
+                or (r.get("rug") and r["rug"]["verdict"] in ("ODBAČEN", "VISOK RIZIK")))
+
+
+def relevant(r, min_conf=MIN_SHOW_CONF):
+    """Worth showing on a token list (Nicholas 1.11.: what is below the filter's grade need not be in the app at all)."""
+    return not bad(r) and (r.get("conf") or 0) >= min_conf
+
+
+def hidden_line(n_hidden, what="tokena"):
+    """One plain line instead of a table of weak or rugged tokens."""
+    if not n_hidden:
+        return ""
+    from rugfilter import archive
+    sm = archive.summary(data.HYPE_DB)
+    arch = (f" Uz to je <b>{sm['n']}</b> ruganih tokena izbačeno iz baze i više se ne prati"
+            + (f" ({sm['n24']} u zadnja 24 h)" if sm["n24"] else "")
+            + "; bot iz njih uči kako izgleda rug (stranica <a href=/learn>Učenje</a>).") if sm["n"] else ""
+    return (f"<p class=mut>Skriveno <b>{n_hidden}</b> {what}: rugani, odbačeni, visok rizik ili confidence ispod "
+            f"{MIN_SHOW_CONF}. Nisu kandidati pa se ne prikazuju.{arch}</p>")
 
 
 def _rank(r):
@@ -426,7 +455,7 @@ def page(qs):
         b.append("<div class=grid style='grid-template-columns:repeat(auto-fit,minmax(280px,1fr))'>"
                  + "".join(_card(r) for r in top) + "</div>")
     if not shown:
-        wait = sorted(recent, key=_rank, reverse=True)[:3]
+        wait = sorted([r for r in recent if not bad(r)], key=_rank, reverse=True)[:3]
         b.append("<div class=card>Nijedan token u zadnja 24 h još ne zadovoljava uvjete za isticanje (T1+, bez tvrdog pada, 3+ "
                  "analizirana sloja). Najbliži su: " + ", ".join(tlink(r["token"], r["symbol"]) + f" (šansa {r['sansa']}, T{r['razina'] or 0}, {r['analysed']} slojeva)" for r in wait)
                  + ".</div>" if wait else "<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
@@ -447,9 +476,12 @@ def page(qs):
 
     # 4. tokens through several analyses
     labels = [lab for lab, _, _ in (allrows[0]["checks"] if allrows else [])]
+    n_all = len(allrows)
+    allrows = [r for r in allrows if relevant(r)]
     mark = lambda v: (badge("✓", "good"), 2, "") if v else (badge("✗", "bad"), 0, "") if v is False else ("<span class=mut>–</span>", 1, "")  # noqa: E731
     b.append("<h2>Tokeni koji su prošli više analiza " + tip("Klik na naslov stupca sortira (ponovni klik obrne), ⓘ uz naslov objašnjava stupac, klik na red otvara analizu.") + "</h2>"
-             f"<p class=lead>✓ prošao · ✗ pao · – nije analiziran. Prvih 40 od {len(allrows)}, svi su na <a href=/tokens>Tokenima</a>.</p>")
+             f"<p class=lead>✓ prošao · ✗ pao · – nije analiziran. Prvih 40 od {len(allrows)} dobrih, svi su na <a href=/tokens>Tokenima</a>.</p>"
+             + hidden_line(n_all - len(allrows)))
     rows = []
     for r in allrows[:40]:
         rows.append([tlink(r["token"], r["symbol"]), (f"<b>{r['sansa']}</b>", r["sansa"], "n"), (confidence.badge_html(r["conf"]), r["conf"], "n"),

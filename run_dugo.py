@@ -41,14 +41,14 @@ def cmd_loop(a):
 def cmd_learn(a):
     cfg = run.config()
     con = store.connect()
-    for kind in ("dugorocni", "budjenje"):
+    for kind in run.KINDS:
         r = learn.fit(con, cfg, kind)
         print(kind, r["n"], r["note"])
 
 
 def cmd_report(a):
     con = store.connect()
-    for kind in ("dugorocni", "budjenje"):
+    for kind in run.KINDS:
         print(f"\n{kind}:")
         for sym, s, why in con.execute("""SELECT t.symbol, s.score, s.why FROM snap s JOIN tokens t ON t.mint=s.mint
                 WHERE s.kind=? AND s.day=(SELECT MAX(day) FROM snap) ORDER BY s.rank LIMIT ?""", (kind, a.top)):

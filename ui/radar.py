@@ -241,10 +241,19 @@ def page(qs):
         if r["collapse"]:
             r["conf"] = 0
     rows.sort(key=lambda r: (-r["conf"], -(r["score"] or 0)))
+    from rugfilter import archive
+    gone = archive.blocked(data.HYPE_DB)
+    n_seen = len(rows) + len(out)
+    weak = [r for r in rows if r["collapse"] or r["conf"] < WATCH or r["token"] in gone
+            or (rugs.get(r["token"]) or {}).get("verdict") == "VISOK RIZIK"]
+    rows = [r for r in rows if r not in weak]
     b = ["<h1>Zadnji sken</h1><p class=mut>Što je hype skener vidio u <b>zadnjem prolazu</b> (svake 2 minute): kandidati s razlozima i "
          "rizicima, narativi, smart money i radi li ocjena. Stranica <a href=/tokens>Svi tokeni</a> je drugo: sve što alat zna o "
          "svakom tokenu iz zadnjih 7 dana, kroz sve analize, poredano po Šansi za skok.</p>"]
-    if not rows:
+    if not rows and n_seen:
+        b.append(f"<div class=card>Zadnji prolaz je pregledao <b>{n_seen}</b> tokena, ali nijedan nije dovoljno dobar za "
+                 f"prikaz (rugan, odbačen, visok rizik ili confidence ispod {WATCH}).</div>")
+    elif not rows:
         b.append("<div class=card><b>Nema svježih signala.</b> Hype skener nije ništa zapisao u zadnja 3 sata. "
                  "Obično to znači da se server upravo ponovno pokreće (nakon nadogradnje); ako potraje dulje od "
                  "sat vremena, javi.</div>")
@@ -253,8 +262,8 @@ def page(qs):
         strong = [r for r in rows if r["conf"] >= STRONG and not r["collapse"]]
         watch = [r for r in rows if WATCH <= r["conf"] < STRONG and not r["collapse"]]
         top = rows[0]
-        lead = (f"Zadnji prolaz {ago(last)[0]}: pregledano <b>{len(rows) + len(out)}</b> tokena"
-                + (f", <b>{len(out)}</b> odbačeno (rug filter ili T0). " if out else ". ")
+        lead = (f"Zadnji prolaz {ago(last)[0]}: pregledano <b>{n_seen}</b> tokena"
+                + (f", <b>{len(out) + len(weak)}</b> skriveno (rugani, odbačeni, visok rizik ili slabi). " if out or weak else ". ")
                 + (f"<b>{len(strong)}</b> jakih kandidata, {len(watch)} za pratiti. " if strong else
                    f"Nijedan nije jak kandidat (confidence {STRONG}+); {len(watch)} ih vrijedi pratiti. ")
                 + f"Najbolji je <b>{esc(top['symbol'])}</b> (confidence {top['conf']}, hype {top['score']:.0f})"
@@ -279,15 +288,7 @@ def page(qs):
                         "<span class=mut>samo tržišni signali, ništa posebno</span>", "", "wrap"),
                        ("<ul class=r>" + "".join(f"<li class=bad>{esc(t)}</li>" for t in risk) + "</ul>" if risk else
                         "<span class=mut>nema poznatih</span>", "", "wrap")])
-        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima. Odbačeni (rug filter ODBAČEN ili T0 pad) nisu ovdje nego u tablici ispod.') + table(["Token", ("Confidence", "n"), ("Hype", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
-        if out:
-            b.append("<h3>Odbačeni u ovom prolazu</h3>")
-            b.append(tdesc('Tokeni s hype signalom koje je rug filter odbacio ili su pali na T0 (mehanika ruga). Ocjena ostaje vidljiva jer mjeri tržište, ali token ne može biti kandidat.')
-                     + table(["Token", ("Hype ocjena", "n"), ("Zašto odbačen", "wrap"), ("Mcap", "n"), ("Likv.", "n")],
-                             [[tlink(r["token"], r["symbol"]), (f"{r['score']:.0f}", r["score"], "n"),
-                               (esc(rejected(rugs.get(r["token"]), tiers.get(r["token"]))), "", "wrap"), usd(r["mcap"]), usd(r["liquidity"])]
-                              for r in sorted(out, key=lambda r: -r["score"])]))
-
+        b.append(tdesc('Tokeni koje hype skener sada smatra najzanimljivijima, s razlozima i poznatim rizicima. Rugani, odbačeni (rug filter ili T0), visok rizik i slabi (confidence ispod 35) se ne prikazuju.') + table(["Token", ("Confidence", "n"), ("Hype", "n"), "", ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), ("Rizici", "wrap")], tr))
         b.append("<h2>Narativi</h2><div class=two><div>")
         tr_rows = [r for r in rows if r["extra"].get("x_trend")]
         b.append("<h3>Tokeni nazvani po X trendu</h3>" + tdesc('Tokeni čije ime odgovara trenutnoj trending temi na X-u.') + table(

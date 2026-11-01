@@ -19,6 +19,8 @@ import time
 from dugo import features, score as sc, store
 from learn import weights as lw
 
+KINDS = sc.KINDS
+
 CANDLE_FEATS = {"starost_d", "oporavaka", "udio_oporavaka", "korelacija_btc", "rast_s_btc", "rast_s_sol", "ma30_iznad_ma90",
                 "iznad_ma30", "pad_od_vrha", "volatilnost", "od_dna_30d", "volumen_trend", "povrat_7d", "pregrijan"}
 D = 86400
@@ -40,7 +42,7 @@ def current(cfg):
     """{kind: weights} in use: learned when present, else config.json."""
     L = load_learned()
     # new features added to config.json later keep their starting weight until learning touches them
-    return {k: {**cfg["tezine"][k], **(L.get(k) or {})} for k in ("dugorocni", "budjenje")}
+    return {k: {**cfg["tezine"][k], **(L.get(k) or {})} for k in KINDS}
 
 
 def samples(con, cfg, kind, step_d=7):
@@ -64,6 +66,8 @@ def samples(con, cfg, kind, step_d=7):
                 continue
             p7 = f.get("povrat_7d")
             f["pregrijan"] = max(0.0, p7 - 1.0) if p7 is not None else None
+            if kind == "jaki" and not sc.strong_shape(f, g):
+                continue
             if kind == "budjenje" and not ((f.get("pad_od_vrha") or 0) <= g["max_pad_od_vrha"]
                                             and (f.get("od_dna_30d") or 0) >= g["min_od_dna_30d"]):
                 continue

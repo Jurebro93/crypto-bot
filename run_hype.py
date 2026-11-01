@@ -181,6 +181,15 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         keep = []
     for t in keep:
         found.setdefault(t, set()).add("zadrzan")
+    try:  # rugged and archived: never fetched, scored or paid for again (rugfilter/archive.py)
+        from rugfilter import archive
+        gone = archive.blocked(DB) & set(found)
+        for t in gone:
+            found.pop(t, None)
+        if gone:
+            print(f"  preskočeno {len(gone)} arhiviranih rugova", file=sys.stderr)
+    except Exception as e:
+        print(f"  arhiva rugova: {e}", file=sys.stderr)
     if keep:
         print(f"  zadržano {len(keep)} tokena (istaknuti + razina, zadnja {pcfg['sati']} h)", file=sys.stderr)
     pairs = client.tokens("solana", list(found))
@@ -246,6 +255,7 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception as e:
         print(f"  puls: {type(e).__name__}: {e}", file=sys.stderr)
     tiers_for(rows, now_ms / 1000)  # class, path shape, T0 sieve
+    stop_like_rugs(rows, keep)
     wcls = class_weights(rows, weights)  # learned weights per class (learn/), else the base file
     for r in rows:
         r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
@@ -346,6 +356,32 @@ def tiers_for(rows, now=None):
     con.close()
 
 
+def stop_like_rugs(rows, keep=()):
+    """Learned rug profile (learn/rugprofile.py, from archived rugs): similarity goes to the details; a token above the
+    profile's checked threshold fails T0 like rug mechanics, so no paid check, no retention and no page shows it."""
+    try:
+        from learn import rugprofile
+        saved = rugprofile.load()
+    except Exception as e:
+        print(f"  profil ruga: {e}", file=sys.stderr)
+        return 0
+    if not saved:
+        return 0
+    n = 0
+    for r in rows:
+        p, stop = rugprofile.judge(r["features"], r["mcap"], r["liquidity"], saved)
+        if p is None:
+            continue
+        r["extra"]["rug_slicnost"] = round(p, 3)
+        if stop and r["token"] not in keep and r["tier"].get("t0") != "pad":
+            r["tier"]["t0"], r["tier"]["t0_razlog"] = "pad", f"sliči rugovima ({p:.0%})"
+            r["tier"]["t0_ts"] = int(time.time())
+            n += 1
+    if n:
+        print(f"  profil ruga: zaustavljeno {n} tokena sličnih ranijim rugovima", file=sys.stderr)
+    return n
+
+
 def curve_for(rows, now=None):
     """Bonding-curve history (tiers/curve.py) for pump.fun tokens in the deep list that have none yet.
 
@@ -415,6 +451,11 @@ def track(hours=48):
         tokens |= set(tstore.recent_tokens(tstore.connect(DB), hours))
     except Exception as e:
         print(f"  token_tier: {e}", file=sys.stderr)
+    try:  # archived rugs are not tracked any more
+        from rugfilter import archive
+        tokens -= archive.blocked(DB)
+    except Exception as e:
+        print(f"  arhiva rugova: {e}", file=sys.stderr)
     tokens = sorted(tokens)
     con.close()
     best = {}

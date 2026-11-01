@@ -106,5 +106,7 @@ class RadarLabelTest(unittest.TestCase):
         finally:
             data.HYPE_DB = old[0]
             data.GROUPS.update(old[1])
-        self.assertNotIn("jak kandidat</span>", html.split("Kandidati sada")[1].split("</table>")[0])
-        self.assertIn("Confidence", html)
+        # 1.11.: weak tokens (confidence below 35) are not listed at all; either way none is a "jak kandidat"
+        sec = html.split("Kandidati sada")[1].split("</table>")[0] if "Kandidati sada" in html else ""
+        self.assertNotIn("jak kandidat</span>", sec)
+        self.assertTrue("Confidence" in html or "nijedan nije dovoljno dobar" in html)

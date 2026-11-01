@@ -8,6 +8,7 @@ from dugo import score as sc, store
 from ui.html import ago, badge, esc, num, signed, table, tdesc, tlink, usd
 
 D = 86400
+KIND_HR = {"dugorocni": "dugoročni", "budjenje": "buđenje", "jaki": "jaki"}
 
 
 def _stat(v, label):
@@ -48,7 +49,7 @@ def _book(con):
             inv += r["usd"]
             tot += r["usd"] * ret
             tot_sol += r["usd"] * (sret or 0)
-        out.append([tlink(r["mint"], r["symbol"]), "dugoročni" if r["kind"] == "dugorocni" else "buđenje",
+        out.append([tlink(r["mint"], r["symbol"]), KIND_HR.get(r["kind"], r["kind"]),
                     (time.strftime("%d.%m.", time.gmtime(r["entry_ts"])), r["entry_ts"], ""), usd(r["usd"]), _pct(ret),
                     _pct(sret), _pct(None if ret is None or sret is None else ret - sret),
                     esc(r["reason"]) if r["exit_ts"] else badge("otvoreno", "good")])
@@ -74,7 +75,8 @@ def page(qs):
     b = ["<h1>Dugoročni i oživljeni tokeni</h1>" + tdesc(
         "Sigurniji sloj uz lov na nove tokene. Ovdje su samo tokeni koji su preživjeli tjednima ili mjesecima, imaju pravu "
         "likvidnost i ponašaju se kao Fartcoin i Useless: padnu, ali se oporave, zajednica ih i dalje zove, a rastu kad "
-        "rastu BTC i SOL. Drugi popis su stariji tokeni koji su jako pali i sada se bude. Popisi se osvježavaju svakih "
+        "rastu BTC i SOL. Drugi popis su jači tokeni s većom tržišnom vrijednošću koji su tu već tjednima, imaju stalan "
+        "volumen svaki dan i sve više holdera. Treći popis su stariji tokeni koji su jako pali i sada se bude. Popisi se osvježavaju svakih "
         "6 sati, a bot jednom tjedno sam provjeri na povijesti koja mjerila stvarno pomažu i polako prilagodi težine.")]
     con = store.ro()
     if con is None:
@@ -86,12 +88,13 @@ def page(qs):
         n_tok = con.execute("SELECT COUNT(*) FROM tokens WHERE candles_ts IS NOT NULL").fetchone()[0]
         n_all = con.execute("SELECT COUNT(*) FROM tokens").fetchone()[0]
         n_dead = con.execute("SELECT COUNT(*) FROM tokens WHERE status='mrtav'").fetchone()[0]
-        dug, bud = _rows(con, "dugorocni", day), _rows(con, "budjenje", day)
+        dug, bud, jak = _rows(con, "dugorocni", day), _rows(con, "budjenje", day), _rows(con, "jaki", day)
         brows, inv, tot, tot_sol = _book(con)
         b.append("<div class=grid>" + "".join([
             _stat(f"{n_all:,}", "tokena provjereno"), _stat(n_tok, "preživjelih s poviješću cijena"),
             _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='dugorocni'", (day,)).fetchone()[0],
                   "na dugoročnom popisu"),
+            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='jaki'", (day,)).fetchone()[0], "jakih"),
             _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='budjenje'", (day,)).fetchone()[0], "se budi"),
             _stat(f"{tot:+,.0f} $" if inv else "–", "demo portfelj"),
             _stat(f"{tot - tot_sol:+,.0f} $" if inv else "–", "bolje/lošije od držanja SOL-a"),
@@ -120,6 +123,23 @@ def page(qs):
                         "Oporavaka", "30 dana", "Korelacija s BTC", "Tjedana s KOL pozivima", "Holderi", "Rast holdera 30 d",
                         "Velike burze", "Kupuje ga velikih holdera", "Zašto"], rows, tid="dug"))
 
+        g = cfg["jaki"]
+        b.append("<h2 id=jaki>Jaki tokeni: veća vrijednost, stalan volumen, rast holdera</h2>" + tdesc(
+            f"Stariji od {g['min_starost_d']} dana, vrijednost barem ${g['min_mcap'] / 1e6:.0f}M, likvidnost barem "
+            f"${g['min_likvidnost'] / 1e3:.0f}k, prosječno barem ${g['min_volumen_dan'] / 1e3:.0f}k volumena dnevno u zadnja "
+            "2 tjedna i to ravnomjerno (bez dana kad trgovanje stane), nisu pali više od "
+            f"{-g['min_pad_od_vrha']:.0%} od vrha i broj holdera im ne pada. Najviše vrijede stalnost volumena i rast holdera; "
+            "težine bot sam podešava jednom tjedno na povijesti."))
+        rows = []
+        for m, sym, s_, rk, px, liq, mc, fj, why in jak:
+            f = json.loads(fj)
+            rows.append([num(rk, "{:.0f}"), tlink(m, sym), num(s_, "{:.0f}"), num(f.get("starost_d"), "{:.0f} d"), usd(mc),
+                         usd(liq), usd(f.get("volumen_dan")), _share(f.get("stalnost_volumena")), num(f.get("holderi")),
+                         _pct(f.get("holderi_30d")), _pct(f.get("povrat_30d")), _pct(f.get("pad_od_vrha")), esc(why)])
+        b.append(table(["#", "Token", "Ocjena", "Starost", "Vrijednost", "Likvidnost", "Volumen dnevno (14 d)",
+                        "Stalnost volumena", "Holderi", "Rast holdera 30 d", "30 dana", "Od vrha", "Zašto"], rows, tid="jak",
+                       empty="Još nijedan token ne zadovoljava sve uvjete; popis se puni kako stižu dnevne cijene."))
+
         b.append("<h2>Bude se</h2>" + tdesc(
             f"Stariji od {cfg['budjenje']['min_starost_d']} dana, pali barem {-cfg['budjenje']['max_pad_od_vrha']:.0%} od vrha, "
             f"a od dna u zadnjih 30 dana opet gore barem {cfg['budjenje']['min_od_dna_30d']:.0%}. Rizičnije od dugoročnih: "
@@ -141,14 +161,14 @@ def page(qs):
             f"Bez pravog novca i odvojeno od demo tradinga. Svakih {cfg['knjiga']['svaki_d']} dana bot uloži "
             f"${cfg['knjiga']['usd']} po tokenu u zdravi mix s dugoročnog popisa: {mx['veliki']} velika (iznad "
             f"${mx['veliki_mcap'] / 1e6:.0f}M), {mx['srednji']} srednja (${mx['srednji_mcap'] / 1e6:.0f}-"
-            f"{mx['veliki_mcap'] / 1e6:.0f}M) i {mx['mali']} mali, plus prvih {cfg['knjiga']['top']} koji se bude. Drži dok token ne ispadne iz prvih 15 "
+            f"{mx['veliki_mcap'] / 1e6:.0f}M) i {mx['mali']} mali, plus prvih {cfg['knjiga']['top']} jakih i prvih {cfg['knjiga']['top']} koji se bude. Drži dok token ne ispadne iz prvih 15 "
             f"na {cfg['knjiga']['drzi_izvan_top_d']} dana (buđenje ima i stop na {cfg['knjiga']['stop_budjenje']:.0%}). "
             "Stupac \"Bolje od SOL-a\" kaže je li izbor bio bolji od jednostavnog držanja SOL-a u istom razdoblju."))
         b.append(table(["Token", "Popis", "Ulaz", "Uloženo", "Rezultat", "SOL u isto vrijeme", "Bolje od SOL-a", "Stanje"],
                        brows, empty="Prvi ulazi nakon prvog prolaza."))
 
         runs = con.execute("SELECT ts, kind, applied, n, before, after, note, weights FROM learn_runs ORDER BY ts DESC LIMIT 6").fetchall()
-        lr = [[ago(r["ts"]), "dugoročni" if r["kind"] == "dugorocni" else "buđenje", num(r["n"]),
+        lr = [[ago(r["ts"]), KIND_HR.get(r["kind"], r["kind"]), num(r["n"]),
                badge({1: "primijenjeno", -1: "vraćeno", 0: "bez promjene"}[r["applied"]],
                      {1: "good", -1: "warn", 0: ""}[r["applied"]]), esc(r["note"])] for r in runs]
         b.append("<details><summary>Što je bot naučio i odakle su podaci</summary>" + tdesc(
@@ -225,7 +245,7 @@ def _weights(con):
     rows = []
     for kind, w in W.items():
         for c, v in sorted(w.items(), key=lambda x: -abs(x[1])):
-            rows.append(["dugoročni" if kind == "dugorocni" else "buđenje", esc(sc.NAMES.get(c, c)), num(v, "{:+.2f}")])
+            rows.append([KIND_HR.get(kind, kind), esc(sc.NAMES.get(c, c)), num(v, "{:+.2f}")])
     return "<h3>Težine sada</h3>" + table(["Popis", "Mjerilo", "Težina"], rows, limit=60)
 
 
