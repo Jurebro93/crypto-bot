@@ -13,6 +13,12 @@ done
 ln -sfn "$DATA_DIR/output" output
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
 
+# web service only: a stand-in on Render's port from the first second (deploy_wait.py): visitors get the funny
+# "deploy in progress" page instead of Render's black 502 while the databases are prepared and run_ui.py loads;
+# it hands the port over the moment run_ui.py is ready to bind (~0.1 s), or gives up after 4 min.
+# disown: it ends on purpose, and "wait -n" at the bottom must not take that for a crashed loop
+if [ -n "${PORT:-}" ]; then python3 deploy_wait.py --port "$PORT" & disown; fi
+
 # databases once before anything opens them: old raw Apify answers out, auto_vacuum switched on (one VACUUM per
 # file, only when the disk has room), WAL journal on (ops/dbs.py). A full disk (<100 MB free) no longer stops this.
 python3 -m ops.health --startup || echo "baze: priprema nije uspjela"

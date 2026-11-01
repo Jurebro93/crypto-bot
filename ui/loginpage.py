@@ -75,6 +75,11 @@ b.setAttribute('aria-pressed',s?'true':'false');p.focus()}})();
 """
 
 
+def _sw():
+    from ui import deploypage
+    return deploypage.register_tag()
+
+
 def html(nxt="/", who="", err="", missing=(), site_url="", lang=None):
     """The whole login page. nxt = where to go after logging in (already checked), who = name to prefill,
     err = an error from the last try (Croatian text from run_ui, shown in the page's language)."""
@@ -113,7 +118,7 @@ def html(nxt="/", who="", err="", missing=(), site_url="", lang=None):
             "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
             "<meta name=robots content=noindex><meta name=theme-color content='#ffffff'>"
             f"<title>{t['title']} · {e(name)}</title><link rel=icon href=\"data:image/svg+xml,{quote(logo(32)[0])}\">"
-            f"<style>{CSS}</style></head><body>{body}<script>{JS}</script></body></html>")
+            f"<style>{CSS}</style></head><body>{body}<script>{JS}</script>{_sw()}</body></html>")
 
 
 def _how(text):
