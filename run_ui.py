@@ -213,6 +213,7 @@ class Handler(BaseHTTPRequestHandler):
     user = os.environ.get("UI_LOCAL_USER") if not AUTH else None   # local run without passwords: play as this name
 
     def do_GET(self):
+        self._index = False   # every page is noindex unless it is one of the public, indexable ones
         ok = not AUTH or self._authorized()
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
@@ -221,10 +222,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
-        if path == "/dobrodosli" or (path == "/" and not ok):   # public sales page; "/" for visitors not logged in
+        if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and not ok):   # public sales page (English main)
             from ui import landing
-            return self._send(200, landing.page_html(qs, logged_in=ok and AUTH, ok=qs.get("poslano") == "1")
+            if path == "/en":
+                return self._redirect("/")
+            lang = "en" if path == "/" else "hr"
+            self._index = path != "/dobrodosli"
+            return self._send(200, landing.page_html(qs, logged_in=ok and AUTH, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
+        from ui import public
+        pub = public.route(path)
+        if pub:   # indexable pages: influencer leaderboard and profiles, robots.txt, sitemap.xml
+            self._index = pub[0] == 200
+            return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
@@ -319,6 +329,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Vary", "Accept-Encoding")
+        if not getattr(self, "_index", False):
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
         if zipped:
             self.send_header("Content-Encoding", "gzip")
         self.end_headers()
@@ -479,9 +491,11 @@ class Handler(BaseHTTPRequestHandler):
         form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
         ip = (self.headers.get("X-Forwarded-For") or self.client_address[0] or "").split(",")[0].strip()
         ok, err = landing.submit(form, ip)
+        lang = "en" if form.get("lang") == "en" else "hr"
         if not ok:
-            return self._send(400, landing.page_html({}, err=err, form=form).encode("utf-8"))
-        return self._redirect("/dobrodosli?poslano=1#forma")
+            err = landing.ERR_EN.get(err, err) if lang == "en" else err
+            return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
+        return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
 
     def _static(self, name):
         """Screenshots of the public page: only plain file names from ui/static/landing."""
