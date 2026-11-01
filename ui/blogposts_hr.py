@@ -1,0 +1,563 @@
+"""Hrvatske verzije deset blog postova (/hr/blog/<slug>). Iste brojke kao engleske (ui/blogposts.py), isti izvori.
+Ključ rječnika = engleski slug, tako da se dvije verzije povezuju (hreflang)."""
+from ui.blogviz import bars, grid, stats
+
+RETRO = "KriptoRadar retrospektiva 10.650 pump.fun tokena, listopad 2026."
+WALLETS = "KriptoRadar praćenje novčanika, stanje 30. 10. 2026."
+KOL = "KriptoRadar mjerenja poziva influencera, listopad 2026."
+
+HR = {}
+
+
+def post(en, slug, tag, h1, title, desc, mins, tldr, body):
+    HR[en] = dict(slug=slug, tag=tag, h1=h1, title=title, desc=desc, mins=mins, tldr=tldr, body=body)
+
+
+def B(*a, **k):
+    return bars(*a, lang="hr", **k)
+
+
+# 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-wallet-tracking", "sto-je-pracenje-novcanika", "Praćenje novčanika",
+    "Što je praćenje novčanika (wallet tracking) i zašto većina 'smart moneyja' nije pametna",
+    "Što je wallet tracking? Kako pratiti Solana novčanike, uz stvarne podatke | KriptoRadar",
+    "Wallet tracking znači pratiti što određeni Solana novčanici kupuju i prodaju. Pratili smo 469 novčanika: samo 11 "
+    "od 50 aktivnih bilo je u plusu. Kako pronaći one koje vrijedi pratiti.", 7,
+    "Praćenje novčanika znači gledati kupnje i prodaje određenih adresa na blockchainu, da bi učio od tradera koji su "
+    "redovito rani (ili ih kopirao). Radi samo uz strogo filtriranje: od 469 Solana novčanika koje smo pratili, 50 ih je "
+    "trgovalo dovoljno za ocjenu, 11 je bilo u plusu, a samo 2 vrijedilo je kopirati.",
+    f"""
+<h2>Što je praćenje novčanika</h2>
+<p>Svaki trade na Solani je javan. Adresa novčanika je kao broj računa koji svatko može pogledati: koje je tokene
+kupio, kada, za koliko SOL-a i kada je prodao. <b>Wallet tracker</b> prati popis adresa i javi ti u nekoliko sekundi
+kad netko od njih trguje.</p>
+<p>Ideja je jednostavna. Neki traderi redovito ulaze rano u tokene koji kasnije narastu. Ako vidiš njihove kupnje dok
+se događaju, možeš učiti od njih ili ih pratiti s malim iznosom. Takve adrese zovu se <b>smart money</b>.</p>
+
+<h2>Problem: većina "smart moneyja" nije pametna</h2>
+<p>Popisa "pametnih novčanika" ima posvuda na X-u i Telegramu. Skupili smo njih 469 iz javnih izvora (popisi
+novčanika influencera, rani kupci tokena koji su narasli, novčanici dijeljeni u kanalima) i izmjerili svaki trade. Ovo
+je ostalo nakon svakog koraka:</p>
+{B("Od 469 'pametnih' novčanika do 2 koja vrijedi kopirati", [
+    ("Skupljeni novčanici", 469, "javni popisi, rani kupci pobjednika, dijeljeni u kanalima"),
+    ("S dovoljno povijesti za ocjenu", 293, "uspjeli smo rekonstruirati tradeove"),
+    ("10+ zatvorenih tradeova", 50, "dovoljno za ocjenu vještine, a ne sreće"),
+    ("U plusu nakon svih tradeova", 11, "ostvarena dobit iznad nule"),
+    ("Vrijedi kopirati", 2, "u plusu, nije bot, snajper ni insajder, drži dovoljno dugo"),
+], sub="Broj novčanika nakon svakog filtra", fmt="num", hl=(4,), source=WALLETS)}
+<p>Samo 22% aktivnih novčanika bilo je u plusu. Tipičan aktivni novčanik dobio je 31% tradeova, držao poziciju
+<b>manje od 4 minute</b> i radio oko 100 tradeova dnevno. To je bot ili snajper, a ne netko koga možeš pratiti rukom:
+dok vidiš kupnju, on je već prodao.</p>
+
+<h2>Oznake koje te trebaju zaustaviti</h2>
+<p>Dobar tracker označi novčanike prije nego što ih počneš pratiti. Na našem popisu 124 novčanika imala su barem
+jednu oznaku upozorenja:</p>
+{B("Oznake upozorenja na praćenom popisu", [
+    ("Snajper (kupuje u prvim sekundama)", 61, "zarađuje jer je prvi, ti ne možeš biti brži"),
+    ("Insajder (blizu tima tokena)", 22, "zna za lansiranje prije tebe"),
+    ("Bundler (kupuje u bloku lansiranja)", 17, "kontrolira ponudu od početka"),
+    ("Bot (trguje bez prestanka)", 16, "stotine tradeova dnevno"),
+    ("Kreator tokena", 15, "stvara tokene i prodaje kupcima"),
+    ("Burza ili veza s rugom", 11, "novčanici burzi, rugera i onih koji ih financiraju"),
+], sub="Novčanici po oznaci (jedan novčanik može imati više oznaka)", fmt="num", hl=(0,), source=WALLETS)}
+
+<h2>Kako ispravno pratiti Solana novčanik</h2>
+<ol>
+<li><b>Ocjenjuj po zatvorenim tradeovima, ne po screenshotovima.</b> Deset zatvorenih tradeova je minimum; jedan trade
+od 50x može sakriti četrdeset gubitaka. Kod nas je 3 od 11 profitabilnih novčanika više od pola dobiti zaradilo na
+jednom tradeu.</li>
+<li><b>Gledaj koliko drži.</b> Ako je tipično držanje kraće od 10 minuta, ne možeš ga kopirati ručno.</li>
+<li><b>Provjeri u što je kupovao.</b> Novčanik koji stalno kupuje tokene koji se kasnije rugaju ili nema sreće ili je
+dio igre.</li>
+<li><b>Izbaci snajpere, bundlere, insajdere i botove.</b> Njihova prednost je brzina ili informacija iznutra, a to
+kopiranjem ne dobiješ.</li>
+<li><b>Ponovo ocijeni svaki tjedan.</b> Novčanici koji su bili vrući prošli mjesec ohlade se. Tracker bi ih trebao
+sam izbaciti.</li>
+</ol>
+
+<h2>Wallet tracker ili block explorer?</h2>
+<p>Svaku adresu možeš pogledati na Solscanu ili DEX screeneru, ali to ti pokazuje povijest, ne odluku. Wallet tracker
+dodaje tri stvari: obavijesti u stvarnom vremenu, ocjenu iz zatvorenih tradeova i oznake koje upozoravaju na snajpere
+i insajdere. KriptoRadar dodaje i četvrtu: svaki token koji praćeni novčanik kupi prvo prolazi naš
+<a href=/hr/blog/kako-prepoznati-rug-pull>filtar za rug</a>, a javlja ti i kad <b>više</b> dobrih novčanika kupi isti
+token, što je puno važnije od jednog novčanika.</p>
+<p>Dalje: <a href=/hr/blog/sto-je-copy-trading>što je copy trading i kad se isplati</a>.</p>
+""")
+
+# 2 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-copy-trading", "sto-je-copy-trading", "Copy trading",
+    "Što je copy trading u kriptu i isplati li se?",
+    "Što je copy trading? Isplati li se kopirati tradere u kriptu (stvarni podaci) | KriptoRadar",
+    "Copy trading znači automatski ponavljati kupnje i prodaje drugog tradera. Izmjerili smo Solana novčanike i "
+    "influencere: kada kopiranje radi, kada gubi i kako postaviti granice.", 7,
+    "Copy trading znači da tvoj račun automatski kupuje i prodaje kad to napravi trader kojeg pratiš. Može se isplatiti, "
+    "ali samo ako kopiraš rijetkog tradera sa stvarnom, ponovljivom prednošću i ograničiš koliko jedan kopirani trade "
+    "smije izgubiti. Kod nas je tu granicu prešlo samo 2 od 50 aktivnih Solana novčanika.",
+    f"""
+<h2>Kako copy trading radi</h2>
+<p>Odabereš tradera, adresu novčanika ili influencera čijim pozivima vjeruješ. Svaki put kad on kupi token, tvoj
+račun kupi isti token iznosom koji si postavio, na primjer $25. Kad on proda, ili kad se aktivira tvoj stop-loss ili
+take-profit, prodaješ i ti.</p>
+<p>Na velikim burzama copy trading znači pratiti "glavnog tradera" unutar burze. Kod Solana meme coina to znači
+pratiti <a href=/hr/blog/sto-je-pracenje-novcanika>praćeni novčanik</a> ili <a href=/hr/blog/sto-je-kol-u-kriptu>KOL-a</a>
+izravno na blockchainu, što je brže i rizičnije.</p>
+
+<h2>Isplati li se copy trading?</h2>
+<p>Gotovo sve ovisi o tome koga kopiraš. Ovo su srednje vrijednosti za 50 Solana novčanika s barem 10 zatvorenih
+tradeova:</p>
+{stats([("31%", "tipičan udio dobitnih tradeova"), ("3,8 min", "tipično vrijeme držanja pozicije"),
+        ("22%", "novčanika u plusu nakon svih tradeova")])}
+<p>Kopiranje tipičnog novčanika gubi novac: njegov profit factor (dobiveno podijeljeno s izgubljenim) bio je 0,65,
+dakle svaki izgubljeni $1 vratio je 65 centi. Dva novčanika koja su prošla naš filtar izgledala su potpuno drukčije:</p>
+{B("Povrat na uloženo, zadnjih 30 do 60 dana", [
+    ("Kandidat A (16 zatvorenih tradeova)", 36, "pogodak 38%, 4 tradea 2x+, drži ~35 min"),
+    ("Kandidat B (18 zatvorenih tradeova)", 73, "pogodak 39%, 5 tradeova 2x+, drži ~8 min"),
+], sub="Dobit kao % uloženog SOL-a", fmt="pct", source=WALLETS)}
+<p>Za usporedbu, tipičan aktivni novčanik vratio je -7% na uloženo. Primijeti da i dobri gube većinu tradeova. Copy
+trading meme coina radi jer nekoliko tradeova napravi 2x do 10x, a ne zato što većina pobjeđuje. Zato su granice
+važnije od odabira.</p>
+
+<h2>Copy trading za početnike: pet pravila</h2>
+<ol>
+<li><b>Kopiraj fiksnim malim iznosom</b> po tradeu (kod nas je zadano $25) i s dnevnim limitom (zadano 10 tradeova).
+Jedan loš dan tada košta $250, a ne cijeli račun.</li>
+<li><b>Kopiraj samo svježe ulaze.</b> Ako je trader kupio prije 30 minuta i cijena se već udvostručila, ti si njegova
+izlazna likvidnost. Naše kopiranje ulazi samo u pozive stare najviše 10 minuta.</li>
+<li><b>Preskoči što ne prođe provjeru ruga.</b> I dobri traderi se kockaju. Tvoje kopiranje treba odbiti tokene s
+uključenim mint authorityjem, lažnim bazenima likvidnosti ili koncentriranom ponudom. Vidi
+<a href=/hr/blog/kako-prepoznati-rug-pull>kako prepoznati rug</a>.</li>
+<li><b>Ne kopiraj ono što ne možeš pratiti.</b> Novčanik koji drži 20 sekundi je snajperski bot. Uvijek ćeš biti
+sporiji.</li>
+<li><b>Automatski prestani kopirati gubitnike.</b> Ocijeni svakog tradera iznova svaki tjedan i stani kad je zadnjih
+20 kopiranih tradeova u minusu.</li>
+</ol>
+
+<h2>Kopirati novčanike ili influencere?</h2>
+<p>Novčanici pokazuju što je netko stvarno napravio s novcem. Pozivi influencera pokazuju što je netko rekao. Pozivi
+pomiču tržište (tokeni koje je pozvao izmjereni influencer došli su do 2x u 52% slučajeva, naspram 14% bez poziva),
+ali influenceri mogu biti i plaćeni za objavu. Najbolji signal je oboje: <a href=/hr/blog/grupiranje-influencera>više
+nezavisnih influencera</a> i dobri novčanici na istom tokenu u nekoliko minuta.</p>
+""")
+
+# 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-a-kol-in-crypto", "sto-je-kol-u-kriptu", "Influenceri",
+    "Što je KOL u kriptu? Kako pozivi influencera pomiču Solana tokene",
+    "Što je KOL u kriptu? Rade li pozivi kripto influencera? (podaci) | KriptoRadar",
+    "KOL je kripto influencer čije objave pomiču cijene. Izmjerili smo svaki poziv Solana tokena: pozvani tokeni došli "
+    "su do 2x u 52% slučajeva, bez poziva u 14%. Kako čitati KOL-a.", 6,
+    "KOL (key opinion leader) je kripto influencer, najčešće na X-u ili Telegramu, čija objava o tokenu može pomaknuti "
+    "cijenu. Pozivi stvarno djeluju: kod nas je 52% pozvanih Solana tokena došlo do 2x, a tokena bez poziva 14%. Ali "
+    "svaki KOL je drukčiji, pa ga ocjenjuješ po povijesti, a ne po broju pratitelja.",
+    f"""
+<h2>Što znači KOL</h2>
+<p><b>KOL</b> je kratica za key opinion leader, osobu od utjecaja. U kriptu to je račun s dovoljno pažnje da njegove
+objave mijenjaju što ljudi kupuju: trader na X-u s 50.000 pratitelja, Telegram kanal koji objavljuje nove tokene,
+YouTuber. <b>Poziv</b> (call) je objava koja spominje token, obično s adresom ugovora, i kaže ili sugerira "kupi".</p>
+
+<h2>Rade li KOL pozivi?</h2>
+<p>Pratimo X račune influencera koji objavljuju Solana tokene i mjerimo cijenu svakog pozvanog tokena 1 sat i 24 sata
+nakon objave te najvišu točku unutar 24 sata.</p>
+{B("Udio tokena koji su došli do 2x", [
+    ("Tokeni bez izmjerenog poziva", 14, "isto razdoblje"),
+    ("Tokeni koje je pozvao izmjereni KOL", 52, "cijena se barem udvostručila nakon poziva"),
+], sub="Solana tokeni, cijena u odnosu na trenutak poziva", fmt="pct", hl=(1,), source=KOL)}
+<p>To je gotovo četiri puta veća šansa. Upravo zato se pozivi kupuju i prodaju: neki računi su plaćeni za objavu,
+neki kupe prije objave i prodaju svojim pratiteljima. Poziv je signal, ne jamstvo.</p>
+
+<h2>Kako ocijeniti kripto influencera</h2>
+<p>Pratitelji pokazuju doseg, ne kvalitetu. Svakog KOL-a ocjenjujemo po tome što se dogodilo nakon njegovih poziva:</p>
+<ul>
+<li><b>Pogodak</b>: udio poziva koji su narasli barem 50% unutar 24 sata.</li>
+<li><b>Tipičan vrh u 24 h</b>: uobičajena najviša točka nakon poziva. KOL čiji pozivi vrhunce imaju na +300% vrijedi
+više od onoga na +40%, čak i uz isti pogodak.</li>
+<li><b>Udio rugova</b>: udio pozvanih tokena koji su kasnije pali 90% ili više. To je broj koji te štiti.</li>
+<li><b>Kasni pozivi</b>: pozivi nakon što se cijena već udvostručila u prethodna dva sata. Na grafu izgledaju dobro,
+ali kupuješ vrh.</li>
+<li><b>Sluša li ga tržište?</b> Je li se volumen barem udvostručio u satu nakon objave? Neki veliki računi ne pomaknu
+ništa.</li>
+</ul>
+<p>Izbacujemo i botove. Petnaest računa u našim podacima automatski je objavljivalo svaki novi token; izgledali su kao
+najaktivniji "KOL-ovi", a nisu imali nikakav signal. Žive ocjene vidiš na javnoj
+<a href=/hr/influenceri>ljestvici kripto influencera</a>.</p>
+
+<h2>Kada vrijedi reagirati na poziv</h2>
+<ol>
+<li>KOL ima barem 10 izmjerenih poziva, pogodak iznad 50% i nizak udio rugova.</li>
+<li>Poziv je svjež (minute, ne sati) i cijena se još nije udvostručila.</li>
+<li>Token prolazi <a href=/hr/blog/kako-prepoznati-rug-pull>provjeru ruga</a>.</li>
+<li>Idealno, zovu ga i drugi nezavisni KOL-ovi. To je najjači obrazac u našim podacima, vidi
+<a href=/hr/blog/grupiranje-influencera>grupiranje influencera</a>.</li>
+</ol>
+""")
+
+# 4 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "influencer-clustering", "grupiranje-influencera", "Influenceri",
+    "Grupiranje influencera: zašto su važna 3 KOL-a koja zovu isti token u 15 minuta",
+    "Grupiranje kripto influencera: kad više KOL-ova zove isti token (podaci) | KriptoRadar",
+    "Kad 3+ kripto influencera zove isti Solana token u 15 minuta, 59% tih tokena se udvostruči, inače 33%. Kako "
+    "nastaju grupe i kako prepoznati plaćenu kampanju.", 6,
+    "Grupa (klaster) nastaje kad više nezavisnih influencera zove isti token u kratkom razmaku. Kod nas su tokeni koje su "
+    "3+ KOL-a pozvala unutar 15 minuta došli do 2x u 59% slučajeva, naspram 33% kad ih je zvalo manje. Ali i grupe se "
+    "mogu kupiti, pa provjeravaš tko je u grupi i pojavljuju li se uvijek zajedno.",
+    f"""
+<h2>Što je grupiranje influencera?</h2>
+<p>Jedan influencer koji zove token je jedno mišljenje. Kad ga nekoliko njih zove u nekoliko minuta, ili su ga našli
+nezavisno (pravi signal: različiti ljudi, isti zaključak) ili su dogovoreni (grupa koja pumpa zajedno, ponekad
+plaćena). Oboje pomiče cijenu. Samo jedno je sigurno pratiti.</p>
+
+<h2>Podaci: grupe se puno češće udvostruče</h2>
+{B("Pozvani tokeni koji su došli do 2x unutar 24 sata", [
+    ("1-2 KOL-a unutar 15 minuta", 33, "prvi poziv i najviše još jedan"),
+    ("3+ različita KOL-a unutar 15 minuta", 59, "računa se od prvog poziva"),
+], sub="Solana tokeni s barem jednim izmjerenim pozivom", fmt="pct", hl=(1,), source=KOL)}
+<p>Prozor od 15 minuta je bitan. Kasniji pozivi obično prate prvi poziv i nisu nezavisni, a dotad se pomak često već
+dogodio. Brojimo različite račune, pa je jedan KOL koji objavi tri puta i dalje jedan.</p>
+
+<h2>Prirodna grupa ili dogovorena ekipa?</h2>
+<p>Tjednima pratimo koji influenceri zovu iste tokene. Ističu se tri obrasca:</p>
+<ul>
+<li><b>Nezavisna grupa</b>: računi koji se rijetko preklapaju odjednom zovu isti token. To je najjači signal koji
+vidimo.</li>
+<li><b>Stalna ekipa</b>: istih 4 do 6 računa zove iste tokene iznova, često u istoj minuti. To je promotivna grupa.
+Prve minute i dalje mogu pumpati, ali i pad je organiziran.</li>
+<li><b>Jeka</b>: jedan veliki račun zove, a mali računi ponavljaju. Mali pozivi dodaju malo; oni su pratitelji.</li>
+</ul>
+<p>Prikaz "Korelacije" u aplikaciji pokazuje te grupe kao mrežu, a signal za copy trading nezavisnoj grupi daje veću
+težinu nego stalnoj ekipi.</p>
+
+<h2>Kako koristiti grupe, a ne biti izlazna likvidnost</h2>
+<ol>
+<li>Reagiraj na <b>treći nezavisni</b> poziv, ne na deseti. Nakon toga gomila kasni.</li>
+<li>Provjeri cijenu prije kupnje. Ako se već udvostručila od prvog poziva, preskoči.</li>
+<li>Provuci token kroz <a href=/hr/blog/kako-prepoznati-rug-pull>provjeru ruga</a>. Dogovorene ekipe često lansiraju
+tokene s bundlanom ponudom (vidi <a href=/hr/blog/bundleri-i-snajperi>bundleri i snajperi</a>).</li>
+<li>Koristi male, fiksne iznose i rano uzmi dio dobiti. Grupe brzo dođu do vrha.</li>
+</ol>
+<p>Ocjene svakog izmjerenog influencera su na javnoj <a href=/hr/influenceri>ljestvici KOL-ova</a>.</p>
+""")
+
+# 5 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-spot-a-rug-pull", "kako-prepoznati-rug-pull", "Rug pull",
+    "Kako prepoznati rug pull na Solani: 7 provjera iz 10.650 tokena",
+    "Kako prepoznati rug pull na Solani: popis provjera (podaci iz 10.650 tokena) | KriptoRadar",
+    "Sedam provjera koje hvataju većinu Solana rug pullova, s brojkama iz 10.650 pump.fun tokena: serijski kreatori, "
+    "prodaja developera, mint authority, lažni bazeni, društvene mreže.", 8,
+    "Rug pull je kad ljudi iza tokena uzmu novac, a cijena se sruši: prodajom svoje ponude, povlačenjem likvidnosti ili "
+    "tiskanjem novih tokena. Većina se vidi prije kupnje: kod nas su tokeni kreatora koji su prije lansirali 20+ tokena "
+    "došli do 2x u samo 1,4% slučajeva, a tokeni novih kreatora u 16,8%.",
+    f"""
+<h2>Što je rug pull?</h2>
+<p><b>Rug pull</b> je token čiji kreatori ili insajderi unovče sve i ostave kupce s nečim bezvrijednim. Na Solani se
+najčešće događa na jedan od tri načina: kreator i povezani novčanici prodaju velik dio ponude kupcima, bazen
+likvidnosti se povuče ili se mint authorityjem tiskaju novi tokeni. Tiša verzija je spori rug: tim prodaje malo
+svaki sat dok ništa ne ostane.</p>
+<p>Kad svaki sat čistimo bazu, to se jasno vidi. U prvom čišćenju 1. studenoga 2026. uklonjen je 61 token stariji od
+dana: 52 su pala 70% ili više, a 9 je imalo mehaniku ruga, na primjer povučenu likvidnost.</p>
+
+<h2>Provjera 1: tko ga je napravio i koliko puta prije?</h2>
+<p>Najjače pojedinačno upozorenje u našim podacima je <b>serijski kreator</b>: novčanik koji je prije lansirao puno
+tokena.</p>
+{B("Tokeni koji su došli do 2x, po prijašnjim lansiranjima kreatora", [
+    ("Prvi token ovog novčanika", 16.8, "2.598 tokena"),
+    ("1-5 prijašnjih tokena", 9.2, "769 tokena"),
+    ("6-20 prijašnjih tokena", 3.8, "764 tokena"),
+    ("Više od 20 prijašnjih tokena", 1.4, "1.528 tokena"),
+], sub="Mjereno 15 minuta nakon lansiranja; 2x = cijena se kasnije udvostručila", fmt="pct", hl=(3,), source=RETRO)}
+
+<h2>Provjera 2: je li developer već prodao?</h2>
+{B("Tokeni koji su došli do 2x, po ponašanju developera", [
+    ("Developer još drži", 16.1, "2.696 tokena"),
+    ("Developer je već nešto prodao", 6.6, "4.505 tokena"),
+], sub="Mjereno 15 minuta nakon lansiranja", fmt="pct", hl=(1,), source=RETRO)}
+<p>Pazi i kad developer prebaci tokene na puno novih novčanika. Tako skriva stvarni udio; mi to označimo kad prebaci
+više od 90% svojih tokena.</p>
+
+<h2>Provjera 3: mogu li se tiskati novi tokeni ili zamrznuti novčanici?</h2>
+<p>Ako je <b>mint authority</b> još uključen, kreator može tiskati novu ponudu i prodati je. Ako je uključen
+<b>freeze authority</b>, može te spriječiti da prodaš. Pump.fun tokeni imaju oba isključena; tokeni napravljeni drugdje
+često nemaju. I jedno i drugo kod nas je automatsko odbijanje.</p>
+
+<h2>Provjera 4: je li likvidnost stvarna?</h2>
+<p>Traži barem $10.000 likvidnosti i provjeri da je u glavnom bazenu, a ne u lažnom bazenu napravljenom da token
+izgleda trgovan. Naš filtar odbija tokene ispod $10k likvidnosti i tokene čiji jedini bazen nije na poznatom DEX-u.</p>
+
+<h2>Provjera 5: društvene mreže (da, važne su)</h2>
+{B("Tokeni koji su došli do 2x, po broju linkova", [
+    ("Bez web stranice, X-a i Telegrama", 4.9, "1.134 tokena"),
+    ("Jedan link", 9.3, "686 tokena"),
+    ("Dva linka", 16.1, "852 tokena"),
+    ("Sva tri", 31.3, "67 tokena"),
+], sub="Mjereno 15 minuta nakon lansiranja", fmt="pct", hl=(0,), source=RETRO)}
+<p>Linkove je besplatno dodati, pa sami po sebi malo dokazuju. Ali kad ih nema, to je jako upozorenje.</p>
+
+<h2>Provjera 6: bundleri i snajperi</h2>
+<p>Bundlana ponuda (kupljena u istom bloku kao lansiranje) i snajperi (kupili u prvim sekundama) daju maloj grupi
+kontrolu nad cijenom. Tokeni s puno bundla češće pumpaju, a onda jače padaju. Pročitaj
+<a href=/hr/blog/bundleri-i-snajperi>bundleri i snajperi</a>.</p>
+
+<h2>Provjera 7: koncentracija vlasnika</h2>
+<p>Ako top 10 vlasnika (bez bazena likvidnosti) drži više od otprilike trećine ponude, nekoliko novčanika može
+završiti zabavu. Prati raste li taj udio nakon lansiranja: insajderi koji skupljaju preko novih novčanika klasičan su
+scenarij.</p>
+
+<h2>Rug checker to napravi u sekundi</h2>
+<p>Svih sedam provjera radi na svakom tokenu koji KriptoRadar pokaže, prije nego što ga vidiš. Tokeni koji padnu su
+sakriveni, a ne samo označeni, i sustav svaki sat uči profil rugova koje je uhvatio.</p>
+""")
+
+# 6 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-pump-fun", "sto-je-pump-fun", "Osnove",
+    "Što je pump.fun? Kako radi i što naši podaci kažu o tvojim šansama",
+    "Što je pump.fun i kako radi? Bonding curve, graduacija i stvarne šanse | KriptoRadar",
+    "Na pump.funu svatko u minuti lansira Solana meme coin. Kako rade bonding curve i graduacija, i zašto se samo 0,8% "
+    "nasumičnih novih tokena ikad udvostruči nakon prvih 15 minuta.", 6,
+    "Pump.fun je Solana platforma na kojoj svatko za nekoliko centi napravi meme coin. Cijena prati bonding curve dok "
+    "token ne 'diplomira' u običan DEX bazen. Većina nikad ne stigne do tamo: od 6.104 nasumična nova tokena koja smo "
+    "pratili, 0,8% se udvostručilo nakon prvih 15 minuta.",
+    f"""
+<h2>Kako pump.fun radi</h2>
+<p>Odabereš ime, ticker i sliku, platiš malu naknadu i token postoji. Nema tima, predprodaje ni likvidnosti koju treba
+uložiti. Svaki token počinje s istom ponudom (milijarda) i istom početnom cijenom.</p>
+<p>Cijena prati <b>bonding curve</b>: formulu koja diže cijenu kad ljudi kupuju i spušta je kad prodaju. Rani kupci
+dobiju više tokena po SOL-u. Kad se uloži dovoljno SOL-a, token <b>diplomira</b>: likvidnost se seli u običan DEX
+bazen i token se trguje kao bilo koji drugi, na DEX screenerima i trading botovima.</p>
+
+<h2>Tvoje šanse, u brojkama</h2>
+<p>Nasumično smo uzimali pump.fun tokene 15 minuta nakon lansiranja i pratili što je cijena radila dalje.</p>
+{B("Što se dogodilo nasumičnim novim pump.fun tokenima", [
+    ("Kasnije došli do 2x", 0.8, "od cijene 15 minuta nakon lansiranja"),
+    ("Kasnije došli do 3x", 0.3, ""),
+    ("Diplomirali u DEX bazen", 0.1, "otprilike 1 od 1.000 u nasumičnom uzorku"),
+], sub="6.104 nasumična tokena, listopad 2026.", fmt="pct", hl=(0,), source=RETRO)}
+<p>Drugim riječima, kupiti nasumičan novi token i čekati je igra na gubitak. Tokeni koji diplomiraju to naprave brzo:
+tipično vrijeme do graduacije bilo je oko 15 minuta.</p>
+
+<h2>Graduacija nije cilj</h2>
+<p>Puno tradera čeka graduaciju kao dokaz interesa. Pomaže, ali manje nego što ljudi misle:</p>
+{B("Diplomirani tokeni: udio koji je nakon graduacije otišao više", [
+    ("Došli do 2x nakon graduacije", 9.5, ""),
+    ("Došli do 3x", 7.3, ""),
+    ("Došli do 5x", 4.9, ""),
+], sub="2.784 diplomirana tokena, cijena u trenutku graduacije", fmt="pct", hl=(0,), source=RETRO)}
+<p>Puno bolja točka ulaza u našim podacima je prvi put kad token prijeđe $100.000 tržišne kapitalizacije; zašto,
+objašnjavamo u <a href=/hr/blog/kako-trgovati-meme-coinima>kako trgovati meme coinima</a>. Rijetki koji su uspjeli
+nalaze se na našoj listi <a href=/hr/solana-meme-coini>top 100 Solana meme coina</a>.</p>
+
+<h2>Je li pump.fun siguran?</h2>
+<p>Sama platforma uklanja neke klasične trikove: mint i freeze authority su isključeni, a krivulja drži likvidnost do
+graduacije. Ono što ne može zaustaviti su ljudi. Serijski kreatori, bundlana lansiranja i snajperi česti su na
+pump.funu. Prije kupnje provjeri povijest kreatora i prve kupce, kao u
+<a href=/hr/blog/kako-prepoznati-rug-pull>kako prepoznati rug pull</a>.</p>
+""")
+
+# 7 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "bundles-and-snipers", "bundleri-i-snajperi", "Rug pull",
+    "Bundleri i snajperi: tko zapravo posjeduje novi Solana token",
+    "Bundleri i snajperski botovi na Solani, objašnjeno (s podacima) | KriptoRadar",
+    "Bundleri kupuju u bloku lansiranja, snajperi u prvim sekundama. Tokeni s puno bundla češće pumpaju, a onda padaju "
+    "dvostruko jače. Što to znači za tebe, s brojkama iz 7.201 tokena.", 6,
+    "Bundle je grupa novčanika koja kupi token u istom bloku u kojem je napravljen; snajper kupuje u prvim sekundama. Oboje "
+    "daje nekolicini novčanika velik dio ponude po najnižoj cijeni. Kod nas su tokeni s više od 20% bundlane ponude češće "
+    "došli do 2x (25,5% naspram 3,6%), ali tipičan pad od vrha bio im je 54%.",
+    f"""
+<h2>Što je bundle?</h2>
+<p>Na Solani se više transakcija može poslati zajedno i završiti u istom bloku. <b>Bundle</b> znači da kreator (ili
+netko blizak) kupi velik dio vlastitog tokena u bloku u kojem je napravljen, raspoređeno na više novčanika, da izgleda
+kao puno kupaca. <b>Bundle checker</b> pogleda taj prvi blok i zbroji što je kupljeno.</p>
+
+<h2>Što je snajperski bot?</h2>
+<p><b>Snajper</b> je bot koji kupi novi token u prvim sekundama, prije nego što ljudi stignu reagirati. Snajperi nisu
+uvijek povezani s timom; mnogi se samo klade na svako lansiranje i prodaju prvom valu kupaca.</p>
+
+<h2>Iznenađenje: bundlani tokeni češće pumpaju</h2>
+{B("Tokeni koji su došli do 2x, po bundlanom udjelu ponude", [
+    ("Ispod 2% bundlano", 3.6, "3.554 tokena"),
+    ("2-10%", 10.8, "1.683 tokena"),
+    ("10-20%", 15.4, "768 tokena"),
+    ("Više od 20%", 25.5, "1.196 tokena"),
+], sub="Mjereno 15 minuta nakon lansiranja", fmt="pct", hl=(3,), source=RETRO)}
+<p>Izgleda kao signal za kupnju. Nije, a sljedeći graf pokazuje zašto. Bundlani token je organizirano lansiranje:
+netko ima plan, možda i budžet za promociju, i cijena se gura gore. Pitanje je samo tko izlazi prvi.</p>
+{B("Tipičan pad od najviše cijene", [
+    ("Ispod 2% bundlano", 46, "srednji pad od vrha"),
+    ("2-10%", 17, ""),
+    ("10-20%", 35, ""),
+    ("Više od 20%", 54, "insajderi prodaju u pumpu"),
+], sub="Srednji najveći pad u prvim satima, %", fmt="pct", hl=(3,), source=RETRO)}
+<p>Snajperi pokazuju isti obrazac: tokeni u kojima su snajperi uzeli više od 30% ponude došli su do 2x u 31,8%
+slučajeva, a tipičan pad od vrha bio im je 58%.</p>
+
+<h2>Što to znači za tebe</h2>
+<ul>
+<li>Velik bundle govori da je token nečiji projekt. Cilj tog projekta je prodati tebi po višoj cijeni.</li>
+<li>Ako trguješ bundlanim tokenima, trguj prvi val malim iznosom i rano uzmi dobit. Ne drži ih preko noći.</li>
+<li>Provjeri drže li bundle novčanici još uvijek. Kad počnu prodavati, pad je brz.</li>
+<li>Kombiniraj s poviješću kreatora: bundlano lansiranje novčanika s 20+ prijašnjih tokena je klasičan rug.</li>
+</ul>
+<p>KriptoRadar mjeri bundle udio, udio snajpera i prve kupce na svakom novom tokenu i ograničava koliko će sustav ikad
+kupiti jako bundlanog tokena. Pročitaj cijeli <a href=/hr/blog/kako-prepoznati-rug-pull>popis provjera za rug</a>.</p>
+""")
+
+# 8 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "how-to-trade-meme-coins", "kako-trgovati-meme-coinima", "Trgovanje",
+    "Kako trgovati meme coinima: kada ući, prema 10.650 tokena",
+    "Kako trgovati meme coinima na Solani: najbolja točka ulaza (podaci iz 10.650 tokena) | KriptoRadar",
+    "Trenutak ulaza odlučuje većinu meme coin tradeova. Nasumični novi tokeni udvostručili su se u 0,8% slučajeva, "
+    "diplomirani u 9,5%, a tokeni na prvom prelasku $100k u 24%. Praktičan plan.", 7,
+    "Kada ulaziš važnije je od toga što biraš. Kod nas je kupnja nasumičnih tokena 15 minuta nakon lansiranja dovela do 2x "
+    "u samo 0,8% slučajeva; na graduaciji u 9,5%; na prvom prelasku $100.000 tržišne kapitalizacije u 24%. Dobar plan čeka "
+    "dokaz potražnje, filtrira rugove, ulaže malo i dobit uzima u koracima.",
+    f"""
+<h2>Točka ulaza važnija je od odabira tokena</h2>
+<p>Iste tokene izmjerili smo u različitim trenucima njihova života i pitali: od ove cijene, koliko ih se kasnije
+udvostručilo?</p>
+{B("Tokeni koji su kasnije došli do 2x, po trenutku ulaza", [
+    ("15 minuta nakon lansiranja (nasumično)", 0.8, "6.104 tokena"),
+    ("Na graduaciji", 9.5, "2.784 tokena"),
+    ("Prvi prelazak $100k tržišne kapitalizacije", 24.0, "217 tokena"),
+    ("Prvi prelazak $1M tržišne kapitalizacije", 31.6, "19 tokena, mali uzorak"),
+], sub="Cijena na ulazu prema kasnijem vrhu", fmt="pct", hl=(2,), source=RETRO)}
+<p>Kasniji ulaz znači višu cijenu, ali i da je većina gubitnika već otpala. Prvi prelazak $100k je najbolji omjer koji
+smo našli: dovoljno rano za 2x do 10x, dovoljno kasno da token ima prave kupce. Red za $1M izgleda još bolje, ali s 19
+tokena to još nije pouzdan broj.</p>
+
+<h2>Plan za trgovanje meme coinima</h2>
+<h3>1. Pronađi kandidate</h3>
+<p>Koristi signale koji predviđaju potražnju: više nezavisnih <a href=/hr/blog/grupiranje-influencera>poziva
+influencera</a>, <a href=/hr/blog/sto-je-pracenje-novcanika>dobre novčanike</a> koji kupuju, rastući volumen. Izbjegavaj
+tokene koje si našao jer su na ekranu već bili +300%.</p>
+<h3>2. Filtriraj</h3>
+<p>Prođi <a href=/hr/blog/kako-prepoznati-rug-pull>provjere za rug</a>: povijest kreatora, prodaja developera,
+authorityji, stvarna likvidnost od barem $10.000, vlasnici.</p>
+<h3>3. Odredi iznos</h3>
+<p>Koristi fiksni iznos koji možeš izgubiti, na primjer 1 do 2% novca za trgovanje po tokenu. Kod meme coina rezultat
+napravi nekoliko tradeova; veličina pozicije drži te u igri dovoljno dugo da ih pogodiš.</p>
+<h3>4. Provjeri trošak ulaza i izlaza</h3>
+<p>U bazenu od $10.000 kupnja od $1.000 dobije oko 17% manje tokena od prikazane cijene. Vidi
+<a href=/hr/blog/market-cap-likvidnost-slippage>market cap, likvidnost i slippage</a>.</p>
+<h3>5. Dobit uzimaj u koracima</h3>
+<p>Prodaj dio na 2x da vratiš ulog, još dio na putu gore, a ostatak pusti uz trailing stop. Držanje svega za "100x"
+je način na koji većina dobitnih tradeova postane gubitak.</p>
+<h3>6. Doba dana</h3>
+<p>Kod nas su signali influencera najbolje radili tijekom američkih sati, a ulazi u toj sesiji bili su najskuplji.
+Znaj u kojoj sesiji trguješ.</p>
+
+<h2>Gdje gledati danas</h2>
+<p>Naša javna lista <a href=/hr/solana-meme-coini>top 100 Solana meme coina</a> pokazuje tržišnu kapitalizaciju,
+likvidnost, volumen i vlasnike svakog tokena, na primjer <a href=/hr/coin/bonk>BONK</a>, <a href=/hr/coin/wif>WIF</a>
+ili <a href=/hr/coin/fartcoin>Fartcoin</a>. To su preživjeli; tokeni iz grafova u ovom tekstu uglavnom nisu uspjeli.</p>
+
+<h2>Vježbaj prije pravog novca</h2>
+<p>Članovi KriptoRadara trguju s demo saldom od $1.000 u prijateljskoj ligi, s istim signalima i filtrom za rug koje
+koristi sustav. To je najjeftiniji način da saznaš radi li tvoj plan.</p>
+""")
+
+# 9 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "what-is-dca-in-crypto", "sto-je-dca", "Osnove",
+    "Što je DCA u kriptu? Postupno ulaganje u meme coine, s primjerom",
+    "Što je DCA u kriptu? Postupno ulaganje (dollar-cost averaging) objašnjeno | KriptoRadar",
+    "DCA znači kupovati fiksan iznos u pravilnim razmacima umjesto odjednom. Primjer: $500 odjednom naspram 10 x $50, "
+    "na tokenu koji pada i na tokenu koji se ruga.", 5,
+    "DCA (dollar-cost averaging, postupno ulaganje) znači kupovati isti iznos u fiksnim razmacima, na primjer $50 svakih "
+    "12 sati, umjesto da uložiš sve odjednom. Spušta prosječnu cijenu kad cijena oscilira, a s automatskim zaustavljanjem "
+    "ograničava štetu kad token propadne. Loš token ne pretvara u dobar.",
+    f"""
+<h2>Što znači DCA</h2>
+<p><b>Dollar-cost averaging</b> raspodijeli jednu kupnju kroz vrijeme. Odabereš iznos, razmak i broj kupnji: na
+primjer 10 kupnji po $50, jedna svakih 12 sati. Kad je cijena niska, $50 kupi više tokena; kad je visoka, manje.
+Prosječna cijena tako završi ispod običnog prosjeka cijena po kojima si kupovao.</p>
+
+<h2>Primjer: jedna kupnja ili deset</h2>
+<p>Ilustrativni token padne s $1,00 na $0,45 kroz pet dana, a onda se oporavi na $0,90. Imaš $500.</p>
+{B("Vrijednost $500 kad je cijena opet $0,90", [
+    ("Sve odjednom po $1,00", 450, "500 tokena po $0,90"),
+    ("10 x $50 kroz pet dana (DCA)", 692, "768 tokena, prosječna cijena $0,65"),
+], sub="Ilustrativni primjer, nije stvarni token", fmt="usd", hl=(1,))}
+<p>Isti novac, isti token, ista završna cijena: kupnja odjednom je -10%, DCA je +38%, jer je pola kupnji bilo ispod
+$0,65.</p>
+
+<h2>Gdje DCA stvarno pomaže kod meme coina: zaustavljanje</h2>
+<p>Veći rizik kod meme coina nije pad, nego token koji ode na nulu. Recimo da se token ruga nakon tvoje treće kupnje i
+odjednom vrijedi $0,03.</p>
+{B("Što ostane nakon ruga", [
+    ("Sve odjednom po $1,00", 15, "izgubljeno $485"),
+    ("DCA koji stane kod ruga", 156, "potrošeno $150, ostalo ~$6, $350 nikad uloženo"),
+], sub="Ilustrativni primjer: ostatak = preostali tokeni + neuloženi novac", fmt="usd", hl=(1,))}
+<p>Automatski DCA treba sam stati kad token padne na sigurnosnom pravilu: likvidnost ispod minimuma, signal ruga ili
+kraj budžeta.</p>
+
+<h2>Kada je DCA loša ideja</h2>
+<ul>
+<li>Na tokenima koji stalno padaju: stalno dokupljuješ gubitnika. Postavi čvrst stop.</li>
+<li>Na vrlo plitkim bazenima, gdje svaka kupnja pomakne cijenu (vidi
+<a href=/hr/blog/market-cap-likvidnost-slippage>slippage</a>).</li>
+<li>Kad naknade pojedu kupnje: na Solani su naknade male, ali kupnje od $5 ipak gube primjetan dio na naknade i
+slippage.</li>
+</ul>
+
+<h2>DCA u KriptoRadaru</h2>
+<p>Članovi mogu pokrenuti automatski DCA na bilo kojem tokenu s njegove stranice: $5 do $500 po kupnji, svakih 15
+minuta do jednom tjedno, 2 do 100 kupnji. Sam stane kad je plan gotov, kad ponestane novca, kad je token označen kao
+rug ili kad mu likvidnost padne ispod $5.000.</p>
+""")
+
+# 10 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "market-cap-liquidity-slippage", "market-cap-likvidnost-slippage", "Osnove",
+    "Market cap, likvidnost i slippage: tri broja koja čitaš prije kupnje meme coina",
+    "Što su slippage, likvidnost i market cap u kriptu? (s tablicom slippagea) | KriptoRadar",
+    "Market cap govori veličinu, likvidnost koliko možeš trgovati, slippage koliko trade stvarno košta. Tablica slippagea "
+    "za kupnje od $100 do $5.000 u bazenima od $10k do $1M, i što je FDV.", 6,
+    "Market cap je cijena puta ponuda: veličina tokena. Likvidnost je novac u bazenu za trgovanje: koliko možeš kupiti ili "
+    "prodati bez pomicanja cijene. Slippage je razlika između prikazane cijene i onoga što stvarno dobiješ. U bazenu od "
+    "$10.000 kupnja od $1.000 dobije oko 17% manje tokena od prikazanog.",
+    f"""
+<h2>Market cap (tržišna kapitalizacija)</h2>
+<p><b>Market cap</b> = cijena x ponuda u optjecaju. Pump.fun token ima milijardu tokena, pa cijena od $0,0001 znači
+market cap od $100.000. Po market capu traderi uspoređuju tokene i postavljaju ciljeve: "na $100k je, zadnji sličan
+otišao je na $5M".</p>
+<p><b>FDV</b> (fully diluted valuation) je cijena x najveća moguća ponuda. Kod pump.fun tokena to je isto. Kod tokena
+sa zaključanom ili budućom ponudom FDV može biti višestruko veći od market capa, a otključavanja mogu spustiti
+cijenu.</p>
+
+<h2>Likvidnost</h2>
+<p><b>Likvidnost</b> je novac u bazenu s kojim trguješ, obično pola SOL, pola token. Token može imati market cap od $1M
+i samo $20.000 likvidnosti: na papiru vrijedi milijun, a u praksi se može prodati tek mali dio prije nego što se cijena
+sruši. Zato naš filtar odbija tokene s manje od $10.000 likvidnosti.</p>
+
+<h2>Slippage</h2>
+<p><b>Slippage</b> je razlika između cijene koju vidiš i cijene koju dobiješ. U standardnom bazenu cijena se pomiče po
+krivulji dok kupuješ, pa veća kupnja u odnosu na bazen u prosjeku plati više. Tablica pokazuje koliko manje tokena
+dobiješ nego po prikazanoj cijeni:</p>
+{grid("Manje tokena od prikazane cijene, po iznosu kupnje i likvidnosti bazena",
+      ["$100", "$500", "$1.000", "$5.000"],
+      [("Bazen $10k", [2.0, 9.1, 16.7, 50.0]), ("Bazen $50k", [0.4, 2.0, 3.8, 16.7]),
+       ("Bazen $250k", [0.1, 0.4, 0.8, 3.8]), ("Bazen $1M", [0.0, 0.1, 0.2, 1.0])],
+      sub="Bazen s konstantnim produktom, pola likvidnosti na svakoj strani, prije naknada (oko 0,25-1%)", cap=50,
+      lang="hr")}
+<p>Prodaja na izlazu košta isto toliko. Kupnja i prodaja od $1.000 u bazenu od $10k izgubi otprilike trećinu novca
+prije nego što se cijena uopće pomaknula.</p>
+
+<h2>Tolerancija slippagea</h2>
+<p>Aplikacije za swap traže da postaviš <b>toleranciju slippagea</b>: najviše što prihvaćaš. Preniska i trade ne prođe na
+brzom tržištu; previsoka i botovi mogu "sendvičirati" tvoj nalog (kupe malo prije tebe i prodaju malo poslije). Kod
+meme coina drži je na razini koju bi prihvatio kao cijeli trošak i prilagodi iznos bazenu.</p>
+
+<h2>Čitaj sva tri zajedno</h2>
+<ul>
+<li>Market cap govori koliko prostora ima. Token od $50k može napraviti 20x; token od $500M rijetko.</li>
+<li>Likvidnost govori možeš li izaći. Ciljaj barem $10k, više za veće tradeove.</li>
+<li>Slippage govori koliko trade košta. Drži svaku kupnju ispod otprilike 2% likvidnosti bazena.</li>
+</ul>
+<p>Dalje: <a href=/hr/blog/kako-trgovati-meme-coinima>kako trgovati meme coinima</a> ili provjere u
+<a href=/hr/blog/kako-prepoznati-rug-pull>kako prepoznati rug pull</a>.</p>
+""")

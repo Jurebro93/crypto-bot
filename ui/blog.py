@@ -31,7 +31,10 @@ color:var(--fg)}
 GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper": "sniper-bot", "rug pull": "rug-pull",
          "mint authority": "mint-authority", "graduates": "graduation", "call": "crypto-call", "bundle": "bundler",
          "slippage": "slippage", "market cap": "market-cap", "liquidity": "liquidity", "kol": "kol", "fdv": "fdv",
-         "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet"}
+         "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet",
+         # Croatian versions
+         "poziv": "crypto-call", "serijski kreator": "dev-wallet", "diplomira": "graduation", "snajper": "sniper-bot",
+         "likvidnost": "liquidity", "pogodak": "hit-rate", "kasni pozivi": "late-call"}
 # Glossary chips under each post.
 TERMS = {
     "what-is-wallet-tracking": ("smart-money", "crypto-wallet", "sniper-bot", "insider-wallet", "copy-trading"),
@@ -47,27 +50,81 @@ TERMS = {
 }
 
 
-def _link_terms(body):
+L = {
+    "en": dict(base="/blog", home="/", crumb="← Blog", read="min read", by="KriptoRadar research", short="Short answer",
+               terms="Terms in this post", all_terms="All terms →", next="Read next", cta="Request access",
+               lock="KriptoRadar does this for you in real time: every new Solana token, every influencer call and every "
+                    "tracked wallet, scored and filtered for rugs.",
+               note="Not financial advice. Numbers are measurements of past tokens and calls; meme coins are extremely "
+                    "risky and most go to zero.",
+               i_h1="Solana meme coin research, in plain words",
+               i_lead="How wallet tracking, copy trading, influencer calls and rug pulls really work, measured on "
+                      "thousands of tokens we track every day.",
+               i_lock="Members see these signals live: new tokens, influencer calls and wallets worth copying, with a rug "
+                      "shield on every buy.",
+               i_title="KriptoRadar blog: Solana meme coins, wallet tracking, copy trading and rug pulls",
+               i_desc="Data-backed guides to Solana meme coin trading: wallet tracking, copy trading, crypto influencers "
+                      "(KOLs), pump.fun and how to spot a rug pull.",
+               months=("January", "February", "March", "April", "May", "June", "July", "August", "September",
+                       "October", "November", "December")),
+    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", read="min čitanja", by="KriptoRadar istraživanje",
+               short="Kratki odgovor", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
+               cta="Zatraži pristup",
+               lock="KriptoRadar to radi za tebe u stvarnom vremenu: svaki novi Solana token, svaki poziv influencera i "
+                    "svaki praćeni novčanik, ocijenjen i provjeren na rug.",
+               note="Nije financijski savjet. Brojke su mjerenja prošlih tokena i poziva; meme coini su izuzetno "
+                    "rizični i većina završi na nuli.",
+               i_h1="Istraživanje Solana meme coina, jednostavnim riječima",
+               i_lead="Kako stvarno rade praćenje novčanika, copy trading, pozivi influencera i rug pullovi, izmjereno "
+                      "na tisućama tokena koje pratimo svaki dan.",
+               i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koje vrijedi "
+                      "kopirati, uz zaštitu od ruga na svakoj kupnji.",
+               i_title="KriptoRadar blog: Solana meme coini, praćenje novčanika, copy trading i rug pullovi",
+               i_desc="Vodiči za trgovanje Solana meme coinima uz stvarne podatke: praćenje novčanika, copy trading, "
+                      "kripto influenceri (KOL), pump.fun i kako prepoznati rug pull.",
+               months=("siječnja", "veljače", "ožujka", "travnja", "svibnja", "lipnja", "srpnja", "kolovoza", "rujna",
+                       "listopada", "studenoga", "prosinca")),
+}
+
+
+def _gl_href(en_slug, lang):
+    if lang == "en":
+        return f"/glossary/{en_slug}"
+    from ui import glossary_public as GP
+    e = GP.BY_EN.get(en_slug)
+    return f"/hr/rjecnik/{e['hr']}" if e else None
+
+
+def _gl_name(en_slug, lang):
+    from ui import glossary_public as GP
+    e = GP.BY_EN.get(en_slug)
+    if not e:
+        return en_slug.replace("-", " ")
+    return e["name"] if lang == "en" else GP.hr_term(e)["name"]
+
+
+def _link_terms(body, lang="en"):
     import re
     done = set()
 
     def sub(m):
-        k = m.group(1).lower()
-        g = GLOSS.get(k)
-        if not g or g in done:
+        g = GLOSS.get(m.group(1).lower())
+        href = g and _gl_href(g, lang)
+        if not href or g in done:
             return m.group(0)
         done.add(g)
-        return f"<a href=/glossary/{g}>{m.group(0)}</a>"
+        return f"<a href={href}>{m.group(0)}</a>"
     return re.sub(r"<b>([^<]{2,40})</b>", sub, body)
 
 
-def _chips(slug):
-    ts = TERMS.get(slug, ())
-    if not ts:
+def _chips(en_slug, lang="en"):
+    t = L[lang]
+    links = [(h, _gl_name(g, lang)) for g in TERMS.get(en_slug, ()) for h in [_gl_href(g, lang)] if h]
+    if not links:
         return ""
-    return ("<h2 class=s>Terms in this post</h2><div class=chips>"
-            + "".join(f"<a href=/glossary/{t}>{t.replace('-', ' ')}</a>" for t in ts)
-            + "<a href=/glossary>All terms →</a></div>")
+    return (f"<h2 class=s>{t['terms']}</h2><div class=chips>"
+            + "".join(f"<a href={h}>{esc(n)}</a>" for h, n in links)
+            + f"<a href={'/glossary' if lang == 'en' else '/hr/rjecnik'}>{t['all_terms']}</a></div>")
 
 
 def _posts():
@@ -75,38 +132,65 @@ def _posts():
     return POSTS
 
 
-def get(slug):
-    return next((p for p in _posts() if p["slug"] == slug), None)
+def _hr():
+    from ui.blogposts_hr import HR
+    return HR
+
+
+def view(p, lang):
+    """The post in one language: EN post dict, or its Croatian texts on top (keeps en slug in 'en')."""
+    if lang == "en":
+        return dict(p, en=p["slug"])
+    h = _hr().get(p["slug"])
+    return dict(p, **h, en=p["slug"], kw=p["kw"]) if h else None
+
+
+def get(slug, lang="en"):
+    """Post by its slug in that language (view), or None."""
+    for p in _posts():
+        v = view(p, lang)
+        if v and v["slug"] == slug:
+            return v
+    return None
+
+
+def views(lang):
+    return [v for v in (view(p, lang) for p in _posts()) if v]
 
 
 def urls():
-    """[(path, priority)] for the sitemap."""
-    return [("/blog", "0.8")] + [(f"/blog/{p['slug']}", "0.7") for p in _posts()]
+    """[(path_en, path_hr or None, priority)] for the sitemap."""
+    out = [("/blog", "/hr/blog", "0.8")]
+    for p in _posts():
+        h = _hr().get(p["slug"])
+        out.append((f"/blog/{p['slug']}", f"/hr/blog/{h['slug']}" if h else None, "0.7"))
+    return out
 
 
 def _og(p):
-    name = f"blog-{p['slug']}.png"
+    name = f"blog-{p['en']}.png"
     from ui.landing import STATIC
     return f"/static/landing/{name}" if os.path.isfile(os.path.join(STATIC, name)) else "/static/landing/kol.jpg"
 
 
-def index():
+def _card(v, lang):
+    return (f"<a href={L[lang]['base']}/{v['slug']}><em>{esc(v['tag'])}</em><b>{esc(v['h1'])}</b>"
+            f"<span>{esc(v['desc'])}</span></a>")
+
+
+def index(lang="en"):
     from ui.public import _shell
-    cards = "".join(f"<a href=/blog/{p['slug']}><em>{esc(p['tag'])}</em><b>{esc(p['h1'])}</b>"
-                    f"<span>{esc(p['desc'])}</span></a>" for p in _posts())
-    body = ("<div class=art style='max-width:none'><section class=ph1><div class=eyebrow>KriptoRadar blog</div>"
-            "<h1>Solana meme coin research, in plain words</h1><p class=lead>How wallet tracking, copy trading, "
-            "influencer calls and rug pulls really work, measured on thousands of tokens we track every day.</p>"
-            f"</section><div class=bl>{cards}</div>"
-            "<div class=lock><p>Members see these signals live: new tokens, influencer calls and wallets worth "
-            "copying, with a rug shield on every buy.</p><a class='btn sm' href=/#pristup>Request access</a></div></div>")
-    jsonld = _ld({"@context": "https://schema.org", "@type": "Blog", "name": "KriptoRadar blog",
-                  "url": _base() + "/blog",
-                  "blogPost": [{"@type": "BlogPosting", "headline": p["h1"], "url": f"{_base()}/blog/{p['slug']}",
-                                "datePublished": p["date"]} for p in _posts()]})
-    return _shell("en", "KriptoRadar blog: Solana meme coins, wallet tracking, copy trading and rug pulls",
-                  "Data-backed guides to Solana meme coin trading: wallet tracking, copy trading, crypto influencers "
-                  "(KOLs), pump.fun and how to spot a rug pull.", "/blog", None, body, jsonld=jsonld,
+    t = L[lang]
+    vs = views(lang)
+    body = (f"<div class=art style='max-width:none'><section class=ph1><div class=eyebrow>KriptoRadar blog</div>"
+            f"<h1>{t['i_h1']}</h1><p class=lead>{t['i_lead']}</p></section>"
+            f"<div class=bl>{''.join(_card(v, lang) for v in vs)}</div>"
+            f"<div class=lock><p>{t['i_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div></div>")
+    jsonld = _ld({"@context": "https://schema.org", "@type": "Blog", "name": "KriptoRadar blog", "inLanguage": lang,
+                  "url": _base() + t["base"],
+                  "blogPost": [{"@type": "BlogPosting", "headline": v["h1"], "url": f"{_base()}{t['base']}/{v['slug']}",
+                                "datePublished": v["date"]} for v in vs]})
+    return _shell(lang, t["i_title"], t["i_desc"], "/blog", "/hr/blog", body, jsonld=jsonld,
                   og_image="/static/landing/kol.jpg")
 
 
@@ -118,39 +202,38 @@ def _ld(obj):
     return '<script type="application/ld+json">' + json.dumps(obj).replace("</", "<\\/") + "</script>"
 
 
-def page(slug):
-    """HTML of one post, or None."""
+def page(slug, lang="en"):
+    """HTML of one post in that language, or None."""
     from ui.public import _shell
-    p = get(slug)
+    t = L[lang]
+    p = get(slug, lang)
     if not p:
         return None
-    posts = _posts()
-    i = posts.index(p)
-    rel = [get(s) for s in p.get("related", ()) if get(s)] or [posts[(i + k) % len(posts)] for k in (1, 2, 3)]
-    rel_html = "".join(f"<a href=/blog/{r['slug']}><em>{esc(r['tag'])}</em><b>{esc(r['h1'])}</b>"
-                       f"<span>{esc(r['desc'])}</span></a>" for r in rel[:3])
-    url = f"{_base()}/blog/{slug}"
+    vs = views(lang)
+    i = next(k for k, v in enumerate(vs) if v["en"] == p["en"])
+    rel = [v for r in p.get("related", ()) for v in vs if v["en"] == r] or [vs[(i + k) % len(vs)] for k in (1, 2, 3)]
+    url = f"{_base()}{t['base']}/{slug}"
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "BlogPosting", "headline": p["h1"], "description": p["desc"], "datePublished": p["date"],
          "dateModified": p.get("updated", p["date"]), "mainEntityOfPage": url, "image": _base() + _og(p),
-         "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "KriptoRadar"},
+         "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "KriptoRadar"},
          "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
         {"@type": "BreadcrumbList", "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Blog", "item": _base() + "/blog"},
+            {"@type": "ListItem", "position": 1, "name": "Blog", "item": _base() + t["base"]},
             {"@type": "ListItem", "position": 2, "name": p["h1"], "item": url}]}]})
-    body = (f"<article class=art><section class=ph1><div class=crumb><a href=/blog>← Blog</a> · {esc(p['tag'])}</div>"
-            f"<h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'])} · {p['mins']} min read · KriptoRadar research"
-            f"</div><div class=tldr><b>Short answer</b><p>{p['tldr']}</p></div></section>{_link_terms(p['body'])}"
-            "<div class=lock><p>KriptoRadar does this for you in real time: every new Solana token, every influencer "
-            "call and every tracked wallet, scored and filtered for rugs.</p>"
-            "<a class='btn sm' href=/#pristup>Request access</a></div>"
-            "<p class=note>Not financial advice. Numbers are measurements of past tokens and calls; meme coins are "
-            "extremely risky and most go to zero.</p></article>"
-            f"{_chips(slug)}<h2 class=s>Read next</h2><div class=bl>{rel_html}</div>")
-    return _shell("en", p["title"], p["desc"], f"/blog/{slug}", None, body, jsonld=jsonld, og_image=_og(p),
-                  og_type="article")
+    body = (f"<article class=art><section class=ph1><div class=crumb><a href={t['base']}>{t['crumb']}</a> · "
+            f"{esc(p['tag'])}</div><h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'], lang)} · {p['mins']} "
+            f"{t['read']} · {t['by']}</div><div class=tldr><b>{t['short']}</b><p>{p['tldr']}</p></div></section>"
+            f"{_link_terms(p['body'], lang)}<div class=lock><p>{t['lock']}</p>"
+            f"<a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div><p class=note>{t['note']}</p></article>"
+            f"{_chips(p['en'], lang)}<h2 class=s>{t['next']}</h2><div class=bl>{''.join(_card(r, lang) for r in rel[:3])}</div>")
+    en = f"/blog/{p['en']}"
+    hr_v = view(next(x for x in _posts() if x["slug"] == p["en"]), "hr")
+    hr = f"/hr/blog/{hr_v['slug']}" if hr_v else None
+    return _shell(lang, p["title"], p["desc"], en, hr, body, jsonld=jsonld, og_image=_og(p), og_type="article")
 
 
-def _date(d):
+def _date(d, lang="en"):
     y, m, dd = d.split("-")
-    return f"{int(dd)} {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][int(m) - 1]} {y}"
+    mon = L[lang]["months"][int(m) - 1]
+    return f"{int(dd)} {mon} {y}" if lang == "en" else f"{int(dd)}. {mon} {y}."
