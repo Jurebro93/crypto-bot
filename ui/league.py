@@ -168,7 +168,7 @@ def page(qs, user):
         if user:
             from ui import register
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'
-                     '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
+                     '<a class=chip href="#kupi">🛒 Kupi token</a><a class=chip href="#dca">🔄 Automatski DCA</a><a class=chip href="#prijedlozi">💡 Prijedlozi alata</a>'
                      '<a class=chip href="#zatvoreni">📜 Moji zatvoreni</a>'
                      '<a class=chip href="/copy-trading">🔁 Copy trading: prati influencera ili wallet</a>'
                      + ('<a class=chip href="#pozovi" onclick="document.getElementById(\'pozovi\').open=true">'
@@ -219,6 +219,7 @@ def page(qs, user):
         b.append('<h2 id=kupi>Kupi bilo koji token</h2><form method=post action="/natjecanje/buy" class="card flt">'
                  '<input name=token placeholder="adresa tokena ili DexScreener link" size=50 required>'
                  f'{size}<button>Kupi</button><span class=mut>ne mora biti s liste prijedloga</span></form>')
+        b.append(_dca_box(con, user, qs, live, mine))
         srows = []
         for r in cands:
             price, liq, _ = live.get(r["token"], (None, None, None))
@@ -285,6 +286,74 @@ def ideas_page(qs, user):
         con.close()
 
 
+def _kupnji(n):
+    """4 kupnje, 5 kupnji, 21 kupnja."""
+    return f"{n} " + ("kupnja" if n % 10 == 1 and n % 100 != 11 else
+                      "kupnje" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "kupnji")
+
+
+def _in(ts_):
+    """'za 12 min' / 'za 3 h' until a future unix time."""
+    s = max(0, int(ts_ - time.time()))
+    if s < 90:
+        return "za manje od minute" if s < 60 else "za 1 min"
+    if s < 5400:
+        return f"za {s // 60} min"
+    if s < 172800:
+        return f"za {s / 3600:.0f} h"
+    return f"za {s / 86400:.0f} dana"
+
+
+def _dca_box(con, user, qs, live, mine):
+    """Automatic DCA: start a plan (token, amount per buy, how often, how many), see and stop your plans."""
+    from league import dca
+    try:
+        plans = dca.plans(con, user, active=None)
+    except sqlite3.OperationalError:
+        plans = []
+    pos = {t["token"]: t for t in mine}
+    every = "".join(f'<option value={k}{" selected" if k == 1440 else ""}>{v}</option>' for k, v in dca.EVERY.items())
+    pre = esc(qs.get("dca") or "")
+    b = ['<h2 id=dca>🔄 Automatski DCA</h2><p class=tdesc>DCA znači kupovati <b>isti iznos u pravilnim razmacima</b> '
+         'umjesto sve odjednom: kad cijena padne kupiš jeftinije, kad naraste manje te boli što nisi sve uložio. '
+         'Odaberi token, koliko po kupnji, koliko često i koliko puta, a alat kupuje sam s tvog demo računa (i preko '
+         'noći). Sve kupnje idu u <b>jednu poziciju</b> tog tokena čija je ulazna cijena prosjek svih kupnji; prodaješ je '
+         'kao i svaku drugu (ili joj uključiš auto sell). DCA staje sam kad obavi sve kupnje, kad ti ponestane novca ili '
+         'ako se token sruši.</p>',
+         '<form method=post action="/natjecanje/dca/start" class="card flt" id=dcaf>'
+         f'<input name=token placeholder="adresa tokena ili DexScreener link" size=44 required value="{pre}">'
+         '<label>$ po kupnji <input name=amount type=number min=5 max=500 step=1 value=20 style="width:70px"></label>'
+         f'<select name=every>{every}</select>'
+         '<label>broj kupnji <input name=n type=number min=2 max=100 step=1 value=10 style="width:60px"></label>'
+         '<button>▶ Pokreni DCA</button><span class=mut id=dcat></span></form>'
+         '<script>(function(){var f=document.getElementById("dcaf");if(!f)return;function u(){var a=+f.amount.value||0,'
+         'n=+f.n.value||0;document.getElementById("dcat").textContent="ukupno najviše $"+(a*n).toLocaleString("hr")+'
+         '", prva kupnja odmah"}f.addEventListener("input",u);u()})()</script>']
+    rows = []
+    for p in plans:
+        t = pos.get(p["token"])
+        price, liq, _ = live.get(p["token"], (None, None, None))
+        val = store.value(t, price, liq) if t and price else None
+        pnl = val - t["size_usd"] if val is not None else None
+        mc_now = t["entry_mcap"] * price / t["entry_px"] if t and price and t["entry_mcap"] and t["entry_px"] else None
+        if p["active"]:
+            status = badge("aktivan", "good") + f' <span class=mut>sljedeća {_in(p["next_ts"])}</span>'
+            act = _form("/natjecanje/dca/stop", {"id": p["id"]}, "⏹ Zaustavi")
+        else:
+            status = badge("završen" if (p["why"] or "").startswith("gotovo") else "zaustavljen") + \
+                f'<div class=mut style="font-size:12px">{esc(p["why"] or "")}</div>'
+            act = ""
+        rows.append([tlink(p["token"], p["symbol"]), esc(dca.describe(p)), usd(p["spent"]),
+                     usd(t["entry_mcap"] if t else None), usd(mc_now), signed(pnl),
+                     status, (esc(p["last_note"] or "čeka prvu kupnju"), "", "wrap"), act])
+    if plans:
+        b.append(table(["Token", "Plan", ("Uloženo", "n"), ("Prosječni MC ulaza", "n"), ("MC sada", "n"),
+                        ("PnL pozicije $", "n"), "Stanje", ("Zadnje", "wrap"), ""], rows))
+    else:
+        b.append('<p class=mut>Još nemaš DCA planova.</p>')
+    return "".join(b)
+
+
 def _auto_cell(t):
     from league import auto
     d = auto.describe(t.get("auto"))
@@ -314,7 +383,7 @@ def post(path, form, user):
     loc = _post(path, form, user)
     if "ok=" in loc:
         from urllib.parse import unquote
-        log_action(user, path, unquote(loc.split("ok=", 1)[1]))
+        log_action(user, path, unquote(loc.split("ok=", 1)[1].split("#", 1)[0]))
     return loc
 
 
@@ -363,6 +432,31 @@ def _post(path, form, user):
                 pnl = store.sell(con, user, tid, price, liq, mcap=mcap)
             msg = f"Prodano {t['symbol'] or t['token'][:6]}: {pnl:+.2f} $"
             return f"{back}?ok={quote(msg)}"
+        if path == "/natjecanje/dca/start":
+            from league import dca
+            token = form.get("token", "").strip()
+            if not MINT.fullmatch(token):
+                from ui import real
+                token = real.resolve(token)[0]
+            live = market({token}) if token else {}
+            if token not in live:
+                raise ValueError("DexScreener ne zna cijenu tog tokena")
+            price, liq, _, mcap = live[token]
+            col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+            if col:
+                raise ValueError(f"token je rugan ({col['text']}), DCA nije pokrenut")
+            if (liq or 0) < dca.CFG["min_liq"]:
+                raise ValueError(f"premala likvidnost (${liq or 0:,.0f}); za DCA treba barem ${dca.CFG['min_liq']:,}")
+            symbol = _symbol(token)
+            amount, n, every = float(form.get("amount") or 0), int(form.get("n") or 0), int(form.get("every") or 0)
+            dca.start(con, user, token, symbol, amount, every, n)
+            msg = (f"DCA pokrenut: {symbol or token[:6]}, ${amount:,.0f} {dca.EVERY[every]}, {_kupnji(n)} "
+                   f"(ukupno najviše ${amount * n:,.0f}). Prva kupnja unutar minute.")
+            return f"{back}?ok={quote(msg)}#dca"
+        if path == "/natjecanje/dca/stop":
+            from league import dca
+            dca.stop(con, user, int(form.get("id") or 0))
+            return f"{back}?ok={quote('DCA zaustavljen. Već kupljeno ostaje u tvojoj poziciji.')}#dca"
         if path == "/natjecanje/auto":
             from league import auto
             a = auto.set_auto(con, user, int(form.get("id") or 0), form.get("mode", ""), form.get("tp", ""),
