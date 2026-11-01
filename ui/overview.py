@@ -5,7 +5,7 @@ import os
 import time
 
 from ui import confidence, data, evidence, explain, paper, sansa
-from ui.html import tdesc, tip, ago, badge, bar, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
+from ui.html import quick_links, tdesc, tip, ago, badge, bar, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
 
@@ -384,12 +384,12 @@ def _grid(ci, c, syms, reg, max_w=14, max_t=10):
 
 def page(qs):
     now = time.time()
-    b = ["<h1>Pregled</h1>"]
+    b = ["<h1>Pregled</h1>", quick_links()]
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     allrows = sorted(token_rows(), key=_rank, reverse=True)   # built once: the 24 h list is a filter of it
     recent = [r for r in allrows if r["last_seen"] >= now - 86400]
-    b.append("<h2>Istaknuti kandidati <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
+    b.append("<h2 id=istaknuti>Istaknuti kandidati <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
              + tip("Poredani po Šansi za skok: confidence puta koliko je od 7 neovisnih slojeva stvarno analizirano, "
                    "minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na čemu "
                    "tvrdom i ima barem 3 analizirana sloja. Točkice su slojevi: zelena prošao, crvena pao, siva nije analiziran.")

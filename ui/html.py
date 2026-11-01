@@ -7,21 +7,105 @@ import time
 from urllib.parse import quote
 from ui.cols import CSS as COLS_CSS, JS as COLS_JS
 
-# five groups in the header; the active group's pages show as a second row. Every old route stays reachable.
-NAV = [
-    ("Pregled", "/", [("/", "Pregled"), ("/izvjestaj", "Jutarnji izvještaj")]),
-    ("Tokeni", "/tokens", [("/tokens", "Svi tokeni"), ("/radar", "Zadnji sken"), ("/dugorocno", "Dugoročni"), ("/kol", "KOL-ovi"), ("/izvori", "Telegram i novčanici"), ("/events", "Eventi"), ("/watch", "Prije eventa")]),
-    ("Walleti", "/wallets", [("/wallets", "Walleti")]),
-    ("Korelacije", "/korelacije", [("/korelacije", "Korelacije")]),
-    ("Trading", "/paper", [("/paper", "Demo trading"), ("/kol-test", "KOL test"), ("/izlazi", "Izlazi"), ("/moji-tradeovi", "Moji tradeovi"), ("/natjecanje", "Natjecanje"),
-                                ("/prijedlozi", "Prijedlozi")]),
-    ("Sustav", "/learn", [("/learn", "Učenje"), ("/criteria", "Kriteriji"), ("/market", "Tržište"), ("/usage", "Potrošnja"),
-                          ("/outputs", "Izvještaji")]),
+# Menu: a few plain groups, every page with an icon and a one-line description. The same list drives the side menu
+# (laptop), the drawer + bottom bar (phone), the "Gdje je što" page and the page part of the search box.
+def _p(href, icon, name, desc, kw=""):
+    return {"href": href, "icon": icon, "name": name, "desc": desc, "kw": kw}
+
+
+SECTIONS = [
+    ("Početak", [
+        _p("/", "🏠", "Pregled", "Najjači tokeni upravo sada i kako bot stoji danas.", "home početna dashboard kandidati"),
+        _p("/mapa", "🧭", "Gdje je što", "Sve stranice na jednom mjestu, s kratkim opisom.", "izbornik mapa pomoć help"),
+        _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak svega bitnog, gotov prije 8 h.", "email mail report sažetak"),
+    ]),
+    ("Natjecanje", [
+        _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
+           "liga ljestvica igra igrači demo račun kupi"),
+        _p("/moji-tradeovi", "💼", "Moji pravi tradeovi", "Upiši svoje prave kupnje i prati koliko zarađuješ.",
+           "real pravi novac portfelj"),
+        _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
+    ]),
+    ("Tokeni", [
+        _p("/tokens", "🪙", "Svi tokeni", "Svaki token iz zadnjih 7 dana sa svim provjerama.", "lista coin"),
+        _p("/radar", "📡", "Zadnji sken", "Što je skener upravo našao (svake 2 minute).", "radar hype novi"),
+        _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu (Fartcoin, Useless…).",
+           "dugorocno long term preživjeli veliki holderi burze"),
+        _p("/events", "📅", "Eventi", "Događaji oko kojih nastaju tokeni.", "kalendar događaji"),
+        _p("/watch", "⏳", "Prije eventa", "Kreću li tokeni prije događaja.", "watch"),
+    ]),
+    ("Ljudi i novčanici", [
+        _p("/kol", "📣", "KOL-ovi", "Tko zove tokene na X-u i Telegramu i što se nakon toga dogodi.",
+           "influenceri pozivi twitter x ljestvica"),
+        _p("/izvori", "💬", "Telegram i novčanici", "Telegram kanali, KOL novčanici i kad više izvora zove isti token.",
+           "telegram kanali konvergencija"),
+        _p("/wallets", "👛", "Novčanici", "Tko kupuje rano i zarađuje; lista za kopiranje.", "walleti wallet smart money copy"),
+        _p("/korelacije", "🕸", "Korelacije", "Tko radi zajedno: grupe KOL-ova, povezani novčanici, AI tumačenje.",
+           "grupe klasteri veze"),
+    ]),
+    ("Bot trguje (demo)", [
+        _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio: njegovi ulazi i izlazi bez pravog novca.", "paper trejd"),
+        _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
+        _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
+    ]),
+    ("Sustav", [
+        _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
+        _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
+        _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
+        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise i hoće li budžet izdržati.", "trošak helius apify budžet"),
+        _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
+    ]),
 ]
-# pages that live under a group but are not in its row (detail pages)
-NAV_PREFIX = {"/token/": "Tokeni", "/wallet/": "Walleti", "/outputs/": "Sustav", "/natjecanje/": "Trading",
-              "/prijedlozi/": "Trading", "/moji-tradeovi/": "Trading", "/watch": "Tokeni", "/kol/": "Tokeni",
-              "/prijava": "Trading"}
+# detail pages light up the menu item they belong to
+NAV_PREFIX = {"/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
+              "/prijedlozi/": "/prijedlozi", "/moji-tradeovi/": "/moji-tradeovi", "/kol/": "/kol",
+              "/prijava": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
+# phone bottom bar: the four places people go most, Natjecanje in the middle
+BOTTOM = [("/", "🏠", "Pregled"), ("/tokens", "🪙", "Tokeni"), ("/natjecanje", "🏆", "Natjecanje"), ("/paper", "🤖", "Demo")]
+
+# Logo: three candidates, LOGO picks the one shown. Plain SVG, no files to serve.
+LOGOS = {
+    "radar": ("KriptoRadar", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient '
+              'id="lgr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b5bf6"/><stop offset="1" '
+              'stop-color="#12c9a4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgr)"/>'
+              '<circle cx="16" cy="16" r="10" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="1.6"/>'
+              '<circle cx="16" cy="16" r="5.5" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.6"/>'
+              '<path d="M16 16L24 9.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>'
+              '<circle cx="21.6" cy="19.6" r="2.3" fill="#fff"/></svg>'),
+    "skok": ("Skok", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient id="lgs" '
+             'x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#f76707"/><stop offset="1" stop-color="#e64980"/>'
+             '</linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgs)"/><path d="M7 23l6-7 4 3.5 8-9.5" '
+             'fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
+             '<path d="M19 10h6v6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" '
+             'stroke-linejoin="round"/></svg>'),
+    "signal": ("Signal", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient '
+               'id="lgg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9945ff"/><stop offset="1" '
+               'stop-color="#14f195"/></linearGradient></defs><path d="M16 1.5l12.6 7.25v14.5L16 30.5 3.4 23.25V8.75z" '
+               'fill="url(#lgg)"/><path d="M7.5 16.5h3.5l2.2-5.5 3.6 10 2.2-6h5.5" fill="none" stroke="#fff" '
+               'stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+}
+LOGO = os.environ.get("UI_LOGO", "radar") if os.environ.get("UI_LOGO", "radar") in LOGOS else "radar"
+
+
+def logo(size=30, variant=None):
+    name, svg = LOGOS[variant or LOGO]
+    return svg.replace("{s}", str(size)), name
+
+
+def nav_item(path):
+    """href of the menu item that is lit for this path."""
+    for _, items in SECTIONS:
+        if any(path == p["href"] for p in items):
+            return path
+    for pre, href in NAV_PREFIX.items():
+        if path.startswith(pre):
+            return href
+    return None
+
+
+def nav_group(path):
+    href = nav_item(path)
+    return next((sec for sec, items in SECTIONS if any(p["href"] == href for p in items)), None)
 
 
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
@@ -103,16 +187,6 @@ def with_intro(body, path):
     return body.replace("</h1>", "</h1>" + intro, 1) if "</h1>" in body else intro + body
 
 
-def nav_group(path):
-    for label, _, pages in NAV:
-        if any(path == h for h, _ in pages):
-            return label
-    for pre, label in NAV_PREFIX.items():
-        if path.startswith(pre):
-            return label
-    return "Pregled" if path == "/" else None
-
-
 CSS = """
 button.sm{padding:2px 7px;font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
 button.sm:hover{border-color:var(--acc);color:var(--acc)}.nw{white-space:nowrap}
@@ -121,12 +195,6 @@ button.sm:hover{border-color:var(--acc);color:var(--acc)}.nw{white-space:nowrap}
 @media (prefers-color-scheme:dark){:root{--bg:#101318;--card:#181c23;--fg:#e6e9ee;--mut:#8b96a5;--line:#2a303a;
 --acc:#7a92ff;--good:#51cf66;--warn:#ffa94d;--bad:#ff6b6b;--goodbg:#13261a;--warnbg:#2b2012;--badbg:#2c1517;--bar:#748ffc}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
-header{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2}
-header b{margin-right:16px}header a{padding:12px 10px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
-header a.on{color:var(--fg);border-color:var(--acc)}
-nav.sub{background:var(--card);border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:4px;flex-wrap:wrap}
-nav.sub a{padding:8px 10px;font-size:13px;color:var(--mut);text-decoration:none;border-bottom:2px solid transparent}
-nav.sub a.on{color:var(--fg);border-color:var(--mut)}
 .intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:14px}
 main{max-width:1400px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 4px}h2{font-size:16px;margin:24px 0 8px}h3{font-size:14px;margin:16px 0 6px}
@@ -162,10 +230,6 @@ dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
 
 /* design pass 2026-10-31: calmer surfaces, clear hierarchy */
 body{font:14.5px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-header{padding:0 20px;backdrop-filter:saturate(1.4) blur(6px);background:color-mix(in srgb,var(--card) 92%,transparent)}
-header b{font-size:15px;letter-spacing:-.01em;margin-right:20px}header b::before{content:'◆ ';color:var(--acc)}
-header a{padding:14px 12px;font-weight:500}header a:hover,nav.sub a:hover{color:var(--fg)}
-nav.sub{padding:0 20px}nav.sub a.on{border-color:var(--acc)}
 main{padding:20px 20px 48px}
 h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:6px 0 10px}
 h2{font-size:18px;font-weight:650;letter-spacing:-.01em;margin:36px 0 4px;padding-top:4px}
@@ -208,16 +272,166 @@ def esc(x):
     return html.escape("" if x is None else str(x))
 
 
+NAV_CSS = """
+header.top{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;height:60px;padding:0 18px;
+ background:color-mix(in srgb,var(--card) 90%,transparent);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--fg);font-weight:750;font-size:17px;
+ letter-spacing:-.02em;white-space:nowrap;min-width:214px}.brand svg{flex:none;display:block}
+.srch{position:relative;flex:1;max-width:620px;margin:0}
+.srch input{width:100%;padding:9px 38px 9px 36px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:14.5px}
+.srch input:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 18%,transparent);background:var(--card)}
+.srch .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.55;font-size:14px;pointer-events:none}
+.srch kbd{position:absolute;right:9px;top:50%;transform:translateY(-50%);font:11px ui-monospace,monospace;color:var(--mut);
+ border:1px solid var(--line);border-radius:4px;padding:0 5px}
+.sdrop{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--card);border:1px solid var(--line);border-radius:12px;
+ box-shadow:0 14px 36px rgba(16,24,40,.2);max-height:72vh;overflow:auto;padding:6px;z-index:40}
+.sdrop .sh{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);padding:8px 10px 4px}
+.sdrop a{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:8px;color:var(--fg);text-decoration:none;line-height:1.3}
+.sdrop a>span:last-child{min-width:0}.sdrop a .mut{font-size:12px}.sdrop .ic{width:22px;text-align:center;flex:none;font-size:16px}
+.sdrop a.sel,.sdrop a:hover{background:color-mix(in srgb,var(--acc) 10%,var(--card))}.sdrop a.all{color:var(--acc);font-weight:600}
+.cta{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:999px;margin-left:auto;
+ background:linear-gradient(135deg,#f59f00,#f76707);color:#fff!important;font-weight:650;text-decoration:none;white-space:nowrap;
+ box-shadow:0 2px 10px rgba(247,103,7,.28)}.cta:hover{filter:brightness(1.07)}
+.menu-btn{display:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);
+ background:var(--card);color:var(--fg);font-size:19px;cursor:pointer;flex:none}
+.shell{display:flex;align-items:flex-start}.shell>main{flex:1;min-width:0}
+aside.side{position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;width:240px;flex:none;padding:6px 10px 28px;
+ border-right:1px solid var(--line);background:var(--card);scrollbar-width:thin}
+.side h4{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--mut);margin:18px 10px 5px;font-weight:650}
+.side a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;color:var(--fg);text-decoration:none;font-size:14px;line-height:1.25}
+.side .mi{width:20px;text-align:center;flex:none}.side a:hover{background:color-mix(in srgb,var(--acc) 7%,transparent)}
+.side a.on{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc);font-weight:650}
+.side .sec-n{background:color-mix(in srgb,#f59f00 9%,transparent);border-radius:12px;padding:2px 0 6px;margin-top:10px}
+.side .sec-n h4{color:#d9480f;margin-top:10px}
+.side .out{color:var(--mut);font-size:13px;margin-top:20px}.side-head{display:none}
+.scrim{display:none}.bbar{display:none}
+.mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:8px 0 6px}
+a.mapcard{display:grid;grid-template-columns:auto 1fr;align-content:start;column-gap:12px;row-gap:2px;align-items:start;background:var(--card);
+ border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-decoration:none;color:var(--fg);transition:border-color .15s,box-shadow .15s,transform .15s}
+a.mapcard:hover{border-color:var(--acc);box-shadow:0 6px 18px rgba(16,24,40,.08);transform:translateY(-1px)}
+a.mapcard .mi{grid-row:span 2;font-size:24px;line-height:1.1}a.mapcard b{font-size:15px}a.mapcard .mut{font-size:13px;line-height:1.4}
+a.mapcard.hot{border-color:#f59f00;background:linear-gradient(135deg,color-mix(in srgb,#f59f00 10%,var(--card)),var(--card))}
+.quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:4px 0 18px}
+.quick a{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;
+ text-decoration:none;color:var(--fg);font-weight:600;font-size:14px}.quick a:hover{border-color:var(--acc)}
+.quick a span{font-size:20px}.quick a.hot{border-color:#f59f00;background:color-mix(in srgb,#f59f00 9%,var(--card))}
+.sform{display:flex;gap:8px;max-width:640px}.sform input{flex:1;padding:9px 12px;font-size:15px}
+button,.btn{font:inherit}.sform button{padding:8px 16px;border-radius:8px;border:0;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+ul.sres{list-style:none;padding:0;margin:0;background:var(--card);border:1px solid var(--line);border-radius:12px}
+ul.sres li{padding:10px 14px;border-bottom:1px solid var(--line)}ul.sres li:last-child{border-bottom:0}
+@media(max-width:1000px){
+ .menu-btn{display:inline-flex}.brand{min-width:0}
+ aside.side{position:fixed;top:0;left:0;bottom:0;height:100%;z-index:60;width:min(300px,86vw);transform:translateX(-102%);
+  transition:transform .2s ease;box-shadow:0 0 40px rgba(0,0,0,.25);padding-top:0}
+ body.nav-open aside.side{transform:none}body.nav-open{overflow:hidden}
+ .side-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--card);
+  padding:12px 8px;border-bottom:1px solid var(--line);margin:0 -10px 4px;padding-left:18px}
+ .side-head button{border:0;background:none;font-size:22px;color:var(--mut);cursor:pointer;padding:4px 10px}
+ .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:55}body.nav-open .scrim{display:block}
+ .bbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;background:color-mix(in srgb,var(--card) 96%,transparent);
+  backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:3px 2px calc(3px + env(safe-area-inset-bottom))}
+ .bbar a,.bbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;font-size:11px;color:var(--mut);
+  text-decoration:none;background:none;border:0;padding:5px 0;cursor:pointer;font-family:inherit}
+ .bbar .bi{font-size:20px;line-height:1.1}.bbar .on{color:var(--acc);font-weight:650}
+ .bbar a.n .bi{background:linear-gradient(135deg,#f59f00,#f76707);border-radius:12px;padding:2px 9px;margin-top:-1px}
+ .shell>main{padding-bottom:86px}}
+@media(max-width:700px){header.top{gap:8px;padding:0 10px;height:56px}header.top .brand span{display:none}.srch kbd{display:none}
+ .cta{display:none}.srch input{font-size:16px;padding:8px 10px 8px 32px}a.mapcard{padding:12px 14px}}
+"""
+
+NAV_JS = """
+(()=>{const P=__PAGES__;
+document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>document.body.classList.toggle('nav-open')));
+const inp=document.getElementById('q'),dd=document.getElementById('sdrop');if(!inp)return;
+const f=s=>(s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+const e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sh=a=>a&&a.length>10?a.slice(0,4)+'…'+a.slice(-4):(a||'');
+let t=null,sel=-1,last='';
+const it=(href,ic,main,sub)=>`<a href="${href}"><span class=ic>${ic}</span><span><b>${main}</b>${sub?'<br><span class=mut>'+sub+'</span>':''}</span></a>`;
+function render(q,j){const w=f(q).split(/\\s+/).filter(Boolean);let h='';
+ const pg=P.filter(p=>w.every(x=>f(p.name+' '+p.desc+' '+p.kw+' '+p.sec).includes(x))).slice(0,5);
+ if(pg.length)h+='<div class=sh>Stranice</div>'+pg.map(p=>it(p.href,p.icon,e(p.name),e(p.desc))).join('');
+ if(j){if(j.tokens.length)h+='<div class=sh>Tokeni</div>'+j.tokens.slice(0,6).map(x=>it('/token/'+encodeURIComponent(x.mint),'🪙',
+   e(x.sym||sh(x.mint))+(x.name&&x.name!==x.sym?' <span class=mut>'+e(x.name)+'</span>':''),sh(x.mint)+' · '+e(x.src.join(', ')))).join('');
+  if(j.kols.length)h+='<div class=sh>KOL-ovi i kanali</div>'+j.kols.slice(0,5).map(x=>it('/kol/'+encodeURIComponent(x.handle),'📣',e(x.label),e(x.name||''))).join('');
+  if(j.wallets.length)h+='<div class=sh>Novčanici</div>'+j.wallets.slice(0,5).map(x=>it('/wallet/'+encodeURIComponent(x.wallet),'👛',e(x.label||sh(x.wallet)),x.label?sh(x.wallet):'')).join('');
+  if(j.addr&&!j.tokens.length)h+='<div class=sh>Adresa</div>'+it('/token/'+encodeURIComponent(q),'🪙','Otvori kao token','')+it('/wallet/'+encodeURIComponent(q),'👛','Otvori kao novčanik','');
+  if(!h)h='<div class=sh>Ništa nije pronađeno</div>';}
+ else if(q.length>=2)h+='<div class=sh>Tražim tokene, KOL-ove i novčanike…</div>';
+ h+=`<a class=all href="/trazi?q=${encodeURIComponent(q)}">Svi rezultati za „${e(q)}” →</a>`;dd.innerHTML=h;dd.hidden=false;sel=-1}
+inp.addEventListener('input',()=>{const q=inp.value.trim();last=q;clearTimeout(t);if(!q){dd.hidden=true;return}render(q,null);if(q.length<2)return;
+ t=setTimeout(async()=>{try{const r=await fetch('/api/trazi?q='+encodeURIComponent(q));const j=await r.json();if(last===q)render(q,j)}catch(err){}},250)});
+inp.addEventListener('keydown',ev=>{const a=[...dd.querySelectorAll('a')];
+ if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){ev.preventDefault();if(!a.length||dd.hidden)return;sel=(sel+(ev.key==='ArrowDown'?1:-1)+a.length)%a.length;
+  a.forEach((x,i)=>x.classList.toggle('sel',i===sel));a[sel].scrollIntoView({block:'nearest'})}
+ else if(ev.key==='Enter'&&sel>=0&&a[sel]&&!dd.hidden){ev.preventDefault();location=a[sel].href}
+ else if(ev.key==='Escape'){dd.hidden=true;inp.blur()}});
+inp.addEventListener('focus',()=>{if(inp.value.trim()&&dd.innerHTML)dd.hidden=false});
+document.addEventListener('click',ev=>{if(!ev.target.closest('.srch'))dd.hidden=true});
+document.addEventListener('keydown',ev=>{if(ev.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'')){ev.preventDefault();inp.focus()}});
+})();
+"""
+
+
+def _pages_json():
+    import json
+    return json.dumps([{"href": p["href"], "icon": p["icon"], "name": p["name"], "desc": p["desc"], "kw": p["kw"], "sec": sec}
+                       for sec, items in SECTIONS for p in items], ensure_ascii=False).replace("</", "<\\/")
+
+
+def side_menu(cur):
+    svg, name = logo(26)
+    b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/">{svg}<span>{esc(name)}</span></a>'
+         '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
+    for sec, items in SECTIONS:
+        b.append(f'<div class="{"sec-n" if sec == "Natjecanje" else ""}"><h4>{esc(sec)}</h4>' + "".join(
+            f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'
+            for p in items) + "</div>")
+    b.append('<a class=out href="/odjava"><span class=mi>↩</span>Odjava</a></aside>')
+    return "".join(b)
+
+
 def page(title, body, path="/"):
-    group = nav_group(path)
-    nav = "".join(f'<a href="{h}" class="{"on" if g == group else ""}">{g}</a>' for g, h, _ in NAV)
-    sub = ""
-    pages = next((p for g, _, p in NAV if g == group), [])
-    if len(pages) > 1:
-        sub = "<nav class=sub>" + "".join(f'<a href="{h}" class="{"on" if h == path else ""}">{t}</a>' for h, t in pages) + "</nav>"
+    cur = nav_item(path)
+    svg, name = logo(30)
+    header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
+              f'<a class=brand href="/" title="Na početnu">{svg}<span>{esc(name)}</span></a>'
+              '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
+              '<input id=q name=q placeholder="Traži token, adresu, KOL ili stranicu…" aria-label="Traži" enterkeyhint=search>'
+              '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form>'
+              f'<a class=cta href="/natjecanje">🏆 <span>Natjecanje</span></a></header>')
+    bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
+        f'<a href="{h}" class="{"on" if h == cur else ""}{" n" if h == "/natjecanje" else ""}"><span class=bi>{i}</span>{t}</a>'
+        for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
     return (f"<!doctype html><html lang=hr><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
-            f"initial-scale=1'><title>{esc(title)} · crypto-bot</title><style>{CSS}{COLS_CSS}</style></head><body>"
-            f"<header><b>crypto-bot</b>{nav}</header>{sub}<main>{with_intro(body, path)}</main><script>{JS}{COLS_JS}</script></body></html>")
+            f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title><link rel=icon href=\"data:image/svg+xml,"
+            f"{quote(logo(32)[0])}\"><style>{CSS}{COLS_CSS}{NAV_CSS}</style></head><body>"
+            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{with_intro(body, path)}</main></div>"
+            f"{bbar}<script>{JS}{COLS_JS}{NAV_JS.replace('__PAGES__', _pages_json())}</script></body></html>")
+
+
+def map_page(qs=None):
+    """/mapa: every page as a card with what it is for, grouped like the menu."""
+    b = ["<h1>Gdje je što</h1><p class=lead>Sve stranice alata na jednom mjestu. Isti popis je u izborniku lijevo "
+         "(na mobitelu gumb ☰ Izbornik dolje desno), a tražilica na vrhu nalazi i stranice, tokene, KOL-ove i novčanike.</p>",
+         "<div class=card><b>Novi ovdje?</b> Počni s <a href=/>Pregledom</a> (što je bot našao danas), zatim "
+         "<a href=/natjecanje>Natjecanjem</a> (kupi tokene na svom demo računu, bez pravog novca) i "
+         "<a href=/dugorocno>Dugoročnim</a> tokenima (sigurniji sloj).</div>"]
+    for sec, items in SECTIONS:
+        b.append(f"<h2>{esc(sec)}</h2><div class=mapgrid>" + "".join(
+            f'<a class="mapcard{" hot" if p["href"] == "/natjecanje" else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
+            f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
+    return "Gdje je što", "".join(b)
+
+
+QUICK = [("/natjecanje", "🏆", "Natjecanje"), ("#istaknuti", "⭐", "Istaknuti tokeni"), ("/paper", "🤖", "Demo trading"),
+         ("/dugorocno", "🌱", "Dugoročni"), ("/kol", "📣", "KOL-ovi"), ("/mapa", "🧭", "Gdje je što")]
+
+
+def quick_links():
+    """Row of big shortcuts at the top of Pregled."""
+    return "<nav class=quick aria-label='Brzi pristup'>" + "".join(
+        f'<a href="{h}" class="{"hot" if h == "/natjecanje" else ""}"><span>{i}</span>{t}</a>' for h, i, t in QUICK) + "</nav>"
 
 
 def tdesc(text):
