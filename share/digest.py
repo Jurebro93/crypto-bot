@@ -181,6 +181,7 @@ def collect(now=None, with_league=True, with_tokens=True, repeat=False):
     return out
 
 
+MAX_PLAYERS = 12
 MEDAL = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
@@ -201,8 +202,9 @@ def text(d):
     lg = d.get("league")
     if lg and lg["players"]:
         b = ["🏆 *NATJECANJE*"]
-        for p in [p for p in lg["players"] if p["rank"] <= 3][:5]:
-            b.append(f"{MEDAL.get(p['rank'], '▫️')} {p['user']} · ${p['equity']:,.0f} ({_pct(p['ret'])})")
+        for p in lg["players"][:MAX_PLAYERS]:   # every player, not only the podium (Nicholas 1.11.: Mario was missing)
+            mark = MEDAL.get(p["rank"]) or f"{p['rank']}."
+            b.append(f"{mark} {p['user']} · ${p['equity']:,.0f} ({_pct(p['ret'])})")
         if lg.get("bot_ret") is not None:
             b.append(f"🤖 Bot · {_pct(lg['bot_ret'])}")
         blocks.append(b)

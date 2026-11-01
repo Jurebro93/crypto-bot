@@ -47,14 +47,15 @@ function section(title){font(700,30);g.fillStyle='#25d366';g.fillText(title,X,y)
 const L=D.league;
 if(L&&L.players&&L.players.length){
   section('🏆 NATJECANJE');
-  const top=L.players.filter(p=>p.rank<=3).slice(0,3),med={1:'🥇',2:'🥈',3:'🥉'};
+  const top=L.players.slice(0,8),med={1:'🥇',2:'🥈',3:'🥉'};   // every player; rows shrink when there are more
+  const rh=top.length<=3?84:top.length<=5?64:50,fs=top.length<=3?40:top.length<=5?34:28,gap=top.length<=3?14:8;
   for(const p of top){
-    rr(X,y,CW,84,18,p.rank===1?'rgba(255,200,60,.16)':'rgba(255,255,255,.07)');
-    font(700,40);g.fillStyle='#fff';g.fillText((med[p.rank]||'▫️')+'  '+fit(p.user,420),X+24,y+20);
-    g.textAlign='right';font(700,40);g.fillStyle=p.ret>=0?'#3ddc84':'#ff6b6b';g.fillText(pct(p.ret),W-X-24,y+20);
-    font(500,34);g.fillStyle='#d6e2f0';g.fillText('$'+Math.round(p.equity).toLocaleString('en-US'),W-X-200,y+24);g.textAlign='left';
-    y+=98}
-  if(L.bot_ret!=null){font(500,30);g.fillStyle='#9fb3c8';g.fillText('🤖 Bot od početka natjecanja: '+pct(L.bot_ret),X+8,y);y+=56}
+    rr(X,y,CW,rh,16,p.rank===1?'rgba(255,200,60,.16)':'rgba(255,255,255,.07)');const ty=y+(rh-fs)/2;
+    font(700,fs);g.fillStyle='#fff';g.fillText((med[p.rank]||p.rank+'.')+'  '+fit(p.user,420),X+24,ty);
+    g.textAlign='right';g.fillStyle=p.ret>=0?'#3ddc84':'#ff6b6b';g.fillText(pct(p.ret),W-X-24,ty);
+    font(500,fs-6);g.fillStyle='#d6e2f0';g.fillText('$'+Math.round(p.equity).toLocaleString('en-US'),W-X-200,ty+3);g.textAlign='left';
+    y+=rh+gap}
+  if(L.bot_ret!=null){y+=6;font(500,30);g.fillStyle='#9fb3c8';g.fillText('🤖 Bot od početka natjecanja: '+pct(L.bot_ret),X+8,y);y+=56}
   y+=10;
   const tr=[['🚀 Najbolji trade',L.best],['🩸 Najgori trade',L.worst]].filter(t=>t[1]);
   if(tr.length){
@@ -68,8 +69,8 @@ if(L&&L.players&&L.players.length){
     y+=176}
 }
 function grid(title,items,max){   // two columns of short titles: the details are in the message under the picture
-  if(!items.length||y>H-260)return;section(title);const cw=(CW-20)/2;let i=0;
-  for(const it of items.slice(0,max)){const x=X+(i%2)*(cw+20);if(y>H-200)break;
+  if(!items.length||y+50+64>H-126)return;section(title);const cw=(CW-20)/2;let i=0;
+  for(const it of items.slice(0,max)){const x=X+(i%2)*(cw+20);if(y+64>H-126)break;
     rr(x,y,cw,64,14,'rgba(255,255,255,.07)');font(700,30);g.fillStyle='#fff';g.fillText(fit(it[0],cw-36-(it[1]?g.measureText(it[1]).width:0)),x+18,y+16);
     if(it[1]){g.textAlign='right';font(500,26);g.fillStyle='#9fb3c8';g.fillText(it[1],x+cw-18,y+20);g.textAlign='left'}
     if(i%2===1||i===Math.min(items.length,max)-1)y+=78;i++}

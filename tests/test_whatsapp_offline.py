@@ -50,6 +50,13 @@ class WhatsApp(unittest.TestCase):
         self.assertNotIn("ŠTO JE NOVO", digest.build(NOW, with_tokens=False))      # already went to the group
         self.assertIn("Copy trading", digest.text(digest.collect(NOW, with_tokens=False, repeat=True)))
 
+    def test_every_player_listed(self):
+        os.environ["UI_USERS"] = "Ivan,Panda,Jure,Filip,Mario"
+        self.addCleanup(os.environ.pop, "UI_USERS", None)
+        txt = digest.build(NOW, with_tokens=False)
+        for u in ("Ivan", "Panda", "Jure", "Filip", "Mario"):
+            self.assertIn(f" {u} · $", txt)                      # not only the top 3 (Mario was missing)
+
     def test_page(self):
         from ui import whatsapp
         title, body = whatsapp.page({})
