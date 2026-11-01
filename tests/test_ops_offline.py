@@ -213,10 +213,20 @@ class Slim(unittest.TestCase):
                 self.assertTrue(all(ts >= now - dbs.SLIM_FEATURES_H * 3600 for ts in got if ts not in (first, last)))
                 self.assertEqual([r[0] for r in c.execute("SELECT ts FROM hype_signals WHERE token=? AND weights IS NOT NULL", (t,))], [last])
             c.close()
-            with mock.patch.object(disk, "free_mb", return_value=10000.0):
-                out = dbs.compact(p)
-            self.assertIsNotNone(out)
+            with mock.patch.object(disk, "free_mb", return_value=5.0):     # data disk too full for an in-place VACUUM
+                self.assertIsNone(dbs.compact(p))                             # online: skipped
+            free = lambda path=None: 10000.0 if path else 30.0  # noqa: E731  tmp has room, data disk only for the packed copy
+            with mock.patch.object(disk, "free_mb", side_effect=free):
+                out = dbs.compact(p, offline=True)
+            self.assertIn("privremenog", out)
             self.assertLess(os.path.getsize(p), size0 / 2)
+            c = sqlite3.connect(p)
+            self.assertEqual(c.execute("SELECT token, ts, score, price, mcap, liquidity, sources FROM hype_signals ORDER BY token, ts").fetchall(), before)
+            self.assertEqual(c.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+            self.assertEqual(c.execute("PRAGMA quick_check").fetchone()[0], "ok")
+            c.close()
+            with mock.patch.object(disk, "free_mb", return_value=10000.0):
+                self.assertIsNone(dbs.compact(p))                             # packed now: nothing left to win
 
 
 class TtlCache(unittest.TestCase):
