@@ -191,6 +191,28 @@ class Triggers(unittest.TestCase):
         con.close()
 
 
+class Reentry(unittest.TestCase):
+    def test_second_crossing_after_a_dip(self):
+        """1.11. pairless: out at +16% at $133k, fell to ~$73k, then crossed $100k again on the way past $1M."""
+        tmp = tempfile.mkdtemp()
+        con = store.connect(os.path.join(tmp, "paper.db"))
+        now = 1_762_000_000
+        con.execute("INSERT INTO trades (token, opened_ts, closed_ts, status, config) VALUES "
+                    "('P', ?, ?, 'closed', ?)", (now - 7200, now - 6000, json.dumps({"entry_mode": "mc100k"})))
+        for i, mc in enumerate([133e3, 90e3, 73e3, 85e3, 98e3]):
+            store.tick(con, "P", now - 5000 + i * 600, 1, 1, mc)
+        con.commit()
+        self.assertEqual(run_paper.reentries(con, 1e5, now), {})  # still below
+        store.tick(con, "P", now - 10, 1, 1, 104e3)
+        got = run_paper.reentries(con, 1e5, now)
+        self.assertEqual(set(got), {"P"})
+        self.assertEqual(got["P"]["low"], 73e3)
+        con.execute("INSERT INTO trades (token, opened_ts, status, config) VALUES ('P', ?, 'closed', ?)",
+                    (now, json.dumps({"entry_mode": "mc100k2"})))
+        self.assertEqual(run_paper.reentries(con, 1e5, now), {})  # once per token
+        con.close()
+
+
 class ExitReality(unittest.TestCase):
     CFG = {"fee": 0.01, "slip": 0.0, "sl": -0.15, "tp": [[1.0, 0.5]], "trail_after": 0.5, "trail": 0.3,
            "max_hold_h": 24, "rug_liq": 0.2, "size_usd": 1}

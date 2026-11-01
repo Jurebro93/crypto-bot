@@ -252,7 +252,7 @@ def _n_open(con):
     n = 0
     for state, cfg in con.execute("SELECT state, config FROM trades WHERE status='open'"):
         if not json.loads(state or "{}").get("bag") and json.loads(cfg or "{}").get("entry_mode") not in (
-                "explore", "konv", "mc100k", "kol3"):
+                "explore", "konv", "mc100k", "mc100k2", "kol3"):
             n += 1
     return n
 
@@ -322,7 +322,7 @@ def _announce(opened, cfg, quiet):
         notify(msg)
 
 
-TRIGGER_MODES = ("mc100k", "kol3")
+TRIGGER_MODES = ("mc100k", "mc100k2", "kol3")
 
 
 def _n_mode(con, mode, since=None):
@@ -330,6 +330,26 @@ def _n_mode(con, mode, since=None):
     if since is None:
         return con.execute(q + " AND status='open'").fetchone()[0]
     return con.execute(q + " AND opened_ts>=?", (since,)).fetchone()[0]
+
+
+def reentries(con, band, now, dip=0.8):
+    """{token: {low, closed_ts}}: tokens whose $100k demo trade (mc100k) closed in the last 24 h, that fell under
+    dip x band after the exit and are crossing band again right now (last tick at/above, the one before below).
+    1.11. 'pairless': entry at $116k, out at +16% in 8 min, fell to ~$73k, then went past $1M; a person in the
+    competition bought the dip. One re-entry per token (mode mc100k2), measured as its own arm."""
+    out = {}
+    rows = con.execute("SELECT token, MAX(closed_ts) FROM trades WHERE status='closed' AND closed_ts>=? AND "
+                       "config LIKE '%\"entry_mode\": \"mc100k\"%' GROUP BY token", (now - 86400,)).fetchall()
+    for tok, closed in rows:
+        if con.execute("SELECT 1 FROM trades WHERE token=? AND (status='open' OR config LIKE "
+                       "'%\"entry_mode\": \"mc100k2\"%')", (tok,)).fetchone():
+            continue
+        low = con.execute("SELECT MIN(mcap) FROM ticks WHERE token=? AND ts>? AND mcap>0", (tok, closed)).fetchone()[0]
+        last = con.execute("SELECT mcap FROM ticks WHERE token=? AND ts>? ORDER BY ts DESC LIMIT 2",
+                           (tok, closed)).fetchall()
+        if low and low <= dip * band and len(last) == 2 and (last[0][0] or 0) >= band > (last[1][0] or 0):
+            out[tok] = {"low": low, "closed_ts": closed}
+    return out
 
 
 def trigger_entries(con, cfg, rst, now):
@@ -350,13 +370,15 @@ def trigger_entries(con, cfg, rst, now):
     if R["kol3"]["enabled"]:
         for tok, k in rules.kol3(os.path.join(HERE, "kol.db"), now, cfg).items():
             want.setdefault(tok, ("kol3", k))
-    if not want:
-        return []
     traded = {t for (t,) in con.execute("SELECT token FROM trades WHERE status='open' OR opened_ts>=?",
                                         (now - 86400,))}
     from rugfilter import archive
     gone = archive.blocked(HYPE_DB)   # rugged earlier and archived: no entry, no market lookup
     want = {t: v for t, v in want.items() if t not in traded and t not in gone}
+    if R["ab"]["enabled"] and R["ab"].get("reentry", True):
+        for tok, info in reentries(con, R["ab"]["band"], now).items():
+            if tok not in gone:
+                want.setdefault(tok, ("mc100k2", info))
     if not want:
         return []
     mk = market(want) or {}
@@ -375,7 +397,7 @@ def trigger_entries(con, cfg, rst, now):
     for tok, (mode, info) in want.items():
         if tok not in mk:
             continue
-        r = R["ab" if mode == "mc100k" else mode]
+        r = R["ab" if mode in ("mc100k", "mc100k2") else mode]
         if cnt[mode][0] >= r["max_open"] or cnt[mode][1] >= r["max_per_day"]:
             continue
         price, liq, mcap, url = mk[tok]
@@ -412,6 +434,7 @@ def trigger_entries(con, cfg, rst, now):
             c["trade_id"] = store.open_trade(con, tok, c["symbol"], pos, cfg_t, mcap)
             c["size_usd"], c["decision"] = size, "taken"
             c["reason"] = ((f"prvi prelazak 100k $ (A/B test, ulaz B)" if mode == "mc100k" else
+                            f"ponovni prelazak 100k $ nakon pada na {_usd(info['low'])}" if mode == "mc100k2" else
                             f"{info['n']} KOL autora u 15 min: " + ", ".join(info["handles"][:5]))
                            + f" [{cfg_t['arm']}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                            + (f"; {note}" if note else ""))
