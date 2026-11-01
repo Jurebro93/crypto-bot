@@ -18,13 +18,14 @@ W, H = 1200, 630
 # Category colour: (accent, light tint of the background).
 COLORS = {"guides": ("#4f46e5", "#eceeff"), "exchanges-and-cards": ("#0fb5a0", "#e3f8f3"),
           "tax-and-law": ("#d97706", "#fff3df"), "rugs-and-scams": ("#e11d48", "#ffecf0"),
-          "wallets-and-influencers": ("#0891b2", "#e4f6fb")}
+          "wallets-and-influencers": ("#0891b2", "#e4f6fb"), "prediction-markets": ("#7c3aed", "#f2ecff"),
+          "for-crypto-projects": ("#16a34a", "#e7f7ec")}
 DEFAULT = COLORS["guides"]
 
 # One big number per post (EN slug): (EN number, EN caption, HR number, HR caption). Same figures as in the posts.
 COVER = {
     "what-is-wallet-tracking": ("2 of 469", "tracked 'smart money' wallets were worth copying",
-                                "2 od 469", "praćenih 'smart money' novčanika vrijedilo je kopirati"),
+                                "2 od 469", "'smart money' novčanika vrijedilo je kopirati"),
     "what-is-copy-trading": ("22%", "of active Solana wallets were in profit",
                              "22%", "aktivnih Solana novčanika bilo je u plusu"),
     "what-is-a-kol-in-crypto": ("52% vs 14%", "of called tokens reached 2x, with vs. without a KOL call",
@@ -38,7 +39,7 @@ COVER = {
     "bundles-and-snipers": ("-54%", "typical drop from the top for heavily bundled tokens",
                             "-54%", "tipičan pad s vrha za jako bundlane tokene"),
     "how-to-trade-meme-coins": ("24%", "reached 2x when bought at the first $100k market cap cross",
-                                "24%", "doseglo je 2x kad je kupljeno na prvom prelasku $100k tržišne kap."),
+                                "24%", "doseglo 2x uz kupnju na prvom prelasku $100k"),
     "what-is-dca-in-crypto": ("+38% vs -10%", "DCA vs. one buy, same token, same end price",
                               "+38% : -10%", "DCA naspram jedne kupnje, isti token, ista završna cijena"),
     "market-cap-liquidity-slippage": ("-17%", "fewer tokens for a $1,000 buy in a $10k pool",
@@ -52,13 +53,33 @@ COVER = {
     "what-is-a-pump-and-dump": ("-54%", "median fall from the top for heavily bundled tokens",
                                 "-54%", "medijan pada s vrha za jako bundlane tokene"),
     "crypto-cards-croatia": ("0-2%", "cashback on free tiers; every payment is a crypto sale",
-                             "0-2%", "povrata na besplatnim paketima; svako plaćanje je prodaja kripta"),
-    "crypto-tax-croatia": ("12%", "on gains held under two years; swaps and 2+ years are tax-free",
+                             "0-2%", "povrata besplatno; svako plaćanje je prodaja kripta"),
+    "crypto-tax-croatia": ("12%", "on gains under 2 years; swaps and 2+ years tax-free",
                            "12%", "na dobit ispod dvije godine; zamjene i 2+ godine bez poreza"),
     "why-big-influencer-calls-are-hard-to-trade": ("+44%", "your entry price after 20 bots buy $500 each",
                                                    "+44%", "tvoja ulazna cijena nakon što 20 botova kupi po $500"),
     "company-crypto-investment-croatia": ("20.8%", "total tax on a d.o.o. crypto gain paid out as a dividend",
-                                          "20,8%", "ukupan porez na kripto dobit d.o.o.-a isplaćenu kao dividendu"),
+                                          "20,8%", "ukupan porez na kripto dobit d.o.o.-a kao dividendu"),
+    "address-poisoning": ("$0 transfer", "is the bait: a look-alike address lands in your history",
+                          "$0 uplata", "je mamac: slična adresa sjedne u tvoju povijest"),
+    "zero-trust-support-calls": ("0 calls", "real support never calls first or asks for your seed phrase",
+                                 "0 poziva", "prava podrška nikad ne zove prva niti traži seed frazu"),
+    "polymarket-rules-checklist": ("2+ days", "a disputed market can take this long to pay out",
+                                   "2+ dana", "toliko može trajati isplata spornog tržišta"),
+    "polymarket-insider-moves": ("No news", "yet the odds of an unlikely outcome jump: a typical leak",
+                                 "Bez vijesti", "a kvota malo vjerojatnog ishoda skoči: tipično curenje"),
+    "perps-settings-after-october-10": ("5 rules", "that decided who survived 10 October 2025",
+                                        "5 pravila", "koja su odlučila tko je preživio 10. 10. 2025."),
+    "tokens-sent-to-kol-wallets": ("0 SOL", "left the wallet? Then it was a gift, not a buy",
+                                   "0 SOL", "izašlo iz novčanika? Onda je poklon, a ne kupnja"),
+    "what-to-do-with-an-airdrop": ("~85%", "of 2025 token launches traded below their launch price",
+                                   "~85%", "tokena lansiranih 2025. palo je ispod početne cijene"),
+    "fake-volume-check": ("Vol ÷ Liq", "dozens of times more volume than liquidity is a red flag",
+                          "Vol ÷ Lik", "desetke puta veći volumen od likvidnosti: alarm"),
+    "after-kaito-yaps": ("Jan 2026", "X cut paid-posting apps off; Kaito ended Yaps",
+                         "Sij. 2026", "X ugasio plaćene objave; Kaito ukinuo Yaps"),
+    "fair-token-launch-cca": ("No rush", "each block has one price, so being first gives no edge",
+                              "Bez žurbe", "svaki blok ima jednu cijenu, biti prvi ne pomaže"),
 }
 
 
@@ -106,7 +127,7 @@ def svg(v, lang="en", css_class="cv", decorative=False):
     mark = mark.replace('id="lgm"', f'id="{uid}m"').replace("url(#lgm)", f"url(#{uid}m)").replace(
         'width="48" height="48"', 'x="72" y="58" width="48" height="48"')
     tag = esc(v.get("tag") or "Blog")
-    tw = int(len(v.get("tag") or "Blog") * 17.5 + 56)
+    tw = int(len(v.get("tag") or "Blog") * 15 + 56)
     cov = COVER.get(en)
     if cov:
         big, cap = (cov[0], cov[1]) if lang == "en" else (cov[2], cov[3])
