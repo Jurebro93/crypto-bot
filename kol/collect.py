@@ -375,17 +375,30 @@ def timeline_twapi(con, cfg, get=None, now=None):
     if not handles:
         return 0
     since = (last[0] if last else now - 6 * 3600) - 300
-    per, n, budget = t.get("per_query", 25), 0, t.get("daily_usd", 0.7)
+    per, n, budget = t.get("per_query", 10), 0, t.get("daily_usd", 0.7)
+    cap = t.get("max_query_chars", 300)  # longer queries come back 400 Bad Request
+    chunks, cur = [], []
+    for h in handles:
+        if cur and (len(cur) >= per or len(" OR ".join(f"from:{x}" for x in cur + [h])) > cap):
+            chunks.append(cur)
+            cur = []
+        cur.append(h)
+    if cur:
+        chunks.append(cur)
     done = []
-    for i in range(0, len(handles), per):
-        chunk = handles[i:i + per]
+    for chunk in chunks:
         if twapi.spent(con, now) >= budget:
             print(f"kol twitterapi: dnevni budžet ${budget} potrošen, ostatak u sljedećem krugu", flush=True)
             break
         try:
             items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, budget, get=get, now=now)
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
-            print(f"kol twitterapi: upit nije uspio ({type(e).__name__}: {e})", flush=True)
+            body = ""
+            try:
+                body = e.read().decode("utf-8", "replace")[:200]
+            except Exception:  # noqa: BLE001
+                pass
+            print(f"kol twitterapi: upit nije uspio ({type(e).__name__}: {e}) {body}", flush=True)
             continue
         n += save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
         done += chunk

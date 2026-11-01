@@ -106,7 +106,8 @@
   "every_min": 15,
   "kols": 400,
   "core": 300,
-  "per_query": 25,
-  "daily_usd": 0.7
+  "per_query": 10,
+  "daily_usd": 0.7,
+  "max_query_chars": 300
  }
 }
