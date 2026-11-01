@@ -140,7 +140,8 @@ def wallet_rows():
     def rank_key(r):
         k = r["kt"]
         mine = (k["pnl"] / k["n"]) if k and k["n"] >= 5 else None
-        return (r["live"], mine is not None, mine or 0, r["pnl"] or 0)
+        # a wallet that has not traded this week gives nothing to copy, whatever its profit on the list
+        return (r["live"], (r["act"].get("buys") or 0) > 0, mine is not None, mine or 0, r["pnl"] or 0)
     return sorted(out, key=rank_key, reverse=True)
 
 
@@ -227,7 +228,7 @@ def _wallet_table(rows, mine, user, q):
         out.append([wlink(r["wallet"]) + " " + speed + (f"<div>{who}</div>" if who else ""),
                     signed(r["pnl"], "{:+,.0f} $") if r["pnl"] is not None else ("–", -1e18, "n"),
                     share((r["wins"] or 0) / wl if wl else None), num(a.get("buys")), num(a.get("tokens")),
-                    num(a.get("sells")), share(ws.get("win_rate")) if ws else ("–", -1, "n"),
+                    num(a.get("sells")), share(ws.get("win_rate")) if ws.get("closed") else ("–", -1, "n"),
                     num(ws.get("median_hold_min"), "{:,.0f} min") if ws else ("–", -1, "n"),
                     *_kt_cells(r["kt"]), ago(a.get("last")),
                     _btn("wallet", r["wallet"], r["name"] or r["twitter"] or r["wallet"][:6], mine, user)])
@@ -305,7 +306,7 @@ def page(qs, user):
 
         b.append('<h2 id=walleti>Walleti: copy trade</h2>' + tdesc(
             "Walleti poznatih tradera koje pratimo uživo (svaka njihova kupnja i prodaja stigne u par sekundi). "
-            "Najuspješniji prvi: prvo po tome kako su njihove kupnje prošle u našem KOL testu (kad ih ima barem 5), "
+            "Prvo oni koji su trgovali ovaj tjedan, a među njima najuspješniji: prvo po tome kako su njihove kupnje prošle u našem KOL testu (kad ih ima barem 5), "
             "zatim po profitu s javne liste. Neki kupuju desetke tokena dnevno, zato postavi limit ulaza na dan. "
             "Kad wallet proda token, prodaje se cijela tvoja pozicija u njemu."))
         if user:
