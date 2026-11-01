@@ -231,13 +231,6 @@ def startup():
 def hourly():
     """Retention, give freed pages back to the disk, cut WAL files back to zero."""
     gone = retention()
-    try:   # rugged tokens: one learning record each, the rest deleted, never tracked again (rugfilter/archive.py)
-        from rugfilter import archive
-        n_rug, n_rows = archive.run(os.path.join(disk.DATA_DIR, "hype.db"), log=lambda m: print(m, flush=True))
-        if n_rows:
-            gone["rugani tokeni"] = n_rows
-    except Exception as e:  # noqa: BLE001 - upkeep must go on
-        print(f"rugovi: arhiviranje nije uspjelo: {type(e).__name__}: {e}", flush=True)
     nw, nf = slim_signals()
     if nw or nf:
         gone["hype_signals sažeto"] = nw + nf

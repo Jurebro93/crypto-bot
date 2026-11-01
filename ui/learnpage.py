@@ -36,13 +36,13 @@ def rugs_html():
     from rugfilter import archive
     sm = archive.summary(data.HYPE_DB)
     out = ["<h2>Rugovi: izbačeni iz baze, ali bot uči iz njih</h2>", tdesc(
-        "Svaki sat bot pogleda tokene starije od dan: tko se srušio 70%+ od vrha, kome je izvučena likvidnost ili ima "
+        "Par minuta nakon svakog pokretanja i zatim svaki sat bot pogleda tokene starije od dan: tko se srušio 70%+ od vrha, kome je izvučena likvidnost ili ima "
         "mehaniku ruga, izbaci se iz baze i više se ne prati (nema API troška). Zadrži se samo kako je token izgledao kad "
         "ga je bot prvi put vidio i koliko je pao. Iz toga bot svaki dan uči profil ruga: koje kombinacije signala na ulazu "
         "najčešće završe rugom. Novi token koji jako sliči rugovima zaustavi se odmah, ali samo ako je profil na provjeri "
         f"bio u pravu barem {rugprofile.MIN_PRECISION:.0%} puta i ne bi izgubio više od {rugprofile.MAX_HIT_LOSS:.0%} pravih skokova.")]
     if not sm["n"]:
-        out.append("<div class=card>Još nijedan token nije izbačen; prvo čišćenje kreće unutar sat vremena od pokretanja.</div>")
+        out.append("<div class=card>Još nijedan token nije izbačen; prvo čišćenje kreće par minuta nakon pokretanja.</div>")
     else:
         kinds = ", ".join(f"{archive.KIND_HR.get(k, k)} {n}" for k, n in sorted(sm["by_kind"].items(), key=lambda kv: -kv[1]))
         out.append(f"<p>Izbačeno <b>{sm['n']}</b> tokena ({esc(kinds)}), od toga {sm['n24']} u zadnja 24 h; obrisano "

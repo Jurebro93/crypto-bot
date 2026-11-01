@@ -328,3 +328,13 @@ def get(token, path=None):
 
 
 KIND_HR = {"srusen": "srušio se", "likvidnost": "izvučena likvidnost", "mehanika": "mehanika ruga"}
+
+
+if __name__ == "__main__":   # start.sh: 2 minutes after every start, then hourly (deploys often restart the service)
+    import sys
+    from ops import disk
+    try:
+        run(os.path.join(disk.DATA_DIR, "hype.db"), log=lambda m: print(m, flush=True))
+    except Exception as e:  # noqa: BLE001
+        print(f"rugovi: arhiviranje nije uspjelo: {type(e).__name__}: {e}", flush=True)
+        sys.exit(1)
