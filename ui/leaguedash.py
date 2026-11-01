@@ -17,7 +17,6 @@ DAY = 86400
 # categorical slots in fixed order (validated palette, light / dark), then the bot's neutral grey
 CSS = """
 .lg{--p1:#2a78d6;--p2:#eb6834;--p3:#1baf7a;--p4:#eda100;--p5:#e87ba4;--p6:#008300;--p7:#6250d6;--p8:#e34948;--pb:#8a8f98}
-@media (prefers-color-scheme:dark){.lg{--p1:#3987e5;--p2:#d95926;--p3:#199e70;--p4:#c98500;--p5:#d55181;--p6:#008300;--p7:#9085e9;--p8:#e66767;--pb:#7d838c}}
 .lg h2{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.lg h2 small{font-weight:400;color:var(--mut);font-size:13px}
 .about{margin:0 0 10px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13px}
 .about .soc{border:1px solid var(--line);border-radius:999px;padding:2px 10px;text-decoration:none;color:var(--fg)}

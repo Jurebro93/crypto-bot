@@ -243,10 +243,9 @@ def with_intro(body, path):
 CSS = """
 button.sm{padding:2px 7px;font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
 button.sm:hover{border-color:var(--acc);color:var(--acc)}.nw{white-space:nowrap}
-:root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#3b5bdb;
---good:#2b8a3e;--warn:#e67700;--bad:#c92a2a;--goodbg:#ebfbee;--warnbg:#fff4e6;--badbg:#fff5f5;--bar:#4c6ef5}
-@media (prefers-color-scheme:dark){:root{--bg:#101318;--card:#181c23;--fg:#e6e9ee;--mut:#8b96a5;--line:#2a303a;
---acc:#7a92ff;--good:#51cf66;--warn:#ffa94d;--bad:#ff6b6b;--goodbg:#13261a;--warnbg:#2b2012;--badbg:#2c1517;--bar:#748ffc}}
+/* landing palette (ui/landing.py, ui/loginpage.py): always light, same colours everywhere */
+:root{--bg:#fff;--soft:#f6f7fb;--card:#fff;--fg:#0b1220;--mut:#5b6474;--line:#e8ebf2;--line2:#cfd5e1;--acc:#4f46e5;--acc2:#0fb5a0;
+--good:#16a34a;--warn:#d97706;--bad:#dc2626;--goodbg:#ecfdf5;--warnbg:#fffbeb;--badbg:#fef2f2;--bar:#4f46e5;color-scheme:light}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 .intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:14px}
 main{max-width:1400px;margin:0 auto;padding:16px}
@@ -407,6 +406,54 @@ ul.sres li{padding:10px 14px;border-bottom:1px solid var(--line)}ul.sres li:last
  .cta{display:none}.srch input{font-size:16px;padding:8px 10px 8px 32px}a.mapcard{padding:12px 14px}}
 """
 
+LIGHT_CSS = """
+/* 2026-11-01: every in-app page in the landing style (ui/landing.py): always light, white and airy, thin #e8ebf2
+   lines, big soft corners, black pill buttons. Colours, fonts and lines only: nothing is moved, added or removed. */
+html{color-scheme:light}body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1{font-size:28px;font-weight:800;letter-spacing:-.035em;line-height:1.15}h2{font-weight:750;letter-spacing:-.025em}
+.lead,.tdesc{color:var(--mut)}.tdesc{border-left:2px solid var(--line)}
+.card,.stat,.tw,pre,main>details,details.homemap,.gl-term,ul.sres{border-color:var(--line);border-radius:18px;box-shadow:none}
+.stat .v{font-weight:750;letter-spacing:-.02em}
+.intro{background:var(--soft);border:1px solid var(--line);border-radius:16px}
+th{background:var(--card);color:var(--mut)}tr:hover td{background:var(--soft)}
+input,select,textarea{background:var(--soft);color:var(--fg);border:1px solid var(--line);border-radius:12px;font:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);background:#fff;box-shadow:0 0 0 4px rgba(79,70,229,.12)}
+input[type=checkbox],input[type=radio]{accent-color:var(--fg)}
+/* buttons: like the landing .btn.p (black pill); type=button toggles like .btn.g (white pill with a thin line).
+   :where() keeps this at zero specificity, so a page's own button style still wins. */
+:where(button){font:inherit;font-weight:600;cursor:pointer;border-radius:999px;padding:8px 16px;border:1px solid var(--fg);
+ background:var(--fg);color:#fff;transition:background .15s,border-color .15s,box-shadow .15s,transform .15s}
+:where(button):hover{background:#1f2937;border-color:#1f2937;box-shadow:0 10px 30px -14px rgba(11,18,32,.5)}
+:where(button):active{transform:scale(.98)}:where(button):disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+:where(button[type=button]){background:#fff;color:var(--fg);border-color:var(--line)}
+:where(button[type=button]):hover{background:#fff;border-color:var(--line2);box-shadow:none}
+button.sm{border-radius:999px;padding:3px 11px;font-weight:600;background:#fff;border-color:var(--line)}
+button.sm:hover{border-color:var(--line2);color:var(--fg)}
+.sform button{border-radius:999px;background:var(--fg);padding:9px 18px}.sform button:hover{background:#1f2937}
+/* header + menus */
+header.top{background:rgba(255,255,255,.85);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom-color:var(--line)}
+.srch input{background:var(--soft);border-radius:14px}.srch input:focus{background:#fff;box-shadow:0 0 0 4px rgba(79,70,229,.12)}
+.cta{background:var(--fg);box-shadow:none}.cta:hover{filter:none;background:#1f2937;box-shadow:0 10px 30px -10px rgba(11,18,32,.5)}
+.menu-btn{border-radius:999px;border-color:var(--line);background:#fff}
+aside.side{background:#fff;border-right-color:var(--line)}.side h4{color:var(--mut)}
+.side a:hover{background:var(--soft)}.side a.on{background:var(--soft);color:var(--fg);font-weight:650;box-shadow:inset 0 0 0 1px var(--line)}
+.side .sec-n{background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06));border-radius:16px}.side .sec-n h4{color:var(--acc)}
+.side .lsw a.on{background:var(--fg)}.side a.set{border-top-color:var(--line)}
+.bbar{background:rgba(255,255,255,.92);border-top-color:var(--line)}.bbar .on{color:var(--fg)}.bbar a.n .bi{background:var(--fg)}
+/* cards and chips */
+a.mapcard{border-radius:18px}a.mapcard:hover{border-color:var(--line2);box-shadow:0 20px 40px -28px rgba(11,18,32,.3)}
+a.mapcard.hot,.quick a.hot{border-color:#c7d2fe;background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06)),#fff}
+.quick a{border-radius:16px}.quick a:hover{border-color:var(--line2)}
+.secnav a:hover{border-color:var(--line2);color:var(--fg)}.secnav a.on{background:var(--fg);border-color:var(--fg)}
+.cand{border-radius:18px}.cand:hover{border-color:var(--line2);box-shadow:0 20px 40px -28px rgba(11,18,32,.3)}
+dialog#ev,dialog#gl{border-color:var(--line);border-radius:22px;background:#fff;box-shadow:0 40px 80px -30px rgba(11,18,32,.35)}
+dialog#ev::backdrop,dialog#gl::backdrop{background:rgba(11,18,32,.45)}dialog#ev .bar2{background:#fff}
+dialog#gl .bar2 button{border-radius:999px;background:#fff}.gl-here{background:var(--soft)}
+@media(max-width:1000px){aside.side{box-shadow:none}body.nav-open aside.side{box-shadow:0 0 40px rgba(11,18,32,.25)}}
+@media(max-width:700px){h1{font-size:24px}}
+"""
+
+
 NAV_JS = """
 (()=>{const P=__PAGES__;
 document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>document.body.classList.toggle('nav-open')));
@@ -483,8 +530,8 @@ def page(title, body, path="/"):
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
     from ui import deploypage, i18n, secnav
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
-            f"initial-scale=1'><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
-            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}</style></head><body>"
+            f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
+            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}</style></head><body>"
             f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 

@@ -56,7 +56,7 @@ def _copy_card(con, user):
         mine = []
     now = (f"Trenutno pratiš: <b>{len(mine)}</b> ({esc(', '.join(f['label'] or f['target'][:6] for f in mine[:4]))}"
            f"{'…' if len(mine) > 4 else ''}). ") if mine else ""
-    return ('<div class=card style="border:2px solid var(--acc,#f97316);display:flex;gap:14px;align-items:center;'
+    return ('<div class=card style="border:1px solid #c7d2fe;background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06)),#fff;display:flex;gap:14px;align-items:center;'
             'flex-wrap:wrap;margin:10px 0"><div style="font-size:30px">🔁</div><div style="flex:1;min-width:220px">'
             '<b style="font-size:17px">Copy trading: prati KOL-ove i wallete</b><br>'
             '<span class=mut>Detaljna statistika svakog influencera i walleta. Klikni „Prati i ulazi na svaki njegov call” ili '
@@ -332,8 +332,8 @@ def _dca_box(con, user, qs, live, mine):
 
 
 POS_CSS = (".pos-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 8px}"
-           ".pos-bar button{padding:6px 12px;border-radius:999px;font-size:14px}.pos-bar button.on{background:var(--acc,#2563eb);"
-           "color:#fff;border-color:var(--acc,#2563eb)}"
+           ".pos-bar button{padding:6px 12px;border-radius:999px;font-size:14px}.pos-bar button.on{background:var(--fg,#0b1220);"
+           "color:#fff;border-color:var(--fg,#0b1220)}"
            ".pos-list{display:grid;grid-template-columns:1fr;gap:6px;margin:6px 0 12px}"
            ".pos-list.tiles{grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:8px}"
            ".pos-c{box-sizing:border-box;max-width:100%;min-width:0;padding:8px 12px;margin:0;overflow-wrap:anywhere}"

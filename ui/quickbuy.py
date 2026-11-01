@@ -151,7 +151,7 @@ def token_box(mint, symbol, locked=None):
     if not MINT.fullmatch(mint or ""):
         return ""
     sym = symbol or mint[:6]
-    head = ('<div class=card style="border:2px solid var(--acc,#f97316);display:flex;gap:12px;align-items:center;'
+    head = ('<div class=card style="border:1px solid #c7d2fe;background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06)),#fff;display:flex;gap:12px;align-items:center;'
             'flex-wrap:wrap;margin:10px 0"><div style="font-size:26px">🏆</div><div style="flex:1;min-width:220px">'
             f'<b>Kupi {esc(sym)} u natjecanju</b><br><span class=mut style="font-size:13px">')
     if locked:

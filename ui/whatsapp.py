@@ -20,7 +20,6 @@ CSS = """
 .wabtns .go{background:#25d366;color:#fff;border-color:#25d366}.wabtns .go:hover{background:#1fb855}
 .wabub{background:#d9fdd3;color:#111b21;border-radius:10px;padding:10px 12px;white-space:pre-wrap;font:15px/1.45 system-ui,sans-serif;
  box-shadow:0 1px 1px rgba(0,0,0,.12);max-width:520px}
-@media (prefers-color-scheme:dark){.wabub{background:#005c4b;color:#e9edef}}
 .wamsg{font-size:14px;min-height:20px;margin:4px 0}
 """
 

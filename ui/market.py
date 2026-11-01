@@ -55,7 +55,6 @@ def _chart(con, day, n=90):
            f'aria-label="Indeks volumena launchpada, Solana DEX volumena i cijene SOL, zadnjih {len(days)} dana">'
            '<style>.mk1{stroke:var(--c1)}.mk2{stroke:var(--c2)}.mk3{stroke:var(--c3)}'
            f'svg{{--c1:{COLORS["launchpad"][0]};--c2:{COLORS["dex"][0]};--c3:{COLORS["price"][0]}}}'
-           f'@media(prefers-color-scheme:dark){{svg{{--c1:{COLORS["launchpad"][1]};--c2:{COLORS["dex"][1]};--c3:{COLORS["price"][1]}}}}}'
            '.hv:hover{fill:var(--line);fill-opacity:.5}</style>']
     for v in (lo + (hi - lo) * f for f in (0, .25, .5, .75, 1)):
         out.append(f'<line x1={L} x2={W - R} y1={y(v):.1f} y2={y(v):.1f} stroke="var(--line)" />'

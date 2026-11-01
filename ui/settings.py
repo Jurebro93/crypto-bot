@@ -16,7 +16,7 @@ CSS = """<style>
 .set textarea{min-height:64px;font:inherit}
 .set label>input,.set label>textarea{display:block;margin-top:5px;font-weight:400}
 .set .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
-.set button{padding:8px 16px;border-radius:9px;border:0;background:var(--acc);color:#fff;font-weight:600;cursor:pointer;font:inherit}
+.set button{padding:8px 16px;border-radius:999px;border:0;background:var(--fg);color:#fff;font-weight:600;cursor:pointer;font:inherit}
 .set button.sec{background:var(--card);color:var(--fg);border:1px solid var(--line)}.set button.bad{background:var(--bad)}
 .set .soc{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px}
 .bigav{width:96px;height:96px;border-radius:50%;background:var(--c,#7a92ff) center/cover no-repeat;display:flex;align-items:center;

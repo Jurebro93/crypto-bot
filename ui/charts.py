@@ -195,8 +195,6 @@ CSS = """
  box-shadow:0 4px 14px rgba(0,0,0,.15);pointer-events:none;white-space:nowrap;min-width:110px}
 .cht b{font-size:14px;font-variant-numeric:tabular-nums}.cht .r{display:flex;gap:6px;align-items:center}.cht .r i{width:12px;height:2px;display:inline-block}
 .chtbl{margin-top:6px;font-size:13px}.chtbl .tw{max-height:260px;overflow:auto;margin-top:6px}
-@media (prefers-color-scheme:dark){.chl.s1{stroke:#3987e5}.chl.s2{stroke:#d95926}.chbar rect.up{fill:#3987e5}.chbar rect.dn{fill:#e66767}
-.chlg i.s1,.chlg i.up,.chd.s1{background:#3987e5}.chlg i.s2,.chd.s2{background:#d95926}.chlg i.dn{background:#e66767}}
 """
 
 JS = r"""
