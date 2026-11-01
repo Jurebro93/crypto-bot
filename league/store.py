@@ -199,47 +199,7 @@ def leaderboard(con, live):
     return sorted(rows, key=lambda r: -r["profit"])
 
 
-# ---------- real trades: what the players actually bought with real money, logged by hand ----------
-
-def real_pnl(t, mcap):
-    """Profit if the position moved with market cap from entry to `mcap` (fees and slippage not known here)."""
-    return t["size_usd"] * (mcap / t["entry_mcap"] - 1) if mcap and t["entry_mcap"] else None
-
-
-def add_real(con, user, token, symbol, size_usd, entry_mcap, note=""):
-    if not size_usd or size_usd <= 0:
-        raise ValueError("upiši koliko si uložio u $")
-    if not entry_mcap or entry_mcap <= 0:
-        raise ValueError("upiši ulazni market cap")
-    cur = con.execute("INSERT INTO real_trades (user, token, symbol, opened_ts, size_usd, entry_mcap, status, note) "
-                      "VALUES (?,?,?,?,?,?,?,?)", (user, token, symbol, int(time.time()), size_usd, entry_mcap, "open",
-                                                   (note or "").strip()[:500]))
-    con.commit()
-    return cur.lastrowid
-
-
-def close_real(con, user, trade_id, exit_mcap):
-    t = con.execute("SELECT * FROM real_trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
-    if not t:
-        raise ValueError("nema tog otvorenog trejda")
-    if not exit_mcap or exit_mcap < 0:
-        raise ValueError("upiši izlazni market cap")
-    pnl = real_pnl(t, exit_mcap)
-    con.execute("UPDATE real_trades SET status='closed', closed_ts=?, exit_mcap=?, pnl_usd=? WHERE id=?",
-                (int(time.time()), exit_mcap, pnl, trade_id))
-    con.commit()
-    return pnl
-
-
-def delete_real(con, user, trade_id):
-    con.execute("DELETE FROM real_trades WHERE id=? AND user=?", (trade_id, user))
-    con.commit()
-
-
-def real_trades(con, user=None):
-    where, args = ("user=?", (user,)) if user else ("1=1", ())
-    return [dict(r) for r in con.execute(f"SELECT * FROM real_trades WHERE {where} ORDER BY status DESC, opened_ts DESC",
-                                         args)]
+# real_trades table stays (old hand-logged rows kept); the page that wrote it was removed 2026-11-01.
 
 
 def add_idea(con, user, text):
