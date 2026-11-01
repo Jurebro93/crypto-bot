@@ -240,3 +240,11 @@ class TtlCache(unittest.TestCase):
         v["a"].append(3)                       # a page changing its copy does not change the cache
         self.assertEqual(data.ttl_cache("t", 60, f), {"a": [1, 2]})
         self.assertEqual(len(calls), 1)
+
+
+class MallocArenaTest(unittest.TestCase):
+    def test_start_sh_limits_malloc_arenas_before_any_python(self):
+        """Two glibc arenas per process (1.11.: the threaded UI grew to ~200 MB and the 512 MB server ran out)."""
+        sh = open(os.path.join(os.path.dirname(__file__), "..", "start.sh")).read()
+        i = sh.index('export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"')
+        self.assertLess(i, sh.index("python3 "))

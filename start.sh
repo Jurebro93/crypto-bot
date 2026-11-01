@@ -12,6 +12,11 @@ for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league
 done
 ln -sfn "$DATA_DIR/output" output
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
+# memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
+# freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
+# of memory every few minutes (1.11.). Two arenas per process: same speed here, about half the memory (UI test
+# 79 -> 44 MB after the same page loads). Applies to every python process started below.
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 
 # web service only: a stand-in on Render's port from the first second (deploy_wait.py): visitors get the funny
 # "deploy in progress" page instead of Render's black 502 while the databases are prepared and run_ui.py loads;
