@@ -72,7 +72,7 @@ def universe(cfg, now=None):
     for m in cfg.get("temelj", {}).values():
         out.setdefault(m, "temelj")
     kol = _ro("kol.db")
-    for (m,) in _q(kol, "SELECT DISTINCT token FROM calls WHERE kind IS NULL OR kind!='brag'"):
+    for (m,) in _q(kol, "SELECT DISTINCT token FROM calls WHERE kind IS NULL OR kind NOT IN ('brag','bot','warn')"):
         out.setdefault(m, "kol")
     hype = _ro("hype.db")
     for (m,) in _q(hype, "SELECT DISTINCT ca FROM tg_mentions"):
@@ -152,7 +152,7 @@ def social(mints, now=None):
     kol = _ro("kol.db")
     for m, a, w, n7 in _q(kol, """SELECT token, COUNT(DISTINCT handle),
             COUNT(DISTINCT CASE WHEN ts > ? THEN ts / 604800 END), SUM(ts > ?) FROM calls
-            WHERE kind IS NULL OR kind != 'brag' GROUP BY token""", (now - 60 * D, now - 7 * D)):
+            WHERE kind IS NULL OR kind NOT IN ('brag', 'bot', 'warn') GROUP BY token""", (now - 60 * D, now - 7 * D)):
         if m in out:
             out[m].update(kol_autora=a or 0, kol_tjedana_60d=w or 0, kol_7d=n7 or 0)
     hype = _ro("hype.db")

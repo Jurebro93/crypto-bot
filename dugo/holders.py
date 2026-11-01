@@ -153,7 +153,7 @@ def followed_kols(buys, window_h=6):
     out = {}
     try:
         for mint, r in buys.items():
-            calls = k.execute("SELECT handle, ts FROM calls WHERE token=? AND (kind IS NULL OR kind!='brag')", (mint,)).fetchall()
+            calls = k.execute("SELECT handle, ts FROM calls WHERE token=? AND (kind IS NULL OR kind NOT IN ('brag','bot','warn'))", (mint,)).fetchall()
             for wallet, ts in r["buys"]:
                 for handle, cts in calls:
                     if 0 <= ts - cts <= window_h * 3600:
