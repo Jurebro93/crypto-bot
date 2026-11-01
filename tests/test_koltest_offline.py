@@ -112,6 +112,17 @@ class Book(unittest.TestCase):
         con.close()
         self.assertEqual(rows, [("skip", "velik token")])
 
+    def test_pending_rows_not_in_stats(self):
+        """A call waiting for its first price (status pending) must not reach the page's statistics."""
+        self.step(T0)
+        self.events = [(A, T0 + 50, "x", "kolA", 60)]
+        self.mk = lambda toks: {}
+        self.step(T0 + 60)
+        con = store.connect(self.db)
+        self.assertEqual(con.execute("SELECT status FROM positions").fetchall(), [("pending",)])
+        self.assertEqual(store.rows(con), [])
+        con.close()
+
     def test_grid_and_levels(self):
         cfg = self.cfg
         base = {"status": "done", "entry_liq": 1e9, "rets": {"24h": 0.05}, "last_px": 1.05, "entry_px": 1.0}
