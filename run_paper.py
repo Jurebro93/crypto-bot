@@ -763,7 +763,10 @@ def cmd_run(a):
                 last_review = now
                 cmd_review(argparse.Namespace(config=a.config, hours=24, telegram=False))
         except Exception as e:
-            print(f"greška u prolazu: {type(e).__name__}: {e}", file=sys.stderr)
+            import traceback
+            where = " <- ".join(f"{os.path.basename(f.filename)}:{f.lineno} {f.name}"
+                                for f in reversed(traceback.extract_tb(e.__traceback__)[-3:]))
+            print(f"greška u prolazu: {type(e).__name__}: {e} ({where})", file=sys.stderr)
         from ops import mem
         mem.trim()   # give this round's memory back before sleeping
         time.sleep(a.interval)
