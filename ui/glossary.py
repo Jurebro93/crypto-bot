@@ -108,6 +108,18 @@ T("Launchpad", "osnove", "Stranica na kojoj svatko može napraviti novi token (p
   "Token se rodi na launchpadu i trguje na njegovoj krivulji dok ne skupi dovoljno novca; tada 'diplomira' na pravi DEX. "
   "Ukupni volumen launchpada je dobar termometar koliko je tržište memecoina vruće.",
   vidi=["pump-fun", "graduacija", "rezim-trzista"], alias=["launchpadi"])
+T("Indeks sezone meme coina", "osnove", "Broj 0-100 koji pokazuje je li sada sezona meme coina: 66+ vruće, 33 i manje hladno.",
+  "Prosjek tri ranga prema zadnjih 90 dana: volumen launchpada kroz 7 dana, volumen cijelog Solana DEX-a kroz 7 dana i rast "
+  "launchpada tjedan na tjedan. To je isti broj kao režim tržišta u alatu, javno objavljen s poviješću za godinu dana. "
+  "Termometar je, a ne signal za kupnju: u vrućem tržištu ima i više prevara.",
+  "Indeks 28 znači da je trgovanje meme coinima sada slabije od većine zadnjih 90 dana.",
+  vidi=["rezim-trzista", "launchpad", "udio-launchpada"], gdje=[("/meme-coin-season-index", "Indeks sezone (javno)")],
+  alias=["meme coin season index", "indeks sezone", "sezona meme coina"], k="indeks-sezone")
+T("Udio launchpada", "osnove", "Koliki dio ukupnog Solana DEX volumena prolazi kroz launchpade (pump.fun, LaunchLab, Meteora DBC).",
+  "Kad udio raste, novac s ostatka Solane ide u nove meme coine (trenchevi su živi). Kad pada, trguje se većim, starijim tokenima.",
+  "Launchpadi $1,0 mlrd. u 7 dana, Solana DEX $11,2 mlrd.: udio 9%.",
+  vidi=["launchpad", "dex", "indeks-sezone"], gdje=[("/solana-launchpads", "Solana launchpadi (javno)")],
+  alias=["udio launchpada u solana dex volumenu"])
 T("pump.fun", "osnove", "Najveći launchpad za meme tokene na Solani.",
   "Na pump.fun token nastaje za par centi. Cijena prvo ide po krivulji (bonding curve): što više ljudi kupi, to je skuplje. "
   "Kad mcap dođe do oko $69-100k, token diplomira na PumpSwap/Raydium. Većina pump.fun tokena nikad ne diplomira.",

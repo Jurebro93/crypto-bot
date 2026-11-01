@@ -6,6 +6,7 @@ from market import sources
 D = 86400
 KEEP_DAYS = 400
 EXTRA_MIN_WEEK = 500_000   # $ in 7 days
+PARTIAL_SHARE = 0.6
 
 
 def today(now=None):
@@ -57,10 +58,31 @@ def daily(con, ov, now=None, fetch=sources.protocol_daily, min_week=EXTRA_MIN_WE
     for (day, slug), vol in vols.items():
         k = (day, f"all:{protos[slug][2]}")
         tot[k] = tot.get(k, 0.0) + vol
+    last = partial_day(tot)
+    if last:   # DefiLlama has not finished that day yet: keep it out until a later fetch has it complete
+        vols = {k: v for k, v in vols.items() if k[0] != last}
+        tot = {k: v for k, v in tot.items() if k[0] != last}
+        con.execute("DELETE FROM daily WHERE day>=?", (last,))
+        con.execute("DELETE FROM regime WHERE day>=?", (last,))
+        print(f"market: {last} još nepotpun na DefiLlami, preskačem", flush=True)
     con.executemany("INSERT OR REPLACE INTO daily VALUES (?,?,?)",
                     [(d, s, v) for (d, s), v in list(vols.items()) + list(tot.items())])
     con.execute("DELETE FROM daily WHERE day<?", (first,))
     return len({d for d, _ in vols})
+
+
+def partial_day(tot, share=PARTIAL_SHARE):
+    """The newest day when its whole Solana DEX volume is below `share` of the median of the 7 days before it
+    (DefiLlama sometimes lists a day before all protocols have reported it, e.g. 31.10.2026 showed $0.83B vs ~$1.9B)."""
+    dex = {d: v for (d, k), v in tot.items() if k == "all:dex"}
+    if len(dex) < 8:
+        return None
+    last = max(dex)
+    prev = sorted(dex.get(last - i * D) for i in range(1, 8) if dex.get(last - i * D))
+    if len(prev) < 5:
+        return None
+    med = prev[len(prev) // 2]
+    return last if dex[last] < share * med else None
 
 
 def prices(con, pts):

@@ -240,6 +240,30 @@ _E = [
      "It is charged only on profitable trades. On-chain copy trading charges about 1% on every trade instead, winners "
      "and losers alike.", "A copied trade makes $100; a lead trader with a 10% share gets $10.",
      ("/best-crypto-tools/copy-trading-platforms", "Copy trading platforms compared")),
+    ("launchpad", "launchpad", "Launchpad", "What is a launchpad in crypto?",
+     "A site where anyone can create a new token in a minute, such as pump.fun, LaunchLab (bonk.fun) or Meteora DBC.",
+     "A new token first trades on the launchpad's bonding curve: the more people buy, the higher the price. When enough "
+     "money is in, it graduates to a normal DEX pool. Total launchpad volume is the best thermometer of how busy the meme "
+     "coin market is.", "pump.fun handles most Solana launchpad volume; bonk.fun runs on Raydium's LaunchLab.",
+     ("/solana-launchpads", "Solana launchpads ranked by volume")),
+    ("indeks-sezone", "meme-coin-season-index", "Meme coin season index", "What is the meme coin season index?",
+     "A 0-100 number that says whether it is meme coin season: 66+ hot, 33 or less cold.",
+     "It averages three ranks against the last 90 days: 7-day launchpad volume, 7-day Solana DEX volume and the week-on-week "
+     "growth of launchpad volume. Unlike an altcoin season index it ignores Bitcoin and large coins and looks only at where "
+     "meme coins are born and traded. It is a thermometer, not a buy signal: hot markets also bring more scams.",
+     "An index of 28 means meme coin trading is quieter than on most of the last 90 days.",
+     ("/meme-coin-season-index", "Today's meme coin season index")),
+    ("udio-launchpada", "launchpad-share", "Launchpad share", "What is launchpad share of Solana DEX volume?",
+     "The part of all Solana DEX volume that goes through launchpads such as pump.fun.",
+     "When the share rises, money from the rest of Solana is moving into new meme coins. When it falls, traders are in "
+     "bigger, older tokens.", "Launchpads $1.0B in 7 days, Solana DEX $11.2B: share 9%.",
+     ("/solana-market", "Solana meme coin market today")),
+    ("sesija", "trading-session", "Trading session", "What are crypto trading sessions?",
+     "The part of the day by which market is awake: Asia 00-08 UTC, Europe 08-14 UTC, United States 14-24 UTC.",
+     "Crypto trades around the clock, but people sleep. Volume, prices and how well influencer calls work all change "
+     "with the session. In our data meme coin calls did differently in each session, and the busiest hours are also the "
+     "most crowded with bots.", "14:00-24:00 UTC is the US session (09:00-19:00 in New York).",
+     ("/best-time-to-trade-crypto", "Best time to trade crypto, by hour")),
     ("dugorocni-token", "long-term-tokens", "Long-term token", "What makes a meme coin a long-term token?",
      "An older token (3+ weeks, $5M+ market cap, $100k+ daily volume) that survives and keeps growing.",
      "A safer layer than hunting brand-new tokens. KriptoRadar looks for tokens that recover from drops, outgrow SOL and "

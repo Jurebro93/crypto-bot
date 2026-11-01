@@ -7,6 +7,7 @@ Public = history and scores: calls older than PUBLIC_DELAY_S with their outcome.
 copy trading and everything else stay behind the login (and are sent with X-Robots-Tag: noindex by run_ui).
 Pages are cached for CACHE_S, so search-engine crawlers cost almost nothing.
 """
+import importlib
 import json
 import math
 import os
@@ -492,11 +493,13 @@ def _seo_extra(fn):
 
 
 def _seo_robots():
-    try:
-        from ui import coinseo
-        return coinseo.ROBOTS
-    except Exception:  # noqa: BLE001
-        return ()
+    out = ()
+    for mod in ("coinseo", "marketpub"):
+        try:
+            out += tuple(importlib.import_module(f"ui.{mod}").ROBOTS)
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 def robots():
@@ -527,6 +530,11 @@ def sitemap():
     except Exception as e:  # noqa: BLE001
         print(f"sitemap: coinseo nedostupan: {e}", flush=True)
     try:
+        from ui import marketpub
+        urls += marketpub.urls()
+    except Exception as e:  # noqa: BLE001
+        print(f"sitemap: tržište nedostupno: {e}", flush=True)
+    try:
         from ui import tools
         urls += tools.urls()
     except Exception as e:  # noqa: BLE001
@@ -554,13 +562,17 @@ def sitemap():
 
 
 def _seo_page(path):
-    """Coin SEO pages (price prediction, how to buy, rug check, daily lists) from ui/coinseo.py, or None."""
-    try:
-        from ui import coinseo
-        return coinseo.match(path)
-    except Exception as e:  # noqa: BLE001
-        print(f"coinseo: {e}", flush=True)
-        return None
+    """Coin SEO pages (price prediction, how to buy, rug check, daily lists) from ui/coinseo.py and the market pages
+    from ui/marketpub.py, or None."""
+    for mod in ("coinseo", "marketpub"):
+        try:
+            fn = importlib.import_module(f"ui.{mod}").match(path)
+        except Exception as e:  # noqa: BLE001
+            print(f"{mod}: {e}", flush=True)
+            fn = None
+        if fn:
+            return fn
+    return None
 
 
 def route(path):

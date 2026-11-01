@@ -687,6 +687,11 @@ def main(argv=None):
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background
+    try:
+        from ui import marketpub
+        marketpub.warm()   # public market pages: numbers ready before the first visitor
+    except Exception as e:  # noqa: BLE001
+        print(f"marketpub: {e}", flush=True)
     from ui import coins
     coins.start()     # public top-100 Solana meme coins (Jupiter list every 3 h) -> public.db
     pagecache.warm(["/", "/tokens"], lambda p: build(p, {}), every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
