@@ -81,7 +81,9 @@ def paper_trade(rows, min_score=60, tp=1.0, sl=-0.5, size=1.0):
 
 
 def fit_weights(rows, epochs=400, lr=0.5, l2=0.01):
-    """Logistic regression hit ~ features; positive coefficients rescaled to weights summing to 100."""
+    """Logistic regression hit ~ features; coefficients rescaled so the positive ones sum to 100. A negative
+    coefficient stays negative (before 2.11. it was cut to 0, so a signal that hurts could never be penalised);
+    score.score subtracts it."""
     feats = sorted({k for r in rows for k in r["features"]})
     if len(rows) < 30 or not any(r["hit"] for r in rows):
         return None
@@ -97,7 +99,6 @@ def fit_weights(rows, epochs=400, lr=0.5, l2=0.01):
         b -= lr * gb / len(rows)
         for f in feats:
             w[f] -= lr * (gw[f] / len(rows) + l2 * w[f])
-    pos = {f: max(0.0, v) for f, v in w.items()}
-    total = sum(pos.values()) or 1
-    return {"weights": {f: round(100 * v / total, 1) for f, v in pos.items()},
+    total = sum(max(0.0, v) for v in w.values()) or 1
+    return {"weights": {f: round(100 * v / total, 1) for f, v in w.items()},
             "coefficients": {f: round(v, 3) for f, v in w.items()}, "n": len(rows)}

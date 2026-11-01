@@ -9,5 +9,8 @@
  "min_class_rows": 20,
  "skok_init": {"moonshot": 2.0, "rizican": 1.0, "event": 0.5, "stabilni": 0.3},
  "rollback_runs": 2,
- "run_at_utc": "05:00"
+ "run_at_utc": "05:00",
+ "cilj": "zarada",
+ "_cilj": "zarada = uči iz sjenovite knjige (learn/shadow.py): pogodak je virtualni trade s našim pravilima izlaza koji je nakon troškova zaradio barem shadow.hit_ret; vrh = stari cilj (max rast u horizon_h od prvog signala). Klasa koja još nema min_rows točaka u knjizi uči po starom.",
+ "shadow": {"horizon_h": 24, "hit_ret": 0.10, "lookback_h": 72, "keep_days": 30}
 }

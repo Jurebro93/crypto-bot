@@ -9,6 +9,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
+  shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
   whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
 """
 import datetime as dt
@@ -122,6 +123,7 @@ JOBS = [
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
+    ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
 ]
 

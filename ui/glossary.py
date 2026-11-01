@@ -507,7 +507,20 @@ T("MiCA", "nastoken", "EU pravila za kripto. Uz HANFA-u i porez (12%) i oznaku #
 # ---------------------------------------------------------------- sustav
 T("Učenje", "sustav", "Alat svaki dan iz ishoda sam mijenja težine signala, pragove i ocjene, uz zaštitu od slučajnosti.",
   "Promjena se primijeni samo ako radi bolje i na starijim i na novijim podacima. Povijest svih promjena je na stranici "
-  "Učenje.", vidi=["tezina", "kalibracija", "rug-profil"], gdje=[("/learn", "Učenje")])
+  "Učenje.", vidi=["tezina", "kalibracija", "rug-profil", "sjenovita-knjiga"], gdje=[("/learn", "Učenje")])
+T("Sjenovita knjiga", "sustav", "Alat na svakoj prilici za kupnju \"na papiru\" kupi token i nakon 24 h izračuna koliko bi zaradio.",
+  "Tako uči iz tisuća prilika dnevno, a ne samo iz par desetaka pravih demo kupnji, i uči i iz tokena koje nije kupio. "
+  "Računa se istim pravilima izlaza, naknadama i slippageom kao demo, a pojedinačne lažne cijene se izbace. Ništa se ne "
+  "kupuje i ne troši API kredite.", primjer="Token prijeđe $100k: knjiga zapiše cijenu i sve signale u tom trenutku; "
+  "sutra izračuna da bi demo izašao s +18%.", vidi=["ostvariva-zarada", "tocka-odluke", "ucenje"], gdje=[("/learn", "Učenje")],
+  alias=["shadow book", "sjenovita"])
+T("Ostvariva zarada", "sustav", "Zarada koju bi demo pozicija stvarno uzela s našim pravilima izlaza, nakon naknada i slippagea.",
+  "Od 2.11. hype ocjena uči iz toga, a ne iz najviše cijene u 24 h: vrh grafa nitko ne uhvati, a ostvariva zarada je "
+  "ono što se može dobiti. Za prosjek se jedna zarada ograničava na +300%.", vidi=["sjenovita-knjiga", "smart-sell"],
+  gdje=[("/learn", "Učenje")], alias=["zarada", "cilj učenja"])
+T("Točka odluke", "sustav", "Trenutak u kojem je alat mogao kupiti token: prvi signal, prvi prelazak $100k ili $1M, ili demo kandidat.",
+  "Za svaku točku sprema se kako je token tada izgledao, da učenje nikad ne koristi podatak koji tada nismo imali.",
+  vidi=["sjenovita-knjiga"], gdje=[("/learn", "Učenje")], alias=["točke odluke"])
 T("Kalibracija", "sustav", "Provjera odgovaraju li brojevi stvarnosti: skaču li tokeni s confidenceom 70 stvarno češće od onih s 40.",
   vidi=["confidence"])
 T("Rug profil", "sustav", "Naučeni opis kako izgledaju tokeni koji rugnu, da se sljedeći izbace prije ulaza.",
