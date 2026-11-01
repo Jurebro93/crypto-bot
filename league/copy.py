@@ -265,6 +265,17 @@ def market(tokens):
         if liq >= best.get(t, (0, -1))[1]:
             best[t] = (float(p.get("priceUsd") or 0), liq, p.get("url"), p.get("marketCap") or p.get("fdv"),
                        p["baseToken"].get("symbol"))
+    # fresh pump.fun tokens on the bonding curve: DexScreener has no liquidity for them, Jupiter does
+    missing = [m for m in tokens if not best.get(m) or not best[m][1] or not best[m][0]]
+    if missing:
+        try:
+            from ui.paper import jup_prices
+            jp = jup_prices(missing)
+        except Exception:  # noqa: BLE001
+            jp = {}
+        for m, (px, liq) in jp.items():
+            _, _, url, mc, sym = best.get(m, (0, 0, None, None, None))
+            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym)
     return best
 
 

@@ -60,3 +60,27 @@ class QuickBuy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BondingCurve(unittest.TestCase):
+    """Ivan 1.11.: fresh pump.fun tokens could not be bought (DexScreener pair without liquidity, or no pair)."""
+
+    def test_jupiter_fills_missing_liquidity(self):
+        from dexscreener import client
+        from ui import paper
+        from league import copy
+        pump = "6MZ5FU36NKP9CZ1JWR4FzUbmB9FgekpvJDSxvADJpump"
+        old_tokens, old_jup = client.tokens, paper.jup_prices
+        client.tokens = lambda chain, mints: [{"baseToken": {"address": pump, "symbol": "NEW"}, "priceUsd": "0.000008",
+                                               "liquidity": None, "marketCap": 8000, "url": "u"}]
+        paper.jup_prices = lambda mints: {m: (0.000009, 5000.0) for m in mints if m.endswith("pump")}
+        try:
+            got = paper.market({pump, "yHCxHBEaJW5tbndqC8JciSThr7U1cqLpdcsvHcx6PRe"})
+            self.assertEqual(got[pump][:2], (0.000009, 5000.0))
+            self.assertEqual(got[pump][3], 8000)
+            self.assertNotIn("yHCxHBEaJW5tbndqC8JciSThr7U1cqLpdcsvHcx6PRe", got)   # a wallet: still no price
+            client.tokens = lambda chain, mints: []
+            self.assertAlmostEqual(paper.market({pump})[pump][3], 9000)            # no pair yet: 1B supply
+            self.assertEqual(copy.market({pump})[pump][1], 5000.0)
+        finally:
+            client.tokens, paper.jup_prices = old_tokens, old_jup

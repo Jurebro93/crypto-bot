@@ -531,7 +531,9 @@ def _post(path, form, user):
                 token = real.resolve(token)[0]
             live = market({token}) if token else {}
             if token not in live:
-                raise ValueError("DexScreener ne zna cijenu tog tokena")
+                raise ValueError("ni DexScreener ni Jupiter ne znaju cijenu za tu adresu. Provjeri je li to adresa "
+                                 "tokena, a ne novčanika (na GMGN-u i Solscanu je lako kopirati krivu). Adrese "
+                                 "pump.fun tokena obično završavaju na „pump”.")
             price, liq, _, mcap = live[token]
             col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
             if col:
@@ -600,7 +602,9 @@ def _post(path, form, user):
                 token = real.resolve(token)[0]
             live = market({token}) if token else {}
             if token not in live:
-                raise ValueError("DexScreener ne zna cijenu tog tokena")
+                raise ValueError("ni DexScreener ni Jupiter ne znaju cijenu za tu adresu. Provjeri je li to adresa "
+                                 "tokena, a ne novčanika (na GMGN-u i Solscanu je lako kopirati krivu). Adrese "
+                                 "pump.fun tokena obično završavaju na „pump”.")
             price, liq, _, mcap = live[token]
             col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
             if col:

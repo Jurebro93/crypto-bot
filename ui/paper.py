@@ -40,7 +40,50 @@ def market(mints):
         t, liq = p["baseToken"]["address"], (p.get("liquidity") or {}).get("usd") or 0
         if liq >= best.get(t, (0, -1))[1]:
             best[t] = (float(p.get("priceUsd") or 0), liq, p.get("url"), p.get("marketCap") or p.get("fdv"))
+    # fresh pump.fun tokens still on the bonding curve: DexScreener shows the pair without liquidity (or no pair at
+    # all yet), so a competition buy failed with "likvidnost premala" / "ne zna cijenu" (Ivan, 1.11. 21:12).
+    # Jupiter's free price API knows these, with the curve's liquidity.
+    missing = [m for m in mints if not best.get(m) or not best[m][1] or not best[m][0]]
+    if missing:
+        for m, (px, liq) in jup_prices(missing).items():
+            _, _, url, mc = best.get(m, (0, 0, None, None))
+            if not mc and m.endswith("pump"):
+                mc = px * 1e9      # pump.fun supply is always 1 billion
+            best[m] = (px, liq, url or f"https://dexscreener.com/solana/{m}", mc)
     return best
+
+
+_JUP = {}   # mint -> (ts, (price, liq)): many pages ask for the same fresh token within seconds
+
+
+def jup_prices(mints):
+    """mint -> (usd price, liquidity) from Jupiter's free price API (lite-api.jup.ag/price/v3), 30 s cache.
+    {} on any error; up to 50 ids per call."""
+    import urllib.request
+    now, out, ask = time.time(), {}, []
+    for m in mints:
+        hit = _JUP.get(m)
+        if hit and now - hit[0] < 30:
+            if hit[1]:
+                out[m] = hit[1]
+        else:
+            ask.append(m)
+    for i in range(0, len(ask), 50):
+        part = ask[i:i + 50]
+        try:
+            req = urllib.request.Request("https://lite-api.jup.ag/price/v3?ids=" + ",".join(part),
+                                         headers={"User-Agent": "crypto-bot/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                got = json.loads(r.read().decode() or "{}") or {}
+        except Exception:
+            continue
+        for m in part:
+            d = got.get(m) or {}
+            v = (float(d["usdPrice"]), float(d.get("liquidity") or 0)) if d.get("usdPrice") else None
+            _JUP[m] = (now, v)
+            if v:
+                out[m] = v
+    return out
 
 
 def _live(mints):
