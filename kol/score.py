@@ -35,8 +35,11 @@ def _med(xs):
 
 def mark_first(con):
     """first_by_kol: the KOL's earliest call (not brag) on that token. first_overall: earliest caller on that token."""
-    con.execute("""UPDATE calls SET first_by_kol = kind = 'call' AND tweet_id = (SELECT c2.tweet_id FROM calls c2
-        WHERE c2.token = calls.token AND c2.handle = calls.handle AND c2.kind = 'call' ORDER BY c2.ts, c2.tweet_id LIMIT 1)""")
+    # a bot account's posts (kind 'bot') get first_by_kol too, so its page still shows what its posts did; everything
+    # that feeds signals also filters kind = 'call', so they never count there
+    con.execute("""UPDATE calls SET first_by_kol = kind IN ('call', 'bot') AND tweet_id = (SELECT c2.tweet_id FROM calls c2
+        WHERE c2.token = calls.token AND c2.handle = calls.handle AND c2.kind IN ('call', 'bot')
+        ORDER BY c2.ts, c2.tweet_id LIMIT 1)""")
     con.execute("""UPDATE calls SET first_overall = kind = 'call' AND ts = (SELECT MIN(c2.ts) FROM calls c2
         WHERE c2.token = calls.token AND c2.kind = 'call')""")
 
@@ -53,7 +56,7 @@ def impact(c):
 
 def kol_stats(calls, cfg):
     """Stats and raw (unshrunk) score for one KOL from his first calls (dicts with the calls columns)."""
-    mine = [c for c in calls if c["kind"] == "call" and c["first_by_kol"]]
+    mine = [c for c in calls if c["kind"] in ("call", "bot") and c["first_by_kol"]]
     measured = [c for c in mine if c["max24"] is not None]
     brags = sum(1 for c in calls if c["kind"] == "brag")
     s = {"calls": len(mine), "measured": len(measured), "tokens": len({c["token"] for c in calls}), "brags": brags,
@@ -100,11 +103,12 @@ def score_kols(con, cfg, now=None):
     stats = {h: kol_stats(cs, cfg) for h, cs in by.items()}
     prior = cfg["prior_score"]
     foll = dict(con.execute("SELECT handle, COALESCE(followers, 0) FROM kols"))
+    bots = {h for h, in con.execute("SELECT handle FROM kols WHERE bot = 1")}
     ratios = {}
     for h, (s, raw) in stats.items():
         if s.get("med_impact") is not None:
             ratios[h] = s["med_impact"] / math.log10(max(foll.get(h) or 0, 100))
-    base_ratio = statistics.median([r for h, r in ratios.items() if stats[h][0]["measured"] >= 2] or
+    base_ratio = statistics.median([r for h, r in ratios.items() if stats[h][0]["measured"] >= 2 and h not in bots] or
                                    list(ratios.values()) or [0]) or None
     for h, (s, raw) in stats.items():
         score = None
@@ -113,6 +117,9 @@ def score_kols(con, cfg, now=None):
             score = round(k * raw + (1 - k) * prior, 1)
             s["raw"], s["prior"], s["confidence"] = round(raw, 1), round(prior, 1), round(k, 2)
         rel = round(ratios[h] / base_ratio, 2) if h in ratios and base_ratio else None
+        if h in bots:  # automated account: its numbers stay visible on its page, but no score for the leaderboard,
+            s["bot_score"], s["bot_rel"] = score, rel  # watchlist, copy trading or signals
+            score = rel = None
         con.execute("UPDATE kols SET score=?, power_rel=?, stats=?, updated=? WHERE handle=?",
                     (score, rel, json.dumps(s), now, h))
     return len(stats)
