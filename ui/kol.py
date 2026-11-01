@@ -114,7 +114,8 @@ def _sol(text):
 
 def kindb(kind, match):
     b = {"call": badge("poziv", "good"), "repost": badge("proslijeđeno"), "buy": badge("kupio", "good"),
-         "sell": badge("prodao", "bad")}.get(kind) or badge("hvalisanje", "warn")
+         "sell": badge("prodao", "bad"), "brag": badge("hvalisanje", "warn"),
+         "bot": badge("automatska objava", "warn"), "warn": badge("upozorenje", "bad")}.get(kind) or badge(kind or "?")
     return b + (" " + badge("ticker") if match == "ticker" else "")
 
 
@@ -150,6 +151,13 @@ def _gcell(gs, token, t):
     return ("–", 0, "n")
 
 
+def _ticker(text):
+    """$TICKER of a post that names exactly one, as the token's name until DexScreener gives us the symbol."""
+    from hype.telegram import _TICKER
+    found = _TICKER.findall(text or "")
+    return "$" + found[0] if len({x.upper() for x in found}) == 1 else None
+
+
 def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True):
     syms, fl, gs = _syms(con), _flows(con), _groupsize(con)
     rows = _rows(con, f"SELECT * FROM calls WHERE ({where}) AND {POSTS} ORDER BY ts DESC LIMIT ?", (*args, limit))
@@ -159,7 +167,8 @@ def calls_table(con, where="1=1", args=(), limit=300, tid="calls", show_kol=True
     out = []
     for c in rows:
         r = [ts(c["ts"])] + ([klink(c["handle"]), num(c["followers"])] if show_kol else []) + [
-            tlink(c["token"], syms.get(c["token"]) or c["symbol"]), kindb(c["kind"], c["match"]), post(c["url"]),
+            tlink(c["token"], syms.get(c["token"]) or c["symbol"] or _ticker(c["text"])), kindb(c["kind"], c["match"]),
+            post(c["url"]),
             usd(c["mcap0"]), pct(c["pre2h"]), pct(c["r1h"]), pct(c["r6h"]), pct(c["r24h"]), pct(c["max24"]),
             lift(c["vol_lift"]), _gcell(gs, c["token"], c["ts"]), _flowcell(fl.get((c["tweet_id"], c["token"]))),
             (f'<span class=mut>{esc((c["text"] or "")[:160])}</span>', "", "wrap")]

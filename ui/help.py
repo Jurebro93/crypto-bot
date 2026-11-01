@@ -152,7 +152,8 @@ HELP = {
                 "isključeno = nema javnog URL-a ili Apify ključa.",
     "Zadnja sinkronizacija": "Zadnji put kad je bot javio monitoru listu (svakih 6 h ili kad se lista promijeni).",
     "Vrsta poziva": "poziv = post s CA prije/za vrijeme rasta; hvalisanje = '20x on…' nakon skoka; ticker = post bez CA, "
-                    "samo $TICKER (možda drugi token istog imena).",
+                    "samo $TICKER (možda drugi token istog imena); automatska objava = račun-bot koji javlja svaki novi token "
+                    "(ne broji se kao KOL poziv); upozorenje = post koji upozorava na scam/rug.",
     "Post": "Link na originalni post na X-u ili Telegramu.",
     "Mcap u pozivu": "Tržišna kapitalizacija u trenutku posta (cijena prije posta × ponuda).",
     "2 h prije": "Koliko je cijena već narasla u 2 h prije posta. Velik broj = kasni poziv.",
