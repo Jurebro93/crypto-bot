@@ -64,6 +64,47 @@ class League(unittest.TestCase):
         self.assertIn("MC izlaz", league.page({}, "Jure")[1])
 
 
+class Dashboard(unittest.TestCase):
+    """Podium, leaderboard extras, account history, chart data and the live refresh JSON."""
+    def setUp(self):
+        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
+        os.environ["UI_USERS"] = "Ivan,Panda,Jure,Filip"
+
+    def tearDown(self):
+        os.environ.pop("UI_USERS", None)
+
+    def test_history_streak_and_api(self):
+        import json
+        from league import history
+        from ui import leaguedash
+        con = store.connect()
+        mk = lambda mints: {m: (2.0, 1e6, None, 2e6) for m in mints}  # noqa: E731
+        a = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6, mcap=1e6)
+        store.sell(con, "Ivan", a, 2.0, 1e6)                     # win
+        b = store.buy(con, "Ivan", MINT, "SOL", 100, 1.0, 1e6, mcap=1e6)
+        store.sell(con, "Ivan", b, 1.5, 1e6)                     # win
+        store.buy(con, "Panda", MINT, "SOL", 50, 1.0, 1e6, mcap=1e6)
+        self.assertEqual(leaguedash._streak(store.trades(con, "Ivan", "closed")), ("W", 2))
+        self.assertEqual(history.snapshot(con, mk), 4)
+        self.assertEqual(history.maybe_snapshot(con, mk), 0)     # not again within 15 min
+        self.assertEqual(history.snapshot(con, lambda m: {}), 0)  # open positions, no price at all: skipped
+        ser = history.series(con)
+        self.assertGreater(ser["Ivan"][-1][1], 1100)
+        self.assertEqual(history.value_at([(10, 1.0), (20, 2.0)], 15), 1.0)
+        self.assertIsNone(history.value_at([(10, 1.0)], 5))
+        d = leaguedash.compute(con, mk({MINT}))
+        self.assertEqual(d["players"][0]["user"], "Ivan")
+        self.assertEqual(d["players"][0]["rank"], 1)
+        j = json.loads(leaguedash.api(con, mk({MINT})))
+        self.assertIn("eq:Ivan", j["v"])
+        tid = store.trades(con, "Panda", "open")[0]["id"]
+        self.assertIn(f"tp:{tid}", j["v"])                        # live PnL of Panda's open position
+        self.assertEqual(len(j["chart"]["series"][0]["pts"]) >= 2, True)
+        html = leaguedash.dashboard(con, mk({MINT}), "Ivan")
+        for part in ("Ljestvica", "id=eqc", 'data-live="eq:Ivan"', "pl-Panda", "Svi tradeovi", "🔥 2 dobitna zaredom"):
+            self.assertIn(part, html)
+
+
 class RealTrades(unittest.TestCase):
     def setUp(self):
         store.DB = os.path.join(tempfile.mkdtemp(), "league.db")

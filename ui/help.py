@@ -282,4 +282,18 @@ HELP = {
     "Udio zajedničkih": "Koliki dio poziva manjeg računa je zajednički s drugim.",
     "Iznad slučajnosti": "Koliko puta češće zovu isti token nego da biraju nasumično.",
     "A prvi": "Na koliko posto zajedničkih tokena je račun A zvao prije računa B.",
+    # Natjecanje (ui/leaguedash.py)
+    "Igrač": "Mjesto na ljestvici, ime i promjena mjesta u zadnja 24 sata (▲ gore, ▼ dolje).",
+    "Stanje računa": "Slobodan novac + ono što bi otvorene pozicije donijele da ih prodaš sada (uz naknadu i klizanje cijene).",
+    "Profit $": "Stanje računa minus početnih $1,000.",
+    "Slobodno": "Novac koji igrač još može uložiti.",
+    "Broj tradeova": "Svi tradeovi igrača, otvoreni i zatvoreni.",
+    "Uspješnost": "Udio zatvorenih tradeova koji su završili u plusu.",
+    "Otvoreno": "Koliko pozicija igrač sada drži.",
+    "Serija": "Koliko zadnjih zatvorenih tradeova zaredom je bilo u plusu (🔥) ili u minusu (🧊).",
+    "Najbolji trade": "Zatvoreni trade s najviše zarade.",
+    "Najgori trade": "Zatvoreni trade s najvećim gubitkom.",
+    "Ulazni MC": "Market cap tokena kad je kupljen.",
+    "MC sada / izlaz": "Market cap sada (otvoreni, osvježava se svake minute) ili kad je prodan (zatvoreni).",
+    "Odakle / napomena": "Zašto je kupljen (npr. confidence iz prijedloga, ručno) ili kako je prodan (npr. auto TP).",
 }

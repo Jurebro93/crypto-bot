@@ -152,6 +152,8 @@ def loop(market, every=EVERY_S):
             con = store.connect()
             for user, name, what in run_once(con, market):
                 print(f"natjecanje {user} {name}: {what}", flush=True)
+            from . import history
+            history.maybe_snapshot(con, market)  # account values for the Natjecanje chart, every 15 min
             con.close()
         except Exception as e:
             print(f"auto sell: {type(e).__name__}: {e}", file=sys.stderr)
