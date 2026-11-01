@@ -163,8 +163,10 @@ def cmd_converge(a, con=None, cfg=None):
 
 def cycle(a):
     con, cfg = store.connect(), config()
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_measure, cmd_score, cmd_flows, cmd_score, cmd_live, cmd_chain,
-                 cmd_converge):
+    # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
+    # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_score, cmd_live, cmd_chain, cmd_converge, cmd_measure,
+                 cmd_flows, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:

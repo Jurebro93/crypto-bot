@@ -274,8 +274,7 @@ def build_watch(con, cfg, now=None):
 def drop_fake_tokens(con):
     """Calls on "tokens" that were the tail of an EVM address (0x...): see collect.cas_in. Returns rows deleted."""
     from kol.collect import _HEX
-    fake = [t for (t,) in con.execute("SELECT DISTINCT token FROM calls WHERE token LIKE 'x%' OR token LIKE 'X%'")
-            if _HEX.fullmatch(t)]
+    fake = [t for (t,) in con.execute("SELECT DISTINCT token FROM calls") if _HEX.fullmatch(t)]
     n = 0
     for t in fake:
         n += con.execute("DELETE FROM calls WHERE token = ?", (t,)).rowcount
