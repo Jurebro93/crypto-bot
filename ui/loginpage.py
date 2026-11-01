@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from ui import i18n
 from ui.html import esc as e, logo
+from ui import favicon as _fav  # noqa: E402
 
 T = {
     "hr": dict(title="Prijava", hello="Dobro došao natrag", sub="Prijavi se u MemeSonar", name="Ime",
@@ -117,7 +118,7 @@ def html(nxt="/", who="", err="", missing=(), site_url="", lang=None):
     return (f"<!doctype html><html lang={'en' if lang == 'en' else 'hr'} translate=no><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
             "<meta name=robots content=noindex><meta name=theme-color content='#ffffff'>"
-            f"<title>{t['title']} · {e(name)}</title><link rel=icon href=\"data:image/svg+xml,{quote(logo(32)[0])}\">"
+            f"<title>{t['title']} · {e(name)}</title>{_fav.HEAD}"
             f"<style>{CSS}</style></head><body>{body}<script>{JS}</script>{_sw()}</body></html>")
 
 

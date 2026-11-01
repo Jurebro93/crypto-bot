@@ -16,6 +16,7 @@ import time
 from urllib.parse import quote
 
 from ui.html import ago, esc, logo
+from ui import favicon as _fav  # noqa: E402
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(HERE, "ui", "static", "landing")
@@ -425,7 +426,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <meta property="og:type" content="website"><meta property="og:title" content="{esc(t['title'])}">
 <meta property="og:description" content="{esc(t['desc'])}"><meta property="og:image" content="{esc(og_img)}">
 <meta property="og:url" content="{canon}"><meta name="twitter:card" content="summary_large_image">
-<meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">
+<meta name=theme-color content="#ffffff">{_fav.HEAD}
 <script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
 "url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
 "offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>

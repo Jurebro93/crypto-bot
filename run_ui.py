@@ -36,7 +36,8 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
-SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz)$")   # served on every host
+SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
+                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest)$")   # served on every host
 
 
 def _host(url_or_host):
@@ -103,6 +104,7 @@ from ui import pagecache  # noqa: E402
 from ui import i18n  # noqa: E402
 from ui import league  # noqa: E402
 from ui import deploypage  # noqa: E402
+from ui import favicon  # noqa: E402
 from league import store as league_store  # noqa: E402
 
 PASSWORD = os.environ.get("UI_PASSWORD", "")
@@ -312,6 +314,14 @@ class Handler(BaseHTTPRequestHandler):
         ok = not AUTH or self._authorized()
         u = urlsplit(self.path)
         path, qs = unquote(u.path), dict(parse_qsl(u.query))
+        if path in favicon.PATHS:   # icons on every host, no login
+            body, ctype = favicon.get(path)
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.end_headers()
+            return self.wfile.write(body)
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
