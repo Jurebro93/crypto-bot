@@ -160,7 +160,8 @@ def compute(con, mk):
     bot = _bot(t0)
     if bot:
         bot["pts"] = bot["pts"] + [(int(now), bot["equity"])]
-    return {"users": users, "players": players, "bot": bot, "start": t0, "now": now}
+    return {"users": users, "players": players, "bot": bot, "start": t0, "now": now,
+            "jumps": history.jumps(con, set(users))}
 
 
 def _mv(move):
@@ -299,13 +300,23 @@ def highlights(d):
         for lbl, v, s, c in tiles) + "</div>"
 
 
+def _wins():
+    try:
+        from ui import wins
+        return wins.html()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def chart_data(d):
     col = _colors(d["users"])
     ser = [{"name": p["user"], "c": col[p["user"]], "pts": [[int(t), round(v, 2)] for t, v in p["pts"]]}
            for p in sorted(d["players"], key=lambda p: d["users"].index(p["user"]) if p["user"] in d["users"] else 99)]
     if d["bot"]:
         ser.append({"name": "bot", "c": "var(--pb)", "dash": 1, "pts": [[int(t), round(v, 2)] for t, v in d["bot"]["pts"]]})
-    return {"series": ser, "base": store.START_USD, "now": int(d["now"])}
+    ev = [{"t": int(j["ts"]), "s": next((i for i, x in enumerate(ser) if x["name"] == j["user"]), -1),
+           "v": j["after"], "txt": f'{j["user"]}: {j["text"]}', "bad": j["bad"]} for j in d.get("jumps") or []]
+    return {"series": ser, "base": store.START_USD, "now": int(d["now"]), "ev": [e for e in ev if e["s"] >= 0]}
 
 
 def chart(d):
@@ -315,7 +326,10 @@ def chart(d):
     rng = "".join(f'<button class="chip{" on" if k == "all" else ""}" data-r="{k}">{t}</button>'
                   for k, t in (("1", "24 h"), ("7", "7 dana"), ("all", "Sve")))
     return (f'<div class=chartbox><div class=ctl>{chips}<span class=sp></span>{rng}</div>'
-            f'<svg id=eqc role=img aria-label="Stanje računa igrača kroz vrijeme"></svg><div id=eqtip></div></div>'
+            f'<svg id=eqc role=img aria-label="Stanje računa igrača kroz vrijeme"></svg><div id=eqtip></div>'
+            + ('<p class=mut style="margin:6px 0 0;font-size:12px">Znak <b>?</b> na grafu označava nagli skok ili pad '
+               'računa: prijeđi mišem ili dodirni za objašnjenje što se dogodilo.</p>' if cd["ev"] else "")
+            + '</div>'
             f'<script>window.EQ={json.dumps(cd)}</script>')
 
 
@@ -416,7 +430,7 @@ def dashboard(con, mk, me):
             "<p class=tdesc>Poredak po stanju računa: slobodan novac + ono što bi otvorene pozicije donijele da ih prodaš "
             "sada (uz naknadu i klizanje cijene). ▲▼ je promjena mjesta u zadnja 24 sata. Klikni karticu igrača za "
             "njegove tradeove.</p>"
-            + podium(d, me) + highlights(d)
+            + podium(d, me) + highlights(d) + _wins()
             + "<h2>Svi tradeovi</h2><p class=tdesc>Svi vide sve: tko je kada kupio, na kojem market capu, gdje je sada i koliko "
               "je u plusu ili minusu. Filtriraj po igraču i statusu bez ponovnog učitavanja. PnL otvorenih je ono što bi "
               "prodaja sada donijela.</p>" + all_trades(d)
@@ -512,7 +526,18 @@ function draw(){
   tip.style.left=Math.max(4,left)+'px';tip.style.top=(oy+10)+'px'};
  const out=()=>{tip.style.display='none';cross.setAttribute('opacity',0)};
  hit.addEventListener('mousemove',move);hit.addEventListener('touchstart',move,{passive:true});hit.addEventListener('touchmove',move,{passive:true});
- hit.addEventListener('mouseleave',out);hit.addEventListener('touchend',()=>setTimeout(out,1500))}
+ hit.addEventListener('mouseleave',out);hit.addEventListener('touchend',()=>setTimeout(out,1500));
+ // "?" marks: big jumps of an account, with the reason on hover / tap
+ (E.ev||[]).forEach(e=>{if(hidden.has(e.s)||e.t<t0||e.t>t1)return;const s=E.series[e.s],x=X(e.t),y=Math.max(T+9,Y(e.v)-12);
+  const g=el('g',{class:'evm',tabindex:0,role:'button','aria-label':e.txt});g.style.cursor='pointer';
+  el('circle',{cx:x,cy:y,r:8,fill:e.bad?'var(--bad)':s.c,stroke:'var(--card)','stroke-width':2},g);
+  const q=el('text',{x:x,y:y+4,'text-anchor':'middle','font-size':11,'font-weight':700,fill:'#fff'},g);q.textContent='?';
+  const show=ev=>{ev.stopPropagation();const r=svg.getBoundingClientRect(),bx=svg.parentNode.getBoundingClientRect();
+   tip.innerHTML=`<div class=mut style="margin-bottom:4px">${dfmt(e.t,true)}</div><div style="max-width:300px;line-height:1.45">${e.txt.replace(/</g,'&lt;')}</div>`;
+   tip.style.display='block';let left=x+(r.left-bx.left)+12;if(left+tip.offsetWidth>bx.width-6)left=x+(r.left-bx.left)-tip.offsetWidth-12;
+   tip.style.left=Math.max(4,left)+'px';tip.style.top=(y+(r.top-bx.top)+10)+'px'};
+  g.addEventListener('mouseenter',show);g.addEventListener('click',show);g.addEventListener('focus',show);
+  g.addEventListener('mouseleave',out);g.addEventListener('blur',out)})}
 document.querySelectorAll('.chartbox [data-s]').forEach(b=>b.onclick=()=>{const i=+b.dataset.s;hidden.has(i)?hidden.delete(i):hidden.add(i);b.classList.toggle('off',hidden.has(i));draw()});
 document.querySelectorAll('.chartbox [data-r]').forEach(b=>b.onclick=()=>{range=b.dataset.r;document.querySelectorAll('.chartbox [data-r]').forEach(x=>x.classList.toggle('on',x===b));draw()});
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(draw,150)});draw();

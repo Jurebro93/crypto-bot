@@ -39,8 +39,8 @@ CREATE INDEX IF NOT EXISTS copy_log_ts ON copy_log (ts);
 """
 
 KIND_HR = {"kol": "KOL", "wallet": "wallet"}
-EXIT_HR = {"smart": "pametni izlaz", "tpsl": "moj TP/SL", "manual": "prodajem sam", "mirror": "prodaj kad on proda",
-           "mirror_smart": "prodaj kad on proda + pametni izlaz"}
+EXIT_HR = {"smart": "Smart sell", "tpsl": "moj TP/SL", "manual": "prodajem sam", "mirror": "prodaj kad on proda",
+           "mirror_smart": "prodaj kad on proda + Smart sell"}
 
 
 def ensure(con):

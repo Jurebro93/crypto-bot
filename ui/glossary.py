@@ -395,7 +395,16 @@ T("Auto sell", "trading", "Alat sam prodaje tvoju demo poziciju kad cijena dođe
   "svake pozicije posebno, a market cap (npr. $500k) je isti za sve; stop iznad ulaza neke pozicije se za nju preskoči.",
   primjer="TP 100%, SL -30% na sve: token kupljen na $50k prodaje se na $100k ili na $35k.",
   vidi=["take-profit", "stop-loss"], gdje=[("/natjecanje#autosell", "Natjecanje")],
-  alias=["pravilo za sve pozicije", "globalni tp/sl", "pametni izlaz", "moj tp/sl"])
+  alias=["pravilo za sve pozicije", "globalni tp/sl", "moj tp/sl"])
+T("Smart sell", "trading", "Auto sell koji prodaje kako token raste: dio na svakoj razini zarade, ostatak prati vrh, "
+  "a kad token eksplodira (3x u 15 minuta) odmah proda pola ostatka.",
+  "Zašto: kod memecoina skok od x10 ili x50 često traje minutama i onda se vrati. Tko čeka 'još malo', ostane bez "
+  "zarade. Smart sell zato uzima profit usput (take profit ljestvica), štiti ostatak trailing stopom koji se penje s "
+  "cijenom, a na naglu eksploziju reagira odmah. Pravila (koliko i kada) bot uči iz povijesti za svaku klasu tokena.",
+  primjer="Kupiš na $50k. Na +30% i +60% proda dio; token u 10 minuta skoči na $500k: Smart sell odmah proda pola "
+  "ostatka; ostatak ide dok ne padne 30% od vrha.",
+  vidi=["auto-sell", "take-profit", "trailing-stop"], gdje=[("/natjecanje#autosell", "Natjecanje")],
+  alias=["smart sell", "pametni izlaz", "eksplozija", "smart_sell_eksplozija"])
 T("Izlaz", "trading", "Prodaja pozicije i razlog: take profit, stop loss, trailing stop, isteklo vrijeme ili rug.",
   gdje=[("/izlazi", "Izlazi")], alias=["izlazi"])
 T("Ulog", "trading", "Koliko je dolara uloženo u jednu poziciju.", alias=["ulog $"])

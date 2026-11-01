@@ -5,6 +5,7 @@ sell thread of the dashboard process, which is league.db's only writer. 4 player
 rows a day; rows older than KEEP_DAYS are dropped. Before the first snapshot existed the curve is rebuilt
 from the closed trades (open positions then count at what they cost).
 """
+import json
 import time
 
 from . import store
@@ -14,10 +15,18 @@ KEEP_DAYS = 180
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS equity (ts INTEGER, user TEXT, equity REAL, open INTEGER);
 CREATE INDEX IF NOT EXISTS equity_ts ON equity(ts);"""
+JUMP_SHARE = 0.25   # a move of the account this big between two snapshots gets a "?" on the chart ...
+JUMP_MIN_USD = 250  # ... and at least this many dollars
 
 
 def _ensure(con):
     con.executescript(SCHEMA)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(equity)")}
+    if "detail" not in cols:  # open positions' values at the snapshot, to explain a jump on the chart
+        con.execute("ALTER TABLE equity ADD COLUMN detail TEXT")
+    tcols = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
+    if "peak_px" not in tcols:  # highest price seen while open: "max moguće da se prodalo na vrhu"
+        con.execute("ALTER TABLE trades ADD COLUMN peak_px REAL")
 
 
 def last_ts(con):
@@ -38,8 +47,16 @@ def snapshot(con, market, now=None):
         return 0
     live = {t: v[:3] for t, v in mk.items()}
     rows = store.leaderboard(con, live)
-    con.executemany("INSERT INTO equity VALUES (?,?,?,?)", [(now, r["user"], round(r["equity"], 4), r["open"])
-                                                          for r in rows])
+    detail = {}
+    for t in store.trades(con, status="open"):
+        if t["token"] in live:
+            price, liq, _ = live[t["token"]]
+            detail.setdefault(t["user"], {})[t["symbol"] or t["token"][:6]] = round(store.value(t, price, liq), 2)
+            if price and price > 0:
+                con.execute("UPDATE trades SET peak_px = MAX(COALESCE(peak_px, 0), ?) WHERE id=?", (price, t["id"]))
+    con.executemany("INSERT INTO equity (ts, user, equity, open, detail) VALUES (?,?,?,?,?)",
+                    [(now, r["user"], round(r["equity"], 4), r["open"], json.dumps(detail.get(r["user"]) or {}))
+                     for r in rows])
     con.execute("DELETE FROM equity WHERE ts < ?", (now - KEEP_DAYS * 86400,))
     con.commit()
     return len(rows)
@@ -105,3 +122,49 @@ def bot_series(trades, since, base=1000.0):
         eq += t["pnl_usd"] or 0
         pts.append((t["closed_ts"], eq))
     return pts
+
+
+def jumps(con, users=None, since=0):
+    """Big moves of a player's account between two snapshots, with a plain explanation for the chart's "?" marks:
+    [{ts, user, before, after, text}]. The position whose value moved most is named; a move that is undone in the
+    next snapshot is called out as a probable bad price reading (1.11.: Jure's account showed $8k twice for 15
+    minutes because DexScreener reported pairless at 80x its real price)."""
+    try:
+        _ensure(con)
+        rows = con.execute("SELECT ts, user, equity, detail FROM equity WHERE ts>=? ORDER BY user, ts",
+                           (since,)).fetchall()
+    except Exception:
+        return []
+    by = {}
+    for ts, u, e, d in rows:
+        if users is None or u in users:
+            by.setdefault(u, []).append((ts, e, json.loads(d) if d else None))
+    out = []
+    for u, pts in by.items():
+        skip = None
+        for i in range(1, len(pts)):
+            if i == skip:  # the drop back after a spike: explained by the spike's mark
+                continue
+            (t0, e0, d0), (t1, e1, d1) = pts[i - 1], pts[i]
+            diff = e1 - e0
+            if abs(diff) < max(JUMP_MIN_USD, JUMP_SHARE * abs(e0)):
+                continue
+            who = ""
+            if d0 is not None and d1 is not None:
+                moves = {k: d1.get(k, 0) - d0.get(k, 0) for k in set(d0) | set(d1)}
+                k = max(moves, key=lambda x: abs(moves[x]), default=None)
+                if k and abs(moves[k]) >= 0.5 * abs(diff):
+                    a, b = d0.get(k), d1.get(k)
+                    who = (f" Najviše se promijenila pozicija {k}: ${a:,.0f} → ${b:,.0f}"
+                           + (f" (x{b / a:.1f})" if a and b and b > a else "") + "." if a is not None and b is not None
+                           else f" Promjena dolazi od pozicije {k}.")
+            back = i + 1 < len(pts) and abs(pts[i + 1][1] - e0) < 0.3 * abs(diff)
+            if back:
+                skip = i + 1
+            text = (f"Račun {'skočio' if diff > 0 else 'pao'} s ${e0:,.0f} na ${e1:,.0f} u 15 minuta.{who}"
+                    + (" U idućem mjerenju vratio se natrag, pa je najvjerojatnije bila pogrešna cijena s "
+                       "DexScreenera, a ne stvarni rast. Od 1.11. alat takve cijene sam prepoznaje i ne koristi."
+                       if back else ""))
+            out.append({"ts": t1, "user": u, "before": round(e0, 2), "after": round(e1, 2), "text": text,
+                        "bad": bool(back)})
+    return sorted(out, key=lambda x: x["ts"])

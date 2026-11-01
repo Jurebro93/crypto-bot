@@ -434,6 +434,11 @@ def _grid(ci, c, syms, reg, max_w=14, max_t=10):
 def page(qs):
     now = time.time()
     b = ["<h1>Pregled</h1>", quick_links()]
+    try:  # the biggest wins of the week, first thing everyone sees (Nicholas 1.11.)
+        from ui import wins
+        b.append(wins.html())
+    except Exception:  # noqa: BLE001
+        pass
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     allrows = sorted(token_rows(), key=_rank, reverse=True)   # built once: the 24 h list is a filter of it

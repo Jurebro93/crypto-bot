@@ -13,7 +13,8 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 # 2: the stop after a take profit only arms once the peak has cleared it (lock_gap), see after_tp_stop().
 # 3: execution slippage on every fill (cfg slip) and, in replays of coarse historical paths, a stop that fills near
 #    the stop level like the bot's minute checks do (cfg coarse, see coarse_fill()).
-SIM_VERSION = 3
+# 4: smart sell "eksplozija" (cfg boom): a token that multiplies within minutes sells part of it on the spot.
+SIM_VERSION = 4
 
 
 def load_config(path=None, learned=True):
@@ -84,7 +85,7 @@ def after_tp_stop(pos, cfg):
     lock = cfg.get("sl_after_tp")
     if lock is None and cfg.get("breakeven_after_tp"):
         lock = 0.0
-    if lock is None or not pos.get("tp_done"):
+    if lock is None or not (pos.get("tp_done") or pos.get("boom_px")):
         return None
     if (1 + pos.get("peak", 0.0)) >= (1 + lock) * (1 + cfg.get("lock_gap", 0.1)):
         return lock
@@ -139,6 +140,28 @@ def step(pos, price, liq, ts, cfg):
             pos["prev_ts"], pos["prev_ret"] = ts, price / pos["entry_px"] - 1
 
 
+def boom(pos, price, liq, ts, ret, bag, cfg):
+    """Smart sell, "eksplozija" (cfg boom = [mult, window_min, frac]): when the price is `mult` times its lowest
+    point of the last window_min minutes and the trade is in profit, sell `frac` of what is left right away, before
+    the take profit ladder. The next explosion has to be another `mult` above this sale. Nicholas 1.11.: when a
+    token suddenly goes x50 the profit must be taken then, not after the drop."""
+    b = cfg.get("boom")
+    if not b or ret <= 0:
+        return
+    mult, win_min, frac = b
+    w = [x for x in pos.get("win") or [] if ts - x[0] <= win_min * 60]
+    lo = min([x[1] for x in w] + [price])
+    w.append([ts, price])
+    pos["win"] = w[-30:]
+    if price >= mult * lo and price >= mult * pos.get("boom_px", 0):
+        f = pos["left"] * frac
+        if bag:
+            f = min(f, max(0.0, pos["left"] - bag))
+        if f > 0:
+            sell(pos, f, price, liq, ts, "smart_sell_eksplozija", cfg)
+            pos["boom_px"] = price  # the rest is now protected like after a take profit (after_tp_stop)
+
+
 def _step(pos, price, liq, ts, cfg):
     # rug: liquidity pulled, or the price dumped so far (rug_drop, default 70% below entry) that it is a rug, not a dip
     if price <= 0:
@@ -162,6 +185,9 @@ def _step(pos, price, liq, ts, cfg):
         sell(pos, 1.0, coarse_fill(pos, price, ts, cfg), liq, ts, "stop_loss", cfg)
         return pos
     bag = cfg.get("moonbag") or 0
+    boom(pos, price, liq, ts, ret, bag, cfg)
+    if not pos["open"]:
+        return pos
     for i, (level, frac) in enumerate(cfg["tp"]):
         if i >= pos["tp_done"] and ret >= level:
             f = _tp_frac(pos, frac, price, liq, cfg)
