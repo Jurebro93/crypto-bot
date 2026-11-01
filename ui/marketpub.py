@@ -58,7 +58,7 @@ T = {
         lp="Launchpads", dexn="Solana DEX", term="Trading terminals", sol="SOL price",
         lp7="Launchpad volume, 7 days", dex7="Solana DEX volume, 7 days", term7="Trading terminals & bots, 7 days",
         share="Launchpad share of all Solana DEX volume", solp="SOL price (7-day change)",
-        vs="vs the week before", yday="Yesterday", d7="7 days", chg="Change 7d", sh="Share", m30="Trend 30d", v30="30 days",
+        vs="vs the week before", yday="Last full day", d7="7 days", chg="Change 7d", sh="Share", m30="Trend 30d", v30="30 days",
         platform="Platform", what="What it is", day="Day", chg1="Change",
         more_h="More market data", embed_h="Embed this chart", embed_p="Free to use on your site or blog. "
         "It updates itself every day and links back to the source.", copy="Copy code", copied="Copied",
@@ -75,7 +75,7 @@ T = {
         lp="Launchpadi", dexn="Solana DEX", term="Trading terminali", sol="Cijena SOL",
         lp7="Volumen launchpada, 7 dana", dex7="Volumen Solana DEX-a, 7 dana", term7="Trading terminali i botovi, 7 dana",
         share="Udio launchpada u ukupnom Solana DEX volumenu", solp="Cijena SOL (promjena 7 dana)",
-        vs="u odnosu na tjedan prije", yday="Jučer", d7="7 dana", chg="Promjena 7 d", sh="Udio", m30="Trend 30 d", v30="30 dana",
+        vs="u odnosu na tjedan prije", yday="Zadnji puni dan", d7="7 dana", chg="Promjena 7 d", sh="Udio", m30="Trend 30 d", v30="30 dana",
         platform="Platforma", what="Što je to", day="Dan", chg1="Promjena",
         more_h="Još podataka o tržištu", embed_h="Ugradi ovaj graf", embed_p="Besplatno za tvoju stranicu ili blog. "
         "Osvježava se sam svaki dan i vodi natrag na izvor.", copy="Kopiraj kod", copied="Kopirano",
@@ -630,13 +630,13 @@ def market(lang):
     lab = label(score, lang) if score is not None else "–"
     if en:
         h1 = "Solana meme coin market today"
-        lead = (f"Yesterday ({_date(day, lang)}) Solana launchpads such as pump.fun traded <b>{usd(lp.get(day))}</b> and the "
+        lead = (f"On {_date(day, lang)}, the last complete day, Solana launchpads such as pump.fun traded <b>{usd(lp.get(day))}</b> and the "
                 f"whole Solana DEX market <b>{usd(dx.get(day))}</b>. The <a href={PAGES['season'][0]}>meme coin season index</a> is <b>{score:.0f}/100 ({lab})</b>: "
                 if score is not None else "")
         lead += (f"launchpad volume over the last 7 days is {pct(g(lp7, lpp))} {t['vs']}." if lp7 and lpp else "")
     else:
         h1 = "Solana meme coin tržište danas"
-        lead = (f"Jučer ({_date(day, lang)}) su se na Solana launchpadima poput pump.funa trgovali <b>{usd(lp.get(day), lang)}</b>, "
+        lead = (f"Dana {_date(day, lang)}, zadnjeg potpunog dana, na Solana launchpadima poput pump.funa trgovalo se <b>{usd(lp.get(day), lang)}</b>, "
                 f"a na cijelom Solana DEX tržištu <b>{usd(dx.get(day), lang)}</b>. <a href={PAGES['season'][1]}>Indeks sezone meme coina</a> "
                 f"je <b>{score:.0f}/100 ({lab})</b>: " if score is not None else "")
         lead += (f"volumen launchpada u zadnjih 7 dana je {pct(g(lp7, lpp), lang)} {t['vs']}." if lp7 and lpp else "")
@@ -1257,12 +1257,12 @@ def dex(lang):
     big = sum(1 for p in ps if p["v7"] >= 7e6)
     if en:
         h1 = "Solana DEX volume today"
-        lead = (f"Solana DEXs traded <b>{usd(dx.get(day))}</b> yesterday and <b>{usd(d7)}</b> in the last 7 days "
+        lead = (f"Solana DEXs traded <b>{usd(dx.get(day))}</b> on {_date(day, lang)} and <b>{usd(d7)}</b> in the last 7 days "
                 f"({pct(ch)} {t['vs']}). The biggest by volume was <b>{plabel(top, lang)[0]}</b>. Below: every Solana DEX "
                 "and the trading terminals meme coin traders use.")
     else:
         h1 = "Solana DEX volumen danas"
-        lead = (f"Solana DEX-ovi su jučer trgovali <b>{usd(dx.get(day), lang)}</b>, a u zadnjih 7 dana <b>{usd(d7, lang)}</b> "
+        lead = (f"Solana DEX-ovi su {_date(day, lang)} trgovali <b>{usd(dx.get(day), lang)}</b>, a u zadnjih 7 dana <b>{usd(d7, lang)}</b> "
                 f"({pct(ch, lang)} {t['vs']}). Najveći po volumenu bio je <b>{plabel(top, lang)[0]}</b>. Ispod: svi Solana "
                 "DEX-ovi i trading terminali kojima se služe trejderi meme coina.")
     body = [_head("dex", lang, h1, lead, d), subnav("dex", lang)]
@@ -1320,7 +1320,7 @@ def dex(lang):
                "See the <a href=/glossary/dex>glossary</a>."),
               ("Where is the data from?", "DefiLlama's public Solana volumes, full UTC days, refreshed automatically.")]
         title = f"Solana DEX Volume Today ({_date(day, lang)}): Top DEXs & Trading Terminals | KriptoRadar"
-        desc = (f"Solana DEX volume: {usd(dx.get(day))} yesterday, {usd(d7)} in 7 days ({pct(ch)}). Every Solana DEX and trading "
+        desc = (f"Solana DEX volume: {usd(dx.get(day))} on {_date(day, lang)}, {usd(d7)} in 7 days ({pct(ch)}). Every Solana DEX and trading "
                 "terminal ranked by volume, with 90-day chart. Updated daily.")
     else:
         qa = [("Koliki je Solana DEX volumen danas?",
@@ -1334,7 +1334,7 @@ def dex(lang):
                "<a href=/hr/rjecnik/dex>rječnik</a>."),
               ("Odakle su podaci?", "Javni podaci DefiLlame za Solanu, puni UTC dani, osvježava se samo.")]
         title = f"Solana DEX volumen danas ({_date(day, lang)}): najveći DEX-ovi i terminali | KriptoRadar"
-        desc = (f"Solana DEX volumen: jučer {usd(dx.get(day), lang)}, u 7 dana {usd(d7, lang)} ({pct(ch, lang)}). Svi Solana "
+        desc = (f"Solana DEX volumen: {_date(day, lang)} {usd(dx.get(day), lang)}, u 7 dana {usd(d7, lang)} ({pct(ch, lang)}). Svi Solana "
                 "DEX-ovi i trading terminali po volumenu, s grafom za 90 dana. Osvježava se svaki dan.")
     body.append(_faq(qa, lang))
     body.append(f"<p class=mut style='margin-top:26px;font-size:13px'>{t['nf']}</p>")
