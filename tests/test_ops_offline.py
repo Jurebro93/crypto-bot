@@ -176,3 +176,57 @@ class SignalSummary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Slim(unittest.TestCase):
+    """hype_signals slimming keeps what every reader uses: weights of the newest row, features of the first and
+    newest row, all numbers; compaction then gives the space back."""
+
+    def test_slim_and_compact(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(disk, "DATA_DIR", d):
+            p = os.path.join(d, "hype.db")
+            c = sqlite3.connect(p)
+            from hype import store
+            c.executescript(store.SCHEMA)
+            now = int(time.time())
+            w = json.dumps({f"k{i}": i for i in range(60)})
+            rows = []
+            for t in ("A", "B"):
+                for i in range(400):
+                    ts = now - 3 * 86400 + i * 600
+                    rows.append((ts, t, t, t, "p", "u", float(i % 90), 1.0, 1000.0 + i, 500.0,
+                                 json.dumps({"i": i, "pad": "x" * 9000}), "dex", w * 20))
+            c.executemany("INSERT INTO hype_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            c.commit()
+            before = c.execute("SELECT token, ts, score, price, mcap, liquidity, sources FROM hype_signals ORDER BY token, ts").fetchall()
+            c.close()
+            size0 = os.path.getsize(p)
+            nw, nf = dbs.slim_signals(p, now=now, batch=150)
+            self.assertEqual(nw, 2 * 399)
+            c = sqlite3.connect(p)
+            self.assertEqual(c.execute("SELECT token, ts, score, price, mcap, liquidity, sources FROM hype_signals ORDER BY token, ts").fetchall(), before)
+            for t in ("A", "B"):
+                first, last = c.execute("SELECT MIN(ts), MAX(ts) FROM hype_signals WHERE token=?", (t,)).fetchone()
+                got = dict(c.execute("SELECT ts, features FROM hype_signals WHERE token=? AND features IS NOT NULL", (t,)).fetchall())
+                self.assertIn(first, got)
+                self.assertIn(last, got)
+                self.assertTrue(all(ts >= now - dbs.SLIM_FEATURES_H * 3600 for ts in got if ts not in (first, last)))
+                self.assertEqual([r[0] for r in c.execute("SELECT ts FROM hype_signals WHERE token=? AND weights IS NOT NULL", (t,))], [last])
+            c.close()
+            with mock.patch.object(disk, "free_mb", return_value=10000.0):
+                out = dbs.compact(p)
+            self.assertIsNotNone(out)
+            self.assertLess(os.path.getsize(p), size0 / 2)
+
+
+class TtlCache(unittest.TestCase):
+    def test_cached_value_is_a_copy(self):
+        from ui import data
+        calls = []
+        f = lambda: calls.append(1) or {"a": [1, 2]}  # noqa: E731
+        data._TTL.pop("t", None)
+        self.assertEqual(data.ttl_cache("t", 60, f), {"a": [1, 2]})
+        v = data.ttl_cache("t", 60, f)
+        v["a"].append(3)                       # a page changing its copy does not change the cache
+        self.assertEqual(data.ttl_cache("t", 60, f), {"a": [1, 2]})
+        self.assertEqual(len(calls), 1)
