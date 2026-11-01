@@ -126,7 +126,7 @@ def kols(now, top=10):
             break
     watch = [r["handle"] for r in _q(con, "SELECT handle FROM watch ORDER BY score DESC")]
     calls = _q(con, "SELECT handle, symbol, token, url, ts, followers, views, r1h, r6h, max24, mcap0 FROM calls "
-                    "WHERE kind = 'call' AND first_by_kol = 1 AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
+                    "WHERE kind = 'call' AND first_by_kol = 1 AND bad IS NULL AND ts >= ? ORDER BY COALESCE(max24, r6h, r1h, -1) DESC "
                     "LIMIT 8", (now - 2 * DAY,))
     n24 = _q(con, "SELECT COUNT(*) n FROM calls WHERE kind = 'call' AND ts >= ?", (now - DAY,))
     new = _q(con, "SELECT COUNT(*) n FROM kols WHERE first_seen >= ?", (now - DAY,))

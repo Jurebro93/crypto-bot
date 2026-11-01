@@ -31,6 +31,8 @@ def cmd_fit(a):
         from learn import confmodel
         c = confmodel.run(con, now=time.time(), apply_model=not a.dry)
         print(f"confidence n={c['n']:<5} {'PRIMIJENJENO' if c['applied'] else 'bez promjene'}: {c['note']}")
+        store.prune_empty(con)
+        con.commit()
     except Exception as e:
         print(f"confidence fit: {type(e).__name__}: {e}", file=sys.stderr)
     return rep

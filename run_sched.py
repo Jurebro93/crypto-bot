@@ -34,10 +34,37 @@ def every(name, args, minutes):
         time.sleep(minutes * 60)
 
 
+STATE = os.path.join(os.environ.get("DATA_DIR") or ROOT, "sched_state.json")
+
+
+def _last_day(name):
+    try:
+        with open(STATE) as f:
+            return json.load(f).get(name)
+    except (OSError, ValueError):
+        return None
+
+
+def _set_last_day(name, day):
+    try:
+        try:
+            with open(STATE) as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            state = {}
+        state[name] = day
+        with open(STATE + ".tmp", "w") as f:
+            json.dump(state, f)
+        os.replace(STATE + ".tmp", STATE)
+    except OSError as e:
+        print(f"{name}: stanje rasporeda nije spremljeno: {e}", file=sys.stderr, flush=True)
+
+
 def daily(name, args, config, due=None):
-    """Same rule as the old in-process loops: after run_at_utc, once per UTC day (again after a restart).
+    """After run_at_utc, once per UTC day. The day of the last run is kept on the disk (sched_state.json), so a
+    restart does not run it again: before 1.11. every deploy (10+ a day) re-ran the daily learning, ~50 empty runs.
     due(): an extra reason to run now (at most once per process start), e.g. exit rules fitted under old mechanics."""
-    last_day, forced = None, False
+    last_day, forced = _last_day(name), False
     while True:
         try:
             with open(os.path.join(ROOT, config)) as f:
@@ -47,9 +74,10 @@ def daily(name, args, config, due=None):
                 forced = True
                 print(f"{name}: pokrećem odmah ({due.__doc__ or 'potrebno'})", flush=True)
                 run(name, args)
-            elif (now.hour, now.minute) >= (hh, mm) and last_day != now.date():
+            elif (now.hour, now.minute) >= (hh, mm) and last_day != now.date().isoformat():
                 run(name, args)
-                last_day = now.date()
+                last_day = now.date().isoformat()
+                _set_last_day(name, last_day)
         except Exception as e:  # noqa: BLE001 - the scheduler must not die (start.sh restarts everything)
             print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         time.sleep(300)
