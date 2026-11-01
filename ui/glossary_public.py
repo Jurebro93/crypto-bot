@@ -113,6 +113,25 @@ _E = [
      "A bot that buys a token in the first seconds after launch to sell it quickly.",
      "Snipers sell as soon as the price rises a little, so their buys are not a sign of real interest. KriptoRadar never "
      "puts sniper wallets on its copy-trading list.", "", None),
+    ("prioritetna-naknada", "priority-fee", "Priority fee", "What is a priority fee on Solana?",
+     "An extra fee that pushes your transaction ahead of others in the same block.",
+     "When many buys of the same token arrive in the same second, the network processes the ones that pay more first "
+     "(priority fee or Jito tip). Sniper bots pay more than a normal buyer, so they always get in first, at a lower price. "
+     "Your buy lands after them, pushes the price up, and the bots sell to you. That is why calls from the most famous "
+     "influencers are hard to profit from.", "A normal buyer pays 0.0001 SOL in fees, a bot pays 0.01 SOL: the bot is "
+     "first in the block.", ("/influencers", "Stars vs rising stars")),
+    ("front-running", "front-running", "Front-running", "What is front-running in crypto?",
+     "A bot sees a wave of buys coming and buys before it, to sell to those buyers at a higher price.",
+     "Bots watch famous influencers' posts and new transactions. The moment a call appears they buy with a higher priority "
+     "fee, get in before the people who just read the post, and sell to them within the same minute. The call looks great "
+     "on the chart, but most followers buy the top.", "", None),
+    ("zvijezde-i-rastuce-zvijezde", "stars-vs-rising-stars", "Stars and rising stars",
+     "Stars vs rising stars: which crypto influencers are worth following?",
+     "Stars are the most famous influencers (100k+ followers); rising stars are lesser-known ones with a good record.",
+     "Stars (Murad, Ansem and co.) are followed by the masses and by bots, so after their post snipers buy first and the "
+     "price often drops as soon as followers get in. Rising stars have fewer followers, so fewer bots wait for their calls, "
+     "and the good ones call tokens earlier. KriptoRadar ranks both on separate tabs with the same measurements.",
+     "", ("/influencers", "Influencer ranking")),
     ("insajder", "insider-wallet", "Insider wallet", "What is an insider wallet?",
      "A wallet that buys before an influencer posts and sells into the wave of buyers the post brings.",
      "If insiders sell right after a call, the call was probably arranged or paid: the influencer brought buyers so "

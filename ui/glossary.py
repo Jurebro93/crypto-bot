@@ -167,6 +167,23 @@ T("Bundler", "osnove", "Netko tko je u istoj sekundi kad je token nastao kupio v
 T("Sniper", "osnove", "Bot koji kupuje token u prvim sekundama nakon nastanka da bi brzo prodao.",
   "Snajperi obično prodaju čim cijena malo naraste, pa njihove kupnje nisu znak pravog interesa. Takvi novčanici nikad ne "
   "idu na copy listu.", alias=["snajper", "snajperi"])
+T("Prioritetna naknada", "osnove", "Dodatna naknada kojom se kupnja na Solani gura ispred drugih u istom bloku.",
+  "Kad u istoj sekundi stigne puno kupnji istog tokena, mreža prvo obradi one koje plate veću naknadu (priority fee ili "
+  "Jito tip). Snajperski botovi zato plate više od običnog kupca i uvijek uđu prvi, po nižoj cijeni. Tvoja kupnja dođe "
+  "iza njih, gura cijenu gore, a botovi ti prodaju. Zato je kod najpoznatijih influencera teško zaraditi na pozivu.",
+  "Običan kupac plati 0,0001 SOL naknade, bot 0,01 SOL: bot je prvi u bloku i kupi prije svih.",
+  vidi=["sniper", "front-running", "zvijezde-i-rastuce-zvijezde"], alias=["priority fee", "jito tip", "prioritetne naknade"],
+  k="prioritetna-naknada")
+T("Front-running", "osnove", "Kad bot vidi da dolazi val kupnji i kupi prije njih da bi im prodao skuplje.",
+  "Botovi prate objave poznatih influencera i nove transakcije. Čim vide poziv, kupe s većom prioritetnom naknadom, pa "
+  "uđu prije ljudi koji su post tek pročitali, i prodaju im u istoj minuti. Poziv tada izgleda dobro na grafu, a "
+  "većina pratitelja kupi na vrhu.", vidi=["prioritetna-naknada", "sniper"], alias=["frontrunning", "front-run"])
+T("Zvijezde i rastuće zvijezde", "kol", "Zvijezde su najpoznatiji influenceri (100k+ pratitelja), rastuće zvijezde manje poznati koje tražimo.",
+  "Zvijezde (npr. Murad, Ansem) prati masa ljudi i botovi, pa nakon njihovog posta snajperi kupe prvi i cijena često "
+  "padne čim pratitelji uđu. Rastuće zvijezde imaju manje pratitelja, pa manje botova čeka njihove pozive, a dobri "
+  "među njima zovu tokene ranije. Na ljestvici influencera to su dvije kartice.",
+  vidi=["kol", "prioritetna-naknada", "front-running", "moc-poziva"], alias=["zvijezde", "rastuće zvijezde", "stars",
+                                                                          "rising stars"], k="zvijezde-i-rastuce-zvijezde")
 T("Insajder", "osnove", "Novčanik koji kupi token prije nego KOL objavi, pa proda u valu kupaca koji post dovede.",
   "Ako su insajderi prodavali odmah nakon poziva, poziv je vjerojatno dogovoren ili plaćen: KOL je doveo kupce da bi netko "
   "drugi prodao. Takvi pozivi ne dobivaju KOL signal.", vidi=["rotacijski-dev", "kol"], alias=["insajderi", "insajdera"])

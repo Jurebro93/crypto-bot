@@ -54,7 +54,7 @@ def cmd_search(a, con=None, cfg=None):
         print("search: nema APIFY_TOKEN, preskačem")
         return 0
     n = 0
-    for name, fn in (("followup", collect.followup), ("timeline", collect.timeline)):
+    for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars)):
         try:
             k = fn(con, cfg)
             con.commit()
