@@ -278,6 +278,9 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
+HEAVY = ("/", "/tokens")   # pages that read every hype signal: built by build_in_child, never in this process
+
+
 def build_in_child(path):
     """(code, html bytes) of `path` rendered by a short child process (`run_ui.py --render PATH`).
 
@@ -458,10 +461,13 @@ class Handler(BaseHTTPRequestHandler):
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
         key = (path, u.query, None)    # route() pages are the same for every user
+        # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
+        # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
+        mk = (lambda: build_in_child(path)) if path in HEAVY and not u.query else (lambda: build(path, qs))
         if self.lang == "hr":
-            code, raw, gz = pagecache.get(key, lambda: build(path, qs))
+            code, raw, gz = pagecache.get(key, mk)
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
-            code, raw, gz = pagecache.get(key, lambda: build(path, qs))   # cached Croatian page, then translated
+            code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
             if code == 200:
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
         self._send(code, raw, gz=gz, translated=True)
@@ -829,7 +835,7 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(["/", "/tokens"], build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(HEAVY), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start
