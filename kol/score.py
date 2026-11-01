@@ -235,12 +235,15 @@ def correlations(con):
     return out
 
 
-def reclassify(con):
-    """Apply the current call/brag rule to every stored tweet, so a better rule also fixes old rows."""
+def reclassify(con, bots=()):
+    """Apply the current call/brag/warn rule and the bot flag to every stored post, so a better rule also fixes old
+    rows (posts of automated accounts become kind 'bot'; an account no longer flagged gets its calls back)."""
     from kol.collect import kind_of
-    rows = con.execute("SELECT DISTINCT tweet_id, text, kind FROM calls WHERE kind IN ('call', 'brag')").fetchall()
-    for tid, text, kind in rows:
-        k = kind_of(text)
+    bots = set(bots)
+    rows = con.execute("SELECT DISTINCT tweet_id, handle, text, kind FROM calls "
+                       "WHERE kind IN ('call', 'brag', 'warn', 'bot')").fetchall()
+    for tid, h, text, kind in rows:
+        k = "bot" if h in bots else kind_of(text)
         if k != kind:
             con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ?", (k, tid))
 
@@ -268,8 +271,24 @@ def build_watch(con, cfg, now=None):
     return [p[0] for p in picked]
 
 
+def drop_fake_tokens(con):
+    """Calls on "tokens" that were the tail of an EVM address (0x...): see collect.cas_in. Returns rows deleted."""
+    from kol.collect import _HEX
+    fake = [t for (t,) in con.execute("SELECT DISTINCT token FROM calls WHERE token LIKE 'x%' OR token LIKE 'X%'")
+            if _HEX.fullmatch(t)]
+    n = 0
+    for t in fake:
+        n += con.execute("DELETE FROM calls WHERE token = ?", (t,)).rowcount
+        for table in ("tokens", "groups", "signals", "converge", "token_hours"):
+            con.execute(f"DELETE FROM {table} WHERE token = ?", (t,))
+    return n
+
+
 def run(con, cfg, now=None):
-    reclassify(con)
+    from kol import bots, measure
+    drop_fake_tokens(con)
+    reclassify(con, bots.detect(con, cfg))
+    measure.revalidate(con, cfg)
     mark_first(con)
     n = score_kols(con, cfg, now)
     from kol import sessions

@@ -1,5 +1,5 @@
 {
- "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka). watch: koliko najboljih KOL-ova pratimo uživo (xquik monitor, ~$0.11 po računu dnevno) i uvjeti za ulazak na listu. converge: skor konvergencije više izvora (X, Telegram, KOL novčanici na lancu), vidi kol/converge.py. chain: koliko KOL novčanika prati Helius webhook. idents: koliko često čitamo javne liste KOL novčanika (KOLscan, Solana Tracker, FOMO tjedno).",
+ "_comment": "Pragovi i težine za KOL modul (kol/). group_secs: koliko blizu moraju biti pozivi različitih autora da se broje kao grupa. good_score: KOL s ovom ocjenom ili višom je 'dobar' za signal kol_group. weights: dijelovi ocjene moći poziva (zbroj pozitivnih = 100), prepump se oduzima. prior_calls/prior_score: s toliko poziva ocjena je pola izmjerena, pola prior_score (malo poziva = nesigurno, jedan sretan poziv nije dovoljan za 'dobar'). flows_per_day: koliko Helius provjera oko poziva dnevno (~40 kredita svaka). watch: koliko najboljih KOL-ova pratimo uživo (xquik monitor, ~$0.11 po računu dnevno) i uvjeti za ulazak na listu. converge: skor konvergencije više izvora (X, Telegram, KOL novčanici na lancu), vidi kol/converge.py. chain: koliko KOL novčanika prati Helius webhook. idents: koliko često čitamo javne liste KOL novčanika (KOLscan, Solana Tracker, FOMO tjedno). bots: automatski računi (scanner/alert botovi) – njihove objave nisu KOL pozivi (kol/bots.py); force/never ručno. valid: poziv s tržišnom kapitalizacijom ispod min_mcap0 $ u trenutku poziva ili s nerealnim skokom (max_x) ne ulazi u statistiku; wick_x: jedan ekstremni fitilj svijeće broji se najviše do toliko puta tijela svijeće.",
  "group_secs": 1800,
  "good_score": 50,
  "signal_hours": 6,
@@ -69,5 +69,23 @@
  },
  "idents": {
   "every_h": 24
+ },
+ "bots": {
+  "min_posts": 5,
+  "alert_share": 0.5,
+  "template_min": 20,
+  "template_share": 0.9,
+  "handle_tokens_day": 15,
+  "max_tokens_day": 40,
+  "force": [
+   "blossomscanner"
+  ],
+  "never": []
+ },
+ "valid": {
+  "min_mcap0": 3000,
+  "max_x": 200,
+  "remeasure_x": 9,
+  "wick_x": 3.0
  }
 }

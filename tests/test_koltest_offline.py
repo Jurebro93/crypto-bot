@@ -142,6 +142,15 @@ class Book(unittest.TestCase):
         self.assertIn("Što bi koji izlaz zaradio", html)
         self.assertIn("kolA", html)
         self.assertNotIn("None", html)
+        from kol import store as kstore
+        orig = kstore.bot_handles
+        kstore.bot_handles = lambda path=None: {"kolA"}
+        try:
+            _, html2 = page.page({})
+            self.assertIn("Izuzeto iz statistike: 1 ulaza", html2)
+            self.assertEqual(page.report_data(T0 + 200)["all"]["n"], 1)
+        finally:
+            kstore.bot_handles = orig
         data = page.report_data(T0 + 200)
         self.assertEqual(data["all"]["n"], 2)
         from report import render

@@ -30,6 +30,18 @@ def _stat(v, label, kind=""):
     return f"<div class=stat><div class='v {kind}'>{v}</div><div class=l>{esc(label)}</div></div>"
 
 
+def drop_bots(ps):
+    """(real KOL entries, scanner-bot entries). Automated alert accounts on X post every fresh token and counted as
+    KOL calls until PR #65 (1.11.); their early entries stay in the book but out of the statistics."""
+    try:
+        from kol import store as kstore
+        bots = set(kstore.bot_handles() or [])
+    except Exception:  # noqa: BLE001 - no kol.db / older kol module: nothing to drop
+        bots = set()
+    real = [p for p in ps if p["caller"] not in bots]
+    return real, [p for p in ps if p["caller"] in bots]
+
+
 def _left(end, now):
     d = end - now
     if d <= 0:
@@ -55,6 +67,7 @@ def page(qs):
         con.close()
     start = int(float(start)) if start else int(now)
     end = start + int(cfg["days"] * 86400)
+    ps, bot_ps = drop_bots(ps)
     s = book.summary(ps, cfg)
     lad = ", ".join(f"{int(f * 100)}% na +{lv:.0%}" for lv, f in cfg["ladder"])
     b = ["<h1>KOL test (7 dana)</h1>" + tdesc(
@@ -76,6 +89,11 @@ def page(qs):
         _stat(f"${s['pnl']:+,.0f}", f"rezultat knjige (uloženo ${s['staked']:,.0f})", pnl_kind),
     ]) + "</div>")
 
+    if bot_ps:
+        bs = book.summary(bot_ps, cfg)
+        b.append(tdesc(f"Izuzeto iz statistike: {bs['n']} ulaza na objave automatskih skener botova na X-u (objave "
+                       f"svaki novi token, nisu KOL-ovi; prepoznaju se od 1.11.). Njihov rezultat odvojeno: "
+                       f"{bs['hit20']} od {bs['n']} doseglo +20%, knjiga ${bs['pnl']:+,.0f}."))
     if not ps:
         b.append(tdesc("Još nema ulaza. Čim neki KOL objavi token ili KOL novčanik kupi, ovdje se pojavi."))
 
@@ -188,6 +206,7 @@ def report_data(now=None):
         return None
     start = int(float(start))
     end = start + int(cfg["days"] * 86400)
+    ps, _ = drop_bots(ps)
     day = [p for p in ps if (p["entry_ts"] or 0) >= now - 86400]
     gr = [g for g in book.grid(ps, cfg) if g["n"] >= 5]
     best = max(gr, key=lambda g: g["avg"]) if gr else None

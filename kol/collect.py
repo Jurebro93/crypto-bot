@@ -46,11 +46,31 @@ def tweet_ts(s):
     return None
 
 
+_HEX = re.compile(r"x?[0-9a-fA-F]+")
+
+
 def cas_in(text):
-    return sorted({c for c in _CA.findall(text or "") if any(ch.isdigit() for ch in c)})
+    """Solana addresses in a post. An EVM address "0x<40 hex>" is not one: the base58 pattern used to pick up its
+    tail "x<hex>" (the leading 0 is not base58) as a fake Solana token."""
+    text = text or ""
+    out = set()
+    for m in _CA.finditer(text):
+        c = m.group(0)
+        if not any(ch.isdigit() for ch in c) or _HEX.fullmatch(c):
+            continue
+        if m.start() > 0 and text[m.start() - 1] == "0" and c[:1] in "xX":
+            continue
+        out.add(c)
+    return sorted(out)
+
+
+# "SCAM ALERT", "stay away, it'll rug": a warning about the token, not a call to buy it
+_WARN = re.compile(r"scam alert|rug alert|honeypot alert|stay away|it.?ll rug|avoid this|do not buy|don.?t buy", re.I)
 
 
 def kind_of(text):
+    if _WARN.search(text or ""):
+        return "warn"
     return "brag" if _BRAG.search(text or "") else "call"
 
 
@@ -80,9 +100,21 @@ def calls_from_tweet(t, target=None, symbol=None, source="x_buzz"):
     return [dict(base, token=c, match=m, symbol=(symbol if c == target else None)) for c, m in pairs]
 
 
+def _is_bot(con, handle):
+    try:
+        r = con.execute("SELECT bot FROM kols WHERE handle = ?", (handle,)).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return bool(r and r[0])
+
+
 def save(con, calls):
+    """Insert new calls. Posts of accounts already flagged as automated (kol/bots.py) are stored as kind 'bot', so
+    they never count as a KOL call, not even in the minutes before the next score run."""
     n = 0
     for c in calls:
+        if c.get("kind") in ("call", "brag", "warn") and _is_bot(con, c["handle"]):
+            c = dict(c, kind="bot")
         n += con.execute("""INSERT OR IGNORE INTO calls (tweet_id, token, handle, ts, url, text, followers, likes, retweets,
             views, kind, match, source, symbol) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                          (c["tweet_id"], c["token"], c["handle"], c["ts"], c["url"], c["text"], c["followers"],

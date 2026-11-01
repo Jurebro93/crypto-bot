@@ -93,7 +93,10 @@ def outcome(candles, ts, now, cfg):
     for k, h in (("r1h", 1), ("r6h", 6), ("r24h", 24)):
         o[k] = (price_at(candles, ts + h * H) / p0 - 1) if now >= ts + h * H and price_at(candles, ts + h * H) else None
     after = [c for c in candles if ts < c[0] + CANDLE and c[0] <= ts + 24 * H]
-    o["max24"] = (max(c[2] for c in after) / p0 - 1) if after else None
+    # one dust print can put a candle's high far above where it opened and closed (1.11.: a "65x" call on a $143
+    # pool); a wick counts only up to wick_x times the candle body
+    wick = (cfg.get("valid") or {}).get("wick_x", 3.0)
+    o["max24"] = (max(min(c[2], max(c[1], c[4]) * wick) for c in after) / p0 - 1) if after else None
     o["vol_before"] = sum(c[5] for c in candles if ts - H <= c[0] < ts - CANDLE + 1)
     o["vol_after"] = sum(c[5] for c in candles if ts - CANDLE < c[0] <= ts + H - CANDLE) if now >= ts + H else None
     if o["vol_after"] is not None:
@@ -104,6 +107,31 @@ def outcome(candles, ts, now, cfg):
     o["rug"] = int(last is not None and last <= cfg["rug_x"])
     o["complete"] = int(now >= ts + 24 * H + CANDLE)
     return o
+
+
+MVER = 2  # 2 = wick cap + market-cap check (1.11.); older rows with a huge max24 are measured again once
+
+
+def why_bad(mcap0, max24, cfg):
+    """Why a measured call cannot be trusted, or None. A market cap of a few hundred dollars at the call is a dust
+    pool (rugged, or not trading yet): any multiple from there is noise, not the KOL's doing."""
+    v = cfg.get("valid") or {}
+    if mcap0 is not None and mcap0 < v.get("min_mcap0", 3000):
+        return "mcap"
+    if max24 is not None and max24 >= v.get("max_x", 200):
+        return "skok"
+    return None
+
+
+def revalidate(con, cfg):
+    """Apply why_bad to rows measured before it existed; queue old huge moves for one more (wick-capped) measure."""
+    v = cfg.get("valid") or {}
+    n = con.execute("""UPDATE calls SET bad = 'mcap', pre2h = NULL, r1h = NULL, r6h = NULL, r24h = NULL, max24 = NULL,
+        vol_lift = NULL, rug = NULL WHERE bad IS NULL AND mcap0 IS NOT NULL AND mcap0 < ?""",
+                    (v.get("min_mcap0", 3000),)).rowcount
+    n += con.execute("""UPDATE calls SET complete = 0, measured_ts = NULL WHERE bad IS NULL AND COALESCE(mver, 1) < ?
+        AND max24 >= ?""", (MVER, v.get("remeasure_x", 9))).rowcount
+    return n
 
 
 def due(con, now, limit):
@@ -153,11 +181,16 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
                 con.execute("UPDATE calls SET measured_ts = ?, complete = ? WHERE tweet_id = ? AND token = ?",
                             (now, int(now >= ts + 24 * H + CANDLE), tid, t))
                 continue
+            mcap0 = o["p0"] * supply if supply else None
+            bad = why_bad(mcap0, o.get("max24"), cfg)
+            if bad:  # keep the price at the call for the record, but no outcome that could count anywhere
+                for k in ("pre2h", "r1h", "r6h", "r24h", "max24", "vol_lift", "rug"):
+                    o[k] = None
             con.execute("""UPDATE calls SET p0=?, mcap0=?, pre2h=?, r1h=?, r6h=?, r24h=?, max24=?, vol_before=?,
-                vol_after=?, vol_lift=?, rug=?, complete=?, measured_ts=? WHERE tweet_id=? AND token=?""",
-                        (o["p0"], o["p0"] * supply if supply else None, o["pre2h"], o["r1h"], o["r6h"], o["r24h"],
+                vol_after=?, vol_lift=?, rug=?, complete=?, measured_ts=?, bad=?, mver=? WHERE tweet_id=? AND token=?""",
+                        (o["p0"], mcap0, o["pre2h"], o["r1h"], o["r6h"], o["r24h"],
                          o["max24"], o["vol_before"], o["vol_after"], o["vol_lift"], o["rug"], o["complete"], now,
-                         tid, t))
+                         bad, MVER, tid, t))
             n_calls += 1
         con.commit()
     return n_tok, n_calls

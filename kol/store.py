@@ -4,7 +4,8 @@ Own file (one writer per SQLite file, see wallets/store.py). Only run_kol.py wri
 run_hype read it read-only.
 
 Tables:
-  calls      one row per (tweet, token): author, followers, link, kind (call/brag), price path after the tweet
+  calls      one row per (tweet, token): author, followers, link, kind (call/brag/warn/bot, buy/sell for wallets),
+             price path after the tweet; bad = why the measured path is not trusted (e.g. dust market cap)
   kols       one row per X account: latest followers, call power and the stats behind it
   tokens     token -> pool used for the price history (DexScreener pair) and supply for mcap
   groups     2+ different authors calling the same token within GROUP_SECS
@@ -75,10 +76,30 @@ CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts
 """
 
 
+# columns added after the first release (ALTER on old files; CREATE above stays as it was for seed imports)
+MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
+           ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER")]
+
+
 def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=60)
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATE:
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
     return con
+
+
+def bot_handles(path=None):
+    """Handles of automated alert accounts (kol/bots.py); their posts are kind 'bot', not KOL calls."""
+    from kol import bots
+    con = ro(path)
+    try:
+        return bots.handles(con)
+    finally:
+        if con is not None:
+            con.close()
 
 
 def ro(path=None):
@@ -169,7 +190,8 @@ def import_seed(con, path=SEED):
     con.execute("ATTACH DATABASE ? AS seed", (tmp,))
     try:
         for t in ("calls", "kols", "tokens", "flows", "insiders", "searches"):
-            con.execute(f"INSERT OR IGNORE INTO main.{t} SELECT * FROM seed.{t}")
+            cols = ", ".join(r[1] for r in con.execute(f"PRAGMA seed.table_info({t})"))  # main may have more
+            con.execute(f"INSERT OR IGNORE INTO main.{t} ({cols}) SELECT {cols} FROM seed.{t}")
         con.execute("INSERT OR REPLACE INTO seen_cache VALUES (?, strftime('%s','now'))", (key,))
         con.commit()
     finally:

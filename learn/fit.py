@@ -81,6 +81,7 @@ def run(con, cfg=None, now=None, apply=True, base=None):
         store.log_run(con, now, klasa, rec["n"], rec["skok"], rec["applied"], rec["metric_old"], rec["metric_new"],
                       old, rec["new"] or {}, rec["note"])
         report.append(rec)
+    store.prune_empty(con)
     con.commit()
     return report
 

@@ -26,6 +26,14 @@ def log_run(con, ts, klasa, n, skok, applied, metric_old, metric_new, old, new, 
                  json.dumps(old), json.dumps(new), note))
 
 
+def prune_empty(con):
+    """Runs that only said "too few outcomes" (nothing fitted, nothing applied): keep the newest per class and UTC
+    day. Every deploy used to re-run the daily fit, which filled the history with ~50 such rows a day."""
+    return con.execute("""DELETE FROM learn_runs WHERE applied = 0 AND metric_new IS NULL AND ts < (
+        SELECT MAX(r2.ts) FROM learn_runs r2 WHERE r2.klasa = learn_runs.klasa AND r2.applied = 0
+        AND r2.metric_new IS NULL AND r2.ts / 86400 = learn_runs.ts / 86400)""").rowcount
+
+
 def runs(con, klasa=None, limit=50):
     sql = "SELECT * FROM learn_runs" + (" WHERE klasa=?" if klasa else "") + " ORDER BY ts DESC LIMIT ?"
     rows = con.execute(sql, ((klasa, limit) if klasa else (limit,))).fetchall()

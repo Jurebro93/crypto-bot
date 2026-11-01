@@ -56,14 +56,19 @@ def events(now, window_s, kol_db=None, tg_db=None, hype_db=None):
             fac = sessions.factors(kc) if kc else {}
         except sqlite3.OperationalError:
             pass
+        from kol import bots as _bots
+        bots = _bots.handles(kc)   # automated alert accounts post every fresh token: never a KOL call
         for tok, ts, h, kind, src in _q(kc, "SELECT token, ts, handle, kind, source FROM calls WHERE ts >= ? "
                                             "AND kind = 'call'", (since,)):
             plat = "tg" if h.startswith("tg:") else "x"   # wallet swaps come from hype.db chain_trades below
             ev.append((tok, ts, plat, h, kind))
         for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
-            ev.append((ca, ts, "x", h, "call"))   # live X webhook, before run_kol copies it
+            if h not in bots:
+                ev.append((ca, ts, "x", h, "call"))   # live X webhook, before run_kol copies it
         for ch, ts, cas, fwd in _q(tc, "SELECT channel, ts, cas, fwd_from FROM posts WHERE ts >= ? AND cas != ''",
                                    (since,)):
+            if f"tg:{ch}" in bots:
+                continue
             for ca in cas.split(","):
                 ev.append((ca, ts, "tg", f"tg:{ch}", "repost" if fwd else "call"))
         for w, mint, side, ts in _q(hc, "SELECT wallet, mint, side, ts FROM chain_trades WHERE ts >= ?", (since,)):
