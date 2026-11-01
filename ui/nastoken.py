@@ -571,7 +571,7 @@ def launch_html(p, host=None):
 def _http_json(url, body, timeout=30):
     import urllib.request
     req = urllib.request.Request(url, data=_json.dumps(body).encode(), method="POST",
-                                 headers={"Content-Type": "application/json", "User-Agent": "kriptoradar/1"})
+                                 headers={"Content-Type": "application/json", "User-Agent": "memesonar/1"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read()
 

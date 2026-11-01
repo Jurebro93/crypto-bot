@@ -111,10 +111,10 @@ def cat_nav(lang, active=None):
 
 
 L = {
-    "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: KriptoRadar blog",
-               c_more="More on KriptoRadar", read="min read", by="KriptoRadar research", short="Short answer",
+    "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: MemeSonar blog",
+               c_more="More on MemeSonar", read="min read", by="MemeSonar research", short="Short answer",
                terms="Terms in this post", all_terms="All terms →", next="Read next", cta="Request access",
-               lock="KriptoRadar does this for you in real time: every new Solana token, every influencer call and every "
+               lock="MemeSonar does this for you in real time: every new Solana token, every influencer call and every "
                     "tracked wallet, scored and filtered for rugs.",
                note="Not financial advice. Numbers are measurements of past tokens and calls; meme coins are extremely "
                     "risky and most go to zero.",
@@ -123,16 +123,16 @@ L = {
                       "the EU, and how it is taxed. Measured on thousands of tokens we track every day.",
                i_lock="Members see these signals live: new tokens, influencer calls and wallets worth copying, with a rug "
                       "shield on every buy.",
-               i_title="KriptoRadar blog: Solana meme coins, exchanges, crypto tax in Croatia and rug pulls",
+               i_title="MemeSonar blog: Solana meme coins, exchanges, crypto tax in Croatia and rug pulls",
                i_desc="Data-backed crypto guides: buying Solana meme coins, MiCA-licensed exchanges and cards in Croatia, "
                       "crypto tax, wallet tracking, copy trading and how to spot a rug pull.",
                months=("January", "February", "March", "April", "May", "June", "July", "August", "September",
                        "October", "November", "December")),
-    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: KriptoRadar blog",
-               c_more="Još na KriptoRadaru", read="min čitanja", by="KriptoRadar istraživanje",
+    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: MemeSonar blog",
+               c_more="Još na MemeSonaru", read="min čitanja", by="MemeSonar istraživanje",
                short="Kratki odgovor", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
                cta="Zatraži pristup",
-               lock="KriptoRadar to radi za tebe u stvarnom vremenu: svaki novi Solana token, svaki poziv influencera i "
+               lock="MemeSonar to radi za tebe u stvarnom vremenu: svaki novi Solana token, svaki poziv influencera i "
                     "svaki praćeni novčanik, ocijenjen i provjeren na rug.",
                note="Nije financijski savjet. Brojke su mjerenja prošlih tokena i poziva; meme coini su izuzetno "
                     "rizični i većina završi na nuli.",
@@ -141,7 +141,7 @@ L = {
                       "Hrvatskoj i EU i kako se oporezuje. Izmjereno na tisućama tokena koje pratimo svaki dan.",
                i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koje vrijedi "
                       "kopirati, uz zaštitu od ruga na svakoj kupnji.",
-               i_title="KriptoRadar blog: Solana meme coini, mjenjačnice, porez na kripto i rug pullovi",
+               i_title="MemeSonar blog: Solana meme coini, mjenjačnice, porez na kripto i rug pullovi",
                i_desc="Kripto vodiči uz stvarne podatke: kupnja Solana meme coina, mjenjačnice i kartice s MiCA licencom u "
                       "Hrvatskoj, porez na kriptovalute, praćenje novčanika, copy trading i rug pullovi.",
                months=("siječnja", "veljače", "ožujka", "travnja", "svibnja", "lipnja", "srpnja", "kolovoza", "rujna",
@@ -277,14 +277,14 @@ def index(lang="en"):
     from ui.public import _shell
     t = L[lang]
     vs = views(lang)
-    body = (f"<div class=art style='max-width:none'><section class=ph1><div class=eyebrow>KriptoRadar blog</div>"
+    body = (f"<div class=art style='max-width:none'><section class=ph1><div class=eyebrow>MemeSonar blog</div>"
             f"<h1>{t['i_h1']}</h1><p class=lead>{t['i_lead']}</p></section>{cat_nav(lang)}"
             + "".join(f"<h2 class=s><a href={cat_path(c, lang)}>{c[2 if lang == 'en' else 3]} →</a></h2>"
                       f"<div class=bl>{''.join(_card(v, lang) for en in c[6] for v in [get_en(en, lang)] if v)}</div>" for c in CATS)
             + (f"<div class=bl>{''.join(_card(v, lang) for v in vs if v['en'] not in CAT_OF)}</div>"
                if any(v["en"] not in CAT_OF for v in vs) else "")
             + f"<div class=lock><p>{t['i_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div></div>")
-    jsonld = _ld({"@context": "https://schema.org", "@type": "Blog", "name": "KriptoRadar blog", "inLanguage": lang,
+    jsonld = _ld({"@context": "https://schema.org", "@type": "Blog", "name": "MemeSonar blog", "inLanguage": lang,
                   "url": _base() + t["base"],
                   "blogPost": [{"@type": "BlogPosting", "headline": v["h1"], "url": f"{_base()}{t['base']}/{v['slug']}",
                                 "datePublished": v["date"]} for v in vs]})
@@ -369,8 +369,8 @@ def page(slug, lang="en"):
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "BlogPosting", "headline": p["h1"], "description": p["desc"], "datePublished": p["date"],
          "dateModified": p.get("updated", p["date"]), "mainEntityOfPage": url, "image": _base() + _og(p),
-         "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "KriptoRadar"},
-         "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
+         "inLanguage": lang, "keywords": ", ".join(p["kw"]), "author": {"@type": "Organization", "name": "MemeSonar"},
+         "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "BreadcrumbList", "itemListElement": [
             {"@type": "ListItem", "position": 1, "name": "Blog", "item": _base() + t["base"]},
             *([{"@type": "ListItem", "position": 2, "name": CAT_OF[p["en"]][2 if lang == "en" else 3],

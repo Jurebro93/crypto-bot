@@ -166,7 +166,7 @@ T("Rug checker", "osnove", "Besplatan alat (npr. RugCheck) koji prije kupnje pro
 T("API", "osnove", "Način na koji program (bot, aplikacija) traži podatke od drugog servisa, npr. cijenu tokena.",
   "Kripto aplikacije koriste RPC čvor (npr. Helius) za čitanje blockchaina i slanje transakcija, i API za podatke "
   "(DexScreener, Birdeye, CoinGecko) za cijene, poolove i holdere. Besplatne razine imaju ograničen broj poziva.",
-  "KriptoRadar koristi Helius za novčanike i DexScreener za cijene.", alias=["rpc", "rpc čvor", "api ključ"], k="api")
+  "MemeSonar koristi Helius za novčanike i DexScreener za cijene.", alias=["rpc", "rpc čvor", "api ključ"], k="api")
 T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi ide traderu kojeg kopiraš (obično 10-20%).",
   "Naplaćuje se samo na dobitne tradeove. On-chain copy trading umjesto toga naplaćuje oko 1% na svaki trade, i "
   "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",

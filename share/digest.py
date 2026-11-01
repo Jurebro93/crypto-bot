@@ -193,7 +193,7 @@ def _trade(t):
 def text(d):
     """WhatsApp message: short lines, a bold heading per block, one empty line between blocks, nothing wraps
     into a wall of text on a phone."""
-    blocks = [[f"📊 *KriptoRadar* · {d['date']}"]]
+    blocks = [[f"📊 *MemeSonar* · {d['date']}"]]
     if d["news"]:
         b = ["🆕 *ŠTO JE NOVO*"]
         for i in d["news"]:

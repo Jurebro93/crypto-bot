@@ -292,11 +292,11 @@ GALLERY_EN = [("pregled.jpg", "New token radar"), ("kol.jpg", "Influencer scores
 
 T = {
     "hr": dict(
-        title="KriptoRadar · pametniji ulaz u Solana tokene",
+        title="MemeSonar · pametniji ulaz u Solana tokene",
         desc="Radar novih Solana tokena, ocjena influencera, kopiranje najboljih i liga tradera. Samo na pozivnicu.",
         pill="Samo na pozivnicu", h1a="Pametniji ulaz u", h1b="Solana tokene.",
-        sub="KriptoRadar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
-        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri", ex_eye="Istraži besplatno", ex_h="Javni podaci KriptoRadara",
+        sub="MemeSonar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
+        req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri", ex_eye="Istraži besplatno", ex_h="Javni podaci MemeSonara",
         n_tokens="tokena provjereno", n_wallets="novčanika praćeno", n_kols="influencera ocijenjeno",
         n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
         feat_lead="Šest alata koji rade 24/7, da ti ne moraš.",
@@ -322,11 +322,11 @@ T = {
         foot="Nije financijski savjet. Kripto nosi visok rizik.", feats=FEATURES, gallery=GALLERY,
         fallback=[("2 min", "novi sken"), ("24/7", "radi bez pauze"), ("7", "slojeva provjere"), ("0 €", "za pozvane")]),
     "en": dict(
-        title="KriptoRadar · smarter entries into Solana tokens",
+        title="MemeSonar · smarter entries into Solana tokens",
         desc="New Solana token radar, influencer call scores, copy trading and a trader league. Invite only.",
         pill="Invite only", h1a="Smarter entries into", h1b="Solana tokens.",
-        sub="KriptoRadar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
-        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers", ex_eye="Explore for free", ex_h="Public KriptoRadar data",
+        sub="MemeSonar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
+        req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers", ex_eye="Explore for free", ex_h="Public MemeSonar data",
         n_tokens="tokens checked", n_wallets="wallets tracked", n_kols="influencers scored", n_calls="calls measured",
         live="Live from the database · updated", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
         feat_lead="Six tools working 24/7, so you don't have to.",
@@ -555,7 +555,7 @@ STATUS = {"novi": ("novi", "warn"), "pozvan": ("pozvan", "good"), "odbijen": ("o
 
 
 def _invite_text(row, url):
-    return (f"Bok {row['name']}! Evo tvoje pozivnice za KriptoRadar: {url}\n"
+    return (f"Bok {row['name']}! Evo tvoje pozivnice za MemeSonar: {url}\n"
             "Otvori link, upiši ime i lozinku i dobiješ demo račun od $1.000.")
 
 
@@ -573,7 +573,7 @@ def _share(row, url):
     else:
         wa = f"https://wa.me/?text={quote(text)}"
     to = esc(c) if ("@" in c and "." in c.split("@")[-1] and not c.startswith("@")) else ""
-    mail = f"mailto:{to}?subject={quote('Tvoja pozivnica za KriptoRadar')}&body={quote(text)}"
+    mail = f"mailto:{to}?subject={quote('Tvoja pozivnica za MemeSonar')}&body={quote(text)}"
     tg = f"https://t.me/share/url?url={quote(url)}&text={quote(text.split(': ')[0] + ':')}"
     return (f"<a class='sh wa' href=\"{wa}\" target=_blank rel=noopener>📲 WhatsApp</a>"
             f"<a class='sh em' href=\"{mail}\">✉️ E-mail</a>"
