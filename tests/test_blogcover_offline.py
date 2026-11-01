@@ -26,6 +26,11 @@ class Covers(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(STATIC, name)),
                                 f"{name} missing: run python3 scripts/blog_covers.py")
 
+    def test_captions_fit_two_lines(self):
+        for en, c in blogcover.COVER.items():
+            for cap in (c[1], c[3]):
+                self.assertFalse(blogcover._wrap(cap, 30, 2)[-1].endswith("…"), f"shorten caption of {en}: {cap}")
+
     def test_svg_ids_unique_and_language(self):
         v_en, v_hr = blog.get_en("how-to-spot-a-rug-pull", "en"), blog.get_en("how-to-spot-a-rug-pull", "hr")
         a, b = blogcover.svg(v_en, "en"), blogcover.svg(v_hr, "hr")
