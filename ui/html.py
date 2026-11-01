@@ -26,8 +26,6 @@ SECTIONS = [
            "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
         _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
            "kopiraj prati influencer kol wallet novčanik copy trade"),
-        _p("/moji-tradeovi", "💼", "Moji pravi tradeovi", "Upiši svoje prave kupnje i prati koliko zarađuješ.",
-           "real pravi novac portfelj"),
         _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
            "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
         _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
@@ -64,7 +62,7 @@ SECTIONS = [
 ]
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
-              "/prijedlozi/": "/prijedlozi", "/moji-tradeovi/": "/moji-tradeovi", "/kol/": "/kol",
+              "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
               "/prijava": "/natjecanje", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar: the four places people go most, Natjecanje in the middle
 BOTTOM = [("/", "🏠", "Pregled"), ("/tokens", "🪙", "Tokeni"), ("/natjecanje", "🏆", "Natjecanje"), ("/paper", "🤖", "Demo")]

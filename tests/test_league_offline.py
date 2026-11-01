@@ -110,34 +110,12 @@ class Dashboard(unittest.TestCase):
             self.assertIn(part, html)
 
 
-class RealTrades(unittest.TestCase):
-    def setUp(self):
-        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
-        from ui import real
-        self.real = real
-        real.live = lambda mints: {m: (52_000, "REMARC", None) for m in mints}
-
-    def test_parse_usd(self):
-        p = self.real.parse_usd
-        self.assertEqual((p("26k"), p("$1.5M"), p("22"), p("26,000"), p(""), p("abc")),
-                         (26_000, 1_500_000, 22, 26_000, None, None))
-
-    def test_add_follow_close(self):
-        link = f"https://dexscreener.com/solana/{MINT}"
-        loc = self.real.post("/moji-tradeovi/add", {"token": link, "size": "22", "mcap": "26k"}, "Jure")
-        self.assertIn("ok=", loc)
-        self.assertIn("err=", self.real.post("/moji-tradeovi/add", {"token": "nista", "size": "22"}, "Jure"))
-        self.assertIn("err=", self.real.post("/moji-tradeovi/add", {"token": MINT, "size": "22"}, None))
-        body = self.real.page({}, "Jure")[1]
-        self.assertIn("+22.00", body)                         # MC doubled 26k -> 52k on $22
-        self.assertIn("Jure", self.real.page({}, "Ivan")[1])  # others see it under Ostali igrači
-        con = store.connect()
-        tid = store.real_trades(con, "Jure")[0]["id"]
-        self.assertIn("err=", self.real.post("/moji-tradeovi/close", {"id": str(tid)}, "Ivan"))  # not his
-        self.assertIn("ok=", self.real.post("/moji-tradeovi/close", {"id": str(tid), "mcap": "13k"}, "Jure"))
-        self.assertAlmostEqual(store.real_trades(con, "Jure")[0]["pnl_usd"], -11)
-        self.real.post("/moji-tradeovi/delete", {"id": str(tid)}, "Jure")
-        self.assertEqual(store.real_trades(con), [])
+class RealTradesRemoved(unittest.TestCase):
+    def test_not_in_menu(self):
+        from ui import html
+        hrefs = [p["href"] for _, pages in html.SECTIONS for p in pages]
+        self.assertNotIn("/moji-tradeovi", hrefs)
+        self.assertNotIn("Moji pravi tradeovi", html.page("x", "", "/"))
 
 
 class DiskFull(unittest.TestCase):
