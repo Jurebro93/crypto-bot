@@ -160,7 +160,9 @@ def _panel(kind):
             f'max={copy.CFG["max_size"]} step=1 value=25 style="width:70px"></label>'
             f'<label>najviše ulaza na dan <input data-k=per_day type=number min=1 max={copy.CFG["max_per_day"]} '
             f'value={5 if kind == "wallet" else 10} style="width:60px"></label>'
-            f'<label>izlaz <select data-k=exit>{sel}</select></label>'
+            + ('<label>koliko callova <select data-k=once><option value="">svaki njegov call dok ga pratiš</option>'
+               '<option value=1>samo sljedeći call, pa stani</option></select></label>' if kind == "kol" else '')
+            + f'<label>izlaz <select data-k=exit>{sel}</select></label>'
             '<input data-k=tp placeholder="TP npr. 100%" size=11><input data-k=sl placeholder="SL npr. -30%" size=11>'
             '</div>')
 
@@ -182,7 +184,7 @@ def _btn(kind, target, label, mine, user):
         return (badge("pratiš ✓", "good") + " " +
                 f'<form method=post action="/natjecanje/copy/stop" style="display:inline"><input type=hidden name=id '
                 f'value={f["id"]}><button>Prestani</button></form>')
-    text = "Uđi na njihov call prvi" if kind == "kol" else "Copy trade-aj ovaj wallet"
+    text = "Prati i ulazi na svaki njegov call" if kind == "kol" else "Copy trade-aj ovaj wallet"
     return (f'<form method=post action="/natjecanje/copy/follow" class=cpf data-panel={kind} style="margin:0">'
             f'<input type=hidden name=kind value={kind}><input type=hidden name=target value="{esc(target)}">'
             f'<input type=hidden name=label value="{esc(label)}"><button>{text}</button></form>')
@@ -299,7 +301,9 @@ def page(qs, user):
             "izbačeni). <b>Pogodak</b> = token je narastao +50% u 24 h nakon poziva. <b>Kasni pozivi</b> = token je već "
             "skočio prije poziva. <b>KOL test</b> = kako je prošao naš probni ulaz od $50 na svaki svjež poziv tog "
             "influencera. <b>⚡ uživo</b> znači da njegove objave vidimo u sekundama; ostale vidimo tek pri skeniranju, "
-            "često prekasno, a poziv stariji od 10 minuta se ne kopira."))
+            "često prekasno, a poziv stariji od 10 minuta se ne kopira. Kad ga pratiš, alat ulazi na <b>svaki</b> njegov novi "
+            "call (najviše koliko upišeš na dan) dok ne klikneš Prestani; ako želiš samo jedan ulaz, odaberi "
+            "„samo sljedeći call”."))
         if user:
             b.append(_panel("kol"))
         b.append(_kol_table(_cached("kol", kol_rows), mine, user, q))
@@ -339,9 +343,11 @@ def post(path, form, user):
             kind = form.get("kind", "")
             copy.follow(con, user, kind, form.get("target", ""), form.get("label", ""), form.get("size") or 25,
                         form.get("per_day") or (5 if kind == "wallet" else 10), form.get("exit", ""),
-                        form.get("tp", ""), form.get("sl", ""))
+                        form.get("tp", ""), form.get("sl", ""), once=bool(form.get("once")))
             who = form.get("label") or form.get("target", "")[:8]
-            msg = (f"Pratiš {who}: ulaziš na njegov sljedeći call" if kind == "kol" else
+            msg = (f"Pratiš {who}: ulaziš samo na njegov sljedeći call, pa praćenje staje" if form.get("once") and
+                   kind == "kol" else f"Pratiš {who}: ulaziš na svaki njegov novi call dok ne klikneš Prestani"
+                   if kind == "kol" else
                    f"Kopiraš wallet {who}: kupuješ i prodaješ kad i on")
             _CACHE.clear()
             return f"{back}?ok={qq(msg)}#pratim"

@@ -116,6 +116,20 @@ class Copy(unittest.TestCase):
         self.assertEqual(len(store.trades(con, "Jure", "open")), 1)
         self.assertIn("limit", {r["token"]: r["note"] for r in copy.log(con)}["E" * 43])
 
+    def test_once_enters_next_call_then_stops(self):
+        con = store.connect()
+        now = int(time.time())
+        self.mk["E" * 43] = (1.0, 50000, None, 1e6, "EEE")
+        fid = copy.follow(con, "Ivan", "kol", "goodkol", "@goodkol", 20, 10, "smart", once=True)
+        self.assertIn("samo sljedeći", copy.describe_exit(copy.follows(con, "Ivan")[0]["exit"]))
+        self.k.execute("INSERT INTO calls VALUES (?, 'goodkol', ?, 'call')", (A, now + 5))
+        self.k.execute("INSERT INTO calls VALUES (?, 'goodkol', ?, 'call')", ("E" * 43, now + 6))
+        self.k.commit()
+        copy.run_once(con, self.market, now + 10, self.paths)
+        self.assertEqual(len(store.trades(con, "Ivan", "open")), 1)
+        self.assertEqual(copy.follows(con, "Ivan"), [])           # stopped by itself
+        self.assertEqual(copy.follow_results(con)[fid]["open"], 1)
+
     def test_follow_validation(self):
         con = store.connect()
         with self.assertRaises(ValueError):
@@ -141,7 +155,7 @@ class Copy(unittest.TestCase):
             self.assertNotIn("scanbot", body)          # bot accounts are not offered
             self.assertIn("Trader", body)              # live-followed wallet with its public stats
         body = copytrade.page({}, "Panda")[1]
-        self.assertIn("Uđi na njihov call prvi", body)
+        self.assertIn("Prati i ulazi na svaki njegov call", body)
         self.assertIn("Copy trade-aj ovaj wallet", body)
         self.assertIn("pratiš ✓", copytrade.page({}, "Ivan")[1])
         from ui import league
