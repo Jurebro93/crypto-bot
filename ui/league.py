@@ -162,6 +162,9 @@ def page(qs, user):
              "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
              "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
         b.append(_copy_card(con, user))
+        b.append('<p style="margin:6px 0 10px"><a href=/whatsapp style="display:inline-flex;align-items:center;gap:6px;'
+                 'background:#25d366;color:#fff;border-radius:10px;padding:8px 14px;font-weight:600;text-decoration:none">'
+                 '📲 Pošalji stanje u WhatsApp grupu</a></p>')
         if user:
             from ui import register
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'

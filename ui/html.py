@@ -18,6 +18,8 @@ SECTIONS = [
         _p("/", "🏠", "Pregled", "Najjači tokeni upravo sada i kako bot stoji danas.", "home početna dashboard kandidati"),
         _p("/mapa", "🧭", "Gdje je što", "Sve stranice na jednom mjestu, s kratkim opisom.", "izbornik mapa pomoć help"),
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak svega bitnog, gotov prije 8 h.", "email mail report sažetak"),
+        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za vašu WhatsApp grupu: ljestvica, tradeovi, novosti.",
+           "whatsapp grupa podijeli pošalji share novosti"),
     ]),
     ("Natjecanje", [
         _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
@@ -429,7 +431,8 @@ def map_page(qs=None):
 
 
 QUICK = [("/natjecanje", "🏆", "Natjecanje"), ("#istaknuti", "⭐", "Istaknuti tokeni"), ("/paper", "🤖", "Demo trading"),
-         ("/dugorocno", "🌱", "Dugoročni"), ("/kol", "📣", "KOL-ovi"), ("/mapa", "🧭", "Gdje je što")]
+         ("/dugorocno", "🌱", "Dugoročni"), ("/kol", "📣", "KOL-ovi"), ("/whatsapp", "📲", "Za WhatsApp"),
+         ("/mapa", "🧭", "Gdje je što")]
 
 
 def quick_links():

@@ -9,6 +9,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
+  whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
 """
 import datetime as dt
 import json
@@ -96,11 +97,31 @@ def exits_refit():
         return False
 
 
+def whatsapp(name, args, minutes):
+    """Checks the clock itself so nothing starts while WhatsApp sending is not set up (no process every 10 min)."""
+    while True:
+        try:
+            if os.environ.get("WHATSAPP_PROVIDER") and os.environ.get("WHATSAPP_TOKEN"):
+                hour = int(os.environ.get("WHATSAPP_HOUR", "19"))
+                try:
+                    from zoneinfo import ZoneInfo
+                    now = dt.datetime.now(ZoneInfo("Europe/Zagreb"))
+                except Exception:  # noqa: BLE001
+                    now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
+                if now.hour >= hour and _last_day(name) != now.date().isoformat():
+                    if run(name, args) == 0:
+                        _set_last_day(name, now.date().isoformat())
+        except Exception as e:  # noqa: BLE001
+            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(minutes * 60)
+
+
 JOBS = [
     ("learn", daily, (["run_learn.py", "fit"], "learn/config.json")),
     ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
+    ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
 ]
 

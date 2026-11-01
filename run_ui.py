@@ -233,6 +233,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/whatsapp":
+            from ui import whatsapp
+            try:
+                html = page(*whatsapp.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200, html.encode("utf-8"))
         if path.startswith("/izvjestaj/raw/"):
             from ui import reportpage
             body = reportpage.raw(path[len("/izvjestaj/raw/"):])
@@ -304,6 +311,12 @@ class Handler(BaseHTTPRequestHandler):
             handler = real.post if path.startswith("/moji-tradeovi/") else \
                 copytrade.post if path.startswith("/natjecanje/copy/") else league.post
             self.send_header("Location", handler(path, form, self.user))
+            self.end_headers()
+            return
+        if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
+            from ui import whatsapp
+            whatsapp.post_shared()
+            self.send_response(204)
             self.end_headers()
             return
         if same_site and path == "/paper/izlaz":  # sell an open demo position by hand
