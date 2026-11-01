@@ -694,7 +694,7 @@ def coin_page(slug, lang):
           f"{r['organic']:.0f}/100" if r["organic"] is not None else "–",
           f"{o['top10'] * 100:.0f}%" if o["top10"] is not None and o["top10"] <= 1 else
           (f"{o['top10']:.0f}%" if o["top10"] is not None else "–"),
-          (f"{o['cex'][0]}" + (f" · {esc(o['cex'][1])[:80]}" if o["cex"][1] else "")) if o["cex"] else "–"]
+          (f"{o['cex'][0]}" + _seo_extra(lambda S: S.cex_short(o["cex"][1]))) if o["cex"] and o["cex"][0] else "–"]
     safe = ("<div class=tw><table><tbody>" + "".join(f"<tr><td>{k}</td><td class=n><b>{v}</b></td></tr>"
                                                     for k, v in zip(t["safe"], sv) if v != "–") + "</tbody></table></div>")
     crow = []
