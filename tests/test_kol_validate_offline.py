@@ -161,5 +161,56 @@ class Timeline(unittest.TestCase):
         self.assertFalse(set(hs2[3:]) & set(hs[3:]))
 
 
+class TwitterApiIo(unittest.TestCase):
+    def setUp(self):  # keep test spend out of the shared usage meter
+        from unittest import mock
+        p = mock.patch("usage.meter.record")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_round_budget_and_paging(self):
+        import datetime as dt
+        from kol import collect, twapi
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        for i in range(30):
+            h = f"k{i}"
+            con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", (h, 50, json.dumps({"score_lo": 40})))
+            for j in range(2):
+                con.execute("INSERT INTO calls (tweet_id, handle, token, ts, kind) VALUES (?,?,?,?,?)",
+                            (f"{h}{j}", h, f"{h}t{j}", NOW - DAY, "call"))
+        ca = "HgxEGTZ1Epb64RrYqcuHkqb1gGWWnF5WcPTCDWzApump"
+
+        def tw(tid, h, ts, text):
+            created = dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%a %b %d %H:%M:%S +0000 %Y")
+            return {"id": tid, "text": text, "createdAt": created, "author": {"userName": h, "followers": 900}}
+        asked = []
+
+        def get(q, cursor):
+            asked.append((q, cursor))
+            if not cursor:  # page 1: two new posts, more pages
+                return {"tweets": [tw("1", "k0", NOW - 60, f"buy {ca}"),
+                                   tw("2", "k1", NOW - 120, "gm")], "has_next_page": True, "next_cursor": "c2"}
+            return {"tweets": [tw("3", "k2", NOW - 9 * 3600, f"old {ca}")], "has_next_page": True, "next_cursor": "c3"}
+        cfg = dict(CFG, timeline_twapi={"every_min": 30, "kols": 30, "core": 20, "per_query": 25, "daily_usd": 0.7})
+        n = collect.timeline_twapi(con, cfg, get=get, now=NOW)
+        self.assertEqual(len([q for q in asked if not q[1]]), 2)  # 30 handles, 25 per query
+        self.assertTrue(all("since_time:" in q for q, _ in asked))
+        self.assertNotIn("c3", [c for _, c in asked])  # stopped paging at a post older than the last round
+        self.assertGreaterEqual(n, 1)
+        self.assertGreater(twapi.spent(con, NOW), 0)
+        self.assertEqual(collect.timeline_twapi(con, cfg, get=get, now=NOW + 60), 0)  # too soon
+        # over budget: nothing asked
+        asked.clear()
+        cfg2 = dict(cfg, timeline_twapi=dict(cfg["timeline_twapi"], daily_usd=0.0))
+        collect.timeline_twapi(con, cfg2, get=get, now=NOW + 3600)
+        self.assertEqual(asked, [])
+
+    def test_retweet_skipped(self):
+        from kol import collect
+        self.assertEqual(collect.calls_from_tweet({"id": "1", "retweeted_tweet": {"id": "0"}, "text": "x",
+                                                  "createdAt": "Fri Oct 30 21:58:58 +0000 2026",
+                                                  "author": {"userName": "a"}}), [])
+
+
 if __name__ == "__main__":
     unittest.main()
