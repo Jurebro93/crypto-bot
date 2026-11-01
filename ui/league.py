@@ -47,6 +47,24 @@ def _who(user):
             f'<a href=/prijava><button>Prijavi se svojim imenom</button></a>{extra}</div>')
 
 
+def _copy_card(con, user):
+    """Prominent way into copy trading (/copy-trading), at the top of Natjecanje for everyone."""
+    try:
+        from league import copy
+        mine = [f for f in copy.follows(con) if f["user"] == user] if user else []
+    except sqlite3.OperationalError:
+        mine = []
+    now = (f"Trenutno pratiš: <b>{len(mine)}</b> ({esc(', '.join(f['label'] or f['target'][:6] for f in mine[:4]))}"
+           f"{'…' if len(mine) > 4 else ''}). ") if mine else ""
+    return ('<div class=card style="border:2px solid var(--acc,#f97316);display:flex;gap:14px;align-items:center;'
+            'flex-wrap:wrap;margin:10px 0"><div style="font-size:30px">🔁</div><div style="flex:1;min-width:220px">'
+            '<b style="font-size:17px">Copy trading: prati KOL-ove i wallete</b><br>'
+            '<span class=mut>Detaljna statistika svakog influencera i walleta. Klikni „Uđi na njihov call prvi” ili '
+            f'„Copy trade-aj ovaj wallet” i alat trguje umjesto tebe na ovom demo računu. {now}</span></div>'
+            '<a href="/copy-trading"><button style="font-size:15px;padding:8px 16px">Otvori copy trading →</button></a>'
+            '</div>')
+
+
 def _err(qs):
     if qs.get("err"):
         return (f'<div class=card style="border:2px solid var(--bad);background:var(--badbg)"><b class=neg>❌ Nije prošlo, '
@@ -143,6 +161,7 @@ def page(qs, user):
         b = [f"<h1>Natjecanje</h1><p class=lead>Svatko ima svoj demo račun od ${store.START_USD:,.0f} (bez pravog novca). "
              "Biraš tokene iz prijedloga alata, kupuješ i prodaješ po živoj cijeni s DexScreenera, uz 1% naknade i "
              "klizanje cijene kao u pravoj trgovini. Pobjeđuje tko ima najviše na računu.</p>", _who(user), _err(qs)]
+        b.append(_copy_card(con, user))
         if user:
             from ui import register
             b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#moj">💼 Moj račun</a>'

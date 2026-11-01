@@ -144,6 +144,11 @@ class Copy(unittest.TestCase):
         self.assertIn("Uđi na njihov call prvi", body)
         self.assertIn("Copy trade-aj ovaj wallet", body)
         self.assertIn("pratiš ✓", copytrade.page({}, "Ivan")[1])
+        from ui import league
+        league.market = lambda mints: {}
+        for user in ("Ivan", None):   # the way in is at the top of Natjecanje for players and guests
+            self.assertIn('href="/copy-trading"', league.page({}, user)[1])
+        self.assertIn("Trenutno pratiš: <b>1</b>", league.page({}, "Ivan")[1])
         fid = copy.follows(store.connect(), "Ivan")[0]["id"]
         self.assertIn("ok=", copytrade.post("/natjecanje/copy/stop", {"id": str(fid)}, "Ivan"))
 
