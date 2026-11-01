@@ -95,8 +95,9 @@ def intake(con, cfg, now, events):
     q = ",".join("?" * len(toks))
     known = {(c, t) for c, t in con.execute(f"SELECT caller, token FROM positions WHERE token IN ({q})", toks)}
     hour, per_caller = _hour_counts(con, now), _caller_counts(con, now)
-    # best callers first when the hourly cap is tight; inside equal scores the oldest call first
-    for tok, ts, plat, author, score in sorted(events, key=lambda e: (-e[4], e[1])):
+    # best callers first when the hourly cap is tight; inside equal scores the NEWEST call first (oldest-first filled
+    # the cap with calls just under the 10-min limit: median delay was ~580 s on 1.11.)
+    for tok, ts, plat, author, score in sorted(events, key=lambda e: (-e[4], -e[1])):
         if (author, tok) in known or ts < start:   # calls from before the test began are not part of it
             continue
         known.add((author, tok))
@@ -134,6 +135,30 @@ def _save(con, rid, pos, status=None):
                  pos["book_closed_ts"], pos["book_reason"], status, rid))
 
 
+def _fix_gap_fills(con, cfg):
+    """Once: ladder sales made before 1.11. at the market price of a jump far past the level (one fake +50,000% tick
+    booked +$24k) are re-priced at the level, as a limit order there would have filled."""
+    if store.kv_get(con, "fix_gap_fills"):
+        return
+    for p in store.rows(con):
+        b = p["book"]
+        changed = False
+        for f in b.get("fills", []):
+            r = f.get("reason") or ""
+            if r.startswith("+") and r.endswith("%") and f.get("ret") is not None:
+                lv = float(r[1:-1]) / 100
+                if f["ret"] > lv:
+                    f["usd"] = round(f["usd"] * (1 + lv) / (1 + f["ret"]), 4)
+                    f["ret"] = lv
+                    changed = True
+        if changed:
+            b["realized"] = sum(f["usd"] for f in b["fills"])
+            pnl = book.value(p, cfg)
+            con.execute("UPDATE positions SET book=?, pnl_usd=? WHERE id=?", (json.dumps(b), round(pnl, 4), p["id"]))
+    store.kv_set(con, "fix_gap_fills", 1)
+    con.commit()
+
+
 def step(now=None, cfg=None, path=None, market_fn=None, events_fn=None, quiet=False):
     """One pass. Returns {'entered': n, 'open': n, 'done': n}."""
     cfg = cfg or load_config()
@@ -143,6 +168,7 @@ def step(now=None, cfg=None, path=None, market_fn=None, events_fn=None, quiet=Fa
     market_fn = market_fn or market
     con = store.connect(path)
     try:
+        _fix_gap_fills(con, cfg)
         start, end = store.window(con, cfg, now)
         if now < end:
             intake(con, cfg, now, (events_fn or _events)(now, cfg))
@@ -159,7 +185,11 @@ def step(now=None, cfg=None, path=None, market_fn=None, events_fn=None, quiet=Fa
         entered = done = 0
         for rid, tok, seen in pending:
             m = mk.get(tok)
-            if m and m[0] > 0 and (m[1] or 0) >= cfg["min_liq"] and (m[2] or 0) <= cfg.get("max_mcap", 5e7):
+            if m and m[0] > 0 and m[2] and (m[1] or 0) > m[2]:
+                # liquidity above the whole market cap: a fake pool (price set by a tiny supply, 1.11. rugs)
+                con.execute("UPDATE positions SET status='skip', close_reason='lažni pool', symbol=? WHERE id=?",
+                            (m[3], rid))
+            elif m and m[0] > 0 and (m[1] or 0) >= cfg["min_liq"] and (m[2] or 0) <= cfg.get("max_mcap", 5e7):
                 pos = book.new_position(m[0], m[1], m[2], int(now), cfg)
                 con.execute("UPDATE positions SET symbol=?, url=? WHERE id=?", (m[3], m[4], rid))
                 _save(con, rid, pos, "open")

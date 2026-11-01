@@ -123,6 +123,47 @@ class Book(unittest.TestCase):
         self.assertEqual(store.rows(con), [])
         con.close()
 
+    def test_gap_fills_at_level_and_fake_pool(self):
+        self.step(T0)
+        self.events = [(A, T0 + 10, "tg", "tg:chan", 0)]
+        self.step(T0 + 30)
+        self.px[A] = 500.0          # one wild tick: +49,900%
+        self.step(T0 + 90)
+        p = self.rows()[0]
+        self.assertLess(p["pnl_usd"], 20)           # ladder filled at +20..+50%, not at 500x
+        self.assertGreater(p["pnl_usd"], 10)
+        # liquidity above market cap = fake pool, no entry
+        self.events.append((B, T0 + 100, "x", "kolB", 0))
+        self.mk = lambda toks: {B: (1.0, 5e5, 1e4, "FAKE", None)} if B in toks else {}
+        self.step(T0 + 120)
+        con = store.connect(self.db)
+        self.assertEqual(con.execute("SELECT close_reason FROM positions WHERE token=?", (B,)).fetchone()[0],
+                         "lažni pool")
+        con.close()
+
+    def test_old_gap_fills_repriced_once(self):
+        import json
+        con = store.connect(self.db)
+        b = {"qty": 50, "left": 0.75, "realized": 1000.0, "tp_done": 1, "open": True, "size": 50, "px0": 1.0,
+             "fills": [{"ts": T0, "ret": 99.0, "frac": 0.25, "usd": 1000.0, "reason": "+20%"}]}
+        con.execute("INSERT INTO positions (token, source, caller, call_ts, seen_ts, entry_ts, entry_px, entry_liq, "
+                    "status, last_px, last_liq, peak, trough, hits, rets, book, pnl_usd) VALUES "
+                    "(?,?,?,?,?,?,?,?,'open',1.0,1e9,99,0,'{}','{}',?,1000)",
+                    (A, "tg", "tg:c", T0, T0, T0, 1.0, 1e9, json.dumps(b)))
+        con.commit()
+        con.close()
+        self.step(T0 + 60)
+        p = self.rows()[0]
+        self.assertAlmostEqual(p["book"]["fills"][0]["usd"], 12.0, places=2)
+        self.assertLess(p["pnl_usd"], 5)
+
+    def test_newest_call_first_under_cap(self):
+        self.step(T0)
+        self.cfg = dict(self.cfg, per_hour={"x": 1, "tg": 5, "chain": 5})
+        self.events = [(A, T0 + 10, "x", "old", 0), (B, T0 + 500, "x", "new", 0)]
+        self.step(T0 + 520)
+        self.assertEqual([p["caller"] for p in self.rows()], ["new"])
+
     def test_grid_and_levels(self):
         cfg = self.cfg
         base = {"status": "done", "entry_liq": 1e9, "rets": {"24h": 0.05}, "last_px": 1.05, "entry_px": 1.0}
