@@ -137,7 +137,7 @@ class MarketPub(unittest.TestCase):
             code, body, _ = public.route(p)
             self.assertEqual(code, 200, p)
             self.assertIn("noindex", body.decode())
-            self.assertIn("KriptoRadar", body.decode())
+            self.assertIn("MemeSonar", body.decode())
         self.assertIsNone(public.route("/embed/nope"))
 
     def test_sitemap_robots_menu(self):

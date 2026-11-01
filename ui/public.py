@@ -44,7 +44,7 @@ L = {
              "Rugs: share of called tokens that dropped 90% or more.",
              "Late calls: calls made after the price had already doubled in the 2 hours before.",
              "Bots that post every new token are excluded. Few measured calls means a less certain score."),
-        p_title="@{h} crypto: calls, track record and score {sc} ({hit} hit rate) | KriptoRadar",
+        p_title="@{h} crypto: calls, track record and score {sc} ({hit} hit rate) | MemeSonar",
         p_desc="How did @{h}'s Solana token calls play out? {m} calls measured: {hit} gained 50%+ within 24h, median "
                "peak {mx}, {rug} rugged. Updated daily.",
         summary="@{h} has posted {m} measured Solana token calls. {hit} of them gained at least 50% within 24 hours, "
@@ -75,7 +75,7 @@ L = {
              "Rugovi: udio pozvanih tokena koji su pali 90% ili više.",
              "Kasni pozivi: pozivi nakon što se cijena već udvostručila u 2 sata prije.",
              "Botovi koji objavljuju svaki novi token su izbačeni. Malo izmjerenih poziva znači manje sigurnu ocjenu."),
-        p_title="@{h} kripto: pozivi, rezultati i ocjena {sc} (pogodak {hit}) | KriptoRadar",
+        p_title="@{h} kripto: pozivi, rezultati i ocjena {sc} (pogodak {hit}) | MemeSonar",
         p_desc="Kako su prošli pozivi Solana tokena od @{h}? Izmjereno {m} poziva: {hit} je naraslo 50%+ u 24 h, medijan "
                "vrha {mx}, {rug} rugova. Osvježava se svaki dan.",
         summary="@{h} je objavio {m} izmjerenih poziva Solana tokena. {hit} ih je naraslo barem 50% u 24 sata, tipičan "
@@ -361,7 +361,7 @@ def leaderboard(lang):
           "p.dataset.p!==t.dataset.t);history.replaceState(null,'','#'+t.dataset.t)});"
           "if(location.hash==='#stars')document.querySelector('.lbt button[data-t=stars]').click()</script>")
     how = "".join(f"<li>{h}</li>" for h in t["how"])
-    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
+    body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
             f"</section>{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
             f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
             f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>{js}")
@@ -647,14 +647,14 @@ def route(path):
 
 C = {
     "en": dict(
-        lb_title="Top 100 Solana meme coins by market cap (live) | KriptoRadar",
+        lb_title="Top 100 Solana meme coins by market cap (live) | MemeSonar",
         lb_desc="The biggest Solana meme coins ranked by market cap: price, 24h change, holders, liquidity and volume, "
                 "with an analysis page for every coin. Updated every few hours.",
         lb_h1="Top Solana meme coins by market cap",
         lb_lead="The {n} largest Solana meme coins with real liquidity and holders, ranked by market cap. Click a coin "
                 "for its chart, safety check and which influencers called it.",
         cols=("#", "Coin", "Price", "24h", "Market cap", "Liquidity", "Holders", "24h volume"),
-        updated="Updated", p_title="{sym} price, market cap & holder analysis: is {name} safe? | KriptoRadar",
+        updated="Updated", p_title="{sym} price, market cap & holder analysis: is {name} safe? | MemeSonar",
         p_desc="{name} ({sym}) is the #{rank} Solana meme coin with a ${mcap} market cap and {holders} holders. Price "
                "chart, safety check, liquidity and the influencers who called it.",
         p_h1="{name} ({sym})", p_sub="price, holders and influencer calls",
@@ -668,7 +668,7 @@ C = {
         calls_note="Calls older than 24 hours and what the price did after them.",
         ccols=("Date", "Influencer", "Market cap at call", "1 h", "24 h", "24h peak"), no_calls="No influencer calls "
         "measured for this coin yet.", lock_h="What members see on top",
-        lock=("KriptoRadar score and odds of a jump, updated every 2 minutes", "Smart-money wallets buying or selling now",
+        lock=("MemeSonar score and odds of a jump, updated every 2 minutes", "Smart-money wallets buying or selling now",
               "{n} influencer calls from the last 24 hours, live",
               "Live influencer calls from the last 24 hours", "Copy trading and alerts on the next move"),
         similar="Similar coins", addr="Contract address", copy="Copy", faq_h="Questions about {sym}",
@@ -679,14 +679,14 @@ C = {
         safe_bad="Mint or freeze authority is still active, which is a risk.", back="← Top Solana meme coins",
         lb_path="/solana-meme-coins", prof="/coin/"),
     "hr": dict(
-        lb_title="Top 100 Solana meme coina po tržišnoj vrijednosti (uživo) | KriptoRadar",
+        lb_title="Top 100 Solana meme coina po tržišnoj vrijednosti (uživo) | MemeSonar",
         lb_desc="Najveći Solana meme coini po tržišnoj vrijednosti: cijena, promjena u 24 h, holderi, likvidnost i "
                 "volumen, uz stranicu s analizom za svaki coin. Osvježava se svakih par sati.",
         lb_h1="Najveći Solana meme coini po tržišnoj vrijednosti",
         lb_lead="{n} najvećih Solana meme coina s pravom likvidnošću i holderima, poredano po tržišnoj vrijednosti. "
                 "Klikni coin za graf, sigurnosnu provjeru i koji su ga influenceri zvali.",
         cols=("#", "Coin", "Cijena", "24 h", "Tržišna vrij.", "Likvidnost", "Holderi", "Volumen 24 h"),
-        updated="Osvježeno", p_title="{sym} cijena, market cap i analiza holdera: je li {name} siguran? | KriptoRadar",
+        updated="Osvježeno", p_title="{sym} cijena, market cap i analiza holdera: je li {name} siguran? | MemeSonar",
         p_desc="{name} ({sym}) je #{rank} Solana meme coin s tržišnom vrijednošću ${mcap} i {holders} holdera. Graf "
                "cijene, sigurnosna provjera, likvidnost i influenceri koji su ga zvali.",
         p_h1="{name} ({sym})", p_sub="cijena, holderi i pozivi influencera",
@@ -700,7 +700,7 @@ C = {
         calls_note="Pozivi stariji od 24 sata i što je cijena napravila nakon njih.",
         ccols=("Datum", "Influencer", "Vrijednost kod poziva", "1 h", "24 h", "Vrh 24 h"), no_calls="Još nema "
         "izmjerenih poziva influencera za ovaj coin.", lock_h="Što članovi vide uz to",
-        lock=("KriptoRadar ocjena i šansa za skok, osvježava se svake 2 minute", "Pametni novčanici koji upravo kupuju ili prodaju",
+        lock=("MemeSonar ocjena i šansa za skok, osvježava se svake 2 minute", "Pametni novčanici koji upravo kupuju ili prodaju",
               "{n} poziva influencera iz zadnja 24 sata, uživo",
               "Pozivi influencera iz zadnja 24 sata, uživo", "Copy trading i obavijest o sljedećem pomaku"),
         similar="Slični coini", addr="Adresa ugovora", copy="Kopiraj", faq_h="Pitanja o {sym}",
@@ -763,9 +763,9 @@ def coin_list(lang):
     upd = max((r["updated"] or 0 for r in rows), default=0)
     when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(upd)) if upd else ""
     table = (f"<div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
-             f"<p class=mut style='font-size:13px'>{t['updated']} {when} · Jupiter, KriptoRadar</p>"
+             f"<p class=mut style='font-size:13px'>{t['updated']} {when} · Jupiter, MemeSonar</p>"
              if trs else f"<p class=mut>{base_t['none']}</p>")
-    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1>"
+    body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1>"
             f"<p class=lead>{t['lb_lead'].format(n=len(rows) or 100)}</p></section>{table}"
             f"<div class=lock><p>{base_t['lb_lock']}</p><a class='btn sm' href={base_t['home']}#pristup>{base_t['cta']}</a></div>"
             + _seo_extra(lambda S: S.list_links(lang)))
@@ -881,20 +881,20 @@ def coin_page(slug, lang):
 # ---------- public glossary ----------------------------------------------------------------------------------------
 
 G_T = {
-    "en": dict(title="Crypto & Solana meme coin glossary: {n} terms explained | KriptoRadar",
+    "en": dict(title="Crypto & Solana meme coin glossary: {n} terms explained | MemeSonar",
                desc="Plain-English explanations of crypto, Solana meme coin, trading and influencer terms: market cap, "
                     "liquidity, rug pull, KOL, copy trading, DCA, slippage and more.",
                h1="Crypto glossary", lead="{n} terms from Solana meme coin trading, explained in plain words, with "
-               "examples and how KriptoRadar measures them.", ex="Example", rel="Related terms", all="← All terms",
-               live="See it live", path="/glossary/", idx="/glossary", t_title="{q} {name} explained | KriptoRadar",
+               "examples and how MemeSonar measures them.", ex="Example", rel="Related terms", all="← All terms",
+               live="See it live", path="/glossary/", idx="/glossary", t_title="{q} {name} explained | MemeSonar",
                faq="Frequently asked"),
-    "hr": dict(title="Kripto rječnik: {n} pojmova o Solana meme coinima objašnjeno | KriptoRadar",
+    "hr": dict(title="Kripto rječnik: {n} pojmova o Solana meme coinima objašnjeno | MemeSonar",
                desc="Jednostavna objašnjenja kripto pojmova: tržišna vrijednost, likvidnost, rug pull, KOL, copy "
                     "trading, DCA, slippage i drugo.",
                h1="Kripto rječnik", lead="{n} pojmova iz trgovanja Solana meme coinima, objašnjeno jednostavno, s "
-               "primjerima i načinom na koji ih KriptoRadar mjeri.", ex="Primjer", rel="Povezani pojmovi",
+               "primjerima i načinom na koji ih MemeSonar mjeri.", ex="Primjer", rel="Povezani pojmovi",
                all="← Svi pojmovi", live="Pogledaj uživo", path="/hr/rjecnik/", idx="/hr/rjecnik",
-               t_title="{q} {name} objašnjeno | KriptoRadar", faq="Česta pitanja"),
+               t_title="{q} {name} objašnjeno | MemeSonar", faq="Česta pitanja"),
 }
 _HR_LIVE = {"/solana-meme-coins": "/hr/solana-meme-coini", "/influencers": "/hr/influenceri",
             "/best-crypto-tools/crypto-wallets": "/hr/najbolji-kripto-alati/kripto-novcanici",
@@ -927,7 +927,7 @@ def glossary_index(lang):
     items = sorted((_gterm(e, lang) for e in GP.ENTRIES), key=lambda x: x[1].lower())
     lis = "".join(f"<a class=gi href=\"{g['path']}{s_}\"><b>{esc(n)}</b><span>{esc(sh)}</span></a>"
                   for s_, n, _q, sh, _l, _e in items)
-    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{g['h1']}</h1>"
+    body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{g['h1']}</h1>"
             f"<p class=lead>{g['lead'].format(n=len(items))}</p></section><div class=gl>{lis}</div>"
             f"<div class=lock><p>{L[lang]['lb_lock']}</p><a class='btn sm' href={L[lang]['home']}#pristup>"
             f"{L[lang]['cta']}</a></div>")

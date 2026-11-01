@@ -21,7 +21,7 @@ import sys
 import time
 import traceback
 
-# Own domain: SITE_URL=https://kriptoradar.app makes every canonical/sitemap/hreflang/og link use it (they read
+# Own domain: SITE_URL=https://memesonar.app makes every canonical/sitemap/hreflang/og link use it (they read
 # RENDER_EXTERNAL_URL), and public pages opened on the old onrender.com address move there with a 301.
 SITE_URL = os.environ.get("SITE_URL", "").strip().rstrip("/")
 if SITE_URL:
@@ -151,7 +151,7 @@ def login_page(qs, err=""):
             + "<p><button type=submit>Prijavi se</button></p></form>"
             f"<p class=mut>Igrači ({e(users)}) upisuju svoje ime i svoju lozinku. Samo za gledanje: bilo koje ime i "
             "zajednička lozinka. Prijava se pamti 60 dana na ovom uređaju.</p>"
-            "<p>Nemaš račun? KriptoRadar je samo na pozivnicu: <a href=/dobrodosli#pristup><b>zatraži pristup</b></a>.</p>")
+            "<p>Nemaš račun? MemeSonar je samo na pozivnicu: <a href=/dobrodosli#pristup><b>zatraži pristup</b></a>.</p>")
     miss = league_store.missing_passwords()
     if miss:
         body += (f"<p class=neg>Lozinke još nisu postavljene za: {e(', '.join(miss))}. Postavljaju se u postavkama "

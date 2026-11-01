@@ -3,7 +3,7 @@
 - List: Jupiter's verified token list (lite-api.jup.ag, free, no key), tokens tagged 'meme', with real liquidity and
   holders, sorted by market cap. Refreshed every REFRESH_S in a background thread of the dashboard process and kept in
   public.db (coins + coin_hist, one row per coin per refresh, so our own price / holder history grows over time).
-- Each page joins what KriptoRadar itself measured: daily candles and holder counts (dugo.db), influencer calls and
+- Each page joins what MemeSonar itself measured: daily candles and holder counts (dugo.db), influencer calls and
   their outcome older than 24 h (kol.db), plus Jupiter's audit (mint/freeze authority, top holders, dev balance).
   Live signals (Šansa za skok, smart-money flows, fresh calls) are teased and stay members-only.
 """
@@ -147,7 +147,7 @@ def store(tokens, con=None, now=None):
 
 
 def refresh():
-    req = urllib.request.Request(SRC, headers={"User-Agent": "KriptoRadar/1.0", "Accept": "application/json"})
+    req = urllib.request.Request(SRC, headers={"User-Agent": "MemeSonar/1.0", "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
         data = json.loads(r.read())
     picked = pick(data)
@@ -212,7 +212,7 @@ def coin(slug):
 
 
 def ours(mint, delay_s=86400):
-    """What KriptoRadar measured about this coin: candles, holders, influencer calls (older than delay_s)."""
+    """What MemeSonar measured about this coin: candles, holders, influencer calls (older than delay_s)."""
     out = {"candles": [], "holders": [], "calls": [], "callers": [], "fresh": 0, "top10": None, "cex": None}
     dugo = _ro(os.environ.get("DUGO_DB") or os.path.join(ROOT, "dugo.db"))
     if dugo is not None:

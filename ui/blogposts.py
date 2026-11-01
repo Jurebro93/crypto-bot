@@ -1,4 +1,4 @@
-"""The ten launch posts of the public blog (English). Numbers come from KriptoRadar's own data:
+"""The ten launch posts of the public blog (English). Numbers come from MemeSonar's own data:
 
 - RETRO: retrospective of 10,650 pump.fun tokens (October 2026), features at 15 min after launch, at graduation and at
   the first $100k / $1M market-cap cross; "2x" = the price later reached at least double the price at that point.
@@ -9,9 +9,9 @@ Keep numbers here in sync with the text; each post states its sample and date.
 from ui import calcs as CALC
 from ui.blogviz import bars, grid, stats
 
-RETRO = "KriptoRadar retrospective of 10,650 pump.fun tokens, October 2026"
-WALLETS = "KriptoRadar wallet tracker, snapshot of 30 October 2026"
-KOL = "KriptoRadar influencer call measurements, October 2026"
+RETRO = "MemeSonar retrospective of 10,650 pump.fun tokens, October 2026"
+WALLETS = "MemeSonar wallet tracker, snapshot of 30 October 2026"
+KOL = "MemeSonar influencer call measurements, October 2026"
 
 POSTS = []
 
@@ -25,7 +25,7 @@ def post(slug, tag, h1, title, desc, kw, mins, tldr, body, related=(), date="202
 post(
     "what-is-wallet-tracking", "Wallet tracking",
     "What is wallet tracking? How to track Solana wallets (and why most 'smart money' isn't)",
-    "What is wallet tracking? A Solana wallet tracker guide with real data | KriptoRadar",
+    "What is wallet tracking? A Solana wallet tracker guide with real data | MemeSonar",
     "Wallet tracking means following what specific Solana wallets buy and sell. We tracked 469 wallets: only 11 of "
     "50 active ones made money. Here is how to find the few worth following.",
     ["wallet tracker", "solana wallet tracker", "smart money tracker", "how to track crypto wallets"], 7,
@@ -85,7 +85,7 @@ automatically.</li>
 <h2>Wallet tracker vs. block explorer</h2>
 <p>You can look up any address on Solscan or a DEX screener, but that shows you history, not a decision. A wallet
 tracker adds three things: alerts in real time, a score built from closed trades, and labels that warn you about
-snipers and insiders. KriptoRadar adds a fourth: it checks every token a tracked wallet buys against our
+snipers and insiders. MemeSonar adds a fourth: it checks every token a tracked wallet buys against our
 <a href=/blog/how-to-spot-a-rug-pull>rug filter</a> before you see it, and it tells you when <b>several</b> good
 wallets buy the same token, which matters far more than one wallet alone.</p>
 <p>Next: <a href=/blog/what-is-copy-trading>what copy trading is and when it is profitable</a>.</p>
@@ -96,7 +96,7 @@ wallets buy the same token, which matters far more than one wallet alone.</p>
 post(
     "what-is-copy-trading", "Copy trading",
     "What is copy trading in crypto, and is it profitable?",
-    "What is copy trading? Is crypto copy trading profitable? (real wallet data) | KriptoRadar",
+    "What is copy trading? Is crypto copy trading profitable? (real wallet data) | MemeSonar",
     "Copy trading means automatically repeating another trader's buys and sells. We measured Solana wallets and "
     "influencers: here is when copying works, when it loses money, and how to set limits.",
     ["what is copy trading", "is copy trading profitable", "copy trading for beginners", "solana copy trading"], 7,
@@ -154,7 +154,7 @@ independent influencers</a> and good wallets on the same token within minutes.</
 post(
     "what-is-a-kol-in-crypto", "Influencers",
     "What is a KOL in crypto? How influencer calls move Solana tokens",
-    "What is a KOL in crypto? Do crypto influencer calls work? (data) | KriptoRadar",
+    "What is a KOL in crypto? Do crypto influencer calls work? (data) | MemeSonar",
     "A KOL (key opinion leader) is a crypto influencer whose posts move prices. We measured every Solana token call: "
     "called tokens doubled in 52% of cases vs 14% without a call. How to read a KOL.",
     ["what is a kol", "crypto kol", "kol crypto", "crypto influencers"], 6,
@@ -208,7 +208,7 @@ active "KOLs" and had no signal at all. You can see live scores on our public
 post(
     "influencer-clustering", "Influencers",
     "Influencer clustering: why 3 KOLs calling the same token in 15 minutes matters",
-    "Crypto influencer clustering: when several KOLs call one token (data) | KriptoRadar",
+    "Crypto influencer clustering: when several KOLs call one token (data) | MemeSonar",
     "When 3+ crypto influencers call the same Solana token within 15 minutes, 59% of those tokens doubled vs 33% "
     "otherwise. How clusters form, and how to spot a paid campaign.",
     ["kol crypto", "crypto influencers", "best crypto influencers", "crypto kol"], 6,
@@ -258,7 +258,7 @@ with bundled supply (see <a href=/blog/bundles-and-snipers>bundles and snipers</
 post(
     "how-to-spot-a-rug-pull", "Rug pulls",
     "How to spot a rug pull on Solana: 7 checks from 10,650 tokens",
-    "How to spot a rug pull on Solana: a rug checker checklist (data from 10,650 tokens) | KriptoRadar",
+    "How to spot a rug pull on Solana: a rug checker checklist (data from 10,650 tokens) | MemeSonar",
     "Seven checks that catch most Solana rug pulls, with numbers from 10,650 pump.fun tokens: serial creators, dev "
     "selling, mint authority, fake pools, missing socials and concentrated holders.",
     ["how to avoid rug pulls", "solana rug checker", "rug checker", "what is a rug pull", "rug check"], 8,
@@ -323,7 +323,7 @@ the party. Watch whether the share grows after launch: insiders accumulating thr
 setup.</p>
 
 <h2>A rug checker does this in seconds</h2>
-<p>All seven checks run on every token KriptoRadar shows, before you see it. Tokens that fail are hidden, not just
+<p>All seven checks run on every token MemeSonar shows, before you see it. Tokens that fail are hidden, not just
 labelled, and every hour the system learns the profile of the rugs it caught.</p>
 """, related=("bundles-and-snipers", "what-is-pump-fun", "market-cap-liquidity-slippage"))
 
@@ -332,7 +332,7 @@ labelled, and every hour the system learns the profile of the rugs it caught.</p
 post(
     "what-is-pump-fun", "Basics",
     "What is pump.fun? How it works, and what our data says about your odds",
-    "What is pump.fun and how does it work? Bonding curve, graduation and real odds | KriptoRadar",
+    "What is pump.fun and how does it work? Bonding curve, graduation and real odds | MemeSonar",
     "Pump.fun lets anyone launch a Solana meme coin in a minute. How the bonding curve and graduation work, and why "
     "only 0.8% of random new tokens ever double after their first 15 minutes.",
     ["what is pump fun", "how does pump fun work", "pump fun bonding curve", "pump fun graduation"], 6,
@@ -380,7 +380,7 @@ on pump.fun. Before you buy, check the creator's history and the first buyers, a
 post(
     "bundles-and-snipers", "Rug pulls",
     "Bundles and snipers explained: who really owns a new Solana token",
-    "Bundles and sniper bots on Solana explained (with data) | KriptoRadar",
+    "Bundles and sniper bots on Solana explained (with data) | MemeSonar",
     "Bundlers buy in the launch block, snipers in the first seconds. Tokens with heavy bundles pump more often, and "
     "then fall twice as hard. What that means for you, with numbers from 7,201 tokens.",
     ["solana sniper bot", "what is a sniper bot", "bundle checker", "sniper bot"], 6,
@@ -424,7 +424,7 @@ overnight.</li>
 <li>Check whether bundle wallets are still holding. When they start selling, the drop is fast.</li>
 <li>Combine with the creator's history: a bundled launch from a wallet with 20+ previous tokens is the classic rug.</li>
 </ul>
-<p>KriptoRadar measures bundle share, sniper share and the first buyers on every new token, and caps how much of a
+<p>MemeSonar measures bundle share, sniper share and the first buyers on every new token, and caps how much of a
 heavily bundled token the system will ever buy. Read the full <a href=/blog/how-to-spot-a-rug-pull>rug checklist</a>.</p>
 """, related=("how-to-spot-a-rug-pull", "what-is-pump-fun", "influencer-clustering"))
 
@@ -433,7 +433,7 @@ heavily bundled token the system will ever buy. Read the full <a href=/blog/how-
 post(
     "how-to-trade-meme-coins", "Trading",
     "How to trade meme coins: when to enter, according to 10,650 tokens",
-    "How to trade meme coins on Solana: the best entry point (data from 10,650 tokens) | KriptoRadar",
+    "How to trade meme coins on Solana: the best entry point (data from 10,650 tokens) | MemeSonar",
     "Entry timing decides most meme coin trades. Random new tokens doubled 0.8% of the time, graduated ones 9.5%, and "
     "tokens first crossing $100k market cap 24%. A practical meme coin trading plan.",
     ["how to trade meme coins", "meme coin trading", "memecoin trading", "how to buy meme coins on solana"], 7,
@@ -482,7 +482,7 @@ holder data for each token, for example <a href=/coin/bonk>BONK</a>, <a href=/co
 the ones that didn't make it.</p>
 
 <h2>Practice before you use real money</h2>
-<p>KriptoRadar's members trade with a $1,000 demo balance in a friendly league, with the same signals and rug filter
+<p>MemeSonar's members trade with a $1,000 demo balance in a friendly league, with the same signals and rug filter
 the system uses. It is the cheapest way to find out whether your plan works.</p>
 """, related=("what-is-pump-fun", "market-cap-liquidity-slippage", "what-is-dca-in-crypto"))
 
@@ -491,7 +491,7 @@ the system uses. It is the cheapest way to find out whether your plan works.</p>
 post(
     "what-is-dca-in-crypto", "Basics",
     "What is DCA in crypto? Dollar-cost averaging for meme coins, with a worked example",
-    "What is DCA in crypto? Dollar-cost averaging explained with an example | KriptoRadar",
+    "What is DCA in crypto? Dollar-cost averaging explained with an example | MemeSonar",
     "DCA (dollar-cost averaging) means buying a fixed amount at regular intervals instead of all at once. A worked "
     "example: $500 at once vs. 10 x $50, on a falling and on a rugging token.",
     ["what is dca", "dca crypto", "crypto dca bot", "dollar cost averaging crypto"], 5,
@@ -532,7 +532,7 @@ or your budget running out.</p>
 slippage.</li>
 </ul>
 
-<h2>DCA in KriptoRadar</h2>
+<h2>DCA in MemeSonar</h2>
 <p>Members can start an automatic DCA on any token from its page: $5 to $500 per buy, every 15 minutes to once a week,
 2 to 100 buys. It stops by itself when the plan is done, the money runs out, the token is flagged as a rug or its
 liquidity drops under $5,000.</p>
@@ -543,7 +543,7 @@ liquidity drops under $5,000.</p>
 post(
     "market-cap-liquidity-slippage", "Basics",
     "Market cap, liquidity and slippage: the three numbers to read before buying a meme coin",
-    "What is slippage, liquidity and market cap in crypto? (with a slippage table) | KriptoRadar",
+    "What is slippage, liquidity and market cap in crypto? (with a slippage table) | MemeSonar",
     "Market cap tells you the size, liquidity how much you can trade, slippage what a trade really costs. A table of "
     "slippage for $100 to $5,000 buys in pools from $10k to $1M, and what FDV means.",
     ["what is slippage", "what is liquidity in crypto", "what is market cap in crypto", "what is fdv"], 6,
@@ -598,7 +598,7 @@ FEE_SRC = "exchanges' published fee pages and the top7.hr comparison of 28 Sep 2
 post(
     "best-crypto-exchanges-croatia", "Exchanges",
     "Best crypto exchanges in Croatia and the EU (2026): licensed under MiCA, compared",
-    "Best crypto exchanges in Croatia 2026: MiCA-licensed, fees compared | KriptoRadar",
+    "Best crypto exchanges in Croatia 2026: MiCA-licensed, fees compared | MemeSonar",
     "Which crypto exchanges are licensed for Croatia in 2026? 5 HANFA-licensed Croatian firms and 9 MiCA exchanges "
     "compared by regulator, fees, Croatian support and cash options.",
     ["best crypto exchange croatia", "crypto exchange eu regulated", "mica licensed exchanges", "kriptomjenjačnica"], 9,
@@ -698,7 +698,7 @@ Compare <a href=/blog/crypto-cards-croatia>crypto cards in Croatia</a>; buying t
 post(
     "how-to-buy-solana-meme-coins", "Guides",
     "How to buy Solana meme coins: the safe route, step by step",
-    "How to buy Solana meme coins (2026): step-by-step guide | KriptoRadar",
+    "How to buy Solana meme coins (2026): step-by-step guide | MemeSonar",
     "How to buy Solana meme coins safely: buy SOL on a licensed exchange, move it to Phantom, swap on Jupiter, and "
     "check the token before you buy. Step by step, with real numbers.",
     ["how to buy solana meme coins", "how to buy meme coins", "buy solana meme coins", "where to buy meme coins"], 6,
@@ -758,7 +758,7 @@ a plan the decision gets made by emotion. See <a href=/blog/how-to-trade-meme-co
 post(
     "how-to-use-jupiter-swap", "Guides",
     "How to use Jupiter swap on Solana: settings that save you money",
-    "How to use Jupiter swap (jup.ag): slippage, priority fees, limit orders | KriptoRadar",
+    "How to use Jupiter swap (jup.ag): slippage, priority fees, limit orders | MemeSonar",
     "A practical Jupiter swap guide: connecting a wallet, checking the token, slippage and priority fee settings, "
     "limit orders and DCA, and the mistakes that cost the most.",
     ["jupiter swap", "how to use jupiter swap", "jup.ag", "jupiter exchange solana"], 6,
@@ -817,7 +817,7 @@ paying more only helps in the first minutes of a launch, which is also when risk
 post(
     "what-is-a-pump-and-dump", "Rugs",
     "What is a pump and dump in crypto? How it works and how to spot one",
-    "What is a pump and dump in crypto? Signs, examples from data | KriptoRadar",
+    "What is a pump and dump in crypto? Signs, examples from data | MemeSonar",
     "A pump and dump is a coordinated price push followed by insiders selling into the buyers. How it works on Solana "
     "meme coins, the warning signs, and what our data shows about it.",
     ["pump and dump crypto", "what is a pump and dump", "crypto pump and dump", "pump and dump scheme"], 6,
@@ -873,7 +873,7 @@ TAX_SRC = "Porezna uprava opinion 410-01/17-08/29 (19 Mar 2018), Porezna uprava 
 post(
     "crypto-cards-croatia", "Cards",
     "Crypto cards in Croatia (2026): which ones work, what they cost, and the tax catch",
-    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit, Bitpanda compared | KriptoRadar",
+    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit, Bitpanda compared | MemeSonar",
     "Which crypto debit cards can you use in Croatia in 2026? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken and OKX "
     "compared by licence, fees and cashback, plus why every card payment is a crypto sale.",
     ["crypto card croatia", "crypto debit card europe", "best crypto card", "kripto kartica"], 7,
@@ -934,7 +934,7 @@ gain into a taxed one.</li>
 post(
     "crypto-tax-croatia", "Tax",
     "Crypto tax in Croatia (2026): 12%, the two-year rule and how to file JOPPD",
-    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD step by step | KriptoRadar",
+    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD step by step | MemeSonar",
     "How crypto is taxed in Croatia: 12% on gains, tax-free after two years, crypto-to-crypto swaps not taxed, losses "
     "within the year, and how to file the JOPPD form by the end of February. With examples.",
     ["crypto tax croatia", "porez na kriptovalute", "croatia capital gains tax crypto", "joppd kriptovalute"], 8,
@@ -1009,7 +1009,7 @@ CO_SRC = ("Zakon o porezu na dobit (10%/18%), dividend tax 12% since 2024, HSFI 
 post(
     "company-crypto-investment-croatia", "Business",
     "Can a company invest in crypto in Croatia? d.o.o., obrt, tax and accounting",
-    "Can a Croatian company (d.o.o.) invest in crypto? Tax, accounting, banks | KriptoRadar",
+    "Can a Croatian company (d.o.o.) invest in crypto? Tax, accounting, banks | MemeSonar",
     "Yes, a Croatian d.o.o. can buy crypto with its own money. How it is booked (HSFI 5 or 10), taxed (10% or 18% "
     "profit tax, no two-year exemption), VAT, banks, and when holding privately is cheaper.",
     ["can a company invest in crypto", "business crypto account", "d.o.o. kriptovalute", "company crypto tax croatia"], 8,
@@ -1087,7 +1087,7 @@ Personal crypto tax rules: <a href=/blog/crypto-tax-croatia>crypto tax in Croati
 post(
     "why-big-influencer-calls-are-hard-to-trade", "Influencers",
     "Why trading calls from the biggest crypto influencers is so hard (and where the edge is)",
-    "Why copying big crypto influencers fails: sniper bots, priority fees, front-running | KriptoRadar",
+    "Why copying big crypto influencers fails: sniper bots, priority fees, front-running | MemeSonar",
     "Big influencer calls are watched by thousands of people and sniper bots that pay higher fees to buy first. How "
     "priority fees and Jito tips work, and why rising stars leave more room.",
     ["crypto influencer calls", "front running crypto", "solana priority fee", "sniper bot solana"], 7,
@@ -1132,7 +1132,7 @@ milliseconds and pays for its place in the block.</p>
       [("1st (the fastest bot)", 0, "pays the call price"), ("After 5 bots", 10.3, ""), ("After 10 bots", 21, ""),
        ("After 20 bots", 44, "typical retail position on a big call"), ("After 40 bots", 96, "")],
       sub="Model: each bot buys $500, pool with $100k of liquidity, constant-product curve", hl=(3, 4),
-      source="KriptoRadar calculation")}
+      source="MemeSonar calculation")}
 <p>In a constant-product pool, each buy lifts the price for the next one. Try your own numbers:</p>
 {CALC.queue("en")}
 <p>With 20 bots buying $500 each in a pool with $100k of liquidity, the price is already about 44% higher when your

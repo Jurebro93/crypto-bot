@@ -353,11 +353,11 @@ def _render_part(items, out, toks):
 _worker = None
 _day = {"d": None, "n": 0}
 SYSTEM = (
-    "You translate the user interface of KriptoRadar, a Croatian web app for Solana meme-coin traders (token radar, "
+    "You translate the user interface of MemeSonar, a Croatian web app for Solana meme-coin traders (token radar, "
     "influencer/KOL tracking, demo trading competition, copy trading), from Croatian into natural, concise English "
     "as used by crypto traders. Rules: keep every placeholder exactly as written and keep their count: <1>…</1>, "
     "<2/>, {0}, {1}. You may move them where English word order needs them. Keep emoji, token symbols, names, "
-    "brand names (DexScreener, pump.fun, Jupiter, Helius, Telegram, X, KriptoRadar), $ amounts and units. Keep the "
+    "brand names (DexScreener, pump.fun, Jupiter, Helius, Telegram, X, MemeSonar), $ amounts and units. Keep the "
     "trader terms traders use in English (KOL, rug, pump, dump, market cap, liquidity, holders, wallet, copy "
     "trading, DCA, stop loss, take profit). 'Natjecanje' = 'Competition', 'Pregled' = 'Overview', 'Postavke' = "
     "'Settings', 'Odjava' = 'Log out', 'Prijava' = 'Log in', 'demo račun' = 'demo account', 'novčanik' = "

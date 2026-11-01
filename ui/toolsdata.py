@@ -8,14 +8,14 @@ category). Where a vendor does not publish a number we say so instead of guessin
 Nicholas compares these pages with the vendors' sites.
 
 tool(): name, url, chains, en=(best_for, free, paid, what, [features], watch_out), hr=(same in Croatian), ours=True
-marks KriptoRadar itself (shown with an "our tool" badge, never ranked first in a table that compares paid tools).
+marks MemeSonar itself (shown with an "our tool" badge, never ranked first in a table that compares paid tools).
 """
 CHECKED = "2026-11-01"
 
-RETRO = ("KriptoRadar retrospective of 10,650 pump.fun tokens, October 2026",
-         "KriptoRadar retrospektiva 10.650 pump.fun tokena, listopad 2026.")
-WALLETS = ("KriptoRadar wallet tracker, snapshot of 30 October 2026",
-           "KriptoRadar praćenje novčanika, stanje 30. listopada 2026.")
+RETRO = ("MemeSonar retrospective of 10,650 pump.fun tokens, October 2026",
+         "MemeSonar retrospektiva 10.650 pump.fun tokena, listopad 2026.")
+WALLETS = ("MemeSonar wallet tracker, snapshot of 30 October 2026",
+           "MemeSonar praćenje novčanika, stanje 30. listopada 2026.")
 PRICES = ("Vendors' pricing pages and docs, checked 1 November 2026",
           "Cjenici i dokumentacija proizvođača, provjereno 1. studenoga 2026.")
 
@@ -27,7 +27,7 @@ def tool(name, url, chains, en, hr, ours=False):
 
 
 OURS_WALLETS = tool(
-    "KriptoRadar", "/", "Solana",
+    "MemeSonar", "/", "Solana",
     ("Finding the few wallets worth copying", "Invite only (free for members)", "–",
      "Our own tool. It scores Solana wallets on closed trades, labels snipers, bundlers, insiders and bots, and alerts "
      "when several good wallets buy the same token.",
@@ -56,7 +56,7 @@ cat("wallets", "wallet-trackers", "pracenje-novcanika",
     en=dict(
         tag="Wallet tracking", short="Wallet trackers",
         h1="Best crypto wallet trackers in 2026 (Solana and multi-chain)",
-        title="Best crypto wallet trackers 2026: Cielo vs GMGN vs Nansen vs Arkham (prices) | KriptoRadar",
+        title="Best crypto wallet trackers 2026: Cielo vs GMGN vs Nansen vs Arkham (prices) | MemeSonar",
         desc="We compared the best wallet trackers for Solana and other chains: free plans, paid plans, alerts and "
              "wallet limits. Cielo, GMGN, Nansen, Arkham, Kolscan and Axiom side by side.",
         kw=["best crypto wallet tracker", "solana wallet tracker", "wallet tracker", "smart money tracker"],
@@ -94,7 +94,7 @@ cat("wallets", "wallet-trackers", "pracenje-novcanika",
     hr=dict(
         tag="Praćenje novčanika", short="Praćenje novčanika",
         h1="Najbolji alati za praćenje kripto novčanika 2026. (Solana i više mreža)",
-        title="Najbolji alati za praćenje novčanika 2026: Cielo, GMGN, Nansen, Arkham (cijene) | KriptoRadar",
+        title="Najbolji alati za praćenje novčanika 2026: Cielo, GMGN, Nansen, Arkham (cijene) | MemeSonar",
         desc="Usporedili smo najbolje alate za praćenje novčanika za Solanu i druge mreže: besplatni i plaćeni "
              "planovi, upozorenja, broj novčanika. Cielo, GMGN, Nansen, Arkham, Kolscan i Axiom.",
         tldr="Za Telegram upozorenja na puno novčanika na više mreža najpotpuniji je <b>Cielo</b> (besplatno do 250 "
@@ -235,7 +235,7 @@ cat("analysis", "crypto-analysis-tools", "alati-za-analizu",
     en=dict(
         tag="Analysis", short="Analysis tools",
         h1="Best crypto analysis tools in 2026: charts, on-chain data and holder maps",
-        title="Best crypto analysis tools 2026: DexScreener, Birdeye, Nansen, Dune, Glassnode, TradingView | KriptoRadar",
+        title="Best crypto analysis tools 2026: DexScreener, Birdeye, Nansen, Dune, Glassnode, TradingView | MemeSonar",
         desc="The best tools for analysing crypto and Solana meme coins: DEX charts, on-chain analytics, holder maps "
              "and macro data. Free plans, paid plans and what each one is best at.",
         kw=["best crypto analysis tools", "best on chain analytics tools", "crypto charting tools", "dex screener"],
@@ -268,7 +268,7 @@ cat("analysis", "crypto-analysis-tools", "alati-za-analizu",
     hr=dict(
         tag="Analiza", short="Alati za analizu",
         h1="Najbolji alati za analizu kriptovaluta 2026: grafovi, on-chain podaci i mape holdera",
-        title="Najbolji alati za kripto analizu 2026: DexScreener, Birdeye, Nansen, Dune, Glassnode | KriptoRadar",
+        title="Najbolji alati za kripto analizu 2026: DexScreener, Birdeye, Nansen, Dune, Glassnode | MemeSonar",
         desc="Najbolji alati za analizu kriptovaluta i Solana meme coina: DEX grafovi, on-chain analiza, mape holdera i "
              "makro podaci. Besplatni i plaćeni planovi i za što je koji najbolji.",
         tldr="Kreni besplatno: <b>DexScreener</b> ili <b>Birdeye</b> za graf svakog DEX para, <b>Bubblemaps</b> za to tko "
@@ -419,7 +419,7 @@ cat("trading", "trading-bots", "trading-botovi",
     en=dict(
         tag="Trading", short="Trading bots and terminals",
         h1="Best Solana trading bots and terminals in 2026 (fees compared)",
-        title="Best Solana trading bots 2026: Axiom vs Photon vs GMGN vs Trojan vs BonkBot (fees) | KriptoRadar",
+        title="Best Solana trading bots 2026: Axiom vs Photon vs GMGN vs Trojan vs BonkBot (fees) | MemeSonar",
         desc="Fees and features of the most used Solana trading terminals and Telegram bots: Axiom, Photon, GMGN, "
              "Trojan, BonkBot and Jupiter. What a trade really costs and which one fits you.",
         kw=["best solana trading bot", "best crypto trading bot", "axiom vs photon", "solana trading terminal"],
@@ -458,7 +458,7 @@ cat("trading", "trading-bots", "trading-botovi",
     hr=dict(
         tag="Trgovanje", short="Trading botovi i terminali",
         h1="Najbolji Solana trading botovi i terminali 2026. (usporedba naknada)",
-        title="Najbolji Solana trading botovi 2026: Axiom, Photon, GMGN, Trojan, BonkBot (naknade) | KriptoRadar",
+        title="Najbolji Solana trading botovi 2026: Axiom, Photon, GMGN, Trojan, BonkBot (naknade) | MemeSonar",
         desc="Naknade i funkcije najkorištenijih Solana trading terminala i Telegram botova: Axiom, Photon, GMGN, "
              "Trojan, BonkBot i Jupiter. Koliko trade stvarno košta i koji ti odgovara.",
         tldr="Gotovo svaki terminal za meme coine i Telegram bot naplaćuje <b>oko 1% na svaku kupnju i svaku "
@@ -584,7 +584,7 @@ cat("storage", "crypto-wallets", "kripto-novcanici",
     en=dict(
         tag="Wallets and storage", short="Wallets and cold storage",
         h1="Best crypto wallets for Solana in 2026: hot, hardware and multisig",
-        title="Best Solana wallets 2026: Phantom, Solflare, Backpack, Ledger, Trezor, Tangem, Squads | KriptoRadar",
+        title="Best Solana wallets 2026: Phantom, Solflare, Backpack, Ledger, Trezor, Tangem, Squads | MemeSonar",
         desc="Where to keep your crypto safely: the best Solana wallets (Phantom, Solflare, Backpack), hardware "
              "wallets (Ledger, Trezor, Tangem) and multisig (Squads), with prices and swap fees.",
         kw=["best solana wallet", "best crypto wallet", "best hardware wallet", "cold wallet"],
@@ -599,7 +599,7 @@ cat("storage", "crypto-wallets", "kripto-novcanici",
         chart_note="<p>Hardware wallet prices on the makers' own stores (US dollars, before tax and shipping; prices "
                    "change with promotions).</p>",
         choose=["<b>Never type your recovery phrase into a website, bot or chat.</b> No real support team will ask "
-                "for it. KriptoRadar never asks for it either.",
+                "for it. MemeSonar never asks for it either.",
                 "<b>Split hot and cold.</b> Keep a trading amount in Phantom or Solflare; move the rest to a hardware "
                 "wallet.",
                 "<b>Connect hardware to your hot app.</b> Phantom, Solflare and Backpack can use a Ledger as signer, so "
@@ -621,7 +621,7 @@ cat("storage", "crypto-wallets", "kripto-novcanici",
     hr=dict(
         tag="Novčanici i čuvanje", short="Novčanici i hladno čuvanje",
         h1="Najbolji kripto novčanici za Solanu 2026: vrući, hardverski i multisig",
-        title="Najbolji Solana novčanici 2026: Phantom, Solflare, Backpack, Ledger, Trezor, Tangem | KriptoRadar",
+        title="Najbolji Solana novčanici 2026: Phantom, Solflare, Backpack, Ledger, Trezor, Tangem | MemeSonar",
         desc="Gdje sigurno čuvati kripto: najbolji Solana novčanici (Phantom, Solflare, Backpack), hardverski novčanici "
              "(Ledger, Trezor, Tangem) i multisig (Squads), s cijenama i naknadama za zamjenu.",
         tldr="Koristi dva novčanika: <b>vrući novčanik</b> za trgovanje (Phantom, Solflare ili Backpack, svi besplatni) "
@@ -635,7 +635,7 @@ cat("storage", "crypto-wallets", "kripto-novcanici",
         chart_note="<p>Cijene hardverskih novčanika u službenim trgovinama proizvođača (američki dolari, bez poreza i "
                    "dostave; mijenjaju se s akcijama).</p>",
         choose=["<b>Frazu za oporavak nikad ne upisuj na web, u bota ili chat.</b> Nijedna prava podrška je neće "
-                "tražiti. Ni KriptoRadar je nikad ne traži.",
+                "tražiti. Ni MemeSonar je nikad ne traži.",
                 "<b>Odvoji vruće i hladno.</b> Iznos za trgovanje drži u Phantomu ili Solflareu, ostalo prebaci na "
                 "hardverski novčanik.",
                 "<b>Spoji hardver s aplikacijom.</b> Phantom, Solflare i Backpack mogu koristiti Ledger za potpis, pa "
@@ -763,7 +763,7 @@ cat("rug", "rug-checkers", "provjera-ruga",
     en=dict(
         tag="Rug check", short="Rug checkers",
         h1="Best rug checkers for Solana tokens in 2026",
-        title="Best rug checker 2026: RugCheck vs Solsniffer vs Bubblemaps vs GoPlus (Solana) | KriptoRadar",
+        title="Best rug checker 2026: RugCheck vs Solsniffer vs Bubblemaps vs GoPlus (Solana) | MemeSonar",
         desc="Free tools that check a Solana token before you buy: RugCheck, Solsniffer, Bubblemaps, GoPlus and Token "
              "Sniffer. What each one checks, what they miss, and the checks our data says matter most.",
         kw=["rug checker", "solana rug checker", "rugcheck", "rug check", "token scanner"],
@@ -799,7 +799,7 @@ cat("rug", "rug-checkers", "provjera-ruga",
     hr=dict(
         tag="Provjera ruga", short="Provjera ruga",
         h1="Najbolji alati za provjeru ruga na Solana tokenima 2026.",
-        title="Najbolji rug checker 2026: RugCheck, Solsniffer, Bubblemaps, GoPlus (Solana) | KriptoRadar",
+        title="Najbolji rug checker 2026: RugCheck, Solsniffer, Bubblemaps, GoPlus (Solana) | MemeSonar",
         desc="Besplatni alati koji provjere Solana token prije kupnje: RugCheck, Solsniffer, Bubblemaps, GoPlus i Token "
              "Sniffer. Što koji provjerava, što propušta i koje su provjere prema našim podacima najvažnije.",
         tldr="Koristi <b>RugCheck</b> (besplatan) na svakom Solana tokenu: u par sekundi pokaže mint i freeze ovlast, "
@@ -889,7 +889,7 @@ cat("rug", "rug-checkers", "provjera-ruga",
               "likvidnošću.",
               ["Otkrivanje honeypota i poreza", "Otkrivanje sličnih ugovora", "Provjera likvidnosti"],
               "Napravljen za EVM; za Solanu koristi RugCheck.")),
-        tool("KriptoRadar rug filter", "/", "Solana",
+        tool("MemeSonar rug filter", "/", "Solana",
              ("Automatic check before every alert", "Invite only (free for members)", "–",
               "Our own filter. Every token we show is checked for authorities, real liquidity in a known pool, fake "
               "pools, creator history and bundled supply, and rugged tokens are dropped from the app.",
@@ -923,17 +923,17 @@ cat("api", "crypto-apis", "kripto-api",
     en=dict(
         tag="APIs", short="Crypto APIs",
         h1="Best crypto and Solana APIs in 2026: RPC, token data and prices",
-        title="Best crypto APIs 2026: Helius vs QuickNode vs Birdeye vs CoinGecko vs DexScreener (pricing) | KriptoRadar",
+        title="Best crypto APIs 2026: Helius vs QuickNode vs Birdeye vs CoinGecko vs DexScreener (pricing) | MemeSonar",
         desc="The best APIs for building crypto bots and dashboards: Solana RPC (Helius, QuickNode), token and DEX "
              "data (Birdeye, DexScreener, Solana Tracker) and prices (CoinGecko). Free tiers and plans compared.",
         kw=["best crypto api", "solana api", "solana rpc", "crypto price api", "dexscreener api"],
         tldr="For Solana RPC and webhooks, <b>Helius</b> (free 1M credits, Developer $49/month) is the default; "
              "<b>QuickNode</b> (Build $49/month) if you need many chains. For token data start with the free "
              "<b>DexScreener API</b>, then <b>Birdeye</b> (from $99) or <b>Solana Tracker</b> (from €50). For prices of "
-             "listed coins, <b>CoinGecko</b> (free demo, Basic $35/month). This is the stack KriptoRadar itself runs on.",
+             "listed coins, <b>CoinGecko</b> (free demo, Basic $35/month). This is the stack MemeSonar itself runs on.",
         intro="<p>If you build anything on crypto data, a trading bot, an alert channel, a dashboard, you need two "
               "kinds of API: an <b>RPC node</b> to read the blockchain and send transactions, and a <b>data API</b> "
-              "that has already turned raw transactions into prices, pools, holders and trades. We run KriptoRadar on "
+              "that has already turned raw transactions into prices, pools, holders and trades. We run MemeSonar on "
               "these APIs every day, so this page also tells you what we use and where the free tiers stopped "
               "working for us.</p>",
         chart_note="<p>Monthly price of the first paid plan. Credits are not comparable between vendors (each counts "
@@ -952,22 +952,22 @@ cat("api", "crypto-apis", "kripto-api",
               "Yes, no key needed, with rate limits of roughly 60 to 300 requests per minute depending on the endpoint."),
              ("Is the CoinGecko API free?",
               "There is a free Demo plan with 10,000 calls a month. Paid plans start at $35/month (Basic, 100,000 calls)."),
-             ("What does KriptoRadar use?",
+             ("What does MemeSonar use?",
               "Helius (Developer plan) for wallets and transactions, DexScreener for pools and price snapshots, Jupiter "
               "for swap quotes, plus our own database. Every number on our pages comes from that pipeline.")]),
     hr=dict(
         tag="API", short="Kripto API-ji",
         h1="Najbolji kripto i Solana API-ji 2026: RPC, podaci o tokenima i cijene",
-        title="Najbolji kripto API 2026: Helius, QuickNode, Birdeye, CoinGecko, DexScreener (cijene) | KriptoRadar",
+        title="Najbolji kripto API 2026: Helius, QuickNode, Birdeye, CoinGecko, DexScreener (cijene) | MemeSonar",
         desc="Najbolji API-ji za kripto botove i preglede: Solana RPC (Helius, QuickNode), podaci o tokenima i "
              "DEX-ovima (Birdeye, DexScreener, Solana Tracker) i cijene (CoinGecko). Besplatne razine i planovi.",
         tldr="Za Solana RPC i webhookove standard je <b>Helius</b> (besplatno 1M kredita, Developer $49 mjesečno); "
              "<b>QuickNode</b> (Build $49 mjesečno) ako trebaš puno mreža. Za podatke o tokenima kreni s besplatnim "
              "<b>DexScreener API-jem</b>, zatim <b>Birdeye</b> (od $99) ili <b>Solana Tracker</b> (od €50). Za cijene "
-             "listanih kriptovaluta <b>CoinGecko</b> (besplatni demo, Basic $35 mjesečno). Na tome radi i sam KriptoRadar.",
+             "listanih kriptovaluta <b>CoinGecko</b> (besplatni demo, Basic $35 mjesečno). Na tome radi i sam MemeSonar.",
         intro="<p>Ako gradiš bilo što na kripto podacima, trading bota, kanal s upozorenjima, pregled, trebaju ti dvije "
               "vrste API-ja: <b>RPC čvor</b> za čitanje blockchaina i slanje transakcija, i <b>API za podatke</b> koji "
-              "je sirove transakcije već pretvorio u cijene, poolove, holdere i tradeove. KriptoRadar svaki dan radi na "
+              "je sirove transakcije već pretvorio u cijene, poolove, holdere i tradeove. MemeSonar svaki dan radi na "
               "ovim API-jima, pa ova stranica kaže i što koristimo i gdje su nam besplatne razine prestale "
               "biti dovoljne.</p>",
         chart_note="<p>Mjesečna cijena prvog plaćenog plana. Krediti se ne mogu uspoređivati među pružateljima (svaki "
@@ -987,7 +987,7 @@ cat("api", "crypto-apis", "kripto-api",
              ("Je li CoinGecko API besplatan?",
               "Postoji besplatni Demo plan s 10.000 poziva mjesečno. Plaćeni planovi počinju od $35 mjesečno (Basic, "
               "100.000 poziva)."),
-             ("Što koristi KriptoRadar?",
+             ("Što koristi MemeSonar?",
               "Helius (Developer plan) za novčanike i transakcije, DexScreener za poolove i snimke cijena, Jupiter za "
               "ponude zamjene, plus vlastitu bazu. Svaki broj na našim stranicama dolazi iz tog sustava.")]),
     tools=[
@@ -1095,7 +1095,7 @@ cat("copy", "copy-trading-platforms", "copy-trading-platforme",
     en=dict(
         tag="Copy trading", short="Copy trading platforms",
         h1="Best copy trading platforms for crypto in 2026 (on-chain and exchanges)",
-        title="Best crypto copy trading platforms 2026: GMGN, Trojan, Binance, Bybit, Bitget (fees) | KriptoRadar",
+        title="Best crypto copy trading platforms 2026: GMGN, Trojan, Binance, Bybit, Bitget (fees) | MemeSonar",
         desc="On-chain copy trading (GMGN, Trojan, Cielo) vs exchange copy trading (Binance, Bybit, Bitget): fees, "
              "copy speed, and why only 2 of 50 active wallets we tracked were worth copying.",
         kw=["best copy trading platform", "crypto copy trading platforms", "solana copy trading", "copy trading"],
@@ -1129,12 +1129,12 @@ cat("copy", "copy-trading-platforms", "copy-trading-platforme",
               "Only if you copy the rare trader with a real edge. In our tracker the median active Solana wallet lost "
               "money (profit factor 0.65) and 2 of 50 passed our copy filter."),
              ("Can I practise copy trading without money?",
-              "Yes. KriptoRadar members copy influencers and wallets with a virtual $1,000 in our competition before "
+              "Yes. MemeSonar members copy influencers and wallets with a virtual $1,000 in our competition before "
               "risking real money.")]),
     hr=dict(
         tag="Copy trading", short="Copy trading platforme",
         h1="Najbolje platforme za kripto copy trading 2026. (on-chain i burze)",
-        title="Najbolje copy trading platforme 2026: GMGN, Trojan, Binance, Bybit, Bitget (naknade) | KriptoRadar",
+        title="Najbolje copy trading platforme 2026: GMGN, Trojan, Binance, Bybit, Bitget (naknade) | MemeSonar",
         desc="On-chain copy trading (GMGN, Trojan, Cielo upozorenja) i copy trading na burzama (Binance, Bybit, "
              "Bitget): kako naplaćuju, koliko brzo kopiraju i zašto je samo 2 od 50 novčanika vrijedilo kopirati.",
         tldr="Postoje dvije vrste. <b>On-chain</b> (GMGN, Trojan) kopira bilo koji Solana novčanik za oko 1% po "
@@ -1168,7 +1168,7 @@ cat("copy", "copy-trading-platforms", "copy-trading-platforme",
               "Samo ako kopiraš rijetkog tradera sa stvarnom prednošću. U našem praćenju medijan aktivnog Solana "
               "novčanika gubio je novac (profit faktor 0,65), a 2 od 50 prošla su naš copy filtar."),
              ("Mogu li vježbati copy trading bez novca?",
-              "Da. Članovi KriptoRadara kopiraju influencere i novčanike s virtualnih $1.000 u našem natjecanju prije "
+              "Da. Članovi MemeSonara kopiraju influencere i novčanike s virtualnih $1.000 u našem natjecanju prije "
               "nego riskiraju pravi novac.")]),
     tools=[
         tool("GMGN", "https://gmgn.ai", "Solana, Ethereum, Base, BNB Chain",
@@ -1239,7 +1239,7 @@ cat("copy", "copy-trading-platforms", "copy-trading-platforme",
               "u omjeru.",
               ["Ljestvica tradera", "Kopiranje fiksnim iznosom ili u omjeru", "Futures i spot"],
               "Nije dostupno u svim zemljama; futures nosi rizik likvidacije.")),
-        tool("KriptoRadar", "/", "Solana",
+        tool("MemeSonar", "/", "Solana",
              ("Practising copy trading risk-free", "Invite only (free for members)", "–",
               "Our own app: follow an influencer or a wallet and the app enters each fresh call (at most 10 minutes "
               "old) on a virtual $1,000 account, with a daily cap, rug check and automatic exits.",
@@ -1272,11 +1272,11 @@ cat("copy", "copy-trading-platforms", "copy-trading-platforme",
 PILLAR = {
     "en": dict(
         h1="The best crypto tools in 2026, compared with real prices",
-        title="Best crypto tools 2026: wallet trackers, analysis, trading bots, wallets, rug checkers, APIs | KriptoRadar",
+        title="Best crypto tools 2026: wallet trackers, analysis, trading bots, wallets, rug checkers, APIs | MemeSonar",
         desc="Our guide to the best crypto tools for Solana and meme coin traders: wallet trackers, analysis, trading "
              "bots, wallets and cold storage, rug checkers, APIs and copy trading. Prices checked monthly.",
         lead="Seven categories, almost 40 tools, real prices from each vendor's own pricing page. Written by the team behind "
-             "KriptoRadar, a Solana research app that uses many of these tools every day.",
+             "MemeSonar, a Solana research app that uses many of these tools every day.",
         tldr="If you only set up five things: <b>Phantom</b> (free wallet) plus a <b>hardware wallet</b> (from $50) for "
              "savings, <b>DexScreener</b> (free) for charts, <b>RugCheck</b> (free) before every buy, a tracker like "
              "<b>Cielo</b> or <b>GMGN</b> (free tiers) for wallets, and <b>Jupiter</b> for cheap swaps. Pay for a "
@@ -1298,7 +1298,7 @@ PILLAR = {
              "vendor does not publish a price, we say so.",
              "Where we have our own data (10,650 pump.fun tokens, 469 tracked wallets), we use it to show what "
              "matters more than the tool.",
-             "KriptoRadar is our product and appears where it fits, marked as ours. We earn nothing from the other "
+             "MemeSonar is our product and appears where it fits, marked as ours. We earn nothing from the other "
              "tools: no affiliate links.",
              "Fees and plans change often. Check the vendor's page before you pay or deposit."],
         cats_h="All categories", read="Compare", updated="Prices checked", ours="Our tool",
@@ -1315,11 +1315,11 @@ PILLAR = {
               "No. There are no affiliate or referral links on these pages.")]),
     "hr": dict(
         h1="Najbolji kripto alati 2026., usporedba sa stvarnim cijenama",
-        title="Najbolji kripto alati 2026: praćenje novčanika, analiza, botovi, novčanici, rug check, API | KriptoRadar",
+        title="Najbolji kripto alati 2026: praćenje novčanika, analiza, botovi, novčanici, rug check, API | MemeSonar",
         desc="Naš vodič kroz najbolje kripto alate za Solana i meme coin tradere: praćenje novčanika, analiza, trading "
              "botovi, novčanici i hladno čuvanje, provjera ruga, API-ji i copy trading. Cijene provjeravamo mjesečno.",
         lead="Sedam kategorija, gotovo 40 alata, stvarne cijene sa službenih cjenika. Napisao tim koji stoji iza "
-             "KriptoRadara, Solana aplikacije za istraživanje koja mnoge od ovih alata koristi svaki dan.",
+             "MemeSonara, Solana aplikacije za istraživanje koja mnoge od ovih alata koristi svaki dan.",
         tldr="Ako postaviš samo pet stvari: <b>Phantom</b> (besplatni novčanik) plus <b>hardverski novčanik</b> (od $50) "
              "za ušteđevinu, <b>DexScreener</b> (besplatno) za grafove, <b>RugCheck</b> (besplatno) prije svake "
              "kupnje, alat poput <b>Cielo</b> ili <b>GMGN</b> (besplatne razine) za novčanike i <b>Jupiter</b> za jeftine "
@@ -1341,7 +1341,7 @@ PILLAR = {
              "Kad alat ne objavljuje cijenu, to i napišemo.",
              "Gdje imamo vlastite podatke (10.650 pump.fun tokena, 469 praćenih novčanika), koristimo ih da pokažemo "
              "što je važnije od alata.",
-             "KriptoRadar je naš proizvod i pojavljuje se gdje odgovara, označen kao naš. Od drugih alata ne "
+             "MemeSonar je naš proizvod i pojavljuje se gdje odgovara, označen kao naš. Od drugih alata ne "
              "zarađujemo ništa: nema affiliate linkova.",
              "Naknade i planovi se često mijenjaju. Provjeri stranicu alata prije plaćanja ili uplate."],
         cats_h="Sve kategorije", read="Usporedi", updated="Cijene provjerene", ours="Naš alat",

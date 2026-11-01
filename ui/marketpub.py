@@ -524,13 +524,13 @@ def _jsonld(key, lang, title, desc, qa, d):
           "temporalCoverage": f"{dt.datetime.fromtimestamp(first, dt.timezone.utc):%Y-%m-%d}/"
                               f"{dt.datetime.fromtimestamp(d['day'], dt.timezone.utc):%Y-%m-%d}",
           "dateModified": dt.datetime.fromtimestamp(d["built"], dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-          "creator": {"@type": "Organization", "name": "KriptoRadar", "url": base + ("/" if lang == "en" else "/hr")},
+          "creator": {"@type": "Organization", "name": "MemeSonar", "url": base + ("/" if lang == "en" else "/hr")},
           "license": "https://creativecommons.org/licenses/by/4.0/"}
     faq = {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
         {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": re.sub(r"<[^>]+>", "", a)}}
         for q, a in qa]}
     crumbs = {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
-        {"@type": "ListItem", "position": 1, "name": "KriptoRadar", "item": base + ("/" if lang == "en" else "/hr")},
+        {"@type": "ListItem", "position": 1, "name": "MemeSonar", "item": base + ("/" if lang == "en" else "/hr")},
         {"@type": "ListItem", "position": 2, "name": T[lang]["crumb"], "item": base + PAGES["market"][lang != "en"]},
         {"@type": "ListItem", "position": 3, "name": NAV[lang][key][0], "item": base + path}]}
     return _ld(ds) + _ld(faq) + _ld(crumbs)
@@ -569,7 +569,7 @@ def _embed(name, lang):
     src = f"{base}{'/hr' if lang == 'hr' else ''}/embed/{name}"
     h = 330 if name == "meme-season" else 300
     code = (f'<iframe src="{src}" width="100%" height="{h}" style="border:0;max-width:420px" loading="lazy" '
-            f'title="KriptoRadar"></iframe>')
+            f'title="MemeSonar"></iframe>')
     return (f"<h2 class=s>{t['embed_h']}</h2><div class=emb><p class=mut>{t['embed_p']}</p>"
             f"<textarea readonly aria-label='{esc(t['embed_h'])}'>{esc(code)}</textarea>"
             f"<button type=button class='btn sm' data-ok='{esc(t['copied'])}'>{t['copy']}</button></div>")
@@ -578,7 +578,7 @@ def _embed(name, lang):
 def _head(key, lang, h1, lead, d):
     t = T[lang]
     hub = PAGES["market"][lang != "en"]
-    crumb = (f"<a href={'/' if lang == 'en' else '/hr'}>KriptoRadar</a> / "
+    crumb = (f"<a href={'/' if lang == 'en' else '/hr'}>MemeSonar</a> / "
              + (f"<a href={hub}>{t['crumb']}</a> / " if key != "market" else "") + esc(NAV[lang][key][0]))
     return (f"<section class=ph1><div class=crumb>{crumb}</div><h1>{h1}</h1><p class=lead>{lead}</p>"
             f"<p class=asof>{t['asof'].format(d=_date(d['day'], lang))}</p></section>")
@@ -595,7 +595,7 @@ def _empty(key, lang):
     from ui import public as P
     t = T[lang]
     en, hr = PAGES[key]
-    return P._shell(lang, NAV[lang][key][0] + " | KriptoRadar", NAV[lang][key][1], en, hr,
+    return P._shell(lang, NAV[lang][key][0] + " | MemeSonar", NAV[lang][key][1], en, hr,
                     f"<section class=ph1><h1>{esc(NAV[lang][key][0])}</h1><p class=lead>{t['nodata']}</p></section>")
 
 
@@ -734,7 +734,7 @@ def market(lang):
                "From DefiLlama's public Solana DEX and launchpad volumes, checked every hour. DefiLlama finalises a day once, so "
                "every number here is for full UTC days. The season index and the charts are our own calculations."),
               ("How often is the page updated?", "Automatically: the source is checked every hour and the page refreshes within 30 minutes.")]
-        title = f"Solana Meme Coin Market Volume Today ({_date(day, lang)}): Launchpads, DEX, Trend | KriptoRadar"
+        title = f"Solana Meme Coin Market Volume Today ({_date(day, lang)}): Launchpads, DEX, Trend | MemeSonar"
         desc = (f"Live Solana meme coin market: launchpad volume {usd(lp7)} in 7 days ({pct(g(lp7, lpp))}), Solana DEX "
                 f"{usd(dx7)}, trading terminals {usd(tm7)}. Charts and daily data, updated automatically.")
     else:
@@ -748,7 +748,7 @@ def market(lang):
                "Iz javnih podataka DefiLlame o volumenu Solana DEX-ova i launchpada, provjera svaki sat. DefiLlama dan zaključa "
                "jednom, pa su svi brojevi za pune UTC dane. Indeks sezone i grafovi su naš izračun."),
               ("Koliko se često stranica osvježava?", "Automatski: izvor se provjerava svaki sat, a stranica se osvježi unutar 30 minuta.")]
-        title = f"Volumen Solana meme coin tržišta danas ({_date(day, lang)}): launchpadi, DEX, trend | KriptoRadar"
+        title = f"Volumen Solana meme coin tržišta danas ({_date(day, lang)}): launchpadi, DEX, trend | MemeSonar"
         desc = (f"Solana meme coin tržište uživo: volumen launchpada {usd(lp7, lang)} u 7 dana ({pct(g(lp7, lpp), lang)}), "
                 f"Solana DEX {usd(dx7, lang)}, trading terminali {usd(tm7, lang)}. Grafovi i dnevni podaci, osvježava se samo.")
     body.append(_faq(qa, lang))
@@ -866,7 +866,7 @@ def launchpads(lang):
               ("Is a launchpad safe?", "The launchpad itself is just the place where tokens are made. Most new tokens fail and "
                "many are scams, so check every token before buying. See our <a href=/rug-check>rug checks</a>."),
               ("Where does the data come from?", "DefiLlama's public launchpad volumes on Solana, full UTC days, updated daily.")]
-        title = f"Solana Launchpads by Volume: pump.fun vs bonk.fun vs Meteora ({_month(day, lang)}) | KriptoRadar"
+        title = f"Solana Launchpads by Volume: pump.fun vs bonk.fun vs Meteora ({_month(day, lang)}) | MemeSonar"
         desc = (f"Which Solana launchpad trades the most? {names[top['slug']]} has {pct(top['v7'] / tot7, signed=False)} of "
                 f"launchpad volume ({usd(top['v7'])} in 7 days). Market share chart and daily data for every launchpad.")
     else:
@@ -881,7 +881,7 @@ def launchpads(lang):
               ("Je li launchpad siguran?", "Launchpad je samo mjesto gdje tokeni nastaju. Većina novih tokena propadne, a mnogi su "
                "prevare, pa provjeri svaki token prije kupnje. Pogledaj naše <a href=/hr/provjera>provjere ruga</a>."),
               ("Odakle su podaci?", "Javni podaci DefiLlame o volumenu launchpada na Solani, puni UTC dani, osvježava se svaki dan.")]
-        title = f"Solana launchpadi po volumenu: pump.fun, bonk.fun, Meteora ({_month(day, lang)}) | KriptoRadar"
+        title = f"Solana launchpadi po volumenu: pump.fun, bonk.fun, Meteora ({_month(day, lang)}) | MemeSonar"
         desc = (f"Koji Solana launchpad ima najviše trgovanja? {names[top['slug']]} ima {pct(top['v7'] / tot7, lang, signed=False)} "
                 f"volumena ({usd(top['v7'], lang)} u 7 dana). Graf tržišnog udjela i dnevni podaci za svaki launchpad.")
     body.append(_faq(qa, lang))
@@ -1072,9 +1072,9 @@ def besttime(lang):
                (f"In the last 12 weeks weekend launchpad volume was {pct(we)} compared with weekdays. " if we is not None else "")
                + "The weekday chart above shows how each day did against its own week."),
               ("How did you measure this?", "Hourly volume comes from 5-minute candles of every Solana meme coin influencers "
-               "called; call results from KriptoRadar's own tracking of first calls on X (24-hour peak). Calls younger than "
+               "called; call results from MemeSonar's own tracking of first calls on X (24-hour peak). Calls younger than "
                "24 hours and bot accounts are left out.")]
-        title = "Best Time to Trade Crypto & Meme Coins by Hour and Session (Our Data) | KriptoRadar"
+        title = "Best Time to Trade Crypto & Meme Coins by Hour and Session (Our Data) | MemeSonar"
         desc = ("When do Solana meme coins trade most, and when do influencer calls work best? Volume and call results by "
                 "hour and session, in your own time zone. Updated automatically.")
     else:
@@ -1096,7 +1096,7 @@ def besttime(lang):
               ("Kako ste ovo izmjerili?", "Volumen po satu dolazi iz 5-minutnih svijeća svakog Solana meme coina koji su "
                "influenceri pozvali; rezultati poziva iz našeg praćenja prvih poziva na X-u (vrh u 24 sata). Pozivi mlađi od "
                "24 sata i bot računi nisu uključeni.")]
-        title = "Najbolje vrijeme za trgovanje kriptom i meme coinima po satu i sesiji | KriptoRadar"
+        title = "Najbolje vrijeme za trgovanje kriptom i meme coinima po satu i sesiji | MemeSonar"
         desc = ("Kad se Solana meme coinima najviše trguje i kad pozivi influencera najbolje rade? Volumen i rezultati po satu "
                 "i sesiji, u tvojoj vremenskoj zoni. Osvježava se samo.")
     body.append(_faq(qa, lang))
@@ -1219,7 +1219,7 @@ def season(lang):
               ("Does a hot market mean I will make money?",
                "No. A hot market means more buyers and more volume, but also more new tokens, more scams and more bots. "
                "It is a thermometer, not a buy signal.")]
-        title = f"Meme Coin Season Index: Is It Meme Season? {score:.0f}/100 Today | KriptoRadar"
+        title = f"Meme Coin Season Index: Is It Meme Season? {score:.0f}/100 Today | MemeSonar"
         desc = (f"Is it meme coin season? Today's index: {score:.0f}/100 ({lab}). A daily 0-100 index of Solana meme coin "
                 "activity from launchpad and DEX volume, with 1-year history and a free embeddable widget.")
     else:
@@ -1236,7 +1236,7 @@ def season(lang):
               ("Znači li vruće tržište da ću zaraditi?",
                "Ne. Vruće tržište znači više kupaca i volumena, ali i više novih tokena, prevara i botova. To je termometar, "
                "a ne signal za kupnju.")]
-        title = f"Indeks sezone meme coina: je li sezona? {score:.0f}/100 danas | KriptoRadar"
+        title = f"Indeks sezone meme coina: je li sezona? {score:.0f}/100 danas | MemeSonar"
         desc = (f"Je li sezona meme coina? Današnji indeks: {score:.0f}/100 ({lab}). Dnevni indeks 0-100 aktivnosti Solana meme "
                 "coina iz volumena launchpada i DEX-a, s poviješću za godinu dana i besplatnim widgetom.")
     body.append(_faq(qa, lang))
@@ -1319,7 +1319,7 @@ def dex(lang):
               ("What is a DEX?", "A decentralized exchange: you swap tokens straight from your own wallet, without an account. "
                "See the <a href=/glossary/dex>glossary</a>."),
               ("Where is the data from?", "DefiLlama's public Solana volumes, full UTC days, refreshed automatically.")]
-        title = f"Solana DEX Volume Today ({_date(day, lang)}): Top DEXs & Trading Terminals | KriptoRadar"
+        title = f"Solana DEX Volume Today ({_date(day, lang)}): Top DEXs & Trading Terminals | MemeSonar"
         desc = (f"Solana DEX volume: {usd(dx.get(day))} on {_date(day, lang)}, {usd(d7)} in 7 days ({pct(ch)}). Every Solana DEX and trading "
                 "terminal ranked by volume, with 90-day chart. Updated daily.")
     else:
@@ -1333,7 +1333,7 @@ def dex(lang):
               ("Što je DEX?", "Decentralizirana mjenjačnica: tokene mijenjaš izravno iz svog novčanika, bez računa. Pogledaj "
                "<a href=/hr/rjecnik/dex>rječnik</a>."),
               ("Odakle su podaci?", "Javni podaci DefiLlame za Solanu, puni UTC dani, osvježava se samo.")]
-        title = f"Solana DEX volumen danas ({_date(day, lang)}): najveći DEX-ovi i terminali | KriptoRadar"
+        title = f"Solana DEX volumen danas ({_date(day, lang)}): najveći DEX-ovi i terminali | MemeSonar"
         desc = (f"Solana DEX volumen: {_date(day, lang)} {usd(dx.get(day), lang)}, u 7 dana {usd(d7, lang)} ({pct(ch, lang)}). Svi Solana "
                 "DEX-ovi i trading terminali po volumenu, s grafom za 90 dana. Osvježava se svaki dan.")
     body.append(_faq(qa, lang))
@@ -1370,7 +1370,7 @@ def embed(name, lang):
         title = "Solana launchpads, 7-day market share" if en else "Solana launchpadi, udio u 7 dana"
         href = PAGES["launchpads"][lang != "en"]
     return f"""<!doctype html><html lang={lang}><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<meta name=robots content="noindex,follow"><title>{esc(title)} | KriptoRadar</title><link rel=canonical href="{base}{href}">
+<meta name=robots content="noindex,follow"><title>{esc(title)} | MemeSonar</title><link rel=canonical href="{base}{href}">
 <style>body{{margin:0;font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0b1220;background:#fff}}
 .w{{border:1px solid #e8ebf2;border-radius:16px;padding:14px 16px;max-width:400px;box-sizing:border-box}}h1{{font-size:15px;margin:0 0 8px}}
 .gauge{{text-align:center}}.gauge svg{{width:100%;max-width:240px;height:auto;display:block;margin:0 auto}}
@@ -1379,7 +1379,7 @@ def embed(name, lang):
 .r{{display:grid;grid-template-columns:12px 1fr auto 70px;gap:8px;align-items:center;margin:5px 0;font-size:14px}}.r i{{width:12px;height:12px;border-radius:3px}}
 .r em{{font-style:normal;color:#5b6474;text-align:right}}.f{{display:flex;justify-content:space-between;font-size:12px;color:#5b6474;margin-top:8px}}
 .f a{{color:#4f46e5;font-weight:600;text-decoration:none}}</style></head><body><div class=w><h1>{esc(title)}</h1>{inner}
-<div class=f><span>{_date(d['day'], lang)}</span><a href="{base}{href}" target=_blank rel=noopener>KriptoRadar ↗</a></div></div></body></html>"""
+<div class=f><span>{_date(d['day'], lang)}</span><a href="{base}{href}" target=_blank rel=noopener>MemeSonar ↗</a></div></div></body></html>"""
 
 
 # ---------- routing, nav, sitemap -----------------------------------------------------------------------------------

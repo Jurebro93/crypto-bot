@@ -5,7 +5,7 @@
 
 Facts (official links, fees, menu names, the bots' own recommended values) come from each bot's official docs, checked
 1 November 2026: docs.bonkbot.io, docs.maestrobots.com, docs.gmgn.ai, docs.trojan.com, docs.bananagun.io. Our own
-starting values are labelled as ours and lean on KriptoRadar data (slippage by pool size, drawdowns after the peak).
+starting values are labelled as ours and lean on MemeSonar data (slippage by pool size, drawdowns after the peak).
 Only official links: fake bots are the most common way people lose money with Telegram bots.
 """
 from ui.html import esc
@@ -148,8 +148,8 @@ GUIDES = {
     "bonkbot": dict(
         h1=T("How to set up BonkBot: step-by-step guide and best settings (2026)",
              "Kako postaviti BonkBot: vodič korak po korak i najbolje postavke (2026.)"),
-        title=T("BonkBot setup guide 2026: best settings, slippage, MEV, trailing stop | KriptoRadar",
-                "BonkBot vodič 2026: najbolje postavke, slippage, MEV, trailing stop | KriptoRadar"),
+        title=T("BonkBot setup guide 2026: best settings, slippage, MEV, trailing stop | MemeSonar",
+                "BonkBot vodič 2026: najbolje postavke, slippage, MEV, trailing stop | MemeSonar"),
         desc=T("Set up BonkBot on Telegram safely: official link, wallet, every setting explained (slippage, priority, "
                "MEV Turbo vs Secure, auto buy, trailing stop) and the values we start with.",
                "Sigurno postavi BonkBot na Telegramu: službeni link, novčanik, svaka postavka objašnjena (slippage, "
@@ -215,8 +215,8 @@ GUIDES = {
     "maestro": dict(
         h1=T("How to set up Maestro bot: step-by-step guide and best settings (2026)",
              "Kako postaviti Maestro bot: vodič korak po korak i najbolje postavke (2026.)"),
-        title=T("Maestro bot setup guide 2026: best settings, Anti-MEV, gas delta, sell limits | KriptoRadar",
-                "Maestro bot vodič 2026: najbolje postavke, Anti-MEV, gas delta, sell limiti | KriptoRadar"),
+        title=T("Maestro bot setup guide 2026: best settings, Anti-MEV, gas delta, sell limits | MemeSonar",
+                "Maestro bot vodič 2026: najbolje postavke, Anti-MEV, gas delta, sell limiti | MemeSonar"),
         desc=T("Set up Maestro on Telegram for Solana: official link, chains, wallets, Global Settings explained "
                "(Anti-MEV, Degen Mode, Gas Delta, slippage, auto-buy checks, sell limits) and our starting values.",
                "Postavi Maestro na Telegramu za Solanu: službeni link, novčanici, Global Settings objašnjene "
@@ -280,8 +280,8 @@ GUIDES = {
     "gmgn": dict(
         h1=T("How to set up the GMGN Telegram bot: guide and recommended settings (2026)",
              "Kako postaviti GMGN Telegram bota: vodič i preporučene postavke (2026.)"),
-        title=T("GMGN bot setup guide 2026: slippage, priority fee, Anti-MEV, auto sell | KriptoRadar",
-                "GMGN bot vodič 2026: slippage, prioritetna naknada, Anti-MEV, auto sell | KriptoRadar"),
+        title=T("GMGN bot setup guide 2026: slippage, priority fee, Anti-MEV, auto sell | MemeSonar",
+                "GMGN bot vodič 2026: slippage, prioritetna naknada, Anti-MEV, auto sell | MemeSonar"),
         desc=T("Set up the GMGN Solana Telegram bot: the official bot list, wallet, settings explained and GMGN's own "
                "recommended slippage and fees, plus auto sell with take profit and stop loss.",
                "Postavi GMGN Solana Telegram bota: službeni popis botova, novčanik, objašnjene postavke i GMGN-ove "
@@ -341,8 +341,8 @@ GUIDES = {
     "trojan": dict(
         h1=T("How to set up Trojan: step-by-step guide and best settings (2026)",
              "Kako postaviti Trojan: vodič korak po korak i najbolje postavke (2026.)"),
-        title=T("Trojan bot setup guide 2026: trade presets, slippage, priority fee, bribe, auto sell | KriptoRadar",
-                "Trojan vodič 2026: profili, slippage, prioritetna naknada, bribe, auto sell | KriptoRadar"),
+        title=T("Trojan bot setup guide 2026: trade presets, slippage, priority fee, bribe, auto sell | MemeSonar",
+                "Trojan vodič 2026: profili, slippage, prioritetna naknada, bribe, auto sell | MemeSonar"),
         desc=T("Set up Trojan for Solana: official links, wallet, Trade Settings profiles explained (quick amounts, "
                "priority fee, bribe, slippage, spam buy, auto sell) and our starting values.",
                "Postavi Trojan za Solanu: službeni linkovi, novčanik, Trade Settings profili objašnjeni (brzi iznosi, "
@@ -405,7 +405,7 @@ ORDER = ("trojan", "bonkbot", "maestro", "gmgn")
 TX = {
     "en": dict(
         h1="The best-known Telegram trading bots in 2026, and how to set them up",
-        title="Best Telegram trading bots 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + settings | KriptoRadar",
+        title="Best Telegram trading bots 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + settings | MemeSonar",
         desc="The most used Telegram crypto trading bots compared (fees, chains, official links) with every setting "
              "explained: slippage, priority fee, MEV, auto buy, take profit, stop loss. A setup guide per bot.",
         tag="Telegram bots", crumb="← Best crypto tools",
@@ -468,7 +468,7 @@ TX = {
                "Facts from the bot's official docs, checked 1 November 2026. No affiliate links."),
     "hr": dict(
         h1="Najpoznatiji Telegram trading botovi 2026. i kako ih postaviti",
-        title="Najbolji Telegram trading botovi 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + postavke | KriptoRadar",
+        title="Najbolji Telegram trading botovi 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + postavke | MemeSonar",
         desc="Najkorišteniji Telegram trading botovi uspoređeni (naknade, mreže, službeni linkovi) uz "
              "objašnjenje svake postavke: slippage, prioritet, MEV, auto buy, take profit, stop loss. Vodič za svaki.",
         tag="Telegram botovi", crumb="← Najbolji kripto alati",
@@ -681,7 +681,7 @@ def overview(lang):
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "Article", "headline": t["h1"], "description": t["desc"], "datePublished": CHECKED,
          "dateModified": CHECKED, "mainEntityOfPage": url, "inLanguage": lang,
-         "author": {"@type": "Organization", "name": "KriptoRadar"}, "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
+         "author": {"@type": "Organization", "name": "MemeSonar"}, "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "position": n, "name": b["name"],
                                                    "url": b["links"][0][1]} for n, b in enumerate(BOTS, 1)]},
         faq_ld]})
@@ -728,7 +728,7 @@ def guide(key, lang):
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "Article", "headline": g["h1"][lang], "description": g["desc"][lang], "datePublished": CHECKED,
          "dateModified": CHECKED, "mainEntityOfPage": url, "inLanguage": lang,
-         "author": {"@type": "Organization", "name": "KriptoRadar"}, "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
+         "author": {"@type": "Organization", "name": "MemeSonar"}, "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         howto]})
     return _shell(lang, g["title"][lang], g["desc"][lang], gpath(key, "en"), gpath(key, "hr"), body, jsonld=jsonld,
                   og_type="article")

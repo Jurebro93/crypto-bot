@@ -40,7 +40,7 @@ let glow=g.createRadialGradient(W-120,80,10,W-120,80,520);glow.addColorStop(0,'r
 g.fillStyle=glow;g.fillRect(0,0,W,H);
 const X=64,CW=W-2*X;let y=70;
 // header
-g.textBaseline='top';font(800,58);g.fillStyle='#fff';g.fillText('📊 KriptoRadar',X,y);
+g.textBaseline='top';font(800,58);g.fillStyle='#fff';g.fillText('📊 MemeSonar',X,y);
 font(500,34);g.fillStyle='#9fb3c8';g.textAlign='right';g.fillText(D.date,W-X,y+14);g.textAlign='left';y+=96;
 font(500,30);g.fillStyle='#9fb3c8';g.fillText('Dnevni pregled natjecanja i aplikacije',X,y);y+=66;
 function section(title){font(700,30);g.fillStyle='#25d366';g.fillText(title,X,y);y+=50}
@@ -88,7 +88,7 @@ const msg=document.getElementById('wamsg');const say=(t,ok=true)=>{msg.textConte
 const mark=()=>fetch('/whatsapp/poslano',{method:'POST',credentials:'same-origin'}).catch(()=>{});
 async function copyText(){try{await navigator.clipboard.writeText(TXT);return true}catch(e){
   const ta=document.getElementById('watext');ta.select();try{return document.execCommand('copy')}catch(_){return false}}}
-const fname='kriptoradar-'+D.date.replace(/\.$/,'').replace(/\./g,'-')+'.png';
+const fname='memesonar-'+D.date.replace(/\.$/,'').replace(/\./g,'-')+'.png';
 document.getElementById('wasend').onclick=async()=>{
   const file=new File([await blob],fname,{type:'image/png'});
   await copyText();

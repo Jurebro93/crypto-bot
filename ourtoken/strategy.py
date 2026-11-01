@@ -24,7 +24,7 @@ CONCEPTS = [
      "story": "Jedini meme coin čiji vlasnici imaju vlastiti radar za tokene. Maskota je mali radar-pas koji "
               "\"njuši\" rugove. Šala je da token koji upozorava na rugove nikad ne može biti rug: mint i freeze "
               "su isključeni, a adrese tima su javne.",
-     "use": "Tko drži npr. 100k tokena, dobiva pristup KriptoRadar natjecanju, jutarnjem izvještaju i tablici "
+     "use": "Tko drži npr. 100k tokena, dobiva pristup MemeSonar natjecanju, jutarnjem izvještaju i tablici "
             "\"Rug ili ne\". Stvarna korist od alata koji već imamo.",
      "why": "Ima priču, korist i sadržaj koji se sam piše: svaki dan bot nađe nove rugove, a to su gotove objave.",
      "best": True},
@@ -150,7 +150,7 @@ CLAUDE = [
      "(DexScreener API), /kupi (upute), brisanje poruka s linkovima koje nisu na bijeloj listi, mute za spam. "
      "Token bota iz varijable okoline."),
     ("Igra \"Rug ili ne\"", "1-2 dana",
-     "Na postojećem KriptoRadar dashboardu dodaj stranicu /rug-ili-ne: svaki dan 10 tokena iz hype.db starih 24-48 h, "
+     "Na postojećem MemeSonar dashboardu dodaj stranicu /rug-ili-ne: svaki dan 10 tokena iz hype.db starih 24-48 h, "
      "igrač pogađa rug ili ne, rezultat iz rug podataka, ljestvica tjedna. Testovi bez mreže."),
     ("Telegram mini igra", "1-2 dana",
      "Napravi Telegram Mini App igru: tapni maskotu {SYM} što brže u 30 sekundi, rezultat se dijeli u grupu, "
@@ -159,7 +159,7 @@ CLAUDE = [
      "Napiši 90 objava za X za meme token {SYM} (priča: ...): 60% humor s maskotom, 30% zajednica, 10% podaci. "
      "Kratko, bez obećanja zarade, s idejom za sliku uz svaku. Tablica: dan, sat, tekst, slika."),
     ("Holder ljestvica i značke", "1 dan",
-     "Dodaj na KriptoRadar stranicu koja preko Helius getTokenLargestAccounts i povijesti transakcija pokazuje "
+     "Dodaj na MemeSonar stranicu koja preko Helius getTokenLargestAccounts i povijesti transakcija pokazuje "
      "holdere {SYM} s danima držanja i značkama (7, 30, 90 dana)."),
     ("Kratki opis i lite paper", "1 h",
      "Napiši lite paper od 1 stranice za {SYM}: priča, maskota, raspodjela supplyja, što zajednica radi (igre, "

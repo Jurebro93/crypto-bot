@@ -20,9 +20,9 @@ L = {
                site="Website", free="Free", paid="Paid", watch="Watch out", choose_h="How to choose", faq_h="FAQ",
                src_h="Sources (checked 1 November 2026)", terms="Terms on this page", all_terms="All terms →",
                blog_h="Related guides", other_h="Other tool categories", ours="Our tool", n_tools="tools compared",
-               checked="Prices checked 1 November 2026", by="KriptoRadar research", chart_h="In numbers",
+               checked="Prices checked 1 November 2026", by="MemeSonar research", chart_h="In numbers",
                cta="Request access", home="/",
-               lock="KriptoRadar puts wallet tracking, influencer calls and a rug check on every new Solana token in one "
+               lock="MemeSonar puts wallet tracking, influencer calls and a rug check on every new Solana token in one "
                     "app. Invite only.",
                note="Not financial advice. Prices and fees are taken from each vendor's page on the date above and "
                     "change often; check before you pay or deposit. No affiliate links.",
@@ -32,9 +32,9 @@ L = {
                site="Web stranica", free="Besplatno", paid="Plaćeno", watch="Na što paziti", choose_h="Kako odabrati",
                faq_h="Česta pitanja", src_h="Izvori (provjereno 1. studenoga 2026.)", terms="Pojmovi na ovoj stranici",
                all_terms="Svi pojmovi →", blog_h="Povezani vodiči", other_h="Ostale kategorije alata", ours="Naš alat",
-               n_tools="alata uspoređeno", checked="Cijene provjerene 1. studenoga 2026.", by="KriptoRadar istraživanje",
+               n_tools="alata uspoređeno", checked="Cijene provjerene 1. studenoga 2026.", by="MemeSonar istraživanje",
                chart_h="U brojkama", cta="Zatraži pristup", home="/hr",
-               lock="KriptoRadar u jednoj aplikaciji spaja praćenje novčanika, pozive influencera i provjeru ruga na "
+               lock="MemeSonar u jednoj aplikaciji spaja praćenje novčanika, pozive influencera i provjeru ruga na "
                     "svakom novom Solana tokenu. Samo uz pozivnicu.",
                note="Nije financijski savjet. Cijene i naknade preuzete su sa stranica proizvođača na navedeni datum i "
                     "često se mijenjaju; provjeri prije plaćanja ili uplate. Bez affiliate linkova.",
@@ -200,8 +200,8 @@ def page(slug, lang="en"):
     d = _data().CHECKED
     jsonld = _ld({"@context": "https://schema.org", "@graph": [
         {"@type": "Article", "headline": x["h1"], "description": x["desc"], "datePublished": d, "dateModified": d,
-         "mainEntityOfPage": url, "inLanguage": lang, "author": {"@type": "Organization", "name": "KriptoRadar"},
-         "publisher": {"@type": "Organization", "name": "KriptoRadar"}},
+         "mainEntityOfPage": url, "inLanguage": lang, "author": {"@type": "Organization", "name": "MemeSonar"},
+         "publisher": {"@type": "Organization", "name": "MemeSonar"}},
         {"@type": "ItemList", "name": x["h1"], "itemListElement": [
             {"@type": "ListItem", "position": i, "name": t["name"],
              **({"url": t["url"]} if not t["url"].startswith("/") else {})} for i, t in enumerate(tools, 1)]},
@@ -237,7 +237,7 @@ def index(lang="en"):
     picks_tbl = f"<div class=tw><table class=ttab><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
     faq_html, faq_ld = _faq(p["faq"], lang)
     n_tools = len({t["name"] for c in D.CATS for t in c["tools"]})
-    body = (f"<article class=art><section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{esc(p['h1'])}</h1>"
+    body = (f"<article class=art><section class=ph1><div class=eyebrow>MemeSonar</div><h1>{esc(p['h1'])}</h1>"
             f"<p class=lead>{esc(p['lead'])}</p><div class=meta>{s['checked']} · {n_tools} {s['n_tools']}</div>"
             f"<div class=tldr><b>{s['short']}</b><p>{p['tldr']}</p></div></section>"
             f"<h2>{p['picks_h']}</h2></article>{picks_tbl}"

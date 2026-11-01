@@ -72,9 +72,18 @@ NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/wallet/": "/wall
 # phone bottom bar: the four places people go most, Natjecanje in the middle
 BOTTOM = [("/", "🏠", "Pregled"), ("/tokens", "🪙", "Tokeni"), ("/natjecanje", "🏆", "Natjecanje"), ("/paper", "🤖", "Demo")]
 
-# Logo: three candidates, LOGO picks the one shown. Plain SVG, no files to serve.
+# Logo: candidates, LOGO picks the one shown. Plain SVG, no files to serve.
 LOGOS = {
-    "radar": ("KriptoRadar", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient '
+    "sonar": ("MemeSonar", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient '
+              'id="lgm" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" '
+              'stop-color="#06b6d4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgm)"/>'
+              '<g fill="none" stroke="#fff" stroke-width="1.9">'
+              '<circle cx="16" cy="16" r="5.2" stroke-opacity=".9"/>'
+              '<circle cx="16" cy="16" r="9.6" stroke-opacity=".55"/>'
+              '<circle cx="16" cy="16" r="14" stroke-opacity=".25"/></g>'
+              '<circle cx="16" cy="16" r="2.3" fill="#fff"/><circle cx="22.8" cy="9.2" r="2.6" fill="#a7f3d0"/>'
+              '<circle cx="22.8" cy="9.2" r="4.3" fill="none" stroke="#a7f3d0" stroke-opacity=".5" stroke-width="1.2"/></svg>'),
+    "radar": ("Radar", '<svg viewBox="0 0 32 32" width="{s}" height="{s}" aria-hidden="true"><defs><linearGradient '
               'id="lgr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b5bf6"/><stop offset="1" '
               'stop-color="#12c9a4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgr)"/>'
               '<circle cx="16" cy="16" r="10" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="1.6"/>'
@@ -93,7 +102,7 @@ LOGOS = {
                'fill="url(#lgg)"/><path d="M7.5 16.5h3.5l2.2-5.5 3.6 10 2.2-6h5.5" fill="none" stroke="#fff" '
                'stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
 }
-LOGO = os.environ.get("UI_LOGO", "radar") if os.environ.get("UI_LOGO", "radar") in LOGOS else "radar"
+LOGO = os.environ.get("UI_LOGO", "sonar") if os.environ.get("UI_LOGO", "sonar") in LOGOS else "sonar"
 
 
 def logo(size=30, variant=None):

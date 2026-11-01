@@ -22,7 +22,7 @@ T = {
         buy_hub="/how-to-buy", rug_hub="/rug-check", lb="/solana-meme-coins", exch=EXCH_EN, home="/",
         cta="Request access", nfa="Not financial advice. Meme coins are extremely risky; most go to zero.",
         # price prediction
-        pp_title="{name} ({sym}) price prediction: data-based scenarios | KriptoRadar",
+        pp_title="{name} ({sym}) price prediction: data-based scenarios | MemeSonar",
         pp_desc="{sym} price prediction without made-up targets: what 2x, 5x and 10x would mean for {name}'s market "
                 "cap, plus {pos} of {n} live signals pointing up. Updated every 3 hours.",
         pp_h1="{sym} price prediction",
@@ -42,7 +42,7 @@ T = {
         pp_how="How to read this: a 10x needs ten times today's market cap, so check whether any meme coin is that "
                "big today. Signals change every few hours; members see them live with alerts.",
         # how to buy
-        b_title="How to buy {name} ({sym}) on Solana: step by step | KriptoRadar",
+        b_title="How to buy {name} ({sym}) on Solana: step by step | MemeSonar",
         b_desc="Where and how to buy {sym}: the real contract address, the cheapest route via Phantom and Jupiter, "
                "slippage for its ${liq} pool and a safety check before you buy.",
         b_h1="How to buy {name} ({sym})",
@@ -73,7 +73,7 @@ T = {
         slip_cols=("Buy size", "Fewer tokens than quoted"),
         safe_h="Before you buy: safety check", safe_link="Full {sym} rug check →",
         # rug check
-        r_title="Is {name} ({sym}) safe? Rug check: {ok} of {n} checks passed | KriptoRadar",
+        r_title="Is {name} ({sym}) safe? Rug check: {ok} of {n} checks passed | MemeSonar",
         r_desc="{sym} rug check from on-chain data: mint and freeze authority, top holders, developer balance, "
                "liquidity, holders and age. {ok} of {n} checks passed. Updated every 3 hours.",
         r_h1="Is {sym} safe? Rug check",
@@ -93,12 +93,12 @@ T = {
         r_more="How we check: <a href=/blog/how-to-spot-a-rug-pull>7 checks from 10,650 tokens</a>.",
         days="{n} days", years="{n} years",
         # hubs
-        hb_title="How to buy Solana meme coins: guides for the top 100 | KriptoRadar",
+        hb_title="How to buy Solana meme coins: guides for the top 100 | MemeSonar",
         hb_desc="Step-by-step buying guides for the 100 biggest Solana meme coins, with the real contract address and "
                 "slippage for each pool.",
         hb_h1="How to buy Solana meme coins",
         hb_lead="Pick a coin for its buying guide. Every guide uses the real contract address and our safety checks.",
-        hr_title="Solana meme coin rug checks: top 100 safety scores | KriptoRadar",
+        hr_title="Solana meme coin rug checks: top 100 safety scores | MemeSonar",
         hr_desc="Rug checks for the 100 biggest Solana meme coins: mint and freeze authority, top holders, liquidity and "
                 "more, updated every 3 hours.",
         hr_h1="Solana meme coin rug checks",
@@ -111,7 +111,7 @@ T = {
         pp="/hr/coin/{s}/prognoza", buy="/hr/kako-kupiti/{s}", rug="/hr/provjera/{s}", coin="/hr/coin/{s}",
         buy_hub="/hr/kako-kupiti", rug_hub="/hr/provjera", lb="/hr/solana-meme-coini", exch=EXCH_HR, home="/hr",
         cta="Zatraži pristup", nfa="Nije financijski savjet. Meme coini su izuzetno rizični; većina završi na nuli.",
-        pp_title="{name} ({sym}) prognoza cijene: scenariji iz podataka | KriptoRadar",
+        pp_title="{name} ({sym}) prognoza cijene: scenariji iz podataka | MemeSonar",
         pp_desc="Prognoza cijene {sym} bez izmišljenih ciljeva: što bi 2x, 5x i 10x značili za market cap tokena {name} "
                 "i {pos} od {n} živih signala koji pokazuju gore. Osvježava se svaka 3 sata.",
         pp_h1="{sym} prognoza cijene",
@@ -130,7 +130,7 @@ T = {
         chart_h="Povijest cijene {sym}", chart_src="naše snimke",
         pp_how="Kako ovo čitati: 10x traži deset puta veći market cap od današnjeg, pa provjeri je li ijedan meme coin "
                "danas toliko velik. Signali se mijenjaju svakih nekoliko sati; članovi ih vide uživo s obavijestima.",
-        b_title="Kako kupiti {name} ({sym}) na Solani: korak po korak | KriptoRadar",
+        b_title="Kako kupiti {name} ({sym}) na Solani: korak po korak | MemeSonar",
         b_desc="Gdje i kako kupiti {sym}: prava adresa ugovora, najjeftiniji put preko Phantoma i Jupitera, slippage za "
                "bazen od ${liq} i provjera sigurnosti prije kupnje.",
         b_h1="Kako kupiti {name} ({sym})",
@@ -159,7 +159,7 @@ T = {
         slip_sub="Manje tokena od prikazane cijene, bazen s konstantnim produktom, prije naknada",
         slip_cols=("Iznos kupnje", "Manje tokena od prikazanog"),
         safe_h="Prije kupnje: provjera sigurnosti", safe_link="Cijela provjera ruga za {sym} →",
-        r_title="Je li {name} ({sym}) siguran? Provjera ruga: {ok} od {n} provjera prošlo | KriptoRadar",
+        r_title="Je li {name} ({sym}) siguran? Provjera ruga: {ok} od {n} provjera prošlo | MemeSonar",
         r_desc="Provjera ruga za {sym} iz podataka na blockchainu: mint i freeze authority, najveći holderi, udio "
                "developera, likvidnost, holderi i starost. Prošlo {ok} od {n}. Osvježava se svaka 3 sata.",
         r_h1="Je li {sym} siguran? Provjera ruga",
@@ -178,12 +178,12 @@ T = {
                  org=("Organsko trgovanje", "ocjena 40+", "Pravi traderi ili botovi?")),
         r_more="Kako provjeravamo: <a href=/hr/blog/kako-prepoznati-rug-pull>7 provjera iz 10.650 tokena</a>.",
         days="{n} dana", years="{n} god.",
-        hb_title="Kako kupiti Solana meme coine: vodiči za top 100 | KriptoRadar",
+        hb_title="Kako kupiti Solana meme coine: vodiči za top 100 | MemeSonar",
         hb_desc="Vodiči korak po korak za kupnju 100 najvećih Solana meme coina, s pravom adresom ugovora i slippageom "
                 "za svaki bazen.",
         hb_h1="Kako kupiti Solana meme coine",
         hb_lead="Odaberi coin za vodič za kupnju. Svaki vodič koristi pravu adresu ugovora i naše provjere sigurnosti.",
-        hr_title="Provjera ruga za Solana meme coine: ocjene sigurnosti top 100 | KriptoRadar",
+        hr_title="Provjera ruga za Solana meme coine: ocjene sigurnosti top 100 | MemeSonar",
         hr_desc="Provjere ruga za 100 najvećih Solana meme coina: mint i freeze authority, najveći holderi, likvidnost i "
                 "više, osvježeno svaka 3 sata.",
         hr_h1="Provjera ruga za Solana meme coine",
@@ -526,7 +526,7 @@ def hub(kind, lang):
         out.append((x.get("rank") or "", f"<a href={link}>{esc(x['symbol'] or x['slug'])}</a> "
                     f"<span class=mut>{esc((x['name'] or '')[:30])}</span>", _usd(x["mcap"], lang), f"{ok}/{n}"))
     key = "hb" if kind == "buy" else "hr"
-    body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t[key + '_h1']}</h1>"
+    body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t[key + '_h1']}</h1>"
             f"<p class=lead>{t[key + '_lead']}</p></section>{_table(t['hub_cols'], out, 2)}{_lock(lang)}")
     en, hr = (T["en"]["buy_hub"], T["hr"]["buy_hub"]) if kind == "buy" else (T["en"]["rug_hub"], T["hr"]["rug_hub"])
     return P._shell(lang, t[key + "_title"], t[key + "_desc"], en, hr, body)
@@ -541,17 +541,17 @@ LISTS = {
 }
 LT = {
     "en": dict(
-        gainers=("Top Solana meme coin gainers today", "Biggest 24 h gainers among the top 100 Solana meme coins | KriptoRadar",
+        gainers=("Top Solana meme coin gainers today", "Biggest 24 h gainers among the top 100 Solana meme coins | MemeSonar",
                  "The Solana meme coins that rose most in the last 24 hours, from the top 100 by market cap, with liquidity "
                  "and a rug check for each. Updated every 3 hours.",
                  "The {n} biggest 24 h price gains among the top 100 Solana meme coins (pools with at least $25k "
                  "liquidity, so a tiny pool can't fake a jump).", "24 h change"),
-        trending=("Trending Solana meme coins today", "Trending Solana meme coins: most traders in 24 h | KriptoRadar",
+        trending=("Trending Solana meme coins today", "Trending Solana meme coins: most traders in 24 h | MemeSonar",
                   "The Solana meme coins with the most unique traders in the last 24 hours, with volume, buy/sell split and "
                   "a rug check for each. Updated every 3 hours.",
                   "The {n} Solana meme coins most people traded in the last 24 hours (unique traders, not just volume, "
                   "which bots can inflate).", "Traders, 24 h"),
-        new=("New Solana meme coins in the top 100", "New Solana meme coins: youngest in the top 100 | KriptoRadar",
+        new=("New Solana meme coins in the top 100", "New Solana meme coins: youngest in the top 100 | MemeSonar",
              "The youngest Solana meme coins that made it into the top 100 by market cap, with age, holders and a rug "
              "check for each. Updated every 3 hours.",
              "The {n} youngest coins in the top 100. New coins are the riskiest: check the rug score before anything "
@@ -559,17 +559,17 @@ LT = {
         cols=("#", "Coin", "Price", "24 h", "Market cap", "Checks"), other="Other lists", all="All top 100",
     ),
     "hr": dict(
-        gainers=("Solana meme coini s najvećim rastom danas", "Najveći rast u 24 h među top 100 Solana meme coina | KriptoRadar",
+        gainers=("Solana meme coini s najvećim rastom danas", "Najveći rast u 24 h među top 100 Solana meme coina | MemeSonar",
                  "Solana meme coini koji su najviše porasli u zadnja 24 sata, iz top 100 po market capu, s likvidnošću i "
                  "provjerom ruga za svaki. Osvježava se svaka 3 sata.",
                  "{n} najvećih rasta cijene u 24 h među top 100 Solana meme coina (bazeni s barem $25k likvidnosti, da "
                  "mali bazen ne lažira skok).", "Promjena 24 h"),
-        trending=("Popularni Solana meme coini danas", "Popularni Solana meme coini: najviše tradera u 24 h | KriptoRadar",
+        trending=("Popularni Solana meme coini danas", "Popularni Solana meme coini: najviše tradera u 24 h | MemeSonar",
                   "Solana meme coini s najviše različitih tradera u zadnja 24 sata, s volumenom, omjerom kupnji i prodaja i "
                   "provjerom ruga za svaki. Osvježava se svaka 3 sata.",
                   "{n} Solana meme coina kojima je trgovalo najviše ljudi u zadnja 24 sata (različiti traderi, ne samo "
                   "volumen, koji botovi mogu napuhati).", "Tradera, 24 h"),
-        new=("Novi Solana meme coini u top 100", "Novi Solana meme coini: najmlađi u top 100 | KriptoRadar",
+        new=("Novi Solana meme coini u top 100", "Novi Solana meme coini: najmlađi u top 100 | MemeSonar",
              "Najmlađi Solana meme coini koji su ušli u top 100 po market capu, sa starošću, holderima i provjerom ruga za "
              "svaki. Osvježava se svaka 3 sata.",
              "{n} najmlađih coina u top 100. Novi coini su najrizičniji: prvo pogledaj provjeru ruga.", "Starost"),
@@ -630,7 +630,7 @@ def daily(kind, lang):
     when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(upd)) if upd else ""
     body = (f"<section class=ph1><div class=eyebrow><a href={t['lb']}>{'Solana meme coini' if lang == 'hr' else 'Solana meme coins'}</a></div><h1>{h1}</h1>"
             f"<p class=lead>{lead.format(n=len(rows))}</p></section>{table}"
-            f"<p class=mut style='font-size:13px'>{when} · Jupiter, KriptoRadar</p>{_lock(lang)}"
+            f"<p class=mut style='font-size:13px'>{when} · Jupiter, MemeSonar</p>{_lock(lang)}"
             f"<p class=mut style='font-size:13px'>{t['nfa']}</p>{list_links(lang, kind)}")
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     ld = _ld({"@context": "https://schema.org", "@type": "ItemList", "name": h1, "itemListElement": [
