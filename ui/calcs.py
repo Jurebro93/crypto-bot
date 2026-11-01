@@ -29,6 +29,11 @@ _FMT = ("<script>function crF(l,v,c){return new Intl.NumberFormat(l=='hr'?'hr-HR
 
 T = {
     "en": dict(
+        q_h="How much more do you pay behind the bots?", q_sub="Each bot ahead of you buys from the same pool and lifts the price.",
+        bots="Bots ahead of you", bbuy="Buy per bot ($)", qliq="Pool liquidity ($)",
+        prem="Your price above the price at the call", need="Your loss if the bots sell back to the call price",
+        q_ok="Small gap: the pool is deep enough for this many bots.",
+        q_warn="You enter far above the bots: when they sell, the price drops below yours.",
         t_h="Crypto tax calculator (Croatia)", t_sub="Individuals, Croatian tax resident. Amounts in euros.",
         buy="Bought for (€)", sell="Sold or spent for (€)", held="Months held", loss="Other losses this year (€)",
         gain="Gain", tax="Tax to pay (12%)", keep="You keep",
@@ -44,6 +49,11 @@ T = {
         s_ok="Under 2% of the pool: fine.", s_warn="Over 2% of the pool: split the buy or pick a deeper pool.",
     ),
     "hr": dict(
+        q_h="Koliko skuplje ulaziš iza botova?", q_sub="Svaki bot ispred tebe kupuje u isti bazen i diže cijenu.",
+        bots="Botova ispred tebe", bbuy="Kupnja po botu ($)", qliq="Likvidnost bazena ($)",
+        prem="Tvoja cijena iznad cijene pri pozivu", need="Tvoj gubitak ako botovi prodaju natrag do cijene pri pozivu",
+        q_ok="Mala razlika: pool je dovoljno dubok za ovoliko botova.",
+        q_warn="Ulaziš bitno skuplje od botova: kad oni prodaju, cijena pada ispod tvoje.",
         t_h="Kalkulator poreza na kripto (Hrvatska)", t_sub="Fizičke osobe, porezni rezidenti Hrvatske. Iznosi u eurima.",
         buy="Kupljeno za (€)", sell="Prodano ili potrošeno za (€)", held="Mjeseci držanja",
         loss="Drugi gubici ove godine (€)", gain="Dobit", tax="Porez za platiti (12%)", keep="Ostaje ti",
@@ -110,6 +120,22 @@ def slippage(lang="en"):
             "{maximumFractionDigits:1})+'%';document.getElementById(k+'c').textContent=crF(L,x*p,'USD');"
             "document.getElementById(k+'n').textContent=(R>0&&x/(2*R)>0.02)?wn:ok}['x','r'].forEach(function(z){"
             "document.getElementById(k+z).addEventListener('input',u)});u()})()</script>")
+
+
+def queue(lang="en"):
+    """Entry price premium after n bots buy first in a constant-product pool: ((R + n*b) / R)^2 - 1, R = liquidity/2."""
+    t, k = T[lang], "qu" + lang
+    return (f"<figure class=calc id={k}><figcaption><b>{t['q_h']}</b><span>{t['q_sub']}</span></figcaption>"
+            f"<div class=ci>{_in(k + 'n', t['bots'], 20)}{_in(k + 'b', t['bbuy'], 500)}{_in(k + 'r', t['qliq'], 100000)}"
+            f"</div><div class=co><div class=hi><b id={k}p>+44%</b><span>{t['prem']}</span></div><div><b id={k}s>-31%</b>"
+            f"<span>{t['need']}</span></div></div><p class=cn id={k}m></p></figure>"
+            f"<script>(function(){{var k='{k}',L='{lang}',ok={_js(t['q_ok'])},wn={_js(t['q_warn'])};function g(x){{"
+            "return Math.max(0,parseFloat(document.getElementById(k+x).value)||0)}function f(v){return '+'+(v*100)"
+            ".toLocaleString(L=='hr'?'hr-HR':'en-IE',{maximumFractionDigits:1})+'%'}function u(){var R=g('r')/2,"
+            "p=R>0?Math.pow((R+g('n')*g('b'))/R,2)-1:0;document.getElementById(k+'p').textContent=f(p);"
+            "document.getElementById(k+'s').textContent='-'+(100*p/(1+p)).toLocaleString(L=='hr'?'hr-HR':'en-IE',{maximumFractionDigits:1})+'%';document.getElementById(k+'m').textContent=p>0.1?wn:ok}"
+            "['n','b','r'].forEach(function(z){document.getElementById(k+z).addEventListener('input',u)});u()})()"
+            "</script>")
 
 
 def _js(s):

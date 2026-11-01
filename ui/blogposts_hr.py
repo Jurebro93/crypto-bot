@@ -1046,3 +1046,82 @@ spremne izvode mjenjačnice i odluku uprave o ulaganju, i koristi isti račun fi
 <p class=mut>Nije porezni ni pravni savjet; pravila se mijenjaju, a situacije se razlikuju. Provjeri s poreznim
 savjetnikom. Pravila za fizičke osobe: <a href=/hr/blog/porez-na-kriptovalute>porez na kriptovalute u Hrvatskoj</a>.</p>
 """)
+
+
+# 18 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "why-big-influencer-calls-are-hard-to-trade", "zasto-je-tesko-trgovati-pozive-velikih-influencera", "Influenceri",
+    "Zašto je tako teško trgovati pozive najvećih kripto influencera (i gdje je prilika)",
+    "Zašto ne uspijeva kopiranje velikih kripto influencera: sniper botovi, prioritetne naknade | KriptoRadar",
+    "Pozive velikih influencera gledaju tisuće ljudi i sniper botovi koji plaćaju veću naknadu da kupe prvi. Kako rade "
+    "prioritetne naknade i Jito napojnice i zašto rastuće zvijezde daju više prostora.", 7,
+    "Kad slavni influencer objavi token, tisuće pratitelja i deseci botova pokušavaju kupiti u istoj sekundi. Botovi "
+    "plaćaju veću prioritetnu naknadu ili Jito napojnicu da validator stavi njihovu kupnju prvu u blok; svaka kupnja "
+    "ispred tebe diže cijenu, pa ulaziš znatno iznad cijene pri pozivu i često postaneš izlaz botovima. Manje poznati "
+    "influenceri s dobrim rezultatima (naše Rastuće zvijezde) imaju manje botova za sobom, pa je cijena pri tvom ulazu "
+    "bliža cijeni pri pozivu.",
+    f"""
+<h2>Dvije vrste influencera</h2>
+<p>Naša <a href=/hr/influenceri>ljestvica influencera</a> sada ima dva taba. <b>Zvijezde</b> su najpoznatiji računi
+(100.000+ pratitelja, imena poput Murada ili Ansema): njihovi postovi pomiču tržište, ali ih svi vide u istom trenutku.
+<b>Rastuće zvijezde</b> su manje poznati računi s izmjerenim rezultatima: teže ih je pronaći, prati ih manje ljudi, i
+upravo zato se njihovi pozivi još mogu trgovati.</p>
+<p>Pozivi su važni: prema našim mjerenjima 52% tokena koje je pozvao izmjereni <b>KOL</b> doseglo je 2x, naspram 14%
+tokena bez poziva. Pitanje nije pomiče li poziv cijenu, nego tko uzme taj pomak.</p>
+
+<h2>Što se događa u prvoj sekundi nakon velikog poziva</h2>
+<ol>
+<li>Post se pojavi. Botovi koji prate račun u milisekundama pročitaju ticker ili adresu ugovora.</li>
+<li>Šalju kupnje s visokom <a href=/hr/rjecnik/prioritetna-naknada>prioritetnom naknadom</a> ili Jito napojnicom.</li>
+<li>Tisuće ljudi otvore post, kopiraju adresu i kliknu kupi, obično sa zadanom naknadom novčanika.</li>
+<li>Validator koji slaže sljedeći blok prvo ga puni onima koji najviše plaćaju. Tvoja transakcija završi iza botova,
+ako uopće uđe u zagušeni blok.</li>
+<li>Svaka kupnja ispred tebe gura cijenu uz krivulju bazena. Botovi zatim prodaju gomili koja još kupuje.</li>
+</ol>
+
+<h2>Kako botovi plaćaju da budu prvi</h2>
+<p>Svaka Solana transakcija plaća malu osnovnu naknadu (5.000 lamporta po potpisu, djelić centa). Povrh toga pošiljatelj
+može dodati prioritetnu naknadu: cijenu po jedinici izračuna koja proizvođaču bloka kaže "uključi me prvog". Kad se
+puno transakcija u istom trenutku natječe za isti token, one koje plaćaju više po jedinici izračuna uglavnom idu prve.</p>
+<p>Drugi put je <b>Jito napojnica</b>. Većina Solana validatora koristi Jito klijent, koji prodaje na dražbi "bundleove":
+skupinu transakcija koja se izvrši zajedno, točnim redom, samo ako je napojnica plaćena. Bot može staviti svoju kupnju
+odmah iza transakcije samog influencera ili odmah ispred vala kupnji, što je
+<a href=/hr/rjecnik/front-running>front-running</a>. Nekoliko dolara napojnice je jeftino kad bot očekuje da će
+sekundu kasnije prodati tisućama kupaca.</p>
+<p>Zato "biti brz" na velikom pozivu nije igra za ljude: osoba koja čita X ne može nadmašiti softver koji reagira u
+milisekundama i plaća svoje mjesto u bloku.</p>
+
+<h2>Koliko te košta biti iza botova</h2>
+{B("Tvoja ulazna cijena iznad cijene pri pozivu, po mjestu u bloku",
+   [("1. (najbrži bot)", 0, "plaća cijenu pri pozivu"), ("Iza 5 botova", 10.3, ""), ("Iza 10 botova", 21, ""),
+    ("Iza 20 botova", 44, "tipično mjesto malog ulagača na velikom pozivu"), ("Iza 40 botova", 96, "")],
+   sub="Model: svaki bot kupi za $500, bazen s $100k likvidnosti, krivulja konstantnog produkta", hl=(3, 4),
+   source="KriptoRadar izračun")}
+<p>U bazenu s konstantnim produktom svaka kupnja diže cijenu sljedećoj. Probaj svoje brojke:</p>
+{CALC.queue("hr")}
+<p>S 20 botova koji kupe po $500 u bazenu s $100k likvidnosti, cijena je već oko 44% viša kad se izvrši tvoja kupnja.
+Ako botovi zatim prodaju natrag do cijene pri pozivu, gubiš oko 31% a da se s tokenom ništa nije dogodilo. Ista logika kao kod
+<a href=/hr/blog/bundleri-i-snajperi>bundlera i snajpera</a> pri lansiranju: tokeni u kojima su snajperi uzeli više od
+30% ponude pali su s vrha za 58% u medijanu.</p>
+
+<h2>Zašto rastuće zvijezde ostavljaju više prostora</h2>
+<ul>
+<li><b>Prati ih manje botova.</b> Sniper botovi prate račune s najvećim dosegom; račun s 15.000 pratitelja i dobrim
+rezultatima rijetko je na njihovom popisu.</li>
+<li><b>Manja gomila, manji prvi val.</b> Tvoja kupnja se ne natječe s tisućama drugih u istom bloku.</li>
+<li><b>Izmjereni, ne slavni.</b> Rangiramo ih po pogotku, medijanu vrha, udjelu rugova i kasnim pozivima, ne po broju
+pratitelja.</li>
+<li><b>Slaganje je i dalje važno.</b> Kad tri ili više izmjerenih influencera pozove isti token u 15 minuta, 59% dosegne
+2x naspram 33% inače (<a href=/hr/blog/grupiranje-influencera>grupiranje influencera</a>).</li>
+</ul>
+
+<h2>Ako ipak želiš trgovati poziv Zvijezde</h2>
+<ul>
+<li>Ne juri prvu minutu. Pričekaj da prvi val botova proda, pa odluči prema grafu.</li>
+<li>Prije kupnje postavi najvišu cijenu, npr. ne više od 30% iznad cijene pri pozivu.</li>
+<li>Drži kupnju ispod otprilike 2% likvidnosti bazena (<a href=/hr/blog/kako-koristiti-jupiter-swap>postavke
+Jupitera</a>).</li>
+<li>Veća prioritetna naknada pomaže da transakcija prođe, ali te ne stavlja ispred Jito bundleova.</li>
+</ul>
+<p>Članovi vide oba taba uživo, svaki poziv izmjeren u par minuta i copy trading na influencere koji pogađaju.</p>
+""")
