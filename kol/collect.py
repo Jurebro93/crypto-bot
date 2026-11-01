@@ -332,6 +332,61 @@ def timeline(con, cfg, run=None, now=None):
     return save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
 
 
+STARS_DEFAULT = ["MustStopMurad", "blknoiz06", "frankdegods", "notthreadguy", "Cented7", "orangie", "gainzy222",
+                 "CryptoKaleo", "theunipcs", "Pentosh1", "AltcoinGordon", "MoonOverlord"]
+
+
+def stars_cfg(cfg):
+    s = dict({"every_h": 3, "max_items": 30, "handles": STARS_DEFAULT, "min_followers": 100_000}, **(cfg.get("stars") or {}))
+    return s
+
+
+def _ticker_map():
+    """$TICKER -> mint for the top Solana meme coins (public.db): stars name big coins by ticker, rarely by address.
+    Only tickers that belong to exactly one coin, so $PEPE-style collisions don't create false calls."""
+    try:
+        from ui import coins
+        rows = coins.top()
+    except Exception:  # noqa: BLE001
+        return {}
+    seen = {}
+    for r in rows:
+        k = (r.get("symbol") or "").upper().lstrip("$")
+        if len(k) >= 3:
+            seen.setdefault(k, set()).add(r["mint"])
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+def stars(con, cfg, run=None, now=None):
+    """'Stars': the famous crypto influencers (Murad, Ansem...) who are followed by the masses and rarely post an
+    address. One query every stars.every_h hours (~$0.40 per 1000 tweets: 30 tweets x 8 runs a day = ~$3 a month);
+    calls by address and by $TICKER of a top-100 meme coin."""
+    from hype import apify
+    run = run or apify.run
+    now = now or int(time.time())
+    s = stars_cfg(cfg)
+    if not s["handles"]:
+        return 0
+    last = con.execute("SELECT last_ts FROM searches WHERE target = 'stars'").fetchone()
+    if last and now - last[0] < s["every_h"] * 3600:
+        return 0
+    query = " OR ".join(f"from:{h}" for h in s["handles"])
+    items = run("kol_stars", X_ACTOR, {"searchTerms": [query], "maxItems": s["max_items"], "sort": "Latest"})
+    _searched(con, "stars", "stars", now)
+    tick = _ticker_map()
+    calls = []
+    for it in items:
+        got = calls_from_tweet(it, source="kol_stars")
+        if not got and tick and isinstance(it, dict) and not it.get("isRetweet"):
+            text = it.get("fullText") or it.get("text") or ""
+            hits = {x.upper() for x in _TICKER.findall(text)} & set(tick)
+            if len(hits) == 1:   # one coin named: a call; a list of five tickers is commentary
+                sym = hits.pop()
+                got = calls_from_tweet(it, tick[sym], sym, "kol_stars")   # matches by ticker when no address
+        calls += got
+    return save(con, calls)
+
+
 # ---------------- Telegram (tg.db, run_tg.py) and KOL wallets on chain (hype.db chain_trades) ----------------
 
 def from_telegram(con, tg_db=None):

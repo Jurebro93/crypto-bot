@@ -106,7 +106,7 @@ tr:last-child td{border-bottom:0}td.n,th.n{text-align:right;font-variant-numeric
 letter-spacing:-.02em;font-weight:760}.card span{color:var(--mut);font-size:13px}
 .lock{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--fg);color:#fff;
 border-radius:18px;padding:20px 22px;margin:18px 0}.lock p{margin:0;color:#cbd2df}.lock .btn{background:#fff;color:var(--fg)}
-h2.s{font-size:24px;margin:40px 0 12px}ul.how{color:var(--mut);padding-left:20px}ul.how li{margin:6px 0}
+h2.s{font-size:24px;margin:40px 0 12px}ul.how{color:var(--mut);padding-left:20px}ul.how li{margin:6px 0}ul.how a{color:var(--acc)}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 18px}@media(max-width:760px){.charts{grid-template-columns:1fr}}
 ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#cbd2df}
 .cards .card{min-width:0}.cards .card b{overflow-wrap:anywhere}@media(max-width:600px){.cards .card b{font-size:19px}}
@@ -115,6 +115,7 @@ ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#c
 .gi{border:1px solid var(--line);border-radius:16px;padding:16px;background:#fff;display:block}.gi:hover{border-color:#cfd5e1}.gi b{display:block;color:var(--acc)}.gi span{color:var(--mut);font-size:14px;line-height:1.45;display:block;margin-top:4px}
 .fl{margin:0 0 10px}.fl a{color:var(--fg);font-weight:500}
 .gbody{max-width:720px;font-size:17.5px}.gbody p{margin:0 0 14px}
+.cbr{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:4px 0}.cbr i{height:10px;background:var(--soft);border-radius:8px;overflow:hidden;display:block}.cbr em{display:block;height:100%;border-radius:8px}.cbr b{text-align:right}.lbt{margin:0 0 12px}
 .rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
@@ -165,8 +166,27 @@ def _sym(sym, token):
     return s[0] + "***" if BAD.search(s) else s[:18]
 
 
+STAR_FOLLOWERS = 100_000
+
+
+def star_handles():
+    """Famous influencers we follow on purpose ('Stars', kol/collect.stars), lowercased."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")) as f:
+            cfg = json.load(f)
+        from kol.collect import stars_cfg
+        return {h.lower() for h in stars_cfg(cfg)["handles"]}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def is_star(r, stars=None):
+    stars = star_handles() if stars is None else stars
+    return (r.get("followers") or 0) >= STAR_FOLLOWERS or r["handle"].lower() in stars
+
+
 def influencers():
-    """Public rows: measured X influencers, no bots, best score first."""
+    """Public rows: measured X influencers, no bots, best score first. Stars need one measured call, others three."""
     con = _con()
     if con is None:
         return []
@@ -180,12 +200,14 @@ def influencers():
     finally:
         con.close()
     out = []
+    stars = star_handles()
     for r in rows:
         h = r["handle"]
         if r["bot"] or not HANDLE.fullmatch(h or "") or BAD.search(h):
             continue
         s = json.loads(r["stats"] or "{}")
-        if s.get("measured", 0) < MIN_MEASURED:
+        star = (r["followers"] or 0) >= STAR_FOLLOWERS or h.lower() in stars
+        if s.get("measured", 0) < (1 if star else MIN_MEASURED):
             continue
         out.append({"handle": h, "name": r["name"], "followers": r["followers"], "score": r["score"], "s": s})
     return out
@@ -221,26 +243,123 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 </body></html>"""
 
 
+LB_T = {
+    "en": dict(rising="Rising stars", stars="Stars",
+               rising_note="Lesser-known influencers with a measured record: fewer followers, fewer bots waiting for their "
+                           "calls. These are the ones worth finding early.",
+               stars_note="The most famous crypto influencers ({f}+ followers or on our list: Murad, Ansem and co.). "
+                          "Measured the same way.",
+               stars_wait="Also followed: {h}. Their numbers appear here after their first measured calls.",
+               why_h="Why the biggest names are harder to profit from",
+               why=("Masses follow them, and so do bots. The moment a star posts a token, sniper bots buy in the same second.",
+                    "On Solana, when many buys hit at once, the network puts the ones paying a higher <a href=/glossary/priority-fee>priority fee</a> "
+                    "(or Jito tip) first. Bots pay more than you, so they always get the lowest price.",
+                    "Your buy lands after theirs and pushes the price up; the bots sell to you within minutes. This is "
+                    "<a href=/glossary/front-running>front-running</a>.",
+                    "Rising stars have fewer followers and fewer bots watching them, so a good call leaves room for you."),
+               cmp_h="What happened after their calls (median)", cmp=("Peak within 24 h", "1 hour after", "Calls measured")),
+    "hr": dict(rising="Rastuće zvijezde", stars="Zvijezde",
+               rising_note="Manje poznati influenceri s izmjerenom poviješću: manje pratitelja, manje botova koji čekaju "
+                           "njihove pozive. Takve vrijedi naći rano.",
+               stars_note="Najpoznatiji kripto influenceri ({f}+ pratitelja ili s našeg popisa: Murad, Ansem i ekipa). "
+                          "Mjereni na isti način.",
+               stars_wait="Pratimo i: {h}. Njihove brojke pojavit će se ovdje nakon prvih izmjerenih poziva.",
+               why_h="Zašto je na najvećim imenima teže zaraditi",
+               why=("Prati ih masa ljudi, a s njima i botovi. Čim zvijezda objavi token, snajperski botovi kupe u istoj sekundi.",
+                    "Na Solani, kad puno kupnji stigne odjednom, mreža prvo obradi one s većom <a href=/hr/rjecnik/prioritetna-naknada>prioritetnom naknadom</a> "
+                    "(ili Jito tipom). Botovi plate više od tebe, pa uvijek dobiju najnižu cijenu.",
+                    "Tvoja kupnja dođe iza njihove i gura cijenu gore, a botovi ti prodaju u par minuta. To je "
+                    "<a href=/hr/rjecnik/front-running>front-running</a>.",
+                    "Rastuće zvijezde imaju manje pratitelja i manje botova koji ih prate, pa dobar poziv ostavlja prostora i tebi."),
+               cmp_h="Što se dogodilo nakon njihovih poziva (medijan)", cmp=("Vrh unutar 24 h", "Sat nakon", "Izmjerenih poziva")),
+}
+
+
+def _median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+def _call_stats(handles):
+    """Median 24 h peak and 1 h change of the measured calls of these influencers (calls older than 24 h)."""
+    con = _con()
+    if con is None or not handles:
+        return None
+    try:
+        q = ",".join("?" * len(handles))
+        rows = con.execute(f"SELECT max24, r1h FROM calls WHERE kind='call' AND ts < ? AND handle IN ({q})",
+                           (int(time.time()) - PUBLIC_DELAY_S, *handles)).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+    rows = [r for r in rows if r[0] is not None]
+    if not rows:
+        return None
+    return _median([r[0] for r in rows]), _median([r[1] for r in rows]), len(rows)
+
+
 def leaderboard(lang):
-    t = L[lang]
-    rows = influencers()[:100]
-    trs = []
-    for i, r in enumerate(rows, 1):
-        s = r["s"]
-        trs.append(f"<tr><td class=mut>{i}</td><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a></td>"
-                   f"<td class=n><b>{r['score']:.0f}</b></td><td class=n>{_pct(s.get('hit_rate'))}</td>"
-                   f"<td class='n {_cls(s.get('med_max24'))}'>{_pct(s.get('med_max24'), True)}</td>"
-                   f"<td class=n>{_pct(s.get('rug_rate'))}</td><td class=n>{_pct(s.get('prepump_rate'))}</td>"
-                   f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")
+    t, x = L[lang], LB_T[lang]
+    allrows = influencers()
+    stars = star_handles()
+    star_rows = [r for r in allrows if is_star(r, stars)][:50]
+    rising = [r for r in allrows if not is_star(r, stars)][:100]
     c = t["cols"]
-    head = "".join(f"<th{' class=n' if j > 1 else ''}>{x}</th>" for j, x in enumerate(c))
-    table = (f"<div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
-             if trs else f"<p class=mut>{t['none']}</p>")
-    how = "".join(f"<li>{x}</li>" for x in t["how"])
+    head = "".join(f"<th{' class=n' if j > 1 else ''}>{h}</th>" for j, h in enumerate(c))
+
+    def table(rows):
+        trs = []
+        for i, r in enumerate(rows, 1):
+            s = r["s"]
+            trs.append(f"<tr><td class=mut>{i}</td><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a></td>"
+                       f"<td class=n><b>{r['score']:.0f}</b></td><td class=n>{_pct(s.get('hit_rate'))}</td>"
+                       f"<td class='n {_cls(s.get('med_max24'))}'>{_pct(s.get('med_max24'), True)}</td>"
+                       f"<td class=n>{_pct(s.get('rug_rate'))}</td><td class=n>{_pct(s.get('prepump_rate'))}</td>"
+                       f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")
+        return (f"<div class=tw><table class=coins><thead><tr>{head}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
+                if trs else f"<p class=mut>{t['none']}</p>")
+    have = {r["handle"].lower() for r in star_rows}
+    waiting = sorted(h for h in stars if h not in have)
+    from kol.collect import STARS_DEFAULT
+    nice = {h.lower(): h for h in STARS_DEFAULT}
+    wait_txt = (f"<p class=mut style='font-size:14px'>{x['stars_wait'].format(h=', '.join('@' + esc(nice.get(h, h)) for h in waiting))}</p>"
+                if waiting else "")
+    # visual: stars vs rising stars after their calls
+    cs, cr = _call_stats([r["handle"] for r in star_rows]), _call_stats([r["handle"] for r in rising])
+    cmp = ""
+    if cs and cr and cs[2] >= 10 and cr[2] >= 10:   # too few calls would make the comparison noise
+        top = max(abs(cs[0] or 0), abs(cr[0] or 0), 0.01)
+        def bar(label, v, col):
+            w = max(2, min(100, abs(v or 0) / top * 100))
+            return (f"<div class=cbr><span>{label}</span><i><em style='width:{w:.0f}%;background:{col}'></em></i>"
+                    f"<b>{_pct(v, True)}</b></div>")
+        cmp = (f"<div class=card style='margin:18px 0;padding:20px'><b style='font-size:16px'>{x['cmp_h']}</b>"
+               f"<p class=mut style='margin:10px 0 4px;font-size:13px'>{x['cmp'][0]}</p>"
+               + bar(x["rising"], cr[0], "#4f46e5") + bar(x["stars"], cs[0], "#f59e0b")
+               + f"<p class=mut style='margin:12px 0 4px;font-size:13px'>{x['cmp'][1]}</p>"
+               + bar(x["rising"], cr[1], "#4f46e5") + bar(x["stars"], cs[1], "#f59e0b")
+               + f"<p class=mut style='font-size:12.5px;margin:10px 0 0'>{x['cmp'][2]}: {x['rising']} {cr[2]} · "
+                 f"{x['stars']} {cs[2]}</p></div>")
+    why = "".join(f"<li>{w}</li>" for w in x["why"])
+    tabs = (f"<div class='btabs lbt'><button type=button data-t=rising class=on>⭐ {x['rising']} ({len(rising)})</button>"
+            f"<button type=button data-t=stars>🌟 {x['stars']} ({len(star_rows)})</button></div>"
+            f"<div class=bp data-p=rising><p class=mut>{x['rising_note']}</p>{table(rising)}</div>"
+            f"<div class=bp data-p=stars hidden><p class=mut>{x['stars_note'].format(f=_int(STAR_FOLLOWERS, lang))}</p>"
+            f"{table(star_rows)}{wait_txt}</div>")
+    js = ("<script>document.querySelectorAll('.lbt button').forEach(t=>t.onclick=()=>{document.querySelectorAll('.lbt button')"
+          ".forEach(b=>b.classList.toggle('on',b===t));document.querySelectorAll('.bp[data-p]').forEach(p=>p.hidden="
+          "p.dataset.p!==t.dataset.t);history.replaceState(null,'','#'+t.dataset.t)});"
+          "if(location.hash==='#stars')document.querySelector('.lbt button[data-t=stars]').click()</script>")
+    how = "".join(f"<li>{h}</li>" for h in t["how"])
     body = (f"<section class=ph1><div class=eyebrow>KriptoRadar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
-            f"</section>{table}<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
-            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>")
-    return _shell(lang, t["lb_title"], t["lb_desc"].format(n=len(rows)), "/influencers", "/hr/influenceri", body)
+            f"</section>{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
+            f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
+            f"<div class=lock><p>{t['lb_lock']}</p><a class='btn sm' href={t['home']}#pristup>{t['cta']}</a></div>{js}")
+    return _shell(lang, t["lb_title"], t["lb_desc"].format(n=len(allrows)), "/influencers", "/hr/influenceri", body)
 
 
 def profile(handle, lang):
