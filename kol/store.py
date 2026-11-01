@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS snaps (token TEXT, ts INTEGER, price REAL, vol_h1 REA
     PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS seen_cache (key TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts INTEGER, n INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS pair_tests (a TEXT, b TEXT, together INTEGER, expected REAL, lift REAL, p REAL, ok INTEGER,
+    PRIMARY KEY (a, b));
 """
 
 

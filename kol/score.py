@@ -180,7 +180,10 @@ def build_signals(con, cfg, now=None):
     con.execute("DELETE FROM signals")
     rows = con.execute("SELECT token, start_ts, n_authors, handles, good_authors, dev_selling FROM groups "
                        "WHERE start_ts >= ? ORDER BY start_ts", (now - cfg["signal_hours"] * H,)).fetchall()
+    from kol import validate
+    gate = validate.gate_closed(con, cfg)  # the score failed the test on new data: "good KOL" means nothing now
     for token, start, n, hs, good, dev in rows:  # newest group per token wins
+        good = 0 if gate else good
         feat = 0.0 if dev else min(1.0, (good / 2 + 0.1 * min(n - good, 5)) * fac[sessions.session_of(start)])
         con.execute("INSERT OR REPLACE INTO signals VALUES (?,?,?,?,?,?,?)", (token, start, good, n, hs, dev, round(feat, 2)))
     return len(rows)
@@ -262,14 +265,17 @@ def build_watch(con, cfg, now=None):
     w = cfg["watch"]
     old = dict(con.execute("SELECT handle, since FROM watch"))
     picked = []
-    for h, sc, st in con.execute("SELECT handle, score, stats FROM kols WHERE score >= ? AND handle NOT LIKE 'tg:%' "
-                                 "AND handle NOT LIKE 'w:%' ORDER BY score DESC",
-                                 (cfg["good_score"],)):
+    from kol.collect import _lower
+    rows = con.execute("SELECT handle, score, stats FROM kols WHERE score >= ? AND handle NOT LIKE 'tg:%' "
+                       "AND handle NOT LIKE 'w:%'", (cfg["good_score"],)).fetchall()
+    # ranked by the lower end of the score range (kol/validate.py): proven KOLs before lucky newcomers
+    for h, sc, st in sorted(rows, key=lambda r: (-_lower(r[2], r[1]), -r[1])):
         s = json.loads(st or "{}")
         if (s.get("measured", 0) >= w["min_calls"] and s.get("prepump_rate", 1) <= w["max_prepump"]
                 and s.get("hit_rate", 0) >= w["min_hit"]):
             why = (f"{s['measured']} poziva, pogodak {s['hit_rate']:.0%}, medijan max 24 h {s['med_max24']:+.0%}, "
-                   f"kasnih {s['prepump_rate']:.0%}")
+                   f"kasnih {s['prepump_rate']:.0%}" + (f", ocjena barem {s['score_lo']:.0f}"
+                                                        if s.get("score_lo") is not None else ""))
             picked.append((h, sc, old.get(h, now), why))
         if len(picked) >= w["size"]:
             break
@@ -297,6 +303,8 @@ def run(con, cfg, now=None):
     measure.revalidate(con, cfg)
     mark_first(con)
     n = score_kols(con, cfg, now)
+    from kol import validate
+    validate.run(con, cfg, now)
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)

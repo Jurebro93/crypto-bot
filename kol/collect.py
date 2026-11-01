@@ -293,27 +293,46 @@ def followup(con, cfg, run=None):
     return n
 
 
+def _lower(stats_json, score):
+    """Lower end of the KOL's score range (kol/validate.py), or the score itself before the first range run."""
+    try:
+        s = json.loads(stats_json or "{}")
+    except ValueError:
+        s = {}
+    lo = s.get("score_lo")
+    return lo if lo is not None else (score or 0)
+
+
 def timeline_handles(con, cfg, now=None):
-    """Accounts for the next timeline query, rotating: the live watchlist first, then candidates not looked at in
-    timeline.refresh_d days (most calls, best score, most followers). Every author we ever saw gets a turn, so new
-    KOLs are scored on all their calls, misses included, not only on the token where we first saw them."""
+    """Accounts for the next timeline round: the live watchlist, then the core (best by the LOWER end of the score
+    range, so a lucky newcomer does not push out a proven KOL), read every round; then the rest of the slots rotate
+    through candidates not looked at in timeline.refresh_d days: who called a winner (2x in 24 h) early (not after
+    it had already doubled) first, then who was first on a token. Every
+    author we ever saw gets a turn, so new KOLs are scored on all their calls, not only where we first saw them."""
     now = now or int(time.time())
     t = cfg["timeline"]
     last = {k[3:]: v for k, v in con.execute("SELECT target, last_ts FROM searches WHERE target LIKE 'tl:%'")}
     watch = [r[0] for r in con.execute("SELECT handle FROM watch ORDER BY score DESC")]
     rows = con.execute("""
-        SELECT k.handle FROM kols k JOIN calls c ON c.handle = k.handle AND c.kind = 'call'
+        SELECT k.handle, k.score, k.stats, COALESCE(k.bot, 0) FROM kols k JOIN calls c ON c.handle = k.handle AND c.kind = 'call'
         WHERE k.handle NOT LIKE 'tg:%' AND k.handle NOT LIKE 'w:%'
         GROUP BY k.handle HAVING COUNT(DISTINCT c.token) >= ? OR MAX(COALESCE(k.followers, 0)) >= ?
-        ORDER BY COALESCE(k.score, 0) DESC, COUNT(DISTINCT c.token) DESC, COALESCE(k.followers, 0) DESC""",
-                       (t["min_calls"], t["min_followers"])).fetchall()
-    due = [h for h, in rows if h not in watch and now - (last.get(h) or 0) >= t["refresh_d"] * 86400]
-    return (watch + due)[:t["kols"]]
+        ORDER BY SUM(COALESCE(c.max24, 0) >= 1.0 AND COALESCE(c.pre2h, 0) < 1.0) DESC,
+                 SUM(COALESCE(c.first_overall, 0)) DESC, COALESCE(k.score, 0) DESC, COUNT(DISTINCT c.token) DESC,
+                 COALESCE(k.followers, 0) DESC""", (t["min_calls"], t["min_followers"])).fetchall()
+    rows = [r for r in rows if not r[3]]  # scanner / promo bots are not worth a slot
+    total, core_n = t["kols"], t.get("core", 0)
+    scored = sorted((r for r in rows if r[1] is not None and r[0] not in watch), key=lambda r: -_lower(r[2], r[1]))
+    core = [r[0] for r in scored[:max(0, core_n - len(watch))]]
+    taken = set(watch) | set(core)
+    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >= t["refresh_d"] * 86400]
+    return (watch + core + due)[:total]
 
 
 def timeline(con, cfg, run=None, now=None):
-    """Latest tweets of the best KOLs in one query (every timeline.every_h hours): their new calls on any token,
-    also tokens our scanner has not seen yet."""
+    """Latest tweets of the best KOLs (every timeline.every_h hours): their new calls on any token, also tokens our
+    scanner has not seen yet. Handles go in queries of timeline.per_query ("from:a OR from:b ..."), all queries of
+    a round in one actor run (the actor takes up to 5); each query only asks for posts since the last round."""
     from hype import apify
     run = run or apify.run
     now = now or int(time.time())
@@ -321,15 +340,22 @@ def timeline(con, cfg, run=None, now=None):
     last = con.execute("SELECT last_ts FROM searches WHERE target = 'timeline'").fetchone()
     if last and now - last[0] < t["every_h"] * 3600:
         return 0
-    handles = timeline_handles(con, cfg)
+    handles = timeline_handles(con, cfg, now)
     if not handles:
         return 0
-    query = " OR ".join(f"from:{h}" for h in handles)
-    items = run("kol_timeline", X_ACTOR, {"searchTerms": [query], "maxItems": t["max_items"], "sort": "Latest"})
+    per = t.get("per_query", len(handles))
+    since = time.strftime("%Y-%m-%d", time.gmtime(min(last[0] if last else now - 86400, now - 3600) - 86400))
+    queries = [" OR ".join(f"from:{h}" for h in handles[i:i + per]) + f" since:{since}"
+               for i in range(0, len(handles), per)]
+    n = 0
+    for i in range(0, len(queries), 5):
+        items = run("kol_timeline", X_ACTOR, {"searchTerms": queries[i:i + 5], "maxItems": t["max_items"],
+                                              "sort": "Latest"})
+        n += save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
     _searched(con, "timeline", "timeline", now)
     for h in handles:
         _searched(con, f"tl:{h}", "timeline_kol", now)
-    return save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
+    return n
 
 
 STARS_DEFAULT = ["MustStopMurad", "blknoiz06", "frankdegods", "notthreadguy", "Cented7", "orangie", "gainzy222",
