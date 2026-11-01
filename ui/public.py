@@ -214,6 +214,9 @@ def influencers():
     return out
 
 
+SECNAV_L = {"en": ("Page sections", "Back to top"), "hr": ("Sekcije stranice", "Povratak na vrh")}
+
+
 def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image="/static/landing/kol.jpg",
            og_type="website"):
     """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr)."""
@@ -221,7 +224,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
-    from ui import blog, blogviz, botguides, calcs, tools
+    from ui import blog, blogviz, botguides, calcs, secnav, tools
     canon = base + (path_en if lang == "en" or not path_hr else path_hr)
     switch = (f"<a class=lnk href={path_hr or '/hr'} hreflang=hr>HR</a>" if lang == "en" else
               f"<a class=lnk href={path_en} hreflang=en>EN</a>")
@@ -235,13 +238,13 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff"><link rel=icon href="data:image/svg+xml,{quote(logo(32)[0])}">{jsonld}
-<style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}</style></head><body>
+<style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}{secnav.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
-<main class=w>{body}</main>
+<main class=w>{secnav.markup(*SECNAV_L[lang])}{body}</main>
 <footer style='margin-top:64px'><div class=w>{_foot_links(lang)}© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
-</body></html>"""
+<script>{secnav.JS}</script></body></html>"""
 
 
 LB_T = {
