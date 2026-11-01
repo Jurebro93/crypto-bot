@@ -18,11 +18,13 @@ KIND = {"uzor": ("⭐ Uzor", "good"), "jaki": ("💪 Jaki token", "good"), "dugo
 STAKES = (25, 50, 100)
 
 
-def copy_btn(mint, label="📋 Kopiraj adresu", small=False):
+def copy_btn(mint, label="📋 Kopiraj adresu", small=False, big=False):
     """Copies the token address; falls back to a prompt where the clipboard is blocked (old phones, http)."""
     if not mint or not MINT.fullmatch(mint):
         return ""
-    style = ' style="font-size:12px;padding:2px 8px"' if small else ""
+    style = (' style="font-size:12px;padding:2px 8px"' if small else
+             ' style="font-size:17px;padding:12px 18px;border-radius:10px;font-weight:700;width:100%;max-width:420px"'
+             if big else "")
     js = ("var m=this.dataset.m,b=this;(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject())"
           ".then(function(){b.textContent='✅ Kopirano'},function(){prompt('Kopiraj adresu:',m)});return false")
     return (f'<button type=button class=qb-copy data-m="{esc(mint)}" title="Kopiraj adresu tokena {esc(mint)}"'
@@ -171,3 +173,32 @@ def dugo_info(mint):
         return None, None
     finally:
         con.close()
+
+
+def top_buy(user):
+    """Big "paste address and buy" box at the very top of Natjecanje (Nicholas 1.11. 16:09: it was far down and the
+    address field ran off the phone screen). Full-width field, one-tap paste, stake chips, big buy button."""
+    if not user:
+        return ""
+    paste = ("var i=document.getElementById('qb-addr');if(navigator.clipboard&&navigator.clipboard.readText)"
+             "{navigator.clipboard.readText().then(function(t){i.value=t.trim();i.focus()},function(){i.focus()})}"
+             "else{i.focus()}return false")
+    chips = "".join(
+        f'<label style="flex:1;min-width:56px"><input type=radio name=size value={s}{" checked" if s == 50 else ""} '
+        f'style="position:absolute;opacity:0"><span class=qb-stake>${s}</span></label>' for s in (10, 25, 50, 100, 250))
+    return ('<style>.qb-top{border:2px solid var(--good,#16a34a);margin:10px 0;padding:14px;box-sizing:border-box;'
+            'max-width:100%}.qb-top *{box-sizing:border-box}.qb-row{display:flex;gap:8px;flex-wrap:wrap;width:100%}'
+            '.qb-top input[type=text]{flex:1 1 220px;min-width:0;width:100%;font-size:16px;padding:12px;border-radius:10px}'
+            '.qb-stake{display:block;text-align:center;padding:10px 0;border:1px solid var(--line);border-radius:10px;'
+            'cursor:pointer;font-weight:600}input:checked+.qb-stake{background:var(--good,#16a34a);color:#fff;'
+            'border-color:var(--good,#16a34a)}.qb-go{width:100%;font-size:17px;padding:12px;border-radius:10px;'
+            'font-weight:700}.qb-paste{padding:12px 14px;border-radius:10px;font-size:15px}</style>'
+            '<form id=kupi method=post action="/natjecanje/buy" class="card qb-top">'
+            '<div style="font-size:17px;font-weight:700;margin-bottom:8px">🛒 Kupi token odmah</div>'
+            '<div class=qb-row><input type=text id=qb-addr name=token required autocomplete=off autocapitalize=none '
+            'spellcheck=false placeholder="zalijepi adresu tokena ili DexScreener link">'
+            f'<button type=button class=qb-paste onclick="{paste}">📋 Zalijepi</button></div>'
+            f'<div class=mut style="font-size:13px;margin:10px 0 6px">Ulog</div><div class=qb-row>{chips}</div>'
+            '<div style="margin-top:10px"><button class=qb-go>Kupi na moj račun</button></div>'
+            '<div class=mut style="font-size:12px;margin-top:6px">Kupuje po živoj cijeni s DexScreenera (1% naknade). '
+            'Ne mora biti s liste prijedloga.</div></form>')

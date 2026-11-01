@@ -314,7 +314,8 @@ def token(mint, qs):
     from ui import league as _league, quickbuy
     dsym, dlist = quickbuy.dugo_info(mint)
     sym = sym or dsym
-    b = [f"<h1>{esc(sym or short(mint))}</h1><p><code>{esc(mint)}</code> {quickbuy.copy_btn(mint, small=True)} · "
+    b = [f"<h1>{esc(sym or short(mint))}</h1><p><code style='word-break:break-all'>{esc(mint)}</code></p>"
+         f"<p>{quickbuy.copy_btn(mint, big=True)}</p><p>"
          f"{ext_token(mint, url)}</p>", _league._err(qs)
          + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
     locked = None

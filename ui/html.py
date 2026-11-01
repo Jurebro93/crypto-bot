@@ -728,7 +728,19 @@ def ext_icons(mint, url=None, labels=False):
 def tlink(mint, sym=None):
     """Token name opens our own page for the token; the small icons next to it open it on outside sites."""
     label = esc(sym) if sym else f"<code>{esc(short(mint))}</code>"
-    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena">{label}</a> ' + ext_icons(mint)
+    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena">{label}</a> ' + copy_icon(mint) + ext_icons(mint)
+
+
+_COPY_JS = ("var m=this.dataset.m,b=this;(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject())"
+            ".then(function(){b.textContent='✅'},function(){prompt('Kopiraj adresu:',m)});return false")
+
+
+def copy_icon(mint):
+    """Tiny one-tap "copy address" next to every token name in every table (Nicholas 1.11.: react fast)."""
+    if not mint:
+        return ""
+    return (f'<a href="#" role=button class=cpy data-m="{esc(mint)}" title="Kopiraj adresu" '
+            f'style="text-decoration:none;font-size:12px" onclick="{_COPY_JS}">📋</a> ')
 
 
 def ext_wallet(w):
