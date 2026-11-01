@@ -62,9 +62,12 @@ def stats(con, cfg=None):
         if not arm or '"rucno"' in (state or ""):
             continue
         win = 0 if (ret or 0) > cfg["win_ret"] else 1
-        out.setdefault(arm, [0, 0])[win] += 1
+        # reward by size (2.11.): +5% counts ~1 win, +100% 2, +200% or more 3, so an arm with a few big winners is
+        # not starved by one with many tiny ones; a loss counts 1
+        amt = 1 + min(2.0, max(0.0, ret or 0)) if win == 0 else 1
+        out.setdefault(arm, [0, 0])[win] += amt
         if c.get("entry_mode") == "explore" and score is not None:
-            out.setdefault(band_of(score), [0, 0])[win] += 1
+            out.setdefault(band_of(score), [0, 0])[win] += amt
     return out
 
 

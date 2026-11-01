@@ -5,10 +5,12 @@ daily fit a process kept the fit's memory for good (Python does not hand it back
 process that ends and gives its memory back; this process only keeps the clock. Same commands, same times:
 
   learn   run_learn.py fit      once a day after learn/config.json run_at_utc (UTC), checked every 5 min
+  learn6  run_learn.py fit --samo-tezine  hype weights every learn/config.json every_h hours (default 6)
   exits   run_exits.py fit      once a day after exits/config.json run_at_utc (UTC), checked every 5 min
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
+  postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
   whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
 """
@@ -85,6 +87,22 @@ def daily(name, args, config, due=None):
         time.sleep(300)
 
 
+def every_hours(name, args, config):
+    """Every config every_h hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
+    re-run it each time."""
+    while True:
+        try:
+            with open(os.path.join(ROOT, config)) as f:
+                hours = float(json.load(f).get("every_h") or 0)
+            last = _last_day(name)
+            if hours and (not isinstance(last, (int, float)) or time.time() - last >= hours * 3600):
+                run(name, args)
+                _set_last_day(name, time.time())
+        except Exception as e:  # noqa: BLE001
+            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(300)
+
+
 def exits_refit():
     """pravila izlaza naučena su pod starom mehanikom izlaza"""
     # reads the small JSON itself: this process lives 24/7, so it does not import the learning code
@@ -119,11 +137,13 @@ def whatsapp(name, args, minutes):
 
 JOBS = [
     ("learn", daily, (["run_learn.py", "fit"], "learn/config.json")),
+    ("learn6", every_hours, (["run_learn.py", "fit", "--samo-tezine"], "learn/config.json")),
     ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
+    ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
 ]
 

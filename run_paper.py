@@ -271,6 +271,39 @@ def explore_need(con, cfg, now):
     return max(ex["min_score"], pct)
 
 
+_MODEL_NEED = {"ts": 0, "p": None}
+
+
+def _model_p(mdl, c, now):
+    from learn import champion
+    try:
+        return champion.candidate_p(mdl, c, now)
+    except Exception:  # noqa: BLE001 - a broken model must never stop the demo
+        return 0.0
+
+
+def model_need(con, cfg, now):
+    """(model, p a candidate needs) when the learned model is champion: the same top `top_pct`% of the last 24 h's
+    candidates as explore_need, measured in model probability. Cached 10 min. (None, None) otherwise."""
+    from learn import champion
+    ex = cfg.get("explore") or {}
+    try:
+        mdl = champion.live(now)
+    except Exception:  # noqa: BLE001
+        mdl = None
+    if mdl is None or not ex.get("enabled"):
+        return None, None
+    if now - _MODEL_NEED["ts"] > 600 or _MODEL_NEED["p"] is None:
+        ps = []
+        for feats, score, mcap, liq in con.execute("SELECT features, score, mcap, liquidity FROM candidates WHERE first_ts>=? "
+                                                   "AND origin='hype'", (now - 86400,)):
+            c = {"features": json.loads(feats or "{}"), "score": score, "mcap": mcap, "liquidity": liq}
+            ps.append(_model_p(mdl, c, now))
+        ps.sort()
+        _MODEL_NEED.update(ts=now, p=ps[min(len(ps) - 1, int(len(ps) * (1 - ex["top_pct"] / 100)))] if len(ps) >= 20 else None)
+    return mdl, _MODEL_NEED["p"]
+
+
 def _n_explore(con, since=None):
     q = ("SELECT COUNT(*) FROM trades WHERE (config LIKE '%\"entry_mode\": \"explore\"%' "
          "OR config LIKE '%\"entry_mode\": \"konv\"%')")
@@ -490,6 +523,7 @@ def intake(cfg, now=None, quiet=False):
     n_today = con.execute("SELECT COUNT(*) FROM trades WHERE opened_ts>=?", (day0,)).fetchone()[0]
     ex = cfg.get("explore") or {}
     ex_need = explore_need(con, cfg, now)
+    mdl, p_need = model_need(con, cfg, now)
     ex_open, ex_today = _n_explore(con), _n_explore(con, day0)
     arm_st = arms.stats(con, cfg.get("arms"))
     from rugfilter import archive, collapse
@@ -511,6 +545,11 @@ def intake(cfg, now=None, quiet=False):
         # exploration: below the bar but in today's top scores -> small demo trade, so the bot learns faster
         explore = (ex_need is not None and c["origin"] == "hype" and ex_need <= s < need
                    and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
+        if mdl is not None and p_need is not None and c["origin"] == "hype":
+            # the learned model passed its trial (learn/champion.py): it, not the score percentile, picks exploration
+            c["model_p"] = round(_model_p(mdl, c, now), 4)
+            explore = (c["model_p"] >= p_need and s < need and price > 0
+                       and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
         cv = conv.get(t)
         # convergence: several good sources on it in the last minutes -> small early entry, whatever the score
         konv = bool(c["origin"] == "hype" and konv_fresh(cv, kc, now) and s < need
@@ -560,6 +599,11 @@ def intake(cfg, now=None, quiet=False):
             size_note = None
             if not gate:
                 size, size_note = rules.size_for(rst, t, size, now, cfg)
+                if explore and not konv and c.get("model_p") and p_need:
+                    # stake by the model's chance (learn/champion.py): twice the bar = twice the stake, capped 0.5x-2x
+                    mult = max(0.5, min(2.0, c["model_p"] / p_need))
+                    size = round(size * mult, 2)
+                    size_note = ((size_note + "; ") if size_note else "") + f"ulog ×{mult:.1f} po šansi modela"
             if gate:
                 c["decision"], c["reason"] = "skip_gate", gate
             elif mode != "konv" and (mcap or 0) < rules.config(cfg)["ab"]["band"] and not rules.ab_allow(rst, mode, t, cfg):

@@ -52,8 +52,10 @@ def shadow_rows(cfg=None, now=None, path=None):
     cfg = cfg or config()
     now = now or time.time()
     since = now - cfg["skok_window_d"] * 86400
-    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"]} for r in shadow.rows(path, since=since)
-            if r["features"]]
+    from learn import champion
+    hl = (cfg.get("model") or {}).get("half_life_d", champion.DEFAULT["half_life_d"])
+    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)}
+            for r in shadow.rows(path, since=since) if r["features"] and not champion.in_holdout(r["ts"])]
 
 
 def event_rows(con, point="B100000", cfg=None, now=None):

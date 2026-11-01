@@ -88,17 +88,19 @@ def fit_weights(rows, epochs=400, lr=0.5, l2=0.01):
     if len(rows) < 30 or not any(r["hit"] for r in rows):
         return None
     w, b = {f: 0.0 for f in feats}, 0.0
+    sw = [r.get("w", 1.0) for r in rows]  # sample weight: newer outcomes count more (learn/fit time decay)
+    tot = sum(sw) or 1
     for _ in range(epochs):
         gw, gb = {f: 0.0 for f in feats}, 0.0
-        for r in rows:
+        for r, wi in zip(rows, sw):
             z = b + sum(w[f] * r["features"].get(f, 0) for f in feats)
-            err = 1 / (1 + math.exp(-max(-30, min(30, z)))) - r["hit"]
+            err = wi * (1 / (1 + math.exp(-max(-30, min(30, z)))) - r["hit"])
             gb += err
             for f in feats:
                 gw[f] += err * r["features"].get(f, 0)
-        b -= lr * gb / len(rows)
+        b -= lr * gb / tot
         for f in feats:
-            w[f] -= lr * (gw[f] / len(rows) + l2 * w[f])
+            w[f] -= lr * (gw[f] / tot + l2 * w[f])
     total = sum(max(0.0, v) for v in w.values()) or 1
     return {"weights": {f: round(100 * v / total, 1) for f, v in w.items()},
             "coefficients": {f: round(v, 3) for f, v in w.items()}, "n": len(rows)}

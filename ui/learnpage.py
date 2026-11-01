@@ -101,6 +101,171 @@ def shadow_html():
     return "".join(out)
 
 
+def _demo_week(since, until):
+    """Closed demo trades in [since, until): (n, mean return capped at +300%)."""
+    if not os.path.exists(data.PAPER_DB):
+        return 0, None
+    con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=10)
+    try:
+        rs = [min(3.0, r or 0) for (r,) in con.execute(
+            "SELECT ret FROM trades WHERE status='closed' AND closed_ts>=? AND closed_ts<? AND state NOT LIKE '%\"rucno\"%'",
+            (since, until))]
+    except sqlite3.OperationalError:
+        rs = []
+    finally:
+        con.close()
+    return len(rs), (sum(rs) / len(rs) if rs else None)
+
+
+def smarter_html(now=None):
+    """Top of the page: is the tool smarter this week than last week? Same decision points, three ways to pick:
+    every point (control), the top 20% by the score live trading used (weights), the top 20% by the model."""
+    import time
+    from learn import champion
+    now = now or time.time()
+    st = champion.load()
+    cfg = champion.config()
+    model = (st.get("gbm") or {}).get("model") if st.get("champion") == "gbm" else (st.get("challenger") or {}).get("model")
+    weeks = []
+    stored = (st.get("weeks") or {}).get("weeks") or []  # computed by the daily learning run (learn/champion.weekly)
+    for k, label in ((0, "Ovaj tjedan"), (1, "Prošli tjedan")):
+        a, b = now - (k + 1) * 7 * 86400, now - k * 7 * 86400
+        c = stored[k]["eval"] if k < len(stored) else {"n": 0}
+        n_d, m_d = _demo_week(a, b)
+        weeks.append((label, c, n_d, m_d))
+    out = ["<h2>Je li alat pametniji?</h2>", tdesc(
+        "Na istim prilikama za kupnju (prelazak $100k i demo kandidati) uspoređujemo tri izbora: kupi sve (kontrola), "
+        f"{cfg['top_pct']}% najbolje ocijenjenih po težinama (to koristi demo) i {cfg['top_pct']}% najboljih po modelu. "
+        "Broj je prosječna ostvariva zarada po tradeu nakon troškova (jedan trade najviše +300%). Demo je stvarni rezultat "
+        "zatvorenih demo tradeova u tom tjednu.")]
+    this = weeks[0][1]
+    if this.get("n"):
+        best = max((("model", (this.get("model") or {}).get("mean")), ("težine", (this.get("tezine") or {}).get("mean")),
+                    ("kontrola", this["kontrola"].get("mean"))), key=lambda kv: kv[1] if kv[1] is not None else -9)
+        last = weeks[1][1]
+        line = (f"Ovaj tjedan najbolje bira <b>{esc(best[0])}</b> ({_pct(best[1])} po tradeu)")
+        if last.get("n") and (last.get("tezine") or {}).get("n"):
+            line += f"; težine {_pct(this['tezine'].get('mean'))} prema {_pct(last['tezine'].get('mean'))} prošli tjedan"
+        out.append(f"<div class=card>{line}.</div>")
+    rows = []
+    for label, c, n_d, m_d in weeks:
+        if not c.get("n"):
+            rows.append([esc(label), num(0), "–", "–", "–", (_pct(m_d) + (f" ({n_d})" if n_d else ""), m_d or 0, "n")])
+            continue
+        m = c.get("model") or {}
+        rows.append([esc(label), num(c["n"]), (_pct(c["kontrola"].get("mean")), c["kontrola"].get("mean") or 0, "n"),
+                     (_pct(c["tezine"].get("mean")), c["tezine"].get("mean") or 0, "n"),
+                     (_pct(m.get("mean")), m.get("mean") or 0, "n"), (_pct(m_d) + (f" ({n_d})" if n_d else ""), m_d or 0, "n")])
+    out.append(table(["Tjedan", ("Prilika", "n"), ("Kupi sve", "n"), ("Težine", "n"), ("Model", "n"), ("Demo (tradeova)", "n")], rows))
+    # model state
+    if st.get("champion") == "gbm":
+        state = badge("odlučuje model", "good")
+    elif st.get("challenger"):
+        days = (now - st["challenger"]["trained_ts"]) / 86400
+        state = badge(f"model u probi: dan {days:.0f} od {cfg['trial_days']}")
+    else:
+        state = badge("odlučuju težine; model čeka dovoljno podataka")
+    out.append(f"<p>Stanje: {state}</p>")
+    mdl = model
+    if mdl:
+        from learn import gbm
+        imp = ", ".join(esc(feat(k.split("=")[0]) if "=" not in k else k) for k, _ in gbm.importance(mdl, 8))
+        out.append(f"<p class=mut>Model najviše gleda: {imp}.</p>")
+    hr = st.get("holdout_report")
+    h = cfg.get("holdout") or {}
+    if hr:
+        c = hr["eval"]
+        out.append(f"<p>Zaključani tjedan ({esc(h.get('from', ''))} do {esc(h.get('to', ''))}), konačno: kupi sve "
+                   f"{_pct(c['kontrola'].get('mean'))}, težine {_pct((c.get('tezine') or {}).get('mean'))}, model "
+                   f"{_pct((c.get('model') or {}).get('mean'))}.</p>")
+    elif h.get("from"):
+        out.append(f"<p class=mut>Zaključani tjedan {esc(h['from'])} do {esc(h['to'])}: nijedno učenje ga ne vidi; "
+                   "konačna usporedba stiže dan nakon kraja.</p>")
+    return "".join(out)
+
+
+def payoff_html(now=None):
+    """Does the paid AI pay for itself? Its cost in the last 30 days next to what it measurably adds."""
+    import time
+    from learn import champion, detektiv, postai
+    now = now or time.time()
+    sp = postai.spend(30, now)
+    ov = detektiv.overview(days=30, now=now) or {"by": {}, "usd": 0.0}
+    lift = champion.ai_lift()
+    n_demo, _ = _demo_week(now - 30 * 86400, now)
+    stake = 20
+    out = ["<h2>Isplati li se AI?</h2>", tdesc(
+        "Trošak plaćenih AI dijelova u zadnjih 30 dana i koliko mjerljivo pomažu. Doprinos AI čitanja objava mjeri se "
+        "tako da se isti model nauči i bez AI signala pa se oba ocijene na istim novim prilikama: razlika u zaradi po "
+        f"tradeu × broj demo tradeova × ulog ${stake}. Hipoteza vrijedi tek kad prođe test na novim podacima.")]
+    rows = []
+    if lift:
+        gain = lift[0] * n_demo * stake
+        verdict = badge("isplati se", "good") if gain > sp["usd"] else badge("još se ne isplati", "bad") if lift[0] <= 0 else badge("blizu")
+        rows.append([esc("AI čita objave (Haiku 5.5)"), (f"${sp['usd']:.2f}", sp["usd"], "n"), num(sp["posts"]),
+                     (f"{lift[0]:+.1%} po tradeu ({lift[1]} prilika)", lift[0], "n"), (f"≈ ${gain:,.0f}", gain, "n"), verdict])
+    else:
+        rows.append([esc("AI čita objave (Haiku 5.5)"), (f"${sp['usd']:.2f}", sp["usd"], "n"), num(sp["posts"]),
+                     ("mjeri se (prva proba modela s AI signalima)", 0, "wrap"), "–", badge("mjeri se")])
+    passed = (ov.get("by") or {}).get("prošla", 0)
+    rows.append([esc("AI detektiv (Opus 5.5)"), (f"${ov['usd']:.2f}", ov["usd"], "n"), num(sum((ov.get("by") or {}).values())),
+                 (f"{passed} hipoteza prošlo test", passed, "n"), "–",
+                 badge("donosi nove signale", "good") if passed else badge("mjeri se")])
+    out.append(table(["Dio", ("Trošak 30 d", "n"), ("Obrađeno", "n"), ("Učinak", "n"), ("Vrijednost 30 d", "n"), "Ocjena"], rows))
+    return "".join(out)
+
+
+def hypotheses_html():
+    from learn import detektiv
+    ov = detektiv.overview()
+    out = ["<h2>Hipoteze: ideje koje se same testiraju</h2>", tdesc(
+        "Svaki dan AI detektiv pročita najbolje, najgore i propuštene prilike i predloži pravila (npr. \"KOL poziv u US "
+        "sesiji uz malu likvidnost\"). Tvoje ideje ulaze u isti red. Svako pravilo se testira samo na prilikama nakon što "
+        "je zapisano; prolazi kad tokeni koji mu odgovaraju zarađuju sigurno više od ostalih, i tada postaje signal "
+        "modela.")]
+    if not ov or not ov["rows"]:
+        return "".join(out) + "<div class=card>Prve hipoteze stižu sa sljedećim dnevnim učenjem.</div>"
+    by = ov["by"]
+    out.append(f"<p>Prošlo {by.get('prošla', 0)}, palo {by.get('pala', 0)}, testira se {by.get('testira se', 0)}"
+               + (f", tvojih ideja na čekanju {ov['ideje']}" if ov.get("ideje") else "") + ".</p>")
+    rr = []
+    for h in ov["rows"]:
+        ev = json.loads(h["eval"] or "{}")
+        m, r = ev.get("match") or {}, ev.get("rest") or {}
+        st = h["status"]
+        rr.append([(esc(h["naslov"]) + f"<div class=mut>{esc(h['objasnjenje'] or '')}</div>", "", "wrap"),
+                   badge(st, "good" if st == "prošla" else "bad" if st == "pala" else ""), num(h["n"] or 0),
+                   (_pct(m.get("mean")), m.get("mean") or 0, "n"), (_pct(r.get("mean")), r.get("mean") or 0, "n"),
+                   esc("tvoja ideja" if h["izvor"] == "ideja" else "AI")])
+    out.append(table([("Hipoteza", "wrap"), "Stanje", ("Poklapanja", "n"), ("Zarada kad vrijedi", "n"), ("Ostali", "n"), "Izvor"], rr))
+    return "".join(out)
+
+
+def missed_shadow_html(now=None):
+    """Candidates the demo skipped that the shadow book shows would have paid +50% or more, by the reason."""
+    import time
+    from learn import shadow
+    now = now or time.time()
+    rs = [r for r in shadow.light_rows(point="kandidat", since=now - 7 * 86400) if not r["kupljeno"]]
+    if not rs:
+        return ""
+    big = [r for r in rs if r["ret"] >= 0.5]
+    by = {}
+    for r in rs:
+        d = r["decision"] or "?"
+        x = by.setdefault(d, [0, 0])
+        x[0] += 1
+        x[1] += r["ret"] >= 0.5
+    from ui.labels import decision as dlabel
+    rows = [[esc(dlabel(d) if callable(dlabel) else d), num(n), num(b), (f"{b / n:.0%}", b / n, "n")]
+            for d, (n, b) in sorted(by.items(), key=lambda kv: -kv[1][1])]
+    return ("<h2>Propušteni pobjednici (sjenovita knjiga)</h2>" + tdesc(
+        "Demo kandidati koje alat nije kupio, a nakon 24 h bi s našim pravilima izlaza zaradili +50% ili više. Po razlogu "
+        "zašto nisu kupljeni: ako jedan razlog reže puno pobjednika, taj filter je preoštar.")
+            + f"<p>Zadnjih 7 dana: {len(big)} od {len(rs)} preskočenih bi zaradilo +50% ili više.</p>"
+            + table(["Zašto nije kupljen", ("Preskočeno", "n"), ("Od toga +50%", "n"), ("Udio", "n")], rows))
+
+
 def _con():
     if not os.path.exists(data.HYPE_DB):
         return None
@@ -131,6 +296,11 @@ def page(qs):
         print(f"učenje: ishodi nisu uspjeli: {type(e).__name__}: {e}")
         return "Učenje", "".join(b) + "<div class=card>Ishodi se trenutno ne mogu izračunati; pokušat će ponovno pri sljedećem osvježavanju.</div>"
     klasa = qs.get("klasa") or ""
+    for name, fn in (("je li pametniji", smarter_html), ("isplativost", payoff_html)):
+        try:
+            b.append(fn())
+        except Exception as e:  # noqa: BLE001
+            print(f"učenje: {name}: {type(e).__name__}: {e}")
     sel = [r for r in rows if not klasa or r["klasa"] == klasa]
 
     # 1. pump thresholds and weights per class
@@ -216,10 +386,11 @@ def page(qs):
         print(f"učenje: confidence: {type(e).__name__}: {e}")
 
     b.append(rugs_html())
-    try:
-        b.append(shadow_html())
-    except Exception as e:  # noqa: BLE001
-        print(f"učenje: sjenovita knjiga: {type(e).__name__}: {e}")
+    for name, fn in (("sjenovita knjiga", shadow_html), ("propušteni", missed_shadow_html), ("hipoteze", hypotheses_html)):
+        try:
+            b.append(fn())
+        except Exception as e:  # noqa: BLE001
+            print(f"učenje: {name}: {type(e).__name__}: {e}")
 
     b.append("<h2>Što je bot promijenio</h2>")
     if not runs:
@@ -231,7 +402,7 @@ def page(qs):
             diff = ", ".join(f"{feat(k)} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
                              if abs(v - r["old"].get(k, 0)) >= 0.1)[:200] if r["new"] else ""
             rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")),
-                       badge("confidence", "good") if r["klasa"] == "confidence" else badge("profil ruga", "bad") if r["klasa"] == "rugprofil" else klasab(r["klasa"]), num(r["n"]),
+                       badge("confidence", "good") if r["klasa"] == "confidence" else badge("profil ruga", "bad") if r["klasa"] == "rugprofil" else badge("model") if r["klasa"] == "model" else klasab(r["klasa"]), num(r["n"]),
                        badge("primijenjeno", "good") if r["applied"] else badge("bez promjene"),
                        (f"{r['metric_old'] if r['metric_old'] is not None else '–'} → {r['metric_new'] if r['metric_new'] is not None else '–'}", r["metric_new"] or 0, "n"),
                        (esc(note_hr(r["note"])), "", "wrap"), (esc(diff), "", "wrap")])

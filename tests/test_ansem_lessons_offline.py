@@ -80,8 +80,9 @@ class ScoreBands(unittest.TestCase):
                                       "decision": "taken", "trade_id": i + 1})
         st = arms.stats(con)
         self.assertEqual(st["ocjena 45+"], [0, 2])
-        self.assertEqual(st["ocjena do 35"], [1, 0])  # the hand-sold trade does not count
-        self.assertEqual(st["dex|us"], [1, 2])
+        # the hand-sold trade does not count; since 2.11. a win counts by size (+270% = 3 wins' worth)
+        self.assertEqual(st["ocjena do 35"], [3.0, 0])
+        self.assertEqual(st["dex|us"], [3.0, 2])
 
 
 class ManualExit(unittest.TestCase):

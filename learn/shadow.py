@@ -224,6 +224,8 @@ def label(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
     if not due:
         return 0
     paper, hype = _ro(paper_db), _ro(hype_db)
+    from learn import postai
+    ai = _ro(postai.DB)  # AI labels of posts written BEFORE the point (learn/postai.py), joined into its features
     base = sim.load_config()
     done, export = 0, []
     try:
@@ -233,6 +235,12 @@ def label(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
             if not path:
                 con.execute("UPDATE points SET status='bez_cijene', labeled_ts=? WHERE id=?", (int(now), r["id"]))
                 continue
+            feats = json.loads(r["features"] or "{}")
+            if ai is not None:
+                extra = postai.features(r["token"], r["ts"], con=ai)
+                if extra:
+                    feats.update(extra)
+                    con.execute("UPDATE points SET features=? WHERE id=?", (json.dumps(feats), r["id"]))
             res, prof = simulate(r["price"], r["liq"], r["ts"], path, r["klasa"], src, base)
             rets = sorted(p / r["price"] - 1 for _, p, _ in path)
             max2 = rets[-2] if len(rets) >= 2 else rets[-1]
@@ -247,11 +255,11 @@ def label(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
             done += 1
             export.append({**{k: r[k] for k in ("id", "token", "symbol", "point", "ts", "klasa", "sess", "price", "liq",
                                                  "mcap", "score", "decision", "kupljeno")},
-                           "features": json.loads(r["features"] or "{}"), "src": src, "ret": res["ret"],
+                           "features": feats, "src": src, "ret": res["ret"],
                            "max2_ret": round(max2, 4), "hit": hit, "rug": rug, "exit_reason": res["exit_reason"],
                            "exit_profile": prof, "path": comp})
     finally:
-        for c in (paper, hype):
+        for c in (paper, hype, ai):
             if c is not None:
                 c.close()
     con.commit()
@@ -351,11 +359,33 @@ def stats(rs, cap=3.0):
             "rug": round(sum(r["rug"] or 0 for r in rs) / len(rs), 3)}
 
 
+def light_rows(path=None, since=None, point=None):
+    """Only (point, kupljeno, decision, ret, hit, rug) of labelled points: no features, no path. For the dashboard,
+    which lives 24/7 (Python keeps the memory a big read once took), so it never parses thousands of JSON blobs."""
+    con = _ro(path or DB)
+    if con is None:
+        return []
+    sql, args = "SELECT point, kupljeno, decision, ret, hit, rug, ts FROM points WHERE status='gotovo'", []
+    if since:
+        sql += " AND ts>=?"
+        args.append(int(since))
+    if point:
+        sql += " AND point=?"
+        args.append(point)
+    try:
+        return [{"point": a, "kupljeno": b, "decision": c, "ret": d, "hit": e, "rug": f, "ts": g}
+                for a, b, c, d, e, f, g in con.execute(sql, args)]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
 def summary(path=None, days=7, now=None):
     """Per point type and bought/not bought over the last `days` days, plus counts by status; for the Učenje page
     and the morning report."""
     now = now or time.time()
-    rs = rows(path, since=now - days * 86400)
+    rs = light_rows(path, since=now - days * 86400)
     out = {"days": days, "by_point": {}, "kandidat": {}, "status": {}, "last_run": None}
     for p in POINTS:
         out["by_point"][p] = stats([r for r in rs if r["point"] == p])

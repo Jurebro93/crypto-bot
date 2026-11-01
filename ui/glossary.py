@@ -542,6 +542,33 @@ T("Sjenovita knjiga", "sustav", "Alat na svakoj prilici za kupnju \"na papiru\" 
   "kupuje i ne troši API kredite.", primjer="Token prijeđe $100k: knjiga zapiše cijenu i sve signale u tom trenutku; "
   "sutra izračuna da bi demo izašao s +18%.", vidi=["ostvariva-zarada", "tocka-odluke", "ucenje"], gdje=[("/learn", "Učenje")],
   alias=["shadow book", "sjenovita"])
+T("Model odlučivanja", "sustav", "Naučeni model (stabla odluke) koji iz signala u trenutku prilike računa šansu da trade zaradi.",
+  "Za razliku od težina vidi kombinacije (npr. KOL poziv vrijedi više u US sesiji) i signale koji štete. Uči na "
+  "sjenovitoj knjizi, a demo istraživanje bira tek kad prođe probu.", vidi=["proba-modela", "sjenovita-knjiga", "tezina"],
+  gdje=[("/learn", "Učenje")], alias=["model", "gbm"])
+T("Proba modela", "sustav", "Novi model 7 dana samo gleda: ocjenjuje nove prilike, ali ne trguje.",
+  "Nakon 7 dana usporedi se zarada njegovih 20% najboljih izbora s 20% najbolje ocijenjenih po težinama na istim "
+  "prilikama. Postaje glavni samo ako je bolji i bez 1% najboljih tradeova i ako je razlika sigurno iznad nule. Ako "
+  "kasnije tjedan dana radi lošije od težina, težine se vrate same.", vidi=["model-odlucivanja", "zakljucani-tjedan"],
+  gdje=[("/learn", "Učenje")], alias=["champion", "challenger"])
+T("Zaključani tjedan", "sustav", "Tjedan podataka koji nijedno učenje ne smije vidjeti, za poštenu konačnu provjeru.",
+  "Kad tjedan završi, na njemu se jednom usporede model, težine i kontrola \"kupi sve\". To je iskren odgovor na "
+  "pitanje je li učenje pomoglo, jer nitko (ni ljudi ni AI) nije mogao nesvjesno naučiti baš te podatke.",
+  vidi=["proba-modela", "kontrola"], gdje=[("/learn", "Učenje")], alias=["holdout"])
+T("Kontrola", "sustav", "Usporedba s najjednostavnijim pravilom: kupi svaku priliku (npr. svaki prvi prelazak $100k).",
+  "Ako ni težine ni model ne pobijede kontrolu, ne vrijede ništa. Zato je kontrola uvijek u istoj tablici.",
+  vidi=["zakljucani-tjedan"], gdje=[("/learn", "Učenje")], alias=["kupi sve"])
+T("Hipoteza", "sustav", "Pravilo koje bi moglo razlikovati dobitke od gubitaka, npr. \"jak KOL poziv u US sesiji\".",
+  "Predlaže ga AI detektiv ili ti. Testira se samo na prilikama nakon što je zapisano; prolazi kad tokeni koji mu "
+  "odgovaraju sigurno zarađuju više od ostalih, i tada postaje signal modela. Ništa se ne primjenjuje na povjerenje.",
+  vidi=["ai-detektiv", "model-odlucivanja"], gdje=[("/learn", "Učenje")], alias=["hipoteze", "ideja"])
+T("AI detektiv", "sustav", "Jednom dnevno AI (Claude Opus 5.5) pročita najbolje, najgore i propuštene prilike i predloži hipoteze.",
+  "Oko $0,2 dnevno. Na stranici Učenje vidi se trošak i koliko je hipoteza prošlo test.", vidi=["hipoteza"],
+  gdje=[("/learn", "Učenje")], alias=["detektiv"])
+T("AI čitanje objava", "sustav", "AI (Claude Haiku 5.5) pročita svaku KOL i Telegram objavu s tokenom i označi je.",
+  "Oznake: poziv, spominjanje, upozorenje, reklama, hvalisanje, šala, prepost; je li plaćeno; uvjerenje 1-5; je li autor "
+  "već kupio. To postaju signali modela. Trošak je ograničen dnevnim limitom (~$0,5 do $1 dnevno), a na Učenju se mjeri "
+  "isplati li se.", vidi=["model-odlucivanja", "kol"], gdje=[("/learn", "Učenje")], alias=["ai objave", "ai oznake"])
 T("Ostvariva zarada", "sustav", "Zarada koju bi demo pozicija stvarno uzela s našim pravilima izlaza, nakon naknada i slippagea.",
   "Od 2.11. hype ocjena uči iz toga, a ne iz najviše cijene u 24 h: vrh grafa nitko ne uhvati, a ostvariva zarada je "
   "ono što se može dobiti. Za prosjek se jedna zarada ograničava na +300%.", vidi=["sjenovita-knjiga", "smart-sell"],
