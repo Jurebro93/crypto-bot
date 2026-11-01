@@ -519,6 +519,20 @@ T("Helius krediti", "sustav", "Plaćeni podaci s blockchaina (Helius). Imamo 10M
   gdje=[("/usage", "Potrošnja")], alias=["helius", "kredita", "helius kredita"])
 T("Apify", "sustav", "Plaćeni servis koji čita X (Twitter) za nas. Ograničen na oko $100 mjesečno.",
   gdje=[("/usage", "Potrošnja")])
+T("Google Search Console", "sustav", "Googleov besplatni alat koji pokazuje kako nas ljudi nalaze na Googleu: klikovi, prikazi, upiti.",
+  "Spojen preko service accounta (robot račun u Google Cloudu) čiji je e-mail dodan kao korisnik u Search Consoleu. "
+  "Podaci se povlače svakih 6 sati i kasne oko 2 dana.", vidi=["klikovi", "prikazi", "ctr", "prosjecna-pozicija"],
+  gdje=[("/analitika", "Analitika")], alias=["gsc", "search console"])
+T("Klikovi", "sustav", "Koliko je puta netko u Googleu kliknuo na našu stranicu.",
+  gdje=[("/analitika", "Analitika")], alias=["klikova"])
+T("Prikazi", "sustav", "Koliko se puta naša stranica pojavila u Googleovim rezultatima, kliknuo netko ili ne.",
+  gdje=[("/analitika", "Analitika")], alias=["prikaza", "impresije", "impressions"])
+T("CTR", "sustav", "Postotak prikaza koji su završili klikom (klikovi ÷ prikazi). Bolji naslov i opis stranice ga dižu.",
+  gdje=[("/analitika", "Analitika")])
+T("Prosječna pozicija", "sustav", "Na kojem smo mjestu u Googleu u prosjeku. 1 je prvi rezultat, 1-10 je prva stranica; manji broj je bolji.",
+  gdje=[("/analitika", "Analitika")], alias=["prosj. pozicija", "prosj pozicija"])
+T("Upit", "sustav", "Riječi koje je netko upisao u Google prije nego što mu se pojavila naša stranica.",
+  gdje=[("/analitika", "Analitika")], alias=["upiti"])
 T("Jutarnji izvještaj", "sustav", "Dnevni sažetak svega bitnog, napisan svako jutro prije 8 h.",
   gdje=[("/izvjestaj", "Jutarnji izvještaj")])
 

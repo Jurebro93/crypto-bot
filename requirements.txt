@@ -2,3 +2,4 @@ solders>=0.29
 base58>=2.1
 anthropic>=2.3
 telethon>=1.36  # optional Telegram live listener (run_tg.py telethon), used only with TG_SESSION set
+google-auth>=2.30  # Google Search Console API (analytics/gsc.py), service-account JWT signing
