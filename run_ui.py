@@ -233,6 +233,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/nas-token" or path.startswith("/nas-token/"):
+            from ui import nastoken
+            rest = path[len("/nas-token/"):]
+            try:
+                res = nastoken.page(qs, self.user) if path == "/nas-token" or not rest else \
+                    nastoken.project_page(int(rest), qs, self.user) if rest.isdigit() else None
+                html = page(*res, path) if res else page("404", "<h1>Nema te stranice</h1>", path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200 if res else 404, html.encode("utf-8"))
         if path == "/whatsapp":
             from ui import whatsapp
             try:
@@ -313,6 +323,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", handler(path, form, self.user))
             self.end_headers()
             return
+        if same_site and path.startswith("/nas-token/"):
+            n = int(self.headers.get("Content-Length") or 0)
+            form = dict(parse_qsl(self.rfile.read(min(n, 20_000)).decode("utf-8", "replace")))
+            from ui import nastoken
+            return self._redirect(nastoken.post(path, form, self.user))
         if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
             from ui import whatsapp
             whatsapp.post_shared()
