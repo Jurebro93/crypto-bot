@@ -29,22 +29,69 @@ if SITE_URL:
     os.environ["RENDER_EXTERNAL_URL"] = SITE_URL
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
-                         r"static/landing/.*)$")
+                         r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
+                         r"embed/.*|static/landing/.*)$")
+
+
+APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
+if APP_URL:
+    os.environ["APP_URL"] = APP_URL
+SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik)$")   # served on every host
+
+
+def _host(url_or_host):
+    return (url_or_host or "").split("://", 1)[-1].split("/")[0].split(":")[0].lower()
+
+
+def is_public(path):
+    if path in ("/", "/dobrodosli", "/zatrazi-pristup") or PUBLIC_PATH.match(path):
+        return True
+    try:   # pages other modules add later (coin SEO, market pages) without touching this list
+        from ui import public
+        return bool(public._seo_page(path))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def moved_to_site(host, path, logged_in):
-    """301 target on the own domain for a public page opened on another host (onrender.com), else None."""
+    """301 target for a page opened on the wrong host, else None.
+    SITE_URL alone: public pages on *.onrender.com / www.<site> move to the site; the app stays where it is.
+    SITE_URL + APP_URL: the site serves only public pages (landing always at "/"), the app host only the app."""
     if not SITE_URL:
         return None
-    site_host = SITE_URL.split("://", 1)[-1].split("/")[0].lower()
-    h = (host or "").split(":")[0].lower()
-    if not h or h == site_host or h in ("localhost", "127.0.0.1") or not h.endswith(".onrender.com") and h != "www." + site_host:
+    site_host, app_host = _host(SITE_URL), _host(APP_URL)
+    h = _host(host)
+    if not h or h in ("localhost", "127.0.0.1"):
         return None
+    shared, pub = bool(SHARED_PATH.match(path)), is_public(path)
+    if h == site_host:
+        if not APP_URL or shared:
+            return None
+        if path == "/dobrodosli":
+            return SITE_URL + "/hr"
+        return None if pub else APP_URL + path
+    if APP_URL and h == app_host:
+        if path == "/dobrodosli":
+            return SITE_URL + "/hr"
+        return SITE_URL + path if pub and path != "/" and not shared else None
+    if not h.endswith(".onrender.com") and h != "www." + site_host:
+        return None
+    if APP_URL:
+        if path == "/":
+            return (APP_URL if logged_in else SITE_URL) + "/"
+        return (SITE_URL if pub or shared else APP_URL) + path
     if path == "/" and logged_in and h != "www." + site_host:
         return None      # the dashboard itself stays where the login cookie is
     if path == "/" or PUBLIC_PATH.match(path) or h == "www." + site_host:
         return SITE_URL + path
     return None
+
+
+def on_site_host(host):
+    """True when the app has its own host and this request came to the public site."""
+    return bool(APP_URL) and _host(host) == _host(SITE_URL)
+
+
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -288,14 +335,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/registracija":
             from ui import register
             return self._send(200, register.page_html(qs).encode("utf-8"))
-        if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and not ok):   # public sales page (English main)
+        site = on_site_host(self.headers.get("Host"))
+        if path in ("/dobrodosli", "/hr", "/en") or (path == "/" and (site or not ok and not APP_URL)):
+            # public sales page (English main); with an own app host, "/" on the site is always this page
             self._public = True
             from ui import landing
-            if path == "/en" and not ok:
-                return self._redirect("/")
+            if path == "/en" and (site or not ok):
+                return self._redirect("/", code=301 if site else 303)
             lang = "en" if path in ("/", "/en") else "hr"   # /en: the English page for logged-in users (canonical /)
             self._index = path not in ("/dobrodosli", "/en")
-            return self._send(200, landing.page_html(qs, logged_in=ok and AUTH, ok=qs.get("poslano") == "1", lang=lang)
+            return self._send(200, landing.page_html(qs, logged_in=ok and AUTH and not site, ok=qs.get("poslano") == "1", lang=lang)
                               .encode("utf-8"))
         from ui import public
         pub = public.route(path)
@@ -439,6 +488,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._register_post()
         if u.path == "/zatrazi-pristup":
             return self._request_post()
+        if on_site_host(self.headers.get("Host")):
+            return self._redirect(APP_URL + self.path, code=308)
         if AUTH and not self._authorized():
             return self._send(401, login_page({}).encode("utf-8"))
         pagecache.clear()   # a run or a trade changes what the pages show
