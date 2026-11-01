@@ -67,6 +67,15 @@ def cmd_search(a, con=None, cfg=None):
     return n
 
 
+def cmd_snap(a, con=None, cfg=None):
+    """DexScreener price/volume snapshot of every token called in the last day, then outcomes from snapshots."""
+    from kol import snap
+    con, cfg = con or store.connect(), cfg or config()
+    k = snap.take(con)
+    n = snap.measure(con, cfg)
+    print(f"snap: {k} tokena snimljeno (DexScreener), {n} poziva izmjereno iz snimki")
+
+
 def cmd_measure(a, con=None, cfg=None):
     con, cfg = con or store.connect(), cfg or config()
     t, c = measure.run(con, cfg, verbose=getattr(a, "verbose", False))
@@ -165,8 +174,8 @@ def cycle(a):
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_score, cmd_live, cmd_chain, cmd_converge, cmd_measure,
-                 cmd_flows, cmd_score):
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_chain, cmd_converge,
+                 cmd_measure, cmd_flows, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:
@@ -194,7 +203,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "measure", "flows", "score", "once", "live", "chain", "converge"):
+    for name in ("collect", "search", "snap", "measure", "flows", "score", "once", "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -209,7 +218,7 @@ def main(argv=None):
     tp = sub.add_parser("top")
     tp.add_argument("-n", type=int, default=30)
     a = p.parse_args(argv)
-    {"collect": cmd_collect, "search": cmd_search, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
+    {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
      "chain": cmd_chain, "converge": cmd_converge}[a.cmd](a)
 

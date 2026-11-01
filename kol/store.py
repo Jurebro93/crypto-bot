@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS converge (
     n_other INTEGER, platforms TEXT, handles TEXT, mcap0 REAL, dev_selling INTEGER, kol_selling INTEGER,
     updated INTEGER);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS snaps (token TEXT, ts INTEGER, price REAL, vol_h1 REAL, liq REAL, mcap REAL,
+    PRIMARY KEY (token, ts));
 CREATE TABLE IF NOT EXISTS seen_cache (key TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts INTEGER, n INTEGER DEFAULT 0);
 """
@@ -78,7 +80,8 @@ CREATE TABLE IF NOT EXISTS searches (target TEXT PRIMARY KEY, kind TEXT, last_ts
 
 # columns added after the first release (ALTER on old files; CREATE above stays as it was for seed imports)
 MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
-           ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER"), ("calls", "mtry", "INTEGER")]
+           ("calls", "bad", "TEXT"), ("calls", "mver", "INTEGER"), ("calls", "mtry", "INTEGER"),
+           ("calls", "msrc", "TEXT")]
 
 
 def connect(path=None):
