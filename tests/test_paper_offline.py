@@ -27,6 +27,12 @@ class PaperSim(unittest.TestCase):
         self.assertGreater(pos["entry_eff"], 1.01 * (1 + slip))
         self.assertLess(pos["entry_eff"], 1.02 * (1 + slip))
 
+    def test_no_liquidity_reading_does_not_crash(self):
+        """1.11.: a candidate with liquidity 0 made the daily review crash (ZeroDivisionError in open_position)."""
+        pos = sim.open_position(1.0, 0, T0, 50, CFG)
+        self.assertGreater(pos["entry_eff"], 1.0)
+        self.assertLess(pos["entry_eff"], 1e3)
+
     def test_stop_loss(self):
         r = sim.replay(1.0, 50_000, T0, _path([0.05, -0.1, -0.4, 0.5]), CFG)
         self.assertEqual(r["exit_reason"], "stop_loss")

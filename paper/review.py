@@ -80,7 +80,7 @@ def load(con, cfg, since):
     rows = []
     for (token, sym, ts, origin, sources, score, feats, price, liq, mcap, decision, reason, verdict, rscore,
          flags, trade_id, url) in con.execute("SELECT * FROM candidates WHERE first_ts>=? AND decision!='ignored' "
-                                              "AND price>0", (since,)):
+                                              "AND price>0 AND liquidity>0", (since,)):
         path = con.execute("SELECT ts, price, liquidity FROM ticks WHERE token=? AND ts>? AND ts<=? ORDER BY ts",
                            (token, ts, ts + cfg["track_h"] * 3600)).fetchall()
         prices = [p for _, p, _ in path if p]

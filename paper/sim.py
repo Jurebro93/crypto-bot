@@ -38,7 +38,8 @@ def impact(usd, liq):
 
 def open_position(price, liq, ts, size_usd, cfg):
     """Buy size_usd at market price; effective price is worse by fee + impact."""
-    eff = price * (1 + cfg["fee"]) * (1 + cfg.get("slip", 0.0)) / (1 - impact(size_usd, liq))
+    # a pool with no liquidity reading (liq 0/None) means impact 1: cap it, else the price is infinite (division by 0)
+    eff = price * (1 + cfg["fee"]) * (1 + cfg.get("slip", 0.0)) / max(0.01, 1 - impact(size_usd, liq))
     return {"entry_px": price, "entry_eff": eff, "entry_liq": liq, "opened_ts": ts, "size_usd": size_usd,
             "qty": size_usd / eff, "left": 1.0, "realized": 0.0, "peak": 0.0, "low": 0.0,
             "tp_done": 0, "open": True, "fills": []}
