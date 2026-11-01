@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -28,7 +29,88 @@ PRUNE_EVERY = 200   # writes between automatic prunes
 _writes = 0
 
 
+# Hosts whose free limit is per IP, shared by every process on the server (GeckoTerminal: ~30 calls a minute for
+# the KOL measurements, the Dugoročni candles and holder counts together). One file per host under /tmp holds
+# "next call allowed at" and "paused until" so the processes queue behind each other instead of each pacing alone
+# and all of them hitting 429 together. After a 429 everyone pauses SHARED_COOLDOWN seconds.
+SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "2.5"))}
+SHARED_COOLDOWN = float(os.environ.get("GECKO_COOLDOWN_S", "60"))
+GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir(), "crypto-bot-gate")
+
+
+def _shared(url):
+    host = urllib.parse.urlsplit(url).hostname or ""
+    for suffix, gap in SHARED_GAP.items():
+        if host.endswith(suffix):
+            return suffix, gap
+    return None, 0
+
+
+def _gate(suffix, fn):
+    """Run fn(state) -> state under an exclusive lock on the host's gate file; state = [next_ok, paused_until]."""
+    os.makedirs(GATE_DIR, exist_ok=True)
+    with open(os.path.join(GATE_DIR, suffix), "a+") as f:
+        try:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        f.seek(0)
+        try:
+            state = [float(x) for x in f.read().split()[:2]]
+        except ValueError:
+            state = []
+        state = (state + [0.0, 0.0])[:2]
+        new = fn(state)
+        f.seek(0)
+        f.truncate()
+        f.write(f"{new[0]} {new[1]}")
+        return new
+
+
+def cooling(url):
+    """Seconds until a shared-limit host may be called again after a 429 (0 = go)."""
+    suffix, _ = _shared(url)
+    if not suffix:
+        return 0.0
+    try:
+        st = _gate(suffix, lambda s: s)
+    except OSError:
+        return 0.0
+    return max(0.0, st[1] - time.time())
+
+
+def limited(url, retry_after=0):
+    """Note a 429 from a shared-limit host: every process pauses before its next call there."""
+    suffix, _ = _shared(url)
+    if suffix:
+        until = time.time() + max(SHARED_COOLDOWN, retry_after or 0)
+        try:
+            _gate(suffix, lambda s: [max(s[0], until), max(s[1], until)])
+        except OSError:
+            pass
+
+
+def _pace_shared(url):
+    suffix, gap = _shared(url)
+    if not suffix:
+        return
+
+    def take(s):
+        now = time.time()
+        start = max(now, s[0], s[1])
+        return [start + gap, s[1], start]   # the third value is only for us: when this call may go (not stored)
+    try:
+        st = _gate(suffix, take)
+    except OSError:
+        return
+    wait = st[2] - time.time() if len(st) > 2 else 0
+    if wait > 0:
+        time.sleep(min(wait, 180))
+
+
 def _pace(url):
+    _pace_shared(url)
     host = urllib.parse.urlsplit(url).hostname or ""
     for suffix, gap in MIN_GAP.items():
         if host.endswith(suffix):
@@ -52,12 +134,14 @@ def _fetch(req, timeout, retries=None):
         except urllib.error.HTTPError as e:
             if meter:
                 meter.helius(req.full_url, req.data, error=True)
-            if attempt == retries or not (e.code == 429 or e.code >= 500):
-                raise
             try:
                 delay = float(e.headers.get("Retry-After") or 0)
-            except ValueError:
+            except (ValueError, AttributeError):
                 delay = 0
+            if e.code == 429:
+                limited(req.full_url, delay)
+            if attempt == retries or not (e.code == 429 or e.code >= 500):
+                raise
             time.sleep(min(60, max(delay, 2 ** attempt)))
 
 

@@ -316,8 +316,13 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         try:
             import json
-            chainwatch.ingest(json.loads(self.rfile.read(min(n, 5_000_000)) or b"[]"),
-                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
+            payload = json.loads(self.rfile.read(min(n, 5_000_000)) or b"[]")
+            try:   # Helius bills every delivered event (1 credit), so the meter must see them too
+                from usage import meter
+                meter.helius_webhook(len(payload) if isinstance(payload, list) else 1)
+            except Exception:
+                pass
+            chainwatch.ingest(payload, os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
             self.send_response(200)
         except Exception:
             self.send_response(400)
