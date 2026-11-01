@@ -80,5 +80,7 @@
   "floor": 0.2,
   "keep_frac": 0.1,
   "win_ret": 0.0
- }
+ },
+ "slip": 0.02,
+ "_slip": "Proklizavanje izvršenja (2%) na svakoj demo kupnji i prodaji, povrh naknade i utjecaja na cijenu u poolu, da demo i simulacija izlaza budu bliže stvarnom tradingu."
 }

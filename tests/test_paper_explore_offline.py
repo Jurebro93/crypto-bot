@@ -34,14 +34,19 @@ class Explore(unittest.TestCase):
                      {"token": "C", "symbol": "C", "ts": self.now, "score": 12, "features": {}, "sources": set(),
                       "url": None, "origin": "hype"}]
         self.patch = {"hype_signals": lambda now=None: [dict(s) for s in self.sigs], "event_tokens": lambda c, n=None: [],
-                      "market": lambda toks: {t: (1.0, 50_000, 100_000, None) for t in toks},
+                      "market": lambda toks: {t: (0.0001, 20_000, 100_000, None) for t in toks},
+                      "t0_of": lambda toks, col="t0": {t: "prolaz" for t in toks} if col == "t0" else {},
                       "rug_verdict": lambda con, t, cfg, now, paid=True: (None, None, []), "klasa_of": lambda toks: {},
                       "notify": lambda *a, **k: None}
         self.saved = {k: getattr(run_paper, k) for k in self.patch}
+        from learn import weights
+        self._ld, weights.LEARNED_DIR = weights.LEARNED_DIR, self.tmp
         for k, v in self.patch.items():
             setattr(run_paper, k, v)
 
     def tearDown(self):
+        from learn import weights
+        weights.LEARNED_DIR = self._ld
         run_paper.DB = self._db
         for k, v in self.saved.items():
             setattr(run_paper, k, v)

@@ -9,7 +9,14 @@ Guardrails before a new set is used (nothing is applied by hand):
 - it must beat the current set on the older AND the newer half of the paths (time split), and on live paths
   alone once there are min_live_check of them;
 - every rule moves at most max_steps grid positions per run (no jumps);
-- the gain must be at least min_gain (0.5 percentage points per trade), or nothing changes.
+- the gain must be at least min_gain (0.5 percentage points per trade), or nothing changes;
+- it must still beat the current set with its best few paths left out (robust_top), so a couple of 25x hits cannot
+  pick the rules on their own.
+
+Closer to reality (1.11., stop -15% but replayed median -65% to -83%): every fill pays slippage (paper config
+slip), a stop on a coarse historical path fills where the minute checks would have caught it (cfg coarse, measured
+on live stop exits, see exits/fit.reality), and live paths (minute ticks of our own candidates) weigh together at
+least live_share of the score.
 """
 import json
 import os
@@ -51,15 +58,30 @@ def to_sim(base, params):
 
 
 def replay_path(path, cfg):
+    if path.get("src") == "live" and cfg.get("coarse"):  # minute ticks: the stop fills where the ticks say
+        cfg = {k: v for k, v in cfg.items() if k != "coarse"}
     t0 = path["ts"]
     pts = [(t0 + dt, m, liq) for dt, m, liq in path["pts"]]
     calls = [t0 + c for c in path.get("kol") or ()]
     return sim.replay(1.0, path["liq0"] or 50_000, t0, pts, cfg, calls=calls)
 
 
-def evaluate(paths, cfg, lam=1.0, cap=10.0):
+def live_weights(paths, ecfg):
+    """Weight per path: live paths together count at least live_share of the score (at most live_w_max each),
+    seed paths 1. None when there are no live paths (plain average)."""
+    n_live = sum(p.get("src") == "live" for p in paths)
+    n_seed = len(paths) - n_live
+    share = ecfg.get("live_share", 0.5)
+    if not n_live or not n_seed or n_live / len(paths) >= share:
+        return None
+    w = min(ecfg.get("live_w_max", 10.0), share / (1 - share) * n_seed / n_live)
+    return [w if p.get("src") == "live" else 1.0 for p in paths]
+
+
+def evaluate(paths, cfg, lam=1.0, cap=10.0, weights=None):
     """Replay every path; summary numbers the dashboard shows and the objective the search maximises.
-    In the score one trade counts at most `cap` (+1000%): a single 600x (or a mispriced tx) must not pick the rules."""
+    In the score one trade counts at most `cap` (+1000%): a single 600x (or a mispriced tx) must not pick the rules.
+    weights: one per path (live paths heavier, see live_weights); only the score uses them."""
     if not paths:
         return {"n": 0, "score": float("-inf")}
     rets, moon = [], []
@@ -73,8 +95,10 @@ def evaluate(paths, cfg, lam=1.0, cap=10.0):
             moon.append((r["ret"] + 1, pk))
     n = len(rets)
     mean = sum(rets) / n
-    mean_c = sum(min(r, cap) for r in rets) / n
-    loss = sum(-r for r in rets if r < 0) / n
+    w = weights if weights and len(weights) == n else [1.0] * n
+    tw = sum(w)
+    mean_c = sum(min(r, cap) * x for r, x in zip(rets, w)) / tw
+    loss = sum(-r * x for r, x in zip(rets, w) if r < 0) / tw
     srt = sorted(rets)
     return {"n": n, "score": round(mean_c - lam * loss, 5), "mean": round(mean, 4), "median": round(statistics.median(rets), 4),
             "win": round(sum(r > 0 for r in rets) / n, 4), "big_loss": round(sum(r <= -0.3 for r in rets) / n, 4),
@@ -100,7 +124,8 @@ def search(paths, base, current, ecfg, rng=None):
         i = _index(g, current.get(k))
         allowed[k] = g if i is None else g[max(0, i - steps): i + steps + 1]
     best = dict(current)
-    ref = evaluate(paths, to_sim(base, best), lam, cap)
+    wts = live_weights(paths, ecfg)
+    ref = evaluate(paths, to_sim(base, best), lam, cap, wts)
     best_score = ref["score"]
     keys = list(KEYS)
     rng = rng or random.Random(7)
@@ -112,7 +137,7 @@ def search(paths, base, current, ecfg, rng=None):
                 if v == best[k]:
                     continue
                 trial = {**best, k: v}
-                ev = evaluate(paths, to_sim(base, trial), lam, cap)
+                ev = evaluate(paths, to_sim(base, trial), lam, cap, wts)
                 s = ev["score"]
                 if s > best_score + 1e-6 and moon_ok(ev, ref, ecfg):
                     best, best_score, moved = trial, s, True
@@ -126,6 +151,15 @@ def moon_ok(new, ref, ecfg):
     if not ref.get("moon_mult") or ref.get("moon_n", 0) < 5:
         return True
     return (new.get("moon_mult") or 0) >= ecfg.get("moon_keep", 0.8) * ref["moon_mult"]
+
+
+def without_top(paths, cfg, ecfg):
+    """The paths minus the best robust_top share (at least robust_min) by what `cfg` made on them."""
+    k = max(ecfg.get("robust_min", 3), int(len(paths) * ecfg.get("robust_top", 0.01)))
+    if len(paths) <= 2 * k:
+        return paths
+    scored = sorted(paths, key=lambda p: replay_path(p, cfg)["ret"])
+    return scored[:-k]
 
 
 def split(paths):
@@ -146,7 +180,9 @@ def fit_profile(paths, base, current, ecfg):
     old, new = split(paths)
     cand = search(old, base, current, ecfg)  # learn on the older half only ...
     cfg_now, cfg_new = to_sim(base, current), to_sim(base, cand)
-    out["now"], out["new"] = evaluate(paths, cfg_now, lam, cap), evaluate(paths, cfg_new, lam, cap)
+    wts = live_weights(paths, ecfg)
+    out["live_w"] = round(max(wts), 2) if wts else 1.0
+    out["now"], out["new"] = evaluate(paths, cfg_now, lam, cap, wts), evaluate(paths, cfg_new, lam, cap, wts)
     out["new_params"] = cand
     halves = []
     for h in (old, new):  # ... it must also win on the newer half it has never seen
@@ -169,6 +205,15 @@ def fit_profile(paths, base, current, ecfg):
     if any(b < a for a, b in halves):
         out["note"] = "novi skup nije bolji u obje polovice podataka"
         return out, None
+    rest = without_top(paths, cfg_new, ecfg)
+    if len(rest) < len(paths):
+        rw = live_weights(rest, ecfg)
+        a, b = evaluate(rest, cfg_now, lam, cap, rw)["score"], evaluate(rest, cfg_new, lam, cap, rw)["score"]
+        out["robust"] = [round(a, 4), round(b, 4)]
+        if b < a:
+            out["note"] = (f"novi skup je bolji samo zbog {len(paths) - len(rest)} najboljih pogodaka; "
+                           "bez njih je lošiji, pa ostaju stara pravila")
+            return out, None
     gain = out["new"]["score"] - out["now"]["score"]
     if gain < ecfg["min_gain"]:
         out["note"] = f"dobitak premali ({gain:+.2%} po tradeu)"

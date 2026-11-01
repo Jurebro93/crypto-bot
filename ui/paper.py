@@ -383,7 +383,8 @@ def _learning_box(trades, cfg):
         groups.setdefault(mode, []).append(t)
     rows = []
     for mode, label in (("core", "Glavni (score ≥ " + str(cfg.get("min_score")) + ")"),
-                        ("explore", "Istraživački (manji ulog)"), ("konv", "Konvergencija izvora")):
+                        ("explore", "Istraživački (manji ulog)"), ("konv", "Konvergencija izvora"),
+                        ("mc100k", "Prvi prelazak 100k $ (A/B, ulaz B)"), ("kol3", "3+ KOL autora u 15 min")):
         g = groups.get(mode) or []
         closed = [t for t in g if t["status"] == "closed"]
         n = len(closed)
@@ -431,6 +432,112 @@ def _learning_box(trades, cfg):
     return out
 
 
+def _pct(x):
+    return "–" if x is None else f"{x:+.0%}"
+
+
+def rules_html(now=None):
+    """What changed on 1.11. ("Prijedlozi za bolji algoritam") and how each change is doing, in plain words."""
+    import sqlite3
+    from paper import rules
+    now = now or time.time()
+    cfg = _cfg()
+    R = rules.config(cfg)
+    st = rules.load()
+    g = R["gate"]
+    out = ["<h2>Nova pravila ulaza (od 1. 11.)</h2>" + tdesc(
+        "Pet prijedloga iz jutarnjeg izvještaja ugrađeno je u bota. Sve se uči i mjeri samo, ništa se ne podešava ručno.")]
+    items = [
+        f"<b>Tvrdi filter protiv rugova.</b> Bot ne ulazi ako token nije prošao T0 provjeru (token izvan pump.funa mora biti "
+        f"stvarno provjeren), ako je likvidnost ispod {g['min_liq']:,.0f} $, ako je pool veći od {g['max_liq_mcap']:.0%} "
+        "vrijednosti tokena (lažni pool, tako su izgledali noćni rugovi na −100%), ako je cijena iznad 1 $ uz mali supply "
+        "(tokenizirane dionice) ili ako mu je volumen pao ispod 20% najboljeg sata. Konvergencija samo iz novčanika, bez "
+        "ijednog posta, traži barem 6 novčanika. Token s rug ocjenom „visok rizik” dobiva samo mali ulog.".replace(",", "."),
+        "<b>Ulaz na prvom prelasku 100k $.</b> Uz uobičajene ulaze (A) bot sad ulazi i kad token prvi put prijeđe 100k $ "
+        f"vrijednosti uz prolaz T0 (B), istim ulogom. Kad obje strane imaju barem {R['ab']['min_n']} zatvorenih tradeova, "
+        f"bolja dobiva većinu ulaza, a slabija {R['ab']['keep_frac']:.0%} da se usporedba nastavi. Provjerava se svaki dan.",
+        "<b>Simulacija izlaza bliža stvarnosti.</b> Svaka kupnja i prodaja plaća proklizavanje "
+        f"({cfg.get('slip', 0):.0%}), stop na grubim povijesnim podacima puni se tamo gdje bi ga minutna provjera stvarno "
+        "uhvatila (izmjereno na našim demo stopovima), naši live podaci nose barem pola ocjene, a nova pravila izlaza "
+        "moraju biti bolja i kad se izbace najveći pogoci.",
+        f"<b>Okidač: {R['kol3']['authors']}+ različita KOL autora u {R['kol3']['window_min']} min.</b> Poseban mali demo "
+        "ulaz; botovi-skeneri koji objave svaki novi token ne broje se. Točnost se mjeri po sesiji; u sesiji gdje gubi "
+        "dobiva samo mali dio ulaza.",
+        "<b>Ulog po sesiji.</b> Iz zadnjih 7 dana demo tradeova bot računa faktor dobiti za Aziju, Europu i Ameriku. "
+        "Sesija koja gubi dobiva manji ulog (75% ili 50%), a ako jako gubi pauzu (uz mali dio ulaza za mjerenje). "
+        "Mijenja se najviše jedan korak dnevno i vraća se sam kad se rezultati poprave.",
+    ]
+    out.append("<ol>" + "".join(f"<li style='margin-bottom:6px'>{x}</li>" for x in items) + "</ol>")
+    try:
+        con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=10)
+    except Exception:
+        return "".join(out)
+    try:
+        gs = (st.get("since") or {}).get("gate") or (st.get("since") or {}).get("ab")
+        rows = []
+        if gs:
+            for r in rules.rug_share(con, gs):
+                rows.append([esc(r["label"]), num(r["n"]), num(r["rugs"]),
+                             (f"{r['share']:.0%}" if r["share"] is not None else "–", r["share"] or 0, "n")])
+            sh = rules.gate_shadow(con, gs)
+            out.append("<h3>Rugovi prije i poslije filtra</h3>" + tdesc(
+                "Udio zatvorenih demo tradeova koji su završili kao rug (likvidnost nestala ili −90% i gore); usporedba "
+                "zadnjih 7 dana prije filtra i svega nakon njega.") + table(
+                ["Razdoblje", ("Tradeova", "n"), ("Rugova", "n"), ("Udio", "n")], rows)
+                + (f"<p class=mut>Filtar je odbio {sh['n']} tokena; {sh['collapsed']} od njih se kasnije srušilo "
+                   f"(−70% ili nestala likvidnost), što bi bio gubitak.</p>" if sh["n"] else ""))
+        ab = st.get("ab") or {}
+        if ab:
+            w = ab.get("winner")
+            out.append("<h3>A/B: uobičajeni ulaz ili prvi prelazak 100k $</h3>" + tdesc(
+                "Povrat po tradeu (najviše +300% po tradeu, da jedan pogodak ne odluči), od početka testa.") + table(
+                ["Ulaz", ("Zatvoreno", "n"), ("Dobitnih", "n"), ("Prosjek", "n"), ("Medijan", "n")],
+                [[esc(lab) + (" ✓" if w == k else ""), num(ab.get(k, {}).get("n", 0)),
+                  (f"{ab[k]['win']:.0%}" if ab.get(k, {}).get("n") else "–", (ab.get(k) or {}).get("win", -1), "n"),
+                  (_pct((ab.get(k) or {}).get("mean")), (ab.get(k) or {}).get("mean", -9), "n"),
+                  (_pct((ab.get(k) or {}).get("median")), (ab.get(k) or {}).get("median", -9), "n")]
+                 for k, lab in (("A", "A: uobičajeni ulaz"), ("B", "B: prvi prelazak 100k $"))])
+                + f"<p class=mut>{'Pobjednik: ' + ('B (100k $)' if w == 'B' else 'A (uobičajeni)') if w else 'Još nema pobjednika: obje strane trebaju barem ' + str(R['ab']['min_n']) + ' zatvorenih tradeova i bolji prosjek i medijan u obje polovice.'}</p>")
+        k3 = rules.by_session(con, "kol3", 14, now)
+        ss = (st.get("sessions") or {}).get("by") or {}
+        srows = []
+        for s in ("asia", "eu", "us"):
+            a = ss.get(s) or {}
+            k = k3.get(s) or {}
+            f = a.get("factor", 1.0)
+            srows.append([esc(rules.SESS_HR[s]), num(a.get("n", 0)),
+                          (f"{a['win']:.0%}" if a.get("win") is not None else "–", a.get("win") or 0, "n"),
+                          (str(a.get("pf")) if a.get("pf") is not None else "–", a.get("pf") or 0, "n"),
+                          ("pauza" if f == 0 else f"{f:.0%}", f, "n"),
+                          (f"{k['win']:.0%} od {k['n']}" if k else "–", k.get("win", -1), "n")])
+        out.append("<h3>Sesije: ulog i točnost okidača 3 KOL-a</h3>" + tdesc(
+            "Zadnjih 7 dana zatvorenih demo tradeova po sesiji (UTC). Faktor dobiti = zbroj dobitaka / zbroj gubitaka "
+            "(ispod 1 znači gubitak). Ulog se primjenjuje na sve nove ulaze u toj sesiji.") + table(
+            ["Sesija", ("Tradeova", "n"), ("Dobitnih", "n"), ("Faktor dobiti", "n"), ("Ulog", "n"),
+             ("Okidač 3 KOL-a (14 dana)", "n")], srows))
+    except Exception as e:  # noqa: BLE001 - never break the page
+        out.append(f"<p class=mut>Statistika novih pravila trenutno nije dostupna ({esc(type(e).__name__)}).</p>")
+    finally:
+        con.close()
+    try:
+        from exits import profiles
+        real = profiles.load().get("reality") or {}
+        if real:
+            out.append("<p class=mut>Simulacija izlaza: " + (
+                f"na {real['n']} naših demo stopova {real['p_caught']:.0%} ih je minutna provjera uhvatila blizu stopa, "
+                f"prosječno {abs(real['gap']):.0%} ispod njega" if real.get("measured") else
+                f"premalo naših stopova za mjerenje ({real.get('n', 0)}), vrijedi pretpostavka: 70% uhvaćeno, 5% ispod stopa")
+                + f"; proklizavanje {real.get('slip', 0):.0%} na svakoj kupnji i prodaji.</p>")
+    except Exception:
+        pass
+    hist = [h for h in (st.get("history") or [])][-6:]
+    if hist:
+        out.append("<h3>Što je bot sam promijenio</h3><ul>" + "".join(
+            f"<li>{esc(time.strftime('%d.%m. %H:%M', time.gmtime(h['ts'])))} UTC: {esc(h['text'])}</li>" for h in reversed(hist))
+            + "</ul>")
+    return "".join(out)
+
+
 def page(qs):
     trades = data.paper_trades()
     cands = data.paper_candidates()
@@ -440,6 +547,10 @@ def page(qs):
          "prodaji. Klik na token otvara DexScreener, ⓘ otvara analizu tokena. "
          "<span id=upd class=mut></span></p><div class=grid id=cards></div>"]
     b.append(_learning_box(trades, cfg))
+    try:
+        b.append(rules_html())
+    except Exception:
+        pass
     if not (trades or cands):
         b.append("<div class=card>Još nema demo trejdova. Bot ih otvara sam čim neki token prođe pravila ulaza.</div>")
     b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati. Gumbi u stupcu Ručni izlaz prodaju 25%, 50% ili sve što je ostalo: bot to izvrši u idućoj minuti po živoj cijeni, uz isti fee i slippage. Ručno prodani tradeovi ne ulaze u učenje izlaza i krakova.") + "<div class=tw><table><thead><tr>"

@@ -198,7 +198,9 @@ class KonvEntry(unittest.TestCase):
         from paper import sim, store
         tmp = tempfile.mkdtemp()
         saved = {k: getattr(run_paper, k) for k in ("DB", "hype_signals", "event_tokens", "market", "rug_verdict",
-                                                     "klasa_of", "notify")}
+                                                     "klasa_of", "notify", "t0_of")}
+        from learn import weights
+        saved_ld = weights.LEARNED_DIR
         saved_conv = kstore.converge
         now = time.time()
         try:
@@ -207,7 +209,10 @@ class KonvEntry(unittest.TestCase):
                                                         "features": {}, "sources": {"konv"}, "url": None,
                                                         "origin": "hype"}]
             run_paper.event_tokens = lambda c, n=None: []
-            run_paper.market = lambda toks: {t: (1.0, 50_000, 100_000, None) for t in toks}
+            run_paper.market = lambda toks: {t: (0.0001, 20_000, 100_000, None) for t in toks}
+            run_paper.t0_of = lambda toks, col="t0": {t: "prolaz" for t in toks} if col == "t0" else {}
+            from learn import weights
+            weights.LEARNED_DIR = tmp
             run_paper.rug_verdict = lambda con, t, cfg, now, paid=True: (None, None, [])
             run_paper.klasa_of = lambda toks: {}
             run_paper.notify = lambda *a, **k: None
@@ -225,6 +230,7 @@ class KonvEntry(unittest.TestCase):
             for k, v in saved.items():
                 setattr(run_paper, k, v)
             kstore.converge = saved_conv
+            weights.LEARNED_DIR = saved_ld
 
     def test_skipped_token_reconsidered_when_convergence_grows(self):
         """31.10.: a token first seen with one wallet buy was decided once (skipped) and never looked at again when
@@ -233,7 +239,9 @@ class KonvEntry(unittest.TestCase):
         from paper import sim, store
         tmp = tempfile.mkdtemp()
         saved = {k: getattr(run_paper, k) for k in ("DB", "hype_signals", "event_tokens", "market", "rug_verdict",
-                                                     "klasa_of", "notify", "konv_now")}
+                                                     "klasa_of", "notify", "konv_now", "t0_of")}
+        from learn import weights
+        saved_ld = weights.LEARNED_DIR
         now = time.time()
         try:
             run_paper.DB = os.path.join(tmp, "paper.db")
@@ -246,30 +254,37 @@ class KonvEntry(unittest.TestCase):
                                                         "features": {}, "sources": {"konv"}, "url": None,
                                                         "origin": "hype"}]
             run_paper.event_tokens = lambda c, n=None: []
-            run_paper.market = lambda toks: {t: (1.0, 50_000, 100_000, None) for t in toks}
+            run_paper.market = lambda toks: {t: (0.0001, 20_000, 100_000, None) for t in toks}
+            run_paper.t0_of = lambda toks, col="t0": {t: "prolaz" for t in toks} if col == "t0" else {}
+            from learn import weights
+            weights.LEARNED_DIR = tmp
             run_paper.rug_verdict = lambda con, t, cfg, now, paid=True: (None, None, [])
             run_paper.klasa_of = lambda toks: {}
             run_paper.notify = lambda *a, **k: None
             run_paper.konv_now = lambda toks, now: {"W": {"score": 68, "first_ts": now - 900, "last_ts": now - 60,
-                                                          "platforms": ["chain"], "n_x": 0, "n_tg": 0, "n_chain": 3,
+                                                          "platforms": ["chain", "x"], "n_x": 1, "n_tg": 0, "n_chain": 3,
                                                           "kol_selling": 0}} if "W" in toks else {}
             opened = run_paper.intake(sim.load_config(), now=now, quiet=True)
             self.assertEqual([c["token"] for c in opened], ["W"])
         finally:
             for k, v in saved.items():
                 setattr(run_paper, k, v)
+            weights.LEARNED_DIR = saved_ld
 
     def test_konv_fresh(self):
         import run_paper
         kc = {"min_score": 55, "max_age_min": 10, "window_min": 30}
         now = 10_000
-        self.assertTrue(run_paper.konv_fresh({"score": 68, "first_ts": now - 900, "last_ts": now - 60}, kc, now))
+        self.assertTrue(run_paper.konv_fresh({"score": 68, "first_ts": now - 900, "last_ts": now - 60, "n_x": 1}, kc, now))
+        # wallets only, not one post: needs chain_only_min (6) wallets (1.11.: 11 such entries at -100%)
+        self.assertFalse(run_paper.konv_fresh({"score": 68, "first_ts": now - 900, "last_ts": now - 60, "n_chain": 4}, kc, now))
+        self.assertTrue(run_paper.konv_fresh({"score": 68, "first_ts": now - 900, "last_ts": now - 60, "n_chain": 6}, kc, now))
         self.assertFalse(run_paper.konv_fresh({"score": 68, "first_ts": now - 900, "last_ts": now - 700}, kc, now))
         self.assertFalse(run_paper.konv_fresh({"score": 68, "first_ts": now - 3600, "last_ts": now - 60}, kc, now))
         self.assertFalse(run_paper.konv_fresh({"score": 40, "first_ts": now - 60, "last_ts": now - 60}, kc, now))
         self.assertFalse(run_paper.konv_fresh({"score": 90, "first_ts": now - 60, "last_ts": now, "kol_selling": 1},
                                               kc, now))
-        self.assertTrue(run_paper.konv_fresh({"score": 80, "first_ts": now - 120}, kc, now))  # stored copy, no last_ts
+        self.assertTrue(run_paper.konv_fresh({"score": 80, "first_ts": now - 120, "n_tg": 1}, kc, now))  # stored copy, no last_ts
 
 
 if __name__ == "__main__":
