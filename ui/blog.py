@@ -35,7 +35,8 @@ GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper"
          "mint authority": "mint-authority", "graduates": "graduation", "call": "crypto-call", "bundle": "bundler",
          "slippage": "slippage", "market cap": "market-cap", "liquidity": "liquidity", "kol": "kol", "fdv": "fdv",
          "dex": "dex", "contract address": "contract-address", "bundles": "bundler", "snipers": "sniper-bot",
-         "adresa ugovora": "contract-address", "adresu ugovora": "contract-address", "bundlovi": "bundler", "spread": "cex",
+         "adresa ugovora": "contract-address", "adresu ugovora": "contract-address", "bundlovi": "bundler", "spread": "cex", "priority fee": "priority-fee", "stars": "stars-vs-rising-stars",
+         "zvijezde": "stars-vs-rising-stars",
          "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet",
          # Croatian versions
          "poziv": "crypto-call", "serijski kreator": "dev-wallet", "diplomira": "graduation", "snajper": "sniper-bot",
@@ -59,6 +60,8 @@ TERMS = {
     "crypto-cards-croatia": ("cex", "crypto-wallet", "pnl"),
     "crypto-tax-croatia": ("pnl", "roi", "cex", "dca"),
     "company-crypto-investment-croatia": ("multisig", "hardware-wallet", "cex", "pnl"),
+    "why-big-influencer-calls-are-hard-to-trade": ("kol", "stars-vs-rising-stars", "priority-fee", "front-running",
+                                                   "sniper-bot", "hit-rate"),
 }
 
 
@@ -84,7 +87,8 @@ CATS = [
     ("wallets-and-influencers", "novcanici-i-influenceri", "Wallets and influencers", "Novčanici i influenceri",
      "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
      "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
-     ("what-is-wallet-tracking", "what-is-copy-trading", "what-is-a-kol-in-crypto", "influencer-clustering")),
+     ("what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
+      "what-is-wallet-tracking", "what-is-copy-trading")),
 ]
 CAT_OF = {en: c for c in CATS for en in c[6]}
 
@@ -186,7 +190,8 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "what-is-dca-in-crypto": ("trading-bots",), "market-cap-liquidity-slippage": ("crypto-analysis-tools",),
              "best-crypto-exchanges-croatia": ("crypto-wallets",), "how-to-buy-solana-meme-coins": ("crypto-wallets", "rug-checkers"),
              "how-to-use-jupiter-swap": ("trading-bots", "crypto-wallets"), "what-is-a-pump-and-dump": ("rug-checkers",),
-             "crypto-cards-croatia": ("crypto-wallets",), "company-crypto-investment-croatia": ("crypto-wallets",)}
+             "crypto-cards-croatia": ("crypto-wallets",), "company-crypto-investment-croatia": ("crypto-wallets",),
+             "why-big-influencer-calls-are-hard-to-trade": ("trading-bots", "crypto-analysis-tools")}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets"},

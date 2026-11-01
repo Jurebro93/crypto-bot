@@ -19,8 +19,8 @@ class Blog(unittest.TestCase):
         os.environ.pop("RENDER_EXTERNAL_URL", None)
 
     def test_unique_posts(self):
-        self.assertEqual(len(POSTS), 17)
-        self.assertEqual(len({p["slug"] for p in POSTS}), 17)
+        self.assertEqual(len(POSTS), 18)
+        self.assertEqual(len({p["slug"] for p in POSTS}), 18)
         for p in POSTS:
             self.assertRegex(p["slug"], r"^[a-z0-9-]+$")
             self.assertLessEqual(len(p["desc"]), 200, p["slug"])

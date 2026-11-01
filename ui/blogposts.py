@@ -1081,3 +1081,81 @@ withdrawals.</p>
 <p class=mut>Not tax or legal advice; rules change and individual situations differ. Confirm with a tax adviser.
 Personal crypto tax rules: <a href=/blog/crypto-tax-croatia>crypto tax in Croatia</a>.</p>
 """, related=("crypto-tax-croatia", "best-crypto-exchanges-croatia", "crypto-cards-croatia"))
+
+
+# 18 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "why-big-influencer-calls-are-hard-to-trade", "Influencers",
+    "Why trading calls from the biggest crypto influencers is so hard (and where the edge is)",
+    "Why copying big crypto influencers fails: sniper bots, priority fees, front-running | KriptoRadar",
+    "Big influencer calls are watched by thousands of people and sniper bots that pay higher fees to buy first. How "
+    "priority fees and Jito tips work, and why rising stars leave more room.",
+    ["crypto influencer calls", "front running crypto", "solana priority fee", "sniper bot solana"], 7,
+    "When a famous influencer posts a token, thousands of followers and dozens of bots try to buy in the same second. "
+    "Bots pay a higher priority fee or a Jito tip so the validator puts their buy first in the block; every buy ahead "
+    "of you lifts the price, so you enter well above the call price and often become the exit for the bots. Lesser-known "
+    "influencers with a good record (our Rising stars) are watched by fewer bots, so the price at your entry is closer "
+    "to the price at the call.",
+    f"""
+<h2>Two kinds of influencers</h2>
+<p>Our <a href=/influencers>influencer ranking</a> now has two tabs. <b>Stars</b> are the most famous accounts
+(100,000+ followers, names like Murad or Ansem): their posts move the market, but everyone sees them at the same
+moment. <b>Rising stars</b> are lesser-known accounts with a measured record: harder to find, followed by fewer
+people, and that is exactly why their calls can still be traded.</p>
+<p>Calls do matter: in our measurements 52% of tokens called by a measured <b>KOL</b> reached 2x, against 14% of
+tokens without a call. The question is not whether a call moves the price, but who gets the move.</p>
+
+<h2>What happens in the first second after a big call</h2>
+<ol>
+<li>The post appears. Bots that watch the account parse the ticker or contract address in milliseconds.</li>
+<li>They send buy transactions with a high <b>priority fee</b> or a Jito tip.</li>
+<li>Thousands of people open the post, copy the address and press buy, usually with the wallet's default fee.</li>
+<li>The validator building the next block fills it with the highest bidders first. Your transaction lands behind the
+bots, if it lands at all in a congested block.</li>
+<li>Each buy ahead of you pushes the price up the pool's curve. The bots then sell into the crowd that is still buying.</li>
+</ol>
+
+<h2>How bots pay to go first</h2>
+<p>Every Solana transaction pays a small base fee (5,000 lamports per signature, a fraction of a cent). On top of
+that a sender can add a <b>priority fee</b>: a price per compute unit that tells the block producer "include me first".
+When many transactions compete for the same token in the same moment, the ones paying more per compute unit are
+generally scheduled first.</p>
+<p>The second route is a <b>Jito tip</b>. Most Solana validators run Jito's client, which auctions "bundles": a group of
+transactions that executes together, in a fixed order, only if the tip is paid. A bot can bundle its buy right after
+the influencer's own transaction or right before a wave of buys, which is <a href=/glossary/front-running>front-running</a>.
+Paying a few dollars of tip is cheap when the bot expects to sell to thousands of buyers seconds later.</p>
+<p>That is why "being fast" on a big call is not a human game: a person reading X cannot outbid software that reacts in
+milliseconds and pays for its place in the block.</p>
+
+<h2>What it costs you to be behind the bots</h2>
+{bars("Your entry price above the call price, by place in the block",
+      [("1st (the fastest bot)", 0, "pays the call price"), ("After 5 bots", 10.3, ""), ("After 10 bots", 21, ""),
+       ("After 20 bots", 44, "typical retail position on a big call"), ("After 40 bots", 96, "")],
+      sub="Model: each bot buys $500, pool with $100k of liquidity, constant-product curve", hl=(3, 4),
+      source="KriptoRadar calculation")}
+<p>In a constant-product pool, each buy lifts the price for the next one. Try your own numbers:</p>
+{CALC.queue("en")}
+<p>With 20 bots buying $500 each in a pool with $100k of liquidity, the price is already about 44% higher when your
+buy executes. If the bots then sell back to the call price, you are down about 31% without the token having done anything.
+Same logic as <a href=/blog/bundles-and-snipers>bundles and snipers</a> at launch: tokens where snipers took more than
+30% of the supply fell 58% from the top in the median case.</p>
+
+<h2>Why rising stars leave more room</h2>
+<ul>
+<li><b>Fewer bots watch them.</b> Sniper bots follow the accounts with the most reach; a 15,000-follower account with a
+good record is rarely on their list.</li>
+<li><b>Smaller crowd, smaller first wave.</b> Your buy is not competing with thousands of others in the same block.</li>
+<li><b>Measured, not famous.</b> We rank them by hit rate, median peak, rug rate and late calls, not by follower count.</li>
+<li><b>Agreement still matters.</b> When three or more measured influencers call the same token within 15 minutes,
+59% reached 2x versus 33% otherwise (<a href=/blog/influencer-clustering>influencer clustering</a>).</li>
+</ul>
+
+<h2>If you still want to trade a Star's call</h2>
+<ul>
+<li>Don't chase the first minute. Wait for the first wave of bots to sell, then decide on the chart.</li>
+<li>Set a maximum price before you buy, for example no more than 30% above the price at the call.</li>
+<li>Keep the buy under about 2% of the pool's liquidity (<a href=/blog/how-to-use-jupiter-swap>Jupiter settings</a>).</li>
+<li>A higher priority fee helps you land, but it does not get you ahead of Jito bundles.</li>
+</ul>
+<p>Members see both tabs live, with every call measured within minutes and copy-trading on the influencers that hit.</p>
+""", related=("what-is-a-kol-in-crypto", "influencer-clustering", "bundles-and-snipers"))
