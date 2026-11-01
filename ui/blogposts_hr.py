@@ -658,7 +658,9 @@ pošalji ga na Solana mreži u svoj novčanik i tamo zamijeni. Taj put je u vodi
 <li>Prvo napravi malu probnu isplatu i provjeri da se mreža (npr. Solana) poklapa s novčanikom.</li>
 <li>Nikad nikome ne daj frazu za oporavak. Nijedna mjenjačnica, podrška ni aplikacija je nikad ne treba.</li>
 <li>U Hrvatskoj se dobit od kripta oporezuje (12% porez na kapitalnu dobit; što držiš dulje od dvije godine je
-oslobođeno). Čuvaj izvode s mjenjačnice.</li>
+oslobođeno). Čuvaj izvode s mjenjačnice; vidi <a href=/hr/blog/porez-na-kriptovalute>porez na kriptovalute</a>. Želiš
+plaćati kriptom u trgovinama? Usporedi <a href=/hr/blog/kripto-kartice-hrvatska>kripto kartice</a>; kupnja preko firme
+je u članku <a href=/hr/blog/ulaganje-firme-u-kriptovalute>može li firma ulagati u kriptovalute</a>.</li>
 </ul>
 <p class=mut>Na ovoj stranici nemamo affiliate linkova ni plaćanja od mjenjačnica. Izvor: {EXCH_SRC}</p>
 """)
@@ -829,4 +831,211 @@ influencere (<a href=/hr/blog/grupiranje-influencera>kako radi grupiranje influe
 <p>U EU MiCA izričito zabranjuje manipulaciju tržištem kriptoimovine, uključujući širenje obmanjujućih informacija radi
 pomicanja cijene. Provedba protiv anonimnih projekata na blockchainu je teška, pa je u praksi zaštita na tebi: mali
 iznos, jasan izlaz i nikakva kupnja samo zato što chat kaže "sad".</p>
+""")
+
+
+# 15 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+CARD_SRC = "stranice i cjenici izdavatelja kartica, jeangalea.com (6. 10. 2026.), cardpilled.com (provjereno 22. 9. 2026.)"
+TAX_SRC = ("mišljenje Porezne uprave 410-01/17-08/29 (19. 3. 2018.), obavijest Porezne uprave o JOPPD-u, "
+           "top7.hr (29. 9. 2026.)")
+post(
+    "crypto-cards-croatia", "kripto-kartice-hrvatska", "Kartice",
+    "Kripto kartice u Hrvatskoj (2026.): koje rade, koliko koštaju i porezna zamka",
+    "Najbolje kripto kartice u Hrvatskoj 2026.: Revolut, Crypto.com, Bybit, Bitpanda | KriptoRadar",
+    "Koje kripto debitne kartice možeš koristiti u Hrvatskoj 2026.? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken i "
+    "OKX uspoređeni po licenci, naknadama i cashbacku, i zašto je svako plaćanje prodaja kripta.", 7,
+    "Hrvatska je u europodručju i EGP-u, pa ovdje rade EU kripto kartice: Revolutova kripto kartica, Crypto.com Visa, "
+    "Bybit EU kartica, Bitpanda Card, Krakenova Krak kartica i OKX kartica, sve od tvrtki s MiCA licencom. Besplatne "
+    "razine daju 0-1% cashbacka; veće nagrade traže staking ili pretplatu. Zamka: svako plaćanje karticom prodaje kripto "
+    "za eure, što se za porez računa kao prodaja (12% na dobit ako si ga držao kraće od dvije godine).",
+    f"""
+<h2>Kako radi kripto kartica</h2>
+<p>Kripto kartica je obična Visa ili Mastercard debitna kartica. Kad platiš, izdavatelj u tom trenutku proda potreban
+iznos tvog kripta (ili stablecoina) za eure i trgovac dobije eure. Trgovac nikad ne vidi kripto, pa kartica radi
+svugdje gdje se primaju kartice, uključujući hrvatske trgovine i bankomate.</p>
+<p>U toj zamjeni se skriva trošak: <b>spread</b> ili naknada za konverziju od otprilike 0-1% na svako plaćanje, uz
+eventualnu mjesečnu naknadu.</p>
+
+<h2>Kartice koje možeš dobiti u Hrvatskoj</h2>
+<p>Navodimo samo kartice tvrtki s EU MiCA licencom (vidi <a href=/hr/blog/najbolje-kripto-mjenjacnice-hrvatska>koje
+mjenjačnice imaju licencu</a>). Uvjeti se često mijenjaju; prije narudžbe provjeri cjenik izdavatelja.</p>
+<div class=tw><table><thead><tr><th>Kartica</th><th>Tvrtka / licenca</th><th>Mjesečna naknada</th><th>Cashback na besplatnoj razini</th><th>Dobro je znati</th></tr></thead><tbody>
+<tr><td><b>Revolut kripto kartica</b></td><td>Revolut, MiCA preko CySEC-a</td><td>Tvoj Revolut paket</td><td>Nema</td><td>Virtualna od 2025., fizička od svibnja 2026.; konverzija pri plaćanju, naknade za pravednu upotrebu ovisno o paketu</td></tr>
+<tr><td><b>Crypto.com Visa</b></td><td>Crypto.com, MiCA preko MFSA (Malta)</td><td>0 € (Midnight Blue)</td><td>Nema</td><td>1,5% na Ruby Steel (3,99 €/mj. ili zaključani CRO); najviše razine traže veliki ulog u CRO</td></tr>
+<tr><td><b>Bybit EU kartica</b></td><td>Bybit EU GmbH, MiCA preko FMA (Austrija)</td><td>0 €</td><td>1% (u BTC-u)</td><td>Mastercard; veće stope samo za VIP razine, s mjesečnim limitom</td></tr>
+<tr><td><b>Bitpanda Card</b></td><td>Bitpanda, MiCA</td><td>0 €</td><td>Do 1% (u kriptu kojim plaćaš)</td><td>Visa, europodručje</td></tr>
+<tr><td><b>Krak kartica (Kraken)</b></td><td>Kraken, MiCA preko Središnje banke Irske</td><td>0 €</td><td>Do 2% (uz uvjete)</td><td>UK i EGP</td></tr>
+<tr><td><b>OKX kartica</b></td><td>OKX, MiCA preko MFSA (Malta)</td><td>0 €</td><td>2%+ u stablecoinu, mjesečni limit</td><td>Troši saldo stablecoina, ne ostale coine</td></tr>
+</tbody></table></div>
+<p class=mut>Više nije dostupna u EGP-u: Binance Card (ukinuta u prosincu 2023.). Izvori: {CARD_SRC}.</p>
+{B("Cashback na besplatnoj razini",
+   [("Krak (Kraken)", 2.0, "do, uz uvjete"), ("Bybit EU kartica", 1.0, "svi korisnici, bez mjesečnog limita"),
+    ("Bitpanda Card", 1.0, "do, isplata u kriptu kojim plaćaš"), ("Crypto.com Visa (Midnight Blue)", 0, "1,5% od 3,99 €/mj."),
+    ("Revolut kripto kartica", 0, "nema cashbacka")],
+   sub="Postotak svakog plaćanja, prije naknada za konverziju; cashback se često isplaćuje u tokenu kojem se cijena mijenja",
+   fmt="pct2", hl=(0, 1, 2), vmax=2.5, source=CARD_SRC)}
+
+<h2>Porezna zamka: svako plaćanje je prodaja</h2>
+<p>Za hrvatski porez, kad izdavatelj kartice zamijeni tvoj kripto za eure, to je isto kao da si ga ti prodao. Ako si
+coine kupio prije manje od dvije godine i vrijede više nego što si platio, svako plaćanje stvara malu oporezivu dobit
+(12% na dobit, prijava jednom godišnje do kraja veljače). Coini koje držiš dulje od dvije godine su oslobođeni.</p>
+{stats([("1.000 €", "BTC kupljen u ožujku 2026."), ("1.500 €", "potrošeno kripto karticom u listopadu 2026."),
+        ("60 €", "porez: 12% od 500 € dobiti")])}
+<p>Plaćanje stablecoinom koji si kupio za eure stvara gotovo nikakvu dobit. Naš <a href=/hr/blog/porez-na-kriptovalute>vodič
+za porez na kriptovalute</a> ima sva pravila, a svaka aplikacija za karticu daje izvoz transakcija; čuvaj ga.</p>
+
+<h2>Koju odabrati</h2>
+<ul>
+<li><b>Već koristiš Revolut:</b> najjednostavnije, bez novog računa, ali bez cashbacka.</li>
+<li><b>Želiš cashback bez stakinga:</b> Bybit EU (ravno 1%) ili Bitpanda (do 1%).</li>
+<li><b>Želiš trošiti stablecoine:</b> OKX ili kartica koja dopušta USDC kao izvor, što pojednostavljuje porez.</li>
+<li><b>Držiš dugoročno:</b> ne troši coine koje planiraš držati dulje od dvije godine; rano trošenje pretvara
+neoporezivu dobit u oporezivu.</li>
+</ul>
+<p class=mut>Nemamo affiliate linkova ni plaćanja od izdavatelja kartica. Nije financijski ni porezni savjet.</p>
+""")
+
+
+# 16 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "crypto-tax-croatia", "porez-na-kriptovalute", "Porez",
+    "Porez na kriptovalute u Hrvatskoj (2026.): 12%, pravilo dvije godine i prijava JOPPD-om",
+    "Porez na kriptovalute 2026.: stopa 12%, pravilo dvije godine, JOPPD korak po korak | KriptoRadar",
+    "Kako se oporezuju kriptovalute u Hrvatskoj: 12% na dobit, neoporezivo nakon dvije godine, zamjena kripta za kripto "
+    "se ne oporezuje, gubici unutar godine i prijava JOPPD-om do kraja veljače. S primjerima.", 8,
+    "U Hrvatskoj se dobit od prodaje kripta oporezuje po stopi od 12% (bez prireza od 2024.), samo kad ga zamijeniš za "
+    "eure ili drugi novac i samo ako si ga držao kraće od dvije godine. Zamjena jednog coina za drugi se ne oporezuje. "
+    "Godišnju neto dobit računaš sam (FIFO, minus naknade i gubici iste godine), prijaviš je na obrascu JOPPD u "
+    "ePoreznoj i platiš do kraja veljače sljedeće godine.",
+    f"""
+<h2>Pravila u jednoj tablici</h2>
+<div class=tw><table><thead><tr><th>Pitanje</th><th>Odgovor za fizičke osobe</th></tr></thead><tbody>
+<tr><td>Vrsta poreza</td><td>Dohodak od kapitala (kapitalni dobici)</td></tr>
+<tr><td>Stopa</td><td><b>12%</b> na dobit od 2024.; bez prireza. Prije 2024.: 10% plus prirez</td></tr>
+<tr><td>Držano dulje od dvije godine</td><td>Neoporezivo, bez obzira na iznos</td></tr>
+<tr><td>Kripto zamijenjen za kripto</td><td>Ne oporezuje se pri zamjeni; dobit se računa kad zamijeniš za novac</td></tr>
+<tr><td>Kripto prodan za eure ili potrošen kripto karticom</td><td>Oporezivo ako postoji dobit</td></tr>
+<tr><td>Samo kupnja ili držanje</td><td>Ne oporezuje se</td></tr>
+<tr><td>Gubici</td><td>Umanjuju dobit samo u istoj kalendarskoj godini; ne prenose se</td></tr>
+<tr><td>Metoda troška</td><td>FIFO, svaki coin zasebno; naknade mjenjačnice i mreže umanjuju dobit</td></tr>
+<tr><td>Obrazac i rok</td><td>JOPPD u ePoreznoj, prijava i plaćanje do kraja veljače za prethodnu godinu</td></tr>
+<tr><td>Mali iznosi</td><td>Ne prijavljuje se ako bi porez bio 2 € ili manje (dobit do oko 16,70 €)</td></tr>
+</tbody></table></div>
+<p class=mut>Izvori: {TAX_SRC}. Mišljenje iz 2018. starije je od kasnijih izmjena zakona (stopa, prirez), pa za svoj
+slučaj provjeri aktualne upute Porezne uprave ili poreznog savjetnika.</p>
+
+<h2>Primjeri</h2>
+{B("Porez na dobit od 5.000 €",
+   [("Prodano za eure nakon 8 mjeseci", 600, "12% od 5.000 €"),
+    ("Prodano za eure nakon 26 mjeseci", 0, "držano dulje od dvije godine: oslobođeno"),
+    ("Zamijenjeno za drugi coin, nije isplaćeno", 0, "još nisi primio novac"),
+    ("5.000 € dobiti i 2.000 € gubitka iste godine", 360, "12% od 3.000 € neto dobiti")],
+   sub="Fizičke osobe, porezni rezidenti Hrvatske", fmt="eur", hl=(0, 3), source=TAX_SRC)}
+
+<h2>Zamjene: pravilo važno za meme coine</h2>
+<p>Prema mišljenju Porezne uprave zamjena jedne kriptovalute za drugu ne stvara oporezivu dobit u tom trenutku, jer
+nema novčanog toka. Njihov primjer: 10 BTC kupljenih za 6.000 $, zamijenjenih za ETH, kasnije prodanih za 35.400 $:
+oporeziva dobit od 29.400 $ računa se kad se ETH proda za novac. Za Solana tradera to znači da SOL u meme coin i natrag u
+SOL nije oporezivo dok ne isplatiš u eure, ali evidencija ti svejedno treba da tad izračunaš dobit.</p>
+
+<h2>Kako izračunati dobit</h2>
+<ol>
+<li>Izvezi svaku kupnju, prodaju i zamjenu sa svake mjenjačnice i novčanika za tu godinu.</li>
+<li>Za svaku prodaju za novac uzmi trošak najstarijih coina prvo (<b>FIFO</b>).</li>
+<li>Dobit = iznos prodaje minus trošak minus naknade. Zbroji sve dobiti, oduzmi sve gubitke iste godine.</li>
+<li>Preskoči coine držane dulje od dvije godine; oslobođeni su.</li>
+<li>Porez = 12% neto dobiti.</li>
+</ol>
+
+<h2>Kako predati JOPPD</h2>
+<ol>
+<li>Prijavi se u <b>ePoreznu</b> (vjerodajnicama e-Građana) i otvori novi obrazac JOPPD.</li>
+<li>Ispuni ga za ukupne kapitalne dobitke prethodne godine, s datumom 31. prosinca te godine.</li>
+<li>Predaj i uplati porez na navedeni račun do kraja veljače (za dobit iz 2026.: do kraja veljače 2027.).</li>
+<li>Čuvaj izvoze i svoj izračun; Porezna ih može zatražiti.</li>
+</ol>
+<p>Od 2026. EU pravila (DAC8) obvezuju pružatelje kripto usluga da prikupljaju i šalju poreznim upravama podatke o
+transakcijama klijenata, pa će provjere postati uobičajene.</p>
+
+<h2>Drugi dohodak</h2>
+<p>Kripto zarađen rudarenjem, zadacima ili promocijama nije kapitalni dobitak: Porezna uprava ga tretira kao drugi
+dohodak, koji se drukčije oporezuje, a redovito rudarenje kao posao može tražiti registriranu djelatnost. Za nagrade od
+stakinga nema objavljenog mišljenja; pitaj prije prijave. Za tvrtke su pravila potpuno drukčija, vidi
+<a href=/hr/blog/ulaganje-firme-u-kriptovalute>može li firma ulagati u kriptovalute</a>.</p>
+<p class=mut>Nije porezni savjet. Pravila i obrasci se mijenjaju; provjeri s Poreznom upravom ili poreznim savjetnikom.</p>
+""")
+
+
+# 17 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+CO_SRC = ("Zakon o porezu na dobit (10%/18%), porez na dividendu 12% od 2024., HSFI 5/10 i MRS 38/2 prema Kopun Group i "
+          "Data-Link Unija, mišljenje Porezne uprave o PDV-u (2015.)")
+post(
+    "company-crypto-investment-croatia", "ulaganje-firme-u-kriptovalute", "Poslovanje",
+    "Može li firma ulagati u kriptovalute u Hrvatskoj? d.o.o., obrt, porez i knjiženje",
+    "Može li d.o.o. ulagati u kriptovalute? Porez, knjiženje, banke | KriptoRadar",
+    "Da, hrvatski d.o.o. smije kupiti kripto vlastitim novcem. Kako se knjiži (HSFI 5 ili 10), oporezuje (10% ili 18% "
+    "porez na dobit, bez pravila dvije godine), PDV, banke i kad je privatno držanje jeftinije.", 8,
+    "Hrvatski d.o.o. smije ulagati vlastiti novac u kripto; MiCA licenca ne treba osim ako drugima pruža kripto usluge. "
+    "Kripto knjiži kao nematerijalnu imovinu (dugoročno) ili zalihe (trgovanje), po trošku, i plaća porez na dobit "
+    "(10% ili 18%) na dobit kad proda. Nema oslobođenja nakon dvije godine, a isplata dobiti kao dividende dodaje 12%, "
+    "pa je za dugoročno držanje privatno vlasništvo obično jeftinije.",
+    f"""
+<h2>Je li dopušteno?</h2>
+<p>Da. MiCA regulira tvrtke koje drugima pružaju kripto usluge (mjenjačnice, čuvanje, savjetovanje). Tvrtka koja kupuje
+kripto za vlastitu bilancu je ulagač, kao kod kupnje dionica, i ne treba licencu. Treba licenciranu mjenjačnicu (vidi
+<a href=/hr/blog/najbolje-kripto-mjenjacnice-hrvatska>licencirane mjenjačnice</a>) koja otvara poslovne račune; velike
+(Kraken, Coinbase, Bitstamp, Bitpanda) imaju poslovno otvaranje računa uz dokumente tvrtke i provjeru stvarnih
+vlasnika.</p>
+
+<h2>Kako se knjiži</h2>
+<div class=tw><table><thead><tr><th>Namjena</th><th>Standard</th><th>Vrednovanje</th><th>Cijena padne ispod troška</th><th>Cijena raste</th></tr></thead><tbody>
+<tr><td>Dugoročno držanje</td><td>Nematerijalna imovina: HSFI 5 / MRS 38</td><td>Trošak (ili model revalorizacije)</td><td>Rashod umanjenja, porezno nepriznat do prodaje</td><td>Ništa do prodaje (model troška)</td></tr>
+<tr><td>Trgovanje</td><td>Zalihe: HSFI 10 / MRS 2</td><td>Niži od troška i neto utržive vrijednosti</td><td>Otpis, porezno nepriznat do prodaje</td><td>Ostaje po trošku</td></tr>
+</tbody></table></div>
+<p>Kripto za računovodstvo nije novac ni financijska imovina. Odaberi politiku prije prve kupnje, čuvaj svaku potvrdu
+mjenjačnice i koristi FIFO za trošak prodanog.</p>
+
+<h2>Kako se oporezuje</h2>
+<ul>
+<li><b>Porez na dobit</b> na dobit pri prodaji: 10% ako su godišnji prihodi tvrtke do 1 milijun €, 18% iznad.</li>
+<li><b>Nema oslobođenja nakon dvije godine.</b> To pravilo vrijedi samo za fizičke osobe.</li>
+<li><b>PDV:</b> kupnja i prodaja kripta za novac oslobođena je PDV-a (Porezna uprava 2015., u skladu s presudom Suda EU
+Hedqvist). Ako tvrtka prima kripto kao plaćanje za svoju robu ili usluge, sama prodaja podliježe PDV-u kao i inače.</li>
+<li><b>Isplata vlasniku:</b> dobit isplaćena kao dividenda oporezuje se ponovno s 12%.</li>
+</ul>
+{B("Porez na 10.000 € kripto dobiti koja završi kod vlasnika",
+   [("Privatno, dulje od dvije godine", 0, "oslobođeno"),
+    ("Privatno, kraće od dvije godine", 1200, "12% porez na kapitalnu dobit"),
+    ("d.o.o. s prihodom do 1 mil. €, pa isplata", 2080, "10% porez na dobit, pa 12% na dividendu"),
+    ("d.o.o. s prihodom iznad 1 mil. €, pa isplata", 2784, "18% porez na dobit, pa 12% na dividendu")],
+   sub="Pojednostavljeno: bez drugih prihoda i troškova", fmt="eur", hl=(0, 1), source=CO_SRC)}
+
+<h2>Kad firma ipak ima smisla</h2>
+<ul>
+<li>Novac je već u firmi i porez na dividendu bi ionako platio da ga izvučeš.</li>
+<li>Firma aktivno trguje i može prebiti dobit s poslovnim troškovima i gubicima (firma prenosi porezne gubitke u
+sljedeće godine, fizička osoba ne može).</li>
+<li>Primaš kripto od kupaca i želiš dio zadržati.</li>
+</ul>
+
+<h2>A obrt?</h2>
+<p>Obrt se oporezuje kroz porez na dohodak vlasnika po stopama koje određuje grad (od 2024. otprilike 15-23,6% i
+25-35,4%), plus doprinosi, ako je kripto dio poslovanja. Paušalni obrt nema prave knjige za takva ulaganja. Većini
+obrtnika bolje je držati kripto privatno, gdje vrijede pravila 12% i dvije godine. Dogovori pristup s
+knjigovođom prije kupnje.</p>
+
+<h2>Banke</h2>
+<p>Hrvatske banke moraju provjeravati podrijetlo novca. Očekuj pitanja kad stignu veći iznosi s mjenjačnice: imaj
+spremne izvode mjenjačnice i odluku uprave o ulaganju, i koristi isti račun firme za uplate i isplate.</p>
+
+<h2>Popis prije prve kupnje</h2>
+<ol>
+<li>Odluka uprave ili vlasnika o ulaganju, s iznosom i namjenom (držanje ili trgovanje).</li>
+<li>Računovodstvena politika dogovorena s knjigovođom (HSFI 5 ili HSFI 10).</li>
+<li>Poslovni račun na mjenjačnici s MiCA licencom.</li>
+<li>Plan čuvanja: na mjenjačnici ili firmin <a href=/hr/rjecnik/multisig>multisig</a> novčanik s dva potpisnika.</li>
+<li>Mjesečni izvoz svih transakcija za knjige.</li>
+</ol>
+<p class=mut>Nije porezni ni pravni savjet; pravila se mijenjaju, a situacije se razlikuju. Provjeri s poreznim
+savjetnikom. Pravila za fizičke osobe: <a href=/hr/blog/porez-na-kriptovalute>porez na kriptovalute u Hrvatskoj</a>.</p>
 """)

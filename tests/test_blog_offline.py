@@ -19,8 +19,8 @@ class Blog(unittest.TestCase):
         os.environ.pop("RENDER_EXTERNAL_URL", None)
 
     def test_unique_posts(self):
-        self.assertEqual(len(POSTS), 14)
-        self.assertEqual(len({p["slug"] for p in POSTS}), 14)
+        self.assertEqual(len(POSTS), 17)
+        self.assertEqual(len({p["slug"] for p in POSTS}), 17)
         for p in POSTS:
             self.assertRegex(p["slug"], r"^[a-z0-9-]+$")
             self.assertLessEqual(len(p["desc"]), 200, p["slug"])
@@ -84,7 +84,8 @@ class Blog(unittest.TestCase):
                 v = blog.view(p, lang)
                 html = public.route(base + v["slug"])[1].decode()
                 links = re.findall(r"href=(/best-crypto-tools/[a-z-]+|/hr/najbolji-kripto-alati/[a-z-]+)", html)
-                self.assertTrue(links, v["slug"])
+                if p["slug"] in blog.TOOLS_FOR:   # tax/legal posts have no matching tool category
+                    self.assertTrue(links, v["slug"])
                 for h in set(links):
                     self.assertEqual(public.route(h)[0], 200, h)
 

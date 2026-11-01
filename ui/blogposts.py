@@ -684,7 +684,9 @@ it on the Solana network to your own wallet, and swap there. That route is in ou
 <li>Send a small test withdrawal first and check that the network (for example Solana) matches your wallet.</li>
 <li>Never give anyone your recovery phrase. No exchange, support agent or app will ever need it.</li>
 <li>In Croatia, gains on crypto are taxed (12% capital gains tax; holdings kept longer than two years are exempt). Keep
-your exchange statements.</li>
+your exchange statements; see <a href=/blog/crypto-tax-croatia>crypto tax in Croatia</a>. Want to spend crypto in shops?
+Compare <a href=/blog/crypto-cards-croatia>crypto cards in Croatia</a>; buying through a company is covered in
+<a href=/blog/company-crypto-investment-croatia>can a company invest in crypto</a>.</li>
 </ul>
 <p class=mut>We have no affiliate links and no payment from any exchange on this page. Source: {EXCH_SRC}.</p>
 """, related=("how-to-buy-solana-meme-coins", "market-cap-liquidity-slippage", "how-to-spot-a-rug-pull"))
@@ -860,3 +862,215 @@ and exclude bot accounts.</p>
 move a price. Enforcement on anonymous on-chain projects is hard, so in practice protecting yourself is your job: small
 size, a clear exit, and no buying because a chat says "now".</p>
 """, related=("how-to-spot-a-rug-pull", "bundles-and-snipers", "influencer-clustering"))
+
+
+# 15 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+CARD_SRC = "issuers' card pages and fee schedules, jeangalea.com (6 Oct 2026), cardpilled.com (verified 22 Sep 2026)"
+TAX_SRC = "Porezna uprava opinion 410-01/17-08/29 (19 Mar 2018), Porezna uprava JOPPD notice, top7.hr (29 Sep 2026)"
+post(
+    "crypto-cards-croatia", "Cards",
+    "Crypto cards in Croatia (2026): which ones work, what they cost, and the tax catch",
+    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit, Bitpanda compared | KriptoRadar",
+    "Which crypto debit cards can you use in Croatia in 2026? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken and OKX "
+    "compared by licence, fees and cashback, plus why every card payment is a crypto sale.",
+    ["crypto card croatia", "crypto debit card europe", "best crypto card", "kripto kartica"], 7,
+    "Croatia is in the euro area and the EEA, so the EU crypto cards work here: Revolut's crypto card, Crypto.com Visa, "
+    "the Bybit EU card, the Bitpanda Card, Kraken's Krak card and the OKX card, all from MiCA-licensed companies. Free "
+    "tiers pay 0-1% cashback; bigger rewards need staking or a subscription. The catch: every card payment sells crypto "
+    "for euros, which counts as a sale for Croatian tax (12% on the gain if you held it under two years).",
+    f"""
+<h2>How a crypto card works</h2>
+<p>A crypto card is a normal Visa or Mastercard debit card. When you pay, the card company sells the needed amount of
+your crypto (or stablecoin) for euros at that moment and the shop receives euros. The shop never sees crypto, so the
+card works anywhere cards are accepted, including Croatian shops and ATMs.</p>
+<p>That conversion is where the cost hides: a <b>spread</b> or conversion fee of roughly 0-1% on each payment, on top of
+any monthly fee.</p>
+
+<h2>Cards you can get in Croatia</h2>
+<p>We list only cards from companies with an EU MiCA licence (see <a href=/blog/best-crypto-exchanges-croatia>which
+exchanges are licensed</a>). Terms change often; check the issuer's fee page before ordering.</p>
+<div class=tw><table><thead><tr><th>Card</th><th>Company / licence</th><th>Monthly fee</th><th>Cashback on the free tier</th><th>Good to know</th></tr></thead><tbody>
+<tr><td><b>Revolut crypto card</b></td><td>Revolut, MiCA via CySEC</td><td>Your Revolut plan</td><td>None</td><td>Virtual since 2025, physical since May 2026; converts at payment, plan-dependent fair-usage fees</td></tr>
+<tr><td><b>Crypto.com Visa</b></td><td>Crypto.com, MiCA via MFSA (Malta)</td><td>€0 (Midnight Blue)</td><td>None</td><td>1.5% on Ruby Steel (€3.99/month or CRO lockup); top tiers need large CRO stakes</td></tr>
+<tr><td><b>Bybit EU Card</b></td><td>Bybit EU GmbH, MiCA via FMA (Austria)</td><td>€0</td><td>1% (in BTC)</td><td>Mastercard; higher rates only for VIP tiers, with monthly caps</td></tr>
+<tr><td><b>Bitpanda Card</b></td><td>Bitpanda, MiCA</td><td>€0</td><td>Up to 1% (in the crypto used)</td><td>Visa, euro area</td></tr>
+<tr><td><b>Krak card (Kraken)</b></td><td>Kraken, MiCA via Central Bank of Ireland</td><td>€0</td><td>Up to 2% (with conditions)</td><td>UK and EEA</td></tr>
+<tr><td><b>OKX Card</b></td><td>OKX, MiCA via MFSA (Malta)</td><td>€0</td><td>2%+ in stablecoin, monthly cap</td><td>Spends a stablecoin balance, not your other coins</td></tr>
+</tbody></table></div>
+<p class=mut>No longer available in the EEA: the Binance Card (ended December 2023). Sources: {CARD_SRC}.</p>
+{bars("Cashback on the free tier",
+      [("Krak (Kraken)", 2.0, "up to, with conditions"), ("Bybit EU Card", 1.0, "all cardholders, no monthly cap"),
+       ("Bitpanda Card", 1.0, "up to, paid in the crypto you spend"), ("Crypto.com Visa (Midnight Blue)", 0, "1.5% from €3.99/month"),
+       ("Revolut crypto card", 0, "no cashback")],
+      sub="Percent of each payment, before conversion fees; cashback is often paid in a token whose price moves",
+      fmt="pct2", hl=(0, 1, 2), vmax=2.5, source=CARD_SRC)}
+
+<h2>The tax catch: every payment is a sale</h2>
+<p>For Croatian tax, the card company exchanging your crypto for euros is the same as you selling it. If you bought the
+coins less than two years ago and they are worth more than you paid, each payment creates a small taxable gain
+(12% on the gain, reported once a year by the end of February). Coins held longer than two years are exempt.</p>
+{stats([("€1,000", "BTC bought in March 2026"), ("€1,500", "spent with a crypto card in October 2026"),
+        ("€60", "tax: 12% of the €500 gain")])}
+<p>Paying with a stablecoin you bought for euros creates almost no gain. Our <a href=/blog/crypto-tax-croatia>Croatian
+crypto tax guide</a> has the full rules, and every card app lets you export a transaction history; keep it.</p>
+
+<h2>Which one to pick</h2>
+<ul>
+<li><b>You already use Revolut:</b> the simplest, no new account, but no cashback.</li>
+<li><b>You want cashback without staking:</b> Bybit EU (1% flat) or Bitpanda (up to 1%).</li>
+<li><b>You want to spend stablecoins:</b> OKX or a card that lets you choose USDC as the source, which keeps the tax
+side simple.</li>
+<li><b>You hold long-term:</b> don't spend coins you plan to keep past two years; spending them early turns a tax-free
+gain into a taxed one.</li>
+</ul>
+<p class=mut>We have no affiliate links and no payment from any card issuer. Not financial or tax advice.</p>
+""", related=("best-crypto-exchanges-croatia", "crypto-tax-croatia", "how-to-buy-solana-meme-coins"))
+
+
+# 16 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+post(
+    "crypto-tax-croatia", "Tax",
+    "Crypto tax in Croatia (2026): 12%, the two-year rule and how to file JOPPD",
+    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD step by step | KriptoRadar",
+    "How crypto is taxed in Croatia: 12% on gains, tax-free after two years, crypto-to-crypto swaps not taxed, losses "
+    "within the year, and how to file the JOPPD form by the end of February. With examples.",
+    ["crypto tax croatia", "porez na kriptovalute", "croatia capital gains tax crypto", "joppd kriptovalute"], 8,
+    "In Croatia, profit from selling crypto is taxed at 12% (no surtax since 2024), only when you exchange it for euros "
+    "or other money and only if you held it less than two years. Swapping one coin for another is not taxed. You "
+    "calculate the year's net gain yourself (FIFO, minus fees and same-year losses), report it on the JOPPD form in "
+    "ePorezna and pay by the end of February of the next year.",
+    f"""
+<h2>The rules in one table</h2>
+<div class=tw><table><thead><tr><th>Question</th><th>Answer for individuals</th></tr></thead><tbody>
+<tr><td>Tax type</td><td>Income from capital (capital gains)</td></tr>
+<tr><td>Rate</td><td><b>12%</b> on gains from 2024 on; no surtax (prirez). Before 2024: 10% plus surtax</td></tr>
+<tr><td>Held more than two years</td><td>Tax-free, whatever the amount</td></tr>
+<tr><td>Crypto swapped for crypto</td><td>Not taxed at the swap; the gain is counted when you exchange for money</td></tr>
+<tr><td>Crypto sold for euros, or spent with a crypto card</td><td>Taxable if there is a gain</td></tr>
+<tr><td>Just buying or holding</td><td>Not taxed</td></tr>
+<tr><td>Losses</td><td>Offset gains in the same calendar year only; no carry-forward</td></tr>
+<tr><td>Cost method</td><td>FIFO, each coin tracked separately; exchange and network fees reduce the gain</td></tr>
+<tr><td>Form and deadline</td><td>JOPPD in ePorezna, filed and paid by the end of February for the previous year</td></tr>
+<tr><td>Small amounts</td><td>No filing if the tax would be €2 or less (a gain up to about €16.70)</td></tr>
+</tbody></table></div>
+<p class=mut>Sources: {TAX_SRC}. The 2018 opinion predates later law changes (rate, surtax), so check current
+Porezna uprava guidance or an adviser for your case.</p>
+
+<h2>Examples</h2>
+{bars("Tax due on a €5,000 gain",
+      [("Sold for euros after 8 months", 600, "12% of €5,000"),
+       ("Sold for euros after 26 months", 0, "held over two years: exempt"),
+       ("Swapped into another coin, not cashed out", 0, "no money received yet"),
+       ("€5,000 gain and €2,000 loss in the same year", 360, "12% of the €3,000 net gain")],
+      sub="Individuals, Croatian tax resident", fmt="eur", hl=(0, 3), source=TAX_SRC)}
+
+<h2>Swaps: the rule that matters for meme coins</h2>
+<p>Porezna uprava's opinion is that exchanging one cryptocurrency for another does not create a taxable gain at that
+moment, because no money changes hands. Its example: 10 BTC bought for $6,000, swapped for ETH, later sold for $35,400:
+the taxable gain of $29,400 is counted when the ETH is sold for money. For a Solana trader this means SOL to meme coin
+and back to SOL is not taxed until you cash out to euros, but you still need the records to calculate the gain then.</p>
+
+<h2>How to calculate the gain</h2>
+<ol>
+<li>Export every buy, sell and swap from each exchange and wallet for the year.</li>
+<li>For each sale for money, take the cost of the oldest coins first (<b>FIFO</b>).</li>
+<li>Gain = sale amount minus cost minus fees. Add all gains, subtract all losses of the same year.</li>
+<li>Skip coins held longer than two years; they are exempt.</li>
+<li>Tax = 12% of the net gain.</li>
+</ol>
+
+<h2>How to file JOPPD</h2>
+<ol>
+<li>Log in to <b>ePorezna</b> (with e-Građani credentials) and open a new JOPPD form.</li>
+<li>Fill it in for the previous year's total capital gains, dated 31 December of that year.</li>
+<li>Submit and pay the tax to the account shown, by the end of February (for 2026 gains: end of February 2027).</li>
+<li>Keep the exports and your calculation; the tax office can ask for them.</li>
+</ol>
+<p>Since 2026 EU rules (DAC8) require crypto service providers to collect and report their customers' transactions to
+tax authorities, so cross-checks will become routine.</p>
+
+<h2>Other income</h2>
+<p>Crypto earned from mining, tasks or promotions is not a capital gain: Porezna uprava treats it as "other income"
+(drugi dohodak), taxed differently, and regular mining as a business may need a registered activity. Staking rewards
+are not covered by a published opinion; ask before you file. For companies the rules are completely different, see
+<a href=/blog/company-crypto-investment-croatia>can a company invest in crypto in Croatia</a>.</p>
+<p class=mut>Not tax advice. Rules and forms change; confirm with Porezna uprava or a tax adviser.</p>
+""", related=("crypto-cards-croatia", "company-crypto-investment-croatia", "best-crypto-exchanges-croatia"))
+
+
+# 17 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+CO_SRC = ("Zakon o porezu na dobit (10%/18%), dividend tax 12% since 2024, HSFI 5/10 and MRS 38/2 treatment as described "
+          "by Kopun Group and Data-Link Unija, Porezna uprava VAT opinion (2015)")
+post(
+    "company-crypto-investment-croatia", "Business",
+    "Can a company invest in crypto in Croatia? d.o.o., obrt, tax and accounting",
+    "Can a Croatian company (d.o.o.) invest in crypto? Tax, accounting, banks | KriptoRadar",
+    "Yes, a Croatian d.o.o. can buy crypto with its own money. How it is booked (HSFI 5 or 10), taxed (10% or 18% "
+    "profit tax, no two-year exemption), VAT, banks, and when holding privately is cheaper.",
+    ["can a company invest in crypto", "business crypto account", "d.o.o. kriptovalute", "company crypto tax croatia"], 8,
+    "A Croatian d.o.o. may invest its own money in crypto; no MiCA licence is needed unless it offers crypto services to "
+    "others. It books crypto as an intangible asset (long-term) or inventory (trading), at cost, and pays profit tax "
+    "(10% or 18%) on gains when it sells. There is no two-year exemption, and taking the profit out as a dividend adds "
+    "12%, so for a long-term holder, owning crypto privately is usually cheaper.",
+    f"""
+<h2>Is it allowed?</h2>
+<p>Yes. MiCA regulates companies that provide crypto services to others (exchanges, custody, advice). A company buying
+crypto for its own balance sheet is an investor, like buying shares, and needs no licence. It does need a licensed
+exchange (see <a href=/blog/best-crypto-exchanges-croatia>licensed exchanges</a>) that opens business accounts; the
+large ones (Kraken, Coinbase, Bitstamp, Bitpanda) have business onboarding with company documents and beneficial owner
+checks.</p>
+
+<h2>How it is booked</h2>
+<div class=tw><table><thead><tr><th>Purpose</th><th>Standard</th><th>Measured at</th><th>Price falls below cost</th><th>Price rises</th></tr></thead><tbody>
+<tr><td>Long-term holding</td><td>Intangible asset: HSFI 5 / MRS 38</td><td>Cost (or revaluation model)</td><td>Impairment expense, not tax-deductible until sold</td><td>Nothing until sold (cost model)</td></tr>
+<tr><td>Trading</td><td>Inventory: HSFI 10 / MRS 2</td><td>Lower of cost and net realisable value</td><td>Write-down, not tax-deductible until sold</td><td>Stays at cost</td></tr>
+</tbody></table></div>
+<p>Crypto is not cash and not a financial asset for accounting purposes. Choose the policy before the first purchase,
+keep every exchange confirmation, and use FIFO for the cost of what you sell.</p>
+
+<h2>How it is taxed</h2>
+<ul>
+<li><b>Profit tax</b> on the gain when sold: 10% if the company's annual revenue is up to €1 million, 18% above.</li>
+<li><b>No two-year exemption.</b> That rule is only for individuals.</li>
+<li><b>VAT:</b> buying and selling crypto for money is VAT-exempt (Porezna uprava 2015, in line with the EU Court's
+Hedqvist ruling). If the company accepts crypto as payment for its own goods or services, the sale itself is taxed for
+VAT as usual.</li>
+<li><b>Taking the money out:</b> profit paid as a dividend is taxed again at 12%.</li>
+</ul>
+{bars("Tax on a €10,000 crypto gain that ends up in the owner's pocket",
+      [("Held privately, over two years", 0, "exempt"),
+       ("Held privately, under two years", 1200, "12% capital gains tax"),
+       ("d.o.o. with revenue up to €1M, then paid out", 2080, "10% profit tax, then 12% dividend tax on the rest"),
+       ("d.o.o. with revenue over €1M, then paid out", 2784, "18% profit tax, then 12% dividend tax on the rest")],
+      sub="Simplified: no other income or costs; amounts in euros", fmt="eur", hl=(0, 1), source=CO_SRC)}
+
+<h2>When a company still makes sense</h2>
+<ul>
+<li>The money is already in the company and you would pay dividend tax to take it out anyway.</li>
+<li>The company trades actively and can offset gains against business costs and losses (a company can carry tax losses
+forward, an individual cannot).</li>
+<li>You accept crypto from customers and want to hold part of it.</li>
+</ul>
+
+<h2>What about an obrt?</h2>
+<p>An obrt is taxed through its owner's income tax at the rates set by the city (roughly 15-23.6% and 25-35.4% since
+2024), plus contributions, if the crypto is part of the business. A flat-rate (paušalni) obrt has no proper books for
+such investments. Most obrtnici are better off holding crypto privately, where the 12% and two-year rules apply. Agree
+the approach with your accountant before buying.</p>
+
+<h2>Banks</h2>
+<p>Croatian banks must check where money comes from. Expect questions when large amounts arrive from an exchange:
+keep the exchange statements and the board decision to invest ready, and use the same company account for deposits and
+withdrawals.</p>
+
+<h2>Checklist before the first purchase</h2>
+<ol>
+<li>Board or owner decision to invest, with the amount and purpose (holding or trading).</li>
+<li>Accounting policy agreed with the accountant (HSFI 5 or HSFI 10).</li>
+<li>Business account at a MiCA-licensed exchange.</li>
+<li>Custody plan: exchange custody or a company <a href=/glossary/multisig>multisig</a> wallet with two signers.</li>
+<li>Monthly export of all transactions for the books.</li>
+</ol>
+<p class=mut>Not tax or legal advice; rules change and individual situations differ. Confirm with a tax adviser.
+Personal crypto tax rules: <a href=/blog/crypto-tax-croatia>crypto tax in Croatia</a>.</p>
+""", related=("crypto-tax-croatia", "best-crypto-exchanges-croatia", "crypto-cards-croatia"))
