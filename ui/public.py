@@ -256,7 +256,8 @@ LB_T = {
                     "(or Jito tip) first. Bots pay more than you, so they always get the lowest price.",
                     "Your buy lands after theirs and pushes the price up; the bots sell to you within minutes. This is "
                     "<a href=/glossary/front-running>front-running</a>.",
-                    "Rising stars have fewer followers and fewer bots watching them, so a good call leaves room for you."),
+                    "Rising stars have fewer followers and fewer bots watching them, so a good call leaves room for you.",
+                    "<a href=/blog/why-big-influencer-calls-are-hard-to-trade>Read the full explanation, with a bot-queue calculator →</a>"),
                cmp_h="What happened after their calls (median)", cmp=("Peak within 24 h", "1 hour after", "Calls measured")),
     "hr": dict(rising="Rastuće zvijezde", stars="Zvijezde",
                rising_note="Manje poznati influenceri s izmjerenom poviješću: manje pratitelja, manje botova koji čekaju "
@@ -270,7 +271,8 @@ LB_T = {
                     "(ili Jito tipom). Botovi plate više od tebe, pa uvijek dobiju najnižu cijenu.",
                     "Tvoja kupnja dođe iza njihove i gura cijenu gore, a botovi ti prodaju u par minuta. To je "
                     "<a href=/hr/rjecnik/front-running>front-running</a>.",
-                    "Rastuće zvijezde imaju manje pratitelja i manje botova koji ih prate, pa dobar poziv ostavlja prostora i tebi."),
+                    "Rastuće zvijezde imaju manje pratitelja i manje botova koji ih prate, pa dobar poziv ostavlja prostora i tebi.",
+                    "<a href=/hr/blog/zasto-je-tesko-trgovati-pozive-velikih-influencera>Cijelo objašnjenje s kalkulatorom reda botova →</a>"),
                cmp_h="Što se dogodilo nakon njihovih poziva (medijan)", cmp=("Vrh unutar 24 h", "Sat nakon", "Izmjerenih poziva")),
 }
 
