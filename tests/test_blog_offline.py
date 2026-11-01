@@ -43,7 +43,6 @@ class Blog(unittest.TestCase):
             self.assertIn("BlogPosting", html)
             self.assertIn('og:type" content="article"', html)
             self.assertIn("#pristup", html)
-            self.assertNotIn("hreflang=hr href", html)            # English only
             self.assertIn("class=bv", html)                        # at least one chart
             for href in re.findall(r"href=/blog/([a-z0-9-]+)", html):   # internal links resolve
                 self.assertIsNotNone(blog.get(href), href)
@@ -55,6 +54,29 @@ class Blog(unittest.TestCase):
             self.assertTrue(gl, p["slug"])
             for g in gl:
                 self.assertEqual(public.route(f"/glossary/{g}")[0], 200, g)
+
+    def test_croatian(self):
+        from ui.blogposts_hr import HR
+        self.assertEqual(set(HR), {p["slug"] for p in POSTS})
+        code, raw, _ = public.route("/hr/blog")
+        html = raw.decode()
+        self.assertEqual(code, 200)
+        self.assertIn("<html lang=hr>", html)
+        for en, h in HR.items():
+            self.assertIn(f"/hr/blog/{h['slug']}", html)
+            code, raw, _ = public.route(f"/hr/blog/{h['slug']}")
+            page = raw.decode()
+            self.assertEqual(code, 200, h["slug"])
+            self.assertIn(f'hreflang=en href="https://example.com/blog/{en}"', page)
+            self.assertIn("Zatraži pristup", page)
+            self.assertNotIn("Show as table", page)
+            for href in re.findall(r"href=/hr/blog/([a-z0-9-]+)", page):
+                self.assertIsNotNone(blog.get(href, "hr"), href)
+            for g in set(re.findall(r"href=(/hr/rjecnik/[a-z0-9_-]+)", page)):
+                self.assertEqual(public.route(g)[0], 200, g)
+        en_page = public.route("/blog/what-is-pump-fun")[1].decode()
+        self.assertIn('hreflang=hr href="https://example.com/hr/blog/sto-je-pump-fun"', en_page)
+        self.assertIn("/hr/blog/sto-je-pump-fun", public.route("/sitemap.xml")[1].decode())
 
     def test_404(self):
         self.assertEqual(public.route("/blog/nope")[0], 404)

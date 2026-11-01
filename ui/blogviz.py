@@ -9,7 +9,14 @@ Colors follow the dataviz palette (series blue #2a78d6, muted gray for compariso
 from ui.html import esc
 
 
-def _fmt(v, fmt):
+def _fmt(v, fmt, lang="en"):
+    out = _fmt_en(v, fmt)
+    if lang == "hr":   # 16.8% -> 16,8%   $1,000 -> $1.000
+        out = out.replace(",", "\0").replace(".", ",").replace("\0", ".")
+    return out
+
+
+def _fmt_en(v, fmt):
     if fmt == "pct":
         return f"{v:.0f}%" if float(v).is_integer() else f"{v:.1f}%"
     if fmt == "usd":
@@ -19,27 +26,31 @@ def _fmt(v, fmt):
     return f"{v:,.0f}" if float(v).is_integer() else f"{v:,.1f}"
 
 
-def bars(title, rows, sub="", fmt="pct", hl=None, source="", vmax=None):
+WORDS = {"en": ("Show as table", "Value", "Note", "Source"), "hr": ("Prikaži kao tablicu", "Vrijednost", "Napomena", "Izvor")}
+
+
+def bars(title, rows, sub="", fmt="pct", hl=None, source="", vmax=None, lang="en"):
     """rows: [(label, value, note)] in display order; hl: indexes drawn in the strong color (default: none = all)."""
     vmax = vmax or max(v for _, v, _ in rows) or 1
     out = []
     for i, (lab, v, note) in enumerate(rows):
         strong = hl is None or i in hl
         w = max(100 * v / vmax, 0.8)
-        out.append(f"<div class=bvr tabindex=0 title=\"{esc(lab)}: {esc(_fmt(v, fmt))}{(' · ' + esc(note)) if note else ''}\">"
+        out.append(f"<div class=bvr tabindex=0 title=\"{esc(lab)}: {esc(_fmt(v, fmt, lang))}{(' · ' + esc(note)) if note else ''}\">"
                    f"<div class=bvl>{esc(lab)}</div><div class=bvt><i class='{'on' if strong else 'off'}' "
-                   f"style='width:{w:.1f}%'></i><b>{esc(_fmt(v, fmt))}</b></div>"
+                   f"style='width:{w:.1f}%'></i><b>{esc(_fmt(v, fmt, lang))}</b></div>"
                    + (f"<div class=bvn>{esc(note)}</div>" if note else "") + "</div>")
-    tbl = ("<details class=bvtab><summary>Show as table</summary><table><thead><tr><th></th><th class=n>Value</th>"
-           "<th>Note</th></tr></thead><tbody>"
-           + "".join(f"<tr><td>{esc(lab)}</td><td class=n>{esc(_fmt(v, fmt))}</td><td class=mut>{esc(note or '')}</td></tr>"
+    w = WORDS[lang]
+    tbl = (f"<details class=bvtab><summary>{w[0]}</summary><table><thead><tr><th></th><th class=n>{w[1]}</th>"
+           f"<th>{w[2]}</th></tr></thead><tbody>"
+           + "".join(f"<tr><td>{esc(lab)}</td><td class=n>{esc(_fmt(v, fmt, lang))}</td><td class=mut>{esc(note or '')}</td></tr>"
                      for lab, v, note in rows) + "</tbody></table></details>")
     return (f"<figure class=bv role=group aria-label=\"{esc(title)}\"><figcaption><b>{esc(title)}</b>"
             + (f"<span>{esc(sub)}</span>" if sub else "") + "</figcaption>" + "".join(out)
-            + (f"<div class=bvs>Source: {esc(source)}</div>" if source else "") + tbl + "</figure>")
+            + (f"<div class=bvs>{WORDS[lang][3]}: {esc(source)}</div>" if source else "") + tbl + "</figure>")
 
 
-def grid(title, cols, rows, sub="", fmt="pct", source="", cap=100.0):
+def grid(title, cols, rows, sub="", fmt="pct", source="", cap=100.0, lang="en"):
     """cols: column headers; rows: [(row label, [values])]. Cells shaded by value/cap (one hue, light→dark)."""
     head = "<th></th>" + "".join(f"<th class=n>{esc(c)}</th>" for c in cols)
     body = []
@@ -49,11 +60,11 @@ def grid(title, cols, rows, sub="", fmt="pct", source="", cap=100.0):
             a = min(max(v / cap, 0), 1)
             ink = "#fff" if a > 0.55 else "var(--fg)"
             cells.append(f"<td class=n style='background:rgba(42,120,214,{0.08 + 0.85 * a:.2f});color:{ink}'>"
-                         f"{esc(_fmt(v, fmt))}</td>")
+                         f"{esc(_fmt(v, fmt, lang))}</td>")
         body.append(f"<tr><th>{esc(lab)}</th>{''.join(cells)}</tr>")
     return (f"<figure class=bv><figcaption><b>{esc(title)}</b>" + (f"<span>{esc(sub)}</span>" if sub else "")
             + f"</figcaption><div class=tw><table class=gv><thead><tr>{head}</tr></thead><tbody>{''.join(body)}"
-            "</tbody></table></div>" + (f"<div class=bvs>Source: {esc(source)}</div>" if source else "") + "</figure>")
+            "</tbody></table></div>" + (f"<div class=bvs>{WORDS[lang][3]}: {esc(source)}</div>" if source else "") + "</figure>")
 
 
 def stats(items):

@@ -215,7 +215,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <style>{CSS}{EXTRA_CSS}{blog.CSS}{blogviz.CSS}</style></head><body>
 <nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 <a class='lnk hm' href={'/solana-meme-coins' if lang == 'en' else '/hr/solana-meme-coini'}>{'Meme coins' if lang == 'en' else 'Meme coini'}</a>
-<a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href=/blog>Blog</a>{switch}
+<a class='lnk hm' href={t['lb']}>{'Influencers' if lang == 'en' else 'Influenceri'}</a><a class='lnk hm' href={'/blog' if lang == 'en' else '/hr/blog'}>Blog</a>{switch}
 <a class=lnk href=/prijava>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a></div></nav>
 <main class=w>{body}</main>
 <footer style='margin-top:64px'><div class=w><p class=fl>{_foot_links(lang)}</p>© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
@@ -321,7 +321,7 @@ def _foot_links(lang):
     links = ([("/solana-meme-coins", "Solana meme coins"), ("/influencers", "Crypto influencers"),
               ("/glossary", "Crypto glossary"), ("/blog", "Blog")] if lang == "en" else
              [("/hr/solana-meme-coini", "Solana meme coini"), ("/hr/influenceri", "Kripto influenceri"),
-              ("/hr/rjecnik", "Kripto rječnik"), ("/blog", "Blog")])
+              ("/hr/rjecnik", "Kripto rječnik"), ("/hr/blog", "Blog")])
     return " · ".join(f"<a href={h}>{x}</a>" for h, x in links)
 
 
@@ -329,7 +329,7 @@ def robots():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return ("User-agent: *\nAllow: /$\nAllow: /hr$\nAllow: /influencers\nAllow: /influencer/\nAllow: /hr/influenceri\n"
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
-            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /static/landing/\nDisallow: /\n\n"
+            "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
 
@@ -359,8 +359,11 @@ def sitemap():
                        f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
                        f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
     from ui import blog
-    for loc, pr in blog.urls():   # English only, no alternates
-        out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority></url>")
+    for en, hr, pr in blog.urls():   # posts without a Croatian version get no alternates
+        for loc in (en, hr) if hr else (en,):
+            alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
+                   f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>') if hr else ""
+            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>{alt}</url>")
     out.append("</urlset>")
     return "\n".join(out)
 
@@ -384,10 +387,11 @@ def route(path):
     elif re.fullmatch(r"/glossary/[^/]+|/hr/rjecnik/[^/]+", path):
         lang, slug = ("hr" if path.startswith("/hr") else "en"), path.rsplit("/", 1)[1]
         fn, ctype = (lambda: glossary_term(slug, lang)), "text/html"
-    elif path == "/blog" or path.startswith("/blog/"):
+    elif re.fullmatch(r"(/hr)?/blog(/[^/]+)?/?", path):
         from ui import blog
-        slug = path[len("/blog/"):].strip("/") if path != "/blog" else ""
-        fn, ctype = ((lambda: blog.page(slug)) if slug else blog.index), "text/html"
+        m = re.fullmatch(r"(/hr)?/blog(?:/([^/]+))?/?", path)
+        lang, slug = ("hr" if m.group(1) else "en"), m.group(2)
+        fn, ctype = ((lambda: blog.page(slug, lang)) if slug else (lambda: blog.index(lang))), "text/html"
     else:
         m = re.fullmatch(r"(/hr)?/influencer/([^/]+)", path)
         if not m:
