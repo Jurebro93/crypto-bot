@@ -27,6 +27,49 @@ color:var(--fg)}
 """
 
 
+# Bold terms in post bodies that get a link to their public glossary entry (first occurrence per post).
+GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper": "sniper-bot", "rug pull": "rug-pull",
+         "mint authority": "mint-authority", "graduates": "graduation", "call": "crypto-call", "bundle": "bundler",
+         "slippage": "slippage", "market cap": "market-cap", "liquidity": "liquidity", "kol": "kol", "fdv": "fdv",
+         "hit rate": "hit-rate", "late calls": "late-call", "dollar-cost averaging": "dca", "serial creator": "dev-wallet"}
+# Glossary chips under each post.
+TERMS = {
+    "what-is-wallet-tracking": ("smart-money", "crypto-wallet", "sniper-bot", "insider-wallet", "copy-trading"),
+    "what-is-copy-trading": ("copy-trading", "smart-money", "take-profit", "stop-loss", "roi"),
+    "what-is-a-kol-in-crypto": ("kol", "crypto-call", "call-power", "hit-rate", "late-call", "bot-account"),
+    "influencer-clustering": ("kol", "crypto-call", "wallet-cluster", "call-power"),
+    "how-to-spot-a-rug-pull": ("rug-pull", "dev-wallet", "mint-authority", "liquidity", "holders", "bundler"),
+    "what-is-pump-fun": ("pump-fun", "graduation", "memecoin", "market-cap"),
+    "bundles-and-snipers": ("bundler", "sniper-bot", "insider-wallet", "rug-pull"),
+    "how-to-trade-meme-coins": ("memecoin", "market-cap", "take-profit", "x-multiplier", "pnl"),
+    "what-is-dca-in-crypto": ("dca", "stop-loss", "liquidity"),
+    "market-cap-liquidity-slippage": ("market-cap", "fdv", "liquidity", "slippage", "trading-volume"),
+}
+
+
+def _link_terms(body):
+    import re
+    done = set()
+
+    def sub(m):
+        k = m.group(1).lower()
+        g = GLOSS.get(k)
+        if not g or g in done:
+            return m.group(0)
+        done.add(g)
+        return f"<a href=/glossary/{g}>{m.group(0)}</a>"
+    return re.sub(r"<b>([^<]{2,40})</b>", sub, body)
+
+
+def _chips(slug):
+    ts = TERMS.get(slug, ())
+    if not ts:
+        return ""
+    return ("<h2 class=s>Terms in this post</h2><div class=chips>"
+            + "".join(f"<a href=/glossary/{t}>{t.replace('-', ' ')}</a>" for t in ts)
+            + "<a href=/glossary>All terms →</a></div>")
+
+
 def _posts():
     from ui.blogposts import POSTS
     return POSTS
@@ -97,13 +140,13 @@ def page(slug):
             {"@type": "ListItem", "position": 2, "name": p["h1"], "item": url}]}]})
     body = (f"<article class=art><section class=ph1><div class=crumb><a href=/blog>← Blog</a> · {esc(p['tag'])}</div>"
             f"<h1>{esc(p['h1'])}</h1><div class=meta>{_date(p['date'])} · {p['mins']} min read · KriptoRadar research"
-            f"</div><div class=tldr><b>Short answer</b><p>{p['tldr']}</p></div></section>{p['body']}"
+            f"</div><div class=tldr><b>Short answer</b><p>{p['tldr']}</p></div></section>{_link_terms(p['body'])}"
             "<div class=lock><p>KriptoRadar does this for you in real time: every new Solana token, every influencer "
             "call and every tracked wallet, scored and filtered for rugs.</p>"
             "<a class='btn sm' href=/#pristup>Request access</a></div>"
             "<p class=note>Not financial advice. Numbers are measurements of past tokens and calls; meme coins are "
             "extremely risky and most go to zero.</p></article>"
-            f"<h2 class=s>Read next</h2><div class=bl>{rel_html}</div>")
+            f"{_chips(slug)}<h2 class=s>Read next</h2><div class=bl>{rel_html}</div>")
     return _shell("en", p["title"], p["desc"], f"/blog/{slug}", None, body, jsonld=jsonld, og_image=_og(p),
                   og_type="article")
 

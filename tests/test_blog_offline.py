@@ -48,6 +48,14 @@ class Blog(unittest.TestCase):
             for href in re.findall(r"href=/blog/([a-z0-9-]+)", html):   # internal links resolve
                 self.assertIsNotNone(blog.get(href), href)
 
+    def test_glossary_links_resolve(self):
+        for p in POSTS:
+            html = public.route(f"/blog/{p['slug']}")[1].decode()
+            gl = set(re.findall(r"href=/glossary/([a-z0-9-]+)", html))
+            self.assertTrue(gl, p["slug"])
+            for g in gl:
+                self.assertEqual(public.route(f"/glossary/{g}")[0], 200, g)
+
     def test_404(self):
         self.assertEqual(public.route("/blog/nope")[0], 404)
 

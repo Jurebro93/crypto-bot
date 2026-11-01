@@ -364,7 +364,8 @@ the median time to graduation was about 15 minutes.</p>
     ("Reached 5x", 4.9, ""),
 ], sub="2,784 graduated tokens, price measured at the moment of graduation", fmt="pct", hl=(0,), source=RETRO)}
 <p>A much better entry point in our data is the first time a token crosses $100,000 of market cap; we explain why in
-<a href=/blog/how-to-trade-meme-coins>how to trade meme coins</a>.</p>
+<a href=/blog/how-to-trade-meme-coins>how to trade meme coins</a>. The few that made it big are on our
+<a href=/solana-meme-coins>top 100 Solana meme coins</a> list.</p>
 
 <h2>Is pump.fun safe?</h2>
 <p>The platform itself removes some classic rug tricks: mint and freeze authority are off, and the curve holds the
@@ -472,6 +473,12 @@ Holding everything for the "100x" is how most winners turn into losses.</p>
 <h3>6. Time of day</h3>
 <p>In our data, influencer signals worked best during US hours, while entries in that session were the most expensive.
 Know which session you are trading.</p>
+
+<h2>Where to look today</h2>
+<p>Our public <a href=/solana-meme-coins>top 100 Solana meme coins</a> list shows market cap, liquidity, volume and
+holder data for each token, for example <a href=/coin/bonk>BONK</a>, <a href=/coin/wif>WIF</a> or
+<a href=/coin/fartcoin>Fartcoin</a>. These are the survivors; the tokens in this article's charts are mostly
+the ones that didn't make it.</p>
 
 <h2>Practice before you use real money</h2>
 <p>KriptoRadar's members trade with a $1,000 demo balance in a friendly league, with the same signals and rug filter
