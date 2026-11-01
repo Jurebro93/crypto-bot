@@ -218,6 +218,11 @@ def influencers():
 SECNAV_L = {"en": ("Page sections", "Back to top"), "hr": ("Sekcije stranice", "Povratak na vrh")}
 
 
+def _ga_tag(lang):
+    from analytics import ga4
+    return ga4.tag(lang)
+
+
 def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image="/static/landing/kol.jpg",
            og_type="website"):
     """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr)."""
@@ -245,7 +250,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <a class=lnk href={_app_link('/prijava')}>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
 <main class=w>{secnav.markup(*SECNAV_L[lang], lang=lang)}{body}</main>
 <footer style='margin-top:64px'><div class=w>{_foot_links(lang)}© {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
-<script>{secnav.JS}</script></body></html>"""
+<script>{secnav.JS}</script>{_ga_tag(lang)}</body></html>"""
 
 
 LB_T = {

@@ -32,7 +32,7 @@ TOKEN_URI = "https://oauth2.googleapis.com/token"
 LAG_DAYS = 2          # Search Console's numbers for the last ~2 days are incomplete
 TOP = {"query": 250, "page": 250, "country": 50, "device": 5}
 PERIOD = 28
-_tok = {"value": None, "exp": 0}
+_tok = {}   # scope -> {"value", "exp"}
 _lock = threading.Lock()
 
 
@@ -90,11 +90,13 @@ def _post_form(url, data):
         return json.loads(r.read())
 
 
-def token():
-    """Access token for the service account (signed JWT exchanged at Google), reused until 5 min before expiry."""
+def token(scope=SCOPE):
+    """Access token for the service account (signed JWT exchanged at Google), reused until 5 min before expiry.
+    The same key serves Search Console and GA4 (analytics/ga4.py), each with its own read-only scope."""
     with _lock:
-        if _tok["value"] and time.time() < _tok["exp"] - 300:
-            return _tok["value"]
+        t = _tok.get(scope) or {}
+        if t.get("value") and time.time() < t["exp"] - 300:
+            return t["value"]
         info = key_info()
         if not info:
             raise GscError("Ključ još nije postavljen (GSC_SERVICE_ACCOUNT_JSON na Renderu).")
@@ -105,7 +107,7 @@ def token():
         except Exception:  # noqa: BLE001
             raise GscError("Privatni ključ u GSC_SERVICE_ACCOUNT_JSON se ne može pročitati: napravi novi JSON ključ.")
         uri = info.get("token_uri") or TOKEN_URI
-        assertion = jwt.encode(signer, {"iss": info["client_email"], "scope": SCOPE, "aud": uri,
+        assertion = jwt.encode(signer, {"iss": info["client_email"], "scope": scope, "aud": uri,
                                         "iat": now, "exp": now + 3600})
         try:
             res = _post_form(uri, {"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
@@ -115,8 +117,8 @@ def token():
             if "invalid_grant" in body:
                 raise GscError("Google je odbio ključ (obrisan ili istekao). Napravi novi JSON ključ i zamijeni ga na Renderu.")
             raise GscError(f"Google prijava nije uspjela (HTTP {e.code}).")
-        _tok.update(value=res["access_token"], exp=now + int(res.get("expires_in", 3600)))
-        return _tok["value"]
+        _tok[scope] = {"value": res["access_token"], "exp": now + int(res.get("expires_in", 3600))}
+        return res["access_token"]
 
 
 def _api(path, body=None):

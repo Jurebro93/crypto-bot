@@ -533,6 +533,18 @@ T("Prosječna pozicija", "sustav", "Na kojem smo mjestu u Googleu u prosjeku. 1 
   gdje=[("/analitika", "Analitika")], alias=["prosj. pozicija", "prosj pozicija"])
 T("Upit", "sustav", "Riječi koje je netko upisao u Google prije nego što mu se pojavila naša stranica.",
   gdje=[("/analitika", "Analitika")], alias=["upiti"])
+T("Google Analytics 4", "sustav", "Googleov besplatni brojač posjeta na javnoj stranici: tko dolazi, odakle i što gleda.",
+  "Brojač se učita tek kad posjetitelj prihvati kolačiće (EU pravila), pa su brojke manje od stvarnih. Prijavljeni dio "
+  "aplikacije se ne broji. Podaci se povlače svakih 6 sati.", vidi=["posjetitelji", "posjete", "zainteresirane-posjete"],
+  gdje=[("/analitika", "Analitika")], alias=["ga4", "google analytics"])
+T("Posjetitelji", "sustav", "Različiti ljudi (uređaji) koji su otvorili javnu stranicu u tom razdoblju.",
+  gdje=[("/analitika", "Analitika")])
+T("Posjete", "sustav", "Koliko puta je netko došao na stranicu; jedan posjetitelj može doći više puta.",
+  gdje=[("/analitika", "Analitika")], alias=["sesije", "sessions"])
+T("Pregledi stranica", "sustav", "Koliko je stranica ukupno otvoreno; jedna posjeta može otvoriti više stranica.",
+  gdje=[("/analitika", "Analitika")])
+T("Zainteresirane posjete", "sustav", "Postotak posjeta koje su trajale 10+ sekundi, otvorile 2+ stranice ili nešto kliknule.",
+  gdje=[("/analitika", "Analitika")], alias=["engagement rate"])
 T("Jutarnji izvještaj", "sustav", "Dnevni sažetak svega bitnog, napisan svako jutro prije 8 h.",
   gdje=[("/izvjestaj", "Jutarnji izvještaj")])
 

@@ -96,14 +96,13 @@ def setup_html(err=None):
     head = (f"<div class=card><p class=neg><b>Spajanje ne radi:</b> {esc(err)}</p></div>" if err else
             "<div class=card><p><b>Još nije spojeno.</b> Čim ključ bude na Renderu, podaci se sami povuku za par "
             "minuta i zatim svakih 6 sati.</p></div>")
-    return (head + "<h2>Kako spojiti Google Search Console</h2>"
+    return (head + "<h3>Kako spojiti Google Search Console</h3>"
             + tdesc("Jednom, oko 5 minuta. Besplatno. Ključ se nikad ne lijepi u chat, samo na Render.")
             + "<ol>" + "".join(f"<li>{s}</li>" for s in steps) + "</ol>")
 
 
-def page(qs=None):
-    title = "Analitika"
-    body = ["<h1>📈 Analitika</h1>",
+def _gsc_html():
+    body = ["<h2>🔎 Google pretraga</h2>",
             tdesc("Koliko ljudi nas nađe na Googleu, preko kojih riječi i na kojim stranicama. Izvor: Google Search "
                   "Console. Google kasni oko 2 dana, pa su zadnja 2 dana uvijek nepotpuna i ne broje se.")]
     try:
@@ -122,7 +121,7 @@ def page(qs=None):
             body.append(setup_html(key_err or m.get("last_error")))
         if con:
             con.close()
-        return title, "".join(body)
+        return "".join(body)
     try:
         cs, ce = (m.get("cur") or "|").split("|")
         ps, pe = (m.get("prev") or "|").split("|")
@@ -154,24 +153,107 @@ def page(qs=None):
         queries = _top(con, "query")
         prevq = {k: (c, i) for k, c, i, _, _ in _top(con, "query", "prev")}
         near = sorted([r for r in queries if 4.5 <= (r[4] or 0) <= 20 and r[2] >= 20], key=lambda r: -r[2])[:15]
-        body.append("<h2>Blizu vrha</h2>"
+        body.append("<h3>Blizu vrha</h3>"
                     + tdesc("Tu se isplati poboljšati stranicu: upiti s puno prikaza na kojima smo na poziciji 5 do 20. Malo bolja stranica (naslov, "
                             "tekst, poveznice) ovdje donese najviše novih klikova.")
                     + table(HEAD, _rows(near, esc, prevq), "gscnear",
                             empty="Još nema takvih upita (treba barem 20 prikaza na poziciji 5-20)."))
-        body.append("<h2>Upiti</h2>" + tdesc("Što ljudi upisuju u Google prije nego nas nađu. Google skriva rijetke "
+        body.append("<h3>Upiti</h3>" + tdesc("Što ljudi upisuju u Google prije nego nas nađu. Google skriva rijetke "
                                             "upite radi privatnosti, pa zbroj ne daje ukupne klikove.")
                     + table(HEAD, _rows(queries, esc, prevq), "gscq", empty="Još nema upita."))
         prevp = {k: (c, i) for k, c, i, _, _ in _top(con, "page", "prev")}
-        body.append("<h2>Stranice</h2>" + tdesc("Koje naše stranice Google najviše prikazuje i klika.")
+        body.append("<h3>Stranice</h3>" + tdesc("Koje naše stranice Google najviše prikazuje i klika.")
                     + table(["Stranica"] + HEAD[1:], _rows(_top(con, "page"), _short_page, prevp), "gscp",
                             empty="Još nema stranica."))
-        body.append("<h2>Zemlje</h2>" + table(["Zemlja"] + HEAD[1:], _rows(_top(con, "country"), lambda k: esc(k.upper())),
+        body.append("<h3>Zemlje</h3>" + table(["Zemlja"] + HEAD[1:], _rows(_top(con, "country"), lambda k: esc(k.upper())),
                                               "gscc"))
-        body.append("<h2>Uređaji</h2>" + table(["Uređaj"] + HEAD[1:],
+        body.append("<h3>Uređaji</h3>" + table(["Uređaj"] + HEAD[1:],
                                                _rows(_top(con, "device"), lambda k: esc(DEVICES.get(k, k.title()))), "gscd"))
         body.append(f"<p class=mut>Svojstvo {esc(m.get('site') or gsc.site())}, račun {esc(gsc.account_email() or '–')}. "
                     f"Podaci se osvježavaju svakih {os.environ.get('GSC_EVERY_H', '6')} h.</p>")
     finally:
         con.close()
-    return title, "".join(body)
+    return "".join(body)
+
+
+def _ga_setup(err=None):
+    email = gsc.account_email()
+    steps = [
+        'Otvori <a href="https://analytics.google.com" target=_blank rel=noopener>analytics.google.com</a> → Admin → '
+        '<b>Create property</b> "MemeSonar" (vremenska zona Zagreb, valuta EUR).',
+        'Data streams → <b>Web</b> → <code>https://memesonar.app</code> → kopiraj <b>Measurement ID</b> (G-…).',
+        'Admin → Property details → kopiraj <b>Property ID</b> (samo brojke).',
+        'Admin → Property access management → <b>+</b> → ' + (f'upiši <b>{esc(email)}</b>' if email else
+        'upiši e-mail service accounta iz Search Console koraka') + ', uloga <b>Viewer</b>.',
+        'Google Cloud (isti projekt) → APIs &amp; Services → Library → <b>Google Analytics Data API</b> → Enable.',
+        'Render → crypto-bot → Environment: <code>GA4_MEASUREMENT_ID</code> = G-… i <code>GA4_PROPERTY_ID</code> = '
+        'broj → Save.',
+    ]
+    head = (f"<div class=card><p class=neg><b>Spajanje ne radi:</b> {esc(err)}</p></div>" if err else
+            "<div class=card><p><b>Još nije spojeno.</b> Brojač se pojavi na javnoj stranici čim je "
+            "GA4_MEASUREMENT_ID postavljen; brojke ovdje kad su postavljeni i GA4_PROPERTY_ID i ključ.</p></div>")
+    return (head + "<h3>Kako spojiti Google Analytics 4</h3>" + tdesc("Jednom, oko 5 minuta. Besplatno.")
+            + "<ol>" + "".join(f"<li>{s}</li>" for s in steps) + "</ol>")
+
+
+def _ga_html():
+    from analytics import ga4
+    body = ["<h2>👥 Posjetitelji (Google Analytics 4)</h2>",
+            tdesc("Tko dolazi na javnu stranicu, odakle i što gleda. Broje se samo posjetitelji koji prihvate "
+                  "kolačiće, pa su brojke manje od stvarnih. Prijavljeni dio aplikacije se ne broji.")]
+    tagged = ("<p class=mut>Brojač na javnoj stranici: <b>uključen</b> (" + esc(ga4.measurement_id()) + ").</p>"
+              if ga4.measurement_id() else "")
+    con = _con()
+    if con:
+        con.close()
+        con = ga4.connect(gsc.DB)
+    m = gsc.meta(con) if con else {}
+    have = con.execute("SELECT COUNT(*) FROM ga_daily").fetchone()[0] if con else 0
+    if not have:
+        if con:
+            con.close()
+        if ga4.configured() and not m.get("ga_error"):
+            return "".join(body) + tagged + ("<div class=card><p><b>GA4 je postavljen.</b> Prvo povlačenje kreće par "
+                                             "minuta nakon pokretanja servera.</p></div>")
+        return "".join(body) + tagged + _ga_setup(m.get("ga_error"))
+    try:
+        end = dt.date.today() - dt.timedelta(days=1)
+        cs, ps = end - dt.timedelta(days=27), end - dt.timedelta(days=55)
+        tot = lambda a, b: con.execute("SELECT SUM(users), SUM(sessions), SUM(views), SUM(engaged * sessions) "  # noqa: E731
+                                       "FROM ga_daily WHERE day BETWEEN ? AND ?", (str(a), str(b))).fetchone()
+        cu, pr = tot(cs, end), tot(ps, cs - dt.timedelta(days=1))
+        if m.get("ga_error"):
+            body.append(f"<div class=card><p class=neg><b>Zadnje osvježavanje nije uspjelo:</b> {esc(m['ga_error'])}</p></div>")
+        body.append(tagged + f"<p class=mut>Zadnjih 28 dana, u zagradi usporedba s 28 dana prije. Osvježeno "
+                    f"{ago(int(m.get('ga_ok') or 0))[0]}.</p>")
+        eng = (cu[3] / cu[1]) if cu[1] else None
+        peng = (pr[3] / pr[1]) if pr[1] else None
+        body.append("<div class=grid>" + _stat(f"{cu[0] or 0:,.0f}", "Posjetitelji", _chg(cu[0], pr[0]))
+                    + _stat(f"{cu[1] or 0:,.0f}", "Posjete", _chg(cu[1], pr[1]))
+                    + _stat(f"{cu[2] or 0:,.0f}", "Pregledi stranica", _chg(cu[2], pr[2]))
+                    + _stat(f"{eng * 100:.0f}%" if eng is not None else "–", "Zainteresirane posjete", _chg(eng, peng))
+                    + "</div>")
+        days = con.execute("SELECT day, users FROM ga_daily WHERE day >= ? ORDER BY day",
+                           (str(end - dt.timedelta(days=89)),)).fetchall()
+        ts_ = lambda d: int(dt.datetime.fromisoformat(d).replace(tzinfo=dt.timezone.utc).timestamp())  # noqa: E731
+        body.append(charts.line([{"name": "Posjetitelji", "pts": [(ts_(d), u) for d, u in days]}],
+                                "Posjetitelji po danu", "Zadnjih 90 dana."))
+        head = [("Posjetitelji", "n"), ("Posjete", "n"), ("Pregledi stranica", "n")]
+        top = lambda k: con.execute("SELECT key, users, sessions, views FROM ga_top WHERE kind=? "  # noqa: E731
+                                    "ORDER BY views DESC", (k,)).fetchall()
+        cell = lambda v: (f"{v:,.0f}", v, "n")  # noqa: E731
+        body.append("<h3>Najgledanije stranice</h3>" + table(["Stranica"] + head,
+                    [[esc(k), cell(u), cell(s_), cell(v)] for k, u, s_, v in top("page")], "gap"))
+        body.append("<h3>Odakle dolaze</h3>" + tdesc("Izvor / način: google / organic = Google pretraga, (direct) = "
+                                                    "upisali adresu ili bookmark, ostalo su poveznice s drugih stranica.")
+                    + table(["Odakle"] + head, [[esc(k), cell(u), cell(s_), cell(v)] for k, u, s_, v in top("source")], "gas"))
+        body.append("<h3>Zemlje</h3>" + table(["Zemlja"] + head,
+                    [[esc(k), cell(u), cell(s_), cell(v)] for k, u, s_, v in top("country")], "gac"))
+    finally:
+        con.close()
+    return "".join(body)
+
+
+def page(qs=None):
+    return "Analitika", ("<h1>📈 Analitika</h1>" + tdesc("Kako ljudi nalaze i koriste javnu stranicu memesonar.app: "
+                                                         "Google pretraga i posjetitelji.") + _gsc_html() + _ga_html())

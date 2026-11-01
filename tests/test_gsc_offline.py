@@ -71,7 +71,7 @@ class KeyTest(unittest.TestCase):
         def post(url, data):
             seen.update(data)
             return {"access_token": "tok", "expires_in": 3600}
-        gsc._tok.update(value=None, exp=0)
+        gsc._tok.clear()
         with mock.patch.dict(os.environ, {"GSC_SERVICE_ACCOUNT_JSON": json.dumps(dict(KEY, private_key=pem))}), \
                 mock.patch.object(gsc, "_post_form", post):
             self.assertEqual(gsc.token(), "tok")
@@ -79,7 +79,7 @@ class KeyTest(unittest.TestCase):
         claims = json.loads(base64.urlsafe_b64decode(seen["assertion"].split(".")[1] + "=="))
         self.assertEqual(claims["scope"], gsc.SCOPE)
         self.assertEqual(claims["iss"], KEY["client_email"])
-        gsc._tok.update(value=None, exp=0)
+        gsc._tok.clear()
 
 
 class CollectTest(unittest.TestCase):
@@ -128,7 +128,7 @@ class CollectTest(unittest.TestCase):
         for s in ("Klikovi", "Prikazi", "Prosječna pozicija", "solana meme coins", "Blizu vrha", "/solana-meme-coins",
                   "📱 Mobitel", "HRV", "novo"):
             self.assertIn(s, body)
-        near = body.split("Blizu vrha")[1].split("<h2>")[0]
+        near = body.split("Blizu vrha")[1].split("<h3>")[0]
         self.assertIn("bonk price", near)
         self.assertNotIn(">memesonar<", near)   # position 1.1 is already on top
 
@@ -147,3 +147,47 @@ class WiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Ga4Test(unittest.TestCase):
+    def test_tag_only_with_id_and_consent_first(self):
+        from analytics import ga4
+        with mock.patch.dict(os.environ, {"GA4_MEASUREMENT_ID": ""}):
+            self.assertEqual(ga4.tag("en"), "")
+        with mock.patch.dict(os.environ, {"GA4_MEASUREMENT_ID": "G-ABC123"}):
+            t = ga4.tag("hr")
+            self.assertIn("Prihvati", t)
+            self.assertIn("G-ABC123", t)
+            self.assertIn("anonymize_ip", t)
+            self.assertNotIn("<script async src", t)   # gtag.js only injected after Accept
+            from ui import public
+            html = public._shell("en", "T", "d", "/x", "/hr/x", "<p>b</p>")
+            self.assertIn("ms_consent", html)
+        with mock.patch.dict(os.environ, {"GA4_MEASUREMENT_ID": "G-<script>"}):
+            self.assertEqual(ga4.tag("en"), "")
+
+    def test_collect_and_page(self):
+        from analytics import ga4
+        from ui import analitika
+        tmp = tempfile.mkdtemp()
+        db = os.path.join(tmp, "analytics.db")
+        today = dt.date.today()
+
+        def rep(start, end, dims, metrics, limit=1000):
+            if dims == ("date",):
+                out, d = [], start
+                while d <= end:
+                    out.append({"keys": [d.strftime("%Y%m%d")], "vals": [10, 12, 30, 0.6]})
+                    d += dt.timedelta(days=1)
+                return out
+            key = {"pagePath": "/solana-meme-coins", "sessionSourceMedium": "google / organic", "country": "Croatia"}[dims[0]]
+            return [{"keys": [key], "vals": [5, 6, 9]}]
+        self.assertGreater(ga4.collect(db, today, rep), 300)
+        with mock.patch.object(gsc, "DB", db), mock.patch.dict(os.environ, {"GSC_SERVICE_ACCOUNT_JSON": json.dumps(KEY),
+                                                                             "GA4_PROPERTY_ID": "123"}):
+            _, body = analitika.page({})
+        for s in ("Posjetitelji", "google / organic", "Croatia", "Zainteresirane posjete", "60%"):
+            self.assertIn(s, body)
+        with mock.patch.object(gsc, "DB", os.path.join(tmp, "none.db")), mock.patch.dict(os.environ, {"GA4_PROPERTY_ID": ""}):
+            _, body = analitika.page({})
+        self.assertIn("Kako spojiti Google Analytics 4", body)
