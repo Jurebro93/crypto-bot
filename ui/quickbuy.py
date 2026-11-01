@@ -116,7 +116,9 @@ def _card(t, live, user):
             f'<div class=mut style="font-size:12px">vrijednost {usd(mcap)[0]}'
             f'{ret_html}</div><div class=mut style="font-size:12px;flex:1">{esc(t["why"][:110])}</div>'
             f'{act}<div style="display:flex;gap:6px;flex-wrap:wrap">{copy_btn(t["mint"], small=True)}'
-            f'<a href="/token/{esc(t["mint"])}" style="font-size:12px;align-self:center">detalji →</a></div></div>')
+            + (f'<a href="/natjecanje?dca={esc(t["mint"])}#dca" style="font-size:12px;align-self:center" '
+               'title="kupuj isti iznos u pravilnim razmacima">🔄 DCA</a>' if user else "")
+            + f'<a href="/token/{esc(t["mint"])}" style="font-size:12px;align-self:center">detalji →</a></div></div>')
 
 
 def block(tokens, live, user):
@@ -147,7 +149,8 @@ def token_box(mint, symbol, locked=None):
     return (head + 'Trade ide na tvoj demo račun u natjecanju po živoj cijeni (1% naknade). Moraš biti prijavljen '
             'svojim imenom. Adresu možeš i kopirati pa je zalijepiti u svoj wallet.</span></div>'
             + _buy_form(mint, symbol, "stranica tokena", button="🛒 Kupi kao moj trade", back=f"/token/{mint}")
-            + copy_btn(mint) + '</div>')
+            + f'<a href="/natjecanje?dca={esc(mint)}#dca"><button title="kupuj isti iznos u pravilnim razmacima">'
+            '🔄 Pokreni DCA</button></a>' + copy_btn(mint) + '</div>')
 
 
 def dugo_info(mint):

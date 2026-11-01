@@ -23,7 +23,7 @@ SECTIONS = [
     ]),
     ("Natjecanje", [
         _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
-           "liga ljestvica igra igrači demo račun kupi"),
+           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
         _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
            "kopiraj prati influencer kol wallet novčanik copy trade"),
         _p("/moji-tradeovi", "💼", "Moji pravi tradeovi", "Upiši svoje prave kupnje i prati koliko zarađuješ.",
