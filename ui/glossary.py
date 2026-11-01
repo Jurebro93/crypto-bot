@@ -125,6 +125,34 @@ T("Naknada", "osnove", "Trošak transakcije (fee) koji plaćaš mreži, mjenjač
 T("Memecoin", "osnove", "Token bez stvarne namjene čija vrijednost dolazi samo iz šale, priče i pažnje.",
   "Memecoini mogu narasti 100× u danu i pasti 99% u satu. Zato alat traži signale pažnje (X objave, KOL-ovi, volumen) i "
   "istovremeno filtrira prevare.", alias=["meme coin", "meme token", "meme tokeni"])
+T("Hardverski novčanik", "osnove", "Mali uređaj (npr. Ledger, Trezor, Tangem kartica) koji drži privatni ključ izvan interneta.",
+  "Transakciju potpisuješ na uređaju, pa haker koji zarazi računalo ili preglednik ne može doći do ključa. Za "
+  "trgovanje se drži mali iznos u vrućem novčaniku (Phantom), a ušteđevina na hardverskom. Košta od oko $50.",
+  "Ledger spojen s Phantomom: aplikacija ostaje ista, ali svaka kupnja traži potvrdu na uređaju.",
+  vidi=["wallet", "multisig"], alias=["hladni novčanik", "cold wallet", "hardware wallet", "hladno čuvanje"],
+  k="hardverski-novcanik")
+T("Multisig", "osnove", "Zajednički novčanik kojem za svaku transakciju treba odobrenje više ljudi (npr. 2 od 3).",
+  "Na Solani se najčešće koristi Squads. Nitko sam ne može potrošiti novac, pa je to standard za blagajne projekata i "
+  "zajedničke fondove. Članovi mogu biti i hardverski novčanici.", "Blagajna našeg tokena kasnije ide u Squads multisig.",
+  vidi=["hardverski-novcanik", "wallet"], alias=["multi-sig", "squads"], k="multisig")
+T("Trading bot", "trading", "Aplikacija ili Telegram bot koji kupuje i prodaje tokene jednim klikom ili automatski.",
+  "Terminali (Axiom, Photon, GMGN) i Telegram botovi (Trojan, BonkBot) drže spreman novčanik i pokazuju nove tokene "
+  "čim se pojave. Naplaćuju oko 1% na svaku kupnju i prodaju. Ubrzaju te, ali ne biraju bolje tokene umjesto tebe.",
+  "Kupnja i prodaja od $100 uz 1% naknade košta ukupno $2 plus mrežne naknade.",
+  vidi=["copy-trading", "slippage"], alias=["trading terminal", "terminal", "telegram bot", "trading botovi"],
+  k="trading-bot")
+T("Rug checker", "osnove", "Besplatan alat (npr. RugCheck) koji prije kupnje provjeri token na znakove prevare.",
+  "Pokaže može li kreator kovati nove tokene ili zamrznuti novčanike, koliko je likvidnosti, je li zaključana i "
+  "koliko drže najveći holderi. Ne vidi povijest kreatora ni polagano prodavanje, pa prolaz nije jamstvo.",
+  vidi=["rug", "mint-authority"], alias=["rugcheck", "provjera ruga", "rug check"], k="rug-checker")
+T("API", "osnove", "Način na koji program (bot, aplikacija) traži podatke od drugog servisa, npr. cijenu tokena.",
+  "Kripto aplikacije koriste RPC čvor (npr. Helius) za čitanje blockchaina i slanje transakcija, i API za podatke "
+  "(DexScreener, Birdeye, CoinGecko) za cijene, poolove i holdere. Besplatne razine imaju ograničen broj poziva.",
+  "KriptoRadar koristi Helius za novčanike i DexScreener za cijene.", alias=["rpc", "rpc čvor", "api ključ"], k="api")
+T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi ide traderu kojeg kopiraš (obično 10-20%).",
+  "Naplaćuje se samo na dobitne tradeove. On-chain copy trading umjesto toga naplaćuje oko 1% na svaki trade, i "
+  "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",
+  vidi=["copy-trading"], alias=["profit share", "profit sharing"], k="udio-u-dobiti")
 T("Rug", "osnove", "Prevara ili krah: tvorci izvuku novac ili token padne 90%+ i više se ne oporavi.",
   "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je cijena 70%+ "
   "ispod vrha u zadnja 24 h ili da je likvidnost izvučena. Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
