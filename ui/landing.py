@@ -471,7 +471,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <footer><div class=w>{P._foot_links(lang)}<p style='margin:0 0 10px'>{switch.replace("class=lnk ", "")}</p>
 © {time.gmtime().tm_year} {esc(name)} · {t['foot']}</div></footer>
 <div class='mcta h'><a class='btn p' href=#pristup>{t['req']}</a></div>
-<dialog id=lb><img alt=""></dialog><script>{JS}</script></body></html>"""
+<dialog id=lb><img alt=""></dialog><script>{JS}</script>{P._ga_tag(lang)}</body></html>"""
 
 
 def _n_en(x):
