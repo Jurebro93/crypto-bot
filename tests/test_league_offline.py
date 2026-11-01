@@ -66,6 +66,42 @@ class League(unittest.TestCase):
         self.assertIn("MC izlaz", league.page({}, "Jure")[1])
 
 
+class PartialSell(unittest.TestCase):
+    """Nicholas 1.11.: positions on top of Natjecanje as cards; sell 25% / 50% / Sve / a $ amount, the rest stays open."""
+    def setUp(self):
+        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
+        league.market = lambda mints: {m: (2.0, 1e6, None, 2e6) for m in mints}
+
+    def test_partial_then_rest(self):
+        self.assertIn("ok=", league.post("/natjecanje/buy", {"token": MINT, "size": "100", "symbol": "SOL"}, "Jure"))
+        con = store.connect()
+        tid = store.trades(con, "Jure", "open")[0]["id"]
+        loc = league.post("/natjecanje/sell", {"id": str(tid), "frac": "0.25"}, "Jure")
+        self.assertIn("25%25", loc)
+        t = store.trades(con, "Jure", "open")[0]
+        self.assertAlmostEqual(t["size_usd"], 75)
+        part = store.trades(con, "Jure", "closed")[0]
+        self.assertAlmostEqual(part["size_usd"], 25)
+        self.assertIn("djelomična", part["note"])
+        acc = store.account(con, "Jure")
+        self.assertAlmostEqual(acc["cash"], 1000 - 75 + part["pnl_usd"])   # money of the sold part is back at once
+        con.commit()
+        self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid), "usd": "20"}, "Jure"))
+        self.assertEqual(len(store.trades(con, "Jure", "open")), 1)
+        self.assertIn("err=", league.post("/natjecanje/sell", {"id": str(tid), "frac": "2"}, "Jure"))
+        self.assertIn("ok=", league.post("/natjecanje/sell", {"id": str(tid), "usd": "99999"}, "Jure"))  # more = all
+        self.assertEqual(store.trades(con, "Jure", "open"), [])
+        self.assertEqual(store.account(con, "Jure")["in_use"], 0)
+
+    def test_page_order(self):
+        league.post("/natjecanje/buy", {"token": MINT, "size": "50", "symbol": "SOL"}, "Jure")
+        body = league.page({}, "Jure")[1]
+        self.assertIn("pos-all", body)
+        self.assertIn("confirm(", body)
+        order = [body.index(k) for k in ("id=pozicije", "id=autosell", "id=dca", "id=moj", "id=zatvoreni", "id=kupi")]
+        self.assertEqual(order, sorted(order))
+
+
 class GlobalTpSl(unittest.TestCase):
     """One TP/SL rule for all open positions and (checkbox) for every new buy."""
     def setUp(self):

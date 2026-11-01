@@ -168,6 +168,40 @@ def sell(con, user, trade_id, price, liq, note="", mcap=None):
     return pnl
 
 
+def sell_partial(con, user, trade_id, frac, price, liq, mcap=None):
+    """Manual partial sale (Nicholas 1.11.: "što ako sam htio zatvoriti dio pozicije"). The sold share becomes its own
+    closed trade (so the money is back on the account at once and the sale shows in the closed list); the open
+    position keeps the rest with the same entry, so its PnL % and auto sell rules stay the same. frac >= 0.999 or a
+    remainder under $1 sells everything. Returns (pnl of the sold part, sold_all)."""
+    t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
+    if not t:
+        raise ValueError("nema te otvorene pozicije")
+    if not price or price <= 0:
+        raise ValueError("nema cijene, ne mogu prodati dio")
+    if not frac or frac <= 0:
+        raise ValueError("upiši koliko želiš prodati")
+    if frac >= 0.999 or t["size_usd"] * (1 - frac) < 1:
+        return sell(con, user, trade_id, price, liq, mcap=mcap), True
+    q = t["qty"] * frac
+    gross = q * price
+    part_real = _realized(t) * frac
+    proceeds = part_real + gross * (1 - FEE) * (1 - impact(gross, liq))
+    cost = t["size_usd"] * frac
+    pnl = proceeds - cost
+    if mcap is None and t["entry_mcap"] and t["entry_px"]:
+        mcap = t["entry_mcap"] * price / t["entry_px"]
+    con.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, entry_px, entry_eff, qty, "
+                "exit_px, proceeds, pnl_usd, ret, source, score, note, entry_mcap, exit_mcap, realized) "
+                "VALUES (?,?,?,?,?,'closed',?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (user, t["token"], t["symbol"], t["opened_ts"], int(time.time()), cost, t["entry_px"], t["entry_eff"], q,
+                 price, proceeds, pnl, pnl / cost if cost else 0, t["source"], t["score"],
+                 f"djelomična prodaja {frac:.0%}", t["entry_mcap"], mcap, part_real))
+    con.execute("UPDATE trades SET size_usd=size_usd*?, qty=qty-?, realized=COALESCE(realized,0)*? WHERE id=?",
+                (1 - frac, q, 1 - frac, trade_id))
+    con.commit()
+    return pnl, False
+
+
 def trades(con, user=None, status=None):
     where, args = ["1=1"], []
     if user:
