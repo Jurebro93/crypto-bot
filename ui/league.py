@@ -476,8 +476,10 @@ def _auto_form(mine, rule=None):
     new_box = ('<label style="flex-basis:100%;line-height:1.5"><input type=checkbox name=new value=1'
                f'{" checked" if rule or not mine else ""}> i na <b>sve nove kupnje</b> (ručne, brza kupnja, DCA)</label>')
     return ('<h3 id=autosell>Auto sell</h3><p class=tdesc>Alat prodaje umjesto tebe (provjera svake minute, i preko noći). '
-            '<b>Pametni izlaz</b> koristi pravila naučena iz povijesti za klasu tokena (djelomične prodaje, trailing, moonbag, '
-            'pauza nakon calla influencera; vidi <a href=/izlazi>Izlazi</a>). <b>Moj TP/SL</b>: upiši postotak '
+            '<b>Smart sell</b> prodaje kako token raste: dio na svakoj razini zarade (take profit ljestvica), ostatak '
+            'prati vrh (trailing stop), a ako token <b>eksplodira</b> (3x u 15 minuta) odmah proda pola ostatka, '
+            'prije nego što cijena padne natrag. Pravila su naučena iz povijesti za klasu tokena; vidi '
+            '<a href=/izlazi>Izlazi</a>. <b>Moj TP/SL</b>: upiši postotak '
             '(<code>100%</code>, <code>-30%</code>; SL <code>30</code> znači -30%) ili market cap (<code>$500k</code>, '
             '<code>1.2M</code>), alat sam preračuna cijenu za svaku poziciju. Postotak se računa od ulaza svake pozicije. '
             'Kvačica <b>sve otvorene pozicije</b> postavi isto pravilo na sve odjednom; <b>sve nove kupnje</b> ga '
@@ -485,7 +487,7 @@ def _auto_form(mine, rule=None):
             'Djelomične prodaje se vide uz poziciju, a novac se vraća na račun kad se pozicija zatvori.</p>'
             + now +
             '<form method=post action="/natjecanje/auto" class="card flt" id=autof>'
-            + one + '<select name=mode><option value=tpsl>moj TP/SL</option><option value=smart>pametni izlaz</option>'
+            + one + '<select name=mode><option value=tpsl>moj TP/SL</option><option value=smart selected>Smart sell (prodaje kako raste)</option>'
             '<option value=off>isključi auto sell</option></select>'
             f'<input name=tp placeholder="TP: 100% ili $500k" size=16 value="{esc((rule or {}).get("tp") or "")}" '
             'style="max-width:100%">'

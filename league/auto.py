@@ -160,7 +160,7 @@ def describe_rule(r):
     if not r:
         return ""
     if r["mode"] == "smart":
-        return "pametni izlaz (naučena pravila)"
+        return "Smart sell (prodaje kako raste)"
     return ", ".join(([f"TP {r['tp']}"] if r.get("tp") else []) + ([f"SL {r['sl']}"] if r.get("sl") else []))
 
 
@@ -169,7 +169,7 @@ def describe(auto_json):
     if not a:
         return ""
     if a["mode"] == "smart":
-        return "auto: pametni izlaz (naučena pravila)"
+        return "auto: Smart sell"
     parts = ([f"TP {a['tp']}"] if a.get("tp") else []) + ([f"SL {a['sl']}"] if a.get("sl") else [])
     return "auto: " + ", ".join(parts)
 

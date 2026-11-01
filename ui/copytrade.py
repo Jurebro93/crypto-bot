@@ -150,9 +150,9 @@ def wallet_rows():
 def _panel(kind):
     """Settings used by every 'follow' button of the table below (copied into the form by a few lines of JS)."""
     if kind == "kol":
-        opts = [("smart", "pametni izlaz (naučena pravila)"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")]
+        opts = [("smart", "Smart sell (prodaje kako raste)"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")]
     else:
-        opts = [("mirror", "prodaj kad on proda"), ("mirror_smart", "kad on proda + pametni izlaz"),
+        opts = [("mirror", "prodaj kad on proda"), ("mirror_smart", "kad on proda + Smart sell"),
                 ("tpsl", "moj TP/SL + kad on proda")]
     sel = "".join(f'<option value={v}>{esc(t)}</option>' for v, t in opts)
     return (f'<div class="card flt" id=panel-{kind}><b>Postavke za novo praćenje:</b> '

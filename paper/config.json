@@ -82,5 +82,11 @@
   "win_ret": 0.0
  },
  "slip": 0.02,
- "_slip": "Proklizavanje izvršenja (2%) na svakoj demo kupnji i prodaji, povrh naknade i utjecaja na cijenu u poolu, da demo i simulacija izlaza budu bliže stvarnom tradingu."
+ "_slip": "Proklizavanje izvršenja (2%) na svakoj demo kupnji i prodaji, povrh naknade i utjecaja na cijenu u poolu, da demo i simulacija izlaza budu bliže stvarnom tradingu.",
+ "boom": [
+  3.0,
+  15,
+  0.5
+ ],
+ "_boom": "Smart sell, eksplozija: ako cijena u 15 min naraste 3x od najniže točke, a trade je u plusu, odmah se prodaje pola ostatka (prije TP ljestvice). Iduća takva prodaja traži novih 3x."
 }

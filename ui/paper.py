@@ -14,7 +14,8 @@ from ui.html import tdesc, ago, badge, esc, filt, num, scorecell, signed, table,
 REFRESH_S = 15
 EXIT = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven": "breakeven nakon TP", "time": "isteklo vrijeme",
         "rug": "rug (likvidnost nestala)", "open": "otvoreno", "stale": "nema rasta (mirovanje)",
-        "moonbag_trailing": "moonbag: trailing od vrha", "moonbag_time": "moonbag: isteklo vrijeme"}
+        "moonbag_trailing": "moonbag: trailing od vrha", "moonbag_time": "moonbag: isteklo vrijeme",
+        "smart_sell_eksplozija": "smart sell: eksplozija (3x u 15 min)"}
 
 
 def _cfg():
