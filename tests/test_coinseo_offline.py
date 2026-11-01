@@ -73,6 +73,18 @@ class CoinSeo(unittest.TestCase):
         self.assertIn("Allow: /how-to-buy\n", rb)
         self.assertIn("Allow: /hr/provjera\n", rb)
 
+    def test_cex_names_only_well_known(self):
+        import json
+        names = json.dumps(["aivora-exchange", "bitbaby-exchange", "binance", "gdax", "okex", "bybit-eu"])
+        txt = coinseo.cex_text({"cex": (40, names)}, "hr", "TRUMP")
+        self.assertIn("Coinbase (EU licenca)", txt)
+        self.assertIn("Binance", txt)
+        self.assertNotIn("aivora", txt.lower())
+        self.assertNotIn("[", txt)
+        small = coinseo.cex_text({"cex": (3, json.dumps(["aivora-exchange"]))}, "en", "X")
+        self.assertNotIn("aivora", small.lower())
+        self.assertEqual(coinseo.cex_short(names), " · Binance, Coinbase, OKX, Bybit EU")
+
 
 if __name__ == "__main__":
     unittest.main()

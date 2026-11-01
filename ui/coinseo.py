@@ -61,8 +61,12 @@ T = {
                "Set slippage (see the table below for this pool), confirm the swap and keep some SOL for network fees.",
                "Decide your exit before you buy: where you take profit and where you cut the loss."),
         cex_h="Is {sym} on a centralised exchange?",
-        cex_yes="Our data shows {sym} listed on {n} centralised exchange(s): {names}. On those you can skip the wallet "
-                "steps, but check that the exchange is licensed in the EU.",
+        cex_yes="Our data shows {sym} trading on {n} centralised exchanges. The best known: {names}. Prefer one with an "
+                "EU licence (see <a href={exch}>which exchanges are licensed</a>); not every coin listed worldwide is offered "
+                "to EU customers. Smaller venues in that count are not named here.",
+        cex_small="Our data shows {sym} on {n} smaller centralised exchanges, none of the well-known ones, so we don't "
+                  "name them. The on-chain route above is the safer way to buy it.",
+        mica_yes="EU licence",
         cex_no="We have no centralised exchange listing for {sym}, so the on-chain route above is the way to buy it.",
         slip_h="What a buy costs in the {liq} pool",
         slip_sub="Fewer tokens than the quoted price, constant-product pool, before fees",
@@ -144,8 +148,12 @@ T = {
                "Postavi slippage (vidi tablicu ispod za ovaj bazen), potvrdi swap i ostavi malo SOL-a za naknade mreže.",
                "Odluči o izlazu prije kupnje: gdje uzimaš dobit, a gdje režeš gubitak."),
         cex_h="Je li {sym} na centraliziranoj mjenjačnici?",
-        cex_yes="Prema našim podacima {sym} je na {n} centraliziranih mjenjačnica: {names}. Tamo možeš preskočiti korake "
-                "s novčanikom, ali provjeri ima li mjenjačnica licencu u EU.",
+        cex_yes="Prema našim podacima {sym} se trguje na {n} centraliziranih mjenjačnica. Najpoznatije: {names}. Biraj "
+                "onu s EU licencom (vidi <a href={exch}>koje mjenjačnice imaju licencu</a>); nije svaki coin s globalne liste "
+                "dostupan korisnicima u EU. Manje mjenjačnice iz tog broja ovdje ne navodimo.",
+        cex_small="Prema našim podacima {sym} je na {n} manjih centraliziranih mjenjačnica, nijednoj od poznatih, pa ih ne "
+                  "navodimo. Put preko novčanika gore je sigurniji način kupnje.",
+        mica_yes="EU licenca",
         cex_no="Nemamo podatak da je {sym} na centraliziranoj mjenjačnici, pa je put preko novčanika gore način kupnje.",
         slip_h="Koliko košta kupnja u bazenu od {liq}",
         slip_sub="Manje tokena od prikazane cijene, bazen s konstantnim produktom, prije naknada",
@@ -273,6 +281,50 @@ def _addr(r, lang):
             f"style='font-size:13px;word-break:break-all'>{m}</code><button class='btn g sm' type=button onclick=\""
             f"navigator.clipboard&&navigator.clipboard.writeText('{m}');this.textContent='✓'\">{t['copy']}</button>"
             f"</div></div>")
+
+
+# ---------- centralised exchanges -----------------------------------------------------------------------------------
+
+# Only well-known exchanges are named; the long tail of small venues in the listing data is counted, never listed.
+# True = holds an EU MiCA licence we verified (1 Nov 2026, see the exchanges article); None = not verified by us, so no
+# claim either way. Order = how well known.
+MAJOR_CEX = [("binance", "Binance", None), ("coinbase", "Coinbase", True), ("okx", "OKX", True),
+             ("kraken", "Kraken", True), ("bybit-eu", "Bybit EU", True), ("bybit", "Bybit", None), ("crypto-com", "Crypto.com", True),
+             ("bitpanda", "Bitpanda", True), ("bitstamp", "Bitstamp", True), ("bitvavo", "Bitvavo", True),
+             ("gemini", "Gemini", True), ("bitget", "Bitget", None), ("kucoin", "KuCoin", None),
+             ("gate", "Gate", None), ("mexc", "MEXC", None), ("htx", "HTX", None)]
+_CEX_ALIAS = {"gdax": "coinbase", "okex": "okx", "bybit_spot": "bybit", "mxc": "mexc", "huobi": "htx",
+              "bitpanda_pro": "bitpanda", "bitpanda-pro": "bitpanda", "crypto_com": "crypto-com", "cryptocom": "crypto-com", "crypto.com": "crypto-com", "gate-io": "gate",
+              "gateio": "gate", "gate.io": "gate", "huobi": "htx", "okex": "okx", "coinbase-exchange": "coinbase",
+              "coinbase-pro": "coinbase", "binance-com": "binance", "kraken-pro": "kraken"}
+
+
+def cex_major(names):
+    """[(display name, has MiCA licence)] for the well-known exchanges in a listing's names (JSON list or text)."""
+    try:
+        ids = json.loads(names) if isinstance(names, str) else list(names or [])
+    except (ValueError, TypeError):
+        ids = re.findall(r"[a-z0-9._\-]+", str(names or "").lower())
+    have = {_CEX_ALIAS.get(str(x).lower().strip(), str(x).lower().strip()) for x in ids}
+    return [(lab, mica) for key, lab, mica in MAJOR_CEX if key in have]
+
+
+def cex_short(names, k=5):
+    """' · Binance, Coinbase, OKX' (well-known names only) or '' for the coin page's safety table."""
+    major = [lab for lab, _m in cex_major(names)[:k]]
+    return f" · {', '.join(major)}" if major else ""
+
+
+def cex_text(o, lang, sym):
+    """Plain sentence about centralised listings: count + well-known names, with EU-licence marks."""
+    t = T[lang]
+    if not (o.get("cex") and o["cex"][0]):
+        return t["cex_no"].format(sym=sym)
+    major = cex_major(o["cex"][1])
+    if not major:
+        return t["cex_small"].format(sym=sym, n=o["cex"][0])
+    names = ", ".join(f"{lab} ({t['mica_yes']})" if m else lab for lab, m in major)
+    return t["cex_yes"].format(sym=sym, n=o["cex"][0], names=names, exch=t["exch"])
 
 
 # ---------- signals and checks --------------------------------------------------------------------------------------
@@ -409,10 +461,7 @@ def how_to_buy(slug, lang):
     name, sym = _names(r)
     o = K.ours(r["mint"], P.PUBLIC_DELAY_S)
     steps = "".join(f"<li>{s.format(sym=sym, exch=t['exch'])}</li>" for s in t["steps"])
-    if o.get("cex") and o["cex"][0]:
-        cex = t["cex_yes"].format(sym=sym, n=o["cex"][0], names=esc((o["cex"][1] or "")[:160]) or "–")
-    else:
-        cex = t["cex_no"].format(sym=sym)
+    cex = cex_text(o, lang, sym)
     R = (r.get("liq") or 0) / 2
     slip = ""
     if R > 0:
