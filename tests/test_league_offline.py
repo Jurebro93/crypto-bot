@@ -50,6 +50,8 @@ class League(unittest.TestCase):
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Jure"))  # already open
         self.assertIn("ok=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Ivan"))
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
+        import sqlite3
+        self.assertIn("disk servera je trenutno pun", league.db_error(sqlite3.OperationalError("database or disk is full")))
         league.post("/prijedlozi/add", {"text": "alarm za pad <30%>"}, "Panda")
         for user in ("Jure", None):
             self.assertIn("Ljestvica", league.page({}, user)[1])
