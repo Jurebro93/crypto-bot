@@ -7,8 +7,8 @@ one boots (~30-40 s, see start.sh). This page covers that gap in two ways:
      whenever a page comes back 502/503/504 or the server cannot be reached (the seconds before start.sh runs).
 The page checks every 3 s whether the real site is back and reloads by itself.
 
-Light landing style (rule 34), mobile first, Croatian + English in one file (picked in the browser from the
-cb_lang cookie, then the browser language). DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
+Light landing style (rule 34), mobile first, Croatian + English in one file; Croatian only for now
+(Nicholas, 1.11.), DEPLOY_LANG=auto picks from the cb_lang cookie, then the browser language. DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
 """
 import hashlib
 import html as _html
@@ -118,9 +118,9 @@ footer{text-align:center;font-size:12px;color:var(--mut);padding:0 16px 22px}
 
 JS = r"""
 (function(){
-var D=window.__D,lang=(document.cookie.match(/(?:^|; )cb_lang=(hr|en)/)||[])[1]||
-  ((navigator.language||'').toLowerCase().indexOf('hr')===0||(navigator.language||'').toLowerCase().indexOf('bs')===0||
-   (navigator.language||'').toLowerCase().indexOf('sr')===0?'hr':(location.hostname.indexOf('app.')===0?'hr':'en'));
+var D=window.__D,lang=D.lang||'hr';   // Croatian only for now (DEPLOY_LANG=auto: cookie, then browser language)
+if(lang==='auto')lang=(document.cookie.match(/(?:^|; )cb_lang=(hr|en)/)||[])[1]||
+  (/^(hr|bs|sr)/.test((navigator.language||'').toLowerCase())||location.hostname.indexOf('app.')===0?'hr':'en');
 var en=lang==='en',T=D.t[lang],$=function(id){return document.getElementById(id)};
 document.documentElement.lang=lang;
 var off=navigator.onLine===false,j=D.jokes[Math.floor(Math.random()*D.jokes.length)];
@@ -177,7 +177,8 @@ def html():
     """The whole page as one string (no outside files: it must work while the server is down)."""
     if "p" not in _cache:
         svg, name = _logo()
-        data = json.dumps({"jokes": JOKES, "news": _news(), "t": TEXT}, ensure_ascii=False).replace("</", "<\\/")
+        data = json.dumps({"jokes": JOKES, "news": _news(), "t": TEXT,
+                           "lang": os.environ.get("DEPLOY_LANG", "hr")}, ensure_ascii=False).replace("</", "<\\/")
         j = JOKES[0]
         _cache["p"] = f"""<!doctype html><html lang=hr><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content="noindex,nofollow">
