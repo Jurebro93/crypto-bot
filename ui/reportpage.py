@@ -35,14 +35,14 @@ def page(qs):
     b = ["<h1>Jutarnji izvještaj</h1><p class=mut>Svako jutro u "
          f"{esc(hour)}:00 (Zagreb) bot složi izvještaj iz svojih baza: što je naučio, koje KOL-ove pratiti, tokeni za "
          "današnje sesije, puls holdera i volumena i prijedlozi za algoritam. AI (Claude) interpretira brojke. "
-         "Šalje se na e-mail; ovdje su zadnja 14.</p>"]
+         "Šalje se na e-mail; ovdje su zadnjih 14.</p>"]
     miss = mail.missing()
-    ai = "da" if os.environ.get("ANTHROPIC_API_KEY") else "ne (dodaj ANTHROPIC_API_KEY)"
-    line = (f"E-mail: <b>{'nije podešen, nedostaje ' + esc(', '.join(miss)) if miss else esc(mail.method()) + ' → ' + esc(', '.join(mail.recipients()))}</b>"
+    ai = "da" if os.environ.get("ANTHROPIC_API_KEY") else "ne (na serveru nema ključa za Claude)"
+    line = (f"E-mail: <b>{'server ga sam ne šalje (nije upisana lozinka za slanje e-maila)' if miss else esc(mail.method()) + ' → ' + esc(', '.join(mail.recipients()))}</b>"
             f" · AI interpretacija: <b>{esc(ai)}</b>")
     if st.get("sent"):
         line += f" · zadnji poslan: {esc(st['sent'])}"
-    if st.get("error"):
+    if st.get("error") and not miss:   # with settings missing the line above already says why
         line += f"<br><span class=bad>{esc(_err(st['error']))}</span>"
     b.append(f"<div class=card>{line}</div>")
     if not sel:

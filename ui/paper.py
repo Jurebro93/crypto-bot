@@ -589,7 +589,7 @@ def page(qs):
     cfg = _cfg()
     b = ["<h1>Demo trading</h1><p class=mut>Trgovanje bez pravog novca. Otvorene pozicije se "
          f"ovdje preračunavaju po živoj cijeni s DexScreenera svakih {REFRESH_S} s, uz fee i slippage kao pri pravoj "
-         "prodaji. Klik na token otvara DexScreener, ⓘ otvara analizu tokena. "
+         "prodaji. Klik na ime tokena otvara njegovu stranicu na ploči, sličice ga otvaraju na vanjskim stranicama. "
          "<span id=upd class=mut></span></p><div class=grid id=cards></div>"]
     b.append(_learning_box(trades, cfg))
     try:

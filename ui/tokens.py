@@ -59,11 +59,16 @@ def _strong(n=5):
         f = json.loads(fj or "{}")
         tr.append([tlink(m, sym), num(sc, "{:.0f}"), usd(mc), usd(f.get("volumen_dan")),
                    num(None if f.get("holderi_30d") is None else 100 * f["holderi_30d"], "{:+.0f}%"), (esc(why), "", "wrap")])
+    head = ["Token", ("Ocjena", "n"), ("Vrijednost", "n"), ("Volumen dnevno", "n"), ("Rast holdera 30 d", "n"), ("Zašto", "wrap")]
+    grown = any(json.loads(r[4] or "{}").get("holderi_30d") is not None for r in rows)
+    if not grown:  # holder growth needs a week of daily counts: until then the column would be all dashes
+        head.pop(4)
+        tr = [r[:4] + r[5:] for r in tr]
     return ("<h2>Jaki tokeni <span class=mut style='font-weight:400'>· stariji, veća vrijednost, stalan volumen</span></h2>"
-            + tdesc("Najbolji s popisa Jaki na stranici Dugoročni: tokeni koji su tu već tjednima, vrijede barem 5 M$, imaju "
-                    "stalan volumen svaki dan i holderi im rastu. Sigurniji od novih tokena ispod.")
-            + table(["Token", ("Ocjena", "n"), ("Vrijednost", "n"), ("Volumen dnevno", "n"), ("Rast holdera 30 d", "n"),
-                     ("Zašto", "wrap")], tr, "tj", "", mints=[r[0] for r in rows])
+            + tdesc("Najbolji s popisa Jaki na stranici Dugoročni: tokeni koji su tu već tjednima, vrijede barem 5 M$ i imaju "
+                    "stalan volumen svaki dan. " + ("" if grown else "Rast broja holdera prikazat će se kad bot skupi barem "
+                    "tjedan dana dnevnih brojanja. ") + "Sigurniji od novih tokena ispod.")
+            + table(head, tr, "tj", "", mints=[r[0] for r in rows])
             + "<p class=mut><a href=/dugorocno#jaki>Cijeli popis jakih tokena →</a></p>")
 
 
@@ -78,8 +83,8 @@ def page(qs):
 
     b = ["<h1>Tokeni</h1><p class=mut>Samo tokeni koji su još kandidati, poredani po <b>confidenceu</b>: hype ocjena plus "
          "neovisne potvrde (X, smart money, KOL, holderi, rug filter, event), minus rizici. Rugani, odbačeni i slabi "
-         f"(confidence ispod {overview.MIN_SHOW_CONF}) se ne prikazuju. Klik na red otvara raspis s dokazima, klik na ime "
-         "otvara DexScreener. Starije, jače tokene s većom tržišnom vrijednošću i stalnim volumenom vidi na "
+         f"(confidence ispod {overview.MIN_SHOW_CONF}) se ne prikazuju. Klik na ime otvara stranicu tokena sa svim "
+         "provjerama, a sličice pored imena otvaraju ga na vanjskim stranicama. Starije, jače tokene s većom tržišnom vrijednošću i stalnim volumenom vidi na "
          "<a href=/dugorocno>Dugoročnima</a>.</p>",
          f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}<span class=mut>{len(active)} aktivnih, {len(event)} uz event, "
          f"{len(older)} starijih</span></div>", overview.hidden_line(n_hidden)]
