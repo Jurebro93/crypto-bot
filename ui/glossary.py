@@ -440,6 +440,19 @@ T("Raspon ocjene", "kol", "Između kojih brojeva je vjerojatno prava ocjena KOL-
   "KOL s tri sretna poziva ima širok raspon, pa mu ne vjerujemo kao KOL-u s 80 poziva i uskim rasponom.",
   "55 (52-58) je pouzdano; 55 (30-70) je još nagađanje.",
   vidi=["moc-poziva", "provjera-tocnosti"], gdje=[("/kol#ljestvica", "KOL-ovi")], alias=["raspon"])
+T("Na probi", "grupe", "Novi ili još nedokazani KOL: alat ga prati, ali mu još ne vjeruje.",
+  "Račun je na probi dok nema barem 10 izmjerenih poziva, dok ga ne pratimo barem 14 dana ili ako njegove objave "
+  "vidi malo ljudi (medijan ispod 200 pregleda). Na probi ga ne pratimo uživo, ne nudi se za copy trading i ne broji "
+  "se kao dobar KOL u grupnom signalu. Tako jedan sretan tjedan ili hakirani račun s lažnim brojkama ne dođe na vrh.",
+  "Račun s 4 poziva i 100% pogotkom je na probi; nakon 10 poziva i 2 tjedna alat zna je li stvarno dobar.",
+  vidi=["raspon-ocjene", "ai-provjera-racuna"], gdje=[("/kol#ljestvica", "KOL-ovi")], alias=["proba", "nedokazan"])
+T("AI provjera računa", "grupe", "Jednom tjedno AI pogleda profil najboljih KOL-ova i kaže je li to stvarno KOL.",
+  "Alat preuzme profil s X-a (opis, starost računa, prikvačenu objavu) i zadnje objave, a AI (Claude Haiku) "
+  "procijeni je li račun pravi KOL ili trader, ili je hakiran (profil nevezan uz kriptu, objave su spam), dev koji "
+  "pumpa svoje tokene, prodavač plaćene grupe ili bot. Loša ocjena izbacuje račun s KOL liste, a razlog piše na "
+  "njegovoj stranici.",
+  "Profil srednjoškolskog sportaša koji odjednom objavljuje „klikni za glasanje“ uz CA: hakiran, izbačen.",
+  vidi=["na-probi"], gdje=[("/kol", "KOL-ovi")], alias=["hakiran račun", "provjera profila"])
 T("Tko koga kopira", "grupe", "Veliki KOL-ovi koji redovito zovu tokene tek nakon što ih je zvao neki mali KOL.",
   "Za svaki token alat gleda redoslijed poziva. Kad račun s barem 5× više pratitelja (i 20.000+) zove isti token unutar "
   "48 h nakon manjeg računa, i to na više tokena, veliki vjerojatno čita malog ili ima istu ekipu. Mali je tada zlatan: "

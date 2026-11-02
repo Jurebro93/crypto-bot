@@ -7,7 +7,7 @@ import os
 from urllib.parse import quote
 
 from kol import score as kscore, store
-from ui.html import ago, badge, breakdown, esc, filt, num, signed, table, tdesc, tlink, ts, usd, wlink
+from ui.html import ago, badge, breakdown, esc, filt, num, signed, table, tdesc, tip, tlink, ts, usd, wlink
 
 CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")
 
@@ -48,6 +48,9 @@ def profile_url(h):
     if h.startswith("w:"):
         return None
     return f"https://x.com/{quote(h)}"
+
+
+TRIAL_TIP = tip("", "na-probi")
 
 
 def klink(h):
@@ -206,6 +209,8 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
         rows = [k for k in rows if is_star(k, stars) == star]
     last = dict(con.execute("SELECT handle, MAX(ts) FROM calls WHERE kind = 'call' GROUP BY handle"))
     out = []
+    from kol.discover import on_trial
+    rows.sort(key=lambda k: on_trial(k["stats"]))  # proven KOLs first, "na probi" after them (stable: by score)
     for k in rows:
         s = json.loads(k["stats"] or "{}")
         if s.get("measured", 0) < minc:
@@ -221,7 +226,11 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
         rng = (f' <span class=mut title="80% raspon: s ovoliko poziva prava ocjena je vjerojatno između '
                f'{s["score_lo"]:.0f} i {s["score_hi"]:.0f}">({s["score_lo"]:.0f}-{s["score_hi"]:.0f})</span>'
                if s.get("score_lo") is not None else "")
-        out.append([klink(k["handle"]), num(k["followers"]), (f"<b>{k['score']:.0f}</b>{rng}", k["score"], "n"),
+        name = klink(k["handle"]) + (
+            f' <span class="b warn" title="{esc(s.get("trial_why", ""))}">na probi</span>{TRIAL_TIP}'
+            if s.get("trial") else "") + (' <span class="b good" title="Njegov novčanik je kupio tokene koje je zvao">'
+                                           'kupio</span>' if s.get("bought") else "")
+        out.append([name, num(k["followers"]), (f"<b>{k['score']:.0f}</b>{rng}", k["score"], "n"),
                     m(lift(k["power_rel"])), num(s.get("measured")), m(share(s.get("hit_rate"))),
                     m(pct(s.get("med_max24"))), m(pct(s.get("med_r1h"))), m(lift(s.get("med_lift"))),
                     m(share(s.get("rug_rate"))), m(share(s.get("prepump_rate"))), m(share(s.get("first_rate"))),
@@ -603,6 +612,21 @@ def _charts(con, handle):
                           fmt="usd+", base=0, base_label="nula"))
 
 
+def _audit_line(con, handle):
+    """Latest weekly AI profile check (kol/discover.py audit) of this account, or ''."""
+    try:
+        r = con.execute("SELECT ts, verdict, why, bio, created FROM audits WHERE handle = ?", (handle,)).fetchone()
+    except Exception:  # noqa: BLE001 - no audits table yet
+        return ""
+    if not r:
+        return ""
+    from kol.discover import VERDICTS
+    ok = r[1] in ("kol", "trader")
+    return (f'<p><span class="b {"good" if ok else "warn"}">AI provjera</span>{tip("", "ai-provjera-racuna")} '
+            f'{esc(VERDICTS.get(r[1], r[1]))}{(": " + esc(r[2])) if r[2] else ""} '
+            f'<span class=mut>({ago(r[0])[0]}; profil: {esc((r[3] or "")[:160])})</span></p>')
+
+
 def kol_page(handle, qs):
     con = store.ro()
     if con is None:
@@ -633,6 +657,13 @@ def kol_page(handle, qs):
                      'grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, konvergenciju, demo ulaze ni statistiku '
                      'X objava. Ne otvaraj linkove iz njegovih objava. Brojke niže samo pokazuju što su njegove objave '
                      'napravile s cijenom.</p>')
+        if s.get("trial") and not k.get("bot"):
+            b.append(f'<p><span class="b warn">na probi</span>{tip("", "na-probi")} Još ga ne pratimo uživo, ne '
+                     f'ulazi u copy trading ni kao „dobar KOL“ u grupni signal: {esc(s.get("trial_why") or "")}.</p>')
+        if s.get("bought"):
+            b.append(f'<p><span class="b good">kupio</span> Njegov novčanik je kupio {s["bought"]} od tokena koje je '
+                     'zvao: stavlja novac iza objave.</p>')
+        b.append(_audit_line(con, handle))
         if s.get("parts"):
             w, p = cfg["weights"], s["parts"]
             expl = {"hit": f"{s['hit_rate']:.0%} poziva s barem +{cfg['hit_x']:.0%} u 24 h",

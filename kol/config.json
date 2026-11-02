@@ -110,6 +110,17 @@
   "pair_max_p": 0.01,
   "gate": true
  },
+ "discover": {
+  "win_x": 1.0,
+  "win_hours": 48,
+  "win_per_run": 4,
+  "win_pages": 3,
+  "winners_usd": 0.12,
+  "win_back_h": 48,
+  "trial": {"min_calls": 10, "days": 14, "min_views": 200},
+  "audit": {"top": 20, "every_d": 7, "per_run": 5, "posts": 8, "model": "claude-haiku-5-5",
+            "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]}
+ },
  "timeline_twapi": {
   "every_min": 15,
   "kols": 400,

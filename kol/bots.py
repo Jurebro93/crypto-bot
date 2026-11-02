@@ -129,6 +129,9 @@ def detect(con, cfg):
         ok, why = classify(h, posts, cfg)
         if ok:
             bots[h] = why
+    from kol import discover
+    for h, why in discover.bad_audits(con, cfg).items():
+        bots.setdefault(h, why)
     con.execute("UPDATE kols SET bot = 0, bot_why = NULL WHERE COALESCE(bot, 0) != 0")
     con.executemany("UPDATE kols SET bot = 1, bot_why = ? WHERE handle = ?", [(w, h) for h, w in bots.items()])
     return set(bots)

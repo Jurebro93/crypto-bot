@@ -143,7 +143,9 @@ def find_groups(calls, secs):
 
 
 def build_groups(con, cfg):
-    scores = dict(con.execute("SELECT handle, score FROM kols"))
+    from kol import discover
+    # a KOL on trial (kol/discover.py) is not a "good KOL" in the group signal until it is proven
+    scores = {h: (None if discover.on_trial(st) else sc) for h, sc, st in con.execute("SELECT handle, score, stats FROM kols")}
     calls = con.execute("SELECT token, ts, handle FROM calls WHERE kind = 'call' ORDER BY token, ts").fetchall()
     con.execute("DELETE FROM groups")
     n = 0
@@ -271,6 +273,8 @@ def build_watch(con, cfg, now=None):
     # ranked by the lower end of the score range (kol/validate.py): proven KOLs before lucky newcomers
     for h, sc, st in sorted(rows, key=lambda r: (-_lower(r[2], r[1]), -r[1])):
         s = json.loads(st or "{}")
+        if s.get("trial"):  # na probi (kol/discover.py): not followed live until proven
+            continue
         if (s.get("measured", 0) >= w["min_calls"] and s.get("prepump_rate", 1) <= w["max_prepump"]
                 and s.get("hit_rate", 0) >= w["min_hit"]):
             why = (f"{s['measured']} poziva, pogodak {s['hit_rate']:.0%}, medijan max 24 h {s['med_max24']:+.0%}, "
@@ -308,6 +312,8 @@ def run(con, cfg, now=None):
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)
+    from kol import discover
+    discover.annotate(con, cfg, now)
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
