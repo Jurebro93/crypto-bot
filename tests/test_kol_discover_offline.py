@@ -189,5 +189,21 @@ class Graph(Base):
         self.assertNotIn("hiddengem", collect.timeline_handles(self.con, cfg, NOW + 30 * DAY))  # asked once
 
 
+class StarsList(Base):
+    def test_list_share_of_round(self):
+        path = os.path.join(tempfile.mkdtemp(), "stars.json")
+        with open(path, "w") as f:
+            json.dump({"handles": ["@Ansem", {"handle": "frank"}, "frank", ""]}, f)
+        self.assertEqual(discover.list_stars(path), ["Ansem", "frank"])
+        self.assertEqual(discover.list_stars(path + "x"), [])
+        from kol import collect
+        cfg = dict(CFG, timeline=dict(CFG["timeline"], kols=10, core=0, stars_slots=1))
+        with mock.patch.object(discover, "STARS_LIST", path):
+            first = collect.timeline_handles(self.con, cfg, NOW)
+            self.assertEqual(first, ["Ansem"])
+            collect._searched(self.con, "tl:Ansem", "timeline_kol", NOW)
+            self.assertEqual(collect.timeline_handles(self.con, cfg, NOW + 60), ["frank"])  # least recently read
+
+
 if __name__ == "__main__":
     unittest.main()

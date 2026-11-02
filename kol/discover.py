@@ -364,3 +364,24 @@ def graph_candidates(con, cfg):
     from kol import bots
     return [h for h, n, fol, bio in rows if (fol or 0) >= g["min_followers"] and CRYPTO.search(f"{h} {bio or ''}")
             and not bots.HANDLE.search(h)]
+
+
+STARS_LIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stars_list.json")
+
+
+def list_stars(path=None):
+    """Handles from the curated public-list file kol/stars_list.json ([...] or {"handles": [...]}; entries may be
+    "@handle" strings or {"handle": ...}); [] when the file is missing. They are candidates like any other account:
+    trial, AI profile check and bot rules apply once they post."""
+    try:
+        with open(path or STARS_LIST) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return []
+    items = d.get("handles", []) if isinstance(d, dict) else d
+    out = []
+    for it in items:
+        h = it.get("handle") if isinstance(it, dict) else it
+        if isinstance(h, str) and h.strip().lstrip("@"):
+            out.append(h.strip().lstrip("@"))
+    return list(dict.fromkeys(out))

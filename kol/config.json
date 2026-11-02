@@ -126,6 +126,7 @@
  "timeline_twapi": {
   "every_min": 30,
   "rug_refresh_d": 3,
+  "stars_slots": 20,
   "kols": 400,
   "core": 300,
   "per_query": 10,
