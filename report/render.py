@@ -150,10 +150,15 @@ def render(data, ai, source):
 
     # what was learned
     body = bullets(ai.get("naucio"))
-    wrows = []
-    for r in data["weights"]["runs"]:
+    wrows, seen = [], set()
+    # learning re-runs often propose the same change many times: show each change once, applied ones first
+    for r in sorted(data["weights"]["runs"], key=lambda r: not r["applied"]):
         for t in r["top"][:4]:
             d = t["new"] - t["old"]
+            key = (r["klasa"], t["feature"], round(t["old"], 2), round(t["new"], 2))
+            if key in seen:
+                continue
+            seen.add(key)
             wrows.append([e(r["klasa"]), e(t["feature"]), f"{t['old']:+.2f} → <b>{t['new']:+.2f}</b>",
                           f'<span style="color:{GOOD if d > 0 else BAD}">{d:+.2f}</span>',
                           "da" if r["applied"] else f'<span style="color:{MUT}">ne</span>'])
@@ -163,7 +168,8 @@ def render(data, ai, source):
     srows = []
     for s, a, b in SESSIONS:
         v = acc.get(s) or {}
-        sig = v.get("signal") or v.get("call")
+        # the measure with the bigger sample (group signals are rare, single KOL calls are many)
+        sig = max((x for x in (v.get("signal"), v.get("call")) if x), key=lambda x: x.get("n") or 0, default=None)
         name = f'<b style="color:{SESS_COLOR[s]}">{NAMES[s]}</b> <span style="color:{MUT}">{a:02d}-{b:02d} UTC</span>'
         if s == cur:
             name += f' <span style="font-size:11px;color:{GOOD}">● sada</span>'
