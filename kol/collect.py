@@ -425,15 +425,22 @@ def timeline_twapi(con, cfg, get=None, now=None):
         cur.append(h)
     if cur:
         chunks.append(cur)
+    # the timelines keep their own counter (kv twtl:<day>): discovery (kol/discover.py) has its own cap, and spend
+    # from before pacing existed (2.11. morning) must not block the timelines for the rest of the day
+    tl_key = f"twtl:{time.strftime('%Y-%m-%d', time.gmtime(now))}"
+    row = con.execute("SELECT value FROM kv WHERE key = ?", (tl_key,)).fetchone()
+    tl_spent = float(row[0]) if row else 0.0
     done = []
     for chunk in chunks:
-        if twapi.spent(con, now) >= budget:
+        if tl_spent >= budget:
             print(f"kol twitterapi: do sada dopušteno ${budget:.2f} danas potrošeno, ostatak u sljedećem krugu",
                   flush=True)
             break
         since = max(now - 6 * 3600, min(read.get(h) or round_since for h in chunk)) - 300
+        before = twapi.spent(con, now)
         try:
-            items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, budget, get=get, now=now)
+            items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, before + budget - tl_spent,
+                                 get=get, now=now)
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
             body = ""
             try:
@@ -442,6 +449,11 @@ def timeline_twapi(con, cfg, get=None, now=None):
                 pass
             print(f"kol twitterapi: upit nije uspio ({type(e).__name__}: {e}) {body}", flush=True)
             continue
+        finally:
+            used = twapi.spent(con, now) - before
+            tl_spent += used
+            con.execute("INSERT INTO kv VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS REAL) + ?",
+                        (tl_key, str(used), used))
         n += save(con, [c for it in items for c in calls_from_tweet(it, source="kol_timeline")])
         done += chunk
     _searched(con, "timeline_tw", "timeline", now)

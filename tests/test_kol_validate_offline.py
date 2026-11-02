@@ -206,6 +206,32 @@ class CarryOver(unittest.TestCase):
         self.assertIn(f"since_time:{day0 + DAY // 2 - 6 * 3600 - 300}", asked[0])
 
 
+class OwnCounter(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        p = mock.patch("usage.meter.record")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_other_spend_does_not_block_timelines(self):
+        import time as _t
+        from kol import collect
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        for i in range(3):
+            con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", (f"k{i}", 50, "{}"))
+            for j in range(2):
+                con.execute("INSERT INTO calls (tweet_id, handle, token, ts, kind) VALUES (?,?,?,?,?)",
+                            (f"k{i}{j}", f"k{i}", f"t{i}{j}", NOW - DAY, "call"))
+        day = _t.strftime("%Y-%m-%d", _t.gmtime(NOW))
+        con.execute("INSERT INTO kv VALUES (?, '0.70')", (f"twapi:{day}",))  # morning spend + discovery
+        asked = []
+        cfg = dict(CFG, timeline_twapi={"every_min": 30, "kols": 3, "core": 3, "per_query": 10, "daily_usd": 0.7})
+        collect.timeline_twapi(con, cfg, get=lambda q, c: asked.append(q) or {"tweets": []}, now=NOW)
+        self.assertEqual(len(asked), 1)
+        used = float(con.execute("SELECT value FROM kv WHERE key = ?", (f"twtl:{day}",)).fetchone()[0])
+        self.assertGreater(used, 0)
+
+
 class TwitterApiIo(unittest.TestCase):
     def setUp(self):  # keep test spend out of the shared usage meter
         from unittest import mock
