@@ -39,6 +39,8 @@ def token_rows(since=None):
     tiers = data.token_tiers()
     from rugfilter import archive
     gone = archive.blocked(data.HYPE_DB)   # rugged and archived: out of the live data, on no page
+    from topcheck import store as topstore
+    tops = topstore.read_all()   # fresh check of the recommended tokens (run_top.py): market state + rug check
     out = []
     for t in (set(sigs) | set(rugs) | set(evs) | set(cands)) - gone:
         s = sigs.get(t)
@@ -67,6 +69,9 @@ def token_rows(since=None):
         col = collapse.check(pk.get(t))  # already dumped: never a candidate, whatever the rug filter said
         if col:
             hard = True
+        top = tops.get(t)
+        if top and top.get("verdict") == "pao":   # failed the mandatory rug check: never recommended
+            hard = True
         sn, an, _, _ = sansa.score(conf, cs)
         out.append({"token": t, "symbol": sym, "checks": cs, "passed": passed, "failed": failed, "hard": hard,
                     "tier": tier, "razina": tier.get("razina"), "klasa": tier.get("klasa"), "sansa": sn, "analysed": an,
@@ -74,7 +79,7 @@ def token_rows(since=None):
                     "cand": cands.get(t), "collapse": col, "peak": pk.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
                     "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
-                    "features": feats})
+                    "features": feats, "top": top})
     return out
 
 
@@ -123,6 +128,25 @@ def featured(recent, per_class=3):
     out = {k: [r for r in elig if r["klasa"] == k][:per_class] for k in KLASE}
     out[None] = [r for r in elig if not r["klasa"]][:per_class]
     return elig, {k: v for k, v in out.items() if v}
+
+
+TOP_N = 20    # recommended tokens kept fresh: re-scored every scan, market state + rug check (run_top.py)
+TOP_H = 48    # = ui.league.SUGGEST_H: the window the Natjecanje suggestions table shows by default
+
+
+def top_tokens(rows, n=TOP_N):
+    """The first `n` rows of the Natjecanje suggestions table with its default filter (same order, same cut)."""
+    return sorted([r for r in rows if not r["hard"]], key=_rank, reverse=True)[:n]
+
+
+def watch_tokens(hours=24, per_class=3, n=TOP_N):
+    """Mints that must stay fresh: what Pregled features (last `hours`) and the top `n` Natjecanje suggestions
+    (last TOP_H hours). One token_rows() for both. Featured first."""
+    now = time.time()
+    rows = token_rows(since=now - max(hours, TOP_H) * 3600)
+    _, per = featured([r for r in rows if r["last_seen"] >= now - hours * 3600], per_class)
+    out = [r["token"] for rs in per.values() for r in rs]
+    return list(dict.fromkeys(out + [r["token"] for r in top_tokens(rows, n)]))
 
 
 def featured_tokens(hours=24, per_class=3):
