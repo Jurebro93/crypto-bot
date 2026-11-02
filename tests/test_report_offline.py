@@ -32,6 +32,9 @@ def make_dbs(d):
                       (tok, NOW - (10 - k) * 3600, 1000 + k * 300, 100 + k * 20 * (1 - i), 150000, 50, 20))
     h.execute("INSERT INTO token_tier (token, symbol, last_ts, razina, t0, score) VALUES ('MintRug', 'RUG', ?, 2, 'pad', 99)",
               (NOW,))
+    # dead dust token that never passed T0: not a candidate for today (2.11. report listed 6 of these)
+    h.execute("INSERT INTO token_tier (token, symbol, last_ts, razina, t0, score, mcap) "
+              "VALUES ('MintDust', 'DUST', ?, 1, NULL, 98, 2000)", (NOW - 5 * 3600,))
     h.commit()
     h.close()
     k = sqlite3.connect(os.path.join(d, "kol.db"))
@@ -86,6 +89,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual([x["handle"] for x in d["kols"]["top"]], ["alpha"])   # 1 measured call is not enough
         toks = [t["symbol"] for t in d["today"]["tokens"]]
         self.assertNotIn("RUG", toks)
+        self.assertNotIn("DUST", toks)
         self.assertEqual(toks[0], "AAA")                                        # US-heavy volume x factor 1.25 + KOL
         self.assertEqual(d["today"]["tokens"][0]["dominant"], "us")
         self.assertEqual([x["symbol"] for x in d["pulse"]], ["AAA"])            # BBB holders flat -> not growing
