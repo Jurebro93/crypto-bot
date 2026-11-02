@@ -443,7 +443,7 @@ def _learning_box(trades, cfg):
         f"Osim glavnih ulaza (score ≥ {cfg.get('min_score')}, ulog ${cfg.get('size_usd')}), bot radi i "
         f"<b>istraživačke</b> demo ulaze: token ispod praga, ali u gornjih {ex.get('top_pct', '?')}% ocjena zadnja 24 h "
         f"(i barem {ex.get('min_score', '?')}), s ulogom ${ex.get('size_usd', '?')}, najviše {ex.get('max_open', '?')} otvorenih "
-        f"i {ex.get('max_per_day', '?')} dnevno. Ne troše nove Helius kredite na rug provjeru (koriste samo postojeći izvještaj) i nikad se ne kopiraju u pravi trading. Svaki ishod, i dobitak i gubitak, "
+        + (f"i {ex['max_per_day']} dnevno" if ex.get('max_per_day') else "bez dnevnog limita") + ". Ne troše nove Helius kredite na rug provjeru (koriste samo postojeći izvještaj) i nikad se ne kopiraju u pravi trading. Svaki ishod, i dobitak i gubitak, "
         "ide u učenje: težine ocjene uče se iz svih skeniranih tokena, izlazi iz putanja svih praćenih tokena, a dnevni "
         "pregled uspoređuje obje skupine.") if ex.get("enabled") else "<h2>Učenje</h2>")
     kc = (cfg or {}).get("konv") or {}

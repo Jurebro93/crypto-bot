@@ -1,8 +1,8 @@
 {
  "bankroll_usd": 1000,
  "size_usd": 50,
- "max_open": 8,
- "max_entries_per_day": 30,
+ "max_open": 40,
+ "max_entries_per_day": null,
  "min_score": 50,
  "dex_min_score": 75,
  "event_days": 2,
@@ -51,9 +51,10 @@
   "top_pct": 30,
   "min_score": 20,
   "min_liq": 5000,
-  "max_open": 15,
-  "max_per_day": 60
+  "max_open": 60,
+  "max_per_day": null
  },
+ "_limits": "Demo je papirnati novac: nema dnevnog limita ulaza (null = bez limita), da alat uči iz svake prilike i popodne i navečer (Nicholas 2.11.). Ostaje samo visok limit istovremeno otvorenih pozicija radi provjere cijena svake minute.",
  "_explore": "Istraživački demo ulazi: tokeni ispod min_score koji su u gornjih top_pct% ocjena zadnja 24 h (i barem explore.min_score) ulaze s manjim ulogom, da bot radi više tradeova i brže uči. Ne kopiraju se u pravi trading.",
  "ticks_keep_days": 30,
  "konv": {

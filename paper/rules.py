@@ -29,10 +29,10 @@ from learn import weights as _w
 DEFAULT = {
     "gate": {"enabled": True, "min_liq": 10000, "max_liq_mcap": 0.8, "max_price_small": 1.0, "min_vol_keep": 0.2,
              "t0_checks_per_pass": 8},
-    "ab": {"enabled": True, "band": 100000, "fresh_min": 15, "size_usd": 20, "max_open": 8, "max_per_day": 20,
+    "ab": {"enabled": True, "band": 100000, "fresh_min": 15, "size_usd": 20, "max_open": 40, "max_per_day": None,
            "min_n": 30, "keep_frac": 0.25, "ret_cap": 3.0},
-    "kol3": {"enabled": True, "authors": 3, "window_min": 15, "fresh_min": 10, "size_usd": 20, "max_open": 6,
-             "max_per_day": 20, "min_n": 15, "bad_win": 0.3, "keep_frac": 0.25},
+    "kol3": {"enabled": True, "authors": 3, "window_min": 15, "fresh_min": 10, "size_usd": 20, "max_open": 40,
+             "max_per_day": None, "min_n": 15, "bad_win": 0.3, "keep_frac": 0.25},
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
                  "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
 }

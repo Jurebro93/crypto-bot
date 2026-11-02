@@ -36,6 +36,13 @@ OUT = os.path.join(HERE, "output", "paper")
 SUGGESTED = os.path.join(HERE, "paper", "config.suggested.json")
 
 
+
+def _over(n, cap):
+    """Demo caps: None (or 0) means no cap. Nicholas 2.11.: demo is paper money, so there is no daily limit on
+    entries; every opportunity in the afternoon and evening is traded too, so the bot learns from all of them.
+    Only the number of positions open at once keeps a high safety cap (price checks per minute)."""
+    return bool(cap) and n >= cap
+
 def _usd(x):
     x = x or 0
     for unit, div in (("B", 1e9), ("M", 1e6), ("k", 1e3)):
@@ -431,7 +438,7 @@ def trigger_entries(con, cfg, rst, now):
         if tok not in mk:
             continue
         r = R["ab" if mode in ("mc100k", "mc100k2") else mode]
-        if cnt[mode][0] >= r["max_open"] or cnt[mode][1] >= r["max_per_day"]:
+        if _over(cnt[mode][0], r.get("max_open")) or _over(cnt[mode][1], r.get("max_per_day")):
             continue
         price, liq, mcap, url = mk[tok]
         t0 = t0s.get(tok)
@@ -555,7 +562,7 @@ def intake(cfg, now=None, quiet=False):
         konv = bool(c["origin"] == "hype" and konv_fresh(cv, kc, now) and s < need
                     and price > 0 and liq >= ex.get("min_liq", cfg["min_liq"]) and mcap <= cfg["max_mcap"])
         explore = explore or konv
-        if explore and (ex_open >= ex["max_open"] or ex_today >= ex["max_per_day"]):
+        if explore and (_over(ex_open, ex.get("max_open")) or _over(ex_today, ex.get("max_per_day"))):
             explore = konv = False
         arm = arms.arm_of(c, cv, now)
         if explore and not konv:  # Thompson sampling: arms that keep losing get fewer exploration trades
@@ -585,7 +592,7 @@ def intake(cfg, now=None, quiet=False):
                 f"; {c['arm_note']}" if c.get("arm_note") else "")
             if s >= cfg.get("rug_shadow_min_score", 101):  # verdicts on skips too, so the review can judge the filter
                 c["rug_verdict"], c["rug_score"], c["rug_flags"] = rug_verdict(con, t, cfg, now)
-        elif not explore and (n_open >= cfg["max_open"] or n_today >= cfg["max_entries_per_day"]):
+        elif not explore and (_over(n_open, cfg.get("max_open")) or _over(n_today, cfg.get("max_entries_per_day"))):
             c["decision"], c["reason"] = "skip_full", f"{n_open} otvorenih, {n_today} danas"
         else:
             t0 = t0s.get(t)
