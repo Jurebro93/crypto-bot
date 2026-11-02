@@ -399,8 +399,13 @@ def page(qs):
     else:
         rr = []
         for r in runs:
-            diff = ", ".join(f"{feat(k)} {r['old'].get(k, 0):g}→{v:g}" for k, v in sorted(r["new"].items(), key=lambda kv: -abs(kv[1] - r["old"].get(kv[0], 0)))
-                             if abs(v - r["old"].get(k, 0)) >= 0.1)[:200] if r["new"] else ""
+            def _n(x):
+                return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+            # only numeric weights: some runs (e.g. the rug profile) also store text values, which have no "change"
+            pairs = [(k, _n(v), _n(r["old"].get(k, 0)) if r.get("old") else 0) for k, v in (r["new"] or {}).items()]
+            pairs = [(k, v, o or 0) for k, v, o in pairs if v is not None]
+            diff = ", ".join(f"{feat(k)} {o:g}→{v:g}" for k, v, o in sorted(pairs, key=lambda p: -abs(p[1] - p[2]))
+                             if abs(v - o) >= 0.1)[:200]
             rr.append([esc(dt.datetime.fromtimestamp(r["ts"]).strftime("%d.%m. %H:%M")),
                        badge("confidence", "good") if r["klasa"] == "confidence" else badge("profil ruga", "bad") if r["klasa"] == "rugprofil" else badge("model") if r["klasa"] == "model" else klasab(r["klasa"]), num(r["n"]),
                        badge("primijenjeno", "good") if r["applied"] else badge("bez promjene"),
