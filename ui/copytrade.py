@@ -290,11 +290,8 @@ def page(qs, user):
              'token, kupuješ ga i ti. <b>Wallet:</b> kad on kupi, kupiš i ti; kad on proda, prodaš i ti. '
              'Provjera ide svake minute, i preko noći.</p>', msg]
         if not user:
-            b.append('<div class=card>Gledaš bez prijave pa ne možeš nikoga pratiti. '
+            b.append('<div class=card>Pratiti mogu samo igrači: prijavi se svojim imenom. '
                      '<a href="/prijava?next=/copy-trading"><button>Prijavi se svojim imenom</button></a></div>')
-        b.append('<div class=ctl style="margin:8px 0"><a class=chip href="#pratim">👀 Koga pratiš</a>'
-                 '<a class=chip href="#influenceri">📣 Influenceri</a><a class=chip href="#walleti">👛 Walleti</a>'
-                 '<a class=chip href="#dogadjaji">📜 Što se dogodilo</a><a class=chip href="/natjecanje">🏆 Natjecanje</a></div>')
         b.append('<h2 id=pratim>Koga se prati</h2>' + tdesc(
             "Tvoja praćenja su gore, ostalih igrača ispod. Ulazi iz praćenja su obični tradeovi na računu: vide se u "
             "Natjecanju i možeš ih i sam prodati.") + _follows_table(con, ordered, user))
