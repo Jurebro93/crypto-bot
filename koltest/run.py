@@ -97,8 +97,11 @@ def intake(con, cfg, now, events):
     hour, per_caller = _hour_counts(con, now), _caller_counts(con, now)
     # best callers first when the hourly cap is tight; inside equal scores the NEWEST call first (oldest-first filled
     # the cap with calls just under the 10-min limit: median delay was ~580 s on 1.11.)
+    # A call skipped once (late or over a cap) is never taken later: when a cap slot freed up, the next pass used to
+    # pick a call that had waited up to 10 min (median entry 546 s after a KOL wallet buy on 2.11.), so the test
+    # measured entries long after the call. Now a call is entered when first seen or not at all.
     for tok, ts, plat, author, score in sorted(events, key=lambda e: (-e[4], -e[1])):
-        if (author, tok) in known or ts < start:   # calls from before the test began are not part of it
+        if (author, tok) in known or (author, tok) in _SEEN or ts < start:   # before the test began: not part of it
             continue
         known.add((author, tok))
         if now - ts > cfg["max_delay_min"] * 60:

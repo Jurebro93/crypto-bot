@@ -33,8 +33,11 @@ class QuickBuy(unittest.TestCase):
 
     def test_strong_list(self):
         got = quickbuy.strong()
-        self.assertEqual(got[0]["mint"], FART)         # the role model first, once
-        self.assertEqual([t["mint"] for t in got].count(FART), 1)
+        # Fartcoin/Useless are no longer pinned on top as role models (2.11.: they were falling); a token on the
+        # long-term list still shows once, in its rank
+        self.assertNotEqual(got[0]["mint"], FART)
+        self.assertLessEqual([t["mint"] for t in got].count(FART), 1)
+        self.assertFalse([t for t in got if "Uzor" in str(t.get("tag") or t.get("why") or "")])
         self.assertIn(JAKI, [t["mint"] for t in got])
 
     def test_natjecanje_cards_and_token_box(self):

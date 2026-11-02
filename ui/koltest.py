@@ -113,7 +113,12 @@ def page(qs):
     # exit grid
     rows = []
     for g in book.grid(ps, cfg):
-        rows.append([f"+{g['tp']:.0%}", book.sl_label(g["sl"]), num(g["n"]),
+        lab = book.sl_label(g["sl"])
+        if not g["n"] and "tek nakon" in lab:   # late stops are recorded only for entries from 2.11. on
+            rows.append([f"+{g['tp']:.0%}", lab, ("mjeri se od 2.11.", 0, "mut"), ("–", -1, "n"), ("–", -1, "n"),
+                         ("–", -1, "n")])
+            continue
+        rows.append([f"+{g['tp']:.0%}", lab, num(g["n"]),
                      _share(g["wins"], g["n"]), _pct(g["avg"]), signed(g["usd"], "${:+,.0f}")])
     b.append("<h2 id=izlazi>Što bi koji izlaz zaradio</h2>" + tdesc(
         f"Isti ulazi, različita pravila: prodaj sve na +X% ili na stopu. Uračunat trošak ~{cfg['fee']:.0%} po strani i "
