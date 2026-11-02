@@ -207,4 +207,4 @@ def top_buy(user):
             f'<div class=mut style="font-size:13px;margin:10px 0 6px">Ulog</div><div class=qb-row>{chips}</div>'
             '<div style="margin-top:10px"><button class=qb-go>Kupi na moj račun</button></div>'
             '<div class=mut style="font-size:12px;margin-top:6px">Kupuje po živoj cijeni s DexScreenera (1% naknade). '
-            'Ne mora biti s liste prijedloga.</div></form>')
+            'Ne mora biti s liste prijedloga. Ako token već imaš, iznos se doda u tu poziciju (ulazna cijena postaje prosjek).</div></form>')
