@@ -288,9 +288,12 @@ def build_in_child(path):
     with it (~200 MB) and the 512 MB server ran out of memory every few minutes (1.11.). A child gives it all back
     when it ends. Falls back to building here if the child fails."""
     import subprocess
+    from ops import heavy
     try:
-        r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
-                           timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory), then goes
+        with heavy.slot(wait=60):
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
+                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
         if r.returncode == 0 and r.stdout:
             return 200, r.stdout
         print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",

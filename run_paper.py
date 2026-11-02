@@ -828,10 +828,17 @@ def cmd_run(a):
         try:
             if a.scan and now - last_scan >= a.scan_every:
                 # in its own short process (1.11.: the scan in this loop kept ~65 MB on the 512 MB server)
+                # skipped (tried again next loop) while another heavy job runs, so exits/ticks never wait (2.11.)
+                # (after 10 min without a scan it runs anyway, so new tokens are never held back for long)
                 import subprocess
-                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_hype.py")]
-                               + hype_args, timeout=1800)
-                last_scan = now
+                from ops import heavy
+                cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_hype.py")] + hype_args
+                if now - last_scan < 600:
+                    done = heavy.run(cmd, wait=0, timeout=1800)
+                else:
+                    done = subprocess.run(cmd, timeout=1800)
+                if done is not None:
+                    last_scan = now
             intake(cfg)
             closed = tick(cfg)
             con = store.connect(DB)

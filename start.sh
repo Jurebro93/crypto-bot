@@ -34,18 +34,18 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 
 # every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
-( while true; do sleep 3600; python3 -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
+( while true; do sleep 3600; python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 ( i=0; while true; do python3 -m ops.health || true; i=$((i+1)); if [ $i -le 10 ]; then sleep 60; else sleep 600; fi; done ) &
 # rugged tokens out of hype.db (rugfilter/archive.py): 2 min after every start, then hourly. Not tied to the hourly
 # upkeep above: deploys restart the service more often than once an hour, and that loop sleeps first.
-( sleep 120; while true; do python3 -m rugfilter.archive || true; sleep 3600; done ) &
+( sleep 120; while true; do python3 -m ops.heavy -m rugfilter.archive || true; sleep 3600; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 (
   while true; do
-    python3 run_calendar.py --days 14 --top 40 >/dev/null || echo "kalendar nije uspio"
-    python3 run_dex.py scan --min-liq 5000 >/dev/null || echo "dex scan nije uspio"
+    python3 -m ops.heavy run_calendar.py --days 14 --top 40 >/dev/null || echo "kalendar nije uspio"
+    python3 -m ops.heavy run_dex.py scan --min-liq 5000 >/dev/null || echo "dex scan nije uspio"
     sleep $(( ${CALENDAR_EVERY_H:-6} * 3600 ))
   done
 ) &
@@ -60,7 +60,7 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
 (
   while true; do
-    python3 run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
+    python3 -m ops.heavy run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
     sleep 86400
   done
 ) &
@@ -70,9 +70,9 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 (
   sleep 600   # let the first hype learn finish so its smart wallets are imported
   while true; do
-    python3 run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
-    python3 run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-12000}" --max 1000 >/dev/null || echo "wallets score nije uspio"
-    python3 run_wallets.py copy >/dev/null || true
+    python3 -m ops.heavy run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
+    python3 -m ops.heavy run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-12000}" --max 1000 >/dev/null || echo "wallets score nije uspio"
+    python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
   done
 ) &
@@ -98,7 +98,7 @@ python3 run_report.py loop &
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
 # A fresh process per pass, so it holds no memory in the 6 h between passes.
-( sleep 300; while true; do python3 run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
+( sleep 300; while true; do python3 -m ops.heavy run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps

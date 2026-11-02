@@ -198,7 +198,8 @@ def cmd_loop(a):
         import subprocess
         args = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else []) + ["once"]
         try:
-            subprocess.run(args, timeout=max(600, a.every * 60 * 3))
+            from ops import heavy   # one heavy job at a time on the 512 MB server (2.11.)
+            heavy.run(args, timeout=max(600, a.every * 60 * 3))
         except subprocess.TimeoutExpired:
             print("krug: predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)

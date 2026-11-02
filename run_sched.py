@@ -26,7 +26,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def run(name, args):
-    code = subprocess.call([sys.executable, os.path.join(ROOT, args[0]), *args[1:]], cwd=ROOT)
+    from ops import heavy   # one heavy job at a time (2.11.: overlapping jobs ran the 512 MB server out of memory)
+    code = heavy.run([sys.executable, os.path.join(ROOT, args[0]), *args[1:]], cwd=ROOT).returncode
     if code:
         print(f"{name}: izlaz {code}", file=sys.stderr, flush=True)
     return code

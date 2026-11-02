@@ -296,3 +296,48 @@ class UiChildRenderTest(unittest.TestCase):
                 mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b:
             self.assertEqual(run_ui.build_in_child("/"), (200, b"here"))
         b.assert_called_once_with("/", {})
+
+
+class HeavyLockTest(unittest.TestCase):
+    """2.11.: heavy children run one after another (ops/heavy.py)."""
+
+    def setUp(self):
+        from ops import heavy
+        self.heavy = heavy
+        self.tmp = tempfile.mkdtemp()
+        self.p = mock.patch.object(heavy, "LOCK", os.path.join(self.tmp, "heavy.lock"))
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+
+    def test_second_holder_is_skipped_or_waits(self):
+        import subprocess
+        script = ("import sys,time;sys.path.insert(0,%r);from ops import heavy;heavy.LOCK=%r\n"
+                  "with heavy.slot() as g:\n print('in',flush=True);time.sleep(3)") % (
+            os.path.join(os.path.dirname(__file__), ".."), self.heavy.LOCK)
+        child = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE)
+        self.assertEqual(child.stdout.readline().strip(), b"in")
+        self.assertIsNone(self.heavy.run([sys.executable, "-c", "pass"], wait=0))
+        t0 = time.time()
+        r = self.heavy.run([sys.executable, "-c", "pass"])     # blocks until the other one ends
+        self.assertEqual(r.returncode, 0)
+        self.assertGreater(time.time() - t0, 0.5)
+        child.wait()
+
+    def test_cli_runs_scripts_and_modules(self):
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as run:
+            self.heavy.main(["run_x.py", "a"])
+            self.heavy.main(["-m", "ops.health", "--hourly"])
+        self.assertEqual(run.call_args_list[0][0][0], [sys.executable, "run_x.py", "a"])
+        self.assertEqual(run.call_args_list[1][0][0], [sys.executable, "-m", "ops.health", "--hourly"])
+
+    def test_wired_in(self):
+        root = os.path.join(os.path.dirname(__file__), "..")
+        sh = open(os.path.join(root, "start.sh")).read()
+        for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "run_dugo.py once", "rugfilter.archive"):
+            self.assertIn("python3 -m ops.heavy " + ("-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else "") + cmd, sh)
+        self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
+        self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
+        self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
+        self.assertIn("heavy.slot(wait=60)", open(os.path.join(root, "run_ui.py")).read())
