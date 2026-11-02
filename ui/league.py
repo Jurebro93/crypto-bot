@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from league import store
 from ui import confidence, data, leaguedash
+from ui import topcheckui as topui
 from rugfilter import collapse
 from ui.html import ago, badge, esc, klasab, razinab, rugcell, scorecell, signed, table, tlink, ts, usd
 from ui.paper import _mc, market
@@ -213,24 +214,33 @@ def page(qs, user):
             r["collapse"] = col or r.get("collapse")
             if r["collapse"] and not (qs.get("odb") or qs.get("q")):
                 continue  # dumped since it was suggested: off the list so nobody buys it
+            top = r.get("top")
+            failed = bool(top and top.get("verdict") == "pao")
             act = ('<span class=neg title="Token se već srušio; kupnja je zaključana.">rugan, ne kupuj</span>'
                    if r["collapse"] else
+                   '<span class=neg title="Pao na obaveznom rug checku; kupnja iz prijedloga je zaključana.">pao na rug checku</span>'
+                   if failed else
                    _form("/natjecanje/buy", {"token": r["token"], "symbol": r["symbol"] or "", "score": r["conf"] or "",
                                              "source": f"confidence {r['conf']}"}, "Kupi", size) if price else
                    '<span class=mut>nema cijene</span>')
-            srows.append([tlink(r["token"], r["symbol"]) + " " + quickbuy.copy_btn(r["token"], "📋", small=True),
+            srows.append([tlink(r["token"], r["symbol"]) + " " + quickbuy.copy_btn(r["token"], "📋", small=True)
+                          + topui.badges(top), topui.advice_cell(top),
                           (confidence.badge_html(r["conf"]), r["conf"], "n"),
                           (razinab(r["razina"]), r["razina"] or 0, "n"), (klasab(r["klasa"]), r["klasa"] or "", ""),
                           (f"<b>{r['passed']}</b>/{r['passed'] + r['failed']}", r["passed"], "n"), scorecell(r["hype_last"]),
-                          rugcell(r),
+                          rugcell(r) if r["collapse"] or not top else (topui.rug_badge(top), top.get("verdict") or "", ""),
                           badge("bot uzeo", "good") if c.get("trade_id") else (badge("bot preskočio") if c else "–"),
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
         b.append(f"<h2 id=prijedlozi>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
                  "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
                  "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: 70%+ ispod vrha ili "
                  "izvučena likvidnost) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
-                 f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>" + _filters(qs))
-        b.append(table(["Token", ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n"), ("Hype", "n"), "Rug",
+                 f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>"
+                 "<p class=mut>Prvih 20 prijedloga alat provjerava <b>svake 3 minute</b>: nova analiza u svakom skenu, "
+                 "<b>stanje tržišta</b> (🚀 pumpa: ne kupuj, pričekaj · ↗ pad uz oporavak · 📉 pada · ➖ stabilno) i "
+                 "<b>obavezan rug check</b> (mint i freeze authority, LP, top holderi, dev, honeypot test prodaje, pun rug "
+                 "filter). Token koji padne na rug checku se skriva i ne nudi za kupnju.</p>" + _filters(qs))
+        b.append(table(["Token", ("Savjet", "wrap"), ("Confidence", "n"), ("Razina", "n"), "Klasa", ("Prošao", "n"), ("Hype", "n"), "Rug check",
                         "Bot", ("Mcap viđen", "n"), ("Pomak", "n"), ("Likvidnost", "n"), "Zadnje", "Ulog $"], srows,
                        empty="Nijedan token ne odgovara filteru."))
 

@@ -211,6 +211,28 @@ T("Smart money", "osnove", "Novčanici s dokazanom poviješću zarade: često su
 T("Mint authority", "osnove", "Pravo tvorca da napravi još tokena kad hoće.",
   "Ako je aktivno, tvorac može 'naštampati' milijune novih tokena i prodati ih, pa cijena pada u nulu. Zato token s aktivnim "
   "mint ili freeze pravom odmah pada na prvom situ (T0).", vidi=["t0", "rug-filter"], alias=["freeze authority", "mint", "freeze"])
+T("Rug check", "ocjene", "Obavezna svježa provjera svakog preporučenog tokena: može li tvorac izvući novac ili te zaključati.",
+  "Za prvih 20 prijedloga alat svakih 3 minute gleda: je li mint i freeze authority ugašen, je li LP zaključan ili spaljen, "
+  "koliko drže top 10 holdera (bez poolova) i dev, je li token honeypot (testna prodaja preko Jupitera) i pun rug filter "
+  "preko Heliusa (bundleri, snajperi, serijski tvorac). ✓ prošao = sve provjereno je u redu, ⚠ oprez = ima nešto što trebaš "
+  "znati, ✗ pao = token je skriven iz prijedloga i ne nudi se za kupnju. Izvori su besplatni (RugCheck, Jupiter, "
+  "DexScreener) ili već plaćeni (Helius).", vidi=["rug-filter", "honeypot", "mint-authority", "lp-zakljucan"],
+  alias=["rug provjera", "✓ rug check", "⚠ oprez", "✗ pao na rug checku"])
+T("Honeypot", "osnove", "Token koji možeš kupiti, ali ne i prodati (ili ti prodaja pojede većinu vrijednosti).",
+  "Tvorac ugradi zamku: porez na prijenos, zamrzavanje računa ili pravo da ti uzme tokene. Alat to provjerava tako da od "
+  "Jupitera traži cijenu za testnu prodaju $25 tokena: ako se vrati manje od pola vrijednosti, token pada na rug checku.",
+  vidi=["rug-check"], alias=["honeypot test", "testna prodaja"])
+T("LP zaključan", "osnove", "Likvidnost (LP) je zaključana ili spaljena pa je tvorac ne može izvući iz poola.",
+  "Ako LP nije zaključan, tvorac jednim potezom povuče sav novac iz poola i token ostane bez kupaca (klasičan rug pull). "
+  "Na pump.fun krivulji i nakon graduacije to se događa automatski. Ispod 20% zaključanog LP-a token pada na rug checku.",
+  vidi=["likvidnost", "rug-check"], alias=["lp", "lp spaljen", "lp locked"], k="lp-zakljucan")
+T("Stanje tržišta", "ocjene", "Što cijena tokena radi upravo sada: 🚀 pumpa, ↗ pad uz oporavak, 📉 pada ili ➖ stabilno.",
+  "Računa se svake 3 minute iz promjene cijene u zadnjih 5 min, 1 h, 6 h i 24 h i omjera kupnji i prodaja u zadnjem satu. "
+  "🚀 Pumpa: +12% u 5 min, +30% u sat ili +80% u 6 h; na pumpu se ne kupuje, pričekaj povlačenje. ↗ Pad uz oporavak: "
+  "pao je 20%+ u 6 h (ili 30%+ u 24 h), ali zadnji sat je zelen i kupaca je više nego prodavača; moguća prilika uz manji "
+  "ulog i stop loss. 📉 Pada: pada i nema znakova okreta; pričekaj. ➖ Stabilno: bez naglih pomaka.",
+  vidi=["rug-check", "stop-loss"], alias=["pumpa", "🚀 pumpa", "pad uz oporavak", "↗ pad, kreće oporavak", "📉 pada",
+                                          "➖ stabilno", "savjet"])
 T("KOL", "kol", "Key Opinion Leader: influencer na X-u ili Telegramu koji objavljuje (\"zove\") tokene.",
   "Kad poznati KOL objavi adresu tokena, njegovi pratitelji kupuju i cijena često skoči. Alat mjeri svaki poziv: koliko je "
   "token narastao 1 h, 6 h i 24 h poslije, koliko je post doveo volumena i je li KOL zvao rano ili kasno. Iz toga dobije "

@@ -338,6 +338,12 @@ def token(mint, qs):
                      'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')
         if arch or col:
             locked = "token je rugan"
+        from topcheck import store as topstore
+        from ui import topcheckui
+        top = topstore.read_all().get(mint)
+        if top and top.get("verdict") == "pao" and not locked:
+            locked = "token je pao na obaveznom rug checku"
+        b.append(topcheckui.token_box(top))
         b.append(quickbuy.token_box(mint, sym, locked))
         from ui import narrative
         b.append(narrative.html(mint))

@@ -11,8 +11,8 @@
  },
  "track_h": 48,
  "zadrzi": {
-  "_comment": "Tokeni s razinom >= 1 u zadnjih `sati` sati ostaju u svakom skenu (najviše `max`); holderi preko Heliusa svakih `holderi_svakih_min` minuta, do `holderi_kredita_dan` kredita dnevno; snaga se računa iz zadnjih `prozor_h` sati pulsa.",
-  "max": 30, "sati": 24, "holderi_svakih_min": 30, "holderi_kredita_dan": 20000, "holderi_stranica_max": 3,
+  "_comment": "Istaknuti s Pregleda i prvih `prijedlozi_top` prijedloga Natjecanja, pa tokeni s razinom >= 1 u zadnjih `sati` sati ostaju u svakom skenu (najviše `max`); holderi preko Heliusa svakih `holderi_svakih_min` minuta, do `holderi_kredita_dan` kredita dnevno; snaga se računa iz zadnjih `prozor_h` sati pulsa.",
+  "max": 40, "prijedlozi_top": 20, "sati": 24, "holderi_svakih_min": 30, "holderi_kredita_dan": 20000, "holderi_stranica_max": 3,
   "prozor_h": 6, "cuvaj_dana": 7
  }
 }

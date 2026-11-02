@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS token_pulse (
     holders INTEGER, holders_src TEXT, PRIMARY KEY (token, ts));
 CREATE INDEX IF NOT EXISTS token_pulse_ts ON token_pulse (ts);
 """
-DEFAULTS = {"max": 30, "sati": 24, "holderi_svakih_min": 30, "holderi_kredita_dan": 20000, "holderi_stranica_max": 3,
+DEFAULTS = {"max": 40, "prijedlozi_top": 20, "sati": 24, "holderi_svakih_min": 30, "holderi_kredita_dan": 20000, "holderi_stranica_max": 3,
             "prozor_h": 6, "cuvaj_dana": 7}
 FEATURES = ("snaga_volumen", "snaga_txn", "rast_holdera", "organski")
 
@@ -51,11 +51,13 @@ def _clip(x):
 
 # ---------- which tokens stay in the scan ----------
 
-def featured_now(hours=24):
-    """Mints the Pregled page features right now (same code as the page), [] when the UI modules are unavailable."""
+def featured_now(hours=24, top=None):
+    """Mints the Pregled page features right now plus the top `top` Natjecanje suggestions (same code as the pages),
+    [] when the UI modules are unavailable. Nicholas 2.11.: a token the tool recommends today must not show a
+    two-day-old analysis."""
     try:
         from ui import overview
-        return overview.featured_tokens(hours)
+        return overview.watch_tokens(hours, n=overview.TOP_N if top is None else top)
     except Exception as e:
         print(f"  istaknuti: {type(e).__name__}: {e}", file=sys.stderr)
         return []
@@ -73,7 +75,7 @@ def retained(con, cfg=None, now=None, featured=None):
         gone = archive.blocked()
     except Exception:
         gone = frozenset()
-    out = [t for t in dict.fromkeys(featured_now(cfg["sati"]) if featured is None else featured) if t not in gone]
+    out = [t for t in dict.fromkeys(featured_now(cfg["sati"], cfg.get("prijedlozi_top")) if featured is None else featured) if t not in gone]
     try:
         rows = con.execute("SELECT token FROM token_tier WHERE last_ts >= ? AND razina >= 1 AND COALESCE(t0, '') != 'pad' "
                            "ORDER BY razina DESC, COALESCE(score, 0) DESC, last_ts DESC LIMIT ?",

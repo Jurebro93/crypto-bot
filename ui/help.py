@@ -47,6 +47,10 @@ HELP = {
     "Likvidnost": "Novac u poolu. Mala likvidnost = velik slippage i lakša manipulacija.",
     "Likv.": "Novac u poolu. Mala likvidnost = velik slippage i lakša manipulacija.",
     "Zadnje": "Kad je token zadnji put viđen u nekoj analizi.",
+    "Savjet": "Stanje tržišta sada (🚀 pumpa, ↗ pad uz oporavak, 📉 pada, ➖ stabilno) i kratki savjet. Za prvih 20 prijedloga "
+              "osvježava se svake 3 minute; ostali dobiju provjeru kad uđu među prvih 20.",
+    "Rug check": "Obavezna svježa provjera preporučenog tokena: mint i freeze authority, LP zaključan ili spaljen, top 10 "
+                 "holdera, dev, honeypot (testna prodaja) i pun rug filter. ✓ prošao, ⚠ oprez (s razlozima), ✗ pao = skriven.",
     "Zadnji hype": "Kad je hype skener zadnji put zapisao signal.",
     "Signala": "Koliko puta ga je hype skener zapisao.",
     "Walleta viđeno": "Koliko walleta iz registra je viđeno na ovom tokenu.",
