@@ -265,8 +265,9 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     curve_for(deep, now_ms / 1000)
     for r in deep:
         try:
-            r["copycats"] = score.copycats(client.search(r["symbol"]), r["symbol"], r["name"], r["token"], now_ms)
-            r["features"]["narrative"] = min(1.0, r["copycats"] / 8)
+            if len((r["symbol"] or "").strip()) >= 2:   # DexScreener answers 400 to a one-character search ("4")
+                r["copycats"] = score.copycats(client.search(r["symbol"]), r["symbol"], r["name"], r["token"], now_ms)
+                r["features"]["narrative"] = min(1.0, r["copycats"] / 8)
         except Exception as e:
             print(f"  search {r['symbol']}: {e}", file=sys.stderr)
         r["features"].setdefault("narrative", 0.0)

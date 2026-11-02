@@ -297,6 +297,9 @@ def build_in_child(path):
         with heavy.slot(wait=60):
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
                                timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+        for ln in r.stderr.decode(errors="replace").splitlines():
+            if ln.startswith("ui-tijek:"):   # where a slow build spent its time
+                print(ln, flush=True)
         if r.returncode == 0 and r.stdout:
             return 200, r.stdout
         print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",

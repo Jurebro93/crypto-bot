@@ -20,8 +20,19 @@ def _iso_ts(s):
 
 # ---------- token layers ----------
 
+TOKEN_ROWS_TTL = int(os.environ.get("UI_TOKEN_ROWS_TTL", "240"))
+
+
 def token_rows(since=None):
-    """One row per token with its latest signal, details, rug report, events and paper decision."""
+    """One row per token with its latest signal, details, rug report, events and paper decision. The full list
+    (since=None) is shared for TOKEN_ROWS_TTL seconds by Pregled and Tokeni, which are built one after the other by
+    separate child processes and both read every hype signal."""
+    if since is None and TOKEN_ROWS_TTL > 0:
+        return data.ttl_cache(f"token_rows:{data.HYPE_DB}:{data.PAPER_DB}", TOKEN_ROWS_TTL, _token_rows)
+    return _token_rows(since)
+
+
+def _token_rows(since=None):
     from rugfilter import collapse
     pk = {}
     day = time.time() - collapse.WINDOW_H * 3600
@@ -200,6 +211,11 @@ POINTS = [("sada", 0), ("1 h", 3600), ("6 h", 6 * 3600), ("24 h", 86400), ("3 d"
 
 
 def _first_seen():
+    """{series: [first-seen timestamps]} for "Kako se baza puni"; scans several big tables, so shared for 10 min."""
+    return data.ttl_cache(f"first_seen:{data.HYPE_DB}:{data.WALLET_DB}", 600, _first_seen_now)
+
+
+def _first_seen_now():
     tok = {}
 
     def see(t, ts):
@@ -462,7 +478,9 @@ def page(qs):
     b = ["<h1>Pregled</h1>", quick_links()]
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
+    t = time.time()
     allrows = sorted(token_rows(), key=_rank, reverse=True)   # built once: the 24 h list is a filter of it
+    t = data.stage("/ token_rows", t)
     recent = [r for r in allrows if r["last_seen"] >= now - 86400]
     b.append("<h2 id=prijedlozi data-sec='Prijedlozi tokena'><span id=istaknuti></span>🎯 Prijedlozi tokena <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
              + tip("Poredani po Šansi za skok: confidence puta koliko je od 7 neovisnih slojeva stvarno analizirano, "
@@ -486,12 +504,14 @@ def page(qs):
                  "analizirana sloja). Najbliži su: " + ", ".join(tlink(r["token"], r["symbol"]) + f" (šansa {r['sansa']}, T{r['razina'] or 0}, {r['analysed']} slojeva)" for r in wait)
                  + ".</div>" if wait else "<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
     b.append(sieve_html())
+    t = data.stage("/ istaknuti + sito", t)
     b.append("<p class=core-more><a href=/radar>Najnoviji prijedlozi iz zadnjeg skena →</a> · <a href=/tokens>Svi tokeni →</a> · "
              "<a href=/dugorocno>Dugoročni (sigurniji) →</a></p>")
 
     # influencers + wallet tracking, the other two core features
     from ui import core
     b.append(core.blocks())
+    t = data.stage("/ influenceri + novčanici", t)
     try:  # the biggest wins of the week, so everyone sees what the tool caught (Nicholas 1.11.)
         from ui import wins
         b.append(wins.html())
@@ -503,7 +523,9 @@ def page(qs):
     b.append(paper.summary_html())
 
     # 3. how the base fills up, compared with earlier days
+    t = data.stage("/ pogoci + demo", t)
     series = _first_seen()
+    t = data.stage("/ kako se baza puni", t)
     b.append("<h2 id=baza>Kako se baza puni "
              + tip("Za svaku vrstu podataka: koliko ih ima ukupno, koliko je novih u zadnja 24 h i kako je to u odnosu na "
                    "prosječan dan prije. Stupci su novi zapisi po danu (zadnji = danas), crtkana linija je prosjek prethodnih dana.")
@@ -530,7 +552,7 @@ def page(qs):
 
     # 4. wallet clusters
     min_shared = max(2, int(qs.get("shared", 3) or 3))
-    n_cl, cl, n_hold = data.ttl_cache(f"clusters:{min_shared}", 1800, lambda: _clusters_with_holds(min_shared))
+    n_cl, cl, n_hold = data.ttl_cache(f"clusters:{min_shared}:{data.WALLET_DB}", 1800, lambda: _clusters_with_holds(min_shared))
     reg = {w["wallet"]: w for w in data.wallets(scored_only=False)}
     syms = data.symbols()
     b.append("<details id=kl" + (" open" if "shared" in qs else "") + " style='margin-top:16px'><summary><b>Walleti koji kupuju iste tokene</b> "
@@ -575,5 +597,6 @@ def page(qs):
                      [[esc(_db(d)), esc(_tn(t)), num(n)] for d, t, n in data.tables() if t != "sqlite_sequence"])
              + "</details>")
 
+    data.stage("/ ostatak (tablica, klasteri, baze)", t)
     b.append(modal())
     return "Pregled", "".join(b)

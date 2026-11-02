@@ -107,8 +107,10 @@ def tokens(q, limit=10):
     f = fold(q)
 
     def rank(t):
-        s = fold(t["sym"])
-        return (0 if s == f else 1 if s.startswith(f) else 2, -t["ts"])
+        s = fold(t["sym"]).strip()
+        # exact ticker first; among equals the token more parts of the tool know (e.g. the real Fartcoin is in
+        # Dugoročni and KOL calls, its copies only in the scanner), then the most recently seen
+        return (0 if s == f else 1 if s.startswith(f) else 2, -len(t["src"]), -t["ts"])
     out = sorted(found.values(), key=rank)[:limit]
     for t in out:
         t["src"] = sorted(t["src"])

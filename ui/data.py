@@ -64,21 +64,56 @@ def multi(group, sql, args=(), key=None):
 _TTL = {}   # name -> (ts, value): slow-changing results shared by page builds (small values only)
 
 
+TTL_DIR = os.environ.get("UI_TTL_DIR", "/tmp/memesonar-ttl")
+
+
 def ttl_cache(name, seconds, fn):
-    """fn() at most once per `seconds` for this process (counts over whole tables, wallet clusters: they change
-    slowly, but each read scans hundreds of MB on the server's 0.5 CPU and network disk)."""
+    """fn() at most once per `seconds` (counts over whole tables, wallet clusters, the token list: they change slowly,
+    but each read scans hundreds of MB). Kept in this process and, since the heavy pages are built by short child
+    processes (run_ui.build_in_child) where a process cache would be empty every time, also as a file in TTL_DIR
+    that the next child reads instead of computing it again (2.11.: "/" and "/tokens" each took 60+ s)."""
     import pickle   # kept as one bytes block: small objects that outlive a page build would pin whole heap
     hit = _TTL.get(name)  # arenas of that build and keep tens of MB from going back to the OS
     if hit and time.time() - hit[0] < seconds:
         return pickle.loads(hit[1])
+    import hashlib
+    path = os.path.join(TTL_DIR, name.split(":")[0] + "-" + hashlib.sha1(name.encode()).hexdigest()[:12] + ".pkl")
+    try:
+        age = time.time() - os.path.getmtime(path)
+        if age < seconds:
+            with open(path, "rb") as f:
+                blob = f.read()
+            val = pickle.loads(blob)
+            _TTL[name] = (time.time() - age, blob)
+            return val
+    except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
+        pass
     val = fn()
-    _TTL[name] = (time.time(), pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL))
+    blob = pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL)
+    _TTL[name] = (time.time(), blob)
+    try:
+        os.makedirs(TTL_DIR, exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(blob)
+        os.replace(tmp, path)
+    except OSError:
+        pass
     return val
+
+
+def stage(label, t0):
+    """One "ui-tijek" line on stderr for a slow part of a page build (run_ui forwards a child's lines to the log)."""
+    import sys
+    d = time.time() - t0
+    if d >= 1.0:
+        print(f"ui-tijek: {label} {d:.1f} s", file=sys.stderr, flush=True)
+    return time.time()
 
 
 def tables():
     """[(db, table, rows)] for the data-status box (counted at most every 30 min)."""
-    return ttl_cache("tables", 1800, _tables)
+    return ttl_cache(f"tables:{WALLET_DB}:{HYPE_DB}", 1800, _tables)
 
 
 def _tables():
