@@ -1,0 +1,825 @@
+{
+ "_note": "Poznati kripto influenceri s javnih lista (top crypto KOL / influencer liste, 2.11.2026). Kandidati: čitaju se kroz twitterapi.io (timeline_twapi.stars_slots), prolaze filter kvalitete, 2 tjedna probe i AI provjeru profila; na javnu ljestvicu idu tek kad se dokažu. Dodaj ili makni račun ovdje.",
+ "handles": [
+  {
+   "handle": "MustStopMurad",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "blknoiz06",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "frankdegods",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "notthreadguy",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Cented7",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "orangie",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "gainzy222",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "theunipcs",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "MoonOverlord",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "mert_helius",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "jussy_world",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Euris_JT",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "973Meech",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Ga__ke",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Dior100x",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Loopierr",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "cryptolyxe",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "casino616",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "inversebrah",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xSisyphus",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "bigdsenpai",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "CookerFlips",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Pow_Crypto",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "ratwizardx",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "cobie",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "spartan_black_",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "KookCapitalLLC",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "TheMisterFrog",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xSun",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "mitchellrjames",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "waddles_eth",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "AlphaFrog13",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Nachi_xbt",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "crypto_bitlord7",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "CryptoGodJohn",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xmidas_",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "TraderSZ",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Tyler_Did_It",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "cryptunez",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "RookieXBT",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "MoonManTrades",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Sicarious_",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xKNL",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Saucy_Crypto",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "KingKong9888",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "MarioNawfal",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "SolJakey",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "SolanaLegend",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Solanadegen",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "lynk0x",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "CryptoNobler",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "shahh",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "mrpunkdoteth",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xRamonos",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "thecryptoskanda",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Danny_Crypton",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "TheDefiEdge",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "hmalviya9",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "0xGems",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "SOLBigBrain",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "naniXBT",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Pentosh1",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "izebel_eth",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "jonwu_",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "goodalexander",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "mememeskrrt",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "bandeep",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "hodlonaut",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "CryptoKaleo",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "AltcoinGordon",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoCred",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoDonAlt",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoCapo_",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "HsakaTrades",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "lightcrypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "rektcapital",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoMichNL",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "TheCryptoLark",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "AltcoinSherpa",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoTony__",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoWizardd",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "crypto_birb",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "IncomeSharks",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "EmperorBTC",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoBusy",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "MacnBTC",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "TechDev_52",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Trader_XO",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Crypto_Chase",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "loomdart",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoHayes",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "APompliano",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "woonomic",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "WClementeIII",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "PeterLBrandt",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "scottmelker",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "TheMoonCarl",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoRover",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "AshCryptoReal",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoFaibik",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "ali_charts",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "KoroushAK",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Crypto_Jebb",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoJack",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "el_crypto_prof",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "JacobCryptoBury",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "BitBoy_Crypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Lark_Davis",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "IvanOnTech",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "elliotrades",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CoinBureau",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "BTC_Archive",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Bitcoin_Teddy",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "DaanCrypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CredibleCrypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "SmartContracter",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Ninjascalp",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Tradermayne",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "nebraskangooner",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "KillaXBT",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "GCRClassic",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CL207",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Rewkang",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "ThinkingUSD",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Arthur_0x",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "zhusu",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "ZoomerOracle",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "0xngmi",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "DefiIgnas",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Route2FI",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "milesdeutscher",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "ColdBloodShill",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoKoryo",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Bluntz_Capital",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "SalsaTekila",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "TheFlowHorse",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "DegenSpartan",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "hasufl",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "tedtalksmacro",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Fiskantes",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "0xHamz",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoBullet1",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "il_Capo_Of_Crypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "degenharambe",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xfoobar",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "punk6529",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "Cozomomedici",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "beaniemaxi",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "j1mmyeth",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "Zeneca",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "seedphrase",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "sassal0x",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "RyanSAdams",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "TrustlessState",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "DCinvestor",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "ercwl",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xCygaar",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xminion",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "chooserich",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "keyboardmonkey3",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "rasmr_eth",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xLawliette",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "shawmakesmagic",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "AndyAyrey",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xDeployer",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "Dynamo_Patrick",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xSalazar",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "NFTGod",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "dingalingts",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "notEezzy",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "kmoney_69",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "rektproof",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Darrenlautf",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "blockgraze",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "CryptoMessiah",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "TheCryptoDog",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "bitcoinjack",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "Crypto_McKenna",
+   "group": "solana_memecoin"
+  },
+  {
+   "handle": "cryptomanran",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoWendyO",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "AviFelman",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Tetranode",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "VentureCoinist",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoNewton",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "MMCrypto",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "100trillionUSD",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoGirlNova",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Crypto_Ed_NL",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoYoddha",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "TheCryptoCactus",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "Cryptoinsightuk",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoDiffer",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "RaoulGMI",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "LynAldenContact",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "DylanLeClair_",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "HighStakesCap",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoCobain",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "AlexBecker",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "cryptowhale",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "CryptoUB",
+   "group": "macro_large_cap"
+  },
+  {
+   "handle": "DegenCzar",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "0xBreadguy",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "cmsholdings",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "Crypto_Dealflow",
+   "group": "base_eth_multichain"
+  },
+  {
+   "handle": "ThorHartvigsen",
+   "group": "base_eth_multichain"
+  }
+ ]
+}
