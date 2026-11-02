@@ -5,7 +5,7 @@ import os
 import time
 
 from ui import confidence, data, evidence, explain, paper, sansa
-from ui.html import quick_links, tdesc, tip, ago, badge, bar, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
+from ui.html import tdesc, tip, ago, badge, bar, esc, klasab, modal, num, razinab, scorecell, short, table, tierb, tlink, usd, wlink
 
 GOOD_ROLES = ("early_buyer", "smart", "top_trader", "holder", "manual")
 
@@ -475,7 +475,7 @@ def page(qs):
     now = time.time()
     # Nicholas 2.11.: the page is built around the three core features (token suggestions, influencers, wallet
     # tracking): three cards on top, then one block each; Natjecanje is a bonus and is only in the menu
-    b = ["<h1>Pregled</h1>", quick_links()]
+    b = ["<h1>Pregled</h1>"]
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     t = time.time()

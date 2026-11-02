@@ -44,11 +44,13 @@ class Glossary(unittest.TestCase):
         self.assertIn('id="slavnost-wikidata"', body)
         self.assertIn('id="k-stupci"', body)
 
-    def test_page_annotates_headings_tiles_and_title(self):
+    def test_page_annotates_tiles_not_headings(self):
+        # 2.11.: ⓘ stays on numbers (stat labels, column headers), titles and headings stay clean
         out = H.page("x", "<h1>KOL-ovi</h1><h2>Koliko ga tržište sluša</h2><div class=l>pogodak</div>"
                           "<h2>Neki naslov bez pojma</h2>", "/kol")
-        self.assertIn('data-gk="str-kol"', out)              # whole-page explanation next to the title
-        self.assertIn('data-gk="koliko-ga-trziste-slusa"', out)
+        self.assertNotIn('data-gk="str-kol"', out)
+        self.assertNotIn('data-gk="koliko-ga-trziste-slusa"', out)
+        self.assertIn("<h2>Koliko ga tržište sluša</h2>", out)
         self.assertIn('data-gk="pogodak"', out)
         self.assertIn("<h2>Neki naslov bez pojma</h2>", out)
         self.assertIn("id='gl'", H.GL_JS.replace('"', "'"))

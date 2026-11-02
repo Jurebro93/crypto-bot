@@ -282,9 +282,10 @@ class ShortProcessRoundsTest(unittest.TestCase):
 class UiChildRenderTest(unittest.TestCase):
     def test_warm_pages_are_built_in_a_child(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
-        self.assertIn('pagecache.warm(list(HEAVY), build_in_child', src)
+        self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
         import run_ui
-        self.assertEqual(run_ui.HEAVY, ("/", "/tokens"))
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki"))
+        self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
         self.assertIn("build_in_child(path)) if path in HEAVY", src)
 
     def test_child_failure_falls_back_to_building_here(self):

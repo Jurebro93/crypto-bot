@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from ui import data, explain, jobs, labels
 from ui.labels import FEATURE_DESC
-from ui.html import (tdesc, info, ago, badge, bar, breakdown, esc, ext_token, ext_wallet, filt, mins, num, price, scorecell,
+from ui.html import (tdesc, info, ago, badge, bar, breakdown, esc, ext_icons, ext_token, ext_wallet, filt, mins, num, price, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
 
 ROLE = {
@@ -33,8 +33,19 @@ def _sym_map():
 # ---------------- wallets ----------------
 
 def wallets(qs):
-    show_all = qs.get("all") == "1"
-    only = qs.get("only")
+    """Novčanici: Aktivnost (who just bought or sold) · Za kopiranje (the copy list) · Svi (every scored wallet)."""
+    from ui.html import seg
+    v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista" if qs.get("only") == "list" else "")
+    sw = seg([("/wallets", "Aktivnost"), ("/wallets?v=lista", "Za kopiranje"), ("/wallets?v=svi", "Svi")],
+             "/wallets" + (f"?v={v}" if v else ""))
+    if not v:
+        from ui import core
+        try:
+            act = core.wallet_block(n=40, hours=48)
+        except Exception as e:  # noqa: BLE001 - a broken block must not take the page down
+            act = f"<div class=card>Aktivnost se trenutno ne može prikazati ({esc(type(e).__name__)}).</div>"
+        return "Novčanici", "<h1>Novčanici</h1>" + sw + act
+    show_all = v == "svi"
     min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
     min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
@@ -42,7 +53,12 @@ def wallets(qs):
     for w in ws:
         s = w["stats"]
         ok, why = explain.shortlist(w, min_score, min_closed)
-        if only == "list" and not ok:
+        if v == "lista" and not ok:
+            continue
+        if v == "lista":
+            rows.append([wlink(w["wallet"]), scorecell(w["copy_score"]), signed(s.get("closed_pnl_sol")),
+                         num(s.get("win_rate"), "{:.0%}"), num(s.get("closed")), mins(s.get("median_hold_min")),
+                         num(s.get("last_trade_days"), "{:.0f}")])
             continue
         rows.append([wlink(w["wallet"]), tierb(w["tier"]),
                      badge("DA", "good") if ok else badge("ne"),
@@ -55,30 +71,26 @@ def wallets(qs):
                      esc(", ".join(f"{SOURCE.get(k, k)}" for k in w["sources"])),
                      " ".join(badge(labels.wallet_label(l), "bad") for l in w["labels"]),
                      (esc("; ".join(why + (s.get("copy_notes") or []))) or "–", "", "wrap")])
-    form = (f'<form class=flt method=get>{filt("wt", "Filtriraj adresu, oznaku…")}'
-            f'<label>min copy <input name=min_score value="{min_score:g}" size=4></label>'
-            f'<label>min zatvorenih <input name=min_closed value="{min_closed}" size=3></label>'
-            f'<label><input type=checkbox name=only value=list {"checked" if only == "list" else ""}> samo copy lista</label>'
-            f'<label><input type=checkbox name=all value=1 {"checked" if show_all else ""}> i neocijenjeni</label>'
-            f'<button>Primijeni</button></form>')
-    head = ["Wallet", "Tier", "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
-            ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Medijan držanja", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
-            ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
+    form = f'<div class=flt>{filt("wt", "Filtriraj adresu, oznaku…")}</div>'
+    if v == "lista":
+        head = ["Novčanik", ("Copy", "n"), ("PnL SOL", "n"), ("Win", "n"), ("Zatv.", "n"), ("Medijan držanja", "n"),
+                ("Neaktivan d", "n")]
+    else:
+        head = ["Wallet", "Tier", "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
+                ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Medijan držanja", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
+                ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
     since, last, tail = jobs.status("wallets")
     if since:
         state = f"pokrenuto {ago(since)[0]}, još radi"
     elif last:
         state = f"zadnji ručni prolaz završio {ago(last[1])[0]}" + ("" if last[2] == 0 else f", greška (kod {last[2]})")
     else:
-        state = "od pokretanja dashboarda nije ručno pokretano (automatski ide svakih 6 h)"
-    run = (f'<form id=run method=post action=/run/wallets class=flt><button {"disabled" if since else ""}>'
-           f'Pokreni ocjenjivanje walleta</button> <span class=mut>{esc(state)}. Prikupi nove walletove, ocijeni red '
-           f'(do {jobs.CREDITS} Helius kredita) i osvježi copy listu; traje nekoliko minuta, osvježi stranicu.</span></form>'
-           + (f"<details><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
-    intro = ("<h1>Walleti</h1><p class=mut>Copy lista = walleti s copy ocjenom "
-             f"≥ {min_score:g}, barem {min_closed} zatvorenih pozicija, bez loših oznaka. Klik na zaglavlje sortira, "
-             "klik na wallet otvara detalje i raspis ocjene. Kriteriji su na stranici <a href=/criteria#walleti>Kriteriji</a>.</p>")
-    return "Walleti", intro + run + form + tdesc('Svi walleti u registru s ocjenama; klik na zaglavlje sortira. Walleti s oznakom „Na listi” su kandidati za copytrading.') + table(head, rows, "wt", "Još nema walleta. Bot ih skuplja sam svakih 6 h.")
+        state = "automatski ide svakih 6 h"
+    run = (f'<form id=run method=post action=/run/wallets class="flt adm-only"><button {"disabled" if since else ""}>'
+           f'Ocijeni novčanike sada</button> <span class=mut>{esc(state)}</span></form>'
+           + (f"<details class=adm-only><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
+    return "Novčanici", ("<h1>Novčanici</h1>" + sw + form
+                         + table(head, rows, "wt", "Još nema novčanika. Bot ih skuplja sam svakih 6 h.") + run)
 
 
 POS_STATUS = {"closed": "zatvoreno", "open": "otvoreno", "moved": "prebačeno na drugi wallet",
@@ -314,14 +326,17 @@ def token(mint, qs):
     from ui import league as _league, quickbuy
     dsym, dlist = quickbuy.dugo_info(mint)
     sym = sym or dsym
-    b = [f"<h1>{esc(sym or short(mint))}</h1><p><code style='word-break:break-all'>{esc(mint)}</code></p>"
-         f"<p>{quickbuy.copy_btn(mint, big=True)}</p><p>"
-         f"{ext_token(mint, url)}</p>", _league._err(qs)
-         + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
+    # top to bottom: name + Šansa, rug warnings, one-sentence verdict, Za / Protiv, copy, outside sites; then the
+    # layers behind taps; the Natjecanje buy box (bonus) last
+    actions = (f"<p>{quickbuy.copy_btn(mint, label='Kopiraj adresu ' + short(mint), big=True)}</p>"
+               f"<div class=ext-big>{ext_icons(mint, url)}</div>")
+    b = [_league._err(qs) + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
+    natj = ""
     locked = None
     if not (ev or sigs or rugs):
-        b.append(f'<p>Na popisu <a href="/dugorocno"><b>{esc(dlist)}</b></a> (stariji token koji je preživio). Analize '
-                 'novih tokena ispod ga ne prate.</p>' if dlist else "<p>Ovaj token nije ni u jednoj analizi.</p>")
+        b.insert(0, f"<h1>{esc(sym or short(mint))}</h1>")
+        b.append((f'<p class=mut>Na popisu <a href="/dugorocno">{esc(dlist)}</a>.</p>' if dlist else
+                  "<p class=mut>Ovaj token nije ni u jednoj analizi.</p>") + actions)
         b.append(quickbuy.token_box(mint, sym))
     else:
         from rugfilter import archive, collapse
@@ -343,11 +358,11 @@ def token(mint, qs):
         top = topstore.read_all().get(mint)
         if top and top.get("verdict") == "pao" and not locked:
             locked = "token je pao na obaveznom rug checku"
-        b.append(topcheckui.token_box(top))
-        b.append(quickbuy.token_box(mint, sym, locked))
+        topbox = topcheckui.token_box(top)
+        natj = quickbuy.token_box(mint, sym, locked)
         from ui import narrative
-        b.append(narrative.html(mint))
-        b.append(tier_html(mint))
+        b.append(narrative.verdict_html(mint))
+        tiers = tier_html(mint)
 
     # summary: one card with the verdict numbers, then "za" / "protiv" from the confidence parts
     sigs_asc = sigs[::-1]
@@ -364,26 +379,31 @@ def token(mint, qs):
                                    (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
     sn, an, pr, pa = sansa.score(conf, cs)
     best = max(ev, key=lambda e: e["score"] or 0) if ev else None
-    b.append("<div class=grid>")
-    for v, l in [(f"<b>{sn}</b>", "šansa za skok"), (conf, "confidence"),
-                 (f"{an}/{sansa.N} {sansa.dots_html(cs)}", "slojeva analizirano"),
-                 (max(s["score"] or 0 for s in sigs) if sigs else "–", "hype max"),
-                 (verdict(rugs[0]["verdict"]) if rugs else "–", "rug presuda"),
-                 (best["score"] if best else "–", "event ocjena")]:
-        b.append(f"<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>")
-    b.append("</div>")
+    if ev or sigs or rugs:
+        b.insert(0, f"<div class=tokhead><h1>{esc(sym or short(mint))}</h1><div class=sn><small>Šansa {info('Šansa')}</small>"
+                    f"<b>{sn}</b></div></div>")
     za = [t for p_, t in parts if p_ > 0]
     protiv = [t for p_, t in parts if p_ < 0]
-    if za or protiv:
-        b.append("<div class=grid style='grid-template-columns:1fr 1fr;gap:12px'>"
-                 "<div class=card><b style='color:var(--good)'>Za</b><ul class=r>"
-                 + "".join(f"<li class=good>{esc(t)}</li>" for t in za[:5]) + ("<li class=mut>ništa izmjereno</li>" if not za else "")
-                 + "</ul></div><div class=card><b style='color:var(--bad)'>Protiv</b><ul class=r>"
-                 + "".join(f"<li class=bad>{esc(t)}</li>" for t in protiv[:5]) + ("<li class=mut>nema zabilježenih rizika</li>" if not protiv else "")
-                 + "</ul></div></div>")
+    if ev or sigs or rugs:
+        if za or protiv:
+            b.append("<div class=grid style='grid-template-columns:1fr 1fr;gap:12px'>"
+                     "<div class=card><b style='color:var(--good)'>Za</b><ul class=r>"
+                     + "".join(f"<li class=good>{esc(t)}</li>" for t in za[:5]) + ("<li class=mut>ništa izmjereno</li>" if not za else "")
+                     + "</ul></div><div class=card><b style='color:var(--bad)'>Protiv</b><ul class=r>"
+                     + "".join(f"<li class=bad>{esc(t)}</li>" for t in protiv[:5]) + ("<li class=mut>nema zabilježenih rizika</li>" if not protiv else "")
+                     + "</ul></div></div>")
+        b.append(actions + topbox)
+        b.append("<h2>Brojke</h2><div class=grid>")
+        for v, l in [(f"<b>{sn}</b>", "šansa za skok"), (conf, "confidence"),
+                     (f"{an}/{sansa.N} {sansa.dots_html(cs)}", "slojeva analizirano"),
+                     (max(s["score"] or 0 for s in sigs) if sigs else "–", "hype max"),
+                     (verdict(rugs[0]["verdict"]) if rugs else "–", "rug presuda"),
+                     (best["score"] if best else "–", "event ocjena")]:
+            b.append(f"<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>")
+        b.append("</div>" + tiers)
     opened = qs.get("sve") == "1"
-    b.append(f"<p class=mut style='font-size:12px'>Slojevi ispod su sklopljeni; naslov svakog nosi sažetak. "
-             f"<a href='?sve={'0' if opened else '1'}'>{'Sklopi sve' if opened else 'Otvori sve'}</a>.</p>")
+    b.append(f"<h2>Slojevi</h2><p class=mut style='font-size:12px'><a href='?sve={'0' if opened else '1'}'>"
+             f"{'Sklopi sve' if opened else 'Otvori sve'}</a></p>")
 
     def sec(sid, title, summary, force=False):
         return (f"<details id={sid}{' open' if opened or force else ''}><summary><b>{title}</b> "
@@ -529,6 +549,8 @@ def token(mint, qs):
                      " ".join(badge(l, "bad") for l in (wmap.get(x["wallet"]) or {}).get("labels", []))] for x in sg],
                    empty="Nijedan wallet nije zabilježen za ovaj token."))
     b.append("</details>")
+    if natj:
+        b.append("<h2>Natjecanje</h2>" + natj)
     return sym or short(mint), "".join(b)
 
 

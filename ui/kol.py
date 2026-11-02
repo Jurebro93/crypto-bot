@@ -455,33 +455,41 @@ def _corr(con):
 
 def page(qs):
     con = store.ro()
-    b = ["<h1>KOL-ovi i njihovi pozivi</h1><p class=mut>Svaki X post koji spominje CA tokena (iz pretraga koje bot ionako "
-         "plaća, plus praćenje najboljih KOL-ova), što su cijena i volumen napravili nakon njega, tko je zvao zajedno i "
-         "tko je prodavao u poziv. Bot to mjeri sam svakih 20 min; ništa ne treba ručno.</p>"]
+    b = ["<h1>Influenceri</h1>"]
     if con is None:
-        return "KOL-ovi", "".join(b) + "<p>Još nema podataka: prvo mjerenje kreće nekoliko minuta nakon pokretanja servera.</p>"
+        return "Influenceri", "".join(b) + "<p class=mut>Još nema podataka.</p>"
     try:
         cfg = _cfg()
         st = con.execute("""SELECT (SELECT COUNT(*) FROM kols), (SELECT COUNT(*) FROM calls WHERE kind='call'),
             (SELECT COUNT(*) FROM calls WHERE kind='brag'), (SELECT COUNT(*) FROM calls WHERE p0 IS NOT NULL),
             (SELECT COUNT(*) FROM groups), (SELECT COUNT(*) FROM kol_wallets WHERE label='rotation_dev'),
             (SELECT COUNT(*) FROM flows), (SELECT MAX(measured_ts) FROM calls)""").fetchone()
-        b.append("<div class=grid>")
+        grid = ["<div class=grid>"]
         for v, l in [(st[0], "KOL-ova (autora)"), (st[1], "poziva"), (st[2], "hvalisanja (nakon skoka)"),
                      (st[3], "izmjereno cijenom"), (st[4], "grupnih poziva"), (st[5], "rotacijskih devova"),
                      (st[6], "Helius provjera tokova"), (ago(st[7])[0], "zadnje mjerenje")]:
-            b.append(f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{l}</div></div>")
-        b.append("</div>")
+            grid.append(f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{l}</div></div>")
+        grid.append("</div>")
 
         minf, minc = int(qs.get("minf") or 0), int(qs.get("minc") or 1)
-        b.append("<h2 id=ljestvica>Ljestvica KOL-ova</h2>")
-        b.append(f'<form class=flt>Min. pratitelja <input name=minf value="{minf}" size=7> Min. poziva '
-                 f'<input name=minc value="{minc}" size=3><button>Primijeni</button> {filt("kols", "Traži KOL-a…")}</form>')
+        b.append("<h2 id=ljestvica>Najbolji</h2>")
+        b.append(f'<form class=flt>{filt("kols", "Traži KOL-a…")}<details class=more><summary>Više filtara</summary>'
+                 f'Min. pratitelja <input name=minf value="{minf}" size=7> Min. poziva '
+                 f'<input name=minc value="{minc}" size=3><button>Primijeni</button></details></form>')
         b.append(tdesc(f"Moć poziva 0-100 iz KOL-ovih prvih poziva na token: pogodak (+{cfg['hit_x']:.0%} u 24 h), "
                        "medijan rasta, volumen nakon poziva, je li prvi, rugovi; kasni pozivi (cijena već 2× prije poziva) "
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
 
+        b.append(f"<h2 id=pozivi>Upravo zvali</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
+            "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
+            "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
+            "prodano/kupljeno u 30 min nakon posta.") + calls_table(con))
+        b.append("<h2 id=kupnje>Kupnje i prodaje</h2>" + tdesc(
+            "Kupnje i prodaje novčanika KOL-ova koje pratimo (Helius javlja svaku). To nisu postovi: link otvara "
+            "transakciju na Solscanu. KOL obično kupi prije nego što objavi, pa je ovo najraniji trag.")
+                 + trades_table(con, limit=200, tid="ktrades"))
+        b.append("<h2 id=analiza>Analiza</h2><details><summary>Točnost, sesije, grupe, parovi, devovi i brojke</summary>")
         z = cfg.get("sessions", {})
         b.append("<h2 id=provjera>Provjera točnosti ocjene</h2>" + tdesc(
             "Alat svaki krug sam provjerava predviđa li njegova ocjena budućnost: ocjene iz starijih poziva uspoređuje "
@@ -514,14 +522,6 @@ def page(qs):
             "unutar 48 h, na 2+ tokena. Takav mali KOL je izvor: tko njega prati, ulazi prije gomile koju dovede "
             "veliki. Veliki prvi = koliko je puta bilo obrnuto; ako je to podjednako, nije kopiranje nego isti krug "
             "ljudi.") + _copies(con, cfg))
-        b.append(f"<h2 id=pozivi>Zadnji pozivi</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
-            "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
-            "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
-            "prodano/kupljeno u 30 min nakon posta.") + calls_table(con))
-        b.append("<h2 id=kupnje>Kupnje i prodaje KOL novčanika</h2>" + tdesc(
-            "Kupnje i prodaje novčanika KOL-ova koje pratimo (Helius javlja svaku). To nisu postovi: link otvara "
-            "transakciju na Solscanu. KOL obično kupi prije nego što objavi, pa je ovo najraniji trag.")
-                 + trades_table(con, limit=200, tid="ktrades"))
         b.append("<h2 id=devovi>Walleti koji prodaju u pozive</h2>" + tdesc(
             f"Kupili sat prije poziva i prodali do {cfg['flow_post_secs'] // 60} min nakon njega. Na "
             f"{cfg['rotation_min_tokens']}+ tokena = rotacijski dev: seli s tokena na token i prodaje u pozive. "
@@ -530,9 +530,10 @@ def page(qs):
             "Korelacija svakog svojstva poziva s najvećim rastom u 24 h, preko svih izmjerenih prvih poziva. "
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
+        b.append("<h3>Brojke</h3>" + "".join(grid) + "</details>")
     finally:
         con.close()
-    return "KOL-ovi", "".join(b)
+    return "Influenceri", "".join(b)
 
 
 def _influence(con, handle, cfg):

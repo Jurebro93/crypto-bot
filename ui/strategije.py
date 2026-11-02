@@ -2,7 +2,7 @@
 control), same exit rules, so the page answers one question: which source of entries makes money."""
 import time
 
-from ui.html import ago, esc, num, signed, table, tdesc, tlink
+from ui.html import note, ago, esc, num, signed, table, tdesc, tlink
 
 COLORS = ["#4f46e5", "#0891b2", "#16a34a", "#d97706", "#94a3b8"]
 EXIT = {"stop_loss": "stop loss", "rug": "rug / nestao", "trailing": "prateći stop", "breakeven": "na ulaznoj cijeni",
@@ -122,7 +122,7 @@ def page(qs):
     ctrl = next((s for s in summ if s["key"] == "kontrola"), None)
     total = sum(s["closed"] for s in summ)
     if total < 20 * len(summ):
-        h.append(tdesc(f"⏳ Još je rano: zatvoreno je {total} tradeova. Pouzdana usporedba treba barem ~20 zatvorenih "
+        h.append(note(f"⏳ Još je rano: zatvoreno je {total} tradeova. Pouzdana usporedba treba barem ~20 zatvorenih "
                        f"po strategiji (obično 2–4 dana)."))
     if ctrl and ctrl["closed"] >= 10:
         beat = [s["name"] for s in summ if s["key"] != "kontrola" and s["value"] > ctrl["value"]]

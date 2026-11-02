@@ -16,7 +16,7 @@ class NavTest(unittest.TestCase):
         self.assertEqual(len(hrefs), len(set(hrefs)))
         out = html.page("x", "<h1>x</h1>", "/token/abc")
         self.assertIn('href="/natjecanje"', out)
-        self.assertIn('class="on"><span class=mi>🪙</span>Svi tokeni', out)
+        self.assertIn('<a href="/tokens" class="on">Tokeni</a>', out)
         self.assertIn('id=q name=q', out)
 
     def test_map_page_lists_all(self):

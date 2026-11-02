@@ -247,9 +247,7 @@ def page(qs):
     weak = [r for r in rows if r["collapse"] or r["conf"] < WATCH or r["token"] in gone
             or (rugs.get(r["token"]) or {}).get("verdict") == "VISOK RIZIK"]
     rows = [r for r in rows if r not in weak]
-    b = ["<h1>Zadnji sken</h1><p class=mut>Što je hype skener vidio u <b>zadnjem prolazu</b> (svake 2 minute): kandidati s razlozima i "
-         "rizicima, narativi, smart money i radi li ocjena. Stranica <a href=/tokens>Svi tokeni</a> je drugo: sve što alat zna o "
-         "svakom tokenu iz zadnjih 7 dana, kroz sve analize, poredano po Šansi za skok.</p>"]
+    b = ["<h1>Zadnji sken</h1>"]
     if not rows and n_seen:
         b.append(f"<div class=card>Zadnji prolaz je pregledao <b>{n_seen}</b> tokena, ali nijedan nije dovoljno dobar za "
                  f"prikaz (rugan, odbačen, visok rizik ili confidence ispod {WATCH}).</div>")
