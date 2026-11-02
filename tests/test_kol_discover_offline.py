@@ -69,6 +69,16 @@ class Winners(Base):
         self.assertEqual(done, 2)  # $0.003 per page of 20: the third would go over $0.004
 
 
+    def test_runs_after_timelines_used_their_budget(self):
+        self.ins("b", "early", CA, NOW - 9 * 3600, max24=2.5, pre2h=0.0)
+        day = __import__("time").strftime("%Y-%m-%d", __import__("time").gmtime(NOW))
+        self.con.execute("INSERT INTO kv VALUES (?, ?)", (f"twapi:{day}", "0.70"))  # timeline share all used
+
+        def get(q, cursor):
+            return {"tweets": [tw("9", "newguy", NOW - 10 * 3600, f"aping {CA}")], "has_next_page": False}
+        self.assertEqual(discover.winners(self.con, CFG, get=get, now=NOW), 1)
+        self.assertLess(discover.disc_left(self.con, CFG, NOW), CFG["discover"]["daily_usd"])
+
 class Trial(Base):
     def test_trial_bought_and_watch(self):
         for h, n, first in (("proven", 12, NOW - 30 * DAY), ("newbie", 12, NOW - 3 * DAY), ("few", 3, NOW - 30 * DAY)):
