@@ -74,3 +74,22 @@ class MenuTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TtlCacheTest(unittest.TestCase):
+    def test_shared_between_processes_via_file(self):
+        from ui import data
+        old = data.TTL_DIR
+        data.TTL_DIR = tempfile.mkdtemp()
+        try:
+            calls = []
+            fn = lambda: calls.append(1) or {"a": [1, 2]}  # noqa: E731
+            self.assertEqual(data.ttl_cache("x:1", 60, fn), {"a": [1, 2]})
+            data._TTL.clear()   # a new child process: empty memory, the file is still there
+            self.assertEqual(data.ttl_cache("x:1", 60, fn), {"a": [1, 2]})
+            self.assertEqual(len(calls), 1)
+            data._TTL.clear()
+            data.ttl_cache("x:1", 0, fn)   # expired: computed again
+            self.assertEqual(len(calls), 2)
+        finally:
+            data.TTL_DIR = old

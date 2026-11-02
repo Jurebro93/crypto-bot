@@ -74,7 +74,10 @@ def _strong(n=5):
 
 def page(qs):
     now = time.time()
+    t = time.time()
     rows = sorted(overview.token_rows(), key=overview._rank, reverse=True)
+    from ui import data as _d
+    _d.stage("/tokens token_rows", t)
     good = [r for r in rows if overview.relevant(r)]
     n_hidden = len(rows) - len(good)
     active = [r for r in good if r["last_seen"] >= now - ACTIVE_H * 3600]
