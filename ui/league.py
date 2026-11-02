@@ -588,8 +588,11 @@ def _post(path, form, user):
             col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
             if col:
                 raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
-            symbol = form.get("symbol") or _symbol(token)
             size = float(form.get("size") or 0)
+            have = next((t for t in store.trades(con, user, "open") if t["token"] == token), None)
+            if have:   # Nicholas 2.11.: buying a token you already hold adds to that position (average entry)
+                return _add_more(con, user, have, size, price, liq, back)
+            symbol = form.get("symbol") or _symbol(token)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),
                       float(form["score"]) if form.get("score") else None, mcap)
             return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}')}"
@@ -630,20 +633,13 @@ def _post(path, form, user):
             if not t:
                 raise ValueError("nema te otvorene pozicije")
             size = float(form.get("size") or 0)
-            cash = store.account(con, user)["cash"]
-            if size <= 0 or size > cash + 1e-9:
-                raise ValueError(f"za dokup treba ${size:,.0f}, a slobodno je ${cash:,.2f}")
             live = market({t["token"]})
             if t["token"] not in live:
                 raise ValueError("DexScreener trenutno ne daje cijenu, probaj ponovo")
             price, liq, _, mcap = live[t["token"]]
             if collapse.check(collapse.peaks(data.HYPE_DB, [t["token"]]).get(t["token"]), mcap, liq):
                 raise ValueError("token je rugan, dokup je zaključan")
-            if not liq or liq < 1000:
-                raise ValueError("likvidnost premala (< $1k)")
-            dca.add_to(con, tid, size, price, liq)
-            msg = f"Dokupljeno {t['symbol'] or t['token'][:6]} za ${size:,.0f}; ulazna cijena je sad prosjek svih kupnji."
-            return f"{back}?ok={quote(msg)}#pozicije"
+            return _add_more(con, user, t, size, price, liq, back)
         if path == "/natjecanje/dca/start":
             from league import dca
             token = form.get("token", "").strip()
@@ -710,6 +706,23 @@ def _post(path, form, user):
         return f"{back}?err={quote(db_error(e))}"
     finally:
         con.close()
+
+
+def _add_more(con, user, t, size, price, liq, back):
+    """Buy more into an open position (Dokupi +$N, or Kupi with a token you already hold): same position, entry price
+    becomes the dollar-weighted average, size grows."""
+    from league import dca
+    cash = store.account(con, user)["cash"]
+    if size <= 0 or size > cash + 1e-9:
+        raise ValueError(f"za dokup treba ${size:,.0f}, a slobodno je ${cash:,.2f}")
+    if not price or price <= 0:
+        raise ValueError("nema cijene za token")
+    if not liq or liq < 1000:
+        raise ValueError("likvidnost premala (< $1k)")
+    dca.add_to(con, t["id"], size, price, liq)
+    msg = (f"Dokupljeno {t['symbol'] or t['token'][:6]} za ${size:,.0f} u postojeću poziciju (sad ukupno "
+           f"${t['size_usd'] + size:,.0f}); ulazna cijena je prosjek svih kupnji.")
+    return f"{back}?ok={quote(msg)}#pozicije"
 
 
 def _symbol(token):

@@ -47,7 +47,7 @@ class League(unittest.TestCase):
         from ui import real
         real.live = lambda mints: {m: (2e6, "SOL", None) for m in mints}
         link = f"https://dexscreener.com/solana/{MINT}"
-        self.assertIn("err=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Jure"))  # already open
+        self.assertIn("Dokupljeno", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Jure"))  # adds to it
         self.assertIn("ok=", league.post("/natjecanje/buy", {"token": link, "size": "50"}, "Ivan"))
         self.assertIn("err=", league.post("/natjecanje/buy", {"token": MINT, "size": "50"}, None))
         import sqlite3
@@ -106,6 +106,12 @@ class PartialSell(unittest.TestCase):
         self.assertAlmostEqual(store.trades(con, "Jure", "open")[0]["size_usd"], 75)
         con.close()
         self.assertIn("err=", league.post("/natjecanje/add", {"id": str(t["id"]), "size": "99999"}, "Jure"))
+        loc = league.post("/natjecanje/buy", {"token": MINT, "size": "100"}, "Jure")   # buy again = add to it
+        self.assertIn("Dokupljeno", loc)
+        con = store.connect()
+        self.assertEqual(len(store.trades(con, "Jure", "open")), 1)
+        self.assertAlmostEqual(store.trades(con, "Jure", "open")[0]["size_usd"], 175)
+        con.close()
         self.assertIn("confirm(", body)
         order = [body.index(k) for k in ("id=pozicije", "id=autosell", "id=dca", "id=moj", "id=zatvoreni", "id=kupi")]
         self.assertEqual(order, sorted(order))
