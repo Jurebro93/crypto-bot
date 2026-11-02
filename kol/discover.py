@@ -14,15 +14,16 @@
             group seller, news bot, suspended. A bad verdict marks the account as "not a KOL" (kol/bots.py reads
             the audits table), the reason is shown on its page.
 
-Spend: winners and audit use the same twitterapi.io daily budget as the timelines (timeline_twapi.daily_usd);
-winners has its own share (discover.winners_usd). Audit: ~20 profiles + ~20 short Haiku calls a week (< $0.05).
+Spend: discovery has its own twitterapi.io daily cap (discover.daily_usd, kv twdisc:<day>), kept out of the timeline
+share (timeline_twapi.reserve_usd), so it runs even after the timelines used theirs; winners at most
+discover.winners_usd of it. Audit: ~20 profiles + ~20 short Haiku calls a week (< $0.05).
 """
 import json
 import os
 import re
 import time
 
-DEFAULTS = {"win_x": 1.0, "win_hours": 48, "win_per_run": 4, "win_pages": 3, "winners_usd": 0.12, "win_back_h": 48,
+DEFAULTS = {"daily_usd": 0.15, "win_x": 1.0, "win_hours": 48, "win_per_run": 4, "win_pages": 3, "winners_usd": 0.12, "win_back_h": 48,
             "trial": {"min_calls": 10, "days": 14, "min_views": 200},
             "audit": {"top": 20, "every_d": 7, "per_run": 5, "posts": 8,
                       "model": "claude-haiku-5-5", "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]}}
@@ -34,6 +35,28 @@ VERDICTS = {"kol": "pravi KOL (zove tokene)", "trader": "trader (objavljuje svoj
 SCHEMA = """CREATE TABLE IF NOT EXISTS audits (
     handle TEXT PRIMARY KEY, ts INTEGER, verdict TEXT, why TEXT, bio TEXT, created TEXT, followers INTEGER,
     pinned TEXT, cost_usd REAL)"""
+
+
+def _kv_add(con, key, usd):
+    con.execute("INSERT INTO kv VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS REAL) + ?",
+                (key, str(usd), usd))
+
+
+def disc_left(con, cfg, now):
+    """USD the discovery searches (winners, profile check, follow graph) may still spend today. They have their own
+    daily cap (discover.daily_usd), separate from the timeline reading, so a timeline that used its share does not
+    stop the search for new KOLs."""
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    row = con.execute("SELECT value FROM kv WHERE key = ?", (f"twdisc:{day}",)).fetchone()
+    return dcfg(cfg)["daily_usd"] - (float(row[0]) if row else 0.0)
+
+
+def _charge(con, now, before):
+    """Book what twitterapi.io calls since `before` (twapi.spent) cost to the discovery counter."""
+    from kol import twapi
+    usd = twapi.spent(con, now) - before
+    _kv_add(con, f"twdisc:{time.strftime('%Y-%m-%d', time.gmtime(now))}", usd)
+    return usd
 
 
 def dcfg(cfg):
@@ -77,22 +100,22 @@ def winners(con, cfg, get=None, now=None):
     ensure(con)
     d = dcfg(cfg)
     now = now or int(time.time())
-    total = (cfg.get("timeline_twapi") or {}).get("daily_usd", 0.7)
     day = time.strftime("%Y-%m-%d", time.gmtime(now))
     row = con.execute("SELECT value FROM kv WHERE key = ?", (f"twwin:{day}",)).fetchone()
     mine = float(row[0]) if row else 0.0
     n = 0
     for tok, since, until in winner_targets(con, cfg, now)[:d["win_per_run"]]:
-        if mine >= d["winners_usd"]:
+        left = min(d["winners_usd"] - mine, disc_left(con, cfg, now))
+        if left <= 0:
             break
         before = twapi.spent(con, now)
-        budget = min(total, before + d["winners_usd"] - mine)
+        budget = before + left
         try:
             items = twapi.search(con, tok, since, budget, get=get, max_pages=d["win_pages"], now=now, until_ts=until)
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
             print(f"kol winners: upit nije uspio ({type(e).__name__}: {e})", flush=True)
             items = []
-        mine += twapi.spent(con, now) - before
+        mine += _charge(con, now, before)
         collect._searched(con, f"win:{tok}", "winner", now)
         n += collect.save(con, [c for it in items for c in collect.calls_from_tweet(it, tok, None, "kol_win")])
     con.execute("INSERT INTO kv VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -207,17 +230,18 @@ def audit(con, cfg, client=None, get=None, now=None):
     if client is None:
         import anthropic
         client = anthropic.Anthropic(timeout=60, max_retries=2)
-    budget = (cfg.get("timeline_twapi") or {}).get("daily_usd", 0.7)
     n = 0
     for h in audit_targets(con, cfg, now)[:a["per_run"]]:
-        if twapi.spent(con, now) >= budget:
+        if disc_left(con, cfg, now) <= 0:
             break
+        before = twapi.spent(con, now)
         try:
             u = twapi.user_info(con, h, get=get, now=now)
             if u is None or u.get("unavailable"):
                 why = (u or {}).get("unavailableReason") or "račun ne postoji"
                 con.execute("INSERT OR REPLACE INTO audits VALUES (?,?,?,?,?,?,?,?,?)",
                             (h, now, "suspendiran", f"X kaže: {why}", None, None, None, None, 0.0))
+                _charge(con, now, before)
                 n += 1
                 continue
             pins = twapi.tweets(con, (u.get("pinnedTweetIds") or [])[:1], get=get, now=now)
@@ -231,7 +255,9 @@ def audit(con, cfg, client=None, get=None, now=None):
             v, usd = _ask(client, a["model"], text)
         except Exception as e:  # noqa: BLE001 - one account must not stop the round
             print(f"kol audit @{h}: {type(e).__name__}: {e}", flush=True)
+            _charge(con, now, before)
             continue
+        _charge(con, now, before)
         verdict = v.get("verdict") if v.get("verdict") in VERDICTS else "nejasno"
         con.execute("INSERT OR REPLACE INTO audits VALUES (?,?,?,?,?,?,?,?,?)",
                     (h, now, verdict, str(v.get("why") or "")[:300], (u.get("description") or "")[:400],
@@ -284,17 +310,19 @@ def graph(con, cfg, get=None, now=None):
                        "NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%' ORDER BY score DESC").fetchall()
     proven = [h for h, st in rows if not on_trial(st)][:g["kols"]]
     due = [h for h in proven if now - (last.get(h) or 0) >= g["every_d"] * 86400][:g["per_run"]]
-    budget = (cfg.get("timeline_twapi") or {}).get("daily_usd", 0.7)
     from kol import collect
     n = 0
     for h in due:
-        if twapi.spent(con, now) >= budget:
+        if disc_left(con, cfg, now) <= 0:
             break
+        before = twapi.spent(con, now)
         try:
             fs = twapi.followings(con, h, g["page"], get=get, now=now)
         except Exception as e:  # noqa: BLE001
             print(f"kol graph @{h}: {type(e).__name__}: {e}", flush=True)
             continue
+        finally:
+            _charge(con, now, before)
         con.executemany("INSERT OR REPLACE INTO follows VALUES (?,?,?,?,?)",
                         [(h, f.get("userName") or f.get("screen_name"), now, f.get("followers_count"),
                           (f.get("description") or "")[:200]) for f in fs if f.get("userName") or f.get("screen_name")])
