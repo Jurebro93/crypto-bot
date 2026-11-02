@@ -145,13 +145,14 @@ def _shares(hours):
     return {s: v / sm for s, v in tot.items()} if sm > 0 else {}
 
 
-def today_tokens(now, sess_acc, limit=8):
-    """Tokens alive in the last 24 h (razina >= 1, no rug fail) ranked by score x learned factor of the session
+def today_tokens(now, sess_acc, limit=8, active_h=2, min_mcap=5000):
+    """Real candidates only: passed the T0 rug sieve, traded in the last active_h hours, mcap >= min_mcap
+    (2.11.: 6 of 8 listed tokens were dead ~2k$ tokens that never passed T0). Ranked by score x learned factor of the session
     their volume concentrates in; tokens peaking in the sessions still ahead today come first."""
     hype = ro("hype.db")
     rows = _q(hype, "SELECT token, symbol, klasa, razina, t0, score, mcap, liquidity, age_h, last_ts FROM token_tier "
-                    "WHERE last_ts >= ? AND razina >= 1 AND COALESCE(t0, '') != 'pad' ORDER BY score DESC LIMIT 200",
-              (now - DAY,))
+                    "WHERE last_ts >= ? AND razina >= 1 AND t0 = 'prolaz' AND COALESCE(mcap, 0) >= ? "
+                    "ORDER BY score DESC LIMIT 200", (now - active_h * 3600, min_mcap))
     if hype:
         hype.close()
     if not rows:
@@ -173,7 +174,9 @@ def today_tokens(now, sess_acc, limit=8):
     for r in rows:
         sh = _shares(hours.get(r["token"], {}))
         dom = max(sh, key=sh.get) if sh and max(sh.values()) >= 0.45 else None
-        f = ((sess_acc.get(dom) or {}).get("signal") or (sess_acc.get(dom) or {}).get("call") or {}).get("factor") or 1.0
+        a = sess_acc.get(dom) or {}
+        best = max((x for x in (a.get("signal"), a.get("call")) if x), key=lambda x: x.get("n") or 0, default={})
+        f = best.get("factor") or 1.0
         s = sig.get(r["token"])
         kol_bonus = 1.15 if s and s["n_good"] and not s["dev_selling"] else 1.0
         rank = (r["score"] or 0) * f * kol_bonus * (1.1 if dom in ahead else 1.0)

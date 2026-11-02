@@ -15,7 +15,8 @@ kratke rečenice, konkretni brojevi (postotci, n). Nikad ne izmišljaj podatke: 
 Kontekst bota:
 - Sesije trgovanja (UTC): Azija 00-08, Europa 08-14, SAD 14-24. Bot uči točnost KOL signala po sesiji (faktor 0.7-1.3).
 - Razine tokena: T0 = samo mehanika ruga (mint/freeze authority, LP); klase tokena; "skok" = top 15% u klasi.
-- Težine hype ocjene se same uče svaki dan po klasi, uz zaštitu (min. ishoda, max pomak 20%, bolje na obje polovice).
+- Težine hype ocjene se same uče svaki dan po klasi, uz zaštitu (min. ishoda, max pomak 20% po pokretanju, bolje na obje polovice).
+  Kad fit želi veću promjenu, sve takve težine pomaknu se za točno 20%: to je ta zaštita, ne greška u učenju.
 - Izlazi (TP/SL/trailing) se uče po klasi i sesiji iz putanja cijena, s rollbackom ako live rezultati padnu.
 - KOL = influencer na X-u; score 0-100 iz pogodaka (definicija u kol_hit_definition), medijana max 24 h, kasnih poziva (nakon pumpe), rugova.
   Retrospektiva: broj pregleda posta i broj autora koji zajedno zovu predviđaju pumpe, broj followera ne predviđa.

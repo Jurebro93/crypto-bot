@@ -83,6 +83,8 @@ def daily(name, args, config, due=None):
                 run(name, args)
                 last_day = now.date().isoformat()
                 _set_last_day(name, last_day)
+                if name == "learn":  # the daily fit also re-fits the weights: the 6-hourly one need not repeat it now
+                    _set_last_day("learn6", time.time())
         except Exception as e:  # noqa: BLE001 - the scheduler must not die (start.sh restarts everything)
             print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         time.sleep(300)
