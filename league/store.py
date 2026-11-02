@@ -79,6 +79,8 @@ def _migrate(con):
                 print(f"league: stupac {col} nije dodan ({e})", flush=True)
                 return
     _MIGRATED.add(key)
+    from league import fixes   # one-time corrections (2.11. pairless sale at a fake DexScreener price)
+    fixes.apply(con)
 
 
 def impact(usd, liq):
