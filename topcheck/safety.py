@@ -19,7 +19,6 @@ TOP10_FAIL, TOP10_WARN = 60.0, 35.0      # % held by the 10 largest holders, poo
 DEV_FAIL, DEV_WARN = 20.0, 5.0           # % the creator still holds
 FEE_FAIL = 10.0                          # transfer fee %
 SELL_FAIL, SELL_WARN = 0.5, 0.85         # share of the value that comes back on a test sale (price impact included)
-POOL_TYPES = {"AMM", "LOCKER"}
 
 
 def _num(x):
@@ -29,15 +28,18 @@ def _num(x):
         return None
 
 
-def summarize_rc(rc):
-    """The few facts we need from a RugCheck report (reports can be 2 MB; only this small dict is stored)."""
+def summarize_rc(rc, extra_pools=()):
+    """The few facts we need from a RugCheck report (reports can be 2 MB; only this small dict is stored).
+    `extra_pools`: pool addresses known from elsewhere (DexScreener pairAddress), never counted as holders."""
     if not rc or not isinstance(rc, dict):
         return None
     tok = rc.get("token") or {}
     supply = _num(tok.get("supply")) or 0
     dec = int(tok.get("decimals") or 0)
     known = rc.get("knownAccounts") or {}
-    pools = {a for a, v in known.items() if (v or {}).get("type") in POOL_TYPES}
+    # every account RugCheck knows by name is infrastructure (AMM, locker, launchpad curve, stake pool...), except the
+    # creator, who is judged separately
+    pools = {a for a, v in known.items() if (v or {}).get("type") != "CREATOR"} | set(extra_pools)
     best_lp, best_usd = None, -1.0
     for m in rc.get("markets") or []:
         pools.add(m.get("pubkey"))
@@ -53,6 +55,8 @@ def summarize_rc(rc):
     holders = [h for h in rc.get("topHolders") or []
                if h.get("address") not in pools and h.get("owner") not in pools and (_num(h.get("pct")) or 0) > 0]
     top10 = round(sum(_num(h.get("pct")) or 0 for h in holders[:10]), 1) if holders else None
+    if not rc.get("markets"):   # partial report (RugCheck still scanning): the pool cannot be told from a whale
+        top10 = None
     insiders = round(sum(_num(h.get("pct")) or 0 for h in holders if h.get("insider")), 1)
     cb = _num(rc.get("creatorBalance")) or 0
     dev = None
