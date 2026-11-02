@@ -817,10 +817,23 @@ def _koltest_loop(every=30):
         time.sleep(every)
 
 
+def _strat_loop(every=60):
+    """Strategy comparison (strat/, own strat.db): five $1000 demo accounts buying from different sources, in its own
+    thread of this process every minute. Never stops the main demo."""
+    from strat import run as strat
+    while True:
+        try:
+            strat.step()
+        except Exception as e:  # noqa: BLE001 - the comparison must never stop the main demo
+            print(f"strategije: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(every)
+
+
 def cmd_run(a):
     last_scan = last_review = 0
     import threading
     threading.Thread(target=_koltest_loop, name="koltest", daemon=True).start()
+    threading.Thread(target=_strat_loop, name="strategije", daemon=True).start()
     hype_args = ["scan", "--top", "0"] + (a.hype_args.split() if a.hype_args else [])
     while True:
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart

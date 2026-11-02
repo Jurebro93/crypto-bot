@@ -85,6 +85,7 @@ def _protected():
     for name, sql in (("paper.db", "SELECT token FROM trades WHERE status='open'"),
                       ("league.db", "SELECT token FROM trades WHERE status='open'"),
                       ("koltest.db", "SELECT token FROM positions WHERE book_closed_ts IS NULL AND entry_ts IS NOT NULL"),
+                      ("strat.db", "SELECT token FROM positions WHERE status='open'"),
                       ("dugo.db", "SELECT mint FROM tokens WHERE candles_ts IS NOT NULL")):
         p = os.path.join(ROOT, name)
         if not os.path.exists(p):

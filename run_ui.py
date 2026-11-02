@@ -202,6 +202,9 @@ def route(path, qs):
     if path == "/kol-test":
         from ui import koltest
         return koltest.page(qs)
+    if path == "/strategije":
+        from ui import strategije
+        return strategije.page(qs)
     if path == "/izvori":
         from ui import izvori
         return izvori.page(qs)

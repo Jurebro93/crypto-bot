@@ -270,6 +270,17 @@ def render(data, ai, source):
                              for x in kt["top"]])
         out.append(section("KOL test: ulaz odmah na poziv", body, ("/kol-test", "KOL test")))
 
+    # five $1000 demo accounts, one per entry source (strat/, page /strategije)
+    sg = data.get("strategije")
+    if sg:
+        rows = [[f"{i + 1}. {e(x['name'])}", money(x["value"] - 1000) + f" ({pct(x['ret'], True)})",
+                 money(x["pnl_24h"]), f"{x['closed']} / {x['open']}",
+                 pct(x["hit"]) if x["hit"] is not None else "–"] for i, x in enumerate(sg)]
+        body = para("Pet demo računa po $1000, svaki kupuje iz drugog izvora, svi prodaju po istim pravilima. "
+                    f"Vodi: {e(sg[0]['name'])}.")
+        body += table(["Strategija", "Ukupno", "Zadnja 24 h", "Zatvoreno / otvoreno", "Uspješnost"], rows)
+        out.append(section("Usporedba strategija", body, ("/strategije", "Usporedba strategija")))
+
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:
