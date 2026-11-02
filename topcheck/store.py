@@ -21,6 +21,11 @@ def connect(path=None):
     con.execute("PRAGMA busy_timeout=30000")
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    for col in ("rc_fail INTEGER", "rc_fail_ts INTEGER"):   # added after the first release
+        try:
+            con.execute(f"ALTER TABLE top_check ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     return con
 
 
@@ -31,7 +36,7 @@ def get(con, token):
 
 def put(con, row):
     cols = ["token", "symbol", "rank", "ts", "price", "mcap", "liq", "state", "state_json", "verdict", "safety_json",
-            "rc_json", "rc_ts", "sell_json", "sell_ts", "full_ts"]
+            "rc_json", "rc_ts", "sell_json", "sell_ts", "full_ts", "rc_fail", "rc_fail_ts"]
     con.execute(f"INSERT OR REPLACE INTO top_check ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
                 [row.get(c) for c in cols])
 

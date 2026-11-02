@@ -88,6 +88,24 @@ def summarize_rc(rc, extra_pools=()):
     }
 
 
+def summarize_light(sm):
+    """Fallback from RugCheck's light /report/summary: authorities and LP from its risk list, no holder data."""
+    if not sm or not isinstance(sm, dict) or "risks" not in sm:
+        return None
+    names = " | ".join((r.get("name") or "").lower() for r in sm.get("risks") or [])
+    ext = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    return {
+        "mint_auth": "mint authority" in names or None, "freeze_auth": "freeze authority" in names or None,
+        "rugged": "rugged" in names, "launchpad": None,
+        "lp_locked": None if sm.get("lpLockedPct") is None else round(_num(sm["lpLockedPct"]) or 0, 1),
+        "has_market": True, "top10": None, "insiders": 0, "dev_pct": None, "creator_tokens": 0, "holders": None,
+        "fee": 0, "perm_delegate": "permanent" in names, "non_transferable": False,
+        "transfer_hook": "transfer hook" in names and sm.get("tokenProgram") == ext, "frozen_default": False,
+        "danger": [r.get("name") for r in sm.get("risks") or [] if r.get("level") == "danger"][:5],
+        "decimals": None, "supply": 0, "light": True,
+    }
+
+
 def sell_test(quote, usd_in):
     """Jupiter sell quote -> {'ok', 'ratio', 'impact', 'err'}; ratio = share of the value that comes back."""
     if quote is None:
@@ -125,8 +143,9 @@ def judge(mint, rc, sell=None, full=None, pumpfun_suffix="pump"):
         else:
             put("freeze", "ok", "freeze authority ugašen")
         lp = rc["lp_locked"]
-        if rc["launchpad"] and (lp is None or lp >= LP_WARN):
-            put("lp", "ok", f"likvidnost na launchpadu ({rc['launchpad']}), tvorac je ne može izvući")
+        pad = rc["launchpad"] or ("pump.fun" if pump and rc.get("light") else None)
+        if pad and (lp is None or lp >= LP_WARN or rc.get("light")):
+            put("lp", "ok", f"likvidnost na launchpadu ({pad}), tvorac je ne može izvući")
         elif lp is None:
             put("lp", None, "nema podatka o LP-u")
         elif lp < LP_FAIL:

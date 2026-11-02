@@ -6,7 +6,8 @@
 
 Per pass, for the top TOP_N Natjecanje suggestions plus what Pregled features (ui.overview.watch_tokens):
   * DexScreener pairs (one free batch call)          -> market state: pumpa / pad uz oporavak / pada / stabilno
-  * RugCheck report (free, every RC_EVERY_MIN)       -> mint/freeze authority, LP, top holders, dev, Token-2022 traps
+  * RugCheck report (free, every RC_EVERY_MIN, at most RC_PER_PASS a pass, failures back off 5 -> 120 min, light
+    /report/summary as fallback)                       -> mint/freeze authority, LP, top holders, dev, Token-2022 traps
   * Jupiter round trip (free, every SELL_EVERY_MIN)  -> honeypot test: buy $25 then sell it back, how much returns
   * full rug filter (Helius, already paid) at most every FULL_EVERY_H per token, FULL_PER_DAY a day (~525 credits
     each, default cap 30/day ~ 16k credits of the plan's ~330k/day), saved to rug.db like every other rug check
@@ -27,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RUG_DB = os.environ.get("RUG_DB", os.path.join(HERE, "rug.db"))
 WSOL = "So11111111111111111111111111111111111111112"
 RC_EVERY_MIN = float(os.environ.get("TOP_RC_EVERY_MIN", "30"))
+RC_PER_PASS = int(os.environ.get("TOP_RC_PER_PASS", "8"))   # RugCheck answered 400 to bursts from the server
 SELL_EVERY_MIN = float(os.environ.get("TOP_SELL_EVERY_MIN", "30"))
 SELL_PER_PASS = int(os.environ.get("TOP_SELL_PER_PASS", "5"))   # lite-api.jup.ag allows only a few quotes a minute
 JUP_GAP_S = 3.0
@@ -52,13 +54,36 @@ def best_pairs(mints):
     return best
 
 
+class RugCheckBusy(Exception):
+    """RugCheck refused twice in this pass (400/429 from the server's IP): no more RugCheck calls until the next."""
+
+
 def rugcheck(mint, pool=None):
+    """Summary of the full RugCheck report; when that is refused, the light /report/summary (authorities and LP from
+    its risk list, no holders). (summary or None, refused?)."""
     from rugfilter import rugcheck as rc
     try:
-        return safety.summarize_rc(rc.report(mint, ttl=int(RC_EVERY_MIN * 60) - 30), extra_pools=[pool] if pool else ())
+        return safety.summarize_rc(rc.report(mint, ttl=int(RC_EVERY_MIN * 60) - 30), extra_pools=[pool] if pool else ()), False
     except Exception as e:
-        log(f"RugCheck {mint[:6]}: {type(e).__name__}: {e}")
-        return None
+        err = f"{type(e).__name__}: {e}"
+    try:
+        from event_calendar import http
+        light = http.get_json(f"{rc.BASE}/tokens/{mint}/report/summary", ttl=int(RC_EVERY_MIN * 60) - 30, retries=0)
+        out = safety.summarize_light(light)
+        if out:
+            return out, True
+    except Exception as e2:
+        err += f"; sažetak: {type(e2).__name__}: {e2}"
+    log(f"RugCheck {mint[:6]}: {err}")
+    return None, True
+
+
+def rc_due(old, now):
+    """Fresh RugCheck needed? After failures wait 5, 10, 20 … up to 120 min (the same mints were asked every pass)."""
+    fails = old.get("rc_fail") or 0
+    if fails:
+        return now - (old.get("rc_fail_ts") or 0) >= min(120, 5 * 2 ** (fails - 1)) * 60
+    return not old.get("rc_json") or now - (old.get("rc_ts") or 0) > RC_EVERY_MIN * 60
 
 
 class JupiterBusy(Exception):
@@ -169,6 +194,7 @@ def pass_once(n=None):
         sol_usd = None
     con = store.connect()
     jup_busy, jup_left = False, SELL_PER_PASS
+    rc_busy, rc_left, rc_refusals = False, RC_PER_PASS, 0
     try:
         for rank, mint in enumerate(mints, 1):
             old = store.get(con, mint) or {}
@@ -182,11 +208,21 @@ def pass_once(n=None):
                    "state": st["state"] if st else None, "state_json": json.dumps(st, ensure_ascii=False) if st else None}
             rc = json.loads(old.get("rc_json") or "null")
             pool = (p or {}).get("pairAddress")
-            row["rc_ts"] = old.get("rc_ts")
-            if rc is None or now - (old.get("rc_ts") or 0) > RC_EVERY_MIN * 60:
-                fresh = rugcheck(mint, pool)
-                if fresh is not None:
-                    rc, row["rc_ts"] = fresh, int(now)
+            row["rc_ts"], row["rc_fail"], row["rc_fail_ts"] = old.get("rc_ts"), old.get("rc_fail") or 0, old.get("rc_fail_ts")
+            if rc_due(old, now) and not rc_busy and rc_left > 0:
+                rc_left -= 1
+                fresh, refused = rugcheck(mint, pool)
+                if fresh is not None and not (fresh.get("light") and rc and not rc.get("light")
+                                              and now - (old.get("rc_ts") or 0) < 6 * 3600):
+                    rc, row["rc_ts"] = fresh, int(now)   # a light summary never replaces a full report < 6 h old
+                if refused:
+                    row["rc_fail"], row["rc_fail_ts"] = row["rc_fail"] + 1, int(now)
+                    rc_refusals += 1
+                    if rc_refusals >= 2:
+                        rc_busy = True
+                        log("RugCheck odbija upite: ostali tokeni u idućem prolazu")
+                else:
+                    row["rc_fail"], row["rc_fail_ts"] = 0, None
             row["rc_json"] = json.dumps(rc) if rc is not None else None
             sell = json.loads(old.get("sell_json") or "null")
             row["sell_ts"] = old.get("sell_ts")
