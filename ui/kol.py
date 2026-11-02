@@ -628,10 +628,11 @@ def kol_page(handle, qs):
             b.append(f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{l}</div></div>")
         b.append("</div>")
         if k.get("bot"):
-            b.append('<p><span class="b warn">bot</span> <b>Automatski ili promo račun, ne KOL.</b> Objavljuje velik broj novih tokena, uglavnom po istom '
-                     f'predlošku ({esc(k.get("bot_why") or "")}), pa se njegove objave ne broje kao pozivi: ne ulaze u '
-                     'grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, konvergenciju ni demo ulaze. Brojke niže '
-                     'svejedno pokazuju što su njegove objave napravile s cijenom i volumenom.</p>')
+            b.append('<p><span class="b warn">nije KOL</span> <b>Bot, spam, promo ili dev račun.</b> Razlog: '
+                     f'{esc(k.get("bot_why") or "")}. Njegove objave se ne broje kao pozivi: ne ulaze u '
+                     'grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, konvergenciju, demo ulaze ni statistiku '
+                     'X objava. Ne otvaraj linkove iz njegovih objava. Brojke niže samo pokazuju što su njegove objave '
+                     'napravile s cijenom.</p>')
         if s.get("parts"):
             w, p = cfg["weights"], s["parts"]
             expl = {"hit": f"{s['hit_rate']:.0%} poziva s barem +{cfg['hit_x']:.0%} u 24 h",

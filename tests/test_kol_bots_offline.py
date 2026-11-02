@@ -60,6 +60,27 @@ class Detect(unittest.TestCase):
                          True)
 
 
+    def test_not_a_kol_rules(self):
+        """2.11.: hacked drainer-spam accounts, paid-group sellers and devs calling their own launches."""
+        spam = [(T0, MINTS[0], f"$DOG is in the listing window\n\n{MINTS[0]} l4hdn\n\nClick below to vote 👇")]
+        ok, why = bots.classify("footballer", spam, CFG)
+        self.assertTrue(ok)
+        self.assertIn("spam", why)
+        promo = [(T0 + i, MINTS[i], f"$A{i} 10x\nDm for invitation link to My private TG") for i in range(2)] + \
+                [(T0 + 9 + i, MINTS[3 + i], f"$B{i} looks good") for i in range(3)]
+        self.assertIn("plaćenoj grupi", bots.classify("seller", promo, CFG)[1])
+        dev = [(T0 + i * 60, MINTS[i % 5], f"live {i}", 1) for i in range(30)]
+        self.assertIn("vlastite tokene", bots.classify("dev", dev, CFG)[1])
+        # a real caller who is sometimes first and only once per token stays a KOL
+        words = "abcdefghijklmnopqrstuvwxyz"
+        real = [(T0 + i * 60, MINTS[i % 9], " ".join(words[(i * 7 + j) % 26] * 3 for j in range(6)), i % 2)
+                for i in range(30)]
+        self.assertEqual(bots.classify("caller", real, CFG), (False, ""))
+        # forced by hand still shows the automatic reason when one applies
+        forced = dict(CFG, bots=dict(CFG["bots"], force=["Footballer"]))
+        self.assertIn("spam", bots.classify("footballer", spam, forced)[1])
+
+
 class Parse(unittest.TestCase):
     def test_evm_address_is_not_a_solana_token(self):
         self.assertEqual(collect.cas_in("CA: 0xefd8469bbe9b7431668acda71d8dfa49f7634444"), [])

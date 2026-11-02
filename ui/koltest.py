@@ -91,8 +91,9 @@ def page(qs):
 
     if bot_ps:
         bs = book.summary(bot_ps, cfg)
-        b.append(tdesc(f"Izuzeto iz statistike: {bs['n']} ulaza na objave automatskih skener botova na X-u (objave "
-                       f"svaki novi token, nisu KOL-ovi; prepoznaju se od 1.11.). Njihov rezultat odvojeno: "
+        b.append(tdesc(f"Izuzeto iz statistike: {bs['n']} ulaza na objave računa koji nisu KOL-ovi (skener botovi "
+                       f"od 1.11., a od 2.11. i hakirani spam računi, prodavači plaćenih grupa i dev-ovi koji zovu "
+                       f"vlastite tokene). Njihov rezultat odvojeno: "
                        f"{bs['hit20']} od {bs['n']} doseglo +20%, knjiga ${bs['pnl']:+,.0f}."))
     if not ps:
         b.append(tdesc("Još nema ulaza. Čim neki KOL objavi token ili KOL novčanik kupi, ovdje se pojavi."))

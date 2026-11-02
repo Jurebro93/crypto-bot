@@ -79,8 +79,16 @@
   "template_share": 0.9,
   "handle_tokens_day": 15,
   "max_tokens_day": 40,
+  "spam_share": 0.3,
+  "promo_share": 0.3,
+  "dev_tokens": 5,
+  "dev_posts": 20,
+  "dev_first": 0.9,
+  "dev_heavy": 5,
+  "dev_heavy_share": 0.5,
   "force": [
-   "blossomscanner"
+   "blossomscanner", "MaisonDunn1", "DreRob", "kennymadden1973", "GQ_Smooth_", "Truspect", "Humanevolvd",
+   "CiggyAlpha", "popmemecoin"
   ],
   "never": []
  },
