@@ -72,12 +72,8 @@ def _uzori(con, day, cfg_uzori):
 def page(qs):
     from dugo import run
     cfg = run.config()
-    b = ["<h1>Dugoročni i oživljeni tokeni</h1>" + tdesc(
-        "Sigurniji sloj uz lov na nove tokene. Ovdje su samo tokeni koji su preživjeli tjednima ili mjesecima, imaju pravu "
-        "likvidnost i ponašaju se kao Fartcoin i Useless: padnu, ali se oporave, zajednica ih i dalje zove, a rastu kad "
-        "rastu BTC i SOL. Drugi popis su jači tokeni s većom tržišnom vrijednošću koji su tu već tjednima, imaju stalan "
-        "volumen svaki dan i sve više holdera. Treći popis su stariji tokeni koji su jako pali i sada se bude. Popisi se osvježavaju svakih "
-        "6 sati, a bot jednom tjedno sam provjeri na povijesti koja mjerila stvarno pomažu i polako prilagodi težine.")]
+    from ui.tokens import switch
+    b = ["<h1>Tokeni</h1>" + switch("/dugorocno")]
     con = store.ro()
     if con is None:
         return "Dugoročni", "".join(b) + '<div class=empty>Prvi prolaz još traje (nekoliko minuta nakon pokretanja).</div>'
@@ -90,22 +86,6 @@ def page(qs):
         n_dead = con.execute("SELECT COUNT(*) FROM tokens WHERE status='mrtav'").fetchone()[0]
         dug, bud, jak = _rows(con, "dugorocni", day), _rows(con, "budjenje", day), _rows(con, "jaki", day)
         brows, inv, tot, tot_sol = _book(con)
-        b.append("<div class=grid>" + "".join([
-            _stat(f"{n_all:,}", "tokena provjereno"), _stat(n_tok, "preživjelih s poviješću cijena"),
-            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='dugorocni'", (day,)).fetchone()[0],
-                  "na dugoročnom popisu"),
-            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='jaki'", (day,)).fetchone()[0], "jakih"),
-            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='budjenje'", (day,)).fetchone()[0], "se budi"),
-            _stat(f"{tot:+,.0f} $" if inv else "–", "demo portfelj"),
-            _stat(f"{tot - tot_sol:+,.0f} $" if inv else "–", "bolje/lošije od držanja SOL-a"),
-        ]) + "</div>")
-
-        b.append("<h2>Uzori: Fartcoin i Useless</h2>" + tdesc(
-            "Kako izgledaju tokeni koje želimo naći. Sličnost uzoru na popisu ispod mjeri koliko je token blizu ovom "
-            "profilu (pad od vrha, koliko se puta oporavio, kretanje s BTC-om, volatilnost, likvidnost)."))
-        b.append(table(["Token", "Tržišna vrijednost", "Od vrha (6 mj.)", "Oporavaka", "Udio oporavaka", "Korelacija s BTC",
-                        "Beta BTC", "30 dana"], _uzori(con, day, cfg["uzori"]), empty="Uzori još nemaju povijest."))
-
         b.append("<h2>Dugoročni kandidati</h2>" + tdesc(
             f"Stariji od {cfg['dugorocni']['min_starost_d']} dana, likvidnost barem "
             f"${cfg['dugorocni']['min_likvidnost'] / 1e3:.0f}k, vrijednost barem ${cfg['dugorocni']['min_mcap'] / 1e6:.0f}M. "
@@ -154,6 +134,23 @@ def page(qs):
         b.append(table(["#", "Token", "Ocjena", "Starost", "Likvidnost", "Vrijednost", "Od vrha", "Od dna 30 d",
                         "Volumen tjedan / prije", "7 dana", "KOL pozivi 7 d", "Zašto"], rows, tid="bud"))
 
+        stats = ("<div class=grid>" + "".join([
+            _stat(f"{n_all:,}", "tokena provjereno"), _stat(n_tok, "preživjelih s poviješću cijena"),
+            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='dugorocni'", (day,)).fetchone()[0],
+                  "na dugoročnom popisu"),
+            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='jaki'", (day,)).fetchone()[0], "jakih"),
+            _stat(con.execute("SELECT COUNT(*) FROM snap WHERE day=? AND kind='budjenje'", (day,)).fetchone()[0], "se budi"),
+            _stat(f"{tot:+,.0f} $" if inv else "–", "demo portfelj"),
+            _stat(f"{tot - tot_sol:+,.0f} $" if inv else "–", "bolje/lošije od držanja SOL-a"),
+        ]) + "</div>")
+
+        b.append("<h2>Uzori: Fartcoin i Useless</h2>" + tdesc(
+            "Kako izgledaju tokeni koje želimo naći. Sličnost uzoru na popisu ispod mjeri koliko je token blizu ovom "
+            "profilu (pad od vrha, koliko se puta oporavio, kretanje s BTC-om, volatilnost, likvidnost)."))
+        b.append(table(["Token", "Tržišna vrijednost", "Od vrha (6 mj.)", "Oporavaka", "Udio oporavaka", "Korelacija s BTC",
+                        "Beta BTC", "30 dana"], _uzori(con, day, cfg["uzori"]), empty="Uzori još nemaju povijest."))
+
+        b.append("<h2>Brojke</h2>" + stats)
         b.append(_whales(con, cfg))
         b.append(_listings(con, day))
         mx = cfg["mix"]

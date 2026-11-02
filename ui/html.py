@@ -17,74 +17,76 @@ def _p(href, icon, name, desc, kw=""):
 
 
 SECTIONS = [
-    ("Početak", [
-        _p("/", "🏠", "Pregled", "Sve tri glavne stvari na jednom mjestu: prijedlozi tokena, influenceri i novčanici.",
-           "home početna dashboard kandidati"),
-        _p("/mapa", "🧭", "Gdje je što", "Sve stranice na jednom mjestu, s kratkim opisom.", "izbornik mapa pomoć help"),
-        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam, broj i stranica, običnim riječima.",
-           "objašnjenje pojmovi rječnik značenje help pomoć info"),
-        _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak svega bitnog, gotov prije 8 h.", "email mail report sažetak"),
+    # the three things the app is about: the only items at the top of the menu and in the phone bar
+    ("Glavno", [
+        _p("/tokens", "🪙", "Tokeni", "Prijedlozi tokena: novi, jaki i dugoročni, poredani po Šansi za skok.",
+           "radar hype novi zadnji sken kandidati lista coin prijedlozi home početna pregled"),
+        _p("/kol", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su upravo zvali.",
+           "influenceri pozivi twitter x ljestvica kol"),
+        _p("/wallets", "👛", "Novčanici", "Tko je upravo kupio ili prodao i koga se isplati kopirati.",
+           "walleti wallet smart money copy praćenje"),
     ]),
-    ("Prijedlozi tokena", [
-        _p("/radar", "📡", "Najnoviji prijedlozi", "Što je skener upravo našao (svake 2 minute), s razlozima i rizicima.",
-           "radar hype novi zadnji sken kandidati"),
-        _p("/tokens", "🪙", "Svi tokeni", "Svaki token iz zadnjih 7 dana sa svim provjerama.", "lista coin"),
-        _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu (Fartcoin, Useless…).",
+    ("Tokeni", [
+        _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
+        _p("/radar", "📡", "Zadnji sken", "Što je skener našao u zadnjem prolazu.", "radar hype novi zadnji sken"),
         _p("/events", "📅", "Eventi", "Događaji oko kojih nastaju tokeni.", "kalendar događaji"),
         _p("/watch", "⏳", "Prije eventa", "Kreću li tokeni prije događaja.", "watch"),
     ]),
-    ("Influenceri", [
-        _p("/kol", "📣", "KOL-ovi", "Ljestvica influencera: tko zove tokene na X-u i Telegramu i što se nakon toga dogodi.",
-           "influenceri pozivi twitter x ljestvica"),
-        _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali, novčanici KOL-ova i kad više izvora zove isti token.",
+    ("Influenceri i novčanici", [
+        _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali i novčanici KOL-ova.",
            "telegram kanali konvergencija kol novčanici"),
-        _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
+        _p("/korelacije", "🕸", "Korelacije", "Novčanici i KOL-ovi koji rade zajedno.", "grupe klasteri veze"),
+        _p("/kol-test", "🧪", "KOL test", "Isplati li se ući odmah na KOL poziv.", "test"),
     ]),
-    ("Praćenje novčanika", [
-        _p("/wallets", "👛", "Novčanici", "Tko kupuje rano i zarađuje: ocjene, oznake i lista za kopiranje.",
-           "walleti wallet smart money copy praćenje"),
-        _p("/korelacije", "🕸", "Korelacije", "Povezani novčanici i grupe KOL-ova koje rade zajedno, s AI tumačenjem.",
-           "grupe klasteri veze"),
-    ]),
-    ("Bot trguje (demo)", [
-        _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio: njegovi ulazi i izlazi bez pravog novca.", "paper trejd"),
-        _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000: novčanici, KOL-ovi, alat, mix i nasumično.",
+    ("Bot (demo)", [
+        _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio, bez pravog novca.", "paper trejd"),
+        _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000.",
            "strategije usporedba budžet račun novčanici kol mix kontrola nasumično"),
         _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
+        _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak, gotov prije 8 h.", "email mail report sažetak"),
+    ]),
+    ("Pomoć", [
+        _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
+           "objašnjenje pojmovi rječnik značenje help pomoć info"),
+        _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
+    ]),
+    ("Bonus", [
+        _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene iz prijedloga i natječi se s ostalima.",
+           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
+        _p("/copy-trading", "🔁", "Copy trading", "Alat ulazi i izlazi umjesto tebe, prema influenceru ili novčaniku.",
+           "kopiraj prati influencer kol wallet novčanik copy trade"),
+        _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token.",
+           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
+        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
+        _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
     ("Sustav", [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
-        _p("/analitika", "📈", "Analitika", "Koliko nas ljudi nađe na Googleu i preko kojih riječi.",
-           "google search console gsc seo klikovi prikazi upiti posjete"),
-        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise i hoće li budžet izdržati.", "trošak helius apify budžet"),
-        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je na naslovnoj stranici zatražio pristup; pozivnica jednim klikom.",
+        _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
+        _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak helius apify budžet"),
+        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
     ]),
-    ("Bonus: Natjecanje", [
-        _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
-           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
-        _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
-           "kopiraj prati influencer kol wallet novčanik copy trade"),
-        _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
-           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
-        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za vašu WhatsApp grupu: ljestvica, tradeovi, novosti.",
-           "whatsapp grupa podijeli pošalji share novosti"),
-        _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
-    ]),
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
-CORE = ("Prijedlozi tokena", "Influenceri", "Praćenje novčanika")
-BONUS = "Bonus: Natjecanje"
+CORE = ("Glavno",)
+BONUS = "Bonus"
+# menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
+ADMIN = ("Sustav",)
 # detail pages light up the menu item they belong to
-NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
+NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
               "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
-# phone bottom bar: Pregled + the three core features
-BOTTOM = [("/", "🏠", "Pregled"), ("/radar", "📡", "Prijedlozi"), ("/kol", "📣", "Influenceri"), ("/wallets", "👛", "Novčanici")]
+# phone bottom bar: the three core features + Više (opens the menu). Line icons, one colour.
+_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true">{}</svg>'
+BOTTOM = [("/tokens", _SVG.format('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'), "Tokeni"),
+          ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri"),
+          ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici")]
+MORE_ICON = _SVG.format('<circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/>')
 
 # Logo: candidates, LOGO picks the one shown. Plain SVG, no files to serve.
 LOGOS = {
@@ -228,30 +230,15 @@ INTRO = {
 }
 
 
-def intro_html(path):
-    key = path if path in INTRO else next((k for k in INTRO if k != "/" and path.startswith(k.rstrip("/") + "/")), None)
-    if key is None:
-        return ""
-    cilj, sto, uloga = INTRO[key]
-    return (f"<details class=intro><summary><b>{esc(cilj)}</b> <span class=mut>· što je na ovoj stranici</span></summary>"
-            f"<div>{esc(sto)}</div><div class=mut style='margin-top:4px'>Uloga u cjelini: {esc(uloga)}</div></details>")
-
-
-def _h1_info(body, path):
-    """The page title gets an ⓘ that explains the whole page."""
-    i = body.find("</h1>")
-    if i < 0:
-        return body
-    pi = page_info(path)
-    return body[:i] + (" " + pi if pi else "") + body[i:] if pi else body
-
-
-def with_intro(body, path):
-    """The intro box goes right under the page title, or at the top when the page has no <h1>."""
-    intro = intro_html(path)
-    if not intro:
-        return body
-    return body.replace("</h1>", "</h1>" + intro, 1) if "</h1>" in body else intro + body
+def bottom_item(path):
+    """href of the phone-bar tab that is lit for this path (a detail page lights its core feature)."""
+    hrefs = [h for h, _, _ in BOTTOM]
+    if path in hrefs:
+        return path
+    for pre, href in NAV_PREFIX.items():
+        if path.startswith(pre) and href in hrefs:
+            return href
+    return None
 
 
 CSS = """
@@ -519,22 +506,60 @@ def _pages_json():
 
 
 def side_menu(cur):
+    """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
+    The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
     svg, name = logo(26)
-    b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/">{svg}<span>{esc(name)}</span></a>'
-         '<button data-nav aria-label="Zatvori izbornik">✕</button></div>',
-         f'<a class=pub href="{_home_link()}" target=_blank rel=noopener><span class=mi>🚀</span>Naslovna stranica ↗</a>']
+    b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/tokens">{svg}<span>{esc(name)}</span></a>'
+         '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
     for sec, items in SECTIONS:
-        b.append(f'<div class="{"sec-c" if sec in CORE else "sec-b" if sec == BONUS else ""}"><h4>{esc(sec)}</h4>' + "".join(
-            f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'
-            for p in items) + "</div>")
+        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}">{esc(p["name"])}</a>' for p in items)
+        if sec in CORE:
+            b.append(f'<div class=sec-c>{links}</div>')
+        else:
+            b.append(f'<div class="sec{" adm-only" if sec in ADMIN else ""}"><h4>{esc(sec)}</h4>{links}</div>')
     from ui.i18n import lang
     en = lang() == "en"
-    b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}"><span class=mi>⚙️</span>Postavke</a>'
-             '<div class=outrow><a class=out href="/odjava"><span class=mi>↩</span>Odjava</a>'
+    b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}">Postavke</a>'
+             f'<a class=pub href="{_home_link()}" target=_blank rel=noopener>Naslovna stranica ↗</a>'
+             '<div class=outrow><a class=out href="/odjava">Odjava</a>'
              '<span class=lsw translate=no aria-label="Jezik / Language">'
              f'<a href="/jezik?l=hr" class="{"" if en else "on"}" title="Hrvatski">HR</a>'
              f'<a href="/jezik?l=en" class="{"on" if en else ""}" title="English">EN</a></span></div></aside>')
     return "".join(b)
+
+
+# Admin-only bits (Sustav menu, spend warnings, manual job buttons) carry class adm-only. Pages are cached and the
+# same for everyone, so the server sets a cb_adm=1 cookie for admins and this shows them; it only declutters,
+# the pages themselves stay reachable by link.
+ADMIN_CSS = ".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
+ADMIN_JS = "if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+
+SIMPLE_CSS = """
+/* 2.11. simpler look: data first, quiet menu, segmented filters, line icons in the phone bar */
+.side .sec-c{background:none!important;padding:4px 0 6px;margin-top:4px;border-bottom:1px solid var(--line);border-radius:0!important}
+.side .sec-c a{font-size:15px;font-weight:600;padding:9px 10px}
+.side .sec h4{margin:16px 10px 3px}.side .sec a{font-size:13.5px;color:var(--mut);padding:5px 10px}
+.side .sec a.on{color:var(--fg)}
+.side .pub{font-weight:400;font-size:13px;color:var(--mut);margin:4px 0 0}
+.seg{display:inline-flex;background:var(--soft);border-radius:10px;padding:3px;gap:2px;margin:2px 0 14px;max-width:100%;overflow-x:auto}
+.seg a{padding:6px 14px;border-radius:8px;font-size:13.5px;color:var(--mut);text-decoration:none;white-space:nowrap;font-weight:500}
+.seg a.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(11,18,32,.1)}
+h1{font-size:26px;letter-spacing:-.02em;margin:10px 0 12px}
+.bbar svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:block}
+.bbar .bi{height:24px;display:grid;place-items:center}
+.ext-big .xl{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}.ext-big .xl a{width:34px;height:34px;border-radius:9px;background:var(--soft);display:grid;place-items:center}
+.ext-big .xl img{width:18px;height:18px}
+.tokhead{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:6px 0 10px}
+.tokhead h1{margin:0}.tokhead .sn{text-align:right}.tokhead .sn small{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.tokhead .sn b{font-size:26px;font-variant-numeric:tabular-nums}
+.verdict{background:var(--soft);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:15px}
+.verdict details{font-size:14px;margin-top:6px}.verdict summary{color:var(--mut);font-size:13px;cursor:pointer}
+"""
+
+
+def seg(items, cur):
+    """Segmented control: [(href, label)], the one whose href == cur is lit. Plain links, so it works cached."""
+    return "<nav class=seg>" + "".join(f'<a href="{h}" class="{"on" if h == cur else ""}">{esc(t)}</a>' for h, t in items) + "</nav>"
 
 
 def page(title, body, path="/"):
@@ -542,53 +567,43 @@ def page(title, body, path="/"):
     cur = nav_item(path)
     svg, name = logo(30)
     header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
-              f'<a class=brand href="/" title="Na početnu">{svg}<span>{esc(name)}</span></a>'
+              f'<a class=brand href="/tokens" title="Tokeni">{svg}<span>{esc(name)}</span></a>'
               '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
-              '<input id=q name=q placeholder="Traži token, adresu, KOL ili stranicu…" aria-label="Traži" enterkeyhint=search>'
+              '<input id=q name=q placeholder="Traži token, adresu ili KOL" aria-label="Traži" enterkeyhint=search>'
               '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form></header>')
+    bcur = bottom_item(path)
     bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
-        f'<a href="{h}" class="{"on" if h == cur else ""}"><span class=bi>{i}</span>{t}</a>'
-        for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
+        f'<a href="{h}" class="{"on" if h == bcur else ""}"><span class=bi>{i}</span>{t}</a>'
+        for h, i, t in BOTTOM) + f"<button data-nav><span class=bi>{MORE_ICON}</span>Više</button></nav>")
     from ui import deploypage, i18n, secnav
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
-            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}</style></head><body>"
-            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(with_intro(_h1_info(body, path), path))}</main></div>"
+            f"<script>{ADMIN_JS}</script>"
+            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}</style></head><body>"
+            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 
 
 def map_page(qs=None):
-    """/mapa: every page as a card with what it is for, grouped like the menu; the three core features first."""
-    b = ["<h1>Gdje je što</h1><p class=lead>Sve stranice alata na jednom mjestu. Isti popis je u izborniku lijevo "
-         "(na mobitelu gumb ☰ Izbornik dolje desno), a tražilica na vrhu nalazi i stranice, tokene, KOL-ove i novčanike.</p>",
-         "<div class=card><b>Alat radi tri stvari:</b> predlaže tokene (<a href=/radar>Najnoviji prijedlozi</a>), "
-         "analizira influencere (<a href=/kol>KOL-ovi</a>) i prati novčanike (<a href=/wallets>Novčanici</a>). "
-         "Sve tri su sažete na <a href=/>Pregledu</a>. Natjecanje s demo računima je bonus na dnu izbornika.</div>"]
+    """/mapa: every page as a card, grouped like the menu; the three core features first."""
+    b = ["<h1>Sve stranice</h1>"]
     for sec, items in SECTIONS:
-        b.append(f"<h2>{esc(sec)}</h2><div class=mapgrid>" + "".join(
-            f'<a class="mapcard{" pillar" if sec in CORE else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
-            f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
-    return "Gdje je što", "".join(b)
+        b.append(f"<h2{' class=adm-only' if sec in ADMIN else ''}>{esc(sec)}</h2>"
+                 f"<div class='mapgrid{' adm-only' if sec in ADMIN else ''}'>" + "".join(
+                     f'<a class="mapcard{" pillar" if sec in CORE else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
+                     f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
+    return "Sve stranice", "".join(b)
 
 
-# the three cards at the very top of Pregled: one per core feature, each jumps to its block lower on the page
-PILLARS = [("#prijedlozi", "🎯", "Prijedlozi tokena", "Najjači tokeni upravo sada, poredani po šansi za skok."),
-           ("#influenceri", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su zadnje zvali."),
-           ("#novcanici", "👛", "Praćenje novčanika", "Što praćeni novčanici kupuju i prodaju upravo sada.")]
-
-
-def quick_links():
-    """Top of Pregled: the three core features as big cards (jump to their block below) + one link to all pages."""
-    cards = "".join(f'<a class="mapcard pillar" href="{h}"><span class=mi>{i}</span><b>{esc(n)}</b>'
-                    f'<span class=mut>{esc(d)}</span></a>' for h, i, n, d in PILLARS)
-    return (f"<nav class='mapgrid pillars' aria-label='Glavne funkcije'>{cards}</nav>"
-            "<p class=mut style='margin:-2px 0 14px;font-size:13px'>Sve ostale stranice: <a href=/mapa>Gdje je što</a> "
-            "ili izbornik ☰.</p>")
+def note(text):
+    """A short line of real information under a heading (a count, a warning) — unlike the old tdesc explanations."""
+    return f'<p class=mut style="font-size:13px;margin:4px 0 8px">{text}</p>'
 
 
 def tdesc(text):
-    """Short "what this table covers" line shown above a table."""
-    return f'<p class=tdesc>{text}</p>'
+    """Was a "what this table covers" line above every table. Removed (2.11.): the heading and the column ⓘ say it,
+    the explanation lives in the Pojmovnik. Kept as a no-op so old calls keep working; don't add new ones."""
+    return ""
 
 
 def tip(text, k=None, label=None):
@@ -615,12 +630,12 @@ def th(label, cls=""):
     return f'<th class="{cls}">{label}{" " + tip(h, k, label) if h else ""}</th>'
 
 
-_ANN = re.compile(r'(<h[23](?:\s[^>]*)?>|<div class=l>)([^<>]{2,70})(?=</h[23]>|</div>)')
+_ANN = re.compile(r'(<div class=l>)([^<>]{2,70})(?=</div>)')
 
 
 def annotate(body):
-    """Add a glossary ⓘ to every section heading and stat-tile label whose text is a known term, so a new page
-    is explained without touching its code."""
+    """Add a glossary ⓘ to every stat-tile label whose text is a known term. Headings stay clean: the page says
+    what it is through its layout; terms are explained where the numbers are (column headers, stat labels)."""
     from ui import glossary
     idx = glossary.index()
 

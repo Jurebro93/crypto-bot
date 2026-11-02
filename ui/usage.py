@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 from ui import labels
-from ui.html import ago, badge, bar, esc, num, table, tdesc, ts
+from ui.html import note, ago, badge, bar, esc, num, table, tdesc, ts
 from usage import meter, watch
 
 _cache = {"ts": 0, "alerts": []}
@@ -127,7 +127,7 @@ def _service(con, service, cfg):
     kinds = _kinds(con, now) if service == "helius" else ""
     return (f"<h2>{name}</h2><div class=grid>{grid}</div><p class=mut>{esc(acc)}</p>"
             f"<div class=two><div><h3>Po danu ({unit})</h3>"
-            + tdesc(f"Ono što je bot sam izbrojao po danu (UTC). Kvota je {f(st['fair_day'])}/dan da budžet traje cijeli ciklus.")
+            + note(f"Ono što je bot sam izbrojao po danu (UTC). Kvota je {f(st['fair_day'])}/dan da budžet traje cijeli ciklus.")
             + table(["Dan", ("Potrošeno", "n"), ""], drows)
             + "</div><div><h3>Tko troši (zadnja 24 h)</h3>"
             + tdesc("Dio bota i vrsta poziva. Greške su odbijeni pozivi (preopterećenje ili potrošen limit); puno grešaka "

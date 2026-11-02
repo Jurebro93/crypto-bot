@@ -1,10 +1,10 @@
-"""The "Tokeni" page: every token the bot has seen, by priority (confidence), split into tables that each make
-sense on their own: active candidates, event tokens and older ones. Rugged, rejected and weak tokens are not listed
-(one line says how many were left out)."""
+"""The "Tokeni" page, where the app opens: one list with three views (Novi · Jaki · Dugoročni). Novi = active
+candidates by confidence (event tokens and older ones folded below), Jaki = the strong long-term list, Dugoročni is
+its own page (/dugorocno) with the same switch on top. Rugged, rejected and weak tokens are never listed."""
 import time
 
 from ui import overview
-from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, table, tlink, usd  # noqa: F401
+from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, seg, table, tlink, usd  # noqa: F401
 
 ACTIVE_H = 24
 
@@ -26,11 +26,9 @@ def _checks(r):
 
 def _main_table(rows, tid, empty):
     from ui import confidence
-    return table(["Token", ("Confidence", "n"), ("Zašto", "wrap"), ("Analize", "wrap"), ("Hype", "n"), "Rug", ("Mcap", "n"),
-                  ("Likv.", "n"), "Zadnje"],
-                 [[tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"), (_why(r), "", "wrap"),
-                   (_checks(r), r["passed"], "wrap"), scorecell(r["hype_last"]),
-                   rugcell(r), usd(r["mcap"]), usd(r["liq"]),
+    return table(["Token", ("Confidence", "n"), ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), "Rug", "Zadnje"],
+                 [[tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+                   usd(r["mcap"]), usd(r["liq"]), (_why(r), "", "wrap"), rugcell(r),
                    ago(r["last_seen"])] for r in rows], tid, empty, mints=[r["token"] for r in rows])
 
 
@@ -64,42 +62,44 @@ def _strong(n=5):
     if not grown:  # holder growth needs a week of daily counts: until then the column would be all dashes
         head.pop(4)
         tr = [r[:4] + r[5:] for r in tr]
-    return ("<h2>Jaki tokeni <span class=mut style='font-weight:400'>· stariji, veća vrijednost, stalan volumen</span></h2>"
-            + tdesc("Najbolji s popisa Jaki na stranici Dugoročni: tokeni koji su tu već tjednima, vrijede barem 5 M$ i imaju "
-                    "stalan volumen svaki dan. " + ("" if grown else "Rast broja holdera prikazat će se kad bot skupi barem "
-                    "tjedan dana dnevnih brojanja. ") + "Sigurniji od novih tokena ispod.")
-            + table(head, tr, "tj", "", mints=[r[0] for r in rows])
-            + "<p class=mut><a href=/dugorocno#jaki>Cijeli popis jakih tokena →</a></p>")
+    return table(head, tr, "tj", "", mints=[r[0] for r in rows])
 
 
-def page(qs):
+# shown once per browser on the first visit (rule: friends use the app without explanation), then never again
+HELLO = ("<div class=card id=hello hidden><b>Dobro došao.</b><ol style='margin:6px 0 8px;padding-left:20px'>"
+         "<li><b>Tokeni</b>: najbolji prijedlozi, najjači gore.</li>"
+         "<li><b>Influenceri</b>: tko stvarno pogađa i što je upravo zvao.</li>"
+         "<li><b>Novčanici</b>: tko je upravo kupio ili prodao.</li></ol>"
+         "<span class=mut>Dodirni ⓘ uz broj za objašnjenje.</span> <button type=button class=sm id=hello-ok>U redu</button></div>"
+         "<script>(()=>{const h=document.getElementById('hello');try{if(localStorage.getItem('ms_hello'))return}catch(e){return}"
+         "h.hidden=false;document.getElementById('hello-ok').onclick=()=>{h.hidden=true;try{localStorage.setItem('ms_hello','1')}catch(e){}}})()</script>")
+
+VIEWS = [("/tokens", "Novi"), ("/tokens/jaki", "Jaki"), ("/dugorocno", "Dugoročni")]
+
+
+def switch(cur):
+    """Novi · Jaki · Dugoročni on top of all three views."""
+    return seg(VIEWS, cur)
+
+
+def page(qs, view="novi"):
+    if view == "jaki":
+        strong = _strong(n=50)
+        return "Tokeni", ("<h1>Tokeni</h1>" + switch("/tokens/jaki")
+                          + (strong or "<p class=mut>Popis jakih tokena još se slaže (jednom dnevno).</p>") + modal())
     now = time.time()
     t = time.time()
     rows = sorted(overview.token_rows(), key=overview._rank, reverse=True)
     from ui import data as _d
     _d.stage("/tokens token_rows", t)
     good = [r for r in rows if overview.relevant(r)]
-    n_hidden = len(rows) - len(good)
     active = [r for r in good if r["last_seen"] >= now - ACTIVE_H * 3600]
     older = [r for r in good if r["last_seen"] < now - ACTIVE_H * 3600]
     event = [r for r in rows if r["events"] and not overview.bad(r)]
 
-    b = ["<h1>Tokeni</h1><p class=mut>Samo tokeni koji su još kandidati, poredani po <b>confidenceu</b>: hype ocjena plus "
-         "neovisne potvrde (X, smart money, KOL, holderi, rug filter, event), minus rizici. Rugani, odbačeni i slabi "
-         f"(confidence ispod {overview.MIN_SHOW_CONF}) se ne prikazuju. Klik na ime otvara stranicu tokena sa svim "
-         "provjerama, a sličice pored imena otvaraju ga na vanjskim stranicama. Starije, jače tokene s većom tržišnom vrijednošću i stalnim volumenom vidi na "
-         "<a href=/dugorocno>Dugoročnima</a>.</p>",
-         f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}<span class=mut>{len(active)} aktivnih, {len(event)} uz event, "
-         f"{len(older)} starijih</span></div>", overview.hidden_line(n_hidden)]
+    b = ["<h1>Tokeni</h1>", HELLO, switch("/tokens"), f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}</div>",
+         _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.")]
 
-    b.append(_strong())
-    b.append(f"<h2>Aktivni kandidati (zadnja {ACTIVE_H} h)</h2>")
-    b.append(tdesc('Tokeni viđeni u zadnja 24 h koji nisu rugani ni odbačeni i imaju confidence barem '
-                   f'{overview.MIN_SHOW_CONF}, poredani po confidenceu (najjači gore). Klik na red otvara analizu s '
-                   'interpretacijom i dokazima.') + _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena."))
-
-    b.append("<h2>Tokeni vezani uz evente</h2><p class=mut>Tokeni koje je DexScreener našao za događaje iz kalendara. "
-             "<b>Pravi</b> je najbolje ocijenjen token eventa, ostali su kopije.</p>")
     erows = []
     for r in event:
         for e in r["events"]:
@@ -108,11 +108,13 @@ def page(qs):
                           scorecell(e["score"]), (overview.confidence.badge_html(r["conf"]), r["conf"], "n"),
                           rugcell(r), usd(e["mcap"]),
                           usd(e["liquidity"])])
-    b.append(tdesc('Tokeni nazvani po nadolazećem događaju iz kalendara (rođendan, lansiranje, Polymarket…). Pravi = najbolje ocijenjen token tog eventa, kopija = ostali s istim imenom.') + table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
-                    ("Mcap", "n"), ("Likv.", "n")], erows, "te", "Nijedan token nije vezan uz event.",
-                   mints=[r["token"] for r in event for _ in r["events"]]))
-
-    b.append(f"<details style='margin-top:18px'><summary>Stariji dobri tokeni ({len(older)}), nisu viđeni u zadnja {ACTIVE_H} h"
-             f"</summary>{_main_table(older, 'to', 'Nema.')}</details>")
+    if erows:
+        b.append(f"<details style='margin-top:18px'><summary>Uz evente ({len(erows)})</summary>"
+                 + table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
+                          ("Mcap", "n"), ("Likv.", "n")], erows, "te", "",
+                         mints=[r["token"] for r in event for _ in r["events"]]) + "</details>")
+    if older:
+        b.append(f"<details style='margin-top:10px'><summary>Stariji, nisu viđeni u zadnja {ACTIVE_H} h ({len(older)})"
+                 f"</summary>{_main_table(older, 'to', 'Nema.')}</details>")
     b.append(modal())
     return "Tokeni", "".join(b)

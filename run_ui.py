@@ -175,6 +175,18 @@ def check_password(name, pw):
     return bool(PASSWORD) and hmac.compare_digest(pw.encode(), PASSWORD.encode()), None
 
 
+def is_admin(user):
+    """UI_ADMINS (comma list of names) see the system pages and spend warnings. Not set: every UI_USERS player
+    does (as before), friends who registered by invite and the view-only account don't."""
+    from ui import register
+    if not AUTH:
+        return True
+    if not user:
+        return False
+    adm = register.admins()
+    return user.lower() in adm if adm else user.lower() in PLAYERS
+
+
 def user_kind(user):
     """'env' (UI_USERS player), 'member' (invite link) or 'viewer' (no player: look only)."""
     if not user:
@@ -216,6 +228,8 @@ def route(path, qs):
         return pages.wallet(path[len("/wallet/"):], qs)
     if path == "/tokens":
         return tokens.page(qs)
+    if path == "/tokens/jaki":
+        return tokens.page(qs, view="jaki")
     if path.startswith("/token/"):
         return pages.token(path[len("/token/"):], qs)
     if path == "/events":
@@ -281,7 +295,8 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/", "/tokens")   # pages that read every hype signal: built by build_in_child, never in this process
+HEAVY = ("/tokens", "/tokens/jaki")   # pages that read every hype signal: built by build_in_child, never in this process
+WARM = ("/tokens",)   # pre-rendered every few minutes; the others are built on the first visit
 
 
 def build_in_child(path):
@@ -317,13 +332,14 @@ def english(raw, gz, lang):
 
 
 def _banner(path):
-    """Spend warnings on top of every page (the /usage page lists them itself)."""
+    """Spend warnings on top of every page, for admins only (the /usage page lists them itself)."""
     if path == "/usage":
         return ""
     try:
-        return usage.banner()
+        b = usage.banner()
     except Exception:
         return ""
+    return f"<div class=adm-only>{b}</div>" if b else ""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -469,6 +485,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
+        if path == "/":   # Pregled is gone (2.11.): the app opens on the token list
+            return self._redirect("/tokens" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
@@ -505,8 +523,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Robots-Tag", "noindex, nofollow")
         if zipped:
             self.send_header("Content-Encoding", "gzip")
+        if ctype == "text/html" and not getattr(self, "_public", False):
+            self._admin_cookie()
         self.end_headers()
         self.wfile.write(out)
+
+    def _admin_cookie(self):
+        """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""
+        has = "cb_adm=1" in (self.headers.get("Cookie") or "")
+        adm = is_admin(getattr(self, "user", None))
+        if adm and not has:
+            self.send_header("Set-Cookie", f"cb_adm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
+        elif has and not adm:
+            self.send_header("Set-Cookie", "cb_adm=; Path=/; Max-Age=0; SameSite=Lax")
 
     def do_POST(self):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
@@ -846,7 +875,7 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(HEAVY), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

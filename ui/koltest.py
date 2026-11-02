@@ -4,7 +4,7 @@ import json
 import os
 import time
 
-from ui.html import ago, badge, esc, mins, num, signed, table, tdesc, tlink
+from ui.html import note, ago, badge, esc, mins, num, signed, table, tdesc, tlink
 from ui.kol import klink
 
 SRC = {"x": "X objava", "tg": "Telegram kanal", "chain": "kupnja KOL novčanika"}
@@ -91,7 +91,7 @@ def page(qs):
 
     if bot_ps:
         bs = book.summary(bot_ps, cfg)
-        b.append(tdesc(f"Izuzeto iz statistike: {bs['n']} ulaza na objave računa koji nisu KOL-ovi (skener botovi "
+        b.append(note(f"Izuzeto iz statistike: {bs['n']} ulaza na objave računa koji nisu KOL-ovi (skener botovi "
                        f"od 1.11., a od 2.11. i hakirani spam računi, prodavači plaćenih grupa i dev-ovi koji zovu "
                        f"vlastite tokene). Njihov rezultat odvojeno: "
                        f"{bs['hit20']} od {bs['n']} doseglo +20%, knjiga ${bs['pnl']:+,.0f}."))

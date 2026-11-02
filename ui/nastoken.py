@@ -9,7 +9,7 @@ import time
 from urllib.parse import quote
 
 from ourtoken import advisor, costs, store, treasury
-from ui.html import ago as _ago, badge, esc, num, table, tdesc, ts, usd as _usd
+from ui.html import note, ago as _ago, badge, esc, num, table, tdesc, ts, usd as _usd
 from ui.kol import klink
 
 
@@ -321,7 +321,7 @@ def _cost_html(p):
     rows.append(["<b>Ukupno</b>", f"<b>{c['sol']:.3f}</b>", f"<b>{usd(c['usd'])}</b>", ""])
     split = costs.supply_split(p)
     b = ["<h2>💰 Koliko košta</h2>",
-         tdesc(f"Procjena za {esc(c['path']['name'])} uz SOL ≈ ${sol_usd():,.0f}. Ovo je iznos koji trezor treba "
+         note(f"Procjena za {esc(c['path']['name'])} uz SOL ≈ ${sol_usd():,.0f}. Ovo je iznos koji trezor treba "
                "skupiti."),
          table(["Stavka", ("SOL", "n"), ("USD", "n"), "Napomena"], rows, tid="ntcost"),
          "<h3>Kamo ide supply</h3>",

@@ -181,7 +181,7 @@ class Pipeline(unittest.TestCase):
             self.assertNotIn("solscan.io/tx", head)  # posts table has no wallet rows
             self.assertIn("0.05", rest)
             self.assertIn("Kupnje i prodaje", ukol._wallet_page(self.con, "w:F6GTuH")[1])
-            self.assertIn("Kupnje i prodaje KOL novčanika", ukol.page({})[1])
+            self.assertIn("<h2 id=kupnje>Kupnje i prodaje</h2>", ukol.page({})[1])
         finally:
             store.DB = old
 
