@@ -629,9 +629,23 @@ def admin_page(qs, user):
     if qs.get("ok"):
         b.append(f"<div class=card style='border-color:var(--good)'>✅ {esc(qs['ok'])}</div>")
     novi = sum(1 for r in rows if r["status"] == "novi")
-    b.append(f"<p class=lead>Ljudi koji su na <a href=/dobrodosli target=_blank>naslovnoj stranici</a> kliknuli "
-             f"„Zatraži pristup”. <b>{novi}</b> čeka odgovor. Klikni <b>Pozovi</b> i alat napravi jednokratni link "
-             "za tu osobu, pa ga pošalješ na WhatsApp, e-mail ili Telegram jednim klikom.</p>")
+    if novi:
+        b.append(f"<p class=lead>Ljudi koji su na <a href=/dobrodosli target=_blank>naslovnoj stranici</a> kliknuli "
+                 f"„Zatraži pristup”. <b>{novi}</b> čeka odgovor. Klikni <b>✉️ Pozovi</b> u stupcu Akcija i alat napravi "
+                 "jednokratni link za tu osobu, pa ga pošalješ na WhatsApp, e-mail ili Telegram jednim klikom.</p>")
+    else:
+        # 2.11.: with nothing pending the old text still said "click Invite" and no such button was anywhere
+        b.append("<p class=lead>Ljudi koji su na <a href=/dobrodosli target=_blank>naslovnoj stranici</a> kliknuli "
+                 "„Zatraži pristup”. <b>Trenutno nitko ne čeka odgovor</b>, zato u tablici nema gumba Pozovi. Gumb se "
+                 "pojavi uz svaki novi zahtjev. Želiš nekoga pozvati odmah? Upiši ga ispod i dobiješ link s gumbom za "
+                 "WhatsApp.</p>")
+    b.append("<form method=post action=/zahtjevi/nova class=card style='display:flex;gap:8px;flex-wrap:wrap;"
+             "align-items:flex-end;margin:10px 0'><b style='flex-basis:100%'>➕ Pozovi nekoga odmah</b>"
+             "<label style='flex:1;min-width:150px'>Ime<br><input name=name required maxlength=60 "
+             "style='width:100%' placeholder='npr. Marko'></label>"
+             "<label style='flex:1;min-width:180px'>Mobitel ili e-mail (nije obavezno)<br><input name=contact "
+             "maxlength=120 style='width:100%' placeholder='npr. 091 234 5678'></label>"
+             "<button>✉️ Napravi pozivnicu</button></form>")
     from ui.html import table
     out, cards = [], []
     from ui.register import link
@@ -648,7 +662,7 @@ def admin_page(qs, user):
         elif r["status"] == "pozvan" and r["invite"]:
             url = link(r["invite"])
             if st == "registriran":
-                act = f"<span class=mut>kao {esc(joined[r['invite']])}</span>"
+                act = f"<span class=mut>✅ ušao u aplikaciju kao <b>{esc(joined[r['invite']])}</b></span>"
             else:
                 cards.append(_invite_card(r, url))
                 act = f"<a href=#inv{r['id']}>📨 Pošalji pozivnicu ↑</a>"
@@ -670,11 +684,29 @@ def admin_page(qs, user):
     return title, "".join(b)
 
 
-def admin_post(path, user):
+def admin_post(path, user, form=None):
     from league import members
     from ui import register
     if not register.can_invite(user):
         return "/zahtjevi"
+    if path == "/zahtjevi/nova":   # invite someone who never filled in the form
+        name = (form or {}).get("name", "").strip()[:60]
+        if not name:
+            return "/zahtjevi"
+        con = _con()
+        try:
+            members.connect().close()
+            tok = members.single(con, user)
+            now = int(time.time())
+            rid = con.execute("INSERT INTO access_requests (ts, name, contact, source, status, handled_by, handled_ts, invite) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                              (now, name, (form or {}).get("contact", "").strip()[:120], "ručno", "pozvan", user, now,
+                               tok)).lastrowid
+            con.commit()
+        finally:
+            con.close()
+        print(f"natjecanje: {user} ručna pozivnica za {name}", flush=True)
+        return f"/zahtjevi?ok={quote(f'Pozivnica za {name} je spremna: pošalji je gumbom WhatsApp ispod.')}#inv{rid}"
     m = re.fullmatch(r"/zahtjevi/(\d+)/(pozovi|odbij)", path)
     if not m:
         return "/zahtjevi"

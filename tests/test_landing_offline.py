@@ -78,6 +78,14 @@ class Landing(unittest.TestCase):
         self.assertIn("mailto:ana@mail.hr", landing._share({"name": "A", "contact": "ana@mail.hr"}, "u"))
         self.assertIn("registriran", body)
         self.assertEqual(landing.admin_post("/zahtjevi/1/pozovi", None), "/zahtjevi")   # not allowed
+        self.assertIn("nitko ne čeka", body)                              # nothing pending: says so
+        self.assertIn("ušao u aplikaciju kao <b>Marko</b>", body)
+        loc = landing.admin_post("/zahtjevi/nova", "Jure", {"name": "Pero", "contact": "092 555 1234"})
+        self.assertIn("#inv3", loc)                                        # invite without a request
+        _, body = landing.admin_page({}, "Jure")
+        self.assertIn("Pozivnica za Pero", body)
+        self.assertIn("wa.me/385925551234", body)
+        self.assertEqual(landing.admin_post("/zahtjevi/nova", None, {"name": "X"}), "/zahtjevi")
         os.environ["UI_ADMINS"] = "Jure"
         try:
             self.assertIn("samo organizator", landing.admin_page({}, "Ivan")[1])
