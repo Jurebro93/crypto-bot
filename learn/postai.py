@@ -99,6 +99,9 @@ def pending_posts(con, now, cfg, kol_db=KOL_DB, tg_db=TG_DB):
     since = now - cfg["window_h"] * 3600
     done = {(r[0], r[1]) for r in con.execute("SELECT src, post_id FROM posts_ai WHERE ts >= ?", (since,))}
     inflight = set()
+    for (k,) in con.execute("SELECT k FROM kv WHERE k LIKE 'greska:%'"):
+        _, src, pid = k.split(":", 2)
+        inflight.add((src, pid))
     for (ids,) in con.execute("SELECT ids FROM batches WHERE status='poslano'"):
         for v in json.loads(ids or "{}").values():
             inflight.add((v[0], v[1]))
@@ -192,9 +195,11 @@ def collect(con, client, now=None):
     """Store the results of finished batches. Returns the number of labelled posts."""
     now = now or time.time()
     n = 0
+    waiting, errors = 0, {}
     for bid, ids in con.execute("SELECT id, ids FROM batches WHERE status='poslano'").fetchall():
         b = client.messages.batches.retrieve(bid)
         if b.processing_status != "ended":
+            waiting += 1
             if now - (con.execute("SELECT created FROM batches WHERE id=?", (bid,)).fetchone()[0] or now) > 2 * 86400:
                 con.execute("UPDATE batches SET status='isteklo' WHERE id=?", (bid,))
             continue
@@ -202,7 +207,14 @@ def collect(con, client, now=None):
         total = 0.0
         for res in client.messages.batches.results(bid):
             meta = ids.get(res.custom_id)
-            if not meta or res.result.type != "succeeded":
+            if not meta:
+                continue
+            if res.result.type != "succeeded":
+                err = getattr(res.result, "error", None)
+                why = getattr(getattr(err, "error", err), "message", None) or res.result.type
+                errors[str(why)[:120]] = errors.get(str(why)[:120], 0) + 1
+                src, pid = meta[0], meta[1]
+                con.execute("INSERT OR IGNORE INTO kv VALUES (?, ?)", (f"greska:{src}:{pid}", str(int(now))))
                 continue
             msg = res.result.message
             c = cost(msg.usage, msg.model or MODEL)
@@ -229,6 +241,8 @@ def collect(con, client, now=None):
         except Exception:  # noqa: BLE001
             pass
     con.commit()
+    if waiting or errors:
+        print(f"postai: paketa u obradi {waiting}" + (f", greške {errors}" if errors else ""))
     return n
 
 

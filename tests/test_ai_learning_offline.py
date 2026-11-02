@@ -90,6 +90,29 @@ class PostAI(unittest.TestCase):
         self.assertAlmostEqual(sp["usd"], round(4 * (500 * 0.10 + 60 * 0.50) / 1e6 * 0.5, 2))
 
 
+class PostAIErrors(unittest.TestCase):
+    def test_errored_post_logged_and_not_resent(self):
+        tmp = tempfile.mkdtemp()
+        kdb, tdb = make_sources(tmp)
+        con = postai.connect(os.path.join(tmp, "ai.db"))
+        fb = FakeBatches(label)
+        ok = fb.results
+
+        def results(bid):
+            for i, r in enumerate(ok(bid)):
+                if i == 0:
+                    err = ns(error=ns(message="bad request"))
+                    yield ns(custom_id=r.custom_id, result=ns(type="errored", error=err))
+                else:
+                    yield r
+        fb.results = results
+        client = ns(messages=ns(batches=fb))
+        self.assertEqual(postai.submit(con, client, NOW, {**postai.DEFAULT}, kdb, tdb), 4)
+        self.assertEqual(postai.collect(con, client, NOW), 3)
+        self.assertEqual(postai.submit(con, client, NOW, {**postai.DEFAULT}, kdb, tdb), 0)
+        con.close()
+
+
 class FakeClaude:
     def __init__(self, out):
         self.out = out
