@@ -247,7 +247,7 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 <meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
 <meta name=theme-color content="#ffffff">{_fav.HEAD}{jsonld}
 <style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}{secnav.CSS}</style></head><body>
-<nav class=s><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
+<nav class='top s'><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {nav_links(lang)}{switch}
 <a class=lnk href={_app_link('/prijava')}>{t['login']}</a><a class='btn p sm' href={t['home']}#pristup>{t['cta']}</a>{mobile_menu(lang)}</div></nav>
 <main class=w>{secnav.markup(*SECNAV_L[lang], lang=lang)}{body}</main>

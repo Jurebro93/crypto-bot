@@ -93,8 +93,24 @@ def nav(lang):
     for _k, label, hub, _d, rows in menu(lang):
         dd = "".join(f"<a href={h}><b>{esc(n)}</b>" + (f"<span>{esc(d)}</span>" if d else "") + "</a>"
                      for h, n, d in rows)
-        out.append(f"<div class='dd hm'><a class=lnk href={hub}>{esc(label)} <i>▾</i></a><div class=ddm>{dd}</div></div>")
-    return "".join(out)
+        out.append(f"<div class='dd hm'><a class=lnk href={hub} aria-haspopup=true aria-expanded=false>{esc(label)} <i>▾</i></a>"
+                   f"<div class=ddm>{dd}</div></div>")
+    return "".join(out) + DD_JS
+
+
+# Touch screens have no hover: the first tap on a group opens its dropdown, a second tap opens the hub page.
+# A tap/click outside or Esc closes it. On a mouse the dropdown opens on hover and stays ~0.3 s after the
+# pointer leaves (CSS above), so moving down to an item never closes it.
+DD_JS = ("<script>(function(){if(window.__dd)return;window.__dd=1;var T=matchMedia('(hover:none)');"
+         "function shut(k){document.querySelectorAll('.dd.open').forEach(function(d){if(d!==k){d.classList.remove('open');"
+         "d.firstChild.setAttribute('aria-expanded','false')}})}"
+         "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('.dd>.lnk');"
+         "if(a){var d=a.parentNode;if(T.matches&&!d.classList.contains('open')){e.preventDefault();shut(d);"
+         "d.classList.add('open');a.setAttribute('aria-expanded','true');return}}"
+         "if(!(e.target.closest&&e.target.closest('.dd')))shut()});"
+         "document.addEventListener('keydown',function(e){if(e.key==='Escape'){shut();"
+         "if(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('.dd'))document.activeElement.blur()}})"
+         "})()</script>")
 
 
 def mobile(lang):
@@ -181,9 +197,12 @@ def coin_board(lang):
 
 CSS = """
 .dd{position:relative}.dd>.lnk i{font-style:normal;font-size:10px;opacity:.6}
-.ddm{display:none;position:absolute;left:-14px;top:100%;padding:10px;background:#fff;border:1px solid var(--line);border-radius:16px;
-min-width:280px;box-shadow:0 24px 60px -24px rgba(11,18,32,.35);z-index:50}
-.dd:hover .ddm,.dd:focus-within .ddm{display:grid;gap:2px}.dd:before{content:"";position:absolute;left:0;right:0;top:100%;height:12px}
+nav.top{z-index:100}
+.ddm{display:grid;gap:2px;visibility:hidden;opacity:0;transform:translateY(4px);position:absolute;left:-14px;top:100%;padding:10px;
+background:#fff;border:1px solid var(--line);border-radius:16px;min-width:280px;max-height:calc(100vh - 80px);overflow:auto;
+box-shadow:0 24px 60px -24px rgba(11,18,32,.35);z-index:100;transition:opacity .15s .3s,transform .15s .3s,visibility 0s .45s}
+.dd:hover .ddm,.dd:focus-within .ddm,.dd.open .ddm{visibility:visible;opacity:1;transform:none;transition-delay:0s}
+.dd:before{content:"";position:absolute;left:-14px;right:-14px;top:100%;height:14px}
 .ddm a{display:block;padding:9px 12px;border-radius:10px}.ddm a:hover{background:var(--soft)}
 .ddm b{display:block;font-size:14.5px;font-weight:600;color:var(--fg)}.ddm span{display:block;font-size:12.5px;color:var(--mut)}
 .mnav{display:none;position:relative}.mnav summary{list-style:none;cursor:pointer;font-size:22px;line-height:1;padding:6px 4px}

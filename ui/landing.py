@@ -189,9 +189,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 Inter,system-ui
 -webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .w{max-width:1080px;margin:0 auto;padding:0 20px}
-nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid transparent}
-nav.s{border-bottom-color:var(--line)}
-nav .w{display:flex;align-items:center;gap:18px;height:64px}
+nav.top{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid transparent}
+nav.top.s{border-bottom-color:var(--line)}
+nav.top .w{display:flex;align-items:center;gap:18px;height:64px}
 .brand{display:flex;align-items:center;gap:9px;font-weight:750;font-size:18px;letter-spacing:-.02em}.sp{flex:1}
 .lnk{color:var(--mut);font-size:15px;font-weight:500}.lnk:hover{color:var(--fg)}
 .btn{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:14px 26px;font-weight:650;font-size:16px;
@@ -263,13 +263,13 @@ dialog#lb img{max-width:96vw;max-height:94vh;border-radius:12px}
 .mcta{position:fixed;left:14px;right:14px;bottom:14px;z-index:30;display:none;transition:opacity .2s,transform .2s}
 .mcta.h{opacity:0;transform:translateY(20px);pointer-events:none}
 @media(max-width:760px){.gsec{display:none}body{font-size:16px}.hero{padding:56px 0 8px}section{padding:64px 0}.hm{display:none}.mcta{display:flex}
-.mcta .btn{flex:1;box-shadow:0 12px 30px -10px rgba(11,18,32,.5)}footer{padding-bottom:100px}nav .btn.p{display:none}}
+.mcta .btn{flex:1;box-shadow:0 12px 30px -10px rgba(11,18,32,.5)}footer{padding-bottom:100px}nav.top .btn.p{display:none}}
 """
 
 JS = """
 const lb=document.getElementById('lb');document.querySelectorAll('img[data-zoom]').forEach(i=>i.onclick=()=>{
  lb.querySelector('img').src=i.src;lb.querySelector('img').alt=i.alt;lb.showModal()});lb.onclick=()=>lb.close();
-const nav=document.querySelector('nav'),cta=document.querySelector('.mcta'),form=document.getElementById('pristup');
+const nav=document.querySelector('nav.top'),cta=document.querySelector('.mcta'),form=document.getElementById('pristup');
 const tick=()=>{nav.classList.toggle('s',scrollY>8);const r=form.getBoundingClientRect();
  cta.classList.toggle('h',scrollY<300||(r.top<innerHeight&&r.bottom>0))};addEventListener('scroll',tick,{passive:true});tick();
 """
@@ -431,7 +431,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 "url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
 "offers":{{"@type":"Offer","price":"0","priceCurrency":"USD"}}}}</script>
 <style>{CSS}{P._nav_css()}</style></head><body>
-<nav><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
+<nav class=top><div class=w><a class=brand href={home}>{svg}<span>{esc(name)}</span></a><span class=sp></span>
 {P.nav_links(lang)}{switch}
 <a class=lnk href={app_href}>{app_label}</a><a class='btn p sm' href=#pristup>{t['req']}</a>{P.mobile_menu(lang)}</div></nav>
 
