@@ -274,8 +274,23 @@ def collect(now=None):
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
-            "strategije": strategije(now)}
+            "strategije": strategije(now), "spend": spend(now)}
     return data
+
+
+def spend(now):
+    """Only the urgent spend warnings (level bad) from usage/watch.py; the rest stays on the /usage page.
+    [] when nothing is urgent."""
+    try:
+        import sqlite3
+        from usage import meter, watch
+        con = sqlite3.connect(f"file:{meter.DB}?mode=ro", uri=True, timeout=10)
+        try:
+            return [a for a in watch.evaluate(con, now=now) if a["level"] == "bad"]
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return []
 
 
 def rules(now):
