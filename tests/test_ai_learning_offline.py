@@ -113,6 +113,22 @@ class PostAIErrors(unittest.TestCase):
         con.close()
 
 
+class Schema(unittest.TestCase):
+    def test_no_unsupported_keywords(self):
+        bad = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength"}
+
+        def walk(o):
+            if isinstance(o, dict):
+                self.assertFalse(bad & set(o), o)
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        walk(postai.OUT_SCHEMA)
+        walk(detektiv.OUT_SCHEMA)
+
+
 class FakeClaude:
     def __init__(self, out):
         self.out = out

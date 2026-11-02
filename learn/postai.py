@@ -63,7 +63,7 @@ OUT_SCHEMA = {
     "properties": {
         "kind": {"type": "string", "enum": KINDS},
         "paid_promo": {"type": "boolean"},
-        "conviction": {"type": "integer", "minimum": 1, "maximum": 5},
+        "conviction": {"type": "integer", "description": "1-5"},  # min/max are rejected by structured outputs
         "already_bought": {"type": "boolean"},
         "narrative": {"type": "string"},
     },
@@ -99,6 +99,10 @@ def pending_posts(con, now, cfg, kol_db=KOL_DB, tg_db=TG_DB):
     since = now - cfg["window_h"] * 3600
     done = {(r[0], r[1]) for r in con.execute("SELECT src, post_id FROM posts_ai WHERE ts >= ?", (since,))}
     inflight = set()
+    if not con.execute("SELECT 1 FROM kv WHERE k='popravak_sheme_1'").fetchone():
+        con.execute("DELETE FROM kv WHERE k LIKE 'greska:%'")  # failures from the rejected min/max schema
+        con.execute("INSERT INTO kv VALUES ('popravak_sheme_1', '1')")
+        con.commit()
     for (k,) in con.execute("SELECT k FROM kv WHERE k LIKE 'greska:%'"):
         _, src, pid = k.split(":", 2)
         inflight.add((src, pid))
@@ -228,7 +232,7 @@ def collect(con, client, now=None):
             src, pid, ts, handle, toks = meta
             con.execute("INSERT OR REPLACE INTO posts_ai VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (src, pid, ts, handle, json.dumps(toks), out.get("kind"), int(bool(out.get("paid_promo"))),
-                         int(out.get("conviction") or 1), int(bool(out.get("already_bought"))),
+                         max(1, min(5, int(out.get("conviction") or 1))), int(bool(out.get("already_bought"))),
                          (out.get("narrative") or "")[:60], msg.model or MODEL, int(now), round(c, 6)))
             for tok in toks:
                 con.execute("INSERT OR IGNORE INTO post_tokens VALUES (?,?,?,?)", (src, pid, tok, ts))
