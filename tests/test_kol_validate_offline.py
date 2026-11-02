@@ -170,6 +170,42 @@ class Pacing(unittest.TestCase):
         self.assertAlmostEqual(collect.paced_budget(cfg, day0 + DAY - 1), 0.6, places=3)
 
 
+class CarryOver(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        p = mock.patch("usage.meter.record")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_budget_cut_round_continues_next_time(self):
+        from kol import collect
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        for i in range(30):
+            h = f"k{i}"
+            con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", (h, 50 + i, json.dumps({"score_lo": i})))
+            for j in range(2):
+                con.execute("INSERT INTO calls (tweet_id, handle, token, ts, kind) VALUES (?,?,?,?,?)",
+                            (f"{h}{j}", h, f"{h}t{j}", NOW - DAY, "call"))
+        asked = []
+
+        def get(q, cursor):
+            asked.append(q)
+            return {"tweets": [], "has_next_page": False}
+        day0 = NOW - NOW % DAY
+        cfg = dict(CFG, timeline_twapi={"every_min": 30, "kols": 30, "core": 30, "per_query": 10, "daily_usd": 0.7,
+                                        "reserve_usd": 0.0, "burst_usd": 0.0002})
+        collect.timeline_twapi(con, cfg, get=get, now=day0 + 1)  # budget for ~2 queries
+        first = [q for q in asked]
+        self.assertLess(len(first), 3)
+        pend = json.loads(con.execute("SELECT value FROM kv WHERE key='tw_pending'").fetchone()[0])
+        self.assertTrue(pend)
+        asked.clear()
+        collect.timeline_twapi(con, cfg, get=get, now=day0 + DAY // 2)  # plenty of budget now
+        self.assertTrue(asked[0].startswith("from:" + pend[0]))  # the skipped ones first
+        # their window starts at their own last read (never read: the previous round), at most 6 h back
+        self.assertIn(f"since_time:{day0 + DAY // 2 - 6 * 3600 - 300}", asked[0])
+
+
 class TwitterApiIo(unittest.TestCase):
     def setUp(self):  # keep test spend out of the shared usage meter
         from unittest import mock

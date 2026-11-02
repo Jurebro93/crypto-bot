@@ -344,7 +344,8 @@ def timeline_handles(con, cfg, now=None):
     stars = sorted((h for h in discover.list_stars() if h not in taken and h not in bots and h not in cand),
                    key=lambda h: last.get(h) or 0)[:min(t.get("stars_slots", 20), room // 2)]
     rest = [h for h in due if h not in stars][:max(0, room - len(stars))]
-    return (watch + core + graph + rest + stars)[:total]
+    k = (len(rest) + 1) // 2  # stars mid-rotation, not last: a round cut short by the budget still reaches some
+    return (watch + core + graph + rest[:k] + stars + rest[k:])[:total]
 
 
 def timeline(con, cfg, run=None, now=None):
@@ -402,7 +403,17 @@ def timeline_twapi(con, cfg, get=None, now=None):
     handles = timeline_handles(con, dict(cfg, timeline=t), now)
     if not handles:
         return 0
-    since = (last[0] if last else now - 6 * 3600) - 300
+    # accounts a budget-cut round did not reach go first next round, each from its own last read (not just since
+    # the last round), so nobody is skipped for good and no posts fall in the gap
+    try:
+        pending = json.loads((con.execute("SELECT value FROM kv WHERE key = 'tw_pending'").fetchone() or ["[]"])[0])
+    except ValueError:
+        pending = []
+    pset = set(handles)
+    first = [h for h in pending if h in pset]
+    handles = first + [h for h in handles if h not in set(first)]
+    read = {k[3:]: v for k, v in con.execute("SELECT target, last_ts FROM searches WHERE target LIKE 'tl:%'")}
+    round_since = last[0] if last else now - 6 * 3600
     per, n = t.get("per_query", 10), 0
     budget = paced_budget(cfg, now)
     cap = t.get("max_query_chars", 300)  # longer queries come back 400 Bad Request
@@ -420,6 +431,7 @@ def timeline_twapi(con, cfg, get=None, now=None):
             print(f"kol twitterapi: do sada dopušteno ${budget:.2f} danas potrošeno, ostatak u sljedećem krugu",
                   flush=True)
             break
+        since = max(now - 6 * 3600, min(read.get(h) or round_since for h in chunk)) - 300
         try:
             items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, budget, get=get, now=now)
         except Exception as e:  # noqa: BLE001 - one bad query must not stop the round
@@ -435,6 +447,12 @@ def timeline_twapi(con, cfg, get=None, now=None):
     _searched(con, "timeline_tw", "timeline", now)
     for h in done:
         _searched(con, f"tl:{h}", "timeline_kol", now)
+    dset = set(done)
+    left = [h for h in handles if h not in dset]
+    con.execute("INSERT INTO kv VALUES ('tw_pending', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (json.dumps(left),))
+    print(f"kol twitterapi: krug pročitao {len(done)}/{len(handles)} računa ({len(left)} prvi sljedeći put), "
+          f"{n} novih poziva", flush=True)
     con.commit()
     return n
 
