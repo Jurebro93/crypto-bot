@@ -21,6 +21,7 @@ class Book(unittest.TestCase):
         self.cfg = run.load_config()
         self.px = {A: 1.0, B: 1.0}
         self.events = []
+        run._SEEN.clear()
 
     def mk(self, toks):
         return {t: (self.px[t], 50000, self.px[t] * 1e6, "SYM", "https://dexscreener.com/x") for t in toks
@@ -163,6 +164,17 @@ class Book(unittest.TestCase):
         self.events = [(A, T0 + 10, "x", "old", 0), (B, T0 + 500, "x", "new", 0)]
         self.step(T0 + 520)
         self.assertEqual([p["caller"] for p in self.rows()], ["new"])
+
+    def test_capped_call_not_taken_when_slot_frees(self):
+        """A call that met a full cap is dropped, not entered minutes later when the hour rolls over."""
+        self.step(T0)
+        self.cfg = dict(self.cfg, per_hour={"x": 1, "tg": 5, "chain": 5})
+        self.events = [(A, T0 + 10, "x", "first", 0)]
+        self.step(T0 + 20)
+        self.events.append((B, T0 + 3300, "x", "waiting", 0))
+        self.step(T0 + 3310)                  # cap full: skipped
+        self.step(T0 + 3700)                  # slot free again, the call is 400 s old: still not taken
+        self.assertEqual([p["caller"] for p in self.rows()], ["first"])
 
     def test_grid_and_levels(self):
         cfg = self.cfg

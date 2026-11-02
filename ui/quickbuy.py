@@ -32,7 +32,7 @@ def copy_btn(mint, label="📋 Kopiraj adresu", small=False, big=False):
 
 
 def strong(n=N_STRONG):
-    """Fartcoin, Useless and the top strong / long-term survivors from dugo.db's latest snapshot, best first.
+    """The top strong / long-term survivors from dugo.db's latest snapshot, best first.
     [] when the Dugoročni module has not run yet."""
     try:
         from dugo import run, store
@@ -55,10 +55,8 @@ def strong(n=N_STRONG):
             out.append({"mint": mint, "symbol": sym, "kind": kind, "why": why or "", "mcap": mcap,
                         "ret30": f.get("povrat_30d"), "age": f.get("starost_d")})
 
-        for name, m in cfg.get("uzori", {}).items():
-            r = con.execute("SELECT mcap, features FROM snap WHERE mint=? AND day=? LIMIT 1", (m, day)).fetchone()
-            f = json.loads(r["features"]) if r and r["features"] else {}
-            add(m, name, "uzor", "uzor za dugoročne: pada, ali se uvijek oporavi", r["mcap"] if r else None, f)
+        # Fartcoin and Useless are the reference profile the long-term list is measured against, not buy picks
+        # (Nicholas 2.11.: they topped the list while down 33-43% in 30 days). They stay on Dugoročni → Uzori.
         rows = con.execute("""SELECT s.mint, t.symbol, s.kind, s.mcap, s.features, s.why FROM snap s JOIN tokens t
             ON t.mint=s.mint WHERE s.day=? AND s.kind IN ('jaki','dugorocni') AND t.status IS NOT 'mrtav'
             ORDER BY CASE s.kind WHEN 'jaki' THEN 0 ELSE 1 END, s.rank LIMIT 40""", (day,)).fetchall()
