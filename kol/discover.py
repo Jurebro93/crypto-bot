@@ -3,7 +3,7 @@
   winners   start from tokens that really rose (2x+ in 24 h) and ask twitterapi.io who posted the CA BEFORE the rise
             (until_time = the first post that came after the price had already doubled). Those authors become
             candidates; the timeline rotation already reads early winner callers first.
-  annotate  per KOL in kols.stats:
+  annotate  per KOL in kols.stats (also rugger: more than rug_max of 10+ measured calls ended as a rug):
               bought   tokens it called and that its own known wallet also bought (kol/idents + chainwatch): a trader
                        who puts money where the post is
               trial    "na probi": fewer than trial.min_calls measured calls, less than trial.days of history with
@@ -23,7 +23,7 @@ import os
 import re
 import time
 
-DEFAULTS = {"daily_usd": 0.15, "win_x": 1.0, "win_hours": 48, "win_per_run": 4, "win_pages": 3, "winners_usd": 0.12, "win_back_h": 48,
+DEFAULTS = {"daily_usd": 0.15, "rug_max": 0.3, "rug_min_calls": 10, "win_x": 1.0, "win_hours": 48, "win_per_run": 4, "win_pages": 3, "winners_usd": 0.12, "win_back_h": 48,
             "trial": {"min_calls": 10, "days": 14, "min_views": 200},
             "audit": {"top": 20, "every_d": 7, "per_run": 5, "posts": 8,
                       "model": "claude-haiku-5-5", "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]}}
@@ -151,6 +151,9 @@ def annotate(con, cfg, now=None):
         mv = s.get("med_views")
         if mv is not None and mv < t["min_views"] and not h.startswith("tg:"):
             why.append(f"objave vidi malo ljudi (medijan {mv:.0f} pregleda)")
+        rr, m = s.get("rug_rate"), s.get("measured", 0)
+        s["rugger"] = bool(rr is not None and m >= d["rug_min_calls"] and rr > d["rug_max"])
+        s["rug_why"] = f"{rr:.0%} njegovih poziva završi kao rug ({m} izmjerenih)" if s["rugger"] else ""
         s["bought"] = bought.get(h, 0)
         s["trial"] = bool(why)
         s["trial_why"] = "; ".join(why)
@@ -166,6 +169,24 @@ def on_trial(stats_json):
         return bool(json.loads(stats_json or "{}").get("trial"))
     except ValueError:
         return False
+
+
+def excluded(stats_json):
+    """On trial, or a 'rugger' (more than rug_max of 10+ measured calls ended as a rug, report 2.11.: DegenWar01
+    87%): kept out of the live watch, copy trading, convergence entries and "good KOL" in the group signal."""
+    try:
+        s = json.loads(stats_json or "{}")
+    except ValueError:
+        return False
+    return bool(s.get("trial") or s.get("rugger"))
+
+
+def ruggers(con):
+    """Handles flagged as ruggers by the last annotate() ({} on an old kol.db)."""
+    try:
+        return {h for h, st in con.execute("SELECT handle, stats FROM kols WHERE stats LIKE '%\"rugger\": true%'")}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 # ---------- 4. weekly AI profile check ----------

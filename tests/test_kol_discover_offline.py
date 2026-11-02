@@ -94,6 +94,18 @@ class Trial(Base):
         self.assertIn("dana", s["trial_why"])
         self.assertEqual(score.build_watch(self.con, CFG, NOW), ["proven"])
 
+    def test_rugger_out_of_watch_and_converge(self):
+        st = {"measured": 40, "hit_rate": 0.9, "prepump_rate": 0.0, "med_max24": 2.0, "med_views": 5000,
+              "rug_rate": 0.875}
+        self.con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", ("DegenWar01", 80, json.dumps(st)))
+        self.ins("d0", "DegenWar01", "tok", NOW - 40 * DAY)
+        discover.annotate(self.con, CFG, NOW)
+        s = json.loads(self.con.execute("SELECT stats FROM kols").fetchone()[0])
+        self.assertTrue(s["rugger"])
+        self.assertIn("88%", s["rug_why"])
+        self.assertEqual(discover.ruggers(self.con), {"DegenWar01"})
+        self.assertEqual(score.build_watch(self.con, CFG, NOW), [])
+
     def test_few_views(self):
         st = {"measured": 20, "med_views": 15}
         self.con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", ("ghost", 80, json.dumps(st)))

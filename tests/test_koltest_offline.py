@@ -180,6 +180,21 @@ class Book(unittest.TestCase):
         self.assertEqual(lv[0.5]["hit"], 1)
         self.assertEqual(lv[0.2]["stopped_first"], 1)
 
+    def test_late_stop(self):
+        """A stop that only switches on after 30 min survives the early dip that usually comes before +100%."""
+        cfg = dict(self.cfg, levels=[0.2, 1.0], late_stop_min=30)
+        p = book.new_position(1.0, 1e9, 1e6, T0, cfg)
+        p["status"] = "open"
+        for el, px in ((60, 0.75), (600, 0.9), (2400, 1.1), (3000, 2.05)):  # -25% in minute 1, then +100%
+            book.update(p, px, 1e9, 1e6, T0 + el, cfg)
+        self.assertLess(book.outcome(p, 1.0, -0.2, cfg), 0)          # plain -20% stop sold the dip
+        self.assertGreater(book.outcome(p, 1.0, (-0.2, 30), cfg), 0.9)  # late stop held on to +100%
+        self.assertGreater(book.outcome(p, 1.0, -0.3, cfg), 0.9)
+        self.assertEqual(book.sl_label([-0.3, 30]), "-30% tek nakon 30 min")
+        old = dict(p, hits={"1": [3000, -0.25]})
+        del old["trough_late"]
+        self.assertIsNone(book.outcome(old, 1.0, (-0.2, 30), cfg))  # no late trough recorded: not counted
+
     def test_page_and_report(self):
         self.step(T0)
         self.events = [(A, T0 + 50, "x", "kolA", 60), (B, T0 + 50, "chain", "w:abc", 0)]

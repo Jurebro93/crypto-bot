@@ -263,7 +263,7 @@ def render(data, ai, source):
         if kt.get("best"):
             g = kt["best"]
             body += para(f"Najbolji izlaz dosad: prodaj na +{g['tp']:.0%}"
-                         + (" bez stopa" if g["sl"] is None else f" sa stopom {g['sl']:.0%}")
+                         + (" bez stopa" if g["sl"] is None else " sa stopom " + _sl_label(g["sl"]))
                          + f": prosjek {pct(g['avg'], True)} po ulazu, {g['wins']} od {g['n']} u plusu.")
         if kt.get("top"):
             body += bullets([f"{x['caller']}: {x['n']} ulaza, {x['hit20']} do +20%, knjiga {money(x['pnl'])}"
@@ -330,3 +330,8 @@ def render(data, ai, source):
 <tr><td style="font-size:11px;color:{MUT};padding:4px 2px 20px">{src} · podaci iz baza bota, bez dodatnih Helius/Apify poziva ·
 {link("/izvjestaj", "svi izvještaji")} · {link("/", "dashboard")}</td></tr>
 </table></td></tr></table></body></html>"""
+
+
+def _sl_label(sl):
+    from koltest import book
+    return book.sl_label(sl)
