@@ -457,17 +457,14 @@ def _grid(ci, c, syms, reg, max_w=14, max_t=10):
 
 def page(qs):
     now = time.time()
+    # Nicholas 2.11.: the page is built around the three core features (token suggestions, influencers, wallet
+    # tracking): three cards on top, then one block each; Natjecanje is a bonus and is only in the menu
     b = ["<h1>Pregled</h1>", quick_links()]
-    try:  # the biggest wins of the week, first thing everyone sees (Nicholas 1.11.)
-        from ui import wins
-        b.append(wins.html())
-    except Exception:  # noqa: BLE001
-        pass
 
     # 1. standout candidates: per class, only tokens that reached a paid tier and had enough layers analysed
     allrows = sorted(token_rows(), key=_rank, reverse=True)   # built once: the 24 h list is a filter of it
     recent = [r for r in allrows if r["last_seen"] >= now - 86400]
-    b.append("<h2 id=istaknuti>Istaknuti kandidati <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
+    b.append("<h2 id=prijedlozi data-sec='Prijedlozi tokena'><span id=istaknuti></span>🎯 Prijedlozi tokena <span class=mut style='font-weight:400'>· zadnja 24 h</span> "
              + tip("Poredani po Šansi za skok: confidence puta koliko je od 7 neovisnih slojeva stvarno analizirano, "
                    "minus 15% po palom sloju. Istaknut može biti samo token koji je stigao barem do T1, nije pao ni na čemu "
                    "tvrdom i ima barem 3 analizirana sloja. Točkice su slojevi: zelena prošao, crvena pao, siva nije analiziran.")
@@ -489,6 +486,17 @@ def page(qs):
                  "analizirana sloja). Najbliži su: " + ", ".join(tlink(r["token"], r["symbol"]) + f" (šansa {r['sansa']}, T{r['razina'] or 0}, {r['analysed']} slojeva)" for r in wait)
                  + ".</div>" if wait else "<div class=card>U zadnja 24 h nijedan modul nije zapisao token.</div>")
     b.append(sieve_html())
+    b.append("<p class=core-more><a href=/radar>Najnoviji prijedlozi iz zadnjeg skena →</a> · <a href=/tokens>Svi tokeni →</a> · "
+             "<a href=/dugorocno>Dugoročni (sigurniji) →</a></p>")
+
+    # influencers + wallet tracking, the other two core features
+    from ui import core
+    b.append(core.blocks())
+    try:  # the biggest wins of the week, so everyone sees what the tool caught (Nicholas 1.11.)
+        from ui import wins
+        b.append(wins.html())
+    except Exception:  # noqa: BLE001
+        pass
 
     # 2. demo result
     b.append("<h2>Demo trading <span class=mut style='font-weight:400'>· bi li bot zaradio</span></h2>")

@@ -18,47 +18,39 @@ def _p(href, icon, name, desc, kw=""):
 
 SECTIONS = [
     ("Početak", [
-        _p("/", "🏠", "Pregled", "Najjači tokeni upravo sada i kako bot stoji danas.", "home početna dashboard kandidati"),
+        _p("/", "🏠", "Pregled", "Sve tri glavne stvari na jednom mjestu: prijedlozi tokena, influenceri i novčanici.",
+           "home početna dashboard kandidati"),
         _p("/mapa", "🧭", "Gdje je što", "Sve stranice na jednom mjestu, s kratkim opisom.", "izbornik mapa pomoć help"),
         _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam, broj i stranica, običnim riječima.",
            "objašnjenje pojmovi rječnik značenje help pomoć info"),
         _p("/izvjestaj", "📰", "Jutarnji izvještaj", "Dnevni sažetak svega bitnog, gotov prije 8 h.", "email mail report sažetak"),
-        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za vašu WhatsApp grupu: ljestvica, tradeovi, novosti.",
-           "whatsapp grupa podijeli pošalji share novosti"),
     ]),
-    ("Natjecanje", [
-        _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
-           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
-        _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
-           "kopiraj prati influencer kol wallet novčanik copy trade"),
-        _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
-           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
-        _p("/prijedlozi", "💡", "Prijedlozi", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
-        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je na naslovnoj stranici zatražio pristup; pozivnica jednim klikom.",
-           "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
-    ]),
-    ("Tokeni", [
+    ("Prijedlozi tokena", [
+        _p("/radar", "📡", "Najnoviji prijedlozi", "Što je skener upravo našao (svake 2 minute), s razlozima i rizicima.",
+           "radar hype novi zadnji sken kandidati"),
         _p("/tokens", "🪙", "Svi tokeni", "Svaki token iz zadnjih 7 dana sa svim provjerama.", "lista coin"),
-        _p("/radar", "📡", "Zadnji sken", "Što je skener upravo našao (svake 2 minute).", "radar hype novi"),
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu (Fartcoin, Useless…).",
            "dugorocno long term preživjeli veliki holderi burze"),
         _p("/events", "📅", "Eventi", "Događaji oko kojih nastaju tokeni.", "kalendar događaji"),
         _p("/watch", "⏳", "Prije eventa", "Kreću li tokeni prije događaja.", "watch"),
     ]),
-    ("Ljudi i novčanici", [
-        _p("/kol", "📣", "KOL-ovi", "Tko zove tokene na X-u i Telegramu i što se nakon toga dogodi.",
+    ("Influenceri", [
+        _p("/kol", "📣", "KOL-ovi", "Ljestvica influencera: tko zove tokene na X-u i Telegramu i što se nakon toga dogodi.",
            "influenceri pozivi twitter x ljestvica"),
-        _p("/izvori", "💬", "Telegram i novčanici", "Telegram kanali, KOL novčanici i kad više izvora zove isti token.",
-           "telegram kanali konvergencija"),
-        _p("/wallets", "👛", "Novčanici", "Tko kupuje rano i zarađuje; lista za kopiranje.", "walleti wallet smart money copy"),
-        _p("/korelacije", "🕸", "Korelacije", "Tko radi zajedno: grupe KOL-ova, povezani novčanici, AI tumačenje.",
+        _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali, novčanici KOL-ova i kad više izvora zove isti token.",
+           "telegram kanali konvergencija kol novčanici"),
+        _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
+    ]),
+    ("Praćenje novčanika", [
+        _p("/wallets", "👛", "Novčanici", "Tko kupuje rano i zarađuje: ocjene, oznake i lista za kopiranje.",
+           "walleti wallet smart money copy praćenje"),
+        _p("/korelacije", "🕸", "Korelacije", "Povezani novčanici i grupe KOL-ova koje rade zajedno, s AI tumačenjem.",
            "grupe klasteri veze"),
     ]),
     ("Bot trguje (demo)", [
         _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio: njegovi ulazi i izlazi bez pravog novca.", "paper trejd"),
         _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000: novčanici, KOL-ovi, alat, mix i nasumično.",
            "strategije usporedba budžet račun novčanici kol mix kontrola nasumično"),
-        _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
         _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
     ]),
     ("Sustav", [
@@ -68,15 +60,31 @@ SECTIONS = [
         _p("/analitika", "📈", "Analitika", "Koliko nas ljudi nađe na Googleu i preko kojih riječi.",
            "google search console gsc seo klikovi prikazi upiti posjete"),
         _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise i hoće li budžet izdržati.", "trošak helius apify budžet"),
+        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je na naslovnoj stranici zatražio pristup; pozivnica jednim klikom.",
+           "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
     ]),
+    ("Bonus: Natjecanje", [
+        _p("/natjecanje", "🏆", "Natjecanje", "Tvoj demo račun: kupi tokene iz prijedloga alata i natječi se s ostalima.",
+           "liga ljestvica igra igrači demo račun kupi dca automatska kupnja prosjek"),
+        _p("/copy-trading", "🔁", "Copy trading", "Prati influencera ili wallet: alat ulazi i izlazi umjesto tebe.",
+           "kopiraj prati influencer kol wallet novčanik copy trade"),
+        _p("/nas-token", "🪙", "Naš token", "Naš vlastiti Solana meme token: trezor, generator, marketing i influenceri.",
+           "token generator trezor vault sef lansiraj pump.fun meme coin marketing suradnja strategija promocija"),
+        _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za vašu WhatsApp grupu: ljestvica, tradeovi, novosti.",
+           "whatsapp grupa podijeli pošalji share novosti"),
+        _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
+    ]),
 ]
+# the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
+CORE = ("Prijedlozi tokena", "Influenceri", "Praćenje novčanika")
+BONUS = "Bonus: Natjecanje"
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
-              "/prijava": "/natjecanje", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
-# phone bottom bar: the four places people go most, Natjecanje in the middle
-BOTTOM = [("/", "🏠", "Pregled"), ("/tokens", "🪙", "Tokeni"), ("/natjecanje", "🏆", "Natjecanje"), ("/paper", "🤖", "Demo")]
+              "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
+# phone bottom bar: Pregled + the three core features
+BOTTOM = [("/", "🏠", "Pregled"), ("/radar", "📡", "Prijedlozi"), ("/kol", "📣", "Influenceri"), ("/wallets", "👛", "Novčanici")]
 
 # Logo: candidates, LOGO picks the one shown. Plain SVG, no files to serve.
 LOGOS = {
@@ -145,8 +153,9 @@ INTRO = {
                     "računa, walleti istog vlasnika, signali koji idu uz pumpu i što poznate grupe diraju sada, s AI "
                     "tumačenjem na vrhu.", "Spaja X, Telegram i on-chain podatke: praćene grupe idu u registar walleta, "
                     "a njihova aktivnost je rani signal za ulaz prije gomile."),
-    "/": ("Odgovor na pitanje \"što sad?\"", "Istaknuti tokeni po klasi poredani po Šansi za skok, demo rezultat, kako se baza "
-          "puni u odnosu na prethodne dane i tablica tokena koji su prošli više analiza. Klasteri walleta i stanje baza su sklopljeni ispod.",
+    "/": ("Odgovor na pitanje \"što sad?\"", "Tri glavne stvari alata: prijedlozi tokena po Šansi za skok, najbolji influenceri i "
+          "njihovi zadnji pozivi, te što praćeni novčanici kupuju. Ispod su veliki pogoci, demo rezultat, kako se baza puni i "
+          "tablica tokena koji su prošli više analiza.",
           "Završna točka cjevovoda: ovdje se vidi što je iz svih slojeva izašlo kao kandidat."),
     "/tokens": ("Sve što alat zna o svakom tokenu", "Svaki token viđen u zadnjih 7 dana kroz sve analize (hype, X, smart money, "
                 "KOL, holderi, rug, event, demo), poredan po Šansi; odvojeno event tokeni, stariji i odbačeni.",
@@ -370,8 +379,9 @@ aside.side{position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;wi
 .side a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;color:var(--fg);text-decoration:none;font-size:14px;line-height:1.25}
 .side .mi{width:20px;text-align:center;flex:none}.side a:hover{background:color-mix(in srgb,var(--acc) 7%,transparent)}
 .side a.on{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc);font-weight:650}
-.side .sec-n{background:color-mix(in srgb,#f59f00 9%,transparent);border-radius:12px;padding:2px 0 6px;margin-top:10px}
-.side .sec-n h4{color:#d9480f;margin-top:10px}
+.side .sec-c{background:color-mix(in srgb,var(--acc) 6%,transparent);border-radius:12px;padding:2px 0 6px;margin-top:8px}
+.side .sec-c h4{color:var(--acc);margin-top:10px}
+.side .sec-b{margin-top:22px;padding-top:6px;border-top:1px dashed var(--line)}.side .sec-b a{font-size:13px;color:var(--mut)}.side .sec-b a.on{color:var(--acc)}
 .side .pub{font-weight:650;margin:0 0 10px}.side .out{color:var(--mut);font-size:13px;flex:1}
 .side a.set{margin-top:18px;border-top:1px solid var(--line);border-radius:0 0 9px 9px;padding-top:11px}
 .outrow{display:flex;align-items:center;gap:6px;margin-top:4px}.lsw{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:none}
@@ -391,6 +401,13 @@ details.homemap{background:var(--card);border:1px solid var(--line);border-radiu
 button,.btn{font:inherit}.sform button{padding:8px 16px;border-radius:8px;border:0;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
 ul.sres{list-style:none;padding:0;margin:0;background:var(--card);border:1px solid var(--line);border-radius:12px}
 ul.sres li{padding:10px 14px;border-bottom:1px solid var(--line)}ul.sres li:last-child{border-bottom:0}
+a.mapcard.pillar{border-color:color-mix(in srgb,var(--acc) 35%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--acc) 7%,var(--card)),var(--card))}
+.pillars{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:4px}
+@media(max-width:700px){.pillars{grid-template-columns:1fr;gap:8px}.pillars a.mapcard{padding:10px 14px}.core-list .xl,.core-list .cpy,.core-list [title*='Kopiraj']{display:none!important}.core-list li{padding:9px 12px;gap:4px 10px}.core-list .st{gap:4px 10px}}
+.core-list{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--line);border-radius:14px}
+.core-list li{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.core-list li:last-child{border-bottom:0}.core-list .who{font-weight:600;min-width:0}.core-list .st{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--mut)}
+.core-list .st b{color:var(--fg);font-variant-numeric:tabular-nums}.core-more{margin:8px 2px 0;font-size:14px}
 @media(max-width:1000px){
  .menu-btn{display:inline-flex}.brand{min-width:0}
  aside.side{position:fixed;top:0;left:0;bottom:0;height:100%;z-index:60;width:min(300px,86vw);transform:translateX(-102%);
@@ -442,7 +459,7 @@ header.top{background:rgba(255,255,255,.85);-webkit-backdrop-filter:blur(12px);b
 .menu-btn{border-radius:999px;border-color:var(--line);background:#fff}
 aside.side{background:#fff;border-right-color:var(--line)}.side h4{color:var(--mut)}
 .side a:hover{background:var(--soft)}.side a.on{background:var(--soft);color:var(--fg);font-weight:650;box-shadow:inset 0 0 0 1px var(--line)}
-.side .sec-n{background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06));border-radius:16px}.side .sec-n h4{color:var(--acc)}
+.side .sec-c{background:linear-gradient(135deg,rgba(79,70,229,.06),rgba(15,181,160,.06));border-radius:16px}.side .sec-c h4{color:var(--acc)}
 .side .lsw a.on{background:var(--fg)}.side a.set{border-top-color:var(--line)}
 .bbar{background:rgba(255,255,255,.92);border-top-color:var(--line)}.bbar .on{color:var(--fg)}.bbar a.n .bi{background:var(--fg)}
 /* cards and chips */
@@ -507,7 +524,7 @@ def side_menu(cur):
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>',
          f'<a class=pub href="{_home_link()}" target=_blank rel=noopener><span class=mi>🚀</span>Naslovna stranica ↗</a>']
     for sec, items in SECTIONS:
-        b.append(f'<div class="{"sec-n" if sec == "Natjecanje" else ""}"><h4>{esc(sec)}</h4>' + "".join(
+        b.append(f'<div class="{"sec-c" if sec in CORE else "sec-b" if sec == BONUS else ""}"><h4>{esc(sec)}</h4>' + "".join(
             f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}"><span class=mi>{p["icon"]}</span>{esc(p["name"])}</a>'
             for p in items) + "</div>")
     from ui.i18n import lang
@@ -528,10 +545,9 @@ def page(title, body, path="/"):
               f'<a class=brand href="/" title="Na početnu">{svg}<span>{esc(name)}</span></a>'
               '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
               '<input id=q name=q placeholder="Traži token, adresu, KOL ili stranicu…" aria-label="Traži" enterkeyhint=search>'
-              '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form>'
-              f'<a class=cta href="/natjecanje">🏆 <span>Natjecanje</span></a></header>')
+              '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form></header>')
     bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
-        f'<a href="{h}" class="{"on" if h == cur else ""}{" n" if h == "/natjecanje" else ""}"><span class=bi>{i}</span>{t}</a>'
+        f'<a href="{h}" class="{"on" if h == cur else ""}"><span class=bi>{i}</span>{t}</a>'
         for h, i, t in BOTTOM) + "<button data-nav><span class=bi>☰</span>Izbornik</button></nav>")
     from ui import deploypage, i18n, secnav
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
@@ -542,41 +558,32 @@ def page(title, body, path="/"):
 
 
 def map_page(qs=None):
-    """/mapa: every page as a card with what it is for, grouped like the menu."""
+    """/mapa: every page as a card with what it is for, grouped like the menu; the three core features first."""
     b = ["<h1>Gdje je što</h1><p class=lead>Sve stranice alata na jednom mjestu. Isti popis je u izborniku lijevo "
          "(na mobitelu gumb ☰ Izbornik dolje desno), a tražilica na vrhu nalazi i stranice, tokene, KOL-ove i novčanike.</p>",
-         "<div class=card><b>Novi ovdje?</b> Počni s <a href=/>Pregledom</a> (što je bot našao danas), zatim "
-         "<a href=/natjecanje>Natjecanjem</a> (kupi tokene na svom demo računu, bez pravog novca) i "
-         "<a href=/dugorocno>Dugoročnim</a> tokenima (sigurniji sloj).</div>"]
+         "<div class=card><b>Alat radi tri stvari:</b> predlaže tokene (<a href=/radar>Najnoviji prijedlozi</a>), "
+         "analizira influencere (<a href=/kol>KOL-ovi</a>) i prati novčanike (<a href=/wallets>Novčanici</a>). "
+         "Sve tri su sažete na <a href=/>Pregledu</a>. Natjecanje s demo računima je bonus na dnu izbornika.</div>"]
     for sec, items in SECTIONS:
         b.append(f"<h2>{esc(sec)}</h2><div class=mapgrid>" + "".join(
-            f'<a class="mapcard{" hot" if p["href"] == "/natjecanje" else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
+            f'<a class="mapcard{" pillar" if sec in CORE else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
             f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
     return "Gdje je što", "".join(b)
 
 
-HOME_MAP = ["/natjecanje", "/copy-trading", "#istaknuti", "/dugorocno", "/kol", "/wallets", "/paper", "/events",
-            "/whatsapp", "/pojmovnik", "/mapa"]
-_EXTRA = {"#istaknuti": {"href": "#istaknuti", "icon": "⭐", "name": "Istaknuti tokeni",
-                         "desc": "Najbolji tokeni upravo sada, odmah ispod na ovoj stranici."},
-          "/mapa": {"href": "/mapa", "icon": "🧭", "name": "Sve stranice", "desc": "Popis svih stranica s kratkim opisom."}}
+# the three cards at the very top of Pregled: one per core feature, each jumps to its block lower on the page
+PILLARS = [("#prijedlozi", "🎯", "Prijedlozi tokena", "Najjači tokeni upravo sada, poredani po šansi za skok."),
+           ("#influenceri", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su zadnje zvali."),
+           ("#novcanici", "👛", "Praćenje novčanika", "Što praćeni novčanici kupuju i prodaju upravo sada.")]
 
 
 def quick_links():
-    """"Gdje je što" at the top of Pregled: the most important places, one click each, with one line on what's
-    there. Collapsible; the browser remembers if the user closed it."""
-    pages = {p["href"]: p for _, items in SECTIONS for p in items}
-    cards = []
-    for h in HOME_MAP:
-        p = _EXTRA.get(h) if h in _EXTRA else pages.get(h)
-        if p:
-            cards.append(f'<a class="mapcard{" hot" if h == "/natjecanje" else ""}" href="{p["href"]}"><span class=mi>'
-                         f'{p["icon"]}</span><b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>')
-    return ("<details class=homemap id=homemap open><summary><b>🧭 Gdje je što</b> <span class=mut>· najvažnije "
-            "stranice jednim klikom; ⓘ uz svaki pojam objašnjava što znači</span></summary>"
-            f"<div class='mapgrid hm'>{''.join(cards)}</div></details>"
-            "<script>(()=>{const d=document.getElementById('homemap');try{if(localStorage.getItem('homemap')==='0')d.open=false}catch(e){}"
-            "d.addEventListener('toggle',()=>{try{localStorage.setItem('homemap',d.open?'1':'0')}catch(e){}})})();</script>")
+    """Top of Pregled: the three core features as big cards (jump to their block below) + one link to all pages."""
+    cards = "".join(f'<a class="mapcard pillar" href="{h}"><span class=mi>{i}</span><b>{esc(n)}</b>'
+                    f'<span class=mut>{esc(d)}</span></a>' for h, i, n, d in PILLARS)
+    return (f"<nav class='mapgrid pillars' aria-label='Glavne funkcije'>{cards}</nav>"
+            "<p class=mut style='margin:-2px 0 14px;font-size:13px'>Sve ostale stranice: <a href=/mapa>Gdje je što</a> "
+            "ili izbornik ☰.</p>")
 
 
 def tdesc(text):
