@@ -150,6 +150,63 @@ class RoundTrip(unittest.TestCase):
             run_top._jup = orig
 
 
+class RugCheckBackoff(unittest.TestCase):
+    def test_rc_due(self):
+        import run_top
+        now = 1_000_000
+        self.assertTrue(run_top.rc_due({}, now))
+        self.assertFalse(run_top.rc_due({"rc_json": "{}", "rc_ts": now - 60}, now))
+        self.assertTrue(run_top.rc_due({"rc_json": "{}", "rc_ts": now - 3600}, now))
+        self.assertFalse(run_top.rc_due({"rc_fail": 1, "rc_fail_ts": now - 120}, now))     # 5 min after 1st failure
+        self.assertTrue(run_top.rc_due({"rc_fail": 1, "rc_fail_ts": now - 301}, now))
+        self.assertFalse(run_top.rc_due({"rc_fail": 3, "rc_fail_ts": now - 900}, now))     # 20 min after 3rd
+        self.assertFalse(run_top.rc_due({"rc_fail": 9, "rc_fail_ts": now - 7000}, now))    # capped at 120 min
+        self.assertTrue(run_top.rc_due({"rc_fail": 9, "rc_fail_ts": now - 7300}, now))
+
+    def test_light_summary(self):
+        light = safety.summarize_light({"tokenProgram": "Tokenkeg", "lpLockedPct": 0, "score": 1, "risks": [
+            {"name": "Freeze Authority still enabled", "level": "danger"}]})
+        self.assertTrue(light["light"] and light["freeze_auth"])
+        self.assertIsNone(light["top10"])
+        j = safety.judge("X", light, {"ok": True, "ratio": 0.98})
+        self.assertEqual(j["verdict"], "pao")
+        clean = safety.summarize_light({"lpLockedPct": 0, "risks": []})
+        j = safety.judge("Xpump", clean, {"ok": True, "ratio": 0.98})
+        self.assertEqual(j["checks"]["lp"][0], "ok")     # pump.fun curve, light summary has no launchpad field
+        self.assertNotEqual(j["verdict"], "pao")
+        self.assertIsNone(safety.summarize_light({"error": "x"}))
+
+    def test_refusals_stop_the_pass(self):
+        import run_top
+        from ui import overview
+        calls = []
+
+        def refused(mint, pool=None):
+            calls.append(mint)
+            return None, True
+        orig = (run_top.rugcheck, run_top.best_pairs, run_top.sell_quote, run_top.full_check, overview.watch_tokens)
+        with tempfile.TemporaryDirectory() as d:
+            store_db = store.DB
+            store.DB = os.path.join(d, "t.db")
+            try:
+                run_top.rugcheck, run_top.best_pairs = refused, (lambda m: {})
+                run_top.sell_quote = lambda m, s: None
+                run_top.full_check = lambda con, m, now: None
+                overview.watch_tokens = lambda n=None, **k: [f"M{i}" for i in range(6)]
+                run_top.pass_once()
+                self.assertEqual(len(calls), 2)            # two refusals, then no more RugCheck this pass
+                got = store.read_all()
+                self.assertEqual(got["M0"]["rc_fail"], 1)
+                self.assertEqual(got["M0"]["verdict"], "nepoznato")
+                calls.clear()
+                run_top.pass_once()
+                self.assertEqual(calls[:1], ["M2"])        # M0/M1 back off, the rest get their turn
+            finally:
+                store.DB = store_db
+                (run_top.rugcheck, run_top.best_pairs, run_top.sell_quote, run_top.full_check,
+                 overview.watch_tokens) = orig
+
+
 class Store(unittest.TestCase):
     def test_roundtrip_unrank_budget(self):
         with tempfile.TemporaryDirectory() as d:
