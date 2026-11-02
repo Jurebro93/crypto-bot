@@ -52,6 +52,11 @@ class Sources:
         try:
             from kol import bots as _bots
             bad = _bots.handles(kc)   # scanner bots + hacked spam accounts, paid-group sellers, self-pumping devs
+            from kol import discover
+            # "na probi" (fewer than 10 measured calls, followed < 14 days, few views): out of the live watch and
+            # copy trading, so out of this account too
+            bad |= {h for h, st in _q(kc, "SELECT handle, stats FROM kols WHERE stats LIKE '%trial%'")
+                    if discover.excluded(st)}
             scores = dict(_q(kc, "SELECT handle, COALESCE(score, 0) FROM kols"))
             names = {w: (tw and "@" + tw) or name or w[:6]
                      for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}

@@ -153,12 +153,13 @@ class Strat(unittest.TestCase):
     def test_sources_read_filters_bots_and_konv(self):
         kol = os.path.join(self.d, "kol.db")
         con = sqlite3.connect(kol)
-        con.executescript("CREATE TABLE kols (handle TEXT, score REAL, bot INTEGER);"
+        con.executescript("CREATE TABLE kols (handle TEXT, score REAL, bot INTEGER, stats TEXT);"
                           "CREATE TABLE kol_ids (wallet TEXT, twitter TEXT, name TEXT);"
                           "CREATE TABLE calls (token TEXT, ts INTEGER, handle TEXT, kind TEXT, source TEXT);")
-        con.execute("INSERT INTO kols VALUES ('good', 70, 0), ('spam', 10, 1)")
+        con.execute("""INSERT INTO kols VALUES ('good', 70, 0, '{}'), ('spam', 10, 1, NULL),
+                       ('new', 40, 0, '{"trial": true}')""")
         con.execute("INSERT INTO kol_ids VALUES ('W1', 'whale', NULL)")
-        con.executemany("INSERT INTO calls VALUES (?,?,?,'call','x')", [(A, T0, "good"), (B, T0, "spam")])
+        con.executemany("INSERT INTO calls VALUES (?,?,?,'call','x')", [(A, T0, "good"), (B, T0, "spam"), (C, T0, "new")])
         con.commit()
         con.close()
         hype = os.path.join(self.d, "hype.db")

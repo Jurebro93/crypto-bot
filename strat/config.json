@@ -16,15 +16,35 @@
  "missing_h": 6,
  "equity_every_min": 15,
  "strategies": [
-  {"key": "novcanici", "name": "Praćeni novčanici", "icon": "👛",
-   "opis": "Kupi čim neki od praćenih KOL novčanika kupi token (vidimo ga na lancu za par sekundi)."},
-  {"key": "kol", "name": "KOL pozivi", "icon": "📣",
-   "opis": "Kupi na svjež poziv KOL-a na X-u ili Telegramu. Botovi, hakirani spam računi, prodavači grupa i dev-ovi su izbačeni."},
-  {"key": "alat", "name": "Izbor alata", "icon": "🎯",
-   "opis": "Kupi isto što kupi glavni demo bot po ocjeni alata (bez ulaza koji su samo zbog KOL-ova)."},
-  {"key": "mix", "name": "Mix", "icon": "🧩",
-   "opis": "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena."},
-  {"key": "kontrola", "name": "Nasumično (kontrolna)", "icon": "🎲",
-   "opis": "Svakih ~30 min kupi nasumičan token koji je skener upravo vidio. Pokazuje pobjeđuju li ostale strategije čistu sreću."}
+  {
+   "key": "novcanici",
+   "name": "Praćeni novčanici",
+   "icon": "👛",
+   "opis": "Kupi čim neki od praćenih KOL novčanika kupi token (vidimo ga na lancu za par sekundi)."
+  },
+  {
+   "key": "kol",
+   "name": "KOL pozivi",
+   "icon": "📣",
+   "opis": "Kupi na svjež poziv KOL-a na X-u ili Telegramu. Botovi, hakirani spam računi, prodavači grupa, dev-ovi i računi još na probi su izbačeni."
+  },
+  {
+   "key": "alat",
+   "name": "Izbor alata",
+   "icon": "🎯",
+   "opis": "Kupi isto što kupi glavni demo bot po ocjeni alata (bez ulaza koji su samo zbog KOL-ova)."
+  },
+  {
+   "key": "mix",
+   "name": "Mix",
+   "icon": "🧩",
+   "opis": "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena."
+  },
+  {
+   "key": "kontrola",
+   "name": "Nasumično (kontrolna)",
+   "icon": "🎲",
+   "opis": "Svakih ~30 min kupi nasumičan token koji je skener upravo vidio. Pokazuje pobjeđuju li ostale strategije čistu sreću."
+  }
  ]
 }
