@@ -163,8 +163,24 @@ class Copy(unittest.TestCase):
         for user in ("Ivan", None):   # the way in is at the top of Natjecanje for players and guests
             self.assertIn('href="/copy-trading"', league.page({}, user)[1])
         self.assertIn("Trenutno pratiš: <b>1</b>", league.page({}, "Ivan")[1])
+        body = league.page({}, "Ivan")[1]   # the active automatic buyer is shown above the positions with a stop
+        self.assertIn("Automatske kupnje su uključene (1)", body)
+        self.assertIn('name="back" value="natjecanje"', body)
+        self.assertNotIn("Automatske kupnje su uključene", league.page({}, "Panda")[1])
+        self.assertIn("return confirm(", copytrade.page({}, "Panda")[1])   # switching a follow on asks first
         fid = copy.follows(store.connect(), "Ivan")[0]["id"]
-        self.assertIn("ok=", copytrade.post("/natjecanje/copy/stop", {"id": str(fid)}, "Ivan"))
+        loc = copytrade.post("/natjecanje/copy/stop", {"id": str(fid), "back": "natjecanje"}, "Ivan")
+        self.assertTrue(loc.startswith("/natjecanje?ok="))
+        self.assertNotIn("Automatske kupnje su uključene", league.page({}, "Ivan")[1])
+
+    def test_position_says_who_bought_it(self):
+        from ui import league
+        self.assertEqual(league.origin({"source": "copy wallet slingoor"}),
+                         "kupio automatski copy trading (wallet slingoor)")
+        self.assertIn("DCA", league.origin({"source": "DCA kupnja 2/5"}))
+        self.assertEqual(league.origin({"source": "ručno"}), "kupio ručno")
+        self.assertIn("🔁", league._origin_tag({"source": "copy kol @x"}))
+        self.assertEqual(league._origin_tag({"source": ""}), "")
 
 
 if __name__ == "__main__":

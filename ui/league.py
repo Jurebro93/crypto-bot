@@ -180,7 +180,7 @@ def page(qs, user):
         b.append(f'<h2 id=pozicije>💼 Moje pozicije ({len(mine)})</h2>'
                  f'<p class=mut style="margin:2px 0 8px">Stanje računa <b>${acc["start"] + acc["realized"] + unreal:,.2f}</b>'
                  f' · slobodno <b>${acc["cash"]:,.2f}</b> · otvoreno <b class={"pos" if unreal > 0 else "neg" if unreal < 0 else ""}>'
-                 f'{unreal:+,.2f} $</b></p>' + pos_html)
+                 f'{unreal:+,.2f} $</b></p>' + _autobuy_banner(con, user) + pos_html)
         from league import auto as autosell
         b.append(_auto_form(mine, autosell.get_rule(con, user)))
         b.append(_dca_box(con, user, qs, live, mine))
@@ -386,6 +386,54 @@ def _add_btn(t, size):
             f'<button>+ ${size}</button></form>')
 
 
+def origin(t):
+    """Who opened the position, in words: a manual buy or one of the automatic buyers (copy trading, Automatski DCA).
+    Nicholas 2.11.: woke up to five positions he did not remember buying; they came from a wallet copy he had
+    switched on the day before and nothing in Moje pozicije said so."""
+    src = (t.get("source") or "").strip()
+    if src.startswith("copy "):
+        return "kupio automatski copy trading (" + src[5:] + ")"
+    if src.startswith("DCA"):
+        return "kupio automatski DCA (" + src + ")"
+    return "kupio ručno"
+
+
+def _origin_tag(t):
+    src = t.get("source") or ""
+    if src.startswith("copy "):
+        return ' <small class=mut title="kupljeno automatski: copy trading">🔁 copy</small>'
+    if src.startswith("DCA"):
+        return ' <small class=mut title="kupljeno automatski: Automatski DCA">🔄 DCA</small>'
+    return ""
+
+
+def _autobuy_banner(con, user):
+    """Everything that buys on this account by itself, right above the positions, with a stop button each.
+    Nothing new is bought without the player switching it on; this makes sure he also sees that it is on."""
+    try:
+        from league import copy, dca
+        fl = copy.follows(con, user)
+        pl = dca.plans(con, user)
+    except sqlite3.OperationalError:
+        return ""
+    if not fl and not pl:
+        return ""
+    rows = []
+    for f in fl:
+        who = ("wallet " + (f["label"] or f["target"][:6])) if f["kind"] == "wallet" else (f["label"] or f["target"])
+        rows.append(f'<li>🔁 Copy trading: <b>{esc(who)}</b> · ${f["size_usd"]:,.0f} po ulazu, do {f["per_day"]} '
+                    f'na dan · uključeno {ago(f["created"])[0]} '
+                    + _form("/natjecanje/copy/stop", {"id": f["id"], "back": "natjecanje"}, "⏹ Prestani") + '</li>')
+    for p in pl:
+        rows.append(f'<li>🔄 Automatski DCA: <b>{esc(p["symbol"] or p["token"][:6])}</b> · {esc(dca.describe(p))} '
+                    + _form("/natjecanje/dca/stop", {"id": p["id"]}, "⏹ Zaustavi") + '</li>')
+    return ('<div class=card style="border:2px solid #f59e0b;background:#fffbeb;margin:6px 0 10px">'
+            f'<b>⚠️ Automatske kupnje su uključene ({len(rows)})</b> <span class=mut style="font-size:13px">Ovo kupuje '
+            'na tvom demo računu samo od sebe, i preko noći, dok ga ne zaustaviš. Pozicije koje je kupilo imaju oznaku '
+            '🔁 ili 🔄.</span><ul style="margin:6px 0 0;padding-left:18px;line-height:1.9">' + "".join(rows)
+            + '</ul></div>')
+
+
 def _positions(mine, live, bot_dca):
     """Open positions on top of Natjecanje (Nicholas 1.11.). Default a compact list (one line per position: name,
     value, PnL; tap to open the actions), or tiles; the choice is remembered. Actions: sell 25% / 50% / Sve or a
@@ -417,6 +465,7 @@ def _positions(mine, live, bot_dca):
             if move is not None else ""
         meta = (f'Ulog {usd(t["size_usd"])[0]}' + (f' · vrijedi oko <b>${worth:,.2f}</b>' if worth is not None else "")
                 + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · kupljeno {ago(t["opened_ts"])[0]}'
+                + f' · {esc(origin(t))}'
                 + (f' · likvidnost {usd(liq)[0]}' if liq else ""))
         if price:
             act = ('<div class=pos-k>Prodaj</div><div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth)
@@ -436,7 +485,7 @@ def _positions(mine, live, bot_dca):
                  f'onclick="return posDca(\'{esc(t["token"])}\')" title="isti iznos svakih nekoliko sati ili dana, '
                  f'sam od sebe">🔄 Automatski DCA (kupuj redovito)</a>'
                  f'<a href="#autosell" onclick="{auto_js}">🎯 TP/SL auto sell</a></div>')
-        sym = ("💀 " if col else "") + esc(t["symbol"] or t["token"][:6])
+        sym = ("💀 " if col else "") + esc(t["symbol"] or t["token"][:6]) + _origin_tag(t)
         cards.append(f'<details class="card pos-c"><summary><span class=pos-n>{sym}</span>'
                      + (f'<span class=pos-v>${worth:,.0f}</span>' if worth is not None else "")
                      + f'<span class=pos-p>{leaguedash.live_pnl(t["id"], pnl)} ${pct}</span>'
@@ -445,8 +494,9 @@ def _positions(mine, live, bot_dca):
                      f'<div class=pos-m>{meta}</div>{_auto_cell(t)}{warn}{act}{links}</details>')
     bar = ('<div class=pos-bar><span class=mut style="font-size:13px">Prikaz:</span>'
            '<button type=button data-posv=list>☰ Lista</button><button type=button data-posv=tiles>▦ Kartice</button>'
-           '<span class=mut style="font-size:12px">Dodirni poziciju za prodaju, dokup i TP/SL. Svaka kupnja i prodaja '
-           'prvo pita za potvrdu.</span></div>')
+           '<span class=mut style="font-size:12px">Dodirni poziciju za prodaju, dokup i TP/SL. Ručna kupnja i prodaja '
+           'prvo pita za potvrdu; copy trading i Automatski DCA kupuju sami dok ih ne zaustaviš (oznaka 🔁 ili 🔄 '
+           'uz poziciju).</span></div>')
     return f'<style>{POS_CSS}</style>{bar}<div class=pos-list id=poslist>{"".join(cards)}</div>{POS_JS}', unreal
 
 

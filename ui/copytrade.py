@@ -185,7 +185,12 @@ def _btn(kind, target, label, mine, user):
                 f'<form method=post action="/natjecanje/copy/stop" style="display:inline"><input type=hidden name=id '
                 f'value={f["id"]}><button>Prestani</button></form>')
     text = "Prati i ulazi na svaki njegov call" if kind == "kol" else "Copy trade-aj ovaj wallet"
-    return (f'<form method=post action="/natjecanje/copy/follow" class=cpf data-panel={kind} style="margin:0">'
+    ask = ("Alat će SAM kupovati na tvom demo računu na svaki njegov novi call, i preko noći, dok ne klikneš Prestani. "
+           "Uključiti?" if kind == "kol" else
+           "Alat će SAM kupovati i prodavati na tvom demo računu kad i ovaj wallet, i preko noći, dok ne klikneš "
+           "Prestani. Uključiti?")
+    return (f'<form method=post action="/natjecanje/copy/follow" class=cpf data-panel={kind} style="margin:0" '
+            f'onsubmit="return confirm(\'{ask}\')">'
             f'<input type=hidden name=kind value={kind}><input type=hidden name=target value="{esc(target)}">'
             f'<input type=hidden name=label value="{esc(label)}"><button>{text}</button></form>')
 
@@ -353,6 +358,8 @@ def post(path, form, user):
             return f"{back}?ok={qq(msg)}#pratim"
         if path == "/natjecanje/copy/stop":
             copy.unfollow(con, user, int(form.get("id") or 0))
+            if form.get("back") == "natjecanje":
+                return f"/natjecanje?ok={qq('Copy trading zaustavljen. Otvorene pozicije ostaju, prodaj ih kad želiš.')}#pozicije"
             return f"{back}?ok={qq('Praćenje zaustavljeno. Otvorene pozicije ostaju, prodaj ih kad želiš.')}#pratim"
         return back
     except (ValueError, sqlite3.OperationalError) as e:
