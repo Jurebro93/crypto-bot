@@ -56,6 +56,8 @@ SECTIONS = [
     ]),
     ("Bot trguje (demo)", [
         _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio: njegovi ulazi i izlazi bez pravog novca.", "paper trejd"),
+        _p("/strategije", "🏁", "Usporedba strategija", "5 demo računa po $1000: novčanici, KOL-ovi, alat, mix i nasumično.",
+           "strategije usporedba budžet račun novčanici kol mix kontrola nasumično"),
         _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
         _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
     ]),
@@ -204,6 +206,9 @@ INTRO = {
                    "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
                    "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
                    "vlastito učenje na povijesti cijena."),
+    "/strategije": ("Koji izvor kupnji zarađuje", "Pet demo računa po $1000: praćeni novčanici, KOL pozivi, izbor alata, "
+                    "mix (dva izvora se slažu) i nasumična kontrola, svi s istim pravilima izlaza.", "Mjeri koji izvor "
+                    "ulaza vrijedi najviše; rezultat ide u jutarnji izvještaj i učenje."),
     "/kol-test": ("Isplati li se ući odmah na KOL poziv", "Odvojena 7-dnevna demo knjiga: $50 na svaki svjež poziv KOL-a "
                   "(X, Telegram, KOL novčanici), koliko daleko i koliko brzo token ode, pad prije toga i što bi zaradio "
                   "izlaz na +20, +30, +40 ili +50%.", "Samo mjerenje: ne miješa se s glavnim demo tradingom i bot iz nje "

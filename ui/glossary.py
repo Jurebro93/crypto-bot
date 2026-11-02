@@ -508,6 +508,21 @@ T("Bot račun", "kol", "Automatski ili promo račun koji objavljuje svaki novi t
   "Njegove objave ne ulaze u ljestvicu, copy trading ni signale, ali brojke na njegovoj stranici se i dalje vide.",
   alias=["bot", "automatska objava"])
 T("Zona", "kol", "Procjena vremenske zone KOL-a iz sati kad objavljuje (najtiših 6 h je njegova noć).")
+T("Usporedba strategija", "trading", "Pet demo računa po $1000, svaki kupuje iz drugog izvora, svi prodaju po istim pravilima.",
+  "Računi: praćeni novčanici, KOL pozivi, izbor alata, mix i nasumična kontrola. Jer su izlazi isti, razlika u zaradi "
+  "dolazi samo od toga odakle je kupnja došla. Pobjednik pokazuje kojem izvoru vjerovati.",
+  vidi=["kontrolna-strategija", "mix-strategija"], gdje=[("/strategije", "Usporedba strategija")],
+  alias=["strategije", "5 budžeta", "pet računa"])
+T("Kontrolna strategija", "trading", "Demo račun koji kupuje nasumične tokene. Mjerilo čiste sreće.",
+  "Ako neka strategija ne zarađuje više od nasumičnog izbora, njen izvor ne donosi prednost. Znanstvenici to zovu "
+  "kontrolna grupa.", gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično (kontrolna)", "nasumično", "kontrola"])
+T("Mix strategija", "trading", "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena.",
+  "Manje ulaza, ali svaki ima potvrdu iz dva neovisna smjera.", gdje=[("/strategije", "Usporedba strategija")],
+  alias=["mix"])
+T("Vrijednost računa", "trading", "Slobodan novac + otvorene pozicije kao da ih prodaš sada (s troškom i klizanjem cijene).",
+  gdje=[("/strategije", "Usporedba strategija")])
+T("Došlo do 2x", "trading", "Koliko je kupljenih tokena barem jednom udvostručilo cijenu nakon ulaza.",
+  gdje=[("/strategije", "Usporedba strategija")])
 T("KOL test", "kol", "7-dnevni pokus: $50 na svaki svjež KOL poziv, da vidimo isplati li se ući odmah.",
   gdje=[("/kol-test", "KOL test")])
 

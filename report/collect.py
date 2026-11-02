@@ -273,7 +273,8 @@ def collect(now=None):
         hit_x = 0.5
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
-            "market": market(now), "koltest": koltest(now), "rules": rules(now)}
+            "market": market(now), "koltest": koltest(now), "rules": rules(now),
+            "strategije": strategije(now)}
     return data
 
 
@@ -299,6 +300,15 @@ def rules(now):
             con.close()
         out["history"] = [h for h in st.get("history") or [] if h.get("ts", 0) >= now - DAY]
         return out
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
+
+
+def strategije(now):
+    """Five $1000 demo accounts by entry source (strat/, page /strategije), best first; None before the first entry."""
+    try:
+        from ui import strategije as sg
+        return sg.report_data(now)
     except Exception:  # noqa: BLE001 - never break the report on this section
         return None
 
