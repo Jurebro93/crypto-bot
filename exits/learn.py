@@ -27,9 +27,9 @@ from paper import sim
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(HERE, "config.json")
-KEYS = ("sl", "tp", "trail_tiers", "sl_after_tp", "stale", "max_hold_h", "moonbag", "moon_trail", "kol_hold_min",
+KEYS = ("sl", "sl_delay_min", "tp", "trail_tiers", "sl_after_tp", "stale", "max_hold_h", "moonbag", "moon_trail", "kol_hold_min",
         "kol_trail_add")
-SIM_KEYS = ("sl", "tp", "trail_tiers", "sl_after_tp", "max_hold_h", "moonbag", "moon_trail", "moon_hold_h", "kol_hold_min",
+SIM_KEYS = ("sl", "sl_delay_min", "tp", "trail_tiers", "sl_after_tp", "max_hold_h", "moonbag", "moon_trail", "moon_hold_h", "kol_hold_min",
             "kol_trail_add")
 
 
@@ -46,6 +46,7 @@ def params_of(cfg):
     p["stale"] = [cfg["stale_min"], cfg.get("stale_ret", 0.1)] if cfg.get("stale_min") else None
     p["moonbag"], p["moon_trail"] = cfg.get("moonbag", 0), cfg.get("moon_trail", 0.6)
     p["kol_hold_min"], p["kol_trail_add"] = cfg.get("kol_hold_min", 0), cfg.get("kol_trail_add", 0.0)
+    p["sl_delay_min"] = cfg.get("sl_delay_min", 0) or 0
     return p
 
 
@@ -123,7 +124,7 @@ def search(paths, base, current, ecfg, rng=None):
         g = grid[k]
         i = _index(g, current.get(k))
         allowed[k] = g if i is None else g[max(0, i - steps): i + steps + 1]
-    best = dict(current)
+    best = {"sl_delay_min": 0, **current}
     wts = live_weights(paths, ecfg)
     ref = evaluate(paths, to_sim(base, best), lam, cap, wts)
     best_score = ref["score"]
@@ -134,7 +135,7 @@ def search(paths, base, current, ecfg, rng=None):
         moved = False
         for k in keys:
             for v in allowed[k]:
-                if v == best[k]:
+                if v == best.get(k):
                     continue
                 trial = {**best, k: v}
                 ev = evaluate(paths, to_sim(base, trial), lam, cap, wts)
@@ -172,8 +173,10 @@ def fit_profile(paths, base, current, ecfg):
     """One class: search on all paths, then check the result on each time half and on live paths.
     Returns (decision dict, new params or None)."""
     lam, cap = ecfg["lambda_loss"], ecfg.get("ret_cap", 10.0)
+    current = {"sl_delay_min": 0, **current}  # profiles learned before the stop delay existed
     n = len(paths)
-    out = {"n": n, "n_live": sum(p["src"] == "live" for p in paths)}
+    out = {"n": n, "n_live": sum(p["src"] == "live" for p in paths),
+           "n_shadow": sum(p["src"] == "shadow" for p in paths)}
     if n < ecfg["min_paths"]:
         out["note"] = f"premalo putanja ({n} od potrebnih {ecfg['min_paths']})"
         return out, None
@@ -231,7 +234,8 @@ def describe(params):
     trail = ", ".join(f"od {1 + a:g}x pad {b:.0%} od vrha" for a, b in params.get("trail_tiers") or [])
     st = params.get("stale")
     sat = params.get("sl_after_tp")
-    parts = [f"stop loss {params['sl']:.0%}", "; ".join(tp) or "bez take profita", f"trailing: {trail}" if trail else "",
+    dl = params.get("sl_delay_min")
+    parts = [f"stop loss {params['sl']:.0%}" + (f" (uključi se tek {dl} min nakon kupnje)" if dl else ""), "; ".join(tp) or "bez take profita", f"trailing: {trail}" if trail else "",
              (f"nakon prvog TP ostatak izlazi na {sat:+.0%}" if sat is not None else ""),
              (f"ako u {st[0]} min ne naraste {st[1]:.0%}, izlaz" if st else ""), f"najdulje {params['max_hold_h']} h",
              (f"moonbag {params['moonbag']:.0%} ostaje dok ne padne {params['moon_trail']:.0%} od vrha"
@@ -240,3 +244,22 @@ def describe(params):
               + (f", trailing širi za {params['kol_trail_add']:.0%}" if params.get("kol_trail_add") else "")
               if params.get("kol_hold_min") else "")]
     return "; ".join(p for p in parts if p)
+
+
+def sl_grid(paths, base, current, ecfg, sls=None, delays=None):
+    """Every stop loss level x stop delay on the same paths, the rest of the rules as they are now: the table
+    "Gdje rezati gubitak" on Učenje. Returns {"n", "rows": [{"sl", "delay", "mean", "median", "win", "score"}]}."""
+    lam, cap = ecfg["lambda_loss"], ecfg.get("ret_cap", 10.0)
+    sls = sls or ecfg["grid"]["sl"] + [None]
+    delays = delays or ecfg["grid"].get("sl_delay_min") or [0]
+    wts = live_weights(paths, ecfg)
+    rows = []
+    for sl in sls:
+        for d in delays:
+            p = {**current, "sl": -0.99 if sl is None else sl, "sl_delay_min": d}
+            ev = evaluate(paths, to_sim(base, p), lam, cap, wts)
+            rows.append({"sl": sl, "delay": d, "mean": ev.get("mean"), "median": ev.get("median"),
+                         "win": ev.get("win"), "score": ev.get("score")})
+            if sl is None:
+                break  # no stop: the delay changes nothing
+    return {"n": len(paths), "rows": rows}

@@ -187,16 +187,46 @@ def _path(token, ts, horizon_s, paper, hype, min_ticks):
     return None, []
 
 
-def _compress(entry, ts0, path, max_points=60):
-    """[(seconds after entry, price/entry)] thinned to max_points, peak and last always kept."""
-    if not path:
+def _compress(entry, ts0, path, max_points=100):
+    """[(seconds after entry, price/entry, liquidity)] thinned like exits/paths.compress: every move over 3%, every
+    new high and LOW (the dips decide where a stop loss should sit) and the last point. Exit learning
+    (exits/fit, stop loss table on Učenje) replays these paths."""
+    from exits import paths as epaths
+    return epaths.compress([(t - ts0, p / entry, liq) for t, p, liq in path if p], 0.03, max_points)
+
+
+def exit_paths(since, skip_tokens=(), path=None, points=("kandidat", "mc100k")):
+    """Labelled points as exit-learning paths (exits/paths format, src 'shadow'), one per token and point type;
+    kol=True when an influencer signal was present at the decision."""
+    con = _ro(path or DB)
+    if con is None:
         return []
-    pts = [(int(t - ts0), round(p / entry, 4)) for t, p, _ in path]
-    if len(pts) <= max_points:
-        return pts
-    step = len(pts) / max_points
-    keep = {int(i * step) for i in range(max_points)} | {len(pts) - 1, max(range(len(pts)), key=lambda i: pts[i][1])}
-    return [pts[i] for i in sorted(keep)]
+    out, seen = [], set(skip_tokens)
+    try:
+        q = ",".join("?" * len(points))
+        for token, ts, point, klasa, liq, mcap, pth, feats in con.execute(
+                f"SELECT token, ts, point, klasa, liq, mcap, path, features FROM points WHERE status='gotovo' "
+                f"AND ts>=? AND point IN ({q}) AND path IS NOT NULL ORDER BY ts", (int(since), *points)):
+            if (token, point) in seen or token in seen:
+                continue
+            seen.add((token, point))
+            try:
+                pts = json.loads(pth or "[]")
+                f = json.loads(feats or "{}")
+            except ValueError:
+                continue
+            if len(pts) < 3:
+                continue
+            liq0 = liq or 0
+            pts = [(int(x[0]), float(x[1]), float(x[2]) if len(x) > 2 and x[2] else liq0) for x in pts]
+            kol = any((f.get(k) or 0) > 0 for k in ("kol_x", "kol_group", "kol_wallets"))
+            out.append({"src": "shadow", "klasa": klasa or "default", "ts": int(ts), "liq0": round(liq0),
+                        "mcap0": round(mcap or 0), "pts": pts, "token": token, "point": point, "kol_sig": kol})
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+    return out
 
 
 def simulate(price, liq, ts, path, klasa, src, base=None):

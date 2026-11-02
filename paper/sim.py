@@ -181,7 +181,9 @@ def _step(pos, price, liq, ts, cfg):
         elif age >= cfg.get("moon_hold_h", cfg["max_hold_h"]) * 3600:
             sell(pos, 1.0, price, liq, ts, "moonbag_time", cfg)
         return pos
-    if pos["tp_done"] == 0 and ret <= cfg["sl"]:
+    # sl_delay_min: the stop only arms that many minutes after the buy (fresh tokens often dip -20..-40% before
+    # they run; learned in exits/, Nicholas 2.11.). The rug exits above (pool pulled, -70%) always apply.
+    if pos["tp_done"] == 0 and ret <= cfg["sl"] and age >= (cfg.get("sl_delay_min") or 0) * 60:
         sell(pos, 1.0, coarse_fill(pos, price, ts, cfg), liq, ts, "stop_loss", cfg)
         return pos
     bag = cfg.get("moonbag") or 0

@@ -92,6 +92,39 @@ def _note(n):
     return f"premalo putanja ({m.group(1)} od potrebnih {m.group(2)})" if m else n
 
 
+def sl_html(state):
+    """Stop loss level x delay table from the daily exit run (exits/fit.sl_tables): where cutting a loss pays."""
+    g = state.get("sl_grid") or {}
+    out = ["<h2 id=stop-loss>Gdje rezati gubitak (stop loss)</h2>" + tdesc(
+        "Demo je \"na papiru\", pa alat svaki dan na istim prilikama (naši demo kandidati i sjenovita knjiga, zadnjih 30 dana) "
+        "isproba svaku razinu stop lossa i koliko minuta nakon kupnje se uključuje, s ostalim pravilima izlaza kakva su sada. "
+        "Broj u polju je prosječna zarada po tradeu nakon naknada (jedan trade najviše +1000%). Najbolje polje je podebljano. "
+        "Ako je bolje od sadašnjeg, alat ga sam primijeni uz iste provjere kao ostala pravila (gore). Rug (povučen pool ili "
+        "pad 70%+) uvijek izlazi odmah.")]
+    if not g.get("sve"):
+        return "".join(out) + "<div class=card>Tablica se računa u jutarnjem učenju izlaza (05:30 UTC) kad ima barem 50 prilika.</div>"
+    upd = dt.datetime.fromtimestamp(g["ts"]).strftime("%d.%m. %H:%M") if g.get("ts") else ""
+    for key, title in (("sve", "Sve prilike"), ("kol", "Samo prilike s pozivom influencera (KOL)")):
+        t = g.get(key)
+        if not t:
+            continue
+        delays = sorted({r["delay"] for r in t["rows"] if r["sl"] is not None})
+        best = max(t["rows"], key=lambda r: r["score"] if r["score"] is not None else -9)
+        rows = []
+        for sl in [r["sl"] for r in t["rows"] if r["delay"] == delays[0] or r["sl"] is None]:
+            cells = [("bez stop lossa" if sl is None else f"{sl:.0%}", -1 if sl is None else sl, "")]
+            for d in delays:
+                r = next((x for x in t["rows"] if x["sl"] == sl and (x["delay"] == d or sl is None)), None)
+                txt = "–" if not r or r["mean"] is None else f"{r['mean']:+.1%}"
+                if r is best:
+                    txt = f"<b>{txt}</b>"
+                cells.append((txt, (r or {}).get("mean") or -9, "n"))
+            rows.append(cells)
+        out.append(f"<h3>{title}</h3><p class=mut>{num(t['n'])} prilika · izračunato {upd}</p>"
+                   + table(["Stop loss"] + [(("odmah" if d == 0 else f"nakon {d} min"), "n") for d in delays], rows))
+    return "".join(out)
+
+
 def page(qs):
     from exits import learn, profiles
     from paper import sim
@@ -125,6 +158,10 @@ def page(qs):
              + table(["Klasa", "Verzija", "Pravila", ("Putanja", "n"), ("Prosjek", "n"), ("Medijan", "n"), ("U plusu", "n"),
                       ("Na 10x+ tokenima", "n")], rows))
 
+    try:
+        b.append(sl_html(state))
+    except Exception as e:  # noqa: BLE001
+        print(f"izlazi: stop loss tablica: {type(e).__name__}: {e}")
     try:
         cmp_rows, kol = _compare()
     except Exception as e:

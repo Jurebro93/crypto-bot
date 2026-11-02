@@ -113,6 +113,19 @@ def reality(paper_db, ecfg=None, since=0):
     return out
 
 
+def sl_tables(live, shadow, base, state, ecfg, now):
+    """Stop loss level x delay table (Učenje → Gdje rezati gubitak) on our own entries: all, and those with an
+    influencer signal. Built from live + shadow paths only (not the old study), newest max_paths."""
+    out = {"ts": int(now)}
+    current = {"sl_delay_min": 0, **profiles.current(state, "default", base)[0]}
+    allp = sorted(live + shadow, key=lambda p: -p["ts"])
+    for name, ps in (("sve", allp), ("kol", [p for p in allp if p.get("kol_sig")])):
+        ps = ps[:ecfg["max_paths"]]
+        if len(ps) >= 50:
+            out[name] = learn.sl_grid(ps, base, current, ecfg)
+    return out
+
+
 def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
     now = now or time.time()
     ecfg, base = learn.load_config(), sim.load_config()
@@ -124,6 +137,14 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
     live = paths.from_paper(paper_db, hype_db, since=now - ecfg["live_days"] * 86400,
                             tol=ecfg["tolerance"], max_points=ecfg["max_points"])
     seed = paths.load_seed() if seed is None else seed
+    shadow = []
+    if ecfg.get("shadow_paths"):
+        try:  # every decision point of the shadow book (learn/shadow.py): thousands a day instead of ~60 demo buys
+            from learn import shadow as sh
+            shadow = sh.exit_paths(now - ecfg["live_days"] * 86400, skip_tokens={p.get("token") for p in live})
+        except Exception as e:  # noqa: BLE001 - exit learning must run without it
+            print(f"exits: sjenovita knjiga nedostupna: {e}")
+    seed = shadow + list(seed)  # newest first in groups(): shadow paths come before the old study
     for k, ps in groups(live, seed, ecfg["max_paths"]).items():
         if k in rolled:
             continue
@@ -138,6 +159,7 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
                                                                         "big_loss", "moon_n", "moon_mult")}, now)
         report.append(dec)
     if apply:
+        state["sl_grid"] = sl_tables(live, shadow, base, state, ecfg, now)
         state["sim_version"] = sim.SIM_VERSION  # fitted under these exit mechanics (profiles.needs_refit)
         state["reality"] = {**real, "slip": base.get("slip", 0.0), "ts": int(now)}
         state.setdefault("runs", []).append({"ts": int(now), "items": [

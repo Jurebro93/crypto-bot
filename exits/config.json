@@ -279,6 +279,12 @@
    0.1,
    0.2,
    0.3
+  ],
+  "sl_delay_min": [
+   0,
+   15,
+   30,
+   60
   ]
  },
  "moon_keep": 0.8,
@@ -289,5 +295,7 @@
  "reality_min_n": 20,
  "robust_top": 0.01,
  "robust_min": 3,
- "_reality": "Simulacija bliža stvarnosti: slippage na svakoj prodaji/kupnji (paper slip), stop na grubim povijesnim putanjama puni se gdje bi ga minutna provjera uhvatila (izmjereno na našim live stopovima), live putanje zajedno nose barem live_share ocjene, a novi skup mora biti bolji i bez robust_top najboljih pogodaka."
+ "_reality": "Simulacija bliža stvarnosti: slippage na svakoj prodaji/kupnji (paper slip), stop na grubim povijesnim putanjama puni se gdje bi ga minutna provjera uhvatila (izmjereno na našim live stopovima), live putanje zajedno nose barem live_share ocjene, a novi skup mora biti bolji i bez robust_top najboljih pogodaka.",
+ "shadow_paths": true,
+ "_shadow_paths": "Uči izlaze i iz sjenovite knjige (tisuće prilika dnevno, learn/shadow.py), ne samo iz demo ulaza i stare studije. sl_delay_min: stop loss se uključi tek toliko minuta nakon kupnje."
 }

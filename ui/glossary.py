@@ -570,6 +570,11 @@ T("Proba modela", "sustav", "Novi model 7 dana samo gleda: ocjenjuje nove prilik
   "prilikama. Postaje glavni samo ako je bolji i bez 1% najboljih tradeova i ako je razlika sigurno iznad nule. Ako "
   "kasnije tjedan dana radi lošije od težina, težine se vrate same.", vidi=["model-odlucivanja", "zakljucani-tjedan"],
   gdje=[("/learn", "Učenje")], alias=["champion", "challenger"])
+T("Odgoda stop lossa", "trading", "Koliko minuta nakon kupnje se stop loss uključuje.",
+  "Svježi tokeni često prvo padnu 20 do 40% pa tek onda narastu. Stop koji se uključi odmah takav token proda na dnu. "
+  "Alat svaki dan na papiru isproba svaku razinu stop lossa (od -10% do bez stopa) uz odgodu od 0, 15, 30 i 60 minuta, "
+  "i sam primijeni najbolju kombinaciju. Rug (povučen pool ili pad od 70%) uvijek izlazi odmah.",
+  vidi=["stop-loss", "sjenovita-knjiga"], gdje=[("/izlazi#stop-loss", "Izlazi")], alias=["gdje rezati gubitak", "sl odgoda"])
 T("Zaključani tjedan", "sustav", "Tjedan podataka koji nijedno učenje ne smije vidjeti, za poštenu konačnu provjeru.",
   "Kad tjedan završi, na njemu se jednom usporede model, težine i kontrola \"kupi sve\". To je iskren odgovor na "
   "pitanje je li učenje pomoglo, jer nitko (ni ljudi ni AI) nije mogao nesvjesno naučiti baš te podatke.",
