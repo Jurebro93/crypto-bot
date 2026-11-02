@@ -559,7 +559,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._settings_post(path)
         if same_site and path.startswith("/zahtjevi/"):
             from ui import landing
-            return self._redirect(landing.admin_post(path, self.user))
+            n = int(self.headers.get("Content-Length") or 0)
+            form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+            return self._redirect(landing.admin_post(path, self.user, form))
         if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
             from ui import whatsapp
             whatsapp.post_shared()
