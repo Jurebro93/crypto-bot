@@ -137,6 +137,17 @@ class BotStats(unittest.TestCase):
         self.assertIsNotNone(json.loads(st)["bot_score"])
 
 
+class StarsList(unittest.TestCase):
+    def test_list_is_valid_and_counts_as_stars(self):
+        from kol import discover
+        from ui import public
+        hs = discover.list_stars()
+        self.assertGreaterEqual(len(hs), 200)
+        self.assertEqual(len(hs), len({h.lower() for h in hs}))
+        self.assertTrue(all(public.HANDLE.fullmatch(h) for h in hs))
+        self.assertIn("cryptokaleo", public.star_handles())
+
+
 def score_cfg():
     import json
     return json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))

@@ -337,9 +337,14 @@ def timeline_handles(con, cfg, now=None):
     # well-known influencers from public lists (kol/stars_list.json): a fixed share of every round, least recently
     # read first, so a few hundred of them are sampled all day without pushing out the proven core
     bots = {r[0] for r in con.execute("SELECT handle FROM kols WHERE COALESCE(bot, 0) = 1")}
+    graph = cand[:t.get("graph_slots", 40)]
+    # stars never take more than half of what is left after the core and graph candidates, so the rotation of
+    # everyone else ("due") keeps its turn even with a few hundred listed stars
+    room = max(0, total - len(watch) - len(core) - len(graph))
     stars = sorted((h for h in discover.list_stars() if h not in taken and h not in bots and h not in cand),
-                   key=lambda h: last.get(h) or 0)[:t.get("stars_slots", 20)]
-    return (watch + core + stars + cand[:t.get("graph_slots", 40)] + due)[:total]
+                   key=lambda h: last.get(h) or 0)[:min(t.get("stars_slots", 20), room // 2)]
+    rest = [h for h in due if h not in stars][:max(0, room - len(stars))]
+    return (watch + core + graph + rest + stars)[:total]
 
 
 def timeline(con, cfg, run=None, now=None):

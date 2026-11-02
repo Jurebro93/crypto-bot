@@ -178,7 +178,16 @@ def star_handles():
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")) as f:
             cfg = json.load(f)
         from kol.collect import stars_cfg
-        return {h.lower() for h in stars_cfg(cfg)["handles"]}
+        return {h.lower() for h in stars_cfg(cfg)["handles"]} | list_star_handles()
+    except Exception:  # noqa: BLE001
+        return list_star_handles()
+
+
+def list_star_handles():
+    """Stars from public influencer lists (kol/stars_list.json): candidates until they pass the trial."""
+    try:
+        from kol import discover
+        return {h.lower() for h in discover.list_stars()}
     except Exception:  # noqa: BLE001
         return set()
 
@@ -203,12 +212,14 @@ def influencers():
     finally:
         con.close()
     out = []
-    stars = star_handles()
+    stars, listed = star_handles(), list_star_handles()
     for r in rows:
         h = r["handle"]
         if r["bot"] or not HANDLE.fullmatch(h or "") or BAD.search(h):
             continue
         s = json.loads(r["stats"] or "{}")
+        if h.lower() in listed and s.get("trial"):  # from a public list: shown only once it has passed the trial
+            continue
         star = (r["followers"] or 0) >= STAR_FOLLOWERS or h.lower() in stars
         if s.get("measured", 0) < (1 if star else MIN_MEASURED):
             continue
