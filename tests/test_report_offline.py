@@ -132,5 +132,18 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(out["naucio"])
 
 
+class DumpTest(unittest.TestCase):
+    def test_roundtrip(self):
+        from report import dump
+        html = ('<html><head><title>x</title></head><body><p style="color:red;font-size:13px">a</p> '
+                '<p style="color:red;font-size:13px">b</p></body></html>')
+        ls = dump.lines("2026-11-02", html * 50)
+        self.assertTrue(all(l.startswith("REPORT-B64 2026-11-02 ") for l in ls))
+        b = "".join(l.split(" ", 3)[3] for l in ls)
+        out = dump.decode(b)
+        self.assertIn("<style>.c0{color:red;font-size:13px}", out)
+        self.assertIn('<p class="c0">a</p>', out)
+
+
 if __name__ == "__main__":
     unittest.main()
