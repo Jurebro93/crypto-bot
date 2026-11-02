@@ -104,9 +104,50 @@ class Safety(unittest.TestCase):
         full = {"verdict": "ODBAČEN", "data": {"hard_fails": ["likvidnost samo $0"]}}
         self.assertNotEqual(safety.judge("Xpump", lp, {"ok": True, "ratio": 1}, full)["verdict"], "pao")
 
+    def test_partial_report_and_extra_pools(self):
+        self.assertIsNone(safety.summarize_rc(rc(markets=[]))["top10"])   # pool cannot be told from a whale
+        whale = [{"address": "CURVE_ACC", "owner": "CURVE", "pct": 95}] + \
+            [{"address": f"A{i}", "owner": f"W{i}", "pct": 0.5} for i in range(10)]
+        s = safety.summarize_rc(rc(topHolders=whale, knownAccounts={"CURVE": {"type": "LAUNCHPAD"}}))
+        self.assertEqual(s["top10"], 5.0)
+        s = safety.summarize_rc(rc(topHolders=whale, knownAccounts={}), extra_pools=["CURVE"])
+        self.assertEqual(s["top10"], 5.0)
+        s = safety.summarize_rc(rc(topHolders=whale, knownAccounts={"CURVE": {"type": "CREATOR"}}))
+        self.assertGreater(s["top10"], 60)
+
     def test_no_data(self):
         self.assertEqual(safety.judge("X", None)["verdict"], "nepoznato")
         self.assertIsNone(safety.summarize_rc(None))
+
+
+class RoundTrip(unittest.TestCase):
+    def test_sell_quote_round_trip_and_busy(self):
+        import run_top
+        calls = []
+
+        def fake(params):
+            calls.append(params)
+            if params["inputMint"] == run_top.WSOL:
+                return {"outAmount": "5000"}
+            return {"outAmount": str(int(params_lamports[0] * 0.04)), "priceImpactPct": "0.001"}
+        params_lamports = [int(run_top.SELL_USD / 200 * 1e9)]
+        orig = run_top._jup
+        run_top._jup = fake
+        try:
+            q = run_top.sell_quote("MINT", 200)
+            self.assertEqual(calls[1]["amount"], 5000)       # sells exactly what the buy quote gave
+            self.assertEqual(safety.sell_test(q, run_top.SELL_USD)["ratio"], 0.04)
+            run_top._jup = lambda p: {"error": "no route"}
+            self.assertIn("error", run_top.sell_quote("MINT", 200))
+            self.assertIsNone(run_top.sell_quote("MINT", None))
+
+            def busy(p):
+                raise run_top.JupiterBusy()
+            run_top._jup = busy
+            with self.assertRaises(run_top.JupiterBusy):
+                run_top.sell_quote("MINT", 200)
+        finally:
+            run_top._jup = orig
 
 
 class Store(unittest.TestCase):
