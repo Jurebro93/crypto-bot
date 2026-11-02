@@ -12,6 +12,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
   postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
+  kolcopy run_kolcopy.py run    every KOLCOPY_EVERY_MIN minutes (default 30): KOL copy replay prices (kolcopy/)
   whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
 """
 import datetime as dt
@@ -145,6 +146,7 @@ JOBS = [
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
     ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
+    ("kolcopy", every, (["run_kolcopy.py", "run"], float(os.environ.get("KOLCOPY_EVERY_MIN", "30")))),
 ]
 
 

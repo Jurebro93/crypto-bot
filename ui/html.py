@@ -57,6 +57,8 @@ SECTIONS = [
     ("Bot trguje (demo)", [
         _p("/paper", "🤖", "Demo trading", "Bi li bot zaradio: njegovi ulazi i izlazi bez pravog novca.", "paper trejd"),
         _p("/kol-test", "🧪", "KOL test", "7-dnevni test: isplati li se ući odmah na KOL poziv.", "test"),
+        _p("/kol-kopiranje", "🪞", "KOL kopiranje", "Bi li kopiranje KOL novčanika zaradilo nakon našeg kašnjenja i troškova.",
+           "copy trading kopiranje novčanika replay kašnjenje"),
         _p("/izlazi", "🚪", "Izlazi", "Kada bot prodaje i koliko to vrijedi.", "exit prodaja stop"),
     ]),
     ("Sustav", [
@@ -204,6 +206,10 @@ INTRO = {
                    "tržištem (uzor Fartcoin i Useless) i stari tokeni koji se bude, s ocjenom, razlozima i demo portfeljem "
                    "usporedno sa SOL-om.", "Odvojeno od lova na nove tokene: drugi izvori, drugi horizont (tjedni i mjeseci), "
                    "vlastito učenje na povijesti cijena."),
+    "/kol-kopiranje": ("Bi li kopiranje KOL novčanika zaradilo", "Za svaku kupnju praćenog KOL novčanika: što bi zaradio "
+                       "netko tko kupi 5 s, 30 s, 2 min ili 10 min kasnije i proda kad KOL proda, iz stvarnih swapova "
+                       "s lanca, nakon troškova; provjera možemo li dobre KOL-ove izabrati unaprijed.", "Samo mjerenje: "
+                       "odgovara vrijedi li graditi brzo kopiranje prije nego što na njega ode ijedan pravi SOL."),
     "/kol-test": ("Isplati li se ući odmah na KOL poziv", "Odvojena 7-dnevna demo knjiga: $50 na svaki svjež poziv KOL-a "
                   "(X, Telegram, KOL novčanici), koliko daleko i koliko brzo token ode, pad prije toga i što bi zaradio "
                   "izlaz na +20, +30, +40 ili +50%.", "Samo mjerenje: ne miješa se s glavnim demo tradingom i bot iz nje "

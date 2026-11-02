@@ -1,0 +1,31 @@
+{
+ "_comment": "Replay kopiranja KOL novčanika (kolcopy/): za svaku kupnju KOL novčanika iz Helius webhooka (hype.db chain_trades) mjeri što bi zaradio netko tko kupi delays_s sekundi nakon KOL-a i proda delays_s sekundi nakon što KOL proda (ili na horizons_h satima). Cijene su stvarni swapovi tokena s lanca (Helius getTransactionsForAddress, 10 kredita po stranici), ne svijeće. min_kol_sol: manje kupnje KOL-a ne brojimo (prašina, testovi). max_mcap_sol: cijena × 1 milijarda (supply pump.fun i bonk tokena) iznad ovoga nije memecoin poziv (JUP, WBTC…), ne ulazi. mirror_max_h: ako KOL ne proda u toliko sati, izlaz je na tom horizontu. lag_s: točka se mjeri tek kad je toliko stara (Helius indeksira s kašnjenjem). window_s: prvi swap nakon trenutka t tražimo u toliko sekundi, inače vrijedi zadnji swap prije t. Troškovi: round_trip_pct za kupnju i prodaju zajedno (dry-run 30.10. izmjerio 2,8% na 0.05 SOL) plus tip_sol priority fee po transakciji uz ulog stake_sol. credits_per_run i credits_per_day: strop Helius kredita. verdict_delay_s: kašnjenje po kojem stranica daje glavnu presudu. oos: provjera na budućnosti, novčanike biramo po starijoj polovici (barem min_first kupnji), top najboljih s prosjekom iznad nule, i gledamo kako su prošli u novijoj polovici.",
+ "delays_s": [5, 30, 120, 600],
+ "horizons_h": [1, 6, 24],
+ "mirror_max_h": 24,
+ "min_kol_sol": 0.05,
+ "max_mcap_sol": 100000,
+ "ignore_mints": [
+  "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+  "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+  "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+  "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+  "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+  "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+  "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+  "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"
+ ],
+ "lag_s": 120,
+ "window_s": 900,
+ "page_limit": 100,
+ "stake_sol": 0.05,
+ "round_trip_pct": 3.0,
+ "tip_sol": 0.0005,
+ "credits_per_run": 15000,
+ "credits_per_day": 40000,
+ "max_age_d": 30,
+ "verdict_delay_s": 30,
+ "min_n_verdict": 30,
+ "boot": 1000,
+ "oos": {"min_first": 3, "top": 10}
+}

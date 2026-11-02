@@ -147,6 +147,23 @@ python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
 - Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
 - Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 
+## Kopiranje KOL novčanika: replay (`run_kolcopy.py`, `kolcopy/`, `kolcopy.db`)
+
+Odgovara na jedno pitanje prije nego što ijedan pravi SOL ode na kopiranje: bi li zaradio netko tko kupi token nekoliko sekundi nakon KOL novčanika i proda nekoliko sekundi nakon što on proda, nakon troškova?
+
+```
+python3 run_kolcopy.py run              # jedan prolaz: nove kupnje KOL novčanika, cijene točaka koje su na redu
+python3 run_kolcopy.py report --delay 30
+```
+
+- Kupnje i prodaje: Helius webhook na KOL novčanike (`hype.db` `chain_trades`, vidi `kol/chainwatch.py`). Prva kupnja tokena po novčaniku je jedan događaj, njegova prva prodaja u 24 h je izlaz (webhook ne kaže koliko je prodao, pa prva prodaja vrijedi kao cijeli izlaz).
+- Cijene: stvarni swapovi tokena s lanca (Helius `getTransactionsForAddress` na mintu, 10 kredita po stranici), cijena sa strane poola, pa radi na pump.fun krivulji, PumpSwapu i drugim SOL poolovima. Cijena u trenutku t je prvi swap nakon t (u 15 min), inače zadnji prije. Stranice se čuvaju, pa više KOL-ova na istom tokenu dijeli trošak.
+- Točke: KOL-ova cijena, naš ulaz nakon 5 s / 30 s / 2 min / 10 min, izlaz isto toliko nakon KOL-ove prodaje, i horizonti 1 / 6 / 24 h. Ako KOL proda prije našeg ulaza, kopija se ne računa.
+- Trošak po trejdu: 3% za kupnju i prodaju (dry-run 30.10. izmjerio 2,8%) plus 2 × 0.0005 SOL priority fee na ulog 0.05 SOL, ukupno 5%. Sve u `kolcopy/config.json`.
+- Statistika: prosjek, medijan, udio u plusu, prosjek bez najboljih 1%, 90% raspon prosjeka; presuda "u plusu" ili "u minusu" tek kad je cijeli raspon s jedne strane nule i ima barem 30 trejdova. Provjera na budućnosti: novčanike biramo na starijoj polovici, gledamo ih na novijoj.
+- Server: `run_sched.py` pokreće `run` svakih `KOLCOPY_EVERY_MIN` minuta (zadano 30), strop 15.000 kredita po prolazu i 40.000 dnevno (oko 1,2M mjesečno, 12% plana). Stranica **KOL kopiranje** (`/kol-kopiranje`, grupa Bot trguje).
+- Ništa ne trguje i ništa iz ovoga ne ulazi u demo trading ni u učenje.
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.
