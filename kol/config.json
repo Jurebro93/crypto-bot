@@ -119,7 +119,8 @@
   "win_back_h": 48,
   "trial": {"min_calls": 10, "days": 14, "min_views": 200},
   "audit": {"top": 20, "every_d": 7, "per_run": 5, "posts": 8, "model": "claude-haiku-5-5",
-            "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]}
+            "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]},
+  "graph": {"kols": 60, "every_d": 7, "per_run": 10, "min_followed_by": 2, "min_followers": 1000, "page": 200}
  },
  "timeline_twapi": {
   "every_min": 15,

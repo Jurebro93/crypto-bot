@@ -56,7 +56,8 @@ def cmd_search(a, con=None, cfg=None):
     n = 0
     from kol import discover
     for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
-                     ("winners", discover.winners), ("audit", discover.audit)):
+                     ("winners", discover.winners), ("audit", discover.audit),
+                     ("graph", discover.graph)):
         try:
             k = fn(con, cfg)
             con.commit()

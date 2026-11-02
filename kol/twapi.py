@@ -108,3 +108,16 @@ def tweets(con, ids, get=None, now=None):
     out = d.get("tweets") or []
     _add(con, cost(len(out)), now or time.time())
     return out
+
+
+FOLLOWINGS_URL = "https://api.twitterapi.io/twitter/user/followings"
+
+
+def followings(con, handle, page=200, get=None, now=None):
+    """Newest accounts `handle` follows (one page). 200 per page = $0.01 per 1,000, at least $0.0006 a call."""
+    get = get or _get_url
+    d = get(FOLLOWINGS_URL, {"userName": handle, "cursor": "", "pageSize": page})
+    out = d.get("followings") or []
+    _add(con, max(0.0006, len(out) * (0.00001 if page >= 200 else 0.00002 if page >= 100 else 0.00003)),
+         now or time.time())
+    return out

@@ -136,5 +136,30 @@ class Audit(Base):
         self.assertEqual(discover.bad_audits(self.con, CFG), {})
 
 
+class Graph(Base):
+    def test_followed_by_two_proven_kols_gets_read(self):
+        for h in ("pro1", "pro2", "newbie"):
+            st = {"measured": 20, "trial": h == "newbie"}
+            self.con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", (h, 80, json.dumps(st)))
+        asked = []
+
+        def get(url, params):
+            asked.append(params["userName"])
+            return {"followings": [
+                {"userName": "hiddengem", "followers_count": 4000, "description": "solana degen, early calls"},
+                {"userName": "nbaplayer", "followers_count": 900000, "description": "basketball"},
+                {"userName": "tinycaller", "followers_count": 50, "description": "memecoin calls"},
+                {"userName": f"only_{params['userName']}", "followers_count": 9000, "description": "crypto"}]}
+        self.assertEqual(discover.graph(self.con, CFG, get=get, now=NOW), 2)
+        self.assertEqual(sorted(asked), ["pro1", "pro2"])  # trial KOLs are not a source
+        self.assertEqual(discover.graph_candidates(self.con, CFG), ["hiddengem"])
+        self.assertEqual(discover.graph(self.con, CFG, get=get, now=NOW + 60), 0)  # weekly
+        from kol import collect
+        cfg = dict(CFG, timeline=dict(CFG["timeline"], kols=10, core=0))
+        self.assertIn("hiddengem", collect.timeline_handles(self.con, cfg, NOW))
+        collect._searched(self.con, "tl:hiddengem", "timeline_kol", NOW)
+        self.assertNotIn("hiddengem", collect.timeline_handles(self.con, cfg, NOW + 30 * DAY))  # asked once
+
+
 if __name__ == "__main__":
     unittest.main()

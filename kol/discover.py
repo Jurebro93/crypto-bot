@@ -255,3 +255,66 @@ def bad_audits(con, cfg):
         return {}
     return {h: f"AI provjera profila: {VERDICTS.get(v, v)}" + (f" ({w})" if w else "")
             for h, v, w in rows if v in bad}
+
+
+# ---------- 5. who the proven KOLs follow ----------
+
+GRAPH = {"kols": 60, "every_d": 7, "per_run": 10, "min_followed_by": 2, "min_followers": 1000, "page": 200}
+FOLLOW_SCHEMA = """CREATE TABLE IF NOT EXISTS follows (
+    src TEXT, dst TEXT, ts INTEGER, followers INTEGER, bio TEXT, PRIMARY KEY (src, dst))"""
+CRYPTO = re.compile(r"crypto|sol(?:ana)?\b|memecoin|degen|trader|trading|calls?\b|gems?\b|alpha|\$[a-z]{2,}|web3|"
+                    r"defi|nft|onchain|on-chain|pump|100x|1000x", re.I)
+
+
+def gcfg(cfg):
+    return dict(GRAPH, **(cfg.get("discover") or {}).get("graph", {}))
+
+
+def graph(con, cfg, get=None, now=None):
+    """Read the newest followings (one page of 200) of up to graph.per_run proven KOLs not read in graph.every_d
+    days (twitterapi.io, ~$0.002 each). Returns how many KOLs were read."""
+    from kol import twapi
+    if not twapi.key() and get is None:
+        return 0
+    g = gcfg(cfg)
+    now = now or int(time.time())
+    con.execute(FOLLOW_SCHEMA)
+    last = {t[3:]: ts for t, ts in con.execute("SELECT target, last_ts FROM searches WHERE target LIKE 'fg:%'")}
+    rows = con.execute("SELECT handle, stats FROM kols WHERE score IS NOT NULL AND COALESCE(bot, 0) = 0 AND handle "
+                       "NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%' ORDER BY score DESC").fetchall()
+    proven = [h for h, st in rows if not on_trial(st)][:g["kols"]]
+    due = [h for h in proven if now - (last.get(h) or 0) >= g["every_d"] * 86400][:g["per_run"]]
+    budget = (cfg.get("timeline_twapi") or {}).get("daily_usd", 0.7)
+    from kol import collect
+    n = 0
+    for h in due:
+        if twapi.spent(con, now) >= budget:
+            break
+        try:
+            fs = twapi.followings(con, h, g["page"], get=get, now=now)
+        except Exception as e:  # noqa: BLE001
+            print(f"kol graph @{h}: {type(e).__name__}: {e}", flush=True)
+            continue
+        con.executemany("INSERT OR REPLACE INTO follows VALUES (?,?,?,?,?)",
+                        [(h, f.get("userName") or f.get("screen_name"), now, f.get("followers_count"),
+                          (f.get("description") or "")[:200]) for f in fs if f.get("userName") or f.get("screen_name")])
+        collect._searched(con, f"fg:{h}", "graph", now)
+        n += 1
+    con.commit()
+    return n
+
+
+def graph_candidates(con, cfg):
+    """Accounts followed by at least graph.min_followed_by proven KOLs that we have not seen post yet, with a crypto
+    bio or name and enough followers; most-followed-by first."""
+    g = gcfg(cfg)
+    try:
+        rows = con.execute("""SELECT f.dst, COUNT(DISTINCT f.src) AS n, MAX(f.followers), MAX(f.bio) FROM follows f
+            WHERE NOT EXISTS (SELECT 1 FROM calls c WHERE LOWER(c.handle) = LOWER(f.dst))
+            GROUP BY LOWER(f.dst) HAVING n >= ? ORDER BY n DESC, MAX(f.followers) DESC""",
+                           (g["min_followed_by"],)).fetchall()
+    except Exception:  # noqa: BLE001 - no follows table yet
+        return []
+    from kol import bots
+    return [h for h, n, fol, bio in rows if (fol or 0) >= g["min_followers"] and CRYPTO.search(f"{h} {bio or ''}")
+            and not bots.HANDLE.search(h)]

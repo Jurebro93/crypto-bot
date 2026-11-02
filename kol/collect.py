@@ -326,7 +326,11 @@ def timeline_handles(con, cfg, now=None):
     core = [r[0] for r in scored[:max(0, core_n - len(watch))]]
     taken = set(watch) | set(core)
     due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >= t["refresh_d"] * 86400]
-    return (watch + core + due)[:total]
+    # accounts the proven KOLs follow (kol/discover.py graph), read once each: if they call tokens, their calls
+    # make them regular candidates; if not, they are not asked again
+    from kol import discover
+    cand = [h for h in discover.graph_candidates(con, cfg) if h not in taken and h not in last]
+    return (watch + core + cand[:t.get("graph_slots", 40)] + due)[:total]
 
 
 def timeline(con, cfg, run=None, now=None):
