@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from report import ai, collect, mail, render  # noqa: E402
+from report import ai, collect, dump, mail, render  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "output")
@@ -97,6 +97,7 @@ def send_today(use_ai=True, now=None):
     except Exception as e:
         st["error"] = f"{type(e).__name__}: {e}"
         print(f"izvještaj {day} spremljen ({path}), e-mail nije poslan: {st['error']}")
+        dump.emit(day, html)    # the daily Claude routine sends it from the connected Gmail (report/dump.py)
     save_state(st)
     return st
 
@@ -104,6 +105,14 @@ def send_today(use_ai=True, now=None):
 def loop(every_min=5):
     hour = int(os.environ.get("REPORT_HOUR", "7"))
     tries = {}
+    try:  # after a restart: put today's already built, unsent report back into the log for the Gmail routine
+        st, day = load_state(), local_now().strftime("%Y-%m-%d")
+        p = os.path.join(OUT, f"report-{day}.html")
+        if st.get("sent") != day and os.path.exists(p):
+            with open(p) as f:
+                dump.emit(day, f.read())
+    except Exception as e:
+        print(f"report dump: {type(e).__name__}: {e}")
     while True:
         try:
             ln = local_now()
