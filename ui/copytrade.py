@@ -80,7 +80,7 @@ def kol_rows():
         if h in bots or h.startswith("w:"):
             continue
         s = json.loads(st or "{}")
-        if s.get("measured", 0) < 3 or s.get("trial") or s.get("rugger"):  # na probi (kol/discover.py): not copied until proven
+        if s.get("measured", 0) < 3 or s.get("trial"):  # na probi (kol/discover.py): not copied until proven
             continue
         out.append({"handle": h, "followers": fol, "score": sc, "s": s, "live": h in live, "week": week.get(h, 0),
                     "last": last.get(h), "kt": kt.get(h, {}).get("x")})

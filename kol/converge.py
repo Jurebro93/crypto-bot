@@ -58,12 +58,8 @@ def events(now, window_s, kol_db=None, tg_db=None, hype_db=None):
             pass
         from kol import bots as _bots
         bots = _bots.handles(kc)   # automated alert accounts post every fresh token: never a KOL call
-        from kol import discover as _disc
-        bots |= _disc.ruggers(kc) if kc is not None else set()  # most of their calls end as rugs (report 2.11.)
         for tok, ts, h, kind, src in _q(kc, "SELECT token, ts, handle, kind, source FROM calls WHERE ts >= ? "
                                             "AND kind = 'call'", (since,)):
-            if h in bots:
-                continue
             plat = "tg" if h.startswith("tg:") else "x"   # wallet swaps come from hype.db chain_trades below
             ev.append((tok, ts, plat, h, kind))
         for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):

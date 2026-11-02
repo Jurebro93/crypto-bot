@@ -273,7 +273,7 @@ def build_watch(con, cfg, now=None):
     # ranked by the lower end of the score range (kol/validate.py): proven KOLs before lucky newcomers
     for h, sc, st in sorted(rows, key=lambda r: (-_lower(r[2], r[1]), -r[1])):
         s = json.loads(st or "{}")
-        if s.get("trial") or s.get("rugger"):  # na probi / puno rugova (kol/discover.py): not followed live
+        if s.get("trial"):  # na probi (kol/discover.py): not followed live until proven
             continue
         if (s.get("measured", 0) >= w["min_calls"] and s.get("prepump_rate", 1) <= w["max_prepump"]
                 and s.get("hit_rate", 0) >= w["min_hit"]):

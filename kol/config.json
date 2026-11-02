@@ -125,6 +125,7 @@
  },
  "timeline_twapi": {
   "every_min": 30,
+  "rug_refresh_d": 3,
   "kols": 400,
   "core": 300,
   "per_query": 10,

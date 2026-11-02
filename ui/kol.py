@@ -664,8 +664,8 @@ def kol_page(handle, qs):
             b.append(f'<p><span class="b warn">na probi</span>{tip("", "na-probi")} Još ga ne pratimo uživo, ne '
                      f'ulazi u copy trading ni kao „dobar KOL“ u grupni signal: {esc(s.get("trial_why") or "")}.</p>')
         if s.get("rugger") and not k.get("bot"):
-            b.append(f'<p><span class="b bad">puno rugova</span>{RUG_TIP} {esc(s.get("rug_why") or "")}. Ne pratimo '
-                     'ga uživo, ne nudi se za copy trading i njegovi pozivi ne otvaraju demo ulaze.</p>')
+            b.append(f'<p><span class="b bad">puno rugova</span>{RUG_TIP} {esc(s.get("rug_why") or "")}. Ostaje na '
+                     'listi, ali njegove objave čitamo rjeđe (svaka 3 dana). Pazi kod kupnje njegovih poziva.</p>')
         if s.get("bought"):
             b.append(f'<p><span class="b good">kupio</span> Njegov novčanik je kupio {s["bought"]} od tokena koje je '
                      'zvao: stavlja novac iza objave.</p>')

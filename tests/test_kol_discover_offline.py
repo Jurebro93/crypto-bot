@@ -94,7 +94,7 @@ class Trial(Base):
         self.assertIn("dana", s["trial_why"])
         self.assertEqual(score.build_watch(self.con, CFG, NOW), ["proven"])
 
-    def test_rugger_out_of_watch_and_converge(self):
+    def test_rugger_read_less_often(self):
         st = {"measured": 40, "hit_rate": 0.9, "prepump_rate": 0.0, "med_max24": 2.0, "med_views": 5000,
               "rug_rate": 0.875}
         self.con.execute("INSERT INTO kols (handle, score, stats) VALUES (?,?,?)", ("DegenWar01", 80, json.dumps(st)))
@@ -104,7 +104,13 @@ class Trial(Base):
         self.assertTrue(s["rugger"])
         self.assertIn("88%", s["rug_why"])
         self.assertEqual(discover.ruggers(self.con), {"DegenWar01"})
-        self.assertEqual(score.build_watch(self.con, CFG, NOW), [])
+        self.assertEqual(score.build_watch(self.con, CFG, NOW), ["DegenWar01"])  # still gets a chance
+        from kol import collect
+        cfg = dict(CFG, timeline=dict(CFG["timeline"], kols=10, core=5, min_calls=1, rug_refresh_d=3))
+        self.con.execute("DELETE FROM watch")
+        collect._searched(self.con, "tl:DegenWar01", "timeline_kol", NOW - DAY)
+        self.assertNotIn("DegenWar01", collect.timeline_handles(self.con, cfg, NOW))  # read a day ago: wait 3
+        self.assertIn("DegenWar01", collect.timeline_handles(self.con, cfg, NOW + 3 * DAY))
 
     def test_few_views(self):
         st = {"measured": 20, "med_views": 15}

@@ -322,13 +322,17 @@ def timeline_handles(con, cfg, now=None):
                  COALESCE(k.followers, 0) DESC""", (t["min_calls"], t["min_followers"])).fetchall()
     rows = [r for r in rows if not r[3]]  # scanner / promo bots are not worth a slot
     total, core_n = t["kols"], t.get("core", 0)
-    scored = sorted((r for r in rows if r[1] is not None and r[0] not in watch), key=lambda r: -_lower(r[2], r[1]))
+    # many of their calls end as rugs (kol/discover.py rugger): no core slot, read only every rug_refresh_d days
+    from kol import discover
+    rug = discover.ruggers(con)
+    scored = sorted((r for r in rows if r[1] is not None and r[0] not in watch and r[0] not in rug),
+                    key=lambda r: -_lower(r[2], r[1]))
     core = [r[0] for r in scored[:max(0, core_n - len(watch))]]
     taken = set(watch) | set(core)
-    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >= t["refresh_d"] * 86400]
+    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >=
+           (t.get("rug_refresh_d", 3) if r[0] in rug else t["refresh_d"]) * 86400]
     # accounts the proven KOLs follow (kol/discover.py graph), read once each: if they call tokens, their calls
     # make them regular candidates; if not, they are not asked again
-    from kol import discover
     cand = [h for h in discover.graph_candidates(con, cfg) if h not in taken and h not in last]
     return (watch + core + cand[:t.get("graph_slots", 40)] + due)[:total]
 

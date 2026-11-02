@@ -447,10 +447,10 @@ T("Na probi", "grupe", "Novi ili još nedokazani KOL: alat ga prati, ali mu još
   "Račun s 4 poziva i 100% pogotkom je na probi; nakon 10 poziva i 2 tjedna alat zna je li stvarno dobar.",
   vidi=["raspon-ocjene", "ai-provjera-racuna"], gdje=[("/kol#ljestvica", "KOL-ovi")], alias=["proba", "nedokazan"])
 T("Puno rugova", "grupe", "KOL čiji pozivi često završe kao rug (likvidnost povučena, cijena na nulu).",
-  "Kad više od 30% od barem 10 izmjerenih poziva nekog KOL-a završi kao rug, alat ga ne prati uživo, ne nudi za "
-  "copy trading, njegovi pozivi ne otvaraju demo ulaze i ne broji se kao dobar KOL u grupnom signalu. Visok pogodak "
-  "ne pomaže ako polovica tokena nestane prije nego što stigneš prodati.",
-  "KOL s 40 poziva od kojih je 35 završilo kao rug (87%): izbačen iz praćenja i copy tradinga.",
+  "Kad više od 30% od barem 10 izmjerenih poziva nekog KOL-a završi kao rug, alat ga ne izbacuje (dobiva šansu), "
+  "ali njegove objave čita rjeđe, svaka 3 dana umjesto svakog kruga, i označi ga. Visok pogodak ne pomaže ako "
+  "polovica tokena nestane prije nego što stigneš prodati.",
+  "KOL s 40 poziva od kojih je 35 završilo kao rug (87%): ostaje na listi s oznakom, čita se svaka 3 dana.",
   vidi=["na-probi"], gdje=[("/kol#ljestvica", "KOL-ovi")], alias=["rug stopa", "ruger"])
 T("AI provjera računa", "grupe", "Jednom tjedno AI pogleda profil najboljih KOL-ova i kaže je li to stvarno KOL.",
   "Alat preuzme profil s X-a (opis, starost računa, prikvačenu objavu) i zadnje objave, a AI (Claude Haiku) "

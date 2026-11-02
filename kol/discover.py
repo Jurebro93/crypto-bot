@@ -172,13 +172,10 @@ def on_trial(stats_json):
 
 
 def excluded(stats_json):
-    """On trial, or a 'rugger' (more than rug_max of 10+ measured calls ended as a rug, report 2.11.: DegenWar01
-    87%): kept out of the live watch, copy trading, convergence entries and "good KOL" in the group signal."""
-    try:
-        s = json.loads(stats_json or "{}")
-    except ValueError:
-        return False
-    return bool(s.get("trial") or s.get("rugger"))
+    """On trial: kept out of the live watch, copy trading and "good KOL" in the group signal. A 'rugger' (more than
+    rug_max of 10+ measured calls ended as a rug) is NOT excluded (Nicholas 2.11.: still give it a chance); it is
+    only read less often (timeline rug_refresh_d) and marked on the page."""
+    return on_trial(stats_json)
 
 
 def ruggers(con):
