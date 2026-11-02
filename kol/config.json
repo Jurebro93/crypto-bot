@@ -123,11 +123,13 @@
   "graph": {"kols": 60, "every_d": 7, "per_run": 10, "min_followed_by": 2, "min_followers": 1000, "page": 200}
  },
  "timeline_twapi": {
-  "every_min": 15,
+  "every_min": 30,
   "kols": 400,
   "core": 300,
   "per_query": 10,
   "daily_usd": 0.7,
+  "reserve_usd": 0.15,
+  "burst_usd": 0.03,
   "max_query_chars": 300
  }
 }

@@ -161,6 +161,15 @@ class Timeline(unittest.TestCase):
         self.assertFalse(set(hs2[3:]) & set(hs[3:]))
 
 
+class Pacing(unittest.TestCase):
+    def test_spread_over_the_day(self):
+        from kol import collect
+        cfg = dict(CFG, timeline_twapi={"daily_usd": 0.7, "reserve_usd": 0.1, "burst_usd": 0.0})
+        day0 = NOW - NOW % DAY
+        self.assertAlmostEqual(collect.paced_budget(cfg, day0 + DAY // 4), 0.15)
+        self.assertAlmostEqual(collect.paced_budget(cfg, day0 + DAY - 1), 0.6, places=3)
+
+
 class TwitterApiIo(unittest.TestCase):
     def setUp(self):  # keep test spend out of the shared usage meter
         from unittest import mock

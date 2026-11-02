@@ -365,6 +365,16 @@ def timeline(con, cfg, run=None, now=None):
     return n
 
 
+def paced_budget(cfg, now):
+    """twitterapi.io spend the timelines may have reached by `now` (UTC day): the daily cap minus what is kept for
+    winner search, profile checks and the follow graph (timeline_twapi.reserve_usd), spread evenly over the day plus
+    a small head start (burst_usd). Without pacing the cap was gone by 06:00 UTC and nothing was read for 18 hours."""
+    t = cfg.get("timeline_twapi") or {}
+    day = t.get("daily_usd", 0.7) - t.get("reserve_usd", 0.15)
+    frac = (int(now) % 86400) / 86400
+    return min(day, day * frac + t.get("burst_usd", 0.03))
+
+
 def timeline_twapi(con, cfg, get=None, now=None):
     """Same as timeline(), through twitterapi.io (kol/twapi.py): more accounts, more often (timeline_twapi in
     config overrides timeline: every_min, kols, core, per_query, daily_usd). Each query only asks for posts since the
@@ -379,7 +389,8 @@ def timeline_twapi(con, cfg, get=None, now=None):
     if not handles:
         return 0
     since = (last[0] if last else now - 6 * 3600) - 300
-    per, n, budget = t.get("per_query", 10), 0, t.get("daily_usd", 0.7)
+    per, n = t.get("per_query", 10), 0
+    budget = paced_budget(cfg, now)
     cap = t.get("max_query_chars", 300)  # longer queries come back 400 Bad Request
     chunks, cur = [], []
     for h in handles:
@@ -392,7 +403,8 @@ def timeline_twapi(con, cfg, get=None, now=None):
     done = []
     for chunk in chunks:
         if twapi.spent(con, now) >= budget:
-            print(f"kol twitterapi: dnevni budžet ${budget} potrošen, ostatak u sljedećem krugu", flush=True)
+            print(f"kol twitterapi: do sada dopušteno ${budget:.2f} danas potrošeno, ostatak u sljedećem krugu",
+                  flush=True)
             break
         try:
             items = twapi.search(con, " OR ".join(f"from:{h}" for h in chunk), since, budget, get=get, now=now)
