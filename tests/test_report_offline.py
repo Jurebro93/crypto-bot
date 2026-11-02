@@ -103,6 +103,12 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn("<script", out)
         self.assertNotIn("<svg", out)
         json.dumps(ai.compact(d))
+        self.assertNotIn("Hitno: potrošnja", out)
+        d["spend"] = [{"level": "bad", "key": "helius:x", "service": "helius", "title": "Helius krediti nestaju",
+                       "detail": "budžet do 14.11."}]
+        out = render.render(d, interp, "pravila")
+        self.assertIn("Hitno: potrošnja", out)
+        self.assertIn("budžet do 14.11.", out)
 
     def test_empty_dbs(self):
         from report import ai, collect, render

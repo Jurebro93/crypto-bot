@@ -332,14 +332,9 @@ def english(raw, gz, lang):
 
 
 def _banner(path):
-    """Spend warnings on top of every page, for admins only (the /usage page lists them itself)."""
-    if path == "/usage":
-        return ""
-    try:
-        b = usage.banner()
-    except Exception:
-        return ""
-    return f"<div class=adm-only>{b}</div>" if b else ""
+    """Nothing on top of pages any more (2.11.): spend warnings are on /usage (Sustav → Potrošnja) and the urgent
+    ones go into the morning report."""
+    return ""
 
 
 class Handler(BaseHTTPRequestHandler):

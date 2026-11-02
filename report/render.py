@@ -147,6 +147,10 @@ def render(data, ai, source):
         "<td width=8></td>", kpi("Tržište", f"{mk['score']:.0f}/100" if mk else "–", e(mk["label"]) if mk else ""),
     ])
     out = [section("Ukratko", bullets(ai.get("ukratko")))]
+    sp = data.get("spend") or []
+    if sp:   # urgent only (2.11.: the banner is gone from the app; warnings live on /usage)
+        out.append(section(f'<span style="color:{BAD}">Hitno: potrošnja</span>',
+                           "".join(para(f"{a['title']}: {a['detail']}") for a in sp), ("/usage", "Potrošnja")))
 
     # what was learned
     body = bullets(ai.get("naucio"))
