@@ -19,6 +19,7 @@ def new_position(px, liq, mcap, ts, cfg):
     eff = px * (1 + cfg["fee"]) / (1 - impact(cfg["size_usd"], liq))
     return {"entry_px": px, "entry_liq": liq, "entry_mcap": mcap, "entry_ts": ts, "last_ts": ts, "last_px": px,
             "last_liq": liq, "last_mcap": mcap, "peak": 0.0, "peak_ts": ts, "trough": 0.0, "trough_ts": ts,
+            "trough_late": 0.0,
             "hits": {}, "rets": {}, "pnl_usd": 0.0, "book_closed_ts": None, "book_reason": None,
             "book": {"qty": cfg["size_usd"] / eff, "left": 1.0, "realized": 0.0, "tp_done": 0, "open": True,
                      "fills": [], "size": cfg["size_usd"]}}
@@ -59,10 +60,14 @@ def update(pos, px, liq, mcap, ts, cfg):
     ret = -1.0 if rug else px / pos["entry_px"] - 1
     el = ts - pos["entry_ts"]
     # levels first, with the lowest point *before* this tick (a level reached on this tick had no drop on it)
+    late = "trough_late" in pos  # positions opened before 2.11. have no late trough: left out of late-stop rules
     for lv in cfg["levels"]:
         k = lkey(lv)
         if k not in pos["hits"] and ret >= lv:
-            pos["hits"][k] = [int(el), round(pos["trough"], 4)]
+            pos["hits"][k] = [int(el), round(pos["trough"], 4)] + ([round(pos["trough_late"], 4)] if late else [])
+    # lowest point after late_stop_min: what a stop that only switches on after the first wild minutes would see
+    if late and el >= cfg.get("late_stop_min", 30) * 60 and ret < pos["trough_late"]:
+        pos["trough_late"] = round(ret, 4)
     if ret > pos["peak"]:
         pos["peak"], pos["peak_ts"] = round(ret, 4), int(ts)
     if ret < pos["trough"]:
@@ -117,14 +122,36 @@ def final_ret(p):
     return (p["last_px"] / p["entry_px"] - 1) if p.get("entry_px") and p.get("last_px") is not None else None
 
 
+def sl_parts(sl):
+    """Stop rule from config: None, -0.3 (from the start) or [-0.3, 30] (only after 30 min) -> (level, late)."""
+    if isinstance(sl, (list, tuple)):
+        return sl[0], True
+    return sl, False
+
+
+def sl_label(sl, cfg=None):
+    v, late = sl_parts(sl)
+    if v is None:
+        return "bez stopa"
+    return f"{v:.0%}" + (f" tek nakon {sl[1]} min" if late else "")
+
+
 def outcome(p, tp, sl, cfg):
-    """Return of 'sell everything at +tp, or at sl' on this path (None = still open and undecided)."""
+    """Return of 'sell everything at +tp, or at sl' on this path (None = still open and undecided, or a late stop
+    on a position from before late troughs were recorded)."""
+    v, late = sl_parts(sl)
     h = p["hits"].get(lkey(tp))
     cost = 2 * cfg["fee"] + 2 * impact(cfg["size_usd"], p.get("entry_liq"))
-    if h and (sl is None or h[1] > sl):
+    if late:
+        if "trough_late" not in p or (h and len(h) < 3):
+            return None
+        trough, before = p["trough_late"], (h[2] if h else None)
+    else:
+        trough, before = p["trough"], (h[1] if h else None)
+    if h and (v is None or before > v):
         return tp - cost
-    if sl is not None and p["trough"] <= sl:
-        return sl - cost
+    if v is not None and trough <= v:
+        return v - cost
     if p["status"] != "done":
         return None
     f = final_ret(p)
@@ -153,7 +180,7 @@ def grid(ps, cfg):
     for tp in cfg["grid_tp"]:
         for sl in cfg["grid_sl"]:
             rs = [r for r in (outcome(p, tp, sl, cfg) for p in ps) if r is not None]
-            out.append({"tp": tp, "sl": sl, "n": len(rs), "wins": sum(1 for r in rs if r > 0),
+            out.append({"tp": tp, "sl": tuple(sl) if isinstance(sl, list) else sl, "n": len(rs), "wins": sum(1 for r in rs if r > 0),
                         "avg": sum(rs) / len(rs) if rs else None,
                         "usd": sum(rs) * cfg["size_usd"] if rs else 0.0})
     return out

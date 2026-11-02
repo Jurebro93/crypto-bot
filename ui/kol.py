@@ -51,6 +51,7 @@ def profile_url(h):
 
 
 TRIAL_TIP = tip("", "na-probi")
+RUG_TIP = tip("", "puno-rugova")
 
 
 def klink(h):
@@ -209,8 +210,8 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
         rows = [k for k in rows if is_star(k, stars) == star]
     last = dict(con.execute("SELECT handle, MAX(ts) FROM calls WHERE kind = 'call' GROUP BY handle"))
     out = []
-    from kol.discover import on_trial
-    rows.sort(key=lambda k: on_trial(k["stats"]))  # proven KOLs first, "na probi" after them (stable: by score)
+    from kol.discover import excluded
+    rows.sort(key=lambda k: excluded(k["stats"]))  # proven KOLs first, "na probi" after them (stable: by score)
     for k in rows:
         s = json.loads(k["stats"] or "{}")
         if s.get("measured", 0) < minc:
@@ -228,7 +229,9 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
                if s.get("score_lo") is not None else "")
         name = klink(k["handle"]) + (
             f' <span class="b warn" title="{esc(s.get("trial_why", ""))}">na probi</span>{TRIAL_TIP}'
-            if s.get("trial") else "") + (' <span class="b good" title="Njegov novčanik je kupio tokene koje je zvao">'
+            if s.get("trial") else "") + (
+            f' <span class="b bad" title="{esc(s.get("rug_why", ""))}">puno rugova</span>{RUG_TIP}'
+            if s.get("rugger") else "") + (' <span class="b good" title="Njegov novčanik je kupio tokene koje je zvao">'
                                            'kupio</span>' if s.get("bought") else "")
         out.append([name, num(k["followers"]), (f"<b>{k['score']:.0f}</b>{rng}", k["score"], "n"),
                     m(lift(k["power_rel"])), num(s.get("measured")), m(share(s.get("hit_rate"))),
@@ -660,6 +663,9 @@ def kol_page(handle, qs):
         if s.get("trial") and not k.get("bot"):
             b.append(f'<p><span class="b warn">na probi</span>{tip("", "na-probi")} Još ga ne pratimo uživo, ne '
                      f'ulazi u copy trading ni kao „dobar KOL“ u grupni signal: {esc(s.get("trial_why") or "")}.</p>')
+        if s.get("rugger") and not k.get("bot"):
+            b.append(f'<p><span class="b bad">puno rugova</span>{RUG_TIP} {esc(s.get("rug_why") or "")}. Ne pratimo '
+                     'ga uživo, ne nudi se za copy trading i njegovi pozivi ne otvaraju demo ulaze.</p>')
         if s.get("bought"):
             b.append(f'<p><span class="b good">kupio</span> Njegov novčanik je kupio {s["bought"]} od tokena koje je '
                      'zvao: stavlja novac iza objave.</p>')
