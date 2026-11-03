@@ -309,7 +309,7 @@ T = {
         gal_eye="Iznutra", gal_h="Pogledaj kako izgleda.", gal_p="Prave slike iz aplikacije. Povuci lijevo za još.",
         rq_eye="Samo na pozivnicu", rq_h="Zatraži svoje mjesto.",
         rq_p="Mjesta puštamo postupno. Ostavi kontakt i javimo ti se s osobnim linkom.",
-        f_name="Ime", f_ph_name="Marko", f_contact="E-mail, mobitel ili Telegram", f_ph_contact="marko@mail.com",
+        f_name="Ime", f_ph_name="Marko", f_contact="E-mail (javljamo ti se njime)", f_ph_contact="marko@mail.com",
         f_exp="Koliko tradaš?", f_opts=("Odaberi", "Tek počinjem", "Povremeno", "Aktivno", "Svaki dan"),
         f_fine="Bez novca, kartice i seed fraze. Kontakt koristimo samo za pozivnicu.",
         f_ok="<b>Zahtjev je poslan.</b> Javit ćemo ti se s osobnim linkom za registraciju.",
@@ -339,7 +339,7 @@ T = {
         gal_eye="Inside", gal_h="See what it looks like.", gal_p="Real screenshots from the app. Swipe for more.",
         rq_eye="Invite only", rq_h="Request your spot.",
         rq_p="We open spots gradually. Leave your contact and we'll send you a personal invite link.",
-        f_name="Name", f_ph_name="Alex", f_contact="E-mail, phone or Telegram", f_ph_contact="alex@mail.com",
+        f_name="Name", f_ph_name="Alex", f_contact="E-mail (we reply there)", f_ph_contact="alex@mail.com",
         f_exp="How often do you trade?", f_opts=("Choose", "Just starting", "Now and then", "Actively", "Every day"),
         f_fine="No money, no card, no seed phrase. We use your contact only to send the invite.",
         f_ok="<b>Request sent.</b> We'll get back to you with a personal sign-up link.",
@@ -406,7 +406,7 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
         f"<input type=hidden name=lang value={'en' if en else 'hr'}>"
         f"<label>{t['f_name']}<input name=name required maxlength=40 autocomplete=name value=\"{fv['name']}\" "
         f"placeholder='{t['f_ph_name']}'></label>"
-        f"<label>{t['f_contact']}<input name=contact required maxlength=120 value=\"{fv['contact']}\" "
+        f"<label>{t['f_contact']}<input name=contact type=email required maxlength=120 autocomplete=email value=\"{fv['contact']}\" "
         f"placeholder='{t['f_ph_contact']}'></label>"
         f"<label>{t['f_exp']}<select name=experience>{opts}</select></label>"
         "<div class=hp aria-hidden=true><label>Web<input name=web tabindex=-1 autocomplete=off></label></div>"
@@ -496,7 +496,7 @@ def _con():
 
 ERR_EN = {
     "Upiši ime ili nadimak.": "Please enter your name.",
-    "Upiši kontakt: e-mail, broj mobitela ili Telegram @ime.": "Please enter a contact: e-mail, phone or Telegram @name.",
+    "Upiši ispravan e-mail, njime ti šaljemo pozivnicu i novosti.": "Please enter a valid e-mail: we send the invite and news there.",
     "Previše zahtjeva s ove adrese. Pokušaj ponovno za sat vremena.": "Too many requests from this address. Try again in an hour.",
     "Lista čekanja je trenutno puna. Pokušaj ponovno za par dana.": "The waiting list is full right now. Try again in a few days.",
     "Zahtjev trenutno nije moguće spremiti. Pokušaj ponovno za par minuta.": "We couldn't save your request. Try again in a few minutes.",
@@ -511,8 +511,9 @@ def submit(form, ip=""):
     contact = (form.get("contact") or "").strip()[:120]
     if len(name) < 2:
         return False, "Upiši ime ili nadimak."
-    if len(contact) < 5:
-        return False, "Upiši kontakt: e-mail, broj mobitela ili Telegram @ime."
+    from league.profiles import EMAIL
+    if not EMAIL.fullmatch(contact):   # 3.11.: an e-mail is required, so we can reach everyone about new features
+        return False, "Upiši ispravan e-mail, njime ti šaljemo pozivnicu i novosti."
     now = time.time()
     hits = [t for t in _IPS.get(ip, []) if now - t < 3600]
     if len(hits) >= PER_IP_HOUR:

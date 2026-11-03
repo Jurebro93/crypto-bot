@@ -315,5 +315,5 @@ def page(qs):
              + (f"Ulaze rano u: {', '.join(esc(r['symbol']) for r in with_smart[:8])}." if with_smart else
                 "U zadnjim prolazima nijedan od njih nije bio među prvim kupcima kandidata.") + "</p>")
     b.append("<h2>Radi li algoritam?</h2>" + _algo())
-    b.append("<h2>Troškovi Apifyja</h2>" + _costs())
+    # Apify costs moved to /usage (admins only, 3.11.): this page is open to every role
     return "Zadnji sken", "".join(b)

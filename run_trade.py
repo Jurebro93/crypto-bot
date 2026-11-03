@@ -7,9 +7,12 @@
     python3 run_trade.py sell <mint> [--frac 0.5]  # sell part of an open position (default all)
     python3 run_trade.py status                    # positions and PnL in SOL
 
-Entry and exit rules stay in one place (run_paper.py + paper/config.json): `follow` mirrors what the paper
-trader does, so a strategy is proven in demo and the same decisions then go live. Limits are in
-trade/config.json. Dry-run is the default; see trade/executor.py for what turns on live trading.
+Two sources of decisions, both proven in demo first:
+- the competition account "pravi-trade" (trade/settings.LEAGUE_USER): the owner picks KOLs and wallets to follow on
+  /pravi-trade, league/copy.py enters and exits that demo account, and every entry/exit here becomes a real swap;
+- the paper trader (run_paper.py), only when the owner ticks "prati i demo strategiju" on the page.
+Limits: trade/config.json defaults, overridden on the page (trade/settings.py). Dry-run is the default; see
+trade/executor.py for what turns on live trading. No Telegram (Nicholas's rule): everything shows on /pravi-trade.
 """
 import argparse
 import datetime as dt
@@ -19,19 +22,30 @@ import sqlite3
 import sys
 import time
 
-from trade import executor, jupiter, wallet
+from trade import executor, jupiter, settings, wallet
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "trade.db")  # own file, see run_hype.DB
 PAPER_DB = os.path.join(HERE, "paper.db")
+LEAGUE_DB = os.path.join(HERE, "league.db")
+SELL_ALL_RETRY_S = 30
+_sell_all_try = {"ts": 0}
 
 
 def notify(text):
+    """Only the server log: every buy and sell is also in trade.db and on /pravi-trade (no Telegram)."""
+    print(f"trade: {text}", flush=True)
+
+
+def load(path=None, con=None):
+    cfg = executor.load_config(path)
+    own = con is None
+    con = con or settings.connect(DB)
     try:
-        import run_hype
-        run_hype.alert(text)
-    except Exception as e:
-        print(f"  telegram: {e}", file=sys.stderr)
+        return settings.merged(cfg, con)
+    finally:
+        if own:
+            con.close()
 
 
 def _say(text, quiet=False):
@@ -89,6 +103,8 @@ def follow_once(con, cfg, since, now=None, quiet=False):
             for n, f in enumerate(fills[done:], start=done):
                 last = not st["open"] and n == len(fills) - 1
                 r = executor.sell(con, cfg, pos_id, f["frac"], close=last, now=now, reason=f["reason"])
+                if r["status"] == "wait":
+                    break   # an earlier try failed; backing off (executor._sell_wait)
                 if r["status"] in ("ok", "dry", "noop"):
                     con.execute("UPDATE positions SET fills_done=? WHERE id=?", (n + 1, pos_id))
                     con.commit()
@@ -102,14 +118,125 @@ def follow_once(con, cfg, since, now=None, quiet=False):
         p.close()
 
 
-def cmd_follow(a):
-    cfg = executor.load_config(a.config)
-    since = time.time() - cfg["max_signal_age_s"]
-    print(f"Pratim paper.db, mod {'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
-    while True:
-        cfg = executor.load_config(a.config)
+def _league():
+    if not os.path.exists(LEAGUE_DB):
+        return None
+    return sqlite3.connect(f"file:{LEAGUE_DB}?mode=ro", uri=True, timeout=10)
+
+
+def follow_league_once(con, cfg, since, now=None, quiet=False):
+    """Mirror the competition account "pravi-trade": its new open trades -> buys, its (partial) exits -> sells.
+    The share still held in the demo trade (qty / bought qty) is the share kept of the real position."""
+    now = now or time.time()
+    lg = _league()
+    if lg is None:
+        return
+    try:
+        lg.row_factory = sqlite3.Row
         try:
-            follow_once(executor.connect(DB), cfg, since)
+            fresh = lg.execute("SELECT id, token, symbol, opened_ts, source FROM trades WHERE user=? AND status='open' "
+                               "AND opened_ts>=?", (settings.LEAGUE_USER, since)).fetchall()
+        except sqlite3.OperationalError:
+            return   # no competition tables yet
+        have = {lid for (lid,) in con.execute("SELECT league_id FROM positions WHERE league_id IS NOT NULL")}
+        tag = "LIVE" if executor.is_live(cfg) else "DRY"
+        for t in fresh:
+            if t["id"] in have:
+                continue
+            if now - t["opened_ts"] > cfg["max_signal_age_s"]:
+                con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
+                            "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(),
+                                                       "blocked", f"signal star {now - t['opened_ts']:.0f} s"))
+                con.commit()
+                continue
+            size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
+            r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
+                             league_id=t["id"], size_sol=float(size) if size else None)
+            if r["status"] == "open":
+                _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
+            else:
+                _say(f"{tag} kupnja {t['symbol']} nije prošla: {r.get('error')}", quiet)
+        for pos_id, lid, qty_raw, qty_left, sym in con.execute(
+                "SELECT id, league_id, qty_raw, qty_left, symbol FROM positions WHERE status='open' "
+                "AND league_id IS NOT NULL").fetchall():
+            d = lg.execute("SELECT status, size_usd, entry_eff, qty, note FROM trades WHERE id=?", (lid,)).fetchone()
+            if d is None:
+                continue
+            if d["status"] == "closed":
+                r = executor.sell(con, cfg, pos_id, close=True, now=now, reason=d["note"] or "demo izlaz")
+            else:
+                bought = d["size_usd"] / d["entry_eff"] if d["entry_eff"] else 0
+                keep = min(1.0, d["qty"] / bought) if bought else 1.0
+                have_frac = qty_left / qty_raw if qty_raw else 0
+                if have_frac - keep < 0.05:
+                    continue
+                r = executor.sell(con, cfg, pos_id, have_frac - keep, now=now, reason="djelomična prodaja (demo)")
+            if r["status"] in ("ok", "dry"):
+                _say(f"{r['status'].upper()} PRODAJA {sym} -> {r['amount_out'] / executor.LAMPORTS:.4f} SOL", quiet)
+            elif r["status"] not in ("noop", "wait"):
+                _say(f"prodaja {sym} nije prošla: {r.get('error')}; pokušavam opet", quiet)
+    finally:
+        lg.close()
+
+
+def sell_requests_once(con, cfg, now=None, quiet=False):
+    """The page's "Prodaj 50%" / "Prodaj sve" buttons on one position: {position id: share}; done ones are removed."""
+    now = now or time.time()
+    req = dict(cfg.get("sell_req") or {})
+    if not req:
+        return
+    for pid, frac in list(req.items()):
+        row = con.execute("SELECT status FROM positions WHERE id=?", (int(pid),)).fetchone()
+        if not row or row[0] != "open":
+            req.pop(pid)
+            continue
+        frac = float(frac)
+        r = executor.sell(con, cfg, int(pid), frac, close=frac >= 0.999, now=now, reason="ručna prodaja (gumb)")
+        if r["status"] in ("ok", "dry", "noop"):
+            req.pop(pid)
+            _say(f"ručna prodaja #{pid} {frac:.0%}: {r['status']}", quiet)
+        elif r["status"] != "wait":
+            _say(f"ručna prodaja #{pid} nije prošla: {r.get('error')}; pokušavam opet", quiet)
+    done = set(cfg.get("sell_req") or {}) - set(req)
+    if done:   # re-read so a button pressed during this pass is not lost
+        cur = dict(settings.raw(con).get("sell_req") or {})
+        settings.put(con, "sell_req", {k: v for k, v in cur.items() if k not in done}, "bot")
+
+
+def sell_all_once(con, cfg, now=None, quiet=False):
+    """The page's "Prodaj sve" button: every open position (real and probe) is sold; retried every 30 s until none
+    is left, then the request is cleared."""
+    now = now or time.time()
+    if not cfg.get("sell_all") or now - _sell_all_try["ts"] < SELL_ALL_RETRY_S:
+        return
+    _sell_all_try["ts"] = now
+    for (pid,) in con.execute("SELECT id FROM positions WHERE status='open'").fetchall():
+        r = executor.sell(con, cfg, pid, close=True, now=now, reason="prodaj sve (gumb)")
+        if r["status"] not in ("ok", "dry", "noop", "wait"):
+            _say(f"prodaj sve: pozicija #{pid} nije prodana: {r.get('error')}", quiet)
+    if not con.execute("SELECT 1 FROM positions WHERE status='open'").fetchone():
+        settings.put(con, "sell_all", 0, "bot")
+
+
+def cmd_follow(a):
+    cfg = load(a.config)
+    since = time.time() - cfg["max_signal_age_s"]
+    print(f"Pratim račun {settings.LEAGUE_USER} (i paper.db ako je uključeno), mod "
+          f"{'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
+    beat = {"ts": 0}
+    while True:
+        try:
+            con = executor.connect(DB)
+            cfg = load(a.config, con)
+            if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
+                settings.put(con, "heartbeat", int(time.time()), "bot")
+                beat["ts"] = time.time()
+            sell_all_once(con, cfg)
+            sell_requests_once(con, cfg)
+            if cfg.get("follow_paper"):
+                follow_once(con, cfg, since)
+            follow_league_once(con, cfg, since)
+            con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
         if a.once:
@@ -118,9 +245,9 @@ def cmd_follow(a):
 
 
 def cmd_check(a):
-    cfg = executor.load_config(a.config)
+    cfg = load(a.config)
     addr = wallet.address()
-    print(f"config mode: {cfg['mode']}, TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, "
+    print(f"prekidač: {'UKLJUČEN' if cfg['on'] else 'isključen'}, TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, "
           f"ključ: {'da' if wallet.can_sign() else 'ne'} -> {'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}")
     print(f"wallet: {addr or 'nije postavljen'}; kill switch: {'UKLJUČEN' if os.path.exists(executor.STOP_FILE) else 'ne'}")
     if addr:
@@ -128,12 +255,19 @@ def cmd_check(a):
             print(f"stanje: {wallet.sol_balance(addr):.4f} SOL")
         except Exception as e:
             print(f"stanje: {e}")
-    o = jupiter.order(jupiter.SOL, "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", int(cfg["size_sol"] * 1e9))
-    print(f"Jupiter: {cfg['size_sol']} SOL -> {int(o.get('outAmount') or 0) / 1e5:,.0f} BONK, trošak {jupiter.cost_pct(o)}%")
+    for route in ("v2", "ultra"):
+        try:
+            o = jupiter.order(jupiter.SOL, "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", int(cfg["size_sol"] * 1e9),
+                              taker=addr, route=route)
+            print(f"{executor.ROUTE_HR[route]}: {cfg['size_sol']} SOL -> {int(o.get('outAmount') or 0) / 1e5:,.0f} BONK, "
+                  f"trošak {jupiter.cost_pct(o)}%, mrežne naknade {jupiter.fee_lamports(o) / 1e9:.6f} SOL"
+                  + (f", napomena: {o.get('errorMessage')}" if o.get("errorMessage") else ""))
+        except Exception as e:
+            print(f"{executor.ROUTE_HR[route]}: ne odgovara ({type(e).__name__}: {e})")
 
 
 def cmd_buy(a):
-    cfg = executor.load_config(a.config)
+    cfg = load(a.config)
     r = executor.buy(executor.connect(DB), cfg, a.mint, size_sol=a.sol, reason="ručno")
     print(json.dumps(r, indent=1))
 
@@ -143,7 +277,7 @@ def cmd_sell(a):
     row = con.execute("SELECT id FROM positions WHERE token=? AND status='open' ORDER BY id DESC", (a.mint,)).fetchone()
     if not row:
         sys.exit("Nema otvorene pozicije za taj token.")
-    r = executor.sell(con, executor.load_config(a.config), row[0], a.frac, close=a.frac >= 1, reason="ručno")
+    r = executor.sell(con, load(a.config), row[0], a.frac, close=a.frac >= 1, reason="ručno")
     print(json.dumps(r, indent=1))
 
 

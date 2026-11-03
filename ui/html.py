@@ -61,6 +61,10 @@ SECTIONS = [
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
         _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
+    ("Pravi trade", [
+        _p("/pravi-trade", "💰", "Pravi trade", "Bot trguje pravim SOL-om iz zasebnog walleta, unutar tvojih limita.",
+           "pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja"),
+    ]),
     ("Sustav", [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
@@ -70,6 +74,8 @@ SECTIONS = [
         _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
+        _p("/korisnici", "👥", "Korisnici i uloge", "Tko što smije vidjeti i raditi u aplikaciji.",
+           "uloge admin prijatelj osnovni pristup prava korisnici dozvole"),
     ]),
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
@@ -77,6 +83,8 @@ CORE = ("Glavno",)
 BONUS = "Bonus"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 ADMIN = ("Sustav",)
+# only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
+PRIVATE = ("Pravi trade",)
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
@@ -177,11 +185,15 @@ INTRO = {
     "/paper": ("Bi li bot zaradio da trguje", "Demo trgovanje bez novca: ulazi po pravilima, izlazi, rezultat, dnevni pregled "
                "s greškama i lekcijama, kalibracija confidencea.", "Bot iz ishoda demo trejdova uči; pravi trading "
                "samo preslikava ove ulaze."),
+    "/korisnici": ("Tko što smije", "Svi korisnici i njihove uloge: Admin, Prijatelj ili Osnovni.",
+                   "Novi korisnici su Osnovni: gledaju, ali ne vide potrošnju i ne pokreću ništa što košta."),
     "/zahtjevi": ("Novi ljudi koji žele ući", "Zahtjevi s javne naslovne stranice: ime, kontakt, iskustvo i što ih "
                   "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u Natjecanje: od zahtjeva do "
                   "pozivnice i demo računa od $1.000."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
+    "/pravi-trade": ("Bot trguje pravim novcem", "Prekidač, limiti, koga bot prati, pozicije i svaki nalog s linkom na "
+                     "transakciju.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
                       "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
@@ -505,6 +517,13 @@ def _pages_json():
                        for sec, items in SECTIONS for p in items], ensure_ascii=False).replace("</", "<\\/")
 
 
+def _role_cls(href):
+    """' r-pri' / ' r-adm' on menu items a basic user cannot open (league/roles.PAGES), hidden through the cb_r cookie."""
+    from league import roles
+    need = roles.PAGES.get(href)
+    return " r-pri" if need == "prijatelj" else " r-adm" if need == "admin" else ""
+
+
 def side_menu(cur):
     """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
     The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
@@ -512,11 +531,13 @@ def side_menu(cur):
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/tokens">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
     for sec, items in SECTIONS:
-        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}">{esc(p["name"])}</a>' for p in items)
+        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
+                        f'{esc(p["name"])}</a>' for p in items)
         if sec in CORE:
             b.append(f'<div class=sec-c>{links}</div>')
         else:
-            b.append(f'<div class="sec{" adm-only" if sec in ADMIN else ""}"><h4>{esc(sec)}</h4>{links}</div>')
+            extra = " adm-only" if sec in ADMIN else " pt-only" if sec in PRIVATE else ""
+            b.append(f'<div class="sec{extra}"><h4>{esc(sec)}</h4>{links}</div>')
     from ui.i18n import lang
     en = lang() == "en"
     b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}">Postavke</a>'
@@ -531,8 +552,22 @@ def side_menu(cur):
 # Admin-only bits (Sustav menu, spend warnings, manual job buttons) carry class adm-only. Pages are cached and the
 # same for everyone, so the server sets a cb_adm=1 cookie for admins and this shows them; it only declutters,
 # the pages themselves stay reachable by link.
-ADMIN_CSS = ".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
-ADMIN_JS = "if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
+             ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
+             "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
+             ".nomail{background:#fff7e6;border-color:#f5d08a;margin:0 0 14px}.nomail a{font-weight:600}")
+ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+            "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
+            "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
+            "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
+            # players without an e-mail (3.11.): a box on top of every page until they add one in Postavke
+            "if(/(^|; )cb_nm=1/.test(document.cookie)&&location.pathname!=='/postavke')"
+            "document.addEventListener('DOMContentLoaded',function(){var m=document.querySelector('main');if(!m)return;"
+            "var en=document.documentElement.lang==='en',d=document.createElement('div');d.className='card nomail';"
+            "d.innerHTML=en?'<b>📧 Please add your e-mail.</b> We will use it to tell you about new features and "
+            "important changes. <a href=\"/postavke#profil\">Add e-mail →</a>':'<b>📧 Upiši svoj e-mail.</b> Njime ti "
+            "javljamo nove mogućnosti alata i važne promjene. <a href=\"/postavke#profil\">Upiši e-mail →</a>';"
+            "m.insertBefore(d,m.firstChild)});")
 
 SIMPLE_CSS = """
 /* 2.11. simpler look: data first, quiet menu, segmented filters, line icons in the phone bar */
@@ -590,7 +625,7 @@ def map_page(qs=None):
     for sec, items in SECTIONS:
         b.append(f"<h2{' class=adm-only' if sec in ADMIN else ''}>{esc(sec)}</h2>"
                  f"<div class='mapgrid{' adm-only' if sec in ADMIN else ''}'>" + "".join(
-                     f'<a class="mapcard{" pillar" if sec in CORE else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
+                     f'<a class="mapcard{" pillar" if sec in CORE else ""}{_role_cls(p["href"])}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
                      f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
     return "Sve stranice", "".join(b)
 

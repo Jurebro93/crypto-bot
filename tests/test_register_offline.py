@@ -88,11 +88,19 @@ class Register(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn("name=pw2", body)
         self.assertIn("ne vrijedi", call("/registracija?k=krivo")[2])
-        code, _, body = call("/registracija", {"k": tok, "name": "Ivan", "pw": "tajna12", "pw2": "tajna12"})
+        self.assertIn("name=email", body)
+        code, _, body = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12", "pw2": "tajna12"})
+        self.assertEqual(code, 400)                                       # 3.11.: e-mail is required
+        self.assertIn("e-mail", body)
+        code, _, body = call("/registracija", {"k": tok, "name": "Ivan", "pw": "tajna12", "pw2": "tajna12",
+                                               "email": "ivan@mail.hr"})
         self.assertEqual(code, 400)                                       # a server player's name is taken
         self.assertIn("zauzeto", body)
-        code, hdr, _ = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12", "pw2": "tajna12"})
+        code, hdr, _ = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12", "pw2": "tajna12",
+                                              "email": "marko@mail.hr"})
         self.assertEqual(code, 303)
+        from league import profiles
+        self.assertEqual(profiles.get("Marko")["email"], "marko@mail.hr")   # saved to the profile
         self.assertTrue(hdr["Location"].startswith("/natjecanje?ok="))
         cookie = hdr["Set-Cookie"].split(";")[0]
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Marko"))
@@ -104,7 +112,10 @@ class Register(unittest.TestCase):
 
     def test_invite_box_and_admins(self):
         from ui import register
-        self.assertIn("/registracija?k=", register.invite_box("Ivan"))
+        from league import roles
+        roles.reset_cache()
+        self.assertEqual(register.invite_box("Ivan"), "")                 # invites: admins only (league/roles)
+        self.assertIn("/registracija?k=", register.invite_box("Jure"))   # TRADE_OWNER default = admin
         self.assertEqual(register.invite_box(None), "")                  # view-only: no box
         os.environ["UI_ADMINS"] = "Jure"
         self.assertEqual(register.invite_box("Ivan"), "")

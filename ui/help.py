@@ -61,6 +61,7 @@ HELP = {
     "Ključne riječi": "Riječi po kojima se traže tokeni za događaj.",
     "Šansa za token": "Procjena 0-1 da će netko napraviti token za ovaj događaj.",
     "Tokeni (★ = pravi)": "Tokeni pronađeni za događaj; ★ je najbolje ocijenjeni.",
+    "Tokeni: koji će najvjerojatnije pumpati": "Svi tokeni pronađeni za događaj, poredani po ocjeni pumpe 0-100. Prvi je najizgledniji, s razlozima; ostale otvoriš ispod.",
     "Zašto ta ocjena": "Raspis hype ocjene događaja po dijelovima.",
     "Izvor": "Odakle je podatak došao.",
     # wallets

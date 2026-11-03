@@ -164,7 +164,7 @@ def page(qs):
             "i upozorenja kad nešto curi ili raste prebrzo. Brojke s računa osvježavaju se svakih 15 min.</p>")
     head += disk_html()
     if con is None:
-        return "Potrošnja", head + '<div class=empty>Bot još nije napravio nijedan plaćeni poziv.</div>'
+        return "Potrošnja", head + '<div class=empty>Bot još nije napravio nijedan plaćeni poziv.</div>' + _moved()
     try:
         cfg = watch.config()
         al = watch.evaluate(con, cfg)
@@ -183,4 +183,20 @@ def page(qs):
                   "puno odbijenih poziva.</p>")
     finally:
         con.close()
-    return "Potrošnja", body
+    return "Potrošnja", body + _moved()
+
+
+def _moved():
+    """Spend bits that used to sit on pages every role can open (Zadnji sken, Telegram i KOL novčanici)."""
+    out = []
+    try:
+        from ui import radar
+        out.append("<h2 id=apify>Troškovi Apifyja po izvoru</h2>" + radar._costs())
+    except Exception as e:  # noqa: BLE001
+        out.append(f"<p class=mut>Apify troškovi se ne mogu pročitati ({esc(str(e)[:120])}).</p>")
+    try:
+        from ui import izvori
+        out.append(izvori.paid_section())
+    except Exception as e:  # noqa: BLE001
+        out.append(f"<p class=mut>Izvori se ne mogu pročitati ({esc(str(e)[:120])}).</p>")
+    return "".join(out)

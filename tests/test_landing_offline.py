@@ -43,9 +43,12 @@ class Landing(unittest.TestCase):
         ok, err = landing.submit({"name": "M", "contact": "0911234567"}, "1.1.1.1")
         self.assertFalse(ok)
         self.assertIn("ime", err)
-        self.assertEqual(landing.submit({"name": "Marko", "contact": "0911234567", "experience": "aktivno"}, "1.1.1.1"),
+        ok, err = landing.submit({"name": "Marko", "contact": "0911234567"}, "1.1.1.1")
+        self.assertFalse(ok)                                       # 3.11.: an e-mail is required
+        self.assertIn("e-mail", err)
+        self.assertEqual(landing.submit({"name": "Marko", "contact": "marko@mail.hr", "experience": "aktivno"}, "1.1.1.1"),
                          (True, None))
-        self.assertEqual(landing.submit({"name": "Marko", "contact": "0911234567"}, "1.1.1.1"), (True, None))  # duplicate
+        self.assertEqual(landing.submit({"name": "Marko", "contact": "marko@mail.hr"}, "1.1.1.1"), (True, None))  # duplicate
         self.assertEqual(landing.submit({"name": "Bot", "contact": "x@y.zz", "web": "spam"}, "2.2.2.2"), (True, None))
         self.assertEqual(landing.pending_count(), 1)              # duplicate and honeypot not stored
         for i in range(3):
@@ -56,7 +59,7 @@ class Landing(unittest.TestCase):
         self.assertNotIn('value="<script>"', landing.page_html({}, err="x", form={"name": "<script>"}))
 
     def test_admin_invite_flow(self):
-        landing.submit({"name": "Marko", "contact": "091 123 4567"}, "1.1.1.1")
+        landing.submit({"name": "Marko", "contact": "marko@mail.hr"}, "1.1.1.1")
         landing.submit({"name": "Ana", "contact": "ana@mail.hr"}, "1.1.1.2")
         _, body = landing.admin_page({}, None)
         self.assertIn("samo organizator", body)                   # view-only account sees no contacts
