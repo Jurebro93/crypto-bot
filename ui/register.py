@@ -54,6 +54,10 @@ def page_html(qs, err=""):
             f"value=\"{esc(qs.get('name', ''))}\" style='width:100%' autocapitalize=none placeholder='npr. Marko'>"
             "</label><br><span class=mut style='font-size:12px'>2 do 20 slova ili brojki, bez razmaka. Ovo ime "
             "upisuješ kod prijave.</span></p>"
+            "<p><label>Tvoj e-mail<br><input name=email type=email autocomplete=email required maxlength=200 "
+            f"value=\"{esc(qs.get('email', ''))}\" style='width:100%' placeholder='npr. marko@gmail.com'></label><br>"
+            "<span class=mut style='font-size:12px'>Obavezno. Javljamo ti novosti i nove mogućnosti alata. Ne "
+            "dijelimo ga ni s kim.</span></p>"
             "<p><label>Lozinka<br><input name=pw type=password autocomplete=new-password required minlength=6 "
             "style='width:100%'></label><br><span class=mut style='font-size:12px'>Barem 6 znakova.</span></p>"
             "<p><label>Ponovi lozinku<br><input name=pw2 type=password autocomplete=new-password required "
@@ -69,6 +73,10 @@ def page_html(qs, err=""):
 
 def post(form, taken):
     """(name, None) when the account was made, else (None, plain-Croatian reason)."""
+    from league import profiles
+    email = (form.get("email") or "").strip()
+    if not profiles.EMAIL.fullmatch(email):   # 3.11.: required, so we can tell everyone about new features
+        return None, "Upiši ispravan e-mail (npr. marko@gmail.com)."
     try:
         con = members.connect()
         try:
@@ -84,6 +92,10 @@ def post(form, taken):
     except sqlite3.OperationalError as e:
         from ui import league
         return None, league.db_error(e)
+    try:
+        profiles._set(name, email=email)
+    except Exception as e:  # noqa: BLE001
+        print(f"natjecanje: e-mail za {name} nije spremljen: {e}", flush=True)
     print(f"natjecanje: {name} registracija -> novi igrač", flush=True)
     try:
         from ui import league
