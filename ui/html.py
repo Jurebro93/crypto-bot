@@ -74,6 +74,8 @@ SECTIONS = [
         _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
+        _p("/korisnici", "👥", "Korisnici i uloge", "Tko što smije vidjeti i raditi u aplikaciji.",
+           "uloge admin prijatelj osnovni pristup prava korisnici dozvole"),
     ]),
 ]
 # the three things the app is about (Nicholas 2.11.): they lead the menu, Pregled, the phone bar and the map
@@ -183,6 +185,8 @@ INTRO = {
     "/paper": ("Bi li bot zaradio da trguje", "Demo trgovanje bez novca: ulazi po pravilima, izlazi, rezultat, dnevni pregled "
                "s greškama i lekcijama, kalibracija confidencea.", "Bot iz ishoda demo trejdova uči; pravi trading "
                "samo preslikava ove ulaze."),
+    "/korisnici": ("Tko što smije", "Svi korisnici i njihove uloge: Admin, Prijatelj ili Osnovni.",
+                   "Novi korisnici su Osnovni: gledaju, ali ne vide potrošnju i ne pokreću ništa što košta."),
     "/zahtjevi": ("Novi ljudi koji žele ući", "Zahtjevi s javne naslovne stranice: ime, kontakt, iskustvo i što ih "
                   "zanima. Gumb Pozovi napravi jednokratni link za registraciju.", "Ulaz u Natjecanje: od zahtjeva do "
                   "pozivnice i demo računa od $1.000."),
@@ -513,6 +517,13 @@ def _pages_json():
                        for sec, items in SECTIONS for p in items], ensure_ascii=False).replace("</", "<\\/")
 
 
+def _role_cls(href):
+    """' r-pri' / ' r-adm' on menu items a basic user cannot open (league/roles.PAGES), hidden through the cb_r cookie."""
+    from league import roles
+    need = roles.PAGES.get(href)
+    return " r-pri" if need == "prijatelj" else " r-adm" if need == "admin" else ""
+
+
 def side_menu(cur):
     """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
     The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
@@ -520,7 +531,8 @@ def side_menu(cur):
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/tokens">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
     for sec, items in SECTIONS:
-        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}">{esc(p["name"])}</a>' for p in items)
+        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
+                        f'{esc(p["name"])}</a>' for p in items)
         if sec in CORE:
             b.append(f'<div class=sec-c>{links}</div>')
         else:
@@ -541,9 +553,12 @@ def side_menu(cur):
 # same for everyone, so the server sets a cb_adm=1 cookie for admins and this shows them; it only declutters,
 # the pages themselves stay reachable by link.
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
-             ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}")
+             ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
+             "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}")
 ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
-            "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');")
+            "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
+            "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
+            "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));")
 
 SIMPLE_CSS = """
 /* 2.11. simpler look: data first, quiet menu, segmented filters, line icons in the phone bar */
@@ -601,7 +616,7 @@ def map_page(qs=None):
     for sec, items in SECTIONS:
         b.append(f"<h2{' class=adm-only' if sec in ADMIN else ''}>{esc(sec)}</h2>"
                  f"<div class='mapgrid{' adm-only' if sec in ADMIN else ''}'>" + "".join(
-                     f'<a class="mapcard{" pillar" if sec in CORE else ""}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
+                     f'<a class="mapcard{" pillar" if sec in CORE else ""}{_role_cls(p["href"])}" href="{p["href"]}"><span class=mi>{p["icon"]}</span>'
                      f'<b>{esc(p["name"])}</b><span class=mut>{esc(p["desc"])}</span></a>' for p in items) + "</div>")
     return "Sve stranice", "".join(b)
 

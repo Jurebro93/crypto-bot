@@ -155,6 +155,15 @@ def cookie_user(value):
     return (True, member) if member else (False, None)
 
 
+def _cookie_name(value):
+    """Login name inside a cookie already checked by cookie_user (the view-only account has no player)."""
+    try:
+        name = base64.urlsafe_b64decode(value.split(".")[0].encode()).decode()
+    except Exception:
+        return None
+    return VIEWER if VIEWER_PASS and name.lower() == VIEWER.lower() else None
+
+
 def check_password(name, pw):
     """(ok, player or None): a player's own name + password, or the shared UI_PASSWORD with any name."""
     player, ppw = PLAYERS.get((name or "").strip().lower(), (None, ""))
@@ -176,15 +185,20 @@ def check_password(name, pw):
 
 
 def is_admin(user):
-    """UI_ADMINS (comma list of names) see the system pages and spend warnings. Not set: every UI_USERS player
-    does (as before), friends who registered by invite and the view-only account don't."""
-    from ui import register
+    """Role admin (league/roles.py): UI_ADMINS, or TRADE_OWNER/Jure when UI_ADMINS is empty, plus whoever an admin
+    made admin on /korisnici."""
     if not AUTH:
         return True
-    if not user:
-        return False
-    adm = register.admins()
-    return user.lower() in adm if adm else user.lower() in PLAYERS
+    from league import roles
+    return bool(user) and roles.role(user) == "admin"
+
+
+def role_of(who):
+    """Role of the login name `who` (player, registered friend or the view-only account; None = shared password)."""
+    if not AUTH:
+        return "admin"   # local run without passwords
+    from league import roles
+    return roles.role(who)
 
 
 def user_kind(user):
@@ -339,6 +353,8 @@ def _banner(path):
 
 class Handler(BaseHTTPRequestHandler):
     user = os.environ.get("UI_LOCAL_USER") if not AUTH else None   # local run without passwords: play as this name
+    who = user
+    role = "admin" if not AUTH else "osnovni"   # league/roles.py; set again by _authorized on every request
 
     def _set_lang(self):
         """cb_lang cookie -> self.lang and the i18n context of this request."""
@@ -414,6 +430,17 @@ class Handler(BaseHTTPRequestHandler):
             # that box, the page then just stays blank. 401 without WWW-Authenticate, so no box pops up.
             nxt = path + (f"?{u.query}" if u.query else "")
             return self._send(401, login_page({"next": nxt}).encode("utf-8"))
+        from league import roles
+        need = roles.deny_get(path, self.role)
+        if need:   # checked on the server for every page, not only hidden in the menu
+            return self._forbidden(path, need)
+        if path == "/korisnici":
+            from ui import userroles
+            try:
+                html = page(*userroles.page(qs, self.who, PLAYERS_NAMES(), VIEWER if VIEWER_PASS else None), path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200, html.encode("utf-8"))
         if path == "/postavke":
             from ui import settings
             try:
@@ -533,12 +560,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _admin_cookie(self):
         """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""
-        has = "cb_adm=1" in (self.headers.get("Cookie") or "")
-        adm = is_admin(getattr(self, "user", None))
+        cookies = self.headers.get("Cookie") or ""
+        has = "cb_adm=1" in cookies
+        r = getattr(self, "role", "osnovni")
+        adm = r == "admin"
         if adm and not has:
             self.send_header("Set-Cookie", f"cb_adm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
         elif has and not adm:
             self.send_header("Set-Cookie", "cb_adm=; Path=/; Max-Age=0; SameSite=Lax")
+        # cb_r: the role, so cached pages hide the menu items this role cannot open (the server refuses them anyway)
+        if f"cb_r={r}" not in cookies:
+            self.send_header("Set-Cookie", f"cb_r={r}; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
+
+    def _forbidden(self, path, need):
+        from league import roles
+        body = (f"<h1>🔒 Ovo nije za tvoj račun</h1><div class=card><p>Ova stranica ili radnja traži ulogu "
+                f"<b>{esc(roles.LABEL[need])}</b>. Tvoja uloga je <b>{esc(roles.LABEL.get(self.role, self.role))}</b>"
+                f"<span class=mut>: {esc(roles.WHAT.get(self.role, ''))}</span></p>"
+                "<p>Ako trebaš veći pristup, javi se administratoru.</p>"
+                "<p><a href=/tokens>← Na tokene</a></p></div>")
+        return self._send(403, page("Nemaš pristup", body, path).encode("utf-8"))
 
     def _trade_cookie(self):
         """cb_pt=1 for the owner and invited players: the cached menu then shows "Pravi trade" only to them
@@ -576,10 +617,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(APP_URL + self.path, code=308)
         if AUTH and not self._authorized():
             return self._send(401, login_page({}).encode("utf-8"))
-        pagecache.clear()   # a run or a trade changes what the pages show
         path = unquote(urlsplit(self.path).path)
+        from league import roles
+        need = roles.deny_post(path, self.role)
+        if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
+            print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
+            return self._forbidden(path, need)
+        pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+        if same_site and path.startswith("/korisnici/"):
+            from ui import userroles
+            n = int(self.headers.get("Content-Length") or 0)
+            form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+            return self._redirect(userroles.post(path, form, self.who))
         if same_site and path.startswith("/pravi-trade/"):
             from urllib.parse import parse_qs
             from ui import pravitrade
@@ -819,13 +870,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorized(self):
         """A player's own name + password sets self.user; the shared UI_PASSWORD (any name) lets in without one."""
-        self.user = None
+        self.user = self.who = None
+        self.role = "osnovni"
         for part in (self.headers.get("Cookie") or "").split(";"):
             k, _, v = part.strip().partition("=")
             if k == COOKIE:
                 ok, player = cookie_user(v)
                 if ok:
                     self.user = player
+                    self.who = player or _cookie_name(v)
+                    self.role = role_of(self.who)
                     return True
         h = self.headers.get("Authorization", "")   # old browser password box still works
         if not h.startswith("Basic "):
@@ -835,6 +889,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return False
         ok, self.user = check_password(name, pw)
+        if ok:
+            self.who = self.user or (VIEWER if VIEWER_PASS and name.strip().lower() == VIEWER.lower() else None)
+            self.role = role_of(self.who)
         return ok
 
     def log_message(self, fmt, *args):
