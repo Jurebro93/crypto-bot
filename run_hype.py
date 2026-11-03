@@ -156,6 +156,11 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception as e:
         print(f"  kol.db: {e}", file=sys.stderr)
         kol_groups = {}
+    try:  # one author posting the same token again and again in a short time (kol.db calls, read-only)
+        bursts = kstore.author_bursts()
+    except Exception as e:
+        print(f"  kol.db bursts: {e}", file=sys.stderr)
+        bursts = {}
     try:  # several good callers across X, Telegram and KOL wallets on chain, live (kol/converge.py, read-only)
         from kol import converge
         conv = converge.compute()
@@ -234,11 +239,14 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["kol_x"] = min(1.0, max(kol_ca.get(t, 0), kol_tk.get(sym.upper(), 0)) / 2)
         if t in kol_groups:  # measured only when a group call happened; absence neither helps nor hurts
             f["kol_group"] = kol_groups[t]["feature"]
+        if t in bursts:  # only set when it happened: 2 posts = 0.33, 4+ = full
+            f["autor_nalet"] = round(min(1.0, (bursts[t]["n"] - 1) / 3), 2)
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
             "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
             "liveParticipants")} if pf else None,
-            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t)}
+            "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t),
+            "autor_nalet": bursts.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,

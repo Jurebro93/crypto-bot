@@ -134,6 +134,41 @@ def signals(tokens=None, max_age_h=6, path=None):
             for t, g, n, h, d, f in rows if want is None or t in want}
 
 
+def author_bursts(tokens=None, window_min=60, max_age_h=6, path=None, now=None):
+    """token -> {n, handle}: the most posts one author made about the same token within window_min, over the last
+    max_age_h hours, when that is 2 or more (3.11. morning report: one KOL posting the same CA again and again in a short
+    time came before many pumps). Bot accounts are left out. {} if kol.db is missing."""
+    import time
+    now = now or time.time()
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        rows = con.execute("SELECT token, lower(handle), ts FROM calls WHERE ts >= ? AND COALESCE(kind,'') != 'bot' "
+                           "ORDER BY token, lower(handle), ts", (int(now - max_age_h * 3600),)).fetchall()
+        try:
+            from kol import bots
+            skip = {h.lower() for h in bots.handles(con)}
+        except Exception:  # noqa: BLE001 - the burst works without the bot list
+            skip = set()
+    except sqlite3.OperationalError:
+        rows, skip = [], set()
+    finally:
+        con.close()
+    want = set(tokens) if tokens is not None else None
+    out, run = {}, {}
+    for tok, h, ts in rows:
+        if not h or h in skip or (want is not None and tok not in want):
+            continue
+        q = run.setdefault((tok, h), [])
+        q.append(ts)
+        while q[0] < ts - window_min * 60:
+            q.pop(0)
+        if len(q) >= 2 and len(q) > out.get(tok, {}).get("n", 0):
+            out[tok] = {"n": len(q), "handle": h}
+    return out
+
+
 def session_now(path=None, now=None):
     """{session: asia|eu|us, factor, signal_hit_rate, signal_n} for entry and exit logic (kol/sessions.py)."""
     from kol import sessions

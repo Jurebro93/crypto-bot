@@ -308,6 +308,12 @@ T("Težina", "ocjene", "Koliko neki signal vrijedi u ocjeni. Bot je sam pomiče 
   "Svaki dan bot provjeri koji signali su stvarno prethodili skokovima i pomakne težine, ali samo ako promjena radi bolje i "
   "na starijim i na novijim podacima (zaštita od slučajnosti). Povijest promjena je na stranici Učenje.",
   vidi=["signal", "ucenje"], alias=["težine"])
+T("Nalet istog autora", "ocjene", "Isti KOL objavi isti token dva ili više puta unutar sat vremena.",
+  "Zašto: kad netko isti token gura objavu za objavom, to je često početak kampanje i rasta, a ponekad i plaćena "
+  "promocija. Bot to ne pretpostavlja nego mjeri: značajka ulazi u hype ocjenu s težinom koju učenje samo podesi "
+  "prema tome kako su takvi tokeni prošli.",
+  primjer="KOL u 40 minuta tri puta objavi istu adresu: nalet = 3 objave (0,67 od najjače vrijednosti).",
+  vidi=["konvergencija"], alias=["autor_nalet", "author burst", "nalet autora"])
 T("Konvergencija", "ocjene", "Više neovisnih izvora (KOL-ovi, Telegram kanali, smart novčanici) dira isti token u kratkom roku.",
   "Jedan poziv može biti slučajan ili plaćen; kad 3+ KOL-a zove isti token u 15 minuta, 59% se udvostruči (naspram 33%). "
   "Za konvergenciju novčanika treba barem 6 novčanika.", vidi=["kol", "smart-money"], alias=["konvergencija izvora", "grupni poziv"])
