@@ -1,15 +1,16 @@
 """Real buys and sells through Jupiter Ultra, behind a risk gate. trade.db logs every attempt.
 
-Live trading needs all three: config "mode": "live", env TRADE_LIVE=1, and SOLANA_PRIVATE_KEY.
-Anything less is dry-run: the same quote is fetched and logged, nothing is signed or sent.
-Kill switch: create the file trade/STOP and no new buys happen (sells still go through).
+Live trading needs all three: the switch on the page /pravi-trade (cfg["on"], trade/settings.py), env TRADE_LIVE=1
+and SOLANA_PRIVATE_KEY (both set by the owner in Render). Anything less is dry-run: the same quote is fetched and
+logged, nothing is signed or sent. Switch off = no new real buys; sells of real positions still go through as long
+as the key is there. Kill switch file trade/STOP also stops every new buy.
 """
 import json
 import os
 import sqlite3
 import time
 
-from trade import jupiter, wallet
+from trade import jupiter, settings, wallet
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
@@ -20,7 +21,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, paper_id INTEGER UNIQUE, token TEXT, symbol TEXT, opened_ts INTEGER,
     mode TEXT, status TEXT, reason TEXT, sol_in REAL, qty_raw INTEGER, qty_left INTEGER, sol_back REAL,
-    fills_done INTEGER DEFAULT 0, closed_ts INTEGER);
+    fills_done INTEGER DEFAULT 0, closed_ts INTEGER, league_id INTEGER);
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, position_id INTEGER, token TEXT, side TEXT, mode TEXT,
     amount_in INTEGER, amount_out INTEGER, cost_pct REAL, status TEXT, reason TEXT, error TEXT, signature TEXT,
@@ -36,11 +37,25 @@ def load_config(path=None):
 def connect(path):
     con = sqlite3.connect(path, timeout=30)
     con.executescript(SCHEMA)
+    con.execute(settings.SCHEMA)
+    if "league_id" not in {r[1] for r in con.execute("PRAGMA table_info(positions)")}:
+        con.execute("ALTER TABLE positions ADD COLUMN league_id INTEGER")
     return con
 
 
+def armed():
+    """The owner put the key and TRADE_LIVE=1 into Render: real swaps are possible (the switch decides buys)."""
+    return os.environ.get("TRADE_LIVE") == "1" and wallet.can_sign()
+
+
 def is_live(cfg):
-    return cfg.get("mode") == "live" and os.environ.get("TRADE_LIVE") == "1" and wallet.can_sign()
+    return bool(cfg.get("on")) and armed()
+
+
+def day_pnl(con, now, mode):
+    """SOL won (+) or lost (-) on positions closed since midnight (server time) in this mode."""
+    return con.execute("SELECT COALESCE(SUM(sol_back - sol_in),0) FROM positions WHERE mode=? AND status='closed' "
+                       "AND closed_ts>=?", (mode, _day_start(now))).fetchone()[0]
 
 
 def _day_start(now):
@@ -58,6 +73,10 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None):
                         "AND status IN ('open','closed')", (_day_start(now), "live" if live else "dry")).fetchone()[0]
     if spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
         return f"dnevni limit: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
+    if "max_loss_day" in cfg:
+        lost = day_pnl(con, now, "live" if live else "dry")
+        if lost <= -cfg["max_loss_day"]:
+            return f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status='open' AND mode=?",
                          ("live" if live else "dry",)).fetchone()[0]
     if n_open >= cfg["max_open"]:
@@ -104,7 +123,7 @@ def _log(con, now, pid, token, side, mode, res, reason):
                  res["status"], reason, res.get("error"), res.get("signature"), res.get("request_id")))
 
 
-def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason=""):
+def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident."""
     now, live = now or time.time(), is_live(cfg)
@@ -116,9 +135,9 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
         res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"])
     ok = res["status"] in ("ok", "dry")
     status = "open" if ok else ("blocked" if res["status"] == "blocked" else "failed")
-    cur = con.execute("INSERT INTO positions (paper_id, token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, "
-                      "qty_left, sol_back) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
-                      (paper_id, token, symbol, int(now), mode, status, reason if ok else res.get("error"),
+    cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
+                      "qty_raw, qty_left, sol_back) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)",
+                      (paper_id, league_id, token, symbol, int(now), mode, status, reason if ok else res.get("error"),
                        res["amount_in"] / LAMPORTS if ok else 0, res.get("amount_out") if ok else 0,
                        res.get("amount_out") if ok else 0))
     _log(con, now, cur.lastrowid, token, "buy", mode, res, reason)
@@ -132,8 +151,8 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
     token, mode, qty, left, sol_back = con.execute(
         "SELECT token, mode, qty_raw, qty_left, sol_back FROM positions WHERE id=?", (position_id,)).fetchone()
     live = mode == "live"
-    if live and not is_live(cfg):  # never "dry-sell" a real position and mark it closed
-        res = {"status": "failed", "error": "live pozicija, ali live trading je isključen", "amount_in": 0}
+    if live and not armed():  # never "dry-sell" a real position and mark it closed
+        res = {"status": "failed", "error": "prava pozicija, ali ključ ili TRADE_LIVE nisu postavljeni", "amount_in": 0}
         _log(con, now, position_id, token, "sell", mode, res, reason)
         con.commit()
         return res

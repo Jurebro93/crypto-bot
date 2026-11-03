@@ -61,6 +61,10 @@ SECTIONS = [
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
         _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
+    ("Pravi trade", [
+        _p("/pravi-trade", "💰", "Pravi trade", "Bot trguje pravim SOL-om iz zasebnog walleta, unutar tvojih limita.",
+           "pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja"),
+    ]),
     ("Sustav", [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
         _p("/criteria", "📏", "Pravila", "Svi pragovi i težine po kojima bot ocjenjuje.", "kriteriji criteria"),
@@ -77,6 +81,8 @@ CORE = ("Glavno",)
 BONUS = "Bonus"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 ADMIN = ("Sustav",)
+# only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
+PRIVATE = ("Pravi trade",)
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
@@ -182,6 +188,8 @@ INTRO = {
                   "pozivnice i demo računa od $1.000."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
+    "/pravi-trade": ("Bot trguje pravim novcem", "Prekidač, limiti, koga bot prati, pozicije i svaki nalog s linkom na "
+                     "transakciju.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
                       "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
@@ -516,7 +524,8 @@ def side_menu(cur):
         if sec in CORE:
             b.append(f'<div class=sec-c>{links}</div>')
         else:
-            b.append(f'<div class="sec{" adm-only" if sec in ADMIN else ""}"><h4>{esc(sec)}</h4>{links}</div>')
+            extra = " adm-only" if sec in ADMIN else " pt-only" if sec in PRIVATE else ""
+            b.append(f'<div class="sec{extra}"><h4>{esc(sec)}</h4>{links}</div>')
     from ui.i18n import lang
     en = lang() == "en"
     b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}">Postavke</a>'
@@ -531,8 +540,10 @@ def side_menu(cur):
 # Admin-only bits (Sustav menu, spend warnings, manual job buttons) carry class adm-only. Pages are cached and the
 # same for everyone, so the server sets a cb_adm=1 cookie for admins and this shows them; it only declutters,
 # the pages themselves stay reachable by link.
-ADMIN_CSS = ".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
-ADMIN_JS = "if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
+             ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}")
+ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+            "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');")
 
 SIMPLE_CSS = """
 /* 2.11. simpler look: data first, quiet menu, segmented filters, line icons in the phone bar */

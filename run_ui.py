@@ -428,6 +428,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/pravi-trade":
+            from ui import pravitrade
+            try:
+                html = page(*pravitrade.page(qs, self.user), path)
+            except Exception:
+                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+            return self._send(200, html.encode("utf-8"))
         if path in ("/natjecanje", "/prijedlozi", "/copy-trading"):
             SHOW_ALL.set(qs.get("sve") == "1")
             from ui import copytrade
@@ -520,6 +527,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", "gzip")
         if ctype == "text/html" and not getattr(self, "_public", False):
             self._admin_cookie()
+            self._trade_cookie()
         self.end_headers()
         self.wfile.write(out)
 
@@ -531,6 +539,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", f"cb_adm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
         elif has and not adm:
             self.send_header("Set-Cookie", "cb_adm=; Path=/; Max-Age=0; SameSite=Lax")
+
+    def _trade_cookie(self):
+        """cb_pt=1 for the owner and invited players: the cached menu then shows "Pravi trade" only to them
+        (the page itself checks access again)."""
+        has = "cb_pt=1" in (self.headers.get("Cookie") or "")
+        try:
+            from ui import pravitrade
+            ok = pravitrade.can_view_cached(getattr(self, "user", None))
+        except Exception:  # noqa: BLE001
+            return
+        if ok and not has:
+            self.send_header("Set-Cookie", f"cb_pt=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
+        elif has and not ok:
+            self.send_header("Set-Cookie", "cb_pt=; Path=/; Max-Age=0; SameSite=Lax")
 
     def do_POST(self):
         """/run/<job>: start an on-demand run (button on the page), then back to the page.
@@ -558,6 +580,14 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+        if same_site and path.startswith("/pravi-trade/"):
+            from urllib.parse import parse_qs
+            from ui import pravitrade
+            n = int(self.headers.get("Content-Length") or 0)
+            multi = parse_qs(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace"))
+            form = {k: v[-1] for k, v in multi.items()}
+            form["u_list"] = multi.get("u", [])
+            return self._redirect(pravitrade.post(path, form, self.user))
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))
