@@ -62,6 +62,9 @@ def merged(cfg, con):
     out["use_pump"] = bool(s.get("use_pump", True))
     out["simianx"] = bool(s.get("simianx", False))
     out["sell_all"] = s.get("sell_all") or 0
+    out["sell_req"] = s.get("sell_req") or {}
+    out["manual_size"] = s.get("manual_size") or {}
+    out["heartbeat"] = s.get("heartbeat") or 0
     return out
 
 

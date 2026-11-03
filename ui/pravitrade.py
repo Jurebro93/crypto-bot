@@ -212,7 +212,17 @@ def _candidates(con, owner):
                     empty="Još nema demo praćenja sa zatvorenim ulazima. Isprobaj ih u Copy tradingu."))
 
 
-def _positions(tcon, viewer_buy):
+def _sell_btns(pid, pending):
+    if pending is not None:
+        return badge(f"prodaja {float(pending):.0%} u tijeku", "warn")
+    return "".join(f'<form method=post action=/pravi-trade/sell style="display:inline;margin:0 4px 0 0" onsubmit="return '
+                   f'confirm(\'Prodati {lab} ove pozicije odmah?\')"><input type=hidden name=id value={pid}>'
+                   f'<input type=hidden name=frac value={fr}><button>Prodaj {lab}</button></form>'
+                   for fr, lab in (("0.5", "50%"), ("1", "sve")))
+
+
+def _positions(tcon, viewer_buy, owner=False, pending=None):
+    pending = pending or {}
     rows = []
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, closed, fees) in tcon.execute(
             "SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, closed_ts, "
@@ -224,6 +234,8 @@ def _positions(tcon, viewer_buy):
         left = f"{ql / q:.0%}" if q else "–"
         buy = (f'<a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a>'
                if viewer_buy and st == "open" else "")
+        if owner and st == "open":
+            buy = _sell_btns(pid, pending.get(str(pid)))
         rows.append([ago(ts), tlink(tok, sym), kind, stb, num(sin, "{:.3f}"), num(sback, "{:.4f}"), left,
                      num(fees if mode == "live" else None, "{:.5f}"), signed(pnl, "{:+.4f}"), (esc(why or ""), "", "wrap"),
                      buy])
@@ -262,6 +274,91 @@ def _invites(tcon):
             f'{boxes or "<p>Nema drugih igrača.</p>"}<button>Spremi tko vidi</button></form>')
 
 
+def _warnings(tcon, cfg, con):
+    """Everything that would stop or hurt a trade right now, in plain words (Nicholas 3.11.: network congestion,
+    too little SOL to sell, anything else worth knowing)."""
+    now = time.time()
+    w = []   # (level, text)
+    live_ready = executor.armed()
+    beat = cfg.get("heartbeat") or 0
+    if not beat:
+        w.append(("warn", "Trade proces se još nije javio (prvih minutu nakon pokretanja to je normalno)."))
+    elif now - beat > 180:
+        w.append(("bad", f"Trade proces ne radi već {int((now - beat) // 60)} min: nove kupnje i prodaje stoje. "
+                         "Provjeri Render logove (run_trade.py)."))
+    if os.path.exists(executor.STOP_FILE):
+        w.append(("bad", "Uključen je kill switch (datoteka trade/STOP): nove kupnje su zaustavljene."))
+    n_open_live = tcon.execute("SELECT COUNT(*) FROM positions WHERE mode='live' AND status='open'").fetchone()[0]
+    if live_ready:
+        bal = _balance(wallet.address())
+        if bal is not None:
+            reserve = executor.reserve_sol(cfg, n_open_live)
+            need = cfg["size_sol"] + executor.BUY_OVERHEAD_SOL + executor.reserve_sol(cfg, n_open_live + 1)
+            if bal < reserve:
+                w.append(("bad", f"Opasno malo SOL-a: {bal:.4f}. Za prodaju {n_open_live} otvorenih pozicija treba "
+                                 f"barem {reserve:.4f} SOL za mrežne naknade. Uplati SOL u wallet."))
+            elif bal < need:
+                w.append(("warn", f"Premalo SOL-a za novu kupnju: stanje {bal:.4f}, treba {need:.4f} (ulog "
+                                  f"{cfg['size_sol']:g} + naknade i depozit {executor.BUY_OVERHEAD_SOL:g} + rezerva za "
+                                  f"prodaju {executor.reserve_sol(cfg, n_open_live + 1):.4f}). Bot neće kupovati, "
+                                  "prodaje rade."))
+    mode = "live" if executor.is_live(cfg) else "dry"
+    start = executor._day_start(now)
+    spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
+                         "('open','closed')", (mode, start)).fetchone()[0]
+    if spent >= cfg["max_sol_per_day"] - 1e-9:
+        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({spent:.3f} SOL): nove kupnje tek nakon ponoći (UTC)."))
+    if executor.day_pnl(tcon, now, mode) <= -cfg["max_loss_day"]:
+        w.append(("bad", f"Dnevni gubitak je dosegnuo -{cfg['max_loss_day']:g} SOL: nove kupnje stoje do ponoći (UTC)."))
+    recent = tcon.execute("SELECT code, error, prio_lamports, status FROM orders WHERE ts>=? ORDER BY id DESC LIMIT 30",
+                          (now - 1800,)).fetchall()
+    landed_fail = sum(1 for c, *_ in recent if c in (-1000, -1005, -1006, -2000))
+    prio = [p for _, _, p, _ in recent if p]
+    if landed_fail >= 2:
+        w.append(("warn", f"Mreža je zagušena: {landed_fail} transakcija u zadnjih 30 min nije stiglo u blok. Bot "
+                          "ponavlja automatski, ali ulazi mogu kasniti."))
+    if prio and max(prio[:5]) >= 1_000_000:
+        p = max(prio[:5]) / executor.LAMPORTS
+        w.append(("warn", f"Mreža je zagušena: naknada za prioritet je sad oko {p:.4f} SOL po swapu, to je "
+                          f"{100 * p / cfg['size_sol']:.1f}% uloga od {cfg['size_sol']:g} SOL."))
+    if any(c == 2 for c, *_ in recent):
+        w.append(("bad", "Jupiter javlja da wallet nema dovoljno SOL-a za mrežnu naknadu. Uplati malo SOL-a."))
+    if any("429" in (e or "") or "HTTPError" in (e or "") for _, e, _, _ in recent):
+        w.append(("warn", "Jupiter je odbio dio zahtjeva (previše upita bez ključa). Besplatan JUP_API_KEY s "
+                          "portal.jup.ag u Renderu to rješava."))
+    stuck = []
+    for pid, sym, tok in tcon.execute("SELECT id, symbol, token FROM positions WHERE status='open'").fetchall():
+        last = [r[0] for r in tcon.execute("SELECT status FROM orders WHERE position_id=? AND side='sell' ORDER BY id "
+                                           "DESC LIMIT 3", (pid,))]
+        if len(last) == 3 and all(x == "failed" for x in last):
+            stuck.append(sym or tok[:6])
+    if stuck:
+        w.append(("bad", f"Ne može se prodati: {', '.join(stuck)}. Zadnja 3 pokušaja nisu prošla (moguće nema "
+                         "likvidnosti ili je rug). Bot pokušava i dalje, najviše svakih 10 min."))
+    if cfg["size_sol"] < 0.03:
+        w.append(("warn", f"Ulog {cfg['size_sol']:g} SOL je malen: mrežne naknade i depozit (~0,003 SOL po kupnji, "
+                          "depozit se vrati) su velik dio uloga."))
+    if not copy.follows(con, settings.LEAGUE_USER) and not cfg.get("follow_paper") and not cfg.get("simianx"):
+        w.append(("warn", "Bot nikoga ne prati: neće ništa kupiti dok ne dodaš influencera ili wallet."))
+    if not w:
+        return '<div class=card style="border-color:var(--good)">✅ Nema upozorenja.</div>'
+    color = {"bad": "var(--bad)", "warn": "var(--warn)"}
+    return "".join(f'<div class=card style="border-left:4px solid {color[lv]}">{"⛔" if lv == "bad" else "⚠️"} '
+                   f'{esc(t)}</div>' for lv, t in w)
+
+
+def _manual_buy(cfg):
+    return ('<h2 id=rucno>Kupi ručno</h2><form method=post action=/pravi-trade/buy class=card onsubmit="return confirm('
+            '\'Kupiti ovaj token pravim novcem (ako je prekidač uključen)?\')">'
+            '<input name=token placeholder="adresa tokena ili DexScreener link" size=34 required style="max-width:100%"> '
+            f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:70px"></label> '
+            '<label>izlaz <select name=exit><option value=smart>Smart sell</option><option value=tpsl>moj TP/SL</option>'
+            '<option value=manual>prodajem sam</option></select></label> '
+            '<input name=tp placeholder="TP npr. 100%" size=11> <input name=sl placeholder="SL npr. -30%" size=11> '
+            '<button>Kupi</button><p class=mut>Prolazi iste provjere i limite kao automatske kupnje (rug, likvidnost, '
+            'dnevni limit, rezerva za prodaju).</p></form>')
+
+
 def page(qs, user):
     tcon = _tcon()
     try:
@@ -280,9 +377,9 @@ def page(qs, user):
             copy.ensure(con)
             b = ['<h1>Pravi trade</h1><p class=lead>Bot kupuje i prodaje <b>pravim SOL-om</b> iz zasebnog walleta, '
                  'samo kad netko koga ovdje odabereš objavi poziv (influencer) ili kupi token (wallet). '
-                 'Sve unutar limita ispod.</p>', msg, _status(cfg, owner), _today(tcon, cfg),
-                 _follows(con, owner), _positions(tcon, not owner), _orders(tcon), _limits(cfg, owner),
-                 _candidates(con, owner)]
+                 'Sve unutar limita ispod.</p>', msg, _status(cfg, owner), _warnings(tcon, cfg, con), _today(tcon, cfg),
+                 _follows(con, owner), _positions(tcon, not owner, owner, cfg.get("sell_req")),
+                 _manual_buy(cfg) if owner else "", _orders(tcon), _limits(cfg, owner), _candidates(con, owner)]
         finally:
             con.close()
         if owner:
@@ -292,6 +389,8 @@ def page(qs, user):
                  'Ključ nikad nije u kodu ni na ovoj stranici.</li>'
                  '<li>U walletu drži samo iznos kojim bot smije trgovati.</li>'
                  '<li>Dnevni limit potrošnje i dnevni gubitak zaustavljaju nove kupnje do ponoći.</li>'
+                 f'<li>U walletu uvijek ostaje barem {executor.RESERVE_FLOOR_SOL:g} SOL (i {executor.SELL_COST_SOL:g} SOL '
+                 'po otvorenoj poziciji) za mrežne naknade prodaje, pa kupnja koja bi pojela taj minimum ne prolazi.</li>'
                  '<li>Swap se ne radi ako je trošak (klizanje + naknada) veći od limita.</li>'
                  '<li>Rute redom: Jupiter → Jupiter Ultra → PumpPortal (ako je uključen). Na sljedeću rutu ide se samo '
                  'kad swap sigurno nije prošao; ako Jupiter ne odgovori, prvo se provjeri wallet, da se ništa ne kupi dvaput.</li>'
@@ -329,6 +428,16 @@ def post(path, form, user):
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
+        if path == "/pravi-trade/sell":
+            pid, frac = str(int(form.get("id") or 0)), float(form.get("frac") or 1)
+            if not 0 < frac <= 1:
+                raise ValueError("udio mora biti između 0 i 100%")
+            if not tcon.execute("SELECT 1 FROM positions WHERE id=? AND status='open'", (int(pid),)).fetchone():
+                raise ValueError("ta pozicija nije otvorena")
+            req = dict(settings.raw(tcon).get("sell_req") or {})
+            req[pid] = frac
+            settings.put(tcon, "sell_req", req, user)
+            return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
         if path == "/pravi-trade/invite":
             names = set(form.get("u_list") or [])
             known = {u.lower(): u for u in store.users()}
@@ -355,6 +464,8 @@ def post(path, form, user):
                             ex.get("mode", ""), ex.get("tp", ""), ex.get("sl", ""))
                 who = src["label"] or src["target"]
                 return f"{BACK}?ok={qq(f'Bot prati {who}.')}#pratim"
+            if path == "/pravi-trade/buy":
+                return _post_buy(con, tcon, form, user)
             if path == "/pravi-trade/stop":
                 copy.unfollow(con, settings.LEAGUE_USER, int(form.get("id") or 0))
                 return f"{BACK}?ok={qq('Praćenje zaustavljeno. Otvorene pozicije se prodaju po svom pravilu izlaza.')}#pratim"
@@ -365,6 +476,41 @@ def post(path, form, user):
         return f"{BACK}?err={qq(str(e))}"
     finally:
         tcon.close()
+
+
+def _post_buy(con, tcon, form, user):
+    """Manual buy: a demo trade on the real-trade account (same rug/liquidity checks as Natjecanje), its own SOL
+    stake for the mirror, and its exit rule; run_trade.py turns it into the real swap within the limits."""
+    from urllib.parse import quote as qq
+    from league import auto
+    from rugfilter import collapse
+    from ui import data, real
+    from ui.league import MINT, _symbol, market
+    token = (form.get("token") or "").strip()
+    if not MINT.fullmatch(token):
+        token = real.resolve(token)[0]
+    sol = float((form.get("sol") or "0").replace(",", "."))
+    lab, _typ, lo, hi = settings.LIMITS["size_sol"]
+    if not lo <= sol <= hi:
+        raise ValueError(f"SOL mora biti između {lo:g} i {hi:g}")
+    live = market({token})
+    if token not in live:
+        raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
+    price, liq, _, mcap = live[token]
+    col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+    if col:
+        raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
+    sym = _symbol(token)
+    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap)
+    ex = form.get("exit") or "smart"
+    if ex == "smart":
+        auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
+    elif ex == "tpsl":
+        auto.set_auto(con, settings.LEAGUE_USER, tid, "tpsl", form.get("tp", ""), form.get("sl", ""))
+    sizes = dict(settings.raw(tcon).get("manual_size") or {})
+    sizes[str(tid)] = sol
+    settings.put(tcon, "manual_size", dict(list(sizes.items())[-200:]), user)
+    return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"
 
 
 _VIEW = {"ts": 0, "names": set()}

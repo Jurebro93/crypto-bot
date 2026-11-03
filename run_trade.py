@@ -149,8 +149,9 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                                                        "blocked", f"signal star {now - t['opened_ts']:.0f} s"))
                 con.commit()
                 continue
+            size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
-                             league_id=t["id"])
+                             league_id=t["id"], size_sol=float(size) if size else None)
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:
@@ -178,6 +179,30 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
         lg.close()
 
 
+def sell_requests_once(con, cfg, now=None, quiet=False):
+    """The page's "Prodaj 50%" / "Prodaj sve" buttons on one position: {position id: share}; done ones are removed."""
+    now = now or time.time()
+    req = dict(cfg.get("sell_req") or {})
+    if not req:
+        return
+    for pid, frac in list(req.items()):
+        row = con.execute("SELECT status FROM positions WHERE id=?", (int(pid),)).fetchone()
+        if not row or row[0] != "open":
+            req.pop(pid)
+            continue
+        frac = float(frac)
+        r = executor.sell(con, cfg, int(pid), frac, close=frac >= 0.999, now=now, reason="ručna prodaja (gumb)")
+        if r["status"] in ("ok", "dry", "noop"):
+            req.pop(pid)
+            _say(f"ručna prodaja #{pid} {frac:.0%}: {r['status']}", quiet)
+        elif r["status"] != "wait":
+            _say(f"ručna prodaja #{pid} nije prošla: {r.get('error')}; pokušavam opet", quiet)
+    done = set(cfg.get("sell_req") or {}) - set(req)
+    if done:   # re-read so a button pressed during this pass is not lost
+        cur = dict(settings.raw(con).get("sell_req") or {})
+        settings.put(con, "sell_req", {k: v for k, v in cur.items() if k not in done}, "bot")
+
+
 def sell_all_once(con, cfg, now=None, quiet=False):
     """The page's "Prodaj sve" button: every open position (real and probe) is sold; retried every 30 s until none
     is left, then the request is cleared."""
@@ -198,11 +223,16 @@ def cmd_follow(a):
     since = time.time() - cfg["max_signal_age_s"]
     print(f"Pratim račun {settings.LEAGUE_USER} (i paper.db ako je uključeno), mod "
           f"{'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
+    beat = {"ts": 0}
     while True:
         try:
             con = executor.connect(DB)
             cfg = load(a.config, con)
+            if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
+                settings.put(con, "heartbeat", int(time.time()), "bot")
+                beat["ts"] = time.time()
             sell_all_once(con, cfg)
+            sell_requests_once(con, cfg)
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
             follow_league_once(con, cfg, since)
