@@ -4,6 +4,7 @@ import time
 from urllib.parse import quote
 
 from ui import data, explain, jobs, labels
+from eventpick import load as pickload, score as pickscore
 from ui.labels import FEATURE_DESC
 from ui.html import (tdesc, info, ago, badge, bar, breakdown, esc, ext_icons, ext_token, ext_wallet, filt, mins, num, price, scorecell,
                      short, signed, table, tierb, tlink, ts, usd, verdict, wlink)
@@ -576,14 +577,34 @@ def _spark(snaps, base):
 
 # ---------------- events ----------------
 
+def _pick_cell(ranked):
+    """Event card: the most likely pumper first with its reasons, then every other token ranked."""
+    if not ranked:
+        return "–"
+    best = ranked[0]
+    if best["pump"] is None:
+        return "nijedan token ne prolazi provjere"
+    head = (f"<b>Najizgledniji: {tlink(best['token'], best['symbol'])} · ocjena pumpe {best['pump']:.0f}/100</b>"
+            + "".join(f"<div class=mut>{p:+.0f} {esc(t)}</div>" for p, t in best["reasons"][:4]))
+    others = []
+    for i, t in enumerate(ranked[1:], 2):
+        val = "isključen: " + esc(t["excluded"]) if t["pump"] is None else f"{t['pump']:.0f}/100"
+        why = "; ".join(esc(x) for p, x in t["reasons"][:3] if p) if t["pump"] is not None else ""
+        others.append(f"<div>{i}. {tlink(t['token'], t['symbol'])} {val} <span class=mut>{why}</span></div>")
+    more = (f"<details><summary>ostali tokeni ({len(others)})</summary>{''.join(others)}</details>" if others else "")
+    return head + more
+
+
 def _events_table(evs, tid):
     et = {}
     for t in data.event_tokens():
         et.setdefault((t["event_date"], t["event"]), []).append(t)
+    rugs, watches, kol = data.rug_latest(), pickload.watches(), pickload.kol_mentions()
     rows = []
     for e in evs:
         toks = sorted(et.get((e["date"], e["title"]), []), key=lambda t: -(t["score"] or 0))
-        tl = ", ".join(tlink(t["token"], t["symbol"]) + ("★" if t["role"] == "canonical" else "") for t in toks[:6])
+        ranked = pickscore.rank(toks, rugs, watches, kol)
+        tl = _pick_cell(ranked) if toks else ""
         parts = explain.event_hype(e)
         det = (f"<details><summary>raspis</summary>"
                + "".join(f"<div>{esc(n)} {info(n)}: <b>{p:.1f}</b>/{m} <span class=mut>{esc(x)}</span></div>" for n, p, m, x in parts)
@@ -594,7 +615,7 @@ def _events_table(evs, tid):
                      esc(" ".join(e["keywords"])), esc(labels.event_source(e["source"])),
                      (tl or "–", len(toks), "wrap"), (det, "", "wrap")])
     return table(["Datum", "Vrsta", ("Event", "wrap"), ("Hype", "n"), ("Šansa za token", "n"), "Ključne riječi",
-                  "Izvor", ("Tokeni (★ = pravi)", "wrap"), ("Zašto ta ocjena", "wrap")], rows, tid,
+                  "Izvor", ("Tokeni: koji će najvjerojatnije pumpati", "wrap"), ("Zašto ta ocjena", "wrap")], rows, tid,
                  "Još nema evenata. Bot osvježava kalendar sam svakih 6 h.")
 
 
@@ -608,7 +629,7 @@ def events(qs):
             f'name=past value=1 {"checked" if past else ""} onchange="this.form.submit()"> i prošli</label></form>')
     intro = ("<h1>Eventi</h1><p class=mut>Događaji iz kalendara s hype ocjenom 0-100 i tokenima koje je DexScreener "
              "pronašao. <a href=/criteria#eventi>Kriteriji</a>.</p>")
-    return "Eventi", intro + form + tdesc('Kako alat traži tokene za evente: iz kalendara uzme ključne riječi događaja i na DexScreeneru traži tokene s tim imenom ili simbolom, a najbolje ocijenjeni postaje „pravi” token. Hype = koliko se o događaju priča, šansa za token = procjena da će netko napraviti token.') + _events_table(evs, "et")
+    return "Eventi", intro + form + tdesc('Kako alat traži tokene za evente: iz kalendara uzme ključne riječi događaja i na DexScreeneru traži tokene s tim imenom ili simbolom, a najbolje ocijenjeni postaje „pravi” token. Hype = koliko se o događaju priča, šansa za token = procjena da će netko napraviti token. Kad za event postoji više tokena, svaki dobiva ocjenu pumpe 0-100: organsko trgovanje, prostor za rast (mcap), rug provjera, rastu li volumen i smart walleti kako se event približava, spominjanja KOL-ova i je li to pravi token za ime. Tokeni koje rug provjera odbaci ili s likvidnošću ispod $2k ne mogu biti izbor. Ocjena je procjena, ne garancija.') + _events_table(evs, "et")
 
 
 # ---------------- outputs ----------------
