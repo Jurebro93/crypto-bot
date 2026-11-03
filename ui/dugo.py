@@ -85,6 +85,8 @@ def page(qs):
         n_all = con.execute("SELECT COUNT(*) FROM tokens").fetchone()[0]
         n_dead = con.execute("SELECT COUNT(*) FROM tokens WHERE status='mrtav'").fetchone()[0]
         dug, bud, jak = _rows(con, "dugorocni", day), _rows(con, "budjenje", day), _rows(con, "jaki", day)
+        from ui import simianx as sxui
+        sx_ops, sx_ins, sx_con = sxui.load()
         brows, inv, tot, tot_sol = _book(con)
         b.append("<h2>Dugoročni kandidati</h2>" + tdesc(
             f"Stariji od {cfg['dugorocni']['min_starost_d']} dana, likvidnost barem "
@@ -97,11 +99,12 @@ def page(qs):
                          num(f.get("starost_d"), "{:.0f} d"), usd(liq), usd(mc), _pct(f.get("pad_od_vrha")),
                          num(f.get("oporavaka"), "{:.0f}"), _pct(f.get("povrat_30d")), _f(f.get("korelacija_btc")),
                          num(f.get("kol_tjedana_60d"), "{:.0f}"), num(f.get("holderi")), _pct(f.get("holderi_30d")),
-                         num(f.get("burze_velike"), "{:.0f}"), num(f.get("veliki_kupuju"), "{:.0f}"), esc(why)])
+                         num(f.get("burze_velike"), "{:.0f}"), num(f.get("veliki_kupuju"), "{:.0f}"),
+                         sxui.cell(sx_ops, sx_ins, m), esc(why)])
             mints.append(m)
         b.append(table(["#", "Token", "Ocjena", "Sličnost uzoru", "Starost", "Likvidnost", "Vrijednost", "Od vrha",
                         "Oporavaka", "30 dana", "Korelacija s BTC", "Tjedana s KOL pozivima", "Holderi", "Rast holdera 30 d",
-                        "Velike burze", "Kupuje ga velikih holdera", "Zašto"], rows, tid="dug"))
+                        "Velike burze", "Kupuje ga velikih holdera", "SimianX", "Zašto"], rows, tid="dug"))
 
         g = cfg["jaki"]
         b.append("<h2 id=jaki>Jaki tokeni: veća vrijednost, stalan volumen, rast holdera</h2>" + tdesc(
@@ -115,9 +118,10 @@ def page(qs):
             f = json.loads(fj)
             rows.append([num(rk, "{:.0f}"), tlink(m, sym), num(s_, "{:.0f}"), num(f.get("starost_d"), "{:.0f} d"), usd(mc),
                          usd(liq), usd(f.get("volumen_dan")), _share(f.get("stalnost_volumena")), num(f.get("holderi")),
-                         _pct(f.get("holderi_30d")), _pct(f.get("povrat_30d")), _pct(f.get("pad_od_vrha")), esc(why)])
+                         _pct(f.get("holderi_30d")), _pct(f.get("povrat_30d")), _pct(f.get("pad_od_vrha")),
+                         sxui.cell(sx_ops, sx_ins, m), esc(why)])
         b.append(table(["#", "Token", "Ocjena", "Starost", "Vrijednost", "Likvidnost", "Volumen dnevno (14 d)",
-                        "Stalnost volumena", "Holderi", "Rast holdera 30 d", "30 dana", "Od vrha", "Zašto"], rows, tid="jak",
+                        "Stalnost volumena", "Holderi", "Rast holdera 30 d", "30 dana", "Od vrha", "SimianX", "Zašto"], rows, tid="jak",
                        empty="Još nijedan token ne zadovoljava sve uvjete; popis se puni kako stižu dnevne cijene."))
 
         b.append("<h2>Bude se</h2>" + tdesc(
@@ -130,9 +134,9 @@ def page(qs):
             rows.append([num(rk, "{:.0f}"), tlink(m, sym), num(s, "{:.0f}"), num(f.get("starost_d"), "{:.0f} d"), usd(liq),
                          usd(mc), _pct(f.get("pad_od_vrha")), _pct(f.get("od_dna_30d")),
                          num(f.get("volumen_trend"), "{:.1f}×"), _pct(f.get("povrat_7d")),
-                         num(f.get("kol_7d"), "{:.0f}"), esc(why)])
+                         num(f.get("kol_7d"), "{:.0f}"), sxui.cell(sx_ops, sx_ins, m), esc(why)])
         b.append(table(["#", "Token", "Ocjena", "Starost", "Likvidnost", "Vrijednost", "Od vrha", "Od dna 30 d",
-                        "Volumen tjedan / prije", "7 dana", "KOL pozivi 7 d", "Zašto"], rows, tid="bud"))
+                        "Volumen tjedan / prije", "7 dana", "KOL pozivi 7 d", "SimianX", "Zašto"], rows, tid="bud"))
 
         stats = ("<div class=grid>" + "".join([
             _stat(f"{n_all:,}", "tokena provjereno"), _stat(n_tok, "preživjelih s poviješću cijena"),
@@ -150,6 +154,11 @@ def page(qs):
         b.append(table(["Token", "Tržišna vrijednost", "Od vrha (6 mj.)", "Oporavaka", "Udio oporavaka", "Korelacija s BTC",
                         "Beta BTC", "30 dana"], _uzori(con, day, cfg["uzori"]), empty="Uzori još nemaju povijest."))
 
+        try:
+            b.append(sxui.section(sx_con, sx_ops, sx_ins))
+        finally:
+            if sx_con is not None:
+                sx_con.close()
         b.append("<h2>Brojke</h2>" + stats)
         b.append(_whales(con, cfg))
         b.append(_listings(con, day))

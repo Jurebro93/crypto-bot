@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db tg.db koltest.db strat.db shadow.db ai.db nastoken.db public.db analytics.db topcheck.db; do
+for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db tg.db koltest.db strat.db shadow.db ai.db nastoken.db public.db analytics.db topcheck.db simianx.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -105,6 +105,10 @@ python3 run_report.py loop &
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
 # A fresh process per pass, so it holds no memory in the 6 h between passes.
 ( sleep 300; while true; do python3 -m ops.heavy run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
+
+# SimianX second opinion on the long-term list + demo test of its long signals (simianx/, needs SIMIANX_API_KEY;
+# without it the pass ends at once). Light: waits on their API, so no ops.heavy slot. Real money only via /pravi-trade.
+( sleep 600; while true; do python3 run_simianx.py once || echo "simianx nije uspio"; sleep $(( ${SIMIANX_EVERY_MIN:-180} * 60 )); done ) &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps

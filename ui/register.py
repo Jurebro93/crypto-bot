@@ -132,27 +132,15 @@ def invite_box(user):
                 "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅ Kopirano'\">"
                 f"📋 Kopiraj</button>{extra}</div>")
 
-    sing = "".join(row(s["token"], f"<span class=mut style='font-size:12px'>napravljen {ago(s['created'])[0]}</span>"
-                       f"<form method=post action=/natjecanje/pozivnica/ukini style='margin:0'>"
-                       f"<input type=hidden name=k value=\"{esc(s['token'])}\"><button>Poništi</button></form>")
-                   for s in singles)
     who = ", ".join(f"{esc(j['name'])} ({ago(j['created'])[0]})" for j in joined)
     return ("<details class=card id=pozovi><summary><b>👥 Pozovi prijatelja</b> "
             "<span class=mut>pošalji mu link, sam si napravi račun</span>" + _pending_badge() + "</summary>"
             + _requests_note() +
-            "<p>Prijatelj otvori link, upiše ime i lozinku i odmah dobije svoj demo račun od "
-            f"${store.START_USD:,.0f} na ljestvici. Ti ne moraš ništa namještati.</p>"
+            "<p>Prijatelj otvori link, upiše ime, e-mail i lozinku i odmah dobije svoj demo račun od "
+            f"${store.START_USD:,.0f} na ljestvici.</p>"
             "<p><b>Stalni link</b> (vrijedi za koliko god ljudi, dok ga ne zamijeniš):</p>" + row(tok)
-            + "<div style='display:flex;gap:6px;flex-wrap:wrap'>"
-            "<form method=post action=/natjecanje/pozivnica/novi style='margin:0'><button "
-            "onclick=\"return confirm('Stari link prestaje vrijediti. Računi koji su već napravljeni ostaju.')\">"
-            "🔄 Napravi novi stalni link</button></form>"
-            "<form method=post action=/natjecanje/pozivnica/jednokratni style='margin:0'><button>"
-            "➕ Napravi jednokratni link</button></form></div>"
-            "<p class=mut style='font-size:12px'>Stalni link je zgodan za grupu prijatelja. Ako ga netko proslijedi "
-            "dalje, napravi novi i stari prestaje raditi. Jednokratni link radi samo za jednu osobu i nakon toga "
-            "nestaje.</p>"
-            + (f"<p><b>Jednokratni linkovi koji još nisu iskorišteni:</b></p>{sing}" if sing else "")
+            + f"<p><a href=/zahtjevi#pozivnice>Sve pozivnice: napravi jednokratni link, pošalji ili obriši →</a>"
+            + (f" <span class=mut>({len(singles)} jednokratnih čeka)</span>" if singles else "") + "</p>"
             + (f"<p class=mut>Registrirali su se: {who}</p>" if who else "")
             + js_fill + "<script>if(location.hash=='#pozovi')document.getElementById('pozovi').open=true</script>"
             "</details>")
