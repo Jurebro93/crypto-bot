@@ -104,6 +104,10 @@ class Roles(unittest.TestCase):
             code, hdr, body = call("/postavke", cookie=novi)
             self.assertEqual(code, 200)
             self.assertIn("cb_r=osnovni", " ".join(hdr.get_all("Set-Cookie")))
+            self.assertIn("cb_nm=1", " ".join(hdr.get_all("Set-Cookie")))   # no e-mail yet: box on every page
+            profiles._set("Novi", email="novi@mail.hr")
+            code, hdr, _ = call("/tokens", cookie=novi + "; cb_nm=1")
+            self.assertIn("cb_nm=;", " ".join(hdr.get_all("Set-Cookie") or []))
             self.assertIn("r-adm", body)                                   # admin menu items marked for hiding
             self.assertEqual(call("/usage", cookie=viewer)[0], 403)         # view-only account is basic too
             self.assertEqual(call("/usage", cookie="x")[0], 401)

@@ -568,6 +568,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", f"cb_adm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
         elif has and not adm:
             self.send_header("Set-Cookie", "cb_adm=; Path=/; Max-Age=0; SameSite=Lax")
+        # cb_nm=1: this player has no e-mail yet, every page then shows the "upiši e-mail" box (ui/html.ADMIN_JS)
+        user = getattr(self, "user", None)
+        nm = False
+        if user:
+            try:
+                from league import profiles
+                nm = not (profiles.get(user).get("email") or "").strip()
+            except Exception:  # noqa: BLE001
+                nm = False
+        if nm and "cb_nm=1" not in cookies:
+            self.send_header("Set-Cookie", f"cb_nm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
+        elif not nm and "cb_nm=1" in cookies:
+            self.send_header("Set-Cookie", "cb_nm=; Path=/; Max-Age=0; SameSite=Lax")
         # cb_r: the role, so cached pages hide the menu items this role cannot open (the server refuses them anyway)
         if f"cb_r={r}" not in cookies:
             self.send_header("Set-Cookie", f"cb_r={r}; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
@@ -819,7 +832,8 @@ class Handler(BaseHTTPRequestHandler):
         name, err = register.post(form, list(PLAYERS_NAMES()) + [VIEWER])
         if err:
             time.sleep(1)   # slows down guessing invite links
-            return self._send(400, register.page_html({"k": form.get("k", ""), "name": form.get("name", "")}, err)
+            return self._send(400, register.page_html({"k": form.get("k", ""), "name": form.get("name", ""),
+                                                          "email": form.get("email", "")}, err)
                               .encode("utf-8"))
         pagecache.clear()
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""

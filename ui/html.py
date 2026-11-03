@@ -554,11 +554,20 @@ def side_menu(cur):
 # the pages themselves stay reachable by link.
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
              ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
-             "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}")
+             "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
+             ".nomail{background:#fff7e6;border-color:#f5d08a;margin:0 0 14px}.nomail a{font-weight:600}")
 ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
             "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
             "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
-            "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));")
+            "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
+            # players without an e-mail (3.11.): a box on top of every page until they add one in Postavke
+            "if(/(^|; )cb_nm=1/.test(document.cookie)&&location.pathname!=='/postavke')"
+            "document.addEventListener('DOMContentLoaded',function(){var m=document.querySelector('main');if(!m)return;"
+            "var en=document.documentElement.lang==='en',d=document.createElement('div');d.className='card nomail';"
+            "d.innerHTML=en?'<b>📧 Please add your e-mail.</b> We will use it to tell you about new features and "
+            "important changes. <a href=\"/postavke#profil\">Add e-mail →</a>':'<b>📧 Upiši svoj e-mail.</b> Njime ti "
+            "javljamo nove mogućnosti alata i važne promjene. <a href=\"/postavke#profil\">Upiši e-mail →</a>';"
+            "m.insertBefore(d,m.firstChild)});")
 
 SIMPLE_CSS = """
 /* 2.11. simpler look: data first, quiet menu, segmented filters, line icons in the phone bar */
