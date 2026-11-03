@@ -24,13 +24,13 @@ class FakeJup:
     def __init__(self, cost=1.0):
         self.calls, self.executed, self.cost = [], [], cost
 
-    def order(self, inp, out, amount, taker=None):
+    def order(self, inp, out, amount, taker=None, route="v2"):
         self.calls.append((inp, out, amount))
         rate = 1000 if inp == jupiter.SOL else 1 / 1000
         return {"inAmount": str(amount), "outAmount": str(int(amount * rate)), "requestId": "rq",
                 "inUsdValue": 100, "outUsdValue": 100 - self.cost, "transaction": "dHg=", "error": None}
 
-    def execute(self, signed, rid):
+    def execute(self, signed, rid, route="v2"):
         self.executed.append(rid)
         return {"status": "Success", "signature": "SIG", "inputAmountResult": "0", "outputAmountResult": "0"}
 

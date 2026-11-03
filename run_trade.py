@@ -103,6 +103,8 @@ def follow_once(con, cfg, since, now=None, quiet=False):
             for n, f in enumerate(fills[done:], start=done):
                 last = not st["open"] and n == len(fills) - 1
                 r = executor.sell(con, cfg, pos_id, f["frac"], close=last, now=now, reason=f["reason"])
+                if r["status"] == "wait":
+                    break   # an earlier try failed; backing off (executor._sell_wait)
                 if r["status"] in ("ok", "dry", "noop"):
                     con.execute("UPDATE positions SET fills_done=? WHERE id=?", (n + 1, pos_id))
                     con.commit()
@@ -170,7 +172,7 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 r = executor.sell(con, cfg, pos_id, have_frac - keep, now=now, reason="djelomična prodaja (demo)")
             if r["status"] in ("ok", "dry"):
                 _say(f"{r['status'].upper()} PRODAJA {sym} -> {r['amount_out'] / executor.LAMPORTS:.4f} SOL", quiet)
-            elif r["status"] != "noop":
+            elif r["status"] not in ("noop", "wait"):
                 _say(f"prodaja {sym} nije prošla: {r.get('error')}; pokušavam opet", quiet)
     finally:
         lg.close()
@@ -185,7 +187,7 @@ def sell_all_once(con, cfg, now=None, quiet=False):
     _sell_all_try["ts"] = now
     for (pid,) in con.execute("SELECT id FROM positions WHERE status='open'").fetchall():
         r = executor.sell(con, cfg, pid, close=True, now=now, reason="prodaj sve (gumb)")
-        if r["status"] not in ("ok", "dry", "noop"):
+        if r["status"] not in ("ok", "dry", "noop", "wait"):
             _say(f"prodaj sve: pozicija #{pid} nije prodana: {r.get('error')}", quiet)
     if not con.execute("SELECT 1 FROM positions WHERE status='open'").fetchone():
         settings.put(con, "sell_all", 0, "bot")
@@ -223,8 +225,15 @@ def cmd_check(a):
             print(f"stanje: {wallet.sol_balance(addr):.4f} SOL")
         except Exception as e:
             print(f"stanje: {e}")
-    o = jupiter.order(jupiter.SOL, "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", int(cfg["size_sol"] * 1e9))
-    print(f"Jupiter: {cfg['size_sol']} SOL -> {int(o.get('outAmount') or 0) / 1e5:,.0f} BONK, trošak {jupiter.cost_pct(o)}%")
+    for route in ("v2", "ultra"):
+        try:
+            o = jupiter.order(jupiter.SOL, "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", int(cfg["size_sol"] * 1e9),
+                              taker=addr, route=route)
+            print(f"{executor.ROUTE_HR[route]}: {cfg['size_sol']} SOL -> {int(o.get('outAmount') or 0) / 1e5:,.0f} BONK, "
+                  f"trošak {jupiter.cost_pct(o)}%, mrežne naknade {jupiter.fee_lamports(o) / 1e9:.6f} SOL"
+                  + (f", napomena: {o.get('errorMessage')}" if o.get("errorMessage") else ""))
+        except Exception as e:
+            print(f"{executor.ROUTE_HR[route]}: ne odgovara ({type(e).__name__}: {e})")
 
 
 def cmd_buy(a):

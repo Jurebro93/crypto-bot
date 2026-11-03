@@ -144,3 +144,108 @@ class PraviTrade(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveRoutes(unittest.TestCase):
+    """Live path with every network call faked: route fallback, fee accounting, unknown results, back-off, rent."""
+
+    def setUp(self):
+        from trade import wallet
+        self.tmp = tempfile.TemporaryDirectory()
+        self.w = wallet
+        self.calls = []
+        self.balance = {"tok": 0}
+        self.v2 = {"order": None, "exec": None}
+        self._saved = (jupiter.order, jupiter.execute, wallet.sign, wallet.token_raw_balance, wallet.close_empty,
+                       wallet.address, wallet.can_sign, executor.STOP_FILE, wallet.sol_balance)
+        wallet.sol_balance = lambda addr: 5.0
+        wallet.sign = lambda tx, kp=None: "SIGNED"
+        wallet.address = lambda: "ME"
+        wallet.can_sign = lambda: True
+        wallet.token_raw_balance = lambda owner, mint: self.balance["tok"]
+        wallet.close_empty = lambda kp, mint: 2_039_280
+        jupiter.order, jupiter.execute = self.order, self.execute
+        executor.STOP_FILE = os.path.join(self.tmp.name, "STOP")
+        os.environ["TRADE_LIVE"] = "1"
+        self.con = executor.connect(os.path.join(self.tmp.name, "trade.db"))
+        self.cfg = {**CFG, "on": True, "use_pump": False, "max_loss_day": 1}
+
+    def tearDown(self):
+        (jupiter.order, jupiter.execute, self.w.sign, self.w.token_raw_balance, self.w.close_empty, self.w.address,
+         self.w.can_sign, executor.STOP_FILE, self.w.sol_balance) = self._saved
+        os.environ.pop("TRADE_LIVE", None)
+        self.con.close()
+        self.tmp.cleanup()
+
+    def order(self, inp, out, amount, taker=None, route="v2"):
+        self.calls.append(("order", route))
+        if route == "v2" and self.v2["order"] == "down":
+            raise OSError("down")
+        rate = 1000 if inp == jupiter.SOL else 1 / 1000
+        return {"inAmount": str(amount), "outAmount": str(int(amount * rate)), "requestId": route, "taker": "ME",
+                "inUsdValue": 100, "outUsdValue": 99, "transaction": "dHg=", "signatureFeeLamports": 5000,
+                "prioritizationFeeLamports": 100_000, "rentFeeLamports": 2_039_280 if inp == jupiter.SOL else 0}
+
+    def execute(self, signed, rid, route="v2"):
+        self.calls.append(("exec", route))
+        if route == "v2" and self.v2["exec"] == "notlanded":
+            return {"status": "Failed", "code": -1000, "error": "Failed to land"}
+        if route == "v2" and self.v2["exec"] == "silent":
+            return None
+        return {"status": "Success", "signature": "SIG", "code": 0}   # amounts then come from the quote
+
+    def test_falls_back_to_ultra_when_v2_down_and_counts_fees(self):
+        self.v2["order"] = "down"
+        r = executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.assertEqual((r["status"], r["mode"], r["route"]), ("open", "live", "ultra"))
+        fees = self.con.execute("SELECT fees_sol FROM positions").fetchone()[0]
+        self.assertAlmostEqual(fees, (5000 + 100_000 + 2_039_280) / 1e9)
+
+    def test_not_landed_tries_next_route(self):
+        self.v2["exec"] = "notlanded"
+        r = executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.assertEqual(r["route"], "ultra")
+        self.assertEqual([c for c in self.calls if c[0] == "exec"], [("exec", "v2"), ("exec", "ultra")])
+
+    def test_silent_execute_checks_wallet_and_never_buys_twice(self):
+        self.v2["exec"] = "silent"
+        r = executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.assertEqual(r["status"], "failed")
+        self.assertNotIn(("exec", "ultra"), self.calls)    # unknown result: no second route
+        self.calls.clear()
+        self.balance["tok"] = 0
+        jupiter_exec = self.execute
+
+        def landed(signed, rid, route="v2"):
+            self.balance["tok"] = 777
+            return None
+        jupiter.execute = landed
+        r = executor.buy(self.con, self.cfg, "MINT2", now=NOW)
+        jupiter.execute = jupiter_exec
+        self.assertEqual((r["status"], r["amount_out"]), ("open", 777))
+
+    def test_close_reclaims_rent_and_sell_backoff(self):
+        executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.balance["tok"] = 50_000_000_000
+        self.v2["exec"] = "notlanded"
+
+        def fail_all(signed, rid, route="v2"):
+            return {"status": "Failed", "code": -1005, "error": "expired"}
+        jupiter.execute = fail_all
+        self.assertEqual(executor.sell(self.con, self.cfg, 1, close=True, now=NOW)["status"], "failed")
+        self.assertEqual(executor.sell(self.con, self.cfg, 1, close=True, now=NOW + 2)["status"], "wait")
+        jupiter.execute = self.execute
+        self.v2["exec"] = None
+        r = executor.sell(self.con, self.cfg, 1, close=True, now=NOW + 10)
+        self.assertEqual(r["status"], "ok")
+        st, fees = self.con.execute("SELECT status, fees_sol FROM positions").fetchone()
+        self.assertEqual(st, "closed")
+        # buy fees (incl. rent) + sell fees - rent back
+        self.assertAlmostEqual(fees, (105_000 + 2_039_280 + 105_000 - 2_039_280) / 1e9)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM orders WHERE side='rent'").fetchone()[0], 1)
+
+    def test_switch_off_still_sells_real_positions(self):
+        executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.balance["tok"] = 10_000_000
+        r = executor.sell(self.con, {**self.cfg, "on": False}, 1, close=True, now=NOW + 1)
+        self.assertEqual(r["status"], "ok")

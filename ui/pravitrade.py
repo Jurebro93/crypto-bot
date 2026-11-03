@@ -14,7 +14,7 @@ import time
 from urllib.parse import quote
 
 from league import copy, store
-from trade import executor, settings, wallet
+from trade import executor, pumpportal, settings, wallet
 from ui.html import ago, badge, esc, num, signed, table, tlink, wlink
 
 BACK = "/pravi-trade"
@@ -114,7 +114,10 @@ def _limits(cfg, owner):
                      f'inputmode=decimal style="width:90px"></label>' for k, (lab, *_rest) in settings.LIMITS.items())
     paper = (f'<label style="display:block;margin:6px 0"><input type=checkbox name=follow_paper value=1'
              f'{" checked" if cfg.get("follow_paper") else ""}> prati i demo strategiju bota (osim KOL-ova i walleta ispod)</label>')
-    return (f'<h2 id=limiti>Limiti</h2><form method=post action=/pravi-trade/limits class=card>{fields}{paper}'
+    pump = (f'<label style="display:block;margin:6px 0"><input type=checkbox name=use_pump value=1'
+            f'{" checked" if cfg.get("use_pump", True) else ""}> ako Jupiter ne prođe, probaj preko PumpPortala '
+            f'(naknada {pumpportal.FEE_PCT}%)</label>')
+    return (f'<h2 id=limiti>Limiti</h2><form method=post action=/pravi-trade/limits class=card>{fields}{paper}{pump}'
             '<p class=mut>Ulog po kupnji vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili dnevni gubitak, '
             'nove kupnje staju do ponoći (UTC); prodaje idu dalje.</p><button>Spremi limite</button></form>')
 
@@ -207,36 +210,41 @@ def _candidates(con, owner):
 
 def _positions(tcon, viewer_buy):
     rows = []
-    for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, closed) in tcon.execute(
-            "SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, closed_ts "
-            "FROM positions ORDER BY id DESC LIMIT 60"):
+    for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, closed, fees) in tcon.execute(
+            "SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, closed_ts, "
+            "COALESCE(fees_sol,0) FROM positions ORDER BY id DESC LIMIT 60"):
         kind = badge("PRAVO", "good") if mode == "live" else badge("probno")
         stb = {"open": badge("otvoreno", "warn"), "closed": badge("zatvoreno"), "blocked": badge("preskočeno"),
                "failed": badge("greška", "bad")}.get(st, esc(st))
-        pnl = (sback or 0) - (sin or 0) if st == "closed" else None
+        pnl = (sback or 0) - (sin or 0) - fees if st == "closed" else None
         left = f"{ql / q:.0%}" if q else "–"
         buy = (f'<a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a>'
                if viewer_buy and st == "open" else "")
         rows.append([ago(ts), tlink(tok, sym), kind, stb, num(sin, "{:.3f}"), num(sback, "{:.4f}"), left,
-                     signed(pnl, "{:+.4f}"), (esc(why or ""), "", "wrap"), buy])
-    return ('<h2 id=pozicije>Pozicije</h2>' + table(
+                     num(fees if mode == "live" else None, "{:.5f}"), signed(pnl, "{:+.4f}"), (esc(why or ""), "", "wrap"),
+                     buy])
+    return ('<h2 id=pozicije>Pozicije</h2><p class=mut>Zarada = vraćeno − uloženo − mrežne naknade. Jupiterova '
+            'naknada (0,05–0,1%) je već u iznosima; mrežne naknade su potpis, prioritet i depozit za novi token račun '
+            '(~0,002 SOL), koji se vrati kad se pozicija proda do kraja.</p>' + table(
         ["Kada", "Token", "Vrsta", "Status", ("Uloženo SOL", "n"), ("Vraćeno SOL", "n"), ("Još drži", "n"),
-         ("Zarada SOL", "n"), ("Razlog", "wrap"), ""], rows, tid="ptpos",
+         ("Mrežne naknade SOL", "n"), ("Zarada SOL", "n"), ("Razlog", "wrap"), ""], rows, tid="ptpos",
         empty="Još nema kupnji. Pojave se čim netko koga bot prati objavi poziv ili kupi token."))
 
 
 def _orders(tcon):
     rows = []
-    for ts, tok, side, mode, st, cost, err, sig in tcon.execute(
-            "SELECT o.ts, o.token, o.side, o.mode, o.status, o.cost_pct, o.error, o.signature FROM orders o "
-            "ORDER BY o.id DESC LIMIT 40"):
+    sides = {"buy": "kupnja", "sell": "prodaja", "rent": "depozit natrag"}
+    for ts, tok, side, mode, st, cost, err, sig, route, fee in tcon.execute(
+            "SELECT o.ts, o.token, o.side, o.mode, o.status, o.cost_pct, o.error, o.signature, o.route, o.fee_lamports "
+            "FROM orders o ORDER BY o.id DESC LIMIT 40"):
         link = f'<a href="https://solscan.io/tx/{esc(sig)}" target=_blank rel=noopener>Solscan ↗</a>' if sig else ""
-        rows.append([ago(ts), tlink(tok), "kupnja" if side == "buy" else "prodaja",
-                     badge("PRAVO", "good") if mode == "live" else badge("probno"), esc(st), num(cost, "{:.2f}%"),
-                     (esc(err or ""), "", "wrap"), link])
+        rows.append([ago(ts), tlink(tok), sides.get(side, side),
+                     badge("PRAVO", "good") if mode == "live" else badge("probno"), esc(st),
+                     esc(executor.ROUTE_HR.get(route, route or "")), num(cost, "{:.2f}%"),
+                     num(fee / executor.LAMPORTS if fee is not None else None, "{:+.5f}"), (esc(err or ""), "", "wrap"), link])
     return ('<details><summary>Svi nalozi (zadnjih 40)</summary>' + table(
-        ["Kada", "Token", "Strana", "Vrsta", "Status", ("Trošak swapa", "n"), ("Greška", "wrap"), "Transakcija"], rows,
-        tid="ptord", empty="Još nema naloga.") + '</details>')
+        ["Kada", "Token", "Strana", "Vrsta", "Status", "Ruta", ("Trošak swapa", "n"), ("Mrežne naknade SOL", "n"),
+         ("Greška", "wrap"), "Transakcija"], rows, tid="ptord", empty="Još nema naloga.") + '</details>')
 
 
 def _invites(tcon):
@@ -281,6 +289,11 @@ def page(qs, user):
                  '<li>U walletu drži samo iznos kojim bot smije trgovati.</li>'
                  '<li>Dnevni limit potrošnje i dnevni gubitak zaustavljaju nove kupnje do ponoći.</li>'
                  '<li>Swap se ne radi ako je trošak (klizanje + naknada) veći od limita.</li>'
+                 '<li>Rute redom: Jupiter → Jupiter Ultra → PumpPortal (ako je uključen). Na sljedeću rutu ide se samo '
+                 'kad swap sigurno nije prošao; ako Jupiter ne odgovori, prvo se provjeri wallet, da se ništa ne kupi dvaput.</li>'
+                 '<li>Neuspjela prodaja se ponavlja: nakon 5 s, 10 s, 20 s… najviše svakih 10 min, dok ne prođe.</li>'
+                 '<li>Brzina: poziv ili kupnju praćenog vidimo u sekundama (⚡ uživo), demo ulaz nastane u idućih ~20 s, '
+                 'pravi swap 5 s nakon toga i traje 1–5 s. Sve se odmah vidi u tablicama ovdje.</li>'
                  '<li>Ulazi se samo dok je signal svjež (do 3 min nakon demo ulaza); rugani tokeni, lažni poolovi i '
                  'premala likvidnost se preskaču.</li>'
                  '<li>Prekidač mijenja samo vlasnik; pozvani samo gledaju.</li></ul>')
@@ -309,6 +322,7 @@ def post(path, form, user):
             for k, v in settings.parse_limits(form).items():
                 settings.put(tcon, k, v, user)
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
+            settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/invite":
             names = set(form.get("u_list") or [])
