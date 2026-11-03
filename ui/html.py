@@ -71,7 +71,7 @@ SECTIONS = [
         _p("/market", "🌡", "Tržište", "Je li tržište vruće ili hladno.", "market volumen"),
         _p("/analitika", "📈", "Analitika", "Posjete s Googlea.", "google search console gsc seo klikovi prikazi upiti posjete"),
         _p("/usage", "💸", "Potrošnja", "Koliko trošimo na servise.", "trošak helius apify budžet"),
-        _p("/zahtjevi", "📨", "Zahtjevi za pristup", "Tko je zatražio pristup.",
+        _p("/zahtjevi", "📨", "Pozivnice i zahtjevi", "Linkovi za registraciju i tko je zatražio pristup.",
            "pristup zahtjev pozivnica invite lista čekanja novi korisnici registracija"),
         _p("/outputs", "🗂", "Izvještaji modula", "Pisani izvještaji pojedinih dijelova bota.", "outputs datoteke"),
         _p("/korisnici", "👥", "Korisnici i uloge", "Tko što smije vidjeti i raditi u aplikaciji.",

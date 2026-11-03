@@ -139,6 +139,25 @@ def revoke(con, token):
     con.commit()
 
 
+def all_invites(con, limit=200):
+    """Every invite link, newest first, with how many accounts were made with it (for /zahtjevi)."""
+    used = {r[0]: r[1] for r in con.execute(
+        "SELECT invite, GROUP_CONCAT(name, ', ') FROM members WHERE invite IS NOT NULL GROUP BY invite")}
+    out = []
+    for r in con.execute("SELECT * FROM invites ORDER BY revoked, created DESC LIMIT ?", (limit,)):
+        d = dict(r)
+        d["joined"] = used.get(d["token"]) or ""
+        d["active"] = not d["revoked"] and not (d["kind"] == "jednokratni" and d["used_by"])
+        out.append(d)
+    return out
+
+
+def delete(con, token):
+    """Removes the link: it stops working and leaves the list. Accounts already made with it stay."""
+    con.execute("DELETE FROM invites WHERE token=?", (token,))
+    con.commit()
+
+
 def valid(con, token):
     """The invite row if the link still works."""
     if not token:

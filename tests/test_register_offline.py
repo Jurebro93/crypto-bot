@@ -121,7 +121,8 @@ class Register(unittest.TestCase):
         self.assertEqual(register.invite_box("Ivan"), "")
         self.assertIn("err=", register.post_invite("/natjecanje/pozivnica/novi", {}, "Ivan"))
         self.assertIn("ok=", register.post_invite("/natjecanje/pozivnica/jednokratni", {}, "Jure"))
-        self.assertIn("Jednokratni linkovi", register.invite_box("Jure"))
+        self.assertIn("1 jednokratnih čeka", register.invite_box("Jure"))
+        self.assertIn("/zahtjevi#pozivnice", register.invite_box("Jure"))
         os.environ.pop("UI_ADMINS")
 
 
