@@ -109,6 +109,7 @@ def _today(tcon, cfg):
 def _limits(cfg, owner):
     if not owner:
         items = "".join(f"<li>{esc(lab)}: <b>{cfg.get(k, '–')}</b></li>" for k, (lab, *_rest) in settings.LIMITS.items())
+        items += f"<li>SimianX signali: <b>{'uključeni' if cfg.get('simianx') else 'isključeni'}</b></li>"
         return f"<h2 id=limiti>Limiti</h2><ul>{items}</ul>"
     fields = "".join(f'<label style="display:block;margin:6px 0">{esc(lab)} <input name={k} value="{cfg.get(k, "")}" '
                      f'inputmode=decimal style="width:90px"></label>' for k, (lab, *_rest) in settings.LIMITS.items())
@@ -117,7 +118,10 @@ def _limits(cfg, owner):
     pump = (f'<label style="display:block;margin:6px 0"><input type=checkbox name=use_pump value=1'
             f'{" checked" if cfg.get("use_pump", True) else ""}> ako Jupiter ne prođe, probaj preko PumpPortala '
             f'(naknada {pumpportal.FEE_PCT}%)</label>')
-    return (f'<h2 id=limiti>Limiti</h2><form method=post action=/pravi-trade/limits class=card>{fields}{paper}{pump}'
+    simx = (f'<label style="display:block;margin:6px 0"><input type=checkbox name=simianx value=1'
+            f'{" checked" if cfg.get("simianx") else ""}> kupuj i na SimianX signale „kupi” (long), s njihovim stopom i '
+            f'ciljem; uključi tek kad se pokažu dobri u demu</label>')
+    return (f'<h2 id=limiti>Limiti</h2><form method=post action=/pravi-trade/limits class=card>{fields}{paper}{pump}{simx}'
             '<p class=mut>Ulog po kupnji vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili dnevni gubitak, '
             'nove kupnje staju do ponoći (UTC); prodaje idu dalje.</p><button>Spremi limite</button></form>')
 
@@ -323,6 +327,7 @@ def post(path, form, user):
                 settings.put(tcon, k, v, user)
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
+            settings.put(tcon, "simianx", form.get("simianx") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/invite":
             names = set(form.get("u_list") or [])

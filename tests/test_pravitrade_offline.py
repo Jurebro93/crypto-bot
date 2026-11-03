@@ -128,6 +128,12 @@ class PraviTrade(unittest.TestCase):
         pravitrade.post("/pravi-trade/limits", {"size_sol": "0,02", "max_loss_day": "0.1"}, "Jure")
         cfg = settings.merged(CFG, self.con)
         self.assertEqual((cfg["size_sol"], cfg["max_loss_day"]), (0.02, 0.1))
+        self.assertFalse(cfg["simianx"])   # SimianX off unless the owner ticks it
+        self.assertFalse(settings.simianx_on(self.con))
+        pravitrade.post("/pravi-trade/limits", {"simianx": "1"}, "Ivan")   # not the owner: refused
+        self.assertFalse(settings.simianx_on(self.con))
+        pravitrade.post("/pravi-trade/limits", {"simianx": "1"}, "Jure")
+        self.assertTrue(settings.simianx_on(self.con))
 
         loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "WALLETADDR", "per_day": "3"}, "Jure")
         self.assertIn("err=", loc)   # not watched live: refused
