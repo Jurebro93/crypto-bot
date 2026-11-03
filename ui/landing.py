@@ -553,7 +553,7 @@ def pending_count():
 
 
 EXP = {"pocetnik": "tek počinje", "povremeno": "povremeno", "aktivno": "aktivno, memecoini", "profi": "svaki dan"}
-STATUS = {"novi": ("novi", "warn"), "pozvan": ("pozvan", "good"), "odbijen": ("odbijen", ""),
+STATUS = {"novi": ("novi", "warn"), "pozvan": ("pozvan", "good"), "odbijen": ("odbijen", ""), "obrisan": ("pozivnica obrisana", ""),
           "registriran": ("registriran", "good")}
 
 
@@ -578,40 +578,88 @@ def _share(row, url):
     to = esc(c) if ("@" in c and "." in c.split("@")[-1] and not c.startswith("@")) else ""
     mail = f"mailto:{to}?subject={quote('Tvoja pozivnica za MemeSonar')}&body={quote(text)}"
     tg = f"https://t.me/share/url?url={quote(url)}&text={quote(text.split(': ')[0] + ':')}"
-    return (f"<a class='sh wa' href=\"{wa}\" target=_blank rel=noopener>📲 WhatsApp</a>"
-            f"<a class='sh em' href=\"{mail}\">✉️ E-mail</a>"
-            f"<a class='sh tg' href=\"{tg}\" target=_blank rel=noopener>✈️ Telegram</a>"
-            f"<button type=button class='sh ns' hidden data-t=\"{esc(text)}\" "
-            "onclick=\"navigator.share({text:this.dataset.t}).catch(function(){})\">📤 Više…</button>")
+    return (f"<a class='sh' href=\"{wa}\" target=_blank rel=noopener title='Pošalji na WhatsApp'>WhatsApp</a>"
+            f"<a class='sh' href=\"{mail}\" title='Pošalji e-mailom'>E-mail</a>"
+            f"<a class='sh' href=\"{tg}\" target=_blank rel=noopener title='Pošalji na Telegram'>Telegram</a>"
+            f"<button type=button class='sh ns' hidden data-t=\"{esc(text)}\" title='Ostale aplikacije na mobitelu' "
+            "onclick=\"navigator.share({text:this.dataset.t}).catch(function(){})\">Više…</button>")
 
 
 INV_CSS = """<style>
-.inv{border:1px solid var(--line,#2a3446);border-radius:16px;padding:14px;margin:12px 0;display:grid;gap:10px}
-.inv h3{margin:0;font-size:17px}.inv .ct{color:var(--mut,#8b95a7);font-size:14px;word-break:break-all}
-.inv .lk{display:flex;gap:8px;align-items:stretch}
-.inv .lk input{flex:1;min-width:0;width:100%;font-size:14px;padding:10px 12px;border-radius:10px}
-.inv .cp{white-space:nowrap;padding:10px 14px;border-radius:10px;font-weight:600}
-.inv .shs{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
-.inv .sh{display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;border-radius:12px;font-weight:650;
-font-size:15px;text-decoration:none!important;color:#fff!important;border:0;cursor:pointer;font-family:inherit}
-.inv .sh[hidden]{display:none}.inv .wa{background:#16a34a}.inv .em{background:#2563eb}.inv .tg{background:#0ea5e9}.inv .ns{background:#475569}
+/* 3.11.: one quiet list instead of big coloured share buttons */
+.invl{display:grid;gap:8px;margin:8px 0 14px}
+.inv{border:1px solid var(--line,#e5e7eb);border-radius:12px;padding:10px 12px;display:grid;gap:6px;background:var(--card,#fff)}
+.inv .hd{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.inv .hd b{font-size:15px}.inv .mt{color:var(--mut,#6b7280);font-size:12.5px}
+.inv .lk{display:flex;gap:6px}.inv .lk input{flex:1;min-width:0;font-size:13px;padding:6px 8px;border-radius:8px}
+.inv .cp,.inv .del{white-space:nowrap;padding:6px 10px;border-radius:8px;font-size:13px}
+.inv .ac{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.inv .sh{font-size:12.5px;padding:3px 9px;border:1px solid var(--line,#e5e7eb);border-radius:999px;color:var(--fg,#111)!important;
+text-decoration:none!important;background:none;cursor:pointer;font-family:inherit;line-height:1.5}
+.inv .sh[hidden]{display:none}.inv .del{margin-left:auto;background:none;border:1px solid var(--line,#e5e7eb);color:#b91c1c;cursor:pointer}
+.inv.off{opacity:.7}
 </style>"""
 
 
-def _invite_card(r, url):
-    return (f"<div class=inv id=inv{r['id']}><h3>📨 Pozivnica za {esc(r['name'])}</h3>"
-            f"<div class=ct>{esc(r['contact'] or '')}</div>"
-            f"<div class=lk><input readonly value=\"{esc(url)}\" data-inv=\"{esc('/registracija?k=' + quote(r['invite']))}\" "
-            "onclick='this.select()' aria-label='Link pozivnice'>"
-            "<button type=button class=cp onclick=\"var i=this.previousElementSibling;i.select();"
-            "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅ Kopirano'\">📋 Kopiraj</button></div>"
-            f"<div class=shs>{_share(r, url)}</div></div>")
+def _invites_html(con, user):
+    """Pozivnice: every invite link with copy, small share links and Obriši; active first, used/deleted collapsed."""
+    from league import members
+    from ui.register import link
+    try:
+        members.connect().close()
+        invs = members.all_invites(con)
+        req = {r["invite"]: dict(r) for r in con.execute(
+            "SELECT invite, name, contact FROM access_requests WHERE invite IS NOT NULL")}
+    except sqlite3.Error:
+        return ""
+
+    def card(i):
+        r = req.get(i["token"])
+        url = link(i["token"])
+        who = (f"Za {esc(r['name'])}" if r else "Stalni link" if i["kind"] == "stalni" else "Jednokratni link")
+        if i["active"]:
+            st = ("vrijedi za više ljudi" if i["kind"] == "stalni" else "čeka da se registrira")
+            if i["joined"]:
+                st += f" · registrirali: {esc(i['joined'])}"
+        elif i["used_by"]:
+            st = f"✅ iskoristio <b>{esc(i['used_by'])}</b>"
+        else:
+            st = "poništen" + (f" · registrirali: {esc(i['joined'])}" if i["joined"] else "")
+        meta = f"{st} · napravljen {ago(i['created'])[0]}" + (f" · {esc(r['contact'])}" if r and r.get("contact") else "")
+        delete = (f"<form method=post action=/zahtjevi/pozivnica/obrisi style='margin:0;margin-left:auto'>"
+                  f"<input type=hidden name=k value=\"{esc(i['token'])}\"><button class=del onclick=\"return confirm("
+                  "'Obrisati pozivnicu? Link prestaje raditi. Računi napravljeni s njim ostaju.')\">Obriši</button></form>")
+        if not i["active"]:
+            return f"<div class='inv off'><div class=hd><b>{who}</b>{delete}</div><div class=mt>{meta}</div></div>"
+        row = r or {"name": "", "contact": ""}
+        return (f"<div class=inv><div class=hd><b>{who}</b><span class=mt>{meta}</span></div>"
+                f"<div class=lk><input readonly value=\"{esc(url)}\" data-inv=\"{esc('/registracija?k=' + quote(i['token']))}\" "
+                "onclick='this.select()' aria-label='Link pozivnice'>"
+                "<button type=button class=cp onclick=\"var i=this.previousElementSibling;i.select();"
+                "navigator.clipboard&&navigator.clipboard.writeText(i.value);this.textContent='✅ Kopirano'\">Kopiraj</button></div>"
+                f"<div class=ac><span class=mt>Pošalji:</span>{_share(row, url)}{delete}</div></div>")
+
+    act = [i for i in invs if i["active"]]
+    old = [i for i in invs if not i["active"]]
+    return (INV_CSS + f"<h2 id=pozivnice style='margin:18px 0 4px'>Pozivnice ({len(act)} aktivnih)</h2>"
+            "<p class=mut style='margin:0 0 6px'>Svaki link za registraciju na jednom mjestu. <b>Obriši</b> zaustavi "
+            "link; računi koji su već napravljeni ostaju.</p>"
+            "<div style='display:flex;gap:6px;flex-wrap:wrap'>"
+            "<form method=post action=/zahtjevi/pozivnica/jednokratni style='margin:0'><button>➕ Jednokratni link"
+            "</button></form><form method=post action=/zahtjevi/pozivnica/stalni style='margin:0'><button "
+            "onclick=\"return confirm('Stari stalni link prestaje vrijediti. Računi koji su već napravljeni ostaju.')\">"
+            "🔄 Novi stalni link</button></form></div>"
+            + "<div class=invl>" + ("".join(card(i) for i in act) or "<p class=mut>Nema aktivnih pozivnica.</p>")
+            + "</div>"
+            + (f"<details><summary>Iskorištene i poništene ({len(old)})</summary><div class=invl>"
+               + "".join(card(i) for i in old[:100]) + "</div></details>" if old else "")
+            + "<script>if(navigator.share)document.querySelectorAll('.sh.ns').forEach(function(b){b.hidden=false})</script>")
 
 
 def admin_page(qs, user):
     """/zahtjevi: who asked for access, with one-click single-use invites."""
     from ui import register
-    title = "Zahtjevi za pristup"
+    title = "Pozivnice i zahtjevi"
     if not register.can_invite(user):
         return title, ("<h1>Zahtjevi za pristup</h1><div class=card>Ovu stranicu vidi samo organizator natjecanja. "
                        "<a href=/prijava>Prijavi se svojim imenom</a>.</div>")
@@ -626,7 +674,7 @@ def admin_page(qs, user):
             con.close()
     except sqlite3.Error as e:
         return title, f"<h1>Zahtjevi za pristup</h1><div class=card neg>Baza nije dostupna: {esc(e)}</div>"
-    b = ["<h1>Zahtjevi za pristup</h1>"]
+    b = ["<h1>Pozivnice i zahtjevi</h1>"]
     if qs.get("ok"):
         b.append(f"<div class=card style='border-color:var(--good)'>✅ {esc(qs['ok'])}</div>")
     novi = sum(1 for r in rows if r["status"] == "novi")
@@ -648,7 +696,7 @@ def admin_page(qs, user):
              "maxlength=120 style='width:100%' placeholder='npr. 091 234 5678'></label>"
              "<button>✉️ Napravi pozivnicu</button></form>")
     from ui.html import table
-    out, cards = [], []
+    out = []
     from ui.register import link
     for r in rows:
         st = r["status"]
@@ -665,18 +713,21 @@ def admin_page(qs, user):
             if st == "registriran":
                 act = f"<span class=mut>✅ ušao u aplikaciju kao <b>{esc(joined[r['invite']])}</b></span>"
             else:
-                cards.append(_invite_card(r, url))
-                act = f"<a href=#inv{r['id']}>📨 Pošalji pozivnicu ↑</a>"
+                act = "<a href=#pozivnice>📨 Pošalji pozivnicu ↑</a>"
         else:
             act = f"<span class=mut>{esc(r['handled_by'] or '')}</span>"
         out.append([ago(r["ts"]), f"<b>{esc(r['name'])}</b>", esc(r["contact"]), esc(EXP.get(r["experience"], "–")),
                     f"<span style='white-space:normal'>{esc(r['interest'] or '')}</span>",
                     f"<span class='b {kind}'>{esc(lab)}</span>", act])
-    if cards:
-        b.append(INV_CSS + "<h2 style='margin:18px 0 4px'>Pozivnice spremne za slanje</h2>"
-                 "<p class=mut style='margin:0'>Pošalji link jednim gumbom. Link vrijedi jednom; kad se osoba registrira, "
-                 "nestaje s ovog popisa.</p>" + "".join(cards[:20])
-                 + "<script>if(navigator.share)document.querySelectorAll('.sh.ns').forEach(function(b){b.hidden=false})</script>")
+    try:
+        con = _con()
+        try:
+            b.append(_invites_html(con, user))
+        finally:
+            con.close()
+    except sqlite3.Error:
+        pass
+    b.append("<h2 style='margin:18px 0 4px'>Zahtjevi za pristup</h2>")
     b.append(table(["Kada", "Ime", "Kontakt", "Iskustvo", "Zanima ga", "Status", "Akcija"], out, tid="zahtjevi",
                    empty="Još nema zahtjeva. Pošalji link naslovne stranice ljudima koje želiš privući."))
     if not os.environ.get("RENDER_EXTERNAL_URL"):
@@ -690,6 +741,29 @@ def admin_post(path, user, form=None):
     from ui import register
     if not register.can_invite(user):
         return "/zahtjevi"
+    if path.startswith("/zahtjevi/pozivnica/"):
+        con = _con()
+        try:
+            members.connect().close()
+            act = path.rsplit("/", 1)[1]
+            if act == "obrisi":
+                tok = (form or {}).get("k", "")
+                members.delete(con, tok)
+                con.execute("UPDATE access_requests SET status='obrisan' WHERE invite=? AND status='pozvan'", (tok,))
+                con.commit()
+                msg = "Pozivnica je obrisana: link više ne radi."
+            elif act == "jednokratni":
+                members.single(con, user)
+                msg = "Napravljen je jednokratni link, kopiraj ga ispod."
+            elif act == "stalni":
+                members.renew(con, user)
+                msg = "Napravljen je novi stalni link, stari više ne vrijedi."
+            else:
+                return "/zahtjevi"
+        finally:
+            con.close()
+        print(f"natjecanje: {user} pozivnica {path.rsplit('/', 1)[1]}", flush=True)
+        return f"/zahtjevi?ok={quote(msg)}#pozivnice"
     if path == "/zahtjevi/nova":   # invite someone who never filled in the form
         name = (form or {}).get("name", "").strip()[:60]
         if not name:
@@ -699,15 +773,15 @@ def admin_post(path, user, form=None):
             members.connect().close()
             tok = members.single(con, user)
             now = int(time.time())
-            rid = con.execute("INSERT INTO access_requests (ts, name, contact, source, status, handled_by, handled_ts, invite) "
+            con.execute("INSERT INTO access_requests (ts, name, contact, source, status, handled_by, handled_ts, invite) "
                         "VALUES (?,?,?,?,?,?,?,?)",
                               (now, name, (form or {}).get("contact", "").strip()[:120], "ručno", "pozvan", user, now,
-                               tok)).lastrowid
+                               tok))
             con.commit()
         finally:
             con.close()
         print(f"natjecanje: {user} ručna pozivnica za {name}", flush=True)
-        return f"/zahtjevi?ok={quote(f'Pozivnica za {name} je spremna: pošalji je gumbom WhatsApp ispod.')}#inv{rid}"
+        return f"/zahtjevi?ok={quote(f'Pozivnica za {name} je spremna: pošalji je ispod.')}#pozivnice"
     m = re.fullmatch(r"/zahtjevi/(\d+)/(pozovi|odbij)", path)
     if not m:
         return "/zahtjevi"

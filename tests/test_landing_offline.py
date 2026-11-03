@@ -84,10 +84,25 @@ class Landing(unittest.TestCase):
         self.assertIn("nitko ne čeka", body)                              # nothing pending: says so
         self.assertIn("ušao u aplikaciju kao <b>Marko</b>", body)
         loc = landing.admin_post("/zahtjevi/nova", "Jure", {"name": "Pero", "contact": "092 555 1234"})
-        self.assertIn("#inv3", loc)                                        # invite without a request
+        self.assertIn("#pozivnice", loc)                                   # invite without a request
         _, body = landing.admin_page({}, "Jure")
-        self.assertIn("Pozivnica za Pero", body)
+        self.assertIn("Za Pero", body)
         self.assertIn("wa.me/385925551234", body)
+        self.assertIn("iskoristio <b>Marko</b>", body)                    # used invite listed under the old ones
+        # 3.11.: delete an invite: the link stops working and the request says so
+        con = landing._con()
+        tok = con.execute("SELECT invite FROM access_requests WHERE name='Pero'").fetchone()[0]
+        con.close()
+        self.assertIn("ok=", landing.admin_post("/zahtjevi/pozivnica/obrisi", "Jure", {"k": tok}))
+        con = members.connect()
+        self.assertIsNone(members.valid(con, tok))
+        con.close()
+        _, body = landing.admin_page({}, "Jure")
+        self.assertNotIn("Za Pero", body)
+        self.assertIn("pozivnica obrisana", body)
+        self.assertIn("ok=", landing.admin_post("/zahtjevi/pozivnica/jednokratni", "Jure", {}))
+        self.assertIn("Jednokratni link", landing.admin_page({}, "Jure")[1])
+        self.assertEqual(landing.admin_post("/zahtjevi/pozivnica/obrisi", "Ivan", {"k": "x"}), "/zahtjevi")
         self.assertEqual(landing.admin_post("/zahtjevi/nova", None, {"name": "X"}), "/zahtjevi")
         os.environ["UI_ADMINS"] = "Jure"
         try:
