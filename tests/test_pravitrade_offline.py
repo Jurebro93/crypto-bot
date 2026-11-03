@@ -2,6 +2,7 @@
 
     python3 -m unittest tests.test_pravitrade_offline
 """
+import json
 import os
 import sys
 import tempfile
@@ -255,3 +256,68 @@ class LiveRoutes(unittest.TestCase):
         self.balance["tok"] = 10_000_000
         r = executor.sell(self.con, {**self.cfg, "on": False}, 1, close=True, now=NOW + 1)
         self.assertEqual(r["status"], "ok")
+
+
+class Safety(LiveRoutes):
+    """Reserve for selling, manual sell buttons, manual stake, warnings."""
+
+    def test_reserve_left_for_selling(self):
+        self.w.sol_balance = lambda addr: 0.06
+        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1}, "M",
+                         now=NOW)
+        self.assertEqual(r["status"], "blocked")
+        self.assertIn("rezerva za prodaju", r["error"])
+        self.w.sol_balance = lambda addr: 0.07
+        r = executor.buy(self.con, {**self.cfg, "size_sol": 0.05, "min_sol_reserve": 0.0, "max_sol_per_trade": 1}, "M",
+                         now=NOW)
+        self.assertEqual(r["status"], "open")   # 0.05 + 0.003 + 0.01 floor = 0.063 <= 0.07
+
+    def test_sell_button_request(self):
+        executor.buy(self.con, self.cfg, "MINT", now=NOW)
+        self.balance["tok"] = 50_000_000_000
+        settings.put(self.con, "sell_req", {"1": 0.5})
+        run_trade.sell_requests_once(self.con, settings.merged(self.cfg, self.con), now=NOW + 1, quiet=True)
+        q, left, st = self.con.execute("SELECT qty_raw, qty_left, status FROM positions").fetchone()
+        self.assertEqual((st, round(left / q, 2)), ("open", 0.5))
+        self.assertEqual(settings.merged(self.cfg, self.con)["sell_req"], {})
+
+    def test_warnings_render(self):
+        from ui import pravitrade
+        lcon = store.connect(os.path.join(self.tmp.name, "league.db"))
+        copy.ensure(lcon)
+        self.w.sol_balance = lambda addr: 0.001
+        pravitrade._BAL.clear()
+        self.con.execute("INSERT INTO positions (token, mode, status, sol_in, opened_ts) VALUES ('X','live','open',0.05,?)",
+                         (int(NOW),))
+        for _ in range(2):
+            self.con.execute("INSERT INTO orders (ts, side, status, code, prio_lamports) VALUES (?, 'buy', 'failed', "
+                             "-1000, 2000000)", (int(time.time()),))
+        self.con.commit()
+        html = pravitrade._warnings(self.con, settings.merged({**self.cfg, "max_sol_per_day": 9}, self.con), lcon)
+        for bit in ("Opasno malo SOL-a", "nije stiglo u blok", "naknada za prioritet", "nikoga ne prati",
+                    "još nije javio"):
+            self.assertIn(bit, html)
+        lcon.close()
+
+
+class ManualBuy(PraviTrade):
+    def test_manual_buy_goes_through_demo_account_with_own_stake(self):
+        from ui import league as uleague, pravitrade
+        from rugfilter import collapse
+        os.environ["TRADE_OWNER"] = "Jure"
+        saved = (uleague.market, collapse.check, uleague._symbol)
+        uleague.market = lambda toks: {t: (1.0, 1e6, None, 5e5) for t in toks}
+        collapse.check = lambda *a, **k: None
+        uleague._symbol = lambda t: "MAN"
+        mint = "So11111111111111111111111111111111111111112"[:-1] + "3"
+        try:
+            loc = pravitrade.post("/pravi-trade/buy", {"token": mint, "sol": "0,02", "exit": "tpsl", "tp": "100%",
+                                                       "sl": "-30%"}, "Jure")
+        finally:
+            uleague.market, collapse.check, uleague._symbol = saved
+        self.assertIn("ok=", loc)
+        t = store.trades(self.lg, settings.LEAGUE_USER, "open")[0]
+        self.assertEqual(json.loads(t["auto"])["mode"], "tpsl")
+        cfg = settings.merged(CFG, self.con)
+        run_trade.follow_league_once(self.con, cfg, since=0, now=time.time(), quiet=True)
+        self.assertAlmostEqual(self.con.execute("SELECT sol_in FROM positions").fetchone()[0], 0.02)

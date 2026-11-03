@@ -33,10 +33,10 @@ CREATE TABLE IF NOT EXISTS positions (
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, position_id INTEGER, token TEXT, side TEXT, mode TEXT,
     amount_in INTEGER, amount_out INTEGER, cost_pct REAL, status TEXT, reason TEXT, error TEXT, signature TEXT,
-    request_id TEXT, route TEXT, code INTEGER, fee_lamports INTEGER);
+    request_id TEXT, route TEXT, code INTEGER, fee_lamports INTEGER, prio_lamports INTEGER);
 """
 NEW_COLS = {"positions": [("league_id", "INTEGER"), ("fees_sol", "REAL DEFAULT 0")],
-            "orders": [("route", "TEXT"), ("code", "INTEGER"), ("fee_lamports", "INTEGER")]}
+            "orders": [("route", "TEXT"), ("code", "INTEGER"), ("fee_lamports", "INTEGER"), ("prio_lamports", "INTEGER")]}
 ROUTES = ("v2", "ultra", "pump")
 ROUTE_HR = {"v2": "Jupiter", "ultra": "Jupiter Ultra", "pump": "PumpPortal"}
 
@@ -100,9 +100,25 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None):
     if live:
         if balance is None:
             balance = wallet.sol_balance(wallet.address())
-        if balance - size_sol < cfg["min_sol_reserve"]:
-            return f"stanje {balance:.3f} SOL, rezerva {cfg['min_sol_reserve']}"
+        need = size_sol + BUY_OVERHEAD_SOL + reserve_sol(cfg, n_open + 1)
+        if balance < need:
+            return (f"premalo SOL-a: stanje {balance:.4f}, treba {need:.4f} (ulog {size_sol:g} + naknade i depozit "
+                    f"{BUY_OVERHEAD_SOL:g} + rezerva za prodaju {reserve_sol(cfg, n_open + 1):.4f})")
     return None
+
+
+# what one sale costs at most in network fees (signature + a high priority fee), what a buy adds on top of its
+# stake (rent of the new token account ~0.00204 + fees), and the floor that always stays in the wallet so the
+# open positions can still be sold (Nicholas 3.11.: "mora ostati minimum, barem za dvije transakcije")
+SELL_COST_SOL = 0.002
+BUY_OVERHEAD_SOL = 0.003
+RESERVE_FLOOR_SOL = 2 * SELL_COST_SOL + 0.006   # 0.01: two sales + a margin
+
+
+def reserve_sol(cfg, n_positions):
+    """SOL that must stay in the wallet: the owner's reserve, but never less than the floor or than the fees to
+    sell every position that would be open."""
+    return max(cfg.get("min_sol_reserve", 0), RESERVE_FLOOR_SOL, n_positions * SELL_COST_SOL)
 
 
 def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct):
@@ -113,7 +129,8 @@ def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct):
                 "amount_in": amount_raw}
     res = {"amount_in": int(o.get("inAmount") or amount_raw), "amount_out": int(o.get("outAmount") or 0),
            "cost_pct": jupiter.cost_pct(o), "request_id": o.get("requestId"), "error": None,
-           "fee_lamports": jupiter.fee_lamports(o)}
+           "fee_lamports": jupiter.fee_lamports(o), "prio_lamports": int(o.get("prioritizationFeeLamports") or 0),
+           "error_code": o.get("errorCode")}
     if not res["amount_out"]:
         return {**res, "status": "failed", "retry": True, "error": o.get("error") or "nema rute"}
     if max_cost_pct is not None and res["cost_pct"] is not None and res["cost_pct"] > max_cost_pct:
@@ -207,10 +224,12 @@ def routes_for(cfg):
 
 def _log(con, now, pid, token, side, mode, res, reason):
     con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, amount_out, cost_pct, status, "
-                "reason, error, signature, request_id, route, code, fee_lamports) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "reason, error, signature, request_id, route, code, fee_lamports, prio_lamports) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (int(now), pid, token, side, mode, res.get("amount_in"), res.get("amount_out"), res.get("cost_pct"),
                  res["status"], reason, res.get("error"), res.get("signature"), res.get("request_id"), res.get("route"),
-                 res.get("code"), res.get("fee_lamports") if mode == "live" else None))
+                 res.get("code") if res.get("code") is not None else res.get("error_code"),
+                 res.get("fee_lamports") if mode == "live" else None, res.get("prio_lamports")))
 
 
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None):
