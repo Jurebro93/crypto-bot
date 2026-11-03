@@ -60,6 +60,7 @@ def merged(cfg, con):
     out["on"] = bool(s.get("on", False))
     out["follow_paper"] = bool(s.get("follow_paper", False))
     out["use_pump"] = bool(s.get("use_pump", True))
+    out["simianx"] = bool(s.get("simianx", False))
     out["sell_all"] = s.get("sell_all") or 0
     return out
 
@@ -87,3 +88,16 @@ def invited(con):
 
 def can_view(con, user):
     return is_owner(user) or bool(user) and user.lower() in {u.lower() for u in invited(con)}
+
+
+def simianx_on(con=None):
+    """The owner's approval for SimianX long signals on the real-trade account (off by default). The SimianX job
+    opens its demo trades on LEAGUE_USER only while this is on (league.store.buy + auto.set_auto with its stop and
+    target); run_trade.py then mirrors them like any copy trade, inside the same limits."""
+    own = con is None
+    con = con or connect()
+    try:
+        return bool(raw(con).get("simianx", False))
+    finally:
+        if own:
+            con.close()
