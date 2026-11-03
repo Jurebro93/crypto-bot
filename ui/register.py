@@ -16,7 +16,9 @@ def admins():
 
 
 def can_invite(user):
-    return bool(user) and (not admins() or user.lower() in admins())
+    """Only admins (league/roles.py) make invite links and see access requests."""
+    from league import roles
+    return bool(user) and roles.role(user) == "admin"
 
 
 def _base():

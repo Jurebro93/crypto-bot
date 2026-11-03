@@ -44,6 +44,18 @@ STATUS = {"active": ("aktivan", "good"), "quiet": ("tih", ""), "slow": ("slab, r
           "candidate": ("kandidat", ""), "dead": ("nije javan", "bad")}
 
 
+def paid_section():
+    """Free and paid sources with which keys are set: shown on /usage (admins only)."""
+    kcon = _ro("kol.db")
+    try:
+        return ("<h2 id=placeni>Besplatni i plaćeni izvori</h2>" + tdesc(
+            "Kombiniramo oboje: besplatni daju širinu, plaćeni brzinu i doseg. Plaćeni se uključuju samim postavljanjem "
+            "ključa na Renderu.") + paid_sources(kcon))
+    finally:
+        if kcon:
+            kcon.close()
+
+
 def paid_sources(kcon):
     """Free and paid sources side by side, what each adds and whether it is on."""
     on = lambda k: bool(os.environ.get(k))
@@ -148,9 +160,7 @@ def page(qs):
         b.append(table(["Ime", "X", "TG", "Izvor", ("PnL (izvor)", "n"), "Pobjede", "Novčanik"], rows,
                        empty="Još nema: lista se čita jednom dnevno."))
 
-        b.append("<h2 id=placeni>Besplatni i plaćeni izvori</h2>" + tdesc(
-            "Kombiniramo oboje: besplatni daju širinu, plaćeni brzinu i doseg. Plaćeni se uključuju samim postavljanjem "
-            "ključa na Renderu.") + paid_sources(kcon))
+        # the free/paid sources table (which keys are set on Render) moved to /usage, admins only (3.11.)
     finally:
         for c in (tcon, kcon):
             if c is not None:

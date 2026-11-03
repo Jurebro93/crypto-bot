@@ -104,7 +104,10 @@ class Register(unittest.TestCase):
 
     def test_invite_box_and_admins(self):
         from ui import register
-        self.assertIn("/registracija?k=", register.invite_box("Ivan"))
+        from league import roles
+        roles.reset_cache()
+        self.assertEqual(register.invite_box("Ivan"), "")                 # invites: admins only (league/roles)
+        self.assertIn("/registracija?k=", register.invite_box("Jure"))   # TRADE_OWNER default = admin
         self.assertEqual(register.invite_box(None), "")                  # view-only: no box
         os.environ["UI_ADMINS"] = "Jure"
         self.assertEqual(register.invite_box("Ivan"), "")
