@@ -71,3 +71,61 @@ def sol_balance(addr):
 def token_raw_balance(owner, mint):
     res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
     return sum(int(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for a in res["value"])
+
+
+TOKEN_PROGRAMS = {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PQnx5ujeXu69C1"}
+
+
+def token_accounts(owner, mint):
+    """[(account address, raw amount, decimals, token program)] of this wallet for one mint."""
+    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+    out = []
+    for a in res["value"]:
+        ta = a["account"]["data"]["parsed"]["info"]["tokenAmount"]
+        out.append((a["pubkey"], int(ta["amount"]), int(ta.get("decimals") or 0), a["account"].get("owner")))
+    return out
+
+
+def send(signed_tx_b64):
+    """Send a signed transaction through our RPC; returns the signature."""
+    return rpc("sendTransaction", [signed_tx_b64, {"encoding": "base64", "maxRetries": 3}])
+
+
+def confirmed(signature, wait_s=45, sleep=2.0):
+    """True when the transaction landed without error, False when it landed with an error, None when unknown."""
+    import time as _t
+    end = _t.time() + wait_s
+    while _t.time() < end:
+        st = rpc("getSignatureStatuses", [[signature], {"searchTransactionHistory": True}])["value"][0]
+        if st and st.get("confirmationStatus") in ("confirmed", "finalized"):
+            return st.get("err") is None
+        _t.sleep(sleep)
+    return None
+
+
+def sign_raw(tx_bytes, keypair=None):
+    """Sign an unsigned VersionedTransaction given as raw bytes (PumpPortal); returns base64."""
+    return sign(base64.b64encode(tx_bytes).decode(), keypair)
+
+
+def close_empty(owner_kp, mint):
+    """Close this wallet's empty token accounts for `mint`, giving the ~0.002 SOL rent of each back.
+    Returns lamports reclaimed (0 when nothing was empty or the RPC failed)."""
+    from solders.hash import Hash
+    from solders.instruction import AccountMeta, Instruction
+    from solders.message import MessageV0
+    from solders.pubkey import Pubkey
+    from solders.transaction import VersionedTransaction
+    owner = owner_kp.pubkey()
+    empty = [(acc, prog) for acc, amount, _, prog in token_accounts(str(owner), mint) if amount == 0
+             and prog in TOKEN_PROGRAMS]
+    if not empty:
+        return 0
+    lamports = sum(rpc("getBalance", [acc])["value"] for acc, _ in empty)
+    ixs = [Instruction(Pubkey.from_string(prog), bytes([9]),   # SPL Token CloseAccount
+                       [AccountMeta(Pubkey.from_string(acc), False, True), AccountMeta(owner, False, True),
+                        AccountMeta(owner, True, False)]) for acc, prog in empty]
+    bh = Hash.from_string(rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
+    tx = VersionedTransaction(MessageV0.try_compile(owner, ixs, [], bh), [owner_kp])
+    sig = send(base64.b64encode(bytes(tx)).decode())
+    return lamports if confirmed(sig, wait_s=30) else 0

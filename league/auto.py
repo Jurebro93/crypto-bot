@@ -12,11 +12,14 @@ Runs inside the dashboard process (run_ui.py starts a thread), which is the only
 import json
 import re
 import sys
+import os
 import time
 
 from . import store
 
-EVERY_S = 60
+# 20 s (was 60): copy trading also drives the real trades on /pravi-trade, where a minute of delay on a fresh
+# memecoin call costs money; auto sell, DCA and the history snapshot are time-based and fine with more passes
+EVERY_S = int(os.environ.get("LEAGUE_AUTO_EVERY_S", "20"))
 
 
 def parse_level(text, entry_px, entry_mcap, kind):
