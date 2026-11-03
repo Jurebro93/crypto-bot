@@ -77,7 +77,7 @@ class Grid(unittest.TestCase):
         cur = learn.params_of(base)
         cur.pop("sl_delay_min")  # a profile learned before the delay existed
         g = learn.sl_grid(paths, base, cur, ecfg)
-        n_sl, n_d = len(ecfg["grid"]["sl"]), len(ecfg["grid"]["sl_delay_min"])
+        n_sl, n_d = len([x for x in ecfg["grid"]["sl"] if x > -0.95]), len(ecfg["grid"]["sl_delay_min"])
         self.assertEqual(len(g["rows"]), n_sl * n_d + 1)
         best = max(g["rows"], key=lambda r: r["score"])
         self.assertTrue(best["sl"] is None or best["delay"] > 0 or best["sl"] <= -0.3)

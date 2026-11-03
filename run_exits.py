@@ -34,13 +34,23 @@ def cmd_fit(a):
     for r in rep:
         flag = "PRIMIJENJENO" if r.get("applied") else ("ROLLBACK" if r.get("rollback") else "bez promjene")
         new = r.get("new") or {}
-        print(f"{r['klasa']:<9} n={r.get('n', '-'):<5} live={r.get('n_live', '-'):<5} {flag}: {r['note']}")
+        print(f"{r['klasa']:<9} n={r.get('n', '-'):<5} live={r.get('n_live', '-'):<5} "
+              f"sjena={r.get('n_shadow', '-'):<5} {flag}: {r['note']}")
         if new:
             now = r["now"]
             print(f"          sada: prosjek {_pct(now['mean'])}, medijan {_pct(now['median'])}, u plusu {now['win']:.0%}"
                   f" | novo: prosjek {_pct(new['mean'])}, medijan {_pct(new['median'])}, u plusu {new['win']:.0%}")
             if r.get("applied"):
                 print(f"          {learn.describe(r['new_params'])}")
+    g = profiles.load().get("sl_grid") or {}
+    for key in ("sve", "kol"):
+        t = g.get(key)
+        if t and t.get("rows"):
+            ok = [x for x in t["rows"] if x.get("score") is not None]
+            b = max(ok, key=lambda x: x["score"])
+            sl = "bez stopa" if b["sl"] is None else f"{b['sl']:.0%}"
+            print(f"stop loss tablica {key}: n={t['n']} najbolje {sl}, odgoda {b['delay']} min, "
+                  f"prosjek {_pct(b['mean'])}, u plusu {b['win']:.0%}")
     return rep
 
 

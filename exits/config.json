@@ -25,7 +25,8 @@
    -0.35,
    -0.45,
    -0.6,
-   -0.8
+   -0.8,
+   -0.99
   ],
   "tp": [
    [
@@ -297,5 +298,6 @@
  "robust_min": 3,
  "_reality": "Simulacija bliža stvarnosti: slippage na svakoj prodaji/kupnji (paper slip), stop na grubim povijesnim putanjama puni se gdje bi ga minutna provjera uhvatila (izmjereno na našim live stopovima), live putanje zajedno nose barem live_share ocjene, a novi skup mora biti bolji i bez robust_top najboljih pogodaka.",
  "shadow_paths": true,
+ "_sl_bez": "sl -0.99 = bez stop lossa (izlaz samo na rug ili po ostalim pravilima), da učenje proba i to (jutarnji izvještaj 3.11.).",
  "_shadow_paths": "Uči izlaze i iz sjenovite knjige (tisuće prilika dnevno, learn/shadow.py), ne samo iz demo ulaza i stare studije. sl_delay_min: stop loss se uključi tek toliko minuta nakon kupnje."
 }

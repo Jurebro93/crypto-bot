@@ -235,7 +235,8 @@ def describe(params):
     st = params.get("stale")
     sat = params.get("sl_after_tp")
     dl = params.get("sl_delay_min")
-    parts = [f"stop loss {params['sl']:.0%}" + (f" (uključi se tek {dl} min nakon kupnje)" if dl else ""), "; ".join(tp) or "bez take profita", f"trailing: {trail}" if trail else "",
+    parts = [("bez stop lossa (samo rug izlaz)" if params["sl"] <= -0.95 else f"stop loss {params['sl']:.0%}")
+             + (f" (uključi se tek {dl} min nakon kupnje)" if dl and params["sl"] > -0.95 else ""), "; ".join(tp) or "bez take profita", f"trailing: {trail}" if trail else "",
              (f"nakon prvog TP ostatak izlazi na {sat:+.0%}" if sat is not None else ""),
              (f"ako u {st[0]} min ne naraste {st[1]:.0%}, izlaz" if st else ""), f"najdulje {params['max_hold_h']} h",
              (f"moonbag {params['moonbag']:.0%} ostaje dok ne padne {params['moon_trail']:.0%} od vrha"
@@ -250,7 +251,7 @@ def sl_grid(paths, base, current, ecfg, sls=None, delays=None):
     """Every stop loss level x stop delay on the same paths, the rest of the rules as they are now: the table
     "Gdje rezati gubitak" on Učenje. Returns {"n", "rows": [{"sl", "delay", "mean", "median", "win", "score"}]}."""
     lam, cap = ecfg["lambda_loss"], ecfg.get("ret_cap", 10.0)
-    sls = sls or ecfg["grid"]["sl"] + [None]
+    sls = sls or [x for x in ecfg["grid"]["sl"] if x > -0.95] + [None]  # -0.99 in the grid is the "no stop" row
     delays = delays or ecfg["grid"].get("sl_delay_min") or [0]
     wts = live_weights(paths, ecfg)
     rows = []
