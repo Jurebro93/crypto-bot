@@ -1,0 +1,15 @@
+{
+  "timeframe": "1D",
+  "tier": "fast",
+  "daily_points": 15,
+  "min_points_left": 3,
+  "max_per_pass": 3,
+  "refresh_h": 24,
+  "lists": ["dugorocni", "jaki", "budjenje"],
+  "top_per_list": 10,
+  "map_ttl_d": 7,
+  "max_price_gap": 0.2,
+  "book": {"usd": 100, "max_hold_d": 14, "min_confidence": 0.5, "default_stop": -0.15, "default_target": 0.3},
+  "signal_max_age_s": 3600,
+  "real_usd": 25
+}

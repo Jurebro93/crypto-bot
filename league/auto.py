@@ -254,6 +254,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # SimianX long signals on the real-trade account, only with the owner's switch (simianx_feed.py)
+                from . import simianx_feed
+                for user, what in simianx_feed.run_once(con, market):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"simianx signali: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # automatic DCA: scheduled buys into the player's position (league/dca.py)
                 from . import dca
                 for user, what in dca.run_once(con):

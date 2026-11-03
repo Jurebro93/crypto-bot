@@ -7,6 +7,17 @@ HELP = {
                   "neovisne potvrde (X, smart money, KOL, rug filter) minus rizici, ručne težine. Kad nauči iz barem 200 ishoda "
                   "(dnevno, sa zaštitom): iste činjenice vagane po tome što je stvarno prethodilo skoku; 50 = prosječan token "
                   "klase, 75 = tri puta češći skok. Raspis je u pop-upu, kalibracija na stranici Učenje.",
+    "SimianX": "Drugo mišljenje vanjskog alata SimianX AI na dnevnom grafu: kupi (long), pada (short) ili čekaj, s "
+               "njegovom sigurnošću. Prijeđi mišem/prstom za kratko obrazloženje. \"nije pokriven\" = token nije na "
+               "OKX/Bybit ili je to drugi token s istim tickerom. Analiza, ne savjet.",
+    "SimianX mišljenje": "Zadnja SimianX odluka za token na dnevnom grafu: kupi (long), pada (short) ili čekaj.",
+    "Sigurnost": "Koliko je SimianX siguran u svoju odluku, 0-100%.",
+    "Graf": "Što SimianX analitičar grafa kaže (trend, razine, indikatori).",
+    "Vijesti": "Što SimianX analitičar vijesti kaže o tokenu i tržištu u zadnje vrijeme.",
+    "Obrazloženje": "SimianX odluka u jednoj rečenici: zašto kupi, short ili čekaj.",
+    "Fundamenti": "Što SimianX kaže o tokenu na lancu i na derivatima (financiranje, otvorene pozicije).",
+    "SimianX stop": "SimianX stop kao postotak od ulaza; demo pozicija se zatvara kad cijena padne do njega.",
+    "SimianX cilj": "SimianX cilj kao postotak od ulaza; demo pozicija se zatvara kad cijena dođe do njega.",
     "Zašto": "Najjači razlozi zbog kojih je token istaknut, iz izmjerenih signala.",
     "Analize": "Koje je neovisne provjere token prošao (✓) ili pao (✗). Provjere koje nisu rađene se ne prikazuju.",
     "Prošao": "Broj prođenih provjera / broj provedenih provjera.",
