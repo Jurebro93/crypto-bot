@@ -59,6 +59,7 @@ def merged(cfg, con):
     out["max_sol_per_trade"] = max(out.get("max_sol_per_trade", 0), out["size_sol"])
     out["on"] = bool(s.get("on", False))
     out["follow_paper"] = bool(s.get("follow_paper", False))
+    out["use_pump"] = bool(s.get("use_pump", True))
     out["sell_all"] = s.get("sell_all") or 0
     return out
 
