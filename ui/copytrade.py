@@ -277,7 +277,8 @@ def page(qs, user):
     try:
         copy.ensure(con)
         q = (qs.get("q") or "").strip().lower()
-        everyone = copy.follows(con)
+        from trade.settings import LEAGUE_USER   # the real-money follows live on /pravi-trade, not here
+        everyone = [f for f in copy.follows(con) if f["user"] != LEAGUE_USER]
         mine = {(f["kind"], f["target"]): f for f in everyone if f["user"] == user}
         ordered = [f for f in everyone if f["user"] == user] + [f for f in everyone if f["user"] != user]
         msg = ""
@@ -321,7 +322,7 @@ def page(qs, user):
 
         b.append('<h2 id=dogadjaji>Što se dogodilo</h2>' + tdesc(
             "Svaki ulaz, izlaz i preskočeni poziv s razlogom (premala likvidnost, lažni pool, prekasno, nema novca na "
-            "računu…). Zadnjih 100.") + _log_table(copy.log(con, limit=100)))
+            "računu…). Zadnjih 100.") + _log_table([r for r in copy.log(con, limit=200) if r["user"] != LEAGUE_USER][:100]))
         b.append('<h3>Pravila</h3><ul class=mut>'
                  f'<li>Ulazi se samo dok je poziv ili kupnja svježa (do {copy.CFG["max_delay_min"]} min).</li>'
                  f'<li>Ne ulazi se u tokene s likvidnošću ispod ${copy.CFG["min_liq"]:,.0f}, u lažne poolove '
