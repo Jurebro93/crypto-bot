@@ -42,6 +42,19 @@ class Landing(unittest.TestCase):
         for f in landing.SHOTS:   # every screenshot the page links to is in the repo
             self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
 
+    def test_share_cards(self):
+        from ui import loginpage, public as P
+        for lang in ("en", "hr"):
+            for path in ("/", "/influencers", "/coin/bonk", "/best-crypto-tools", "/glossary/kol", "/blog"):
+                img, alt = P.og_card(path, lang)
+                self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, img.rsplit("/", 1)[1])), img)
+                self.assertTrue(alt)
+        self.assertIn("og-kols-hr.jpg", P.og_card("/influencer/x", "hr")[0])
+        html = landing.page_html({}, lang="en")
+        for s in ('og:image:width" content="1200"', "og-home.jpg", "twitter:image", "class=pulse"):
+            self.assertIn(s, html)
+        self.assertIn("https://memesonar.app/static/landing/og-home-hr.jpg", loginpage.html(site_url="https://memesonar.app", lang="hr"))
+
     def test_compute_tolerates_missing_databases(self):
         self.assertIsInstance(landing.compute(), dict)
 

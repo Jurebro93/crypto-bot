@@ -295,7 +295,7 @@ def _og(p, lang="en"):
     for name in ((f"blog-{p['en']}-hr.jpg",) if lang == "hr" else ()) + (f"blog-{p['en']}.jpg",):
         if os.path.isfile(os.path.join(STATIC, name)):
             return f"/static/landing/{name}"
-    return "/static/landing/kol.jpg"
+    return "/static/landing/og-learn" + ("-hr" if lang == "hr" else "") + ".jpg"
 
 
 def _card(v, lang):
@@ -320,7 +320,7 @@ def index(lang="en"):
                   "blogPost": [{"@type": "BlogPosting", "headline": v["h1"], "url": f"{_base()}{t['base']}/{v['slug']}",
                                 "datePublished": v["date"]} for v in vs]})
     return _shell(lang, t["i_title"], t["i_desc"], "/blog", "/hr/blog", body, jsonld=jsonld,
-                  og_image="/static/landing/kol.jpg")
+                  og_image=None)
 
 
 def category(slug, lang="en"):

@@ -246,6 +246,11 @@ h2{font-size:clamp(28px,4.5vw,44px);letter-spacing:-.035em;line-height:1.1;margi
 .num span{color:var(--mut);font-size:14px}
 @media(max-width:760px){.num{padding:22px 4px}.num b{font-size:24px}.num span{font-size:12px;line-height:1.3;display:block}}
 .live{display:flex;justify-content:center;align-items:center;gap:8px;color:var(--mut);font-size:13px;margin-top:14px}
+.pulse{position:relative;width:8px;height:8px;border-radius:50%;background:#22c55e;flex:none;display:inline-block}
+.pulse:after{content:"";position:absolute;inset:0;border-radius:50%;background:#22c55e;animation:pl 2s cubic-bezier(.2,.6,.4,1) infinite}
+@keyframes pl{0%{transform:scale(1);opacity:.55}80%,100%{transform:scale(3);opacity:0}}
+@media(prefers-reduced-motion:reduce){.pulse:after{animation:none}}
+.hl .lv{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#aab3c5;margin-top:14px}
 .feats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}@media(max-width:1000px){.feats{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.feats{grid-template-columns:1fr;gap:10px}.f{display:grid;grid-template-columns:46px 1fr;gap:4px 16px;padding:18px;border-radius:18px}.f .i{grid-row:span 2}.f h3{margin:2px 0 0;font-size:17px}.f p{font-size:15px}}
 .tr{display:grid;grid-template-columns:280px 1fr;gap:64px;align-items:center;max-width:860px;margin:0 auto 72px}
@@ -444,20 +449,23 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
     nums = [(num(x), lab) for x, lab in nums] if len(nums) >= 2 else t["fallback"]
     nums_html = (f"<div class=nums style='--n:{min(4, len(nums))}'>"
                  + "".join(f"<div class=num><b>{x}</b><span>{lab}</span></div>" for x, lab in nums[:4]) + "</div>")
+    age = ""
     if ts and v:
         age = ago(ts)[0]
         if en:
             age = age.replace("prije ", "").replace(" min", " min ago").replace(" h", " h ago").replace(" d", " d ago")
-        nums_html += f"<div class=live><span class=dot></span>{t['live']} {age}</div>"
+        nums_html += f"<div class=live><span class=pulse></span>{t['live']} {age}</div>"
 
     g, s = v.get("group_rate") or .57, v.get("solo_rate") or .33
     measured = (" " + t["pw_m"].format(n=num(v["measured"]))) if v.get("measured") else ""
+    live_pw = (f"<div class=lv><span class=pulse></span>{t['live']} {age}</div>"
+               if v.get("group_rate") and ts else "")
     power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
              f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
              f"<div class=bar><div>{t['pw_a']}<i><em style='width:{min(100, g * 100):.0f}%;"
              f"background:linear-gradient(90deg,#818cf8,#2dd4bf)'></em></i></div><b>{_pct(g)}</b></div>"
              f"<div class=bar><div>{t['pw_b']}<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
-             f"</em></i></div><b>{_pct(s)}</b></div></div></div></div>")
+             f"</em></i></div><b>{_pct(s)}</b></div></div>{live_pw}</div></div>")
 
     px = "en-" if en else ""
     tour = "".join(
@@ -488,7 +496,8 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
         f"<button class='btn p' type=submit>{t['req']}</button><p class=fine>{t['f_fine']}</p></form>")
     faq = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in t["faq"])
 
-    og_img = f"{base}/static/landing/{px}tokeni.jpg"
+    og_img, og_alt = P.og_card("/", lang)
+    og_img = base + og_img
     canon = f"{base}{home}"
     switch = (f"<a class=lnk href=/hr hreflang=hr lang=hr>HR</a>" if en else
               f"<a class=lnk href=/ hreflang=en lang=en>EN</a>")
@@ -498,8 +507,9 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
 <link rel=alternate hreflang=en href="{base}/"><link rel=alternate hreflang=hr href="{base}/hr">
 <link rel=alternate hreflang=x-default href="{base}/">
 <meta property="og:type" content="website"><meta property="og:title" content="{esc(t['title'])}">
-<meta property="og:description" content="{esc(t['desc'])}"><meta property="og:image" content="{esc(og_img)}">
-<meta property="og:url" content="{canon}"><meta name="twitter:card" content="summary_large_image">
+<meta property="og:description" content="{esc(t['desc'])}">{P.og_tags(lang, esc(og_img), og_alt)}
+<meta property="og:url" content="{canon}"><meta name="twitter:title" content="{esc(t['title'])}">
+<meta name="twitter:description" content="{esc(t['desc'])}">
 <meta name=theme-color content="#ffffff">{_fav.HEAD}
 <script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebApplication","name":"{esc(name)}",
 "url":"{canon}","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"{esc(t['desc'])}",
