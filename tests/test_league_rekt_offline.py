@@ -14,8 +14,8 @@ MINT = "So11111111111111111111111111111111111111112"
 T0 = 1793300000   # 29.10.2026, before the bot's round-2 fix date
 
 
-def bot_trade(i, opened, closed, pnl, reason="stop_loss", status="closed"):
-    return {"id": i, "token": f"t{i}", "symbol": f"T{i}", "opened_ts": opened, "closed_ts": closed, "status": status,
+def bot_trade(i, opened, closed, pnl, reason="stop_loss", status="closed", liga=True):
+    return {"config": '{"liga": %s}' % ("true" if liga else "false"), "id": i, "token": f"t{i}", "symbol": f"T{i}", "opened_ts": opened, "closed_ts": closed, "status": status,
             "pnl_usd": pnl, "ret": pnl / 50, "exit_reason": reason, "size_usd": 50, "state": {}}
 
 
@@ -60,7 +60,8 @@ class Rekt(unittest.TestCase):
         r2 = rekt.since(con, "bot")
         trs = [bot_trade(1, T0 + 10, T0 + 100, -600), bot_trade(2, T0 + 20, T0 + 200, -450, "rug"),
                bot_trade(3, r2 - 50, r2 + 10, -40),                  # opened in round 1: not round 2's loss
-               bot_trade(4, r2 + 5, r2 + 20, 30, "trailing")]
+               bot_trade(4, r2 + 5, r2 + 20, 30, "trailing"),
+               bot_trade(5, r2 + 6, r2 + 30, -45, liga=False)]           # learning-only trade: not on the board
         data.paper_trades = lambda token=None: trs
         b = leaguedash._bot(T0, [r2])
         self.assertEqual(b["round"], 2)

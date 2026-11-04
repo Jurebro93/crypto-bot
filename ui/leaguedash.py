@@ -121,13 +121,16 @@ def _bot(since, starts=()):
     for i, b0 in enumerate(bounds):
         b1 = bounds[i + 1] if i + 1 < len(bounds) else None
         # a new round counts only trades opened in it (what was still open at the rekt stays with the old round)
-        mine = [t for t in tr if (b1 is None or (t["closed_ts"] or 0) < b1) and (i == 0 or (t["opened_ts"] or 0) >= b0)]
+        # and from round 2 only trades of a kind that proved itself (paper/liga.py flags them "liga" when opened)
+        mine = [t for t in tr if (b1 is None or (t["closed_ts"] or 0) < b1)
+                and (i == 0 or ((t["opened_ts"] or 0) >= b0 and _liga(t)))]
         seg = history.bot_series(mine, b0, base)
         pts += seg
         closed = [t for t in mine if t["status"] == "closed" and (t["closed_ts"] or 0) >= b0]
         rounds.append({"n": i + 1, "start": b0, "end": b1, "closed": closed, "end_eq": seg[-1][1]})
     cur = bounds[-1]
-    open_pnl = sum(t["pnl_usd"] or 0 for t in tr if t["status"] == "open" and (t["opened_ts"] or 0) >= cur)
+    open_pnl = sum(t["pnl_usd"] or 0 for t in tr if t["status"] == "open" and (t["opened_ts"] or 0) >= cur
+                   and (len(bounds) == 1 or _liga(t)))
     closed = rounds[-1]["closed"]
     eq = rounds[-1]["end_eq"] + open_pnl
     try:
@@ -139,6 +142,16 @@ def _bot(since, starts=()):
     return {"user": "bot", "equity": eq, "profit": eq - base, "ret": (eq - base) / base, "pts": pts,
             "open": sum(1 for t in tr if t["status"] == "open"), "closed": len(closed), "round": len(bounds),
             "rounds": rounds, "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "total_ret": total / bank if bank else 0}
+
+
+def _liga(t):
+    c = t.get("config")
+    if isinstance(c, str):
+        try:
+            c = json.loads(c or "{}")
+        except ValueError:
+            return False
+    return bool((c or {}).get("liga"))
 
 
 def bot_equity(con):
@@ -526,6 +539,9 @@ def _round_box(d):
             f'<p>Bot je u prošlom krugu pao na nulu, pa od {ts(r["start"], "%d.%m. %H:%M")[0]} igra novi krug s '
             f'${store.START_USD:,.0f}. Sada: <b>${bot["equity"]:,.2f}</b> '
             f'(<span class={_cls(bot["profit"])}>{bot["profit"]:+,.2f} $</span>), {bot["closed"]} zatvorenih u ovom krugu.</p>'
+            '<p>U 2. krugu bot troši novac samo na vrste ulaza koje su u zadnjih 7 dana dokazano zarađivale (barem 15 '
+            'tradeova, prosjek sigurno iznad nule). Ostale prilike i dalje kupuje u demu da bi učio; vrsta koja počne '
+            'gubiti sama ispada. Popis je na <a href=/learn#liga>Učenju</a>.</p>'
             + "".join(f"<p>{x}</p>" for x in lessons)
             + '<p class=mut>Iz grešaka uči sam: svaki dan isproba sve stop lossove i pravila izlaza na tisućama prilika i '
               'primijeni najbolje (<a href=/learn>Učenje</a>), a 5 strategija ispod pokazuje koji izvor tradeova '
