@@ -253,7 +253,39 @@ def _sec(title, meta, inner, open_=False, sid=""):
 
 # ---------- who the bot follows ----------------------------------------------------------------------------------
 
-def _follows(con, owner):
+def _auto_box(st, owner):
+    """The switch that lets the tool choose whom to follow (Nicholas 4.11.: "neka alat sam odredi koga pratit")."""
+    from ui.autopilot import WINDOWS
+    on, days, n = bool(st.get("auto_pick")), int(st.get("auto_days") or 14), int(st.get("auto_n") or 3)
+    what = (f"<b>🤖 Alat sam bira koga prati:</b> {'uključeno' if on else 'isključeno'}. "
+            f"{tip('Svaki sat alat uzme najbolje influencere (samo one koje pratimo uživo) i wallete iz preporuka za odabrano razdoblje. Koga je on dodao, njega i makne kad ispadne iz najboljih (dvostruko širi popis, da se ne mijenja svaki sat). Tvoja ručna praćenja ne dira. Kad nekoga sam prestaneš pratiti, alat ga više ne vraća.')}")
+    if on:
+        what += f" Bira {n} influencera i {n} walleta po rezultatima zadnjih {days} dana, provjera svaki sat."
+    log = st.get("auto_log") or []
+    hist = "".join(f'<li>{"➕ dodao" if x["op"] == "+" else "➖ maknuo"} '
+                   f'{"@" + esc(x["target"]) if x["kind"] == "kol" else esc(short(x["target"]))} '
+                   f'<span class=mut>({esc(ago(x["ts"])[0])}): {esc(x["why"])}</span></li>' for x in log[:5])
+    hist = f'<details class=ap-it><summary><span>Zadnje promjene alata</span><span class=k>{len(log)}</span></summary><ul style="margin:0 0 8px;padding-left:18px;font-size:13px">{hist}</ul></details>' if log else ""
+    if not owner:
+        return f'<p style="font-size:14px;margin:0 0 8px">{what}</p>{hist}'
+    days_opt = "".join(f'<option value={d}{" selected" if d == days else ""}>zadnjih {d} dana</option>' for d in WINDOWS)
+    n_opt = "".join(f'<option value={k}{" selected" if k == n else ""}>{k} + {k}</option>' for k in (1, 2, 3, 5))
+    form = ('<form method=post action=/pravi-trade/auto class=ap-btns style="align-items:center;margin:0 0 10px">'
+            f'<input type=hidden name=on value={"0" if on else "1"}>'
+            f'<label>po <select name=days>{days_opt}</select></label>'
+            f'<label>koliko <select name=n aria-label="Koliko influencera + walleta">{n_opt}</select></label>'
+            + ('<button name=save value=1 onclick="this.form.on.value=1">Spremi</button>'
+               '<button onclick="return confirm(\'Isključiti? Koga je alat dodao, ostaje praćen dok ga ne makneš.\')">'
+               'Isključi automatski izbor</button>' if on else
+               '<button class=ap-go onclick="return confirm(\'Alat će sam dodavati i micati influencere i wallete koje bot '
+               'prati pravim novcem (kad je Autopilot uključen). Uključiti?\')">🤖 Neka alat sam bira</button>')
+            + '</form>')
+    return f'<p style="font-size:14px;margin:0 0 6px">{what}</p>{form}{hist}'
+
+
+def _follows(con, owner, st=None):
+    st = st or {}
+    auto_ids = {int(i) for i in st.get("auto_follows") or []}
     fl = copy.follows(con, settings.LEAGUE_USER)
     res = copy.follow_results(con)
     items = []
@@ -263,14 +295,16 @@ def _follows(con, owner):
                else wlink(f["target"]) + (f" {esc(f['label'])}" if f["label"] else ""))
         stop = (f'<form method=post action=/pravi-trade/stop><input type=hidden name=id value={f["id"]}>'
                 '<button>Prestani pratiti</button></form>') if owner else ""
+        by = '<span class="ap-tag dugo">🤖 alat</span>' if f["id"] in auto_ids else ""
         items.append(f'<details class=ap-it><summary><span>{who}<span class=ap-tag>'
-                     f'{"influencer" if f["kind"] == "kol" else "wallet"}</span></span><span class=k>{r["n"]} ulaza</span>'
+                     f'{"influencer" if f["kind"] == "kol" else "wallet"}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
                      f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
-                     f' · prati od {esc(ago(f["created"])[0])}</p>{stop}</details>')
+                     f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>{stop}</details>')
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
-    meta = f"{len(fl)}: {esc(names)}{'…' if len(fl) > 3 else ''}" if fl else "još nikoga"
-    inner = "".join(items) or '<p class=mut style="margin:0">Još nikoga. Odaberi influencera ili wallet iz preporuka ispod.</p>'
-    return _sec("Koga bot prati", meta, inner, sid="pratim")
+    meta = (("🤖 " if st.get("auto_pick") else "")
+            + (f"{len(fl)}: {esc(names)}{'…' if len(fl) > 3 else ''}" if fl else "još nikoga"))
+    inner = _auto_box(st, owner) + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Uključi da alat sam bira ili odaberi iz preporuka ispod.</p>')
+    return _sec("Koga bot prati", meta, inner, open_=not fl, sid="pratim")
 
 
 # ---------- the tool's picks ------------------------------------------------------------------------------------
@@ -279,7 +313,7 @@ def _windows(group, panes, default=14):
     from ui.autopilot import WINDOWS
     sw = (f'<div class=ap-win data-g={group}>' + "".join(
         f'<button type=button data-w={d} class="{"on" if d == default else ""}">{d} d</button>' for d in WINDOWS) + '</div>')
-    return sw + "".join(f'<div data-pane={group} data-w={d}{"" if d == default else " hidden"}>{panes[d]}</div>'
+    return sw + "".join(f'<div data-pane={group} data-w={d}{"" if d == default else " hidden"}>{panes.get(d, "")}</div>'
                         for d in WINDOWS)
 
 
@@ -302,7 +336,7 @@ def _kol_section(con, owner):
     panes = {}
     for d, rows in recs.items():
         items = []
-        for r in rows:
+        for r in rows[:autopilot.SHOW]:
             s = r["s"]
             items.append(f'<details class=ap-it><summary><span><a href="/kol/{quote(r["handle"])}">@{esc(r["handle"])}</a>'
                          f'{" ⚡" if r["live"] else ""}</span><span class=k>{s["hit"]:.0%} pogodaka · {s["n"]} callova</span>'
@@ -323,7 +357,7 @@ def _wallet_section(con, owner):
     panes = {}
     for d, rows in recs.items():
         items = []
-        for r in rows:
+        for r in rows[:autopilot.SHOW]:
             s = r["s"]
             nm = f' <span class=mut>{esc(r["name"])}</span>' if r["name"] else ""
             items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
@@ -499,7 +533,7 @@ def page(qs, user):
             copy.ensure(con)
             b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _follows(con, owner), _kol_section(con, owner),
+                 _wallet_card(tcon, cfg, con, owner), _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner),
                  _positions(tcon, not owner, owner, cfg.get("sell_req")), _limits(cfg, owner)]
         finally:
@@ -664,8 +698,32 @@ def post(path, form, user):
                 return f"{BACK}?ok={qq(f'Bot prati {who}.')}#pratim"
             if path == "/pravi-trade/buy":
                 return _post_buy(con, tcon, form, user)
+            if path == "/pravi-trade/auto":
+                from ui import autopilot
+                days, n = int(form.get("days") or 14), int(form.get("n") or 3)
+                if days not in autopilot.WINDOWS or not 1 <= n <= 5:
+                    raise ValueError("neispravno razdoblje ili broj")
+                on = form.get("on") == "1"
+                for k, v in (("auto_pick", on), ("auto_days", days), ("auto_n", n)):
+                    settings.put(tcon, k, v, user)
+                print(f"autopilot: {user} je {'uključio' if on else 'isključio'} automatski izbor ({days} d, {n}+{n})",
+                      flush=True)
+                if not on:
+                    return f"{BACK}?ok={qq('Automatski izbor isključen. Koga je alat dodao, ostaje dok ga ne makneš.')}#pratim"
+                _league_account(con)
+                ch = autopilot.sync_follows(con, tcon, force=True)
+                return f"{BACK}?ok={qq(f'Alat sada sam bira koga prati ({len(ch)} promjena).')}#pratim"
             if path == "/pravi-trade/stop":
-                copy.unfollow(con, settings.LEAGUE_USER, int(form.get("id") or 0))
+                fid = int(form.get("id") or 0)
+                raw = settings.raw(tcon)
+                ids = [int(i) for i in raw.get("auto_follows") or []]
+                if fid in ids:   # stopped by hand: the auto pick must not bring it back
+                    f = next((x for x in copy.follows(con, settings.LEAGUE_USER) if x["id"] == fid), None)
+                    if f:
+                        skip = [list(x) for x in raw.get("auto_skip") or []] + [[f["kind"], f["target"]]]
+                        settings.put(tcon, "auto_skip", skip[-200:], user)
+                    settings.put(tcon, "auto_follows", [i for i in ids if i != fid], user)
+                copy.unfollow(con, settings.LEAGUE_USER, fid)
                 return f"{BACK}?ok={qq('Praćenje zaustavljeno. Otvorene pozicije se prodaju po svom pravilu izlaza.')}#pratim"
         finally:
             con.close()
