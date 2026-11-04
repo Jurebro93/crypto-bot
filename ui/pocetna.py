@@ -101,6 +101,10 @@ def strategy_html(now=None):
     early = (f"<div class=s>⏳ Još je rano: zatvoreno {total} tradeova. Pouzdan pobjednik treba ~20 zatvorenih po "
              "strategiji.</div>" if total < 20 * len(rank) else "")
     lead = "vodi" if best["ret"] > 0 else "najmanje gubi"
+    # the same verdict as on /strategije (strat/robust.py): "uči" until 100 closed trades, "kandidat" only when it
+    # beats the random control; without it "+342 %" on 33 trades read as a proven winner (4.11.)
+    stt = best.get("status") or ()
+    verdict = (f'<div class=s>Presuda: <b>{esc(stt[1])}</b> · {esc(stt[2])}</div>' if len(stt) >= 3 else "")
     d7 = (f" · zadnjih 7 dana {_pct(best['d7'])}" if best.get("d7") is not None else "")
     d24 = (f" · zadnja 24 h {_pct(best['d24'])}" if best.get("d24") is not None else "")
     others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["ret"])} · '
@@ -111,7 +115,7 @@ def strategy_html(now=None):
             f'<div class=s>${cfg["bankroll_usd"]:,.0f} → <b>${best["value"]:,.0f}</b> ({profit:+,.0f} $) za '
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
             f'<div class=s>{best["closed"]} zatvorenih tradeova, u plusu {hit} · {esc(best.get("opis") or "")}</div>'
-            f'{early}<ul class=ov-rank>{others}</ul>'
+            f'{verdict}{early}<ul class=ov-rank>{others}</ul>'
             '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a></div></div>')
 
 

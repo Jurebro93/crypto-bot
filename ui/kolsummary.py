@@ -1,6 +1,7 @@
 """Top of the Influenceri page in plain words (like Učenje): what the data says right now, then the two new
 sections "Zovu zajedno" (kol/together.py) and "Plaćeni shilleri" (kol/shillers.json). Only reads kol.db / tg.db."""
 import json
+import time
 import statistics
 
 from kol import shillers, together
@@ -143,7 +144,14 @@ def top_html(con, cfg, tog=None):
     mc = shillers.cfg(cfg)["min_calls"]
     verd = [shill_verdict(r, mc)[0] for r in rows]
     line = (f"Pratimo {num(con.execute('SELECT COUNT(*) FROM kols').fetchone()[0])[0]} računa; "
-            f"{len(good)} se dokazalo pozivima.")
+            f"{len(good)} {'je prošao' if len(good) == 1 else 'je prošlo'} probu.")
+    if not good:   # 4.11.: "0 se dokazalo" read as "nobody is any good"; the trial simply needs 14 days of history
+        from kol import discover
+        days = discover.dcfg(cfg)["trial"]["days"]
+        first = con.execute("SELECT MIN(first_seen) FROM kols WHERE first_seen > 0").fetchone()[0]
+        when = (f" Prvi mogu proći od {time.strftime('%-d. %-m.', time.localtime(first + days * 86400))}."
+                if first else "")
+        line += f" Proba traje {days} dana praćenja i 10 izmjerenih poziva, pa još nitko nije mogao proći.{when}"
     if many["n"] >= together.MIN_N and s["1"]["n"] >= together.MIN_N and many["hit"] and s["1"]["hit"]:
         line += (f" Kad zovu 3+ zajedno, token se udvostruči u {_p(many['hit'])} slučajeva "
                  f"(jedan sam: {_p(s['1']['hit'])}).")
