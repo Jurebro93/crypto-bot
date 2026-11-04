@@ -164,12 +164,10 @@ def _setup(tcon, cfg, addr, key_addr, saved, sol, usdc, n_open):
          '<a href="https://jup.ag/swap/USDC-SOL" target=_blank rel=noopener>Zamijeni USDC u SOL na Jupiteru ↗</a>'
          + (f'<br><span class=mut>Sada u walletu: {usdc:.2f} USDC.</span>' if usdc else "")),
         (executor.armed(),
-         "<b>Daj botu ključ, samo u Renderu.</b> U Phantomu: ikona računa → <i>Manage Accounts</i> → ovaj račun → "
-         "<i>Show Private Key</i> → kopiraj. Zatim "
-         f'<a href="{_render_env_url()}" target=_blank rel=noopener>Render → Environment ↗</a> → '
-         "<i>+ Add Environment Variable</i>: <code>SOLANA_PRIVATE_KEY</code> = ključ, pa još jednu "
-         "<code>TRADE_LIVE</code> = <code>1</code> → <i>Save, rebuild, and deploy</i>. "
-         "Ključ ne upisuj nigdje drugdje (ni ovdje, ni u chat); ova stranica ga nikad ne traži ni ne prikazuje."),
+         "<b>Ključ bot-walleta postavlja samo vlasnik, izravno u Renderu.</b> U "
+         f'<a href="{_render_env_url()}" target=_blank rel=noopener>Render → Environment ↗</a> moraju postojati '
+         "<code>SOLANA_PRIVATE_KEY</code> i <code>TRADE_LIVE</code> = <code>1</code>. Aplikacija ključ nikad ne traži, "
+         "ne sprema i ne prikazuje, i nitko ga ne upisuje ovdje ni u chat."),
         (bool(cfg["on"]), "<b>Odaberi koga bot prati</b> (preporuke ispod) i dodirni <i>Uključi Autopilot</i>. "
                           "Za prvi put stavi ulog 0,01 SOL u Limitima i pogledaj prvu kupnju na Solscanu."),
     ]
