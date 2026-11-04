@@ -36,6 +36,29 @@ def pick(tokens, n_win, n_lose, seed=7):
     return win + lose[:n_lose]
 
 
+def tokens_from_db(con, win_x=1.0, max_age_d=90, now=None):
+    """Backfill token list from kol.db itself, when there is no retrospective file (5.11., on the server): every token
+    with measured calls. launch = tokens.created_ts (else a day before its first call), peak = the time of the highest
+    DexScreener snapshot (kol/snap.py) if there is one, else a day after the first call; winner = some call's best
+    move within 24 h reached win_x (+100% by default). Searching X for these CAs finds the OTHER accounts that posted
+    them, which is what call groups and pair tests need."""
+    now = now or int(time.time())
+    rows = con.execute("""SELECT c.token, MIN(c.ts), MAX(c.max24), t.created_ts, t.symbol FROM calls c
+                          LEFT JOIN tokens t ON t.token = c.token
+                          WHERE c.max24 IS NOT NULL AND c.bad IS NULL AND c.ts >= ? GROUP BY c.token""",
+                       (now - max_age_d * 86400,)).fetchall()
+    peak = {}
+    for tok, ts, px in con.execute("SELECT token, ts, price FROM snaps WHERE price > 0 ORDER BY token, ts"):
+        if tok not in peak or px > peak[tok][1]:
+            peak[tok] = (ts, px)
+    out = []
+    for tok, first, best, created, sym in rows:
+        launch = created or first - 86400
+        out.append({"mint": tok, "symbol": sym, "launch_ts": int(launch), "peak_ts": int(peak.get(tok, (first + 86400,))[0]),
+                    "peak_mult": 1 + best, "winner": best >= win_x})
+    return out
+
+
 def done_targets(con, kind):
     return {r[0] for r in con.execute("SELECT target FROM searches WHERE kind = ?", (kind,))}
 

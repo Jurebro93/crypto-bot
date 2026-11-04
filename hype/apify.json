@@ -1,10 +1,11 @@
 {
- "_comment": "Dnevni budžeti po izvoru u USD. Zbroj najviše ~2.6 $/dan (kol_monitor = 10 KOL-ova uživo, $0.0045 po računu na sat; kol_search + kol_timeline = otkrivanje KOL-ova, run_kol.py). Limit računa je 100 $/mj (od 31.10.2026, prije 60). monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20. kol_backfill: jednokratno povijesno punjenje KOL baze (run_kol.py backfill --budget), na serveru 0. fomo: FOMO top traderi jednom tjedno (~$0.23 po runu), novčanici idu u Helius webhook. bez_kocnice: izvori koje automatska kočnica tempa ne smanjuje (praćenje KOL-ova i KOL test); ostalima se dnevni budžet smanjuje kad novac ne bi potrajao do kraja ciklusa. pumpfun boardovi live (tokeni koji se upravo streamaju) i kol (tokeni koje su trgovali poznati KOL novčanici) od 31.10. 1.11.: kol_timeline 0.4 -> 0.6 (100 KOL-ova svaka 2 h); kol_search ostaje 0.12 jer traži tko je rano zvao uspješne tokene.",
+ "_comment": "Dnevni budžeti po izvoru u USD. Zbroj najviše ~2.6 $/dan (kol_monitor = 10 KOL-ova uživo, $0.0045 po računu na sat; kol_search + kol_timeline = otkrivanje KOL-ova, run_kol.py). Limit računa je 100 $/mj (od 31.10.2026, prije 60). monthly_reserve_usd: sve staje kad do limita ostane manje od toga. unit_usd: cijena po rezultatu iz Apify Storea (30.10.2026), za procjenu troška jer Apify ne vraća naplatu po runu. run_options: memorija (MB) i timeout (s) po runu; Google Trends pokreće preglednik pa bez toga jedan run košta $0.05-0.20. kol_backfill: jednokratno povijesno punjenje KOL baze (run_kol.py backfill --budget), na serveru 0. fomo: FOMO top traderi jednom tjedno (~$0.23 po runu), novčanici idu u Helius webhook. bez_kocnice: izvori koje automatska kočnica tempa ne smanjuje (praćenje KOL-ova i KOL test); ostalima se dnevni budžet smanjuje kad novac ne bi potrajao do kraja ciklusa. pumpfun boardovi live (tokeni koji se upravo streamaju) i kol (tokeni koje su trgovali poznati KOL novčanici) od 31.10. 1.11.: kol_timeline 0.4 -> 0.6 (100 KOL-ova svaka 2 h); kol_search ostaje 0.12 jer traži tko je rano zvao uspješne tokene. 5.11.: kol_timeline 0.6 -> 1.2 (40 KOL-ova, 25 jezgre, svakih 30 min: grupni pozivi unutar 30 min); kol_backfill bez kočnice jer mu budžet daje naredba (KOL_BACKFILL_USD u start.sh), inače bi ga kočnica tempa zaustavila nakon dijela.",
  "monthly_reserve_usd": 3,
  "bez_kocnice": [
   "kol_monitor",
   "kol_search",
   "kol_timeline",
+  "kol_backfill",
   "fomo"
  ],
  "daily_usd": {
@@ -15,7 +16,7 @@
   "gmgn": 1.7,
   "kol_monitor": 1.1,
   "kol_search": 0.12,
-  "kol_timeline": 0.6,
+  "kol_timeline": 1.2,
   "kol_backfill": 0.0,
   "fomo": 0.1
  },

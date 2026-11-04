@@ -190,8 +190,10 @@ def _db_totals_now():
             for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
                 try:
                     # MAX(rowid) instead of COUNT(*): instant on a 600 MB table (COUNT reads it all); a few deleted
-                    # rows make it slightly high, which is fine for "about how much data"
-                    rows += con.execute(f"SELECT COALESCE(MAX(rowid), 0) FROM [{t}]").fetchone()[0]
+                    # rows make it slightly high, which is fine for "about how much data". Not for a table whose
+                    # rowid IS a data column ("ts INTEGER PRIMARY KEY", "day INTEGER PRIMARY KEY"): there MAX(rowid)
+                    # is a timestamp, and the page showed ~7 billion rows in 1.5 GB (4.11.). Those are counted.
+                    rows += con.execute(f"SELECT {_count_expr(con, t)} FROM [{t}]").fetchone()[0]
                 except sqlite3.Error:
                     pass
         except sqlite3.Error:
@@ -199,6 +201,18 @@ def _db_totals_now():
         finally:
             con.close()
     return rows, size, len(_all_dbs())
+
+
+def _count_expr(con, table):
+    """COUNT(*) when a single INTEGER column is the primary key (the rowid then holds its values: timestamps, days,
+    ids from outside), else COALESCE(MAX(rowid), 0). AUTOINCREMENT ids stay on the fast path."""
+    cols = con.execute(f"PRAGMA table_info([{table}])").fetchall()
+    pk = [c for c in cols if c[5]]
+    if len(pk) == 1 and (pk[0][2] or "").strip().upper() == "INTEGER":
+        seq = con.execute("SELECT COUNT(*) FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone()[0]
+        if not (seq and con.execute("SELECT COUNT(*) FROM sqlite_sequence WHERE name = ?", (table,)).fetchone()[0]):
+            return "COUNT(*)"
+    return "COALESCE(MAX(rowid), 0)"
 
 
 def db_totals():
