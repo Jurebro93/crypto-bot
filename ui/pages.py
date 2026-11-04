@@ -1,4 +1,5 @@
 """One function per page. Each returns (title, body_html)."""
+import datetime as dt
 import os
 import time
 from urllib.parse import quote
@@ -577,59 +578,141 @@ def _spark(snaps, base):
 
 # ---------------- events ----------------
 
-def _pick_cell(ranked):
-    """Event card: the most likely pumper first with its reasons, then every other token ranked."""
+def _pick_cell(ranked, watches=None):
+    """Event row: the most likely pumper on one line (name, icons, score); its reasons and every other token
+    ranked sit in one closed <details>, so the row stays short until someone opens it (Nicholas 4.11.)."""
     if not ranked:
         return "–"
     best = ranked[0]
     if best["pump"] is None:
-        return "nijedan token ne prolazi provjere"
-    head = (f"<b>Najizgledniji: {tlink(best['token'], best['symbol'])} · ocjena pumpe {best['pump']:.0f}/100</b>"
-            + "".join(f"<div class=mut>{p:+.0f} {esc(t)}</div>" for p, t in best["reasons"][:4]))
+        return "<span class=mut>nijedan token ne prolazi provjere</span>"
+    pk = "good" if best["pump"] >= 60 else "warn" if best["pump"] >= 35 else ""
+    score = f"{best['pump']:.0f}/100"
+    head = f"{tlink(best['token'], best['symbol'])} {badge(score, pk)}"
+    w = (watches or {}).get(best["token"])
+    if w and w.get("verdict"):
+        from ui.watch import VERDICT_KIND
+        head += f'<div class=evw>⏳ {badge(w["verdict"], VERDICT_KIND.get(w["verdict"], ""))}</div>'
+    why = "".join(f"<div>{p:+.0f} {esc(t)}</div>" for p, t in best["reasons"][:6])
     others = []
     for i, t in enumerate(ranked[1:], 2):
         val = "isključen: " + esc(t["excluded"]) if t["pump"] is None else f"{t['pump']:.0f}/100"
-        why = "; ".join(esc(x) for p, x in t["reasons"][:3] if p) if t["pump"] is not None else ""
-        others.append(f"<div>{i}. {tlink(t['token'], t['symbol'])} {val} <span class=mut>{why}</span></div>")
-    more = (f"<details><summary>ostali tokeni ({len(others)})</summary>{''.join(others)}</details>" if others else "")
-    return head + more
+        others.append(f"<div>{i}. {tlink(t['token'], t['symbol'])} {val}</div>")
+    lab = "zašto" + (f" · još {len(others)}" if others else "")
+    body = (f"<div class=mut>{why}</div>" + (f"<div class=evo><b>Ostali tokeni</b>{''.join(others)}</div>" if others else ""))
+    return head + f"<details class=evd><summary>{lab}</summary><div class=evx>{body}</div></details>"
 
 
-def _events_table(evs, tid):
+def _when(date, hype=None):
+    """'danas' / 'sutra' / 'za 3 d' / 'prije 2 d' with the date and the calendar colour dot; sorts by date."""
+    try:
+        d = time.strptime(str(date)[:10], "%Y-%m-%d")
+        n = round((time.mktime(d) - time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))) / 86400)
+    except (ValueError, TypeError):
+        return ("–", "", "")
+    txt = {0: "danas", 1: "sutra", -1: "jučer"}.get(n) or (f"za {n} d" if n > 0 else f"prije {-n} d")
+    from ui import evcal
+    return (f"<b>{txt}</b><div class=mut>{evcal.dot(hype)} {d.tm_mday}.{d.tm_mon}.</div>", str(date), "")
+
+
+def _ev_cell(e):
+    """Event title + one small line (kind · source) + keyword chips (max 4): replaces three wide columns."""
+    t = (f'<a href="{esc(e["url"])}" target=_blank rel=noopener>{esc(e["title"])}</a>' if e.get("url") else esc(e["title"]))
+    meta = f'<div class=evm>{esc(labels.kind(e["kind"]))} · {esc(labels.event_source(e["source"]))}</div>'
+    kws = e.get("keywords") or []
+    chips = "".join(f"<span class=kw translate=no>{esc(k)}</span>" for k in kws[:4])
+    if len(kws) > 4:
+        chips += f'<span class="kw mut" title="{esc(" ".join(kws[4:]))}">+{len(kws) - 4}</span>'
+    return (t + meta + (f"<div class=kws>{chips}</div>" if chips else ""), e["title"] + " " + " ".join(kws), "wrap evc")
+
+
+EV_CSS = """<style>
+#et td.evc{min-width:210px;max-width:340px}.evm{font-size:12px;color:var(--mut);margin-top:2px}
+.kws{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.kw{font-size:11px;padding:1px 6px;border-radius:6px;
+ background:color-mix(in srgb,var(--acc) 8%,var(--card));border:1px solid var(--line);white-space:nowrap}
+#et td.evt{min-width:170px;max-width:300px;white-space:normal}.evw{margin-top:3px}
+details.evd summary{font-size:12px;color:var(--acc);cursor:pointer;margin-top:3px}
+.evx{font-size:12px;white-space:normal;max-width:300px;padding-top:3px}.evo{margin-top:6px}
+details.evh summary{font-size:12px;color:var(--acc);cursor:pointer}.evh .evx div{white-space:normal}
+table.cards#et td.evt,table.cards#et td.evc{max-width:none}table.cards#et td.evt .evx{max-width:none}
+.evstat{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}.evstat a,.evstat span{font-size:13px;padding:6px 10px;
+ border:1px solid var(--line);border-radius:10px;background:var(--card);text-decoration:none;color:var(--fg)}
+.evstat b{font-size:15px}
+</style>"""
+
+
+def _ev_detail(e, ranked, det):
+    """Pop-up body for one event (calendar tap): everything the list row has, written out."""
+    from ui import evcal
+    c, lab = evcal.level(e.get("hype"))
+    t = (f'<a href="{esc(e["url"])}" target=_blank rel=noopener>{esc(e["title"])} ↗</a>' if e.get("url") else esc(e["title"]))
+    kws = " ".join(f"<span class=kw translate=no>{esc(k)}</span>" for k in e.get("keywords") or [])
+    tl = e.get("token_likelihood")
+    pick = _pick_cell(ranked, None) if ranked else "<span class=mut>još nema tokena</span>"
+    return (f'<div class=ecev><h3>{evcal.dot(e.get("hype"))}{t}</h3>'
+            f'<div class=lab>{esc(labels.kind(e["kind"]))} · {esc(labels.event_source(e["source"]))} · {esc(e["date"])}</div>'
+            f'<div class=row><span><span class=lab>Hype {info("Hype")}</span> {bar(e["hype"] or 0, 100, 60)} <b>{(e["hype"] or 0):g}</b> ({lab})</span>'
+            f'<span><span class=lab>Šansa za token {info("Šansa za token")}</span> <b>{"–" if tl is None else f"{tl:.2f}"}</b></span></div>'
+            + (f'<div class="kws">{kws}</div>' if kws else "")
+            + f'<div class=row style="display:block"><span class=lab>Najizgledniji token {info("Najizgledniji token")}</span><div>{pick}</div></div>'
+            + f'<div class=row style="display:block"><span class=lab>Zašto ta ocjena</span>{det}</div></div>')
+
+
+def _events_rows(evs, watches):
+    """[(event, list row, pop-up html)] for every event, best token per event ranked with eventpick."""
     et = {}
     for t in data.event_tokens():
         et.setdefault((t["event_date"], t["event"]), []).append(t)
-    rugs, watches, kol = data.rug_latest(), pickload.watches(), pickload.kol_mentions()
-    rows = []
+    rugs, kol = data.rug_latest(), pickload.kol_mentions()
+    out = []
     for e in evs:
         toks = sorted(et.get((e["date"], e["title"]), []), key=lambda t: -(t["score"] or 0))
-        ranked = pickscore.rank(toks, rugs, watches, kol)
-        tl = _pick_cell(ranked) if toks else ""
+        ranked = pickscore.rank(toks, rugs, watches, kol) if toks else []
         parts = explain.event_hype(e)
-        det = (f"<details><summary>raspis</summary>"
+        det = (f"<details class=evh><summary>raspis</summary><div class=evx>"
                + "".join(f"<div>{esc(n)} {info(n)}: <b>{p:.1f}</b>/{m} <span class=mut>{esc(x)}</span></div>" for n, p, m, x in parts)
-               + "</details>")
-        rows.append([(esc(e["date"]), e["date"], ""), esc(labels.kind(e["kind"])),
-                     (f'<a href="{esc(e["url"])}" target=_blank>{esc(e["title"])}</a>' if e.get("url") else esc(e["title"]), e["title"], "wrap"),
-                     scorecell(e["hype"]), num(e.get("token_likelihood"), "{:.2f}"),
-                     esc(" ".join(e["keywords"])), esc(labels.event_source(e["source"])),
-                     (tl or "–", len(toks), "wrap"), (det, "", "wrap")])
-    return table(["Datum", "Vrsta", ("Event", "wrap"), ("Hype", "n"), ("Šansa za token", "n"), "Ključne riječi",
-                  "Izvor", ("Tokeni: koji će najvjerojatnije pumpati", "wrap"), ("Zašto ta ocjena", "wrap")], rows, tid,
-                 "Još nema evenata. Bot osvježava kalendar sam svakih 6 h.")
+               + "</div></details>")
+        row = [_ev_cell(e), _when(e["date"], e.get("hype")), scorecell(e["hype"]), num(e.get("token_likelihood"), "{:.2f}"),
+               (_pick_cell(ranked, watches) if toks else "", (ranked[0]["pump"] or 0) if ranked else -1, "wrap evt"),
+               (det, "", "")]
+        e["_has_tok"] = bool(toks)
+        out.append((e, row, _ev_detail(e, ranked, det)))
+    return out
 
 
 def events(qs):
-    evs = data.events()
+    from ui import evcal, watch
+    allev = data.events()
     past = qs.get("past") == "1"
+    only_tok = qs.get("tok") == "1"
     today = time.strftime("%Y-%m-%d")
-    if not past:
-        evs = [e for e in evs if not e["date"] or e["date"] >= today]
-    form = (f'<form class=flt method=get>{filt("et", "Filtriraj event, ključnu riječ…")}<label><input type=checkbox '
-            f'name=past value=1 {"checked" if past else ""} onchange="this.form.submit()"> i prošli</label></form>')
-    intro = ("<h1>Eventi</h1><p class=mut>Događaji iz kalendara s hype ocjenom 0-100 i tokenima koje je DexScreener "
-             "pronašao. <a href=/criteria#eventi>Kriteriji</a>.</p>")
-    return "Eventi", intro + form + tdesc('Kako alat traži tokene za evente: iz kalendara uzme ključne riječi događaja i na DexScreeneru traži tokene s tim imenom ili simbolom, a najbolje ocijenjeni postaje „pravi” token. Hype = koliko se o događaju priča, šansa za token = procjena da će netko napraviti token. Kad za event postoji više tokena, svaki dobiva ocjenu pumpe 0-100: organsko trgovanje, prostor za rast (mcap), rug provjera, rastu li volumen i smart walleti kako se event približava, spominjanja KOL-ova i je li to pravi token za ime. Tokeni koje rug provjera odbaci ili s likvidnošću ispod $2k ne mogu biti izbor. Ocjena je procjena, ne garancija.') + _events_table(evs, "et")
+    watches = pickload.watches()
+    built = _events_rows(allev, watches)
+    shown = [(e, r) for e, r, _ in built if (past or not e["date"] or e["date"] >= today) and (not only_tok or e["_has_tok"])]
+    tbl = table([("Event", "wrap"), "Kada", ("Hype", "n"), ("Šansa za token", "n"), "Najizgledniji token",
+                 "Zašto ta ocjena"], [r for _, r in shown], "et",
+                "Nema evenata za ovaj izbor. Bot osvježava kalendar sam svakih 6 h.")
+    upcoming = [e for e, _, _ in built if not e["date"] or e["date"] >= today]
+    n_watch = watch.tracked_count()
+    stat = (f'<div class=evstat><span><b>{len(upcoming)}</b> nadolazećih</span>'
+            f'<span><b>{sum(e["_has_tok"] for e in upcoming)}</b> s tokenom</span>'
+            f'<a href="#prije"><b>{n_watch}</b> tokena u praćenju ⏳ ↓</a></div>')
+    form = (f'<form class=flt method=get>{filt("et", "Filtriraj event, ključnu riječ…")}'
+            f'<label><input type=checkbox name=tok value=1 {"checked" if only_tok else ""} onchange="this.form.submit()"> samo s tokenom</label> '
+            f'<label><input type=checkbox name=past value=1 {"checked" if past else ""} onchange="this.form.submit()"> i prošli</label></form>')
+    intro = ("<h1>Eventi</h1><p class=mut>Događaji iz kalendara, tokeni napravljeni za njih i kreću li ti tokeni prije "
+             "događaja. <a href=/criteria#eventi>Kriteriji</a>.</p>")
+    cal = evcal.render([(e, d) for e, _, d in built], dt.date.fromisoformat(today))
+    lst = ("<h2 id=lista>📋 Svi eventi po datumu</h2>" + tdesc(
+        'Iz kalendara alat uzme ključne riječi događaja i na DexScreeneru traži tokene s tim imenom ili simbolom. '
+        'Hype = koliko se o događaju priča, šansa za token = procjena da će netko napraviti token. '
+        '<i>Najizgledniji token</i> je onaj s najvećom ocjenom pumpe 0-100 (organsko trgovanje, prostor za rast, rug provjera, '
+        'volumen i smart walleti prema eventu, KOL-ovi); „zašto” otvara razloge i ostale tokene, ⏳ je zaključak praćenja prije '
+        'eventa. Tokeni koje rug provjera odbaci ili s likvidnošću ispod $2k ne mogu biti izbor. Ocjena je procjena, ne garancija.')
+        + form + tbl)
+    return "Eventi", (EV_CSS + intro + stat + "<h2 id=kalendar>📅 Kalendar</h2>"
+                      + '<p class=mut style="margin:0">Dodirni dan za detalje događaja.</p>' + cal
+                      + lst + '<h2 id=prije>⏳ Prije eventa</h2>' + watch.sections())
 
 
 # ---------------- outputs ----------------

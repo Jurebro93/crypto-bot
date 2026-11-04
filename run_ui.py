@@ -517,6 +517,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 frag = f"<pre>{esc(traceback.format_exc())}</pre>"
             return self._send(200, frag.encode("utf-8"))
+        if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
+            return self._redirect("/events#prije", code=301)
         if path == "/":   # Pregled is gone (2.11.): the app opens on the token list
             return self._redirect("/tokens" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user
