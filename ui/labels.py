@@ -158,7 +158,7 @@ def kind(k):
 SOURCE = {
     "profile": "novi DexScreener profil", "profile_update": "ažuriran DexScreener profil", "boost": "DexScreener boost",
     "top_boost": "top boost", "takeover": "preuzimanje zajednice", "pumpfun:trending": "pump.fun trending",
-    "pumpfun:graduating": "pump.fun pred graduacijom", "pumpfun:kol": "pump.fun KOL", "telegram": "Telegram kanal", "konv": "konvergencija izvora", "pumpfun:live": "pump.fun uživo",
+    "pumpfun:graduating": "pump.fun pred graduacijom", "pumpfun:kol": "pump.fun KOL", "telegram": "Telegram kanal", "konv": "konvergencija izvora", "aktivni": "aktivan stariji token", "mc100k": "prvi prelazak 100k $", "mc100k2": "ponovni prelazak 100k $", "kol3": "3+ KOL-a u 15 min", "pumpfun:live": "pump.fun uživo",
     "kol": "KOL na X-u", "calendar": "kalendar", "event": "event iz kalendara", "hype": "hype skener",
 }
 

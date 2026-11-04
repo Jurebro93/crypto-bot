@@ -429,7 +429,8 @@ def _learning_box(trades, cfg):
     for mode, label in (("core", "Glavni (score ≥ " + str(cfg.get("min_score")) + ")"),
                         ("explore", "Istraživački (manji ulog)"), ("konv", "Konvergencija izvora"),
                         ("mc100k", "Prvi prelazak 100k $ (A/B, ulaz B)"),
-                        ("mc100k2", "Ponovni prelazak 100k $ nakon pada"), ("kol3", "3+ KOL autora u 15 min")):
+                        ("mc100k2", "Ponovni prelazak 100k $ nakon pada"), ("kol3", "3+ KOL autora u 15 min"),
+                        ("aktivni", "Aktivni stariji tokeni (3+ dana)")):
         g = groups.get(mode) or []
         closed = [t for t in g if t["status"] == "closed"]
         n = len(closed)
@@ -471,10 +472,7 @@ def _learning_box(trades, cfg):
             "manje ulaza, ali nikad nula.") + table(["Krak", ("Tradeova", "n"), ("Dobitnih", "n"), ("Prosjek", "n"),
                                                      ("PnL", "n")],
             [[esc(a), num(n), num(w), (f"{avg:+.0%}", avg, "n"), (f"{p:+.2f} $", p, "n")] for a, n, w, avg, p in arm_rows]))
-    if reasons:
-        out += "<h3>Zašto gubimo</h3>" + table(["Razlog", ("Tradeova", "n")],
-                                              [[esc(k), num(v)] for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])])
-    return out
+    return out  # loss reasons are on top of the page now, tap-to-explain (ui/paperverdict.py)
 
 
 def _pct(x):
@@ -587,15 +585,14 @@ def page(qs):
     trades = data.paper_trades()
     cands = data.paper_candidates()
     cfg = _cfg()
-    b = ["<h1>Demo trading</h1><p class=mut>Trgovanje bez pravog novca. Otvorene pozicije se "
-         f"ovdje preračunavaju po živoj cijeni s DexScreenera svakih {REFRESH_S} s, uz fee i slippage kao pri pravoj "
-         "prodaji. Klik na ime tokena otvara njegovu stranicu na ploči, sličice ga otvaraju na vanjskim stranicama. "
-         "<span id=upd class=mut></span></p><div class=grid id=cards></div>"]
-    b.append(_learning_box(trades, cfg))
+    from ui import learnprogress, paperverdict
+    b = ["<h1>Demo trading</h1><p class=mut>Bez pravog novca. Prvo: koje strategije zarađuju, koje su blizu nule i "
+         "što bi ih dovelo u plus. Sve tablice su dolje pod Detalji. <span id=upd class=mut></span></p>"
+         "<div class=grid id=cards></div>"]
     try:
-        b.append(rules_html())
-    except Exception:
-        pass
+        b.append(paperverdict.top_html(trades))
+    except Exception as e:  # noqa: BLE001 - never break the page
+        b.append(f"<p class=mut>Sažetak strategija trenutno nije dostupan ({esc(type(e).__name__)}).</p>")
     if not (trades or cands):
         b.append("<div class=card>Još nema demo trejdova. Bot ih otvara sam čim neki token prođe pravila ulaza.</div>")
     b.append("<h2>Otvorene pozicije (live)</h2>" + tdesc("Demo pozicije koje su još otvorene; cijena se osvježava s DexScreenera svakih 15 s. Stop loss i sljedeći TP pokazuju kad će bot prodati. Gumbi u stupcu Ručni izlaz prodaju 25%, 50% ili sve što je ostalo: bot to izvrši u idućoj minuti po živoj cijeni, uz isti fee i slippage. Ručno prodani tradeovi ne ulaze u učenje izlaza i krakova.") + "<div class=tw><table><thead><tr>"
@@ -604,18 +601,25 @@ def page(qs):
                                         ("Min", "n"), ("Ostalo", "n"), ("Stop loss", "n"), ("Sljedeći TP", "n"),
                                         ("Likvidnost", "n"), ("Cijena iz", ""), ("DCA", ""), ("Ručni izlaz", "")])
              + "</tr></thead><tbody id=open><tr><td colspan=19 class=empty>Učitavam…</td></tr></tbody></table></div>")
+    more = [_learning_box(trades, cfg)]
+    try:
+        more.append(rules_html())
+    except Exception:
+        pass
     if cfg:
         try:
             from exits import learn as xl
             rules = xl.describe(xl.params_of(cfg))
         except Exception:
             rules = ""
-        b.append(f"<p class=mut>Ulog ${cfg.get('size_usd')}. Izlaze bira naučeni skup pravila klase tokena (stranica "
+        more.append(f"<p class=mut>Ulog ${cfg.get('size_usd')}. Izlaze bira naučeni skup pravila klase tokena (stranica "
                  f"<a href=/izlazi>Izlazi</a>); bez naučenog skupa vrijedi osnovni: {esc(rules)}. "
                  "Sve u <a href=/criteria#paper>Kriterijima</a>.</p>")
 
     closed = [t for t in trades if t["status"] == "closed"]
     b.append(_curve(closed, cfg.get("bankroll_usd", 0)))
+    b.append("<p class=uc-more>Detalji (dodirni za otvaranje)</p>")
+    rest, b = b, more  # everything from here on folds into closed sections
     b.append(f'<h2>Zatvoreni trejdovi</h2><div class=flt>{filt("pt", "Filtriraj token, razlog izlaza…")}</div>')
     by_trade = {c["trade_id"]: c for c in cands if c.get("trade_id")}
     rows = []
@@ -665,5 +669,5 @@ def page(qs):
                      + ("".join(f"<li>{esc(labels.plain(x['text']))}</li>" for x in done)
                         + "".join(f"<li>{esc(t)}</li>" for t in obs if t)
                         or "<li class=mut>ništa (premalo podataka ili ništa nije bilo bolje)</li>") + "</ul>")
-    b.append(f"<script>const REFRESH={REFRESH_S};{JS}</script>")
-    return "Demo trading", "".join(b)
+    folded = learnprogress.fold("".join(b))
+    return "Demo trading", "".join(rest) + folded + f"<script>const REFRESH={REFRESH_S};{JS}</script>"
