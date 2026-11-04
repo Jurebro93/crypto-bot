@@ -356,3 +356,51 @@ class Recommendations(unittest.TestCase):
         self.assertAlmostEqual(s["roi"], 0.75)
         self.assertEqual(autopilot.wallet_stats(tr, now, 30)["w"]["closed"], 3)
 
+
+
+class AutoPick(PraviTrade):
+    def test_tool_picks_and_rotates_but_leaves_manual_and_stopped_alone(self):
+        from ui import autopilot, pravitrade
+        os.environ["TRADE_OWNER"] = "Jure"
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6}
+        recs = {"kol": [{"handle": h, "live": live, "why": "dobar", "s": st} for h, live in
+                        (("a", True), ("slow", False), ("b", True), ("c", True), ("d", True))],
+                "wal": [{"wallet": "W1", "name": "jedan", "why": "dobar", "s": st},
+                        {"wallet": "W2", "name": "", "why": "dobar", "s": st}]}
+        saved = (autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets)
+        autopilot.kol_recs = lambda now=None: {14: recs["kol"]}
+        autopilot.wallet_recs = lambda now=None: {14: recs["wal"]}
+        pravitrade._live_wallets = lambda: {"W1", "W2", "MAN"}
+        try:
+            pravitrade.post("/pravi-trade/follow", {"kind": "kol", "target": "b", "per_day": "3"}, "Jure")   # manual
+            loc = pravitrade.post("/pravi-trade/auto", {"on": "1", "days": "14", "n": "2"}, "Jure")
+            self.assertIn("ok=", loc)
+            got = {(f["kind"], f["target"]) for f in copy.follows(self.lg, settings.LEAGUE_USER)}
+            # live only (slow is skipped), manual b kept and not counted as the tool's
+            self.assertEqual(got, {("kol", "a"), ("kol", "b"), ("wallet", "W1"), ("wallet", "W2")})
+            auto = set(settings.raw(self.con)["auto_follows"])
+            self.assertEqual(len(auto), 3)
+
+            # a drops out of the top 2n -> removed; c comes in
+            recs["kol"] = [{"handle": h, "live": True, "why": "dobar", "s": st} for h in ("c", "d", "e", "f", "a")]
+            autopilot.sync_follows(self.lg, self.con, force=True)
+            got = {f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"}
+            self.assertEqual(got, {"b", "c", "d"})
+
+            # stopped by hand -> never brought back
+            fid = next(f["id"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["target"] == "c")
+            pravitrade.post("/pravi-trade/stop", {"id": str(fid)}, "Jure")
+            autopilot.sync_follows(self.lg, self.con, force=True)
+            got = {f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"}
+            self.assertEqual(got, {"b", "d", "e"})
+
+            # only the owner switches it; off = nothing changes
+            self.assertIn("err=", pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Ivan"))
+            pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Jure")
+            recs["kol"] = []
+            self.assertEqual(autopilot.sync_follows(self.lg, self.con, force=True), [])
+            _, body = pravitrade.page({}, "Jure")
+            self.assertIn("Neka alat sam bira", body)
+            self.assertIn("🤖 alat", body)
+        finally:
+            autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets = saved

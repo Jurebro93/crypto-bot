@@ -24,7 +24,8 @@ HIT = 0.5            # a call is a hit when the price rose +50% at some point wi
 MIN_CALLS = 3        # fewer measured calls in the window = not enough to judge
 MIN_CLOSED = 3       # wallets: tokens bought and sold in the window
 MOON_MIN_LIQ = 20_000
-TOP = 5
+TOP = 10             # kept per window (the auto pick looks deeper than the page)
+SHOW = 5
 _CACHE = {}
 
 
@@ -298,6 +299,86 @@ def token_recs(now=None):
 
 def clear():
     _CACHE.clear()
+
+
+# ---------- auto pick: the tool chooses whom the real-money account follows ----------------------------------------
+
+AUTO_EVERY_S = 3600
+_LAST = {"ts": 0}
+
+
+def auto_targets(days, n, keep=(), skip=()):
+    """[(kind, target, label, why)] the tool would follow: the n best live-watched influencers and the n best wallets of
+    the window. An earlier pick in `keep` stays while it is still in the top 2n, so the list does not churn every hour."""
+    out = []
+    groups = (("kol", [r for r in kol_recs().get(days) or [] if r["live"]]),
+              ("wallet", wallet_recs().get(days) or []))
+    for kind, rows in groups:
+        key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
+        # earlier picks still in the top 2n stay first, the rest of the n places go to the best new ones
+        cand = [r for r in rows if (kind, key(r)) not in skip][:2 * n]
+        picked = [r for r in cand if (kind, key(r)) in keep][:n]
+        picked += [r for r in cand if r not in picked][:n - len(picked)]
+        for r in picked:
+            label = "" if kind == "kol" else (r.get("name") or "")
+            out.append((kind, key(r), label, r["why"]))
+    return out
+
+
+def sync_follows(con, tcon, now=None, force=False):
+    """Make the real-money account's auto follows match auto_targets(). Manual follows are never touched.
+    Returns [text] of what changed. Runs at most once an hour (league/auto.py loop), or at once with force."""
+    from league import copy
+    from trade import settings
+    now = now or time.time()
+    if not force and now - _LAST["ts"] < AUTO_EVERY_S:
+        return []
+    _LAST["ts"] = now
+    s = settings.raw(tcon)
+    if not s.get("auto_pick"):
+        return []
+    days = int(s.get("auto_days") or 14)
+    n = int(s.get("auto_n") or 3)
+    auto_ids = {int(i) for i in s.get("auto_follows") or []}
+    active = {f["id"]: f for f in copy.follows(con, settings.LEAGUE_USER)}
+    mine = {(f["kind"], f["target"]): fid for fid, f in active.items() if fid in auto_ids}
+    manual = {(f["kind"], f["target"]) for fid, f in active.items() if fid not in auto_ids}
+    skip = {tuple(x) for x in s.get("auto_skip") or []}
+    want = auto_targets(days, n, keep=set(mine), skip=skip)
+    if not want:   # no data (e.g. stats not computed yet): keep what we have rather than drop everyone
+        return []
+    want_keys = {(k, t) for k, t, _, _ in want}
+    log, changes = list(s.get("auto_log") or []), []
+    for key, fid in mine.items():
+        if key not in want_keys:
+            copy.unfollow(con, settings.LEAGUE_USER, fid)
+            auto_ids.discard(fid)
+            changes.append(("−", key[0], key[1], f"ispao iz najboljih {2 * n} u zadnjih {days} dana"))
+    for kind, target, label, why in want:
+        if (kind, target) in mine or (kind, target) in manual:
+            continue
+        fid = copy.follow(con, settings.LEAGUE_USER, kind, target, label, 25, 5)
+        auto_ids.add(fid)
+        changes.append(("+", kind, target, why))
+    settings.put(tcon, "auto_follows", sorted(auto_ids), "alat")
+    if changes:
+        log = ([{"ts": int(now), "op": op, "kind": k, "target": t, "why": w} for op, k, t, w in changes] + log)[:30]
+        settings.put(tcon, "auto_log", log, "alat")
+    return [f"autopilot {op} {k} {t}" for op, k, t, _ in changes]
+
+
+def maybe_sync(con):
+    """league/auto.py loop: once an hour, only while the owner has switched the auto pick on."""
+    from trade import settings
+    if time.time() - _LAST["ts"] < AUTO_EVERY_S:
+        return []
+    tcon = settings.connect()
+    try:
+        from trade import executor
+        executor.connect(settings.DB).close()
+        return sync_follows(con, tcon)
+    finally:
+        tcon.close()
 
 
 if os.environ.get("AUTOPILOT_NO_CACHE") == "1":   # tests
