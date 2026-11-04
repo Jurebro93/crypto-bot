@@ -20,8 +20,8 @@ class Landing(unittest.TestCase):
     def test_page_renders_with_and_without_numbers(self):
         landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: fallback cards, no crash
         html = landing.page_html({})
-        for s in ("Samo na pozivnicu", "Zatraži pristup", "/prijava", "Radar novih tokena", "Liga tradera", "action=/zatrazi-pristup", "og:image",
-                  "/static/landing/pregled.jpg", "name=web"):
+        for s in ("Za sada besplatno", "pristup na zahtjev", "Zatraži pristup", "/prijava", "Prijedlozi tokena", "Praćenje novčanika", "Event tokeni", "action=/zatrazi-pristup", "og:image",
+                  "/static/landing/tokeni.jpg", "/static/landing/mob-kol-profil.jpg", "name=web"):
             self.assertIn(s, html)
         import time
         landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
@@ -33,6 +33,12 @@ class Landing(unittest.TestCase):
         self.assertIn("57%", html)
         self.assertIn("1.7×", html)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
+        en = landing.page_html({}, lang="en")
+        for s in ("Free for now", "access on request", "/static/landing/en-mob-tokeni.jpg", "/static/landing/en-tokeni.jpg"):
+            self.assertIn(s, en)
+        import re
+        for f in set(re.findall(r"/static/landing/([\w.-]+\.jpg)", html + en)):   # every image the page uses exists
+            self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
         for f in landing.SHOTS:   # every screenshot the page links to is in the repo
             self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
 
