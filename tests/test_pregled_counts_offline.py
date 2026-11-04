@@ -181,7 +181,7 @@ class StopLossGridText(unittest.TestCase):
         rows = [{"sl": -0.1, "delay": 0, "mean": 0.375, "median": 0, "win": 0.5, "score": 1},
                 {"sl": -0.1, "delay": 15, "mean": 0.348, "median": 0, "win": 0.5, "score": 0.9},
                 {"sl": None, "delay": 0, "mean": 0.348, "median": 0, "win": 0.5, "score": 0.9}]
-        html = exitspage.sl_html({"sl_grid": {"ts": NOW, "sve": {"n": 1409, "rows": rows}}})
+        html = exitspage.sl_html({"sl_grid": {"ts": time.time(), "sve": {"n": 1409, "rows": rows}}})
         self.assertIn("1,409 prilika", html)
         self.assertNotIn("('1,409'", html)
         self.assertIn("nakon 15 min” jednaki su retku „bez stop lossa”", html)
