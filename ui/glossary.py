@@ -440,6 +440,16 @@ T("Copy trading", "trading", "Alat umjesto tebe ulazi na svaki poziv odabranog i
   "Na stranici Copy trading odabereš KOL-a ili novčanik i pritisneš 'Prati'. Alat tada na tvoj demo račun kupi svaki "
   "njegov novi poziv star do 10 minuta (zadano $25, najviše 10 dnevno) i prodaje po pravilima izlaza. 'Prestani' "
   "zaustavlja praćenje.", vidi=["kol", "copy-ocjena"], gdje=[("/copy-trading", "Copy trading")], alias=["copy trade", "kopiraj"])
+T("Autopilot", "trading", "Bot sam kupuje i prodaje pravim novcem iz tvog zasebnog walleta, po influencerima i walletima koje odabereš.",
+  "Stranica je samo za vlasnika i one koje on pozove. Na vrhu je wallet s uputama za postavljanje (zaseban Phantom "
+  "račun, uplata SOL-a, ključ samo u Renderu). Ispod su preporuke alata iz zadnjih 7, 14 i 30 dana. Pravi novac ide "
+  "tek kad je prekidač uključen i ključ postavljen; sve ostalo je probno. Dnevni limit i dnevni gubitak zaustavljaju "
+  "nove kupnje.", vidi=["copy-trading", "moonshot"], gdje=[("/pravi-trade", "Autopilot")],
+  alias=["pravi trade", "pravi novac", "uključi autopilot"])
+T("Moonshot", "trading", "Mali, svjež token koji može narasti višestruko, ali jednako lako pasti na nulu.",
+  "Alat ga preporuča samo kad je među najjačim prijedlozima po confidenceu, prošao rug check, ima barem $20 tis "
+  "likvidnosti i nije usred pumpe ili pada. I tada je to visok rizik: samo mali ulog.",
+  vidi=["autopilot"], gdje=[("/pravi-trade#tokeni", "Autopilot")], alias=["moonshoti"])
 T("DCA", "trading", "Automatsko kupovanje istog tokena u jednakim dijelovima kroz vrijeme (Dollar Cost Averaging).",
   "Umjesto da sve uložiš odjednom na vrhu, alat kupuje npr. $20 svakih sat vremena 10 puta. Tako dobiješ prosječnu cijenu. "
   "Staje sam kad završi, kad ti ponestane novca, ako token rugne ili likvidnost padne ispod $5k.",

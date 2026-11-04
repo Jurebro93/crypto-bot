@@ -102,14 +102,22 @@ class PraviTrade(unittest.TestCase):
         os.environ["TRADE_OWNER"] = "Jure"
         title, body = pravitrade.page({}, "Ivan")
         self.assertIn("samo za pozvane", body)
-        self.assertNotIn("Uključi pravi trade", body)
+        self.assertNotIn("Uključi Autopilot", body)
         loc = pravitrade.post("/pravi-trade/switch", {"on": "1"}, "Ivan")
         self.assertIn("err=", loc)
         self.assertFalse(settings.merged(CFG, self.con)["on"])
 
         _, body = pravitrade.page({}, "jure")
-        self.assertIn("Uključi pravi trade", body)
-        self.assertIn("ISKLJUČENO", body)
+        self.assertIn("Uključi Autopilot", body)
+        self.assertIn("ISKLJUČEN", body)
+        self.assertIn("Postavljanje walleta", body)
+        self.assertNotIn("Svi nalozi", body)          # 4.11.: no order log, no demo tables
+        self.assertNotIn("Demo praćenja", body)
+        self.assertNotIn("Prodaj sve", body)          # off and nothing open: no red button
+        self.assertIn("err=", pravitrade.post("/pravi-trade/wallet", {"addr": "nije-adresa"}, "Jure"))
+        self.assertIn("err=", pravitrade.post("/pravi-trade/wallet", {"addr": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"}, "Ivan"))
+        self.assertIn("ok=", pravitrade.post("/pravi-trade/wallet", {"addr": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"}, "Jure"))
+        self.assertEqual(settings.raw(self.con)["wallet_pub"], "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin")
         loc = pravitrade.post("/pravi-trade/switch", {"on": "1"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertTrue(settings.merged(CFG, self.con)["on"])
@@ -119,8 +127,9 @@ class PraviTrade(unittest.TestCase):
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
             _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Pozicije", body)
-            self.assertNotIn("Spremi limite", body)   # invited: look only
+            self.assertIn("Koga bot prati", body)
+            self.assertNotIn("Spremi limite", body)
+            self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
             os.environ.pop("UI_USERS")
 
@@ -321,3 +330,29 @@ class ManualBuy(PraviTrade):
         cfg = settings.merged(CFG, self.con)
         run_trade.follow_league_once(self.con, cfg, since=0, now=time.time(), quiet=True)
         self.assertAlmostEqual(self.con.execute("SELECT sol_in FROM positions").fetchone()[0], 0.02)
+
+
+class Recommendations(unittest.TestCase):
+    def test_kol_window_stats(self):
+        from ui import autopilot
+        now = 100 * 86400
+        calls = [("a", now - 3 * 86400, 1.0, 0.2, 0), ("a", now - 3 * 86400, 0.1, -0.3, 0),
+                 ("a", now - 20 * 86400, 2.0, 0.5, 1), ("b", now - 2 * 86400, None, None, 0)]
+        s7, s30 = autopilot.kol_stats(calls, now, 7), autopilot.kol_stats(calls, now, 30)
+        self.assertEqual((s7["a"]["n"], s7["a"]["hits"], s7["a"]["rugs"]), (2, 1, 0))
+        self.assertEqual((s30["a"]["n"], s30["a"]["hits"], s30["a"]["rugs"]), (3, 2, 1))
+        self.assertNotIn("b", s7)   # not measured yet
+        self.assertLess(s30["a"]["score"], s7["a"]["score"])   # a rug costs more than a hit gains
+
+    def test_wallet_window_stats(self):
+        from ui import autopilot
+        now = 100 * 86400
+        tr = [("w", "A", "buy", now - 86400, 1.0), ("w", "A", "sell", now - 80000, 3.0),
+              ("w", "B", "buy", now - 86400, 1.0), ("w", "B", "sell", now - 80000, 0.5),
+              ("w", "C", "buy", now - 86400, 1.0),                                    # still held: not closed
+              ("w", "D", "buy", now - 20 * 86400, 1.0), ("w", "D", "sell", now - 86400, 9.0)]   # bought before 7 d
+        s = autopilot.wallet_stats(tr, now, 7)["w"]
+        self.assertEqual((s["bought"], s["closed"], s["wins"]), (3, 2, 1))
+        self.assertAlmostEqual(s["roi"], 0.75)
+        self.assertEqual(autopilot.wallet_stats(tr, now, 30)["w"]["closed"], 3)
+

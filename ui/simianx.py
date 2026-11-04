@@ -103,8 +103,8 @@ def section(con, ops, ins):
         on = settings.simianx_on()
     except Exception:  # noqa: BLE001
         on = False
-    b.append("<p>" + (badge("Pravi novac: UKLJUČENO", "warn") + " Vlasnik je na stranici Pravi trade odobrio da SimianX "
+    b.append("<p>" + (badge("Pravi novac: UKLJUČENO", "warn") + " Vlasnik je na stranici Autopilot odobrio da SimianX "
                       "\"kupi\" signali otvaraju i prave kupnje, unutar tamošnjih limita." if on else
                       badge("Pravi novac: isključeno", "") + " SimianX signali idu samo u demo test. Uključuje ih "
-                      "samo vlasnik, kvačicom na stranici <a href=/pravi-trade>Pravi trade</a>.") + "</p>")
+                      "samo vlasnik, kvačicom na stranici <a href=/pravi-trade>Autopilot</a>.") + "</p>")
     return "".join(b)

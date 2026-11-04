@@ -63,9 +63,9 @@ SECTIONS = [
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
         _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
-    ("Pravi trade", [
-        _p("/pravi-trade", "💰", "Pravi trade", "Bot trguje pravim SOL-om iz zasebnog walleta, unutar tvojih limita.",
-           "pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja"),
+    ("Autopilot", [
+        _p("/pravi-trade", "💰", "Autopilot", "Bot trguje pravim novcem iz tvog walleta, po onima koje odabereš.",
+           "pravi trade pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja autopilot usdc"),
     ]),
     ("Sustav", [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
@@ -86,7 +86,7 @@ BONUS = "Bonus"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 ADMIN = ("Sustav",)
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
-PRIVATE = ("Pravi trade",)
+PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
@@ -196,8 +196,8 @@ INTRO = {
                   "pozivnice i demo računa od $1.000."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
-    "/pravi-trade": ("Bot trguje pravim novcem", "Prekidač, limiti, koga bot prati, pozicije i svaki nalog s linkom na "
-                     "transakciju.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
+    "/pravi-trade": ("Autopilot: bot trguje pravim novcem", "Wallet i upute za postavljanje na vrhu, pa koga bot prati, "
+                     "preporuke alata (influenceri, walleti, tokeni po zadnjih 7/14/30 dana), pozicije i limiti.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
                       "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
