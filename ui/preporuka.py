@@ -49,28 +49,60 @@ def _sentence(w, r):
     s = w["stats"]
     d = s.get("last_trade_days")
     active = "danas" if d is not None and d < 1 else f"prije {d:.0f} d" if d is not None else "–"
-    txt = (f"{s.get('closed_pnl_sol', 0):+.1f} SOL na {s.get('closed', 0)} zatvorenih ({(s.get('win_rate') or 0):.0%} "
-           f"dobitnih), drži ~{_hold(s.get('median_hold_min'))}, zadnji trade {active}.")
+    per = (s.get("closed_pnl_sol") or 0) / max(1, s.get("closed") or 1)
+    txt = (f"Zaradio {s.get('closed_pnl_sol', 0):+.1f} SOL na {s.get('closed', 0)} zatvorenih tradeova "
+           f"(prosječno {per:+.2f} SOL po tradeu, {(s.get('win_rate') or 0):.0%} dobitnih). Drži ~{_hold(s.get('median_hold_min'))}, "
+           f"zadnji trade {active}.")
     if r["copy"]:
         n, mean, pnl = r["copy"]
-        txt += f" Naša demo kopija: {n} tradeova, prosjek {mean:+.0%}, {pnl:+,.0f} $."
+        txt += (f" Kad je naš demo bot kupio isto što i on ({n}×, s našim izlazima), ispalo je {mean:+.0%} po tradeu, "
+                f"ukupno {pnl:+,.0f} $ — to je jedini stvarni test kopiranja.")
     else:
-        txt += " Demo ga još nije kopirao (kopira se čim kupi nešto što prolazi gate)."
+        txt += " Demo bot ga još nije kopirao, pa za kopiranje imamo samo njegovu povijest, ne i naš rezultat."
     return txt
+
+
+def _verdict(ranked):
+    """'Što bih ja napravio': one decision in plain words, from the same numbers."""
+    if not ranked:
+        return ("Ne bih kopirao nikoga ovaj tjedan: nitko nema dovoljno zatvorenih tradeova u plusu uz razumno "
+                "držanje. Pustio bih bota da ocjenjuje dalje (svakih 6 h) i vratio se za dan-dva.")
+    w, r = ranked[0]
+    s = w["stats"]
+    per = (s.get("closed_pnl_sol") or 0) / max(1, s.get("closed") or 1)
+    c = r["copy"]
+    if c and c[0] >= 3 and c[1] <= 0:
+        return (f"Ne bih kopirao ni {wlink(w['wallet'])}, iako je prvi na listi: kad ga je demo bot kopirao {c[0]}×, "
+                f"ispalo je {c[1]:+.0%} po tradeu. Njegova zarada ne prenosi se na našu kopiju (kasnimo, drugačiji izlazi). "
+                "Čekao bih da se to promijeni.")
+    stake = "50 $ po tradeu (5 % demo računa)" if r["tier"] == "visoka" else "20–25 $ po tradeu (2 %), dok ne skupi više povijesti"
+    second = ""
+    if len(ranked) > 1 and ranked[1][1]["tier"] != "niska":
+        w2 = ranked[1][0]
+        second = f" Kao drugi izbor {wlink(w2['wallet'])}, s pola tog uloga."
+    proof = (f" Potvrda u demu: {c[0]} kopija, {c[1]:+.0%} po tradeu." if c and c[0] >= 3 else
+             " Demo ga još nije dovoljno kopirao, pa bih krenuo malo i gledao prve 3 kopije.")
+    return (f"Kopirao bih {wlink(w['wallet'])} s ulogom {stake}, najviše 3 otvorene pozicije odjednom, izlazi po "
+            f"pravilima bota (ne ručno). Razlog: {s.get('closed', 0)} zatvorenih u plusu, {(s.get('win_rate') or 0):.0%} dobitnih, "
+            f"prosječno {per:+.2f} SOL po tradeu, drži ~{_hold(s.get('median_hold_min'))} pa ga kopija stigne."
+            f"{proof}{second}"
+            + (f" Ako se povijest ponovi, 20 takvih tradeova po 50 $ daje otprilike {20 * 50 * s['roi_on_cost']:+,.0f} $ "
+               "— to je procjena iz prošlosti, ne obećanje." if s.get("roi_on_cost") else ""))
 
 
 def wallets_box(ws, copies=None):
     """HTML for the top of /wallets."""
     ranked = rank_wallets(ws, copies)
     cls = {"visoka": "good", "srednja": "warn", "niska": "mut"}
+    head = f"<p><b>Što bih ja napravio:</b> {_verdict(ranked)}</p>"
     if not ranked:
-        return ("<div class=card><b>Što s ovim:</b> još nijedan novčanik ne zadovoljava uvjete za kopiranje "
-                f"(barem {MIN_CLOSED} zatvorenih, copy ocjena {MIN_COPY}+, u plusu, drži kraće od {CAP_HOLD_MIN // 60} h, "
-                "bez loših oznaka). Bot ocjenjuje nove svakih 6 h; tablica ispod je za one koji žele kopati sami.</div>")
+        return ("<div class=card>" + head + "<p class=mut>Uvjeti za preporuku: barem "
+                f"{MIN_CLOSED} zatvorenih tradeova, copy ocjena {MIN_COPY}+, u plusu, drži kraće od {CAP_HOLD_MIN // 60} h, "
+                "bez loših oznaka. Tablica ispod je za one koji žele kopati sami.</p></div>")
     top = ranked[:3]
     items = "".join(
         f"<li>{wlink(w['wallet'])} <span class='b {cls[r['tier']]}'>pouzdanost {r['tier']}</span> "
-        f"<span class=mut>({esc(r['tier_why'])})</span><br>{esc(_sentence(w, r))}</li>" for w, r in top)
+        f"<span class=mut>({esc(r['tier_why'])})</span><br>{_sentence(w, r)}</li>" for w, r in top)
     rest = ranked[3:]
     skip = ""
     if rest:
@@ -85,12 +117,10 @@ def wallets_box(ws, copies=None):
             if r["tier"] == "niska":
                 why.append("premalo podataka ili neaktivan")
             skip = (f"<p class=mut>Najveći PnL ima {wlink(w['wallet'])} ({w['stats'].get('closed_pnl_sol', 0):+.1f} SOL), "
-                    f"ali nije u vrhu: {esc(', '.join(why) or 'niža copy ocjena')}.</p>")
-    how = ("<p><b>Kako koristiti:</b> kopiraj najviše 1–2 novčanika s pouzdanošću visoka/srednja, ulog do 5 % računa po "
-           "tradeu, izlazi po pravilima bota (stop i ciljevi), ne ručno. Strategija „Top novčanici” u demu to već radi "
-           "sama i izbacuje one koji se ne dokažu (3+ kopije). Pouzdanost raste s brojem zatvorenih tradeova: niska → "
-           "srednja na 15, visoka na 30 bez jednog dominantnog dobitka.</p>")
-    return (f"<div class=card><b>Što s ovim:</b> {len(ranked)} novčanika prolazi uvjete; najbolja tri:<ol>{items}</ol>"
+                    f"ali ga ne bih uzeo prvog: {esc(', '.join(why) or 'niža copy ocjena')}.</p>")
+    how = ("<p class=mut>Pouzdanost raste s podacima: niska → srednja na 15 zatvorenih, visoka na 30 bez jednog dominantnog "
+           "dobitka. Strategija „Top novčanici” u demu kopira ove novčanike sama i izbacuje one koji se ne dokažu.</p>")
+    return (f"<div class=card>{head}<p><b>Tri najbolja po podacima</b> ({len(ranked)} prolazi uvjete):</p><ol>{items}</ol>"
             f"{skip}{how}</div>")
 
 

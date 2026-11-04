@@ -153,15 +153,26 @@ class WalletRecommendation(unittest.TestCase):
         self.assertEqual([r["tier"] for _, r in ranked], ["visoka", "srednja", "srednja", "niska"])
         html = preporuka.wallets_box(ws, {"DDDDDD": (4, 0.12, 31.0)})
         self.assertIn("pouzdanost visoka", html)
-        self.assertIn("Naša demo kopija: 4 tradeova, prosjek +12%", html)
-        self.assertIn("Kako koristiti", html)
+        self.assertIn("Što bih ja napravio:", html)
+        self.assertIn("Kopirao bih", html)
+        self.assertIn("50 $ po tradeu", html)                      # first pick has high confidence
+        self.assertIn("Kad je naš demo bot kupio isto što i on (4×", html)
         self.assertNotIn("EEEEEE", html)
-        self.assertIn("4 novčanika prolazi", html)
+        self.assertIn("(4 prolazi uvjete)", html)
+        self.assertNotIn("ne obećanje", html)                      # no roi_on_cost in the fixture: no projection
+        html2 = preporuka.wallets_box([self._w("A" * 44, 61, closed=40, roi_on_cost=0.35)])
+        self.assertIn("+350 $", html2)
 
     def test_nobody_yet(self):
         from ui import preporuka
         html = preporuka.wallets_box([self._w("A" * 44, 30)])
-        self.assertIn("još nijedan novčanik ne zadovoljava", html)
+        self.assertIn("Ne bih kopirao nikoga", html)
+
+    def test_demo_copies_in_minus_overrule_the_history(self):
+        from ui import preporuka
+        html = preporuka.wallets_box([self._w("A" * 44, 61, closed=40)], {"AAAAAA": (5, -0.08, -20.0)})
+        self.assertIn("Ne bih kopirao ni", html)
+        self.assertIn("-8% po tradeu", html)
 
 
 if __name__ == "__main__":
