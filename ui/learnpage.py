@@ -66,6 +66,36 @@ def _pct(x):
     return "–" if x is None else f"{x:+.1%}"
 
 
+def liga_html():
+    """League round 2 (paper/liga.py): which kinds of demo trades proved themselves and count for the bot."""
+    from paper import liga
+    if not os.path.exists(data.PAPER_DB):
+        return ""
+    con = sqlite3.connect(f"file:{data.PAPER_DB}?mode=ro", uri=True, timeout=10)
+    try:
+        g = liga.proven(con)
+    finally:
+        con.close()
+    lc = liga.config()
+    out = ["<h2 id=liga>Bot u Natjecanju: uči iz grešaka</h2>" + tdesc(
+        "Demo i dalje kupuje svaku priliku da bi učio, ali za bota u Natjecanju broji se samo vrsta ulaza koja se "
+        f"dokazala: u zadnjih {lc['days']} dana barem {lc['min_n']} zatvorenih tradeova te vrste, prosjek nakon troškova "
+        "iznad nule i to sigurno (90% raspon iznad nule, jedan trade najviše +300%). Provjerava se svakih 10 minuta: "
+        "vrsta koja počne gubiti sama ispada, a ona koja počne zarađivati ulazi. Vrsta = način ulaza + izvori + sesija.")]
+    rows = []
+    for k, v in sorted(g.items(), key=lambda kv: (-kv[1]["proven"], -(kv[1]["low"] if kv[1]["low"] is not None else -9))):
+        rows.append([esc(k), num(v["n"]), (_pct(v["mean"]), v["mean"], "n"),
+                     (_pct(v["low"]), v["low"] if v["low"] is not None else -9, "n"),
+                     (f"{v['win']:.0%}", v["win"], "n"),
+                     badge("broji se", "ok") if v["proven"] else badge("samo učenje")])
+    n_ok = sum(v["proven"] for v in g.values())
+    out.append(f"<p>Dokazanih vrsta: <b>{n_ok}</b> od {len(g)}." + ("" if n_ok else
+               " Dok nijedna nije dokazana, bot u Natjecanju čeka i ne gubi novac.") + "</p>")
+    out.append(table(["Vrsta ulaza", ("Tradeova", "n"), ("Prosjek", "n"), ("Sigurno barem", "n"), ("U plusu", "n"),
+                      "Natjecanje"], rows, empty="Još nema zatvorenih demo tradeova u zadnjih 7 dana."))
+    return "".join(out)
+
+
 def shadow_html():
     """Shadow book (learn/shadow.py): a virtual demo trade at every decision point, labelled with the return the bot
     could actually have taken. Since 2.11. the hype weights learn from it."""
@@ -296,7 +326,7 @@ def page(qs):
         print(f"učenje: ishodi nisu uspjeli: {type(e).__name__}: {e}")
         return "Učenje", "".join(b) + "<div class=card>Ishodi se trenutno ne mogu izračunati; pokušat će ponovno pri sljedećem osvježavanju.</div>"
     klasa = qs.get("klasa") or ""
-    for name, fn in (("je li pametniji", smarter_html), ("isplativost", payoff_html)):
+    for name, fn in (("je li pametniji", smarter_html), ("liga", liga_html), ("isplativost", payoff_html)):
         try:
             b.append(fn())
         except Exception as e:  # noqa: BLE001

@@ -20,8 +20,8 @@ class Landing(unittest.TestCase):
     def test_page_renders_with_and_without_numbers(self):
         landing._STATS.update(ts=0, v={}, busy=True)        # nothing counted yet: fallback cards, no crash
         html = landing.page_html({})
-        for s in ("Samo na pozivnicu", "Zatraži pristup", "/prijava", "Radar novih tokena", "Liga tradera", "action=/zatrazi-pristup", "og:image",
-                  "/static/landing/pregled.jpg", "name=web"):
+        for s in ("Za sada besplatno", "pristup na zahtjev", "Zatraži pristup", "/prijava", "Prijedlozi tokena", "Praćenje novčanika", "Event tokeni", "action=/zatrazi-pristup", "og:image",
+                  "/static/landing/tokeni.jpg", "/static/landing/mob-kol-profil.jpg", "name=web"):
             self.assertIn(s, html)
         import time
         landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
@@ -33,8 +33,27 @@ class Landing(unittest.TestCase):
         self.assertIn("57%", html)
         self.assertIn("1.7×", html)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
+        en = landing.page_html({}, lang="en")
+        for s in ("Free for now", "access on request", "/static/landing/en-mob-tokeni.jpg", "/static/landing/en-tokeni.jpg"):
+            self.assertIn(s, en)
+        import re
+        for f in set(re.findall(r"/static/landing/([\w.-]+\.jpg)", html + en)):   # every image the page uses exists
+            self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
         for f in landing.SHOTS:   # every screenshot the page links to is in the repo
             self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, f)), f)
+
+    def test_share_cards(self):
+        from ui import loginpage, public as P
+        for lang in ("en", "hr"):
+            for path in ("/", "/influencers", "/coin/bonk", "/best-crypto-tools", "/glossary/kol", "/blog"):
+                img, alt = P.og_card(path, lang)
+                self.assertTrue(os.path.isfile(os.path.join(landing.STATIC, img.rsplit("/", 1)[1])), img)
+                self.assertTrue(alt)
+        self.assertIn("og-kols-hr.jpg", P.og_card("/influencer/x", "hr")[0])
+        html = landing.page_html({}, lang="en")
+        for s in ('og:image:width" content="1200"', "og-home.jpg", "twitter:image", "class=pulse"):
+            self.assertIn(s, html)
+        self.assertIn("https://memesonar.app/static/landing/og-home-hr.jpg", loginpage.html(site_url="https://memesonar.app", lang="hr"))
 
     def test_compute_tolerates_missing_databases(self):
         self.assertIsInstance(landing.compute(), dict)

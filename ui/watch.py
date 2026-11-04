@@ -1,4 +1,4 @@
-"""/watch: tokens tracked from ~14 days before their event, and whether volume and buyers rise as it nears.
+"""Pre-event watch (shown on /events under "Prije eventa"; /watch redirects there): tokens tracked from ~14 days before their event, and whether volume and buyers rise as it nears.
 
 Reads watch.db (written by run_watch.py). Kept in its own file so other dashboard work doesn't collide.
 """
@@ -14,24 +14,23 @@ WATCH_DB = os.environ.get("WATCH_DB", os.path.join(data.HERE, "watch.db"))
 VERDICT_KIND = {"volumen i smart money rastu prema eventu": "good", "volumen raste prema eventu": "good",
                 "ulaze loši walleti": "bad", "volumen pada (hype je možda već prošao)": "warn"}
 
-INTRO = """<h1>Praćenje prije eventa</h1>
-<p>Od oko <b>14 dana prije</b> svakog većeg eventa iz kalendara bot prati tokene vezane uz taj event (pravi token i
-dvije najjače kopije s <a href=/events>Eventi</a>). <b>Svaki sat</b> sprema snimku s DexScreenera (cijena, likvidnost,
+INTRO = tdesc("""Od oko <b>14 dana prije</b> svakog većeg eventa iz kalendara bot prati tokene vezane uz taj event (pravi token i
+dvije najjače kopije iz liste iznad). <b>Svaki sat</b> sprema snimku s DexScreenera (cijena, likvidnost,
 volumen, broj kupnji i prodaja), a <b>svakih 6 sati</b> preko Heliusa dohvati tko je kupio i usporedi te wallete s
 <a href=/wallets>registrom walleta</a> (smart = tier A, B ili S; loši = bot, rugger, bundler, insider, sniper…).
-Praćenje završava dan nakon eventa.</p>"""
+Praćenje završava dan nakon eventa.""")
 
-CORR_HELP = "<h2>Korelacija s približavanjem eventa</h2>" + tdesc("""Jedan red po tokenu. Brojevi su Spearmanova korelacija od −1 do +1 između „koliko je event blizu” i
+CORR_HELP = "<h3>Korelacija s približavanjem eventa</h3>" + tdesc("""Jedan red po tokenu. Brojevi su Spearmanova korelacija od −1 do +1 između „koliko je event blizu” i
 mjerene veličine kroz sve snimke: <b>+1</b> znači da stalno raste kako se event bliži, <b>0</b> da nema veze,
 <b>−1</b> da pada. Treba barem 6 snimki (oko 6 sati) za zaključak; za stupce s walletima barem 4 provjere walleta
 (oko jedan dan). <i>Volumen</i> je volumen zadnjeg sata, <i>Kupnje</i> broj kupnji u zadnjem satu, <i>Novi kupci</i>
 walleti koji su prvi put kupili između dvije provjere, <i>Smart</i> koliko je od njih smart. <i>Promjena vol.</i> je
 satni volumen sada naspram prve snimke. Klik na zaglavlje sortira.""")
 
-SNAP_HELP = "<h2>Zadnje snimke</h2>" + tdesc("""Najnovija snimka svakog praćenog tokena. <i>Do eventa</i>: danas, sutra, za koliko dana ili prije koliko dana je bio.
+SNAP_HELP = "<h3>Zadnje snimke</h3>" + tdesc("""Najnovija snimka svakog praćenog tokena. <i>Do eventa</i>: danas, sutra, za koliko dana ili prije koliko dana je bio.
 Stupci s walletima su prazni dok Helius provjera ne prođe.""")
 
-BUYER_HELP = "<h2>Kupci praćenih tokena</h2>" + tdesc("""Svaki wallet koji je kupio praćeni token, s tierom i oznakama iz registra walleta. <i>Kupio prije eventa</i>
+BUYER_HELP = "<h3>Kupci praćenih tokena</h3>" + tdesc("""Svaki wallet koji je kupio praćeni token, s tierom i oznakama iz registra walleta. <i>Kupio prije eventa</i>
 govori koliko je rano ušao. Smart walleti koji ulaze rano i u više tokena istog eventa najjači su signal.""")
 
 
@@ -62,7 +61,15 @@ def _verdict(v):
     return badge(v, VERDICT_KIND.get(v, "")) if v else "–"
 
 
-def page(qs):
+def tracked_count():
+    """How many tokens the pre-event watch is following right now (0 when watch.db is missing)."""
+    try:
+        return len(_q("SELECT DISTINCT token FROM watch_tokens"))
+    except Exception:
+        return 0
+
+
+def sections():
     corr = _q("SELECT * FROM watch_correlation ORDER BY event_date, corr_volume DESC")
     rows = [[esc(c["event"]), esc(c["event_date"]), tlink(c["token"], c["symbol"]), num(c["n"]),
              signed(c["corr_volume"]), signed(c["corr_buys"]), signed(c["corr_buyers"]), signed(c["corr_smart"]),
@@ -92,5 +99,10 @@ def page(qs):
     buy_t = table(["Wallet", "Tier", "Oznake", "Token", ("Kupio prije eventa", "n"), ("SOL uloženo", "n"),
                    ("Kupnji", "n"), "Prva kupnja"], brows, "wb")
 
-    return "Praćenje prije eventa", (INTRO + CORR_HELP + filt("wc", "Filtriraj event, token…") + corr_t
+    return (INTRO + CORR_HELP + filt("wc", "Filtriraj event, token…") + corr_t
                                      + SNAP_HELP + snap_t + BUYER_HELP + filt("wb", "Filtriraj wallet, token…") + buy_t)
+
+
+def page(qs):
+    """Old /watch address: same content, kept for links; run_ui redirects /watch to /events#prije."""
+    return "Prije eventa", "<h1>Prije eventa</h1>" + sections()

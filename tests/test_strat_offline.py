@@ -71,12 +71,33 @@ class Strat(unittest.TestCase):
 
     def test_hourly_cap(self):
         self.step(T0)
-        toks = [A[:-6] + f"{i:02d}pump" for i in range(10)]
+        toks = [A[:-6] + f"{i:02d}pump" for i in range(self.cfg["per_hour"] + 3)]
         for t in toks:
             self.px[t] = 1.0
         self.src.data["novcanici"] = [(t, T0 + 30, "w", 0) for t in toks]
         self.step(T0 + 60)
         self.assertEqual(len(self.rows()), self.cfg["per_hour"])
+
+    def test_no_cash_limit_keeps_buying(self):
+        """Nicholas 4.11.: strategies trade on after their $1000 is spent (cash_limit false), always the full stake."""
+        self.cfg = {**self.cfg, "bankroll_usd": 60, "cash_limit": False}
+        self.step(T0)
+        toks = [A[:-6] + f"{i:02d}pump" for i in range(3)]
+        for t in toks:
+            self.px[t] = 1.0
+        self.src.data["novcanici"] = [(t, T0 + 30, "w", 0) for t in toks]
+        self.step(T0 + 60)
+        self.step(T0 + 120)
+        r = self.rows()
+        self.assertEqual(len(r), 3)
+        self.assertTrue(all(p["size_usd"] == self.cfg["size_usd"] for p in r))
+        self.cfg["cash_limit"] = True   # the old rule: stops when the account has no money
+        self.d2 = tempfile.mkdtemp()
+        self.db = os.path.join(self.d2, "strat.db")
+        self.step(T0)
+        self.step(T0 + 60)
+        self.step(T0 + 120)
+        self.assertLess(len(self.rows()), 3)
 
     def test_exit_rules_and_account_value(self):
         self.step(T0)

@@ -86,6 +86,38 @@ def _card(s, rank, n, color):
             f'<div class=l style="margin-top:4px">{esc(s["opis"])}</div></div>')
 
 
+def natjecanje_block():
+    """Natjecanje (Nicholas 4.11.): the five strategy accounts as cards, best first, so everyone sees how the tool
+    learns and which kind of trade works. Empty when strat.db is not there yet."""
+    from strat import run, store
+    cfg = _cfg()
+    con = store.ro()
+    if con is None:
+        return ""
+    try:
+        summ = run.summary(con, cfg, run.exit_rules(time.time()))
+    except Exception:  # noqa: BLE001 - never breaks the Natjecanje page
+        return ""
+    finally:
+        con.close()
+    color = {s["key"]: COLORS[i % len(COLORS)] for i, s in enumerate(cfg["strategies"])}
+    order = sorted(summ, key=lambda s: -s["value"])
+    lead = order[0] if order and order[0]["closed"] else None
+    total = sum(s["closed"] for s in summ)
+    lim = ("bez ograničenja novca (račun smije u minus, pa vidimo i koliko bi izgubio)"
+           if not cfg.get("cash_limit", True) else f"dok ima novca na računu")
+    return ("<h2 id=strategije>🤖 Kako alat uči: 5 strategija</h2>"
+            + tdesc(f"Alat trguje s pet odvojenih demo računa od ${cfg['bankroll_usd']:,.0f}: svaki kupuje iz drugog "
+                    f"izvora (novčanici, influenceri, izbor alata, Mix, nasumično), a svi prodaju po istim pravilima. "
+                    f"Ulog ${cfg['size_usd']:.0f} po tradeu, {lim}. Tako se vidi koji tip tradeova stvarno zarađuje."
+                    + (f" Zasad vodi <b>{esc(lead['icon'])} {esc(lead['name'])}</b> ({lead['ret']:+.1%})." if lead else "")
+                    + (f" Zatvoreno ukupno {total}; pouzdana usporedba treba ~20 po strategiji." if total < 20 * len(summ)
+                       else "")
+                    + ' <a href=/strategije>Sve brojke, graf i tradeovi →</a>')
+            + "<div class=grid>" + "".join(_card(s, i + 1, len(order), color[s["key"]]) for i, s in enumerate(order))
+            + "</div>")
+
+
 def page(qs):
     from strat import run, store
     cfg = _cfg()
@@ -113,7 +145,9 @@ def page(qs):
         f"Pet odvojenih demo računa, svaki je krenuo s ${cfg['bankroll_usd']:,.0f} i kupuje iz drugog izvora. Svi "
         f"prodaju po <b>istim pravilima izlaza</b> kao glavni demo bot (stop loss, take profit, smart sell, ono što je "
         f"alat naučio), pa je jedina razlika odakle je došla kupnja. Ulog je ${cfg['size_usd']:.0f} po tokenu, najviše "
-        f"{cfg['max_open']} otvorenih i {cfg['per_hour']} novih na sat po računu. Signal koji vidimo kasnije od "
+        f"{cfg['max_open']} otvorenih i {cfg['per_hour']} novih na sat po računu"
+        + ("; kad potroši $1000, nastavlja dalje u minus da alat uči na više tradeova" if not cfg.get("cash_limit", True)
+           else "") + f". Signal koji vidimo kasnije od "
         f"{cfg['max_delay_min']} min se preskače. Bez pravog novca. Radi od "
         f"{time.strftime('%d.%m. %H:%M', time.gmtime(start))} UTC ({days:.1f} dana)."))
     order = sorted(summ, key=lambda s: -s["value"])
