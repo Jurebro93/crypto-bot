@@ -58,7 +58,13 @@ def daily(con, ov, now=None, fetch=sources.protocol_daily, min_week=EXTRA_MIN_WE
     for (day, slug), vol in vols.items():
         k = (day, f"all:{protos[slug][2]}")
         tot[k] = tot.get(k, 0.0) + vol
-    last = partial_day(tot)
+    counts = {}
+    for (day, _slug), vol in vols.items():
+        if vol > 0:
+            counts[day] = counts.get(day, 0) + 1
+    last = partial_day(tot, counts=counts)
+    if anomaly_day(tot) and not last:
+        print(f"market: {anomaly_day(tot)} ima nizak volumen, ali su svi izvori javili: dan ostaje (DS02)", flush=True)
     if last:   # DefiLlama has not finished that day yet: keep it out until a later fetch has it complete
         vols = {k: v for k, v in vols.items() if k[0] != last}
         tot = {k: v for k, v in tot.items() if k[0] != last}
@@ -66,23 +72,45 @@ def daily(con, ov, now=None, fetch=sources.protocol_daily, min_week=EXTRA_MIN_WE
         con.execute("DELETE FROM regime WHERE day>=?", (last,))
         print(f"market: {last} još nepotpun na DefiLlami, preskačem", flush=True)
     con.executemany("INSERT OR REPLACE INTO daily VALUES (?,?,?)",
-                    [(d, s, v) for (d, s), v in list(vols.items()) + list(tot.items())])
+                    [(d, s, v) for (d, s), v in list(vols.items()) + list(tot.items())]
+                    + [(d, "meta:reporting", float(n)) for d, n in counts.items() if d != last])
     con.execute("DELETE FROM daily WHERE day<?", (first,))
     return len({d for d, _ in vols})
 
 
-def partial_day(tot, share=PARTIAL_SHARE):
-    """The newest day when its whole Solana DEX volume is below `share` of the median of the 7 days before it
-    (DefiLlama sometimes lists a day before all protocols have reported it, e.g. 31.10.2026 showed $0.83B vs ~$1.9B)."""
+def partial_day(tot, share=PARTIAL_SHARE, counts=None):
+    """The newest day when DefiLlama has not finished it yet, else None.
+
+    Audit 4.11. DS02: a low volume alone is not proof of a missing report (a quiet day is real data, and exactly
+    the kind of day when the bot should trade less). With `counts` ({day: protocols that reported}) the newest day
+    is partial only when clearly fewer protocols reported than on the days before (below 90% of their median);
+    the volume is not looked at. Without counts (old stored data) both must hold: few protocols cannot be checked,
+    so the volume rule stays, but only for a drop below `share` of the median AND an exact copy of the rolling
+    24 h shape is not assumed."""
     dex = {d: v for (d, k), v in tot.items() if k == "all:dex"}
     if len(dex) < 8:
         return None
     last = max(dex)
+    if counts:
+        prev_n = sorted(counts.get(last - i * D) for i in range(1, 8) if counts.get(last - i * D))
+        if len(prev_n) < 5 or last not in counts:
+            return None
+        return last if counts[last] < 0.9 * prev_n[len(prev_n) // 2] else None
     prev = sorted(dex.get(last - i * D) for i in range(1, 8) if dex.get(last - i * D))
     if len(prev) < 5:
         return None
     med = prev[len(prev) // 2]
     return last if dex[last] < share * med else None
+
+
+def anomaly_day(tot, share=PARTIAL_SHARE):
+    """The newest day when its DEX volume is far below the week before: kept, only flagged (DS02)."""
+    dex = {d: v for (d, k), v in tot.items() if k == "all:dex"}
+    if len(dex) < 8:
+        return None
+    last = max(dex)
+    prev = sorted(dex.get(last - i * D) for i in range(1, 8) if dex.get(last - i * D))
+    return last if len(prev) >= 5 and dex[last] < share * prev[len(prev) // 2] else None
 
 
 def prices(con, pts):

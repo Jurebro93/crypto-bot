@@ -232,7 +232,8 @@ def build(now=None):
             return None
         from market import collect
         dexs = {(d_, "all:dex"): v for d_, v in store.series(con, "all:dex", day - 10 * D)}
-        if collect.partial_day(dexs) == day:     # newest day not finished at DefiLlama yet (collect drops it later)
+        counts = {d_: v for d_, v in store.series(con, "meta:reporting", day - 10 * D)}
+        if collect.partial_day(dexs, counts=counts or None) == day:     # newest day not finished at DefiLlama yet (collect drops it later)
             day -= D
         ser = {k: dict(store.series(con, f"all:{k}", day - 400 * D)) for k in ("launchpad", "dex", "terminal")}
         price = dict(con.execute("SELECT day, usd FROM price WHERE day>?", (day - 400 * D,)))

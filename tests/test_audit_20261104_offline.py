@@ -188,5 +188,82 @@ class AdminStrip(unittest.TestCase):
         self.assertIn("<p>ok</p>", out)
 
 
+class C01WalletCostBasis(unittest.TestCase):
+    def test_rebuy_does_not_change_booked_sale(self):
+        from wallets import pnl
+        rows = [{"ts": 1, "mint": "M", "kind": "buy", "tokens": 1, "sol": -1},
+                {"ts": 2, "mint": "M", "kind": "sell", "tokens": -1, "sol": 2},
+                {"ts": 3, "mint": "M", "kind": "buy", "tokens": 1, "sol": -10}]
+        p = pnl.positions(rows, {"M": 10})["M"]
+        self.assertAlmostEqual(p["realized"], 1)
+        self.assertAlmostEqual(p["unrealized"], 0)
+        self.assertAlmostEqual(p["cost_left"], 10)
+        before = pnl.positions(rows[:2], {"M": 10})["M"]["realized"]
+        self.assertAlmostEqual(before, p["realized"])          # T02/T13 shape: the later buy changed nothing
+
+    def test_partial_sale_books_once(self):
+        from wallets import pnl
+        rows = [{"ts": 1, "mint": "M", "kind": "buy", "tokens": 10, "sol": -1},
+                {"ts": 2, "mint": "M", "kind": "sell", "tokens": -5, "sol": 1}]
+        p = pnl.positions(rows, {"M": 0.1})["M"]
+        self.assertAlmostEqual(p["realized"], 0.5)
+        self.assertAlmostEqual(p["remaining"], 5)
+        self.assertAlmostEqual(p["cost_left"], 0.5)
+        self.assertEqual(p["status"], "open")
+
+
+class C02UnknownPrice(unittest.TestCase):
+    def test_empty_feed_is_unknown_not_dead(self):
+        from wallets import pnl
+
+        class Empty:
+            def tokens(self, chain, mints):
+                return []
+        prices, sol = pnl.prices_sol(["M"], Empty())
+        self.assertEqual(prices, {})
+        self.assertIsNone(sol)
+        rows = [{"ts": 1, "mint": "M", "kind": "buy", "tokens": 10, "sol": -1}]
+        p = pnl.positions(rows, prices)["M"]
+        self.assertEqual((p["status"], p["price_status"]), ("open", "unknown"))
+        self.assertEqual(pnl.positions(rows, {"M": 0})["M"]["status"], "closed")   # confirmed dead pool
+
+
+class C03HistoricalRate(unittest.TestCase):
+    def test_stable_leg_uses_rate_of_that_day(self):
+        from wallets import rpc
+        usdc = next(iter(rpc.STABLES))
+        tx = {"blockTime": 86400 * 3 + 5, "transaction": {"signatures": ["S"], "message": {"accountKeys": ["W"]}},
+              "meta": {"preBalances": [0], "postBalances": [0],
+                       "preTokenBalances": [{"owner": "W", "mint": usdc, "uiTokenAmount": {"amount": "200000000", "decimals": 6}}],
+                       "postTokenBalances": [{"owner": "W", "mint": "M", "uiTokenAmount": {"amount": "5", "decimals": 0}}]}}
+        rows = rpc.parse(tx, "W", sol_usd=lambda ts: 200.0)
+        self.assertAlmostEqual(rows[0]["sol"], -1.0)
+        self.assertEqual(rows[0]["fx"], "hist")
+        self.assertEqual(rpc.parse(tx, "W", sol_usd=lambda ts: None)[0]["fx"], "approx")
+
+
+class T20Beta(unittest.TestCase):
+    def test_identical_series_beta_one(self):
+        import statistics as st
+        a = [0.01 if i % 2 else -0.008 for i in range(30)]
+        vb = st.variance(a)
+        self.assertAlmostEqual(st.covariance(a, a) / vb, 1.0)
+        src = open(os.path.join(HERE, "dugo", "features.py")).read()
+        self.assertNotIn("st.pvariance(b)", src)
+
+
+class T21PartialDay(unittest.TestCase):
+    def test_fully_reported_quiet_day_is_kept(self):
+        from market import collect
+        D = collect.D
+        tot = {(i * D, "all:dex"): 100.0 for i in range(7)}
+        tot[(7 * D, "all:dex")] = 50.0
+        counts = {i * D: 40 for i in range(8)}
+        self.assertIsNone(collect.partial_day(tot, counts=counts))
+        self.assertEqual(collect.anomaly_day(tot), 7 * D)          # flagged, not dropped
+        counts[7 * D] = 20                                          # half the protocols missing: really partial
+        self.assertEqual(collect.partial_day(tot, counts=counts), 7 * D)
+
+
 if __name__ == "__main__":
     unittest.main()

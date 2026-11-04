@@ -15,47 +15,74 @@ def _clamp(x):
     return max(0.0, min(1.0, x))
 
 
+CLOSED_FRAC = 0.98   # sold this share of what was bought = closed (was 0.9: a 10% bag still open was "closed")
+
+
 def positions(rows, prices=None):
-    """rows -> {mint: position}. prices: {mint: price in SOL per token}, missing = unknown, 0 = dead."""
+    """rows -> {mint: position}. prices: {mint: price in SOL per token}; missing or None = unknown, 0 = confirmed
+    dead (pool below DEAD_LIQ_USD).
+
+    Cost basis is kept event by event (moving average cost, audit 4.11. C01): a sale books its profit against the
+    cost of the tokens held AT THAT MOMENT, so a later buy never changes an already booked sale. Tokens received for
+    free (transfer_in) have no known cost: sales beyond the bought quantity are left out of realized PnL.
+    Fields: bought/cost/sold/proceeds (totals), realized, remaining, cost_left (open cost basis), value,
+    unrealized, price_status (known / unknown / dead), status (open / closed / no_cost / moved), roi, hold_min."""
     prices = prices or {}
     pos = {}
     for r in sorted(rows, key=lambda r: r["ts"]):
         p = pos.setdefault(r["mint"], {"mint": r["mint"], "bought": 0.0, "cost": 0.0, "sold": 0.0, "proceeds": 0.0,
-                                       "free_in": 0.0, "moved": 0.0, "buys": 0, "sells": 0, "first_buy": None, "last_sell": None,
-                                       "last_ts": None})
+                                       "free_in": 0.0, "moved": 0.0, "buys": 0, "sells": 0, "first_buy": None,
+                                       "last_sell": None, "last_ts": None, "held": 0.0, "held_cost": 0.0,
+                                       "realized": 0.0, "matched_proceeds": 0.0, "matched_cost": 0.0})
         p["last_ts"] = r["ts"]
         if r["kind"] == "buy":
             p["bought"] += r["tokens"]
             p["cost"] += -r["sol"]
+            p["held"] += r["tokens"]
+            p["held_cost"] += -r["sol"]
             p["buys"] += 1
             p["first_buy"] = p["first_buy"] or r["ts"]
         elif r["kind"] == "sell":
-            p["sold"] += -r["tokens"]
-            p["proceeds"] += r["sol"]
+            q, got = -r["tokens"], r["sol"]
+            p["sold"] += q
+            p["proceeds"] += got
             p["sells"] += 1
             p["last_sell"] = r["ts"]
+            if q > 0 and p["held"] > 0:
+                m = min(q, p["held"])                     # tokens with a known cost
+                c = p["held_cost"] * m / p["held"]
+                g = got * m / q
+                p["realized"] += g - c
+                p["matched_proceeds"] += g
+                p["matched_cost"] += c
+                p["held"] -= m
+                p["held_cost"] -= c
         elif r["kind"] == "transfer_in":
             p["free_in"] += r["tokens"]
         elif r["kind"] == "transfer_out":
-            p["moved"] += -r["tokens"]
+            q = -r["tokens"]
+            p["moved"] += q
+            if q > 0 and p["held"] > 0:                 # the cost leaves with the tokens, no profit booked
+                m = min(q, p["held"])
+                p["held_cost"] -= p["held_cost"] * m / p["held"]
+                p["held"] -= m
     for p in pos.values():
+        held, held_cost = p.pop("held"), p.pop("held_cost")
         if p["bought"] <= 0:
             p["status"] = "no_cost"  # only transfers, or bought before our history window
             continue
         if p["moved"] > 0.5 * p["bought"]:
             p["status"] = "moved"  # sent to another wallet (often to sell from there): PnL unknown here
             continue
-        frac = min(1.0, p["sold"] / p["bought"])
-        p["realized"] = (p["proceeds"] * min(1.0, p["bought"] / p["sold"]) if p["sold"] else 0.0) - p["cost"] * frac
-        p["remaining"] = max(0.0, p["bought"] - p["sold"] - p["moved"])
-        cost_left = p["cost"] * (1 - frac)
+        p["remaining"] = max(0.0, held)
+        p["cost_left"] = max(0.0, held_cost)
         price = prices.get(p["mint"])
+        p["price_status"] = "unknown" if price is None else "dead" if price == 0 else "known"
         p["value"] = None if price is None else p["remaining"] * price
-        p["unrealized"] = None if price is None else p["value"] - cost_left
-        dead = price == 0
-        p["status"] = "closed" if frac >= 0.9 or dead else "open"
-        p["roi"] = ((p["proceeds"] * min(1.0, p["bought"] / p["sold"]) if p["sold"] else 0.0)
-                    + (p["value"] or 0.0)) / p["cost"] - 1 if p["cost"] > 0 else 0.0
+        p["unrealized"] = None if price is None else p["value"] - p["cost_left"]
+        sold_frac = 1 - p["remaining"] / p["bought"] if p["bought"] else 1.0
+        p["status"] = "closed" if sold_frac >= CLOSED_FRAC or price == 0 else "open"
+        p["roi"] = (p["realized"] + (p["unrealized"] or 0.0)) / p["cost"] if p["cost"] > 0 else 0.0
         p["hold_min"] = (p["last_sell"] - p["first_buy"]) / 60 if p["last_sell"] and p["first_buy"] else None
     return pos
 
@@ -160,8 +187,10 @@ def tier(s):
 
 
 def prices_sol(mints, client):
-    """{mint: SOL price per token} from DexScreener (free). Dead pools (< DEAD_LIQ_USD) -> 0."""
-    out = {m: 0.0 for m in mints}
+    """({mint: SOL price per token}, SOL/USD) from DexScreener (free). A mint the feed did not answer for is left
+    OUT (unknown, audit 4.11. C02: an empty answer used to become price 0 = "dead token" and closed the position);
+    0 only for a pool that answered with liquidity below DEAD_LIQ_USD. SOL/USD None when unknown."""
+    out = {}
     best = {}
     sol_usd = None
     for p in client.tokens("solana", list(mints) + ["So11111111111111111111111111111111111111112"]):
@@ -172,9 +201,9 @@ def prices_sol(mints, client):
                 best[base] = (liq, float(p["priceUsd"]))
                 sol_usd = float(p["priceUsd"])
             continue
-        if base in out and liq > best.get(base, (0,))[0]:
+        if base in mints and p.get("priceUsd") and liq >= best.get(base, (-1,))[0]:
             best[base] = (liq, float(p.get("priceUsd") or 0))
     for m, (liq, usd) in best.items():
-        if m in out and sol_usd:
+        if m in mints and sol_usd:
             out[m] = usd / sol_usd if liq >= DEAD_LIQ_USD else 0.0
-    return out, sol_usd or 150.0
+    return out, sol_usd
