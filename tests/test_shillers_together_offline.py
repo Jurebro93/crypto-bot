@@ -70,12 +70,20 @@ class History(unittest.TestCase):
         ca = "HgxEGTZ1Epb64RrYqcuHkqb1gGWWnF5WcPTCDWzApump"
         con.execute("INSERT INTO posts (channel, post, ts, cas) VALUES ('chan', 41, ?, '')", (T0,))
         pages = {41: page_html([(30, T0 - 3000, f"buy {ca}"), (35, T0 - 2000, "gm")]),
-                 30: page_html([(1, T0 - 9000, "first post")])}
-        p, n, done = history.backfill(con, "chan", fetch=lambda ch, before: pages[before], sleep=lambda s: None,
+                 30: page_html([(2, T0 - 9000, "first post")])}
+        p, n, done = history.backfill(con, "chan", max_pages=2, fetch=lambda ch, before: pages[before],
+                                      sleep=lambda s: None,
                                       hype_db=hype)
-        self.assertEqual((p, n, done), (2, 1, True))
+        self.assertEqual((p, n), (2, 1))
+        self.assertFalse(done)  # an empty page can be a gap of deleted posts: keep looking a few times
+        for _ in range(6):
+            p, n, done = history.backfill(con, "chan", fetch=lambda ch, before: page_html([]), sleep=lambda s: None,
+                                          hype_db=hype)
+            if done:
+                break
+        self.assertTrue(done)
         rows = con.execute("SELECT post, cas, source FROM posts ORDER BY post").fetchall()
-        self.assertEqual([r[0] for r in rows], [1, 30, 35, 41])
+        self.assertEqual([r[0] for r in rows], [2, 30, 35, 41])
         self.assertEqual(rows[1][2], "history")
         self.assertEqual(history.backfill(con, "chan", fetch=None), (0, 0, True))  # done: never reads again
 

@@ -58,13 +58,22 @@ def backfill(con, channel, max_pages=25, since_ts=0, fetch=fetch_before, sleep=t
         pages += 1
         posts = [p for p in info["posts"] if p["post"] < before]
         if not posts:
-            done = True
-            break
+            # deleted posts leave gaps in the ids and t.me then shows an empty page: jump further back a few times
+            # before deciding the channel has no older posts
+            gaps = st.get("gaps", 0) + 1
+            st["gaps"] = gaps
+            if gaps > 6 or before <= 200:
+                done = True
+                break
+            before = max(1, before - 50 * 4 ** (gaps - 1))
+            continue
+        st["gaps"] = 0
         n_new += len(save_old(con, channel, posts, now, hype_db))
         before = min(p["post"] for p in posts)
         if min((p["ts"] or 0) for p in posts) < since_ts:
             done = True
             break
-    store.kv_set(con, f"hist:{channel}", {"before": before, "done": done, "pages": (st.get("pages") or 0) + pages})
+    store.kv_set(con, f"hist:{channel}", {"before": before, "done": done, "pages": (st.get("pages") or 0) + pages,
+                                          "gaps": st.get("gaps", 0)})
     con.commit()
     return pages, n_new, done
