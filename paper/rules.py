@@ -27,7 +27,7 @@ import zlib
 from learn import weights as _w
 
 DEFAULT = {
-    "gate": {"enabled": True, "min_liq": 10000, "max_liq_mcap": 0.8, "max_price_small": 1.0, "min_vol_keep": 0.2,
+    "gate": {"enabled": True, "min_mcap": 20000, "min_liq": 10000, "max_liq_mcap": 0.8, "max_price_small": 1.0, "min_vol_keep": 0.2,
              "t0_checks_per_pass": 8},
     "ab": {"enabled": True, "band": 100000, "fresh_min": 15, "size_usd": 20, "max_open": 40, "max_per_day": None,
            "min_n": 30, "keep_frac": 0.25, "ret_cap": 3.0},
@@ -97,6 +97,8 @@ def gate(token, price, liq, mcap, t0, features=None, cfg=None):
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None
+    if mcap and mcap < g.get("min_mcap", 0):  # Nicholas 4.11.: ~$5k fresh listings are mostly rug pulls
+        return f"market cap ${mcap:,.0f} ispod ${g['min_mcap']:,.0f} (premali, rizik ruga)".replace(",", ".")
     if (liq or 0) < g["min_liq"]:
         return f"likvidnost ${liq or 0:,.0f} ispod ${g['min_liq']:,.0f}".replace(",", ".")
     if mcap and liq and liq >= g["max_liq_mcap"] * mcap:

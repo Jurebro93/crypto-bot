@@ -48,15 +48,27 @@ def band_of(score):
     return "ocjena " + next(name for lo, name in BANDS if s >= lo)
 
 
+MC_BANDS = ((1e6, "preko 1M $"), (2e5, "200k–1M $"), (5e4, "50–200k $"), (0, "ispod 50k $"))
+
+
+def mc_band(mcap):
+    """Market-cap band at entry, its own 'arm' (Nicholas 4.11.): a $10k token and a $800k token are different
+    games (the small ones rug far more often), so each band is measured on its own and a band that keeps losing
+    gets fewer entries, learned from results like any arm."""
+    if not mcap:
+        return "mc ?"
+    return "mc " + next(name for lo, name in MC_BANDS if mcap >= lo)
+
+
 def stats(con, cfg=None):
     """{arm: [wins, losses]} from closed trades that carry an arm, plus {'ocjena <band>': [w, l]} for closed
     exploration trades by the score they came in with. Trades someone sold by hand do not count (not the bot's
     result)."""
     cfg = dict(DEFAULT, **(cfg or {}))
     out = {}
-    for conf, ret, state, score in con.execute(
-            "SELECT t.config, t.ret, t.state, c.score FROM trades t LEFT JOIN candidates c ON c.trade_id=t.id "
-            "WHERE t.status='closed' AND t.config LIKE '%\"arm\"%'"):
+    for conf, ret, state, score, mc in con.execute(
+            "SELECT t.config, t.ret, t.state, c.score, t.entry_mcap FROM trades t LEFT JOIN candidates c "
+            "ON c.trade_id=t.id WHERE t.status='closed' AND t.config LIKE '%\"arm\"%'"):
         c = json.loads(conf or "{}")
         arm = c.get("arm")
         if not arm or '"rucno"' in (state or ""):
@@ -68,6 +80,8 @@ def stats(con, cfg=None):
         out.setdefault(arm, [0, 0])[win] += amt
         if c.get("entry_mode") == "explore" and score is not None:
             out.setdefault(band_of(score), [0, 0])[win] += amt
+        if mc:
+            out.setdefault(mc_band(mc), [0, 0])[win] += amt
     return out
 
 
@@ -112,7 +126,7 @@ def report(con):
             "SELECT t.config, t.ret, t.pnl_usd, t.exit_reason, t.max_ret, t.min_ret, c.score FROM trades t "
             "LEFT JOIN candidates c ON c.trade_id=t.id WHERE t.status='closed'"):
         c = json.loads(conf or "{}")
-        if c.get("entry_mode") not in ("explore", "konv", "mc100k", "mc100k2", "kol3"):
+        if c.get("entry_mode") not in ("explore", "konv", "mc100k", "mc100k2", "kol3", "aktivni"):
             continue
         keys = [c.get("arm") or "bez kraka"] + ([band_of(score)] if c.get("entry_mode") == "explore"
                                                  and score is not None else [])
