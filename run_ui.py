@@ -219,6 +219,9 @@ def login_page(qs, err=""):
 
 
 def route(path, qs):
+    if path == "/pregled":
+        from ui import pocetna
+        return pocetna.page(qs)
     if path == "/":
         return overview.page(qs)
     if path == "/radar":
@@ -312,8 +315,8 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/tokens", "/tokens/jaki")   # pages that read every hype signal: built by build_in_child, never in this process
-WARM = ("/tokens",)   # pre-rendered every few minutes; the others are built on the first visit
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype signal: built by build_in_child, never in this process
+WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
 
 
 def build_in_child(path):
@@ -523,8 +526,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, frag.encode("utf-8"))
         if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
             return self._redirect("/events#prije", code=301)
-        if path == "/":   # Pregled is gone (2.11.): the app opens on the token list
-            return self._redirect("/tokens" + (f"?{u.query}" if u.query else ""), code=302)
+        if path == "/":   # the app opens on Pregled (4.11.: one page with the most important things, then Tokeni)
+            return self._redirect("/pregled" + (f"?{u.query}" if u.query else ""), code=302)
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
