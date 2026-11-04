@@ -123,5 +123,14 @@ class TelegramHistoryPage(unittest.TestCase):
             kstore.DB = old
 
 
+class StrategyTradesTable(unittest.TestCase):
+    def test_bought_cell_is_text_not_a_tuple(self):
+        import inspect
+        from ui import strategije
+        src = inspect.getsource(strategije)
+        self.assertIn('(ago(p["entry_ts"])[0], p["entry_ts"], "n")', src)
+        self.assertNotIn('(ago(p["entry_ts"]), p["entry_ts"], "n")', src)
+
+
 if __name__ == "__main__":
     unittest.main()

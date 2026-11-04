@@ -218,7 +218,7 @@ def page(qs):
         st = p["state"] or {}
         rows.append([f'<i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:'
                      f'{color.get(p["strat"], "#999")}"></i> {esc(name.get(p["strat"], p["strat"]))}',
-                     tlink(p["token"], p["symbol"]), esc(p["why"] or ""), (ago(p["entry_ts"]), p["entry_ts"], "n"),
+                     tlink(p["token"], p["symbol"]), esc(p["why"] or ""), (ago(p["entry_ts"])[0], p["entry_ts"], "n"),   # ago() is (text, sort key, class): the cell showed the tuple (4.11.)
                      num(p["entry_mcap"], "${:,.0f}"), num(p["size_usd"], "${:,.0f}"),
                      _pct(st.get("peak")), signed(p["pnl_usd"], "${:+,.2f}"), _pct(p["ret"]),
                      "otvoreno" if p["status"] == "open" else _exit(p["exit_reason"])])
