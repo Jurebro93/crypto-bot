@@ -364,5 +364,22 @@ class T06AmbiguousPost(unittest.TestCase):
         self.assertEqual(n, 0)
 
 
+class T26SellCheck(TradeBase):
+    def test_no_sell_route_means_no_buy(self):
+        ok_order = jupiter.order
+        jupiter.order = lambda i, o, a, taker=None, route="v2": (
+            ok_order(i, o, a) if i == jupiter.SOL else {"inAmount": str(a), "outAmount": "0", "error": "no route"})
+        r = executor.buy(self.con, CFG, "HONEY", now=NOW)
+        self.assertEqual(r["status"], "blocked")
+        self.assertIn("simulacija prodaje", r["error"])
+
+    def test_heavy_round_trip_loss_blocks(self):
+        ok_order = jupiter.order
+        jupiter.order = lambda i, o, a, taker=None, route="v2": (
+            ok_order(i, o, a) if i == jupiter.SOL else {"inAmount": str(a), "outAmount": str(a // 1000 // 2)})
+        r = executor.buy(self.con, CFG, "THIN", now=NOW)
+        self.assertIn("gubi 50.0%", r["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

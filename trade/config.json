@@ -9,5 +9,6 @@
  "max_signal_age_s": 180,
  "poll_s": 5,
  "max_loss_day": 0.15,
- "day_tz": "Europe/Zagreb"
+ "day_tz": "Europe/Zagreb",
+ "sell_check": true
 }

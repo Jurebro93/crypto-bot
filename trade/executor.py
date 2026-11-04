@@ -262,6 +262,34 @@ def _log_one(con, now, pid, token, side, mode, res, reason):
                  res.get("fee_lamports") if mode == "live" else None, res.get("prio_lamports")))
 
 
+def sell_check(token, size_sol, max_cost_pct):
+    """Before every buy: can the same amount be sold straight back? (audit 4.11. §20.4, T26). Quotes SOL -> token
+    and then token -> SOL for what the first would give; no sell route, or a round trip losing more than twice the
+    allowed swap cost, = reason to refuse the buy, whatever the score. A quote is not an executed sale (F10), but a
+    honeypot or a pool too thin to exit shows up here for free. Returns None when fine, else the reason."""
+    amount = int(size_sol * LAMPORTS)
+    err = None
+    for route in ("v2", "ultra"):         # the same fallback as the swap itself
+        try:
+            q1 = jupiter.order(jupiter.SOL, token, amount, route=route)
+            got = int(q1.get("outAmount") or 0)
+            if not got:
+                return None          # no buy route: swap() reports that itself
+            q2 = jupiter.order(token, jupiter.SOL, got, route=route)
+            back = int(q2.get("outAmount") or 0)
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+    else:
+        return f"provjera prodaje nije uspjela ({type(err).__name__}); ne kupujem naslijepo"
+    if not back:
+        return "simulacija prodaje: nema rute za prodaju natrag u SOL (moguć honeypot)"
+    loss = 100 * (1 - back / amount)
+    if max_cost_pct is not None and loss > 2 * max_cost_pct:
+        return f"simulacija prodaje: kupnja pa odmah prodaja gubi {loss:.1f}% (granica {2 * max_cost_pct:g}%)"
+    return None
+
+
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
@@ -269,6 +297,8 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
     why = gate_buy(con, cfg, size_sol, now, live, token=token)
+    if not why and cfg.get("sell_check", True):
+        why = sell_check(token, size_sol, cfg.get("max_cost_pct"))
     cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
                       "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
                       (paper_id, league_id, token, symbol, int(now), mode, "blocked" if why else "pending",

@@ -66,7 +66,7 @@ class TradeOffline(unittest.TestCase):
         self.assertIn("dnevni limit", r["error"])
         open(executor.STOP_FILE, "w").close()
         self.assertIn("kill switch", executor.buy(self.con, {**CFG, "max_sol_per_day": 9}, "D", now=NOW)["error"])
-        self.assertEqual(len(self.fake.calls), 2)  # blocked buys never even ask for a quote
+        self.assertEqual(len(self.fake.calls), 6)  # 2 buys x (sell check: 2 quotes + the buy); blocked ones ask nothing
 
     def test_cost_too_high_blocks(self):
         self.fake.cost = 12
