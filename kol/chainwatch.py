@@ -45,11 +45,64 @@ def _api(method, path="", body=None):
     return json.loads(txt) if txt else None
 
 
-def wanted(con, cfg):
-    """Wallets to follow: KOLs ranked by PnL from the identity lists, FOMO traders after them."""
-    rows = con.execute("""SELECT wallet FROM kol_ids ORDER BY (source = 'fomo'), COALESCE(rank, 999),
-                          COALESCE(pnl, 0) DESC""").fetchall()
-    return [w for w, in rows][:cfg["max_wallets"]]
+SHARE = {"ids": 0.5, "copy": 0.4, "signal": 0.1}   # of chain.max_wallets; a group's unused slots go to the next
+
+
+def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
+    """(copyable, signal) wallets from our own registry (wallets.db, run_wallets.py score): the best by copy_score
+    (tier A/B, without bad labels) and tier S (profitable bots / snipers: a buy is a signal, not a copy). Until
+    5.11. only the public leaderboards (kol_ids) were followed live; the wallets the bot scores itself were not."""
+    try:
+        from wallets import store as wstore
+    except ImportError:
+        return [], []
+    path = wallet_db or wstore.DB
+    if not os.path.exists(path):
+        return [], []
+    try:
+        src = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return [], []
+    copy, signal = [], []
+    try:
+        for w, lab in src.execute("SELECT wallet, labels FROM wallets WHERE copy_score >= ? ORDER BY copy_score DESC, "
+                                  "score DESC LIMIT ?", (min_copy, max(0, n_copy) * 3)):
+            if not set(json.loads(lab or "[]")) & wstore.BAD_LABELS:
+                copy.append(w)
+            if len(copy) >= n_copy:
+                break
+        for w, in src.execute("SELECT wallet FROM wallets WHERE tier = 'S' AND score >= 40 ORDER BY score DESC LIMIT ?",
+                              (max(0, n_signal),)):
+            signal.append(w)
+    except sqlite3.Error:   # no wallets table yet
+        pass
+    finally:
+        src.close()
+    return copy, signal
+
+
+def wanted(con, cfg, wallet_db=None):
+    """Wallets to follow (at most chain.max_wallets): public KOL leaderboards (kol_ids, by rank; FOMO traders last),
+    then our own best copyable wallets, then our tier-S signal wallets (chain.share, chain.min_copy). Slots a group
+    cannot fill go to the others, so an empty registry still means the full leaderboard list as before."""
+    cap = cfg["max_wallets"]
+    share = dict(SHARE, **(cfg.get("share") or {}))
+    ids = [w for w, in con.execute("""SELECT wallet FROM kol_ids ORDER BY (source = 'fomo'), COALESCE(rank, 999),
+                                      COALESCE(pnl, 0) DESC""")]
+    copy, signal = own_wallets(cap, cap, cfg.get("min_copy", 35), wallet_db)
+    out, seen = [], set()
+    groups = [(ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"])]
+    for second in (False, True):   # second pass: the slots a short group left over
+        for ws, sh in groups:
+            n = cap - len(out) if second else int(round(cap * sh))
+            for w in ws:
+                if n <= 0 or len(out) >= cap:
+                    break
+                if w not in seen:
+                    seen.add(w)
+                    out.append(w)
+                    n -= 1
+    return out
 
 
 def sync(con, cfg, now=None, api=None, log=print):

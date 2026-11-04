@@ -123,7 +123,7 @@ Kako se računa:
 - Prvi pogled: prvo jedna stranica (10 kredita). Ako je 100 transakcija stalo u manje od 2 h, to je bot i stajemo. Inače do 3 stranice, zadnjih 30 dana.
 - Ponovna provjera: samo transakcije novije od zadnje spremljene (obično 10 kredita). Tier A (copy >= 60) svakih 6 h, B dnevno, C tjedno, D nikad osim ako ga neka analiza opet vidi.
 - PnL po tokenu prosječnim troškom: realizirani = prodano - udio uloga; nerealizirani = preostali tokeni x cijena s DexScreenera (besplatno) - preostali ulog; bazen ispod $1000 likvidnosti = 0 (rug). Tokeni poslani na drugi wallet se ne broje (PnL nepoznat).
-- `score` 0-100: zatvoreni PnL, ROI na ulog, win rate (stisnut prema 50% kad je malo trejdova), profit factor, broj 2x+, i ne ovisi li sve o jednom trejdu. Ispod 10 zatvorenih pozicija ocjena se razmjerno smanjuje.
+- `score` 0-100: zatvoreni PnL, ROI na ulog, win rate (stisnut prema 50% kad je malo trejdova), profit factor, broj 2x+, i ne ovisi li sve o jednom trejdu. Ispod 10 zatvorenih pozicija ocjena se razmjerno smanjuje. Od 5.11. ocjena vidi i otvorene pozicije: nerealizirani rezultat ulazi s pola težine (`scored_pnl_sol`), a "vreće" (otvoreni gubitnici stariji od 7 dana, `bags`) režu ocjenu po svom udjelu u pozicijama; wallet koji prodaje dobitnike, a drži gubitnike više ne izgleda kao genij.
 - `copy_score`: score puta koliko se wallet stvarno da kopirati. Nula za botove, minus PnL i oznake `bot, rugger, bundler, insider, dev, sniper, cex, mev, funder_of_rugger`. Kazne: drži < 2 ili < 10 min (kopija kasni sekundama), previše ili premalo trejdova, neaktivan 5+ dana, sitne kupnje, puno besplatno primljenih tokena. Bonus +5 za svaki dodatni pobjednik u kojem je bio rano.
 
 Stil (`style`): `bot` (300+ trejdova dnevno ili drži < 30 s), `sniper` (kupio u prvim sekundama tokena), `scalper` (drži < 10 min), `swing`. Profitabilni botovi i snajperi (score >= 40) dobiju tier S: ne kopiraju se (prebrzi su), ali se prate svaki dan i služe kao signal. `wallets.store.signal_wallets()` ih vraća, a `run_hype.py scan` ih broji u `smart_money` zajedno s ostalim dobrim walletima. Kod botova se plaća dodatna stranica povijesti samo ako je prva stranica u plusu.
@@ -144,6 +144,8 @@ python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
 - Cijena i volumen 2 h prije, 1/6/24 h poslije i max u 24 h: GeckoTerminal 5-min svijeće (besplatno).
 - Grupni poziv: 2+ autora na istom tokenu unutar 30 min. Parovi KOL-ova koji često zovu zajedno.
 - Helius tokovi oko jakih poziva (`flows_per_day`, ~40 kredita svaki): insajderi kupili sat prije i prodali u poziv; na 3+ tokena = rotacijski dev, ide u wallets.db s oznakom insider.
+- Novčanici uživo (`kol/chainwatch.py`, Helius webhook, `chain.max_wallets`): od 5.11. ne samo javne KOL ljestvice (kol_ids) nego i naši vlastiti ocijenjeni walleti iz wallets.db, po `chain.share` (zadano 50 % ljestvice, 40 % najbolji po copy ocjeni ≥ `min_copy`, 10 % tier S signalni); prazna grupa prepušta mjesta ostalima. Kupnje tih walleta ulaze u pozive kao `w:<prvih 6 znakova>`.
+- Ocjenjivanje KOL-ova svakih 20 min čita samo potrebne stupnjeve (ne i tekst objava) i ocjenjuje samo račune čiji su se pozivi promijenili od prošlog kruga (kv `score_mark`); svi se ponovno ocjenjuju najmanje svaka 4 h i kad se promijeni klasifikacija objava.
 - Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
 - Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 

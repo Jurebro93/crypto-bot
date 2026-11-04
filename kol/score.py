@@ -101,20 +101,46 @@ def _rows(con, sql, args=()):
     return [dict(zip(cols, r)) for r in cur]
 
 
-def score_kols(con, cfg, now=None):
+# only what kol_stats reads: SELECT * also dragged every post's text and url into RAM (kol.db 200+ MB, 5.11.)
+CALL_COLS = ("handle, token, ts, kind, first_by_kol, first_overall, max24, r1h, vol_lift, rug, pre2h, views, likes, "
+             "retweets, followers")
+
+
+def score_kols(con, cfg, now=None, handles=None):
+    """Score every KOL, or only `handles` (a set): the others keep their stored score and stats, and still take part
+    in the "power per follower" baseline through the med_impact saved in their stats."""
     now = now or int(time.time())
     by = {}
-    for c in _rows(con, "SELECT * FROM calls"):
+    if handles is None:
+        rows = _rows(con, f"SELECT {CALL_COLS} FROM calls")
+    elif not handles:
+        rows = []
+    else:
+        hs = list(handles)
+        rows = []
+        for i in range(0, len(hs), 500):   # SQLite parameter limit
+            chunk = hs[i:i + 500]
+            rows += _rows(con, f"SELECT {CALL_COLS} FROM calls WHERE handle IN ({','.join('?' * len(chunk))})", chunk)
+    for c in rows:
         by.setdefault(c["handle"], []).append(c)
     stats = {h: kol_stats(cs, cfg) for h, cs in by.items()}
     prior = cfg["prior_score"]
     foll = dict(con.execute("SELECT handle, COALESCE(followers, 0) FROM kols"))
     bots = {h for h, in con.execute("SELECT handle FROM kols WHERE bot = 1")}
-    ratios = {}
+    ratios, measured = {}, {}
+    if handles is not None:   # the untouched KOLs' saved numbers keep the baseline the same as a full run
+        for h, st in con.execute("SELECT handle, stats FROM kols WHERE stats IS NOT NULL"):
+            if h in stats:
+                continue
+            s = json.loads(st or "{}")
+            if s.get("med_impact") is not None:
+                ratios[h] = s["med_impact"] / math.log10(max(foll.get(h) or 0, 100))
+                measured[h] = s.get("measured", 0)
     for h, (s, raw) in stats.items():
         if s.get("med_impact") is not None:
             ratios[h] = s["med_impact"] / math.log10(max(foll.get(h) or 0, 100))
-    base_ratio = statistics.median([r for h, r in ratios.items() if stats[h][0]["measured"] >= 2 and h not in bots] or
+            measured[h] = s["measured"]
+    base_ratio = statistics.median([r for h, r in ratios.items() if measured.get(h, 0) >= 2 and h not in bots] or
                                    list(ratios.values()) or [0]) or None
     for h, (s, raw) in stats.items():
         score = None
@@ -260,10 +286,13 @@ def reclassify(con, bots=()):
     bots = set(bots)
     rows = con.execute("SELECT DISTINCT tweet_id, handle, text, kind FROM calls "
                        "WHERE kind IN ('call', 'brag', 'warn', 'bot')").fetchall()
+    n = 0
     for tid, h, text, kind in rows:
         k = "bot" if h in bots else kind_of(text)
         if k != kind:
-            con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ? AND COALESCE(match, '') != 'ambiguous'", (k, tid))
+            n += con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ? AND COALESCE(match, '') != 'ambiguous'",
+                             (k, tid)).rowcount
+    return n   # rows whose kind changed (run() then rescores everyone)
 
 
 def build_watch(con, cfg, now=None):
@@ -306,14 +335,41 @@ def drop_fake_tokens(con):
     return n
 
 
+FULL_EVERY_S = 4 * 3600   # a complete rescore at least this often, whatever the marks say
+
+
+def touched_handles(con, mark, now):
+    """Handles whose score can have changed since `mark` ({rowid, ts}): authors of calls inserted since (rowid), of
+    calls measured since, and everyone who called a token that got a new call (first_overall can move). None =
+    rescore everyone (no mark yet, or the periodic full run)."""
+    if not mark or now - (mark.get("full_ts") or 0) >= FULL_EVERY_S:
+        return None
+    rid, ts = mark.get("rowid") or 0, mark.get("ts") or 0
+    hs = {h for h, in con.execute("SELECT DISTINCT handle FROM calls WHERE rowid > ?", (rid,))}
+    hs |= {h for h, in con.execute("SELECT DISTINCT handle FROM calls WHERE measured_ts >= ?", (ts,))}
+    hs |= {h for h, in con.execute("SELECT DISTINCT c.handle FROM calls c JOIN (SELECT DISTINCT token FROM calls "
+                                   "WHERE rowid > ?) t ON t.token = c.token", (rid,))}
+    return hs
+
+
 def run(con, cfg, now=None):
     from kol import bots, collect, measure
-    drop_fake_tokens(con)
-    reclassify(con, bots.detect(con, cfg))
+    now = now or int(time.time())
+    changed = drop_fake_tokens(con)
+    try:
+        mark = json.loads((con.execute("SELECT value FROM kv WHERE key = 'score_mark'").fetchone() or ("{}",))[0])
+    except (ValueError, TypeError):
+        mark = {}
+    changed += reclassify(con, bots.detect(con, cfg))
     collect.mark_ambiguous(con)
-    measure.revalidate(con, cfg)
+    changed += measure.revalidate(con, cfg)
     mark_first(con)
-    n = score_kols(con, cfg, now)
+    handles = None if changed else touched_handles(con, mark, now)
+    max_rowid = con.execute("SELECT COALESCE(MAX(rowid), 0) FROM calls").fetchone()[0]
+    n = score_kols(con, cfg, now, handles)
+    con.execute("INSERT OR REPLACE INTO kv VALUES ('score_mark', ?)",
+                (json.dumps({"rowid": max_rowid, "ts": now, "full_ts": now if handles is None else mark.get("full_ts", now),
+                             "partial": None if handles is None else len(handles)}),))
     from kol import validate
     validate.run(con, cfg, now)
     from kol import sessions
