@@ -88,6 +88,19 @@ class History(unittest.TestCase):
         self.assertEqual(history.backfill(con, "chan", fetch=None), (0, 0, True))  # done: never reads again
 
 
+class Discover(unittest.TestCase):
+    def test_tg_channels_with_imported_calls_become_candidates(self):
+        from tg import discover as tdisc
+        d = tempfile.mkdtemp()
+        k = store.connect(os.path.join(d, "kol.db"))
+        k.execute("INSERT INTO kols (handle) VALUES ('tg:wctcalls'), ('someone'), ('tg:x')")
+        k.commit()
+        k.close()
+        con = tstore.connect(os.path.join(d, "tg.db"))
+        self.assertEqual(tdisc.from_kol_calls(con, os.path.join(d, "kol.db")), 1)  # 'x' is not a valid channel name
+        self.assertEqual(con.execute("SELECT found_via FROM channels WHERE name='wctcalls'").fetchone()[0], "kol_calls")
+
+
 class Together(unittest.TestCase):
     def _db(self):
         d = tempfile.mkdtemp()
@@ -149,6 +162,7 @@ class Page(unittest.TestCase):
             self.assertIn(f"<details class=uc-sec id={sid}>", body)
         self.assertNotIn("<h2 id=analiza>", body)  # the old closed "Analiza" box that hid 8 sections is gone
         self.assertIn("Zovu zajedno", body)
+        self.assertIn("<details class=uc-sec id=tgpovijest>", body)  # Call Analyser + SpyDefi history
 
 
 if __name__ == "__main__":
