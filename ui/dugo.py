@@ -29,8 +29,19 @@ def _f(x, fmt="{:.2f}"):
 
 def _rows(con, kind, day, n=40):
     return con.execute("""SELECT s.mint, t.symbol, s.score, s.rank, s.price, s.liquidity, s.mcap, s.features, s.why
-        FROM snap s JOIN tokens t ON t.mint=s.mint WHERE s.kind=? AND s.day=? ORDER BY s.rank LIMIT ?""",
+        FROM snap s JOIN tokens t ON t.mint=s.mint WHERE s.kind=? AND s.day=? AND COALESCE(t.status,'')!='sumnjivo'
+        ORDER BY s.rank LIMIT ?""",
                        (kind, day, n)).fetchall()
+
+
+def _flagged_note(con):
+    """Tokens out of the ranking because their pools disagree on the price (audit 4.11. F04, e.g. PYTH)."""
+    rows = con.execute("SELECT symbol, mint FROM tokens WHERE status='sumnjivo' ORDER BY symbol LIMIT 12").fetchall()
+    if not rows:
+        return ""
+    names = ", ".join(esc(sym or m[:6]) for sym, m in rows)
+    return (f"<p class=mut style='font-size:13px'>⚠️ Izvan rangiranja zbog sukoba cijena između poolova "
+            f"({len(rows)}): {names}. Vraćaju se kad se izvori slože.</p>")
 
 
 def _book(con):
@@ -91,7 +102,8 @@ def page(qs):
         b.append("<h2>Dugoročni kandidati</h2>" + tdesc(
             f"Stariji od {cfg['dugorocni']['min_starost_d']} dana, likvidnost barem "
             f"${cfg['dugorocni']['min_likvidnost'] / 1e3:.0f}k, vrijednost barem ${cfg['dugorocni']['min_mcap'] / 1e6:.0f}M. "
-            "Ocjena 0-100 je usporedba s ostalim preživjelima danas: 100 = najbolji na svim mjerilima."))
+            "Ocjena 0-100 je usporedba s ostalim preživjelima danas: 100 = najbolji na svim mjerilima.")
+            + _flagged_note(con))
         rows, mints = [], []
         for m, sym, s, rk, px, liq, mc, fj, why in dug:
             f = json.loads(fj)

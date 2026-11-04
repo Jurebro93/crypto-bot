@@ -108,6 +108,29 @@ def _is_bot(con, handle):
     return bool(r and r[0])
 
 
+AMBIG_SQL = """UPDATE calls SET match='ambiguous', kind=CASE WHEN kind IN ('call','brag') THEN 'nejasno' ELSE kind END
+    WHERE match='ticker' AND tweet_id IN (SELECT tweet_id FROM calls WHERE match IN ('ticker','ambiguous') {only}
+                                          GROUP BY tweet_id HAVING COUNT(DISTINCT token) > 1)"""
+
+
+def mark_ambiguous(con, tweet_ids=None):
+    """Audit 4.11. F05: one post linked BY TICKER ONLY to more than one mint (the "David 47x" post showed under three
+    different ...pump addresses) is not three calls. Those links become match 'ambiguous', kind 'nejasno': kept
+    and shown, but never counted as a call or a result of the KOL. An explicit address in the post is not touched.
+    Returns rows changed."""
+    if tweet_ids is not None:
+        ids = list(tweet_ids)
+        if not ids:
+            return 0
+        n = 0
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            n += con.execute(AMBIG_SQL.format(only=f"AND tweet_id IN ({','.join('?' * len(part))})"),
+                             part).rowcount
+        return n
+    return con.execute(AMBIG_SQL.format(only="")).rowcount
+
+
 def save(con, calls):
     """Insert new calls. Posts of accounts already flagged as automated (kol/bots.py) are stored as kind 'bot', so
     they never count as a KOL call, not even in the minutes before the next score run."""
@@ -129,6 +152,7 @@ def save(con, calls):
               verified=MAX(COALESCE(verified, 0), excluded.verified),
               first_seen=MIN(first_seen, excluded.first_seen), last_seen=MAX(last_seen, excluded.last_seen)""",
                     (c["handle"], au.get("name"), c["followers"] or None, int(au.get("verified") or 0), c["ts"], c["ts"]))
+    mark_ambiguous(con, {c["tweet_id"] for c in calls if c.get("match") == "ticker"})
     return n
 
 

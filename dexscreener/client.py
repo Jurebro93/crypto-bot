@@ -153,6 +153,48 @@ def sane(p, now=None):
     return p
 
 
+# ---------- which pool to believe (audit 4.11. C08/F04) ----------
+# 4.11.: PYTH showed a $2.48 trillion market cap: its biggest "liquidity" pool was PYTH/JUP at ~$315 a token while
+# Coinbase had ~$0.066. Picking the pool only by its reported USD liquidity let one bad pool decide the price.
+TRUSTED_QUOTES = {"So11111111111111111111111111111111111111112",          # SOL
+                  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",          # USDC
+                  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}          # USDT
+MAX_PLAUSIBLE_MCAP = 2e11   # no Solana SPL token is worth more than ~$200B; above = a bad price or supply
+AGREE_X = 3.0               # pools further than this from the median price disagree
+
+
+def pick_pool(pairs, min_liq=1000):
+    """(pair, reason) for one token's pairs: only pools quoted in SOL/USDC/USDT count when there are any; the price
+    is the median of those with at least min_liq; the pool returned is the most liquid one that agrees with it
+    (within AGREE_X). reason (None when fine) says why the result must not be ranked or learned from: pools that
+    disagree, a quote that cannot be trusted, or a market cap no SPL token has. (None, None) without pairs."""
+    if not pairs:
+        return None, None
+    liq = lambda p: _f((p.get("liquidity") or {}).get("usd"))  # noqa: E731
+    trusted = [p for p in pairs if (p.get("quoteToken") or {}).get("address") in TRUSTED_QUOTES and _f(p.get("priceUsd")) > 0]
+    pool = trusted or [p for p in pairs if _f(p.get("priceUsd")) > 0]
+    if not pool:
+        return max(pairs, key=liq), "nema cijene"
+    deep = [p for p in pool if liq(p) >= min_liq] or pool
+    px = sorted(_f(p["priceUsd"]) for p in deep)
+    med = px[len(px) // 2]
+    agree = [p for p in deep if med / AGREE_X <= _f(p["priceUsd"]) <= med * AGREE_X]
+    best = max(agree or deep, key=liq)
+    why = None
+    if not trusted:
+        why = "cijena samo iz poola s nepouzdanom quote valutom"
+    elif len(agree) < len(deep):
+        why = f"{len(deep) - len(agree)} od {len(deep)} poolova se ne slaže s medijanom cijene"
+    biggest = max(pairs, key=liq)
+    if biggest is not best and not (med / AGREE_X <= _f(biggest.get("priceUsd")) <= med * AGREE_X):
+        why = (why + "; " if why else "") + (f"najveći pool ({(biggest.get('quoteToken') or {}).get('symbol') or '?'}) "
+                                             f"daje cijenu {_f(biggest.get('priceUsd')) / med:.0f}x drugačiju")
+    mc = _f(best.get("marketCap") or best.get("fdv"))
+    if mc > MAX_PLAUSIBLE_MCAP:
+        why = (why + "; " if why else "") + f"kapitalizacija ${mc / 1e9:,.0f} mlrd. nije moguća"
+    return best, why
+
+
 def tokens(chain, addresses):
     """Pairs for up to 30 token addresses per request (batched here); prices pass the sanity check (sane())."""
     out = []

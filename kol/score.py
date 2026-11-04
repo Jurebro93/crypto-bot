@@ -263,7 +263,7 @@ def reclassify(con, bots=()):
     for tid, h, text, kind in rows:
         k = "bot" if h in bots else kind_of(text)
         if k != kind:
-            con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ?", (k, tid))
+            con.execute("UPDATE calls SET kind = ? WHERE tweet_id = ? AND COALESCE(match, '') != 'ambiguous'", (k, tid))
 
 
 def build_watch(con, cfg, now=None):
@@ -307,9 +307,10 @@ def drop_fake_tokens(con):
 
 
 def run(con, cfg, now=None):
-    from kol import bots, measure
+    from kol import bots, collect, measure
     drop_fake_tokens(con)
     reclassify(con, bots.detect(con, cfg))
+    collect.mark_ambiguous(con)
     measure.revalidate(con, cfg)
     mark_first(con)
     n = score_kols(con, cfg, now)

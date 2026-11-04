@@ -120,7 +120,7 @@ def kindb(kind, match):
     b = {"call": badge("poziv", "good"), "repost": badge("proslijeđeno"), "buy": badge("kupio", "good"),
          "sell": badge("prodao", "bad"), "brag": badge("hvalisanje", "warn"),
          "bot": badge("automatska objava", "warn"), "warn": badge("upozorenje", "bad")}.get(kind) or badge(kind or "?")
-    return b + (" " + badge("ticker") if match == "ticker" else "")
+    return b + (" " + badge("ticker") if match == "ticker" else " " + badge("nejasan token") if match == "ambiguous" else "")
 
 
 def _syms(con):

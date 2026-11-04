@@ -41,9 +41,15 @@ def collect(con, cfg, now=None, candle_budget=None):
             con.execute("INSERT OR IGNORE INTO tokens (mint, source, first_seen) VALUES (?,?,?)", (m, src, now))
     pairs = sources.dex_best(set(uni) | known)
     for m, p in pairs.items():
+        if p.get("sumnjivo"):   # price conflict (F04): kept visible, out of ranking and learning until it clears
+            con.execute("UPDATE tokens SET status='sumnjivo', symbol=COALESCE(?, symbol), url=? WHERE mint=?",
+                        ((p.get("baseToken") or {}).get("symbol"), p.get("url"), m))
+            _log(f"cijena {(p.get('baseToken') or {}).get('symbol') or m[:6]}: {p['sumnjivo']} (izvan rangiranja)")
+            continue
         t = p.get("txns", {}).get("h24", {})
         con.execute("""UPDATE tokens SET symbol=?, name=?, pair=?, created_ts=?, last_dex=?, liquidity=?, mcap=?, vol24=?,
-            buys24=?, sells24=?, ch24=?, url=? WHERE mint=?""",
+            buys24=?, sells24=?, ch24=?, url=?, status=CASE WHEN status='sumnjivo' THEN 'ok' ELSE status END
+            WHERE mint=?""",
                     (p["baseToken"].get("symbol"), p["baseToken"].get("name"), p.get("pairAddress"),
                      int((p.get("pairCreatedAt") or now * 1000) / 1000), now, (p.get("liquidity") or {}).get("usd"),
                      p.get("marketCap") or p.get("fdv"), (p.get("volume") or {}).get("h24"), t.get("buys"),
@@ -145,7 +151,10 @@ def rank(con, cfg, now=None):
         WHERE candles_ts IS NOT NULL AND last_dex > ?""", (now - 2 * D,)).fetchall()
     soc = sources.social([t[0] for t in toks], now)
     feats, meta = {}, {}
+    flagged = {m for (m,) in con.execute("SELECT mint FROM tokens WHERE status='sumnjivo'")}
     for mint, sym, liq, mcap, vol, b, s, ch, created in toks:
+        if mint in flagged:
+            continue
         cs = store.candles(con, mint)
         f = features.compute(cs, sol, btc)
         if not f:

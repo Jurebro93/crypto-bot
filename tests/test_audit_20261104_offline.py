@@ -333,5 +333,36 @@ class T19PromotionIsNotTrading(unittest.TestCase):
         self.assertIn("ne trgujemo", why)
 
 
+class T05Pyth(unittest.TestCase):
+    def test_anomalous_pool_does_not_decide(self):
+        from dexscreener import client
+        SOL, JUP = "So11111111111111111111111111111111111111112", "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+        good = [{"pairAddress": f"G{i}", "priceUsd": str(0.066 + i / 1000), "liquidity": {"usd": 2e6 / (i + 1)},
+                 "quoteToken": {"address": SOL, "symbol": "SOL"}, "marketCap": 5.2e8} for i in range(3)]
+        bad = {"pairAddress": "B", "priceUsd": "315.22", "liquidity": {"usd": 2.3e8},
+               "quoteToken": {"address": JUP, "symbol": "JUP"}, "marketCap": 2.48e12}
+        p, why = client.pick_pool(good + [bad])
+        self.assertEqual(p["pairAddress"], "G0")
+        self.assertIn("drugačiju", why)                       # the conflict is reported
+        p, why = client.pick_pool([bad])                      # only the bad pool: never a clean answer
+        self.assertIn("nepouzdan", why)
+        self.assertIn("nije moguća", why)
+
+
+class T06AmbiguousPost(unittest.TestCase):
+    def test_one_post_three_ticker_mints_counts_zero(self):
+        from kol import collect, store
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        t = {"id": "1", "createdAt": "Fri Oct 31 16:51:00 +0000 2026", "fullText": "$DAVID did 47x!!",
+             "author": {"userName": "Solid_calls"}}
+        for mint in ("7ku5pump", "4ibvpump", "9Usqpump"):
+            collect.save(con, collect.calls_from_tweet(t, mint, "DAVID"))
+        rows = con.execute("SELECT token, match, kind FROM calls WHERE tweet_id='1'").fetchall()
+        self.assertEqual(len(rows), 3)                        # the post and its candidates are kept
+        self.assertTrue(all(m == "ambiguous" and k == "nejasno" for _, m, k in rows))
+        n = con.execute("SELECT COUNT(*) FROM calls WHERE kind IN ('call','brag')").fetchone()[0]
+        self.assertEqual(n, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
