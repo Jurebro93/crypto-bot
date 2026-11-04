@@ -33,6 +33,11 @@ DEFAULT = {
            "min_n": 30, "keep_frac": 0.25, "ret_cap": 3.0},
     "kol3": {"enabled": True, "authors": 3, "window_min": 15, "fresh_min": 10, "size_usd": 20, "max_open": 40,
              "max_per_day": None, "min_n": 15, "bad_win": 0.3, "keep_frac": 0.25},
+    # comeback (4.11., Nicholas): a token the demo lost on is not finished. When it still has volume and tracked or
+    # smart wallets buy it again, it gets a small second entry, measured as its own arm, and every evaluation
+    # (taken or not) becomes a shadow point, so the lesson is learned even when nothing is bought.
+    "povratak": {"enabled": True, "days": 7, "lost": -0.3, "cooldown_min": 60, "max_per_token": 2, "fresh_min": 30,
+                 "min_turnover": 0.3, "buyers_min": 60, "size_usd": 20, "max_open": 20, "max_per_day": None},
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
                  "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
 }
