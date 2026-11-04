@@ -701,6 +701,10 @@ def kol_page(handle, qs):
         k = (_rows(con, "SELECT * FROM kols WHERE handle = ?", (handle,)) or [None])[0]
         if not k and handle.startswith("w:"):
             return _wallet_page(con, handle)
+        if not k and handle.startswith("tg:"):
+            hist = _tg_history_page(con, handle)
+            if hist:
+                return hist
         if not k:
             return "KOL", f"<h1>@{esc(handle)}</h1><p>Nema poziva od ovog računa.</p>"
         s = json.loads(k["stats"] or "{}")
@@ -761,6 +765,44 @@ def kol_page(handle, qs):
     finally:
         con.close()
     return f"@{handle}", "".join(b)
+
+
+def _tg_history_page(con, handle):
+    """/kol/tg:<chan> for a channel that is only in kol/tg_history.json (Nicholas's Call Analyser + SpyDefi exports,
+    95 channels): the 6-month summary instead of "Nema poziva" (4.11.: the Influenceri table linked here and the page
+    was empty, because those exports carry per-channel totals, not the calls themselves). Live calls the bot has
+    collected for the channel since are listed under it."""
+    from ui.izvori import _tg_history
+    r = _tg_history().get(handle[3:].lower())
+    if not r:
+        return None
+    chan = handle[3:]
+    n, n50 = r.get("calls") or 0, r.get("n50") or r.get("calls") or 0
+    h2 = r["hit2_50"] if r.get("hit2_50") is not None else r.get("hit2")
+    h5 = r["hit5_50"] if r.get("hit5_50") is not None else r.get("hit5")
+    pct = lambda x: f"{x:.0%}" if x is not None else "–"
+    cards = [("Poziva u 6 mj.", f"{n:,}".replace(",", "."), ""),
+             (f"Barem 2× (zadnjih {n50})", pct(h2), "cijena bar 2× nakon poziva"),
+             (f"Barem 5× (zadnjih {n50})", pct(h5), ""),
+             ("Najviše", f"{r['max_x']:.0f}×" if r.get("max_x") else "–", ""),
+             ("Mcap u pozivu (medijan)", usd(r["med_mcap"])[0] if r.get("med_mcap") else "–", ""),
+             ("Zadnji poziv", ago(r["last"])[0] if r.get("last") else "–", "aktivan" if r.get("active") else "utihnuo")]
+    b = [f'<p><a href="/kol#telegram">← KOL-ovi</a></p><h1>✈ {esc(chan)} <span class=mut>Telegram kanal</span></h1>'
+         f'<p><a href="{profile_url(handle)}" target=_blank rel=noopener>Kanal na Telegramu ↗</a></p>',
+         tdesc("Brojke su iz izvoza Call Analysera i SpyDefija za zadnjih 6 mjeseci (sažetak po kanalu, bez pojedinačnih "
+               "poziva, pa nema ocjene ni grafova kao kod računa koje bot sam mjeri). Pozive koje bot od tada sam skupi "
+               "vidiš dolje."),
+         "<div class=grid>" + "".join(f"<div class=card><div class=l>{esc(l)}</div><div class=n>{v}</div>"
+                                      + (f"<div class=mut>{esc(o)}</div>" if o else "") + "</div>" for l, v, o in cards)
+         + "</div>"]
+    live = con.execute("SELECT COUNT(*) FROM calls WHERE LOWER(handle) = LOWER(?) AND kind = 'call'", (handle,)).fetchone()[0]
+    if live:
+        b.append("<h2>Pozivi koje je bot sam skupio</h2>"
+                 + calls_table(con, "LOWER(handle) = LOWER(?)", (handle,), 500, "kcalls", show_kol=False))
+    else:
+        b.append("<p class=mut>Bot još nije skupio nijedan poziv ovog kanala uživo (prati se kroz Telegram izvore čim ga "
+                 "otkrivanje doda).</p>")
+    return f"✈ {chan}", "".join(b)
 
 
 def _wallet_page(con, handle):
