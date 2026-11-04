@@ -613,6 +613,11 @@ T("Proba modela", "sustav", "Novi model 7 dana samo gleda: ocjenjuje nove prilik
   "prilikama. Postaje glavni samo ako je bolji i bez 1% najboljih tradeova i ako je razlika sigurno iznad nule. Ako "
   "kasnije tjedan dana radi lošije od težina, težine se vrate same.", vidi=["model-odlucivanja", "zakljucani-tjedan"],
   gdje=[("/learn", "Učenje")], alias=["champion", "challenger"])
+T("Dokazana vrsta ulaza", "sustav", "Vrsta demo ulaza koja je u zadnjih 7 dana sigurno zarađivala, pa se broji za bota u Natjecanju.",
+  "Vrsta je način ulaza (glavni, istraživački, konvergencija...), izvori (Telegram, X, novčanici...) i sesija (Azija, "
+  "Europa, Amerika). Treba barem 15 zatvorenih tradeova i prosjek iznad nule koji drži i kad se izbace slučajnosti. "
+  "Ostali ulazi i dalje idu u demo i učenje, ali ne troše novac bota u Natjecanju.",
+  vidi=["sjenovita-knjiga", "ucenje"], gdje=[("/learn#liga", "Učenje")], alias=["liga", "drugi krug"])
 T("Odgoda stop lossa", "trading", "Koliko minuta nakon kupnje se stop loss uključuje.",
   "Svježi tokeni često prvo padnu 20 do 40% pa tek onda narastu. Stop koji se uključi odmah takav token proda na dnu. "
   "Alat svaki dan na papiru isproba svaku razinu stop lossa (od -10% do bez stopa) uz odgodu od 0, 15, 30 i 60 minuta, "

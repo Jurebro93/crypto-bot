@@ -26,7 +26,7 @@ import time
 
 from dexscreener import client
 from exits import profiles as exits_profiles
-from paper import auto, dca, review, sim, store, arms, rules
+from paper import auto, dca, review, sim, store, arms, rules, liga
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -467,6 +467,7 @@ def trigger_entries(con, cfg, rst, now):
             size = rules.high_risk_size(c.get("rug_verdict"), size, r["size_usd"])
             cfg_t = exits_profiles.for_trade(cfg, klase.get(tok) or "default", state=ex_state, now=now)
             cfg_t["entry_mode"], cfg_t["arm"] = mode, f"{mode}|{sess}"
+            liga.flag(con, cfg_t, cfg, now)  # counts in the league round only if this kind of trade proved itself
             if mode == "kol3" and kc.get("tp"):  # a KOL wave: quick target, out if the crowd does not come
                 cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
                              max_hold_h=kc["max_hold_h"])
@@ -628,6 +629,7 @@ def intake(cfg, now=None, quiet=False):
                 cfg_t = exits_profiles.for_trade(cfg, k, state=ex_state, now=now)  # learned exits of its class
                 cfg_t["entry_mode"] = mode
                 cfg_t["arm"] = arm
+                liga.flag(con, cfg_t, cfg, now)  # league round 2: only proven kinds of trades count (paper/liga.py)
                 if konv:  # quick +40% target for most of it, out in 45 min if the crowd does not come
                     cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
                                  max_hold_h=kc["max_hold_h"])
