@@ -559,15 +559,20 @@ T("Bot račun", "kol", "Automatski ili promo račun koji objavljuje svaki novi t
   alias=["bot", "automatska objava"])
 T("Zona", "kol", "Procjena vremenske zone KOL-a iz sati kad objavljuje (najtiših 6 h je njegova noć).")
 T("Usporedba strategija", "trading", "Pet demo računa po $1000, svaki kupuje iz drugog izvora, svi prodaju po istim pravilima.",
-  "Računi: praćeni novčanici, KOL pozivi, izbor alata, mix i nasumična kontrola. Jer su izlazi isti, razlika u zaradi "
-  "dolazi samo od toga odakle je kupnja došla. Pobjednik pokazuje kojem izvoru vjerovati.",
-  vidi=["kontrolna-strategija", "mix-strategija"], gdje=[("/strategije", "Usporedba strategija")],
+  "Računi (od 4.11.): top novčanici, KOL pozivi i izbor alata podijeljen na male (do 200k $), srednje (200k–1M $) i "
+  "velike tokene (preko 1M $). Mix i nasumična kontrola su isključeni. Jer su izlazi isti, razlika u zaradi dolazi samo "
+  "od toga odakle je kupnja došla. Pobjednik pokazuje kojem izvoru vjerovati.",
+  vidi=["top-novcanici", "razred-market-capa"], gdje=[("/strategije", "Usporedba strategija")],
   alias=["strategije", "5 budžeta", "pet računa"])
+T("Top novčanici", "trading", "Demo račun koji kopira samo 10 najboljih praćenih KOL novčanika.",
+  "Najbolji = novčanici čije su kupnje, kad smo ih kopirali s istim pravilima izlaza, prosječno najviše zaradile (barem 3 "
+  "zatvorena tradea i prosjek u plusu). Novi novčanik kopiramo dok ne skupi 3 tradea; izmjereni novčanik koji nije u "
+  "vrhu više ne kopiramo.", gdje=[("/strategije", "Usporedba strategija")], alias=["top novcanici", "praćeni novčanici"])
 T("Kontrolna strategija", "trading", "Demo račun koji kupuje nasumične tokene. Mjerilo čiste sreće.",
   "Ako neka strategija ne zarađuje više od nasumičnog izbora, njen izvor ne donosi prednost. Znanstvenici to zovu "
-  "kontrolna grupa.", gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično (kontrolna)", "nasumično", "kontrola"])
+  "kontrolna grupa. Isključena 4.11.", gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično (kontrolna)", "nasumično", "kontrola"])
 T("Mix strategija", "trading", "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena.",
-  "Manje ulaza, ali svaki ima potvrdu iz dva neovisna smjera.", gdje=[("/strategije", "Usporedba strategija")],
+  "Manje ulaza, ali svaki ima potvrdu iz dva neovisna smjera. Isključena 4.11.", gdje=[("/strategije", "Usporedba strategija")],
   alias=["mix"])
 T("Vrijednost računa", "trading", "Slobodan novac + otvorene pozicije kao da ih prodaš sada (s troškom i klizanjem cijene).",
   gdje=[("/strategije", "Usporedba strategija")])

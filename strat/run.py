@@ -55,11 +55,53 @@ def _paper_min_score():
         return 50
 
 
-def wanted(src, cfg, now, last_random):
-    """{strategy: [(token, ts, who, score)]} for this pass."""
-    out = {"novcanici": src.get("novcanici", []), "kol": src.get("kol", []), "alat": src.get("alat", []),
+CAP = 3.0   # one copied trade counts at most +300% in the wallet ranking
+
+
+def wallet_rank(con, cfg):
+    """[(wallet label, closed copies, mean return capped +300%, pnl $)] of the tracked wallets by how OUR copies of
+    their buys did (same exits as every strategy), best first. Only this is a proven result: chain_trades has no
+    sell amounts, and wallet buys are not part of the KOL call score."""
+    per = {}
+    # the old all-wallets account ('novcanici', until 4.11.) and the top-wallets one both count: same copies
+    for why, ret, pnl in con.execute("SELECT why, ret, pnl_usd FROM positions WHERE strat IN ('novcanici', "
+                                     "'top_novcanici') AND status='closed'"):
+        a = per.setdefault(why or "?", [0, 0.0, 0.0])
+        a[0] += 1
+        a[1] += min(CAP, ret or 0)
+        a[2] += pnl or 0
+    return sorted(((w, n, s / n, p) for w, (n, s, p) in per.items()), key=lambda r: (-r[2], -r[3]))
+
+
+def wallets_allowed(con, cfg):
+    """(top labels, proven-out labels): the top novcanici_top proven wallets with a positive mean are copied; a wallet
+    with fewer than novcanici_min_n closed copies is still being measured (copied); every other measured one is not
+    (Nicholas 4.11.: "nećemo pratiti neuspješne")."""
+    min_n, top_n = cfg.get("novcanici_min_n", 3), cfg.get("novcanici_top", 10)
+    proven = [r for r in wallet_rank(con, cfg) if r[1] >= min_n]
+    top = [r[0] for r in proven if r[2] > 0][:top_n]
+    return set(top), {r[0] for r in proven} - set(top)
+
+
+def band_of(cfg, key, mcap):
+    """Is this market cap inside the band of strategy `key` (alat_bands)? Strategies without a band take any."""
+    b = (cfg.get("alat_bands") or {}).get(key)
+    if not b:
+        return True
+    lo, hi = b
+    return (mcap or 0) >= (lo or 0) and (hi is None or (mcap or 0) < hi)
+
+
+def wanted(src, cfg, now, last_random, out_wallets=()):
+    """{strategy: [(token, ts, who, score)]} for this pass. Every alat_* band gets the tool's picks; the band is
+    checked when the token is priced (its market cap at entry)."""
+    out = {"novcanici": src.get("novcanici", []), "kol": src.get("kol", []),
+           "top_novcanici": [e for e in src.get("novcanici", []) if e[2] not in out_wallets],
+           "alat": src.get("alat", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
+    for k in cfg.get("alat_bands") or {}:
+        out[k] = src.get("alat", [])
     return {k: out.get(k, []) for k in keys(cfg)}
 
 
@@ -139,7 +181,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
     try:
         start = store.start_ts(con, now)
         last_random = float(store.kv_get(con, "last_random", 0) or 0)
-        want = wanted(src, cfg, now, last_random)
+        _top, out_w = wallets_allowed(con, cfg) if "top_novcanici" in keys(cfg) else (set(), set())
+        want = wanted(src, cfg, now, last_random, out_w)
         acc = accounts(con, cfg, ex=ex)
         intake(con, cfg, now, want, start, acc)
         if want.get("kontrola"):
@@ -164,6 +207,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "premala likvidnost"
                 elif mcap > cfg["max_mcap"]:
                     reason = "prevelik token"
+                elif not band_of(cfg, k, mcap):
+                    reason = "drugi razred market capa"
                 elif cfg.get("cash_limit", True) and acc[k]["cash"] < cfg["min_size_usd"]:
                     reason = "nema novca na računu"
                 else:   # cash_limit false (Nicholas 4.11.: "neograničeno tradeova"): always the full stake, cash may go < 0
