@@ -46,7 +46,8 @@ def by_bucket(rows, step=20):
 
 
 def feature_lift(rows):
-    """Hit rate when a feature is strong (>= 0.5) vs weak. Lift > 1 means the feature helps."""
+    """Hit rate when a feature is strong (>= 0.5) vs weak. Audit 4.11. C10: two named ratios, never one bare "lift".
+    lift = lift_vs_all = hit_strong / base (all tokens); lift_vs_weak = hit_strong / hit_weak. Lift > 1 = helps."""
     res = []
     base = sum(r["hit"] for r in rows) / len(rows) if rows else 0
     for f in sorted({k for r in rows for k in r["features"]}):
@@ -55,7 +56,8 @@ def feature_lift(rows):
         hr = sum(r["hit"] for r in hi) / len(hi) if hi else 0
         lr = sum(r["hit"] for r in lo) / len(lo) if lo else 0
         res.append({"feature": f, "n_strong": len(hi), "hit_strong": round(hr, 2), "hit_weak": round(lr, 2),
-                    "lift": round(hr / base, 2) if base and hi else None})
+                    "base": round(base, 2), "lift": round(hr / base, 2) if base and hi else None,
+                    "lift_vs_weak": round(hr / lr, 2) if lr and hi else None})
     return res
 
 

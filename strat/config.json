@@ -1,5 +1,5 @@
 {
- "_comment": "Usporedba strategija (strat/): 5 odvojenih demo računa po $1000, svaki kupuje iz drugog izvora, svi s ISTIM pravilima izlaza kao glavni demo (paper/config.json + naučeno), da se vidi koji izvor zarađuje. Nikad pravi novac. size_usd: ulog po ulazu (manje ako na računu nema dovoljno). max_open: najviše otvorenih pozicija po strategiji. per_hour / per_day: najviše novih ulaza po strategiji. max_delay_min: signal stariji od ovoga kad ga vidimo ne ulazi. mix_window_min: koliko blizu u vremenu dva izvora moraju javiti isti token za Mix. kontrola_every_min: nasumični ulaz najviše jednom u toliko minuta. Peta strategija (kontrola) se mijenja u 'strategies'. cash_limit: false = račun ne zaustavlja ulaze kad potroši $1000 (Nicholas 4.11.: neograničeno tradeova da alat uči na više podataka); vrijednost tada može pasti ispod 0 i pokazuje koliko je strategija izgubila. Nicholas 4.11. popodne: Mix i Nasumično isključeni; novčanici = samo top novcanici_top novčanika po našim kopiranim rezultatima (novčanik s manje od novcanici_min_n zatvorenih kopija se još mjeri, onaj koji je izmjeren a nije u vrhu se ne kopira); izbor alata podijeljen po market capu pri ulazu (alat_bands, $).",
+ "_comment": "Usporedba strategija (strat/): 5 odvojenih demo računa po $1000, svaki kupuje iz drugog izvora, svi s ISTIM pravilima izlaza kao glavni demo (paper/config.json + naučeno), da se vidi koji izvor zarađuje. Nikad pravi novac. size_usd: ulog po ulazu (manje ako na računu nema dovoljno). max_open: najviše otvorenih pozicija po strategiji. per_hour / per_day: najviše novih ulaza po strategiji. max_delay_min: signal stariji od ovoga kad ga vidimo ne ulazi. mix_window_min: koliko blizu u vremenu dva izvora moraju javiti isti token za Mix. kontrola_every_min: nasumični ulaz najviše jednom u toliko minuta. Peta strategija (kontrola) se mijenja u 'strategies'. cash_limit: false = račun ne zaustavlja ulaze kad potroši $1000 (Nicholas 4.11.: neograničeno tradeova da alat uči na više podataka); vrijednost tada može pasti ispod 0 i pokazuje koliko je strategija izgubila. Nicholas 4.11. popodne: Mix i Nasumično isključeni; novčanici = samo top novcanici_top novčanika po našim kopiranim rezultatima (novčanik s manje od novcanici_min_n zatvorenih kopija se još mjeri, onaj koji je izmjeren a nije u vrhu se ne kopira); izbor alata podijeljen po market capu pri ulazu (alat_bands, $). Audit 4.11. (R6): kontrola (nasumični ulaz) vraćena kao mjerilo, ne natječe se; bez nje nijedna strategija ne može dobiti status 'kandidat'.",
  "enabled": true,
  "bankroll_usd": 1000,
  "size_usd": 50,
@@ -46,6 +46,13 @@
    "name": "Izbor alata: veliki",
    "icon": "🎯",
    "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene preko 1M $ vrijednosti pri ulazu."
+  },
+  {
+   "key": "kontrola",
+   "name": "Kontrola (nasumično)",
+   "icon": "🎲",
+   "baseline": true,
+   "opis": "Nasumičan token iz istog skenera, najviše jednom u 30 min, ista pravila izlaza. Nije strategija nego mjerilo: strategija koja ga ne pobjeđuje nema prednost (audit 4.11., R6)."
   }
  ],
  "novcanici_top": 10,

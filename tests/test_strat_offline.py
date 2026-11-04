@@ -268,7 +268,7 @@ class TopWalletsAndBands(unittest.TestCase):
         self.assertTrue(run.band_of(cfg, "alat_veliki", 3e6))
         self.assertTrue(run.band_of(cfg, "kol", 3e6))
         self.assertNotIn("mix", run.keys(cfg))
-        self.assertNotIn("kontrola", run.keys(cfg))
+        self.assertIn("kontrola", run.keys(cfg))       # audit 4.11. R6: the random control is the baseline
 
 
 if __name__ == "__main__":

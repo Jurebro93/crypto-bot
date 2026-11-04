@@ -383,3 +383,59 @@ class T26SellCheck(TradeBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Robust(unittest.TestCase):
+    """R6/R7/F01/F02: status vs control, without the best trade/token, $1000 without borrowing."""
+
+    def test_concentrated_like_wwiii(self):
+        from strat import robust
+        ts = [{"token": "W", "pnl_usd": 3524.0}] + [{"token": f"T{i}", "pnl_usd": -2.0} for i in range(28)]
+        rb = robust.without_top(ts)
+        self.assertGreater(rb["total"], 0)
+        self.assertLess(rb["no_best"], 0)
+        self.assertTrue(rb["concentrated"])
+
+    def test_status(self):
+        from strat import robust
+        few = [{"token": "a", "pnl_usd": 5, "closed_ts": i} for i in range(50)]
+        self.assertEqual(robust.status(few, few)[0], "uci")
+        good = [{"token": f"t{i}", "pnl_usd": 2.0, "closed_ts": i} for i in range(120)]
+        ctrl = [{"token": f"c{i}", "pnl_usd": -1.0, "closed_ts": i} for i in range(120)]
+        self.assertEqual(robust.status(good, None)[0], "ne_diraj")        # no control = no candidate (R6)
+        self.assertEqual(robust.status(good, ctrl)[0], "kandidat")
+        one_half = [{"token": f"t{i}", "pnl_usd": (3.0 if i < 60 else -3.0), "closed_ts": i} for i in range(120)]
+        self.assertEqual(robust.status(one_half, ctrl)[0], "ne_diraj")
+        lucky = [{"token": f"t{i}", "pnl_usd": (500.0 if i < 5 else -2.0), "closed_ts": i * 7 % 120} for i in range(120)]
+        self.assertEqual(robust.status(lucky, ctrl)[0], "ne_diraj")       # gone without the top 5
+
+    def test_portfolio_no_borrowing(self):
+        from strat import robust
+        ts = [{"entry_ts": i, "closed_ts": 1000 + i, "size_usd": 50.0, "pnl_usd": -50.0} for i in range(30)]
+        pf = robust.portfolio(ts, 1000.0)
+        self.assertEqual(pf["taken"], 20)
+        self.assertEqual(pf["skipped"], 10)
+        self.assertGreaterEqual(pf["cash_low"], 0)
+        self.assertAlmostEqual(pf["value"], 0.0)
+
+
+class BtcFng(unittest.TestCase):
+    """§15: BTC and Fear & Greed stored in market.db; one context line, never a new score."""
+
+    def test_context_line(self):
+        import tempfile
+        from market import collect, store as mstore
+        from ui import market as umarket
+        d = tempfile.mkdtemp()
+        con = mstore.connect(os.path.join(d, "m.db"))
+        day = 86400 * 20000
+        collect.btc(con, [(day - i * 86400, 100.0 + (7 - i) * 1.0) for i in range(8)])
+        collect.fng(con, [(day, 26, "Fear")], now=day + 3600)
+        c = collect.context(con, now=day + 3600)
+        self.assertAlmostEqual(c["btc7"], 107 / 100 - 1)
+        self.assertEqual(c["fng"], 26)
+        line = umarket.context_line(con, {"label": "hladno"})
+        self.assertIn("BTC 7 d: +7.0%", line)
+        self.assertIn("Fear &amp; Greed: 26", line)
+        self.assertIn("alternative.me", line)
+        self.assertIsNone(collect.context(con, now=day - 30 * 86400))   # nothing known before it existed

@@ -117,6 +117,33 @@ def prices(con, pts):
     con.executemany("INSERT OR REPLACE INTO price VALUES (?,?)", [(t // D * D, p) for t, p in pts])
 
 
+def btc(con, pts):
+    con.executemany("INSERT OR REPLACE INTO btc VALUES (?,?)", [(t // D * D, p) for t, p in pts])
+
+
+def fng(con, pts, now=None):
+    """Fear & Greed per day. `seen` = when we first stored it: a decision may only use a value seen before it (as-of);
+    rows backfilled from history keep published = seen (we cannot know better, flagged by seen > published + 1 day)."""
+    now = int(now or time.time())
+    for t, v, lab in pts:
+        con.execute("INSERT INTO fng VALUES (?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET value=excluded.value, "
+                    "label=excluded.label", (t // D * D, v, lab, t, max(t, now) if now - t < 2 * D else t))
+
+
+def context(con, now=None):
+    """One line for the screen (audit §15): BTC 7 d change and the latest Fear & Greed. None when nothing stored."""
+    now = now or time.time()
+    b = con.execute("SELECT day, usd FROM btc WHERE day<=? ORDER BY day DESC LIMIT 8", (now,)).fetchall()
+    f = con.execute("SELECT day, value, label FROM fng WHERE day<=? ORDER BY day DESC LIMIT 1", (now,)).fetchone()
+    out = {}
+    if len(b) >= 8 and b[-1][1]:
+        out["btc7"] = b[0][1] / b[-1][1] - 1
+        out["btc_day"] = b[0][0]
+    if f:
+        out.update(fng=f[1], fng_label=f[2], fng_day=f[0])
+    return out or None
+
+
 def snapshot(con, ov, now=None):
     """Rolling 24 h and 7 d volume per platform and group right now (one row set per hour)."""
     ts = int((now or time.time()) // 3600 * 3600)

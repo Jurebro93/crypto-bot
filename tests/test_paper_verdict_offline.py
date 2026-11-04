@@ -127,7 +127,8 @@ class Page(unittest.TestCase):
 
     def test_verdicts_bands_and_reasons(self):
         h = paperverdict.top_html(self.trades(), now=NOW)
-        self.assertIn("Zarađuje: Prvi prelazak 100k $.", h)
+        self.assertIn("U plusu: Prvi prelazak 100k $.", h)
+        self.assertIn("Bez najboljeg tradea", h)
         self.assertIn("Blizu nule: 3+ KOL-a u 15 min.", h)
         self.assertIn("gubi", h)
         self.assertIn("kasni ulaz", h.lower())

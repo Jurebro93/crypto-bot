@@ -261,14 +261,21 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
 
 def summary(con, cfg, ex=None):
     """Per strategy, for the page, the report and the learning: account, return, trades, hit rate, best/worst."""
+    from strat import robust
     acc = accounts(con, cfg, ex=ex)
     out = []
+    closed = {s["key"]: store.rows(con, "strat=? AND status='closed'", (s["key"],)) for s in cfg["strategies"]}
+    ctrl = closed.get("kontrola") if "kontrola" in closed else None
     for s in cfg["strategies"]:
         k = s["key"]
         a = acc[k]
-        done = [p for p in store.rows(con, "strat=? AND status='closed'", (k,))]
+        done = closed[k]
         rets = sorted(p["ret"] or 0 for p in done)
+        st = (("kontrola", "kontrola", "nasumični ulaz iz istog skenera; mjerilo za ostale") if k == "kontrola"
+              else robust.status(done, ctrl))
         out.append({**s, **a, "ret": a["value"] / cfg["bankroll_usd"] - 1,
+                    "robust": robust.without_top(done), "status": st,
+                    "portfolio": robust.portfolio(done, cfg["bankroll_usd"]),
                     "hit": (a["wins"] / a["closed"]) if a["closed"] else None,
                     "avg_ret": (sum(rets) / len(rets)) if rets else None,
                     "med_ret": rets[len(rets) // 2] if rets else None,

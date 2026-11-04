@@ -176,10 +176,11 @@ def page(qs):
                         + (f', zadnja provjera izvora {ago(snap)[0]}' if snap else "") + "</p>")
             body.append('<div class=grid>' + "".join(f'<div class=stat><div class=v>{v}</div><div class=l>{lb}</div></div>'
                                                      for v, lb in stats) + "</div>")
+            body.append(context_line(con, r))
         else:
             body.append('<div class=card>Režim još nije izračunat: treba barem ~100 dana povijesti (skida se pri prvom pokretanju).</div>')
         body.append(f'<h2>Hipoteza: kad raste volumen na Solani, trejda se više shitcoina?</h2><div class=card>{esc(regime.verdict(h))}'
-                    "<br><span class=mut>Korelacija dnevnih promjena: +1 = uvijek zajedno, 0 = nema veze, −1 = suprotno. "
+                    "<br><span class=mut>Korelacija dnevnih promjena: +1 = uvijek zajedno, 0 = nema pravocrtne veze, −1 = suprotno. "
                     "Solana DEX ovdje ne uključuje PumpSwap (to su graduirani pump.fun tokeni), da se trenchevi ne broje dvaput.</span></div>")
         if h:
             hrows = [["Isti dan: Solana DEX ↔ launchpadi", signed(h["same_day"])],
@@ -213,3 +214,24 @@ def page(qs):
         return "Tržište", "".join(body)
     finally:
         con.close()
+
+
+def context_line(con, r=None):
+    """Audit 4.11. §15: one line, not a new score. Trenchevi režim (yesterday), BTC 7 d, Fear & Greed with attribution."""
+    from market import collect
+    try:
+        c = collect.context(con) or {}
+    except Exception:  # noqa: BLE001 - old market.db without the btc/fng tables
+        c = {}
+    parts = []
+    if r:
+        parts.append(f"Trenchevi: {esc(r['label'])} (jučer)")
+    if "btc7" in c:
+        parts.append(f"BTC 7 d: {c['btc7']:+.1%}")
+    if "fng" in c:
+        parts.append(f"Fear &amp; Greed: {c['fng']} ({esc(c.get('fng_label') or '')})")
+    if not parts:
+        return ""
+    return ("<p class=mut style='margin:8px 0'>" + " · ".join(parts) + ". Samo informacija: bot to još ne koristi u odluci "
+            "dok test ne pokaže da dodaje nešto povrh volumena i SOL-a. Fear &amp; Greed: "
+            "<a href='https://alternative.me/crypto/fear-and-greed-index/' rel=noopener>alternative.me</a>.</p>")

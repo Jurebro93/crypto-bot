@@ -107,8 +107,19 @@ def verdict(s):
     return "zero"
 
 
-VERDICT_HR = {"good": ("zarađuje", "good"), "zero": ("blizu nule", "warn"), "bad": ("gubi", "bad"),
-              "few": ("premalo podataka", "")}
+VERDICT_HR = {"good": ("u plusu", "good"), "zero": ("blizu nule", "warn"), "bad": ("gubi", "bad"),
+              "few": ("premalo podataka", ""), "conc": ("koncentrirano", "warn")}
+
+
+def robust_html(ts):
+    """R7/R6 line for one strategy card: result without the best trade and token, and the status (audit 4.11.)."""
+    from strat import robust
+    rb = robust.without_top(ts)
+    st = robust.status(ts, None)
+    if not rb["n"]:
+        return ""
+    return (f"<p class=uc-small>Bez najboljeg tradea: {rb['no_best']:+,.2f} $ · bez 5 najboljih: {rb['no_top5']:+,.2f} $ · "
+            f"bez najboljeg tokena: {rb['no_best_token']:+,.2f} $. Status: <b>{esc(st[1])}</b> ({esc(st[2])}).</p>")
 
 
 def closed_trades(trades):
@@ -192,7 +203,11 @@ def strategies_html(closed, now=None):
         bands = {b: summarize(x) for b, x in by_band(ts).items()}
         rows.append((order[verdict(s)], -(s.get("pnl") or 0), key, name, what, s, recent, bands, reasons_of(ts)))
     for _, _, key, name, what, s, recent, bands, reasons in sorted(rows):
-        v, cls = VERDICT_HR[verdict(s)]
+        from strat import robust
+        vk = verdict(s)
+        if vk == "good" and robust.without_top(modes.get(key) or [])["concentrated"]:
+            vk = "conc"   # R7: the plus disappears without the best trade or token
+        v, cls = VERDICT_HR[vk]
         fix = how_to_fix(s, bands, reasons) if s.get("n") else []
         if key == "aktivni" and not s.get("n"):
             fix = ["Nova strategija od 4.11.: mjeri se zasebno, presuda kad ima barem 10 zatvorenih tradeova."]
@@ -201,15 +216,18 @@ def strategies_html(closed, now=None):
             f"<p class=uc-small style='margin:0 0 6px!important'>{esc(what)}</p><p>{esc(_fmt(s))}</p>"
             + (f"<p class=uc-small>Zadnjih {RECENT_D} dana: {esc(_fmt(recent))}</p>" if recent.get("n") and
                recent["n"] != s["n"] else "")
+            + robust_html(modes.get(key) or [])
             + (("<ul class=uc-ul style='margin-top:8px'>" + "".join(f"<li>{esc(x)}</li>" for x in fix) + "</ul>")
                if fix else "") + "</div>")
     good = [r[3] for r in rows if r[0] == 0]
     zero = [r[3] for r in rows if r[0] == 1]
-    head = ("Zarađuje: " + ", ".join(good) + "." if good else "Nijedna strategija još nije u plusu.") + (
+    head = ("U plusu: " + ", ".join(good) + "." if good else "Nijedna strategija još nije u plusu.") + (
         " Blizu nule: " + ", ".join(zero) + "." if zero else "")
     return (f"<div class=uc-top><p class='uc-v {'good' if good else ''}'>{esc(head)}</p><p class=uc-sub>Presuda "
             f"po strategiji iz zatvorenih demo tradeova (ručne prodaje se ne broje; jedan trade najviše +300%). "
-            f"Zarađuje = prosjek barem +{GOOD:.0%} po tradeu i ukupno u plusu; blizu nule = između {BAD:.0%} i "
+            f"Koncentrirano = plus nestaje bez najboljeg tradea ili tokena. U plusu ≠ smije pravi novac: za to treba "
+            f"100+ zatvorenih i pobjeda nad nasumičnim ulazom (kontrolom) u obje polovice razdoblja. "
+            f"U plusu = prosjek barem +{GOOD:.0%} po tradeu i ukupno u plusu; blizu nule = između {BAD:.0%} i "
             f"+{GOOD:.0%}; ispod {MIN_N} tradeova nema presude.</p></div>" + "".join(cards))
 
 
