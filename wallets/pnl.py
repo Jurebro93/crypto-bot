@@ -87,17 +87,26 @@ def positions(rows, prices=None):
     return pos
 
 
+UNREAL_HAIRCUT = 0.5   # open profit counts half: it is not cashed, and a copy would exit later and worse
+BAG_DAYS = 7           # an open position in loss, bought this long ago = a bag the wallet does not admit
+
+
 def score(pos, rows, now=None, labels=(), min_sol=0.02):
+    """Until 5.11. only CLOSED positions made the score: a wallet that sells its winners and keeps its losers open
+    looked like a genius. Now the open book counts too: open profit/loss at UNREAL_HAIRCUT, and bags (open losers
+    older than BAG_DAYS) cut the score by their share of positions."""
     now = now or time.time()
     real = [p for p in pos.values() if p["status"] in ("open", "closed") and p["cost"] >= min_sol]
     closed = [p for p in real if p["status"] == "closed"]
+    opened = [p for p in real if p["status"] == "open"]
     rois = [p["roi"] for p in closed]
     pnls = [p["realized"] + (p["unrealized"] or 0) for p in closed]
     gains, losses = sum(x for x in pnls if x > 0), -sum(x for x in pnls if x < 0)
     wins = sum(1 for r in rois if r > 0)
     n = len(closed)
     realized = sum(p["realized"] for p in real)
-    unrealized = sum(p["unrealized"] or 0 for p in real if p["status"] == "open")
+    unrealized = sum(p["unrealized"] or 0 for p in opened)
+    bags = [p for p in opened if (p["unrealized"] or 0) < 0 and p["first_buy"] and now - p["first_buy"] >= BAG_DAYS * 86400]
     cost = sum(p["cost"] for p in closed)
     holds = [p["hold_min"] for p in closed if p["hold_min"] is not None]
     sizes = [p["cost"] / max(1, p["buys"]) for p in real]
@@ -105,12 +114,17 @@ def score(pos, rows, now=None, labels=(), min_sol=0.02):
     span_d = max(1.0, (max(ts) - min(ts)) / 86400) if ts else 1.0
     trades_per_day = sum(1 for r in rows if r["kind"] in ("buy", "sell")) / span_d
     free_ratio = (sum(1 for p in pos.values() if p["free_in"] > 0) / len(pos)) if pos else 0
-    total_pnl = sum(pnls)
+    closed_pnl = sum(pnls)
+    total_pnl = closed_pnl + UNREAL_HAIRCUT * unrealized   # what the score sees: closed result + half the open book
+    bag_share = len(bags) / len(real) if real else 0.0
     s = {
         "positions": len(real), "closed": n, "open": len(real) - n,
         "win_rate": round(wins / n, 2) if n else 0.0,
         "realized_sol": round(realized, 3), "unrealized_sol": round(unrealized, 3),
-        "closed_pnl_sol": round(total_pnl, 3), "roi_on_cost": round(total_pnl / cost, 2) if cost else 0.0,
+        "closed_pnl_sol": round(closed_pnl, 3), "roi_on_cost": round(closed_pnl / cost, 2) if cost else 0.0,
+        "pnl_sol": round(closed_pnl + unrealized, 3), "scored_pnl_sol": round(total_pnl, 3),
+        "bags": len(bags), "bag_share": round(bag_share, 2),
+        "bag_sol": round(sum(p["unrealized"] or 0 for p in bags), 3),
         "profit_factor": round(gains / losses, 2) if losses else (99.0 if gains else 0.0),
         "big_wins": sum(1 for r in rois if r >= 1.0), "rugged_in": sum(1 for p in closed if p["roi"] <= -0.9),
         "median_roi": round(statistics.median(rois), 2) if rois else 0.0,
@@ -130,6 +144,7 @@ def score(pos, rows, now=None, labels=(), min_sol=0.02):
           + 10 * _clamp(s["big_wins"] / 5)
           + 10 * (1 - _clamp(s["top_trade_share"])) * (total_pnl > 0))
     sc *= min(1.0, n / 10)  # fewer than 10 closed trades = not enough evidence
+    sc *= 1 - 0.5 * _clamp(bag_share)   # a third of the book in old losers = -17%; all of it = half the score
     s["score"] = round(sc)
 
     bot = trades_per_day > 300 or (s["median_hold_min"] is not None and s["median_hold_min"] < 0.5)
@@ -166,8 +181,10 @@ def score(pos, rows, now=None, labels=(), min_sol=0.02):
             mult *= 0.5; why.append("sitne kupnje")
         if free_ratio > 0.3:
             mult *= 0.3; why.append("puno besplatnih tokena (insider?)")
-        if s["closed_pnl_sol"] <= 0:
-            mult = 0.0; why.append("u minusu")
+        if bag_share >= 0.3:
+            mult *= 0.5; why.append(f"drži stare gubitnike ({len(bags)} od {len(real)})")
+        if total_pnl <= 0:   # closed result plus half the open book: open losses count too (5.11.)
+            mult = 0.0; why.append("u minusu" if closed_pnl <= 0 else "u minusu s otvorenim pozicijama")
     s["copy_score"] = round(s["score"] * mult)
     s["copy_notes"] = why
     return s
