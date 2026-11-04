@@ -314,15 +314,17 @@ def _hl_kol():
 
 def _hl_converge(now):
     """The token that most independent sources (X, Telegram, on-chain) called together in the last 24 h."""
-    from kol import store as kol_store
+    from kol import converge, store as kol_store
     con = _ro(kol_store.DB)
     if con is None:
         return None
+    skip = converge.majors()   # WBTC & co. are not "called"; they are what wallets trade through
     try:
-        r = con.execute("SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
-                        "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
-                        "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC "
-                        "LIMIT 1", (now - 86400,)).fetchone()
+        r = next((row for row in con.execute(
+            "SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
+            "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
+            "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC LIMIT 20",
+            (now - 86400,)) if row[0] not in skip), None)
     except sqlite3.Error:
         return None
     finally:
