@@ -198,6 +198,10 @@ DCA prijedlog (kupnja u padu, `paper/dca.py`, pravila u `config.json` pod `dca`)
 
 Token na kojem je demo izgubio nije gotov. Ako u zadnjih 7 dana demo trade zatvoren s gubitkom (≤ −30 %), a token je sad opet živ (hype signal u zadnjih 30 min s prometom ≥ 30 % likvidnosti i u zadnjih 60 min ili smart walleti među kupcima ili praćeni KOL/copy novčanik kupuje), ide mali drugi ulaz (20 $, najviše 2 po tokenu, 60 min pauze nakon izlaska), mjeren kao vlastiti krak `povratak|sesija`. Svaka procjena okidača (mc100k, kol3, aktivni, povratak), kupljena ili ne, zapisuje se u `paper.db trigger_points` i postaje točka sjenovite knjige (`learn/shadow.py`), pa alat uči i na onome što nije kupio.
 
+### Insajderi kao signal (`kol/insiders.py`, strategija `insajderi`, 5.11.)
+
+Novčanici koji su na 2+ tokena kupili sat prije KOL poziva (`kol.db insiders`, iz Helius tokova oko jakih poziva) nisu za kopiranje (prodaju u poziv), ali jesu signal. `profile()` razdvaja insajdera od snajpera (udio kupljenih tokena koji su ikad pozvani, sekunde nakon lansiranja); pravi ulaze u Helius webhook (`chain.share.insajderi`, 20 % mjesta) i u demo strategiju **Insajderi**: 2+ njih kupi isti token unutar 10 min, a nitko ga još nije pozvao → kupnja; izlaz čim neki od njih proda (`chain_trades`) ili po pravilima bota. `sell_timing()` mjeri kad insajderi prodaju u odnosu na 2. i 3. poziv (kandidat za pravilo izlaza); sve je na `/korelacije`. Na vrhu `/wallets` i `/strategije` stoji „Što bih ja napravio” (`ui/preporuka.py`): preporuke s razlogom, pouzdanost po broju podataka, što su demo kopije stvarno zaradile i što se od njegovih kupnji moglo uzeti (+15/+30/+50 % unutar 24 h).
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.

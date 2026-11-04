@@ -150,6 +150,7 @@ def page(qs):
     try:
         ex = run.exit_rules(now)
         summ = run.summary(con, cfg, ex)
+        h.append(_verdict_box(summ))
         start = int(float(store.kv_get(con, "start_ts", now)))
         eq = con.execute("SELECT ts, strat, value FROM equity WHERE ts >= ? ORDER BY ts",
                          (now - 30 * 86400,)).fetchall()
@@ -283,3 +284,26 @@ def report_data(now=None):
              "closed": x["closed"], "open": x["open"], "hit": x["hit"], "pnl_24h": round(d1.get(x["key"], 0), 2),
              "status": x["status"][1], "no_best": round(x["robust"]["no_best"], 2)}
             for x in sorted((x for x in s if not x.get("baseline")), key=lambda x: -x["value"])]
+
+
+def _verdict_box(summ):
+    """'Što bih ja napravio' on top of the comparison (Nicholas 4.11.): the one sentence the statuses add up to."""
+    if not summ:
+        return ""
+    st = {s["key"]: s for s in summ}
+    kand = [s for s in summ if (s.get("status") or ("",))[0] == "kandidat"]
+    ctrl = st.get("kontrola")
+    best = max((s for s in summ if s["key"] != "kontrola"), key=lambda s: s["ret"], default=None)
+    if kand:
+        names = ", ".join(f"{s['icon']} {s['name']}" for s in kand)
+        txt = (f"Kandidat za dalje testiranje: <b>{esc(names)}</b> — tuče nasumični ulaz po tradeu, u obje polovice "
+               "razdoblja i bez 5 najboljih tradeova. Ni to još nije dozvola za pravi novac: pustio bih je da skupi "
+               "200 zatvorenih pa odlučio.")
+    elif best:
+        s = best["status"] or ("", "", "")
+        txt = (f"Ne bih stavljao pravi novac ni na jednu. Najbolje stoji <b>{esc(best['icon'])} {esc(best['name'])}</b> "
+               f"({best['ret']:+.1%}), ali presuda je „{esc(s[1])}”: {esc(s[2])}."
+               + (f" Nasumična kontrola je na {ctrl['ret']:+.1%}: strategija vrijedi tek kad je jasno iznad toga." if ctrl else ""))
+    else:
+        txt = "Još nema podataka."
+    return f"<div class=card><p><b>Što bih ja napravio:</b> {txt} Svaka strategija ovdje je zaseban demo račun; što ih više mjerimo, alat brže uči što prolazi.</p></div>"

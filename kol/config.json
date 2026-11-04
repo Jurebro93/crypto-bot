@@ -68,7 +68,7 @@
  "chain": {
   "max_wallets": 100,
   "resync_h": 24,
-  "share": {"ids": 0.5, "copy": 0.4, "signal": 0.1},
+  "share": {"ids": 0.4, "copy": 0.3, "signal": 0.1, "insajderi": 0.2},
   "min_copy": 35
  },
  "idents": {

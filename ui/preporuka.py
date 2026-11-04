@@ -39,7 +39,7 @@ def rank_wallets(ws, copies=None):
             continue
         tier, twhy = confidence(s)
         c = copies.get(w["wallet"][:6])
-        out.append((w, {"tier": tier, "tier_why": twhy, "copy": c}))
+        out.append((w, {"tier": tier, "tier_why": twhy, "copy": c, "ladder": None}))
     order = {"visoka": 0, "srednja": 1, "niska": 2}
     out.sort(key=lambda r: (order[r[1]["tier"]], -(r[0].get("copy_score") or 0), -(r[0]["stats"].get("closed_pnl_sol") or 0)))
     return out
@@ -58,7 +58,8 @@ def _sentence(w, r):
         txt += (f" Kad je naš demo bot kupio isto što i on ({n}×, s našim izlazima), ispalo je {mean:+.0%} po tradeu, "
                 f"ukupno {pnl:+,.0f} $ — to je jedini stvarni test kopiranja.")
     else:
-        txt += " Demo bot ga još nije kopirao, pa za kopiranje imamo samo njegovu povijest, ne i naš rezultat."
+        txt += " Demo bot ga još nije kopirao."
+    txt += ladder_sentence(r.get("ladder"))
     return txt
 
 
@@ -100,6 +101,11 @@ def wallets_box(ws, copies=None):
                 f"{MIN_CLOSED} zatvorenih tradeova, copy ocjena {MIN_COPY}+, u plusu, drži kraće od {CAP_HOLD_MIN // 60} h, "
                 "bez loših oznaka. Tablica ispod je za one koji žele kopati sami.</p></div>")
     top = ranked[:3]
+    for w, r in top:   # price-checked ladder only for the three shown (each reads the wallet's buys and price paths)
+        try:
+            r["ladder"] = wallet_ladder(w["wallet"])
+        except Exception:  # noqa: BLE001
+            r["ladder"] = None
     items = "".join(
         f"<li>{wlink(w['wallet'])} <span class='b {cls[r['tier']]}'>pouzdanost {r['tier']}</span> "
         f"<span class=mut>({esc(r['tier_why'])})</span><br>{_sentence(w, r)}</li>" for w, r in top)
@@ -141,3 +147,83 @@ def copies_from_strat():
             con.close()
     except Exception:  # noqa: BLE001 - the box never takes the page down
         return {}
+
+
+# ---------------- "what could we have taken" from the wallet's own buys (Nicholas 4.11.) ----------------
+
+LEVELS = (0.15, 0.30, 0.50)
+
+
+def wallet_ladder(wallet, days=30, horizon_h=24, wallet_db=None, hype_db=None, paper_db=None):
+    """For the wallet's buys in the last `days`: how many could be checked against a price path (hype.db snapshots
+    every 20 min or the demo's minute ticks), and of those, how many touched +15 / +30 / +50 % within horizon_h after
+    the buy, plus the median best move. {'buys': n, 'checked': m, 'hit': {0.15: share, ...}, 'med_max': x} or None.
+    Nobody sells at the top, but 'could 9 of 10 buys have taken +15 %' is a result a copier can use."""
+    import sqlite3
+    import statistics
+    import time
+    from wallets import store as wstore
+    wcon = _ro_db(wallet_db or wstore.DB)
+    if wcon is None:
+        return None
+    try:
+        buys = wcon.execute("SELECT mint, MIN(ts) FROM wallet_trades WHERE wallet=? AND kind='buy' AND ts>=? GROUP BY mint",
+                            (wallet, int(time.time() - days * 86400))).fetchall()
+    except sqlite3.OperationalError:
+        buys = []
+    finally:
+        wcon.close()
+    if not buys:
+        return None
+    from ui import data
+    hcon, pcon = _ro_db(hype_db or data.HYPE_DB), _ro_db(paper_db or data.PAPER_DB)
+    maxes = []
+    try:
+        for mint, ts in buys:
+            path = []
+            for con, table in ((pcon, "ticks"), (hcon, "hype_snapshots")):
+                if con is None:
+                    continue
+                try:
+                    rows = con.execute(f"SELECT ts, price FROM {table} WHERE token=? AND ts>=? AND ts<=? AND price>0 ORDER BY ts",
+                                       (mint, ts - 1800, ts + horizon_h * 3600)).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+                if len(rows) >= 3:
+                    path = rows
+                    break
+            if not path:
+                continue
+            p0 = next((px for t, px in path if t >= ts), None) or path[0][1]
+            if not p0:
+                continue
+            best = max(px for t, px in path if t >= ts) if any(t >= ts for t, _ in path) else p0
+            maxes.append(best / p0 - 1)
+    finally:
+        for c in (hcon, pcon):
+            if c is not None:
+                c.close()
+    if not maxes:
+        return {"buys": len(buys), "checked": 0, "hit": {}, "med_max": None}
+    return {"buys": len(buys), "checked": len(maxes), "med_max": round(statistics.median(maxes), 3),
+            "hit": {lv: round(sum(1 for m in maxes if m >= lv) / len(maxes), 2) for lv in LEVELS}}
+
+
+def _ro_db(path):
+    import os
+    import sqlite3
+    if not path or not os.path.exists(path) or not os.path.getsize(path):
+        return None
+    try:
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    except sqlite3.OperationalError:
+        return None
+
+
+def ladder_sentence(l):
+    if not l or not l.get("checked"):
+        return " Njegove kupnje još ne možemo provjeriti cijenom (bot nema snimke tih tokena)."
+    h = l["hit"]
+    return (f" Da smo kupili kad i on: od {l['checked']} kupnji koje možemo provjeriti cijenom (od {l['buys']} u 30 dana), "
+            f"{h[0.15]:.0%} je dalo barem +15 %, {h[0.30]:.0%} barem +30 %, {h[0.50]:.0%} barem +50 % unutar 24 h; "
+            f"medijan vrha {l['med_max']:+.0%}. Nitko ne izlazi na vrhu, ali +15 % na {h[0.15]:.0%} kupnji je ono što se stvarno dalo uzeti.")

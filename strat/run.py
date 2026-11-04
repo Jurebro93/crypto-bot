@@ -98,6 +98,7 @@ def wanted(src, cfg, now, last_random, out_wallets=()):
     out = {"novcanici": src.get("novcanici", []), "kol": src.get("kol", []),
            "top_novcanici": [e for e in src.get("novcanici", []) if e[2] not in out_wallets],
            "alat": src.get("alat", []),
+           "insajderi": src.get("insajderi", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:
@@ -176,7 +177,9 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
     now = now or time.time()
     ex = ex or exit_rules(now)
     market_fn = market_fn or market
-    src = (sources or signals.Sources()).read(int(now), (cfg["mix_window_min"] + cfg["max_delay_min"]) * 60)
+    srcs = sources or signals.Sources()
+    src = srcs.read(int(now), (cfg["mix_window_min"] + cfg["max_delay_min"]) * 60)
+    insider_set = getattr(srcs, "insiders", set())
     con = store.connect(path)
     try:
         start = store.start_ts(con, now)
@@ -239,6 +242,11 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
             else:
                 continue
             sim.step(pos, px, liq, int(now), ex)
+            if pos["open"] and p["strat"] == "insajderi" and insider_set and p.get("entry_ts"):
+                # the strategy's own exit: the insiders who bought before us are selling (hype.db chain_trades)
+                from kol import insiders as _ins
+                if _ins.sold_since(srcs.hype_db, p["token"], p["entry_ts"], insider_set):
+                    sim.sell(pos, pos["left"] if pos.get("left") is not None else 1.0, px, liq, int(now), "insajderi prodaju", ex)
             res = sim.result(pos, px, liq, ex)
             status = None if pos["open"] else "closed"
             _save(con, p["id"], pos, res, px, liq, now, status)
