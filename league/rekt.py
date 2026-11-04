@@ -13,7 +13,7 @@ import time
 
 from . import store
 
-REKT_USD = 10.0          # account value under this (1% of the start) = rekt
+REKT_USD = 25.0          # account value under this (2.5% of the start) = rekt; 4.11. Mario sat at $12.61 = -98.7%, Nicholas: "pao na 0"
 CHECK_EVERY_S = 300
 BOT = "bot"
 _LAST = {"ts": 0}
