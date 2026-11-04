@@ -11,7 +11,7 @@ for f in calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
-export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1
+export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
 # of memory every few minutes (1.11.). Two arenas per process: same speed here, about half the memory (UI test

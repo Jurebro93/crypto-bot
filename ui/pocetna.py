@@ -189,7 +189,9 @@ def _db_totals_now():
         try:
             for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
                 try:
-                    rows += con.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+                    # MAX(rowid) instead of COUNT(*): instant on a 600 MB table (COUNT reads it all); a few deleted
+                    # rows make it slightly high, which is fine for "about how much data"
+                    rows += con.execute(f"SELECT COALESCE(MAX(rowid), 0) FROM [{t}]").fetchone()[0]
                 except sqlite3.Error:
                     pass
         except sqlite3.Error:
@@ -230,7 +232,7 @@ def data_html(now=None):
         rows, size, n_db = 0, 0, 0
     tiles = []
     if rows:
-        tiles.append(f'<div class=ov-t><div class=l>🗄 Ukupno zapisa</div><div class=v>{rows:,}</div>'
+        tiles.append(f'<div class=ov-t><div class=l>🗄 Ukupno zapisa</div><div class=v>~{rows:,}</div>'
                      f'<div class="d mut">{size / 1e9:.2f} GB u {n_db} baza</div></div>')
     for icon, label, href, (total, new, prev) in ms:
         tiles.append(f'<a class=ov-t href="{href}" style="text-decoration:none;color:inherit"><div class=l>{icon} {esc(label)}</div>'
