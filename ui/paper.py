@@ -266,10 +266,11 @@ def why_taken(c):
 
 def lesson(t, c):
     """What happened and what the daily review (paper/review.py) does with this kind of outcome."""
-    ret, mx = t["ret"] or 0, t["max_ret"] or 0
+    t = dict(t)       # a demo db from an older schema has no max_ret column
+    ret, mx = t.get("ret") or 0, t.get("max_ret") or 0
     top = ", ".join(labels.feat_low(k) for k in _top((c or {}).get("features"))) or "-"
-    ex = t["exit_reason"] or ""
-    if t["status"] == "open":
+    ex = t.get("exit_reason") or ""
+    if t.get("status") == "open":
         return "<span class=mut>još otvoreno</span>"
     if ret > 0:
         return (f"<span class=pos>Pobjeda {ret:+.0%}</span> ({esc(labels.exit_reason(ex))}). Jaki signali pri ulazu: {esc(top)}. "
@@ -630,7 +631,7 @@ def page(qs):
         rows.append([(f'{tlink(t["token"], t["symbol"])}<div class=mut style="font-size:12px">{ts(t["opened_ts"])[0]} · '
                       f'{hold:.1f} h · MC {_mc(t.get("entry_mcap"))} → {_mc(t.get("exit_mcap"))}</div>', t["opened_ts"], ""),
                      (f'{signed(t["pnl_usd"])[0]}<div style="font-size:12px">{signed(t["ret"], "{:+.0%}")[0]} · max '
-                      f'{(t["max_ret"] or 0):+.0%}</div><div class=mut style="font-size:12px">'
+                      f'{(t.get("max_ret") or 0):+.0%}</div><div class=mut style="font-size:12px">'
                       f'{esc(labels.exit_reason(t["exit_reason"]))}</div>', t["pnl_usd"] or 0, "n"),
                      (confidence.badge_html(conf), conf, "n") if conf is not None else "–",
                      (why_taken(c), "", "wrap"), (lesson(t, c), "", "wrap")])

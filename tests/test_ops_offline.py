@@ -235,11 +235,22 @@ class TtlCache(unittest.TestCase):
         calls = []
         f = lambda: calls.append(1) or {"a": [1, 2]}  # noqa: E731
         data._TTL.pop("t", None)
+        import tempfile
+        saved, data.TTL_DIR = data.TTL_DIR, tempfile.mkdtemp()   # no file left by an earlier run
+        self.addCleanup(setattr, data, "TTL_DIR", saved)
         self.assertEqual(data.ttl_cache("t", 60, f), {"a": [1, 2]})
         v = data.ttl_cache("t", 60, f)
         v["a"].append(3)                       # a page changing its copy does not change the cache
         self.assertEqual(data.ttl_cache("t", 60, f), {"a": [1, 2]})
         self.assertEqual(len(calls), 1)
+
+    def test_json_not_pickle_and_types_round_trip(self):
+        """Audit 4.11. §4.3: no pickle.loads from the shared cache dir; tuples, sets and int keys survive."""
+        from ui import data
+        import inspect
+        self.assertNotIn("pickle.loads", inspect.getsource(data))
+        v = {"a": (1, 2), "s": {3}, 5: [b"x", float("inf")], "__x": 1}
+        self.assertEqual(data._loads(data._dumps(v)), v)
 
 
 class MallocArenaTest(unittest.TestCase):

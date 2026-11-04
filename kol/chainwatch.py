@@ -18,12 +18,15 @@ STABLE = {SOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfr
 HYPE_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hype.db")
 
 
+AUTH_V = 2   # 4.11.: key moved from ?key= in the URL to the Authorization header (Helius authHeader)
+
+
 def hook_url():
     base = os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("KOL_HOOK_BASE")
     key = store.chain_key()
     if not base or not key:
         return None
-    return f"{base.rstrip('/')}/hook/chain?key={urllib.parse.quote(key)}"
+    return f"{base.rstrip('/')}/hook/chain"
 
 
 def _api(method, path="", body=None):
@@ -59,9 +62,11 @@ def sync(con, cfg, now=None, api=None, log=print):
         return None
     wallets = wanted(con, cfg)
     state = json.loads((con.execute("SELECT value FROM kv WHERE key='chain_hook'").fetchone() or ("{}",))[0])
-    if not wallets or (sorted(wallets) == sorted(state.get("wallets", [])) and now - state.get("ts", 0) < cfg["resync_h"] * 3600):
+    if not wallets or (sorted(wallets) == sorted(state.get("wallets", [])) and now - state.get("ts", 0) < cfg["resync_h"] * 3600
+                       and state.get("auth") == AUTH_V):
         return False
-    body = {"webhookURL": url, "transactionTypes": ["SWAP"], "accountAddresses": wallets, "webhookType": "enhanced"}
+    body = {"webhookURL": url, "transactionTypes": ["SWAP"], "accountAddresses": wallets, "webhookType": "enhanced",
+            "authHeader": store.chain_key()}
     hid = state.get("id")
     if not hid:  # reuse one we made before (same URL) instead of piling up webhooks
         for h in api("GET") or []:
@@ -70,7 +75,7 @@ def sync(con, cfg, now=None, api=None, log=print):
     res = api("PUT", f"/{hid}", body) if hid else api("POST", "", body)
     hid = (res or {}).get("webhookID") or hid
     con.execute("INSERT OR REPLACE INTO kv VALUES ('chain_hook', ?)",
-                (json.dumps({"id": hid, "wallets": wallets, "ts": now}),))
+                (json.dumps({"id": hid, "wallets": wallets, "ts": now, "auth": AUTH_V}),))
     con.commit()
     log(f"chain: Helius webhook prati {len(wallets)} KOL novčanika")
     return True

@@ -22,25 +22,25 @@ class Register(unittest.TestCase):
         con = members.connect()
         tok = members.standing(con, "Jure")
         self.assertEqual(members.standing(con), tok)                     # same link until renewed
-        self.assertEqual(members.register(con, tok, "Marko", "tajna12", "tajna12", ["Ivan"]), "Marko")
-        self.assertEqual(members.register(con, tok, "Ana", "tajna12", "tajna12"), "Ana")   # reusable
-        for args, why in [(("Ivan", "tajna12", "tajna12"), "zauzeto"), (("marko", "tajna12", "tajna12"), "zauzeto"),
-                          (("bot", "tajna12", "tajna12"), "zauzeto"), (("a b", "tajna12", "tajna12"), "slova"),
-                          (("Luka", "123", "123"), "6 znakova"), (("Luka", "tajna12", "tajna13"), "podudaraju")]:
+        self.assertEqual(members.register(con, tok, "Marko", "tajna12tajna", "tajna12tajna", ["Ivan"]), "Marko")
+        self.assertEqual(members.register(con, tok, "Ana", "tajna12tajna", "tajna12tajna"), "Ana")   # reusable
+        for args, why in [(("Ivan", "tajna12tajna", "tajna12tajna"), "zauzeto"), (("marko", "tajna12tajna", "tajna12tajna"), "zauzeto"),
+                          (("bot", "tajna12tajna", "tajna12tajna"), "zauzeto"), (("a b", "tajna12tajna", "tajna12tajna"), "slova"),
+                          (("Luka", "123", "123"), "12 znakova"), (("Luka", "tajna12tajna", "tajna13tajna"), "podudaraju")]:
             with self.assertRaisesRegex(ValueError, why):
                 members.register(con, tok, *args, taken=["Ivan"])
         new = members.renew(con)
         with self.assertRaisesRegex(ValueError, "ne vrijedi"):
-            members.register(con, tok, "Luka", "tajna12", "tajna12")     # old link stopped
+            members.register(con, tok, "Luka", "tajna12tajna", "tajna12tajna")     # old link stopped
         one = members.single(con)
-        members.register(con, one, "Luka", "tajna12", "tajna12")
+        members.register(con, one, "Luka", "tajna12tajna", "tajna12tajna")
         with self.assertRaisesRegex(ValueError, "ne vrijedi"):
-            members.register(con, one, "Pero", "tajna12", "tajna12")     # single-use
+            members.register(con, one, "Pero", "tajna12tajna", "tajna12tajna")     # single-use
         self.assertTrue(members.valid(con, new))
-        self.assertEqual(members.verify("marko", "tajna12"), "Marko")
+        self.assertEqual(members.verify("marko", "tajna12tajna"), "Marko")
         self.assertIsNone(members.verify("Marko", "kriva"))
         row = con.execute("SELECT hash FROM members WHERE name='Marko'").fetchone()[0]
-        self.assertNotIn("tajna12", row)                                 # only the hash is kept
+        self.assertNotIn("tajna12tajna", row)                                 # only the hash is kept
         self.assertEqual(store.users()[-3:], ["Marko", "Ana", "Luka"])  # on the board, after the server's list
         self.assertAlmostEqual(store.account(con, "Ana")["cash"], store.START_USD)
         con.close()
@@ -89,14 +89,14 @@ class Register(unittest.TestCase):
         self.assertIn("name=pw2", body)
         self.assertIn("ne vrijedi", call("/registracija?k=krivo")[2])
         self.assertIn("name=email", body)
-        code, _, body = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12", "pw2": "tajna12"})
+        code, _, body = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12tajna", "pw2": "tajna12tajna"})
         self.assertEqual(code, 400)                                       # 3.11.: e-mail is required
         self.assertIn("e-mail", body)
-        code, _, body = call("/registracija", {"k": tok, "name": "Ivan", "pw": "tajna12", "pw2": "tajna12",
+        code, _, body = call("/registracija", {"k": tok, "name": "Ivan", "pw": "tajna12tajna", "pw2": "tajna12tajna",
                                                "email": "ivan@mail.hr"})
         self.assertEqual(code, 400)                                       # a server player's name is taken
         self.assertIn("zauzeto", body)
-        code, hdr, _ = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12", "pw2": "tajna12",
+        code, hdr, _ = call("/registracija", {"k": tok, "name": "Marko", "pw": "tajna12tajna", "pw2": "tajna12tajna",
                                               "email": "marko@mail.hr"})
         self.assertEqual(code, 303)
         from league import profiles
@@ -104,9 +104,9 @@ class Register(unittest.TestCase):
         self.assertTrue(hdr["Location"].startswith("/natjecanje?ok="))
         cookie = hdr["Set-Cookie"].split(";")[0]
         self.assertEqual(run_ui.cookie_user(cookie.split("=", 1)[1]), (True, "Marko"))
-        self.assertEqual(run_ui.check_password("marko", "tajna12"), (True, "Marko"))
+        self.assertEqual(run_ui.check_password("marko", "tajna12tajna"), (True, "Marko"))
         self.assertEqual(run_ui.check_password("Marko", "x"), (False, None))
-        code, hdr, _ = call("/prijava", {"name": "Marko", "pw": "tajna12", "next": "/natjecanje"})
+        code, hdr, _ = call("/prijava", {"name": "Marko", "pw": "tajna12tajna", "next": "/natjecanje"})
         self.assertEqual((code, hdr["Location"]), (303, "/natjecanje"))
         srv.shutdown()
 

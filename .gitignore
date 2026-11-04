@@ -8,3 +8,4 @@ paper/config.suggested.json
 paper/config.*.bak.json
 *.whl
 shadow/
+.hook_key

@@ -241,14 +241,37 @@ def import_seed(con, path=SEED):
     return con.execute("SELECT COUNT(*) FROM calls").fetchone()[0] - before
 
 
+def _key_file():
+    return os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        ".hook_key")
+
+
 def hook_key():
-    """Key for /hook/kol: KOL_HOOK_KEY, or derived from UI_PASSWORD so nothing has to be set by hand."""
-    import hashlib
+    """Key for /hook/kol: KOL_HOOK_KEY, else a random key made once and kept on the data disk (0600).
+    4.11. audit §4.2: never derived from UI_PASSWORD any more (whoever knew the login could forge events)."""
     k = os.environ.get("KOL_HOOK_KEY")
     if k:
         return k
-    pw = os.environ.get("UI_PASSWORD")
-    return hashlib.sha256(f"kol-hook:{pw}".encode()).hexdigest()[:32] if pw else ""
+    path = _key_file()
+    try:
+        with open(path) as f:
+            k = f.read().strip()
+        if k:
+            return k
+    except OSError:
+        pass
+    import secrets
+    k = secrets.token_hex(16)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(k)
+    except FileExistsError:            # another process made it first: use theirs
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+    return k
 
 
 def converge(tokens=None, max_age_min=60, path=None):
@@ -278,7 +301,8 @@ def converge(tokens=None, max_age_min=60, path=None):
 
 
 def chain_key():
-    """Key for /hook/chain (Helius webhook of KOL wallets), derived like hook_key."""
+    """Key for /hook/chain (Helius webhook of KOL wallets). Helius sends it back in the Authorization header
+    (webhook field authHeader), so it is never in the URL."""
     import hashlib
     k = hook_key()
     return hashlib.sha256(f"chain:{k}".encode()).hexdigest()[:32] if k else ""

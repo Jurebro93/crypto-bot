@@ -17,6 +17,8 @@ import time
 
 from league import store
 
+MIN_PW = 12   # audit 4.11. §4.3: was 6
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (name TEXT PRIMARY KEY COLLATE NOCASE, salt TEXT, hash TEXT, created INTEGER,
                                     invite TEXT);
@@ -185,8 +187,8 @@ def register(con, token, name, pw, pw2, taken=()):
     low = name.lower()
     if low in RESERVED or low in {t.lower() for t in taken} or exists(name, with_deleted=True):
         raise ValueError(f"ime {name} je već zauzeto, odaberi drugo.")
-    if len(pw or "") < 6:
-        raise ValueError("lozinka mora imati barem 6 znakova.")
+    if len(pw or "") < MIN_PW:
+        raise ValueError("lozinka mora imati barem 12 znakova.")
     if pw != pw2:
         raise ValueError("lozinke se ne podudaraju, upiši ih ponovo.")
     salt = secrets.token_hex(16)

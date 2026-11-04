@@ -216,7 +216,8 @@ def _growth_line(new, prev):
         r = 0.0
     arrow = "▲" if r > 0.05 else "▼" if r < -0.05 else "≈"
     cls = "pos" if r > 0.05 else "neg" if r < -0.05 else "mut"
-    return (f"<b>+{new:,}</b> ovaj tjedan · <span class={cls}>{arrow} {(f"{r:+.0%}" if r else "0%")}</span> "
+    pct = f"{r:+.0%}" if r else "0%"
+    return (f"<b>+{new:,}</b> ovaj tjedan · <span class={cls}>{arrow} {pct}</span> "
             f"<span class=mut>vs prošli (+{prev:,})</span>")
 
 

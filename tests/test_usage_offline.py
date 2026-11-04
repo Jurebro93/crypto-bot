@@ -15,6 +15,7 @@ NOW = 1793623800  # 2026-11-02 12:50 UTC, three days into a cycle that starts on
 
 
 def fresh():
+    meter._tally.clear()   # counts buffered by earlier tests must not land in this fresh db
     meter.DB = os.path.join(tempfile.mkdtemp(), "usage.db")
     return meter.connect()
 

@@ -62,7 +62,7 @@ class Roles(unittest.TestCase):
         con = members.connect()
         try:
             tok = members.renew(con, "Jure")
-            members.register(con, tok, "Novi", "novipw1", "novipw1", ["Ivan", "Jure", "Claude"])
+            members.register(con, tok, "Novi", "novipw1novipw1", "novipw1novipw1", ["Ivan", "Jure", "Claude"])
         finally:
             con.close()
         srv = run_ui.ThreadingHTTPServer(("127.0.0.1", 0), run_ui.Handler)
@@ -76,8 +76,13 @@ class Roles(unittest.TestCase):
         op = urllib.request.build_opener(NoRedirect)
 
         def call(path, data=None, cookie=""):
+            headers = {"Cookie": cookie} if cookie else {}
+            if data is not None:   # like a browser: same-site Origin and the page JS's form token (4.11.)
+                headers["Origin"] = base
+                sess = cookie.split("=", 1)[1] if cookie.startswith(run_ui.COOKIE + "=") else ""
+                data = {**data, "_csrf": run_ui.csrf_token(sess)}
             req = urllib.request.Request(base + path, data=urllib.parse.urlencode(data).encode() if data else None,
-                                         headers={"Cookie": cookie} if cookie else {})
+                                         headers=headers)
             try:
                 r = op.open(req)
             except urllib.error.HTTPError as e:
@@ -90,7 +95,7 @@ class Roles(unittest.TestCase):
             return hdr["Set-Cookie"].split(";")[0]
         try:
             roles.set_role("Ivan", "prijatelj", "Jure")
-            novi, ivan, jure, viewer = (login("Novi", "novipw1"), login("Ivan", "ivanpw"), login("Jure", "jurepw"),
+            novi, ivan, jure, viewer = (login("Novi", "novipw1novipw1"), login("Ivan", "ivanpw"), login("Jure", "jurepw"),
                                         login("Claude", "gledam"))
             # basic user: core pages yes, spend/admin/AI-cost pages and paid actions no
             for p in ("/korisnici", "/usage", "/analitika", "/zahtjevi", "/outputs", "/learn", "/criteria",

@@ -93,7 +93,7 @@ class Landing(unittest.TestCase):
         con.close()
         con = members.connect()
         self.assertTrue(members.valid(con, tok))
-        members.register(con, tok, "Marko", "tajna12", "tajna12")
+        members.register(con, tok, "Marko", "tajna12tajna", "tajna12tajna")
         con.close()
         _, body = landing.admin_page({}, "Jure")
         self.assertIn("wa.me/385911234567", landing._share({"name": "M", "contact": "091 123 4567"}, "u"))
