@@ -155,7 +155,6 @@ def smarter_html(now=None):
     now = now or time.time()
     st = champion.load()
     cfg = champion.config()
-    model = (st.get("gbm") or {}).get("model") if st.get("champion") == "gbm" else (st.get("challenger") or {}).get("model")
     weeks = []
     stored = (st.get("weeks") or {}).get("weeks") or []  # computed by the daily learning run (learn/champion.weekly)
     for k, label in ((0, "Ovaj tjedan"), (1, "Prošli tjedan")):
@@ -196,11 +195,6 @@ def smarter_html(now=None):
     else:
         state = badge("odlučuju težine; model čeka dovoljno podataka")
     out.append(f"<p>Stanje: {state}</p>")
-    mdl = model
-    if mdl:
-        from learn import gbm
-        imp = ", ".join(esc(feat(k.split("=")[0]) if "=" not in k else k) for k, _ in gbm.importance(mdl, 8))
-        out.append(f"<p class=mut>Model najviše gleda: {imp}.</p>")
     hr = st.get("holdout_report")
     h = cfg.get("holdout") or {}
     if hr:
@@ -312,19 +306,24 @@ def _rows(con):
 
 def page(qs):
     from learn import correlations, outcomes, weights
-    b = ["<h1>Učenje</h1><p class=mut>Alat sam uči iz ishoda: svaki dan ponovno računa težine hype ocjene po klasi iz "
-         "ostvarive zarade u sjenovitoj knjizi (dok klasa nema dovoljno točaka, iz \"skoka\") i primjenjuje ih ako prolaze zaštitu (barem 200 ishoda, pomak najviše "
-         "20% po težini, bolje na obje vremenske polovice). Ovdje vidiš što je našlo, što je promijenilo i što je propustilo. "
-         "Ništa se ne radi ručno.</p>"]
+    from ui import learnprogress
+    b = ["<h1>Učenje</h1>"]
+    for name, fn in (("napredak", learnprogress.progress_html), ("priča", learnprogress.story_html)):
+        try:
+            b.append(fn())
+        except Exception as e:  # noqa: BLE001
+            print(f"učenje: {name}: {type(e).__name__}: {e}")
+    head = "".join(b)
+    b = []
     con = _con()
     cfg = outcomes.config()
     if con is None:
-        return "Učenje", "".join(b) + "<div class=card>Još nema podataka za učenje.</div>"
+        return "Učenje", head
     try:
         rows, thr = _rows(con)
     except Exception as e:
         print(f"učenje: ishodi nisu uspjeli: {type(e).__name__}: {e}")
-        return "Učenje", "".join(b) + "<div class=card>Ishodi se trenutno ne mogu izračunati; pokušat će ponovno pri sljedećem osvježavanju.</div>"
+        return "Učenje", head
     klasa = qs.get("klasa") or ""
     for name, fn in (("je li pametniji", smarter_html), ("liga", liga_html), ("isplativost", payoff_html)):
         try:
@@ -459,4 +458,5 @@ def page(qs):
                        (f"<b>{m['max_ret']:+.0%}</b>", m["max_ret"], "n"), num(m["mcap"], "${:,.0f}"), (esc(m["reason"]), "", "wrap"),
                        ago(m["first_ts"])] for m in ms[:40]], empty="Ništa propušteno u zadnjih 7 dana (ili još nema snimaka)."))
     con.close()
-    return "Učenje", "".join(b)
+    return "Učenje", (head + "<p class=uc-more>Detalji za znatiželjne (sve brojke i tablice, otvori dodirom):</p>"
+                      + learnprogress.fold("".join(b)))
