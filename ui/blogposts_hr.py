@@ -202,7 +202,8 @@ post(
     "Kad 3+ kripto influencera zove isti Solana token u 15 minuta, 59% tih tokena se udvostruči, inače 33%. Kako "
     "nastaju grupe i kako prepoznati plaćenu kampanju.", 6,
     "Grupa (klaster) nastaje kad više nezavisnih influencera zove isti token u kratkom razmaku. Kod nas su tokeni koje su "
-    "3+ KOL-a pozvala unutar 15 minuta došli do 2x u 59% slučajeva, naspram 33% kad ih je zvalo manje. Ali i grupe se "
+    "3+ KOL-a pozvala unutar 15 minuta došli do 2x u 59% slučajeva, naspram 33% kad ih je zvalo manje (snimka 1. 11. 2026.; "
+    "živi broj je na naslovnici). Ali i grupe se "
     "mogu kupiti, pa provjeravaš tko je u grupi i pojavljuju li se uvijek zajedno.",
     f"""
 <h2>Što je grupiranje influencera?</h2>
@@ -214,7 +215,7 @@ plaćena). Oboje pomiče cijenu. Samo jedno je sigurno pratiti.</p>
 {B("Pozvani tokeni koji su došli do 2x unutar 24 sata", [
     ("1-2 KOL-a unutar 15 minuta", 33, "prvi poziv i najviše još jedan"),
     ("3+ različita KOL-a unutar 15 minuta", 59, "računa se od prvog poziva"),
-], sub="Solana tokeni s barem jednim izmjerenim pozivom", fmt="pct", hl=(1,), source=KOL)}
+], sub="Solana tokeni s barem jednim izmjerenim pozivom, snimka 1. 11. 2026.; živi broj je na naslovnici", fmt="pct", hl=(1,), source=KOL)}
 <p>Prozor od 15 minuta je bitan. Kasniji pozivi obično prate prvi poziv i nisu nezavisni, a dotad se pomak često već
 dogodio. Brojimo različite račune, pa je jedan KOL koji objavi tri puta i dalje jedan.</p>
 
@@ -264,7 +265,7 @@ dana: 52 su pala 70% ili više, a 9 je imalo mehaniku ruga, na primjer povučenu
 <p>Najjače pojedinačno upozorenje u našim podacima je <b>serijski kreator</b>: novčanik koji je prije lansirao puno
 tokena.</p>
 {B("Tokeni koji su došli do 2x, po prijašnjim lansiranjima kreatora", [
-    ("Prvi token ovog novčanika", 16.8, "2.598 tokena"),
+    ("Prvi token ovog novčanika", 16.8, "2.598 tokena, 1. 11. 2026."),
     ("1-5 prijašnjih tokena", 9.2, "769 tokena"),
     ("6-20 prijašnjih tokena", 3.8, "764 tokena"),
     ("Više od 20 prijašnjih tokena", 1.4, "1.528 tokena"),

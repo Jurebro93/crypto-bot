@@ -25,13 +25,21 @@ class Landing(unittest.TestCase):
             self.assertIn(s, html)
         import time
         landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
-                                                 "group_rate": .57, "solo_rate": .33, "measured": 3645,
+                                                 "group_rate": .57, "solo_rate": .33, "group_n": 41, "solo_n": 812, "measured": 3645,
                                                  "call_2x": .28, "call_50": .47}, busy=False)
         html = landing.page_html({})
         self.assertIn("25.458", html)
         self.assertIn("1,2 mil.", html)
         self.assertIn("57%", html)
         self.assertIn("1.7×", html)
+        self.assertIn("41 tokena s 3+ pozivatelja naspram 812", html)     # the comparison's own sample, not all calls
+        self.assertNotIn("3.645 poziva", html)
+        landing._STATS.update(ts=time.time(), v={"tokens": 25458, "kols": 358, "calls": 5360, "wallets": 1_234_567,
+                                                 "measured": 3645, "call_2x": .28, "call_50": .47}, busy=False)
+        html2 = landing.page_html({})                      # lift not measured yet: no made-up 57/33, no ratio
+        self.assertIn("Još se mjeri", html2)
+        for s in ("57%", "33%", "1.7×"):
+            self.assertNotIn(s, html2)
         self.assertIn("Otvori aplikaciju", landing.page_html({}, logged_in=True))
         en = landing.page_html({}, lang="en")
         for s in ("Free for now", "access on request", "/static/landing/en-mob-tokeni.jpg", "/static/landing/en-tokeni.jpg"):
