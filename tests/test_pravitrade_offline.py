@@ -143,7 +143,8 @@ class PraviTrade(unittest.TestCase):
         pravitrade.post("/pravi-trade/limits", {"simianx": "1"}, "Ivan")   # not the owner: refused
         self.assertFalse(settings.simianx_on(self.con))
         pravitrade.post("/pravi-trade/limits", {"simianx": "1"}, "Jure")
-        self.assertTrue(settings.simianx_on(self.con))
+        self.assertFalse(settings.simianx_on(self.con))   # audit 4.11.: locked until it has the same proof
+        self.assertFalse(settings.merged(CFG, self.con)["simianx"])
 
         loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "WALLETADDR", "per_day": "3"}, "Jure")
         self.assertIn("err=", loc)   # not watched live: refused

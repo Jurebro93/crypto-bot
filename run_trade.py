@@ -231,6 +231,7 @@ def cmd_follow(a):
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()
+            executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet
             sell_all_once(con, cfg)
             sell_requests_once(con, cfg)
             if cfg.get("follow_paper"):

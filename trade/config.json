@@ -7,5 +7,7 @@
  "min_sol_reserve": 0.05,
  "max_cost_pct": 6,
  "max_signal_age_s": 180,
- "poll_s": 5
+ "poll_s": 5,
+ "max_loss_day": 0.15,
+ "day_tz": "Europe/Zagreb"
 }
