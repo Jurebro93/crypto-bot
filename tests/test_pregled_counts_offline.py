@@ -75,5 +75,18 @@ class IntakeSummary(unittest.TestCase):
         self.assertIn("istraživanje isključeno", run_paper._intake_summary(cands, {"min_score": 50}, None))
 
 
+class Reconsider(unittest.TestCase):
+    def test_better_score_overturns_liq_and_ignored_but_not_rug_or_taken(self):
+        import run_paper
+        cfg = {"min_score": 50}
+        hi, lo = {"origin": "hype", "score": 60}, {"origin": "hype", "score": 40}
+        for d in ("skip_score", "skip_liq", "skip_mcap", "ignored"):
+            self.assertTrue(run_paper.reconsider(d, hi, cfg), d)
+            self.assertFalse(run_paper.reconsider(d, lo, cfg), d)
+        for d in ("taken", "skip_rug", "skip_gate", "skip_full", "skip_ab", "skip_sesija"):
+            self.assertFalse(run_paper.reconsider(d, hi, cfg), d)
+        self.assertFalse(run_paper.reconsider("skip_liq", {"origin": "event", "score": 90}, cfg))
+
+
 if __name__ == "__main__":
     unittest.main()
