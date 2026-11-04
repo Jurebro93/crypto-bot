@@ -463,6 +463,62 @@ def _positions(tcon, viewer_buy, owner=False, pending=None):
     return _sec("Pozicije", meta, inner, open_=bool(open_), sid="pozicije")
 
 
+# ---------- live trade log (Nicholas 4.11.: "log tradeova u real timeu, osvježava se puno češće") ----------------
+
+LOG_N = 15
+LOG_EVERY_S = 5
+SIDE = {"buy": ("🟢", "kupnja"), "sell": ("🔴", "prodaja"), "rent": ("↩️", "depozit natrag")}
+STATUS = {"ok": ("prošlo", "good"), "dry": ("probno", ""), "failed": ("greška", "bad"), "blocked": ("preskočeno", "warn")}
+
+
+def log_html(tcon, cfg):
+    """The last orders, newest first, as a small block the page re-fetches every few seconds (/pravi-trade/log)."""
+    now = time.time()
+    beat = cfg.get("heartbeat") or 0
+    alive = f"Trade proces javio se {esc(ago(beat)[0])}" if beat else "Trade proces se još nije javio"
+    head = (f'<p class=mut style="font-size:12px;margin:0 0 6px">{alive} · osvježeno '
+            f'{time.strftime("%H:%M:%S", time.gmtime(now))} UTC</p>')
+    rows = tcon.execute("SELECT o.ts, o.token, o.side, o.mode, o.status, o.amount_in, o.amount_out, o.error, o.reason, "
+                        "o.signature, p.symbol FROM orders o LEFT JOIN positions p ON p.id = o.position_id "
+                        f"ORDER BY o.id DESC LIMIT {LOG_N}").fetchall()
+    if not rows:
+        return head + '<p class=mut style="margin:0">Još nema nijednog naloga. Čim bot nešto kupi ili proda, pojavi se ovdje.</p>'
+    items = []
+    for ts, tok, side, mode, st, ain, aout, err, why, sig, sym in rows:
+        icon, word = SIDE.get(side, ("•", side))
+        lab, css = STATUS.get(st, (st, ""))
+        lam = ain if side == "buy" else aout
+        sol = f" {lam / executor.LAMPORTS:.4f} SOL" if lam and side in ("buy", "rent") or (lam and side == "sell" and st in ("ok", "dry")) else ""
+        link = (f' · <a href="https://solscan.io/tx/{esc(sig)}" target=_blank rel=noopener>Solscan ↗</a>' if sig else "")
+        note = esc((err or why or "")[:140])
+        items.append(f'<div class=ap-pos><div class=r><span>{icon} {word} {tlink(tok, sym) if tok else ""}'
+                     f'{esc(sol)}</span><span>{badge("PRAVO", "good") if mode == "live" else badge("probno")} '
+                     f'{badge(lab, css)}</span></div><div class=mut style="font-size:12px">{esc(ago(ts)[0])}{link}'
+                     f'{" · " + note if note else ""}</div></div>')
+    return head + "".join(items)
+
+
+def log_fragment(user):
+    """GET /pravi-trade/log: same access as the page."""
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        return log_html(tcon, _cfg(tcon))
+    finally:
+        tcon.close()
+
+
+def _log_section(tcon, cfg):
+    js = ("<script>(()=>{const box=document.getElementById('ap-log');if(!box)return;async function f(){"
+          "if(document.visibilityState!=='visible')return;try{const r=await fetch('/pravi-trade/log',{cache:'no-store'});"
+          "if(r.ok)box.innerHTML=await r.text()}catch(e){}}"
+          f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
+    n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
+    return _sec("Uživo: nalozi", f"⟳ svakih {LOG_EVERY_S} s · {n} danas",
+                f'<div id=ap-log>{log_html(tcon, cfg)}</div>{js}', open_=True, sid="uzivo")
+
+
 # ---------- limits, invites, safety -----------------------------------------------------------------------------
 
 def _limits(cfg, owner):
@@ -535,7 +591,7 @@ def page(qs, user):
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
                  _wallet_card(tcon, cfg, con, owner), _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner),
-                 _positions(tcon, not owner, owner, cfg.get("sell_req")), _limits(cfg, owner)]
+                 _log_section(tcon, cfg), _positions(tcon, not owner, owner, cfg.get("sell_req")), _limits(cfg, owner)]
         finally:
             con.close()
         if owner:

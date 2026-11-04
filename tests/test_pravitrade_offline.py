@@ -404,3 +404,20 @@ class AutoPick(PraviTrade):
             self.assertIn("🤖 alat", body)
         finally:
             autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets = saved
+
+
+class LiveLog(PraviTrade):
+    def test_log_shows_orders_newest_first_and_only_to_viewers(self):
+        from ui import pravitrade
+        os.environ["TRADE_OWNER"] = "Jure"
+        cfg = settings.merged(CFG, self.con)
+        executor.buy(self.con, cfg, "AAA", symbol="AAA", now=NOW)
+        executor.buy(self.con, cfg, "BBB", symbol="BBB", now=NOW + 1)
+        html = pravitrade.log_fragment("Jure")
+        self.assertIn("kupnja", html)
+        self.assertLess(html.index("BBB"), html.index("AAA"))   # newest first
+        self.assertIn("probno", html)
+        self.assertIsNone(pravitrade.log_fragment("Ivan"))      # not invited
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("/pravi-trade/log", body)
+        self.assertIn("Uživo: nalozi", body)

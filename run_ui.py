@@ -458,6 +458,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
             return self._send(200, html.encode("utf-8"))
+        if path == "/pravi-trade/log":   # live order log on the Autopilot page, re-fetched every few seconds
+            from ui import pravitrade
+            frag = pravitrade.log_fragment(self.user)
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
