@@ -7,7 +7,7 @@ import os
 from urllib.parse import quote
 
 from kol import score as kscore, store
-from ui.html import ago, badge, breakdown, esc, filt, num, signed, table, tdesc, tip, tlink, ts, usd, wlink
+from ui.html import ago, badge, breakdown, esc, filt, lead, num, signed, table, tdesc, tip, tlink, ts, usd, wlink
 
 CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")
 
@@ -346,6 +346,36 @@ def tname(mint, sym=None):
     return f'<a href="/token/{quote(mint)}" translate=no>{label}</a>'
 
 
+LEADS = {  # one visible line per section of /kol: what the table shows, in plain words
+    "ljestvica": "Ocjena 0-100 govori koliko tokeni rastu nakon poziva tog influencera. Od {good} naviše je dobar, "
+                 "a s malo poziva ocjena je još nesigurna.",
+    "zajedno": "Kako prođe token kad ga zove jedan račun, a kako kad ga zove više njih u istih 30 min.",
+    "shilleri": "Računi koje si plaćao za promociju: mjerimo im pozive, ali ne ulaze u signale dok se ne dokažu.",
+    "tgpovijest": "Za svaki Telegram kanal: koliko je od njegovih zadnjih 50 poziva otišlo barem 2× i 5×.",
+    "pozivi": "Zadnje objave s adresom tokena i koliko je cijena narasla ili pala od trenutka objave.",
+    "kupnje": "Što su novčanici influencera kupili ili prodali. Često kupe prije nego što objave.",
+    "provjera": "Radi li ocjena: ocjene iz starijih poziva uspoređene s pozivima koji su došli poslije.",
+    "sesije": "Kako prolaze pozivi ovisno o dobu dana (Azija, Europa, SAD). Vrijeme je u UTC, kod nas je +1 h.",
+    "uzivo": "Dokazani influenceri čije nove objave čitamo u par sekundi.",
+    "grupe": "Tokeni koje su zvala barem 2 različita računa unutar 30 min, i kako su prošli.",
+    "parovi": "Dva računa koja često zovu iste tokene. Dokazano znači da to nije slučajnost, nego vjerojatno "
+              "ista ekipa ili plaćena kampanja.",
+    "kopiraju": "Veliki računi koji ponavljaju pozive manjih. Tko prati malog, ulazi prije gužve.",
+    "devovi": "Novčanici koji kupe prije poziva i prodaju odmah nakon njega, tj. zarađuju na onima koji kupe na poziv.",
+    "korelacije": "Koja svojstva poziva najviše predviđaju rast u 24 h. +0,3 i više je jasna veza, oko 0 nema veze.",
+    "brojke": "Koliko podataka alat ima o influencerima i njihovim pozivima.",
+}
+
+
+def _leads(html, cfg):
+    """Put the LEADS line right under each matching <h2 id=...> heading."""
+    import re
+    def one(m):
+        text = LEADS.get(m.group(1))
+        return m.group(0) + lead(text.format(good=cfg.get("good_score", 60))) if text else m.group(0)
+    return re.sub(r"<h2 id=([a-z]+)>.*?</h2>", one, html)
+
+
 def _pairs(con):
     import sqlite3
     syms = _syms(con)
@@ -361,8 +391,8 @@ def _pairs(con):
             (badge("moguća slučajnost", "warn"), 1, "") if n >= 2 else ("–", 0, ""))
         out.append([klink(a), klink(b), num(n), num(exp, "{:.1f}"), lift(lf), st,
                     (", ".join(tname(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
-    return table(["KOL A", "KOL B", ("Puta zajedno", "n"), ("Slučajno očekivano", "n"), ("Puta više od slučaja", "n"),
-                  "Test slučajnosti", ("Zajednički tokeni", "wrap")], out, tid="kpairs",
+    return table(["Prvi račun", "Drugi račun", ("Zajedničkih tokena", "n"), ("Da je slučajno", "n"),
+                  ("Češće od slučaja", "n"), "Presuda", ("Koji tokeni", "wrap")], out, tid="kpairs",
                  empty="Još nema KOL-ova koji su zajedno zvali isti token.", limit=60)
 
 
@@ -560,8 +590,9 @@ def page(qs):
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
         b.append("<h2 id=brojke>Brojke</h2>" + "".join(grid))
-        body = (head + learnprogress.fold(main)
-                + "<p class=uc-more>Detalji za znatiželjne (otvori dodirom):</p>" + learnprogress.fold("".join(b)))
+        body = (head + learnprogress.fold(_leads(main, cfg))
+                + "<p class=uc-more>Detalji za znatiželjne (otvori dodirom):</p>"
+                + learnprogress.fold(_leads("".join(b), cfg)))
     finally:
         con.close()
     return "Influenceri", "<h1>Influenceri</h1>" + body

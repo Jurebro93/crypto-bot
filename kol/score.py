@@ -54,6 +54,9 @@ def impact(c):
     return sum(parts) / len(parts) if parts else None
 
 
+LAST_N = 50
+
+
 def kol_stats(calls, cfg):
     """Stats and raw (unshrunk) score for one KOL from his first calls (dicts with the calls columns)."""
     mine = [c for c in calls if c["kind"] in ("call", "bot") and c["first_by_kol"]]
@@ -65,6 +68,9 @@ def kol_stats(calls, cfg):
         return s, None
     w = cfg["weights"]
     s["hit_rate"] = sum(1 for c in measured if c["max24"] >= cfg["hit_x"]) / len(measured)
+    last = sorted(measured, key=lambda c: c.get("ts") or 0)[-LAST_N:]  # the page shows the latest 50, not all-time
+    s["n_last"] = len(last)
+    s["hit_last"] = sum(1 for c in last if c["max24"] >= cfg["hit_x"]) / len(last)
     s["med_max24"] = _med(c["max24"] for c in measured)
     s["med_r1h"] = _med(c["r1h"] for c in measured)
     s["med_lift"] = _med(c["vol_lift"] for c in measured)

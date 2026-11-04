@@ -664,6 +664,12 @@ def tdesc(text):
     return ""
 
 
+def lead(text):
+    """One visible plain-language line under a heading: what the table shows (4.11.: Nicholas found the tables unclear
+    after tdesc became a no-op). Keep it to one sentence."""
+    return f'<p class="mut tlead" style="margin:0 0 10px;font-size:13px;line-height:1.45">{esc(text)}</p>'
+
+
 def tip(text, k=None, label=None):
     """Small ⓘ: hover shows `text`; click/tap opens the glossary pop-up (term `k` from ui/glossary.py, if any)."""
     extra = (f' data-gk="{esc(k)}"' if k else "") + (f' data-gl="{esc(label)}"' if label else "")

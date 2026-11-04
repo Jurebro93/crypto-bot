@@ -81,6 +81,19 @@ def paid_sources(kcon):
     return table(["Izvor", "Cijena", "Stanje", "Što daje"], rows)
 
 
+MIN_MEASURED = 10  # below this a hit rate is luck (1 of 1 = 100%)
+
+
+def _tg_history():
+    """kol/tg_history.json rows by channel (Nicholas's Call Analyser + SpyDefi exports), {} if missing."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "tg_history.json")
+    try:
+        with open(path) as f:
+            return {r["chan"].lower(): r for r in json.load(f).get("rows") or []}
+    except (OSError, ValueError):
+        return {}
+
+
 def page(qs):
     tcon, kcon = _ro("tg.db"), _ro("kol.db")
     now = time.time()
@@ -121,21 +134,33 @@ def page(qs):
         b.append("<h2 id=kanali>Telegram kanali</h2>" + tdesc(
             "Kanali koje je bot pronašao (linkovi u X objavama i profilima, KOL liste, prosljeđivanja iz drugih kanala, "
             "TGStat). Aktivan = javno objavljuje adrese tokena; čita se svakih 30 s kad je vruć, inače svakih 5 min. "
-            "Kanal s 12+ izmjerenih poziva i ocjenom ispod 25 čita se rjeđe."))
+            "Kanal s 12+ izmjerenih poziva i ocjenom ispod 25 čita se rjeđe. Pogodak = udio zadnjih 50 izmjerenih poziva koji "
+            f"su narasli 50%+ u 24 h; ocjenu i pogodak pokazujemo tek od {MIN_MEASURED} izmjerenih poziva, jer 1 od 1 = 100% "
+            "nije dokaz. Povijest 2× = koliko zadnjih poziva je otišlo barem 2× prema tvojim Call Analyser i SpyDefi "
+            "izvozima. Kanali s dovoljno podataka su na vrhu."))
         scores = {h[3:]: (sc, json.loads(stt or "{}")) for h, sc, stt in
                   _q(kcon, "SELECT handle, score, stats FROM kols WHERE handle LIKE 'tg:%'")}
+        hist = _tg_history()
         rows = []
         for name, title, subs, status, via, n_posts, n_ca, last_ca, lag_s in _q(tcon, """SELECT name, title, subs,
-                status, found_via, n_posts, n_ca, last_ca_ts, lag_s FROM channels WHERE status != 'dead'
-                ORDER BY status = 'active' DESC, COALESCE(last_ca_ts, 0) DESC"""):
+                status, found_via, n_posts, n_ca, last_ca_ts, lag_s FROM channels WHERE status != 'dead'"""):
             sc, s = scores.get(name, (None, {}))
             lab, cls = STATUS.get(status, (status, ""))
-            rows.append([klink("tg:" + name) + (f" <span class=mut>{esc(title or '')}</span>" if title else ""),
-                         badge(lab, cls), num(subs), num(sc, "{:.0f}"), num(s.get("measured")),
-                         (f"{s['hit_rate']:.0%}" if s.get("hit_rate") is not None else "–", s.get("hit_rate") or -1, "n"),
-                         num(n_ca), ago(last_ca), num(lag_s, "{:.0f} s"), esc(via_label(via))])
-        b.append(table(["Kanal", "Stanje", ("Pretplatnika", "n"), ("Ocjena", "n"), ("Izmjereno", "n"),
-                        ("Pogodak", "n"), ("Objava s CA", "n"), "Zadnji CA", ("Kašnjenje", "n"), "Pronađen preko"],
+            n = s.get("n_last", s.get("measured")) or 0
+            hit = s.get("hit_last", s.get("hit_rate"))
+            ok = n >= MIN_MEASURED and hit is not None
+            few = ("premalo", -1, "n mut")
+            h = hist.get(name.lower()) or {}
+            hn, h2 = h.get("n50") or 0, h.get("hit2_50")
+            rows.append(((status != "active", not ok, -(sc or 0) if ok else 0, -(last_ca or 0)), [
+                klink("tg:" + name) + (f" <span class=mut>{esc(title or '')}</span>" if title else ""),
+                badge(lab, cls), num(subs), num(sc, "{:.0f}") if ok else few, num(n),
+                (f"{hit:.0%}", hit, "n") if ok else few,
+                (f"{h2:.0%} od {hn}", h2, "n") if hn >= MIN_MEASURED and h2 is not None else ("–", -1, "n"),
+                num(n_ca), ago(last_ca), num(lag_s, "{:.0f} s"), esc(via_label(via))]))
+        rows = [r for _, r in sorted(rows, key=lambda x: x[0])]
+        b.append(table(["Kanal", "Stanje", ("Pretplatnika", "n"), ("Ocjena", "n"), ("Izmjereno (zadnjih 50)", "n"),
+                        ("Pogodak", "n"), ("Povijest 2×", "n"), ("Objava s CA", "n"), "Zadnji CA", ("Kašnjenje", "n"), "Pronađen preko"],
                        rows, empty="Još nema kanala: prvo otkrivanje kreće par minuta nakon pokretanja."))
 
         rows = []
