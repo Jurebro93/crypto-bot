@@ -236,10 +236,40 @@ def _ga_tag(lang):
     return ga4.tag(lang) + deploypage.register_tag()   # + friendly deploy page instead of Render's 502
 
 
-def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image="/static/landing/kol.jpg",
+# Share cards (scripts/og_cards.py): the section a public path belongs to -> ui/static/landing/og-<key>[-hr].jpg
+OG_PREFIX = (("kols", ("/influencer",)),
+             ("coins", ("/solana-meme-coins", "/coin/", "/how-to-buy", "/rug-check", "/solana-", "/meme-coin", "/best-time")),
+             ("tools", ("/best-crypto-tools",)),
+             ("learn", ("/blog", "/glossary")))
+OG_ALT = {"home": ("MemeSonar: token picks, influencer scores and wallet tracking for Solana",
+                   "MemeSonar: prijedlozi tokena, ocjena influencera i praćenje novčanika za Solanu"),
+          "kols": ("Crypto influencer leaderboard on MemeSonar", "Ljestvica kripto influencera na MemeSonaru"),
+          "coins": ("Top 100 Solana meme coins, live, on MemeSonar", "Top 100 Solana meme coina uživo na MemeSonaru"),
+          "tools": ("Best crypto tools compared on MemeSonar", "Usporedba kripto alata na MemeSonaru"),
+          "learn": ("Crypto guides and glossary on MemeSonar", "Kripto vodiči i rječnik na MemeSonaru")}
+
+
+def og_card(path_en, lang="en"):
+    """(image path, alt text) of the share card for a public page, by the English path of the page."""
+    key = next((k for k, pre in OG_PREFIX if any(path_en.startswith(x) for x in pre)), "home")
+    return f"/static/landing/og-{key}{'-hr' if lang == 'hr' else ''}.jpg", OG_ALT[key][lang == "hr"]
+
+
+def og_tags(lang, image_url, alt, w=1200, h=630):
+    """Image part of the share preview (WhatsApp, Facebook, X, Slack...): size and alt let them show it large right away."""
+    return (f'<meta property="og:image" content="{image_url}"><meta property="og:image:width" content="{w}">'
+            f'<meta property="og:image:height" content="{h}"><meta property="og:image:alt" content="{esc(alt)}">'
+            f'<meta property="og:site_name" content="MemeSonar"><meta property="og:locale" content="{"hr_HR" if lang == "hr" else "en_US"}">'
+            f'<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{image_url}">')
+
+
+def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonld="", og_image=None,
            og_type="website"):
     """Page frame. path_hr=None: English-only page (no Croatian alternate; the language switch goes to /hr)."""
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    card, og_alt = og_card(path_en, lang)
+    og_alt = title if og_image else og_alt     # a page with its own cover (blog post): the alt is its title
+    og_image = og_image or card
     t = L[lang]
     from ui.landing import CSS
     svg, name = logo(30)
@@ -255,7 +285,8 @@ def _shell(lang, title, desc, path_en, path_hr, body, canonical_lang=None, jsonl
 {alt}
 <meta property="og:type" content="{og_type}"><meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(desc)}"><meta property="og:url" content="{canon}">
-<meta property="og:image" content="{base}{og_image}"><meta name="twitter:card" content="summary_large_image">
+{og_tags(lang, base + og_image, og_alt)}<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
 <meta name=theme-color content="#ffffff">{_fav.HEAD}{jsonld}
 <style>{CSS}{EXTRA_CSS}{_nav_css()}{blog.CSS}{blogviz.CSS}{tools.CSS}{botguides.CSS}{calcs.CSS}{secnav.CSS}</style></head><body>
 <nav class='top s'><div class=w><a class=brand href={t['home']}>{svg}<span>{esc(name)}</span></a><span class=sp></span>

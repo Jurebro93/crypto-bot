@@ -2,6 +2,7 @@
 MemeSonar colours (light, airy and minimal like the public landing page: same palette, Inter, black pill button, indigo focus), big inputs, built
 mobile first. Written in both languages here (the cb_lang cookie picks one) and marked translate=no, so the
 background translator never touches it."""
+import os
 from urllib.parse import quote
 
 from ui import i18n
@@ -118,8 +119,22 @@ def html(nxt="/", who="", err="", missing=(), site_url="", lang=None):
     return (f"<!doctype html><html lang={'en' if lang == 'en' else 'hr'} translate=no><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
             "<meta name=robots content=noindex><meta name=theme-color content='#ffffff'>"
-            f"<title>{t['title']} · {e(name)}</title>{_fav.HEAD}"
+            f"<title>{t['title']} · {e(name)}</title>{_fav.HEAD}{_og(lang, site_url)}"
             f"<style>{CSS}</style></head><body>{body}<script>{JS}</script>{_sw()}</body></html>")
+
+
+def _og(lang, site_url=""):
+    """Share preview for app links (app.memesonar.app/...): a visitor without a login lands here, and so does the
+    WhatsApp / Facebook crawler, so the chat shows the MemeSonar card instead of a bare link."""
+    from ui import public as P
+    from ui.landing import T as LT
+    lang = "en" if lang == "en" else "hr"
+    base = (site_url or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
+    img, alt = P.og_card("/", lang)
+    d = LT[lang]
+    return (f'<meta property="og:type" content="website"><meta property="og:title" content="{e(d["title"])}">'
+            f'<meta property="og:description" content="{e(d["desc"])}"><meta name="description" content="{e(d["desc"])}">'
+            + P.og_tags(lang, e(base + img), alt))
 
 
 def _how(text):
