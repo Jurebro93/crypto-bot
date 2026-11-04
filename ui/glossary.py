@@ -281,6 +281,18 @@ T("Confidence", "ocjene", "0-100: koliko alat vjeruje da će token napraviti sko
   "Confidence 75 = takvi tokeni skaču otprilike tri puta češće od prosječnog tokena iste klase.",
   vidi=["hype-ocjena", "sansa-za-skok", "klasa", "kalibracija"], gdje=[("/paper", "Demo trading"), ("/learn", "Učenje")],
   alias=["confidence pri ulazu", "pouzdanje"])
+T("Aktivni stariji tokeni", "ocjene", "Demo strategija: tokeni stariji od 3 dana koji danas imaju najviše kupnji i prodaja.",
+  "Umjesto najnovijih tokena (koji s par tisuća dolara vrijednosti vrlo često završe kao rug), alat svakih 6 sati s "
+  "GeckoTerminala uzme Solana tokene s najviše transakcija u 24 h, zadrži one starije od 3 dana, vrijedne 50k do 20M $, "
+  "s barem 300 različitih kupaca (da izbaci botovski volumen) i pravom likvidnošću. Demo kupi takav token jednom dnevno, "
+  "ako se još uvijek aktivno trguje i nije u zadnjem satu već skočio više od 40%. Mjeri se kao zasebna strategija.",
+  "Token star 9 dana, 400k $ vrijednosti, danas 5.000 kupnji i prodaja od 900 različitih kupaca → ide na popis.",
+  vidi=["mcap", "razred-market-capa"], gdje=[("/paper", "Demo trading")], alias=["aktivni", "aktivni tokeni"])
+T("Razred market capa", "ocjene", "Raspon vrijednosti tokena pri ulazu: ispod 50k, 50–200k, 200k–1M i preko 1M $.",
+  "Token od 10k $ i token od 800k $ ne ponašaju se isto: mali puno češće rugaju, veliki teže propadnu. Zato demo svaki "
+  "raspon mjeri zasebno, a raspon koji gubi sam dobiva sve manje ulaza (nikad nula, da se vidi ako se popravi). U tokene "
+  "ispod 20k $ demo više ne ulazi.", vidi=["mcap", "aktivni-stariji-tokeni"], gdje=[("/paper", "Demo trading")],
+  alias=["market cap razred", "po veličini tokena", "raspon market capa"])
 T("Šansa za skok", "ocjene", "0-100: confidence prilagođen tome koliko je neovisnih provjera token prošao.",
   "Token kojeg su pogledale sve analize i koji ih je prošao dobiva punu šansu; token koji je samo glasan, a ništa nije "
   "provjereno, dobiva manje. Neanalizirani sloj se ne računa kao prolaz, a svaki pad provjere oduzima. Po Šansi su poredani "
@@ -440,6 +452,16 @@ T("Copy trading", "trading", "Alat umjesto tebe ulazi na svaki poziv odabranog i
   "Na stranici Copy trading odabereš KOL-a ili novčanik i pritisneš 'Prati'. Alat tada na tvoj demo račun kupi svaki "
   "njegov novi poziv star do 10 minuta (zadano $25, najviše 10 dnevno) i prodaje po pravilima izlaza. 'Prestani' "
   "zaustavlja praćenje.", vidi=["kol", "copy-ocjena"], gdje=[("/copy-trading", "Copy trading")], alias=["copy trade", "kopiraj"])
+T("Autopilot", "trading", "Bot sam kupuje i prodaje pravim novcem iz tvog zasebnog walleta, po influencerima i walletima koje odabereš.",
+  "Stranica je samo za vlasnika i one koje on pozove. Na vrhu je wallet s uputama za postavljanje (zaseban Phantom "
+  "račun, uplata SOL-a, ključ samo u Renderu). Ispod su preporuke alata iz zadnjih 7, 14 i 30 dana. Pravi novac ide "
+  "tek kad je prekidač uključen i ključ postavljen; sve ostalo je probno. Dnevni limit i dnevni gubitak zaustavljaju "
+  "nove kupnje.", vidi=["copy-trading", "moonshot"], gdje=[("/pravi-trade", "Autopilot")],
+  alias=["pravi trade", "pravi novac", "uključi autopilot"])
+T("Moonshot", "trading", "Mali, svjež token koji može narasti višestruko, ali jednako lako pasti na nulu.",
+  "Alat ga preporuča samo kad je među najjačim prijedlozima po confidenceu, prošao rug check, ima barem $20 tis "
+  "likvidnosti i nije usred pumpe ili pada. I tada je to visok rizik: samo mali ulog.",
+  vidi=["autopilot"], gdje=[("/pravi-trade#tokeni", "Autopilot")], alias=["moonshoti"])
 T("DCA", "trading", "Automatsko kupovanje istog tokena u jednakim dijelovima kroz vrijeme (Dollar Cost Averaging).",
   "Umjesto da sve uložiš odjednom na vrhu, alat kupuje npr. $20 svakih sat vremena 10 puta. Tako dobiješ prosječnu cijenu. "
   "Staje sam kad završi, kad ti ponestane novca, ako token rugne ili likvidnost padne ispod $5k.",

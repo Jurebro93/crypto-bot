@@ -2,6 +2,7 @@
 - every X post / profile the bot already paid for (hype.db apify_cache: t.me links in text, bio, expanded urls),
 - KOL identities with a Telegram link (kol.db kol_ids, from KOLscan / Solana Tracker / FOMO),
 - hype/channels.txt (optional seeds),
+- Nicholas's paid-shill table kol/shillers.json (channels he paid to promote tokens),
 - forwards and links inside channels we already read (tg/poll.visit, the snowball),
 - TGStat post search by CA (paid, tg/tgstat.py).
 """
@@ -78,5 +79,40 @@ def from_seed_file(con, path=None):
     return store.add_candidates(con, names, "channels.txt")
 
 
+def from_shill_list(con):
+    """Channels from Nicholas's paid-shill table (kol/shillers.json); read first, marked 'plaćeni shill' everywhere."""
+    from kol import shillers
+    return store.add_candidates(con, [reader.channel_name(c) for c in shillers.tg_channels()], "shill_list")
+
+
+def from_kol_calls(con, kol_db=None):
+    """Telegram channels that already have calls in kol.db (e.g. imported from Call Analyser history) but are not
+    read yet: they become candidates, so their new calls arrive live."""
+    src = _ro(kol_db or os.path.join(HERE, "kol.db"))
+    if src is None:
+        return 0
+    try:
+        names = [h[3:] for h, in src.execute("SELECT handle FROM kols WHERE handle LIKE 'tg:%'")]
+    except sqlite3.OperationalError:
+        names = []
+    finally:
+        src.close()
+    return store.add_candidates(con, [reader.channel_name(n) for n in names], "kol_calls")
+
+
+def from_tg_history(con, path=None):
+    """Callers active in the last 30 days of Nicholas's Call Analyser + SpyDefi exports (kol/tg_history.json)."""
+    import json
+    path = path or os.path.join(HERE, "kol", "tg_history.json")
+    try:
+        with open(path) as f:
+            names = json.load(f).get("channels", [])
+    except (OSError, ValueError):
+        return 0
+    return store.add_candidates(con, [reader.channel_name(n) for n in names], "tg_history")
+
+
 def run(con, hype_db=None, kol_db=None):
-    return {"x": from_x_cache(con, hype_db), "kol_ids": from_kol_ids(con, kol_db), "seed": from_seed_file(con)}
+    return {"x": from_x_cache(con, hype_db), "kol_ids": from_kol_ids(con, kol_db), "seed": from_seed_file(con),
+            "shill": from_shill_list(con), "kol_calls": from_kol_calls(con, kol_db),
+            "tg_history": from_tg_history(con)}

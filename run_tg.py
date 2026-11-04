@@ -53,15 +53,44 @@ def kol_view(path=KOL_DB):
     return scores, calls, list(dict.fromkeys(tokens))
 
 
+def history_round(con, cfg, now=None):
+    """Older posts (tg/history.py) for a few channels per hour: paid shillers from kol/shillers.json first, then
+    active channels with the most CA posts. At most history.pages_per_round t.me pages per round (free)."""
+    from kol import shillers
+    from tg import history
+    hc = cfg.get("history") or {}
+    budget = hc.get("pages_per_round", 30)
+    now = now or int(time.time())
+    since = now - hc.get("days", 365) * 86400
+    shill = set(shillers.tg_channels())
+    rows = con.execute("SELECT name, n_ca FROM channels WHERE status IN ('active','quiet','slow')").fetchall()
+    order = sorted(rows, key=lambda r: (r[0] not in shill, -(r[1] or 0)))
+    pages = posts = 0
+    for name, _ in order:
+        if pages >= budget:
+            break
+        try:
+            p, n, _done = history.backfill(con, name, max_pages=min(hc.get("pages_per_channel", 15), budget - pages),
+                                           since_ts=since, now=now)
+        except Exception as e:  # noqa: BLE001  (a 429 or a broken page: try again next round)
+            print(f"tg povijest @{name}: {type(e).__name__}: {e}")
+            break
+        pages += p
+        posts += n
+    return pages, posts
+
+
 def housekeeping(con, cfg, log=print):
     found = discover.run(con)
     scores, calls, tokens = kol_view()
     poll.rebalance(con, cfg, scores, calls)
     r = tgstat.run(con, tokens, cfg["tgstat"]) if tgstat.enabled() else (0, 0, 0)
+    h = history_round(con, cfg)
     n = store.prune(con, cfg["prune_days"])
     store.kv_set(con, "last_discover", int(time.time()))
     con.commit()
-    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, obrisano {n} starih")
+    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, povijest stranica/objava {h}, "
+        f"obrisano {n} starih")
     return scores
 
 

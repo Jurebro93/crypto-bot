@@ -245,7 +245,7 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
                   ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
                   "Zona", "Zadnji poziv"],
                  out, tid=tid, empty="Još nema KOL-ova s izmjerenim pozivom u ovoj skupini (mjerenje kreće 1 h nakon "
-                                     "poziva).")
+                                     "poziva).", limit=100)
     return (html, len(out)) if count else html
 
 
@@ -337,7 +337,13 @@ def _groups(con):
             num(g["insiders"]), badge("DA", "bad") if g["dev_selling"] else badge("ne", "good")] for g in rows]
     return table(["Početak", "Token", ("Autora", "n"), ("Dobrih KOL-ova", "n"), ("KOL-ovi (redom)", "wrap"),
                   ("Trajanje", "n"), ("1 h", "n"), ("Max 24 h", "n"), ("Volumen ×", "n"), ("Insajdera", "n"),
-                  "Dev prodaje"], out, tid="groups", empty="Još nema grupnih poziva.")
+                  "Dev prodaje"], out, tid="groups", empty="Još nema grupnih poziva.", limit=60)
+
+
+def tname(mint, sym=None):
+    """Light token link for lists of many tokens in one cell (tlink adds ~2 KB of icons per token)."""
+    label = esc(sym) if sym else f"<code>{esc(mint[:4])}…</code>"
+    return f'<a href="/token/{quote(mint)}" translate=no>{label}</a>'
 
 
 def _pairs(con):
@@ -354,10 +360,10 @@ def _pairs(con):
         st = ("–", -1, "") if ok is None else (badge("dokazano", "good"), 2, "") if ok else (
             (badge("moguća slučajnost", "warn"), 1, "") if n >= 2 else ("–", 0, ""))
         out.append([klink(a), klink(b), num(n), num(exp, "{:.1f}"), lift(lf), st,
-                    (", ".join(tlink(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
+                    (", ".join(tname(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
     return table(["KOL A", "KOL B", ("Puta zajedno", "n"), ("Slučajno očekivano", "n"), ("Puta više od slučaja", "n"),
                   "Test slučajnosti", ("Zajednički tokeni", "wrap")], out, tid="kpairs",
-                 empty="Još nema KOL-ova koji su zajedno zvali isti token.")
+                 empty="Još nema KOL-ova koji su zajedno zvali isti token.", limit=60)
 
 
 def _copies(con, cfg):
@@ -370,11 +376,11 @@ def _copies(con, cfg):
         lagtxt = f"{lag:.0f} min" if lag < 120 else f"{lag / 60:.1f} h"
         sure = badge("kopira", "good") if n >= 3 and rev * 2 <= n else badge("isti krug", "warn") if rev >= n / 2 else ""
         out.append([klink(a), num(foll.get(a)), klink(b), num(foll.get(b)), num(n), num(rev), (lagtxt, lag, "n"),
-                    (sure, n - rev, ""), (", ".join(tlink(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
+                    (sure, n - rev, ""), (", ".join(tname(t, syms.get(t)) for t in toks[:8]), "", "wrap")])
     return table(["Mali KOL", ("Pratitelji malog", "n"), ("Veliki KOL", ""), ("Pratitelji velikog", "n"),
                   ("Mali prvi", "n"), ("Veliki prvi", "n"), ("Medijan kašnjenja", "n"), "Ocjena veze",
                   ("Tokeni", "wrap")], out, tid="kcopy",
-                 empty="Još nema velikih računa koji su na 2+ tokena zvali nakon manjeg.")
+                 empty="Još nema velikih računa koji su na 2+ tokena zvali nakon manjeg.", limit=60)
 
 
 def _validate(con, cfg):
@@ -460,6 +466,7 @@ def page(qs):
         return "Influenceri", "".join(b) + "<p class=mut>Još nema podataka.</p>"
     try:
         cfg = _cfg()
+        b = []
         st = con.execute("""SELECT (SELECT COUNT(*) FROM kols), (SELECT COUNT(*) FROM calls WHERE kind='call'),
             (SELECT COUNT(*) FROM calls WHERE kind='brag'), (SELECT COUNT(*) FROM calls WHERE p0 IS NOT NULL),
             (SELECT COUNT(*) FROM groups), (SELECT COUNT(*) FROM kol_wallets WHERE label='rotation_dev'),
@@ -472,7 +479,21 @@ def page(qs):
         grid.append("</div>")
 
         minf, minc = int(qs.get("minf") or 0), int(qs.get("minc") or 1)
-        b.append("<h2 id=ljestvica>Najbolji</h2>")
+        from ui import kolsummary, learnprogress
+        from kol import shillers, together
+        tog = together.build(con, shillers.handles())
+        for name, fn in (("ukratko", lambda: kolsummary.top_html(con, cfg, tog)),):
+            try:
+                b.append(fn())
+            except Exception as e:  # noqa: BLE001
+                print(f"influenceri: {name}: {type(e).__name__}: {e}")
+        head = "".join(b)
+        b = []
+        b.append("<h2 id=ljestvica>Najbolji influenceri</h2>")
+        try:
+            b.append(kolsummary.leaders_html(con, cfg))
+        except Exception as e:  # noqa: BLE001
+            print(f"influenceri: najbolji: {type(e).__name__}: {e}")
         b.append(f'<form class=flt>{filt("kols", "Traži KOL-a…")}<details class=more><summary>Više filtara</summary>'
                  f'Min. pratitelja <input name=minf value="{minf}" size=7> Min. poziva '
                  f'<input name=minc value="{minc}" size=3><button>Primijeni</button></details></form>')
@@ -481,15 +502,23 @@ def page(qs):
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
 
+        for name, fn in (("zajedno", lambda: kolsummary.together_html(con, cfg, tog)),
+                         ("shilleri", lambda: kolsummary.shill_html(con, cfg)),
+                         ("tg povijest", kolsummary.tg_history_html)):
+            try:
+                b.append(fn())
+            except Exception as e:  # noqa: BLE001
+                print(f"influenceri: {name}: {type(e).__name__}: {e}")
         b.append(f"<h2 id=pozivi>Upravo zvali</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
             "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
             "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
-            "prodano/kupljeno u 30 min nakon posta.") + calls_table(con))
+            "prodano/kupljeno u 30 min nakon posta.") + calls_table(con, limit=60))
         b.append("<h2 id=kupnje>Kupnje i prodaje</h2>" + tdesc(
             "Kupnje i prodaje novčanika KOL-ova koje pratimo (Helius javlja svaku). To nisu postovi: link otvara "
             "transakciju na Solscanu. KOL obično kupi prije nego što objavi, pa je ovo najraniji trag.")
-                 + trades_table(con, limit=200, tid="ktrades"))
-        b.append("<h2 id=analiza>Analiza</h2><details><summary>Točnost, sesije, grupe, parovi, devovi i brojke</summary>")
+                 + trades_table(con, limit=100, tid="ktrades"))
+        main = "".join(b)
+        b = []
         z = cfg.get("sessions", {})
         b.append("<h2 id=provjera>Provjera točnosti ocjene</h2>" + tdesc(
             "Alat svaki krug sam provjerava predviđa li njegova ocjena budućnost: ocjene iz starijih poziva uspoređuje "
@@ -509,10 +538,10 @@ def page(qs):
             "za nekoliko sekundi (xquik monitor, oko $0.11 po računu dnevno), pa hype sken unutar 2 min vidi token kao "
             "kandidata sa signalom kol_x. Redoslijed ide po donjoj granici raspona ocjene, pa dokazani KOL-ovi imaju prednost "
             "pred sretnicima s par poziva. Lista se sama mijenja nakon svakog bodovanja.") + _watch(con))
-        b.append("<h2 id=grupe>Grupni pozivi</h2>" + tdesc(
+        b.append("<h2 id=grupe>Svi grupni pozivi</h2>" + tdesc(
             f"Dva ili više različitih autora zovu isti token unutar {cfg['group_secs'] // 60} min. Brojke su od prvog poziva "
             "u grupi. Dva dobra KOL-a bez prodaje devova = signal kol_group u hype ocjeni.") + _groups(con))
-        b.append("<h2 id=parovi>KOL-ovi koji zovu zajedno</h2>" + tdesc(
+        b.append("<h2 id=parovi>Parovi koji zovu zajedno (test slučajnosti)</h2>" + tdesc(
             "Parovi računa koji su više puta zvali isti token u istom prozoru. Test slučajnosti uspoređuje to s "
             "koliko bi zajedničkih tokena dala sama slučajnost (koliko tokena svaki zove i koliko se tokena tada "
             "uopće zvalo). Dokazano = 3+ tokena, 3× češće od slučaja i manje od 1% šanse da je slučajno: vjerojatno "
@@ -530,10 +559,12 @@ def page(qs):
             "Korelacija svakog svojstva poziva s najvećim rastom u 24 h, preko svih izmjerenih prvih poziva. "
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
-        b.append("<h3>Brojke</h3>" + "".join(grid) + "</details>")
+        b.append("<h2 id=brojke>Brojke</h2>" + "".join(grid))
+        body = (head + learnprogress.fold(main)
+                + "<p class=uc-more>Detalji za znatiželjne (otvori dodirom):</p>" + learnprogress.fold("".join(b)))
     finally:
         con.close()
-    return "Influenceri", "".join(b)
+    return "Influenceri", "<h1>Influenceri</h1>" + body
 
 
 def _influence(con, handle, cfg):

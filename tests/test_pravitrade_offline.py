@@ -102,14 +102,22 @@ class PraviTrade(unittest.TestCase):
         os.environ["TRADE_OWNER"] = "Jure"
         title, body = pravitrade.page({}, "Ivan")
         self.assertIn("samo za pozvane", body)
-        self.assertNotIn("Uključi pravi trade", body)
+        self.assertNotIn("Uključi Autopilot", body)
         loc = pravitrade.post("/pravi-trade/switch", {"on": "1"}, "Ivan")
         self.assertIn("err=", loc)
         self.assertFalse(settings.merged(CFG, self.con)["on"])
 
         _, body = pravitrade.page({}, "jure")
-        self.assertIn("Uključi pravi trade", body)
-        self.assertIn("ISKLJUČENO", body)
+        self.assertIn("Uključi Autopilot", body)
+        self.assertIn("ISKLJUČEN", body)
+        self.assertIn("Postavljanje walleta", body)
+        self.assertNotIn("Svi nalozi", body)          # 4.11.: no order log, no demo tables
+        self.assertNotIn("Demo praćenja", body)
+        self.assertNotIn("Prodaj sve", body)          # off and nothing open: no red button
+        self.assertIn("err=", pravitrade.post("/pravi-trade/wallet", {"addr": "nije-adresa"}, "Jure"))
+        self.assertIn("err=", pravitrade.post("/pravi-trade/wallet", {"addr": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"}, "Ivan"))
+        self.assertIn("ok=", pravitrade.post("/pravi-trade/wallet", {"addr": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"}, "Jure"))
+        self.assertEqual(settings.raw(self.con)["wallet_pub"], "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin")
         loc = pravitrade.post("/pravi-trade/switch", {"on": "1"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertTrue(settings.merged(CFG, self.con)["on"])
@@ -119,8 +127,9 @@ class PraviTrade(unittest.TestCase):
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
             _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Pozicije", body)
-            self.assertNotIn("Spremi limite", body)   # invited: look only
+            self.assertIn("Koga bot prati", body)
+            self.assertNotIn("Spremi limite", body)
+            self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
             os.environ.pop("UI_USERS")
 
@@ -321,3 +330,94 @@ class ManualBuy(PraviTrade):
         cfg = settings.merged(CFG, self.con)
         run_trade.follow_league_once(self.con, cfg, since=0, now=time.time(), quiet=True)
         self.assertAlmostEqual(self.con.execute("SELECT sol_in FROM positions").fetchone()[0], 0.02)
+
+
+class Recommendations(unittest.TestCase):
+    def test_kol_window_stats(self):
+        from ui import autopilot
+        now = 100 * 86400
+        calls = [("a", now - 3 * 86400, 1.0, 0.2, 0), ("a", now - 3 * 86400, 0.1, -0.3, 0),
+                 ("a", now - 20 * 86400, 2.0, 0.5, 1), ("b", now - 2 * 86400, None, None, 0)]
+        s7, s30 = autopilot.kol_stats(calls, now, 7), autopilot.kol_stats(calls, now, 30)
+        self.assertEqual((s7["a"]["n"], s7["a"]["hits"], s7["a"]["rugs"]), (2, 1, 0))
+        self.assertEqual((s30["a"]["n"], s30["a"]["hits"], s30["a"]["rugs"]), (3, 2, 1))
+        self.assertNotIn("b", s7)   # not measured yet
+        self.assertLess(s30["a"]["score"], s7["a"]["score"])   # a rug costs more than a hit gains
+
+    def test_wallet_window_stats(self):
+        from ui import autopilot
+        now = 100 * 86400
+        tr = [("w", "A", "buy", now - 86400, 1.0), ("w", "A", "sell", now - 80000, 3.0),
+              ("w", "B", "buy", now - 86400, 1.0), ("w", "B", "sell", now - 80000, 0.5),
+              ("w", "C", "buy", now - 86400, 1.0),                                    # still held: not closed
+              ("w", "D", "buy", now - 20 * 86400, 1.0), ("w", "D", "sell", now - 86400, 9.0)]   # bought before 7 d
+        s = autopilot.wallet_stats(tr, now, 7)["w"]
+        self.assertEqual((s["bought"], s["closed"], s["wins"]), (3, 2, 1))
+        self.assertAlmostEqual(s["roi"], 0.75)
+        self.assertEqual(autopilot.wallet_stats(tr, now, 30)["w"]["closed"], 3)
+
+
+
+class AutoPick(PraviTrade):
+    def test_tool_picks_and_rotates_but_leaves_manual_and_stopped_alone(self):
+        from ui import autopilot, pravitrade
+        os.environ["TRADE_OWNER"] = "Jure"
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6}
+        recs = {"kol": [{"handle": h, "live": live, "why": "dobar", "s": st} for h, live in
+                        (("a", True), ("slow", False), ("b", True), ("c", True), ("d", True))],
+                "wal": [{"wallet": "W1", "name": "jedan", "why": "dobar", "s": st},
+                        {"wallet": "W2", "name": "", "why": "dobar", "s": st}]}
+        saved = (autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets)
+        autopilot.kol_recs = lambda now=None: {14: recs["kol"]}
+        autopilot.wallet_recs = lambda now=None: {14: recs["wal"]}
+        pravitrade._live_wallets = lambda: {"W1", "W2", "MAN"}
+        try:
+            pravitrade.post("/pravi-trade/follow", {"kind": "kol", "target": "b", "per_day": "3"}, "Jure")   # manual
+            loc = pravitrade.post("/pravi-trade/auto", {"on": "1", "days": "14", "n": "2"}, "Jure")
+            self.assertIn("ok=", loc)
+            got = {(f["kind"], f["target"]) for f in copy.follows(self.lg, settings.LEAGUE_USER)}
+            # live only (slow is skipped), manual b kept and not counted as the tool's
+            self.assertEqual(got, {("kol", "a"), ("kol", "b"), ("wallet", "W1"), ("wallet", "W2")})
+            auto = set(settings.raw(self.con)["auto_follows"])
+            self.assertEqual(len(auto), 3)
+
+            # a drops out of the top 2n -> removed; c comes in
+            recs["kol"] = [{"handle": h, "live": True, "why": "dobar", "s": st} for h in ("c", "d", "e", "f", "a")]
+            autopilot.sync_follows(self.lg, self.con, force=True)
+            got = {f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"}
+            self.assertEqual(got, {"b", "c", "d"})
+
+            # stopped by hand -> never brought back
+            fid = next(f["id"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["target"] == "c")
+            pravitrade.post("/pravi-trade/stop", {"id": str(fid)}, "Jure")
+            autopilot.sync_follows(self.lg, self.con, force=True)
+            got = {f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"}
+            self.assertEqual(got, {"b", "d", "e"})
+
+            # only the owner switches it; off = nothing changes
+            self.assertIn("err=", pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Ivan"))
+            pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Jure")
+            recs["kol"] = []
+            self.assertEqual(autopilot.sync_follows(self.lg, self.con, force=True), [])
+            _, body = pravitrade.page({}, "Jure")
+            self.assertIn("Neka alat sam bira", body)
+            self.assertIn("🤖 alat", body)
+        finally:
+            autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets = saved
+
+
+class LiveLog(PraviTrade):
+    def test_log_shows_orders_newest_first_and_only_to_viewers(self):
+        from ui import pravitrade
+        os.environ["TRADE_OWNER"] = "Jure"
+        cfg = settings.merged(CFG, self.con)
+        executor.buy(self.con, cfg, "AAA", symbol="AAA", now=NOW)
+        executor.buy(self.con, cfg, "BBB", symbol="BBB", now=NOW + 1)
+        html = pravitrade.log_fragment("Jure")
+        self.assertIn("kupnja", html)
+        self.assertLess(html.index("BBB"), html.index("AAA"))   # newest first
+        self.assertIn("probno", html)
+        self.assertIsNone(pravitrade.log_fragment("Ivan"))      # not invited
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("/pravi-trade/log", body)
+        self.assertIn("Uživo: nalozi", body)

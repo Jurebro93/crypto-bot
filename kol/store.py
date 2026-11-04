@@ -208,6 +208,7 @@ def rotation_wallets(path=None):
 
 
 SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.db.gz")
+SEED_CA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_callanalyser.db.gz")
 
 
 def import_seed(con, path=SEED):

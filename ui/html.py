@@ -19,8 +19,10 @@ def _p(href, icon, name, desc, kw=""):
 SECTIONS = [
     # the three things the app is about: the only items at the top of the menu and in the phone bar
     ("Glavno", [
+        _p("/pregled", "🏠", "Pregled", "Najprofitabilnija strategija, koliko podataka imamo, rast u tjedan dana i brzi linkovi.",
+           "overview home početna pregled start nadzorna ploča dashboard sažetak rast strategija"),
         _p("/tokens", "🪙", "Tokeni", "Prijedlozi tokena: novi, jaki i dugoročni, poredani po Šansi za skok.",
-           "radar hype novi zadnji sken kandidati lista coin prijedlozi home početna pregled"),
+           "radar hype novi zadnji sken kandidati lista coin prijedlozi"),
         _p("/kol", "📣", "Influenceri", "Koji KOL-ovi stvarno pogađaju i što su upravo zvali.",
            "influenceri pozivi twitter x ljestvica kol"),
         _p("/wallets", "👛", "Novčanici", "Tko je upravo kupio ili prodao i koga se isplati kopirati.",
@@ -63,9 +65,9 @@ SECTIONS = [
         _p("/whatsapp", "📲", "Za WhatsApp", "Slika i poruka za WhatsApp grupu.", "whatsapp grupa podijeli pošalji share novosti"),
         _p("/prijedlozi", "💡", "Ideje za alat", "Predloži što bi alat trebao raditi bolje.", "ideje feedback"),
     ]),
-    ("Pravi trade", [
-        _p("/pravi-trade", "💰", "Pravi trade", "Bot trguje pravim SOL-om iz zasebnog walleta, unutar tvojih limita.",
-           "pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja"),
+    ("Autopilot", [
+        _p("/pravi-trade", "💰", "Autopilot", "Bot trguje pravim novcem iz tvog walleta, po onima koje odabereš.",
+           "pravi trade pravi novac live trading wallet phantom jupiter prekidač limit kupnja prodaja autopilot usdc"),
     ]),
     ("Sustav", [
         _p("/learn", "🧠", "Učenje", "Što bot uči iz ishoda i kako mijenja ocjene.", "learn težine"),
@@ -86,14 +88,15 @@ BONUS = "Bonus"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
 ADMIN = ("Sustav",)
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
-PRIVATE = ("Pravi trade",)
+PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
 NAV_PREFIX = {"/postavke": "/postavke", "/token/": "/tokens", "/tokens/": "/tokens", "/dugorocno": "/tokens", "/wallet/": "/wallets", "/outputs/": "/outputs", "/natjecanje/": "/natjecanje",
               "/prijedlozi/": "/prijedlozi", "/kol/": "/kol",
               "/prijava": "/", "/nas-token/": "/nas-token", "/registracija": "/natjecanje", "/izvjestaj/": "/izvjestaj"}
 # phone bottom bar: the three core features + Više (opens the menu). Line icons, one colour.
 _SVG = '<svg viewBox="0 0 24 24" aria-hidden="true">{}</svg>'
-BOTTOM = [("/tokens", _SVG.format('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'), "Tokeni"),
+BOTTOM = [("/pregled", _SVG.format('<path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/>'), "Pregled"),
+          ("/tokens", _SVG.format('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'), "Tokeni"),
           ("/kol", _SVG.format('<path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/>'), "Influenceri"),
           ("/wallets", _SVG.format('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/>'), "Novčanici")]
 MORE_ICON = _SVG.format('<circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/>')
@@ -155,6 +158,9 @@ def nav_group(path):
 # one box at the top of every page: what the page is for, which data is on it, and where it sits in the pipeline
 # (kalendar -> skener -> slojevi T0-T3 -> Šansa -> demo trading -> učenje). Keyed by route or route prefix.
 INTRO = {
+    "/pregled": ("Početna: najvažnije na jednom mjestu", "Koja strategija najviše zarađuje i koliko, koliko podataka alat "
+                 "ima i kako je narastao u odnosu na prošli tjedan, zanimljivosti sada i brzi linkovi.",
+                 "Prvo što vidiš nakon prijave; odavde ideš na Tokene, Influencere i Novčanike."),
     "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
                   "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
                   "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
@@ -196,8 +202,8 @@ INTRO = {
                   "pozivnice i demo računa od $1.000."),
     "/natjecanje": ("Ljudi protiv bota", "Demo računi korisnika, njihovi ulazi i ljestvica.",
                     "Usporedba ljudskog izbora s botovim na istim tokenima."),
-    "/pravi-trade": ("Bot trguje pravim novcem", "Prekidač, limiti, koga bot prati, pozicije i svaki nalog s linkom na "
-                     "transakciju.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
+    "/pravi-trade": ("Autopilot: bot trguje pravim novcem", "Wallet i upute za postavljanje na vrhu, pa koga bot prati, "
+                     "preporuke alata (influenceri, walleti, tokeni po zadnjih 7/14/30 dana), pozicije i limiti.", "Pravi novac ide samo kad je prekidač uključen i ključ postavljen u Renderu."),
     "/copy-trading": ("Kopiraj influencera ili wallet", "Statistika influencera i walleta, gumb za praćenje, svaki ulaz i "
                       "izlaz iz praćenja s razlogom.", "Ulazi idu na tvoj demo račun u Natjecanju."),
     "/nas-token/strategija": ("Kako naš token privući ljude", "Koncepti priče i use casea, igrice, plan po fazama od "
@@ -529,7 +535,7 @@ def side_menu(cur):
     """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
     The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
     svg, name = logo(26)
-    b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/tokens">{svg}<span>{esc(name)}</span></a>'
+    b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/pregled">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
     for sec, items in SECTIONS:
         links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
@@ -614,7 +620,7 @@ def page(title, body, path="/"):
     cur = nav_item(path)
     svg, name = logo(30)
     header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
-              f'<a class=brand href="/tokens" title="Tokeni">{svg}<span>{esc(name)}</span></a>'
+              f'<a class=brand href="/pregled" title="Pregled">{svg}<span>{esc(name)}</span></a>'
               '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
               '<input id=q name=q placeholder="Traži token, adresu ili KOL" aria-label="Traži" enterkeyhint=search>'
               '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form></header>')

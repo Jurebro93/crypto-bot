@@ -284,7 +284,7 @@ class UiChildRenderTest(unittest.TestCase):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
         self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
         import run_ui
-        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki"))
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled"))
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
         self.assertIn("build_in_child(path)) if path in HEAVY", src)
 

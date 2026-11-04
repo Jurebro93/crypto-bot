@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import run_ui  # noqa: E402
 from ui import data  # noqa: E402
 
-PAGES = ["/", "/wallets", "/wallets?all=1", "/tokens", "/events", "/paper", "/criteria", "/learn", "/outputs",
+PAGES = ["/", "/pregled", "/wallets", "/wallets?all=1", "/tokens", "/events", "/paper", "/criteria", "/learn", "/outputs",
          "/wallet/none", "/token/none"]
 
 

@@ -71,8 +71,13 @@ function build(){
   let a=heads[0];while(a.parentElement&&a.parentElement!==main)a=a.parentElement;
   if(a.parentElement===main&&nav.nextElementSibling!==a)main.insertBefore(nav,a);
   nav.hidden=false;place();spy()}
-function go(h){const y=h.getBoundingClientRect().top+scrollY-offs-(nav&&!nav.hidden?nav.offsetHeight:0)-6;
-  scrollTo({top:Math.max(0,y),behavior:'smooth'});try{history.replaceState(null,'','#'+h.id)}catch(e){}}
+function go(h){
+  /* a section inside a closed box: open it first, or the chip scrolls to nothing (Influenceri, 4.11.) */
+  for(let d=h.closest('details');d;d=d.parentElement&&d.parentElement.closest('details'))d.open=true;
+  const at=()=>h.getBoundingClientRect().top+scrollY-offs-(nav&&!nav.hidden?nav.offsetHeight:0)-6;
+  scrollTo({top:Math.max(0,at()),behavior:'smooth'});try{history.replaceState(null,'','#'+h.id)}catch(e){}
+  /* long tables above can change height while we scroll: land exactly on the heading once it settles */
+  setTimeout(()=>{const y=Math.max(0,at());if(Math.abs(y-scrollY)>8)scrollTo({top:y,behavior:'auto'})},700)}
 function place(){offs=headerH();if(nav)nav.style.setProperty('--sn-top',offs+'px');
   if(!top)return;let b=16;
   for(const el of document.querySelectorAll('.bbar,.mcta')){if(shown(el)&&getComputedStyle(el).position==='fixed'&&!el.classList.contains('h'))

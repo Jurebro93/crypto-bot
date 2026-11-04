@@ -26,7 +26,7 @@ import time
 
 from dexscreener import client
 from exits import profiles as exits_profiles
-from paper import auto, dca, review, sim, store, arms, rules, liga
+from paper import auto, dca, review, sim, store, arms, rules, liga, aktivni
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(HERE, "paper.db")  # own file, see run_hype.DB
@@ -362,7 +362,7 @@ def _announce(opened, cfg, quiet):
         notify(msg)
 
 
-TRIGGER_MODES = ("mc100k", "mc100k2", "kol3")
+TRIGGER_MODES = ("mc100k", "mc100k2", "kol3", "aktivni")
 
 
 def _n_mode(con, mode, since=None):
@@ -397,7 +397,8 @@ def trigger_entries(con, cfg, rst, now):
     with T0 passed, and >= 3 different KOL authors within 15 minutes. Same hard rug gate, same session stake, own
     small caps; one trade per token a day. Returns the opened candidates."""
     R = rules.config(cfg)
-    if not (R["ab"]["enabled"] or R["kol3"]["enabled"]):
+    R["aktivni"] = aktivni.config(cfg)
+    if not (R["ab"]["enabled"] or R["kol3"]["enabled"] or R["aktivni"]["enabled"]):
         return []
     from exits.paths import session_of
     from rugfilter import collapse
@@ -410,6 +411,9 @@ def trigger_entries(con, cfg, rst, now):
     if R["kol3"]["enabled"]:
         for tok, k in rules.kol3(os.path.join(HERE, "kol.db"), now, cfg).items():
             want.setdefault(tok, ("kol3", k))
+    if R["aktivni"]["enabled"]:  # older tokens with the most buys and sells today (paper/aktivni.py)
+        for tok, k in aktivni.wanted(cfg, now).items():
+            want.setdefault(tok, ("aktivni", k))
     traded = {t for (t,) in con.execute("SELECT token FROM trades WHERE status='open' OR opened_ts>=?",
                                         (now - 86400,))}
     from rugfilter import archive
@@ -430,6 +434,9 @@ def trigger_entries(con, cfg, rst, now):
     ex_state = exits_profiles.load()
     day0 = dt.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0).timestamp()
     cnt = {m: [_n_mode(con, m), _n_mode(con, m, day0)] for m in TRIGGER_MODES}
+    act = {t for t, (m, _) in want.items() if m == "aktivni"}
+    live_act = aktivni.live_pairs(act) if act else {}
+    arm_st = arms.stats(con, cfg.get("arms"))
     kc = cfg.get("konv") or {}
     t0_left = R["gate"]["t0_checks_per_pass"]
     sess = session_of(now)
@@ -441,13 +448,20 @@ def trigger_entries(con, cfg, rst, now):
         if _over(cnt[mode][0], r.get("max_open")) or _over(cnt[mode][1], r.get("max_per_day")):
             continue
         price, liq, mcap, url = mk[tok]
+        # aktivni: still trading now and not mid-pump; checked before the T0 lookup so a dead token costs nothing
+        pre = aktivni.live_check(live_act.get(tok), r) if mode == "aktivni" else None
         t0 = t0s.get(tok)
-        if t0 in (None, "nije") and not (t0 is None and rules.is_pump(tok)) and t0_left > 0:
+        if not pre and t0 in (None, "nije") and not (t0 is None and rules.is_pump(tok)) and t0_left > 0:
             t0_left -= 1
             t0 = t0_check(tok, now) or t0
-        c = {"token": tok, "symbol": syms.get(tok), "ts": now, "origin": mode, "sources": {mode}, "score": info.get("score"),
-             "features": {}, "price": price, "liquidity": liq, "mcap": mcap, "url": url}
-        why = rules.gate(tok, price, liq, mcap, t0, None, cfg)
+        c = {"token": tok, "symbol": syms.get(tok) or info.get("symbol"), "ts": now, "origin": mode, "sources": {mode},
+             "score": info.get("score"), "features": {}, "price": price, "liquidity": liq, "mcap": mcap, "url": url}
+        why = pre or rules.gate(tok, price, liq, mcap, t0, None, cfg)
+        if not why and mode != "mc100k2":  # market-cap band that keeps losing gets fewer entries (paper/arms.py)
+            band = arms.mc_band(mcap)
+            ok_b, theta_b = arms.allow(band, arm_st, cfg.get("arms"))
+            if not ok_b:
+                why = f"{band} gubi (θ {theta_b})"
         if not why and collapse.check(pk.get(tok), mcap, liq):
             why = "rugan: " + collapse.check(pk.get(tok), mcap, liq)["text"]
         size, note = rules.size_for(rst, tok, r["size_usd"], now, cfg)
@@ -476,6 +490,8 @@ def trigger_entries(con, cfg, rst, now):
             c["size_usd"], c["decision"] = size, "taken"
             c["reason"] = ((f"prvi prelazak 100k $ (A/B test, ulaz B)" if mode == "mc100k" else
                             f"ponovni prelazak 100k $ nakon pada na {_usd(info['low'])}" if mode == "mc100k2" else
+                            f"aktivan stariji token: {info['tx24']:,} kupnji i prodaja u 24 h, star "
+                            f"{info.get('age_d') or 0:.0f} dana".replace(",", ".") if mode == "aktivni" else
                             f"{info['n']} KOL autora u 15 min: " + ", ".join(info["handles"][:5]))
                            + f" [{cfg_t['arm']}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                            + (f"; {note}" if note else ""))
@@ -576,6 +592,12 @@ def intake(cfg, now=None, quiet=False):
             elif not ok_b:
                 explore = False
                 c["arm_note"] = f"{band} u istraživanju gubi (θ {theta_b})"
+            else:  # market-cap band (Nicholas 4.11.): a band that keeps losing gets fewer entries
+                mb = arms.mc_band(mcap)
+                ok_m, theta_m = arms.allow(mb, arm_st, cfg.get("arms"))
+                if not ok_m:
+                    explore = False
+                    c["arm_note"] = f"{mb} gubi (θ {theta_m})"
         if explore:
             need = s
         if s < cfg["shadow_min_score"] and c["origin"] == "hype" and not explore:
@@ -838,11 +860,28 @@ def _strat_loop(every=60):
         time.sleep(every)
 
 
+def _aktivni_loop(every=600):
+    """Refreshes the "aktivni" list (paper/aktivni.py: older tokens with the most buys and sells) every refresh_h
+    hours in its own thread: about 15 GeckoTerminal calls spaced a few seconds apart must not hold the main loop."""
+    while True:
+        try:
+            cfg = sim.load_config()
+            c = aktivni.config(cfg)
+            if c["enabled"] and aktivni.due(aktivni.load(), c, time.time()):
+                st = aktivni.refresh(cfg, force=True)
+                print(f"aktivni: {len(st.get('tokens') or [])} tokena od {st.get('n_seen', 0)} najaktivnijih",
+                      file=sys.stderr, flush=True)
+        except Exception as e:  # noqa: BLE001 - the list must never stop the main demo
+            print(f"aktivni: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(every)
+
+
 def cmd_run(a):
     last_scan = last_review = 0
     import threading
     threading.Thread(target=_koltest_loop, name="koltest", daemon=True).start()
     threading.Thread(target=_strat_loop, name="strategije", daemon=True).start()
+    threading.Thread(target=_aktivni_loop, name="aktivni", daemon=True).start()
     hype_args = ["scan", "--top", "0"] + (a.hype_args.split() if a.hype_args else [])
     while True:
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart

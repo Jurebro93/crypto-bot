@@ -254,6 +254,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # Autopilot: the tool picks whom the real-money account follows, hourly, only if the owner said so
+                from ui import autopilot
+                for what in autopilot.maybe_sync(con):
+                    print(f"natjecanje {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"autopilot izbor: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # SimianX long signals on the real-trade account, only with the owner's switch (simianx_feed.py)
                 from . import simianx_feed
                 for user, what in simianx_feed.run_once(con, market):
