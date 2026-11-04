@@ -106,6 +106,8 @@ def loss_reason(exit_reason, max_ret, min_ret, ret):
         return "prodano ručno"
     if r == "kol_prodaje":
         return "KOL novčanik prodao"
+    if r == "zivi_dump":
+        return "dump u živom toku (prodano u sekundama)"
     if r in ("stale", "time"):
         return "nema pokreta (vremenski izlaz)"
     if r == "stop_loss" and (max_ret or 0) < 0.05:

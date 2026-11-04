@@ -399,6 +399,11 @@ def token(mint, qs):
                      + "</ul></div><div class=card><b style='color:var(--bad)'>Protiv</b><ul class=r>"
                      + "".join(f"<li class=bad>{esc(t)}</li>" for t in protiv[:5]) + ("<li class=mut>nema zabilježenih rizika</li>" if not protiv else "")
                      + "</ul></div></div>")
+        try:
+            from live import pulse as _lp
+            topbox += _lp.token_html(mint)
+        except Exception:  # noqa: BLE001 - the live card never breaks the page
+            pass
         b.append(actions + topbox)
         b.append("<h2>Brojke</h2><div class=grid>")
         for v, l in [(f"<b>{sn}</b>", "šansa za skok"), (conf, "confidence"),

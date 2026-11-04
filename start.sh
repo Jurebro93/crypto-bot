@@ -128,6 +128,9 @@ python3 run_report.py loop &
 ( sleep 600; while true; do python3 run_simianx.py once || echo "simianx nije uspio"; sleep $(( ${SIMIANX_EVERY_MIN:-180} * 60 )); done ) &
 
 python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
+# 5.11.: live buys/sells from PumpPortal (free WebSocket): tokens we watch, wallets we follow, new launches
+# -> hype.db live_trades; dump alerts the demo sells on within seconds (run_paper live_exits). LIVE_OFF=1 disables.
+if [ -z "${LIVE_OFF:-}" ]; then python3 run_live.py loop ${LIVE_ARGS:-} & fi
 python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
 
 wait -n   # if any loop dies, exit so Render restarts the whole worker

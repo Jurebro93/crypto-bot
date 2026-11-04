@@ -202,6 +202,33 @@ Token na kojem je demo izgubio nije gotov. Ako u zadnjih 7 dana demo trade zatvo
 
 Novčanici koji su na 2+ tokena kupili sat prije KOL poziva (`kol.db insiders`, iz Helius tokova oko jakih poziva) nisu za kopiranje (prodaju u poziv), ali jesu signal. `profile()` razdvaja insajdera od snajpera (udio kupljenih tokena koji su ikad pozvani, sekunde nakon lansiranja); pravi ulaze u Helius webhook (`chain.share.insajderi`, 20 % mjesta) i u demo strategiju **Insajderi**: 2+ njih kupi isti token unutar 10 min, a nitko ga još nije pozvao → kupnja; izlaz čim neki od njih proda (`chain_trades`) ili po pravilima bota. `sell_timing()` mjeri kad insajderi prodaju u odnosu na 2. i 3. poziv (kandidat za pravilo izlaza); sve je na `/korelacije`. Na vrhu `/wallets` i `/strategije` stoji „Što bih ja napravio” (`ui/preporuka.py`): preporuke s razlogom, pouzdanost po broju podataka, što su demo kopije stvarno zaradile i što se od njegovih kupnji moglo uzeti (+15/+30/+50 % unutar 24 h).
 
+## Živi tok (`run_live.py`, `live/`)
+
+5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`, besplatno, bez ključa) daje svaku kupnju i prodaju na
+pump.fun i PumpSwapu u sekundi. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
+pretplaćuje se na: tokene koje gledamo (otvorene demo i strategijske pozicije, pa najsvježiji ocijenjeni kandidati
+s mcapom ≥ 30k, najviše 150), novčanike koje pratimo (Helius webhook lista + praćeni iz Natjecanja, najviše 200) i
+sve nove tokene. Liste se osvježavaju svaku minutu (pretplata/odjava samo za razliku). Zapisuje u hype.db:
+`live_trades` (potpis, token, novčanik, strana, SOL, tokeni, cijena u SOL-u, mcap u SOL-u, pool; 48 h),
+`live_launches` (novi tokeni, 7 dana), `live_alerts` (24 h) i `live_state` (zdravlje). Trgovine praćenih novčanika
+idu i u `chain_trades`, pa insajderi, strategije i praćenja vide pump.fun kupnju i kad Helius kasni ili je lista od
+100 adresa puna. Jedan commit u sekundi, ne po tradeu; ponovno spajanje s rastućim razmakom (PumpPortal banira
+klijente koji se spajaju u petlji).
+
+**Dump izlaz** (`paper/config.json` → `live`): svake 2 s za otvorene demo tokene: ako je u zadnjih `window_s` (60 s)
+prodalo barem `min_sellers` (5) različitih novčanika, prodaja u SOL-u je `sell_ratio` (2,5×) veća od kupnje i cijena
+je `drop` (−8 %) ili niže prema prije `ref_s` (5 min), upiše se upozorenje. Demo bot ga čita svakih 5 s u svojoj
+niti (`run_paper.live_exits`) i proda sve po DexScreener cijeni s razlogom `zivi_dump`, umjesto da čeka minutni
+tick. `cooldown_s` (120) sprječava ponavljanje. `dump_exit: false` ostavlja mjerenje bez prodaje.
+
+Na stranici tokena kutija "Uživo": kupci, prodavači, kupnja/prodaja u SOL-u i neto za 1/5/15 min, presuda u jednoj
+rečenici i zadnji dump. Na /izvori red "PumpPortal živi tok" sa zdravljem; na Pregledu brojač tradeova i novih
+tokena. `python3 run_live.py status` i `wanted` za provjeru iz terminala.
+
+Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene (novi kupci na sat, kupaca po
+transakciji, kupci rastu dok cijena pada = akumulacija), insajderi među svim kupcima gledanih tokena (ne samo među
+100 u webhooku), proporcionalna prodaja kad praćeni novčanik proda dio, prvih 60 s svakog launcha za rug filter.
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.

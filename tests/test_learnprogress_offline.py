@@ -42,7 +42,7 @@ class T(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
         self.db = os.path.join(self.d, "paper.db")
-        self.now = time.time()
+        self.now = (int(time.time()) // DAY) * DAY + 12 * 3600   # noon UTC: the fixture's 'today' always has trades
 
     def test_better(self):
         make_db(self.db, self.now, -0.1, 0.2)

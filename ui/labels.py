@@ -332,7 +332,8 @@ EXIT_REASON = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven
                "time": "isteklo vrijeme", "rug": "rug (likvidnost nestala)", "open": "otvoreno",
                "stale": "nema rasta (mirovanje)", "moonbag_trailing": "moonbag: trailing od vrha",
                "moonbag_time": "moonbag: isteklo vrijeme", "take_profit": "take profit", "manual": "ručno",
-               "auto": "automatska prodaja"}
+               "auto": "automatska prodaja", "kol_prodaje": "KOL novčanik prodao",
+               "zivi_dump": "živi tok: dump (prodano u sekundama)"}
 
 
 def exit_reason(k):

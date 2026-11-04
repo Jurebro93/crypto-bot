@@ -121,6 +121,11 @@ def strategy_html(now=None):
 
 # ---------- 2. how much data, and growth against last week ----------
 
+def hype_db_path():
+    from live import store as lstore
+    return lstore.HYPE_DB
+
+
 def _week_counts(tss, now):
     """(total, new in the last 7 days, new in the 7 days before)."""
     a = b = 0
@@ -172,6 +177,8 @@ def metrics(now=None):
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
             ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
             ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            ("⚡", "Kupnje i prodaje u živom toku (PumpPortal)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
+            ("🚀", "Novi tokeni u živom toku", "/izvori", hype_db_path(), "live_launches", "ts", "1=1"),
             ("💬", "Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "1=1"),
             ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts", "1=1")):
         c = _sql_counts(path, table, col, now, where)

@@ -770,9 +770,81 @@ def _intake_summary(cands, cfg, ex_need):
     return f"{len(cands)} kandidata: {', '.join(parts)}; prag {cfg['min_score']}{ex}"
 
 
+import threading as _threading
+POS_LOCK = _threading.Lock()   # 5.11.: tick() and live_exits() both load, mutate and save open positions
+
+
+def live_exits(cfg, now=None, quiet=False):
+    """5.11.: the live feed (run_live.py, PumpPortal) flagged a dump on an open demo token: sell what is left now, at
+    the DexScreener price, instead of at the next minute tick. Returns [(symbol, result)] closed."""
+    from live import pulse, store as lstore
+    c = pulse.config(cfg)
+    if not c.get("dump_exit"):
+        return []
+    now = now or time.time()
+    lc = lstore.ro()
+    if lc is None:
+        return []
+    try:
+        hits = pulse.alerts(lc, now - 180)
+    finally:
+        lc.close()
+    if not hits:
+        return []
+    with POS_LOCK:
+        con = store.connect(DB)
+        trades = {t: (tid, sym, pos) for tid, t, sym, pos in store.open_trades(con)}
+        todo = {t: d for t, _ts, d in hits if t in trades and trades[t][2].get("open")}
+        if not todo:
+            con.close()
+            return []
+        mk = market(set(todo)) or {}
+        closed = []
+        for t, d in todo.items():
+            tid, sym, pos = trades[t]
+            price, liq, mcap, _ = mk.get(t, (0, 0, 0, None))
+            if price <= 0:
+                continue
+            cfg_t = {**cfg, **json.loads(con.execute("SELECT config FROM trades WHERE id=?", (tid,)).fetchone()[0])}
+            n_fills = len(pos["fills"])
+            sim.sell(pos, pos["left"], price, liq, now, "zivi_dump", cfg_t)
+            for f in pos["fills"][n_fills:]:
+                f["mcap"] = mcap
+            res = sim.result(pos, price, liq, cfg_t)
+            store.save_trade(con, tid, pos, res, mcap)
+            msg = (f"⚡ DEMO PRODAJA {sym} 100% @ {price:.3g} mcap {_usd(mcap)} (živi tok: dump; {d.get('why', '')})"
+                   + (f"  zatvoreno {res['pnl_usd']:+.2f} USD ({res['ret']:+.0%})" if not pos["open"] else ""))
+            if not quiet:
+                print(msg, flush=True)
+            notify(msg)
+            if not pos["open"]:
+                closed.append((sym, res))
+        con.commit()
+        con.close()
+    return closed
+
+
+def _live_loop(every=5):
+    """Dump exits within seconds of the live feed's alert, in its own thread of the demo process."""
+    while True:
+        try:
+            live_exits(sim.load_config())
+        except Exception as e:  # noqa: BLE001 - must never stop the main demo
+            print(f"živi izlaz: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(every)
+
+
 def tick(cfg, now=None, quiet=False):
     """Price every open trade and every candidate still inside track_h; apply exit rules."""
     now = now or time.time()
+    POS_LOCK.acquire()
+    try:
+        return _tick(cfg, now, quiet)
+    finally:
+        POS_LOCK.release()
+
+
+def _tick(cfg, now, quiet):
     con = store.connect(DB)
     trades = store.open_trades(con)
     tracked = {t for (t,) in con.execute("SELECT token FROM candidates WHERE decision!='ignored' AND first_ts>=?",
@@ -965,6 +1037,7 @@ def cmd_run(a):
     import threading
     threading.Thread(target=_koltest_loop, name="koltest", daemon=True).start()
     threading.Thread(target=_strat_loop, name="strategije", daemon=True).start()
+    threading.Thread(target=_live_loop, name="zivi", daemon=True).start()
     threading.Thread(target=_aktivni_loop, name="aktivni", daemon=True).start()
     # --top 3: the 3 best scores with their features go to the log, so a day of "demo otvorenih 0" explains itself (4.11.)
     hype_args = ["scan", "--top", "3"] + (a.hype_args.split() if a.hype_args else [])
