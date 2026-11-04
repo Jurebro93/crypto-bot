@@ -1,5 +1,5 @@
 {
- "_comment": "Usporedba strategija (strat/): 5 odvojenih demo računa po $1000, svaki kupuje iz drugog izvora, svi s ISTIM pravilima izlaza kao glavni demo (paper/config.json + naučeno), da se vidi koji izvor zarađuje. Nikad pravi novac. size_usd: ulog po ulazu (manje ako na računu nema dovoljno). max_open: najviše otvorenih pozicija po strategiji. per_hour / per_day: najviše novih ulaza po strategiji. max_delay_min: signal stariji od ovoga kad ga vidimo ne ulazi. mix_window_min: koliko blizu u vremenu dva izvora moraju javiti isti token za Mix. kontrola_every_min: nasumični ulaz najviše jednom u toliko minuta. Peta strategija (kontrola) se mijenja u 'strategies'. cash_limit: false = račun ne zaustavlja ulaze kad potroši $1000 (Nicholas 4.11.: neograničeno tradeova da alat uči na više podataka); vrijednost tada može pasti ispod 0 i pokazuje koliko je strategija izgubila.",
+ "_comment": "Usporedba strategija (strat/): 5 odvojenih demo računa po $1000, svaki kupuje iz drugog izvora, svi s ISTIM pravilima izlaza kao glavni demo (paper/config.json + naučeno), da se vidi koji izvor zarađuje. Nikad pravi novac. size_usd: ulog po ulazu (manje ako na računu nema dovoljno). max_open: najviše otvorenih pozicija po strategiji. per_hour / per_day: najviše novih ulaza po strategiji. max_delay_min: signal stariji od ovoga kad ga vidimo ne ulazi. mix_window_min: koliko blizu u vremenu dva izvora moraju javiti isti token za Mix. kontrola_every_min: nasumični ulaz najviše jednom u toliko minuta. Peta strategija (kontrola) se mijenja u 'strategies'. cash_limit: false = račun ne zaustavlja ulaze kad potroši $1000 (Nicholas 4.11.: neograničeno tradeova da alat uči na više podataka); vrijednost tada može pasti ispod 0 i pokazuje koliko je strategija izgubila. Nicholas 4.11. popodne: Mix i Nasumično isključeni; novčanici = samo top novcanici_top novčanika po našim kopiranim rezultatima (novčanik s manje od novcanici_min_n zatvorenih kopija se još mjeri, onaj koji je izmjeren a nije u vrhu se ne kopira); izbor alata podijeljen po market capu pri ulazu (alat_bands, $).",
  "enabled": true,
  "bankroll_usd": 1000,
  "size_usd": 50,
@@ -18,10 +18,10 @@
  "equity_every_min": 15,
  "strategies": [
   {
-   "key": "novcanici",
-   "name": "Praćeni novčanici",
+   "key": "top_novcanici",
+   "name": "Top novčanici",
    "icon": "👛",
-   "opis": "Kupi čim neki od praćenih KOL novčanika kupi token (vidimo ga na lancu za par sekundi)."
+   "opis": "Kupi čim neki od 10 najboljih praćenih KOL novčanika kupi token. Najbolji = njihove kupnje koje smo kopirali najviše su zaradile (barem 3 zatvorena tradea); novi novčanik se kopira dok ne skupi 3 tradea, a dokazano loš više ne."
   },
   {
    "key": "kol",
@@ -30,22 +30,38 @@
    "opis": "Kupi na svjež poziv KOL-a na X-u ili Telegramu. Botovi, hakirani spam računi, prodavači grupa, dev-ovi i računi još na probi su izbačeni."
   },
   {
-   "key": "alat",
-   "name": "Izbor alata",
+   "key": "alat_mali",
+   "name": "Izbor alata: mali",
    "icon": "🎯",
-   "opis": "Kupi isto što kupi glavni demo bot po ocjeni alata (bez ulaza koji su samo zbog KOL-ova)."
+   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene do 200k $ vrijednosti pri ulazu."
   },
   {
-   "key": "mix",
-   "name": "Mix",
-   "icon": "🧩",
-   "opis": "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena."
+   "key": "alat_srednji",
+   "name": "Izbor alata: srednji",
+   "icon": "🎯",
+   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene od 200k do 1M $ vrijednosti pri ulazu."
   },
   {
-   "key": "kontrola",
-   "name": "Nasumično (kontrolna)",
-   "icon": "🎲",
-   "opis": "Svakih ~30 min kupi nasumičan token koji je skener upravo vidio. Pokazuje pobjeđuju li ostale strategije čistu sreću."
+   "key": "alat_veliki",
+   "name": "Izbor alata: veliki",
+   "icon": "🎯",
+   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene preko 1M $ vrijednosti pri ulazu."
   }
- ]
+ ],
+ "novcanici_top": 10,
+ "novcanici_min_n": 3,
+ "alat_bands": {
+  "alat_mali": [
+   0,
+   200000
+  ],
+  "alat_srednji": [
+   200000,
+   1000000
+  ],
+  "alat_veliki": [
+   1000000,
+   null
+  ]
+ }
 }

@@ -1,8 +1,8 @@
-"""/strategije: five demo accounts of $1000 side by side (tracked wallets, KOL calls, the tool's picks, Mix, random
-control), same exit rules, so the page answers one question: which source of entries makes money."""
+"""/strategije: five demo accounts of $1000 side by side (top tracked wallets, KOL calls, the tool's picks split into
+small / mid / large market cap; Mix and the random control were switched off 4.11.), same exit rules, so the page answers one question: which source of entries makes money."""
 import time
 
-from ui.html import note, ago, esc, num, signed, table, tdesc, tlink
+from ui.html import note, ago, badge, esc, num, signed, table, tdesc, tlink
 
 COLORS = ["#4f46e5", "#0891b2", "#16a34a", "#d97706", "#94a3b8"]
 EXIT = {"stop_loss": "stop loss", "rug": "rug / nestao", "trailing": "prateći stop", "breakeven": "na ulaznoj cijeni",
@@ -108,7 +108,7 @@ def natjecanje_block():
            if not cfg.get("cash_limit", True) else f"dok ima novca na računu")
     return ("<h2 id=strategije>🤖 Kako alat uči: 5 strategija</h2>"
             + tdesc(f"Alat trguje s pet odvojenih demo računa od ${cfg['bankroll_usd']:,.0f}: svaki kupuje iz drugog "
-                    f"izvora (novčanici, influenceri, izbor alata, Mix, nasumično), a svi prodaju po istim pravilima. "
+                    f"izvora (top novčanici, influenceri, izbor alata posebno za male, srednje i velike tokene), a svi prodaju po istim pravilima. "
                     f"Ulog ${cfg['size_usd']:.0f} po tradeu, {lim}. Tako se vidi koji tip tradeova stvarno zarađuje."
                     + (f" Zasad vodi <b>{esc(lead['icon'])} {esc(lead['name'])}</b> ({lead['ret']:+.1%})." if lead else "")
                     + (f" Zatvoreno ukupno {total}; pouzdana usporedba treba ~20 po strategiji." if total < 20 * len(summ)
@@ -204,9 +204,33 @@ def page(qs):
         h.append("<h2 id=preskoceno>Što nije kupljeno i zašto</h2>" + tdesc(
             "Signali koji su stigli, ali ih račun nije kupio (zadnjih 10 dana).")
                  + table(["Strategija", "Razlog", ("Broj", "n")], rows))
-    h.append(tdesc("Petu strategiju (nasumičnu kontrolu) možeš zamijeniti drugom, npr. samo top 10 KOL-ova ili samo "
-                   "Telegram kanali: napiši u Prijedlozi ili javi Claudeu."))
+    h.append(wallets_html(cfg))
     return "Usporedba strategija", "".join(h)
+
+
+def wallets_html(cfg):
+    """Which tracked wallets the "Top novčanici" account copies, by how our copies of them did (strat.run)."""
+    from strat import run, store
+    con = store.ro()
+    if con is None:
+        return ""
+    try:
+        rank = run.wallet_rank(con, cfg)
+        top, out = run.wallets_allowed(con, cfg)
+    finally:
+        con.close()
+    if not rank:
+        return ""
+    min_n = cfg.get("novcanici_min_n", 3)
+    rows = [[esc(w), num(n), _pct(m), signed(p, "${:+,.2f}"),
+             badge("kopira se (top)", "good") if w in top else badge("ne kopira se", "bad") if w in out
+             else badge("još se mjeri", "")] for w, n, m, p in rank]
+    return ("<h2 id=novcanici>Top novčanici: koje kopiramo</h2>" + tdesc(
+        f"Kopiramo samo {cfg.get('novcanici_top', 10)} najboljih praćenih novčanika: onih čije su kupnje, kad smo ih "
+        f"kopirali, prosječno najviše zaradile (barem {min_n} zatvorena tradea, prosjek u plusu, jedan trade najviše "
+        f"+300%). Novi novčanik se kopira dok ne skupi {min_n} tradea; izmjereni koji nije u vrhu više se ne kopira.")
+            + table(["Novčanik", ("Kopiranih tradeova", "n"), ("Prosjek po tradeu", "n"), ("Zarada", "n"), "Status"],
+                    rows))
 
 
 def report_data(now=None):
