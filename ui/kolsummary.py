@@ -307,3 +307,57 @@ def leaders_html(con, cfg, limit=8):
         out.append(f"<li>{tag} {_link(h)} <span class=mut>ocjena {sc:.0f}</span>: {esc(_sentence(s, cfg))}</li>")
     out.append("</ul><p class=uc-small>Sve brojke za svakoga su u tablici ispod (Stupci = odaberi što vidiš).</p>")
     return "".join(out)
+
+
+def _mc(x):
+    if not x:
+        return ("–", -1, "n")
+    txt = f"${x / 1e6:.1f}M" if x >= 1e6 else f"${x / 1e3:.0f}k"
+    return (txt, x, "n")
+
+
+def tg_history_html():
+    """Telegram callers over the last 6 months from Nicholas's Call Analyser + SpyDefi exports (kol/tg_history.json)."""
+    import os
+    import time
+    from ui.html import ago
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "tg_history.json")
+    try:
+        with open(path) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    rows = d.get("rows") or []
+    if not rows:
+        return ""
+    now = time.time()
+    ok = [r for r in rows if r["calls"] >= 10]
+    med = statistics.median(r["hit2"] for r in ok) if ok else None
+    top = [r for r in ok if r["last"] >= now - 30 * 86400][:5]
+    lines = [f"{len(rows)} Telegram kanala s barem 5 poziva; tipičan kanal udvostruči {_p(med)} poziva."]
+    if top:
+        lines.append("Najbolji aktivni: " + ", ".join(f"{_link('tg:' + r['chan'])} ({_p(r['hit2'])} od {r['calls']})"
+                                                     for r in top) + ".")
+    out = ["<h2 id=tgpovijest>Telegram calleri: zadnjih 6 mjeseci</h2>", tdesc(
+        "Iz tvojih izvoza: Call Analyser bilježi svaki poziv kanala (CA i mcap u trenutku poziva), a SpyDefi koliko je "
+        "puta token narastao od poziva. Spojeno dobijemo koliko poziva svakog kanala je otišlo barem 2× i 5×. To je "
+        "vrh nakon poziva, ne nužno zarada: tko kupi kasno ili ne proda na vrhu, dobije manje. Samo kanali koje oba "
+        "izvora prate; zadnjih 30 dana aktivni se sad čitaju uživo i mjere kao svi ostali."),
+           "<ul class=uc-ul>" + "".join(f"<li>{x}</li>" for x in lines) + "</ul>"]
+    data = []
+    for r in rows:
+        if r["calls"] >= 20 and r["hit2"] >= 0.4:
+            v = badge("jak", "good")
+        elif r["calls"] < 10:
+            v = badge("malo poziva", "")
+        elif r["hit2"] < 0.15:
+            v = badge("slab", "bad")
+        else:
+            v = badge("prosječan", "warn")
+        act = badge("aktivan", "good") if r["last"] >= now - 30 * 86400 else badge("utihnuo", "")
+        data.append([v, _link("tg:" + r["chan"]), num(r["calls"]), _cell(r["hit2"]), _cell(r["hit5"]),
+                     (f"{r['max_x']:.0f}×", r["max_x"], "n"), _mc(r.get("med_mcap")), act,
+                     ago(r["last"])])
+    out.append(table(["Ocjena", "Kanal", ("Poziva", "n"), ("Barem 2×", "n"), ("Barem 5×", "n"), ("Najviše", "n"),
+                      ("Mcap u pozivu", "n"), "Stanje", "Zadnji poziv"], data, tid="ktghist"))
+    return "".join(out)

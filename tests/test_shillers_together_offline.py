@@ -162,6 +162,7 @@ class Page(unittest.TestCase):
             self.assertIn(f"<details class=uc-sec id={sid}>", body)
         self.assertNotIn("<h2 id=analiza>", body)  # the old closed "Analiza" box that hid 8 sections is gone
         self.assertIn("Zovu zajedno", body)
+        self.assertIn("<details class=uc-sec id=tgpovijest>", body)  # Call Analyser + SpyDefi history
 
 
 if __name__ == "__main__":

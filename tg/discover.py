@@ -100,6 +100,19 @@ def from_kol_calls(con, kol_db=None):
     return store.add_candidates(con, [reader.channel_name(n) for n in names], "kol_calls")
 
 
+def from_tg_history(con, path=None):
+    """Callers active in the last 30 days of Nicholas's Call Analyser + SpyDefi exports (kol/tg_history.json)."""
+    import json
+    path = path or os.path.join(HERE, "kol", "tg_history.json")
+    try:
+        with open(path) as f:
+            names = json.load(f).get("channels", [])
+    except (OSError, ValueError):
+        return 0
+    return store.add_candidates(con, [reader.channel_name(n) for n in names], "tg_history")
+
+
 def run(con, hype_db=None, kol_db=None):
     return {"x": from_x_cache(con, hype_db), "kol_ids": from_kol_ids(con, kol_db), "seed": from_seed_file(con),
-            "shill": from_shill_list(con), "kol_calls": from_kol_calls(con, kol_db)}
+            "shill": from_shill_list(con), "kol_calls": from_kol_calls(con, kol_db),
+            "tg_history": from_tg_history(con)}

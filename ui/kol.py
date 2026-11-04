@@ -503,7 +503,8 @@ def page(qs):
                        f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
 
         for name, fn in (("zajedno", lambda: kolsummary.together_html(con, cfg, tog)),
-                         ("shilleri", lambda: kolsummary.shill_html(con, cfg))):
+                         ("shilleri", lambda: kolsummary.shill_html(con, cfg)),
+                         ("tg povijest", kolsummary.tg_history_html)):
             try:
                 b.append(fn())
             except Exception as e:  # noqa: BLE001
