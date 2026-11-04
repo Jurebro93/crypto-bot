@@ -129,14 +129,23 @@ def cmd_backfill(a):
     cfg_a["daily_usd"]["kol_backfill"] = a.budget  # one-off budget for this run only, the server keeps 0
     apify.config = lambda: cfg_a
     con, cfg = store.connect(), config()
-    toks = backfill.pick(_load_tokens(a.tokens), a.winners, a.losers)
-    print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}")
+    # on the server (start.sh, KOL_BACKFILL_USD): once per budget value, so a redeploy does not pay again
+    done = (con.execute("SELECT value FROM kv WHERE key = 'backfill_done'").fetchone() or (None,))[0]
+    if done == str(a.budget) and not a.force:
+        print(f"backfill: budžet ${a.budget} već odrađen, preskačem (--force za ponovno)")
+        return
+    toks = backfill.pick(_load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con), a.winners, a.losers)
+    print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}"
+          + ("" if a.tokens else " (lista iz kol.db)"), flush=True)
     try:
         backfill.search_tokens(con, toks, apify.run, a.per_token)
         since = min(t["launch_ts"] for t in toks) if toks else int(time.time()) - 30 * 86400
         backfill.search_timelines(con, backfill.top_handles(con, a.kols), apify.run, since, a.per_kol)
     except apify.BudgetExceeded as e:
         print(f"backfill: {e}")
+    con.execute("INSERT OR REPLACE INTO kv VALUES ('backfill_done', ?)", (str(a.budget),))
+    con.commit()
+    print(f"backfill: pretraga gotova, potrošeno ${apify.spent('kol_backfill'):.2f}", flush=True)
     cmd_collect(a, con, cfg)
     cfg["measure_tokens_per_run"] = 100000
     cmd_measure(a, con, cfg)
@@ -220,7 +229,8 @@ def main(argv=None):
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
     bp = sub.add_parser("backfill")
-    bp.add_argument("--tokens", required=True, help="JSON/JSONL s tokenima iz retrospektive")
+    bp.add_argument("--tokens", help="JSON/JSONL s tokenima iz retrospektive; bez toga lista iz kol.db (pozivi + snimke)")
+    bp.add_argument("--force", action="store_true", help="ponovi i kad je taj budžet već odrađen (kv backfill_done)")
     bp.add_argument("--winners", type=int, default=400)
     bp.add_argument("--losers", type=int, default=400)
     bp.add_argument("--per-token", type=int, default=20, help="postova po tokenu")

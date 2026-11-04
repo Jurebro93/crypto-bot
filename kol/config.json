@@ -31,13 +31,13 @@
   "max_age_h": 24
  },
  "timeline": {
-  "every_h": 2,
-  "kols": 100,
-  "max_items": 120,
+  "every_h": 0.5,
+  "kols": 40,
+  "max_items": 60,
   "min_calls": 2,
   "min_followers": 5000,
   "refresh_d": 1,
-  "core": 75,
+  "core": 25,
   "per_query": 25
  },
  "watch": {

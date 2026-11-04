@@ -87,6 +87,16 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
 python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 
+# one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
+# backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.
+if [ -n "$KOL_BACKFILL_USD" ]; then
+  (
+    sleep 1500   # after the first KOL round, so the two do not fight for kol.db
+    python3 -m ops.heavy run_kol.py backfill --budget "$KOL_BACKFILL_USD" --winners 300 --losers 300 --kols 100 \
+      || echo "kol backfill nije uspio"
+  ) &
+fi
+
 # Telegram call channels: discovery every hour, hot channels read every 30 s via t.me/s (free) -> tg.db,
 # hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
 python3 run_tg.py loop &
