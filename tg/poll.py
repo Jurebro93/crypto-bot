@@ -8,7 +8,7 @@ import urllib.error
 
 from tg import reader, store
 
-PRIORITY = {"kolscan": 0, "solanatracker": 0, "tgstat": 1, "channels.txt": 1, "x": 2}
+PRIORITY = {"shill_list": 0, "kolscan": 0, "solanatracker": 0, "tgstat": 1, "channels.txt": 1, "x": 2}
 
 
 def interval(row, cfg, scores, now):

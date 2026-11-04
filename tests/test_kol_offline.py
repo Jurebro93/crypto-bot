@@ -152,7 +152,7 @@ class Pipeline(unittest.TestCase):
             title, body = ukol.page({})
             self.assertIn("@alpha", body)
             self.assertIn("https://x.com/alpha/status/10", body)
-            self.assertIn("Grupni pozivi", body)
+            self.assertIn("Svi grupni pozivi", body)
             self.assertIn("ICOIN", ukol.token_section(CA))
             self.assertIn("Kako je dobio ocjenu", ukol.kol_page("alpha", {})[1])
             body = ukol.kol_page("alpha", {})[1]
@@ -181,7 +181,7 @@ class Pipeline(unittest.TestCase):
             self.assertNotIn("solscan.io/tx", head)  # posts table has no wallet rows
             self.assertIn("0.05", rest)
             self.assertIn("Kupnje i prodaje", ukol._wallet_page(self.con, "w:F6GTuH")[1])
-            self.assertIn("<h2 id=kupnje>Kupnje i prodaje</h2>", ukol.page({})[1])
+            self.assertIn("<details class=uc-sec id=kupnje><summary>Kupnje i prodaje</summary>", ukol.page({})[1])
         finally:
             store.DB = old
 
