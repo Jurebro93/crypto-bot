@@ -130,13 +130,13 @@ def _week_counts(tss, now):
     return len(tss), a, b
 
 
-def _sql_counts(path, table, col, now):
+def _sql_counts(path, table, col, now, where="1=1"):
     con = _ro(path)
     if con is None:
         return None
     try:
         r = con.execute(f"SELECT COUNT(*), COALESCE(SUM({col} > ?), 0), COALESCE(SUM({col} > ? AND {col} <= ?), 0) "
-                        f"FROM {table}", (now - WEEK, now - 2 * WEEK, now - WEEK)).fetchone()
+                        f"FROM {table} WHERE {where}", (now - WEEK, now - 2 * WEEK, now - WEEK)).fetchone()
         return int(r[0]), int(r[1]), int(r[2])
     except sqlite3.Error:
         return None
@@ -160,12 +160,17 @@ def metrics(now=None):
                                    ("🛡", "Rug provjere", "/tokens", "Rug provjera")):
         if series.get(key):
             out.append((icon, label, href, _week_counts(series[key], now)))
-    for icon, label, href, path, table, col in (
-            ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen"),
-            ("🗣", "Pozivi influencera", "/kol", kol_store.DB, "calls", "ts"),
-            ("💬", "Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts"),
-            ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts")):
-        c = _sql_counts(path, table, col, now)
+    # kol.db keeps more than X accounts and their calls: Telegram channels ('tg:'), tracked wallets ('w:') and every
+    # swap of a tracked wallet (kind 'buy' / 'sell', ~1,500 a round) live in the same tables. Until 4.11. the page
+    # counted all of it as "Influenceri (X)" and "Pozivi influencera" (185,022 "calls", mostly wallet swaps).
+    not_x = "handle NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%'"
+    for icon, label, href, path, table, col, where in (
+            ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
+            ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
+            ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            ("💬", "Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "1=1"),
+            ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts", "1=1")):
+        c = _sql_counts(path, table, col, now, where)
         if c and c[0]:
             out.append((icon, label, href, c))
     return out

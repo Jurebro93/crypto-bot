@@ -679,11 +679,31 @@ def intake(cfg, now=None, quiet=False):
             store.add_candidate(con, c)
         if c["decision"] != "ignored":
             store.tick(con, t, now, price, liq, mcap)
+    global LAST_INTAKE
+    LAST_INTAKE = _intake_summary(cands, cfg, ex_need)
     opened += trigger_entries(con, cfg, rst, now)
     rules.save(rst)
     con.commit()
     _announce(opened, cfg, quiet)
     return opened
+
+
+LAST_INTAKE = None   # one line on why the last pass bought nothing (the loop prints it; 4.11.: "demo otvorenih 0" all day)
+
+
+def _intake_summary(cands, cfg, ex_need):
+    """'7 kandidata: skip_score 5 (najbolji 41 < 50), skip_liq 1, bez cijene 1; prag 50, istraživanje od 38'."""
+    if not cands:
+        return None
+    by, best = {}, {}
+    for c in cands.values():
+        d = c.get("decision") or "bez cijene"
+        by[d] = by.get(d, 0) + 1
+        best[d] = max(best.get(d, 0), c.get("score") or 0)
+    parts = [f"{d} {n}" + (f" (najbolji {best[d]:.0f} < {cfg['min_score']})" if d == "skip_score" else "")
+             for d, n in sorted(by.items(), key=lambda kv: -kv[1])]
+    ex = f", istraživanje od {ex_need:.0f}" if ex_need is not None else ", istraživanje isključeno"
+    return f"{len(cands)} kandidata: {', '.join(parts)}; prag {cfg['min_score']}{ex}"
 
 
 def tick(cfg, now=None, quiet=False):
@@ -900,7 +920,9 @@ def cmd_run(a):
                     done = subprocess.run(cmd, timeout=1800)
                 if done is not None:
                     last_scan = now
-            intake(cfg)
+            opened = intake(cfg)
+            if not opened and LAST_INTAKE:
+                print(f"  ulazi 0: {LAST_INTAKE}", flush=True)
             closed = tick(cfg)
             con = store.connect(DB)
             e = equity(con, cfg)
