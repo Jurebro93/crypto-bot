@@ -104,5 +104,24 @@ class CocallOutcome(unittest.TestCase):
         self.assertAlmostEqual(lift["solo_rate"], 1 / 3)
 
 
+class TelegramHistoryPage(unittest.TestCase):
+    def test_channel_from_exports_gets_a_summary_not_an_empty_page(self):
+        from kol import store as kstore
+        from ui import kol as ukol
+        path = os.path.join(tempfile.mkdtemp(), "kol.db")
+        kstore.connect(path).close()                      # empty database: no kols row for the channel
+        old, kstore.DB = kstore.DB, path
+        try:
+            title, body = ukol.kol_page("tg:x666calls", {})   # in kol/tg_history.json (Call Analyser export)
+            self.assertNotIn("Nema poziva od ovog računa", body)
+            self.assertIn("Poziva u 6 mj.", body)
+            self.assertIn("https://t.me/x666calls", body)
+            self.assertIn("Barem 2×", body)
+            self.assertIn("Bot još nije skupio nijedan poziv", body)
+            self.assertEqual(ukol.kol_page("tg:nema-takvog-kanala-123", {})[1].count("Nema poziva"), 1)
+        finally:
+            kstore.DB = old
+
+
 if __name__ == "__main__":
     unittest.main()
