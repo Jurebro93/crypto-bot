@@ -727,15 +727,15 @@ def market(lang):
     lpshare = top["v7"] / lp7 if top and lp7 else None
     if en:
         qa = [("How big is the Solana meme coin market today?",
-               f"On {_date(day, lang)} Solana launchpads traded {usd(lp.get(day))} and all Solana DEXs {usd(dx.get(day))}. "
-               f"Over the last 7 days launchpads did {usd(lp7)}, which is {pct(share, signed=False, dec=1)} of all Solana DEX volume."),
+               f"On {_date(day, lang)} Solana launchpads traded {usd(lp.get(day))} and the Solana DEXs we track {usd(dx.get(day))}. "
+               f"Over the last 7 days launchpads did {usd(lp7)}, which is {pct(share, signed=False, dec=1)} of tracked Solana DEX volume."),
               ("Which launchpad has the most volume?",
                f"{plabel(top, lang)[0]} with {usd(top['v7'])} in 7 days ({pct(lpshare, signed=False)} of all launchpad volume)." if top else "–"),
               ("Where does this data come from?",
                "From DefiLlama's public Solana DEX and launchpad volumes, checked every hour. DefiLlama finalises a day once, so "
                "every number here is for full UTC days. The season index and the charts are our own calculations."),
               ("How often is the page updated?", "Automatically: the source is checked every hour and the page refreshes within 30 minutes.")]
-        title = f"Solana Meme Coin Market Volume Today ({_date(day, lang)}): Launchpads, DEX, Trend | MemeSonar"
+        title = f"Solana Meme Coin Market Volume as of {_date(day, lang)} (last full day): Launchpads, DEX, Trend | MemeSonar"
         desc = (f"Live Solana meme coin market: launchpad volume {usd(lp7)} in 7 days ({pct(g(lp7, lpp))}), Solana DEX "
                 f"{usd(dx7)}, trading terminals {usd(tm7)}. Charts and daily data, updated automatically.")
     else:
@@ -749,7 +749,7 @@ def market(lang):
                "Iz javnih podataka DefiLlame o volumenu Solana DEX-ova i launchpada, provjera svaki sat. DefiLlama dan zaključa "
                "jednom, pa su svi brojevi za pune UTC dane. Indeks sezone i grafovi su naš izračun."),
               ("Koliko se često stranica osvježava?", "Automatski: izvor se provjerava svaki sat, a stranica se osvježi unutar 30 minuta.")]
-        title = f"Volumen Solana meme coin tržišta danas ({_date(day, lang)}): launchpadi, DEX, trend | MemeSonar"
+        title = f"Volumen Solana meme coin tržišta na dan {_date(day, lang)} (zadnji puni dan): launchpadi, DEX, trend | MemeSonar"
         desc = (f"Solana meme coin tržište uživo: volumen launchpada {usd(lp7, lang)} u 7 dana ({pct(g(lp7, lpp), lang)}), "
                 f"Solana DEX {usd(dx7, lang)}, trading terminali {usd(tm7, lang)}. Grafovi i dnevni podaci, osvježava se samo.")
     body.append(_faq(qa, lang))

@@ -89,7 +89,9 @@ def best_hours(con=None, days=30, now=None):
 
 def cocall_lift(con=None, window_s=900, min_kols=3):
     """{group_n, group_rate, solo_n, solo_rate}: share of tokens reaching 2x in 24 h when min_kols+ distinct callers
-    posted within window_s of the first call, versus fewer."""
+    posted within window_s of the first call, versus fewer. Audit 4.11. (evening): a cluster token's outcome is the
+    best move after the call that COMPLETED the cluster (the min_kols-th distinct caller), not after the first call:
+    "what happened once three had spoken", which is the moment the tool can act. A solo token keeps its first call."""
     own = con is None
     con = con or _kol_con()
     if con is None:
@@ -108,11 +110,18 @@ def cocall_lift(con=None, window_s=900, min_kols=3):
     g = [0, 0]
     s = [0, 0]
     for calls in toks.values():
-        t0, first_max = calls[0][0], calls[0][2]
-        kols = {h for ts, h, _ in calls if ts - t0 <= window_s}
+        t0, outcome = calls[0][0], calls[0][2]
+        kols = set()
+        for ts, h, m in calls:
+            if ts - t0 > window_s:
+                break
+            kols.add(h)
+            if len(kols) == min_kols:
+                outcome = m            # the call that completed the cluster
+                break
         bucket = g if len(kols) >= min_kols else s
         bucket[0] += 1
-        bucket[1] += 1 if (first_max or 0) >= 1.0 else 0
+        bucket[1] += 1 if (outcome or 0) >= 1.0 else 0
     if g[0] < 5 or s[0] < 20:
         return None
     return {"group_n": g[0], "group_rate": g[1] / g[0], "solo_n": s[0], "solo_rate": s[1] / s[0]}

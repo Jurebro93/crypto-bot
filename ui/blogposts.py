@@ -213,7 +213,8 @@ post(
     "otherwise. How clusters form, and how to spot a paid campaign.",
     ["kol crypto", "crypto influencers", "best crypto influencers", "crypto kol"], 6,
     "A cluster is when several independent influencers call the same token within a short window. In our data, tokens "
-    "called by 3+ KOLs within 15 minutes reached 2x in 59% of cases, against 33% when fewer KOLs called. But clusters "
+    "called by 3+ KOLs within 15 minutes reached 2x in 59% of cases, against 33% when fewer KOLs called (snapshot of 1 Nov 2026; "
+    "the home page shows the live number). But clusters "
     "can be bought too, so you check who is in the group and whether they always appear together.",
     f"""
 <h2>What is influencer clustering?</h2>
@@ -225,7 +226,7 @@ pumps together, sometimes paid). Both move the price. Only one is safe to follow
 {bars("Called tokens that reached 2x within 24 hours", [
     ("1-2 KOLs within 15 minutes", 33, "the first call plus at most one more"),
     ("3+ different KOLs within 15 minutes", 59, "counted from the first call"),
-], sub="Solana tokens with at least one measured call", fmt="pct", hl=(1,), source=KOL)}
+], sub="Solana tokens with at least one measured call, snapshot of 1 Nov 2026; the live number is on the home page", fmt="pct", hl=(1,), source=KOL)}
 <p>The 15-minute window matters. Later calls tend to be followers of the first call, not independent finds, and by
 then the move has often happened. We count distinct accounts, so one KOL posting three times is still one.</p>
 
@@ -279,7 +280,7 @@ liquidity.</p>
 <p>The strongest single warning in our data is a <b>serial creator</b>: a wallet that has launched many tokens
 before.</p>
 {bars("Tokens that reached 2x, by the creator's previous launches", [
-    ("First token from this wallet", 16.8, "2,598 tokens"),
+    ("First token from this wallet", 16.8, "2,598 tokens, 1 Nov 2026"),
     ("1-5 previous tokens", 9.2, "769 tokens"),
     ("6-20 previous tokens", 3.8, "764 tokens"),
     ("More than 20 previous tokens", 1.4, "1,528 tokens"),

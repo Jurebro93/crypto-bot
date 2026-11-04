@@ -358,6 +358,13 @@ def _call_stats(handles):
     return _median([r[0] for r in rows]), _median([r[1] for r in rows]), len(rows)
 
 
+def _rng(s):
+    """' (35–61)' after a public score: the same 80% range the private page shows (kol/validate.py), so 66 on four
+    calls reads as four calls (audit 4.11. evening)."""
+    lo, hi = s.get("score_lo"), s.get("score_hi")
+    return f" <span class=mut>({lo:.0f}–{hi:.0f})</span>" if lo is not None and hi is not None else ""
+
+
 def leaderboard(lang):
     t, x = L[lang], LB_T[lang]
     allrows = influencers()
@@ -372,7 +379,7 @@ def leaderboard(lang):
         for i, r in enumerate(rows, 1):
             s = r["s"]
             trs.append(f"<tr><td class=mut>{i}</td><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a></td>"
-                       f"<td class=n><b>{r['score']:.0f}</b></td><td class=n>{_pct(s.get('hit_rate'))}</td>"
+                       f"<td class=n><b>{r['score']:.0f}</b>{_rng(s)}</td><td class=n>{_pct(s.get('hit_rate'))}</td>"
                        f"<td class='n {_cls(s.get('med_max24'))}'>{_pct(s.get('med_max24'), True)}</td>"
                        f"<td class=n>{_pct(s.get('rug_rate'))}</td><td class=n>{_pct(s.get('prepump_rate'))}</td>"
                        f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")

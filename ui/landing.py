@@ -67,7 +67,7 @@ def compute():
     v["scans"] = _one(hype, "SELECT MAX(rowid) FROM hype_signals")
     v["wallets"] = _one(wal, "SELECT COUNT(*) FROM wallets")
     v["wallet_trades"] = _one(wal, "SELECT MAX(rowid) FROM wallet_trades")
-    v["kols"] = _one(kol, "SELECT COUNT(*) FROM kols")
+    v["kols"] = _one(kol, "SELECT COUNT(*) FROM kols WHERE handle NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%'")  # X only
     v["calls"] = _one(kol, "SELECT COUNT(*) FROM calls WHERE kind='call'")
     v["kol_wallets"] = _one(kol, "SELECT COUNT(*) FROM kol_wallets")
     v["snaps"] = _one(kol, "SELECT MAX(rowid) FROM snaps")
@@ -91,7 +91,8 @@ def compute():
         from ourtoken import advisor
         lift = advisor.cocall_lift()
         if lift:
-            v["group_rate"], v["solo_rate"], v["group_n"] = lift["group_rate"], lift["solo_rate"], lift["group_n"]
+            v["group_rate"], v["solo_rate"], v["group_n"], v["solo_n"] = (lift["group_rate"], lift["solo_rate"],
+                                                                           lift["group_n"], lift["solo_n"])
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -371,7 +372,8 @@ T = {
         free_p="Alat je u ranoj fazi i za sada ga ne naplaćujemo. Pristup dobiješ na zahtjev: ostavi ime i e-mail i pošaljemo ti osobni link za registraciju.",
         free_li=["Bez kartice i plaćanja", "Nikad ne tražimo seed frazu ni privatni ključ", "Radi na mobitelu i računalu"],
         pw_h="Veća šansa za udvostručenje kad token zove 3+ influencera u 15 minuta.",
-        pw_p="Alat to vidi u trenutku i javi ti, prije nego cijena ode.", pw_m="Izmjereno na {n} poziva.",
+        pw_p="Alat to vidi u trenutku i javi ti, prije nego cijena ode.",
+        pw_m="Izmjereno na {g} tokena s 3+ pozivatelja naspram {s} s manje.", pw_wait="Još se mjeri: premalo tokena s 3+ pozivatelja za pouzdan broj.",
         pw_a="3+ influencera", pw_b="1 ili 2 influencera",
         inf_eye="Javno", inf_h="Ljestvica influencera.", inf_p="Pogledaj kako su prošli pozivi najpoznatijih "
         "crypto influencera na Solani. Besplatno, bez prijave.", inf_btn="Otvori ljestvicu",
@@ -407,7 +409,8 @@ T = {
         free_p="The tool is at an early stage and we don't charge for it for now. Access is on request: leave your name and e-mail and we'll send you a personal sign-up link.",
         free_li=["No card, no payment", "We never ask for a seed phrase or private key", "Works on phone and desktop"],
         pw_h="Higher chance of a 2× when 3+ influencers call a token within 15 minutes.",
-        pw_p="The tool sees it the moment it happens and tells you, before the price runs.", pw_m="Measured on {n} calls.",
+        pw_p="The tool sees it the moment it happens and tells you, before the price runs.",
+        pw_m="Measured on {g} tokens with 3+ callers against {s} with fewer.", pw_wait="Still measuring: too few tokens with 3+ callers for a reliable number.",
         pw_a="3+ influencers", pw_b="1 or 2 influencers",
         inf_eye="Public", inf_h="Influencer leaderboard.", inf_p="See how the calls of well-known Solana crypto "
         "influencers actually played out. Free, no login.", inf_btn="Open the leaderboard",
@@ -461,16 +464,22 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
         nums_html = (f"<div class=lvhead><span class=lvb title='{t['badge_t']}'><span class=pulse></span>{t['badge']}</span></div>"
                      + nums_html + f"<div class=live>{t['live']} {age}</div>")
 
-    g, s = v.get("group_rate") or .57, v.get("solo_rate") or .33
-    measured = (" " + t["pw_m"].format(n=num(v["measured"]))) if v.get("measured") else ""
+    # audit 4.11. (evening): no made-up fallback (57/33 looked like a measurement), and the sample is the comparison's
+    # own (tokens with 3+ callers vs tokens with fewer), not every measured call
+    g, s = v.get("group_rate"), v.get("solo_rate")
     live_pw = (f"<div class=lv><span class='lvb dk'><span class=pulse></span>{t['badge']}</span>{t['live']} {age}</div>"
-               if v.get("group_rate") and ts else "")
-    power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
-             f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
-             f"<div class=bar><div>{t['pw_a']}<i><em style='width:{min(100, g * 100):.0f}%;"
-             f"background:linear-gradient(90deg,#818cf8,#2dd4bf)'></em></i></div><b>{_pct(g)}</b></div>"
-             f"<div class=bar><div>{t['pw_b']}<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
-             f"</em></i></div><b>{_pct(s)}</b></div></div>{live_pw}</div></div>")
+               if g and ts else "")
+    if g and s:
+        measured = " " + t["pw_m"].format(g=num(v.get("group_n") or 0), s=num(v.get("solo_n") or 0))
+        power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
+                 f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
+                 f"<div class=bar><div>{t['pw_a']}<i><em style='width:{min(100, g * 100):.0f}%;"
+                 f"background:linear-gradient(90deg,#818cf8,#2dd4bf)'></em></i></div><b>{_pct(g)}</b></div>"
+                 f"<div class=bar><div>{t['pw_b']}<i><em style='width:{min(100, s * 100):.0f}%;background:#56627d'>"
+                 f"</em></i></div><b>{_pct(s)}</b></div></div>{live_pw}</div></div>")
+    else:   # not measured yet (or too few tokens): say so instead of drawing a number
+        power = (f"<div class=hl><div class=big><span class=g>…</span></div><div>"
+                 f"<h3>{t['pw_h']}</h3><p>{t['pw_p']} {t['pw_wait']}</p></div></div>")
 
     px = "en-" if en else ""
     tour = "".join(

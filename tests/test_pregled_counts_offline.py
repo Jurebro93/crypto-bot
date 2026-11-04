@@ -88,5 +88,21 @@ class Reconsider(unittest.TestCase):
         self.assertFalse(run_paper.reconsider("skip_liq", {"origin": "event", "score": 90}, cfg))
 
 
+class CocallOutcome(unittest.TestCase):
+    def test_cluster_token_is_judged_from_the_call_that_completed_the_cluster(self):
+        from ourtoken import advisor
+        con = sqlite3.connect(":memory:")
+        con.execute("CREATE TABLE calls (token, handle, ts, views, max24, kind)")
+        rows = []
+        for i in range(6):   # first call +400% (before the cluster), third caller only +20%: the token is NOT a 2x
+            rows += [(f"g{i}", "a", 1000, 0, 4.0, "call"), (f"g{i}", "b", 1060, 0, 2.0, "call"), (f"g{i}", "c", 1120, 0, 0.2, "call")]
+        rows += [(f"s{i}", "a", 1000, 0, 3.0 if i < 10 else 0.1, "call") for i in range(30)]   # solo: first call counts
+        con.executemany("INSERT INTO calls VALUES (?,?,?,?,?,?)", rows)
+        lift = advisor.cocall_lift(con)
+        self.assertEqual((lift["group_n"], lift["solo_n"]), (6, 30))
+        self.assertAlmostEqual(lift["group_rate"], 0.0)      # was 1.0 when the first call's +400% labelled the token
+        self.assertAlmostEqual(lift["solo_rate"], 1 / 3)
+
+
 if __name__ == "__main__":
     unittest.main()
