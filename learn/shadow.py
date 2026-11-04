@@ -143,6 +143,13 @@ def collect(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
                     "FROM candidates WHERE first_ts >= ? AND decision != 'ignored'", (since,)):
                 add(f"kandidat:{token}", token, symbol, "kandidat", ts, price, liq, mcap, score, feats, decision,
                     trade_id is not None, origin)
+            # trigger evaluations (paper/store.trigger_points, 4.11.): one point per look, so a comeback after a loss
+            # ("povratak") or a second $100k crossing is its own lesson, bought or not
+            for token, ts, mode, symbol, score, feats, price, liq, mcap, decision, trade_id in p.execute(
+                    "SELECT token, ts, mode, symbol, score, features, price, liquidity, mcap, decision, trade_id "
+                    "FROM trigger_points WHERE ts >= ?", (since,)):
+                add(f"{mode}:{token}:{ts}", token, symbol, mode, ts, price, liq, mcap, score, feats, decision,
+                    trade_id is not None, mode)
         except sqlite3.OperationalError as e:
             print(f"shadow: paper.db: {e}")
         finally:

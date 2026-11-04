@@ -89,9 +89,15 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 
 # one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
 # backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.
+# KOL_BACKFILL_AT=HH:MM (UTC) waits for that time instead (23:00 = midnight in Zagreb in winter): a deploy restarts the
+# container and with it the backfill, so it is best started when nobody deploys. Without it: 25 min after start.
 if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   (
-    sleep 1500   # after the first KOL round, so the two do not fight for kol.db
+    if [ -n "${KOL_BACKFILL_AT:-}" ]; then
+      python3 -c "import time, datetime as d; h, m = map(int, '${KOL_BACKFILL_AT}'.split(':')); n = d.datetime.now(d.timezone.utc); t = n.replace(hour=h, minute=m, second=0, microsecond=0); t = t if t > n else t + d.timedelta(days=1); print(f'kol backfill: čekam do {t:%Y-%m-%d %H:%M} UTC', flush=True); time.sleep((t - n).total_seconds())"
+    else
+      sleep 1500   # after the first KOL round, so the two do not fight for kol.db
+    fi
     python3 -m ops.heavy run_kol.py backfill --budget "$KOL_BACKFILL_USD" --winners 300 --losers 300 --kols 100 \
       || echo "kol backfill nije uspio"
   ) &

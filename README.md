@@ -194,6 +194,10 @@ Svaki trejd pamti market cap na ulazu i na izlazu (`entry_mcap`, `exit_mcap` u `
 
 DCA prijedlog (kupnja u padu, `paper/dca.py`, pravila u `config.json` pod `dca`): kad je otvorena pozicija 20% ili više u minusu, ali barem 3 postotna boda iznad stop lossa, likvidnost je još barem 60% ulazne, cijena je već odskočila 8% od dna i trejd je star barem 20 min, bot zabilježi prijedlog da se dokupi pola uloga. Najviše jedan po trejdu, nikad nakon prvog TP-a. Prijedlog se ne izvršava; dnevni pregled mjeri što bi dokup donio da je prodan zajedno s trejdom i kaže isplati li se (barem 10 signala, isti rezultat u obje polovice podataka). Signal se pokazuje i igračima u Natjecanju ako drže isti token.
 
+### Povratak u token nakon gubitka (`rules.povratak`, 4.11.)
+
+Token na kojem je demo izgubio nije gotov. Ako u zadnjih 7 dana demo trade zatvoren s gubitkom (≤ −30 %), a token je sad opet živ (hype signal u zadnjih 30 min s prometom ≥ 30 % likvidnosti i u zadnjih 60 min ili smart walleti među kupcima ili praćeni KOL/copy novčanik kupuje), ide mali drugi ulaz (20 $, najviše 2 po tokenu, 60 min pauze nakon izlaska), mjeren kao vlastiti krak `povratak|sesija`. Svaka procjena okidača (mc100k, kol3, aktivni, povratak), kupljena ili ne, zapisuje se u `paper.db trigger_points` i postaje točka sjenovite knjige (`learn/shadow.py`), pa alat uči i na onome što nije kupio.
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.

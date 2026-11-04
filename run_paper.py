@@ -362,7 +362,7 @@ def _announce(opened, cfg, quiet):
         notify(msg)
 
 
-TRIGGER_MODES = ("mc100k", "mc100k2", "kol3", "aktivni")
+TRIGGER_MODES = ("mc100k", "mc100k2", "kol3", "aktivni", "povratak")
 
 
 def _n_mode(con, mode, since=None):
@@ -392,13 +392,58 @@ def reentries(con, band, now, dip=0.8):
     return out
 
 
+def comebacks(con, r, now, hype_db=None):
+    """{token: info} for the "povratak" trigger: tokens whose demo trade closed with a loss (ret <= r.lost) in the
+    last r.days days, no open trade, cooldown passed, fewer than max_per_token comebacks so far, that are alive
+    again NOW: a hype signal in the last fresh_min minutes with turnover >= min_turnover, and in the last buyers_min
+    minutes either smart wallets among the buyers (feature smart_money) or a tracked KOL / copy wallet buying
+    (hype.db chain_trades). A token that fell 90% is not finished when the money comes back (Nicholas 4.11.)."""
+    out = {}
+    rows = con.execute("SELECT token, MAX(closed_ts), MIN(ret) FROM trades WHERE status='closed' AND closed_ts>=? "
+                       "GROUP BY token", (now - r["days"] * 86400,)).fetchall()
+    lost = {t: (closed, ret) for t, closed, ret in rows if ret is not None and ret <= r["lost"]}
+    if not lost:
+        return out
+    fresh = {c["token"]: c for c in hype_signals(r["fresh_min"], now)}
+    hc = _ro(hype_db or HYPE_DB)
+    try:
+        for tok, (closed, ret) in lost.items():
+            if tok not in fresh or now - closed < r["cooldown_min"] * 60:
+                continue
+            if con.execute("SELECT 1 FROM trades WHERE token=? AND status='open'", (tok,)).fetchone():
+                continue
+            n_back = con.execute("SELECT COUNT(*) FROM trades WHERE token=? AND config LIKE "
+                                 "'%\"entry_mode\": \"povratak\"%'", (tok,)).fetchone()[0]
+            if n_back >= r["max_per_token"]:
+                continue
+            c = fresh[tok]
+            f = c.get("features") or {}
+            turnover = f.get("turnover") or 0
+            buyers = 0
+            if hc is not None:
+                try:
+                    buyers = hc.execute("SELECT COUNT(DISTINCT wallet) FROM chain_trades WHERE mint=? AND side='buy' "
+                                        "AND ts>=?", (tok, now - r["buyers_min"] * 60)).fetchone()[0]
+                except sqlite3.OperationalError:
+                    buyers = 0
+            smart = f.get("smart_money") or 0
+            if turnover < r["min_turnover"] or not (smart > 0 or buyers > 0):
+                continue
+            out[tok] = {"score": c.get("score"), "symbol": c.get("symbol"), "features": f, "ret": ret,
+                        "closed_ts": closed, "buyers": buyers, "smart": smart, "turnover": turnover, "n_back": n_back}
+    finally:
+        if hc is not None:
+            hc.close()
+    return out
+
+
 def trigger_entries(con, cfg, rst, now):
     """Entries that do not come from a hype score (paper/rules.py): B of the entry A/B = first crossing of $100k MC
     with T0 passed, and >= 3 different KOL authors within 15 minutes. Same hard rug gate, same session stake, own
     small caps; one trade per token a day. Returns the opened candidates."""
     R = rules.config(cfg)
     R["aktivni"] = aktivni.config(cfg)
-    if not (R["ab"]["enabled"] or R["kol3"]["enabled"] or R["aktivni"]["enabled"]):
+    if not (R["ab"]["enabled"] or R["kol3"]["enabled"] or R["aktivni"]["enabled"] or R["povratak"]["enabled"]):
         return []
     from exits.paths import session_of
     from rugfilter import collapse
@@ -423,6 +468,10 @@ def trigger_entries(con, cfg, rst, now):
         for tok, info in reentries(con, R["ab"]["band"], now).items():
             if tok not in gone:
                 want.setdefault(tok, ("mc100k2", info))
+    if R["povratak"]["enabled"]:   # after the 24 h "traded" filter on purpose: a comeback is a second trade
+        for tok, info in comebacks(con, R["povratak"], now).items():
+            if tok not in gone:
+                want.setdefault(tok, ("povratak", info))
     if not want:
         return []
     mk = market(want) or {}
@@ -455,9 +504,10 @@ def trigger_entries(con, cfg, rst, now):
             t0_left -= 1
             t0 = t0_check(tok, now) or t0
         c = {"token": tok, "symbol": syms.get(tok) or info.get("symbol"), "ts": now, "origin": mode, "sources": {mode},
-             "score": info.get("score"), "features": {}, "price": price, "liquidity": liq, "mcap": mcap, "url": url}
+             "score": info.get("score"), "features": info.get("features") or {}, "price": price, "liquidity": liq,
+             "mcap": mcap, "url": url}
         why = pre or rules.gate(tok, price, liq, mcap, t0, None, cfg)
-        if not why and mode != "mc100k2":  # market-cap band that keeps losing gets fewer entries (paper/arms.py)
+        if not why and mode not in ("mc100k2", "povratak"):  # market-cap band that keeps losing gets fewer entries (paper/arms.py)
             band = arms.mc_band(mcap)
             ok_b, theta_b = arms.allow(band, arm_st, cfg.get("arms"))
             if not ok_b:
@@ -490,6 +540,8 @@ def trigger_entries(con, cfg, rst, now):
             c["size_usd"], c["decision"] = size, "taken"
             c["reason"] = ((f"prvi prelazak 100k $ (A/B test, ulaz B)" if mode == "mc100k" else
                             f"ponovni prelazak 100k $ nakon pada na {_usd(info['low'])}" if mode == "mc100k2" else
+                            f"povratak nakon gubitka {info['ret']:+.0%}: promet {info['turnover']:.0%}, "
+                            f"{info['buyers']} praćenih novčanika kupuje, smart {info['smart']:.0%}" if mode == "povratak" else
                             f"aktivan stariji token: {info['tx24']:,} kupnji i prodaja u 24 h, star "
                             f"{info.get('age_d') or 0:.0f} dana".replace(",", ".") if mode == "aktivni" else
                             f"{info['n']} KOL autora u 15 min: " + ", ".join(info["handles"][:5]))
@@ -504,6 +556,7 @@ def trigger_entries(con, cfg, rst, now):
         else:
             store.add_candidate(con, c)
             known_c.add(tok)
+        store.add_trigger_point(con, c, mode)   # every look, taken or not: a shadow point (learn/shadow.py)
         store.tick(con, tok, now, price, liq, mcap)
     return out
 

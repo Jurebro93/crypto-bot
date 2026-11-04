@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT, symbol TEXT, opened_ts INTEGER, closed_ts INTEGER,
     status TEXT, exit_reason TEXT, size_usd REAL, entry_px REAL, entry_eff REAL, pnl_usd REAL, ret REAL,
     max_ret REAL, min_ret REAL, state TEXT, config TEXT);
+CREATE TABLE IF NOT EXISTS trigger_points (
+    token TEXT, ts INTEGER, mode TEXT, symbol TEXT, score REAL, features TEXT, price REAL, liquidity REAL, mcap REAL,
+    decision TEXT, reason TEXT, trade_id INTEGER, PRIMARY KEY (token, ts, mode));
 CREATE TABLE IF NOT EXISTS reviews (day TEXT PRIMARY KEY, created INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS rug_budget (day TEXT PRIMARY KEY, used INTEGER);
 CREATE TABLE IF NOT EXISTS manual_exits (
@@ -40,6 +43,15 @@ def connect(path):
                  ORDER BY k.ts DESC LIMIT 1) END""")
         con.commit()
     return con
+
+
+def add_trigger_point(con, c, mode):
+    """Every trigger evaluation (mc100k, kol3, aktivni, povratak), taken or skipped: candidates holds one row per
+    token, so without this a second look at a token (a comeback after a loss) left no decision point for the shadow
+    book to learn from (learn/shadow.py reads this table)."""
+    con.execute("INSERT OR IGNORE INTO trigger_points VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (c["token"], int(c["ts"]), mode, c.get("symbol"), c.get("score"), json.dumps(c.get("features") or {}),
+                 c.get("price"), c.get("liquidity"), c.get("mcap"), c.get("decision"), c.get("reason"), c.get("trade_id")))
 
 
 def known(con):
