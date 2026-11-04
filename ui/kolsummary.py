@@ -4,7 +4,7 @@ import json
 import statistics
 
 from kol import shillers, together
-from ui.html import badge, esc, num, table, tdesc, tip
+from ui.html import badge, esc, lead as _lead, num, table, tdesc, tip
 
 FEE = 0.02   # buy + sell fee and slippage, roughly, for the "na $100" line
 
@@ -217,7 +217,8 @@ def together_html(con, cfg, tog=None):
         lead = (f"{_link(c['leader'])} ({c['lead_share']:.0%})" if c["leader"] else "–")
         rows.append([what + tag, (mem, "", "wrap"), num(len(c["members"])), num(c["tokens"]), lead,
                      _cell(st["hit"]), _cell(st["rug"]), (f"{c['best_lift']:.0f}×", c["best_lift"], "n")])
-    out.append("<h3>Ekipe koje stalno zovu zajedno</h3>" + tdesc(
+    out.append("<h3>Ekipe koje stalno zovu zajedno</h3>" + _lead(
+        "Računi koji puno češće nego slučajno zovu iste tokene. Prati ih ili izbjegavaj piše u prvom stupcu.") + tdesc(
         "Računi koji zovu iste tokene puno češće nego što bi dala slučajnost (test slučajnosti na parovima). "
         "Prvi = tko najčešće zove prvi; njega vrijedi pratiti. Prati ih = više od pola tokena se udvostruči, malo rugova. "
         "Izbjegavaj = puno rugova ili rijetko rastu (često plaćena kampanja).")

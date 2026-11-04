@@ -34,9 +34,9 @@ tr:hover td{background:color-mix(in srgb,var(--acc) 5%,var(--card))}
 table.cards,table.cards tbody{display:block;width:100%}table.cards thead{display:none}
 table.cards tr{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;padding:8px 12px;border-bottom:1px solid var(--line)}
 table.cards td.stk,table.cards td.wrap,table.cards td[colspan]{grid-column:1/-1}table.cards td:empty{display:none}
-table.cards td{display:block;border:0;padding:3px 0;white-space:normal;text-align:right;min-width:0;max-width:none;font-size:14px;overflow-wrap:anywhere}
-table.cards td::after{content:'';display:block;clear:both}.ctip{display:none}table.cards td>.ctip{display:inline-block;float:left;line-height:20px;margin:0 6px 0 -4px}table.cards td.stk>.ctip{display:none}table.cards td.wrap{position:relative}table.cards td.wrap>.ctip{float:none;position:absolute;right:0;top:3px;margin:0}
-table.cards td::before{content:attr(data-l);float:left;color:var(--mut);font-size:12px;text-align:left;max-width:48%;padding-right:10px;line-height:20px;overflow-wrap:normal;white-space:nowrap}
+table.cards td{display:block;position:relative;border:0;padding:4px 0;white-space:normal;text-align:left;min-width:0;max-width:none;font-size:14px;overflow-wrap:anywhere}
+table.cards td::after{content:'';display:block;clear:both}.ctip{display:none}table.cards td>.ctip{display:inline-block;position:absolute;right:0;top:3px;line-height:17px;margin:0}table.cards td.stk>.ctip{display:none}table.cards td.wrap{position:relative}table.cards td.wrap>.ctip{float:none;position:absolute;right:0;top:3px;margin:0}
+table.cards td::before{content:attr(data-l);display:block;color:var(--mut);font-size:12px;text-align:left;padding-right:22px;line-height:17px;overflow-wrap:break-word;white-space:normal}
 table.cards td.wrap{display:block;text-align:left}table.cards td.wrap::before{float:none;display:block;max-width:none}
 table.cards td.stk{position:static;box-shadow:none;font-weight:600;font-size:15px;text-align:left;padding-bottom:4px}
 table.cards td.stk::before{display:none}table.cards td.stk{max-width:none;min-width:0}table.cards td.stk .mut{font-weight:400;font-size:12px;display:inline-block}table.cards td.ch{display:none}
