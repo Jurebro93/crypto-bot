@@ -337,7 +337,7 @@ T("Event", "eventi", "Događaj iz stvarnog svijeta oko kojeg ljudi rade tokene (
   "Kad se nešto veliko dogodi, za par minuta nastane hrpa tokena istog imena. Alat unaprijed skuplja kalendar takvih "
   "događaja, ocjenjuje koliko je pažnje oko njih (hype eventa) i koliko je vjerojatno da će netko napraviti token (šansa "
   "za token), pa traži pravi token među kopijama.",
-  vidi=["hype-eventa", "sansa-za-token", "pravi-token"], gdje=[("/events", "Eventi"), ("/watch", "Prije eventa")],
+  vidi=["hype-eventa", "sansa-za-token", "pravi-token"], gdje=[("/events", "Eventi"), ("/events#prije", "Prije eventa")],
   alias=["eventi", "događaj", "događaji"])
 T("Hype eventa", "eventi", "0-100: koliko pažnje događaj ima u svijetu i među kripto publikom.",
   "Zbroj 7 dijelova: Slavnost (do 25), Pregledi 30 dana (do 15), Rast interesa (do 10), Polymarket volumen (do 20), Veza s "

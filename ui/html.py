@@ -30,8 +30,8 @@ SECTIONS = [
         _p("/dugorocno", "🌱", "Dugoročni", "Sigurniji stariji tokeni koji se oporavljaju i rastu.",
            "dugorocno long term preživjeli veliki holderi burze"),
         _p("/radar", "📡", "Zadnji sken", "Što je skener našao u zadnjem prolazu.", "radar hype novi zadnji sken"),
-        _p("/events", "📅", "Eventi", "Događaji oko kojih nastaju tokeni.", "kalendar događaji"),
-        _p("/watch", "⏳", "Prije eventa", "Kreću li tokeni prije događaja.", "watch"),
+        _p("/events", "📅", "Eventi", "Kalendar događaja, njihovi tokeni i kreću li prije događaja.",
+           "kalendar događaji prije eventa watch praćenje"),
     ]),
     ("Influenceri i novčanici", [
         _p("/izvori", "💬", "Telegram i KOL novčanici", "Telegram kanali i novčanici KOL-ova.",
@@ -177,8 +177,8 @@ INTRO = {
     "/radar": ("Što je hype skener vidio u zadnjem prolazu", "Kandidati iz zadnjeg skena (svake 2 min) s razlozima i rizicima, "
                "odbačeni, narativi (X trendovi, kopije), smart money, radi li ocjena, Apify trošak.",
                "Prvi sloj cjevovoda: sirovi signali s DexScreenera, pump.funa i X-a prije skupljih provjera."),
-    "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar događaja s hype ocjenom i tokeni koje je DexScreener našao "
-                "za svaki (pravi vs. kopije).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
+    "/events": ("Događaji oko kojih bi mogli nastati tokeni", "Kalendar s točkicama po važnosti, lista događaja s hype ocjenom i "
+                "najizglednijim tokenom, te praćenje tokena od 14 dana prije eventa (volumen, kupci, smart money).", "Ulaz za klasu Event: pravi token događaja ide u slojevitu analizu kao event kandidat."),
     "/wallets": ("Tko kupuje rano i zarađuje", "Registar walleta iz svih analiza (rani kupci, smart, top traderi, botovi, devovi), "
                  "ocjena profitabilnosti, copy lista.", "Smart walleti među prvim kupcima su signal u hype ocjeni i T1 provjeri; "
                  "rotacijski devovi su upozorenje."),
@@ -223,9 +223,6 @@ INTRO = {
                "Čuvar budžeta za slojevitu analizu: skupe razine T2/T3 žive unutar ovih limita."),
     "/outputs": ("Pisani izvještaji modula", "Markdown datoteke koje moduli pišu u output/ (kalendar, dex, rug, demo).",
                  "Sirovi izlaz za provjeru; sve bitno iz njih je i u bazama i na stranicama."),
-    "/watch": ("Kreću li tokeni prije eventa", "Tokeni vezani uz veće evente prate se od 14 dana prije: satne snimke "
-               "volumena i kupnji, kupci preko Heliusa usporedno s registrom walleta, korelacija s približavanjem eventa.",
-               "Nastavak Eventa: pokazuje skuplja li se volumen i smart money prije eventa, prije nego token uđe u skener."),
     "/izvori": ("Telegram kanali, KOL novčanici i konvergencija", "Javni Telegram call kanali, KOL novčanici na lancu i "
                 "trenutci kad više izvora zove isti token.", "Izvor značajki telegram i konvergencija u hype ocjeni i "
                 "konvergencijskih demo ulaza."),
