@@ -137,6 +137,8 @@ def annotate(con, cfg, now=None):
                                           AND LOWER(b.handle) = LOWER(c.handle))
         GROUP BY c.handle"""))
     first = dict(con.execute("SELECT handle, MIN(ts) FROM calls WHERE kind = 'call' GROUP BY handle"))
+    from kol import shillers
+    shill_set, sh = shillers.handles(), shillers.cfg(cfg)
     trial, upd = set(), []
     for h, st in con.execute("SELECT handle, stats FROM kols WHERE handle NOT LIKE 'w:%'").fetchall():
         try:
@@ -155,6 +157,11 @@ def annotate(con, cfg, now=None):
         s["rugger"] = bool(rr is not None and m >= d["rug_min_calls"] and rr > d["rug_max"])
         s["rug_why"] = f"{rr:.0%} njegovih poziva završi kao rug ({m} izmjerenih)" if s["rugger"] else ""
         s["bought"] = bought.get(h, 0)
+        # paid shill from Nicholas's own list (kol/shillers.py): proven only with many calls and a safe score
+        s["paid_shill"] = h.lower() in shill_set
+        if s["paid_shill"] and (m < sh["min_calls"] or (s.get("score_lo") or 0) < cfg.get("good_score", 50)):
+            why.append(f"plaćeni shill s naše liste: treba {sh['min_calls']}+ izmjerenih poziva i sigurnu ocjenu "
+                       f"{cfg.get('good_score', 50)}+ (ima {m})")
         s["trial"] = bool(why)
         s["trial_why"] = "; ".join(why)
         if why:

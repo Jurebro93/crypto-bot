@@ -341,7 +341,10 @@ def timeline_handles(con, cfg, now=None):
     # stars never take more than half of what is left after the core and graph candidates, so the rotation of
     # everyone else ("due") keeps its turn even with a few hundred listed stars
     room = max(0, total - len(watch) - len(core) - len(graph))
-    stars = sorted((h for h in discover.list_stars() if h not in taken and h not in bots and h not in cand),
+    # paid shillers from Nicholas's list (kol/shillers.json) share the same slots: read, measured, never promoted
+    from kol import shillers
+    pool = list(dict.fromkeys(discover.list_stars() + shillers.x_handles()))
+    stars = sorted((h for h in pool if h not in taken and h not in bots and h not in cand),
                    key=lambda h: last.get(h) or 0)[:min(t.get("stars_slots", 20), room // 2)]
     rest = [h for h in due if h not in stars][:max(0, room - len(stars))]
     k = (len(rest) + 1) // 2  # stars mid-rotation, not last: a round cut short by the budget still reaches some

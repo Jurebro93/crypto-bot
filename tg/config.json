@@ -1,5 +1,5 @@
 {
- "_comment": "Telegram call kanali (run_tg.py). Besplatno: javni web prikaz t.me/s/<kanal>. poll_*_s: koliko često čitamo kanal (vruć = objavio CA u zadnjih hot_hours ili KOL ocjena >= hot_score). validate_*: novi kandidat mora imati barem min_cas različitih CA u zadnjih 20 objava. drop_*: kanal s toliko izmjerenih poziva i ocjenom ispod drop_score se čita samo jednom na sat. Plaćeno: tgstat (TGSTAT_TOKEN, pretraga objava po CA kroz sve kanale), telethon (TG_API_ID/TG_API_HASH/TG_SESSION, poruke u stvarnom vremenu i privatne grupe).",
+ "_comment": "Telegram call kanali (run_tg.py). Besplatno: javni web prikaz t.me/s/<kanal>. poll_*_s: koliko često čitamo kanal (vruć = objavio CA u zadnjih hot_hours ili KOL ocjena >= hot_score). validate_*: novi kandidat mora imati barem min_cas različitih CA u zadnjih 20 objava. drop_*: kanal s toliko izmjerenih poziva i ocjenom ispod drop_score se čita samo jednom na sat. Plaćeno: tgstat (TGSTAT_TOKEN, pretraga objava po CA kroz sve kanale), telethon (TG_API_ID/TG_API_HASH/TG_SESSION, poruke u stvarnom vremenu i privatne grupe). history: starije objave kanala (t.me/s/<kanal>?before=, besplatno), najviše pages_per_round stranica po satu, prvo plaćeni shilleri iz kol/shillers.json, do days dana unatrag.",
  "tick_s": 10,
  "fetch_gap_s": 1.0,
  "max_fetch_per_tick": 8,
@@ -18,5 +18,6 @@
  "drop_score": 25,
  "drop_min_calls": 12,
  "tgstat": {"daily_requests": 60, "tokens_per_run": 5, "every_min": 30},
- "telethon": {"join_per_day": 5, "max_joined": 150}
+ "telethon": {"join_per_day": 5, "max_joined": 150},
+ "history": {"pages_per_round": 30, "pages_per_channel": 15, "days": 365}
 }

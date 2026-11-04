@@ -2,6 +2,7 @@
 - every X post / profile the bot already paid for (hype.db apify_cache: t.me links in text, bio, expanded urls),
 - KOL identities with a Telegram link (kol.db kol_ids, from KOLscan / Solana Tracker / FOMO),
 - hype/channels.txt (optional seeds),
+- Nicholas's paid-shill table kol/shillers.json (channels he paid to promote tokens),
 - forwards and links inside channels we already read (tg/poll.visit, the snowball),
 - TGStat post search by CA (paid, tg/tgstat.py).
 """
@@ -78,5 +79,12 @@ def from_seed_file(con, path=None):
     return store.add_candidates(con, names, "channels.txt")
 
 
+def from_shill_list(con):
+    """Channels from Nicholas's paid-shill table (kol/shillers.json); read first, marked 'plaćeni shill' everywhere."""
+    from kol import shillers
+    return store.add_candidates(con, [reader.channel_name(c) for c in shillers.tg_channels()], "shill_list")
+
+
 def run(con, hype_db=None, kol_db=None):
-    return {"x": from_x_cache(con, hype_db), "kol_ids": from_kol_ids(con, kol_db), "seed": from_seed_file(con)}
+    return {"x": from_x_cache(con, hype_db), "kol_ids": from_kol_ids(con, kol_db), "seed": from_seed_file(con),
+            "shill": from_shill_list(con)}
