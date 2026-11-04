@@ -48,6 +48,11 @@ def wallets(qs):
             act = f"<div class=card>Aktivnost se trenutno ne može prikazati ({esc(type(e).__name__)}).</div>"
         return "Novčanici", "<h1>Novčanici</h1>" + sw + act
     show_all = v == "svi"
+    from ui import preporuka
+    try:   # 4.11.: the verdict first, the table after ("what do I do with this")
+        box = preporuka.wallets_box(data.wallets(scored_only=True), preporuka.copies_from_strat())
+    except Exception as e:  # noqa: BLE001
+        box = f"<div class=card>Preporuka se trenutno ne može složiti ({esc(type(e).__name__)}).</div>"
     min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
     min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
@@ -91,7 +96,7 @@ def wallets(qs):
     run = (f'<form id=run method=post action=/run/wallets class="flt adm-only"><button {"disabled" if since else ""}>'
            f'Ocijeni novčanike sada</button> <span class=mut>{esc(state)}</span></form>'
            + (f"<details class=adm-only><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
-    return "Novčanici", ("<h1>Novčanici</h1>" + sw + form
+    return "Novčanici", ("<h1>Novčanici</h1>" + sw + box + form
                          + table(head, rows, "wt", "Još nema novčanika. Bot ih skuplja sam svakih 6 h.") + run)
 
 

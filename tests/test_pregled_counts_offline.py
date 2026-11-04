@@ -132,5 +132,37 @@ class StrategyTradesTable(unittest.TestCase):
         self.assertNotIn('(ago(p["entry_ts"]), p["entry_ts"], "n")', src)
 
 
+class WalletRecommendation(unittest.TestCase):
+    def _w(self, addr, copy, **st):
+        base = {"closed": 20, "closed_pnl_sol": 10.0, "win_rate": 0.6, "median_hold_min": 40, "last_trade_days": 0.5,
+                "top_trade_share": 0.3}
+        base.update(st)
+        return {"wallet": addr, "copy_score": copy, "stats": base, "labels": []}
+
+    def test_three_picks_with_confidence_and_demo_copies(self):
+        from ui import preporuka
+        ws = [self._w("A" * 44, 61, closed=40),                         # visoka
+              self._w("B" * 44, 69, closed=13),                         # niska (13 < 15)
+              self._w("C" * 44, 55, closed=18),                         # srednja
+              self._w("D" * 44, 66, closed=48, closed_pnl_sol=47.9, win_rate=0.48, top_trade_share=0.7),  # big PnL, visoka? no: top share
+              self._w("E" * 44, 70, closed=5),                          # fewer than 10 closed: out
+              self._w("F" * 44, 70, closed=30, median_hold_min=4 * 1440),   # holds 4 days: out
+              self._w("G" * 44, 70, closed=30, closed_pnl_sol=-2.0)]    # in minus: out
+        ranked = preporuka.rank_wallets(ws, {"DDDDDD": (4, 0.12, 31.0)})
+        self.assertEqual([w["wallet"][0] for w, _ in ranked], ["A", "D", "C", "B"])
+        self.assertEqual([r["tier"] for _, r in ranked], ["visoka", "srednja", "srednja", "niska"])
+        html = preporuka.wallets_box(ws, {"DDDDDD": (4, 0.12, 31.0)})
+        self.assertIn("pouzdanost visoka", html)
+        self.assertIn("Naša demo kopija: 4 tradeova, prosjek +12%", html)
+        self.assertIn("Kako koristiti", html)
+        self.assertNotIn("EEEEEE", html)
+        self.assertIn("4 novčanika prolazi", html)
+
+    def test_nobody_yet(self):
+        from ui import preporuka
+        html = preporuka.wallets_box([self._w("A" * 44, 30)])
+        self.assertIn("još nijedan novčanik ne zadovoljava", html)
+
+
 if __name__ == "__main__":
     unittest.main()
