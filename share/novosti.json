@@ -1,4 +1,5 @@
 [
+ {"datum": "2026-11-04", "naslov": "Što je novo", "tekst": "nova stranica Što je novo (izbornik Pomoć) s poviješću svih novosti po datumima. Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom, koja nestane kad je otvoriš."},
  {"datum": "2026-11-03", "naslov": "Pravi trade", "tekst": "nova stranica Pravi trade: bot kupuje i prodaje pravim SOL-om iz zasebnog walleta, samo za KOL-ove i walletove koje odabereš, unutar tvojih limita (ulog, dnevna potrošnja i gubitak). Prekidač je zadano ugašen, uvijek ostaje rezerva SOL-a za prodaju, a upozorenja javljaju zagušenu mrežu, premalo SOL-a ili prodaju koja ne prolazi. Pozvani korisnici stranicu samo gledaju i mogu kupiti isti token sami preko Jupitera."},
  {"datum": "2026-11-03", "naslov": "Najizgledniji token po eventu", "tekst": "na kartici eventa sad piše koji je token tog događaja najizgledniji za pumpu (ocjena 0-100 s razlozima), a ispod su svi ostali poredani po ocjeni."},
  {"datum": "2026-11-03", "naslov": "SimianX drugo mišljenje", "tekst": "na Dugoročnim tokenima uz našu ocjenu stoji i drugo mišljenje SimianX AI-ja; signali se prvo testiraju na demo računu."},
