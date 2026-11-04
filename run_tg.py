@@ -55,7 +55,7 @@ def kol_view(path=KOL_DB):
 
 def history_round(con, cfg, now=None):
     """Older posts (tg/history.py) for a few channels per hour: paid shillers from kol/shillers.json first, then
-    active channels with the most CA posts. At most history.pages_per_round t.me pages per round (free)."""
+    active channels that have fewer than history.target_calls (50) CA posts, the most CA posts first. At most history.pages_per_round t.me pages per round (free)."""
     from kol import shillers
     from tg import history
     hc = cfg.get("history") or {}
@@ -64,7 +64,10 @@ def history_round(con, cfg, now=None):
     since = now - hc.get("days", 365) * 86400
     shill = set(shillers.tg_channels())
     rows = con.execute("SELECT name, n_ca FROM channels WHERE status IN ('active','quiet','slow')").fetchall()
-    order = sorted(rows, key=lambda r: (r[0] not in shill, -(r[1] or 0)))
+    # shills first, then channels that still have fewer than 50 calls with a CA (the page scores the last 50),
+    # most active first; channels that already have 50 go last
+    target = hc.get("target_calls", 50)
+    order = sorted(rows, key=lambda r: (r[0] not in shill, (r[1] or 0) >= target, -(r[1] or 0)))
     pages = posts = 0
     for name, _ in order:
         if pages >= budget:
