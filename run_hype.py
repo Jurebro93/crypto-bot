@@ -208,12 +208,14 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
-        if (liq < a.min_liq or mcap > a.max_mcap) and t not in keep:
+        if (liq < a.min_liq or mcap > a.max_mcap or mcap < a.min_mcap) and t not in keep:
             # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss.
             # A retained token (featured on Pregled or already at a tier) is scored whatever its liquidity: it was
             # analysed, people are watching it, and a stale card is worse than a score on thin liquidity.
             skipped.append((t, p["baseToken"].get("symbol", ""), mcap, liq, (now_ms - (p.get("pairCreatedAt") or now_ms)) / 3.6e6,
-                            f"likvidnost {_usd(liq)} < {_usd(a.min_liq)}" if liq < a.min_liq else f"mcap {_usd(mcap)} > {_usd(a.max_mcap)}"))
+                            f"likvidnost {_usd(liq)} < {_usd(a.min_liq)}" if liq < a.min_liq else
+                            f"mcap {_usd(mcap)} < {_usd(a.min_mcap)} (premali, 4.11.)" if mcap < a.min_mcap else
+                            f"mcap {_usd(mcap)} > {_usd(a.max_mcap)}"))
             continue
         f = score.market_features(p, now_ms)
         sym, name = p["baseToken"].get("symbol", ""), p["baseToken"].get("name", "")
@@ -526,7 +528,7 @@ def cmd_scan(a):
     except Exception as e:
         print(f"wallets.db: {e}", file=sys.stderr)
     rows = scan(a, w, smart, tg, kol=kol)
-    print(f"\n{len(rows)} kandidata (liq >= {_usd(a.min_liq)}, mcap <= {_usd(a.max_mcap)}), top {a.top}:")
+    print(f"\n{len(rows)} kandidata (liq >= {_usd(a.min_liq)}, mcap {_usd(a.min_mcap)}-{_usd(a.max_mcap)}), top {a.top}:")
     for r in rows[:a.top]:
         print(fmt(r))
     return rows
@@ -654,6 +656,7 @@ def main(argv=None):
         s = sub.add_parser(name)
         s.add_argument("--min-liq", type=float, default=5000)
         s.add_argument("--max-mcap", type=float, default=5e6, help="ignore tokens already bigger than this")
+        s.add_argument("--min-mcap", type=float, default=30000, help="4.11.: tokens under this are not analysed at all (most are rugs)")
         s.add_argument("--top", type=int, default=20)
         s.add_argument("--deep", type=int, default=10, help="copycat search + Helius check for this many")
         s.add_argument("--smart-min", type=float, default=50)

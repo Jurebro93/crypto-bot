@@ -73,12 +73,12 @@ def parts_keyed(hype=None, features=None, extra=None, rug_verdict=None, event_ro
 
 
 def small_mcap_penalty(mcap):
-    """4.11.: a $7.6k token showed 'visoka' because only a big mcap lost points. Under $20k the demo bot's gate
+    """4.11.: a $7.6k token showed 'visoka' because only a big mcap lost points. Under $30k the scan and the demo bot's gate
     rejects anyway (paper/rules gate.min_mcap); up to $50k the signals are too cheap to fake. Applied outside the
     learned model too, so it cannot be learned away before there are enough small-token outcomes."""
     if not mcap:
         return 0
-    if mcap < 20_000:
+    if mcap < 30_000:
         return -30
     if mcap < 50_000:
         return -15
