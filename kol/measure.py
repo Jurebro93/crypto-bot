@@ -30,6 +30,32 @@ class _Throttle:
 _GT = _Throttle(float(os.environ.get("KOL_GECKO_GAP", "3.0")))  # free API: ~30 requests per minute, shared per IP
 
 
+GECKO_POOL_LOOKUPS = int(os.environ.get("KOL_GECKO_POOL_LOOKUPS", "10"))  # per resolve round, free API
+
+
+def gecko_pool(token):
+    """Most liquid pool of a token on GeckoTerminal ({address, symbol, name, created, liquidity}) or None."""
+    import datetime as dt
+    _GT.wait()
+    try:
+        d = http.get_json(f"{GECKO}/tokens/{token}/pools", {}, ttl=3600, headers={"Accept": "application/json"},
+                          retries=0)
+    except Exception:  # noqa: BLE001  (404 = unknown token, 429 = busy: the normal retry count handles both)
+        return None
+    pools = (d or {}).get("data") or []
+    if not pools:
+        return None
+    a = max(pools, key=lambda x: float((x.get("attributes") or {}).get("reserve_in_usd") or 0)).get("attributes") or {}
+    name = a.get("name") or ""
+    created = None
+    try:
+        created = int(dt.datetime.fromisoformat(a["pool_created_at"].replace("Z", "+00:00")).timestamp())
+    except (KeyError, TypeError, ValueError, AttributeError):
+        pass
+    return {"address": a.get("address"), "symbol": name.split(" / ")[0][:20] or None, "name": name[:80],
+            "created": created, "liquidity": float(a.get("reserve_in_usd") or 0)} if a.get("address") else None
+
+
 def resolve(con, tokens, now=None):
     """Most liquid Solana pair and supply per token, from DexScreener (30 tokens per request)."""
     from dexscreener import client
@@ -41,8 +67,19 @@ def resolve(con, tokens, now=None):
         t = (p.get("baseToken") or {}).get("address")
         if t in tokens and ((p.get("liquidity") or {}).get("usd") or 0) >= ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
+    gecko_left = GECKO_POOL_LOOKUPS
     for t in tokens:
         p = best.get(t)
+        if not p and gecko_left > 0 and http.cooling(GECKO) <= 30:
+            # DexScreener drops dead tokens; GeckoTerminal often still has the pool and its old candles (a token
+            # that pumped and died months ago is exactly the history we want to measure)
+            gecko_left -= 1
+            pool = gecko_pool(t)
+            if pool:
+                con.execute("INSERT OR REPLACE INTO tokens VALUES (?,?,?,?,?,?,?,0,?)",
+                            (t, pool.get("symbol"), pool.get("name"), pool["address"], None, pool.get("created"),
+                             pool.get("liquidity"), now))
+                continue
         if not p:
             con.execute("INSERT INTO tokens (token, tries, updated) VALUES (?,1,?) ON CONFLICT (token) DO UPDATE SET "
                         "tries=tries+1, updated=excluded.updated", (t, now))

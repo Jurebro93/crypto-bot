@@ -187,14 +187,17 @@ def cycle(a):
 
 
 def cmd_loop(a):
-    try:  # history collected off-server (backfill), shipped as kol/seed.db.gz; imported once
-        con = store.connect()
-        n = store.import_seed(con)
-        con.close()
-        if n:
-            print(f"seed: {n} povijesnih poziva uvezeno")
-    except Exception as e:
-        print(f"seed: {type(e).__name__}: {e}", file=sys.stderr)
+    # history collected off-server, imported once per file: kol/seed.db.gz (X backfill) and
+    # kol/seed_callanalyser.db.gz (Telegram calls from Nicholas's Call Analyser export, measured off-server)
+    for path in (store.SEED, store.SEED_CA):
+        try:
+            con = store.connect()
+            n = store.import_seed(con, path)
+            con.close()
+            if n:
+                print(f"seed {os.path.basename(path)}: {n} povijesnih poziva uvezeno")
+        except Exception as e:
+            print(f"seed {os.path.basename(path)}: {type(e).__name__}: {e}", file=sys.stderr)
     while True:
         # each round in its own short process (1.11.: this loop sat at ~85 MB between rounds on the 512 MB server,
         # trim could not hand it back); the round's memory goes back to the system when it ends
