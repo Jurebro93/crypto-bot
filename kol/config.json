@@ -113,7 +113,7 @@
   "gate": true
  },
  "discover": {
-  "daily_usd": 0.15,
+  "daily_usd": 0.4,
   "win_x": 1.0,
   "win_hours": 48,
   "win_per_run": 4,
@@ -132,8 +132,8 @@
   "kols": 400,
   "core": 300,
   "per_query": 10,
-  "daily_usd": 0.7,
-  "reserve_usd": 0.15,
+  "daily_usd": 1.8,
+  "reserve_usd": 0.3,
   "burst_usd": 0.03,
   "max_query_chars": 300
  }
