@@ -145,13 +145,11 @@ def top_html(con, cfg, tog=None):
     verd = [shill_verdict(r, mc)[0] for r in rows]
     line = (f"Pratimo {num(con.execute('SELECT COUNT(*) FROM kols').fetchone()[0])[0]} računa; "
             f"{len(good)} {'je prošao' if len(good) == 1 else 'je prošlo'} probu.")
-    if not good:   # 4.11.: "0 se dokazalo" read as "nobody is any good"; the trial simply needs 14 days of history
+    if not good:   # 4.11.: "0 se dokazalo" read as "nobody is any good"; it is the trial, and history counts for it
         from kol import discover
-        days = discover.dcfg(cfg)["trial"]["days"]
-        first = con.execute("SELECT MIN(first_seen) FROM kols WHERE first_seen > 0").fetchone()[0]
-        when = (f" Prvi mogu proći od {time.strftime('%-d. %-m.', time.localtime(first + days * 86400))}."
-                if first else "")
-        line += f" Proba traje {days} dana praćenja i 10 izmjerenih poziva, pa još nitko nije mogao proći.{when}"
+        t = discover.dcfg(cfg)["trial"]
+        line += (f" Proba: {t['min_calls']} izmjerenih poziva, {t['days']} dana od prvog poznatog poziva (povijesni "
+                 f"pozivi se računaju) i objave koje netko vidi; uz to ocjena {cfg['good_score']}+.")
     if many["n"] >= together.MIN_N and s["1"]["n"] >= together.MIN_N and many["hit"] and s["1"]["hit"]:
         line += (f" Kad zovu 3+ zajedno, token se udvostruči u {_p(many['hit'])} slučajeva "
                  f"(jedan sam: {_p(s['1']['hit'])}).")
