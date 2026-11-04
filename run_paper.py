@@ -508,6 +508,15 @@ def trigger_entries(con, cfg, rst, now):
     return out
 
 
+RETRY_DECISIONS = ("skip_score", "skip_liq", "skip_mcap", "ignored")   # earlier verdicts a better score can overturn
+
+
+def reconsider(decision, c, cfg):
+    """A token decided earlier gets a new look when it is a hype candidate whose score now clears min_score and the
+    old verdict was one a better score can overturn (not taken, not rug, not gate)."""
+    return decision in RETRY_DECISIONS and c["origin"] == "hype" and (c["score"] or 0) >= cfg["min_score"]
+
+
 def intake(cfg, now=None, quiet=False):
     """Decide every new candidate once; a skipped one is taken later if its hype score climbs over min_score."""
     now = now or time.time()
@@ -516,8 +525,10 @@ def intake(cfg, now=None, quiet=False):
     cands = {}
     sigs = event_tokens(cfg, now) + hype_signals(now=now)
     for c in sigs:
-        if c["token"] not in seen or (seen[c["token"]] == "skip_score" and c["origin"] == "hype"
-                                      and (c["score"] or 0) >= cfg["min_score"]):
+        # a token decided once is looked at again only when its hype score now clears the bar; until 4.11. only an
+        # earlier "skip_score" qualified, so a token first seen with a thin pool ("skip_liq") or a tiny score
+        # ("ignored") could later score 60 with a $45k pool and never be considered (AMD 55.7 in the scan, no entry)
+        if c["token"] not in seen or reconsider(seen[c["token"]], c, cfg):
             cands[c["token"]] = c
     kc = cfg.get("konv") or {}
     conv = {}
