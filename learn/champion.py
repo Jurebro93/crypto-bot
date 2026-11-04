@@ -123,6 +123,8 @@ def compare(rs, model, cfg=None, noai=None):
         m = pick(rs, lambda r: gbm.predict(model, gbm.context(r)), cfg["top_pct"])
         out["model"] = shadow.stats(m)
         out["razlika"] = boot_diff([r["ret"] for r in m], [r["ret"] for r in w], cfg["boot"])
+        out["model_range"] = boot_mean([min(3.0, r["ret"]) for r in m], cfg["boot"])
+        out["trade_ok"], out["trade_note"] = trade_ok(out)
     if noai:
         n = pick(rs, lambda r: gbm.predict(noai, gbm.context(strip_ai(r), hyps=False)), cfg["top_pct"])
         out["bez_ai"] = shadow.stats(n)
@@ -136,6 +138,30 @@ def wins(c):
         return False
     return (m["mean"] > w["mean"] and m["mean_trim"] > w["mean_trim"]
             and c.get("razlika") is not None and c["razlika"][0] > 0)
+
+
+def boot_mean(a, n=300, seed=11):
+    """90% bootstrap range of mean(a) (returns already capped by shadow.stats' rule)."""
+    if not a:
+        return None
+    rnd = random.Random(seed)
+    d = sorted(_mean([rnd.choice(a) for _ in a]) for _ in range(n))
+    return round(d[int(n * 0.05)], 4), round(d[int(n * 0.95)], 4)
+
+
+def trade_ok(c):
+    """Separate from wins() (audit 4.11. C11/R5): "better than the weights" is relative; money needs the model's
+    OWN result to be positive after costs: mean > 0, mean without the top 1% > 0, and the lower end of its 90%
+    bootstrap range above zero. (ok, reason)."""
+    m = c.get("model") or {}
+    if not m.get("n"):
+        return False, "nema ishoda modela"
+    if m["mean"] <= 0 or m["mean_trim"] <= 0:
+        return False, f"bolji od težina, ali i dalje gubi ({m['mean']:+.1%} po ulazu): ne trgujemo"
+    lo = (c.get("model_range") or (None,))[0]
+    if lo is None or lo <= 0:
+        return False, "prosjek je pozitivan, ali raspon nesigurnosti uključuje gubitak: ne trgujemo"
+    return True, "pozitivan neto nakon troška i bez 1% najboljih"
 
 
 def run(now=None, cfg=None, shadow_path=None, apply=True):
@@ -153,9 +179,11 @@ def run(now=None, cfg=None, shadow_path=None, apply=True):
         days = (now - ch["trained_ts"]) / 86400
         if days >= cfg["trial_days"] and c["n"] >= cfg["min_eval"]:
             if wins(c):
-                st["champion"], st["gbm"] = "gbm", {**ch, "promoted_ts": int(now)}
+                ok, why = trade_ok(c)
+                st["champion"], st["gbm"] = "gbm", {**ch, "promoted_ts": int(now), "trade_ok": ok, "trade_note": why}
                 rep["events"].append(f"model prošao probu ({c['n']} točaka): prosjek {c['model']['mean']:+.1%} prema "
-                                     f"težinama {c['tezine']['mean']:+.1%}; sad odlučuje model")
+                                     f"težinama {c['tezine']['mean']:+.1%}; sad odlučuje model u demu"
+                                     + ("" if ok else f" (bolji, ali ne trgujemo: {why})"))
             else:
                 rep["events"].append(f"model nije prošao probu ({c['n']} točaka): prosjek "
                                      f"{(c.get('model') or {}).get('mean', 0):+.1%} prema težinama {c['tezine']['mean']:+.1%}")

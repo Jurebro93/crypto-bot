@@ -187,7 +187,11 @@ def smarter_html(now=None):
                      (_pct(m.get("mean")), m.get("mean") or 0, "n"), (_pct(m_d) + (f" ({n_d})" if n_d else ""), m_d or 0, "n")])
     out.append(table(["Tjedan", ("Prilika", "n"), ("Kupi sve", "n"), ("Težine", "n"), ("Model", "n"), ("Demo (tradeova)", "n")], rows))
     # model state
-    if st.get("champion") == "gbm":
+    if st.get("champion") == "gbm" and (st.get("gbm") or {}).get("trade_ok") is False:
+        # audit 4.11. C11/T19: better than the old one is not the same as allowed to trade
+        state = (badge("bolji, ne trgujemo", "warn") + " <span class=mut>" + esc((st.get("gbm") or {}).get("trade_note") or
+                 "model bira bolje od težina, ali bi i dalje gubio novac") + "</span>")
+    elif st.get("champion") == "gbm":
         state = badge("odlučuje model", "good")
     elif st.get("challenger"):
         days = (now - st["challenger"]["trained_ts"]) / 86400
@@ -350,12 +354,17 @@ def page(qs):
         # 2. feature lift
         b.append(f"<h2>Koliko svaki signal pomaže{(' · ' + HR.get(klasa, klasa)) if klasa else ''}</h2>")
         lf = sorted(correlations.lift(sel), key=lambda x: -(x["lift"] or 0))
-        b.append(tdesc("Koliko često token napravi skok kad je signal jak, a koliko kad je slab. „Puta češće” iznad 1 znači da "
-                       "signal pomaže; blizu 1 znači da ne govori ništa. Iz ovoga bot sam mijenja težine.")
-                 + table(["Signal", ("Tokena s jakim", "n"), ("Skok kad jaka", "n"), ("Skok kad slaba", "n"), ("Puta češće", "n")],
+        b.append(tdesc(f"Koliko često token napravi skok kad je signal jak, kad je slab i među svim tokenima ({len(sel)} tokena). "
+                       "„× od svih” = skok kad jak podijeljeno sa skokom među SVIM tokenima; „× od slabog” = skok kad jak "
+                       "podijeljeno sa skokom kad je slab. To su dva različita omjera: iznad 1 znači da signal pomaže, blizu 1 da "
+                       "ne govori ništa. Razlika udjela piše se u postotnim bodovima (57% prema 30% = +27 postotnih bodova). "
+                       "Iz ovoga bot sam mijenja težine.")
+                 + table(["Signal", ("Tokena s jakim", "n"), ("Skok kad jaka", "n"), ("Skok kad slaba", "n"),
+                          ("Skok svi (baseline)", "n"), ("× od svih", "n"), ("× od slabog", "n")],
                          [[esc(feat(x["feature"])), num(x["n_strong"]), (f"{x['hit_strong']:.0%}", x["hit_strong"], "n"),
-                           (f"{x['hit_weak']:.0%}", x["hit_weak"], "n"),
-                           (f"<b>{x['lift']}</b>" if x["lift"] else "–", x["lift"] or 0, "n")] for x in lf]))
+                           (f"{x['hit_weak']:.0%}", x["hit_weak"], "n"), (f"{x.get('base', 0):.0%}", x.get("base") or 0, "n"),
+                           (f"<b>{x['lift']}</b>" if x["lift"] else "–", x["lift"] or 0, "n"),
+                           (f"{x['lift_vs_weak']}" if x.get("lift_vs_weak") else "–", x.get("lift_vs_weak") or 0, "n")] for x in lf]))
 
         # 3. threshold curves
         b.append("<h2>Gdje bi prag trebao biti</h2>")
@@ -375,7 +384,7 @@ def page(qs):
             b.append("<h2>Parovi signala koji zajedno znače više</h2>")
             b.append(tdesc("Kad su oba signala jaka: koliko češće dolazi skok nego što bi svaki zasebno predvidio. Iznad 1 znači "
                            "da kombinacija govori nešto što pojedinačni signali ne vide.")
-                     + table(["Signal A", "Signal B", ("Tokena", "n"), ("Skok", "n"), ("Puta češće", "n")],
+                     + table(["Signal A", "Signal B", ("Tokena", "n"), ("Skok", "n"), ("× od očekivanog", "n")],
                              [[esc(feat(p["a"])), esc(feat(p["b"])), num(p["n"]), (f"{p['hit_rate']:.0%}", p["hit_rate"], "n"),
                                (f"<b>{p['lift']}</b>", p["lift"], "n")] for p in pr]))
 

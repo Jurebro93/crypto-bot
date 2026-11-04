@@ -40,6 +40,14 @@ def sync(con, cfg, monitor=None, now=None, log=print):
     rows = dict(con.execute("SELECT handle, last_run FROM monitor"))
     last = max(rows.values()) if rows else 0
     changed, due = plan(watch, list(rows), last, now, cfg["watch"]["resync_h"])
+    import hashlib
+    url_h = hashlib.sha256(url.encode()).hexdigest()[:16]
+    try:
+        old_h = (con.execute("SELECT value FROM kv WHERE key='kol_hook_url'").fetchone() or ("",))[0]
+    except Exception:
+        old_h = url_h
+    if old_h != url_h and watch:      # new hook key (4.11.): the monitor must learn the new URL now
+        changed = True
     if not changed and not due:
         return False
     hours = round((now - last) / 3600, 2) if rows else 0  # what this call charges for the accounts watched so far
@@ -49,6 +57,10 @@ def sync(con, cfg, monitor=None, now=None, log=print):
         monitor(list(rows), url, stop=True, hours=hours)
     con.execute("DELETE FROM monitor")
     con.executemany("INSERT INTO monitor VALUES (?,?,?)", [(h, now, now) for h in watch])
+    try:
+        con.execute("INSERT OR REPLACE INTO kv VALUES ('kol_hook_url', ?)", (url_h,))
+    except Exception:
+        pass
     con.commit()
     if changed:
         log(f"live: pratim uživo {len(watch)} KOL-ova: {', '.join('@' + h for h in watch) or '-'}")

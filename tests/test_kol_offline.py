@@ -225,7 +225,8 @@ class Live(unittest.TestCase):
 
         from kol import live
         calls = []
-        env = {"RENDER_EXTERNAL_URL": "https://bot.example", "UI_PASSWORD": "pw"}
+        import tempfile
+        env = {"RENDER_EXTERNAL_URL": "https://bot.example", "UI_PASSWORD": "pw", "DATA_DIR": tempfile.mkdtemp()}
         old = {k: os.environ.get(k) for k in [*env, "KOL_HOOK_KEY", "APIFY_TOKEN"]}
         os.environ.update(env, APIFY_TOKEN="x")
         os.environ.pop("KOL_HOOK_KEY", None)

@@ -6,6 +6,10 @@ gzipped: a request inside FRESH_S gets the stored copy, an older copy (up to STA
 background thread renders the new one (stale-while-revalidate), and only a page nobody opened for STALE_S is built
 while the visitor waits. warm() renders the heaviest pages right after start, so the first visit after a deploy is
 fast too. A POST (run button, trade) clears the cache so the next view shows the change.
+
+The warmed pages are also saved to the server disk (snapshot). Memory is empty after every deploy and the first build
+can take ~45 s while all bot loops start (4.11., /pregled), so a visitor then gets the last saved copy at once while
+the new one is built in the background.
 """
 import gzip
 import os
@@ -18,6 +22,11 @@ MAX_ENTRIES = 60
 MAX_MB = float(os.environ.get("UI_CACHE_MAX_MB", "25"))   # gzipped bytes kept in all entries together
 BUILDS = int(os.environ.get("UI_BUILDS", "2"))            # pages built at the same time (each holds its rows in RAM)
 SLOW_S = 2.0
+_data = os.environ.get("DATA_DIR")
+SNAP_DIR = os.environ.get("UI_SNAP_DIR") or (os.path.join(_data, "pagecache") if _data else "")
+SNAP_MAX_S = int(os.environ.get("UI_SNAP_MAX_S", str(24 * 3600)))   # older snapshots are not served
+_cleared_at = 0.0   # clear() time: a snapshot saved before it is out of date
+_snap_paths = set()  # paths registered by warm(): only their plain view (no query, Croatian) is saved
 
 _lock = threading.Lock()
 _store = {}          # key -> (ts, code, None, gzipped bytes): only the gzipped copy is kept, run_ui unzips when needed
@@ -57,6 +66,40 @@ def _render(key, build):
             ev.set()
 
 
+def _snap_file(key):
+    if not SNAP_DIR or len(key) != 3 or key[1] or key[2] is not None or key[0] not in _snap_paths:
+        return None
+    return os.path.join(SNAP_DIR, (key[0].strip("/").replace("/", "_") or "index") + ".html.gz")
+
+
+def _save_snap(key, gz):
+    f = _snap_file(key)
+    if not f:
+        return
+    try:
+        os.makedirs(SNAP_DIR, exist_ok=True)
+        tmp = f + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(gz)
+        os.replace(tmp, f)
+    except OSError:
+        pass
+
+
+def _load_snap(key):
+    """(ts, 200, None, gz) from disk, dated so it counts as stale (a refresh starts), or None."""
+    f = _snap_file(key)
+    try:
+        mt = os.path.getmtime(f) if f else 0
+        if not f or time.time() - mt > SNAP_MAX_S or mt < _cleared_at:   # a POST changed data since
+            return None
+        with open(f, "rb") as fh:
+            gz = fh.read()
+    except OSError:
+        return None
+    return (time.time() - FRESH_S - 1, 200, None, gz) if gz else None
+
+
 def _build(key, build):
     with _build_slots:
         t0 = time.time()
@@ -68,6 +111,7 @@ def _build(key, build):
     if dt > SLOW_S:
         print(f"ui: {key[0]} se gradio {dt:.1f} s", flush=True)
     if code == 200:
+        _save_snap(key, entry[3])
         with _lock:
             _store[key] = entry
             old = sorted(_store.items(), key=lambda kv: kv[1][0])
@@ -94,6 +138,13 @@ def get(key, build):
     now = time.time()
     with _lock:
         hit = _store.get(key)
+    if hit is None:   # right after a deploy: the copy saved on disk, refreshed in the background below
+        snap = _load_snap(key)
+        if snap:
+            with _lock:
+                hit = _store.setdefault(key, snap)
+    with _lock:
+        hit = _store.get(key)
         age = now - hit[0] if hit else None
         start_bg = hit is not None and FRESH_S <= age < STALE_S and key not in _busy
         if start_bg:
@@ -109,12 +160,16 @@ def get(key, build):
 
 
 def clear():
+    global _cleared_at
+    _cleared_at = time.time()
     with _lock:
         _store.clear()
 
 
 def warm(paths, build_for, every_s=None):
-    """Render `paths` in the background now (and every `every_s` seconds if given), one after another."""
+    """Render `paths` in the background now (and every `every_s` seconds if given), one after another.
+    Their plain views are also kept on disk (see SNAP_DIR)."""
+    _snap_paths.update(paths)
     def run():
         while True:
             for p in paths:

@@ -34,36 +34,36 @@ class Profiles(unittest.TestCase):
 
     def test_password_override_and_sessions(self):
         self.assertIsNone(profiles.check_password("Ivan", "x"))          # nothing set: the Render one counts
-        profiles.set_password("Ivan", "novatajna")
-        self.assertTrue(profiles.check_password("ivan", "novatajna"))
+        profiles.set_password("Ivan", "novatajna123")
+        self.assertTrue(profiles.check_password("ivan", "novatajna123"))
         self.assertFalse(profiles.check_password("Ivan", "stara"))
         row = sqlite_row("SELECT pw_hash FROM profiles WHERE name='Ivan'")
-        self.assertNotIn("novatajna", row[0])
+        self.assertNotIn("novatajna123", row[0])
         after = profiles.get("Ivan")["sessions_after"]
         self.assertFalse(profiles.session_ok("Ivan", after - 5))          # older logins stop working
         self.assertTrue(profiles.session_ok("Ivan", after))
-        with self.assertRaisesRegex(ValueError, "6 znakova"):
+        with self.assertRaisesRegex(ValueError, "12 znakova"):
             profiles.validate_new("123", "123")
         with self.assertRaisesRegex(ValueError, "podudaraju"):
-            profiles.validate_new("tajna12", "tajna13")
+            profiles.validate_new("tajna12tajna", "tajna13tajna")
 
     def test_member_password_and_delete(self):
         con = members.connect()
         tok = members.standing(con)
-        members.register(con, tok, "Marko", "tajna12", "tajna12")
+        members.register(con, tok, "Marko", "tajna12tajna", "tajna12tajna")
         con.close()
-        profiles.set_member_password("Marko", "drugatajna")
-        self.assertIsNone(members.verify("Marko", "tajna12"))
-        self.assertEqual(members.verify("Marko", "drugatajna"), "Marko")
+        profiles.set_member_password("Marko", "drugatajna12")
+        self.assertIsNone(members.verify("Marko", "tajna12tajna"))
+        self.assertEqual(members.verify("Marko", "drugatajna12"), "Marko")
         profiles.save_avatar("Marko", data_url())
         self.assertIn("Marko", store.users())
         profiles.delete_member("Marko")
         self.assertNotIn("Marko", store.users())                         # off the board
-        self.assertIsNone(members.verify("Marko", "drugatajna"))         # can't log in
+        self.assertIsNone(members.verify("Marko", "drugatajna12"))         # can't log in
         self.assertIsNone(profiles.avatar_url("Marko"))
         con = members.connect()
         with self.assertRaisesRegex(ValueError, "zauzeto"):              # nobody inherits the old trades
-            members.register(con, members.standing(con), "marko", "tajna12", "tajna12")
+            members.register(con, members.standing(con), "marko", "tajna12tajna", "tajna12tajna")
         con.close()
 
     def test_profile_and_avatar(self):
@@ -194,8 +194,13 @@ class Http(unittest.TestCase):
         op = urllib.request.build_opener(NoRedirect)
 
         def call(path, data=None, cookie=""):
+            headers = {"Cookie": cookie} if cookie else {}
+            if data is not None:   # like a browser: same-site Origin and the page JS's form token (4.11.)
+                headers["Origin"] = base
+                sess = cookie.split("=", 1)[1] if cookie.startswith(run_ui.COOKIE + "=") else ""
+                data = {**data, "_csrf": run_ui.csrf_token(sess)}
             req = urllib.request.Request(base + path, data=urllib.parse.urlencode(data).encode() if data else None,
-                                         headers={"Cookie": cookie} if cookie else {})
+                                         headers=headers)
             try:
                 r = op.open(req)
             except urllib.error.HTTPError as e:
@@ -215,16 +220,16 @@ class Http(unittest.TestCase):
             self.assertIn("/jezik?l=en", body)                             # switch next to Odjava
             time.sleep(1.1)
             c2 = login("ivanpw")                                           # a second device
-            code, hdr, _ = call("/postavke/lozinka", {"old": "krivo", "new": "novatajna", "new2": "novatajna"}, c1)
+            code, hdr, _ = call("/postavke/lozinka", {"old": "krivo", "new": "novatajna123", "new2": "novatajna123"}, c1)
             self.assertIn("err=", hdr["Location"])
             time.sleep(1.1)
-            code, hdr, _ = call("/postavke/lozinka", {"old": "ivanpw", "new": "novatajna", "new2": "novatajna"}, c1)
+            code, hdr, _ = call("/postavke/lozinka", {"old": "ivanpw", "new": "novatajna123", "new2": "novatajna123"}, c1)
             self.assertIn("ok=", hdr["Location"])
             c1 = hdr["Set-Cookie"].split(";")[0]                           # this device stays logged in
             self.assertEqual(call("/postavke", cookie=c1)[0], 200)
             self.assertEqual(call("/postavke", cookie=c2)[0], 401)          # the other one is logged out
             self.assertEqual(run_ui.check_password("Ivan", "ivanpw"), (False, None))   # Render password replaced
-            self.assertEqual(run_ui.check_password("Ivan", "novatajna"), (True, "Ivan"))
+            self.assertEqual(run_ui.check_password("Ivan", "novatajna123"), (True, "Ivan"))
             # picture + profile
             code, hdr, _ = call("/postavke/slika", {"data": data_url()}, c1)
             self.assertIn("ok=", hdr["Location"])
@@ -241,7 +246,7 @@ class Http(unittest.TestCase):
             self.assertIn("<html lang=en>", body)
             self.assertIn("Settings", body)
             self.assertIn("Change password", body)
-            code, hdr, _ = call("/prijava", {"name": "Ivan", "pw": "novatajna", "next": "/"})
+            code, hdr, _ = call("/prijava", {"name": "Ivan", "pw": "novatajna123", "next": "/"})
             self.assertIn("cb_lang=en", " ".join(hdr.get_all("Set-Cookie")))
             # public page is never run through the translator
             code, _, body = call("/hr", cookie="cb_lang=en")

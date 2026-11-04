@@ -259,7 +259,7 @@ def render(data, ai, source):
         body = para(f"Dan {min(kt['day_n'], kt['days'])} od {kt['days']} (do kraja: {kt['left']}). Na svaki svjež KOL "
                     f"poziv demo ulaz ${kt['size']}, odvojeno od glavnog demo tradinga. Zadnja 24 h: {d['n']} ulaza, "
                     f"{d['hit20']} doseglo +20%, {d['hit50']} doseglo +50%, knjiga {money(d['pnl'])}. Ukupno: {a['n']} "
-                    f"ulaza, {a['never20']} nikad nije došlo do +20%, knjiga {money(a['pnl'])}.")
+                    f"ulaza, {a['never20']} završenih nije doseglo +20% ({a.get('pending20', 0)} se još prati), knjiga {money(a['pnl'])}.")
         lv = [[f"+{r['level']:.0%}", f"{r['hit']}/{r['n']} ({pct(r['share'])})",
                f"{r['med_min']:.0f} min" if r["med_min"] is not None else "–", pct(r["med_drop"], True)]
               for r in kt["levels"] if r["level"] <= 1.0]

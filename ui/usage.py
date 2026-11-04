@@ -48,8 +48,8 @@ def disk_html():
     return ("<h2>Disk</h2>" + tdesc(f"Trajni disk na serveru: svi podaci bota, spremljeni odgovori i izvještaji. Pun disk ruši svako "
                                     f"spremanje. Spremljeni odgovori se sami čiste na {http.CACHE_MAX_MB:.0f} MB i briše sve starije od "
                                     f"{http.CACHE_MAX_AGE // 86400} dana.")
-            + f'<div class=card>{badge({"ok": "OK", "warn": "malo mjesta", "crit": "skoro pun"}[level],
-                    {"ok": "good", "warn": "warn", "crit": "bad"}[level])} '
+            + '<div class=card>' + badge({"ok": "OK", "warn": "malo mjesta", "crit": "skoro pun"}[level],
+                                         {"ok": "good", "warn": "warn", "crit": "bad"}[level]) + ' '
               f'{bar(1 - free_pct, 1, 160)} zauzeto <b>{du.used / 1e9:.2f} GB</b> od {du.total / 1e9:.2f} GB, '
               f'slobodno <b>{du.free / 1e6:,.0f} MB</b> ({free_pct:.0%})</div>'
             + table(["Što", ("MB", "n")], [[esc(n), num(b / 1e6, "{:,.1f}")] for n, b in rows]))

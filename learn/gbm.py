@@ -134,8 +134,9 @@ def _logloss(y, w, z):
 
 
 def train(rows, cfg=None, weights=None):
-    """rows: [{"x": {feature: value}, "y": 0/1, "ts": ...}] (any order). The newest 20% by time are the validation
-    set for early stopping, so the model is judged on data it did not see. weights: per-row sample weights (time
+    """rows: [{"x": {feature: value}, "y": 0/1, "ts": ...}] (any order). The newest 20% by time are validation
+    (half for early stopping, half for calibration), so the model is judged on data it did not see; features,
+    bins and everything else are learned on the older 80% only (purge_s gap between them). weights: per-row sample weights (time
     decay). Returns the model dict or None when there is too little data."""
     cfg = {**DEFAULT, **(cfg or {})}
     if len(rows) < cfg["min_rows"] or not any(r["y"] for r in rows) or all(r["y"] for r in rows):
@@ -144,16 +145,25 @@ def train(rows, cfg=None, weights=None):
     rows = [rows[i] for i in order]
     w = [weights[i] for i in order] if weights else [1.0] * len(rows)
     n = len(rows)
+    # audit 4.11. C12: split by time FIRST; features and bin edges come from the training part only; training rows
+    # whose 24 h label window reaches the validation start are dropped; one half of validation stops early, the
+    # other calibrates (they used to be the same rows)
+    cut = int(n * 0.8)
+    gap = cfg.get("purge_s", 24 * 3600)
+    tr = [i for i in range(cut) if rows[i]["ts"] + gap <= rows[cut]["ts"]] if cut < n else []
+    va = list(range(cut, n))
+    if len(tr) < 10 or len(va) < 4:
+        return None
+    va_es, va_cal = va[::2], va[1::2]
     counts = {}
-    for r in rows:
-        for k in r["x"]:
+    for i in tr:
+        for k in rows[i]["x"]:
             counts[k] = counts.get(k, 0) + 1
-    feats = sorted(k for k, c in counts.items() if c >= cfg["min_share"] * n)
-    edges = {f: _edges([r["x"].get(f) for r in rows], cfg["bins"]) for f in feats}
+    feats = sorted(k for k, c in counts.items() if c >= cfg["min_share"] * len(tr))
+    edges = {f: _edges([rows[i]["x"].get(f) for i in tr], cfg["bins"]) for f in feats}
     B = _encode([r["x"] for r in rows], feats, edges)
     y = [1.0 if r["y"] else 0.0 for r in rows]
-    cut = int(n * 0.8)
-    tr, va = list(range(cut)), list(range(cut, n))
+    va = va_es
     pos = sum(y[i] * w[i] for i in tr) / (sum(w[i] for i in tr) or 1)
     base = math.log(max(1e-4, pos) / max(1e-4, 1 - pos))
     z = [base] * n
@@ -182,7 +192,8 @@ def train(rows, cfg=None, weights=None):
         return None
     m = {"feats": feats, "edges": edges, "base": base, "lr": cfg["lr"], "trees": trees, "n": n,
          "val_logloss": round(best, 4), "pos_rate": round(pos, 4)}
-    m["calib"] = calibrate(m, [rows[i] for i in va])
+    m["calib"] = calibrate(m, [rows[i] for i in va_cal])
+    m["n_train"], m["n_val"] = len(tr), len(va_es) + len(va_cal)
     return m
 
 

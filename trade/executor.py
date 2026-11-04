@@ -67,33 +67,50 @@ def is_live(cfg):
     return bool(cfg.get("on")) and armed()
 
 
-def day_pnl(con, now, mode):
-    """SOL won (+) or lost (-) on positions closed since midnight (server time) in this mode."""
-    return con.execute("SELECT COALESCE(SUM(sol_back - sol_in - COALESCE(fees_sol,0)),0) FROM positions WHERE mode=? "
-                       "AND status='closed' "
-                       "AND closed_ts>=?", (mode, _day_start(now))).fetchone()[0]
+DAY_TZ = "Europe/Zagreb"   # audit 4.11. §14.4: "midnight" is Zagreb midnight, not whatever zone the server has
 
 
-def _day_start(now):
-    t = time.localtime(now)
-    return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+def day_pnl(con, now, mode, tz=None):
+    """Today's cash result in this mode (since midnight in DAY_TZ): SOL back minus SOL in on positions closed today,
+    minus EVERY network fee charged today, also the ones of failed buys and sells (audit 4.11. C09/T24)."""
+    start = _day_start(now, tz)
+    closed = con.execute("SELECT COALESCE(SUM(sol_back - sol_in),0) FROM positions WHERE mode=? AND status='closed' "
+                         "AND closed_ts>=?", (mode, start)).fetchone()[0]
+    fees = con.execute("SELECT COALESCE(SUM(fee_lamports),0) FROM orders WHERE mode=? AND ts>=?",
+                       (mode, start)).fetchone()[0] / LAMPORTS
+    return closed - fees
 
 
-def gate_buy(con, cfg, size_sol, now, live, balance=None):
+def _day_start(now, tz=None):
+    """Unix time of the last midnight in `tz` (default DAY_TZ)."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    z = ZoneInfo(tz or DAY_TZ)
+    d = datetime.datetime.fromtimestamp(now, z)
+    return int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())
+
+
+def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None):
     """Reason the buy is blocked, or None."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
+    if token is not None:   # T22: an auto follow and a manual follow of the same coin = one real position
+        dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
+                          (token, "live" if live else "dry")).fetchone()
+        if dup:
+            return f"već postoji otvorena pozicija u ovom tokenu (#{dup[0]})"
     if size_sol <= 0 or size_sol > cfg["max_sol_per_trade"]:
         return f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
+    tz = cfg.get("day_tz")
     spent = con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode=? "
-                        "AND status IN ('open','closed')", (_day_start(now), "live" if live else "dry")).fetchone()[0]
+                        "AND status IN ('open','closed','pending')", (_day_start(now, tz), "live" if live else "dry")).fetchone()[0]
     if spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
         return f"dnevni limit: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
-        lost = day_pnl(con, now, "live" if live else "dry")
+        lost = day_pnl(con, now, "live" if live else "dry", tz)
         if lost <= -cfg["max_loss_day"]:
             return f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
-    n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status='open' AND mode=?",
+    n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
                          ("live" if live else "dry",)).fetchone()[0]
     if n_open >= cfg["max_open"]:
         return f"{n_open} otvorenih pozicija"
@@ -203,18 +220,23 @@ def _pump(input_mint, output_mint, amount_raw, live):
 
 def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=ROUTES):
     """One swap (live) or one quote (dry), route by route until one works. Returns {status, route, amount_in,
-    amount_out, cost_pct, fee_lamports, error, tried, ...}."""
-    tried, res = [], None
+    amount_out, cost_pct, fee_lamports, error, tried, attempts, fee_total, ...}.
+    attempts = every route's own result (its signature and the fee it was charged), fee_total = the sum of the fees
+    of all attempts: a failed first try that landed onchain still cost money (audit 4.11. C09)."""
+    tried, res, attempts = [], None, []
     for route in routes:
         res = (_pump(input_mint, output_mint, amount_raw, live) if route == "pump" else
                _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct))
         res["route"] = route
+        attempts.append(dict(res))
         tried.append(f"{ROUTE_HR[route]}: {res.get('error') or res['status']}")
         if res["status"] != "failed" or not res.get("retry"):
             break
     if res["status"] == "failed" and len(tried) > 1:
         res["error"] = " · ".join(tried)
     res["tried"] = tried
+    res["attempts"] = attempts
+    res["fee_total"] = sum(a.get("fee_lamports") or 0 for a in attempts)
     return res
 
 
@@ -223,6 +245,14 @@ def routes_for(cfg):
 
 
 def _log(con, now, pid, token, side, mode, res, reason):
+    """One orders row per attempt: earlier failed routes first (each with its own signature and fee), then the
+    final result, so the ledger keeps every try and every fee (audit 4.11. C09)."""
+    for i, a in enumerate((res.get("attempts") or [])[:-1]):
+        _log_one(con, now, pid, token, side, mode, {**a, "status": "failed"}, f"{reason} · pokušaj {i + 1}")
+    _log_one(con, now, pid, token, side, mode, res, reason)
+
+
+def _log_one(con, now, pid, token, side, mode, res, reason):
     con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, amount_out, cost_pct, status, "
                 "reason, error, signature, request_id, route, code, fee_lamports, prio_lamports) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -232,27 +262,88 @@ def _log(con, now, pid, token, side, mode, res, reason):
                  res.get("fee_lamports") if mode == "live" else None, res.get("prio_lamports")))
 
 
+def sell_check(token, size_sol, max_cost_pct):
+    """Before every buy: can the same amount be sold straight back? (audit 4.11. §20.4, T26). Quotes SOL -> token
+    and then token -> SOL for what the first would give; no sell route, or a round trip losing more than twice the
+    allowed swap cost, = reason to refuse the buy, whatever the score. A quote is not an executed sale (F10), but a
+    honeypot or a pool too thin to exit shows up here for free. Returns None when fine, else the reason."""
+    amount = int(size_sol * LAMPORTS)
+    err = None
+    for route in ("v2", "ultra"):         # the same fallback as the swap itself
+        try:
+            q1 = jupiter.order(jupiter.SOL, token, amount, route=route)
+            got = int(q1.get("outAmount") or 0)
+            if not got:
+                return None          # no buy route: swap() reports that itself
+            q2 = jupiter.order(token, jupiter.SOL, got, route=route)
+            back = int(q2.get("outAmount") or 0)
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+    else:
+        return f"provjera prodaje nije uspjela ({type(err).__name__}); ne kupujem naslijepo"
+    if not back:
+        return "simulacija prodaje: nema rute za prodaju natrag u SOL (moguć honeypot)"
+    loss = 100 * (1 - back / amount)
+    if max_cost_pct is not None and loss > 2 * max_cost_pct:
+        return f"simulacija prodaje: kupnja pa odmah prodaja gubi {loss:.1f}% (granica {2 * max_cost_pct:g}%)"
+    return None
+
+
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
-    is never retried by accident."""
+    is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
+    between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09)."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
-    why = gate_buy(con, cfg, size_sol, now, live)
+    why = gate_buy(con, cfg, size_sol, now, live, token=token)
+    if not why and cfg.get("sell_check", True):
+        why = sell_check(token, size_sol, cfg.get("max_cost_pct"))
+    cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
+                      "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
+                      (paper_id, league_id, token, symbol, int(now), mode, "blocked" if why else "pending",
+                       why or "namjera zapisana, šaljem"))
+    pid = cur.lastrowid
+    con.commit()
     if why:
         res = {"status": "blocked", "error": why, "amount_in": int(size_sol * LAMPORTS)}
     else:
         res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"], routes_for(cfg))
     ok = res["status"] in ("ok", "dry")
     status = "open" if ok else ("blocked" if res["status"] == "blocked" else "failed")
-    fees = (res.get("fee_lamports") or 0) / LAMPORTS if live else 0
-    cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
-                      "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?)",
-                      (paper_id, league_id, token, symbol, int(now), mode, status, reason if ok else res.get("error"),
-                       res["amount_in"] / LAMPORTS if ok else 0, res.get("amount_out") if ok else 0,
-                       res.get("amount_out") if ok else 0, fees))
-    _log(con, now, cur.lastrowid, token, "buy", mode, res, reason)
+    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS if live else 0
+    con.execute("UPDATE positions SET status=?, reason=?, sol_in=?, qty_raw=?, qty_left=?, fees_sol=? WHERE id=?",
+                (status, reason if ok else res.get("error"), res["amount_in"] / LAMPORTS if ok else 0,
+                 res.get("amount_out") if ok else 0, res.get("amount_out") if ok else 0, fees, pid))
+    _log(con, now, pid, token, "buy", mode, res, reason)
     con.commit()
-    return {**res, "id": cur.lastrowid, "status": status, "mode": mode, "swap_status": res["status"]}
+    return {**res, "id": pid, "status": status, "mode": mode, "swap_status": res["status"]}
+
+
+def reconcile_pending(con, now=None, min_age_s=60, balance_of=None):
+    """After a restart: buys left 'pending' (the process died between sending and bookkeeping) are matched with the
+    wallet. Tokens in the wallet -> open position with that quantity; none -> failed. Dry ones -> failed.
+    Returns the number of rows settled."""
+    now = now or time.time()
+    rows = con.execute("SELECT id, token, mode FROM positions WHERE status='pending' AND opened_ts<=?",
+                       (int(now - min_age_s),)).fetchall()
+    n = 0
+    for pid, token, mode in rows:
+        have = 0
+        if mode == "live":
+            try:
+                have = (balance_of or (lambda t: wallet.token_raw_balance(wallet.address(), t)))(token)
+            except Exception:  # noqa: BLE001 - cannot tell yet: leave it pending, try next round
+                continue
+        if have > 0:
+            con.execute("UPDATE positions SET status='open', qty_raw=?, qty_left=?, reason=? WHERE id=?",
+                        (have, have, "usklađeno s lancem nakon restarta (SOL ulog nepoznat)", pid))
+        else:
+            con.execute("UPDATE positions SET status='failed', reason=? WHERE id=?",
+                        ("prekinuto prije potvrde; u walletu nema tokena", pid))
+        n += 1
+    con.commit()
+    return n
 
 
 SELL_BACKOFF_MAX_S = 600
@@ -297,7 +388,7 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
     if amount <= 0:
         return {"status": "noop"}
     res = swap(token, jupiter.SOL, amount, live, None, routes_for(cfg))
-    fees = (res.get("fee_lamports") or 0) / LAMPORTS if live else 0
+    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS if live else 0
     if res["status"] in ("ok", "dry"):
         left -= res["amount_in"]
         sol_back += res["amount_out"] / LAMPORTS

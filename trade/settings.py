@@ -23,6 +23,15 @@ LIMITS = {
     "max_cost_pct": ("Najveći trošak swapa (%)", float, 0.5, 20.0),
 }
 
+# Audit 4.11. §14.4/§22: switches that stay off whatever is saved, until the proof the audit asks for exists.
+# The page shows them greyed out with this reason; run_trade and the SimianX job read the effective value.
+LOCKED = {
+    "follow_paper": "zaključano: demo strategija smije u pravi novac tek kad dobije status „kandidat” "
+                    "(bije kontrolu nakon troška, na obje polovice, i bez 5 najboljih trejdova)",
+    "simianx": "zaključano: SimianX signali nemaju isti dokaz kao praćeni influenceri i novčanici "
+               "(odgođena kopija koja bije kontrolu), pa ne idu u pravi novac",
+}
+
 SCHEMA = "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT, ts INTEGER, who TEXT)"
 
 
@@ -58,9 +67,10 @@ def merged(cfg, con):
             out[k] = s[k]
     out["max_sol_per_trade"] = max(out.get("max_sol_per_trade", 0), out["size_sol"])
     out["on"] = bool(s.get("on", False))
-    out["follow_paper"] = bool(s.get("follow_paper", False))
+    out["follow_paper"] = bool(s.get("follow_paper", False)) and "follow_paper" not in LOCKED
     out["use_pump"] = bool(s.get("use_pump", True))
-    out["simianx"] = bool(s.get("simianx", False))
+    out["simianx"] = bool(s.get("simianx", False)) and "simianx" not in LOCKED
+    out.setdefault("day_tz", "Europe/Zagreb")
     out["sell_all"] = s.get("sell_all") or 0
     out["sell_req"] = s.get("sell_req") or {}
     out["manual_size"] = s.get("manual_size") or {}
@@ -100,7 +110,7 @@ def simianx_on(con=None):
     own = con is None
     con = con or connect()
     try:
-        return bool(raw(con).get("simianx", False))
+        return bool(raw(con).get("simianx", False)) and "simianx" not in LOCKED
     finally:
         if own:
             con.close()

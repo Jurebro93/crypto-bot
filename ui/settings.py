@@ -92,9 +92,9 @@ def page(qs, user, kind, lang):
         b.append("<div class=card id=lozinka><h2>🔑 Lozinka</h2><form method=post action=/postavke/lozinka>"
                  "<input type=text name=name value=\"" + esc(user) + "\" autocomplete=username hidden>"
                  "<label>Trenutna lozinka<input type=password name=old autocomplete=current-password required></label>"
-                 "<label>Nova lozinka<input type=password name=new autocomplete=new-password minlength=6 required></label>"
-                 "<label>Ponovi novu lozinku<input type=password name=new2 autocomplete=new-password minlength=6 "
-                 "required></label><p class=hint>Barem 6 znakova. Nakon promjene ostaješ prijavljen ovdje, a na "
+                 "<label>Nova lozinka<input type=password name=new autocomplete=new-password minlength=12 required></label>"
+                 "<label>Ponovi novu lozinku<input type=password name=new2 autocomplete=new-password minlength=12 "
+                 "required></label><p class=hint>Barem 12 znakova. Nakon promjene ostaješ prijavljen ovdje, a na "
                  "svim ostalim uređajima trebaš se ponovo prijaviti.</p><p><button>Promijeni lozinku</button></p>"
                  "</form></div>")
 

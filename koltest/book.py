@@ -192,7 +192,9 @@ def summary(ps, cfg):
     pnl = [p["pnl_usd"] or 0 for p in ps]
     done = [p for p in ps if p["book_closed_ts"]]
     return {"n": n, "open": sum(1 for p in ps if p["status"] == "open"),
-            "never20": sum(1 for p in ps if k20 not in p["hits"]),
+            # F17: only finished tracking can be "never"; still tracked = "not yet" (pending)
+            "never20": sum(1 for p in ps if k20 not in p["hits"] and p["status"] != "open"),
+            "pending20": sum(1 for p in ps if k20 not in p["hits"] and p["status"] == "open"),
             "hit20": sum(1 for p in ps if k20 in p["hits"]),
             "hit50": sum(1 for p in ps if "0.5" in p["hits"]),
             "med_peak": _med([p["peak"] for p in ps]),

@@ -67,32 +67,91 @@ _TTL = {}   # name -> (ts, value): slow-changing results shared by page builds (
 TTL_DIR = os.environ.get("UI_TTL_DIR", "/tmp/memesonar-ttl")
 
 
+def _enc(v):
+    """Plain JSON with tags for what JSON has no type for (tuple, set, dict with non-text keys, bytes, float inf/nan),
+    so the cache round-trips the same Python values the old pickle did, without pickle's "load = run code" risk
+    (audit 4.11. §4.3: unpickling from a shared /tmp dir)."""
+    if isinstance(v, bool) or v is None or isinstance(v, (int, str)):
+        return v
+    if isinstance(v, float):
+        return v if v == v and v not in (float("inf"), float("-inf")) else {"__f": repr(v)}
+    if isinstance(v, tuple):
+        return {"__t": [_enc(x) for x in v]}
+    if isinstance(v, (set, frozenset)):
+        return {"__s": [_enc(x) for x in v]}
+    if isinstance(v, (bytes, bytearray)):
+        return {"__b": bytes(v).hex()}
+    if isinstance(v, dict):
+        if all(isinstance(k, str) for k in v) and not any(k.startswith("__") for k in v):
+            return {k: _enc(x) for k, x in v.items()}
+        return {"__d": [[_enc(k), _enc(x)] for k, x in v.items()]}
+    if isinstance(v, list):
+        return [_enc(x) for x in v]
+    if hasattr(v, "keys"):                     # sqlite3.Row and friends
+        return {k: _enc(v[k]) for k in v.keys()}
+    raise TypeError(f"ttl_cache: {type(v).__name__} not cacheable")
+
+
+def _dec(v):
+    if isinstance(v, list):
+        return [_dec(x) for x in v]
+    if isinstance(v, dict):
+        if len(v) == 1:
+            (k, x), = v.items()
+            if k == "__t":
+                return tuple(_dec(y) for y in x)
+            if k == "__s":
+                return {_dec(y) for y in x}
+            if k == "__b":
+                return bytes.fromhex(x)
+            if k == "__f":
+                return float(x)
+            if k == "__d":
+                return {_dec(a): _dec(b) for a, b in x}
+        return {k: _dec(x) for k, x in v.items()}
+    return v
+
+
+def _dumps(val):
+    import json
+    return json.dumps(_enc(val), separators=(",", ":")).encode()
+
+
+def _loads(blob):
+    import json
+    return _dec(json.loads(blob))
+
+
 def ttl_cache(name, seconds, fn):
     """fn() at most once per `seconds` (counts over whole tables, wallet clusters, the token list: they change slowly,
     but each read scans hundreds of MB). Kept in this process and, since the heavy pages are built by short child
     processes (run_ui.build_in_child) where a process cache would be empty every time, also as a file in TTL_DIR
-    that the next child reads instead of computing it again (2.11.: "/" and "/tokens" each took 60+ s)."""
-    import pickle   # kept as one bytes block: small objects that outlive a page build would pin whole heap
-    hit = _TTL.get(name)  # arenas of that build and keep tens of MB from going back to the OS
+    that the next child reads instead of computing it again (2.11.: "/" and "/tokens" each took 60+ s).
+    Stored as tagged JSON (4.11. audit: unpickling from a shared dir is code execution); kept as one bytes
+    block so small objects that outlive a page build do not pin whole heap arenas."""
+    hit = _TTL.get(name)
     if hit and time.time() - hit[0] < seconds:
-        return pickle.loads(hit[1])
+        return _loads(hit[1])
     import hashlib
-    path = os.path.join(TTL_DIR, name.split(":")[0] + "-" + hashlib.sha1(name.encode()).hexdigest()[:12] + ".pkl")
+    path = os.path.join(TTL_DIR, name.split(":")[0] + "-" + hashlib.sha1(name.encode()).hexdigest()[:12] + ".json")
     try:
         age = time.time() - os.path.getmtime(path)
-        if age < seconds:
+        if age < seconds and os.stat(path).st_uid == os.getuid():   # only our own files
             with open(path, "rb") as f:
                 blob = f.read()
-            val = pickle.loads(blob)
+            val = _loads(blob)
             _TTL[name] = (time.time() - age, blob)
             return val
-    except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
+    except (OSError, ValueError, TypeError, KeyError):
         pass
     val = fn()
-    blob = pickle.dumps(val, protocol=pickle.HIGHEST_PROTOCOL)
+    try:
+        blob = _dumps(val)
+    except TypeError:
+        return val                             # something JSON cannot hold: just do not cache it
     _TTL[name] = (time.time(), blob)
     try:
-        os.makedirs(TTL_DIR, exist_ok=True)
+        os.makedirs(TTL_DIR, mode=0o700, exist_ok=True)
         tmp = f"{path}.{os.getpid()}.tmp"
         with open(tmp, "wb") as f:
             f.write(blob)

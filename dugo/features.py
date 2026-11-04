@@ -97,7 +97,7 @@ def compute(candles, sol=None, btc=None):
         c = _corr(a, b)
         f[f"korelacija_{name}"] = c
         if c is not None:
-            vb = st.pvariance(b)
+            vb = st.variance(b)   # sample variance, like st.covariance (DS01: was pvariance -> beta 30/29)
             f[f"beta_{name}"] = st.covariance(a, b) / vb if vb else None
             up = [x for x, y in zip(a, b) if y > 0.01]
             down = [x for x, y in zip(a, b) if y < -0.01]

@@ -58,10 +58,10 @@ def page_html(qs, err=""):
             f"value=\"{esc(qs.get('email', ''))}\" style='width:100%' placeholder='npr. marko@gmail.com'></label><br>"
             "<span class=mut style='font-size:12px'>Obavezno. Javljamo ti novosti i nove mogućnosti alata. Ne "
             "dijelimo ga ni s kim.</span></p>"
-            "<p><label>Lozinka<br><input name=pw type=password autocomplete=new-password required minlength=6 "
-            "style='width:100%'></label><br><span class=mut style='font-size:12px'>Barem 6 znakova.</span></p>"
+            "<p><label>Lozinka<br><input name=pw type=password autocomplete=new-password required minlength=12 "
+            "style='width:100%'></label><br><span class=mut style='font-size:12px'>Barem 12 znakova.</span></p>"
             "<p><label>Ponovi lozinku<br><input name=pw2 type=password autocomplete=new-password required "
-            "minlength=6 style='width:100%'></label></p>"
+            "minlength=12 style='width:100%'></label></p>"
             + (f"<p class=neg>{esc(err)}</p>" if err else "")
             + "<p><button type=submit>Napravi račun i uđi</button></p></form>"
             "<p class=mut>Prijava se pamti 60 dana na ovom uređaju. Na drugom uređaju se prijaviš istim imenom i "

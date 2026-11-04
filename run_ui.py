@@ -298,6 +298,35 @@ def route(path, qs):
     return None
 
 
+def _no_admin(code, raw, gz):
+    """(code, html bytes) of a cached page without its adm-only elements."""
+    from ui import admstrip
+    body = raw if raw is not None else gzip.decompress(gz)
+    return code, admstrip.strip(body.decode("utf-8")).encode("utf-8")
+
+
+def _error_html():
+    """Generic error text for the page; the traceback goes to the server log only (audit 4.11. §4.3)."""
+    ref = hashlib.sha256(f"{time.time()}{os.getpid()}".encode()).hexdigest()[:8]
+    print(f"ui-greska {ref}:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+    return (f"<h1>Greška</h1><p>Stranica se nije mogla složiti. Pokušaj ponovno za minutu. "
+            f"<span class=mut>Oznaka za log: {ref}</span></p>")
+
+
+def _secure_flag(headers):
+    """'; Secure' behind https and always on Render (audit 4.11.: not only when the proxy sends the header)."""
+    return "; Secure" if headers.get("X-Forwarded-Proto") == "https" or os.environ.get("RENDER") else ""
+
+
+def csrf_token(session_value):
+    """Form token tied to the login cookie (double submit: cookie cb_csrf + hidden field _csrf added by page JS)."""
+    return hmac.new(_SECRET, f"csrf|{session_value}".encode(), hashlib.sha256).hexdigest()[:32] if session_value else ""
+
+
+# POSTs that change money, roles or settings: need a non-empty same-site Origin/Referer AND the form token
+CSRF_STRICT = ("/pravi-trade/", "/korisnici/", "/postavke/", "/zahtjevi/", "/run/")
+
+
 def build(path, qs, lang="hr"):
     """(code, html bytes) of a route() page with the banner, in `lang`; used through ui/pagecache (which may
     run it in a background thread, so the language is set here and not taken from the request)."""
@@ -311,7 +340,7 @@ def build(path, qs, lang="hr"):
             code, html = 200, page(res[0], _banner(path) + res[1], path)
     except Exception:
         code = 500
-        html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+        html = page("Greška", _error_html(), path)
     return code, i18n.translate(html).encode("utf-8")
 
 
@@ -445,21 +474,21 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 html = page(*userroles.page(qs, self.who, PLAYERS_NAMES(), VIEWER if VIEWER_PASS else None), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path == "/postavke":
             from ui import settings
             try:
                 html = page(*settings.page(qs, self.user, user_kind(self.user), self.lang), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path == "/zahtjevi":
             from ui import landing
             try:
                 html = page(*landing.admin_page(qs, self.user), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path == "/pravi-trade/log":   # live order log on the Autopilot page, re-fetched every few seconds
             from ui import pravitrade
@@ -470,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 html = page(*pravitrade.page(qs, self.user), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path in ("/natjecanje", "/prijedlozi", "/copy-trading"):
             SHOW_ALL.set(qs.get("sve") == "1")
@@ -480,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 html = page(*fn(qs, self.user), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path == "/nas-token/launch.js":
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "nastoken_launch.js"), "rb") as f:
@@ -494,14 +523,14 @@ class Handler(BaseHTTPRequestHandler):
                     nastoken.project_page(int(rest), qs, self.user, self.headers.get("Host")) if rest.isdigit() else None
                 html = page(*res, path) if res else page("404", "<h1>Nema te stranice</h1>", path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200 if res else 404, html.encode("utf-8"))
         if path == "/whatsapp":
             from ui import whatsapp
             try:
                 html = page(*whatsapp.page(qs, self.user), path)
             except Exception:
-                html = page("Greška", f"<h1>Greška</h1><pre>{esc(traceback.format_exc())}</pre>", path)
+                html = page("Greška", _error_html(), path)
             return self._send(200, html.encode("utf-8"))
         if path.startswith("/izvjestaj/raw/"):
             from ui import reportpage
@@ -522,7 +551,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 frag = evidence.fragment(path[len("/api/evidence/"):])
             except Exception:
-                frag = f"<pre>{esc(traceback.format_exc())}</pre>"
+                frag = _error_html()
             return self._send(200, frag.encode("utf-8"))
         if path == "/watch":   # Prije eventa is a section of Eventi since 4.11.
             return self._redirect("/events#prije", code=301)
@@ -538,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
             code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
             if code == 200:
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
+        if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
+            code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
 
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
@@ -593,6 +624,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", f"cb_nm=1; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
         elif not nm and "cb_nm=1" in cookies:
             self.send_header("Set-Cookie", "cb_nm=; Path=/; Max-Age=0; SameSite=Lax")
+        # cb_csrf: form token for money/roles/settings POSTs; page JS copies it into a hidden _csrf field
+        tok = csrf_token(self._session_value())
+        if tok and f"cb_csrf={tok}" not in cookies:
+            self.send_header("Set-Cookie", f"cb_csrf={tok}; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Strict"
+                             + _secure_flag(self.headers))
         # cb_r: the role, so cached pages hide the menu items this role cannot open (the server refuses them anyway)
         if f"cb_r={r}" not in cookies:
             self.send_header("Set-Cookie", f"cb_r={r}; Path=/; Max-Age={COOKIE_DAYS * 86400}; SameSite=Lax")
@@ -651,16 +687,27 @@ class Handler(BaseHTTPRequestHandler):
         pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+        if path.startswith(CSRF_STRICT) and AUTH:
+            # audit 4.11. §4.2/§14.4: an empty Origin is no longer "our site", and the form must carry the token
+            same_site = bool(origin) and urlsplit(origin).netloc == self.headers.get("Host")
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(min(n, 600_000))
+            self._body = raw
+            sent = dict(parse_qsl(raw.decode("utf-8", "replace"))).get("_csrf", "")
+            want = csrf_token(self._session_value())
+            if not same_site or not want or not hmac.compare_digest(sent, want):
+                print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+                self.send_response(403)
+                self.end_headers()
+                return
         if same_site and path.startswith("/korisnici/"):
             from ui import userroles
-            n = int(self.headers.get("Content-Length") or 0)
-            form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+            form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
             return self._redirect(userroles.post(path, form, self.who))
         if same_site and path.startswith("/pravi-trade/"):
             from urllib.parse import parse_qs
             from ui import pravitrade
-            n = int(self.headers.get("Content-Length") or 0)
-            multi = parse_qs(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace"))
+            multi = parse_qs(self._read_body(100_000).decode("utf-8", "replace"))
             form = {k: v[-1] for k, v in multi.items()}
             form["u_list"] = multi.get("u", [])
             return self._redirect(pravitrade.post(path, form, self.user))
@@ -692,8 +739,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._settings_post(path)
         if same_site and path.startswith("/zahtjevi/"):
             from ui import landing
-            n = int(self.headers.get("Content-Length") or 0)
-            form = dict(parse_qsl(self.rfile.read(min(n, 10_000)).decode("utf-8", "replace")))
+            form = dict(parse_qsl(self._read_body(10_000).decode("utf-8", "replace")))
             return self._redirect(landing.admin_post(path, self.user, form))
         if same_site and path == "/whatsapp/poslano":   # the update was copied or shared to the group
             from ui import whatsapp
@@ -715,10 +761,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Location", f"/{name}#run")
         self.end_headers()
 
+    def _read_body(self, limit):
+        """POST body, once: the CSRF check may already have read it."""
+        if getattr(self, "_body", None) is not None:
+            return self._body[:limit]
+        n = int(self.headers.get("Content-Length") or 0)
+        self._body = self.rfile.read(min(n, limit))
+        return self._body
+
+    def _session_value(self):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == COOKIE:
+                return v
+        return ""
+
     def _kol_hook(self, u):
         from kol import store as kstore
         key = kstore.hook_key()
-        if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
+        got = self.headers.get("X-Hook-Key") or dict(parse_qsl(u.query)).get("key", "")  # xquik cannot set headers
+        if not key or not hmac.compare_digest(got, key):
             self.send_response(404)
             self.end_headers()
             return
@@ -734,11 +796,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _chain_hook(self, u):
-        """/hook/chain?key=...: Helius enhanced webhook with swaps of the KOL wallets (kol/chainwatch.py)."""
+        """/hook/chain (Authorization: <chain key>): Helius enhanced webhook with swaps of the KOL wallets (kol/chainwatch.py)."""
         from kol import chainwatch, store as kstore
         key = kstore.chain_key()
-        if not key or not hmac.compare_digest(dict(parse_qsl(u.query)).get("key", ""), key):
-            self.send_response(404)
+        got = self.headers.get("Authorization") or ""     # Helius authHeader; ?key= in the URL is ignored (4.11.)
+        if not key or not hmac.compare_digest(got, key):
+            self.send_response(401)
             self.end_headers()
             return
         n = int(self.headers.get("Content-Length") or 0)
@@ -770,7 +833,7 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(1)   # slows down guessing
             return self._send(401, login_page({"next": form.get("next", "/"), "kao": form.get("name", "")},
                                               "Pogrešno ime ili lozinka.").encode("utf-8"))
-        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        secure = _secure_flag(self.headers)
         viewer = VIEWER if not player and VIEWER_PASS and form.get("name", "").strip().lower() == VIEWER.lower() else ""
         cookie = (f"{COOKIE}={make_cookie(player or viewer)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
@@ -783,7 +846,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._redirect(_safe_next(form.get("next", "/")), cookie=cookies)
 
     def _lang_cookie(self, lang):
-        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        secure = _secure_flag(self.headers)
         return f"{i18n.COOKIE}={lang}; Max-Age={400 * 86400}; Path=/; SameSite=Lax{secure}"
 
     def _lang_switch(self, qs):
@@ -820,14 +883,13 @@ class Handler(BaseHTTPRequestHandler):
     def _settings_post(self, path):
         """⚙️ Postavke forms. A password change or "log out everywhere" gives this device a fresh login."""
         from ui import settings
-        n = int(self.headers.get("Content-Length") or 0)
-        form = dict(parse_qsl(self.rfile.read(min(n, 600_000)).decode("utf-8", "replace")))
+        form = dict(parse_qsl(self._read_body(600_000).decode("utf-8", "replace")))
         kind = user_kind(self.user)
         loc, extra = settings.post(path, form, self.user, kind, lambda u, pw: check_password(u, pw)[1] == u)
         msg = loc.split("err=", 1)[1].split("#")[0] if "err=" in loc else "ok"
         print(f"postavke: {self.user} {path[len('/postavke/'):]} -> {unquote(msg)[:120]}", flush=True)
         pagecache.clear()
-        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        secure = _secure_flag(self.headers)
         if extra == "relogin":
             cookie = (f"{COOKIE}={make_cookie(self.user)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                       f"SameSite=Lax{secure}")
@@ -848,7 +910,7 @@ class Handler(BaseHTTPRequestHandler):
                                                           "email": form.get("email", "")}, err)
                               .encode("utf-8"))
         pagecache.clear()
-        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        secure = _secure_flag(self.headers)
         cookie = (f"{COOKIE}={make_cookie(name)}; Max-Age={COOKIE_DAYS * 86400}; Path=/; HttpOnly; "
                   f"SameSite=Lax{secure}")
         from urllib.parse import quote

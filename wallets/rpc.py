@@ -79,8 +79,26 @@ def _keys(tx):
     return [k["pubkey"] if isinstance(k, dict) else k for k in tx["transaction"]["message"]["accountKeys"]]
 
 
+def sol_usd_history(days=120):
+    """ts -> SOL/USD of that UTC day (DefiLlama daily closes, free, cached 30 min by core http), or None when the
+    day is unknown. Used for stablecoin legs instead of a fixed 150 (audit 4.11. C03)."""
+    try:
+        from market import sources
+        pts = sources.sol_prices(days)
+    except Exception:  # noqa: BLE001 - offline: every leg stays "approximate"
+        pts = []
+    by_day = {int(t) // 86400: px for t, px in pts}
+
+    def at(ts):
+        d = int(ts or 0) // 86400
+        return by_day.get(d) or by_day.get(d - 1)
+    return at
+
+
 def parse(tx, wallet, sol_usd=150.0):
-    """One raw tx -> list of trade rows for `wallet`: buy/sell (token vs SOL) or transfer_in/out (no SOL leg)."""
+    """One raw tx -> list of trade rows for `wallet`: buy/sell (token vs SOL) or transfer_in/out (no SOL leg).
+    sol_usd: a number, or a function ts -> SOL/USD that day (None = unknown). A stablecoin leg converted with a
+    fixed or unknown rate marks the rows fx='approx' so the wallet score can show the approximation."""
     meta = tx.get("meta") or {}
     if meta.get("err"):
         return []
@@ -97,9 +115,12 @@ def parse(tx, wallet, sol_usd=150.0):
             amt = int(b["uiTokenAmount"]["amount"]) / 10 ** int(b["uiTokenAmount"]["decimals"])
             toks[b["mint"]] = toks.get(b["mint"], 0.0) + sign * amt
     sol += toks.pop(WSOL, 0.0)
+    fx = None
     for m in list(toks):
         if m in STABLES:
-            sol += toks.pop(m) / sol_usd
+            rate = sol_usd(tx.get("blockTime")) if callable(sol_usd) else None
+            fx = "hist" if rate else "approx"
+            sol += toks.pop(m) / (rate or (sol_usd if not callable(sol_usd) else 150.0))
     moved = {m: d for m, d in toks.items() if abs(d) > 1e-9}
     if not moved:
         return []
@@ -115,7 +136,10 @@ def parse(tx, wallet, sol_usd=150.0):
             kind, leg = "sell", sol / len(outs)
         else:  # airdrop, transfer between own wallets, token-for-token swap
             kind, leg = ("transfer_in" if d > 0 else "transfer_out"), 0.0
-        rows.append({"sig": sig, "ts": ts, "mint": m, "tokens": d, "sol": round(leg, 9), "kind": kind})
+        row = {"sig": sig, "ts": ts, "mint": m, "tokens": d, "sol": round(leg, 9), "kind": kind}
+        if fx:
+            row["fx"] = fx
+        rows.append(row)
     return rows
 
 
@@ -127,12 +151,14 @@ def _round_trip_sol(rows):
     return sum(r["sol"] for r in rows if r["mint"] in sold and r["kind"] in ("buy", "sell"))
 
 
-def wallet_swaps(wallet, since_ts=None, max_pages=3, oldest_first=False, on_credits=None, sol_usd=150.0):
+def wallet_swaps(wallet, since_ts=None, max_pages=3, oldest_first=False, on_credits=None, sol_usd=None):
     """Parsed trade rows of a wallet since `since_ts`. Returns (rows, complete, newest_ts, oldest_ts).
 
     Newest-first first looks are sampled: one page (10 credits) first, more pages only if it isn't a bot,
     or if it is a bot whose round trips on that page made money (profitable bots are worth tracking).
     """
+    if sol_usd is None:
+        sol_usd = sol_usd_history()
     txs, complete = fetch(wallet, since_ts=since_ts, max_pages=1 if not oldest_first else max_pages,
                           oldest_first=oldest_first, on_credits=on_credits)
     if not oldest_first and not complete and max_pages > 1 and txs:

@@ -232,7 +232,8 @@ def build(now=None):
             return None
         from market import collect
         dexs = {(d_, "all:dex"): v for d_, v in store.series(con, "all:dex", day - 10 * D)}
-        if collect.partial_day(dexs) == day:     # newest day not finished at DefiLlama yet (collect drops it later)
+        counts = {d_: v for d_, v in store.series(con, "meta:reporting", day - 10 * D)}
+        if collect.partial_day(dexs, counts=counts or None) == day:     # newest day not finished at DefiLlama yet (collect drops it later)
             day -= D
         ser = {k: dict(store.series(con, f"all:{k}", day - 400 * D)) for k in ("launchpad", "dex", "terminal")}
         price = dict(con.execute("SELECT day, usd FROM price WHERE day>?", (day - 400 * D,)))
@@ -698,10 +699,10 @@ def market(lang):
         else:
             txt = (f"U zadnjih {h['days']} dana dnevne promjene volumena Solana DEX-a i launchpada išle su "
                    f"<b>{strength} zajedno</b> (korelacija {_n(f'{c:+.2f}', lang)}; +1 znači uvijek zajedno, 0 nema veze)."
-                   + (f" Tjedni smjer (rast ili pad) poklopio se {_n(f'{100 * h['week_agree']:.0f}', lang)}% dana." if h.get("week_agree") is not None else "")
+                   + (f" Tjedni smjer (rast ili pad) poklopio se {_n('%.0f' % (100 * (h.get('week_agree') or 0)), lang)}% dana." if h.get("week_agree") is not None else "")
                    + (" Živ dan na Solani <b>ne</b> najavljuje živ dan za meme coine sutra"
                       if (h.get("lead1") or 0) < .2 else " Živ dan na Solani malo najavljuje više trgovanja meme coinima sutra")
-                   + (f" ({_n(f'{h['lead1']:+.2f}', lang)})." if h.get("lead1") is not None else ".")
+                   + (f" ({_n('%+.2f' % (h.get('lead1') or 0), lang)})." if h.get("lead1") is not None else ".")
                    + " PumpSwap (graduirani pump.fun coini) nije u DEX strani, da se meme volumen ne broji dvaput.")
         body.append(("<h2 class=s>Does more Solana volume mean more meme coin trading?</h2>" if en else
                      "<h2 class=s>Znači li više volumena na Solani i više trgovanja meme coinima?</h2>") + f"<p class=ans>{txt}</p>")
@@ -984,7 +985,7 @@ def besttime(lang):
         tip = (lambda h_: f"{pct(vol[h_], signed=False, dec=1)} of daily volume") if en else \
               (lambda h_: f"{pct(vol[h_], lang, signed=False, dec=1)} dnevnog volumena")
         body.append(f"<div class=mc><h3>{'When meme coins trade: share of daily volume by hour' if en else 'Kad se trguje meme coinima: udio dnevnog volumena po satu'}</h3>"
-                    f"<p class=ms>{('Average over ' + f'{hrs['ntok']:,}' + ' Solana meme coins that influencers called; each coin counts equally. Hours in <span class=tzn>UTC</span>.') if en else ('Prosjek ' + _n(f'{hrs['ntok']:,}', lang) + ' Solana meme coina koje su pozvali influenceri; svaki coin vrijedi jednako. Sati: <span class=tzn>UTC</span>.')}</p>"
+                    f"<p class=ms>{('Average over ' + format(hrs.get('ntok') or 0, ',') + ' Solana meme coins that influencers called; each coin counts equally. Hours in <span class=tzn>UTC</span>.') if en else ('Prosjek ' + _n(format(hrs.get('ntok') or 0, ','), lang) + ' Solana meme coina koje su pozvali influenceri; svaki coin vrijedi jednako. Sati: <span class=tzn>UTC</span>.')}</p>"
                     + _hbars(vol, lang, tip) + "</div>")
     if hrs and hrs["n"]:
         calls = hrs["calls"]
@@ -998,8 +999,9 @@ def besttime(lang):
             return (f"{pct(k / n, signed=False)} of {n:,} calls rose 50%+" if en else
                     f"{pct(k / n, lang, signed=False)} od {_n(f'{n:,}', lang)} poziva naraslo 50%+")
         span = (f"{_date(hrs['from'], lang)} – {_date(hrs['to'], lang)}") if hrs.get("from") else ""
+        hrs_n, hrs_rate = hrs["n"], hrs["rate"]
         body.append(f"<div class=mc><h3>{'When influencer calls work: share that rose 50%+ within 24 h, by hour posted' if en else 'Kad pozivi influencera rade: udio koji je narastao 50%+ u 24 h, po satu objave'}</h3>"
-                    f"<p class=ms>{(f'{hrs['n']:,} first calls of Solana tokens on X, {span}. Grey hours have fewer than {MIN_HOUR_N} calls. Average: {pct(hrs['rate'], signed=False)}. Bot accounts excluded.') if en else (_n(f'{hrs['n']:,}', lang) + f' prvih poziva Solana tokena na X-u, {span}. Sivi sati imaju manje od {MIN_HOUR_N} poziva. Prosjek: {pct(hrs['rate'], lang, signed=False)}. Bot računi izbačeni.')}</p>"
+                    + "<p class=ms>" + ((f"{hrs_n:,} first calls of Solana tokens on X, {span}. Grey hours have fewer than {MIN_HOUR_N} calls. Average: {pct(hrs_rate, signed=False)}. Bot accounts excluded.") if en else (_n(f"{hrs_n:,}", lang) + f" prvih poziva Solana tokena na X-u, {span}. Sivi sati imaju manje od {MIN_HOUR_N} poziva. Prosjek: {pct(hrs_rate, lang, signed=False)}. Bot računi izbačeni.")) + "</p>"
                     + _hbars(rates, lang, tip2, lo=lo, color=C2) + "</div>")
     # sessions table
     rows = []
@@ -1412,7 +1414,8 @@ def nav_items(lang):
 
 def subnav(key, lang):
     """Chip row under the title of every market page: the hub and its sub-pages."""
-    items = "".join(f"<a href={PAGES[k][lang != 'en']}{' style=\'border-color:var(--acc);color:var(--acc)\'' if k == key else ''}>"
+    on = " style='border-color:var(--acc);color:var(--acc)'"
+    items = "".join(f"<a href={PAGES[k][lang != 'en']}{on if k == key else ''}>"
                     f"{esc(NAV[lang][k][0])}</a>" for k in NAV[lang])
     return f"<div class=chips style='margin:-8px 0 22px'>{items}</div>"
 

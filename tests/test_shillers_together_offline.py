@@ -165,5 +165,52 @@ class Page(unittest.TestCase):
         self.assertIn("<details class=uc-sec id=tgpovijest>", body)  # Call Analyser + SpyDefi history
 
 
+class LastFifty(unittest.TestCase):
+    """4.11.: a channel with 1 measured call showed 'Pogodak 100%'. Now: last 50, and nothing below 10 measured."""
+
+    def test_stats_use_last_50(self):
+        from kol import score
+        calls = [{"kind": "call", "first_by_kol": 1, "token": f"t{i}", "ts": T0 + i, "max24": 2.0 if i < 60 else -0.5,
+                  "r1h": 0, "vol_lift": 1, "rug": 0, "pre2h": 0, "first_overall": 0, "views": 0, "likes": 0,
+                  "retweets": 0, "followers": 0} for i in range(100)]
+        s, _ = score.kol_stats(calls, CFG)
+        self.assertEqual(s["measured"], 100)
+        self.assertEqual(s["n_last"], 50)
+        self.assertAlmostEqual(s["hit_last"], 0.2)  # newest 50 = 50..99: only 50..59 doubled
+        self.assertAlmostEqual(s["hit_rate"], 0.6)
+
+    def test_channels_table_hides_lucky_percentages(self):
+        from ui import izvori
+        d = tempfile.mkdtemp()
+        t = tstore.connect(os.path.join(d, "tg.db"))
+        for name in ("lucky", "proven"):
+            t.execute("INSERT INTO channels (name, status, n_ca, last_ca_ts) VALUES (?, 'active', 5, ?)",
+                      (name, T0 + (100 if name == "lucky" else 0)))
+        t.commit()
+        k = store.connect(os.path.join(d, "kol.db"))
+        k.execute("INSERT INTO kols (handle, score, stats) VALUES ('tg:lucky', 48, ?)",
+                  (json.dumps({"measured": 1, "n_last": 1, "hit_last": 1.0, "hit_rate": 1.0}),))
+        k.execute("INSERT INTO kols (handle, score, stats) VALUES ('tg:proven', 30, ?)",
+                  (json.dumps({"measured": 40, "n_last": 40, "hit_last": 0.35, "hit_rate": 0.35}),))
+        k.commit()
+        old = izvori.HERE
+        izvori.HERE = d
+        try:
+            _, body = izvori.page({})
+        finally:
+            izvori.HERE = old
+        sec = body[body.index("id=kanali"):body.index("Zadnje Telegram objave")]
+        self.assertNotIn("100%", sec)
+        self.assertIn("premalo", sec)
+        self.assertIn("35%", sec)
+        self.assertLess(sec.index("proven"), sec.index("lucky"))  # enough data goes on top, even if older
+
+    def test_history_table_uses_last_50_and_min_sample(self):
+        from ui import kolsummary
+        h = kolsummary.tg_history_html()
+        self.assertIn("zadnjih 50 poziva", h)
+        self.assertIn("Zadnjih poziva", h)
+
+
 if __name__ == "__main__":
     unittest.main()

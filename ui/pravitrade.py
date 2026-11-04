@@ -235,14 +235,14 @@ def _wallet_card(tcon, cfg, con, owner):
 def _today(tcon, cfg):
     now = time.time()
     mode = "live" if executor.is_live(cfg) else "dry"
-    start = executor._day_start(now)
+    start = executor._day_start(now, cfg.get("day_tz"))
     spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
-                         "('open','closed')", (mode, start)).fetchone()[0]
-    pnl = executor.day_pnl(tcon, now, mode)
+                         "('open','closed','pending')", (mode, start)).fetchone()[0]
+    pnl = executor.day_pnl(tcon, now, mode, cfg.get("day_tz"))
     if not spent and not pnl:
         return ""
     word = "pravo" if mode == "live" else "probno"
-    return (f'<p class=ap-day>Danas ({word}): potrošeno {spent:.3f} od {cfg["max_sol_per_day"]:g} SOL · zatvoreno '
+    return (f'<p class=ap-day>Danas ({word}): potrošeno {spent:.3f} od {cfg["max_sol_per_day"]:g} SOL · rezultat (uz sve naknade) '
             f'<span class="{"pos" if pnl > 0 else "neg" if pnl < 0 else ""}">{pnl:+.4f} SOL</span></p>')
 
 
@@ -529,7 +529,11 @@ def _limits(cfg, owner):
         return _sec("Limiti", meta, f"<ul style='margin:0;padding-left:18px'>{items}</ul>", sid="limiti")
     fields = "".join(f'<label>{esc(lab)} <input name={k} value="{cfg.get(k, "")}" inputmode=decimal></label>'
                      for k, (lab, *_rest) in settings.LIMITS.items())
-    box = ('<label style="justify-content:flex-start"><input type=checkbox name={k} value=1{c}> {t}</label>').format
+    def box(k, c, t):
+        if k in settings.LOCKED:   # audit 4.11.: greyed out with the reason, the server ignores it anyway
+            return (f'<label style="justify-content:flex-start;opacity:.6"><input type=checkbox disabled> {t}'
+                    f'<br><span class=mut style="font-size:12px">🔒 {esc(settings.LOCKED[k])}</span></label>')
+        return f'<label style="justify-content:flex-start"><input type=checkbox name={k} value=1{c}> {t}</label>'
     extra = (box(k="follow_paper", c=" checked" if cfg.get("follow_paper") else "",
                  t="prati i demo strategiju bota (uz influencere i wallete gore)")
              + box(k="use_pump", c=" checked" if cfg.get("use_pump", True) else "",
@@ -538,7 +542,8 @@ def _limits(cfg, owner):
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim>{fields}{extra}'
              '<p class=mut style="font-size:13px">Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili '
-             'dnevni gubitak, nove kupnje staju do ponoći (UTC); prodaje idu dalje.</p><button>Spremi limite</button></form>')
+             'dnevni gubitak, nove kupnje staju do ponoći (po zagrebačkom vremenu); prodaje idu dalje. Dnevni gubitak uključuje i naknade '
+             'neuspjelih pokušaja.</p><button>Spremi limite</button></form>')
     return _sec("Limiti", meta, inner, sid="limiti")
 
 
@@ -643,13 +648,13 @@ def _warnings(tcon, cfg, con):
                                   f"prodaju {executor.reserve_sol(cfg, n_open_live + 1):.4f}). Bot neće kupovati, "
                                   "prodaje rade."))
     mode = "live" if executor.is_live(cfg) else "dry"
-    start = executor._day_start(now)
+    start = executor._day_start(now, cfg.get("day_tz"))
     spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
-                         "('open','closed')", (mode, start)).fetchone()[0]
+                         "('open','closed','pending')", (mode, start)).fetchone()[0]
     if spent >= cfg["max_sol_per_day"] - 1e-9:
-        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({spent:.3f} SOL): nove kupnje tek nakon ponoći (UTC)."))
-    if executor.day_pnl(tcon, now, mode) <= -cfg["max_loss_day"]:
-        w.append(("bad", f"Dnevni gubitak je dosegnuo -{cfg['max_loss_day']:g} SOL: nove kupnje stoje do ponoći (UTC)."))
+        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({spent:.3f} SOL): nove kupnje tek nakon ponoći (Zagreb)."))
+    if executor.day_pnl(tcon, now, mode, cfg.get("day_tz")) <= -cfg["max_loss_day"]:
+        w.append(("bad", f"Dnevni gubitak je dosegnuo -{cfg['max_loss_day']:g} SOL: nove kupnje stoje do ponoći (Zagreb). Uključene su i naknade neuspjelih pokušaja."))
     recent = tcon.execute("SELECT code, error, prio_lamports, status FROM orders WHERE ts>=? ORDER BY id DESC LIMIT 30",
                           (now - 1800,)).fetchall()
     landed_fail = sum(1 for c, *_ in recent if c in (-1000, -1005, -1006, -2000))

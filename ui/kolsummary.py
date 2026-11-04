@@ -4,7 +4,7 @@ import json
 import statistics
 
 from kol import shillers, together
-from ui.html import badge, esc, num, table, tdesc, tip
+from ui.html import badge, esc, lead as _lead, num, table, tdesc, tip
 
 FEE = 0.02   # buy + sell fee and slippage, roughly, for the "na $100" line
 
@@ -217,7 +217,8 @@ def together_html(con, cfg, tog=None):
         lead = (f"{_link(c['leader'])} ({c['lead_share']:.0%})" if c["leader"] else "–")
         rows.append([what + tag, (mem, "", "wrap"), num(len(c["members"])), num(c["tokens"]), lead,
                      _cell(st["hit"]), _cell(st["rug"]), (f"{c['best_lift']:.0f}×", c["best_lift"], "n")])
-    out.append("<h3>Ekipe koje stalno zovu zajedno</h3>" + tdesc(
+    out.append("<h3>Ekipe koje stalno zovu zajedno</h3>" + _lead(
+        "Računi koji puno češće nego slučajno zovu iste tokene. Prati ih ili izbjegavaj piše u prvom stupcu.") + tdesc(
         "Računi koji zovu iste tokene puno češće nego što bi dala slučajnost (test slučajnosti na parovima). "
         "Prvi = tko najčešće zove prvi; njega vrijedi pratiti. Prati ih = više od pola tokena se udvostruči, malo rugova. "
         "Izbjegavaj = puno rugova ili rijetko rastu (često plaćena kampanja).")
@@ -316,6 +317,9 @@ def _mc(x):
     return (txt, x, "n")
 
 
+TG_MIN = 10  # fewer calls than this: no percentage (1 of 1 = 100% is luck)
+
+
 def tg_history_html():
     """Telegram callers over the last 6 months from Nicholas's Call Analyser + SpyDefi exports (kol/tg_history.json)."""
     import os
@@ -331,33 +335,47 @@ def tg_history_html():
     if not rows:
         return ""
     now = time.time()
-    ok = [r for r in rows if r["calls"] >= 10]
-    med = statistics.median(r["hit2"] for r in ok) if ok else None
-    top = [r for r in ok if r["last"] >= now - 30 * 86400][:5]
-    lines = [f"{len(rows)} Telegram kanala s barem 5 poziva; tipičan kanal udvostruči {_p(med)} poziva."]
+    n50 = lambda r: r.get("n50", r["calls"])
+    h2 = lambda r: r["hit2_50"] if r.get("hit2_50") is not None else r["hit2"]
+    h5 = lambda r: r["hit5_50"] if r.get("hit5_50") is not None else r["hit5"]
+    def lo(r):  # Wilson lower bound: 7 of 11 does not outrank 29 of 50
+        n, p = n50(r), h2(r)
+        z = 1.64
+        return (p + z * z / (2 * n) - z * ((p * (1 - p) + z * z / (4 * n)) / n) ** 0.5) / (1 + z * z / n) if n else 0
+    rows = sorted(rows, key=lambda r: (n50(r) < TG_MIN, -lo(r) if n50(r) >= TG_MIN else -n50(r)))
+    ok = [r for r in rows if n50(r) >= TG_MIN]
+    med = statistics.median(h2(r) for r in ok) if ok else None
+    top = [r for r in ok if r["last"] >= now - 30 * 86400 and n50(r) >= 20][:5]
+    lines = [f"{len(ok)} Telegram kanala ima barem {TG_MIN} poziva; tipičan od njih udvostruči {_p(med)} "
+             f"zadnjih poziva. Kanali s manje poziva nemaju postotak, jer bi bio slučajan."]
     if top:
-        lines.append("Najbolji aktivni: " + ", ".join(f"{_link('tg:' + r['chan'])} ({_p(r['hit2'])} od {r['calls']})"
-                                                     for r in top) + ".")
-    out = ["<h2 id=tgpovijest>Telegram calleri: zadnjih 6 mjeseci</h2>", tdesc(
+        lines.append("Najbolji aktivni (barem 20 poziva): " + ", ".join(
+            f"{_link('tg:' + r['chan'])} ({_p(h2(r))} od {n50(r)})" for r in top) + ".")
+    out = ["<h2 id=tgpovijest>Telegram calleri: zadnjih 50 poziva</h2>", tdesc(
         "Iz tvojih izvoza: Call Analyser bilježi svaki poziv kanala (CA i mcap u trenutku poziva), a SpyDefi koliko je "
-        "puta token narastao od poziva. Spojeno dobijemo koliko poziva svakog kanala je otišlo barem 2× i 5×. To je "
-        "vrh nakon poziva, ne nužno zarada: tko kupi kasno ili ne proda na vrhu, dobije manje. Samo kanali koje oba "
-        "izvora prate; zadnjih 30 dana aktivni se sad čitaju uživo i mjere kao svi ostali."),
+        "puta token narastao od poziva. Za svaki kanal gledamo njegovih zadnjih 50 poziva (u zadnjih 6 mjeseci) i koliko "
+        "ih je otišlo barem 2× i 5×. To je vrh nakon poziva, ne nužno zarada: tko kupi kasno ili ne proda na vrhu, "
+        f"dobije manje. Postotak pokazujemo tek od {TG_MIN} poziva. Samo kanali koje oba izvora prate; zadnjih 30 dana "
+        "aktivni se sad čitaju uživo i mjere kao svi ostali."),
            "<ul class=uc-ul>" + "".join(f"<li>{x}</li>" for x in lines) + "</ul>"]
     data = []
     for r in rows:
-        if r["calls"] >= 20 and r["hit2"] >= 0.4:
+        n = n50(r)
+        few = n < TG_MIN
+        if few:
+            v = badge("premalo poziva", "")
+        elif n >= 20 and h2(r) >= 0.4:
             v = badge("jak", "good")
-        elif r["calls"] < 10:
-            v = badge("malo poziva", "")
-        elif r["hit2"] < 0.15:
+        elif h2(r) < 0.15:
             v = badge("slab", "bad")
         else:
             v = badge("prosječan", "warn")
         act = badge("aktivan", "good") if r["last"] >= now - 30 * 86400 else badge("utihnuo", "")
-        data.append([v, _link("tg:" + r["chan"]), num(r["calls"]), _cell(r["hit2"]), _cell(r["hit5"]),
+        pct = (lambda x: ("–", -1, "n")) if few else _cell
+        data.append([v, _link("tg:" + r["chan"]), num(n), pct(h2(r)), pct(h5(r)), num(r["calls"]),
                      (f"{r['max_x']:.0f}×", r["max_x"], "n"), _mc(r.get("med_mcap")), act,
                      ago(r["last"])])
-    out.append(table(["Ocjena", "Kanal", ("Poziva", "n"), ("Barem 2×", "n"), ("Barem 5×", "n"), ("Najviše", "n"),
-                      ("Mcap u pozivu", "n"), "Stanje", "Zadnji poziv"], data, tid="ktghist"))
+    out.append(table(["Ocjena", "Kanal", ("Zadnjih poziva", "n"), ("Barem 2×", "n"), ("Barem 5×", "n"),
+                      ("Poziva u 6 mj.", "n"), ("Najviše", "n"), ("Mcap u pozivu", "n"), "Stanje", "Zadnji poziv"],
+                     data, tid="ktghist"))
     return "".join(out)

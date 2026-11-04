@@ -130,8 +130,8 @@ def check_password(name, pw):
 
 
 def validate_new(new, new2):
-    if len(new or "") < 6:
-        raise ValueError("nova lozinka mora imati barem 6 znakova.")
+    if len(new or "") < 12:
+        raise ValueError("nova lozinka mora imati barem 12 znakova.")
     if len(new) > 200:
         raise ValueError("nova lozinka je preduga.")
     if new != new2:

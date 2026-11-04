@@ -71,6 +71,10 @@ class Learn(unittest.TestCase):
         base = {k: 10.0 for k in FEATS}
         rep = fit.run(self.con, now=NOW, apply=True, base=base)
         by = {r["klasa"]: r for r in rep}
+        self.assertIn("nedovoljno podataka", by["event"]["note"])   # cilj zarada, no shadow book: no peak fallback
+        self.assertEqual(by["event"]["cilj"], "nedovoljno")
+        rep = fit.run(self.con, cfg={**outcomes.config(), "cilj": "vrh"}, now=NOW, apply=True, base=base)
+        by = {r["klasa"]: r for r in rep}
         self.assertIn("premalo", by["event"]["note"])
         for k in ("moonshot", "rizican"):
             r = by[k]
@@ -79,6 +83,8 @@ class Learn(unittest.TestCase):
         # with a lower bar the fit runs and moves smart_money up
         cfg = outcomes.config()
         cfg["min_rows"] = 100
+        cfg["cilj"] = "vrh"          # the old peak target, still available when chosen by name
+        cfg["purge_h"] = 0           # synthetic rows sit within a few hours: no label window to purge
         rep = fit.run(self.con, cfg=cfg, now=NOW, apply=True, base=base)
         r = {x["klasa"]: x for x in rep}["moonshot"]
         self.assertIsNotNone(r["new"])

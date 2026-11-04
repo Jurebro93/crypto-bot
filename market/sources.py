@@ -45,6 +45,24 @@ def sol_prices(days=120):
     return [(int(p["timestamp"]), float(p["price"])) for p in pts]
 
 
+BTC_PRICES = "https://coins.llama.fi/chart/coingecko:bitcoin"
+FNG = "https://api.alternative.me/fng/"   # free, keyless; attribution "Fear & Greed: alternative.me" required
+
+
+def btc_prices(days=120):
+    """[(unix_ts, usd)] one per day, oldest first (same free DefiLlama call as SOL). Audit 4.11. §15."""
+    data = http.get_json(BTC_PRICES, {"span": days, "period": "1d"}, ttl=1800)
+    pts = (data.get("coins") or {}).get("coingecko:bitcoin", {}).get("prices") or []
+    return [(int(p["timestamp"]), float(p["price"])) for p in pts]
+
+
+def fear_greed(limit=0):
+    """[(unix_ts, value 0-100, label)] daily Crypto Fear & Greed (BTC-centred), oldest first. limit=0 = since 2018."""
+    data = http.get_json(FNG, {"limit": limit, "format": "json"}, ttl=3600)
+    out = [(int(x["timestamp"]), int(x["value"]), x.get("value_classification") or "") for x in data.get("data") or []]
+    return sorted(out)
+
+
 def protocols(ov):
     """slug -> (name, category, group) for the protocols we keep (the groups above)."""
     out = {}

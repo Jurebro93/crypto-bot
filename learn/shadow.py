@@ -127,11 +127,10 @@ def collect(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
                 p = EVENT_POINT.get(point)
                 if not p:
                     continue
-                if token not in sym:
-                    r = h.execute("SELECT symbol, liquidity FROM hype_signals WHERE token=? ORDER BY ts DESC LIMIT 1",
-                                  (token,)).fetchone()
-                    sym[token] = r or (None, None)
-                add(f"{p}:{token}", token, sym[token][0], p, ts, price, sym[token][1], mcap, score, feats)
+                # liquidity as known AT the event (audit 4.11. C06: was the newest value, also from after it)
+                r = h.execute("SELECT symbol, liquidity FROM hype_signals WHERE token=? AND ts<=? ORDER BY ts DESC "
+                              "LIMIT 1", (token, ts)).fetchone() or (None, None)
+                add(f"{p}:{token}", token, r[0], p, ts, price, r[1], mcap, score, feats)
         except sqlite3.OperationalError as e:
             print(f"shadow: hype.db: {e}")
         finally:

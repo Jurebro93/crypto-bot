@@ -566,7 +566,14 @@ ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert
              "margin:0 0 12px;border-radius:10px;background:var(--soft);color:var(--fg);text-decoration:none}"
              ".novo-bar span{flex:1;min-width:0}.novo-bar u{text-decoration:none;font-weight:600;white-space:nowrap}"
              ".nomail{background:#fff7e6;border-color:#f5d08a;margin:0 0 14px}.nomail a{font-weight:600}")
-ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
+ADMIN_JS = (# 4.11. audit: every POST form carries the login-bound token from cookie cb_csrf (server checks it for
+            # money, roles and settings); added on load and again on submit for forms made later
+            "(function(){function t(f){var m=/(^|; )cb_csrf=(\\w+)/.exec(document.cookie);"
+            "if(!m||!f||(f.getAttribute('method')||'').toLowerCase()!=='post'||f.querySelector('input[name=_csrf]'))return;"
+            "var i=document.createElement('input');i.type='hidden';i.name='_csrf';i.value=m[2];f.appendChild(i)}"
+            "document.addEventListener('submit',function(e){t(e.target)},true);"
+            "document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('form').forEach(t)})})();"
+            "if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
             "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
             "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
             "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
@@ -662,6 +669,12 @@ def tdesc(text):
     """Was a "what this table covers" line above every table. Removed (2.11.): the heading and the column ⓘ say it,
     the explanation lives in the Pojmovnik. Kept as a no-op so old calls keep working; don't add new ones."""
     return ""
+
+
+def lead(text):
+    """One visible plain-language line under a heading: what the table shows (4.11.: Nicholas found the tables unclear
+    after tdesc became a no-op). Keep it to one sentence."""
+    return f'<p class="mut tlead" style="margin:0 0 10px;font-size:13px;line-height:1.45">{esc(text)}</p>'
 
 
 def tip(text, k=None, label=None):

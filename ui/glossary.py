@@ -80,7 +80,7 @@ T("Likvidnost", "osnove", "Koliko je novca u bazenu (poolu) iz kojeg se kupuje i
   "Token s $5k likvidnosti: prodaja za $500 može sama srušiti cijenu 10%.",
   vidi=["slippage", "rug", "mcap"], alias=["likv", "liquidity", "liq"])
 T("Volumen", "osnove", "Koliko se dolara tokenom trgovalo u nekom razdoblju (kupnje + prodaje).",
-  "Volumen pokazuje koliko ljudi stvarno trguje. Rast cijene bez volumena je sumnjiv; rast uz velik volumen znači pravi "
+  "Volumen je promet (kupnje i prodaje zajedno), ne neto priljev novca: velik volumen može biti i val prodaje. Pokazuje koliko ljudi stvarno trguje. Rast cijene bez volumena je sumnjiv; rast uz velik volumen znači pravi "
   "interes. Alat posebno gleda volumen sat prije i sat poslije KOL posta, da vidi koliko je post doveo kupaca.",
   "$200k volumena u 24 h na tokenu od $1M mcapa je živ token.",
   vidi=["volumen-x", "likvidnost"], alias=["volume", "volumen 24 h"])
@@ -95,8 +95,7 @@ T("Wallet", "osnove", "Novčanik na blockchainu (npr. Phantom). Ima javnu adresu
   vidi=["smart-money", "copy-ocjena", "kol-novcanik"], gdje=[("/wallets", "Novčanici")],
   alias=["novčanik", "novčanici", "walleti", "adresa"])
 T("SOL", "osnove", "Kriptovaluta Solana mreže. Njome se plaćaju tokeni i naknade.",
-  "Novčanici kupuju tokene za SOL, pa su zarade novčanika u alatu izražene u SOL-u. Jedan SOL vrijedi oko $150-250 (mijenja "
-  "se). Na stranici Dugoročni tokeni se uspoređuju sa SOL-om: token koji ne raste brže od SOL-a nije vrijedan rizika.",
+  "Novčanici kupuju tokene za SOL, pa su zarade novčanika u alatu izražene u SOL-u. Cijena SOL-a se stalno mijenja, alat je uzima uživo. Na stranici Dugoročni tokeni se uspoređuju sa SOL-om: token koji ne raste brže od SOL-a nije vrijedan rizika.",
   alias=["solana"])
 T("DEX", "osnove", "Mjenjačnica na blockchainu bez posrednika (Raydium, Meteora, Jupiter…).",
   "Na DEX-u trguješ izravno iz svog novčanika. Suprotno je CEX: burza poput Binancea gdje novac držiš kod njih. Novi "
@@ -209,8 +208,12 @@ T("Smart money", "osnove", "Novčanici s dokazanom poviješću zarade: često su
   "Alat ocjenjuje tisuće novčanika po stvarnoj zaradi. Kad se više takvih pojavi među prvim kupcima novog tokena, to je "
   "jedan od jačih signala.", vidi=["ocjena-profitabilnosti", "konvergencija"], alias=["smart wallet", "smart walleti"])
 T("Mint authority", "osnove", "Pravo tvorca da napravi još tokena kad hoće.",
-  "Ako je aktivno, tvorac može 'naštampati' milijune novih tokena i prodati ih, pa cijena pada u nulu. Zato token s aktivnim "
-  "mint ili freeze pravom odmah pada na prvom situ (T0).", vidi=["t0", "rug-filter"], alias=["freeze authority", "mint", "freeze"])
+  "Ako je aktivno, tvorac može 'naštampati' milijune novih tokena i prodati ih, pa cijena pada u nulu. To nije isto što "
+  "freeze authority (vidi ispod). Token s bilo kojim od ta dva aktivna prava odmah pada na prvom situ (T0).",
+  vidi=["t0", "rug-filter", "freeze-authority"], alias=["mint"])
+T("Freeze authority", "osnove", "Pravo tvorca da zamrzne tokene u tvom novčaniku, pa ih ne možeš prodati.",
+  "Drugo pravo od mint authorityja: ne stvara nove tokene, nego blokira postojeće. Oba prava moraju biti ugašena da token "
+  "prođe T0.", vidi=["mint-authority", "honeypot"], alias=["freeze"])
 T("Rug check", "ocjene", "Obavezna svježa provjera svakog preporučenog tokena: može li tvorac izvući novac ili te zaključati.",
   "Za prvih 20 prijedloga alat svakih 3 minute gleda: je li mint i freeze authority ugašen, je li LP zaključan ili spaljen, "
   "koliko drže top 10 holdera (bez poolova) i dev, je li token honeypot (testna prodaja preko Jupitera) i pun rug filter "
@@ -220,8 +223,14 @@ T("Rug check", "ocjene", "Obavezna svježa provjera svakog preporučenog tokena:
   alias=["rug provjera", "✓ rug check", "⚠ oprez", "✗ pao na rug checku"])
 T("Honeypot", "osnove", "Token koji možeš kupiti, ali ne i prodati (ili ti prodaja pojede većinu vrijednosti).",
   "Tvorac ugradi zamku: porez na prijenos, zamrzavanje računa ili pravo da ti uzme tokene. Alat to provjerava tako da od "
-  "Jupitera traži cijenu za testnu prodaju $25 tokena: ako se vrati manje od pola vrijednosti, token pada na rug checku.",
-  vidi=["rug-check"], alias=["honeypot test", "testna prodaja"])
+  "Jupitera traži ponudu (quote) za prodaju $25 tokena: ako se vrati manje od pola vrijednosti, token pada na rug checku. "
+  "Ponuda nije izvršena prodaja: smanjuje rizik, ali ne jamči da će stvarna prodaja proći.",
+  vidi=["rug-check", "simulacija-prodaje"], alias=["honeypot test", "testna prodaja"])
+T("Simulacija prodaje", "osnove", "Prije svake prave kupnje alat traži ponudu za kupnju pa odmah za prodaju istog iznosa natrag u SOL.",
+  "Ako nema rute za prodaju ili bi se vratilo manje od dopuštenog (gubitak veći od dvostrukog dopuštenog troška), kupnja se "
+  "odbija bez obzira na ocjenu. Ponuda nije izvršena transakcija, pa ni ovo nije jamstvo.",
+  "Kupnja 0,1 SOL, natrag bi se vratilo 0,07 SOL (−30%) → kupnja odbijena.", vidi=["honeypot", "autopilot"],
+  alias=["provjera prodaje", "sell check"])
 T("LP zaključan", "osnove", "Likvidnost (LP) je zaključana ili spaljena pa je tvorac ne može izvući iz poola.",
   "Ako LP nije zaključan, tvorac jednim potezom povuče sav novac iz poola i token ostane bez kupaca (klasičan rug pull). "
   "Na pump.fun krivulji i nakon graduacije to se događa automatski. Ispod 20% zaključanog LP-a token pada na rug checku.",
@@ -253,7 +262,8 @@ T("Medijan", "osnove", "Srednja vrijednost kad se svi brojevi poredaju: polovica
   "Koristimo medijan umjesto prosjeka jer jedan token koji naraste 100× ne smije izgledati kao da KOL uvijek pogađa.",
   "Pozivi +5%, +10%, +900%: prosjek je +305%, a medijan +10%, što je poštenija slika.", alias=["medijana"])
 T("Korelacija", "osnove", "Broj od −1 do +1 koji kaže idu li dvije stvari zajedno.",
-  "+1: kad jedno raste, raste i drugo. 0: nema veze. −1: obrnuto. Između −0,15 i +0,15 je to praktički slučajnost.",
+  "+1: kad jedno raste, raste i drugo. 0: nema pravocrtne veze (može postojati drukčija, npr. samo na vrhu). −1: obrnuto. "
+  "Između −0,15 i +0,15 je praktički slučajnost. Korelacija nije dokaz da jedno uzrokuje drugo ni da signal stiže na vrijeme.",
   alias=["korelacija s max 24 h", "spearmanova korelacija"])
 T("UTC", "osnove", "Svjetsko vrijeme. Kod nas je zimi UTC+1, ljeti UTC+2.",
   "Neke tablice pokazuju vrijeme u UTC jer tako rade izvori podataka. 14:00 UTC je zimi 15:00 u Zagrebu.")
@@ -274,7 +284,7 @@ T("Hype ocjena", "ocjene", "0-100: koliko je pažnje token upravo dobio (volumen
   "Hype 72 = token je jedan od najglasnijih u zadnjem skenu.",
   vidi=["confidence", "sansa-za-skok", "signal", "tezina"], gdje=[("/radar", "Zadnji sken"), ("/learn", "Učenje")],
   alias=["hype", "hype max", "hype ≥ 50", "zadnji hype"])
-T("Confidence", "ocjene", "0-100: koliko alat vjeruje da će token napraviti skok svoje klase.",
+T("Confidence", "ocjene", "0-100 bodova: koliko alat vjeruje da će token napraviti skok svoje klase. To nije postotak ni vjerojatnost zarade.",
   "Počinje od hype ocjene, pa dodaje bodove za neovisne potvrde (X buzz, smart money, KOL, prolaz rug filtera) i oduzima za "
   "rizike. Kad alat skupi barem 200 ishoda, sam nauči koliko koja činjenica stvarno vrijedi. 55+ je visoka, 35-55 srednja, "
   "ispod 35 niska. Tokeni s niskim confidenceom se ne prikazuju.",
@@ -293,7 +303,7 @@ T("Razred market capa", "ocjene", "Raspon vrijednosti tokena pri ulazu: ispod 50
   "raspon mjeri zasebno, a raspon koji gubi sam dobiva sve manje ulaza (nikad nula, da se vidi ako se popravi). U tokene "
   "ispod 20k $ demo više ne ulazi.", vidi=["mcap", "aktivni-stariji-tokeni"], gdje=[("/paper", "Demo trading")],
   alias=["market cap razred", "po veličini tokena", "raspon market capa"])
-T("Šansa za skok", "ocjene", "0-100: confidence prilagođen tome koliko je neovisnih provjera token prošao.",
+T("Šansa za skok", "ocjene", "0-100 bodova: confidence prilagođen tome koliko je neovisnih provjera token prošao. Nije vjerojatnost: Šansa 60 ne znači 60% izgleda za zaradu.",
   "Token kojeg su pogledale sve analize i koji ih je prošao dobiva punu šansu; token koji je samo glasan, a ništa nije "
   "provjereno, dobiva manje. Neanalizirani sloj se ne računa kao prolaz, a svaki pad provjere oduzima. Po Šansi su poredani "
   "Pregled i Svi tokeni.", "Confidence 70, provjereno 4 od 7 slojeva, ništa nije palo → Šansa oko 55.",
@@ -389,7 +399,7 @@ T("Šansa za token", "eventi", "0-1: procjena koliko je vjerojatno da će netko 
   "0,05), pa dodaje za vezu s kripto publikom, meme riječi u naslovu, nagli skok interesa i puno vijesti. 0,45 znači "
   "otprilike 45% šanse, tj. skoro svaki drugi takav događaj dobije token.",
   "Trump oklada: vrsta 0,15 + veza s kriptom 0,30 = 0,45.", vidi=["event", "hype-eventa"])
-T("Pravi token", "eventi", "Najbolje ocijenjeni token za neki događaj (★). Ostali tokeni istog imena su kopije.",
+T("Pravi token", "eventi", "Najbolje podudaranje teme za neki događaj (★); nije potvrda da je token službeni.",
   "Za svaki event alat traži sve tokene s ključnim riječima i ocjenjuje ih (starost, likvidnost, volumen, društvene mreže). "
   "Kopije su najčešće prevare koje parazitiraju na imenu.", vidi=["event"], alias=["kopija", "★", "tokeni (★ = pravi)", "uloga"])
 T("Ključne riječi", "eventi", "Riječi po kojima alat traži tokene za događaj (npr. TRUMP, STARSHIP).")
@@ -559,15 +569,20 @@ T("Bot račun", "kol", "Automatski ili promo račun koji objavljuje svaki novi t
   alias=["bot", "automatska objava"])
 T("Zona", "kol", "Procjena vremenske zone KOL-a iz sati kad objavljuje (najtiših 6 h je njegova noć).")
 T("Usporedba strategija", "trading", "Pet demo računa po $1000, svaki kupuje iz drugog izvora, svi prodaju po istim pravilima.",
-  "Računi: praćeni novčanici, KOL pozivi, izbor alata, mix i nasumična kontrola. Jer su izlazi isti, razlika u zaradi "
-  "dolazi samo od toga odakle je kupnja došla. Pobjednik pokazuje kojem izvoru vjerovati.",
-  vidi=["kontrolna-strategija", "mix-strategija"], gdje=[("/strategije", "Usporedba strategija")],
+  "Računi (od 4.11.): top novčanici, KOL pozivi i izbor alata podijeljen na male (do 200k $), srednje (200k–1M $) i "
+  "velike tokene (preko 1M $). Mix i nasumična kontrola su isključeni. Jer su izlazi isti, razlika u zaradi dolazi samo "
+  "od toga odakle je kupnja došla. Pobjednik pokazuje kojem izvoru vjerovati.",
+  vidi=["top-novcanici", "razred-market-capa"], gdje=[("/strategije", "Usporedba strategija")],
   alias=["strategije", "5 budžeta", "pet računa"])
+T("Top novčanici", "trading", "Demo račun koji kopira samo 10 najboljih praćenih KOL novčanika.",
+  "Najbolji = novčanici čije su kupnje, kad smo ih kopirali s istim pravilima izlaza, prosječno najviše zaradile (barem 3 "
+  "zatvorena tradea i prosjek u plusu). Novi novčanik kopiramo dok ne skupi 3 tradea; izmjereni novčanik koji nije u "
+  "vrhu više ne kopiramo.", gdje=[("/strategije", "Usporedba strategija")], alias=["top novcanici", "praćeni novčanici"])
 T("Kontrolna strategija", "trading", "Demo račun koji kupuje nasumične tokene. Mjerilo čiste sreće.",
   "Ako neka strategija ne zarađuje više od nasumičnog izbora, njen izvor ne donosi prednost. Znanstvenici to zovu "
-  "kontrolna grupa.", gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično (kontrolna)", "nasumično", "kontrola"])
+  "kontrolna grupa. Isključena 4.11.", gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično (kontrolna)", "nasumično", "kontrola"])
 T("Mix strategija", "trading", "Kupi tek kad barem dva od tri izvora (novčanici, KOL-ovi, ocjena alata) javi isti token unutar sat vremena.",
-  "Manje ulaza, ali svaki ima potvrdu iz dva neovisna smjera.", gdje=[("/strategije", "Usporedba strategija")],
+  "Manje ulaza, ali svaki ima potvrdu iz dva neovisna smjera. Isključena 4.11.", gdje=[("/strategije", "Usporedba strategija")],
   alias=["mix"])
 T("Vrijednost računa", "trading", "Slobodan novac + otvorene pozicije kao da ih prodaš sada (s troškom i klizanjem cijene).",
   gdje=[("/strategije", "Usporedba strategija")])
@@ -814,3 +829,41 @@ def page_key(path):
 def all_terms():
     index()
     return list(TERMS.values())
+
+
+# ---------------------------------------------------------------- audit 4.11.
+T("Nejasan token", "osnove", "Objava spominje samo ticker, a tim imenom postoji više tokena; ne znamo koji je mislio.",
+  "Takva objava se ne broji kao poziv ni za jedan od tih tokena i ne ulazi u ocjenu KOL-a. Poziv se priznaje tek s "
+  "adresom (mintom), linkom ili drugom provjerljivom vezom.", "Objava „$DOG ide gore” bez linka, a postoje tri DOG "
+  "tokena → nejasan token.", vidi=["kol", "poziv"], alias=["nejasno", "ambiguous", "nejasan"])
+T("Sumnjiva cijena", "osnove", "Pool čija se cijena ne slaže s ostalim poolovima istog tokena ili daje nemoguć market cap.",
+  "Alat bira pool s pouzdanom valutom (SOL/USDC/USDT) i dovoljnom likvidnošću, a cijene više poolova moraju se slagati "
+  "unutar 3×. Token s neslaganjem ili mcapom iznad 200 mlrd $ ide van rangiranja dok se ne popravi.",
+  "PYTH: jedan mali pool javio je cijenu 1.000× veću od ostalih → sumnjivo, ne rangira se.", vidi=["likvidnost", "mcap"],
+  alias=["sumnjivo", "sumnjiv pool"])
+T("Kontrola strategija", "ocjene", "Nasumičan ulaz iz istog skenera, istih dana i s istim pravilima izlaza; mjerilo za strategije.",
+  "Strategija koja ne pobjeđuje kontrolu po tradeu nakon troškova nema prednost, ma koliko bila u plusu (tada je cijelo "
+  "tržište bilo dobro). Bez pobjede nad kontrolom nema statusa kandidat.", vidi=["kandidat", "koncentrirano", "kontrola"],
+  gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično", "kontrola (nasumično)", "baseline"], k="kontrola-strategija")
+T("Kandidat", "ocjene", "Strategija sa 100+ zatvorenih tradeova koja pobjeđuje kontrolu u obje polovice razdoblja i bez 5 najboljih tradeova.",
+  "Kandidat znači samo: vrijedi je dalje testirati. Nije dopuštenje za pravi novac. Ostali statusi: uči (manje od 100 "
+  "zatvorenih, nema presude) i ne diraj pravi novac.", vidi=["kontrola-strategija", "koncentrirano"],
+  gdje=[("/strategije", "Usporedba strategija")], alias=["uči", "ne diraj pravi novac", "status strategije"])
+T("Koncentrirano", "ocjene", "Rezultat u plusu koji nestaje kad se makne najbolji trade ili najbolji token.",
+  "Uz svaki rezultat alat pokazuje i rezultat bez najboljeg tradea, bez 5 najboljih i bez najboljeg tokena. Ako plus tada "
+  "nestane, strategija nije profitabilna nego je imala jedan sretan pogodak.",
+  "+3.468 $ ukupno, najbolji trade +3.524 $ → bez njega −56 $ → koncentrirano.", vidi=["kandidat"],
+  alias=["bez najboljeg tradea", "bez najboljeg tokena", "bez 5 najboljih"])
+T("Bez posuđivanja", "ocjene", "Isti demo tradeovi kao da račun od 1.000 $ ne smije u minus: trade za koji nema novca se preskače.",
+  "Istraživačka knjiga strategija smije ići ispod nule da bot uči na više tradeova; to nije pravi račun. Broj „bez "
+  "posuđivanja” pokazuje što bi ostalo s pravih 1.000 $.", vidi=["kandidat"], alias=["s pravih $1.000", "portfelj"])
+T("Postotni bodovi", "osnove", "Razlika dvaju postotaka: 57% prema 30% je +27 postotnih bodova, a ne +27%.",
+  "Relativno bi to bilo +90% (57/30). Alat razlike udjela piše u postotnim bodovima da se ne miješaju.",
+  alias=["pb", "postotna boda"])
+T("Bolji, ne trgujemo", "ocjene", "Novi model je bolji od starog, ali bi i dalje gubio novac, pa ne smije trgovati.",
+  "Usporedba sa starim modelom i dopuštenje za trgovanje su dvije odvojene provjere: za trgovanje prosjek i podrezani "
+  "prosjek moraju biti iznad nule i donja granica raspona (bootstrap) također.", vidi=["kandidat"],
+  gdje=[("/learn", "Učenje")], alias=["promocija", "trade_ok"])
+T("Nedovoljno podataka", "ocjene", "Za cilj „zarada” još nema dovoljno stvarnih ishoda (barem 100 po klasi), pa se ne uči.",
+  "Prije je model tada tiho učio na „najvišem rastu” pod istim imenom. Sada piše „nedovoljno podataka” dok se ishodi ne skupe.",
+  gdje=[("/learn", "Učenje")], alias=["cilj nedovoljno"])

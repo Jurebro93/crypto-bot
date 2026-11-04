@@ -1,8 +1,8 @@
-"""/strategije: five demo accounts of $1000 side by side (tracked wallets, KOL calls, the tool's picks, Mix, random
-control), same exit rules, so the page answers one question: which source of entries makes money."""
+"""/strategije: five demo accounts of $1000 side by side (top tracked wallets, KOL calls, the tool's picks split into
+small / mid / large market cap; Mix switched off 4.11., the random control kept as a baseline, audit R6), same exit rules, so the page answers one question: which source of entries makes money."""
 import time
 
-from ui.html import note, ago, esc, num, signed, table, tdesc, tlink
+from ui.html import note, ago, badge, esc, num, signed, table, tdesc, tlink
 
 COLORS = ["#4f46e5", "#0891b2", "#16a34a", "#d97706", "#94a3b8"]
 EXIT = {"stop_loss": "stop loss", "rug": "rug / nestao", "trailing": "prateći stop", "breakeven": "na ulaznoj cijeni",
@@ -82,8 +82,28 @@ def _card(s, rank, n, color):
             f'<div class=l>{medal} {rank}. od {n} · {esc(s["icon"])} <b>{esc(s["name"])}</b></div>'
             f'<div class="v {kind}">${s["value"]:,.0f} <small>({s["ret"]:+.1%})</small></div>'
             f'<div class=l>{s["closed"]} zatvoreno · {s["open"]} otvoreno · uspješnost {hit} · '
-            f'slobodno ${s["cash"]:,.0f}</div>'
+            f'slobodno ${s["cash"]:,.0f}</div>' + _robust_line(s) +
             f'<div class=l style="margin-top:4px">{esc(s["opis"])}</div></div>')
+
+
+STATUS_CLS = {"uci": "", "kandidat": "good", "ne_diraj": "bad", "kontrola": ""}
+
+
+def _robust_line(s):
+    """R7 + R6 + F01 under each card: status, result without the best trade / token, $1000 without borrowing."""
+    rb, st, pf = s.get("robust"), s.get("status"), s.get("portfolio")
+    if not rb or not st:
+        return ""
+    out = f'<div class=l style="margin-top:4px">{badge(st[1], STATUS_CLS.get(st[0], ""))} {esc(st[2])}</div>'
+    if rb["n"]:
+        conc = " · <b>koncentrirano</b>: plus ovisi o jednom tradeu/tokenu" if rb["concentrated"] else ""
+        m = lambda x: f'{"+" if x >= 0 else "−"}${abs(x):,.0f}'  # noqa: E731
+        out += (f'<div class=l>Zatvoreni bez najboljeg tradea: {m(rb["no_best"])} · bez 5 najboljih: '
+                f'{m(rb["no_top5"])} · bez najboljeg tokena: {m(rb["no_best_token"])}{conc}</div>')
+    if pf and (pf["taken"] or pf["skipped"]):
+        out += (f'<div class=l>S pravih $1.000 bez posuđivanja: ${pf["value"]:,.0f} ({pf["taken"]} tradeova, '
+                f'{pf["skipped"]} preskočeno jer nije bilo novca)</div>')
+    return out
 
 
 def natjecanje_block():
@@ -101,14 +121,14 @@ def natjecanje_block():
     finally:
         con.close()
     color = {s["key"]: COLORS[i % len(COLORS)] for i, s in enumerate(cfg["strategies"])}
-    order = sorted(summ, key=lambda s: -s["value"])
+    order = sorted((s for s in summ if not s.get("baseline")), key=lambda s: -s["value"])
     lead = order[0] if order and order[0]["closed"] else None
     total = sum(s["closed"] for s in summ)
     lim = ("bez ograničenja novca (račun smije u minus, pa vidimo i koliko bi izgubio)"
            if not cfg.get("cash_limit", True) else f"dok ima novca na računu")
     return ("<h2 id=strategije>🤖 Kako alat uči: 5 strategija</h2>"
             + tdesc(f"Alat trguje s pet odvojenih demo računa od ${cfg['bankroll_usd']:,.0f}: svaki kupuje iz drugog "
-                    f"izvora (novčanici, influenceri, izbor alata, Mix, nasumično), a svi prodaju po istim pravilima. "
+                    f"izvora (top novčanici, influenceri, izbor alata posebno za male, srednje i velike tokene), a svi prodaju po istim pravilima. "
                     f"Ulog ${cfg['size_usd']:.0f} po tradeu, {lim}. Tako se vidi koji tip tradeova stvarno zarađuje."
                     + (f" Zasad vodi <b>{esc(lead['icon'])} {esc(lead['name'])}</b> ({lead['ret']:+.1%})." if lead else "")
                     + (f" Zatvoreno ukupno {total}; pouzdana usporedba treba ~20 po strategiji." if total < 20 * len(summ)
@@ -150,10 +170,20 @@ def page(qs):
            else "") + f". Signal koji vidimo kasnije od "
         f"{cfg['max_delay_min']} min se preskače. Bez pravog novca. Radi od "
         f"{time.strftime('%d.%m. %H:%M', time.gmtime(start))} UTC ({days:.1f} dana)."))
-    order = sorted(summ, key=lambda s: -s["value"])
+    order = sorted((s for s in summ if not s.get("baseline")), key=lambda s: -s["value"])
     h.append("<div class=grid>" + "".join(_card(s, i + 1, len(order), color[s["key"]])
                                           for i, s in enumerate(order)) + "</div>")
     ctrl = next((s for s in summ if s["key"] == "kontrola"), None)
+    h.append(tdesc(
+        "<b>Statusi</b> (audit 4.11.): <b>uči</b> = manje od 100 zatvorenih tradeova, nema presude; <b>kandidat</b> = "
+        "po tradeu nakon troškova bolja od nasumičnog ulaza (kontrole) u obje polovice razdoblja i i bez 5 najboljih "
+        "tradeova, to znači samo daljnje testiranje; <b>ne diraj pravi novac</b> = sve ostalo. Uz svaki rezultat piše "
+        "i rezultat bez najboljeg tradea i tokena: ako plus tada nestane, rezultat je koncentriran, a ne profitabilan. "
+        "„S pravih $1.000 bez posuđivanja” = isti tradeovi kad račun ne smije u minus (trade za koji nema novca se "
+        "preskače); glavni broj iznad je istraživačka knjiga koja smije u minus da bot uči."))
+    if ctrl:
+        h.append("<div class=grid>" + _card(ctrl, 0, 0, color.get("kontrola", "#94a3b8")).replace("0. od 0 · ", "Mjerilo · ")
+                 + "</div>")
     total = sum(s["closed"] for s in summ)
     if total < 20 * len(summ):
         h.append(note(f"⏳ Još je rano: zatvoreno je {total} tradeova. Pouzdana usporedba treba barem ~20 zatvorenih "
@@ -204,9 +234,33 @@ def page(qs):
         h.append("<h2 id=preskoceno>Što nije kupljeno i zašto</h2>" + tdesc(
             "Signali koji su stigli, ali ih račun nije kupio (zadnjih 10 dana).")
                  + table(["Strategija", "Razlog", ("Broj", "n")], rows))
-    h.append(tdesc("Petu strategiju (nasumičnu kontrolu) možeš zamijeniti drugom, npr. samo top 10 KOL-ova ili samo "
-                   "Telegram kanali: napiši u Prijedlozi ili javi Claudeu."))
+    h.append(wallets_html(cfg))
     return "Usporedba strategija", "".join(h)
+
+
+def wallets_html(cfg):
+    """Which tracked wallets the "Top novčanici" account copies, by how our copies of them did (strat.run)."""
+    from strat import run, store
+    con = store.ro()
+    if con is None:
+        return ""
+    try:
+        rank = run.wallet_rank(con, cfg)
+        top, out = run.wallets_allowed(con, cfg)
+    finally:
+        con.close()
+    if not rank:
+        return ""
+    min_n = cfg.get("novcanici_min_n", 3)
+    rows = [[esc(w), num(n), _pct(m), signed(p, "${:+,.2f}"),
+             badge("kopira se (top)", "good") if w in top else badge("ne kopira se", "bad") if w in out
+             else badge("još se mjeri", "")] for w, n, m, p in rank]
+    return ("<h2 id=novcanici>Top novčanici: koje kopiramo</h2>" + tdesc(
+        f"Kopiramo samo {cfg.get('novcanici_top', 10)} najboljih praćenih novčanika: onih čije su kupnje, kad smo ih "
+        f"kopirali, prosječno najviše zaradile (barem {min_n} zatvorena tradea, prosjek u plusu, jedan trade najviše "
+        f"+300%). Novi novčanik se kopira dok ne skupi {min_n} tradea; izmjereni koji nije u vrhu više se ne kopira.")
+            + table(["Novčanik", ("Kopiranih tradeova", "n"), ("Prosjek po tradeu", "n"), ("Zarada", "n"), "Status"],
+                    rows))
 
 
 def report_data(now=None):
@@ -226,5 +280,6 @@ def report_data(now=None):
     if not any(x["closed"] + x["open"] for x in s):
         return None
     return [{"key": x["key"], "name": x["name"], "value": round(x["value"], 2), "ret": round(x["ret"], 4),
-             "closed": x["closed"], "open": x["open"], "hit": x["hit"], "pnl_24h": round(d1.get(x["key"], 0), 2)}
-            for x in sorted(s, key=lambda x: -x["value"])]
+             "closed": x["closed"], "open": x["open"], "hit": x["hit"], "pnl_24h": round(d1.get(x["key"], 0), 2),
+             "status": x["status"][1], "no_best": round(x["robust"]["no_best"], 2)}
+            for x in sorted((x for x in s if not x.get("baseline")), key=lambda x: -x["value"])]

@@ -59,7 +59,8 @@ class Strat(unittest.TestCase):
         r = self.step(T0 + 60)
         self.assertEqual(r["entered"], 3)
         got = {(p["strat"], p["token"]) for p in self.rows()}
-        self.assertEqual(got, {("novcanici", A), ("kol", B), ("alat", C)})
+        # price 1.0 x 1e6 supply = $1M market cap: only the large-cap band of the tool's picks buys it
+        self.assertEqual(got, {("top_novcanici", A), ("kol", B), ("alat_veliki", C)})
         for p in self.rows():
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
@@ -117,7 +118,7 @@ class Strat(unittest.TestCase):
             con.close()
         self.assertAlmostEqual(acc["kol"]["value"], 1000 + p["pnl_usd"], places=2)
         self.assertAlmostEqual(acc["kol"]["cash"], acc["kol"]["value"], places=2)
-        self.assertEqual(acc["novcanici"]["value"], 1000)
+        self.assertEqual(acc["top_novcanici"]["value"], 1000)
         self.assertEqual(summ["kol"]["closed"], 1)
         self.assertEqual(summ["kol"]["hit"], 0)
 
@@ -132,7 +133,7 @@ class Strat(unittest.TestCase):
         self.assertTrue(p["state"]["fills"])
         con = store.connect(self.db)
         try:
-            a = run.accounts(con, self.cfg, ex=EX)["alat"]
+            a = run.accounts(con, self.cfg, ex=EX)["alat_veliki"]
         finally:
             con.close()
         self.assertGreater(a["value"], 1040)
@@ -240,6 +241,34 @@ class Strat(unittest.TestCase):
         html = render.render(d, ai.fallback(d), "pravila")
         self.assertIn("Usporedba strategija", html)
         self.assertIn("/strategije", html)
+
+
+class TopWalletsAndBands(unittest.TestCase):
+    """Nicholas 4.11.: copy only the top proven wallets, tool's picks split by market cap."""
+
+    def test_wallet_ranking(self):
+        cfg = {**run.load_config(), "novcanici_top": 1, "novcanici_min_n": 3}
+        con = store.connect(":memory:")
+        for i, (who, ret) in enumerate([("novčanik @good", 0.5)] * 3 + [("novčanik @ok", 0.1)] * 3 +
+                                       [("novčanik @bad", -0.3)] * 3 + [("novčanik @new", -0.5)]):
+            con.execute("INSERT INTO positions (strat, token, why, status, ret, pnl_usd) VALUES "
+                        "('novcanici', ?, ?, 'closed', ?, ?)", (f"T{i}", who, ret, ret * 50))
+        top, out = run.wallets_allowed(con, cfg)
+        self.assertEqual(top, {"novčanik @good"})
+        self.assertEqual(out, {"novčanik @ok", "novčanik @bad"})   # measured, not top: no longer copied
+        src = {"novcanici": [(A, T0, "novčanik @bad", 0), (B, T0, "novčanik @new", 0), (C, T0, "novčanik @good", 0)]}
+        w = run.wanted(src, cfg, T0, 0, out)["top_novcanici"]
+        self.assertEqual([e[0] for e in w], [B, C])   # the new one is still being measured
+
+    def test_bands(self):
+        cfg = run.load_config()
+        self.assertTrue(run.band_of(cfg, "alat_mali", 150_000))
+        self.assertFalse(run.band_of(cfg, "alat_mali", 250_000))
+        self.assertTrue(run.band_of(cfg, "alat_srednji", 250_000))
+        self.assertTrue(run.band_of(cfg, "alat_veliki", 3e6))
+        self.assertTrue(run.band_of(cfg, "kol", 3e6))
+        self.assertNotIn("mix", run.keys(cfg))
+        self.assertIn("kontrola", run.keys(cfg))       # audit 4.11. R6: the random control is the baseline
 
 
 if __name__ == "__main__":

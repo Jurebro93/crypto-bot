@@ -48,7 +48,7 @@ def fill_shadow(path, start, days, per_day=120, seed=5, signal="smart"):
 class Gbm(unittest.TestCase):
     def test_learns_interaction_and_calibrates(self):
         rows = xor_rows()
-        m = gbm.train(rows[:1200], {"min_rows": 100})
+        m = gbm.train(rows[:1200], {"min_rows": 100, "purge_s": 0})
         self.assertIsNotNone(m)
         test = rows[1200:]
         hits = sum((gbm.predict(m, r["x"]) > 0.45) == r["y"] for r in test)
@@ -59,7 +59,7 @@ class Gbm(unittest.TestCase):
 
     def test_missing_feature_and_too_little_data(self):
         self.assertIsNone(gbm.train(xor_rows(50), {"min_rows": 100}))
-        m = gbm.train(xor_rows(), {"min_rows": 100})
+        m = gbm.train(xor_rows(), {"min_rows": 100, "purge_s": 0})
         self.assertTrue(0 <= gbm.predict(m, {}) <= 1)  # nothing measured: still a probability
         self.assertIn("log_mcap", gbm.context({"features": {"a": 1}, "mcap": 1e5, "point": "mc100k"}))
 

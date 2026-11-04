@@ -144,7 +144,7 @@ def score_one(con, wallet, max_pages=3, now=None, verbose=False):
     trades = wstore.trades(con, wallet, since=max(hist, now - 2 * LOOKBACK_D * 86400))
     pos = pnl.positions(trades)
     open_mints = [m for m, p in pos.items() if p["status"] == "open"]
-    prices, _ = pnl.prices_sol(open_mints, client) if open_mints else ({}, 150.0)
+    prices, _ = pnl.prices_sol(open_mints, client) if open_mints else ({}, None)
     pos = pnl.positions(trades, prices)
     s = pnl.score(pos, trades, now, wstore.labels(con, wallet))
     wins = {t for (t,) in con.execute("SELECT DISTINCT token FROM wallet_sightings WHERE wallet=? AND role IN "

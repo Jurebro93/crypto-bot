@@ -103,15 +103,22 @@ def gecko_top(pages, gap):
 
 
 def dex_best(mints):
-    """{mint: best-liquidity DexScreener pair} for many mints (30 per call, free)."""
-    best = {}
+    """{mint: DexScreener pair to believe} for many mints (30 per call, free). Not simply the biggest reported
+    liquidity any more (audit 4.11. F04/PYTH): dexscreener.client.pick_pool takes the most liquid SOL/USDC/USDT
+    pool that agrees with the median price; a conflict is put on the pair as p["sumnjivo"] (shown, not ranked)."""
+    by = {}
     for p in dex.tokens("solana", list(mints)):
         m = (p.get("baseToken") or {}).get("address")
-        if m not in mints:
+        if m in mints:
+            by.setdefault(m, []).append(p)
+    best = {}
+    for m, ps in by.items():
+        p, why = dex.pick_pool(ps)
+        if p is None:
             continue
-        liq = (p.get("liquidity") or {}).get("usd") or 0
-        if m not in best or liq > ((best[m].get("liquidity") or {}).get("usd") or 0):
-            best[m] = p
+        if why:
+            p = {**p, "sumnjivo": why}
+        best[m] = p
     return best
 
 

@@ -95,7 +95,7 @@ class ConfModel(unittest.TestCase):
         self.assertTrue(rec["applied"], rec["note"])
         self.assertGreater(rec["metric_new"], rec["metric_old"])
         m = confmodel.load()
-        self.assertEqual(m["n"], rec["n"])
+        self.assertTrue(0 < m["n"] < rec["n"])   # learned on the older (train) part only (C04)
         runs = store.runs(self.con, "confidence")
         self.assertEqual(len(runs), 2)
         # ui.confidence now uses the model and reports class-relative numbers

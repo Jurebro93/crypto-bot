@@ -30,6 +30,12 @@ def cmd_collect(a):
     if hist:
         days = collect.daily(con, sources.overview(history=True))
         collect.prices(con, sources.sol_prices(collect.KEEP_DAYS if newest == 0 else 30))
+        for name, fn in (("btc", lambda: collect.btc(con, sources.btc_prices(collect.KEEP_DAYS if newest == 0 else 30))),
+                         ("fng", lambda: collect.fng(con, sources.fear_greed(0 if newest == 0 else 30)))):
+            try:   # audit 4.11. §15: BTC and Fear & Greed, free; a failure never stops the volume collection
+                fn()
+            except Exception as e:  # noqa: BLE001
+                print(f"market {name}: {type(e).__name__}: {e}", file=sys.stderr)
         regime.compute_all(con)
     con.commit()
     r = regime.current(con)
