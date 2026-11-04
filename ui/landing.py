@@ -250,7 +250,11 @@ h2{font-size:clamp(28px,4.5vw,44px);letter-spacing:-.035em;line-height:1.1;margi
 .pulse:after{content:"";position:absolute;inset:0;border-radius:50%;background:#22c55e;animation:pl 2s cubic-bezier(.2,.6,.4,1) infinite}
 @keyframes pl{0%{transform:scale(1);opacity:.55}80%,100%{transform:scale(3);opacity:0}}
 @media(prefers-reduced-motion:reduce){.pulse:after{animation:none}}
-.hl .lv{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#aab3c5;margin-top:14px}
+.hl .lv{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:#aab3c5;margin-top:18px}
+.lvhead{display:flex;justify-content:center;margin-bottom:16px}
+.lvb{display:inline-flex;align-items:center;gap:8px;background:#ecfdf5;color:#15803d;border:1px solid #bbf7d0;border-radius:999px;
+padding:5px 12px 5px 11px;font-size:12px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;line-height:1}
+.lvb.dk{background:rgba(34,197,94,.14);color:#86efac;border-color:rgba(34,197,94,.35)}
 .feats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}@media(max-width:1000px){.feats{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.feats{grid-template-columns:1fr;gap:10px}.f{display:grid;grid-template-columns:46px 1fr;gap:4px 16px;padding:18px;border-radius:18px}.f .i{grid-row:span 2}.f h3{margin:2px 0 0;font-size:17px}.f p{font-size:15px}}
 .tr{display:grid;grid-template-columns:280px 1fr;gap:64px;align-items:center;max-width:860px;margin:0 auto 72px}
@@ -360,7 +364,7 @@ T = {
         sub="MemeSonar prati nove tokene, influencere i pametne novčanike i pokaže ti samo ono što ima smisla.",
         req="Zatraži pristup", login="Prijava", app="Otvori aplikaciju", nav_feat="Funkcije", nav_inf="Influenceri", ex_eye="Istraži besplatno", ex_h="Javni podaci MemeSonara",
         n_tokens="tokena provjereno", n_wallets="novčanika praćeno", n_kols="influencera ocijenjeno",
-        n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
+        n_calls="poziva izmjereno", live="Uživo iz baze · osvježeno", badge="Uživo", badge_t="Brojevi se sami osvježavaju iz baze svakih 30 minuta", feat_eye="Funkcije", feat_h="Sve bitno, ništa viška.",
         feat_lead="Alati koji rade 24/7, da ti ne moraš.",
         tour_eye="Kako izgleda", tour_h="Prave slike iz aplikacije.", tour_p="Ovako alat izgleda na mobitelu, danas.",
         free_eye="Cijena", free_h="Za sada besplatno.", free_big="0 €",
@@ -396,7 +400,7 @@ T = {
         sub="MemeSonar tracks new tokens, influencers and smart wallets, and shows you only what makes sense.",
         req="Request access", login="Log in", app="Open the app", nav_feat="Features", nav_inf="Influencers", ex_eye="Explore for free", ex_h="Public MemeSonar data",
         n_tokens="tokens checked", n_wallets="wallets tracked", n_kols="influencers scored", n_calls="calls measured",
-        live="Live from the database · updated", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
+        live="Live from the database · updated", badge="Live", badge_t="These numbers refresh from the database every 30 minutes", feat_eye="Features", feat_h="Everything that matters. Nothing else.",
         feat_lead="Tools working 24/7, so you don't have to.",
         tour_eye="How it looks", tour_h="Real screenshots from the app.", tour_p="This is what the tool looks like on a phone, today.",
         free_eye="Price", free_h="Free for now.", free_big="$0",
@@ -454,11 +458,12 @@ def page_html(qs=None, logged_in=False, ok=False, err="", form=None, lang="hr"):
         age = ago(ts)[0]
         if en:
             age = age.replace("prije ", "").replace(" min", " min ago").replace(" h", " h ago").replace(" d", " d ago")
-        nums_html += f"<div class=live><span class=pulse></span>{t['live']} {age}</div>"
+        nums_html = (f"<div class=lvhead><span class=lvb title='{t['badge_t']}'><span class=pulse></span>{t['badge']}</span></div>"
+                     + nums_html + f"<div class=live>{t['live']} {age}</div>")
 
     g, s = v.get("group_rate") or .57, v.get("solo_rate") or .33
     measured = (" " + t["pw_m"].format(n=num(v["measured"]))) if v.get("measured") else ""
-    live_pw = (f"<div class=lv><span class=pulse></span>{t['live']} {age}</div>"
+    live_pw = (f"<div class=lv><span class='lvb dk'><span class=pulse></span>{t['badge']}</span>{t['live']} {age}</div>"
                if v.get("group_rate") and ts else "")
     power = (f"<div class=hl><div class=big><span class=g>{g / s:.1f}×</span></div><div>"
              f"<h3>{t['pw_h']}</h3><p>{t['pw_p']}{measured}</p><div class=bars>"
