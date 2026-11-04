@@ -89,7 +89,7 @@ python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
 
 # one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
 # backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.
-if [ -n "$KOL_BACKFILL_USD" ]; then
+if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   (
     sleep 1500   # after the first KOL round, so the two do not fight for kol.db
     python3 -m ops.heavy run_kol.py backfill --budget "$KOL_BACKFILL_USD" --winners 300 --losers 300 --kols 100 \
