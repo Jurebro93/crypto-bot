@@ -266,6 +266,13 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"dca: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # rekt: a player (or the bot) under $10 starts a new round with $1,000 (league/rekt.py)
+                from . import rekt
+                from ui import leaguedash
+                for what in rekt.maybe_check(con, market, lambda: leaguedash.bot_equity(con)):
+                    print(f"natjecanje {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"rekt: {type(e).__name__}: {e}", file=sys.stderr)
             from . import history
             history.maybe_snapshot(con, market)  # account values for the Natjecanje chart, every 15 min
             con.close()

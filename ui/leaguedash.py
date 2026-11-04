@@ -58,6 +58,10 @@ details.pl .stat .v{font-size:17px}
  .pc .mini{gap:2px 8px;font-size:11px}.hl{grid-template-columns:1fr 1fr;gap:8px}.hl .stat{padding:8px 10px}.hl .stat .v{font-size:15px}}
 details.more>summary{color:var(--fg);cursor:pointer;font-weight:600;font-size:15px;margin:18px 0 4px}
 .upd{font-size:12px;color:var(--mut)}a.chip{text-decoration:none}
+.rekt{font-size:12px;font-weight:600;white-space:nowrap}
+.round2{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--pb);border-radius:10px;padding:10px 14px;margin:10px 0}
+.round2 h3{margin:0 0 6px;font-size:16px}.round2 p{margin:4px 0;font-size:13px}
+.rektme{background:color-mix(in srgb,var(--bad) 10%,var(--card));border:1px solid var(--bad);border-radius:10px;padding:10px 14px;margin:10px 0}
 """
 
 
@@ -102,17 +106,30 @@ def _open_live(t, mk):
     return pnl, pnl / t["size_usd"] if t["size_usd"] else None, mc_now
 
 
-def _bot(since):
-    """Bot's demo account on the same footing as a player: $1,000 at the competition start + its trades since."""
+def _bot(since, starts=()):
+    """Bot's demo account on the same footing as a player: $1,000 at the competition start + its trades since. Every
+    rekt (league/rekt.py, user "bot") starts a new round on a fresh $1,000: the board counts the current round, the
+    chart draws every round, each from $1,000 again."""
     try:
         tr = data.paper_trades()
     except Exception:
         return None
     base = store.START_USD
-    pts = history.bot_series(tr, since or time.time(), base)
-    open_pnl = sum(t["pnl_usd"] or 0 for t in tr if t["status"] == "open" and (t["opened_ts"] or 0) >= (since or 0))
-    closed = [t for t in tr if t["status"] == "closed" and (t["closed_ts"] or 0) >= (since or 0)]
-    eq = pts[-1][1] + open_pnl
+    since = since or time.time()
+    bounds = [since] + [s for s in sorted(starts) if s > since]
+    pts, rounds = [], []
+    for i, b0 in enumerate(bounds):
+        b1 = bounds[i + 1] if i + 1 < len(bounds) else None
+        # a new round counts only trades opened in it (what was still open at the rekt stays with the old round)
+        mine = [t for t in tr if (b1 is None or (t["closed_ts"] or 0) < b1) and (i == 0 or (t["opened_ts"] or 0) >= b0)]
+        seg = history.bot_series(mine, b0, base)
+        pts += seg
+        closed = [t for t in mine if t["status"] == "closed" and (t["closed_ts"] or 0) >= b0]
+        rounds.append({"n": i + 1, "start": b0, "end": b1, "closed": closed, "end_eq": seg[-1][1]})
+    cur = bounds[-1]
+    open_pnl = sum(t["pnl_usd"] or 0 for t in tr if t["status"] == "open" and (t["opened_ts"] or 0) >= cur)
+    closed = rounds[-1]["closed"]
+    eq = rounds[-1]["end_eq"] + open_pnl
     try:
         from paper import sim
         bank = sim.load_config().get("bankroll_usd", 1000)
@@ -120,8 +137,39 @@ def _bot(since):
         bank = 1000
     total = sum(t["pnl_usd"] or 0 for t in tr)
     return {"user": "bot", "equity": eq, "profit": eq - base, "ret": (eq - base) / base, "pts": pts,
-            "open": sum(1 for t in tr if t["status"] == "open"), "closed": len(closed),
-            "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "total_ret": total / bank if bank else 0}
+            "open": sum(1 for t in tr if t["status"] == "open"), "closed": len(closed), "round": len(bounds),
+            "rounds": rounds, "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "total_ret": total / bank if bank else 0}
+
+
+def bot_equity(con):
+    """The bot's board account now (for the rekt check in the auto sell loop)."""
+    from league import rekt
+    b = _bot(history.start_ts(con), [r["ts"] for r in rekt.rows(con, rekt.BOT)])
+    return b["equity"] if b else None
+
+
+def round_lessons(bot):
+    """Where the bot lost in its finished rounds, from paper.db's exit reasons: plain lines for the 2nd-round box."""
+    from ui import labels
+    out = []
+    for r in bot["rounds"][:-1]:
+        cl = r["closed"]
+        if not cl:
+            continue
+        by = {}
+        for t in cl:
+            k = labels.exit_reason(t.get("exit_reason"))
+            n, s = by.get(k, (0, 0.0))
+            by[k] = (n + 1, s + (t["pnl_usd"] or 0))
+        wins = [t["pnl_usd"] for t in cl if (t["pnl_usd"] or 0) > 0]
+        loss = [t["pnl_usd"] for t in cl if (t["pnl_usd"] or 0) <= 0]
+        worst = sorted(by.items(), key=lambda kv: kv[1][1])[:3]
+        out.append(
+            f"<b>{r['n']}. krug</b>: {len(cl)} zatvorenih tradeova, u plusu {len(wins)} ({len(wins) / len(cl):.0%}), "
+            f"prosječan dobitak ${(sum(wins) / len(wins)) if wins else 0:,.2f}, prosječan gubitak "
+            f"${(sum(loss) / len(loss)) if loss else 0:,.2f}. Najviše je izgubio na: "
+            + ", ".join(f"{esc(k)} ({n}×, {v:+,.0f} $)" for k, (n, v) in worst if v < 0) + ".")
+    return out
 
 
 def compute(con, mk):
@@ -156,11 +204,19 @@ def compute(con, mk):
         if not flat and p["prev"] is not None:
             p["move"] = (_tie_rank([q["prev"] for q in had], p["prev"])
                          - _tie_rank([q["equity"] for q in had], p["equity"]))
-    bot = _bot(t0)
+    from league import rekt
+    rk = rekt.rows(con)
+    skull = rekt.counts(con)
+    for p in players:
+        p["rekt"] = skull.get(p["user"], 0)
+    bot = _bot(t0, [r["ts"] for r in rk if r["user"] == rekt.BOT])
     if bot:
         bot["pts"] = bot["pts"] + [(int(now), bot["equity"])]
-    return {"users": users, "players": players, "bot": bot, "start": t0, "now": now,
-            "jumps": history.jumps(con, set(users))}
+        bot["rekt"] = skull.get(rekt.BOT, 0)
+    # the jump up to a fresh $1,000 after a rekt is no mystery: the 💀 mark explains it instead of a "?"
+    jumps = [j for j in history.jumps(con, set(users))
+             if not any(r["user"] == j["user"] and 0 <= j["ts"] - r["ts"] <= 2 * history.SNAP_EVERY_S for r in rk)]
+    return {"users": users, "players": players, "bot": bot, "start": t0, "now": now, "jumps": jumps, "rekts": rk}
 
 
 def _mv(move):
@@ -205,6 +261,7 @@ def _av(u, color, sm=False):
 
 
 def podium(d, me):
+    from league import rekt
     col = _colors(d["users"])
     cards = []
     for p in d["players"]:
@@ -214,7 +271,7 @@ def podium(d, me):
         cards.append(
             f'<div class="pc{" me" if u == me else ""}" style="--c:{col[u]}" data-open="pl-{esc(u)}" role=button tabindex=0 '
             f'title="Klikni za sve tradeove igrača {esc(u)}">'
-            f'<div class=hd>{_av(u, col[u])}<span class=nm>{esc(u)}{" (ti)" if u == me else ""}</span> {_mv(p["move"])}'
+            f'<div class=hd>{_av(u, col[u])}<span class=nm>{esc(u)}{" (ti)" if u == me else ""} {rekt.skulls(p.get("rekt"), p["profit"])}</span> {_mv(p["move"])}'
             f'<span class=rk>{_medal(p["rank"])}</span></div>'
             f'<div class=eq>{_live("eq:" + u, eq)}</div>'
             f'<div class="pr {_cls(p["profit"])}" data-live-cls="pr:{esc(u)}">{_live("pr:" + u, pr + " $")} · '
@@ -225,6 +282,7 @@ def podium(d, me):
 
 
 def board_table(d, me):
+    from league import rekt
     col = _colors(d["users"])
     rows = []
     for p in d["players"]:
@@ -232,7 +290,8 @@ def board_table(d, me):
         eq, pr, ret = f"${p['equity']:,.2f}", f"{p['profit']:+,.2f}", f"{p['ret']:+.1%}"
         b, w = p["best"], p["worst"]
         rows.append([
-            (f'{_medal(p["rank"])} {_av(u, col[u], True)} <b>{esc(u)}</b>{" (ti)" if u == me else ""} {_mv(p["move"])}',
+            (f'{_medal(p["rank"])} {_av(u, col[u], True)} <b>{esc(u)}</b>{" (ti)" if u == me else ""} '
+             f'{rekt.skulls(p.get("rekt"), p["profit"])} {_mv(p["move"])}',
              p["rank"], ""),
             (_live("eq:" + u, f"${p['equity']:,.2f}"), p["equity"], "n"),
             (f'<span class="{_cls(p["profit"])}" data-live-cls="pr:{esc(u)}">{_live("pr:" + u, pr)}</span>',
@@ -240,6 +299,7 @@ def board_table(d, me):
             (f'<span class="{_cls(p["ret"])}" data-live-cls="ret:{esc(u)}">{_live("ret:" + u, ret)}</span>',
              p["ret"], "n"),
             num(p["cash"], "${:,.2f}"),
+            signed(p.get("total", p["profit"])),
             num(p["open"] + p["closed"]),
             (f"{p['winrate']:.0%} <span class=mut>({p['wins']}/{p['closed']})</span>" if p["closed"] else "–",
              p["winrate"] if p["winrate"] is not None else -1, "n"),
@@ -252,12 +312,15 @@ def board_table(d, me):
         ])
     bot = d["bot"]
     if bot:
-        rows.append([('<span class="av sm" style="--c:var(--pb)">🤖</span> bot <span class=mut>(za usporedbu)</span>', 99, ""),
+        rnd = f' · <b>{bot["round"]}. krug</b>' if bot.get("round", 1) > 1 else ""
+        rows.append([(f'<span class="av sm" style="--c:var(--pb)">🤖</span> bot{rnd} {rekt.skulls(bot.get("rekt"), bot["profit"])} '
+                      '<span class=mut>(za usporedbu)</span>', 99, ""),
                      num(bot["equity"], "${:,.2f}"), signed(bot["profit"]), signed(bot["ret"], "{:+.1%}"), ("–", -1, "n"),
+                     ("–", -1e18, "n"),
                      num(bot["closed"]), (f"{bot['wins'] / bot['closed']:.0%} <span class=mut>({bot['wins']}/{bot['closed']})</span>"
                                           if bot["closed"] else "–", bot["wins"] / bot["closed"] if bot["closed"] else -1, "n"),
                      num(bot["open"]), "–", "–", "–"])
-    return table(["Igrač", ("Stanje računa", "n"), ("Profit $", "n"), ("Povrat", "n"), ("Slobodno", "n"),
+    return table(["Igrač", ("Stanje računa", "n"), ("Profit $", "n"), ("Povrat", "n"), ("Slobodno", "n"), ("Svi krugovi $", "n"),
                   ("Broj tradeova", "n"), ("Uspješnost", "n"), ("Otvoreno", "n"), "Serija", "Najbolji trade", "Najgori trade"],
                  rows, "lboard")
 
@@ -294,6 +357,14 @@ def highlights(d):
         who = "ljudi vode" if avg > bot["ret"] else "bot vodi" if avg < bot["ret"] else "izjednačeno"
         tiles.append(("Ljudi protiv bota", f'<span class="{_cls(avg - bot["ret"])}">{who}</span>',
                       f"prosjek igrača {avg:+.1%}, bot {bot['ret']:+.1%} od početka natjecanja", ""))
+    rk = [(p["user"], p["rekt"], p["profit"]) for p in d["players"] if p.get("rekt")]
+    if bot and bot.get("rekt"):
+        rk.append(("bot", bot["rekt"], bot["profit"]))
+    if rk:
+        tiles.append(("💀 Rekt klub", " ".join(f'{esc(u)} 💀×{n}' for u, n, _ in rk),
+                      "pali na nulu i krenuli ispočetka s novih $1,000. Comeback se broji: "
+                      + (", ".join(esc(u) for u, _, pr in rk if pr > 0) + " već je u plusu 🔄"
+                         if any(pr > 0 for _, _, pr in rk) else "tko će prvi u plus?"), ""))
     return "<div class=hl>" + "".join(
         f'<div class=stat><div class=l>{lbl}</div><div class="v {c}">{v}</div><div class=s>{s}</div></div>'
         for lbl, v, s, c in tiles) + "</div>"
@@ -312,9 +383,17 @@ def chart_data(d):
     ser = [{"name": p["user"], "c": col[p["user"]], "pts": [[int(t), round(v, 2)] for t, v in p["pts"]]}
            for p in sorted(d["players"], key=lambda p: d["users"].index(p["user"]) if p["user"] in d["users"] else 99)]
     if d["bot"]:
-        ser.append({"name": "bot", "c": "var(--pb)", "dash": 1, "pts": [[int(t), round(v, 2)] for t, v in d["bot"]["pts"]]})
+        ser.append({"name": "bot" + (f" ({d['bot']['round']}. krug)" if d["bot"].get("round", 1) > 1 else ""),
+                    "c": "var(--pb)", "dash": 1, "pts": [[int(t), round(v, 2)] for t, v in d["bot"]["pts"]]})
     ev = [{"t": int(j["ts"]), "s": next((i for i, x in enumerate(ser) if x["name"] == j["user"]), -1),
            "v": j["after"], "txt": f'{j["user"]}: {j["text"]}', "bad": j["bad"]} for j in d.get("jumps") or []]
+    for r in d.get("rekts") or []:
+        name = r["user"]
+        idx = next((i for i, x in enumerate(ser) if x["name"] == name or (name == "bot" and x.get("dash"))), -1)
+        eq = f"${r['equity']:,.2f}" if r.get("equity") is not None else "nulu"
+        ev.append({"t": int(r["ts"]), "s": idx, "v": store.START_USD, "bad": True,
+                   "txt": (f"💀 {'Bot' if name == 'bot' else name} je rekt: račun pao na {eq}. Kreće "
+                           f"{r['round']}. krug s novih ${store.START_USD:,.0f}.")})
     return {"series": ser, "base": store.START_USD, "now": int(d["now"]), "ev": [e for e in ev if e["s"] >= 0]}
 
 
@@ -392,6 +471,7 @@ def _about(u):
 
 
 def player_cards(d, me):
+    from league import rekt
     col = _colors(d["users"])
     out = []
     for p in d["players"]:
@@ -412,13 +492,52 @@ def player_cards(d, me):
         about = _about(u)
         out.append(
             f'<details class=pl id="pl-{esc(u)}" style="--c:{col[u]}"><summary>{_av(u, col[u])}<b>{_medal(p["rank"])} {esc(u)}'
-            f'{" (ti)" if u == me else ""}</b> {_mv(p["move"])}<span>{_live("eq:" + u, eq)}</span>'
+            f'{" (ti)" if u == me else ""}</b> {rekt.skulls(p.get("rekt"), p["profit"])} {_mv(p["move"])}<span>{_live("eq:" + u, eq)}</span>'
             f'<span class="{_cls(p["profit"])}" data-live-cls="pr:{esc(u)}">{_live("pr:" + u, pr + " $")}</span>'
             f'<span class=mut>{p["open"]} otvoreno · {p["closed"]} zatvoreno</span></summary>'
             f'<div class=in>{about}<div class=grid>{grid}</div>'
             + table(TRADE_HEAD, rows, f"pt-{esc(u)}", empty=f"{esc(u)} još nije kupio nijedan token.")
             + "</div></details>")
     return "".join(out)
+
+
+def _rekt_me(d, me):
+    """Banner for a player who was just rekt: a fresh start, not a punishment."""
+    p = next((p for p in d["players"] if p["user"] == me), None)
+    if not p or not p.get("rekt"):
+        return ""
+    last = max((r["ts"] for r in d.get("rekts") or [] if r["user"] == me), default=0)
+    if d["now"] - last > 3 * DAY:
+        return ""
+    return (f'<div class=rektme>💀 <b>Bio si rekt{" " + str(p["rekt"]) + "×" if p["rekt"] > 1 else ""}.</b> Na računu je '
+            f'novih ${store.START_USD:,.0f}, kreće tvoj {p["rekt"] + 1}. krug. Lubanja ostaje uz ime na ljestvici, a '
+            'čim budeš u plusu, svi će uz nju vidjeti 🔄 comeback. Savjet: manji ulozi (npr. $50) i TP/SL na svakoj '
+            'poziciji.</div>')
+
+
+def _round_box(d):
+    """The bot's new round and what went wrong in the previous one."""
+    bot = d.get("bot")
+    if not bot or bot.get("round", 1) < 2:
+        return ""
+    r = bot["rounds"][-1]
+    lessons = round_lessons(bot)
+    return (f'<div class=round2><h3>🤖 Bot: {bot["round"]}. krug</h3>'
+            f'<p>Bot je u prošlom krugu pao na nulu, pa od {ts(r["start"], "%d.%m. %H:%M")[0]} igra novi krug s '
+            f'${store.START_USD:,.0f}. Sada: <b>${bot["equity"]:,.2f}</b> '
+            f'(<span class={_cls(bot["profit"])}>{bot["profit"]:+,.2f} $</span>), {bot["closed"]} zatvorenih u ovom krugu.</p>'
+            + "".join(f"<p>{x}</p>" for x in lessons)
+            + '<p class=mut>Iz grešaka uči sam: svaki dan isproba sve stop lossove i pravila izlaza na tisućama prilika i '
+              'primijeni najbolje (<a href=/learn>Učenje</a>), a 5 strategija ispod pokazuje koji izvor tradeova '
+              'zarađuje.</p></div>')
+
+
+def _strategies():
+    try:
+        from ui import strategije
+        return strategije.natjecanje_block()
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def dashboard(con, mk, me):
@@ -428,14 +547,15 @@ def dashboard(con, mk, me):
             f'<h2>Ljestvica <small><span class=upd id=upd>brojke se same osvježavaju svake minute</span></small></h2>'
             "<p class=tdesc>Poredak po stanju računa: slobodan novac + ono što bi otvorene pozicije donijele da ih prodaš "
             "sada (uz naknadu i klizanje cijene). ▲▼ je promjena mjesta u zadnja 24 sata. Klikni karticu igrača za "
-            "njegove tradeove.</p>"
-            + podium(d, me) + highlights(d) + _wins()
+            "njegove tradeove. Tko padne na nulu je rekt: dobiva novih $1,000, a uz ime mu ostaje 💀×N (koliko puta); "
+            "stupac Svi krugovi zbraja sve krugove zajedno.</p>"
+            + _rekt_me(d, me) + podium(d, me) + highlights(d) + _round_box(d) + _strategies() + _wins()
             + "<h2>Svi tradeovi</h2><p class=tdesc>Svi vide sve: tko je kada kupio, na kojem market capu, gdje je sada i koliko "
               "je u plusu ili minusu. Filtriraj po igraču i statusu bez ponovnog učitavanja. PnL otvorenih je ono što bi "
               "prodaja sada donijela.</p>" + all_trades(d)
             + "<details class=more id=allnum open><summary>Sve brojke po igraču</summary><p class=tdesc>Klikni naslov stupca za sortiranje. Uspješnost = udio zatvorenih "
               "tradeova u plusu. Serija = koliko zadnjih zatvorenih tradeova zaredom je bilo u plusu (🔥) ili minusu (🧊). "
-              "Bot je račun koji alat vodi sam, preračunat na istih $1,000 od početka natjecanja; cijela njegova "
+              "Bot je račun koji alat vodi sam, preračunat na istih $1,000 od početka natjecanja (ili od početka novog kruga); cijela njegova "
               "povijest je u <a href=/paper>Demo tradingu</a>"
             + (f" (od prvog dana {d['bot']['total_ret']:+.0%})" if d["bot"] else "") + ".</p>"
             + board_table(d, me) + "</details>"

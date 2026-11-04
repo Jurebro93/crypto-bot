@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE TABLE IF NOT EXISTS real_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, token TEXT, symbol TEXT, opened_ts INTEGER, size_usd REAL,
     entry_mcap REAL, closed_ts INTEGER, exit_mcap REAL, pnl_usd REAL, status TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS rekts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, ts INTEGER, round INTEGER, equity REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS ideas (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, ts INTEGER, text TEXT, status TEXT DEFAULT 'novo');
 """
@@ -96,10 +98,14 @@ def account(con, user):
         pass
     row = con.execute("SELECT start_usd FROM accounts WHERE user=?", (user,)).fetchone()
     start = row[0] if row else START_USD
+    from league import rekt   # after a rekt only the current round counts (league/rekt.py)
+    since = rekt.since(con, user)
     realized, in_use = con.execute(
         "SELECT COALESCE(SUM(CASE WHEN status='closed' THEN pnl_usd END),0),"
-        " COALESCE(SUM(CASE WHEN status='open' THEN size_usd END),0) FROM trades WHERE user=?", (user,)).fetchone()
-    return {"user": user, "start": start, "realized": realized, "in_use": in_use, "cash": start + realized - in_use}
+        " COALESCE(SUM(CASE WHEN status='open' THEN size_usd END),0) FROM trades WHERE user=? AND opened_ts>=?",
+        (user, since)).fetchone()
+    return {"user": user, "start": start, "realized": realized, "in_use": in_use, "cash": start + realized - in_use,
+            "since": since}
 
 
 def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, mcap=None):
@@ -230,7 +236,9 @@ def leaderboard(con, live):
                 unreal += value(t, price, liq) - t["size_usd"]
         equity = acc["start"] + acc["realized"] + unreal
         best = max(closed, key=lambda t: t["pnl_usd"] or 0, default=None)
+        all_real = sum(t["pnl_usd"] or 0 for t in closed)
         rows.append({**acc, "unrealized": unreal, "equity": equity, "profit": equity - acc["start"],
+                     "total": all_real + unreal,   # every round together (a rekt round counts its loss)
                      "ret": (equity - acc["start"]) / acc["start"] if acc["start"] else 0, "open": len(opened),
                      "closed": len(closed), "wins": sum(1 for t in closed if (t["pnl_usd"] or 0) > 0), "best": best})
     try:

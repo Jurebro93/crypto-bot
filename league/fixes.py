@@ -43,7 +43,28 @@ def pairless(con):
     return n
 
 
+BOT_ROUND2_BEFORE = 1793664000   # competitions that started before 3.11.2026 00:00 UTC (the real one: 30.10.)
+
+
+def bot_round2(con):
+    """4.11. Nicholas: "Alat je došao do 0 ... započni drugi krug s budžetom od 1000$". The bot's 2nd round starts at
+    the first start after deploy (once; the rekt check starts any later round by itself)."""
+    row = con.execute("SELECT MIN(created) FROM accounts").fetchone()
+    if not row or not row[0] or row[0] >= BOT_ROUND2_BEFORE:
+        return False
+    if con.execute("SELECT 1 FROM rekts WHERE user='bot'").fetchone():
+        return False
+    from league import rekt
+    rekt.mark(con, rekt.BOT, None, "4.11.: Nicholas pokrenuo 2. krug (bot pao na nulu)")
+    print("league: bot kreće 2. krug s $1,000", flush=True)
+    return True
+
+
 def apply(con):
+    try:
+        bot_round2(con)
+    except sqlite3.OperationalError as e:
+        print(f"league: 2. krug bota nije pokrenut ({e})", flush=True)
     try:
         pairless(con)
     except sqlite3.OperationalError as e:   # disk full / locked: try again next process start

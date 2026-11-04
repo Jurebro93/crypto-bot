@@ -116,7 +116,7 @@ def intake(con, cfg, now, want, start, acc):
             if tok in known or ts < start or now - ts > cfg["max_delay_min"] * 60:
                 continue
             if (busy >= cfg["max_open"] or hour >= cfg["per_hour"] or day >= cfg["per_day"]
-                    or cash < cfg["min_size_usd"]):
+                    or (cfg.get("cash_limit", True) and cash < cfg["min_size_usd"])):
                 break
             known.add(tok)
             con.execute("INSERT OR IGNORE INTO positions (strat, token, why, signal_ts, seen_ts, status) "
@@ -164,10 +164,11 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "premala likvidnost"
                 elif mcap > cfg["max_mcap"]:
                     reason = "prevelik token"
-                elif acc[k]["cash"] < cfg["min_size_usd"]:
+                elif cfg.get("cash_limit", True) and acc[k]["cash"] < cfg["min_size_usd"]:
                     reason = "nema novca na računu"
-                else:
-                    size = round(min(cfg["size_usd"], acc[k]["cash"]), 2)
+                else:   # cash_limit false (Nicholas 4.11.: "neograničeno tradeova"): always the full stake, cash may go < 0
+                    size = (round(min(cfg["size_usd"], acc[k]["cash"]), 2) if cfg.get("cash_limit", True)
+                            else cfg["size_usd"])
                     pos = sim.open_position(px, liq, int(now), size, ex)
                     con.execute("UPDATE positions SET symbol=?, url=?, entry_ts=?, entry_mcap=?, size_usd=?, "
                                 "status='open', state=?, last_ts=?, last_px=?, last_liq=?, pnl_usd=0, ret=0 "
