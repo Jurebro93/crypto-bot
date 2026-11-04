@@ -50,6 +50,8 @@ SECTIONS = [
         _p("/pojmovnik", "📖", "Pojmovnik", "Što znači svaki pojam i broj.",
            "objašnjenje pojmovi rječnik značenje help pomoć info"),
         _p("/mapa", "🧭", "Sve stranice", "Sve stranice na jednom mjestu.", "izbornik mapa pomoć help gdje je što"),
+        _p("/novo", "✨", "Što je novo", "Sve što je dodano u aplikaciju, po datumima.",
+           "novosti novo promjene dnevnik log povijest update changelog dodano"),
     ]),
     ("Bonus", [
         _p("/natjecanje", "🏆", "Natjecanje", "Demo račun: kupi tokene iz prijedloga i natječi se s ostalima.",
@@ -156,6 +158,8 @@ INTRO = {
     "/postavke": ("Tvoj račun, tvoja pravila", "Lozinka, profilna slika, jezik aplikacije (hrvatski ili engleski), "
                   "društvene mreže i e-mail, odjava sa svih uređaja i brisanje računa.",
                   "Slika i društvene mreže se vide u Natjecanju; jezik vrijedi za cijelu aplikaciju."),
+    "/novo": ("Dnevnik promjena", "Svaka nova mogućnost i popravak, s datumom.",
+              "Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom ovamo."),
     "/pojmovnik": ("Što znači svaki pojam u alatu", "Svaki pojam, ocjena, stupac i stranica objašnjeni običnim riječima, "
                    "s primjerom, gdje ga vidiš i povezanim pojmovima. Svaki ⓘ u aplikaciji otvara objašnjenje odavde.",
                    "Jedno mjesto istine za objašnjenja: kad se doda novi pojam, objašnjenje se pojavi svugdje."),
@@ -555,11 +559,22 @@ def side_menu(cur):
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
              ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
              "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
+             ".novo-bar{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;padding:7px 12px;"
+             "margin:0 0 12px;border-radius:10px;background:var(--soft);color:var(--fg);text-decoration:none}"
+             ".novo-bar span{flex:1;min-width:0}.novo-bar u{text-decoration:none;font-weight:600;white-space:nowrap}"
              ".nomail{background:#fff7e6;border-color:#f5d08a;margin:0 0 14px}.nomail a{font-weight:600}")
 ADMIN_JS = ("if(/(^|; )cb_adm=1/.test(document.cookie))document.documentElement.classList.add('adm');"
             "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
             "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
             "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
+            # 4.11.: one quiet line about the newest change until the user opens /novo
+            "document.addEventListener('DOMContentLoaded',function(){var h=document.documentElement,"
+            "q=document.querySelector('meta[name=novo]'),k=q&&q.content;"
+            "if(!k||location.pathname==='/novo')return;var c=/(^|; )cb_novo=([^;]*)/.exec(document.cookie);"
+            "if(c&&c[2]===k)return;var m=document.querySelector('main');if(!m)return;var en=h.lang==='en',"
+            "a=document.createElement('a');a.className='novo-bar';a.href='/novo';a.innerHTML='✨ <span>'+"
+            "(en?'New':'Novo')+': <b></b></span><u>'+(en?'See what is new':'Pogledaj što je novo')+' →</u>';"
+            "a.querySelector('b').textContent=q.dataset.t||'';m.insertBefore(a,m.firstChild)});"
             # players without an e-mail (3.11.): a box on top of every page until they add one in Postavke
             "if(/(^|; )cb_nm=1/.test(document.cookie)&&location.pathname!=='/postavke')"
             "document.addEventListener('DOMContentLoaded',function(){var m=document.querySelector('main');if(!m)return;"
@@ -611,9 +626,14 @@ def page(title, body, path="/"):
         f'<a href="{h}" class="{"on" if h == bcur else ""}"><span class=bi>{i}</span>{t}</a>'
         for h, i, t in BOTTOM) + f"<button data-nav><span class=bi>{MORE_ICON}</span>Više</button></nav>")
     from ui import deploypage, i18n, secnav
+    try:
+        from ui import novo
+        nk, nt = novo.notice_data()
+    except Exception:  # noqa: BLE001
+        nk, nt = "", ""
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
-            f"<script>{ADMIN_JS}</script>"
+            f"<meta name=novo content=\"{esc(nk)}\" data-t=\"{esc(nt)}\" translate=no><script>{ADMIN_JS}</script>"
             f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}</style></head><body>"
             f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")

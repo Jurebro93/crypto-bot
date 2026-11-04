@@ -276,6 +276,9 @@ def route(path, qs):
     if path == "/izvjestaj":
         from ui import reportpage
         return reportpage.page(qs)
+    if path == "/novo":
+        from ui import novo
+        return novo.page(qs)
     if path == "/pojmovnik":
         from ui import glossarypage
         return glossarypage.page(qs)
