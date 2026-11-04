@@ -12,6 +12,7 @@ Signals for learning (features(), point-in-time: only posts written BEFORE the d
   ai_placeno      share of the posts that were paid promotion
   ai_upozorenje   someone warned about the token (1/0)
   ai_kupio        a caller says they already bought (1/0)
+  ai_brag         boasts about the token (after a rise) in the 6 h before, kept apart from calls (0..1)
 Missing (no post read) = the feature is absent, which the model treats as "not measured".
 
 Cost is metered to usage.db (service anthropic, method postai) from the token counts of every result, and shown on
@@ -274,7 +275,9 @@ def step(path=None, now=None):
 # ---------------------------------------------------------------- features
 
 def features(token, ts, con=None, path=None, window_h=6):
-    """ai_* signals for a token at moment ts from posts written before ts; {} when no post was read."""
+    """ai_* signals for a token at moment ts from posts written AND classified before ts; {} when none.
+    Audit 4.11. C07: a post classified only later did not exist as a signal at ts (classified_at <= ts), and a brag
+    after a pump is not a buy call: ai_poziv / ai_uvjerenje / ai_kupio count kind='call' only, brags are ai_brag."""
     own = con is None
     con = con or _ro(path or DB)
     if con is None:
@@ -282,8 +285,9 @@ def features(token, ts, con=None, path=None, window_h=6):
     try:
         rows = con.execute(
             "SELECT a.kind, a.paid_promo, a.conviction, a.already_bought FROM post_tokens t JOIN posts_ai a "
-            "ON a.src=t.src AND a.post_id=t.post_id WHERE t.token=? AND t.ts < ? AND t.ts >= ?",
-            (token, ts, ts - window_h * 3600)).fetchall()
+            "ON a.src=t.src AND a.post_id=t.post_id WHERE t.token=? AND t.ts < ? AND t.ts >= ? "
+            "AND a.classified_at IS NOT NULL AND a.classified_at <= ?",
+            (token, ts, ts - window_h * 3600, ts)).fetchall()
     except sqlite3.OperationalError:
         rows = []
     finally:
@@ -291,10 +295,11 @@ def features(token, ts, con=None, path=None, window_h=6):
             con.close()
     if not rows:
         return {}
-    calls = [r for r in rows if r[0] in ("call", "brag")]
+    calls = [r for r in rows if r[0] == "call"]
+    brags = [r for r in rows if r[0] == "brag"]
     return {"ai_poziv": min(1.0, len(calls) / 3), "ai_uvjerenje": (max(r[2] for r in calls) - 1) / 4 if calls else 0.0,
             "ai_placeno": sum(r[1] for r in rows) / len(rows), "ai_upozorenje": 1.0 if any(r[0] == "warning" for r in rows) else 0.0,
-            "ai_kupio": 1.0 if any(r[3] for r in calls) else 0.0}
+            "ai_kupio": 1.0 if any(r[3] for r in calls) else 0.0, "ai_brag": min(1.0, len(brags) / 3)}
 
 
 def spend(days=30, now=None, path=None):

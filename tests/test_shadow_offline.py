@@ -111,7 +111,7 @@ class Shadow(unittest.TestCase):
 
     def test_fit_learns_from_shadow_book(self):
         self._run()
-        cfg = {**outcomes.config(), "min_rows": 100}
+        cfg = {**outcomes.config(), "min_rows": 100, "purge_h": 0}   # synthetic points: no window to purge
         base = {k: 10.0 for k in FEATS}
         from learn import store
         con = store.connect(self.hdb)

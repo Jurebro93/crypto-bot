@@ -1,14 +1,17 @@
 """Automatic re-fit of the hype weights per class, with guardrails instead of a human.
 
-A run per class: enough outcomes -> logistic fit -> each weight moves at most max_step of its value toward the
-fit -> the candidate must score better than the current weights on both time halves (precision of the top fifth)
--> written to the learned dir and logged. If the applied weights lose to their predecessor rollback_runs times in a
+A run per class: enough outcomes -> split by time BEFORE fitting (learn/split.py: older 70% train, newer 30%
+validation, label windows overlapping the validation removed) -> logistic fit on train only -> each weight moves
+at most max_step of its value toward the fit -> the candidate must beat the current weights on the validation part
+and on both of its halves, ties do not count (precision of the top fifth) -> written to the learned dir and logged.
+Audit 4.11. C04: it used to fit and judge on the same rows. C05: with cilj "zarada" a class without enough shadow
+outcomes says "nedovoljno podataka" instead of quietly learning the peak under the same name. If the applied weights lose to their predecessor rollback_runs times in a
 row, the predecessor comes back.
 """
 import time
 
 from hype import evaluate, score
-from learn import outcomes, store, weights
+from learn import outcomes, split, store, weights
 
 
 def precision_top(rows, w, share=0.2):
@@ -43,7 +46,7 @@ def better(rows, old, new):
         return False, mo, mn
     for h in _halves(rows):
         po, pn = precision_top(h, old), precision_top(h, new)
-        if po is not None and pn is not None and pn < po:
+        if po is not None and pn is not None and pn <= po:   # a tie on a half is not a win (C04)
             return False, mo, mn
     return True, mo, mn
 
@@ -63,26 +66,33 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
     report = []
     for klasa in sorted(set(r["klasa"] for r in rows) | set(thr) | set(r["klasa"] for r in sh)):
         rk_sh = [r for r in sh if r["klasa"] == klasa]
-        use_sh = len(rk_sh) >= cfg["min_rows"]
-        rk = rk_sh if use_sh else [r for r in rows if r["klasa"] == klasa]
+        need_sh = max(30, cfg.get("min_rows_zarada", cfg["min_rows"]))   # never below 30 (R8)
+        use_sh = len(rk_sh) >= need_sh
+        zarada = cfg.get("cilj") == "zarada"
+        rk = rk_sh if use_sh else ([] if zarada else [r for r in rows if r["klasa"] == klasa])
         old = weights.load(klasa, base)
         rec = {"klasa": klasa, "n": len(rk), "skok": (cfg.get("shadow") or {}).get("hit_ret", 0.1) if use_sh else thr.get(klasa, 0),
-               "cilj": "zarada" if use_sh else "vrh", "n_shadow": len(rk_sh), "applied": False, "old": old, "new": None,
-               "metric_old": None, "metric_new": None, "note": ""}
-        if len(rk) < cfg["min_rows"]:
+               "cilj": "zarada" if use_sh else ("nedovoljno" if zarada else "vrh"), "n_shadow": len(rk_sh),
+               "applied": False, "old": old, "new": None, "metric_old": None, "metric_new": None, "note": ""}
+        train, val = split.by_time(rk, horizon_s=cfg.get("purge_h", cfg.get("horizon_h", 24)) * 3600)
+        if zarada and not use_sh:
+            rec["note"] = (f"nedovoljno podataka za cilj zarada: {len(rk_sh)} od {need_sh} ishoda u sjenovitoj "
+                           "knjizi; težine se ne mijenjaju (vrh se više ne uči pod istim imenom)")
+        elif len(rk) < cfg["min_rows"] and not use_sh:
             rec["note"] = f"premalo ishoda ({len(rk)} od potrebnih {cfg['min_rows']})"
-            if cfg.get("cilj") == "zarada":
-                rec["note"] += f"; u sjenovitoj knjizi {len(rk_sh)}"
+        elif len(val) < 20 or len(train) < 10:
+            rec["note"] = f"premalo za odvojeno učenje i provjeru ({len(train)} za učenje, {len(val)} za provjeru)"
         else:
-            fit = evaluate.fit_weights(rk)
+            fit = evaluate.fit_weights(train)              # learned on the older part only
             if not fit:
                 rec["note"] = "još nema nijednog skoka u podacima, nema se iz čega učiti"
             else:
                 new = step(old, fit["weights"], cfg)
-                ok, mo, mn = better(rk, old, new)
+                ok, mo, mn = better(val, old, new)         # judged on the newer part it never saw
                 rec.update(new=new, metric_old=mo, metric_new=mn)
                 if ok:
-                    rec["note"] = f"pogađanje među 20% najbolje ocijenjenih {mo} → {mn}"
+                    rec["note"] = (f"pogađanje među 20% najbolje ocijenjenih na provjeri (noviji {len(val)} ishoda) "
+                                   f"{mo} → {mn}")
                     if use_sh:
                         rec["note"] += " (cilj: ostvariva zarada, sjenovita knjiga)"
                     if apply:

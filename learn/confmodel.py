@@ -54,8 +54,13 @@ def save(model, now=None):
 
 # ---------- dataset ----------
 
-def _rug_verdicts(tokens):
-    """mint -> verdict of the rug check closest to (but at most a day after) the first signal."""
+RUG_MAX_AGE_S = 6 * 3600   # a rug check older than this at the decision is "unknown", not still valid
+
+
+def _rug_verdicts(tokens, max_age_s=RUG_MAX_AGE_S):
+    """mint -> verdict of the newest rug check that EXISTED at the first signal (checked_at <= signal, at most
+    max_age_s old). Audit 4.11. C06/R2: a check made after the decision (it used to take the closest one up to a
+    day later) is the future and never enters the dataset; no check then = unknown (left out)."""
     if not os.path.exists(RUG_DB):
         return {}
     try:
@@ -69,9 +74,9 @@ def _rug_verdicts(tokens):
     out = {}
     for mint, at, verdict in rows:
         ts = tokens.get(mint)
-        if ts is not None and at <= ts + 86400 and (mint not in out or abs(at - ts) < abs(out[mint][0] - ts)):
-            out[mint] = (at, verdict)
-    return {m: v for m, (_, v) in out.items()}
+        if ts is not None and at <= ts and ts - at <= max_age_s:
+            out[mint] = verdict          # rows are in time order: the last one kept is the newest before ts
+    return out
 
 
 def dataset(con, cfg=None, now=None):
@@ -85,8 +90,9 @@ def dataset(con, cfg=None, now=None):
         "SELECT s.token, s.liquidity, s.mcap FROM hype_signals s JOIN (SELECT token, MIN(ts) ts FROM hype_signals GROUP BY token) f "
         "ON s.token=f.token AND s.ts=f.ts")}
     dets = {}
-    for t, extra in con.execute("SELECT token, extra FROM hype_details ORDER BY ts"):
-        dets.setdefault(t, extra)  # the earliest details: what was known around the first signal
+    for t, ts, extra in con.execute("SELECT token, ts, extra FROM hype_details ORDER BY ts"):
+        if t in first and ts <= first[t] + 60:
+            dets[t] = extra    # newest details known at the first signal (+60 s: written in the same scan); R2
     rug = _rug_verdicts(first)
     out = []
     for r in rows:
@@ -191,7 +197,7 @@ def better(rows, old_scorer, new_scorer):
         return False, mo, mn
     for h in _halves(rows):
         po, pn = precision_top(h, old_scorer), precision_top(h, new_scorer)
-        if po is not None and pn is not None and pn < po:
+        if po is not None and pn is not None and pn <= po:   # ties do not count (C04)
             return False, mo, mn
     return True, mo, mn
 
@@ -224,11 +230,14 @@ def run(con, cfg=None, now=None, apply_model=True):
     if len(rows) < cfg["min_rows"]:
         rec["note"] = f"premalo ishoda ({len(rows)} od potrebnih {cfg['min_rows']})"
     else:
-        model = fit(rows)
+        from learn import split   # audit 4.11. C04: fit on the older part, judge on the newer part it never saw
+        train, val = split.by_time(rows, horizon_s=cfg.get("purge_h", cfg.get("horizon_h", 24)) * 3600)
+        model = fit(train) if len(train) >= 10 and len(val) >= 20 else None
         if not model:
-            rec["note"] = "još nema nijednog skoka u podacima, nema se iz čega učiti"
+            rec["note"] = ("premalo za odvojeno učenje i provjeru" if len(train) < 10 or len(val) < 20 else
+                           "još nema nijednog skoka u podacima, nema se iz čega učiti")
         else:
-            ok, mo, mn = better(rows, old_scorer, lambda r: conf_of(model, r))
+            ok, mo, mn = better(val, old_scorer, lambda r: conf_of(model, r))
             rec.update(metric_old=mo, metric_new=mn, model=model)
             if ok:
                 rec["note"] = f"pogađanje među 20% najbolje ocijenjenih {mo} → {mn}"

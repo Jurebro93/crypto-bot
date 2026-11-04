@@ -7,19 +7,55 @@
  "skok_pct": 85,
  "skok_window_d": 30,
  "min_class_rows": 20,
- "skok_init": {"moonshot": 2.0, "rizican": 1.0, "event": 0.5, "stabilni": 0.3},
+ "skok_init": {
+  "moonshot": 2.0,
+  "rizican": 1.0,
+  "event": 0.5,
+  "stabilni": 0.3
+ },
  "rollback_runs": 2,
  "run_at_utc": "05:00",
  "cilj": "zarada",
  "_cilj": "zarada = uči iz sjenovite knjige (learn/shadow.py): pogodak je virtualni trade s našim pravilima izlaza koji je nakon troškova zaradio barem shadow.hit_ret; vrh = stari cilj (max rast u horizon_h od prvog signala). Klasa koja još nema min_rows točaka u knjizi uči po starom.",
- "shadow": {"horizon_h": 24, "hit_ret": 0.10, "lookback_h": 72, "keep_days": 30},
+ "shadow": {
+  "horizon_h": 24,
+  "hit_ret": 0.1,
+  "lookback_h": 72,
+  "keep_days": 30
+ },
  "every_h": 6,
  "_every_h": "Težine se preračunavaju svakih every_h sati (ne samo jednom dnevno), a svaka točka vrijedi to manje što je starija (poluvijek model.half_life_d dana).",
- "model": {"trial_days": 7, "min_eval": 300, "top_pct": 20, "half_life_d": 7, "train_days": 30,
-           "points": ["mc100k", "kandidat"], "holdout": {"from": "2026-11-07", "to": "2026-11-14"}},
- "postai": {"enabled": true, "window_h": 6, "per_run": 2500, "per_day": 12000},
+ "model": {
+  "trial_days": 7,
+  "min_eval": 300,
+  "top_pct": 20,
+  "half_life_d": 7,
+  "train_days": 30,
+  "points": [
+   "mc100k",
+   "kandidat"
+  ],
+  "holdout": {
+   "from": "2026-11-07",
+   "to": "2026-11-14"
+  }
+ },
+ "postai": {
+  "enabled": true,
+  "window_h": 6,
+  "per_run": 2500,
+  "per_day": 12000
+ },
  "_postai": "AI (Claude Haiku 5.5, batch = pola cijene) čita svaku KOL i TG objavu s tokenom: poziv/spominjanje/upozorenje/reklama, plaćeno, uvjerenje 1-5, je li autor kupio. Dnevni limit per_day objava drži trošak ispod ~$1/dan.",
- "detektiv": {"enabled": true, "max_new": 5, "min_n": 80, "max_days": 21, "days": 7},
+ "detektiv": {
+  "enabled": true,
+  "max_new": 5,
+  "min_n": 80,
+  "max_days": 21,
+  "days": 7
+ },
  "_detektiv": "Jednom dnevno AI (Claude Opus 5.5) predlaže do max_new hipoteza iz najboljih, najgorih i propuštenih točaka. Svaka se testira samo na novim točkama; prolazi uz barem min_n poklapanja i raspon razlike iznad nule, pada nakon max_days dana.",
- "_model": "Model (learn/gbm.py) uči na sjenovitoj knjizi, pa 7 dana samo gleda (proba). Postaje glavni samo ako njegovih 20% najboljih izbora zaradi više od 20% najbolje ocijenjenih po težinama, i bez 1% najboljih, s rasponom razlike iznad nule. Zaključani tjedan (holdout) ne koristi nijedno učenje."
+ "_model": "Model (learn/gbm.py) uči na sjenovitoj knjizi, pa 7 dana samo gleda (proba). Postaje glavni samo ako njegovih 20% najboljih izbora zaradi više od 20% najbolje ocijenjenih po težinama, i bez 1% najboljih, s rasponom razlike iznad nule. Zaključani tjedan (holdout) ne koristi nijedno učenje.",
+ "min_rows_zarada": 100,
+ "_min_rows_zarada": "Audit 4.11.: klasa uči cilj zarada od ovoliko ishoda u sjenovitoj knjizi (nikad ispod 30). Dok ih nema, status je 'nedovoljno podataka' i težine se ne mijenjaju; vršni rast se više ne uči pod imenom zarade. Prag potvrditi na validaciji."
 }

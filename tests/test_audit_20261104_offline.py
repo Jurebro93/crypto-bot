@@ -265,5 +265,73 @@ class T21PartialDay(unittest.TestCase):
         self.assertEqual(collect.partial_day(tot, counts=counts), 7 * D)
 
 
+class T17AsOf(unittest.TestCase):
+    def test_rug_check_after_decision_is_ignored(self):
+        import sqlite3
+        from learn import confmodel
+        db = os.path.join(tempfile.mkdtemp(), "rug.db")
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE rug_reports (mint TEXT, checked_at INTEGER, verdict TEXT)")
+        con.execute("INSERT INTO rug_reports VALUES ('M', 1100, 'PROLAZI')")
+        con.commit()
+        con.close()
+        saved = confmodel.RUG_DB
+        confmodel.RUG_DB = db
+        try:
+            self.assertEqual(confmodel._rug_verdicts({"M": 1000}), {})          # SAFE only after the signal
+            self.assertEqual(confmodel._rug_verdicts({"M": 1200}), {"M": "PROLAZI"})
+        finally:
+            confmodel.RUG_DB = saved
+
+    def test_ai_classified_later_and_brag(self):
+        import sqlite3
+        from learn import postai
+        con = sqlite3.connect(":memory:")
+        con.executescript(postai.SCHEMA)
+        con.execute("INSERT INTO posts_ai (src, post_id, ts, kind, paid_promo, conviction, already_bought, classified_at) "
+                    "VALUES ('x','1',900,'call',0,5,1,2000)")
+        con.execute("INSERT INTO post_tokens VALUES ('x','1','M',900)")
+        self.assertEqual(postai.features("M", 1000, con=con), {})               # classified only at 2000
+        self.assertEqual(postai.features("M", 2100, con=con)["ai_poziv"], 1 / 3)
+        con.execute("UPDATE posts_ai SET kind='brag'")
+        f = postai.features("M", 2100, con=con)
+        self.assertEqual((f["ai_poziv"], f["ai_kupio"]), (0.0, 0.0))            # a brag is not a buy call
+        self.assertGreater(f["ai_brag"], 0)
+
+    def test_shadow_liquidity_is_as_of_event(self):
+        src = open(os.path.join(HERE, "learn", "shadow.py")).read()
+        self.assertIn("WHERE token=? AND ts<=? ORDER BY ts DESC", src)
+
+
+class T18TimeSplit(unittest.TestCase):
+    def test_no_val_row_in_train_and_label_window_purged(self):
+        from learn import split
+        rows = [{"ts": i * 3600} for i in range(100)]
+        train, val = split.by_time(rows, val_share=0.3, horizon_s=24 * 3600)
+        self.assertTrue(max(r["ts"] for r in train) + 24 * 3600 <= min(r["ts"] for r in val))
+        self.assertFalse({id(r) for r in train} & {id(r) for r in val})
+
+    def test_gbm_bins_from_train_only(self):
+        import random
+        from learn import gbm
+        rnd = random.Random(3)
+        rows = [{"x": {"a": rnd.random() if i < 400 else 1000 + rnd.random()}, "y": rnd.random() < .5, "ts": i * 600}
+                for i in range(500)]
+        m = gbm.train(rows, {"min_rows": 100, "purge_s": 0})
+        if m:   # the validation-only values (1000+) must not shape the bins
+            self.assertTrue(all(e < 2 for e in m["edges"]["a"]))
+
+
+class T19PromotionIsNotTrading(unittest.TestCase):
+    def test_better_but_still_losing(self):
+        from learn import champion
+        c = {"model": {"n": 400, "mean": -0.05, "mean_trim": -0.06}, "tezine": {"n": 400, "mean": -0.15,
+             "mean_trim": -0.16}, "razlika": (0.02, 0.15), "model_range": (-0.08, -0.02)}
+        self.assertTrue(champion.wins(c))
+        ok, why = champion.trade_ok(c)
+        self.assertFalse(ok)
+        self.assertIn("ne trgujemo", why)
+
+
 if __name__ == "__main__":
     unittest.main()
