@@ -95,7 +95,24 @@ def wanted(con, cfg, wallet_db=None):
         ins = [w for w, _n, _s in _ins.wallets(con, _ins.DEFAULT["min_tokens"], cap)]
     except Exception:  # noqa: BLE001
         ins = []
+    # 4.11.: wallets a player follows in the competition (league.db follows) MUST be in the webhook, or the follow
+    # never sees a buy ("pratim nekoliko walleta, nemam otvorenih pozicija"); they go first, outside the shares
+    followed = []
+    try:
+        from league import copy as lcopy, store as lstore
+        lcon = sqlite3.connect(f"file:{lstore.DB}?mode=ro", uri=True, timeout=5) if os.path.exists(lstore.DB) else None
+        if lcon is not None:
+            try:
+                followed = [t for (t,) in lcon.execute("SELECT DISTINCT target FROM follows WHERE kind='wallet' AND active=1")]
+            finally:
+                lcon.close()
+    except Exception:  # noqa: BLE001
+        followed = []
     out, seen = [], set()
+    for w in followed[:max(1, cap // 4)]:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
     groups = [(ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0))]
     for second in (False, True):   # second pass: the slots a short group left over
         for ws, sh in groups:

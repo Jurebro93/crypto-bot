@@ -146,6 +146,28 @@ class WebhookShare(unittest.TestCase):
         con.close()
 
 
+class FollowedWalletsInWebhook(unittest.TestCase):
+    def test_a_players_followed_wallet_is_tracked_first(self):
+        from kol import chainwatch, idents
+        from league import copy as lcopy, store as lstore
+        tmp = tempfile.mkdtemp()
+        con = _kol(os.path.join(tmp, "kol.db"))
+        idents.save(con, [{"wallet": f"ID{i}", "name": f"k{i}", "twitter": None, "telegram": None, "pnl": 1, "wins": 1,
+                           "losses": 0, "rank": i} for i in range(10)], "kolscan")
+        old, lstore.DB = lstore.DB, os.path.join(tmp, "league.db")
+        try:
+            lc = lstore.connect(lstore.DB)
+            lc.executescript(lcopy.SCHEMA)
+            lcopy.follow(lc, "Jure", "wallet", "FOLLOWEDWALLET" + "x" * 30, size_usd=25)
+            lc.commit(); lc.close()
+            got = chainwatch.wanted(con, {"max_wallets": 8}, wallet_db=os.path.join(tmp, "none.db"))
+        finally:
+            lstore.DB = old
+            con.close()
+        self.assertEqual(got[0], "FOLLOWEDWALLET" + "x" * 30)
+        self.assertEqual(len(got), 8)
+
+
 class Ladder(unittest.TestCase):
     def test_what_could_have_been_taken(self):
         from ui import preporuka
