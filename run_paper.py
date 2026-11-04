@@ -902,7 +902,7 @@ def cmd_run(a):
     threading.Thread(target=_koltest_loop, name="koltest", daemon=True).start()
     threading.Thread(target=_strat_loop, name="strategije", daemon=True).start()
     threading.Thread(target=_aktivni_loop, name="aktivni", daemon=True).start()
-    hype_args = ["scan", "--top", "0"] + (a.hype_args.split() if a.hype_args else [])
+    hype_args = ["scan", "--top", "3"]   # the 3 best scores and their features in the log: why nothing passes 50 (4.11.) + (a.hype_args.split() if a.hype_args else [])
     while True:
         cfg = sim.load_config(a.config)  # re-read each loop, so `apply` takes effect without a restart
         now = time.time()
