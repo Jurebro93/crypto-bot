@@ -479,9 +479,9 @@ def pullbacks(con, r, now, hype_db=None, kol_db=None):
             if n_pb >= r["max_per_token"]:
                 continue
             try:
-                first_ts = hc.execute("SELECT MIN(ts) FROM hype_signals WHERE token=? AND ts>=?", (tok, now - r["fresh_min"] * 60)).fetchone()[0]
+                # the high-water mark over the whole fresh window (the peak is usually before the newest signal)
                 high = hc.execute("SELECT MAX(price) FROM hype_snapshots WHERE token=? AND ts>=? AND ts<=?",
-                                  (tok, first_ts or now - r["fresh_min"] * 60, now)).fetchone()[0]
+                                  (tok, now - r["fresh_min"] * 60, now)).fetchone()[0]
             except sqlite3.OperationalError:
                 high = None
             high = max(high or 0, c["price"])
