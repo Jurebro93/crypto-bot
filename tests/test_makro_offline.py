@@ -60,7 +60,7 @@ class States(unittest.TestCase):
         with mock.patch.object(store, "DB", path):
             self.assertTrue(makro.falling(NOW + 3600 + 60))
             from paper import rules
-            why = rules.gate("T", 1.0, 50000, 200000, None, None, {"gate": {"enabled": True, "min_mcap": 30000, "min_liq": 10000, "max_liq_mcap": 0.8}})
+            why = rules.gate("T", 0.001, 50000, 200000, None, None, None)
             self.assertIn("BTC pada", why or "")
 
 
