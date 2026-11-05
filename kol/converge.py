@@ -124,8 +124,24 @@ def majors():
         return {"So11111111111111111111111111111111111111112", "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"}
 
 
+MAX_LIQ = 1_500_000   # 5.11.: BTC and TRUMP topped the list (17 and 9 "wallets"): big liquid tokens are what wallets
+                      # trade through, not a call; a memecoin call almost never has $1.5M+ of liquidity
+
+
+def too_big(con, tokens, max_liq=MAX_LIQ):
+    """Tokens (of `tokens`) whose last known liquidity in kol.db is above max_liq."""
+    if con is None or not tokens:
+        return set()
+    out = set()
+    for tok, liq in _q(con, f"SELECT token, liquidity FROM tokens WHERE token IN ({','.join('?' * len(tokens))})", list(tokens)):
+        if (liq or 0) > max_liq:
+            out.add(tok)
+    return out
+
+
 def compute(now=None, cfg=None, good=50, **paths):
-    """token -> convergence dict, for tokens with fresh activity and score >= min_score (never a major)."""
+    """token -> convergence dict, for tokens with fresh activity and score >= min_score (never a major or a big
+    liquid token)."""
     cfg = dict(DEFAULT, **(cfg or {}))
     now = now or int(time.time())
     ev, scores, fac = events(now, cfg["window_min"] * 60, **paths)
@@ -134,6 +150,13 @@ def compute(now=None, cfg=None, good=50, **paths):
     for e in ev:
         if e[0] not in skip:
             by.setdefault(e[0], []).append(e)
+    kc = _ro(paths.get("kol_db") or os.path.join(ROOT, "kol.db"))
+    try:
+        for tok in too_big(kc, set(by), cfg.get("max_liq", MAX_LIQ)):
+            by.pop(tok, None)
+    finally:
+        if kc is not None:
+            kc.close()
     out = {}
     for tok, evs in by.items():
         r = score_token(evs, scores, fac, cfg, good, now)
@@ -154,4 +177,5 @@ def save(con, conv, now=None):
                      json.dumps(r["platforms"]), json.dumps(r["handles"]), r["kol_selling"], now))
     con.execute("DELETE FROM converge WHERE ts < ?", (now - 7 * 86400,))
     con.executemany("DELETE FROM converge WHERE token = ?", [(t,) for t in majors()])   # rows from before 4.11.
+    con.execute("DELETE FROM converge WHERE token IN (SELECT token FROM tokens WHERE COALESCE(liquidity, 0) > ?)", (MAX_LIQ,))
     return len(conv)

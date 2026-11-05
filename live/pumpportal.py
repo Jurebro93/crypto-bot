@@ -207,6 +207,8 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                         last_prune = now
                         store.prune(con, int(now))
                         con.commit()
+                        log(f"live: {feed.n_trades} tradeova i {feed.n_launches} novih tokena od spajanja; "
+                            f"pratim {len(tokens)} tokena i {len(wallets)} novčanika")
         except Exception as e:  # noqa: BLE001 - network: back off and reconnect
             feed.flush(force=True)
             log(f"live: {type(e).__name__}: {str(e)[:120]}; ponovno za {backoff} s")
