@@ -443,11 +443,20 @@ def pullbacks(con, r, now, hype_db=None, kol_db=None):
     followed wallet buying in the last r.buyers_min minutes (chain_trades / live_trades, wallets of the Helius
     webhook list). No open trade, at most r.max_per_token such entries per token."""
     out = {}
-    fresh = {c["token"]: c for c in hype_signals(r["fresh_min"], now)}
-    if not fresh:
-        return out
     hc = _ro(hype_db or HYPE_DB)
     if hc is None:
+        return out
+    try:   # newest signal per token with its price and mcap (hype_signals() drops those)
+        fresh = {t: {"token": t, "symbol": sym, "ts": ts, "score": sc, "price": px, "mcap": mc,
+                     "features": json.loads(f or "{}")}
+                 for t, sym, ts, sc, px, mc, f in hc.execute(
+                     "SELECT s.token, s.symbol, s.ts, s.score, s.price, s.mcap, s.features FROM hype_signals s JOIN "
+                     "(SELECT token, MAX(ts) ts FROM hype_signals WHERE ts >= ? GROUP BY token) l ON s.token = l.token AND s.ts = l.ts",
+                     (now - r["fresh_min"] * 60,))}
+    except (sqlite3.OperationalError, ValueError):
+        fresh = {}
+    if not fresh:
+        hc.close()
         return out
     followed = set()
     kc = _ro(kol_db or os.path.join(HERE, "kol.db"))
