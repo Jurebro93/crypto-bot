@@ -209,6 +209,11 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         if t in found and ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
     cal = calendar_keywords()
+    try:  # 5.11.: the crew (kol/crew.py): big accounts reacting to a call, and engagers that bought before it
+        from kol import crew as _crew
+        crew_flags = _crew.token_crew(kstore.DB, list(best), now_ms / 1000 - 6 * 3600)
+    except Exception:  # noqa: BLE001
+        crew_flags = {}
     try:  # 5.11.: tracked wallets that RECEIVED a token's supply (kol/traces.py): a flag against the token
         from kol import traces as _traces
         trace_flags = _traces.token_flags(kstore.DB, list(best), now_ms / 1000 - 3 * 86400)
@@ -249,6 +254,10 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                 f["pump_live"] = min(1.0, 0.5 + (pf.get("liveParticipants") or 0) / 200)
         if whales.get(t):  # only set when it happened: 3+ different big holders = full signal
             f["veliki_kupuju"] = round(min(1.0, whales[t] / 3), 2)
+        if crew_flags.get(t):   # only set when it happened: reactions of big accounts on a call of this token
+            f["ekipa"] = round(min(1.0, crew_flags[t]["big"] / 3), 2)
+            if crew_flags[t]["insider"]:
+                f["ekipa_insajder"] = 1.0
         if trace_flags.get(t):   # only set when it happened: a KOL wallet received supply instead of buying
             f["primio_supply"] = 1.0
         if t in conv:  # only set when it happened, like kol_group

@@ -157,6 +157,13 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Ekipa (5.11., `kol/crew.py`).** Za svjež poziv (≤ 2 h, ≥ 20 min star) računa s ≥ 10k pratitelja ili dobrom
+ocjenom: jedna stranica odgovora, citata i retweetera (twitterapi, ~0,01 $ po pozivu, strop `crew.daily_usd` 0,8 $).
+Reagirači se vežu na novčanike (kol_ids twitter) i provjerava se kupnja tokena u 24 h prije poziva (chain_trades,
+live_trades). kol.db `engagers`. Značajke u skenu: `ekipa` (veliki računi u 30 min / 3, težina 6) i
+`ekipa_insajder` (10); pouzdanost +8. Strategija "Ekipa": 2+ velika računa i 1+ kupnja prije poziva. Na KOL
+stranici "Ekipa": tko ga pojačava (i koliko puta je kupio prije) i koga on pojačava.
+
 **Tragovi (5.11., `kol/traces.py`).** Helius webhook sada šalje i TRANSFER transakcije praćenih novčanika
 (hype.db `chain_transfers`: token i SOL ≥ 0,05 transferi). Svaki KOL krug: `primio_pa_zvao` (praćeni novčanik primio
 tokene, račun ih zvao unutar 24 h), `veza` (transfer između dva praćena novčanika), `supply` (≥ `traces.supply_pct`

@@ -476,7 +476,9 @@ def _positions(mine, live, bot_dca):
         meta = (f'Ulog {usd(t["size_usd"])[0]}' + (f' · vrijedi oko <b>${worth:,.2f}</b>' if worth is not None else "")
                 + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · kupljeno {ago(t["opened_ts"])[0]}'
                 + f' · {esc(origin(t))}'
-                + (f' · likvidnost {usd(liq)[0]}' if liq else ""))
+                + (f' · likvidnost {usd(liq)[0]}' if liq else "")
+                + (f' · cijena ${price:.3g} ({"DexScreener" if liq else "Jupiter, bez poola"}; osvježeno {time.strftime("%H:%M", time.gmtime())} UTC)'
+                   if price else ""))
         if price:
             act = ('<div class=pos-k>Prodaj</div><div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth)
                    + _sell_btn(t, 0.5, "50%", worth) + _sell_btn(t, 1, "Sve", worth, " class=pos-all") + '</div>'

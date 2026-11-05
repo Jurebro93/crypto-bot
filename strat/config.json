@@ -73,6 +73,12 @@
    "opis": "Kupi na poziv računa s 20k+ pratitelja kojeg prate barem 2 naša dokazana KOL-a, i prije nego što prođe probu. Nicholas: 'veliki influencer kojeg prate drugi veliki je ogroman signal'; mjerimo koliko."
   },
   {
+   "key": "ekipa",
+   "name": "Ekipa",
+   "icon": "🤝",
+   "opis": "Kupi kad poziv dobije reakcije 2+ velikih računa (20k+ pratitelja) u 30 min, a barem jedan od njih je tokenom trgovao prije poziva. Nicholas: 'tko se engagea na tuđi poziv, već je ušao prije'. Mjerimo vrijedi li."
+  },
+  {
    "key": "kontrola",
    "name": "Kontrola (nasumično)",
    "icon": "🎲",

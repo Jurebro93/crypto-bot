@@ -758,9 +758,10 @@ def kol_page(handle, qs):
                      + breakdown([(names[x], p.get(x, 0), abs(w[x]), expl[x]) for x in w if x in names], "Izmjereno"))
         b.append(_charts(con, handle))
         b.append(_influence(con, handle, cfg))
-        try:   # 5.11.: transfers around the account (kol/traces.py)
-            from kol import traces as _tr
+        try:   # 5.11.: transfers around the account (kol/traces.py) and the crew (kol/crew.py)
+            from kol import crew as _cr, traces as _tr
             b.append(_tr.html(con, handle))
+            b.append(_cr.html(con, handle))
         except Exception:  # noqa: BLE001
             pass
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta. Cijena i volumen: iz "

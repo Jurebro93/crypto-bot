@@ -127,6 +127,8 @@ def sane(p, now=None):
     chg = _f((p.get("priceChange") or {}).get("h1"))
     with _LOCK:
         last = _LAST.get(key)
+    if last and now - last[0] > 6 * 3600:   # 5.11.: a reading held back for 6 h is the new truth, not a glitch
+        last = None
     good = None
     if last and price >= JUMP * last[1]:
         age = now - last[0]

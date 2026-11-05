@@ -1,6 +1,20 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Natjecanje: cijena pozicije s izvorom i vremenom",
+  "tekst": "svaka otvorena pozicija pokazuje odakle je cijena (DexScreener pool ili Jupiter) i kad je osvježena; stranica koja se ne uspije obnoviti više ne prikazuje stare brojeve u tišini.",
+  "naslov_en": "Competition: position price with its source and time",
+  "tekst_en": "every open position now shows where its price comes from (DexScreener pool or Jupiter) and when it was refreshed; a page that fails to rebuild no longer silently shows old numbers."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Ekipa: tko pojačava čije pozive i tko je ušao prije",
+  "tekst": "za svaki svjež poziv velikog računa alat čita tko je odgovorio, retweetao ili citirao u prvih 30 minuta, povezuje te račune s njihovim novčanicima i provjerava jesu li token kupili prije poziva. Na stranici influencera: tko ga pojačava i koga on pojačava. Nova demo strategija 'Ekipa' kupuje kad 2+ velika računa reagiraju, a barem jedan je ušao prije poziva.",
+  "naslov_en": "Crew: who amplifies whose calls and who was in before",
+  "tekst_en": "for every fresh call by a big account the tool reads who replied, retweeted or quoted it within 30 minutes, links those accounts to their wallets and checks whether they bought the token before the call. On the influencer page: who amplifies them and whom they amplify. A new demo strategy, 'Crew', buys when 2+ big accounts react and at least one was in before the call."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Proporcionalna prodaja: kad insajder proda dio, i mi prodamo isti dio",
   "tekst": "živi tok daje količinu i preostalo stanje svake prodaje, pa strategija Insajderi više ne prodaje sve čim netko proda: proda isti udio koji je prodao novčanik (najmanje četvrtinu), a sve tek kad on izađe.",
   "naslov_en": "Proportional selling: when an insider sells part, we sell the same part",

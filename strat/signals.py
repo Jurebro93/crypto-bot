@@ -140,6 +140,12 @@ class Sources:
             for c in (kc, tc, hc, pc):
                 if c is not None:
                     c.close()
+        ekipa = []
+        try:   # 5.11.: the crew (kol/crew.py): 2+ big accounts reacting to a call, 1+ of them bought before it
+            from kol import crew as _crew
+            ekipa = [e for e in _crew.signals(self.kol_db, since) if _ok(e[0])]
+        except Exception:  # noqa: BLE001
+            ekipa = []
         ins = []
         try:   # insider wallets (kol/insiders.py): 2+ of them buying the same token before any call
             from kol import insiders as _ins
@@ -149,7 +155,7 @@ class Sources:
         except Exception:  # noqa: BLE001
             self.insiders = set()
         return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
-                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki}
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa}
 
 
 def mix(src, min_score, window_s):

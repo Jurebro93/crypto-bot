@@ -195,6 +195,13 @@ def cmd_traces(a, con=None, cfg=None):
         print(f"tragovi: {n} novih (primio pa zvao / veza / supply)")
 
 
+def cmd_crew(a, con=None, cfg=None):
+    """Who engages on fresh calls of reaching accounts and whether they bought before (kol/crew.py)."""
+    from kol import chainwatch, crew
+    con, cfg = con or store.connect(), cfg or config()
+    crew.run(con, cfg, chainwatch.HYPE_DB)
+
+
 def cmd_xhook(a, con=None, cfg=None):
     """twitterapi.io filter rules for the live X watch (kol/xhook.py)."""
     from kol import xhook
@@ -231,7 +238,7 @@ def cycle(a):
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_traces, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_score):
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:
