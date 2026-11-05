@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Pozivi s X-a u sekundama (webhook)",
+  "tekst": "do 100 najvažnijih računa (najbolji po ocjeni, zvijezde, veliki računi) prati se preko pravila koja se provjeravaju svakih 30 s, a objava stiže na naš webhook čim izađe. Dosad: 10 računa svakih 15 min.",
+  "naslov_en": "X calls within seconds (webhook)",
+  "tekst_en": "up to 100 of the most important accounts (best scores, stars, big accounts) are followed through rules checked every 30 s, and a post reaches our webhook as soon as it is out. Until now: 10 accounts every 15 minutes."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Makro režim: BTC i ETH ulaze u odluku",
   "tekst": "svaki sat alat određuje stanje BTC-a i ETH-a (raste / konsolidacija nakon rasta / pada / konsolidacija nakon pada / neutralno) iz dnevnih i satnih cijena. 'Konsolidacija nakon rasta' je prozor za altove i diže ocjenu tokena; dok BTC pada, demo bot ne otvara nove ulaze. Vidljivo na stranici Tržište.",
   "naslov_en": "Macro regime: BTC and ETH now shape decisions",

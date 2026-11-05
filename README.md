@@ -157,6 +157,13 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**X webhook (5.11., `kol/xhook.py`).** twitterapi.io filter pravila ("from:a OR from:b", do 250 znakova, ~15 računa
+po pravilu) za do `xhook.max_handles` (100) računa: lista uživo (watch), veliki računi po dosegu, zvijezde, pa
+ostatak po ocjeni; botovi nikad. Provjera svakih `interval_s` (30) sekundi; svaki KOL krug uskladi pravila
+(dodaj / ažuriraj / isključi stara). Objave stižu na `/hook/x?key=<KOL_HOOK_KEY>` (URL se jednom upiše u
+twitterapi.io dashboard → Webhook; piše na /usage) i kroz isti parser idu u kol.db calls (izvor `x_hook`), pa ih
+strategije i demo vide u sekundama. Prvih 5 sirovih payloada čuva se u kv `xhook_samples` radi provjere oblika.
+
 **Doseg (5.11., `kol/reach.py`).** Pratitelji + koliko naših dokazanih KOL-ova prati račun (kol.db `follows`,
 graf) daju početnu ocjenu računa: base `prior_score` + do 15 za pratitelje (log skala od 5k) + do 15 za praćenje
 (2 → +8, 5+ → +15), najviše `reach.prior_cap`. Izmjereni pozivi je preuzimaju kao i prije (shrinkage). Na stranici

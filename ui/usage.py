@@ -1,6 +1,7 @@
 """The "Potrošnja" page: Helius credits and Apify dollars this cycle, burn rate, which script spends what,
 and the warnings from usage/watch.py. banner() puts active warnings on top of every page."""
 import datetime as dt
+import json
 import os
 import sqlite3
 import time
@@ -192,6 +193,21 @@ def _moved():
     try:
         from ui import radar
         out.append("<h2 id=apify>Troškovi Apifyja po izvoru</h2>" + radar._costs())
+        try:   # 5.11.: the X webhook (twitterapi.io filter rules): the URL to paste into their dashboard, and state
+            from kol import store as _ks, xhook
+            kc = _ks.connect()
+            try:
+                st = json.loads((kc.execute("SELECT value FROM kv WHERE key='xhook'").fetchone() or ("{}",))[0])
+                cnt = (kc.execute("SELECT value FROM kv WHERE key='xhook_count'").fetchone() or ("0",))[0]
+            finally:
+                kc.close()
+            url = xhook.hook_url() or "(nema javnog URL-a ili KOL_HOOK_KEY)"
+            out.append("<h2 id=xhook>X webhook (twitterapi.io pravila)</h2>"
+                       f"<p>URL za twitterapi.io → Dashboard → Webhook: <code>{esc(url)}</code></p>"
+                       f"<p class=mut>Pravila: {len(st.get('ids') or {})} za {st.get('handles', 0)} računa; primljenih objava ukupno {esc(cnt)}. "
+                       "Bez URL-a u njihovom dashboardu pravila rade, ali objave ne stižu.</p>")
+        except Exception as e:  # noqa: BLE001
+            out.append(f"<h2 id=xhook>X webhook</h2><p class=mut>nedostupno: {type(e).__name__}</p>")
         try:   # 5.11.: the invisible trades the tool learns from (admin only, like the whole page)
             from learn import masovno
             out.append(masovno.stats_html())

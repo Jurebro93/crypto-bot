@@ -18,6 +18,7 @@
   "prepump": -25,
   "deletes": -15
  },
+ "xhook": {"max_handles": 100, "interval_s": 30, "resync_h": 6, "tag": "memesonar", "max_value": 250},
  "reach": {"min_followers": 20000, "min_followed_by": 2, "prior_cap": 70, "big_followers": 100000},
  "deleted": {"per_round": 200, "min_age_d": 2, "recheck_d": 14, "batch": 100},
  "trending": {"pages": 3, "per_run": 10, "pages_x": 2, "back_d": 7, "usd": 0.4, "max_fdv": 100000000},

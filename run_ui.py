@@ -678,6 +678,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/kol":
             self._kol_hook(u)
             return
+        if u.path == "/hook/x":   # 5.11.: twitterapi.io filter-rule webhook (kol/xhook.py), ?key=<KOL_HOOK_KEY>
+            self._x_hook(u)
+            return
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
@@ -805,6 +808,24 @@ class Handler(BaseHTTPRequestHandler):
                                      os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
             self.send_response(204)
         except Exception:
+            self.send_response(400)
+        self.end_headers()
+
+    def _x_hook(self, u):
+        from kol import store as kstore, xhook
+        key = kstore.hook_key()
+        got = self.headers.get("X-Hook-Key") or dict(parse_qsl(u.query)).get("key", "")
+        if not key or not hmac.compare_digest(got, key):
+            self.send_response(404)
+            self.end_headers()
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            import json
+            xhook.ingest(json.loads(self.rfile.read(min(n, 2_000_000)) or b"{}"))
+            self.send_response(200)
+        except Exception as e:  # noqa: BLE001
+            print(f"xhook: {type(e).__name__}: {e}", flush=True)
             self.send_response(400)
         self.end_headers()
 
