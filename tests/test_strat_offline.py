@@ -294,12 +294,23 @@ class TopWalletsAndBands(unittest.TestCase):
                                        [("novčanik @bad", -0.3)] * 3 + [("novčanik @new", -0.5)]):
             con.execute("INSERT INTO positions (strat, token, why, status, ret, pnl_usd) VALUES "
                         "('novcanici', ?, ?, 'closed', ?, ?)", (f"T{i}", who, ret, ret * 50))
-        top, out = run.wallets_allowed(con, cfg)
+        top, out = run.wallets_allowed(con, cfg, history=[])
         self.assertEqual(top, {"novčanik @good"})
         self.assertEqual(out, {"novčanik @ok", "novčanik @bad"})   # measured, not top: no longer copied
         src = {"novcanici": [(A, T0, "novčanik @bad", 0), (B, T0, "novčanik @new", 0), (C, T0, "novčanik @good", 0)]}
-        w = run.wanted(src, cfg, T0, 0, out)["top_novcanici"]
-        self.assertEqual([e[0] for e in w], [B, C])   # the new one is still being measured
+        w = run.wanted(src, cfg, T0, 0, out, top)["top_novcanici"]
+        self.assertEqual([e[0] for e in w], [C])      # 5.11.: only allowed wallets; @new waits for history or copies
+        # history (own trades) lets a wallet in, a proven-bad copy record keeps it out, and a stale buy is skipped
+        top2, out2 = run.wallets_allowed(con, cfg, history=["novčanik @hist", "novčanik @bad"])
+        self.assertEqual(top2, {"novčanik @good", "novčanik @hist"})
+        src2 = {"novcanici": [(A, T0 - 600, "novčanik @hist", 0), (B, T0 - 30, "novčanik @hist", 0), (C, T0, "novčanik @bad", 0)]}
+        w2 = run.wanted(src2, cfg, T0, 0, out2, top2)["top_novcanici"]
+        self.assertEqual([e[0] for e in w2], [B])     # 10 min old buy is too late (novcanici_max_delay_s 120)
+        rows = [{"wallet": "H" * 44, "copy_score": 70, "labels": [],
+                 "stats": {"closed": 40, "closed_pnl_sol": 12.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}},
+                {"wallet": "L" * 44, "copy_score": 70, "labels": [],
+                 "stats": {"closed": 5, "closed_pnl_sol": 1.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}}]
+        self.assertEqual(run.history_wallets(cfg, rows=rows, names={}), ["novčanik HHHHHH…"])   # 5 closed: not yet
 
     def test_bands(self):
         cfg = run.load_config()

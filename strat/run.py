@@ -73,14 +73,39 @@ def wallet_rank(con, cfg):
     return sorted(((w, n, s / n, p) for w, (n, s, p) in per.items()), key=lambda r: (-r[2], -r[3]))
 
 
-def wallets_allowed(con, cfg):
-    """(top labels, proven-out labels): the top novcanici_top proven wallets with a positive mean are copied; a wallet
-    with fewer than novcanici_min_n closed copies is still being measured (copied); every other measured one is not
-    (Nicholas 4.11.: "nećemo pratiti neuspješne")."""
+def history_wallets(cfg, rows=None, names=None):
+    """Labels of wallets whose OWN history earns a copy (ui/preporuka.rank_wallets: copy list, 10+ closed trades,
+    profit, holds under 6 h; confidence visoka/srednja), best first, at most novcanici_history_top. 5.11.: the
+    strategy used to copy every followed wallet until our 3 copies said otherwise; now a wallet must first have
+    proven itself on its own trades."""
+    try:
+        from ui import data, preporuka
+        rows = rows if rows is not None else data.wallets(scored_only=True)
+        ranked = preporuka.rank_wallets(rows)
+    except Exception:  # noqa: BLE001
+        return []
+    names = names if names is not None else signals.kol_names()
+    out = []
+    for w, r in ranked:
+        if r["tier"] in ("visoka", "srednja"):
+            out.append(signals.wallet_label(w["wallet"], names))
+        if len(out) >= cfg.get("novcanici_history_top", 15):
+            break
+    return out
+
+
+def wallets_allowed(con, cfg, history=None):
+    """(top labels, proven-out labels). Top = wallets good by their own history (history_wallets) plus the top
+    novcanici_top by OUR copies with a positive mean. Out = wallets with novcanici_min_n+ closed copies that are
+    not in the copy top (our copies lose even if the history looks good: the copy, with its delay, is what we
+    trade). Nicholas 4.11.: "nećemo pratiti neuspješne"; 5.11.: history first, copies decide."""
     min_n, top_n = cfg.get("novcanici_min_n", 3), cfg.get("novcanici_top", 10)
     proven = [r for r in wallet_rank(con, cfg) if r[1] >= min_n]
-    top = [r[0] for r in proven if r[2] > 0][:top_n]
-    return set(top), {r[0] for r in proven} - set(top)
+    copy_top = [r[0] for r in proven if r[2] > 0][:top_n]
+    out = {r[0] for r in proven} - set(copy_top)
+    hist = history if history is not None else history_wallets(cfg)
+    top = (set(copy_top) | set(hist)) - out
+    return top, out
 
 
 def band_of(cfg, key, mcap):
@@ -92,11 +117,16 @@ def band_of(cfg, key, mcap):
     return (mcap or 0) >= (lo or 0) and (hi is None or (mcap or 0) < hi)
 
 
-def wanted(src, cfg, now, last_random, out_wallets=()):
+def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
     """{strategy: [(token, ts, who, score)]} for this pass. Every alat_* band gets the tool's picks; the band is
-    checked when the token is priced (its market cap at entry)."""
+    checked when the token is priced (its market cap at entry). Top novčanici: only wallets in `top_wallets`
+    (history or copies, strat/run.wallets_allowed) and only buys younger than novcanici_max_delay_s (5.11.: a copy
+    minutes late is the main way copying loses); with no allow-list yet, every wallet not proven out."""
+    fresh = cfg.get("novcanici_max_delay_s", 120)
+    tops = [e for e in src.get("novcanici", []) if e[2] not in out_wallets and now - e[1] <= fresh
+            and (not top_wallets or e[2] in top_wallets)]
     out = {"novcanici": src.get("novcanici", []), "kol": src.get("kol", []),
-           "top_novcanici": [e for e in src.get("novcanici", []) if e[2] not in out_wallets],
+           "top_novcanici": tops,
            "alat": src.get("alat", []),
            "insajderi": src.get("insajderi", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
@@ -192,8 +222,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
     try:
         start = store.start_ts(con, now)
         last_random = float(store.kv_get(con, "last_random", 0) or 0)
-        _top, out_w = wallets_allowed(con, cfg) if "top_novcanici" in keys(cfg) else (set(), set())
-        want = wanted(src, cfg, now, last_random, out_w)
+        top_w, out_w = wallets_allowed(con, cfg) if "top_novcanici" in keys(cfg) else (set(), set())
+        want = wanted(src, cfg, now, last_random, out_w, top_w)
         acc = accounts(con, cfg, ex=ex)
         intake(con, cfg, now, want, start, acc)
         if want.get("kontrola"):

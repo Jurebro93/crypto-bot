@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Top novčanici: dokazani po povijesti, kopija u 2 minute",
+  "tekst": "strategija više ne kopira svaki praćeni novčanik dok ga naše 3 kopije ne presude: novčanik mora biti dokazan po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h) ili po našim kopijama, a kupnja se kopira samo ako je mlađa od 2 minute. Novčanik čije naše kopije gube ispada bez obzira na povijest.",
+  "naslov_en": "Top wallets: proven by their own history, copied within 2 minutes",
+  "tekst_en": "the strategy no longer copies every followed wallet until our three copies judge it: a wallet must be proven by its own history (10+ closed trades in profit, holds under 6 h) or by our copies, and a buy is copied only if it is under 2 minutes old. A wallet whose copies lose is dropped regardless of history."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Živi tok kupnji i prodaja (sekundno)",
   "tekst": "svaka kupnja i prodaja gledanih tokena i praćenih novčanika na pump.fun i PumpSwapu stiže u sekundi. Na stranici tokena kutija „Uživo” (kupci, prodavači, neto za 1/5/15 min), a demo bot na dump (puno prodavača, prodaja ≥ 2,5× kupnje, −8 %) proda u sekundama umjesto da čeka minutu.",
   "naslov_en": "Live buys and sells, second by second",

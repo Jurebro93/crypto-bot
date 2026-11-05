@@ -11,6 +11,23 @@ import sqlite3
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def wallet_label(w, names=None):
+    """The label a wallet signal carries ('novčanik @twitter' / 'novčanik name' / 'novčanik 5YnHVD…'); the same
+    text keys the copy results (strat positions.why) and the allow-list (strat/run.wallets_allowed)."""
+    names = names or {}
+    return "novčanik " + names.get(w, w[:6] + "…")
+
+
+def kol_names(kol_db=None):
+    """{wallet: '@twitter' | name} from kol.db kol_ids, for wallet_label."""
+    kc = _ro(kol_db or _path("kol.db", "KOL_DB"))
+    try:
+        return {w: (tw and "@" + tw) or name or w[:6] for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}
+    finally:
+        if kc is not None:
+            kc.close()
+
+
 def _path(name, env):
     return os.environ.get(env) or os.path.join(ROOT, name)
 
@@ -61,7 +78,7 @@ class Sources:
             names = {w: (tw and "@" + tw) or name or w[:6]
                      for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}
 
-            wallets = [(m, int(ts), "novčanik " + names.get(w, w[:6] + "…"), 0)
+            wallets = [(m, int(ts), wallet_label(w, names), 0)
                        for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
                                           (since,)) if _ok(m) and ts]
 
