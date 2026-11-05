@@ -11,6 +11,23 @@ import sqlite3
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def wallet_label(w, names=None):
+    """The label a wallet signal carries ('novčanik @twitter' / 'novčanik name' / 'novčanik 5YnHVD…'); the same
+    text keys the copy results (strat positions.why) and the allow-list (strat/run.wallets_allowed)."""
+    names = names or {}
+    return "novčanik " + names.get(w, w[:6] + "…")
+
+
+def kol_names(kol_db=None):
+    """{wallet: '@twitter' | name} from kol.db kol_ids, for wallet_label."""
+    kc = _ro(kol_db or _path("kol.db", "KOL_DB"))
+    try:
+        return {w: (tw and "@" + tw) or name or w[:6] for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}
+    finally:
+        if kc is not None:
+            kc.close()
+
+
 def _path(name, env):
     return os.environ.get(env) or os.path.join(ROOT, name)
 
@@ -61,14 +78,24 @@ class Sources:
             names = {w: (tw and "@" + tw) or name or w[:6]
                      for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}
 
-            wallets = [(m, int(ts), "novčanik " + names.get(w, w[:6] + "…"), 0)
+            wallets = [(m, int(ts), wallet_label(w, names), 0)
                        for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
                                           (since,)) if _ok(m) and ts]
 
-            kols = []
+            kols, veliki = [], []
+            # 5.11.: big accounts (reach): followers + followed by proven KOLs, trial or not (bots never)
+            from kol import reach as _reach
+            fby = _reach.followed_by(kc) if kc is not None else {}
+            foll = dict(_q(kc, "SELECT handle, COALESCE(followers, 0) FROM kols"))
+            bots_only = _bots.handles(kc)
+            vcfg = _reach.config(self.kol_cfg if hasattr(self, "kol_cfg") else None)
             for tok, ts, h in _q(kc, "SELECT token, ts, handle FROM calls WHERE kind='call' AND ts >= ?", (since,)):
-                if h not in bad and not h.startswith("w:"):
+                if h.startswith("w:") or h.startswith("tg:"):
+                    continue
+                if h not in bad:
                     kols.append((tok, int(ts), h, scores.get(h) or 0))
+                if h not in bots_only and _reach.is_big(foll.get(h), fby.get(h.lower(), 0), vcfg):
+                    veliki.append((tok, int(ts), f"{h} ({foll.get(h, 0) // 1000}k, prate ga {fby.get(h.lower(), 0)})", foll.get(h, 0)))
             for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
                 if h not in bad:
                     kols.append((ca, int(ts), h, scores.get(h) or 0))
@@ -93,10 +120,32 @@ class Sources:
             scored = [(t, int(ts), f"ocjena {sc:.0f}", sc or 0)
                       for t, ts, sc in _q(hc, "SELECT token, ts, score FROM hype_signals WHERE ts >= ?", (since,))
                       if _ok(t) and ts]
+            # 5.11.: the token's own socials (hype/socials.py features stored with the signal)
+            ozbiljni, sumnjivi, seen_s = [], [], set()
+            for t, ts, sc, feats in _q(hc, "SELECT token, MIN(ts), score, features FROM hype_signals WHERE ts >= ? AND "
+                                           "(features LIKE '%\"ozbiljan_projekt\": 1%' OR features LIKE '%\"sumnjivi_socijali\": 1%') "
+                                           "GROUP BY token", (since,)):
+                if not _ok(t) or not ts or t in seen_s:
+                    continue
+                seen_s.add(t)
+                try:
+                    f = json.loads(feats or "{}")
+                except ValueError:
+                    continue
+                if f.get("ozbiljan_projekt"):
+                    ozbiljni.append((t, int(ts), "ozbiljan projekt (plaćeni profil, X profil, živ TG)", sc or 0))
+                elif f.get("sumnjivi_socijali"):
+                    sumnjivi.append((t, int(ts), "sumnjivi socijali (tweet/pretraga umjesto profila ili bez TG-a)", sc or 0))
         finally:
             for c in (kc, tc, hc, pc):
                 if c is not None:
                     c.close()
+        ekipa = []
+        try:   # 5.11.: the crew (kol/crew.py): 2+ big accounts reacting to a call, 1+ of them bought before it
+            from kol import crew as _crew
+            ekipa = [e for e in _crew.signals(self.kol_db, since) if _ok(e[0])]
+        except Exception:  # noqa: BLE001
+            ekipa = []
         ins = []
         try:   # insider wallets (kol/insiders.py): 2+ of them buying the same token before any call
             from kol import insiders as _ins
@@ -105,7 +154,8 @@ class Sources:
             self.insiders = good
         except Exception:  # noqa: BLE001
             self.insiders = set()
-        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins}
+        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa}
 
 
 def mix(src, min_score, window_s):

@@ -25,6 +25,13 @@ def cmd_collect(a):
     ov = sources.overview(history=False)
     n = collect.snapshot(con, ov)
     newest = con.execute("SELECT MAX(day) FROM daily WHERE slug='all:launchpad'").fetchone()[0] or 0
+    try:   # 5.11.: BTC/ETH makro režim, every hour (market/makro.py)
+        from market import makro
+        r = makro.collect(con)
+        if r:
+            print(f"makro: {makro.line()}")
+    except Exception as e:  # noqa: BLE001
+        print(f"makro: {type(e).__name__}: {e}", file=sys.stderr)
     hist = a.history or newest < collect.today() - D or time.gmtime().tm_hour % 6 == 0
     days = 0
     if hist:

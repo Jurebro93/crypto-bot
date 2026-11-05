@@ -209,7 +209,22 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         if t in found and ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
     cal = calendar_keywords()
+    try:  # 5.11.: the crew (kol/crew.py): big accounts reacting to a call, and engagers that bought before it
+        from kol import crew as _crew
+        crew_flags = _crew.token_crew(kstore.DB, list(best), now_ms / 1000 - 6 * 3600)
+    except Exception:  # noqa: BLE001
+        crew_flags = {}
+    try:  # 5.11.: tracked wallets that RECEIVED a token's supply (kol/traces.py): a flag against the token
+        from kol import traces as _traces
+        trace_flags = _traces.token_flags(kstore.DB, list(best), now_ms / 1000 - 3 * 86400)
+    except Exception:  # noqa: BLE001
+        trace_flags = {}
     regime = market_regime(now_ms / 1000)  # same for every token in the scan: context, learned like any feature
+    try:   # 5.11.: BTC/ETH makro (market/makro.py), same for every token
+        from market import makro as _makro
+        makro_f = _makro.feature(now_ms / 1000)
+    except Exception:  # noqa: BLE001
+        makro_f = None
     rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
@@ -229,6 +244,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         f["telegram"] = min(1.0, tg_count.get(t, 0) / 3)
         if regime is not None:
             f["market_regime"] = regime
+        if makro_f is not None:
+            f["makro"] = makro_f
         # narrative, smart_money, x_buzz and search_trend are only set for tokens the deep checks reach
         pf = ctx["pump"].get(t) or {}
         if pf:
@@ -237,6 +254,12 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                 f["pump_live"] = min(1.0, 0.5 + (pf.get("liveParticipants") or 0) / 200)
         if whales.get(t):  # only set when it happened: 3+ different big holders = full signal
             f["veliki_kupuju"] = round(min(1.0, whales[t] / 3), 2)
+        if crew_flags.get(t):   # only set when it happened: reactions of big accounts on a call of this token
+            f["ekipa"] = round(min(1.0, crew_flags[t]["big"] / 3), 2)
+            if crew_flags[t]["insider"]:
+                f["ekipa_insajder"] = 1.0
+        if trace_flags.get(t):   # only set when it happened: a KOL wallet received supply instead of buying
+            f["primio_supply"] = 1.0
         if t in conv:  # only set when it happened, like kol_group
             f["konvergencija"] = round(conv[t]["score"] / 100, 2)
         trend = sources.trend_match(sym, name, ctx["trend_keys"])
@@ -261,6 +284,31 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
                      "extra": extra})
     rows.sort(key=lambda r: -r["score"])
+    try:   # 5.11.: the token's own socials (hype/socials.py): classification is free, the Telegram probe is cached
+        from hype import socials as _soc
+        scon = store.connect(DB)
+        probes = 0
+        for r in rows:
+            info = (r["raw"].get("info") or {})
+            if (r["mcap"] or 0) < 50000 and not r["features"].get("calendar"):
+                continue
+            cached = _soc.cached(scon, r["token"], now_ms / 1000)
+            if cached is None and probes >= int(os.environ.get("SOCIALS_PROBES", "15")):
+                d = {"cls": _soc.classify(info), "tg": None}
+                d["features"], d["opis"] = _soc.features(d["cls"]), _soc.describe(d["cls"])
+            else:
+                if cached is None:
+                    probes += 1
+                d = cached or _soc.probe_and_store(scon, r["token"], info, now_ms / 1000)
+            r["features"].update(d["features"])
+            r["extra"]["socijali"] = d.get("opis")
+        scon.close()
+        rows.sort(key=lambda r: -r["score"])
+        for r in rows:
+            r["score"] = score.score(r["features"], weights)
+        rows.sort(key=lambda r: -r["score"])
+    except Exception as e:  # noqa: BLE001
+        print(f"  socijali: {type(e).__name__}: {e}", file=sys.stderr)
     try:  # pulse for retained tokens and the current best: volume/txn/holder series -> strength features
         pcon = store.connect(DB)
         n_h = pulse.apply(pcon, rows, set(keep) | {r["token"] for r in rows[:pcfg["max"]]}, now_ms / 1000, pcfg)

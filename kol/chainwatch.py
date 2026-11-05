@@ -18,7 +18,7 @@ STABLE = {SOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfr
 HYPE_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hype.db")
 
 
-AUTH_V = 2   # 4.11.: key moved from ?key= in the URL to the Authorization header (Helius authHeader)
+AUTH_V = 3   # 4.11.: key in the Authorization header; 5.11.: TRANSFER events too (kol/traces.py), resync once
 
 
 def hook_url():
@@ -140,7 +140,7 @@ def sync(con, cfg, now=None, api=None, log=print):
     if not wallets or (sorted(wallets) == sorted(state.get("wallets", [])) and now - state.get("ts", 0) < cfg["resync_h"] * 3600
                        and state.get("auth") == AUTH_V):
         return False
-    body = {"webhookURL": url, "transactionTypes": ["SWAP"], "accountAddresses": wallets, "webhookType": "enhanced",
+    body = {"webhookURL": url, "transactionTypes": ["SWAP", "TRANSFER"], "accountAddresses": wallets, "webhookType": "enhanced",
             "authHeader": store.chain_key()}
     hid = state.get("id")
     if not hid:  # reuse one we made before (same URL) instead of piling up webhooks
@@ -186,14 +186,46 @@ def parse(events, wallets=None):
     return out
 
 
+def parse_transfers(events, wallets=None):
+    """TRANSFER transactions -> [(sig, src, dst, mint, amount, ts)]: token transfers (mint) and SOL transfers (mint
+    'SOL', amount in SOL) that touch a tracked wallet; swaps are left to parse()."""
+    out = []
+    for tx in events if isinstance(events, list) else [events]:
+        if not isinstance(tx, dict) or (tx.get("type") or "").upper() != "TRANSFER":
+            continue
+        sig, ts = tx.get("signature"), tx.get("timestamp")
+        if not sig:
+            continue
+        for t in tx.get("tokenTransfers") or []:
+            a, b, mint = t.get("fromUserAccount"), t.get("toUserAccount"), t.get("mint")
+            if mint in STABLE or not mint or not (a or b):
+                continue
+            if wallets and a not in wallets and b not in wallets:
+                continue
+            out.append((sig, a, b, mint, float(t.get("tokenAmount") or 0), ts))
+        for t in tx.get("nativeTransfers") or []:
+            a, b = t.get("fromUserAccount"), t.get("toUserAccount")
+            if wallets and a not in wallets and b not in wallets:
+                continue
+            amt = float(t.get("amount") or 0) / 1e9
+            if amt >= 0.05:
+                out.append((sig, a, b, "SOL", amt, ts))
+    return out
+
+
 def ingest(payload, hype_db=None):
     """Called by the dashboard for each POST to /hook/chain."""
     rows = parse(payload)
+    transfers = parse_transfers(payload)
     con = sqlite3.connect(hype_db or HYPE_DB, timeout=60)
     con.execute("""CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER,
                    sol REAL, PRIMARY KEY (sig, mint))""")
+    con.execute("""CREATE TABLE IF NOT EXISTS chain_transfers (sig TEXT, src TEXT, dst TEXT, mint TEXT, amount REAL,
+                   ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
     con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
+    con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
     con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(time.time()) - 30 * 86400,))
+    con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(time.time()) - 30 * 86400,))
     con.commit()
     con.close()
-    return len(rows)
+    return len(rows) + len(transfers)

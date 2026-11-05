@@ -46,6 +46,9 @@ def parse(msg, now=None):
     if kind == "create":
         return "launch", (mint, now, w, (msg.get("name") or "")[:60], (msg.get("symbol") or "")[:20],
                           round(sol, 4), sig, pool)
+    if kind == "migrate" or msg.get("migration") or kind == "migration":   # bonded: pool becomes pump-amm
+        return "launch", (mint, now, w, (msg.get("name") or "")[:60], (msg.get("symbol") or "")[:20],
+                          round(sol, 4), sig, "migration")
     if kind in ("buy", "sell"):
         try:
             toks = float(msg.get("tokenAmount") or 0)
@@ -56,7 +59,11 @@ def parse(msg, now=None):
             mcap = float(msg.get("marketCapSol") or 0) or None
         except (TypeError, ValueError):
             mcap = None
-        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now)
+        try:
+            bal = float(msg["newTokenBalance"]) if msg.get("newTokenBalance") is not None else None
+        except (TypeError, ValueError):
+            bal = None
+        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now, bal)
     return None, None
 
 
@@ -92,9 +99,13 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
         open_tokens.add(t)
     tokens += sorted(open_tokens)
     hc = _ro(hype_db or os.path.join(ROOT, "hype.db"))
+    for (t,) in _q(hc, "SELECT mint FROM live_launches WHERE pool = 'migration' AND ts >= ? ORDER BY ts DESC LIMIT 60",
+                   (now - 7200,)):   # bonded in the last 2 h: the moment worth watching
+        if t not in open_tokens and t not in tokens:
+            tokens.append(t)
     for (t,) in _q(hc, "SELECT token FROM hype_signals WHERE ts >= ? AND COALESCE(mcap, 0) >= ? "
                        "GROUP BY token ORDER BY MAX(ts) DESC LIMIT ?", (now - 7200, min_mcap, MAX_TOKENS)):
-        if t not in open_tokens:
+        if t not in open_tokens and t not in tokens:
             tokens.append(t)
     wallets = []
     kc = _ro(kol_db or os.path.join(ROOT, "kol.db"))
@@ -196,7 +207,7 @@ class Feed:
         return n
 
 
-async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
+async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, stop=None):
     """The live loop: connect, subscribe, read forever; resubscribe when the watched lists change."""
     import asyncio
     import websockets
@@ -209,8 +220,10 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
         try:
             async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
-                if new_tokens:
+                if new_tokens:   # every new pump.fun launch: 99% die in minutes (Nicholas 5.11.), off by default
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
+                if migrations:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
+                    await ws.send(json.dumps({"method": "subscribeMigration"}))
                 for m in subscribe_msgs(tokens, wallets, cur):
                     await ws.send(json.dumps(m))
                 cur = (set(tokens), set(wallets))

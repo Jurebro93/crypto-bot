@@ -47,6 +47,14 @@ def parts_keyed(hype=None, features=None, extra=None, rug_verdict=None, event_ro
             # learned model decides its sign from outcomes
             parts.append(("holders_conc", 0, f"Koncentrirani holderi: top 10 drži {top10:.0f}%, bundleri {bund:.0f}%. "
                                               "Retrospektiva ne pokazuje da to škodi, pa ne oduzima bodove; težinu uči model."))
+    if f.get("ekipa_insajder"):   # 5.11.: kol/crew: an account that amplified the call had bought before it
+        parts.append(("ekipa_insajder", 8, "Ekipa: račun koji je pojačao poziv kupio je token prije poziva (insajderski ulaz)."))
+    if f.get("primio_supply"):   # 5.11.: kol/traces: a tracked KOL wallet got the tokens, it did not buy them
+        parts.append(("primio_supply", -10, "Praćeni KOL novčanik je tokene primio (dodijeljen supply), nije ih kupio: plaćena promocija."))
+    if f.get("ozbiljan_projekt"):   # 5.11.: paid DexScreener profile + real X profile + live Telegram
+        parts.append(("ozbiljan", 12, "Ozbiljan projekt: plaćeni DexScreener profil, pravi X profil i živ Telegram (netko stoji iza njega)."))
+    elif f.get("sumnjivi_socijali"):
+        parts.append(("sumnjivi", -8, "Sumnjivi socijali: X link je tuđi tweet ili pretraga, ili nema Telegrama."))
     if rug_verdict == "PROLAZI":
         parts.append(("rug_ok", 10, "Rug filter: PROLAZI (nema bundlea, klastera ni lažnog volumena iznad pragova)."))
     elif rug_verdict == "OPREZ":

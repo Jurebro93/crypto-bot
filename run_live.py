@@ -16,7 +16,7 @@ from live import pulse, pumpportal, store
 def cmd_loop(a):
     con = store.connect()
     log = lambda s: print(s, flush=True)
-    asyncio.run(pumpportal.run(con, log=log, refresh_s=a.refresh, new_tokens=not a.no_new))
+    asyncio.run(pumpportal.run(con, log=log, refresh_s=a.refresh, new_tokens=a.new, migrations=not a.no_migrations))
 
 
 def cmd_status(a):
@@ -41,7 +41,8 @@ if __name__ == "__main__":
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("loop")
     s.add_argument("--refresh", type=int, default=60, help="seconds between re-reading the watched lists")
-    s.add_argument("--no-new", action="store_true", help="skip the firehose of new pump.fun tokens")
+    s.add_argument("--new", action="store_true", help="also every new pump.fun token (off: 99% die in minutes)")
+    s.add_argument("--no-migrations", action="store_true", help="skip bonded (migrated) tokens")
     s.set_defaults(fn=cmd_loop)
     sub.add_parser("status").set_defaults(fn=cmd_status)
     sub.add_parser("wanted").set_defaults(fn=cmd_wanted)

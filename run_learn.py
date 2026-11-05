@@ -113,6 +113,19 @@ def cmd_shadow(a):
     print(f"sjenovita knjiga: novih točaka {new}; označeno {r['labeled']}; obrisano starih {r['pruned']}")
 
 
+def cmd_masovno(a):
+    """Mass shadow book (learn/masovno.py): today's points from the token filter, history at night, labels within
+    the GeckoTerminal budget. run_sched every MASOVNO_EVERY_MIN minutes."""
+    from learn import masovno
+    r = masovno.run(budget=a.budget if getattr(a, "budget", None) else None)
+    if not r.get("enabled", True):
+        print("masovno: isključeno (learn/config.json masovno.enabled)")
+        return
+    new = ", ".join(f"{k} {v}" for k, v in sorted(r["new"].items())) or "nema novih"
+    print(f"masovno: novih točaka {new}; povijest +{r['history']}; označeno {r['labeled']} ({r['calls']} poziva"
+          f"{', noć' if r['night'] else ''})", flush=True)
+
+
 def cmd_loop(a):
     cfg = outcomes.config()
     hh, mm = map(int, cfg["run_at_utc"].split(":"))
@@ -141,13 +154,15 @@ def main(argv=None):
     m.add_argument("--hours", type=float, default=168)
     m.add_argument("--top", type=int, default=30)
     sub.add_parser("shadow")
+    mp = sub.add_parser("masovno")
+    mp.add_argument("--budget", type=int, help="GeckoTerminal poziva za ovaj prolaz (zadano: dan/noć iz configa)")
     sub.add_parser("postai")
     i = sub.add_parser("ideja")
     i.add_argument("tekst", nargs="+")
     i.add_argument("--autor", default="Nicholas")
     sub.add_parser("loop")
     a = p.parse_args(argv)
-    {"fit": cmd_fit, "status": cmd_status, "missed": cmd_missed, "shadow": cmd_shadow, "model": cmd_model, "postai": cmd_postai, "ideja": cmd_ideja, "loop": cmd_loop}[a.cmd](a)
+    {"fit": cmd_fit, "status": cmd_status, "missed": cmd_missed, "shadow": cmd_shadow, "model": cmd_model, "postai": cmd_postai, "ideja": cmd_ideja, "loop": cmd_loop, "masovno": cmd_masovno}[a.cmd](a)
     return 0
 
 

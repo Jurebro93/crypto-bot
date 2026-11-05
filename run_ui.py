@@ -30,7 +30,7 @@ if SITE_URL:
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
-                         r"embed/.*|static/landing/.*)$")
+                         r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
@@ -451,6 +451,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
+        if path == "/share/novosti.png":   # 5.11.: the day's "what is new" card for the evening X post (public)
+            from ui import sharecard
+            day = (qs.get("d") or "").strip() if isinstance(qs, dict) else ""
+            lang = "hr" if isinstance(qs, dict) and qs.get("lang") == "hr" else "en"
+            body = sharecard.png(day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None, lang=lang)
+            if not body:
+                return self._send(404, b"")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=600")
+            self.end_headers()
+            return self.wfile.write(body)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
@@ -665,6 +678,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/kol":
             self._kol_hook(u)
             return
+        if u.path == "/hook/x":   # 5.11.: twitterapi.io filter-rule webhook (kol/xhook.py), ?key=<KOL_HOOK_KEY>
+            self._x_hook(u)
+            return
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
@@ -792,6 +808,24 @@ class Handler(BaseHTTPRequestHandler):
                                      os.path.join(os.path.dirname(os.path.abspath(__file__)), "hype.db"))
             self.send_response(204)
         except Exception:
+            self.send_response(400)
+        self.end_headers()
+
+    def _x_hook(self, u):
+        from kol import store as kstore, xhook
+        key = kstore.hook_key()
+        got = self.headers.get("X-Hook-Key") or dict(parse_qsl(u.query)).get("key", "")
+        if not key or not hmac.compare_digest(got, key):
+            self.send_response(404)
+            self.end_headers()
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            import json
+            xhook.ingest(json.loads(self.rfile.read(min(n, 2_000_000)) or b"{}"))
+            self.send_response(200)
+        except Exception as e:  # noqa: BLE001
+            print(f"xhook: {type(e).__name__}: {e}", flush=True)
             self.send_response(400)
         self.end_headers()
 

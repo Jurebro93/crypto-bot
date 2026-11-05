@@ -144,7 +144,7 @@ class Locks(unittest.TestCase):
         self.assertFalse(cfg["follow_paper"])
         self.assertFalse(cfg["simianx"])
         self.assertFalse(settings.simianx_on(con))
-        self.assertEqual(executor.load_config()["max_loss_day"], 0.15)
+        self.assertEqual(executor.load_config()["max_loss_day"], 0.4)   # 5.11.: Nicholas: ~60 $ dnevni stop
 
 
 class T25Webhook(unittest.TestCase):

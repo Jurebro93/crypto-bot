@@ -39,6 +39,11 @@ DEFAULT = {
     # (taken or not) becomes a shadow point, so the lesson is learned even when nothing is bought.
     "povratak": {"enabled": True, "days": 7, "lost": -0.3, "cooldown_min": 60, "max_per_token": 2, "fresh_min": 30,
                  "min_turnover": 0.3, "buyers_min": 60, "size_usd": 20, "max_open": 20, "max_per_day": None},
+    # 5.11. (Nicholas): "čekaj povlačenje" only with proof: a token with a fresh signal that pulled back >= `pullback`
+    # from its high since the signal, still >= min_mcap (a pullback into a tiny cap is a dump, not a dip), and a
+    # followed wallet (KOL / copy / insider list of the Helius webhook) bought during the pullback (last buyers_min).
+    "povlacenje": {"enabled": True, "fresh_min": 180, "pullback": -0.12, "min_mcap": 50000, "buyers_min": 15,
+                   "max_per_token": 1, "size_usd": 25, "max_open": 15, "max_per_day": None},
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
                  "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
 }
@@ -104,6 +109,13 @@ def gate(token, price, liq, mcap, t0, features=None, cfg=None):
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None
+    if g.get("makro_pad", True):   # 5.11.: no new entries while BTC is falling (market/makro.py)
+        try:
+            from market import makro
+            if makro.falling():
+                return "BTC pada (makro režim): bez novih ulaza dok se ne smiri"
+        except Exception:  # noqa: BLE001
+            pass
     if mcap and mcap < g.get("min_mcap", 0):  # Nicholas 4.11.: ~$5k fresh listings are mostly rug pulls
         return f"market cap ${mcap:,.0f} ispod ${g['min_mcap']:,.0f} (premali, rizik ruga)".replace(",", ".")
     if (liq or 0) < g["min_liq"]:
