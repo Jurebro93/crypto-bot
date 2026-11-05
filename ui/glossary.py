@@ -852,6 +852,16 @@ T("Kontrola strategija", "ocjene", "Nasumičan ulaz iz istog skenera, istih dana
   "Strategija koja ne pobjeđuje kontrolu po tradeu nakon troškova nema prednost, ma koliko bila u plusu (tada je cijelo "
   "tržište bilo dobro). Bez pobjede nad kontrolom nema statusa kandidat.", vidi=["kandidat", "koncentrirano", "kontrola"],
   gdje=[("/strategije", "Usporedba strategija")], alias=["nasumično", "kontrola (nasumično)", "baseline"], k="kontrola-strategija")
+T("Prednost izvora", "ocjene", "Koliko izvor ulaza (KOL pozivi, novčanici, insajderi, izbor alata) zarađuje po tradeu više od nasumičnog ulaza.",
+  "Sve strategije u Usporedbi strategija kupuju i prodaju po istim pravilima, a kontrola kupuje nasumično iz istog "
+  "skenera. Razlika prosjeka po tradeu (jedan trade najviše +300%) je prednost izvora, u postotnim bodovima. Uz nju ide "
+  "90% raspon: ako je cijeli iznad nule, izvor je bolji od nasumičnog; ako je cijeli ispod, lošiji; inače se zasad ne "
+  "razlikuje. Prije 20 zatvorenih tradeova (i u kontroli) piše „premalo podataka”. Model učenja za svaku priliku dobiva "
+  "koji izvori su token javili prije te prilike i njihovu težinu (prednost kad je raspon na jednoj strani nule, inače 0), "
+  "pa sam uči koliko im vjeruje. Računa se samo iz tradeova zatvorenih prije prilike, bez gledanja u budućnost.",
+  "KOL pozivi prosjek +4%, kontrola −2% → prednost +6 pb; raspon +1 do +11 pb → bolje od nasumičnog.",
+  vidi=["kontrola-strategija", "postotni-bodovi"], gdje=[("/learn", "Učenje"), ("/strategije", "Usporedba strategija")],
+  alias=["prednost", "izvor ulaza", "lift", "težina u modelu", "izvori ulaza"])
 T("Kandidat", "ocjene", "Strategija sa 100+ zatvorenih tradeova koja pobjeđuje kontrolu u obje polovice razdoblja i bez 5 najboljih tradeova.",
   "Kandidat znači samo: vrijedi je dalje testirati. Nije dopuštenje za pravi novac. Ostali statusi: uči (manje od 100 "
   "zatvorenih, nema presude) i ne diraj pravi novac.", vidi=["kontrola-strategija", "koncentrirano"],

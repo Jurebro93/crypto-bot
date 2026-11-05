@@ -70,6 +70,18 @@ def in_holdout(ts, cfg=None):
     return bool(r and r[0] <= ts < r[1])
 
 
+def _rows(*a, **k):
+    """Labelled shadow points plus the entry-source features (learn/izvori.py: which strategy of the comparison had
+    the token before the point, and how much better than random those sources are). No strat.db: plain rows."""
+    rs = shadow.rows(*a, **k)
+    try:
+        from learn import izvori
+        izvori.enrich(rs)
+    except Exception as e:  # noqa: BLE001 - the model still learns without them
+        print(f"model: izvori: {type(e).__name__}: {e}")
+    return rs
+
+
 def _xy(rs, hyps=True):
     return [{"x": gbm.context(r, hyps), "y": bool(r["hit"]), "ts": r["ts"]} for r in rs]
 
@@ -80,7 +92,7 @@ def decay(rs, now, half_life_d):
 
 def train_rows(now, cfg=None, path=None):
     cfg = cfg or config()
-    rs = [r for p in cfg["points"] for r in shadow.rows(path, point=p, since=now - cfg["train_days"] * 86400)]
+    rs = [r for p in cfg["points"] for r in _rows(path, point=p, since=now - cfg["train_days"] * 86400)]
     return sorted((r for r in rs if r["ts"] < now and not in_holdout(r["ts"], cfg)), key=lambda r: r["ts"])
 
 
@@ -173,7 +185,7 @@ def run(now=None, cfg=None, shadow_path=None, apply=True):
     rep = {"champion": st["champion"], "events": []}
     ch = st.get("challenger")
     if ch:
-        rs = [r for p in cfg["points"] for r in shadow.rows(shadow_path, point=p, since=ch["trained_ts"]) if not in_holdout(r["ts"], cfg)]
+        rs = [r for p in cfg["points"] for r in _rows(shadow_path, point=p, since=ch["trained_ts"]) if not in_holdout(r["ts"], cfg)]
         c = compare(rs, ch["model"], cfg, ch.get("model_noai"))
         ch["eval"] = c
         days = (now - ch["trained_ts"]) / 86400
@@ -193,7 +205,7 @@ def run(now=None, cfg=None, shadow_path=None, apply=True):
             rep["events"].append("proba bez dovoljno točaka 3 tjedna; novi model")
             st["challenger"] = ch = None
     if st["champion"] == "gbm" and st.get("gbm"):
-        rs = [r for p in cfg["points"] for r in shadow.rows(shadow_path, point=p, since=now - cfg["trial_days"] * 86400)
+        rs = [r for p in cfg["points"] for r in _rows(shadow_path, point=p, since=now - cfg["trial_days"] * 86400)
               if not in_holdout(r["ts"], cfg)]
         c = compare(rs, st["gbm"]["model"], cfg, st["gbm"].get("model_noai"))
         st["gbm"]["eval_week"] = c
@@ -216,7 +228,7 @@ def run(now=None, cfg=None, shadow_path=None, apply=True):
             rep["events"].append(f"premalo točaka za model ({len(rs)}, treba {gbm.DEFAULT['min_rows']})")
     hr = holdout_range(cfg)
     if hr and now >= hr[1] and not st.get("holdout_report"):
-        rs = [r for r in shadow.rows(shadow_path, since=hr[0]) if r["ts"] < hr[1]]
+        rs = [r for r in _rows(shadow_path, since=hr[0]) if r["ts"] < hr[1]]
         model = (st.get("gbm") or {}).get("model") if st["champion"] == "gbm" else (st.get("challenger") or {}).get("model")
         st["holdout_report"] = {"ts": int(now), "champion": st["champion"], "eval": compare(rs, model, cfg)}
         rep["events"].append("zaključani tjedan otvoren: konačna usporedba spremljena")
@@ -234,7 +246,7 @@ def weekly(now, cfg, shadow_path, st):
     out = []
     for k in (0, 1):
         a, b = now - (k + 1) * 7 * 86400, now - k * 7 * 86400
-        rs = [r for p in cfg["points"] for r in shadow.rows(shadow_path, point=p, since=a) if r["ts"] < b]
+        rs = [r for p in cfg["points"] for r in _rows(shadow_path, point=p, since=a) if r["ts"] < b]
         out.append({"from": int(a), "to": int(b), "eval": compare(rs, model, cfg)})
     return {"ts": int(now), "weeks": out}
 
@@ -262,6 +274,11 @@ def candidate_p(model, c, now):
         try:
             from learn import postai
             feats.update(postai.features(c["token"], now))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from learn import izvori
+            feats.update(izvori.live_features(c["token"], now))
         except Exception:  # noqa: BLE001
             pass
     r = {"features": feats, "point": "kandidat", "klasa": classify.klasa(c.get("mcap"), None),
