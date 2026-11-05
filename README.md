@@ -352,6 +352,14 @@ kartica `/share/novosti.png?d=YYYY-MM-DD` (`ui/sharecard.py`, Pillow + Inter fon
 današnje unose; `?lang=hr` za hrvatsku. Objavu preko Buffera radi rutina u claude.ai (tekst u scratchpadu sesije),
 samo iz te datoteke, bez internih podataka.
 
+**Makro režim BTC/ETH (5.11., `market/makro.py`).** Svaki sat (run_market collect): DefiLlama dnevne cijene BTC i ETH
+(market.db `btc`, `eth`) i satne BTC (`btc_h`). Stanje po imovini: raste (7 d ≥ +3 %, iznad 30-d prosjeka),
+konsolidacija nakon rasta (30 d ≥ +5 %, raspon 5 d ≤ 6 %, do 8 % ispod 30-d vrha, 7 d < +3 %), pada (7 d ≤ −5 % ili
+BTC −3 % u 4 h), konsolidacija nakon pada, neutralno. Sklonost altovima 0–1 (konsolidacija rasta 1, raste 0,7,
+neutralno 0,5, konsolidacija pada 0,3, pada 0), BTC 0,6 + ETH 0,4, spremljeno as-of u `makro`. Ulazi u hype ocjenu
+kao značajka `makro` (težina 8) i u demo gate: dok je BTC u "pada", nema novih ulaza (`gate.makro_pad`). Stranica
+Tržište pokazuje rečenicu stanja.
+
 ## Status
 
 Logika je testirana na izmišljenim odgovorima API-ja (`tests/test_offline.py`). Od 2026-10-30 mreža radi: DexScreener, Polymarket i RocketLaunch odgovaraju; Wikipedia je tad vratila 429 (previše upita).

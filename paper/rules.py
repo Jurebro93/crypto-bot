@@ -104,6 +104,13 @@ def gate(token, price, liq, mcap, t0, features=None, cfg=None):
     g = config(cfg)["gate"]
     if not g["enabled"]:
         return None
+    if g.get("makro_pad", True):   # 5.11.: no new entries while BTC is falling (market/makro.py)
+        try:
+            from market import makro
+            if makro.falling():
+                return "BTC pada (makro režim): bez novih ulaza dok se ne smiri"
+        except Exception:  # noqa: BLE001
+            pass
     if mcap and mcap < g.get("min_mcap", 0):  # Nicholas 4.11.: ~$5k fresh listings are mostly rug pulls
         return f"market cap ${mcap:,.0f} ispod ${g['min_mcap']:,.0f} (premali, rizik ruga)".replace(",", ".")
     if (liq or 0) < g["min_liq"]:

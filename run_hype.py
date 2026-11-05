@@ -210,6 +210,11 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             best[t] = p
     cal = calendar_keywords()
     regime = market_regime(now_ms / 1000)  # same for every token in the scan: context, learned like any feature
+    try:   # 5.11.: BTC/ETH makro (market/makro.py), same for every token
+        from market import makro as _makro
+        makro_f = _makro.feature(now_ms / 1000)
+    except Exception:  # noqa: BLE001
+        makro_f = None
     rows, skipped = [], []
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
@@ -229,6 +234,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         f["telegram"] = min(1.0, tg_count.get(t, 0) / 3)
         if regime is not None:
             f["market_regime"] = regime
+        if makro_f is not None:
+            f["makro"] = makro_f
         # narrative, smart_money, x_buzz and search_trend are only set for tokens the deep checks reach
         pf = ctx["pump"].get(t) or {}
         if pf:
