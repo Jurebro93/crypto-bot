@@ -30,7 +30,7 @@ if SITE_URL:
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
-                         r"embed/.*|static/landing/.*)$")
+                         r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
@@ -451,6 +451,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(pub[0], pub[1], pub[2])
         if path.startswith("/static/landing/"):
             return self._static(path[len("/static/landing/"):])
+        if path == "/share/novosti.png":   # 5.11.: the day's "what is new" card for the evening X post (public)
+            from ui import sharecard
+            day = (qs.get("d") or "").strip() if isinstance(qs, dict) else ""
+            body = sharecard.png(day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None)
+            if not body:
+                return self._send(404, b"")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=600")
+            self.end_headers()
+            return self.wfile.write(body)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
