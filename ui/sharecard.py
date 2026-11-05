@@ -3,6 +3,7 @@ in the app), public, for the evening X post through Buffer. Only product text fr
 settings, keys, addresses, costs or internal state can reach the card because nothing else is read."""
 import datetime as dt
 import io
+import os
 import re
 
 W, H = 1200, 675
@@ -34,6 +35,20 @@ def _wrap(draw, text, font, width):
     return lines
 
 
+FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fonts")
+
+
+def _font(size, bold=False):
+    """Inter (OFL, bundled in ui/static/fonts: has Croatian letters); Pillow's built-in font lacks Š/Č/Ž."""
+    from PIL import ImageFont
+    for name in ((["Inter-SemiBold.otf"] if bold else []) + ["Inter-Regular.otf"]):
+        try:
+            return ImageFont.truetype(os.path.join(FONTS, name), size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
+
+
 def png(day=None, max_items=3):
     """PNG bytes of the card; None when Pillow is missing or the day has no entries."""
     try:
@@ -46,7 +61,7 @@ def png(day=None, max_items=3):
     day = day or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     im = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(im)
-    big, head, body, small = (ImageFont.load_default(size=s) for s in (54, 34, 26, 22))
+    big, head, body, small = _font(54, True), _font(34, True), _font(26), _font(22)
     d.rectangle((0, 0, W, 10), fill=ACC)
     d.text((60, 48), "MemeSonar", font=head, fill=INK)
     y, m, dd = day.split("-")
