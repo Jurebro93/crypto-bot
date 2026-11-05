@@ -134,7 +134,8 @@ def cmd_backfill(a):
     if done == str(a.budget) and not a.force:
         print(f"backfill: budžet ${a.budget} već odrađen, preskačem (--force za ponovno)")
         return
-    toks = backfill.pick(_load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con), a.winners, a.losers)
+    toks = backfill.pick(_load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con, max_age_d=getattr(a, "max_age_d", 90)),
+                         a.winners, a.losers, exclude=backfill.done_targets(con, "backfill_token"))
     print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}"
           + ("" if a.tokens else " (lista iz kol.db)"), flush=True)
     try:
@@ -231,6 +232,7 @@ def main(argv=None):
     bp = sub.add_parser("backfill")
     bp.add_argument("--tokens", help="JSON/JSONL s tokenima iz retrospektive; bez toga lista iz kol.db (pozivi + snimke)")
     bp.add_argument("--force", action="store_true", help="ponovi i kad je taj budžet već odrađen (kv backfill_done)")
+    bp.add_argument("--max-age-d", type=int, default=90, help="tokens called within this many days (2nd round: 180)")
     bp.add_argument("--winners", type=int, default=400)
     bp.add_argument("--losers", type=int, default=400)
     bp.add_argument("--per-token", type=int, default=20, help="postova po tokenu")
