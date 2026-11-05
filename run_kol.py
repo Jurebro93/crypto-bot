@@ -55,8 +55,16 @@ def cmd_search(a, con=None, cfg=None):
         return 0
     n = 0
     from kol import discover
+    from kol import trending
+    try:
+        k = trending.collect_today(con, cfg)
+        con.commit()
+        if k:
+            print(f"trending: {k} novih tokena danas (GeckoTerminal + DexScreener boosts)")
+    except Exception as e:  # noqa: BLE001
+        print(f"trending: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
-                     ("winners", discover.winners), ("audit", discover.audit),
+                     ("winners", discover.winners), ("trending", trending.search), ("audit", discover.audit),
                      ("graph", discover.graph)):
         try:
             k = fn(con, cfg)
@@ -68,6 +76,14 @@ def cmd_search(a, con=None, cfg=None):
         except Exception as e:
             print(f"search {name}: {type(e).__name__}: {e}", file=sys.stderr)
     return n
+
+
+def cmd_deleted(a, con=None, cfg=None):
+    """Re-check measured X calls by tweet id: deleted posts get deleted_ts (kol/deleted.py), the score punishes
+    accounts that delete their losers."""
+    from kol import deleted
+    con, cfg = con or store.connect(), cfg or config()
+    return deleted.check(con, cfg)
 
 
 def cmd_snap(a, con=None, cfg=None):
@@ -134,7 +150,10 @@ def cmd_backfill(a):
     if done == str(a.budget) and not a.force:
         print(f"backfill: budžet ${a.budget} već odrađen, preskačem (--force za ponovno)")
         return
-    toks = backfill.pick(_load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con), a.winners, a.losers)
+    from kol import trending
+    pool = _load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con, max_age_d=getattr(a, "max_age_d", 90))
+    pool += [t for t in trending.for_backfill(con) if t["mint"] not in {x["mint"] for x in pool}]   # 5.11.: trending too
+    toks = backfill.pick(pool, a.winners, a.losers, exclude=backfill.done_targets(con, "backfill_token"))
     print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}"
           + ("" if a.tokens else " (lista iz kol.db)"), flush=True)
     try:
@@ -187,7 +206,7 @@ def cycle(a):
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_chain, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_score):
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:
@@ -231,6 +250,7 @@ def main(argv=None):
     bp = sub.add_parser("backfill")
     bp.add_argument("--tokens", help="JSON/JSONL s tokenima iz retrospektive; bez toga lista iz kol.db (pozivi + snimke)")
     bp.add_argument("--force", action="store_true", help="ponovi i kad je taj budžet već odrađen (kv backfill_done)")
+    bp.add_argument("--max-age-d", type=int, default=90, help="tokens called within this many days (2nd round: 180)")
     bp.add_argument("--winners", type=int, default=400)
     bp.add_argument("--losers", type=int, default=400)
     bp.add_argument("--per-token", type=int, default=20, help="postova po tokenu")

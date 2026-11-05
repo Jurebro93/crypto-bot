@@ -149,6 +149,23 @@ python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
 - Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
 - Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 
+**Trending kao izvor (5.11., `kol/trending.py`).** Svaki KOL krug sprema današnje trending tokene (GeckoTerminal
+trending pools za Solanu, 3 stranice, 24 h; DexScreener top boosts kao plaćena promocija) u kol.db `trending`, bez
+majora i tokena s FDV iznad 100M. Zatim za do 10 tokena po krugu pita X tko je objavio njihovu adresu u zadnjih 7
+dana (twitterapi.io, vlastiti dnevni strop `trending.usd` 0,40 $ unutar discovery stropa): ti računi su zvali
+pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvorom `kol_trend`). Isti popis ulazi u
+KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
+nije zvao.
+
+**Obrisane objave (5.11., `kol/deleted.py`).** Poziv jednom pročitan ostaje u bazi; ali povijest iz backfilla ili
+kasnije čitanje timelinea vidi samo ono što je preživjelo, pa račun koji briše svaki rug izgleda bolje nego što jest.
+Zato se izmjereni X pozivi 2+ dana stari provjeravaju po ID-u objave (twitterapi.io, 0,15 $ na 1000, 200 po krugu,
+ponovno svakih 14 dana; prazan odgovor za cijelu seriju = greška API-ja, ne brisanje). Nestala objava dobiva
+`deleted_ts`. Obrisani pozivi i dalje se broje u svim statistikama; uz to težina `deletes` (−15) oduzima bodove
+razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici KOL-a: "Briše gubitnike: obrisao N, od
+toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
+živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.
@@ -204,8 +221,10 @@ Novčanici koji su na 2+ tokena kupili sat prije KOL poziva (`kol.db insiders`, 
 
 ## Živi tok (`run_live.py`, `live/`)
 
-5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`, besplatno, bez ključa) daje svaku kupnju i prodaju na
-pump.fun i PumpSwapu u sekundi. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
+5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`) daje svaku kupnju i prodaju na pump.fun i PumpSwapu u
+sekundi. Novi tokeni su besplatni bez ključa; pretplata na kupnje/prodaje odabranih tokena i novčanika traži
+`PUMPPORTAL_API_KEY` čiji je novčanik napunjen s barem 0,02 SOL (pumpportal.fun → API key). Bez ključa proces to
+javi u logu i prima samo nove tokene. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
 pretplaćuje se na: tokene koje gledamo (otvorene demo i strategijske pozicije, pa najsvježiji ocijenjeni kandidati
 s mcapom ≥ 30k, najviše 150), novčanike koje pratimo (Helius webhook lista + praćeni iz Natjecanja, najviše 200) i
 sve nove tokene. Liste se osvježavaju svaku minutu (pretplata/odjava samo za razliku). Zapisuje u hype.db:
@@ -283,6 +302,14 @@ rast launchpada tjedan na tjedan), 0-100; 66+ vruće, 33 i manje hladno. Za scor
 (ili `regime.feature(ts)`) je značajka `market_regime` za trenutak ts, iz zadnjeg punog dana prije ts (bez gledanja u budućnost).
 Hipoteza "kad raste volumen na Solani, trejda se više shitcoina" provjerava se svaki sat korelacijom dnevnih promjena
 (Solana DEX bez PumpSwapa naspram launchpada). Stranica `/market` (Tržište) pokazuje sve to i demo tradeove po režimu.
+
+**Nadzor procesa (5.11., `start.sh` → `keep`).** Svaki dugotrajni proces (ui, kol, tg, sched, report, paper, live,
+trade) ima vlastitu petlju: kad padne, log "nadzor: <ime> završio (izlaz N), ponovno za 30 s" i samo se on ponovno
+pokreće. Prije je `wait -n; exit 1` rušio cijeli worker čim bi ijedan proces završio (5.11. dva puta: run_live je
+dobio "database is locked" dok je drugi proces sažimao hype.db). Živi tok sada upisuje u jednoj IMMEDIATE
+transakciji, a kod zauzete baze zadrži redove u memoriji (do 20.000) i pokuša u sljedećoj sekundi. Redak zdravlja
+razdvaja RAM na "procesi" (stvarno zauzeto) i "cache" (kernel ga oslobađa pod pritiskom): 2 GB plana nije pun kad
+piše 2000 MB, a Renderova metrika kaže 1 GB.
 
 ## Status
 

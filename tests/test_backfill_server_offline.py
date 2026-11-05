@@ -91,5 +91,14 @@ class OncePerBudget(unittest.TestCase):
             store.DB = old_db
 
 
+class SecondRound(unittest.TestCase):
+    def test_pick_skips_tokens_already_searched(self):
+        from kol import backfill
+        toks = [{"mint": f"W{i}", "launch_ts": 0, "peak_ts": 0, "winner": True, "peak_mult": 10 - i} for i in range(5)]
+        toks += [{"mint": f"L{i}", "launch_ts": 0, "peak_ts": 0, "winner": False} for i in range(5)]
+        got = backfill.pick(toks, 2, 2, exclude={"W0", "W1", "L0", "L1", "L2", "L3", "L4"})
+        self.assertEqual([t["mint"] for t in got], ["W2", "W3"])          # new winners only; every loser was done
+
+
 if __name__ == "__main__":
     unittest.main()

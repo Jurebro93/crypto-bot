@@ -113,7 +113,14 @@ def accounts(con, cfg, marks=None, ex=None):
     from paper import sim
     marks = marks or {}
     out = {k: {"cash": cfg["bankroll_usd"], "value": cfg["bankroll_usd"], "open": 0, "closed": 0, "wins": 0,
-               "pnl_closed": 0.0} for k in keys(cfg)}
+               "pnl_closed": 0.0, "topup": 0.0} for k in keys(cfg)}
+    for s in cfg["strategies"]:   # 5.11.: demo top-ups (a learning account is refilled, never frozen for a loss)
+        for t in s.get("topups") or []:
+            a = out.get(s["key"])
+            if a is not None:
+                a["cash"] += t.get("usd") or 0
+                a["value"] += t.get("usd") or 0
+                a["topup"] += t.get("usd") or 0
     for p in store.rows(con):
         a = out.get(p["strat"])
         if a is None:
@@ -283,7 +290,7 @@ def summary(con, cfg, ex=None):
         st = (("kontrola", "kontrola", "nasumični ulaz iz istog skenera; mjerilo za ostale") if k == "kontrola"
               else ("zamrznuto", "zamrznuto", s.get("frozen_why") or "bez novih ulaza") if s.get("frozen")
               else robust.status(done, ctrl))
-        out.append({**s, **a, "ret": a["value"] / cfg["bankroll_usd"] - 1,
+        out.append({**s, **a, "ret": a["value"] / (cfg["bankroll_usd"] + a["topup"]) - 1,
                     "robust": robust.without_top(done), "status": st,
                     "portfolio": robust.portfolio(done, cfg["bankroll_usd"]),
                     "hit": (a["wins"] / a["closed"]) if a["closed"] else None,

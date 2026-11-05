@@ -34,6 +34,8 @@ class Strat(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.db = os.path.join(self.d, "strat.db")
         self.cfg = run.load_config()
+        for st in self.cfg["strategies"]:   # the live top-ups (5.11.) would shift every account value below
+            st.pop("topups", None)
         # the mechanics are tested with every strategy live; freezing has its own test
         self.cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in self.cfg["strategies"]]
         self.src = FakeSources()
@@ -67,8 +69,10 @@ class Strat(unittest.TestCase):
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
     def test_frozen_strategy_takes_no_new_entries(self):
-        # 5.11.: Top novčanici frozen at about -80% (strat/config.json "frozen")
-        self.assertTrue(any(s.get("frozen") for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"))
+        # 5.11. popodne: Top novčanici unfrozen and topped up (strat/config.json "topups"), the freeze flag still works
+        live = [s for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"][0]
+        self.assertFalse(live.get("frozen"))
+        self.assertEqual(sum(t["usd"] for t in live["topups"]), 1000)
         for s in self.cfg["strategies"]:
             if s["key"] == "top_novcanici":
                 s["frozen"], s["frozen_why"] = True, "test"
@@ -98,6 +102,21 @@ class Strat(unittest.TestCase):
         self.src.data["novcanici"] = [(t, T0 + 30, "w", 0) for t in toks]
         self.step(T0 + 60)
         self.assertEqual(len(self.rows()), self.cfg["per_hour"])
+
+    def test_topup_raises_the_account_and_the_return_is_on_the_total(self):
+        for s in self.cfg["strategies"]:
+            if s["key"] == "kol":
+                s["topups"] = [{"ts": T0, "usd": 1000, "why": "test"}]
+        self.step(T0)
+        con = store.connect(self.db)
+        try:
+            acc = run.accounts(con, self.cfg)
+            summ = {x["key"]: x for x in run.summary(con, self.cfg, EX)}
+        finally:
+            con.close()
+        self.assertEqual((acc["kol"]["cash"], acc["kol"]["topup"]), (2000, 1000))
+        self.assertAlmostEqual(summ["kol"]["ret"], 0.0)
+        self.assertEqual(acc["top_novcanici"]["topup"], 0)
 
     def test_no_cash_limit_keeps_buying(self):
         """Nicholas 4.11.: strategies trade on after their $1000 is spent (cash_limit false), always the full stake."""
@@ -268,6 +287,7 @@ class TopWalletsAndBands(unittest.TestCase):
 
     def test_wallet_ranking(self):
         cfg = {**run.load_config(), "novcanici_top": 1, "novcanici_min_n": 3}
+        cfg["strategies"] = [{k: v for k, v in st.items() if k != "topups"} for st in cfg["strategies"]]
         cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in cfg["strategies"]]  # live here
         con = store.connect(":memory:")
         for i, (who, ret) in enumerate([("novčanik @good", 0.5)] * 3 + [("novčanik @ok", 0.1)] * 3 +

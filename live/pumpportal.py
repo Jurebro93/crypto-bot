@@ -13,6 +13,14 @@ import sqlite3
 import time
 
 URL = os.environ.get("PUMPPORTAL_WS", "wss://pumpportal.fun/api/data")
+
+
+def ws_url():
+    """5.11.: PumpPortal answered "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when
+    connecting with an API key funded with at least 0.02 SOL". New-token events are free; trades of chosen tokens
+    and wallets need PUMPPORTAL_API_KEY (pumpportal.fun -> API key, its wallet topped up with >= 0.02 SOL)."""
+    key = os.environ.get("PUMPPORTAL_API_KEY")
+    return f"{URL}?api-key={key}" if key else URL
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_TOKENS, MAX_WALLETS = 150, 200
 
@@ -128,7 +136,8 @@ class Feed:
     def __init__(self, con, followed=frozenset(), log=print):
         self.con, self.followed, self.log = con, set(followed), log
         self.trades, self.launches = [], []
-        self.n_trades = self.n_launches = 0
+        self.n_trades = self.n_launches = self.n_other = 0
+        self.balance_error = False
         self.last_flush = time.time()
 
     def take(self, msg, now=None):
@@ -137,22 +146,52 @@ class Feed:
             self.trades.append(row)
         elif kind == "launch":
             self.launches.append(row)
+        else:
+            text = str(msg)
+            if "Minimum balance" in text or "only available when connecting with an API key" in text:
+                self.balance_error = True   # unfunded key: resubscribe everything at the next refresh (no restart)
+            if self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+                self.n_other += 1
+                self.log(f"live: poruka {text[:200]}")
         return kind
 
+    MAX_BUFFER = 20000   # rows kept in memory while the database is busy (a VACUUM at start-up can hold it ~20 s)
+
     def flush(self, now=None, force=False):
+        """Writes the buffers in one IMMEDIATE transaction. 5.11.: 'database is locked' (another process compacting
+        hype.db) crashed the whole worker twice; now the rows stay buffered and the next flush retries."""
+        import sqlite3
         from live import store
         now = now or time.time()
         if not force and now - self.last_flush < 1.0:
             return 0
         n = len(self.trades) + len(self.launches)
-        if n:
+        if not n:
+            self.last_flush = now
+            return 0
+        try:
+            self.con.execute("BEGIN IMMEDIATE")
             store.add_trades(self.con, self.trades)
             store.mirror_chain(self.con, self.trades, self.followed)
             store.add_launches(self.con, self.launches)
-            self.n_trades += len(self.trades)
-            self.n_launches += len(self.launches)
-            self.trades, self.launches = [], []
             self.con.commit()
+        except sqlite3.OperationalError as e:
+            try:
+                self.con.rollback()
+            except sqlite3.Error:
+                pass
+            if now - getattr(self, "_lock_logged", 0) > 60:
+                self._lock_logged = now
+                self.log(f"live: baza zauzeta ({str(e)[:60]}), {n} redaka čeka sljedeći pokušaj")
+            if len(self.trades) > self.MAX_BUFFER:
+                self.trades = self.trades[-self.MAX_BUFFER:]
+            if len(self.launches) > self.MAX_BUFFER:
+                self.launches = self.launches[-self.MAX_BUFFER:]
+            self.last_flush = now
+            return 0
+        self.n_trades += len(self.trades)
+        self.n_launches += len(self.launches)
+        self.trades, self.launches = [], []
         self.last_flush = now
         return n
 
@@ -168,7 +207,7 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
         feed = Feed(con, followed=set(wallets), log=log)
         cur = (set(), set())
         try:
-            async with websockets.connect(URL, ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
+            async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
                 if new_tokens:
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
@@ -178,7 +217,9 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                 store.set_state(con, "connected_ts", int(time.time()))
                 store.set_state(con, "subscribed", json.dumps({"tokens": len(tokens), "wallets": len(wallets)}))
                 con.commit()
-                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika")
+                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika"
+                    + ("" if os.environ.get("PUMPPORTAL_API_KEY") else
+                       " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
                 while not (stop and stop()):
                     try:
@@ -187,16 +228,28 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                     except asyncio.TimeoutError:
                         pass
                     now = time.time()
-                    if feed.flush(now):
-                        store.set_state(con, "last_trade_ts", int(now))
-                        con.commit()
-                    if now - last_check >= 2:
-                        last_check = now
-                        pulse.check_dumps(con, open_tokens, now)
+                    try:
+                        if feed.flush(now):
+                            store.set_state(con, "last_trade_ts", int(now))
+                            con.commit()
+                        if now - last_check >= 2:
+                            last_check = now
+                            pulse.check_dumps(con, open_tokens, now)
+                    except sqlite3.OperationalError as e:   # busy database: skip this pass, never die
+                        log(f"live: baza zauzeta ({str(e)[:60]}), preskačem prolaz")
+                        try:
+                            con.rollback()
+                        except sqlite3.Error:
+                            pass
+                        await asyncio.sleep(1)
+                        continue
                     if now - last_refresh >= refresh_s:
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
                         feed.followed = set(wallets)
+                        if feed.balance_error:   # the key had no SOL: once it is funded, resubscribe everything
+                            feed.balance_error = False
+                            cur = (set(), set())
                         for m in subscribe_msgs(tokens, wallets, cur):
                             await ws.send(json.dumps(m))
                         cur = (set(tokens), set(wallets))
@@ -207,8 +260,13 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                         last_prune = now
                         store.prune(con, int(now))
                         con.commit()
-        except Exception as e:  # noqa: BLE001 - network: back off and reconnect
-            feed.flush(force=True)
+                        log(f"live: {feed.n_trades} tradeova i {feed.n_launches} novih tokena od spajanja; "
+                            f"pratim {len(tokens)} tokena i {len(wallets)} novčanika")
+        except Exception as e:  # noqa: BLE001 - network or database: back off and reconnect, never exit
+            try:
+                feed.flush(force=True)
+            except Exception:  # noqa: BLE001
+                pass
             log(f"live: {type(e).__name__}: {str(e)[:120]}; ponovno za {backoff} s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 300)
