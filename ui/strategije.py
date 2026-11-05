@@ -81,6 +81,8 @@ def _card(s, rank, n, color):
     return (f'<div class=stat style="border-top:4px solid {color}">'
             f'<div class=l>{medal} {rank}. od {n} · {esc(s["icon"])} <b>{esc(s["name"])}</b></div>'
             f'<div class="v {kind}">${s["value"]:,.0f} <small>({s["ret"]:+.1%})</small></div>'
+            + (f'<div class=mut style="font-size:12px">nadopunjeno +${s["topup"]:,.0f} (uloženo ukupno ${1000 + s["topup"]:,.0f})</div>'
+               if s.get("topup") else "") +
             f'<div class=l>{s["closed"]} zatvoreno · {s["open"]} otvoreno · uspješnost {hit} · '
             f'slobodno ${s["cash"]:,.0f}</div>' + _robust_line(s) +
             f'<div class=l style="margin-top:4px">{esc(s["opis"])}</div></div>')

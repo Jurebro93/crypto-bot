@@ -137,6 +137,7 @@ class Feed:
         self.con, self.followed, self.log = con, set(followed), log
         self.trades, self.launches = [], []
         self.n_trades = self.n_launches = self.n_other = 0
+        self.balance_error = False
         self.last_flush = time.time()
 
     def take(self, msg, now=None):
@@ -145,9 +146,13 @@ class Feed:
             self.trades.append(row)
         elif kind == "launch":
             self.launches.append(row)
-        elif self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
-            self.n_other += 1
-            self.log(f"live: poruka {str(msg)[:200]}")
+        else:
+            text = str(msg)
+            if "Minimum balance" in text or "only available when connecting with an API key" in text:
+                self.balance_error = True   # unfunded key: resubscribe everything at the next refresh (no restart)
+            if self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+                self.n_other += 1
+                self.log(f"live: poruka {text[:200]}")
         return kind
 
     MAX_BUFFER = 20000   # rows kept in memory while the database is busy (a VACUUM at start-up can hold it ~20 s)
@@ -242,6 +247,9 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
                         feed.followed = set(wallets)
+                        if feed.balance_error:   # the key had no SOL: once it is funded, resubscribe everything
+                            feed.balance_error = False
+                            cur = (set(), set())
                         for m in subscribe_msgs(tokens, wallets, cur):
                             await ws.send(json.dumps(m))
                         cur = (set(tokens), set(wallets))
