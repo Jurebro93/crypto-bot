@@ -169,6 +169,46 @@ def author_bursts(tokens=None, window_min=60, max_age_h=6, path=None, now=None):
     return out
 
 
+def group_calls(tokens=None, window_min=10, min_authors=3, max_age_h=6, path=None, now=None):
+    """token -> {n, handles, ts}: the most different X authors who called the same token within window_min minutes,
+    over the last max_age_h hours, when that is min_authors or more (5.11. morning report: 3+ authors within 10
+    minutes came before many pumps; tighter than kol_group's 30 min and the kol3 trigger's 15). Bot accounts
+    (calls.kind 'bot' and kols.bot) and calls.bad (under $3k MC) are left out. {} if kol.db is missing."""
+    import time
+    now = now or time.time()
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        try:
+            rows = con.execute("SELECT token, lower(handle), ts FROM calls WHERE ts >= ? AND COALESCE(kind,'') != 'bot' "
+                               "AND COALESCE(bad, 0) = 0 ORDER BY token, ts", (int(now - max_age_h * 3600),)).fetchall()
+        except sqlite3.OperationalError:   # older kol.db without calls.bad
+            rows = con.execute("SELECT token, lower(handle), ts FROM calls WHERE ts >= ? AND COALESCE(kind,'') != 'bot' "
+                               "ORDER BY token, ts", (int(now - max_age_h * 3600),)).fetchall()
+        try:
+            from kol import bots
+            skip = {h.lower() for h in bots.handles(con)}
+        except Exception:  # noqa: BLE001 - works without the bot list
+            skip = set()
+    except sqlite3.OperationalError:
+        rows, skip = [], set()
+    finally:
+        con.close()
+    want = set(tokens) if tokens is not None else None
+    by = {}
+    for tok, h, ts in rows:
+        if h and h not in skip and (want is None or tok in want):
+            by.setdefault(tok, []).append((ts, h))
+    out, win = {}, window_min * 60
+    for tok, evs in by.items():
+        for i, (t0, _) in enumerate(evs):
+            hs = {h for t, h in evs[i:] if t - t0 <= win}
+            if len(hs) >= min_authors and len(hs) > out.get(tok, {}).get("n", 0):
+                out[tok] = {"n": len(hs), "handles": sorted(hs), "ts": int(t0)}
+    return out
+
+
 def session_now(path=None, now=None):
     """{session: asia|eu|us, factor, signal_hit_rate, signal_n} for entry and exit logic (kol/sessions.py)."""
     from kol import sessions

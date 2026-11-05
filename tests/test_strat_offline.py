@@ -34,6 +34,8 @@ class Strat(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.db = os.path.join(self.d, "strat.db")
         self.cfg = run.load_config()
+        # the mechanics are tested with every strategy live; freezing has its own test
+        self.cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in self.cfg["strategies"]]
         self.src = FakeSources()
         self.px = {A: 1.0, B: 1.0, C: 1.0}
 
@@ -63,6 +65,24 @@ class Strat(unittest.TestCase):
         self.assertEqual(got, {("top_novcanici", A), ("kol", B), ("alat_veliki", C)})
         for p in self.rows():
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
+
+    def test_frozen_strategy_takes_no_new_entries(self):
+        # 5.11.: Top novčanici frozen at about -80% (strat/config.json "frozen")
+        self.assertTrue(any(s.get("frozen") for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"))
+        for s in self.cfg["strategies"]:
+            if s["key"] == "top_novcanici":
+                s["frozen"], s["frozen_why"] = True, "test"
+        self.step(T0)
+        self.src.data["novcanici"] = [(A, T0 + 30, "novčanik @x", 0)]
+        self.src.data["kol"] = [(B, T0 + 30, "kolB", 50)]
+        self.step(T0 + 60)
+        self.assertEqual({p["strat"] for p in self.rows()}, {"kol"})
+        con = store.connect(self.db)
+        try:
+            st = {x["key"]: x["status"] for x in run.summary(con, self.cfg, EX)}
+        finally:
+            con.close()
+        self.assertEqual(st["top_novcanici"][0], "zamrznuto")
 
     def test_late_signal_and_before_start_skipped(self):
         self.step(T0)
@@ -248,6 +268,7 @@ class TopWalletsAndBands(unittest.TestCase):
 
     def test_wallet_ranking(self):
         cfg = {**run.load_config(), "novcanici_top": 1, "novcanici_min_n": 3}
+        cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in cfg["strategies"]]  # live here
         con = store.connect(":memory:")
         for i, (who, ret) in enumerate([("novčanik @good", 0.5)] * 3 + [("novčanik @ok", 0.1)] * 3 +
                                        [("novčanik @bad", -0.3)] * 3 + [("novčanik @new", -0.5)]):

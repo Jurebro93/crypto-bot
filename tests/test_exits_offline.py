@@ -105,6 +105,43 @@ class Learning(unittest.TestCase):
         self.assertEqual(state["profiles"]["moonshot"]["params"], {"sl": -0.2})
 
 
+class MedianRollback(unittest.TestCase):
+    """5.11. morning report: moonshot/SAD v4 had a -33% median after 50 live trades and was not rolled back,
+    because a few big wins kept its score up. A clearly worse median now rolls it back too."""
+
+    def _run(self, live_rets, replay_ret):
+        from unittest import mock
+        from exits import fit, learn, profiles
+        state = {"profiles": {}}
+        profiles.put(state, "moonshot/us", {"sl": -0.2}, {})
+        profiles.put(state, "moonshot/us", {"sl": -0.6}, {})
+        trades = [{"ret": r, "entry_px": 1.0, "entry_liq": 1e5, "opened": T0, "path": []} for r in live_rets]
+        ecfg = {**learn.load_config(), "rollback_margin": 9.0}   # score test off: only the median decides here
+        with mock.patch.object(fit, "live_trades", return_value=trades), \
+                mock.patch.object(fit.sim, "replay", return_value={"ret": replay_ret}):
+            notes = fit.check_rollback(state, "x.db", CFG, ecfg, T0)
+        return state, notes
+
+    def test_worse_median_rolls_back(self):
+        rets = [-0.33] * 40 + [5.0] * 10   # 50 trades, a few big wins, median -33%
+        state, notes = self._run(rets, -0.1)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("medijan", notes[0]["note"])
+        self.assertEqual(state["profiles"]["moonshot/us"]["params"], {"sl": -0.2})
+        from exits import fit
+        self.assertTrue(fit.recently_rolled(state, "moonshot/us", T0 + 86400, 3))
+        self.assertFalse(fit.recently_rolled(state, "moonshot/us", T0 + 4 * 86400, 3))
+
+    def test_similar_median_stays(self):
+        state, notes = self._run([-0.12] * 40 + [5.0] * 10, -0.1)
+        self.assertEqual(notes, [])
+        self.assertEqual(state["profiles"]["moonshot/us"]["params"], {"sl": -0.6})
+
+    def test_too_few_trades_wait(self):
+        state, notes = self._run([-0.33] * 25, -0.1)
+        self.assertEqual(notes, [])
+
+
 class AutoSell(unittest.TestCase):
     def setUp(self):
         from league import store

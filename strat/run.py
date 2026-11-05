@@ -102,7 +102,8 @@ def wanted(src, cfg, now, last_random, out_wallets=()):
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:
         out[k] = src.get("alat", [])
-    return {k: out.get(k, []) for k in keys(cfg)}
+    frozen = {s["key"] for s in cfg["strategies"] if s.get("frozen")}   # no new entries (5.11.: Top novčanici)
+    return {k: ([] if k in frozen else out.get(k, [])) for k in keys(cfg)}
 
 
 def accounts(con, cfg, marks=None, ex=None):
@@ -272,6 +273,7 @@ def summary(con, cfg, ex=None):
         done = closed[k]
         rets = sorted(p["ret"] or 0 for p in done)
         st = (("kontrola", "kontrola", "nasumični ulaz iz istog skenera; mjerilo za ostale") if k == "kontrola"
+              else ("zamrznuto", "zamrznuto", s.get("frozen_why") or "bez novih ulaza") if s.get("frozen")
               else robust.status(done, ctrl))
         out.append({**s, **a, "ret": a["value"] / cfg["bankroll_usd"] - 1,
                     "robust": robust.without_top(done), "status": st,

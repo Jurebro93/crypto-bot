@@ -86,7 +86,7 @@ def _card(s, rank, n, color):
             f'<div class=l style="margin-top:4px">{esc(s["opis"])}</div></div>')
 
 
-STATUS_CLS = {"uci": "", "kandidat": "good", "ne_diraj": "bad", "kontrola": ""}
+STATUS_CLS = {"uci": "", "kandidat": "good", "ne_diraj": "bad", "kontrola": "", "zamrznuto": "bad"}
 
 
 def _robust_line(s):

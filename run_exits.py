@@ -3,6 +3,7 @@
 
     python3 run_exits.py fit              # rollback check + guarded re-fit per class; applies what passes
     python3 run_exits.py fit --dry        # same, only reports
+    python3 run_exits.py rollback         # only the rollback check (every rollback_every_h hours on the server)
     python3 run_exits.py status           # rules each class uses now, last runs
     python3 run_exits.py compare          # current vs. paper/config.json rules on all paths, per entry type
     python3 run_exits.py seed --retro retro.db retro2.db --series series.jsonl.gz --kol kol.db  # rebuild seed
@@ -52,6 +53,16 @@ def cmd_fit(a):
             print(f"stop loss tablica {key}: n={t['n']} najbolje {sl}, odgoda {b['delay']} min, "
                   f"prosjek {_pct(b['mean'])}, u plusu {b['win']:.0%}")
     return rep
+
+
+def cmd_rollback(a):
+    """Only the rollback check (run_sched every exits/config.json rollback_every_h hours)."""
+    notes = fit.rollback_only(PAPER_DB, now=time.time())
+    for r in notes:
+        print(f"{r['klasa']:<9} ROLLBACK: {r['note']}")
+    if not notes:
+        print("izlazi: nijedno pravilo ne gubi live, bez vraćanja")
+    return notes
 
 
 def cmd_status(a):
@@ -110,6 +121,7 @@ def main(argv=None):
     f = sub.add_parser("fit")
     f.add_argument("--dry", action="store_true")
     sub.add_parser("status")
+    sub.add_parser("rollback")
     sub.add_parser("compare")
     s = sub.add_parser("seed")
     s.add_argument("--retro", nargs="+", required=True)
@@ -118,7 +130,7 @@ def main(argv=None):
     s.add_argument("--usd", type=float, default=96.0, help="USD per SOL in the study window")
     sub.add_parser("loop")
     a = p.parse_args(argv)
-    {"fit": cmd_fit, "status": cmd_status, "compare": cmd_compare, "seed": cmd_seed, "loop": cmd_loop}[a.cmd](a)
+    {"fit": cmd_fit, "rollback": cmd_rollback, "status": cmd_status, "compare": cmd_compare, "seed": cmd_seed, "loop": cmd_loop}[a.cmd](a)
     return 0
 
 

@@ -559,6 +559,12 @@ def rules_html(now=None):
             "(ispod 1 znači gubitak). Ulog se primjenjuje na sve nove ulaze u toj sesiji.") + table(
             ["Sesija", ("Tradeova", "n"), ("Dobitnih", "n"), ("Faktor dobiti", "n"), ("Ulog", "n"),
              ("Okidač 3 KOL-a (14 dana)", "n")], srows))
+        kt = rules.kol3_tight(con, 14, now)
+        if kt:
+            lab = {"10": "3+ autora unutar 10 min", "15": "3+ autora tek unutar 15 min"}
+            out.append("<p class=mut>Grupni poziv, zadnjih 14 dana: " + "; ".join(
+                f"{lab[k]}: {v['n']} zatvorenih, {v['win']:.0%} dobitnih, medijan {_pct(v['median'])}"
+                for k, v in sorted(kt.items())) + ". Učenje samo mjeri vrijedi li uži prozor više.</p>")
     except Exception as e:  # noqa: BLE001 - never break the page
         out.append(f"<p class=mut>Statistika novih pravila trenutno nije dostupna ({esc(type(e).__name__)}).</p>")
     finally:

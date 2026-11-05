@@ -14,7 +14,8 @@
    gets only keep_frac of the entries.
 4. Position size per session (session_sizes()): from the last 7 days of closed demo trades per session (asia/eu/us);
    a session with profit factor under 1 gets a smaller stake (0.75 / 0.5) and under 0.7 a pause (only keep_frac of
-   entries, at half size, so it is still measured). One step per day, comes back up by itself when results improve.
+   entries, at half size, so it is still measured). The same threshold and min_n for all three sessions; a worse
+   result applies at once, the way back up is one step per day, by itself when results improve.
 
 State: LEARNED_DIR/paper_rules.json (a few KB). Nothing here is set by hand.
 """
@@ -41,6 +42,7 @@ DEFAULT = {
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
                  "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
 }
+SESS_V = 2   # 5.11.: a session under pause_below pauses at once (was one step a day); a new version re-reads now
 SESS_HR = {"asia": "Azija (00–08 UTC)", "eu": "Europa (08–14 UTC)", "us": "Amerika (14–24 UTC)"}
 
 
@@ -181,6 +183,20 @@ def _closed(con, where, args=()):
     return sorted(rows)
 
 
+def _closed_cfg(con, where, args=()):
+    """Like _closed, with each trade's stored config: [(opened_ts, ret, config dict)]."""
+    rows = []
+    for ts, ret, state, cfg in con.execute("SELECT opened_ts, ret, state, config FROM trades WHERE status='closed' "
+                                           "AND " + where, args):
+        if '"rucno"' not in (state or ""):
+            try:
+                c = json.loads(cfg or "{}")
+            except ValueError:
+                c = {}
+            rows.append((ts, ret or 0, c))
+    return sorted(rows, key=lambda r: r[0])
+
+
 def _summ(rows, cap):
     if not rows:
         return {"n": 0}
@@ -234,11 +250,13 @@ def ab_allow(st, mode, token, cfg):
 
 # ---------- 3. >= 3 KOL authors within 15 minutes ----------
 
-def kol3(kol_db, now, cfg=None, tokens=None):
+def kol3(kol_db, now, cfg=None, tokens=None, window_min=None):
     """{token: {n, handles, first_ts, last_ts}}: tokens where at least `authors` different X authors called within
     window_min minutes and the newest of them is at most fresh_min old. Scanner/alert bots (kols.bot = 1, the KOL
     thread's fix for 'blossomscanner + bitecong on every token') do not count."""
-    k = config(cfg)["kol3"]
+    k = dict(config(cfg)["kol3"])
+    if window_min:   # the tighter 10-min group call (5.11.) is read with the same rules
+        k["window_min"] = window_min
     if not kol_db or not os.path.exists(kol_db) or not os.path.getsize(kol_db):
         return {}
     con = sqlite3.connect(f"file:{kol_db}?mode=ro", uri=True, timeout=10)
@@ -293,6 +311,24 @@ def by_session(con, mode, days, now):
             for k, v in out.items()}
 
 
+def kol3_tight(con, days, now):
+    """{"10": {n, win, mean, median}, "15": {...}}: closed kol3 trades of the last `days` days split by whether the
+    3+ authors came within 10 minutes (cfg grupa10, 5.11.) or only within the usual 15. So the page and the report
+    show whether the tighter group call is worth more; nothing is changed by hand."""
+    out = {}
+    for _ts, ret, c in _closed_cfg(con, "opened_ts>=? AND config LIKE ?", (int(now - days * 86400),
+                                                                        '%"entry_mode": "kol3"%')):
+        if "grupa10" not in c:
+            continue   # opened before 5.11.: not known
+        out.setdefault("10" if c["grupa10"] else "15", []).append(ret)
+    res = {}
+    for k, rs in out.items():
+        rs.sort()
+        res[k] = {"n": len(rs), "win": round(sum(r > 0 for r in rs) / len(rs), 3),
+                  "mean": round(sum(rs) / len(rs), 4), "median": round(rs[len(rs) // 2], 4)}
+    return res
+
+
 def kol3_allow(con, token, now, cfg):
     """A session where the trigger keeps losing (min_n trades, win share under bad_win) gets keep_frac of entries."""
     from exits.paths import session_of
@@ -323,7 +359,7 @@ def session_sizes(con, st, cfg, now, force=False):
     from exits.paths import session_of
     sc = config(cfg)["sessions"]
     cur = st.get("sessions") or {}
-    if not force and cur and now - cur.get("ts", 0) < sc["refresh_h"] * 3600:
+    if not force and cur and cur.get("v") == SESS_V and now - cur.get("ts", 0) < sc["refresh_h"] * 3600:
         return cur
     agg = {}
     for ts, ret in _closed(con, "opened_ts>=?", (int(now - sc["days"] * 86400),)):
@@ -333,14 +369,17 @@ def session_sizes(con, st, cfg, now, force=False):
         a["g"] += max(ret, 0)
         a["l"] += max(-ret, 0)
     ladder = [f for _, f in sc["steps"]] + [0.0]
-    out = {"ts": int(now), "by": {}}
+    out = {"ts": int(now), "v": SESS_V, "by": {}}
     for s in ("asia", "eu", "us"):
         a = agg.get(s) or {"n": 0, "w": 0, "g": 0.0, "l": 0.0}
         pf = round(a["g"] / a["l"], 2) if a["l"] > 0 else None
         target = _factor(pf, sc) if a["n"] >= sc["min_n"] else 1.0
         prev = ((cur.get("by") or {}).get(s) or {}).get("factor", 1.0)
         i, j = ladder.index(prev) if prev in ladder else 0, ladder.index(target) if target in ladder else 0
-        f = ladder[i + (1 if j > i else -1 if j < i else 0)]
+        # Down at once, up one step a day (5.11. morning report: Asia PF 0.27 and US 0.32 were paused while Europe,
+        # PF 0.17 on 64 trades, still traded at 50-75% because it was walking down one step per 24 h). The same
+        # pause_below and min_n now mean the same thing in every session; only the way back up stays gradual.
+        f = ladder[j] if j > i else ladder[i - 1] if j < i else ladder[i]
         out["by"][s] = {"n": a["n"], "win": round(a["w"] / a["n"], 3) if a["n"] else None, "pf": pf, "factor": f}
         if f != prev:
             st.setdefault("history", []).append({"ts": int(now), "kind": "sesija", "text": (

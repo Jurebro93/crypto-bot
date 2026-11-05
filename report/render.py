@@ -310,6 +310,12 @@ def render(data, ai, source):
         if k3:
             items.append("Okidač 3+ KOL autora u 15 min: " + ", ".join(
                 f"{sess[s]} {v['win']:.0%} dobitnih od {v['n']}" for s, v in k3.items() if s in sess) + ".")
+        kt = ru.get("kol3_10") or {}
+        if kt:
+            lab = {"10": "unutar 10 min", "15": "tek unutar 15 min"}
+            items.append("Grupni poziv 3+ autora: " + "; ".join(
+                f"{lab[k]} {v['n']} zatvorenih, {v['win']:.0%} dobitnih, medijan {pct(v['median'], True)}"
+                for k, v in sorted(kt.items()) if k in lab) + ".")
         ss = ru.get("sessions") or {}
         small = [f"{sess[s]} " + ("pauza" if v.get("factor") == 0 else f"ulog {v['factor']:.0%}")
                  for s, v in ss.items() if s in sess and v.get("factor", 1) < 1]

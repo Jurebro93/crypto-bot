@@ -7,6 +7,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   learn   run_learn.py fit      once a day after learn/config.json run_at_utc (UTC), checked every 5 min
   learn6  run_learn.py fit --samo-tezine  hype weights every learn/config.json every_h hours (default 6)
   exits   run_exits.py fit      once a day after exits/config.json run_at_utc (UTC), checked every 5 min
+  exits_rb run_exits.py rollback every exits/config.json rollback_every_h hours: a losing exit profile goes back fast
   market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
   usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
@@ -90,13 +91,13 @@ def daily(name, args, config, due=None):
         time.sleep(300)
 
 
-def every_hours(name, args, config):
-    """Every config every_h hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
+def every_hours(name, args, config, key="every_h"):
+    """Every config `key` hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
     re-run it each time."""
     while True:
         try:
             with open(os.path.join(ROOT, config)) as f:
-                hours = float(json.load(f).get("every_h") or 0)
+                hours = float(json.load(f).get(key) or 0)
             last = _last_day(name)
             if hours and (not isinstance(last, (int, float)) or time.time() - last >= hours * 3600):
                 run(name, args)
@@ -142,6 +143,7 @@ JOBS = [
     ("learn", daily, (["run_learn.py", "fit"], "learn/config.json")),
     ("learn6", every_hours, (["run_learn.py", "fit", "--samo-tezine"], "learn/config.json")),
     ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
+    ("exits_rb", every_hours, (["run_exits.py", "rollback"], "exits/config.json", "rollback_every_h")),
     ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),

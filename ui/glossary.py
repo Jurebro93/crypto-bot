@@ -336,6 +336,13 @@ T("Nalet istog autora", "ocjene", "Isti KOL objavi isti token dva ili više puta
   "prema tome kako su takvi tokeni prošli.",
   primjer="KOL u 40 minuta tri puta objavi istu adresu: nalet = 3 objave (0,67 od najjače vrijednosti).",
   vidi=["konvergencija"], alias=["autor_nalet", "author burst", "nalet autora"])
+T("Grupni poziv u 10 minuta", "ocjene", "3 ili više različitih KOL-ova objavi isti token unutar 10 minuta.",
+  "Zašto: jutarnji izvještaj 5.11. pokazao je da je takav zbijen grupni poziv često prethodio rastu. To je uži prozor "
+  "od okidača 3 KOL-a (15 min) i signala Grupni poziv KOL-ova (30 min). Botovi i pozivi ispod 3k $ se ne broje. "
+  "Ulazi u hype ocjenu s težinom koju učenje samo podesi, a demo tradeovi okidača 3 KOL-a bilježe je li grupa "
+  "stigla u 10 minuta, pa se vidi vrijedi li više.",
+  primjer="Tri KOL-a objave istu adresu u 7 minuta: grupni poziv u 10 min (0,5); pet KOL-ova: puna vrijednost.",
+  vidi=["konvergencija"], alias=["grupa_10", "grupni poziv 10 min", "3 kol-a u 10 minuta"])
 T("Konvergencija", "ocjene", "Više neovisnih izvora (KOL-ovi, Telegram kanali, smart novčanici) dira isti token u kratkom roku.",
   "Jedan poziv može biti slučajan ili plaćen; kad 3+ KOL-a zove isti token u 15 minuta, 59% se udvostruči (naspram 33%). "
   "Za konvergenciju novčanika treba barem 6 novčanika.", vidi=["kol", "smart-money"], alias=["konvergencija izvora", "grupni poziv"])

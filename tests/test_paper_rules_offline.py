@@ -69,25 +69,40 @@ class Learned(unittest.TestCase):
         self.con.close()
         weights.LEARNED_DIR = self._ld
 
-    def test_session_stake_steps_down_one_step_per_day(self):
+    def test_session_stake_pauses_at_once_and_comes_back_one_step_a_day(self):
+        # 5.11. morning report: Asia (PF 0.27) and US (0.32) were paused, Europe (PF 0.17, 64 trades) still traded at
+        # 50-75% because a worse result moved one step a day. Now down is at once, up one step a day.
         now = 1_762_000_000 - (1_762_000_000 % 86400) + 20 * 3600  # 20:00 UTC (us)
         eu = now - 9 * 3600  # 11:00 UTC
-        for i in range(40):  # Europe: 40% wins at +20%, losses -20% -> profit factor 0.67
+        for i in range(40):  # Europe: 40% wins at +20%, losses -20% -> profit factor 0.67 (< pause_below 0.7)
             _trade(self.con, "explore", 0.2 if i % 5 < 2 else -0.2, eu - i * 60)
         self.con.commit()
-        st = {}
+        st = {"sessions": {"ts": now - 3600, "by": {"eu": {"factor": 0.75}}}}   # old state (v1): re-read now
         s1 = rules.session_sizes(self.con, st, {}, now)
-        self.assertEqual(s1["by"]["eu"]["factor"], 0.75)  # one step, not straight to pause
-        self.assertEqual(s1["by"]["us"]["factor"], 1.0)  # too few trades: full stake
-        self.assertEqual(rules.session_sizes(self.con, st, {}, now + 3600)["by"]["eu"]["factor"], 0.75)  # cached
-        s2 = rules.session_sizes(self.con, st, {}, now + 86400 + 1, force=True)
-        self.assertEqual(s2["by"]["eu"]["factor"], 0.5)
-        s3 = rules.session_sizes(self.con, st, {}, now + 2 * 86400 + 2, force=True)
-        self.assertEqual(s3["by"]["eu"]["factor"], 0.0)
-        size, note = rules.size_for(st, "abc", 20, eu + 86400 * 2, {})
+        self.assertEqual(s1["by"]["eu"]["factor"], 0.0)   # straight to pause, as Asia and US
+        self.assertEqual(s1["by"]["us"]["factor"], 1.0)   # too few trades: full stake
+        self.assertEqual(rules.session_sizes(self.con, st, {}, now + 3600)["by"]["eu"]["factor"], 0.0)  # cached
+        size, note = rules.size_for(st, "abc", 20, eu + 86400, {})
         self.assertIn(size, (0, 10.0))
         self.assertIn("pauzi", note)
         self.assertTrue(any("Europa" in h["text"] for h in st["history"]))
+        for i in range(60):  # Europe recovers: PF well over 1 -> back up one step a day
+            _trade(self.con, "explore", 0.5, eu + 3600 + i * 60)
+        self.con.commit()
+        s2 = rules.session_sizes(self.con, st, {}, now + 86400 + 1, force=True)
+        self.assertEqual(s2["by"]["eu"]["factor"], 0.5)
+        s3 = rules.session_sizes(self.con, st, {}, now + 2 * 86400 + 2, force=True)
+        self.assertEqual(s3["by"]["eu"]["factor"], 0.75)
+
+    def test_same_threshold_for_every_session(self):
+        now = 1_762_000_000 - (1_762_000_000 % 86400) + 23 * 3600
+        day0 = now - 23 * 3600
+        for s_h in (2, 10, 18):   # asia, eu, us: the same losing record in each
+            for i in range(35):
+                _trade(self.con, "explore", 0.1 if i % 5 == 0 else -0.2, day0 + s_h * 3600 + i * 60)
+        self.con.commit()
+        by = rules.session_sizes(self.con, {}, {}, now)["by"]
+        self.assertEqual({s: v["factor"] for s, v in by.items()}, {"asia": 0.0, "eu": 0.0, "us": 0.0})
 
     def test_ab_switches_to_the_better_entry_and_keeps_measuring(self):
         now = 1_762_000_000
@@ -260,12 +275,14 @@ class Report(unittest.TestCase):
                               {"label": "nakon filtra", "n": 5, "rugs": 0, "share": 0.0}],
                       "gate": {"n": 7, "collapsed": 5, "share": 0.7}, "refused_day": 7,
                       "kol3": {"eu": {"n": 3, "win": 0.33, "mean": 0.1}},
+                      "kol3_10": {"10": {"n": 4, "win": 0.5, "mean": 0.1, "median": 0.05}},
                       "ab": {"A": {"n": 3, "mean": -0.1}, "B": {"n": 1, "mean": 0.2}, "winner": None},
                       "sessions": {"eu": {"factor": 0.75}}, "history": [{"text": "Europa: ulog 75%"}]}
         out = render.render(d, ai.fallback(d), "pravila")
         self.assertIn("Nova pravila ulaza", out)
         self.assertIn("Filtar je odbio 7 tokena", out)
         self.assertIn("Europa ulog 75%", out)
+        self.assertIn("Grupni poziv 3+ autora: unutar 10 min 4 zatvorenih", out)
 
 
 if __name__ == "__main__":
