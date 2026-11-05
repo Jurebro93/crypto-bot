@@ -362,7 +362,7 @@ def _announce(opened, cfg, quiet):
         notify(msg)
 
 
-TRIGGER_MODES = ("mc100k", "mc100k2", "kol3", "aktivni", "povratak")
+TRIGGER_MODES = ("mc100k", "mc100k2", "kol3", "aktivni", "povratak", "povlacenje")
 
 
 def _n_mode(con, mode, since=None):
@@ -437,13 +437,73 @@ def comebacks(con, r, now, hype_db=None):
     return out
 
 
+def pullbacks(con, r, now, hype_db=None, kol_db=None):
+    """{token: info} for the "povlacenje" trigger: a token signalled in the last r.fresh_min minutes whose price now
+    is r.pullback or more below its high since the first signal (hype_snapshots), still worth >= r.min_mcap, with a
+    followed wallet buying in the last r.buyers_min minutes (chain_trades / live_trades, wallets of the Helius
+    webhook list). No open trade, at most r.max_per_token such entries per token."""
+    out = {}
+    fresh = {c["token"]: c for c in hype_signals(r["fresh_min"], now)}
+    if not fresh:
+        return out
+    hc = _ro(hype_db or HYPE_DB)
+    if hc is None:
+        return out
+    followed = set()
+    kc = _ro(kol_db or os.path.join(HERE, "kol.db"))
+    if kc is not None:
+        try:
+            row = kc.execute("SELECT value FROM kv WHERE key='chain_hook'").fetchone()
+            followed = set((json.loads(row[0]).get("wallets") or []) if row else [])
+        except (sqlite3.OperationalError, ValueError):
+            followed = set()
+        finally:
+            kc.close()
+    try:
+        for tok, c in fresh.items():
+            if (c.get("mcap") or 0) < r["min_mcap"] or not c.get("price"):
+                continue
+            if con.execute("SELECT 1 FROM trades WHERE token=? AND status='open'", (tok,)).fetchone():
+                continue
+            n_pb = con.execute("SELECT COUNT(*) FROM trades WHERE token=? AND config LIKE '%\"entry_mode\": \"povlacenje\"%'",
+                               (tok,)).fetchone()[0]
+            if n_pb >= r["max_per_token"]:
+                continue
+            try:
+                first_ts = hc.execute("SELECT MIN(ts) FROM hype_signals WHERE token=? AND ts>=?", (tok, now - r["fresh_min"] * 60)).fetchone()[0]
+                high = hc.execute("SELECT MAX(price) FROM hype_snapshots WHERE token=? AND ts>=? AND ts<=?",
+                                  (tok, first_ts or now - r["fresh_min"] * 60, now)).fetchone()[0]
+            except sqlite3.OperationalError:
+                high = None
+            high = max(high or 0, c["price"])
+            if not high or c["price"] / high - 1 > r["pullback"]:
+                continue
+            buyers = set()
+            for table in ("chain_trades", "live_trades"):
+                try:
+                    for (w,) in hc.execute(f"SELECT DISTINCT wallet FROM {table} WHERE mint=? AND side='buy' AND ts>=?",
+                                           (tok, now - r["buyers_min"] * 60)):
+                        if not followed or w in followed:
+                            buyers.add(w)
+                except sqlite3.OperationalError:
+                    continue
+            if not buyers:
+                continue
+            out[tok] = {"score": c.get("score"), "symbol": c.get("symbol"), "features": c.get("features") or {},
+                        "high": high, "drop": c["price"] / high - 1, "buyers": len(buyers), "mcap": c.get("mcap")}
+    finally:
+        hc.close()
+    return out
+
+
 def trigger_entries(con, cfg, rst, now):
     """Entries that do not come from a hype score (paper/rules.py): B of the entry A/B = first crossing of $100k MC
     with T0 passed, and >= 3 different KOL authors within 15 minutes. Same hard rug gate, same session stake, own
     small caps; one trade per token a day. Returns the opened candidates."""
     R = rules.config(cfg)
     R["aktivni"] = aktivni.config(cfg)
-    if not (R["ab"]["enabled"] or R["kol3"]["enabled"] or R["aktivni"]["enabled"] or R["povratak"]["enabled"]):
+    if not (R["ab"]["enabled"] or R["kol3"]["enabled"] or R["aktivni"]["enabled"] or R["povratak"]["enabled"]
+            or R.get("povlacenje", {}).get("enabled")):
         return []
     from exits.paths import session_of
     from rugfilter import collapse
@@ -475,6 +535,10 @@ def trigger_entries(con, cfg, rst, now):
         for tok, info in comebacks(con, R["povratak"], now).items():
             if tok not in gone:
                 want.setdefault(tok, ("povratak", info))
+    if R.get("povlacenje", {}).get("enabled"):   # 5.11.: a dip with proof (a followed wallet buying it), never into a tiny cap
+        for tok, info in pullbacks(con, R["povlacenje"], now).items():
+            if tok not in gone and tok not in traded:
+                want.setdefault(tok, ("povlacenje", info))
     if not want:
         return []
     mk = market(want) or {}
@@ -510,7 +574,7 @@ def trigger_entries(con, cfg, rst, now):
              "score": info.get("score"), "features": info.get("features") or {}, "price": price, "liquidity": liq,
              "mcap": mcap, "url": url}
         why = pre or rules.gate(tok, price, liq, mcap, t0, None, cfg)
-        if not why and mode not in ("mc100k2", "povratak"):  # market-cap band that keeps losing gets fewer entries (paper/arms.py)
+        if not why and mode not in ("mc100k2", "povratak", "povlacenje"):  # market-cap band that keeps losing gets fewer entries (paper/arms.py)
             band = arms.mc_band(mcap)
             ok_b, theta_b = arms.allow(band, arm_st, cfg.get("arms"))
             if not ok_b:
@@ -547,6 +611,8 @@ def trigger_entries(con, cfg, rst, now):
                             f"ponovni prelazak 100k $ nakon pada na {_usd(info['low'])}" if mode == "mc100k2" else
                             f"povratak nakon gubitka {info['ret']:+.0%}: promet {info['turnover']:.0%}, "
                             f"{info['buyers']} praćenih novčanika kupuje, smart {info['smart']:.0%}" if mode == "povratak" else
+                            f"povlačenje {info['drop']:+.0%} od vrha uz dokaz: {info['buyers']} praćenih novčanika kupuje, "
+                            f"mcap {_usd(info['mcap'])}" if mode == "povlacenje" else
                             f"aktivan stariji token: {info['tx24']:,} kupnji i prodaja u 24 h, star "
                             f"{info.get('age_d') or 0:.0f} dana".replace(",", ".") if mode == "aktivni" else
                             f"{info['n']} KOL autora u " + ("10" if tok in tight else "15") + " min: "

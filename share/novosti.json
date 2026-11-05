@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Ulaz na povlačenje samo s dokazom",
+  "tekst": "novi način ulaza demo bota: token sa svježim signalom koji je pao barem 12 % od vrha, ali je i dalje iznad 50k $, i kojeg je u zadnjih 15 min kupio neki od praćenih novčanika. Bez tog dokaza ili ispod 50k nema ulaza: pad u mali mcap je dump, ne prilika.",
+  "naslov_en": "Buying the dip only with proof",
+  "tekst_en": "a new demo entry mode: a token with a fresh signal that dropped at least 12% from its high but still sits above $50k, and that one of the followed wallets bought in the last 15 minutes. Without that proof, or below $50k, there is no entry: a dip into a tiny cap is a dump, not an opportunity."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Natjecanje: cijena pozicije s izvorom i vremenom",
   "tekst": "svaka otvorena pozicija pokazuje odakle je cijena (DexScreener pool ili Jupiter) i kad je osvježena; stranica koja se ne uspije obnoviti više ne prikazuje stare brojeve u tišini.",
   "naslov_en": "Competition: position price with its source and time",

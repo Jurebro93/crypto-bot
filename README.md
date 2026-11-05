@@ -307,6 +307,15 @@ Helius) i dalje prodaje sve.
 Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene, insajderi među svim kupcima gledanih
 tokena, prvih 60 s svakog bondanja za rug filter.
 
+**Povlačenje s dokazom (5.11., `run_paper.pullbacks`, `paper/rules.py` → `povlacenje`).** Nicholas: "čekaj
+povlačenje, ali samo s dokazom (profitabilni novčanici kupuju), ne ako MC padne prenisko". Token sa signalom u
+zadnjih `fresh_min` (180) minuta, cijena ≥ `pullback` (−12 %) ispod vrha od prvog signala (hype_snapshots), mcap ≥
+`min_mcap` (50k), kupnja praćenog novčanika (Helius lista) u zadnjih `buyers_min` (15) minuta. Način ulaza
+`povlacenje`, vlastiti ulog i limiti, jedan ulaz po tokenu, mjeri se kao svaki drugi način (shadow, arms).
+
+**Pravi trade limiti (5.11.)**: `trade/config.json` 0,1 SOL po tradeu (~15 $), 5 otvorenih, 1 SOL dnevno, stop na
+−0,4 SOL dnevno; mode ostaje `dry` dok neka strategija ne dokaže prednost u demu.
+
 ## Prave kupnje (`run_trade.py`)
 
 Kupuje i prodaje preko Jupiter Ultra API-ja (sve Solana burze, uključujući pump.fun krivulju; sam bira slippage i priority fee i šalje transakciju, ne treba RPC ni Jito). Ne odlučuje sam: `follow` prati `paper.db` i svaku demo kupnju iz `run_paper.py` ponovi kao pravu, a svaku demo prodaju (take profit, stop loss, trailing, rug) kao pravu prodaju. Pravila ulaza i izlaza su i dalje samo u `paper/config.json`.
