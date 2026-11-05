@@ -30,7 +30,10 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
-if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
+# 5.11.: keep <name> <command...>: restarts just that process when it dies (30 s pause, logged), instead of
+# "wait -n; exit 1" taking the whole worker down (two full restarts on 5.11. because run_live hit a locked database)
+keep() { local name="$1"; shift; ( while true; do "$@"; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30; done ) & }
+if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PORT"; fi
 
 # every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
@@ -85,7 +88,7 @@ if [ -n "${PORT:-}" ]; then python3 run_ui.py --host 0.0.0.0 --port "$PORT" & fi
 
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
-python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}" &
+keep kol python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}"
 
 # one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
 # backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.
@@ -108,7 +111,7 @@ fi
 
 # Telegram call channels: discovery every hour, hot channels read every 30 s via t.me/s (free) -> tg.db,
 # hype.db tg_mentions, and kol.db calls on the next run_kol round. TGStat (TGSTAT_TOKEN) adds paid search by CA.
-python3 run_tg.py loop &
+keep tg python3 run_tg.py loop
 # optional live listener on a Telegram account (paid option: needs a phone number), only with its secrets set
 if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py telethon & fi
 
@@ -116,9 +119,9 @@ if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py t
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every
 #   CORR_EVERY_MIN (KOL groups, wallet groups, pump factors, a Claude reading once a day if ANTHROPIC_API_KEY is set),
 #   once a day re-fit of hype weights and of exit rules per class (guarded, rollback), market volume every hour
-python3 run_sched.py &
+keep sched python3 run_sched.py
 # morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
-python3 run_report.py loop &
+keep report python3 run_report.py loop
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
@@ -129,11 +132,10 @@ python3 run_report.py loop &
 # without it the pass ends at once). Light: waits on their API, so no ops.heavy slot. Real money only via /pravi-trade.
 ( sleep 600; while true; do python3 run_simianx.py once || echo "simianx nije uspio"; sleep $(( ${SIMIANX_EVERY_MIN:-180} * 60 )); done ) &
 
-python3 run_paper.py run --scan --hype-args "--deep 20" &   # hype scan, demo entries/exits, daily review
+keep paper python3 run_paper.py run --scan --hype-args "--deep 20"   # hype scan, demo entries/exits, daily review
 # 5.11.: live buys/sells from PumpPortal (free WebSocket): tokens we watch, wallets we follow, new launches
 # -> hype.db live_trades; dump alerts the demo sells on within seconds (run_paper live_exits). LIVE_OFF=1 disables.
-if [ -z "${LIVE_OFF:-}" ]; then python3 run_live.py loop ${LIVE_ARGS:-} & fi
-python3 run_trade.py follow &       # mirrors paper entries/exits as real (or dry-run) swaps
+if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-}; fi
+keep trade python3 run_trade.py follow       # mirrors paper entries/exits as real (or dry-run) swaps
 
-wait -n   # if any loop dies, exit so Render restarts the whole worker
-exit 1
+wait   # every loop has its own supervisor; the worker itself only ends when Render stops it

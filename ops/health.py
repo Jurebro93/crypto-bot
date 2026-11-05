@@ -32,6 +32,22 @@ def processes():
     return sorted(out.items(), key=lambda x: -x[1])
 
 
+def container_split_mb():
+    """(anon, file) MB from the cgroup: anon = what processes really hold, file = page cache the kernel drops under
+    pressure. 5.11.: the health line said 'RAM 2005 MB' on a 2 GB plan while Render's own metric showed 1.0 GB; the
+    difference was cache, not a leak."""
+    for p in ("/sys/fs/cgroup/memory.stat", "/sys/fs/cgroup/memory/memory.stat"):
+        try:
+            with open(p) as f:
+                kv = dict(line.split()[:2] for line in f if line.strip())
+            anon = int(kv.get("anon") or kv.get("rss") or 0) / 2**20
+            file = int(kv.get("file") or kv.get("cache") or 0) / 2**20
+            return anon, file
+        except (OSError, ValueError):
+            pass
+    return None, None
+
+
 def container_mb():
     for p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
         try:
@@ -58,7 +74,9 @@ def line(tables=False):
             except OSError:
                 pass
     free = disk.free_mb()
-    s = (f"zdravlje: RAM {total:.0f} MB" if total is not None else "zdravlje: RAM ?") \
+    anon, cache = container_split_mb()
+    s = (f"zdravlje: RAM {total:.0f} MB" + (f" (procesi {anon:.0f}, cache {cache:.0f})" if anon is not None else "")
+         if total is not None else "zdravlje: RAM ?") \
         + f" (python {sum(m for _, m in procs):.0f} MB: " + ", ".join(f"{n} {m:.0f}" for n, m in procs[:8]) + ")" \
         + f" | disk {used:.0f} MB zauzeto, {free:.0f} MB slobodno" \
         + " | " + ", ".join(f"{n} {mb:.0f}" for n, mb, _ in files[:8])

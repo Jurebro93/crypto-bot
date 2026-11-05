@@ -301,6 +301,14 @@ rast launchpada tjedan na tjedan), 0-100; 66+ vruće, 33 i manje hladno. Za scor
 Hipoteza "kad raste volumen na Solani, trejda se više shitcoina" provjerava se svaki sat korelacijom dnevnih promjena
 (Solana DEX bez PumpSwapa naspram launchpada). Stranica `/market` (Tržište) pokazuje sve to i demo tradeove po režimu.
 
+**Nadzor procesa (5.11., `start.sh` → `keep`).** Svaki dugotrajni proces (ui, kol, tg, sched, report, paper, live,
+trade) ima vlastitu petlju: kad padne, log "nadzor: <ime> završio (izlaz N), ponovno za 30 s" i samo se on ponovno
+pokreće. Prije je `wait -n; exit 1` rušio cijeli worker čim bi ijedan proces završio (5.11. dva puta: run_live je
+dobio "database is locked" dok je drugi proces sažimao hype.db). Živi tok sada upisuje u jednoj IMMEDIATE
+transakciji, a kod zauzete baze zadrži redove u memoriji (do 20.000) i pokuša u sljedećoj sekundi. Redak zdravlja
+razdvaja RAM na "procesi" (stvarno zauzeto) i "cache" (kernel ga oslobađa pod pritiskom): 2 GB plana nije pun kad
+piše 2000 MB, a Renderova metrika kaže 1 GB.
+
 ## Status
 
 Logika je testirana na izmišljenim odgovorima API-ja (`tests/test_offline.py`). Od 2026-10-30 mreža radi: DexScreener, Polymarket i RocketLaunch odgovaraju; Wikipedia je tad vratila 429 (previše upita).

@@ -64,6 +64,26 @@ class Store(unittest.TestCase):
         con.close()
 
 
+class LockedDatabase(unittest.TestCase):
+    def test_flush_keeps_rows_while_another_process_holds_the_lock(self):
+        import sqlite3
+        path = os.path.join(tempfile.mkdtemp(), "hype.db")
+        lstore.connect(path).close()
+        con = sqlite3.connect(path, timeout=0.05, isolation_level=None)      # short wait, like a busy server
+        log = []
+        feed = pumpportal.Feed(con, log=log.append)
+        feed.take(_buy("W1", 1.0, 1000.0, "s1"), NOW)
+        other = sqlite3.connect(path, isolation_level=None)
+        other.execute("BEGIN EXCLUSIVE")                                     # e.g. the start-up VACUUM
+        self.assertEqual(feed.flush(NOW, force=True), 0)                     # no crash, nothing lost
+        self.assertEqual(len(feed.trades), 1)
+        self.assertTrue(any("baza zauzeta" in m for m in log))
+        other.execute("COMMIT")
+        self.assertEqual(feed.flush(NOW + 2, force=True), 1)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0], 1)
+        other.close(); con.close()
+
+
 class Dump(unittest.TestCase):
     def setUp(self):
         self.path = os.path.join(tempfile.mkdtemp(), "hype.db")
