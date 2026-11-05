@@ -149,6 +149,15 @@ python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
 - Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
 - Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 
+**Obrisane objave (5.11., `kol/deleted.py`).** Poziv jednom pročitan ostaje u bazi; ali povijest iz backfilla ili
+kasnije čitanje timelinea vidi samo ono što je preživjelo, pa račun koji briše svaki rug izgleda bolje nego što jest.
+Zato se izmjereni X pozivi 2+ dana stari provjeravaju po ID-u objave (twitterapi.io, 0,15 $ na 1000, 200 po krugu,
+ponovno svakih 14 dana; prazan odgovor za cijelu seriju = greška API-ja, ne brisanje). Nestala objava dobiva
+`deleted_ts`. Obrisani pozivi i dalje se broje u svim statistikama; uz to težina `deletes` (−15) oduzima bodove
+razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici KOL-a: "Briše gubitnike: obrisao N, od
+toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
+živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.

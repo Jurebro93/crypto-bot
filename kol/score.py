@@ -82,6 +82,12 @@ def kol_stats(calls, cfg):
     s["med_views"] = _med(c["views"] or None for c in mine)
     eng = [((c["likes"] or 0) + 2 * (c["retweets"] or 0)) / c["followers"] for c in mine if c["followers"]]
     s["eng_rate"] = _med(eng)
+    # 5.11.: deleted posts (kol/deleted.py). They stay in every stat above; a KOL whose deleted posts are mostly
+    # losers gets a penalty that grows with how many he deleted (full at 5): hiding rugs must not raise the score
+    gone = [c for c in measured if c.get("deleted_ts")]
+    s["deleted"] = len(gone)
+    s["deleted_losers"] = sum(1 for c in gone if c["rug"] or (c["max24"] or 0) < 0)
+    s["deleted_loser_share"] = (s["deleted_losers"] / len(gone)) if gone else 0.0
     parts = {
         "hit": w["hit"] * s["hit_rate"],
         "max24": w["max24"] * _clip((s["med_max24"] or 0) / 2),
@@ -90,6 +96,7 @@ def kol_stats(calls, cfg):
         "first": w["first"] * s["first_rate"],
         "no_rug": w["no_rug"] * (1 - s["rug_rate"]),
         "prepump": w["prepump"] * s["prepump_rate"],
+        "deletes": w.get("deletes", -15) * s["deleted_loser_share"] * min(1.0, s["deleted"] / 5),
     }
     s["parts"] = {k: round(v, 1) for k, v in parts.items()}
     return s, max(0.0, min(100.0, sum(parts.values())))
@@ -103,7 +110,7 @@ def _rows(con, sql, args=()):
 
 # only what kol_stats reads: SELECT * also dragged every post's text and url into RAM (kol.db 200+ MB, 5.11.)
 CALL_COLS = ("handle, token, ts, kind, first_by_kol, first_overall, max24, r1h, vol_lift, rug, pre2h, views, likes, "
-             "retweets, followers")
+             "retweets, followers, deleted_ts")
 
 
 def score_kols(con, cfg, now=None, handles=None):

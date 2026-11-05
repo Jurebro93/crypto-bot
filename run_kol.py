@@ -70,6 +70,14 @@ def cmd_search(a, con=None, cfg=None):
     return n
 
 
+def cmd_deleted(a, con=None, cfg=None):
+    """Re-check measured X calls by tweet id: deleted posts get deleted_ts (kol/deleted.py), the score punishes
+    accounts that delete their losers."""
+    from kol import deleted
+    con, cfg = con or store.connect(), cfg or config()
+    return deleted.check(con, cfg)
+
+
 def cmd_snap(a, con=None, cfg=None):
     """DexScreener price/volume snapshot of every token called in the last day, then outcomes from snapshots."""
     from kol import snap
@@ -188,7 +196,7 @@ def cycle(a):
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_chain, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_score):
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:

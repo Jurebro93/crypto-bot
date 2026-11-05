@@ -15,8 +15,10 @@
   "vol_lift": 15,
   "first": 10,
   "no_rug": 10,
-  "prepump": -25
+  "prepump": -25,
+  "deletes": -15
  },
+ "deleted": {"per_round": 200, "min_age_d": 2, "recheck_d": 14, "batch": 100},
  "measure_tokens_per_run": 80,
  "flows_per_day": 60,
  "flow_pre_secs": 3600,
