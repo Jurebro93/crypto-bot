@@ -9,7 +9,7 @@ import sqlite3
 import time
 from urllib.parse import quote
 
-from league import store
+from league import namesake, store
 from ui import confidence, data, leaguedash
 from ui import topcheckui as topui
 from rugfilter import collapse
@@ -470,6 +470,9 @@ def _positions(mine, live, bot_dca):
                      'prodaji.</div>')
         if t["token"] in bot_dca:
             warn += f'<div class="pos-w mut">🔄 Bot predlaže DCA: {esc(bot_dca[t["token"]])}</div>'
+        big = namesake.check(t["token"], t["symbol"], mc_now or t["entry_mcap"]) if t["symbol"] else None
+        if big:
+            warn += f'<div class="pos-w">{namesake.text(big, t["symbol"], mc_now or t["entry_mcap"])}</div>'
         move = price / t["entry_px"] - 1 if price and t["entry_px"] else None
         pct = f' <small class={"pos" if (move or 0) > 0 else "neg" if (move or 0) < 0 else ""}>{move:+.0%}</small>' \
             if move is not None else ""
@@ -607,7 +610,13 @@ def _post(path, form, user):
             symbol = form.get("symbol") or _symbol(token)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),
                       float(form["score"]) if form.get("score") else None, mcap)
-            return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}')}"
+            msg = f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}'
+            big = namesake.check(token, symbol, mcap)
+            if big:   # Filip 5.11.: pump.fun ARIA (MC $74k) bought while watching AriaAI on Binance
+                msg += (f'. Pozor: postoji {big["name"]} ({symbol}) s MC {_mc(big["mcap"])} na adresi '
+                        f'{big["token"][:4]}…{big["token"][-4:]}; ovaj ima MC {_mc(mcap)}. Ako si htio onaj veliki, '
+                        'kupio si kopiju.')
+            return f"{back}?ok={quote(msg)}"
         if path == "/natjecanje/sell":
             tid = int(form.get("id") or 0)
             t = next((t for t in store.trades(con, user, "open") if t["id"] == tid), None)
