@@ -221,8 +221,10 @@ Novčanici koji su na 2+ tokena kupili sat prije KOL poziva (`kol.db insiders`, 
 
 ## Živi tok (`run_live.py`, `live/`)
 
-5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`, besplatno, bez ključa) daje svaku kupnju i prodaju na
-pump.fun i PumpSwapu u sekundi. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
+5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`) daje svaku kupnju i prodaju na pump.fun i PumpSwapu u
+sekundi. Novi tokeni su besplatni bez ključa; pretplata na kupnje/prodaje odabranih tokena i novčanika traži
+`PUMPPORTAL_API_KEY` čiji je novčanik napunjen s barem 0,02 SOL (pumpportal.fun → API key). Bez ključa proces to
+javi u logu i prima samo nove tokene. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
 pretplaćuje se na: tokene koje gledamo (otvorene demo i strategijske pozicije, pa najsvježiji ocijenjeni kandidati
 s mcapom ≥ 30k, najviše 150), novčanike koje pratimo (Helius webhook lista + praćeni iz Natjecanja, najviše 200) i
 sve nove tokene. Liste se osvježavaju svaku minutu (pretplata/odjava samo za razliku). Zapisuje u hype.db:

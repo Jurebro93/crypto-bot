@@ -13,6 +13,14 @@ import sqlite3
 import time
 
 URL = os.environ.get("PUMPPORTAL_WS", "wss://pumpportal.fun/api/data")
+
+
+def ws_url():
+    """5.11.: PumpPortal answered "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when
+    connecting with an API key funded with at least 0.02 SOL". New-token events are free; trades of chosen tokens
+    and wallets need PUMPPORTAL_API_KEY (pumpportal.fun -> API key, its wallet topped up with >= 0.02 SOL)."""
+    key = os.environ.get("PUMPPORTAL_API_KEY")
+    return f"{URL}?api-key={key}" if key else URL
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_TOKENS, MAX_WALLETS = 150, 200
 
@@ -194,7 +202,7 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
         feed = Feed(con, followed=set(wallets), log=log)
         cur = (set(), set())
         try:
-            async with websockets.connect(URL, ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
+            async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
                 if new_tokens:
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
@@ -204,7 +212,9 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                 store.set_state(con, "connected_ts", int(time.time()))
                 store.set_state(con, "subscribed", json.dumps({"tokens": len(tokens), "wallets": len(wallets)}))
                 con.commit()
-                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika")
+                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika"
+                    + ("" if os.environ.get("PUMPPORTAL_API_KEY") else
+                       " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
                 while not (stop and stop()):
                     try:
