@@ -157,6 +157,13 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Bondani tokeni (5.11., `kol/graduates.py`).** Svaki KOL krug čita PumpSwap poolove s GeckoTerminala (po
+aktivnosti i volumenu, 5 stranica, besplatno) u kol.db `graduates`: tokeni koji su diplomirali s pump.funa i nisu
+umrli pri lansiranju (bez majora, FDV ≥ 30k). Popis samo raste. Iz njega: masovna sjenovita knjiga uzima
+`povijest_bondao` točke (ulaz = trenutak diplomiranja), a `run_wallets.py harvest` dodaje ih u tokene za koje vuče
+rane kupce (Helius), pa ti novčanici ulaze u ocjenjivanje, copy liste, webhook i insajdere. Tako povijest
+diplomiranih tokena, današnji novčanici i calleri dijele istu bazu i iste ocjene.
+
 **Obrisane objave (5.11., `kol/deleted.py`).** Poziv jednom pročitan ostaje u bazi; ali povijest iz backfilla ili
 kasnije čitanje timelinea vidi samo ono što je preživjelo, pa račun koji briše svaki rug izgleda bolje nego što jest.
 Zato se izmjereni X pozivi 2+ dana stari provjeravaju po ID-u objave (twitterapi.io, 0,15 $ na 1000, 200 po krugu,

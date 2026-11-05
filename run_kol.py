@@ -55,7 +55,7 @@ def cmd_search(a, con=None, cfg=None):
         return 0
     n = 0
     from kol import discover
-    from kol import trending
+    from kol import graduates, trending
     try:
         k = trending.collect_today(con, cfg)
         con.commit()
@@ -63,6 +63,13 @@ def cmd_search(a, con=None, cfg=None):
             print(f"trending: {k} novih tokena danas (GeckoTerminal + DexScreener boosts)")
     except Exception as e:  # noqa: BLE001
         print(f"trending: {type(e).__name__}: {e}", file=sys.stderr)
+    try:   # 5.11.: graduated pump.fun tokens (PumpSwap pools by activity): the pool of tokens that did not die
+        k = graduates.collect(con, cfg)
+        con.commit()
+        if k:
+            print(f"bondani: {k} novih tokena u popisu (GeckoTerminal pumpswap)")
+    except Exception as e:  # noqa: BLE001
+        print(f"bondani: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
                      ("winners", discover.winners), ("trending", trending.search), ("audit", discover.audit),
                      ("graph", discover.graph)):

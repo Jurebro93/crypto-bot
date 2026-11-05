@@ -35,7 +35,8 @@ VARIANTS = {
     "sat": {"sl": -0.50, "max_hold_h": 1, "tp": [], "trail_after": 9.0},
     "ljestvica": {"sl": -0.25, "tp": [[0.3, 0.34], [1.0, 0.33], [3.0, 0.33]], "trail_after": 3.0},
 }
-SOURCES = ("bondao", "trending", "kol_poziv", "novcanik_kupio", "kontrola", "povijest_poziv", "povijest_novcanik")
+SOURCES = ("bondao", "trending", "kol_poziv", "novcanik_kupio", "kontrola", "povijest_poziv", "povijest_novcanik",
+           "povijest_bondao")
 MIGRATE = [("points", "varijante", "TEXT"), ("points", "izvor_detalj", "TEXT")]
 
 
@@ -162,6 +163,23 @@ def history(con, now=None, cfg=None, kol_db=None, wallets_db=None, limit=None):
             print(f"masovno: kol.db povijest: {e}")
         finally:
             k.close()
+    if n < limit:   # graduated pump.fun tokens (kol.db graduates): entry = the graduation moment
+        k = shadow._ro(kol_db or KOL_DB)
+        if k is not None:
+            try:
+                from kol import graduates
+                for token, pool, cts, sym, fdv in graduates.tokens(k, since_ts=since, limit=limit * 3):
+                    if token in skip or not cts or cts >= now - 36 * 3600:
+                        continue
+                    if _add(con, f"povijest_bondao:{token}:{_day(cts)}", token, "povijest_bondao", cts, sym, "bondao",
+                            {"fdv_now": fdv}):
+                        n += 1
+                    if n >= limit:
+                        break
+            except Exception as e:  # noqa: BLE001
+                print(f"masovno: graduates: {e}")
+            finally:
+                k.close()
     if n < limit:
         w = shadow._ro(wallets_db or WALLETS_DB)
         if w is not None:
@@ -346,7 +364,8 @@ def stats_html(path=None, days=7, now=None):
     ctrl = next((r for r in rows if r["point"] == "kontrola"), None)
     names = {"bondao": "bondao (pump.fun → PumpSwap)", "trending": "trending", "kol_poziv": "KOL poziv",
              "novcanik_kupio": "praćeni novčanik kupio", "kontrola": "kontrola (nasumično)",
-             "povijest_poziv": "povijest: pozivi", "povijest_novcanik": "povijest: novčanici"}
+             "povijest_poziv": "povijest: pozivi", "povijest_novcanik": "povijest: novčanici",
+             "povijest_bondao": "povijest: bondani tokeni"}
     head = "".join(f"<th>{v}</th>" for v in VARIANTS)
     body = []
     for r in rows:
