@@ -192,6 +192,11 @@ def _moved():
     try:
         from ui import radar
         out.append("<h2 id=apify>Troškovi Apifyja po izvoru</h2>" + radar._costs())
+        try:   # 5.11.: the invisible trades the tool learns from (admin only, like the whole page)
+            from learn import masovno
+            out.append(masovno.stats_html())
+        except Exception as e:  # noqa: BLE001
+            out.append(f"<h2 id=masovno>Nevidljivi tradeovi</h2><p class=mut>nedostupno: {type(e).__name__}</p>")
     except Exception as e:  # noqa: BLE001
         out.append(f"<p class=mut>Apify troškovi se ne mogu pročitati ({esc(str(e)[:120])}).</p>")
     try:

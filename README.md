@@ -166,6 +166,19 @@ razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici K
 toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
 živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
 
+## Masovna sjenovita knjiga (`learn/masovno.py`, `run_learn.py masovno`)
+
+5.11. (Nicholas: "10.000 nevidljivih tradeova dnevno, demo je samo izlog"). Točke odluke u shadow.db iz filtera:
+**bondao** (pump.fun → PumpSwap, živi tok), **trending** (kol.db), **KOL poziv** (prvi poziv dana, bez botova),
+**praćeni novčanik kupio** (chain_trades), **kontrola** (40 nasumičnih tokena skena ≥ 30k dnevno, mjerilo). Noću
+01–06 po Zagrebu i **povijest**: pozivi do 180 dana unatrag i kupnje naših A/B/S novčanika (1.200 točaka po noći).
+Nikad svježi pump.fun tokeni prije bondanja, nikad ispod 30k, nikad majori. Putanja cijene: GeckoTerminal 5-min
+svijeće (2 poziva po tokenu), po prolazu najviše `per_run_day` (300) odnosno `per_run_night` (500) poziva;
+run_sched svakih 30 min. Svaka točka se odigra s živim pravilima izlaza demo bota (`ret`, `hit`) i s fiksnim
+varijantama izlaza (brzi, srednji, spori, sat, ljestvica → `points.varijante`). Učenje čita iste točke kao i
+dosad (learn/outcomes). Admin: /usage → "Nevidljivi tradeovi" (po izvoru n, pogodak, prosjek, medijan, PF, varijante,
+razlika prema kontroli). Log: "masovno: novih točaka …; povijest +N; označeno M (K poziva)".
+
 ## Rug filter (`run_rug.py`)
 
 Za svaki token kaže je li rug, bundle ili lažni volumen, i zašto. Spaja RugCheck (besplatno), Helius (`HELIUS_API_KEY`) i DexScreener.

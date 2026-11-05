@@ -148,6 +148,8 @@ JOBS = [
     ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
+    # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb
+    ("masovno", every, (["run_learn.py", "masovno"], float(os.environ.get("MASOVNO_EVERY_MIN", "30")))),
     ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
 ]

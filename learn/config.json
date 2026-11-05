@@ -57,5 +57,22 @@
  "_detektiv": "Jednom dnevno AI (Claude Opus 5.5) predlaže do max_new hipoteza iz najboljih, najgorih i propuštenih točaka. Svaka se testira samo na novim točkama; prolazi uz barem min_n poklapanja i raspon razlike iznad nule, pada nakon max_days dana.",
  "_model": "Model (learn/gbm.py) uči na sjenovitoj knjizi, pa 7 dana samo gleda (proba). Postaje glavni samo ako njegovih 20% najboljih izbora zaradi više od 20% najbolje ocijenjenih po težinama, i bez 1% najboljih, s rasponom razlike iznad nule. Zaključani tjedan (holdout) ne koristi nijedno učenje.",
  "min_rows_zarada": 100,
- "_min_rows_zarada": "Audit 4.11.: klasa uči cilj zarada od ovoliko ishoda u sjenovitoj knjizi (nikad ispod 30). Dok ih nema, status je 'nedovoljno podataka' i težine se ne mijenjaju; vršni rast se više ne uči pod imenom zarade. Prag potvrditi na validaciji."
+ "_min_rows_zarada": "Audit 4.11.: klasa uči cilj zarada od ovoliko ishoda u sjenovitoj knjizi (nikad ispod 30). Dok ih nema, status je 'nedovoljno podataka' i težine se ne mijenjaju; vršni rast se više ne uči pod imenom zarade. Prag potvrditi na validaciji.",
+ "masovno": {
+  "enabled": true,
+  "min_mcap": 30000,
+  "min_liq": 15000,
+  "horizon_h": 24,
+  "per_run_day": 300,
+  "per_run_night": 500,
+  "night": [
+   1,
+   6
+  ],
+  "history_days": 180,
+  "history_per_night": 1200,
+  "kontrola_per_day": 40,
+  "max_points_per_source_day": 600
+ },
+ "_masovno": "5.11. (Nicholas: 10.000 nevidljivih tradeova dnevno): masovna sjenovita knjiga, learn/masovno.py. Točke iz filtera (bondao, trending, KOL poziv, praćeni novčanik, kontrola), noću 01-06 Zagreb i povijest (history_days unatrag, history_per_night točaka). per_run_day/night = GeckoTerminal poziva po prolazu (run_sched svakih 30 min; 2 poziva po tokenu)."
 }
