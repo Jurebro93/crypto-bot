@@ -751,7 +751,9 @@ def kol_page(handle, qs):
             names = {"hit": "Pogodak", "max24": "Rast 24 h", "r1h": "Rast 1 h", "vol_lift": "Volumen", "first": "Prvi",
                      "no_rug": "Bez ruga", "prepump": "Kasni pozivi", "deletes": "Briše gubitnike"}
             b.append("<h2>Kako je dobio ocjenu</h2>" + tdesc(
-                f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
+                (f"Doseg: {s['doseg'].get('followers', 0):,} pratitelja, prate ga {s['doseg'].get('followed_by', 0)} naših dokazanih "
+                 f"KOL-ova → početnih {s['doseg'].get('prior', cfg['prior_score'])} bodova. " if s.get("doseg") else "")
+                + f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
                 f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
                      + breakdown([(names[x], p.get(x, 0), abs(w[x]), expl[x]) for x in w if x in names], "Izmjereno"))
         b.append(_charts(con, handle))

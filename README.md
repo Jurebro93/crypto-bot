@@ -157,6 +157,13 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Doseg (5.11., `kol/reach.py`).** Pratitelji + koliko naših dokazanih KOL-ova prati račun (kol.db `follows`,
+graf) daju početnu ocjenu računa: base `prior_score` + do 15 za pratitelje (log skala od 5k) + do 15 za praćenje
+(2 → +8, 5+ → +15), najviše `reach.prior_cap`. Izmjereni pozivi je preuzimaju kao i prije (shrinkage). Na stranici
+KOL-a: "Doseg: N pratitelja, prate ga M naših → početnih X bodova". Demo strategija "Veliki račun zove"
+(strat/config.json, `reach.min_followers` 20k i `min_followed_by` 2; botovi nikad) kupuje na njihove pozive i prije
+probe, pa se vrijednost signala mjeri protiv kontrole.
+
 **Socijali tokena (5.11., `hype/socials.py`).** Iz DexScreener podataka para: X link kao profil / zajednica / tuđi
 tweet / pretraga, Telegram (besplatni pregled t.me/s: pretplatnici, zadnji post, objave; za grupe broj članova),
 web, plaćeni profil (slika + header). Značajke `socijali_x`, `socijali_tg`, `socijali_placeni`,

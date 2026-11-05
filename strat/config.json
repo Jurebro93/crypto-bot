@@ -67,6 +67,12 @@
    "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju."
   },
   {
+   "key": "veliki_racun",
+   "name": "Veliki račun zove",
+   "icon": "📢",
+   "opis": "Kupi na poziv računa s 20k+ pratitelja kojeg prate barem 2 naša dokazana KOL-a, i prije nego što prođe probu. Nicholas: 'veliki influencer kojeg prate drugi veliki je ogroman signal'; mjerimo koliko."
+  },
+  {
    "key": "kontrola",
    "name": "Kontrola (nasumično)",
    "icon": "🎲",

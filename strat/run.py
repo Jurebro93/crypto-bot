@@ -130,6 +130,7 @@ def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
            "alat": src.get("alat", []),
            "insajderi": src.get("insajderi", []),
            "ozbiljan_projekt": src.get("ozbiljni", []), "sumnjivi_socijali": src.get("sumnjivi", []),
+           "veliki_racun": src.get("veliki", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:

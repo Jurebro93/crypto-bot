@@ -268,7 +268,7 @@ class Strat(unittest.TestCase):
         for s in self.cfg["strategies"]:
             self.assertIn(s["name"], body)
         self.assertIn("<svg", body)
-        self.assertEqual(len(rep), 8)   # 5 + insajderi + ozbiljan projekt + sumnjivi socijali (5.11.)
+        self.assertEqual(len(rep), 9)   # 5 + insajderi + ozbiljan projekt + sumnjivi socijali + veliki račun (5.11.)
         self.assertEqual(rep[-1]["key"], "kol")      # the stopped-out account is last
         from report import ai, collect, render
         os.environ["REPORT_DB_DIR"] = tempfile.mkdtemp()

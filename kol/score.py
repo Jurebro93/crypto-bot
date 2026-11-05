@@ -149,12 +149,17 @@ def score_kols(con, cfg, now=None, handles=None):
             measured[h] = s["measured"]
     base_ratio = statistics.median([r for h, r in ratios.items() if measured.get(h, 0) >= 2 and h not in bots] or
                                    list(ratios.values()) or [0]) or None
+    from kol import reach as _reach   # 5.11.: reach (followers, followed by proven KOLs) sets the starting score
+    fby = _reach.followed_by(con)
     for h, (s, raw) in stats.items():
         score = None
+        fb = fby.get(h.lower(), 0)
+        p_h = _reach.prior(prior, foll.get(h) or 0, fb, cfg)
+        s["doseg"] = {"followers": foll.get(h) or 0, "followed_by": fb, "prior": p_h}
         if raw is not None:
             k = s["measured"] / (s["measured"] + cfg["prior_calls"])
-            score = round(k * raw + (1 - k) * prior, 1)
-            s["raw"], s["prior"], s["confidence"] = round(raw, 1), round(prior, 1), round(k, 2)
+            score = round(k * raw + (1 - k) * p_h, 1)
+            s["raw"], s["prior"], s["confidence"] = round(raw, 1), round(p_h, 1), round(k, 2)
         rel = round(ratios[h] / base_ratio, 2) if h in ratios and base_ratio else None
         if h in bots:  # automated account: its numbers stay visible on its page, but no score for the leaderboard,
             s["bot_score"], s["bot_rel"] = score, rel  # watchlist, copy trading or signals

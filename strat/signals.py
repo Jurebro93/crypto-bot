@@ -82,10 +82,20 @@ class Sources:
                        for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
                                           (since,)) if _ok(m) and ts]
 
-            kols = []
+            kols, veliki = [], []
+            # 5.11.: big accounts (reach): followers + followed by proven KOLs, trial or not (bots never)
+            from kol import reach as _reach
+            fby = _reach.followed_by(kc) if kc is not None else {}
+            foll = dict(_q(kc, "SELECT handle, COALESCE(followers, 0) FROM kols"))
+            bots_only = _bots.handles(kc)
+            vcfg = _reach.config(self.kol_cfg if hasattr(self, "kol_cfg") else None)
             for tok, ts, h in _q(kc, "SELECT token, ts, handle FROM calls WHERE kind='call' AND ts >= ?", (since,)):
-                if h not in bad and not h.startswith("w:"):
+                if h.startswith("w:") or h.startswith("tg:"):
+                    continue
+                if h not in bad:
                     kols.append((tok, int(ts), h, scores.get(h) or 0))
+                if h not in bots_only and _reach.is_big(foll.get(h), fby.get(h.lower(), 0), vcfg):
+                    veliki.append((tok, int(ts), f"{h} ({foll.get(h, 0) // 1000}k, prate ga {fby.get(h.lower(), 0)})", foll.get(h, 0)))
             for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
                 if h not in bad:
                     kols.append((ca, int(ts), h, scores.get(h) or 0))
@@ -139,7 +149,7 @@ class Sources:
         except Exception:  # noqa: BLE001
             self.insiders = set()
         return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
-                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi}
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki}
 
 
 def mix(src, min_score, window_s):
