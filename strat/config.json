@@ -81,6 +81,7 @@
   }
  ],
  "insajderi": {"window_min": 10, "min_wallets": 2},
+ "proportional_sell": true,
  "novcanici_top": 10,
  "novcanici_min_n": 3,
  "novcanici_history_top": 15,

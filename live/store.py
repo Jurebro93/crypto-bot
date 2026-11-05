@@ -8,7 +8,7 @@ HYPE_DB = os.environ.get("HYPE_DB") or os.path.join(os.path.dirname(os.path.dirn
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS live_trades (
     sig TEXT, mint TEXT, wallet TEXT, side TEXT, sol REAL, tokens REAL, price_sol REAL, mcap_sol REAL, pool TEXT,
-    ts INTEGER, PRIMARY KEY (sig, mint));
+    ts INTEGER, balance_after REAL, PRIMARY KEY (sig, mint));
 CREATE INDEX IF NOT EXISTS live_trades_mint_ts ON live_trades (mint, ts);
 CREATE TABLE IF NOT EXISTS live_launches (
     mint TEXT PRIMARY KEY, ts INTEGER, creator TEXT, name TEXT, symbol TEXT, initial_sol REAL, sig TEXT, pool TEXT);
@@ -23,6 +23,8 @@ def connect(path=None):
     con = sqlite3.connect(path or HYPE_DB, timeout=60, isolation_level=None)   # explicit BEGIN IMMEDIATE in Feed.flush
     con.execute("PRAGMA busy_timeout = 60000")
     con.executescript(SCHEMA)
+    if "balance_after" not in {r[1] for r in con.execute("PRAGMA table_info(live_trades)")}:
+        con.execute("ALTER TABLE live_trades ADD COLUMN balance_after REAL")   # 5.11.: proportional selling
     return con
 
 
@@ -39,7 +41,7 @@ def ro(path=None):
 
 
 def add_trades(con, rows):
-    con.executemany("INSERT OR IGNORE INTO live_trades VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT OR IGNORE INTO live_trades VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
 
 
 def add_launches(con, rows):

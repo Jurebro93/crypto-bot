@@ -292,9 +292,13 @@ Na stranici tokena kutija "Uživo": kupci, prodavači, kupnja/prodaja u SOL-u i 
 rečenici i zadnji dump. Na /izvori red "PumpPortal živi tok" sa zdravljem; na Pregledu brojač tradeova i novih
 tokena. `python3 run_live.py status` i `wanted` za provjeru iz terminala.
 
-Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene (novi kupci na sat, kupaca po
-transakciji, kupci rastu dok cijena pada = akumulacija), insajderi među svim kupcima gledanih tokena (ne samo među
-100 u webhooku), proporcionalna prodaja kad praćeni novčanik proda dio, prvih 60 s svakog launcha za rug filter.
+**Proporcionalna prodaja (5.11.).** `live_trades.balance_after` (PumpPortal `newTokenBalance`) daje udio koji je
+novčanik prodao: `live/pulse.sold_fraction` = prodano / (prodano + ostalo). Strategija Insajderi proda isti udio
+(najmanje 25 %), sve tek kad novčanik izađe (`strat/config.json` `proportional_sell`). Bez živog stanja (samo
+Helius) i dalje prodaje sve.
+
+Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene, insajderi među svim kupcima gledanih
+tokena, prvih 60 s svakog bondanja za rug filter.
 
 ## Prave kupnje (`run_trade.py`)
 

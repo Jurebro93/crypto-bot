@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Proporcionalna prodaja: kad insajder proda dio, i mi prodamo isti dio",
+  "tekst": "živi tok daje količinu i preostalo stanje svake prodaje, pa strategija Insajderi više ne prodaje sve čim netko proda: proda isti udio koji je prodao novčanik (najmanje četvrtinu), a sve tek kad on izađe.",
+  "naslov_en": "Proportional selling: when an insider sells part, we sell the same part",
+  "tekst_en": "the live feed carries the amount and remaining balance of every sell, so the Insiders strategy no longer dumps everything the moment someone sells: it sells the same share the wallet sold (at least a quarter), and everything only when the wallet is out."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Tragovi: transferi oko influencera",
   "tekst": "uz kupnje i prodaje praćenih novčanika sad stižu i transferi. Tri pravila: novčanik je tokene primio (ne kupio) pa ih račun zvao u 24 h = plaćena promocija; transfer između dva praćena novčanika = ista ekipa; primljen ≥ 2 % supplya. Vidljivo na stranici influencera („Tragovi”) i kao minus u pouzdanosti tokena.",
   "naslov_en": "Traces: transfers around influencers",

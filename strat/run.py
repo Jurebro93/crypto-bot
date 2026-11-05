@@ -286,7 +286,22 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                 # the strategy's own exit: the insiders who bought before us are selling (hype.db chain_trades)
                 from kol import insiders as _ins
                 if _ins.sold_since(srcs.hype_db, p["token"], p["entry_ts"], insider_set):
-                    sim.sell(pos, pos["left"] if pos.get("left") is not None else 1.0, px, liq, int(now), "insajderi prodaju", ex)
+                    frac = 1.0
+                    if cfg.get("proportional_sell", True):   # 5.11.: sell the share they sold, from the live feed
+                        try:
+                            from live import pulse as _pulse, store as _ls
+                            lc = _ls.ro(srcs.hype_db)
+                            if lc is not None:
+                                try:
+                                    f = _pulse.sold_fraction(lc, p["token"], list(insider_set), p["entry_ts"])
+                                finally:
+                                    lc.close()
+                                if f is not None:
+                                    frac = max(0.25, f)   # a tiny trim is not a signal; sell at least a quarter
+                        except Exception:  # noqa: BLE001
+                            frac = 1.0
+                    left = pos["left"] if pos.get("left") is not None else 1.0
+                    sim.sell(pos, left * frac, px, liq, int(now), "insajderi prodaju" if frac >= 0.999 else f"insajderi prodali {frac:.0%}", ex)
             res = sim.result(pos, px, liq, ex)
             status = None if pos["open"] else "closed"
             _save(con, p["id"], pos, res, px, liq, now, status)

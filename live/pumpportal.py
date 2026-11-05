@@ -59,7 +59,11 @@ def parse(msg, now=None):
             mcap = float(msg.get("marketCapSol") or 0) or None
         except (TypeError, ValueError):
             mcap = None
-        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now)
+        try:
+            bal = float(msg["newTokenBalance"]) if msg.get("newTokenBalance") is not None else None
+        except (TypeError, ValueError):
+            bal = None
+        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now, bal)
     return None, None
 
 
