@@ -100,7 +100,7 @@ class Pulse(unittest.TestCase):
         import inspect
         import run_hype
         src = inspect.getsource(run_hype.scan)
-        self.assertIn("and t not in keep", src.split("if (liq < a.min_liq or mcap > a.max_mcap)")[1][:40])
+        self.assertIn("and t not in keep", src.split("if (liq < a.min_liq or mcap > a.max_mcap or mcap < a.min_mcap)")[1][:40])
 
     def test_weights_and_score(self):
         w = score.load_weights()

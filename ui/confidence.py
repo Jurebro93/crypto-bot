@@ -57,6 +57,11 @@ def parts_keyed(hype=None, features=None, extra=None, rug_verdict=None, event_ro
         parts.append(("liq_low", -10, f"Mala likvidnost (${liquidity:,.0f}): velik slippage, lako se izvuče."))
     if mcap and mcap > 1_000_000:
         parts.append(("mcap_big", -5, f"Već velik (mcap ${mcap / 1e6:.1f}M): manje prostora za rast."))
+    sm = small_mcap_penalty(mcap)
+    if sm:
+        parts.append(("mcap_small", sm, f"Premali (mcap ${mcap:,.0f}): većina tako malih tokena je rug, a dokaz "
+                                        "(volumen, kupci, pozivi) još ne znači ništa. Pouzdanost ne može biti visoka."
+                      .replace(",", ".")))
     if (f.get("momentum") or 0) >= 0.9 and (f.get("buy_pressure") or 0) < 0.2:
         parts.append(("top_chase", -5, "Cijena je već jako skočila, a kupci više ne prevladavaju: rizik kupnje vrha."))
     for k in ("snaga_volumen", "rast_holdera", "organski"):
@@ -65,6 +70,19 @@ def parts_keyed(hype=None, features=None, extra=None, rug_verdict=None, event_ro
                                  "rast_holdera": "Broj holdera raste barem 6% na sat.",
                                  "organski": "Novi holderi prate transakcije: promet nije samo vrtnja botova."}[k]))
     return parts
+
+
+def small_mcap_penalty(mcap):
+    """4.11.: a $7.6k token showed 'visoka' because only a big mcap lost points. Under $30k the scan and the demo bot's gate
+    rejects anyway (paper/rules gate.min_mcap); up to $50k the signals are too cheap to fake. Applied outside the
+    learned model too, so it cannot be learned away before there are enough small-token outcomes."""
+    if not mcap:
+        return 0
+    if mcap < 30_000:
+        return -30
+    if mcap < 50_000:
+        return -15
+    return 0
 
 
 def hand_total(parts):
@@ -85,6 +103,10 @@ def score(hype=None, features=None, extra=None, rug_verdict=None, event_role=Non
         try:
             from learn import confmodel
             total, pts = confmodel.apply(model, parts, hype, klasa)
+            sm = small_mcap_penalty(mcap)
+            if sm:   # guard, not a learned fact: the model has no coefficient for it until small tokens have outcomes
+                pts["mcap_small"] = sm
+                total = max(0, min(100, total + sm))
             out = [(pts.get(k, 0.0), t) for k, _, t in parts]
             return total, sorted(out, key=lambda p: -abs(p[0]))
         except Exception:

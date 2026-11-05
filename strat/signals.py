@@ -97,7 +97,15 @@ class Sources:
             for c in (kc, tc, hc, pc):
                 if c is not None:
                     c.close()
-        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored}
+        ins = []
+        try:   # insider wallets (kol/insiders.py): 2+ of them buying the same token before any call
+            from kol import insiders as _ins
+            good = _ins.good_set(self.kol_db, None)
+            ins = _ins.signal(self.hype_db, self.kol_db, good, now, window_s, _ins.DEFAULT["min_wallets"])
+            self.insiders = good
+        except Exception:  # noqa: BLE001
+            self.insiders = set()
+        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins}
 
 
 def mix(src, min_score, window_s):

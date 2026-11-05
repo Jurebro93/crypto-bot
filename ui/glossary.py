@@ -301,7 +301,7 @@ T("Aktivni stariji tokeni", "ocjene", "Demo strategija: tokeni stariji od 3 dana
 T("Razred market capa", "ocjene", "Raspon vrijednosti tokena pri ulazu: ispod 50k, 50–200k, 200k–1M i preko 1M $.",
   "Token od 10k $ i token od 800k $ ne ponašaju se isto: mali puno češće rugaju, veliki teže propadnu. Zato demo svaki "
   "raspon mjeri zasebno, a raspon koji gubi sam dobiva sve manje ulaza (nikad nula, da se vidi ako se popravi). U tokene "
-  "ispod 20k $ demo više ne ulazi.", vidi=["mcap", "aktivni-stariji-tokeni"], gdje=[("/paper", "Demo trading")],
+  "ispod 30k $ alat uopće ne analizira (sken ih odbaci), pa ni demo ne ulazi.", vidi=["mcap", "aktivni-stariji-tokeni"], gdje=[("/paper", "Demo trading")],
   alias=["market cap razred", "po veličini tokena", "raspon market capa"])
 T("Šansa za skok", "ocjene", "0-100 bodova: confidence prilagođen tome koliko je neovisnih provjera token prošao. Nije vjerojatnost: Šansa 60 ne znači 60% izgleda za zaradu.",
   "Token kojeg su pogledale sve analize i koji ih je prošao dobiva punu šansu; token koji je samo glasan, a ništa nije "

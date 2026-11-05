@@ -55,8 +55,9 @@ def _ai_block(ai, snap):
     if d.get("zakljucci"):
         out.append("<ul>" + "".join(f"<li>{esc(x)}</li>" for x in d["zakljucci"]) + "</ul>")
     if d.get("sada"):
-        out.append("<p><b>Sada:</b></p><ul>" + "".join(f"<li><b>{esc(x['token'])}</b>: {esc(x['zasto'])}</li>"
-                                                     for x in d["sada"]) + "</ul>")
+        out.append("<p><b>Sada</b> <span class=mut>(stanje u trenutku analize; svaki sat iznova. Ulaz samo ako je prvi poziv "
+                   "svježiji od pola sata i token prolazi na stranici tokena; „prije 2 h” je vijest, ne ulaz):</span></p><ul>"
+                   + "".join(f"<li><b>{esc(x['token'])}</b>: {esc(x['zasto'])}</li>" for x in d["sada"]) + "</ul>")
     if d.get("upozorenja"):
         out.append("<p><b>Oprez:</b></p><ul>" + "".join(f'<li class=neg>{esc(x)}</li>' for x in d["upozorenja"]) + "</ul>")
     out.append(f'<p class=mut>{src}</p></div>')
@@ -102,6 +103,7 @@ def page(qs):
     body.append("<h2>Tko kupuje prije poziva</h2>" + tdesc(
         "Walleti koji kupe token prije nego ga određeni račun pozove, i to opetovano. Zelena točka je kupnja, plava "
         "crta poziv, crvena prodaja nakon poziva.") + corrviz.link_cards(snap["links"]))
+    body.append(_insiders_html())
     body.append("<h2>Walleti jednog vlasnika</h2>" + tdesc(
         "Skupine walleta iza kojih je vjerojatno ista osoba ili ekipa. Svaka točka je jedan wallet.")
         + corrviz.group_cards(snap["groups"], ai_groups))
@@ -200,3 +202,54 @@ def _handles(html):
     import re
     html = re.sub(r'(?<!=")@?tg:([A-Za-z0-9_]+)', r"✈ \1", html)
     return re.sub(r'(?<!=")@w:([A-Za-z0-9_]+)', r"👛 \1", html)
+
+
+def _insiders_html():
+    """5.11.: the wallets that buy before calls as a signal: who is a real insider and who a sniper, when they sell
+    relative to the 2nd / 3rd call (the exit rule), and the 'Insajderi' demo strategy that trades it."""
+    from kol import insiders, store as kstore
+    con = kstore.ro()
+    if con is None:
+        return ""
+    try:
+        ws = insiders.wallets(con, insiders.DEFAULT["min_tokens"], 20)
+        timing = insiders.sell_timing(con)
+    finally:
+        con.close()
+    out = ["<h2>Insajderi: tko je pravi, tko snajper</h2>" + tdesc(
+        "Novčanici koji su na 2+ tokena kupili sat prije KOL poziva. Pravi insajder kupuje malo tokena i većinu netko "
+        "kasnije pozove; snajper kupuje svako lansiranje u prvim sekundama i većina se nikad ne pozove. Samo pravi "
+        "ulaze u Helius praćenje i u demo strategiju „Insajderi” (2+ njih kupi isti token prije poziva → kupnja; "
+        "izlaz čim neki od njih proda).")]
+    rows = []
+    for w, n, sold in ws:
+        pr = insiders.profile(w)
+        if pr is None:
+            kind, det = badge("nepoznat", ""), "nema povijesti u wallets.db (ocjenjuje se svakih 6 h)"
+        elif pr["sniper"]:
+            kind = badge("snajper", "bad")
+            det = (f"{pr['called_share']:.0%} od {pr['bought']} kupljenih tokena je ikad pozvano"
+                   + (f"; kupuje {pr['med_secs_after_launch']} s nakon lansiranja" if pr["med_secs_after_launch"] is not None else ""))
+        else:
+            kind = badge("insajder", "good")
+            det = (f"{pr['called_share']:.0%} od {pr['bought']} kupljenih tokena kasnije pozvano"
+                   + (f"; kupuje ~{pr['med_secs_after_launch'] // 60} min nakon lansiranja" if pr["med_secs_after_launch"] is not None else ""))
+        rows.append([wlink(w), kind, num(n), num(sold), (esc(det), "", "wrap")])
+    out.append(table(["Novčanik", "Vrsta", "Tokena prije poziva", "Prodao nakon poziva", "Zašto"], rows, "c_ins",
+                     empty="Još nema novčanika s 2+ kupnje prije poziva (Helius provjere oko jakih poziva, 60 dnevno)."))
+    out.append("<h2>Kad insajderi prodaju</h2>" + tdesc(
+        "Razmak između prodaje insajdera i 2. odnosno 3. poziva na token (minute; minus = prodali prije). Ovo je "
+        "kandidat za pravilo izlaza: ako većina proda odmah nakon 3. poziva, i mi prodajemo do 3. poziva."))
+    if timing.get("n") and (timing.get("to_2nd") or timing.get("to_3rd")):
+        parts = []
+        for key, lab in (("to_2nd", "2. poziva"), ("to_3rd", "3. poziva")):
+            t = timing.get(key)
+            if t:
+                parts.append(f"<li>Prodaja prema {lab}: medijan <b>{t['med']:+.0f} min</b> (četvrtine {t['q25']:+.0f} … "
+                             f"{t['q75']:+.0f} min), {t['n']} prodaja</li>")
+        if timing.get("before_3rd_share") is not None:
+            parts.append(f"<li>{timing['before_3rd_share']:.0%} prodaja dogodi se prije 3. poziva</li>")
+        out.append(f"<div class=card><ul>{''.join(parts)}</ul><p class=mut>Iz {timing['n']} tokena s izmjerenim tokovima.</p></div>")
+    else:
+        out.append("<div class=card class=mut>Još premalo tokena s 2+ poziva i izmjerenom prodajom insajdera.</div>")
+    return "".join(out)

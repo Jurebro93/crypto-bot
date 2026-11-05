@@ -17,7 +17,9 @@
   "kol_monitor": 1.1,
   "kol_search": 0.12,
   "kol_timeline": 1.2,
+  "kol_stars": 0.1,
   "kol_backfill": 0.0,
+  "kol_stars": 0.1,
   "fomo": 0.1
  },
  "pumpfun": {

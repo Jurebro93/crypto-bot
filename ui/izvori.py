@@ -73,6 +73,8 @@ def paid_sources(kcon):
         ["Helius webhook KOL novčanika", badge("Helius krediti"),
          badge(f"prati {len(hook.get('wallets', []))}", "good") if hook.get("id") else badge("čeka prvi krug", "warn"),
          "Kupnje i prodaje KOL novčanika u sekundi, prije objave"],
+        ["PumpPortal živi tok (pump.fun, PumpSwap)", badge("besplatno", "good"), _live_badge(),
+         "Svaka kupnja i prodaja gledanih tokena i praćenih novčanika u sekundi, svaki novi token; demo prodaje na dump u sekundama"],
         ["FOMO top traderi (Apify)", badge("plaćeno"), badge("uključeno", "good") if on("APIFY_TOKEN") else badge("nema APIFY_TOKEN", "bad"),
          "Najbolji traderi koje FOMO korisnici kopiraju, tjedno; njihove kupnje prati webhook"],
         ["pump.fun live i KOL boardovi (Apify)", badge("plaćeno"), badge("uključeno", "good") if on("APIFY_TOKEN") else badge("nema APIFY_TOKEN", "bad"),
@@ -92,6 +94,26 @@ def _tg_history():
             return {r["chan"].lower(): r for r in json.load(f).get("rows") or []}
     except (OSError, ValueError):
         return {}
+
+
+def _live_badge():
+    try:
+        from live import pulse, store as lstore
+        con = lstore.ro()
+        if con is None:
+            return badge("čeka prvi trade", "warn")
+        try:
+            st = pulse.status(con)
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return badge("?", "warn")
+    age = st["last_trade_age_s"]
+    if age is None:
+        return badge("čeka prvi trade", "warn")
+    if age > 600:
+        return badge(f"zadnji trade prije {age / 60:.0f} min", "bad")
+    return badge(f"živ, {st['trades_24h']:,} tradeova u 24 h, {st['tokens']} tokena", "good")
 
 
 def page(qs):

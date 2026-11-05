@@ -114,14 +114,26 @@ def score_token(evs, scores, fac, cfg, good, now):
             "handles": sorted(goods["x"] | goods["tg"] | buys)[:20]}
 
 
+def majors():
+    """SOL, stablecoins, wrapped BTC/ETH and liquid-staking tokens (paper/aktivni.SKIP): KOL wallets route through
+    them all day, so 149 wallets "buying WBTC" is not a convergence. 4.11.: WBTC was the top "Zanimljivo sada"."""
+    try:
+        from paper import aktivni
+        return aktivni.SKIP
+    except Exception:  # noqa: BLE001
+        return {"So11111111111111111111111111111111111111112", "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"}
+
+
 def compute(now=None, cfg=None, good=50, **paths):
-    """token -> convergence dict, for tokens with fresh activity and score >= min_score."""
+    """token -> convergence dict, for tokens with fresh activity and score >= min_score (never a major)."""
     cfg = dict(DEFAULT, **(cfg or {}))
     now = now or int(time.time())
     ev, scores, fac = events(now, cfg["window_min"] * 60, **paths)
+    skip = majors()
     by = {}
     for e in ev:
-        by.setdefault(e[0], []).append(e)
+        if e[0] not in skip:
+            by.setdefault(e[0], []).append(e)
     out = {}
     for tok, evs in by.items():
         r = score_token(evs, scores, fac, cfg, good, now)
@@ -141,4 +153,5 @@ def save(con, conv, now=None):
                     (tok, r["last_ts"], r["first_ts"], r["score"], r["n_x"], r["n_tg"], r["n_chain"], r["n_other"],
                      json.dumps(r["platforms"]), json.dumps(r["handles"]), r["kol_selling"], now))
     con.execute("DELETE FROM converge WHERE ts < ?", (now - 7 * 86400,))
+    con.executemany("DELETE FROM converge WHERE token = ?", [(t,) for t in majors()])   # rows from before 4.11.
     return len(conv)

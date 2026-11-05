@@ -27,7 +27,7 @@ import zlib
 from learn import weights as _w
 
 DEFAULT = {
-    "gate": {"enabled": True, "min_mcap": 20000, "min_liq": 10000, "max_liq_mcap": 0.8, "max_price_small": 1.0, "min_vol_keep": 0.2,
+    "gate": {"enabled": True, "min_mcap": 30000, "min_liq": 10000, "max_liq_mcap": 0.8, "max_price_small": 1.0, "min_vol_keep": 0.2,
              "t0_checks_per_pass": 8},
     "ab": {"enabled": True, "band": 100000, "fresh_min": 15, "size_usd": 20, "max_open": 40, "max_per_day": None,
            "min_n": 30, "keep_frac": 0.25, "ret_cap": 3.0},

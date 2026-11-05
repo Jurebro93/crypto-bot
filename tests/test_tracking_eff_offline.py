@@ -69,7 +69,9 @@ class Wanted(unittest.TestCase):
         finally:
             wstore.DB = old
             del os.environ["RENDER_EXTERNAL_URL"], os.environ["KOL_HOOK_KEY"]
-        self.assertEqual(calls[1][2]["accountAddresses"], ["ID0", "ID1", "C1", "C2"])
+        # cap 4 with shares 40/30/10/20 (5.11., insajderi): 2 leaderboard, 1 copy, 0 signal, 1 insider slot that goes back
+        # to the leaderboard because this kol.db has no insiders
+        self.assertEqual(calls[1][2]["accountAddresses"], ["ID0", "ID1", "C1", "ID2"])
 
 
 def _rows(n_win=8, n_lose=4):

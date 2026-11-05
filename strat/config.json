@@ -48,6 +48,12 @@
    "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene preko 1M $ vrijednosti pri ulazu."
   },
   {
+   "key": "insajderi",
+   "name": "Insajderi",
+   "icon": "🕵️",
+   "opis": "Kupi kad 2+ novčanika koja inače kupuju prije KOL poziva (insajderi, bez snajpera) kupe isti token unutar 10 min, a nitko ga još nije pozvao. Izlaz: čim neki od njih proda, ili po pravilima bota."
+  },
+  {
    "key": "kontrola",
    "name": "Kontrola (nasumično)",
    "icon": "🎲",
@@ -55,6 +61,7 @@
    "opis": "Nasumičan token iz istog skenera, najviše jednom u 30 min, ista pravila izlaza. Nije strategija nego mjerilo: strategija koja ga ne pobjeđuje nema prednost (audit 4.11., R6)."
   }
  ],
+ "insajderi": {"window_min": 10, "min_wallets": 2},
  "novcanici_top": 10,
  "novcanici_min_n": 3,
  "alat_bands": {

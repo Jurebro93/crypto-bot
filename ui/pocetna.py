@@ -121,6 +121,11 @@ def strategy_html(now=None):
 
 # ---------- 2. how much data, and growth against last week ----------
 
+def hype_db_path():
+    from live import store as lstore
+    return lstore.HYPE_DB
+
+
 def _week_counts(tss, now):
     """(total, new in the last 7 days, new in the 7 days before)."""
     a = b = 0
@@ -172,6 +177,8 @@ def metrics(now=None):
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
             ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
             ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            ("⚡", "Kupnje i prodaje u živom toku (PumpPortal)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
+            ("🚀", "Novi tokeni u živom toku", "/izvori", hype_db_path(), "live_launches", "ts", "1=1"),
             ("💬", "Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "1=1"),
             ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts", "1=1")):
         c = _sql_counts(path, table, col, now, where)
@@ -314,15 +321,17 @@ def _hl_kol():
 
 def _hl_converge(now):
     """The token that most independent sources (X, Telegram, on-chain) called together in the last 24 h."""
-    from kol import store as kol_store
+    from kol import converge, store as kol_store
     con = _ro(kol_store.DB)
     if con is None:
         return None
+    skip = converge.majors()   # WBTC & co. are not "called"; they are what wallets trade through
     try:
-        r = con.execute("SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
-                        "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
-                        "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC "
-                        "LIMIT 1", (now - 86400,)).fetchone()
+        r = next((row for row in con.execute(
+            "SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
+            "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
+            "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC LIMIT 20",
+            (now - 86400,)) if row[0] not in skip), None)
     except sqlite3.Error:
         return None
     finally:

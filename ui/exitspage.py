@@ -120,7 +120,18 @@ def sl_html(state):
                     txt = f"<b>{txt}</b>"
                 cells.append((txt, (r or {}).get("mean") or -9, "n"))
             rows.append(cells)
-        out.append(f"<h3>{title}</h3><p class=mut>{num(t['n'])} prilika · izračunato {upd}</p>"
+        # 4.11.: the delayed columns often equal the "no stop" row to the decimal. That is a real result, not a bug:
+        # with the rest of the rules as they are (stale exit after N minutes without a rise, rug exit at -70 %), a
+        # stop that arms after 15+ min never gets to fire. Say so, or the table reads as broken.
+        none = next((r["mean"] for r in t["rows"] if r["sl"] is None), None)
+        same = [d for d in delays if d > 0 and all(abs((r["mean"] or 0) - (none or 0)) < 5e-4
+                                                   for r in t["rows"] if r["delay"] == d and r["sl"] is not None)]
+        note = ""
+        if same and none is not None:
+            note = (f"<p class=mut>Stupci „nakon {', '.join(str(d) for d in same)} min” jednaki su retku „bez stop lossa”: "
+                    "uz ostala pravila kakva su sada (izlaz zbog mirovanja nakon prvih minuta bez rasta, rug izlaz na −70 %) "
+                    "odgođeni stop nikad ne stigne djelovati. Odluka je dakle samo: stop odmah (lijevi stupac) ili bez njega.</p>")
+        out.append(f"<h3>{title}</h3><p class=mut>{num(t['n'])[0]} prilika · izračunato {upd}</p>" + note
                    + table(["Stop loss"] + [(("odmah" if d == 0 else f"nakon {d} min"), "n") for d in delays], rows))
     return "".join(out)
 

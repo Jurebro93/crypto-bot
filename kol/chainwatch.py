@@ -45,7 +45,7 @@ def _api(method, path="", body=None):
     return json.loads(txt) if txt else None
 
 
-SHARE = {"ids": 0.5, "copy": 0.4, "signal": 0.1}   # of chain.max_wallets; a group's unused slots go to the next
+SHARE = {"ids": 0.4, "copy": 0.3, "signal": 0.1, "insajderi": 0.2}   # of chain.max_wallets; a group's unused slots go to the next
 
 
 def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
@@ -90,8 +90,30 @@ def wanted(con, cfg, wallet_db=None):
     ids = [w for w, in con.execute("""SELECT wallet FROM kol_ids ORDER BY (source = 'fomo'), COALESCE(rank, 999),
                                       COALESCE(pnl, 0) DESC""")]
     copy, signal = own_wallets(cap, cap, cfg.get("min_copy", 35), wallet_db)
+    from kol import insiders as _ins   # 5.11.: wallets that buy before KOL calls, minus snipers (kol/insiders.py)
+    try:
+        ins = [w for w, _n, _s in _ins.wallets(con, _ins.DEFAULT["min_tokens"], cap)]
+    except Exception:  # noqa: BLE001
+        ins = []
+    # 4.11.: wallets a player follows in the competition (league.db follows) MUST be in the webhook, or the follow
+    # never sees a buy ("pratim nekoliko walleta, nemam otvorenih pozicija"); they go first, outside the shares
+    followed = []
+    try:
+        from league import copy as lcopy, store as lstore
+        lcon = sqlite3.connect(f"file:{lstore.DB}?mode=ro", uri=True, timeout=5) if os.path.exists(lstore.DB) else None
+        if lcon is not None:
+            try:
+                followed = [t for (t,) in lcon.execute("SELECT DISTINCT target FROM follows WHERE kind='wallet' AND active=1")]
+            finally:
+                lcon.close()
+    except Exception:  # noqa: BLE001
+        followed = []
     out, seen = [], set()
-    groups = [(ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"])]
+    for w in followed[:max(1, cap // 4)]:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    groups = [(ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0))]
     for second in (False, True):   # second pass: the slots a short group left over
         for ws, sh in groups:
             n = cap - len(out) if second else int(round(cap * sh))

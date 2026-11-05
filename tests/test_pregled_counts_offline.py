@@ -123,5 +123,69 @@ class TelegramHistoryPage(unittest.TestCase):
             kstore.DB = old
 
 
+class StrategyTradesTable(unittest.TestCase):
+    def test_bought_cell_is_text_not_a_tuple(self):
+        import inspect
+        from ui import strategije
+        src = inspect.getsource(strategije)
+        self.assertIn('(ago(p["entry_ts"])[0], p["entry_ts"], "n")', src)
+        self.assertNotIn('(ago(p["entry_ts"]), p["entry_ts"], "n")', src)
+
+
+class WalletRecommendation(unittest.TestCase):
+    def _w(self, addr, copy, **st):
+        base = {"closed": 20, "closed_pnl_sol": 10.0, "win_rate": 0.6, "median_hold_min": 40, "last_trade_days": 0.5,
+                "top_trade_share": 0.3}
+        base.update(st)
+        return {"wallet": addr, "copy_score": copy, "stats": base, "labels": []}
+
+    def test_three_picks_with_confidence_and_demo_copies(self):
+        from ui import preporuka
+        ws = [self._w("A" * 44, 61, closed=40),                         # visoka
+              self._w("B" * 44, 69, closed=13),                         # niska (13 < 15)
+              self._w("C" * 44, 55, closed=18),                         # srednja
+              self._w("D" * 44, 66, closed=48, closed_pnl_sol=47.9, win_rate=0.48, top_trade_share=0.7),  # big PnL, visoka? no: top share
+              self._w("E" * 44, 70, closed=5),                          # fewer than 10 closed: out
+              self._w("F" * 44, 70, closed=30, median_hold_min=4 * 1440),   # holds 4 days: out
+              self._w("G" * 44, 70, closed=30, closed_pnl_sol=-2.0)]    # in minus: out
+        ranked = preporuka.rank_wallets(ws, {"DDDDDD": (4, 0.12, 31.0)})
+        self.assertEqual([w["wallet"][0] for w, _ in ranked], ["A", "D", "C", "B"])
+        self.assertEqual([r["tier"] for _, r in ranked], ["visoka", "srednja", "srednja", "niska"])
+        html = preporuka.wallets_box(ws, {"DDDDDD": (4, 0.12, 31.0)})
+        self.assertIn("pouzdanost visoka", html)
+        self.assertIn("Što bih ja napravio:", html)
+        self.assertIn("Kopirao bih", html)
+        self.assertIn("50 $ po tradeu", html)                      # first pick has high confidence
+        self.assertIn("Kad je naš demo bot kupio isto što i on (4×", html)
+        self.assertNotIn("EEEEEE", html)
+        self.assertIn("(4 prolazi uvjete)", html)
+        self.assertNotIn("ne obećanje", html)                      # no roi_on_cost in the fixture: no projection
+        html2 = preporuka.wallets_box([self._w("A" * 44, 61, closed=40, roi_on_cost=0.35)])
+        self.assertIn("+350 $", html2)
+
+    def test_nobody_yet(self):
+        from ui import preporuka
+        html = preporuka.wallets_box([self._w("A" * 44, 30)])
+        self.assertIn("Ne bih kopirao nikoga", html)
+
+    def test_demo_copies_in_minus_overrule_the_history(self):
+        from ui import preporuka
+        html = preporuka.wallets_box([self._w("A" * 44, 61, closed=40)], {"AAAAAA": (5, -0.08, -20.0)})
+        self.assertIn("Ne bih kopirao ni", html)
+        self.assertIn("-8% po tradeu", html)
+
+
+class StopLossGridText(unittest.TestCase):
+    def test_count_is_text_and_equal_delay_columns_are_explained(self):
+        from ui import exitspage
+        rows = [{"sl": -0.1, "delay": 0, "mean": 0.375, "median": 0, "win": 0.5, "score": 1},
+                {"sl": -0.1, "delay": 15, "mean": 0.348, "median": 0, "win": 0.5, "score": 0.9},
+                {"sl": None, "delay": 0, "mean": 0.348, "median": 0, "win": 0.5, "score": 0.9}]
+        html = exitspage.sl_html({"sl_grid": {"ts": time.time(), "sve": {"n": 1409, "rows": rows}}})
+        self.assertIn("1,409 prilika", html)
+        self.assertNotIn("('1,409'", html)
+        self.assertIn("nakon 15 min” jednaki su retku „bez stop lossa”", html)
+
+
 if __name__ == "__main__":
     unittest.main()
