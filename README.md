@@ -149,6 +149,14 @@ python3 run_kol.py top         # ljestvica KOL-ova po moći poziva
 - Moć poziva 0-100 i moć po pratitelju; težine u `kol/config.json`. Signal `kol_group` ulazi u hype ocjenu.
 - Dashboard: `/kol`, `/kol/<handle>`, i "Tko ga je zvao na X-u" na stranici tokena.
 
+**Trending kao izvor (5.11., `kol/trending.py`).** Svaki KOL krug sprema današnje trending tokene (GeckoTerminal
+trending pools za Solanu, 3 stranice, 24 h; DexScreener top boosts kao plaćena promocija) u kol.db `trending`, bez
+majora i tokena s FDV iznad 100M. Zatim za do 10 tokena po krugu pita X tko je objavio njihovu adresu u zadnjih 7
+dana (twitterapi.io, vlastiti dnevni strop `trending.usd` 0,40 $ unutar discovery stropa): ti računi su zvali
+pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvorom `kol_trend`). Isti popis ulazi u
+KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
+nije zvao.
+
 **Obrisane objave (5.11., `kol/deleted.py`).** Poziv jednom pročitan ostaje u bazi; ali povijest iz backfilla ili
 kasnije čitanje timelinea vidi samo ono što je preživjelo, pa račun koji briše svaki rug izgleda bolje nego što jest.
 Zato se izmjereni X pozivi 2+ dana stari provjeravaju po ID-u objave (twitterapi.io, 0,15 $ na 1000, 200 po krugu,

@@ -55,8 +55,16 @@ def cmd_search(a, con=None, cfg=None):
         return 0
     n = 0
     from kol import discover
+    from kol import trending
+    try:
+        k = trending.collect_today(con, cfg)
+        con.commit()
+        if k:
+            print(f"trending: {k} novih tokena danas (GeckoTerminal + DexScreener boosts)")
+    except Exception as e:  # noqa: BLE001
+        print(f"trending: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
-                     ("winners", discover.winners), ("audit", discover.audit),
+                     ("winners", discover.winners), ("trending", trending.search), ("audit", discover.audit),
                      ("graph", discover.graph)):
         try:
             k = fn(con, cfg)
@@ -142,8 +150,10 @@ def cmd_backfill(a):
     if done == str(a.budget) and not a.force:
         print(f"backfill: budžet ${a.budget} već odrađen, preskačem (--force za ponovno)")
         return
-    toks = backfill.pick(_load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con, max_age_d=getattr(a, "max_age_d", 90)),
-                         a.winners, a.losers, exclude=backfill.done_targets(con, "backfill_token"))
+    from kol import trending
+    pool = _load_tokens(a.tokens) if a.tokens else backfill.tokens_from_db(con, max_age_d=getattr(a, "max_age_d", 90))
+    pool += [t for t in trending.for_backfill(con) if t["mint"] not in {x["mint"] for x in pool}]   # 5.11.: trending too
+    toks = backfill.pick(pool, a.winners, a.losers, exclude=backfill.done_targets(con, "backfill_token"))
     print(f"backfill: {len(toks)} tokena ({a.winners} pobjednika + {a.losers} ostalih), budžet ${a.budget}"
           + ("" if a.tokens else " (lista iz kol.db)"), flush=True)
     try:
