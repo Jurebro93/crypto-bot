@@ -603,7 +603,7 @@ def _post(path, form, user):
             col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
             if col:
                 raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
-            size = float(form.get("size") or 0)
+            size = float(form.get("size_custom") or form.get("size") or 0)   # a typed amount beats the chips
             have = next((t for t in store.trades(con, user, "open") if t["token"] == token), None)
             if have:   # Nicholas 2.11.: buying a token you already hold adds to that position (average entry)
                 return _add_more(con, user, have, size, price, liq, back)

@@ -89,12 +89,13 @@ def fresh(cands, live, n=N_NEW):
 
 
 def _buy_form(mint, symbol, source, size=50, button="🛒 Kupi", back=""):
-    stakes = "".join(f'<option value={s}{" selected" if s == size else ""}>${s}</option>' for s in STAKES)
+    stakes = "".join(f'<option value={s}>' for s in STAKES)   # suggestions; any amount can be typed (Jure 5.11.)
     return ('<form method=post action="/natjecanje/buy" style="display:flex;gap:4px;margin:0;flex-wrap:wrap">'
             f'<input type=hidden name=token value="{esc(mint)}"><input type=hidden name=symbol value="{esc(symbol or "")}">'
             f'<input type=hidden name=source value="{esc(source)}">'
             + (f'<input type=hidden name=back value="{esc(back)}">' if back else "")
-            + f'<select name=size title="ulog u $">{stakes}</select><button>{button}</button></form>')
+            + f'<input name=size type=number inputmode=numeric list=qb-stakes min=1 step=1 value={size} title="ulog u $" '
+            f'style="width:84px"><datalist id=qb-stakes>{stakes}</datalist><button>{button}</button></form>')
 
 
 def _card(t, live, user, compact=False):
@@ -205,6 +206,9 @@ def top_buy(user):
             'spellcheck=false placeholder="zalijepi adresu tokena ili DexScreener link">'
             f'<button type=button class=qb-paste onclick="{paste}">📋 Zalijepi</button></div>'
             f'<div class=mut style="font-size:13px;margin:10px 0 6px">Ulog</div><div class=qb-row>{chips}</div>'
+            '<div class=qb-row style="margin-top:6px;align-items:center"><span class=mut style="font-size:13px">ili drugi iznos:</span>'
+            '<input type=number name=size_custom inputmode=numeric min=1 step=1 placeholder="npr. 35" '
+            'style="flex:0 1 110px;font-size:16px;padding:8px;border-radius:10px"><span class=mut style="font-size:13px">$</span></div>'
             '<div style="margin-top:10px"><button class=qb-go>Kupi na moj račun</button></div>'
             '<div class=mut style="font-size:12px;margin-top:6px">Kupuje po živoj cijeni s DexScreenera (1% naknade). '
             'Ne mora biti s liste prijedloga. Ako token već imaš, iznos se doda u tu poziciju (ulazna cijena postaje prosjek).</div></form>')
