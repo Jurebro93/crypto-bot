@@ -57,8 +57,8 @@ class States(unittest.TestCase):
         r2 = makro.collect(con, NOW + 3600, eth=eth, btc_h=crash)
         self.assertEqual(r2["btc"]["state"], "pada")
         con.close()
-        with mock.patch.object(store, "DB", path):
-            self.assertTrue(makro.falling(NOW + 3600 + 60))
+        with mock.patch.object(store, "DB", path), mock.patch.object(makro.time, "time", return_value=NOW + 3600 + 60):
+            self.assertTrue(makro.falling())
             from paper import rules
             why = rules.gate("T", 0.001, 50000, 200000, None, None, None)
             self.assertIn("BTC pada", why or "")
