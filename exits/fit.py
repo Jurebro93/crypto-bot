@@ -68,11 +68,48 @@ def check_rollback(state, paper_db, base, ecfg, now):
         actual = sc([t["ret"] for t in trades])
         replay = sc([sim.replay(t["entry_px"], t["entry_liq"], t["opened"], t["path"], cfg_prev)["ret"]
                      for t in trades if t["entry_px"]])
+        why = None
         if actual < replay - ecfg["rollback_margin"]:
             why = (f"live {len(trades)} tradeova: ocjena {actual:+.2f}, prethodna pravila bi dala {replay:+.2f}")
+        elif len(trades) >= ecfg.get("rollback_median_n", 30):
+            # 5.11. morning report: moonshot/SAD v4 had a median of -33% after 50 live trades and stayed, because the
+            # score (capped mean minus losses) still looked fine thanks to a few big wins. The typical trade counts
+            # too: a clearly worse median than the old rules on the same trades goes back as well.
+            med = lambda rs: sorted(rs)[len(rs) // 2]  # noqa: E731
+            m_act = med([t["ret"] for t in trades])
+            rp = [sim.replay(t["entry_px"], t["entry_liq"], t["opened"], t["path"], cfg_prev)["ret"]
+                  for t in trades if t["entry_px"]]
+            m_rep = med(rp) if rp else None
+            if m_rep is not None and m_act < m_rep - ecfg.get("rollback_median_margin", 0.05):
+                why = (f"live {len(trades)} tradeova: medijan {m_act:+.0%}, prethodna pravila bi dala "
+                       f"{m_rep:+.0%}")
+        if why:
             profiles.rollback(state, k, why, now)
+            state.setdefault("rolled", {})[k] = int(now)
             notes.append({"klasa": k, "rollback": True, "note": why})
     return notes
+
+
+def rollback_only(paper_db, now=None):
+    """The rollback check alone, every few hours (exits/config.json rollback_every_h), so a profile that loses
+    live goes back within hours instead of waiting for the daily 05:30 run. Saves only when something rolled back."""
+    now = now or time.time()
+    ecfg, base = learn.load_config(), sim.load_config()
+    real = reality(paper_db, ecfg, since=now - ecfg["live_days"] * 86400)
+    base = {**base, "coarse": {k: real[k] for k in ("secs", "p_caught", "gap")}}
+    state = profiles.load()
+    notes = check_rollback(state, paper_db, base, ecfg, now)
+    if notes:
+        state.setdefault("runs", []).append({"ts": int(now), "items": [
+            {"klasa": r["klasa"], "applied": False, "rollback": True, "note": r["note"]} for r in notes]})
+        profiles.save(state)
+    return notes
+
+
+def recently_rolled(state, klasa, now, days):
+    """A class whose rules went back in the last `days` days is not re-fitted yet: the same rules would come straight
+    back from the same paths."""
+    return now - ((state.get("rolled") or {}).get(klasa) or 0) < days * 86400
 
 
 COARSE_DEFAULT = {"p_caught": 0.7, "gap": -0.05}
@@ -146,7 +183,7 @@ def run(paper_db, hype_db=None, now=None, apply=True, seed=None):
             print(f"exits: sjenovita knjiga nedostupna: {e}")
     seed = shadow + list(seed)  # newest first in groups(): shadow paths come before the old study
     for k, ps in groups(live, seed, ecfg["max_paths"]).items():
-        if k in rolled:
+        if k in rolled or recently_rolled(state, k, now, ecfg.get("rollback_hold_days", 3)):
             continue
         own = state.get("profiles", {}).get(k)
         parent = k.split("/")[0] if "/" in k else ("default" if k != "default" else None)

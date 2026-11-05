@@ -15,6 +15,10 @@
  "live_days": 30,
  "rollback_min_trades": 20,
  "rollback_margin": 0.05,
+ "rollback_median_n": 30,
+ "rollback_median_margin": 0.05,
+ "rollback_every_h": 3,
+ "rollback_hold_days": 3,
  "grid": {
   "sl": [
    -0.1,

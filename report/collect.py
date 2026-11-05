@@ -307,7 +307,8 @@ def rules(now):
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
         try:
             out = {"since": start, "rug": R.rug_share(con, start), "gate": R.gate_shadow(con, start),
-                   "kol3": R.by_session(con, "kol3", 14, now), "ab": st.get("ab"),
+                   "kol3": R.by_session(con, "kol3", 14, now), "kol3_10": R.kol3_tight(con, 14, now),
+                   "ab": st.get("ab"),
                    "sessions": (st.get("sessions") or {}).get("by") or {},
                    "refused_day": con.execute("SELECT COUNT(*) FROM candidates WHERE decision='skip_gate' AND "
                                               "first_ts>=?", (now - DAY,)).fetchone()[0]}

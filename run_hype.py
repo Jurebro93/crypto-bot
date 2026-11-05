@@ -161,6 +161,11 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception as e:
         print(f"  kol.db bursts: {e}", file=sys.stderr)
         bursts = {}
+    try:  # 3+ different X authors on the same token within 10 minutes (kol.db calls, read-only)
+        groups10 = kstore.group_calls()
+    except Exception as e:
+        print(f"  kol.db grupa 10 min: {e}", file=sys.stderr)
+        groups10 = {}
     try:  # several good callers across X, Telegram and KOL wallets on chain, live (kol/converge.py, read-only)
         from kol import converge
         conv = converge.compute()
@@ -243,12 +248,14 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             f["kol_group"] = kol_groups[t]["feature"]
         if t in bursts:  # only set when it happened: 2 posts = 0.33, 4+ = full
             f["autor_nalet"] = round(min(1.0, (bursts[t]["n"] - 1) / 3), 2)
+        if t in groups10:  # only set when it happened: 3 authors in 10 min = 0.5, 5+ = full; learning sets the weight
+            f["grupa_10"] = round(min(1.0, 0.5 + (groups10[t]["n"] - 3) / 4), 2)
         extra = {"x_trend": trend, "pumpfun": {k: pf.get(k) for k in (
             "boards", "kolCount", "holders", "top10HoldersPercent", "bundlerOwnedPercent", "snipersOwnedPercent",
             "devHoldingsPercent", "bondingCurveProgress", "twitterReuseCount", "pumpFunUrl", "isCurrentlyLive",
             "liveParticipants")} if pf else None,
             "kol_x": kol_ca.get(t, 0), "kol_group": kol_groups.get(t), "konv": conv.get(t),
-            "autor_nalet": bursts.get(t)}
+            "autor_nalet": bursts.get(t), "grupa_10": groups10.get(t)}
         rows.append({"token": t, "symbol": sym, "name": name, "pair": p.get("pairAddress"), "url": p.get("url"),
                      "price": float(p.get("priceUsd") or 0), "mcap": mcap, "liquidity": liq,
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,

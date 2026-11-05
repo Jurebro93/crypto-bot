@@ -453,9 +453,12 @@ def trigger_entries(con, cfg, rst, now):
             rules.ab_judge(con, rst, cfg, now)
         for tok, ts, mc, px, sc in rules.ab_events(HYPE_DB, R["ab"]["band"], R["ab"]["fresh_min"], now):
             want.setdefault(tok, ("mc100k", {"score": sc, "mcap_cross": mc}))
+    tight = {}
     if R["kol3"]["enabled"]:
         for tok, k in rules.kol3(os.path.join(HERE, "kol.db"), now, cfg).items():
             want.setdefault(tok, ("kol3", k))
+        # 5.11.: were the 3+ authors within 10 minutes? Stored on the trade (grupa10) so the two can be compared
+        tight = rules.kol3(os.path.join(HERE, "kol.db"), now, cfg, window_min=10) if want else {}
     if R["aktivni"]["enabled"]:  # older tokens with the most buys and sells today (paper/aktivni.py)
         for tok, k in aktivni.wanted(cfg, now).items():
             want.setdefault(tok, ("aktivni", k))
@@ -531,6 +534,8 @@ def trigger_entries(con, cfg, rst, now):
             size = rules.high_risk_size(c.get("rug_verdict"), size, r["size_usd"])
             cfg_t = exits_profiles.for_trade(cfg, klase.get(tok) or "default", state=ex_state, now=now)
             cfg_t["entry_mode"], cfg_t["arm"] = mode, f"{mode}|{sess}"
+            if mode == "kol3":
+                cfg_t["grupa10"] = tok in tight
             liga.flag(con, cfg_t, cfg, now)  # counts in the league round only if this kind of trade proved itself
             if mode == "kol3" and kc.get("tp"):  # a KOL wave: quick target, out if the crowd does not come
                 cfg_t.update(tp=kc["tp"], stale_min=kc["stale_min"], stale_ret=kc["stale_ret"],
@@ -544,7 +549,8 @@ def trigger_entries(con, cfg, rst, now):
                             f"{info['buyers']} praćenih novčanika kupuje, smart {info['smart']:.0%}" if mode == "povratak" else
                             f"aktivan stariji token: {info['tx24']:,} kupnji i prodaja u 24 h, star "
                             f"{info.get('age_d') or 0:.0f} dana".replace(",", ".") if mode == "aktivni" else
-                            f"{info['n']} KOL autora u 15 min: " + ", ".join(info["handles"][:5]))
+                            f"{info['n']} KOL autora u " + ("10" if tok in tight else "15") + " min: "
+                            + ", ".join(info["handles"][:5]))
                            + f" [{cfg_t['arm']}]" + (f", rug {c['rug_verdict']}" if c.get("rug_verdict") else "")
                            + (f"; {note}" if note else ""))
             cnt[mode][0] += 1
