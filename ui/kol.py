@@ -745,13 +745,15 @@ def kol_page(handle, qs):
                     "vol_lift": f"medijan volumena sat poslije / sat prije {(s.get('med_lift') or 0):.1f}× (8× = puni)",
                     "first": f"{s['first_rate']:.0%} poziva u kojima je prvi autor",
                     "no_rug": f"{s['rug_rate']:.0%} poziva palo 90%+",
-                    "prepump": f"{s['prepump_rate']:.0%} poziva nakon što je cijena već udvostručena u 2 h"}
+                    "prepump": f"{s['prepump_rate']:.0%} poziva nakon što je cijena već udvostručena u 2 h",
+                    "deletes": (f"obrisao {s.get('deleted', 0)} objava, od toga {s.get('deleted_losers', 0)} gubitnika; "
+                                "obrisani pozivi i dalje se broje, a brisanje gubitnika oduzima bodove")}
             names = {"hit": "Pogodak", "max24": "Rast 24 h", "r1h": "Rast 1 h", "vol_lift": "Volumen", "first": "Prvi",
-                     "no_rug": "Bez ruga", "prepump": "Kasni pozivi"}
+                     "no_rug": "Bez ruga", "prepump": "Kasni pozivi", "deletes": "Briše gubitnike"}
             b.append("<h2>Kako je dobio ocjenu</h2>" + tdesc(
                 f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
                 f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
-                     + breakdown([(names[x], p[x], abs(w[x]), expl[x]) for x in w], "Izmjereno"))
+                     + breakdown([(names[x], p.get(x, 0), abs(w[x]), expl[x]) for x in w if x in names], "Izmjereno"))
         b.append(_charts(con, handle))
         b.append(_influence(con, handle, cfg))
         b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta. Cijena i volumen: iz "

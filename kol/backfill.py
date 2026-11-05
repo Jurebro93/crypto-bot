@@ -28,8 +28,10 @@ def token_query(mint, launch_ts, peak_ts):
     return f"{mint} since:{_day(launch_ts)} until:{_day(end + 86400)}"
 
 
-def pick(tokens, n_win, n_lose, seed=7):
-    """tokens: [{mint, launch_ts, peak_ts, winner}] -> winners (biggest first) + random non-winners."""
+def pick(tokens, n_win, n_lose, seed=7, exclude=()):
+    """tokens: [{mint, launch_ts, peak_ts, winner}] -> winners (biggest first) + random non-winners, skipping mints
+    already searched (`exclude`, kol.db searches kind backfill_token), so a second round pays for new tokens only."""
+    tokens = [t for t in tokens if t["mint"] not in set(exclude)]
     win = sorted([t for t in tokens if t["winner"]], key=lambda t: -(t.get("peak_mult") or 0))[:n_win]
     lose = [t for t in tokens if not t["winner"]]
     random.Random(seed).shuffle(lose)

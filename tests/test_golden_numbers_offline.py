@@ -52,7 +52,10 @@ def build(tmp):
 
     t = tstore.connect(p["tg"])
     for ch in ("gemcalls", "alphachat"):
-        t.execute("INSERT INTO channels (name, found_ts) VALUES (?, ?)", (ch, NOW - 2 * DAY))
+        t.execute("INSERT INTO channels (name, found_ts, status) VALUES (?, ?, 'active')", (ch, NOW - 2 * DAY))
+    for ch in ("deadspam1", "deadspam2", "candidate3"):   # known but not active: never "Telegram kanali" on Pregled
+        t.execute("INSERT INTO channels (name, found_ts, status) VALUES (?, ?, ?)",
+                  (ch, NOW - 2 * DAY, "candidate" if ch.startswith("cand") else "dead"))
     for i in range(3):
         t.execute("INSERT INTO posts (channel, post, ts, seen_ts, cas) VALUES ('gemcalls', ?, ?, ?, 'T2')",
                   (i, NOW - DAY, NOW - DAY))
@@ -140,7 +143,11 @@ class Golden(unittest.TestCase):
         self.assertEqual(by["Influenceri (X)"][0], TRUTH["x_accounts"])
         self.assertEqual(by["Pozivi influencera (X + Telegram)"][0], TRUTH["calls_all_kinds"])
         self.assertEqual(by["Kupnje i prodaje praćenih novčanika"][0], TRUTH["wallet_swaps"])
-        self.assertEqual(by["Telegram kanali"][0], TRUTH["tg_channels"])
+        self.assertEqual(by["Aktivni Telegram kanali"][0], TRUTH["tg_channels"])
+        # the same number on /izvori ("aktivnih Telegram kanala"): one truth, two pages
+        import sqlite3
+        st = dict(sqlite3.connect(self.p["tg"]).execute("SELECT status, COUNT(*) FROM channels GROUP BY status"))
+        self.assertEqual(st["active"], by["Aktivni Telegram kanali"][0])
         self.assertEqual(by["Telegram poruke"][0], TRUTH["tg_posts"])
         self.assertEqual(by["Novčanici u registru"][0], TRUTH["wallets"])
         self.assertEqual(by["Rug provjere"][0], 0) if "Rug provjere" in by else None

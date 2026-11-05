@@ -20,7 +20,8 @@ KEEP_TRADES_S, KEEP_LAUNCH_S, KEEP_ALERT_S = 48 * 3600, 7 * 86400, 86400
 
 
 def connect(path=None):
-    con = sqlite3.connect(path or HYPE_DB, timeout=60)
+    con = sqlite3.connect(path or HYPE_DB, timeout=60, isolation_level=None)   # explicit BEGIN IMMEDIATE in Feed.flush
+    con.execute("PRAGMA busy_timeout = 60000")
     con.executescript(SCHEMA)
     return con
 

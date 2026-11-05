@@ -179,7 +179,9 @@ def metrics(now=None):
             ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
             ("⚡", "Kupnje i prodaje u živom toku (PumpPortal)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
             ("🚀", "Novi tokeni u živom toku", "/izvori", hype_db_path(), "live_launches", "ts", "1=1"),
-            ("💬", "Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "1=1"),
+            # 5.11.: the same number /izvori shows as "aktivnih Telegram kanala" (status 'active'); the page counted
+            # every known channel (22,462: candidates, dead, spam) while /izvori said 264
+            ("💬", "Aktivni Telegram kanali", "/izvori", tg_store.DB, "channels", "found_ts", "status = 'active'"),
             ("✉️", "Telegram poruke", "/izvori", tg_store.DB, "posts", "seen_ts", "1=1")):
         c = _sql_counts(path, table, col, now, where)
         if c and c[0]:
