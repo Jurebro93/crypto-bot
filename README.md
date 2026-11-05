@@ -311,6 +311,12 @@ transakciji, a kod zauzete baze zadrži redove u memoriji (do 20.000) i pokuša 
 razdvaja RAM na "procesi" (stvarno zauzeto) i "cache" (kernel ga oslobađa pod pritiskom): 2 GB plana nije pun kad
 piše 2000 MB, a Renderova metrika kaže 1 GB.
 
+**Novosti i večernja objava (5.11.).** `share/novosti.json`: svaki unos ima `naslov`/`tekst` (HR, za aplikaciju) i
+`naslov_en`/`tekst_en` (EN, za javni X profil); unos bez engleskih polja ne ide na karticu ni u objavu. Javna
+kartica `/share/novosti.png?d=YYYY-MM-DD` (`ui/sharecard.py`, Pillow + Inter font iz `ui/static/fonts`) crta
+današnje unose; `?lang=hr` za hrvatsku. Objavu preko Buffera radi rutina u claude.ai (tekst u scratchpadu sesije),
+samo iz te datoteke, bez internih podataka.
+
 ## Status
 
 Logika je testirana na izmišljenim odgovorima API-ja (`tests/test_offline.py`). Od 2026-10-30 mreža radi: DexScreener, Polymarket i RocketLaunch odgovaraju; Wikipedia je tad vratila 429 (previše upita).

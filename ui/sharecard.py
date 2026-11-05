@@ -10,13 +10,20 @@ W, H = 1200, 675
 BG, INK, MUT, ACC = (11, 18, 32), (255, 255, 255), (170, 178, 194), (79, 70, 229)
 
 
-def entries(day=None):
-    """[(naslov, tekst)] for the day (YYYY-MM-DD, default today UTC), newest first."""
+def entries(day=None, lang="en"):
+    """[(title, text)] for the day (YYYY-MM-DD, default today UTC), newest first. English by default (the X
+    profile is English): entries carry naslov_en / tekst_en; one without them is left out of the English card
+    rather than shown in Croatian."""
     from ui import novo
     day = day or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     out = []
     for e in novo.items():
-        if str(e.get("datum", "")).startswith(day):
+        if not str(e.get("datum", "")).startswith(day):
+            continue
+        if lang == "en":
+            if e.get("naslov_en"):
+                out.append((str(e["naslov_en"]).strip(), str(e.get("tekst_en") or "").strip()))
+        else:
             out.append((str(e.get("naslov", "")).strip(), str(e.get("tekst", "")).strip()))
     return out
 
@@ -49,13 +56,13 @@ def _font(size, bold=False):
     return ImageFont.load_default(size=size)
 
 
-def png(day=None, max_items=3):
+def png(day=None, max_items=3, lang="en"):
     """PNG bytes of the card; None when Pillow is missing or the day has no entries."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
         return None
-    items = entries(day)[:max_items]
+    items = entries(day, lang)[:max_items]
     if not items:
         return None
     day = day or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
@@ -66,7 +73,7 @@ def png(day=None, max_items=3):
     d.text((60, 48), "MemeSonar", font=head, fill=INK)
     y, m, dd = day.split("-")
     d.text((W - 60 - d.textlength(f"{int(dd)}.{int(m)}.{y}.", font=small), 56), f"{int(dd)}.{int(m)}.{y}.", font=small, fill=MUT)
-    d.text((60, 110), "Što je novo danas", font=big, fill=INK)
+    d.text((60, 110), "What's new today" if lang == "en" else "Što je novo danas", font=big, fill=INK)
     yy = 200
     for title, text in items:
         d.ellipse((60, yy + 12, 74, yy + 26), fill=ACC)

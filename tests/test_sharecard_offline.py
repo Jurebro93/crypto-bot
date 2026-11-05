@@ -11,10 +11,12 @@ from ui import sharecard  # noqa: E402
 
 class Card(unittest.TestCase):
     def test_png_from_the_days_entries_only(self):
-        items = [{"datum": "2026-11-05", "naslov": "Novo A", "tekst": "opis a"},
-                 {"datum": "2026-11-04", "naslov": "Staro", "tekst": "opis"}]
+        items = [{"datum": "2026-11-05", "naslov": "Novo A", "tekst": "opis a", "naslov_en": "New A", "tekst_en": "desc a"},
+                 {"datum": "2026-11-05", "naslov": "Bez prijevoda", "tekst": "x"},
+                 {"datum": "2026-11-04", "naslov": "Staro", "tekst": "opis", "naslov_en": "Old"}]
         with mock.patch("ui.novo.items", return_value=items):
-            self.assertEqual(sharecard.entries("2026-11-05"), [("Novo A", "opis a")])
+            self.assertEqual(sharecard.entries("2026-11-05"), [("New A", "desc a")])          # English only
+            self.assertEqual(sharecard.entries("2026-11-05", "hr"), [("Novo A", "opis a"), ("Bez prijevoda", "x")])
             b = sharecard.png("2026-11-05")
             self.assertTrue(b and b[:8] == b"\x89PNG\r\n\x1a\n")
             self.assertIsNone(sharecard.png("2026-11-03"))      # no entries: 404 upstream, nothing invented

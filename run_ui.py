@@ -454,7 +454,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/share/novosti.png":   # 5.11.: the day's "what is new" card for the evening X post (public)
             from ui import sharecard
             day = (qs.get("d") or "").strip() if isinstance(qs, dict) else ""
-            body = sharecard.png(day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None)
+            lang = "hr" if isinstance(qs, dict) and qs.get("lang") == "hr" else "en"
+            body = sharecard.png(day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None, lang=lang)
             if not body:
                 return self._send(404, b"")
             self.send_response(200)
