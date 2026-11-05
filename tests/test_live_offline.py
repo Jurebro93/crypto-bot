@@ -47,6 +47,18 @@ class Parse(unittest.TestCase):
         self.assertEqual(pumpportal.subscribe_msgs(["A"], ["W"], prev=({"A"}, {"W"})), [])
 
 
+class BalanceError(unittest.TestCase):
+    def test_unfunded_key_message_sets_the_resubscribe_flag(self):
+        con = lstore.connect(os.path.join(tempfile.mkdtemp(), "hype.db"))
+        feed = pumpportal.Feed(con, log=lambda s: None)
+        self.assertFalse(feed.balance_error)
+        feed.take({"message": "Successfully subscribed to token creation events."})
+        self.assertFalse(feed.balance_error)
+        feed.take({"errors": "Minimum balance not met for PumpSwap websocket data."})
+        self.assertTrue(feed.balance_error)
+        con.close()
+
+
 class Store(unittest.TestCase):
     def test_feed_writes_and_mirrors_followed_wallets(self):
         path = os.path.join(tempfile.mkdtemp(), "hype.db")
