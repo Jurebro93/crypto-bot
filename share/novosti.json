@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Tragovi: transferi oko influencera",
+  "tekst": "uz kupnje i prodaje praćenih novčanika sad stižu i transferi. Tri pravila: novčanik je tokene primio (ne kupio) pa ih račun zvao u 24 h = plaćena promocija; transfer između dva praćena novčanika = ista ekipa; primljen ≥ 2 % supplya. Vidljivo na stranici influencera („Tragovi”) i kao minus u pouzdanosti tokena.",
+  "naslov_en": "Traces: transfers around influencers",
+  "tekst_en": "besides buys and sells of followed wallets, transfers now arrive too. Three rules: a wallet received tokens (did not buy them) and the account called them within 24 h = paid promotion; a transfer between two followed wallets = the same crew; ≥ 2% of a token's supply received. Shown on the influencer page ('Traces') and as a confidence penalty on the token."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Pozivi s X-a u sekundama (webhook)",
   "tekst": "do 100 najvažnijih računa (najbolji po ocjeni, zvijezde, veliki računi) prati se preko pravila koja se provjeravaju svakih 30 s, a objava stiže na naš webhook čim izađe. Dosad: 10 računa svakih 15 min.",
   "naslov_en": "X calls within seconds (webhook)",

@@ -209,6 +209,11 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
         if t in found and ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get(t, {}).get("liquidity") or {}).get("usd") or 0):
             best[t] = p
     cal = calendar_keywords()
+    try:  # 5.11.: tracked wallets that RECEIVED a token's supply (kol/traces.py): a flag against the token
+        from kol import traces as _traces
+        trace_flags = _traces.token_flags(kstore.DB, list(best), now_ms / 1000 - 3 * 86400)
+    except Exception:  # noqa: BLE001
+        trace_flags = {}
     regime = market_regime(now_ms / 1000)  # same for every token in the scan: context, learned like any feature
     try:   # 5.11.: BTC/ETH makro (market/makro.py), same for every token
         from market import makro as _makro
@@ -244,6 +249,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                 f["pump_live"] = min(1.0, 0.5 + (pf.get("liveParticipants") or 0) / 200)
         if whales.get(t):  # only set when it happened: 3+ different big holders = full signal
             f["veliki_kupuju"] = round(min(1.0, whales[t] / 3), 2)
+        if trace_flags.get(t):   # only set when it happened: a KOL wallet received supply instead of buying
+            f["primio_supply"] = 1.0
         if t in conv:  # only set when it happened, like kol_group
             f["konvergencija"] = round(conv[t]["score"] / 100, 2)
         trend = sources.trend_match(sym, name, ctx["trend_keys"])

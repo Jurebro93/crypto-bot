@@ -157,6 +157,12 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Tragovi (5.11., `kol/traces.py`).** Helius webhook sada šalje i TRANSFER transakcije praćenih novčanika
+(hype.db `chain_transfers`: token i SOL ≥ 0,05 transferi). Svaki KOL krug: `primio_pa_zvao` (praćeni novčanik primio
+tokene, račun ih zvao unutar 24 h), `veza` (transfer između dva praćena novčanika), `supply` (≥ `traces.supply_pct`
+% supplya u jednom transferu). kol.db `traces`; na KOL stranici odjeljak "Tragovi"; u skenu značajka
+`primio_supply` (težina −6) i pouzdanost −10 ("primio supply, nije kupio").
+
 **X webhook (5.11., `kol/xhook.py`).** twitterapi.io filter pravila ("from:a OR from:b", do 250 znakova, ~15 računa
 po pravilu) za do `xhook.max_handles` (100) računa: lista uživo (watch), veliki računi po dosegu, zvijezde, pa
 ostatak po ocjeni; botovi nikad. Provjera svakih `interval_s` (30) sekundi; svaki KOL krug uskladi pravila

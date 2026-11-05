@@ -186,6 +186,15 @@ def cmd_live(a, con=None, cfg=None):
         print("live: nema javnog URL-a (RENDER_EXTERNAL_URL) ili APIFY_TOKEN, preskačem")
 
 
+def cmd_traces(a, con=None, cfg=None):
+    """Suspicious transfers around tracked wallets (kol/traces.py) from the Helius TRANSFER events."""
+    from kol import chainwatch, traces
+    con, cfg = con or store.connect(), cfg or config()
+    n = traces.run(con, chainwatch.HYPE_DB, cfg)
+    if n:
+        print(f"tragovi: {n} novih (primio pa zvao / veza / supply)")
+
+
 def cmd_xhook(a, con=None, cfg=None):
     """twitterapi.io filter rules for the live X watch (kol/xhook.py)."""
     from kol import xhook
@@ -221,7 +230,7 @@ def cycle(a):
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_converge,
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_traces, cmd_converge,
                  cmd_measure, cmd_flows, cmd_deleted, cmd_score):
         try:
             step(a, con, cfg)
