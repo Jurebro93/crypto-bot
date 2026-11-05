@@ -157,6 +157,14 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Socijali tokena (5.11., `hype/socials.py`).** Iz DexScreener podataka para: X link kao profil / zajednica / tuđi
+tweet / pretraga, Telegram (besplatni pregled t.me/s: pretplatnici, zadnji post, objave; za grupe broj članova),
+web, plaćeni profil (slika + header). Značajke `socijali_x`, `socijali_tg`, `socijali_placeni`,
+`ozbiljan_projekt` (plaćeni + pravi X profil + TG 50+ s postom u 24 h) i `sumnjivi_socijali` (tweet/pretraga ili bez
+TG-a) ulaze u hype ocjenu (težine 4/3/3/10/−6) i u pouzdanost (+12 / −8, vidljivo u Za/Protiv). Telegram se
+provjerava za tokene ≥ 50k, najviše 15 novih po skenu (SOCIALS_PROBES), keš 6 h u hype.db `socials`. Demo
+strategije "Ozbiljan projekt" i "Sumnjivi socijali" (strat/config.json) mjere obje tvrdnje protiv kontrole.
+
 **Bondani tokeni (5.11., `kol/graduates.py`).** Svaki KOL krug čita PumpSwap poolove s GeckoTerminala (po
 aktivnosti i volumenu, 5 stranica, besplatno) u kol.db `graduates`: tokeni koji su diplomirali s pump.funa i nisu
 umrli pri lansiranju (bez majora, FDV ≥ 30k). Popis samo raste. Iz njega: masovna sjenovita knjiga uzima

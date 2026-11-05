@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-05",
+  "naslov": "Socijali tokena: pravi X profil, živ Telegram, plaćeni profil",
+  "tekst": "alat sad razlikuje pravi X profil od tuđeg tweeta ili pretrage, provjerava Telegram (članovi, zadnji post) i vidi plaćeni DexScreener profil. 'Ozbiljan projekt' (sve troje) dobiva +12 pouzdanosti i vlastitu demo strategiju; 'sumnjivi socijali' −8 i kontrolnu strategiju koja mjeri vrijedi li sumnja.",
+  "naslov_en": "Token socials: real X profile, live Telegram, paid profile",
+  "tekst_en": "the tool now tells a real X profile from someone else's tweet or a search page, checks Telegram (members, last post) and sees a paid DexScreener profile. A 'serious project' (all three) gets +12 confidence and its own demo strategy; 'suspicious socials' get −8 and a control strategy that measures whether the suspicion holds."
+ },
+ {
+  "datum": "2026-11-05",
   "naslov": "Top novčanici: dokazani po povijesti, kopija u 2 minute",
   "tekst": "strategija više ne kopira svaki praćeni novčanik dok ga naše 3 kopije ne presude: novčanik mora biti dokazan po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h) ili po našim kopijama, a kupnja se kopira samo ako je mlađa od 2 minute. Novčanik čije naše kopije gube ispada bez obzira na povijest.",
   "naslov_en": "Top wallets: proven by their own history, copied within 2 minutes",

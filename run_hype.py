@@ -261,6 +261,31 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
                      "sources": found[t], "features": f, "score": score.score(f, weights), "raw": p,
                      "extra": extra})
     rows.sort(key=lambda r: -r["score"])
+    try:   # 5.11.: the token's own socials (hype/socials.py): classification is free, the Telegram probe is cached
+        from hype import socials as _soc
+        scon = store.connect(DB)
+        probes = 0
+        for r in rows:
+            info = (r["raw"].get("info") or {})
+            if (r["mcap"] or 0) < 50000 and not r["features"].get("calendar"):
+                continue
+            cached = _soc.cached(scon, r["token"], now_ms / 1000)
+            if cached is None and probes >= int(os.environ.get("SOCIALS_PROBES", "15")):
+                d = {"cls": _soc.classify(info), "tg": None}
+                d["features"], d["opis"] = _soc.features(d["cls"]), _soc.describe(d["cls"])
+            else:
+                if cached is None:
+                    probes += 1
+                d = cached or _soc.probe_and_store(scon, r["token"], info, now_ms / 1000)
+            r["features"].update(d["features"])
+            r["extra"]["socijali"] = d.get("opis")
+        scon.close()
+        rows.sort(key=lambda r: -r["score"])
+        for r in rows:
+            r["score"] = score.score(r["features"], weights)
+        rows.sort(key=lambda r: -r["score"])
+    except Exception as e:  # noqa: BLE001
+        print(f"  socijali: {type(e).__name__}: {e}", file=sys.stderr)
     try:  # pulse for retained tokens and the current best: volume/txn/holder series -> strength features
         pcon = store.connect(DB)
         n_h = pulse.apply(pcon, rows, set(keep) | {r["token"] for r in rows[:pcfg["max"]]}, now_ms / 1000, pcfg)

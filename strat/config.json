@@ -55,6 +55,18 @@
    "opis": "Kupi kad 2+ novčanika koja inače kupuju prije KOL poziva (insajderi, bez snajpera) kupe isti token unutar 10 min, a nitko ga još nije pozvao. Izlaz: čim neki od njih proda, ili po pravilima bota."
   },
   {
+   "key": "ozbiljan_projekt",
+   "name": "Ozbiljan projekt",
+   "icon": "🏛️",
+   "opis": "Kupi token koji ima plaćeni DexScreener profil, pravi X profil (ne tuđi tweet ni pretragu) i živ Telegram (50+ članova, post u 24 h). Netko stoji iza njega i gura ga; mjerimo vrijedi li to."
+  },
+  {
+   "key": "sumnjivi_socijali",
+   "name": "Sumnjivi socijali",
+   "icon": "🕵️‍♀️",
+   "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju."
+  },
+  {
    "key": "kontrola",
    "name": "Kontrola (nasumično)",
    "icon": "🎲",

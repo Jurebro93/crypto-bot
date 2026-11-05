@@ -110,6 +110,22 @@ class Sources:
             scored = [(t, int(ts), f"ocjena {sc:.0f}", sc or 0)
                       for t, ts, sc in _q(hc, "SELECT token, ts, score FROM hype_signals WHERE ts >= ?", (since,))
                       if _ok(t) and ts]
+            # 5.11.: the token's own socials (hype/socials.py features stored with the signal)
+            ozbiljni, sumnjivi, seen_s = [], [], set()
+            for t, ts, sc, feats in _q(hc, "SELECT token, MIN(ts), score, features FROM hype_signals WHERE ts >= ? AND "
+                                           "(features LIKE '%\"ozbiljan_projekt\": 1%' OR features LIKE '%\"sumnjivi_socijali\": 1%') "
+                                           "GROUP BY token", (since,)):
+                if not _ok(t) or not ts or t in seen_s:
+                    continue
+                seen_s.add(t)
+                try:
+                    f = json.loads(feats or "{}")
+                except ValueError:
+                    continue
+                if f.get("ozbiljan_projekt"):
+                    ozbiljni.append((t, int(ts), "ozbiljan projekt (plaćeni profil, X profil, živ TG)", sc or 0))
+                elif f.get("sumnjivi_socijali"):
+                    sumnjivi.append((t, int(ts), "sumnjivi socijali (tweet/pretraga umjesto profila ili bez TG-a)", sc or 0))
         finally:
             for c in (kc, tc, hc, pc):
                 if c is not None:
@@ -122,7 +138,8 @@ class Sources:
             self.insiders = good
         except Exception:  # noqa: BLE001
             self.insiders = set()
-        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins}
+        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi}
 
 
 def mix(src, min_score, window_s):
