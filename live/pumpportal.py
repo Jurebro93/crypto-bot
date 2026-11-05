@@ -128,7 +128,7 @@ class Feed:
     def __init__(self, con, followed=frozenset(), log=print):
         self.con, self.followed, self.log = con, set(followed), log
         self.trades, self.launches = [], []
-        self.n_trades = self.n_launches = 0
+        self.n_trades = self.n_launches = self.n_other = 0
         self.last_flush = time.time()
 
     def take(self, msg, now=None):
@@ -137,6 +137,9 @@ class Feed:
             self.trades.append(row)
         elif kind == "launch":
             self.launches.append(row)
+        elif self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+            self.n_other += 1
+            self.log(f"live: poruka {str(msg)[:200]}")
         return kind
 
     def flush(self, now=None, force=False):
