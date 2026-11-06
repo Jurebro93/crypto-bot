@@ -1142,11 +1142,16 @@ def cmd_run(a):
             opened = intake(cfg)
             if not opened and LAST_INTAKE:
                 print(f"  ulazi 0: {LAST_INTAKE}", flush=True)
+            t_tick = time.time()
             closed = tick(cfg)
+            t_tick = time.time() - t_tick
             con = store.connect(DB)
             e = equity(con, cfg)
+            took = time.time() - now
+            # 6.11.: up to 100 open positions (#184); a pass over 60 s means prices are stale before the next one
             print(f"{dt.datetime.now():%H:%M:%S}  demo {_usd(e['equity'])}  otvorenih {e['open']}  "
-                  f"zatvoreno sad {len(closed)}")
+                  f"zatvoreno sad {len(closed)}  prolaz {took:.0f} s (cijene/izlazi {t_tick:.0f} s)"
+                  + ("  SPORO: cijene kasne" if took > 60 else ""), flush=True)
             hh, mm = map(int, a.review_at.split(":"))
             due = dt.datetime.now().replace(hour=hh, minute=mm, second=0).timestamp()
             done = con.execute("SELECT 1 FROM reviews WHERE day=?", (_today(),)).fetchone()

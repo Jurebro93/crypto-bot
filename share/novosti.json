@@ -1,5 +1,12 @@
 [
  {
+  "datum": "2026-11-06",
+  "naslov": "Izlazi: hitni izlaz i stvarni stop loss",
+  "tekst": "neki tradeovi zatvoreni su na −52 do −56% iako je stop loss bio postavljen (FRIES, STARBUCKS, SpaceX). Na stranici Izlazi sad piše koliko je stvarna prodaja bila niže od ciljanog stop lossa: sredina, najgorih 10% i koliko je izlaza izgubilo više od dvostrukog cilja. Novi hitni izlaz u demu prodaje sve prije stop lossa kad likvidnost poola u jednoj provjeri padne 30% ili više, ili kad cijena između dvije zakašnjele provjere padne više od stop lossa. Učenje izlaza samo isprobava 20%, 30%, 50% ili bez hitnog izlaza i zadržava što daje bolji rezultat. Dnevnik dema bilježi i koliko traje jedan prolaz, da se vidi kasne li cijene.",
+  "naslov_en": "Exits: emergency exit and the real stop loss",
+  "tekst_en": "some trades closed at −52 to −56% although a stop loss was set (FRIES, STARBUCKS, SpaceX). The Exits page now shows how far below the target stop the real sale was: the middle, the worst 10% and how many exits lost more than twice the target. A new emergency exit in the demo sells everything before the stop loss when the pool's liquidity falls 30% or more in one check, or when the price falls more than the stop between two late checks. Exit learning tries 20%, 30%, 50% or no emergency exit and keeps what works better. The demo log also records how long one pass takes, to show whether prices lag."
+ },
+ {
   "datum": "2026-11-05",
   "naslov": "Učenje: koji izvor ulaza vrijedi više od nasumičnog",
   "tekst": "na stranici Učenje nova kartica pokazuje za svaku strategiju iz Usporedbe strategija (KOL pozivi, Top novčanici, insajderi, izbor alata po veličini) koliko po tradeu zarađuje više ili manje od nasumičnog ulaza, s rasponom sigurnosti. Dok strategija nema 20 zatvorenih tradeova piše „premalo podataka”. Model učenja to dobiva kao signal (koji izvori su javili token i koliko vrijede) i sam odlučuje koliko im vjeruje; računa se samo iz prošlih tradeova.",

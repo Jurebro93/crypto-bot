@@ -115,6 +115,20 @@ def recently_rolled(state, klasa, now, days):
 COARSE_DEFAULT = {"p_caught": 0.7, "gap": -0.05}
 
 
+def target_vs_real(pairs):
+    """Target stop vs what the first stop really sold at (6.11.: FRIES, STARBUCKS, SpaceX closed at -52..-56% with
+    the stop set). pairs = [(sl, ret)]. {n, sl_med, real_med, worst10, over2x, over2x_share}: over2x = exits that
+    lost more than twice the target (ret < 2 * sl), worst10 = the 10th percentile of the real result."""
+    if not pairs:
+        return {"n": 0}
+    sls = sorted(p[0] for p in pairs)
+    rets = sorted(p[1] for p in pairs)
+    n = len(pairs)
+    over = sum(1 for sl, r in pairs if r < 2 * sl)
+    return {"n": n, "sl_med": round(sls[n // 2], 4), "real_med": round(rets[n // 2], 4),
+            "worst10": round(rets[min(n - 1, int(n * 0.1))], 4), "over2x": over, "over2x_share": round(over / n, 3)}
+
+
 def reality(paper_db, ecfg=None, since=0):
     """How our live demo stops really filled: {n, p_caught, gap, secs, measured}. p_caught = share of stop/rug exits
     sold within 15 points of the stop (the minute check caught it), gap = median distance below the stop of those.
@@ -125,23 +139,27 @@ def reality(paper_db, ecfg=None, since=0):
         return out
     try:
         con = sqlite3.connect(f"file:{paper_db}?mode=ro", uri=True, timeout=30)
-        rows = con.execute("SELECT ret, config, state FROM trades WHERE status='closed' AND exit_reason IN "
-                           "('stop_loss', 'rug') AND opened_ts>=?", (since,)).fetchall()
+        rows = con.execute("SELECT ret, config, state, exit_reason FROM trades WHERE status='closed' AND exit_reason "
+                           "IN ('stop_loss', 'rug', 'hitni_izlaz') AND opened_ts>=?", (since,)).fetchall()
         con.close()
     except sqlite3.OperationalError:
         return out
-    caught, n = [], 0
-    for ret, cfg, state in rows:
+    caught, n, pairs = [], 0, []
+    for ret, cfg, state, why in rows:
         st = json.loads(state or "{}")
         if st.get("tp_done") or any(f.get("reason") == "rucno" for f in st.get("fills") or ()):
             continue  # a stop after a take profit, or sold by hand: not a first stop
         sl = json.loads(cfg or "{}").get("sl")
         if sl is None or ret is None:
             continue
+        pairs.append((sl, ret))  # the emergency exit counts against the target too: it is the same loss cut
+        if why == "hitni_izlaz":
+            continue
         n += 1
         if ret >= sl - 0.15:
             caught.append(ret - sl)
     out["n"] = n
+    out["target"] = target_vs_real(pairs)
     if n >= ecfg.get("reality_min_n", 20):
         caught.sort()
         out["p_caught"] = round(len(caught) / n, 3)

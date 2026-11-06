@@ -59,6 +59,13 @@ REASONS = {
         "Tvrdi filter ne ulazi u tokene ispod 20k $ vrijednosti, s lažnim poolom ili bez T0 provjere. Dnevni pregled "
         "broji rugove po presudi rug filtra; kad barem pola od 10+ tokena s istom presudom rugne, bot ih prestaje "
         "kupovati."),
+    "hitni izlaz (pool se praznio ili nagli pad)": (
+        "Bot je prodao sve odmah, prije stop lossa: likvidnost poola pala je 30%+ od prošle provjere, ili je cijena "
+        "između dvije zakašnjele provjere pala više od stop lossa.",
+        "Novac izlazi iz poola (veliki holder ili developer prodaje) ili se token ruši brže nego što ga minutna "
+        "provjera prati; čekanje na stop bi završilo niže.",
+        "Učenje izlaza na putanjama samo isprobava hitni izlaz kod 20%, 30%, 50% pada likvidnosti ili bez njega, "
+        "i zadržava ono što daje bolji rezultat."),
     "pad nakon malog rasta": (
         "Token je narastao pa pao; trailing stop ili prodaja na ulaznoj cijeni zatvorili su ga oko nule ili malo u minusu.",
         "Rast je bio kratak; zaštita je spriječila veći gubitak.",
