@@ -42,6 +42,16 @@ def exit_rules(now):
     return cfg
 
 
+def exits_for(cfg, ex, entry_mcap):
+    """Exit rules for one position: the main demo's, overridden by cfg["exits_veliki"] for tokens that entered at
+    or above exits_veliki_from. 6.11. (Jure): a $1M+ token does not pump in 45 minutes or die; it needs hours,
+    a tighter stop and a profit ladder, and no "nothing happens" exit."""
+    big = cfg.get("exits_veliki")
+    if big and (entry_mcap or 0) >= cfg.get("exits_veliki_from", 1_000_000):
+        return {**ex, **big}
+    return ex
+
+
 def market(tokens):
     from koltest import run as kt
     return kt.market(tokens)
@@ -135,6 +145,14 @@ def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:
         out[k] = src.get("alat", [])
+    # 6.11.: the main demo bot practically never buys over $200k (its rules are "100k crossing", pullback, return),
+    # so "srednji" and "veliki" copied nothing. They now take the tool's score directly: fresh scored tokens in
+    # their band, so the question "does the tool's score work on bigger tokens?" gets measured.
+    ms = _paper_min_score()
+    fresh = [e for e in src.get("scored", []) if e[3] >= ms and now - e[1] <= cfg["max_delay_min"] * 60]
+    for k in ("alat_srednji", "alat_veliki"):
+        if k in (cfg.get("alat_bands") or {}):
+            out[k] = fresh
     frozen = {s["key"] for s in cfg["strategies"] if s.get("frozen")}   # no new entries (5.11.: Top novčanici)
     return {k: ([] if k in frozen else out.get(k, [])) for k in keys(cfg)}
 
@@ -281,7 +299,7 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                 px, liq = 0, 0   # pair gone for hours: a rug, worth nothing (as in the main demo)
             else:
                 continue
-            sim.step(pos, px, liq, int(now), ex)
+            sim.step(pos, px, liq, int(now), exits_for(cfg, ex, p.get("entry_mcap")))
             if pos["open"] and p["strat"] == "insajderi" and insider_set and p.get("entry_ts"):
                 # the strategy's own exit: the insiders who bought before us are selling (hype.db chain_trades)
                 from kol import insiders as _ins
@@ -341,6 +359,10 @@ def summary(con, cfg, ex=None):
                     "robust": robust.without_top(done), "status": st,
                     "portfolio": robust.portfolio(done, cfg["bankroll_usd"]),
                     "hit": (a["wins"] / a["closed"]) if a["closed"] else None,
+                    # 6.11. (Jure): "9 od 10 puta +15 %" beats "1 od 10 puta +70 %": the share of closed trades that
+                    # reached +15 %, and the worst quarter, are the comparison that matters
+                    "p15": (sum(1 for r in rets if r >= 0.15) / len(rets)) if rets else None,
+                    "q25": rets[len(rets) // 4] if rets else None,
                     "avg_ret": (sum(rets) / len(rets)) if rets else None,
                     "med_ret": rets[len(rets) // 2] if rets else None,
                     "best": max(done, key=lambda p: p["pnl_usd"] or 0) if done else None,

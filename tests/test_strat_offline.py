@@ -59,12 +59,12 @@ class Strat(unittest.TestCase):
         self.step(T0)
         self.src.data["novcanici"] = [(A, T0 + 30, "novčanik @x", 0)]
         self.src.data["kol"] = [(B, T0 + 30, "kolB", 50)]
-        self.src.data["alat"] = [(C, T0 + 30, "demo bot kupio (ocjena)", 1)]
+        self.src.data["scored"] = [(C, T0 + 30, "ocjena 90", 90)]   # 6.11.: srednji/veliki take the tool's score
         r = self.step(T0 + 60)
-        self.assertEqual(r["entered"], 3)
+        self.assertEqual(r["entered"], 4)   # the random control also draws from the scored pool
         got = {(p["strat"], p["token"]) for p in self.rows()}
-        # price 1.0 x 1e6 supply = $1M market cap: only the large-cap band of the tool's picks buys it
-        self.assertEqual(got, {("top_novcanici", A), ("kol", B), ("alat_veliki", C)})
+        # price 1.0 x 1e6 supply = $1M market cap: only the large-cap band buys it
+        self.assertEqual(got, {("top_novcanici", A), ("kol", B), ("alat_veliki", C), ("kontrola", C)})
         for p in self.rows():
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
@@ -163,16 +163,17 @@ class Strat(unittest.TestCase):
 
     def test_take_profit_win_and_open_marking(self):
         self.step(T0)
+        self.px[A] = 0.1          # $100k market cap: the small band copies the demo bot (6.11.: big tokens have their own exits)
         self.src.data["alat"] = [(A, T0 + 30, "demo", 1)]
         self.step(T0 + 60)
-        self.px[A] = 2.2          # +120%: half sold at +100%
+        self.px[A] = 0.22         # +120%: half sold at +100%
         self.step(T0 + 120)
         p = self.rows()[0]
         self.assertEqual(p["status"], "open")
         self.assertTrue(p["state"]["fills"])
         con = store.connect(self.db)
         try:
-            a = run.accounts(con, self.cfg, ex=EX)["alat_veliki"]
+            a = run.accounts(con, self.cfg, ex=EX)["alat_mali"]
         finally:
             con.close()
         self.assertGreater(a["value"], 1040)
