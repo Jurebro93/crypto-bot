@@ -211,3 +211,4 @@ class DailyBudget(unittest.TestCase):
         self.assertEqual(pumpportal._day_count(con, f2, day1 + 60), 900)
         self.assertEqual(pumpportal._day_count(con, f2, day1 + 86400), 0)   # next UTC day
         self.assertLessEqual(pumpportal.MAX_TOKENS, 40)
+        self.assertLessEqual(pumpportal.MAX_TRADES_DAY, 20000)   # 0.02 SOL a day at most by default

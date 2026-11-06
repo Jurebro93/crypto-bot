@@ -26,7 +26,7 @@ MAX_TOKENS, MAX_WALLETS = 40, 200
 # 6.11.: 150 tokens pulled ~45,000 trades an hour and burned the 0.1 SOL in two hours (PumpPortal: 0.01 SOL per 10k
 # trades), then the feed went silent ("funded with at least 0.02 SOL"). Token trades now stop for the day once the
 # budget is spent; wallets (few trades) and migrations (free) stay on. 100k trades = 0.1 SOL = about $9 a day.
-MAX_TRADES_DAY = int(os.environ.get("LIVE_MAX_TRADES_DAY", "100000"))
+MAX_TRADES_DAY = int(os.environ.get("LIVE_MAX_TRADES_DAY", "20000"))   # 0 = token trades off, wallets only
 
 
 def parse(msg, now=None):
@@ -282,7 +282,9 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
                         day_n = _day_count(con, feed, now)
-                        if day_n >= MAX_TRADES_DAY:   # budget for today spent: only open positions keep their feed
+                        if MAX_TRADES_DAY <= 0:   # Jure 6.11.: "1 SOL dnevno je previše": token trades off, wallets stay
+                            tokens = []
+                        elif day_n >= MAX_TRADES_DAY:   # budget for today spent: only open positions keep their feed
                             if not over_budget:
                                 log(f"live: {day_n} tradeova danas, dnevni strop {MAX_TRADES_DAY} potrošen; do ponoći "
                                     "UTC pratim samo otvorene pozicije i novčanike")
