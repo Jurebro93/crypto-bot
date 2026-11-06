@@ -219,8 +219,8 @@ def _day_count(con, feed, now):
         st = json.loads(store.state(con, "trades_day", "{}") or "{}")
     except ValueError:
         st = {}
-    if st.get("day") != day:   # a new UTC day: what the feed counted so far belongs to yesterday
-        st = {"day": day, "base": 0, "seen": feed.n_trades}
+    if st.get("day") != day:   # a new UTC day: what the feed counted so far belongs to yesterday (first run: to today)
+        st = {"day": day, "base": 0, "seen": feed.n_trades if st.get("day") else 0}
     seen = st.get("seen", 0)
     n = st.get("base", 0) + (feed.n_trades - seen if feed.n_trades >= seen else feed.n_trades)   # < seen: restarted
     st["base"], st["seen"] = n, feed.n_trades
