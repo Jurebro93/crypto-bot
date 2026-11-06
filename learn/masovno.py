@@ -36,7 +36,7 @@ VARIANTS = {
     "ljestvica": {"sl": -0.25, "tp": [[0.3, 0.34], [1.0, 0.33], [3.0, 0.33]], "trail_after": 3.0},
 }
 SOURCES = ("bondao", "trending", "kol_poziv", "novcanik_kupio", "kontrola", "povijest_poziv", "povijest_novcanik",
-           "povijest_bondao")
+           "povijest_bondao", "veliki")   # veliki (6.11.): scored tokens at $1M+ market cap, Jure's "x2 on a narrative"
 MIGRATE = [("points", "varijante", "TEXT"), ("points", "izvor_detalj", "TEXT")]
 
 
@@ -110,6 +110,10 @@ def collect(con, now=None, cfg=None, hype_db=None, kol_db=None):
             random.Random(int(now // 86400)).shuffle(rows)
             for token, ts, sym, mcap, liq in rows[:cfg["kontrola_per_day"]]:
                 put("kontrola", token, ts, sym, "nasumično", {"mcap0": mcap, "liq0": liq})
+            for token, ts, sym, mcap, liq, sc in h.execute(
+                    "SELECT token, MIN(ts), symbol, mcap, liquidity, MAX(score) FROM hype_signals WHERE ts>=? AND "
+                    "COALESCE(mcap,0)>=1000000 GROUP BY token", (since,)):
+                put("veliki", token, ts, sym, f"ocjena {sc or 0:.0f}", {"mcap0": mcap, "liq0": liq, "score": sc})
         except sqlite3.OperationalError as e:
             print(f"masovno: hype.db: {e}")
         finally:
@@ -365,7 +369,7 @@ def stats_html(path=None, days=7, now=None):
     names = {"bondao": "bondao (pump.fun → PumpSwap)", "trending": "trending", "kol_poziv": "KOL poziv",
              "novcanik_kupio": "praćeni novčanik kupio", "kontrola": "kontrola (nasumično)",
              "povijest_poziv": "povijest: pozivi", "povijest_novcanik": "povijest: novčanici",
-             "povijest_bondao": "povijest: bondani tokeni"}
+             "povijest_bondao": "povijest: bondani tokeni", "veliki": "veliki tokeni (1M+, ocjena alata)"}
     head = "".join(f"<th>{v}</th>" for v in VARIANTS)
     body = []
     for r in rows:

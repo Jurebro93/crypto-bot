@@ -393,13 +393,19 @@ def _wins():
 
 def chart_data(d):
     col = _colors(d["users"])
-    ser = [{"name": p["user"], "c": col[p["user"]], "pts": [[int(t), round(v, 2)] for t, v in p["pts"]]}
+    # 6.11.: a bad price reading (Filip's ZEC at 6730x, two snapshots on 4.11.) drew a $2.3M spike that squashed every
+    # other line to the floor. Such points are left out of the line (the step line holds the value before the spike);
+    # the red "?" mark still tells the story, sitting on the real value.
+    bad = {(j["user"], int(j["ts"])) for j in d.get("jumps") or [] if j.get("bad")}
+    ser = [{"name": p["user"], "c": col[p["user"]],
+            "pts": [[int(t), round(v, 2)] for t, v in p["pts"] if (p["user"], int(t)) not in bad]}
            for p in sorted(d["players"], key=lambda p: d["users"].index(p["user"]) if p["user"] in d["users"] else 99)]
     if d["bot"]:
         ser.append({"name": "bot" + (f" ({d['bot']['round']}. krug)" if d["bot"].get("round", 1) > 1 else ""),
                     "c": "var(--pb)", "dash": 1, "pts": [[int(t), round(v, 2)] for t, v in d["bot"]["pts"]]})
     ev = [{"t": int(j["ts"]), "s": next((i for i, x in enumerate(ser) if x["name"] == j["user"]), -1),
-           "v": j["after"], "txt": f'{j["user"]}: {j["text"]}', "bad": j["bad"]} for j in d.get("jumps") or []]
+           "v": j["before"] if j.get("bad") else j["after"], "txt": f'{j["user"]}: {j["text"]}', "bad": j["bad"]}
+          for j in d.get("jumps") or []]
     for r in d.get("rekts") or []:
         name = r["user"]
         idx = next((i for i, x in enumerate(ser) if x["name"] == name or (name == "bot" and x.get("dash"))), -1)
@@ -665,6 +671,7 @@ function draw(){
  // "?" marks: big jumps of an account, with the reason on hover / tap
  (E.ev||[]).forEach(e=>{if(hidden.has(e.s)||e.t<t0||e.t>t1)return;const s=E.series[e.s],x=X(e.t),y=Math.max(T+9,Y(e.v)-12);
   const g=el('g',{class:'evm',tabindex:0,role:'button','aria-label':e.txt});g.style.cursor='pointer';
+  el('circle',{cx:x,cy:y,r:18,fill:'transparent'},g);   // finger-sized hit area on the phone (6.11.)
   el('circle',{cx:x,cy:y,r:8,fill:e.bad?'var(--bad)':s.c,stroke:'var(--card)','stroke-width':2},g);
   const q=el('text',{x:x,y:y+4,'text-anchor':'middle','font-size':11,'font-weight':700,fill:'#fff'},g);q.textContent='?';
   const show=ev=>{ev.stopPropagation();const r=svg.getBoundingClientRect(),bx=svg.parentNode.getBoundingClientRect();
@@ -672,7 +679,9 @@ function draw(){
    tip.style.display='block';let left=x+(r.left-bx.left)+12;if(left+tip.offsetWidth>bx.width-6)left=x+(r.left-bx.left)-tip.offsetWidth-12;
    tip.style.left=Math.max(4,left)+'px';tip.style.top=(y+(r.top-bx.top)+10)+'px'};
   g.addEventListener('mouseenter',show);g.addEventListener('click',show);g.addEventListener('focus',show);
-  g.addEventListener('mouseleave',out);g.addEventListener('blur',out)})}
+  g.addEventListener('touchstart',ev=>{ev.preventDefault();show(ev)},{passive:false});   // a tap shows the reason
+  g.addEventListener('mouseleave',out);g.addEventListener('blur',out)});
+ svg.addEventListener('touchstart',ev=>{if(!ev.target.closest('.evm'))out()},{passive:true})}
 document.querySelectorAll('.chartbox [data-s]').forEach(b=>b.onclick=()=>{const i=+b.dataset.s;hidden.has(i)?hidden.delete(i):hidden.add(i);b.classList.toggle('off',hidden.has(i));draw()});
 document.querySelectorAll('.chartbox [data-r]').forEach(b=>b.onclick=()=>{range=b.dataset.r;document.querySelectorAll('.chartbox [data-r]').forEach(x=>x.classList.toggle('on',x===b));draw()});
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(draw,150)});draw();

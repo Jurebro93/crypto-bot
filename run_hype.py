@@ -226,8 +226,15 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception:  # noqa: BLE001
         makro_f = None
     rows, skipped = [], []
+    try:
+        from kol import converge as _conv
+        _majors = _conv.majors()
+    except Exception:  # noqa: BLE001
+        _majors = set()
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
+        if t in _majors:
+            continue   # SOL, WBTC, stables, TRUMP...: never a candidate (Jure 5.11.)
         if (liq < a.min_liq or mcap > a.max_mcap or mcap < a.min_mcap) and t not in keep:
             # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss.
             # A retained token (featured on Pregled or already at a tier) is scored whatever its liquidity: it was
@@ -710,7 +717,9 @@ def main(argv=None):
     for name in ("scan", "watch"):
         s = sub.add_parser(name)
         s.add_argument("--min-liq", type=float, default=5000)
-        s.add_argument("--max-mcap", type=float, default=5e6, help="ignore tokens already bigger than this")
+        # 6.11. (Jure): tokens over $1M in a good narrative can do x2-x4 too, with better wallets and KOLs behind them;
+        # they are scored and compared (strat alat_srednji/veliki, masovno "veliki"). Majors/wrapped/stables stay out.
+        s.add_argument("--max-mcap", type=float, default=500e6, help="ignore tokens already bigger than this")
         s.add_argument("--min-mcap", type=float, default=30000, help="4.11.: tokens under this are not analysed at all (most are rugs)")
         s.add_argument("--top", type=int, default=20)
         s.add_argument("--deep", type=int, default=10, help="copycat search + Helius check for this many")

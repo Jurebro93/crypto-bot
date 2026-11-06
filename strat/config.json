@@ -22,7 +22,13 @@
    "name": "Top novčanici",
    "icon": "👛",
    "opis": "Kupi unutar 2 minute nakon što neki od dokazanih novčanika kupi token. Dokazan = po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h, pouzdanost srednja/visoka) ili po našim kopijama (3+ zatvorene s plusom). Novčanik čije naše kopije gube više se ne kopira, ma kako mu povijest izgledala.",
-   "topups": [{"ts": 1793880000, "usd": 1000, "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"}]
+   "topups": [
+    {
+     "ts": 1793880000,
+     "usd": 1000,
+     "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"
+    }
+   ]
   },
   {
    "key": "kol",
@@ -86,7 +92,10 @@
    "opis": "Nasumičan token iz istog skenera, najviše jednom u 30 min, ista pravila izlaza. Nije strategija nego mjerilo: strategija koja ga ne pobjeđuje nema prednost (audit 4.11., R6)."
   }
  ],
- "insajderi": {"window_min": 10, "min_wallets": 2},
+ "insajderi": {
+  "window_min": 10,
+  "min_wallets": 2
+ },
  "proportional_sell": true,
  "novcanici_top": 10,
  "novcanici_min_n": 3,
@@ -105,5 +114,24 @@
    1000000,
    null
   ]
- }
+ },
+ "exits_veliki_from": 1000000,
+ "exits_veliki": {
+  "sl": -0.2,
+  "tp": [
+   [
+    0.15,
+    0.5
+   ],
+   [
+    0.3,
+    0.5
+   ]
+  ],
+  "trail_after": 0.3,
+  "trail": 0.2,
+  "stale_min": null,
+  "max_hold_h": 24
+ },
+ "_exits_veliki": "6.11. (Jure): tokeni s 1M+ pri ulazu (alat_veliki, KOL pozivi velikih, novčanici): bez 'ništa se ne događa', stop -20%, ljestvica +15%/+30%, do 24 h. Mjeri se 'koliko puta ≥ +15%' (p15), ne najveći dobitak."
 }

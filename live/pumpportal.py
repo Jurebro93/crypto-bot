@@ -27,6 +27,7 @@ MAX_TOKENS, MAX_WALLETS = 40, 200
 # trades), then the feed went silent ("funded with at least 0.02 SOL"). Token trades now stop for the day once the
 # budget is spent; wallets (few trades) and migrations (free) stay on. 100k trades = 0.1 SOL = about $9 a day.
 MAX_TRADES_DAY = int(os.environ.get("LIVE_MAX_TRADES_DAY", "20000"))   # 0 = token trades off, wallets only
+RECONNECT_UNFUNDED_S = 300   # while the key is reported unfunded, reconnect this often (a top-up is seen on connect)
 
 
 def parse(msg, now=None):
@@ -256,7 +257,8 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                        " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
                 over_budget = False
-                while not (stop and stop()):
+                unfunded_since = None   # 6.11.: PumpPortal checks the key's SOL when CONNECTING; after a top-up the
+                while not (stop and stop()):   # old socket stays "unfunded" forever, so reconnect every 5 minutes
                     try:
                         raw = await asyncio.wait_for(ws.recv(), timeout=5)
                         feed.take(raw)
@@ -297,6 +299,12 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                         if feed.balance_error:   # the key had no SOL: once it is funded, resubscribe everything
                             feed.balance_error = False
                             cur = (set(), set())
+                            unfunded_since = unfunded_since or now
+                            if now - unfunded_since >= RECONNECT_UNFUNDED_S:
+                                log("live: ključ bez SOL-a, spajam se ponovno (saldo se provjerava pri spajanju)")
+                                break
+                        else:
+                            unfunded_since = None
                         for m in subscribe_msgs(tokens, wallets, cur):
                             await ws.send(json.dumps(m))
                         cur = (set(tokens), set(wallets))
