@@ -212,3 +212,14 @@ class DailyBudget(unittest.TestCase):
         self.assertEqual(pumpportal._day_count(con, f2, day1 + 86400), 0)   # next UTC day
         self.assertLessEqual(pumpportal.MAX_TOKENS, 40)
         self.assertLessEqual(pumpportal.MAX_TRADES_DAY, 20000)   # 0.02 SOL a day at most by default
+
+
+class ReconnectWhenUnfunded(unittest.TestCase):
+    def test_loop_reconnects_after_a_top_up(self):
+        """6.11.: 0.35 SOL arrived but the old socket kept answering 'unfunded': the balance is checked on connect."""
+        import inspect
+        from live import pumpportal
+        src = inspect.getsource(pumpportal.run)
+        self.assertIn("RECONNECT_UNFUNDED_S", src)
+        self.assertIn("spajam se ponovno", src)
+        self.assertLessEqual(pumpportal.RECONNECT_UNFUNDED_S, 600)
