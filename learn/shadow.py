@@ -268,7 +268,7 @@ def label(con, hype_db=HYPE_DB, paper_db=PAPER_DB, now=None, cfg=None):
         for r in due:
             src, raw = _path(r["token"], r["ts"], horizon_s, paper, hype, cfg["min_ticks"])
             path = clean(raw, cfg["spike_x"])
-            if not path:
+            if not path or not r["price"]:   # 5.11.: a point saved without a price crashed the whole hourly run
                 con.execute("UPDATE points SET status='bez_cijene', labeled_ts=? WHERE id=?", (int(now), r["id"]))
                 continue
             feats = json.loads(r["features"] or "{}")

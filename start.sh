@@ -104,7 +104,7 @@ if [ -n "${KOL_BACKFILL_USD:-}" ]; then
     echo "kol backfill: u redu za bravu 'jedan težak posao odjednom' (KOL krug, učenje, ocjenjivanje walleta idu prije)"
     # KOL_BACKFILL_ARGS (5.11., 2nd round): e.g. "--winners 700 --losers 700 --kols 300 --max-age-d 180"; tokens and
     # KOLs already searched are skipped, so a bigger list pays for new ones only
-    python3 -m ops.heavy run_kol.py backfill --budget "$KOL_BACKFILL_USD" ${KOL_BACKFILL_ARGS:---winners 300 --losers 300 --kols 100} \
+    python3 -m ops.heavy --prio run_kol.py backfill --budget "$KOL_BACKFILL_USD" ${KOL_BACKFILL_ARGS:---winners 300 --losers 300 --kols 100} \
       || echo "kol backfill nije uspio"
   ) &
 fi
