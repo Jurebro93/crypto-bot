@@ -189,3 +189,26 @@ class DemoExit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyBudget(unittest.TestCase):
+    """6.11.: 0.1 SOL burned in two hours by 150 tokens; the token feed stops for the day at MAX_TRADES_DAY."""
+
+    def test_day_count_survives_restart_and_resets_at_midnight(self):
+        import sqlite3 as _s
+        from live import pumpportal, store
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "live.db"))
+
+        class F:
+            n_trades = 0
+        f = F()
+        day1 = 1_800_000_000 - 1_800_000_000 % 86400 + 3600
+        f.n_trades = 500
+        self.assertEqual(pumpportal._day_count(con, f, day1), 500)
+        f.n_trades = 800
+        self.assertEqual(pumpportal._day_count(con, f, day1), 800)
+        f2 = F(); f2.n_trades = 100                       # restart: a fresh feed counter, the day total continues
+        self.assertEqual(pumpportal._day_count(con, f2, day1 + 60), 900)
+        self.assertEqual(pumpportal._day_count(con, f2, day1 + 86400), 0)   # next UTC day
+        self.assertLessEqual(pumpportal.MAX_TOKENS, 40)
+        self.assertLessEqual(pumpportal.MAX_TRADES_DAY, 20000)   # 0.02 SOL a day at most by default

@@ -16,16 +16,43 @@ import sys
 import time
 
 LOCK = os.environ.get("HEAVY_LOCK", "/tmp/memesonar-heavy.lock")
+PRIO_MAX_AGE = 4 * 3600   # a priority ticket older than this is stale (its holder died without cleaning up)
+
+
+def _prio_path():
+    return LOCK + ".prio"
+
+
+def _prio_waiting():
+    """True while a priority caller (the KOL backfill) is waiting for the lock: others let it go first."""
+    try:
+        return time.time() - os.path.getmtime(_prio_path()) < PRIO_MAX_AGE
+    except OSError:
+        return False
 
 
 @contextlib.contextmanager
-def slot(wait=None):
-    """True once this process holds the heavy-job lock (until the block ends); False if `wait` ran out."""
+def slot(wait=None, priority=False):
+    """True once this process holds the heavy-job lock (until the block ends); False if `wait` ran out.
+    priority=True: others queueing for the lock step aside until this one has it. 6.11.: the backfill queued at
+    00:30 and was still waiting at 01:30 because the 30-min scheduler jobs kept taking the lock from each other
+    (flock has no queue); it starts the night's work only once, so it goes first."""
     f = open(LOCK, "a")
     got = False
+    if priority:
+        try:
+            with open(_prio_path(), "w") as pf:
+                pf.write(str(os.getpid()))
+        except OSError:
+            priority = False
     try:
         t0 = time.time()
         while True:
+            if not priority and _prio_waiting():
+                if wait is not None and time.time() - t0 >= wait:
+                    break
+                time.sleep(1)
+                continue
             try:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 got = True
@@ -34,16 +61,26 @@ def slot(wait=None):
                 if wait is not None and time.time() - t0 >= wait:
                     break
                 time.sleep(1)
+        if priority:
+            try:
+                os.remove(_prio_path())
+            except OSError:
+                pass
         yield got
     finally:
         if got:
             fcntl.flock(f, fcntl.LOCK_UN)
         f.close()
+        if priority:
+            try:
+                os.remove(_prio_path())
+            except OSError:
+                pass
 
 
-def run(args, wait=None, **kw):
+def run(args, wait=None, priority=False, **kw):
     """subprocess.run(args, **kw) under the lock; None if the lock was busy for longer than `wait` seconds."""
-    with slot(wait) as got:
+    with slot(wait, priority=priority) as got:
         if not got:
             return None
         return subprocess.run(args, **kw)
@@ -51,11 +88,15 @@ def run(args, wait=None, **kw):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    priority = False
+    if argv and argv[0] == "--prio":
+        priority = True
+        argv = argv[1:]
     if not argv:
-        sys.exit("upotreba: python3 -m ops.heavy SKRIPTA.py [argumenti]")
+        sys.exit("upotreba: python3 -m ops.heavy [--prio] SKRIPTA.py [argumenti]")
     if argv[0].endswith(".py") or argv[0] == "-m":
         argv = [sys.executable] + argv
-    return run(argv).returncode
+    return run(argv, priority=priority).returncode
 
 
 if __name__ == "__main__":

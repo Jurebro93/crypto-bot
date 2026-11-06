@@ -22,7 +22,11 @@ def ws_url():
     key = os.environ.get("PUMPPORTAL_API_KEY")
     return f"{URL}?api-key={key}" if key else URL
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAX_TOKENS, MAX_WALLETS = 150, 200
+MAX_TOKENS, MAX_WALLETS = 40, 200
+# 6.11.: 150 tokens pulled ~45,000 trades an hour and burned the 0.1 SOL in two hours (PumpPortal: 0.01 SOL per 10k
+# trades), then the feed went silent ("funded with at least 0.02 SOL"). Token trades now stop for the day once the
+# budget is spent; wallets (few trades) and migrations (free) stay on. 100k trades = 0.1 SOL = about $9 a day.
+MAX_TRADES_DAY = int(os.environ.get("LIVE_MAX_TRADES_DAY", "20000"))   # 0 = token trades off, wallets only
 
 
 def parse(msg, now=None):
@@ -207,6 +211,23 @@ class Feed:
         return n
 
 
+def _day_count(con, feed, now):
+    """Trades received today (UTC), kept in the live state so a restart does not reset the budget."""
+    from live import store
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    try:
+        st = json.loads(store.state(con, "trades_day", "{}") or "{}")
+    except ValueError:
+        st = {}
+    if st.get("day") != day:   # a new UTC day: what the feed counted so far belongs to yesterday (first run: to today)
+        st = {"day": day, "base": 0, "seen": feed.n_trades if st.get("day") else 0}
+    seen = st.get("seen", 0)
+    n = st.get("base", 0) + (feed.n_trades - seen if feed.n_trades >= seen else feed.n_trades)   # < seen: restarted
+    st["base"], st["seen"] = n, feed.n_trades
+    store.set_state(con, "trades_day", json.dumps(st))
+    return n
+
+
 async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, stop=None):
     """The live loop: connect, subscribe, read forever; resubscribe when the watched lists change."""
     import asyncio
@@ -234,6 +255,7 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                     + ("" if os.environ.get("PUMPPORTAL_API_KEY") else
                        " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
+                over_budget = False
                 while not (stop and stop()):
                     try:
                         raw = await asyncio.wait_for(ws.recv(), timeout=5)
@@ -259,6 +281,18 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                     if now - last_refresh >= refresh_s:
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
+                        day_n = _day_count(con, feed, now)
+                        if MAX_TRADES_DAY <= 0:   # Jure 6.11.: "1 SOL dnevno je previše": token trades off, wallets stay
+                            tokens = []
+                        elif day_n >= MAX_TRADES_DAY:   # budget for today spent: only open positions keep their feed
+                            if not over_budget:
+                                log(f"live: {day_n} tradeova danas, dnevni strop {MAX_TRADES_DAY} potrošen; do ponoći "
+                                    "UTC pratim samo otvorene pozicije i novčanike")
+                            over_budget = True
+                            tokens = sorted(open_tokens)
+                        elif over_budget:
+                            over_budget = False
+                            log("live: novi dan, živi tok tokena ponovno uključen")
                         feed.followed = set(wallets)
                         if feed.balance_error:   # the key had no SOL: once it is funded, resubscribe everything
                             feed.balance_error = False
