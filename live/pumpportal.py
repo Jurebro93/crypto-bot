@@ -27,6 +27,8 @@ MAX_TOKENS, MAX_WALLETS = 40, 200
 # trades), then the feed went silent ("funded with at least 0.02 SOL"). Token trades now stop for the day once the
 # budget is spent; wallets (few trades) and migrations (free) stay on. 100k trades = 0.1 SOL = about $9 a day.
 MAX_TRADES_DAY = int(os.environ.get("LIVE_MAX_TRADES_DAY", "20000"))   # 0 = token trades off, wallets only
+HOT_PER_MIN = int(os.environ.get("LIVE_HOT_PER_MIN", "30"))   # 6.11.: a token over this many trades a minute (and not
+# our position) is dropped for the day: 40 tokens pulled 12,366 trades in 8 minutes, a few hot ones ate the budget
 RECONNECT_UNFUNDED_S = 300   # while the key is reported unfunded, reconnect this often (a top-up is seen on connect)
 
 
@@ -153,6 +155,7 @@ class Feed:
         self.con, self.followed, self.log = con, set(followed), log
         self.trades, self.launches = [], []
         self.n_trades = self.n_launches = self.n_other = 0
+        self.per_token = {}   # mint -> trades since the last refresh (hot-token detection)
         self.balance_error = False
         self.last_flush = time.time()
 
@@ -160,6 +163,9 @@ class Feed:
         kind, row = parse(msg, now)
         if kind == "trade":
             self.trades.append(row)
+            m = msg.get("mint") if isinstance(msg, dict) else None
+            if m:
+                self.per_token[m] = self.per_token.get(m, 0) + 1
         elif kind == "launch":
             self.launches.append(row)
         else:
@@ -257,6 +263,8 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                        " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
                 over_budget = False
+                hot = set()                      # tokens dropped today for being too busy (not our positions)
+                hour_start, hour_base = time.time(), 0   # hourly slice of the day budget: spread the learning over the day
                 unfunded_since = None   # 6.11.: PumpPortal checks the key's SOL when CONNECTING; after a top-up the
                 while not (stop and stop()):   # old socket stays "unfunded" forever, so reconnect every 5 minutes
                     try:
@@ -284,8 +292,20 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
                         day_n = _day_count(con, feed, now)
+                        mins = max(1.0, refresh_s / 60)   # per_token counts cover one refresh interval
+                        for m, c in feed.per_token.items():
+                            if c / mins > HOT_PER_MIN and m not in open_tokens and m not in hot:
+                                hot.add(m)
+                                log(f"live: {m[:8]}… {c:.0f} tradeova u minuti, prevruć i skup: isključen do ponoći")
+                        feed.per_token = {}
+                        if now - hour_start >= 3600:
+                            hour_start, hour_base = now, day_n
+                        hour_cap = MAX_TRADES_DAY / 24
+                        tokens = [t for t in tokens if t not in hot or t in open_tokens]
                         if MAX_TRADES_DAY <= 0:   # Jure 6.11.: "1 SOL dnevno je previše": token trades off, wallets stay
                             tokens = []
+                        elif day_n - hour_base >= hour_cap and not over_budget:   # this hour's slice spent: positions only
+                            tokens = sorted(open_tokens)
                         elif day_n >= MAX_TRADES_DAY:   # budget for today spent: only open positions keep their feed
                             if not over_budget:
                                 log(f"live: {day_n} tradeova danas, dnevni strop {MAX_TRADES_DAY} potrošen; do ponoći "
