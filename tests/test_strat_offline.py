@@ -34,6 +34,8 @@ class Strat(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.db = os.path.join(self.d, "strat.db")
         self.cfg = run.load_config()
+        for st in self.cfg["strategies"]:   # the live top-ups (5.11.) would shift every account value below
+            st.pop("topups", None)
         # the mechanics are tested with every strategy live; freezing has its own test
         self.cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in self.cfg["strategies"]]
         self.src = FakeSources()
@@ -67,8 +69,10 @@ class Strat(unittest.TestCase):
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
     def test_frozen_strategy_takes_no_new_entries(self):
-        # 5.11.: Top novčanici frozen at about -80% (strat/config.json "frozen")
-        self.assertTrue(any(s.get("frozen") for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"))
+        # 5.11. popodne: Top novčanici unfrozen and topped up (strat/config.json "topups"), the freeze flag still works
+        live = [s for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"][0]
+        self.assertFalse(live.get("frozen"))
+        self.assertEqual(sum(t["usd"] for t in live["topups"]), 1000)
         for s in self.cfg["strategies"]:
             if s["key"] == "top_novcanici":
                 s["frozen"], s["frozen_why"] = True, "test"
@@ -98,6 +102,21 @@ class Strat(unittest.TestCase):
         self.src.data["novcanici"] = [(t, T0 + 30, "w", 0) for t in toks]
         self.step(T0 + 60)
         self.assertEqual(len(self.rows()), self.cfg["per_hour"])
+
+    def test_topup_raises_the_account_and_the_return_is_on_the_total(self):
+        for s in self.cfg["strategies"]:
+            if s["key"] == "kol":
+                s["topups"] = [{"ts": T0, "usd": 1000, "why": "test"}]
+        self.step(T0)
+        con = store.connect(self.db)
+        try:
+            acc = run.accounts(con, self.cfg)
+            summ = {x["key"]: x for x in run.summary(con, self.cfg, EX)}
+        finally:
+            con.close()
+        self.assertEqual((acc["kol"]["cash"], acc["kol"]["topup"]), (2000, 1000))
+        self.assertAlmostEqual(summ["kol"]["ret"], 0.0)
+        self.assertEqual(acc["top_novcanici"]["topup"], 0)
 
     def test_no_cash_limit_keeps_buying(self):
         """Nicholas 4.11.: strategies trade on after their $1000 is spent (cash_limit false), always the full stake."""
@@ -249,7 +268,7 @@ class Strat(unittest.TestCase):
         for s in self.cfg["strategies"]:
             self.assertIn(s["name"], body)
         self.assertIn("<svg", body)
-        self.assertEqual(len(rep), 6)   # 5 + insajderi (5.11.)
+        self.assertEqual(len(rep), 10)   # 5 + insajderi + ozbiljan projekt + sumnjivi socijali + veliki račun + ekipa (5.11.)
         self.assertEqual(rep[-1]["key"], "kol")      # the stopped-out account is last
         from report import ai, collect, render
         os.environ["REPORT_DB_DIR"] = tempfile.mkdtemp()
@@ -268,18 +287,30 @@ class TopWalletsAndBands(unittest.TestCase):
 
     def test_wallet_ranking(self):
         cfg = {**run.load_config(), "novcanici_top": 1, "novcanici_min_n": 3}
+        cfg["strategies"] = [{k: v for k, v in st.items() if k != "topups"} for st in cfg["strategies"]]
         cfg["strategies"] = [{k: v for k, v in s.items() if k != "frozen"} for s in cfg["strategies"]]  # live here
         con = store.connect(":memory:")
         for i, (who, ret) in enumerate([("novčanik @good", 0.5)] * 3 + [("novčanik @ok", 0.1)] * 3 +
                                        [("novčanik @bad", -0.3)] * 3 + [("novčanik @new", -0.5)]):
             con.execute("INSERT INTO positions (strat, token, why, status, ret, pnl_usd) VALUES "
                         "('novcanici', ?, ?, 'closed', ?, ?)", (f"T{i}", who, ret, ret * 50))
-        top, out = run.wallets_allowed(con, cfg)
+        top, out = run.wallets_allowed(con, cfg, history=[])
         self.assertEqual(top, {"novčanik @good"})
         self.assertEqual(out, {"novčanik @ok", "novčanik @bad"})   # measured, not top: no longer copied
         src = {"novcanici": [(A, T0, "novčanik @bad", 0), (B, T0, "novčanik @new", 0), (C, T0, "novčanik @good", 0)]}
-        w = run.wanted(src, cfg, T0, 0, out)["top_novcanici"]
-        self.assertEqual([e[0] for e in w], [B, C])   # the new one is still being measured
+        w = run.wanted(src, cfg, T0, 0, out, top)["top_novcanici"]
+        self.assertEqual([e[0] for e in w], [C])      # 5.11.: only allowed wallets; @new waits for history or copies
+        # history (own trades) lets a wallet in, a proven-bad copy record keeps it out, and a stale buy is skipped
+        top2, out2 = run.wallets_allowed(con, cfg, history=["novčanik @hist", "novčanik @bad"])
+        self.assertEqual(top2, {"novčanik @good", "novčanik @hist"})
+        src2 = {"novcanici": [(A, T0 - 600, "novčanik @hist", 0), (B, T0 - 30, "novčanik @hist", 0), (C, T0, "novčanik @bad", 0)]}
+        w2 = run.wanted(src2, cfg, T0, 0, out2, top2)["top_novcanici"]
+        self.assertEqual([e[0] for e in w2], [B])     # 10 min old buy is too late (novcanici_max_delay_s 120)
+        rows = [{"wallet": "H" * 44, "copy_score": 70, "labels": [],
+                 "stats": {"closed": 40, "closed_pnl_sol": 12.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}},
+                {"wallet": "L" * 44, "copy_score": 70, "labels": [],
+                 "stats": {"closed": 5, "closed_pnl_sol": 1.0, "win_rate": 0.6, "median_hold_min": 30, "last_trade_days": 0.5, "top_trade_share": 0.2}}]
+        self.assertEqual(run.history_wallets(cfg, rows=rows, names={}), ["novčanik HHHHHH…"])   # 5 closed: not yet
 
     def test_bands(self):
         cfg = run.load_config()

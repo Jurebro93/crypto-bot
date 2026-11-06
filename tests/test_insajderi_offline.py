@@ -125,7 +125,22 @@ class Signal(unittest.TestCase):
         p = store.rows(con, "strat='insajderi'")[0]
         self.assertEqual((p["token"], p["status"]), ("NEW", "open"))
         con.close()
+        # 5.11.: W2 sold 40 % of its position in the live feed -> the strategy sells 40 %, not everything
+        from live import store as lstore
+        lc = lstore.connect(self.hype)
+        lc.execute("INSERT INTO live_trades VALUES ('lb', 'NEW', 'W2', 'buy', 1.0, 1000.0, 0.001, 100, 'pump', ?, 1000.0)", (NOW - 100,))
+        lc.execute("INSERT INTO live_trades VALUES ('ls', 'NEW', 'W2', 'sell', 0.4, 400.0, 0.001, 100, 'pump', ?, 600.0)", (NOW + 500,))
+        lc.commit(); lc.close()
         r2 = run.step(now=NOW + 700, cfg=cfg, path=path, market_fn=mk, sources=Src(), quiet=True)   # W2 sold at +500
+        con = store.connect(path)
+        p = store.rows(con, "strat='insajderi'")[0]
+        self.assertEqual(p["status"], "open")
+        self.assertAlmostEqual(p["state"]["left"], 0.6, places=2)
+        self.assertEqual(p["state"]["fills"][-1]["reason"], "insajderi prodali 40%")
+        con.close()
+        # without proportional selling (or when the feed has no balances) it still sells everything
+        cfg2 = {**cfg, "proportional_sell": False}
+        r3 = run.step(now=NOW + 800, cfg=cfg2, path=path, market_fn=mk, sources=Src(), quiet=True)
         con = store.connect(path)
         p = store.rows(con, "strat='insajderi'")[0]
         self.assertEqual((p["status"], p["exit_reason"]), ("closed", "insajderi prodaju"))

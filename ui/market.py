@@ -224,6 +224,11 @@ def context_line(con, r=None):
     except Exception:  # noqa: BLE001 - old market.db without the btc/fng tables
         c = {}
     parts = []
+    try:   # 5.11.: BTC/ETH režim (market/makro.py): in the score (feature makro) and the demo gate
+        from market import makro
+        parts.append(esc(makro.line()))
+    except Exception:  # noqa: BLE001
+        pass
     if r:
         parts.append(f"Trenchevi: {esc(r['label'])} (jučer)")
     if "btc7" in c:
@@ -232,6 +237,6 @@ def context_line(con, r=None):
         parts.append(f"Fear &amp; Greed: {c['fng']} ({esc(c.get('fng_label') or '')})")
     if not parts:
         return ""
-    return ("<p class=mut style='margin:8px 0'>" + " · ".join(parts) + ". Samo informacija: bot to još ne koristi u odluci "
-            "dok test ne pokaže da dodaje nešto povrh volumena i SOL-a. Fear &amp; Greed: "
+    return ("<p class=mut style='margin:8px 0'>" + " · ".join(parts) + ". Makro ulazi u ocjenu (značajka makro) i zaustavlja nove demo ulaze dok BTC pada; "
+            "trenchevi i Fear &amp; Greed su samo informacija. Fear &amp; Greed: "
             "<a href='https://alternative.me/crypto/fear-and-greed-index/' rel=noopener>alternative.me</a>.</p>")

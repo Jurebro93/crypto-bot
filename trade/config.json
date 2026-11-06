@@ -1,14 +1,15 @@
 {
  "mode": "dry",
- "size_sol": 0.05,
+ "size_sol": 0.1,
  "max_sol_per_trade": 0.1,
- "max_sol_per_day": 0.5,
+ "max_sol_per_day": 1.0,
  "max_open": 5,
  "min_sol_reserve": 0.05,
  "max_cost_pct": 6,
  "max_signal_age_s": 180,
  "poll_s": 5,
- "max_loss_day": 0.15,
+ "max_loss_day": 0.4,
  "day_tz": "Europe/Zagreb",
- "sell_check": true
+ "sell_check": true,
+ "_nicholas_5_11": "15 $ po tradeu (0,1 SOL), najvi\u0161e 5 otvorenih, dnevni stop na -0,4 SOL (~60 $); mode ostaje dry dok strategija ne doka\u017ee prednost u demu"
 }

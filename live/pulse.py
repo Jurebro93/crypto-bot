@@ -74,6 +74,32 @@ def check_dumps(con, open_tokens, now=None, cfg=None):
     return n
 
 
+def sold_fraction(con, mint, wallets, since):
+    """5.11. (Nicholas: "ako KOL proda dio, prodaj isti udio"): the largest share of its position any of `wallets`
+    sold on `mint` since `since`, from the live feed (sells and the balance after each: sold / (sold + left)).
+    None when none of them sold; 1.0 when a wallet is out."""
+    if not wallets:
+        return None
+    q = ",".join("?" * len(wallets))
+    rows = con.execute(f"SELECT wallet, side, tokens, balance_after FROM live_trades WHERE mint=? AND ts>? AND wallet IN ({q}) "
+                       "ORDER BY ts", (mint, int(since), *wallets)).fetchall()
+    best = None
+    per = {}
+    for w, side, toks, bal in rows:
+        p = per.setdefault(w, {"sold": 0.0, "bal": None})
+        if side == "sell":
+            p["sold"] += toks or 0
+            p["bal"] = bal
+        elif bal is not None:
+            p["bal"] = bal
+    for w, p in per.items():
+        if p["sold"] <= 0:
+            continue
+        frac = 1.0 if (p["bal"] is None or p["bal"] <= 0) else p["sold"] / (p["sold"] + p["bal"])
+        best = max(best or 0.0, min(1.0, frac))
+    return best
+
+
 def alerts(con, since, kind="dump"):
     """[(token, ts, detail dict)] alerts newer than `since`."""
     return [(t, ts, json.loads(d or "{}")) for t, ts, d in con.execute(

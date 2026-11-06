@@ -126,8 +126,8 @@ def _build(key, build):
 def _refresh(key, build):
     try:
         _render(key, build)
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - 5.11.: used to be silent, so a page could stay stale for days
+        print(f"pagecache: osvježavanje {key[0]} palo: {type(e).__name__}: {str(e)[:120]}", flush=True)
     finally:
         with _lock:
             _busy.discard(key)
@@ -156,7 +156,7 @@ def get(key, build):
         return hit[1:]
     if hit and age < STALE_S:      # someone else is already refreshing it
         return hit[1:]
-    return _render(key, build)[1:]
+    return _render(key, build)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
 
 
 def clear():

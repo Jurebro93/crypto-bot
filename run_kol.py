@@ -55,7 +55,7 @@ def cmd_search(a, con=None, cfg=None):
         return 0
     n = 0
     from kol import discover
-    from kol import trending
+    from kol import graduates, trending
     try:
         k = trending.collect_today(con, cfg)
         con.commit()
@@ -63,6 +63,13 @@ def cmd_search(a, con=None, cfg=None):
             print(f"trending: {k} novih tokena danas (GeckoTerminal + DexScreener boosts)")
     except Exception as e:  # noqa: BLE001
         print(f"trending: {type(e).__name__}: {e}", file=sys.stderr)
+    try:   # 5.11.: graduated pump.fun tokens (PumpSwap pools by activity): the pool of tokens that did not die
+        k = graduates.collect(con, cfg)
+        con.commit()
+        if k:
+            print(f"bondani: {k} novih tokena u popisu (GeckoTerminal pumpswap)")
+    except Exception as e:  # noqa: BLE001
+        print(f"bondani: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("followup", collect.followup), ("timeline", collect.timeline), ("stars", collect.stars),
                      ("winners", discover.winners), ("trending", trending.search), ("audit", discover.audit),
                      ("graph", discover.graph)):
@@ -179,6 +186,31 @@ def cmd_live(a, con=None, cfg=None):
         print("live: nema javnog URL-a (RENDER_EXTERNAL_URL) ili APIFY_TOKEN, preskačem")
 
 
+def cmd_traces(a, con=None, cfg=None):
+    """Suspicious transfers around tracked wallets (kol/traces.py) from the Helius TRANSFER events."""
+    from kol import chainwatch, traces
+    con, cfg = con or store.connect(), cfg or config()
+    n = traces.run(con, chainwatch.HYPE_DB, cfg)
+    if n:
+        print(f"tragovi: {n} novih (primio pa zvao / veza / supply)")
+
+
+def cmd_crew(a, con=None, cfg=None):
+    """Who engages on fresh calls of reaching accounts and whether they bought before (kol/crew.py)."""
+    from kol import chainwatch, crew
+    con, cfg = con or store.connect(), cfg or config()
+    crew.run(con, cfg, chainwatch.HYPE_DB)
+
+
+def cmd_xhook(a, con=None, cfg=None):
+    """twitterapi.io filter rules for the live X watch (kol/xhook.py)."""
+    from kol import xhook
+    con, cfg = con or store.connect(), cfg or config()
+    r = xhook.sync(con, cfg)
+    if r is None:
+        print("xhook: nema TWITTERAPI_IO_KEY ili javnog URL-a, preskačem")
+
+
 def cmd_chain(a, con=None, cfg=None):
     """KOL wallets from public lists (daily) and the Helius webhook that follows their swaps."""
     from kol import chainwatch, idents
@@ -205,8 +237,8 @@ def cycle(a):
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_chain, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_score):
+    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_traces, cmd_converge,
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:

@@ -17,9 +17,9 @@ NOW = 1_800_000_000
 MINT = "M1nt" + "x" * 40
 
 
-def _buy(w, sol, toks, sig, mcap=100.0):
+def _buy(w, sol, toks, sig, mcap=100.0, bal=None):
     return {"signature": sig, "mint": MINT, "traderPublicKey": w, "txType": "buy", "tokenAmount": toks,
-            "solAmount": sol, "marketCapSol": mcap, "pool": "pump"}
+            "solAmount": sol, "marketCapSol": mcap, "pool": "pump", **({"newTokenBalance": bal} if bal is not None else {})}
 
 
 def _sell(w, sol, toks, sig, mcap=80.0):
@@ -45,6 +45,18 @@ class Parse(unittest.TestCase):
                                 {"method": "subscribeTokenTrade", "keys": ["A"]},
                                 {"method": "subscribeAccountTrade", "keys": ["W"]}])
         self.assertEqual(pumpportal.subscribe_msgs(["A"], ["W"], prev=({"A"}, {"W"})), [])
+
+
+class BalanceError(unittest.TestCase):
+    def test_unfunded_key_message_sets_the_resubscribe_flag(self):
+        con = lstore.connect(os.path.join(tempfile.mkdtemp(), "hype.db"))
+        feed = pumpportal.Feed(con, log=lambda s: None)
+        self.assertFalse(feed.balance_error)
+        feed.take({"message": "Successfully subscribed to token creation events."})
+        self.assertFalse(feed.balance_error)
+        feed.take({"errors": "Minimum balance not met for PumpSwap websocket data."})
+        self.assertTrue(feed.balance_error)
+        con.close()
 
 
 class Store(unittest.TestCase):
@@ -82,6 +94,23 @@ class LockedDatabase(unittest.TestCase):
         self.assertEqual(feed.flush(NOW + 2, force=True), 1)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0], 1)
         other.close(); con.close()
+
+
+class SoldFraction(unittest.TestCase):
+    def test_share_a_wallet_sold(self):
+        con = lstore.connect(os.path.join(tempfile.mkdtemp(), "hype.db"))
+        feed = pumpportal.Feed(con)
+        feed.take(_buy("INS", 2.0, 1000.0, "b1", bal=1000.0), NOW - 600)
+        feed.take({**_sell("INS", 0.8, 400.0, "s1"), "newTokenBalance": 600.0}, NOW - 100)      # sold 40 %
+        feed.take({**_sell("OTHER", 1.0, 1000.0, "s2"), "newTokenBalance": 0}, NOW - 50)          # not an insider
+        feed.flush(NOW, force=True)
+        self.assertAlmostEqual(pulse.sold_fraction(con, MINT, ["INS"], NOW - 300), 0.4)
+        self.assertIsNone(pulse.sold_fraction(con, MINT, ["NOBODY"], NOW - 300))
+        self.assertEqual(pulse.sold_fraction(con, MINT, ["OTHER"], NOW - 300), 1.0)
+        feed.take({**_sell("INS", 0.9, 600.0, "s3"), "newTokenBalance": 0.0}, NOW - 10)           # out
+        feed.flush(NOW + 1, force=True)
+        self.assertEqual(pulse.sold_fraction(con, MINT, ["INS"], NOW - 300), 1.0)
+        con.close()
 
 
 class Dump(unittest.TestCase):

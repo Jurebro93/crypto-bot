@@ -13,6 +13,14 @@ import sqlite3
 import time
 
 URL = os.environ.get("PUMPPORTAL_WS", "wss://pumpportal.fun/api/data")
+
+
+def ws_url():
+    """5.11.: PumpPortal answered "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when
+    connecting with an API key funded with at least 0.02 SOL". New-token events are free; trades of chosen tokens
+    and wallets need PUMPPORTAL_API_KEY (pumpportal.fun -> API key, its wallet topped up with >= 0.02 SOL)."""
+    key = os.environ.get("PUMPPORTAL_API_KEY")
+    return f"{URL}?api-key={key}" if key else URL
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_TOKENS, MAX_WALLETS = 150, 200
 
@@ -38,6 +46,9 @@ def parse(msg, now=None):
     if kind == "create":
         return "launch", (mint, now, w, (msg.get("name") or "")[:60], (msg.get("symbol") or "")[:20],
                           round(sol, 4), sig, pool)
+    if kind == "migrate" or msg.get("migration") or kind == "migration":   # bonded: pool becomes pump-amm
+        return "launch", (mint, now, w, (msg.get("name") or "")[:60], (msg.get("symbol") or "")[:20],
+                          round(sol, 4), sig, "migration")
     if kind in ("buy", "sell"):
         try:
             toks = float(msg.get("tokenAmount") or 0)
@@ -48,7 +59,11 @@ def parse(msg, now=None):
             mcap = float(msg.get("marketCapSol") or 0) or None
         except (TypeError, ValueError):
             mcap = None
-        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now)
+        try:
+            bal = float(msg["newTokenBalance"]) if msg.get("newTokenBalance") is not None else None
+        except (TypeError, ValueError):
+            bal = None
+        return "trade", (sig, mint, w, kind, round(sol, 6), toks, px, mcap, pool, now, bal)
     return None, None
 
 
@@ -84,9 +99,13 @@ def wanted(now=None, paper_db=None, strat_db=None, hype_db=None, kol_db=None, le
         open_tokens.add(t)
     tokens += sorted(open_tokens)
     hc = _ro(hype_db or os.path.join(ROOT, "hype.db"))
+    for (t,) in _q(hc, "SELECT mint FROM live_launches WHERE pool = 'migration' AND ts >= ? ORDER BY ts DESC LIMIT 60",
+                   (now - 7200,)):   # bonded in the last 2 h: the moment worth watching
+        if t not in open_tokens and t not in tokens:
+            tokens.append(t)
     for (t,) in _q(hc, "SELECT token FROM hype_signals WHERE ts >= ? AND COALESCE(mcap, 0) >= ? "
                        "GROUP BY token ORDER BY MAX(ts) DESC LIMIT ?", (now - 7200, min_mcap, MAX_TOKENS)):
-        if t not in open_tokens:
+        if t not in open_tokens and t not in tokens:
             tokens.append(t)
     wallets = []
     kc = _ro(kol_db or os.path.join(ROOT, "kol.db"))
@@ -129,6 +148,7 @@ class Feed:
         self.con, self.followed, self.log = con, set(followed), log
         self.trades, self.launches = [], []
         self.n_trades = self.n_launches = self.n_other = 0
+        self.balance_error = False
         self.last_flush = time.time()
 
     def take(self, msg, now=None):
@@ -137,9 +157,13 @@ class Feed:
             self.trades.append(row)
         elif kind == "launch":
             self.launches.append(row)
-        elif self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
-            self.n_other += 1
-            self.log(f"live: poruka {str(msg)[:200]}")
+        else:
+            text = str(msg)
+            if "Minimum balance" in text or "only available when connecting with an API key" in text:
+                self.balance_error = True   # unfunded key: resubscribe everything at the next refresh (no restart)
+            if self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+                self.n_other += 1
+                self.log(f"live: poruka {text[:200]}")
         return kind
 
     MAX_BUFFER = 20000   # rows kept in memory while the database is busy (a VACUUM at start-up can hold it ~20 s)
@@ -183,7 +207,7 @@ class Feed:
         return n
 
 
-async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
+async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, stop=None):
     """The live loop: connect, subscribe, read forever; resubscribe when the watched lists change."""
     import asyncio
     import websockets
@@ -194,17 +218,21 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
         feed = Feed(con, followed=set(wallets), log=log)
         cur = (set(), set())
         try:
-            async with websockets.connect(URL, ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
+            async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
-                if new_tokens:
+                if new_tokens:   # every new pump.fun launch: 99% die in minutes (Nicholas 5.11.), off by default
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
+                if migrations:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
+                    await ws.send(json.dumps({"method": "subscribeMigration"}))
                 for m in subscribe_msgs(tokens, wallets, cur):
                     await ws.send(json.dumps(m))
                 cur = (set(tokens), set(wallets))
                 store.set_state(con, "connected_ts", int(time.time()))
                 store.set_state(con, "subscribed", json.dumps({"tokens": len(tokens), "wallets": len(wallets)}))
                 con.commit()
-                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika")
+                log(f"live: spojen na PumpPortal, pratim {len(tokens)} tokena i {len(wallets)} novčanika"
+                    + ("" if os.environ.get("PUMPPORTAL_API_KEY") else
+                       " (BEZ PUMPPORTAL_API_KEY: samo novi tokeni; kupnje/prodaje traže ključ s 0.02 SOL)"))
                 last_refresh = last_prune = last_check = time.time()
                 while not (stop and stop()):
                     try:
@@ -232,6 +260,9 @@ async def run(con, log=print, refresh_s=60, new_tokens=True, stop=None):
                         last_refresh = now
                         tokens, wallets, open_tokens = wanted()
                         feed.followed = set(wallets)
+                        if feed.balance_error:   # the key had no SOL: once it is funded, resubscribe everything
+                            feed.balance_error = False
+                            cur = (set(), set())
                         for m in subscribe_msgs(tokens, wallets, cur):
                             await ws.send(json.dumps(m))
                         cur = (set(tokens), set(wallets))

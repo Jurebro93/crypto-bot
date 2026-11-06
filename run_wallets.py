@@ -67,6 +67,16 @@ def _harvest_tokens(con, a):
         from run_hype import candidates
         for t in candidates({}, use_metas=True):
             toks.setdefault(t, set()).add("dex_feed")
+    try:   # 5.11.: graduated pump.fun tokens (kol.db graduates): their early buyers are the wallets worth finding
+        from kol import graduates, store as kstore
+        kc = sqlite3.connect(f"file:{kstore.DB}?mode=ro", uri=True, timeout=5)
+        try:
+            for t, _pool, _cts, _sym, _fdv in graduates.tokens(kc, since_ts=time.time() - a.max_age_d * 86400, limit=300):
+                toks.setdefault(t, set()).add("graduate")
+        finally:
+            kc.close()
+    except Exception:  # noqa: BLE001
+        pass
     for t in a.mints:
         toks.setdefault(t, set()).add("manual")
     return toks

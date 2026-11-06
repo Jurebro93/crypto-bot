@@ -157,6 +157,48 @@ pobjednika, prate li se kod nas ili ne, i postaju KOL kandidati (pozivi s izvoro
 KOL backfill (`run_kol.py backfill`) kao pobjednici, pa drugi krug pretražuje i trending tokene koje nitko naš
 nije zvao.
 
+**Ekipa (5.11., `kol/crew.py`).** Za svjež poziv (≤ 2 h, ≥ 20 min star) računa s ≥ 10k pratitelja ili dobrom
+ocjenom: jedna stranica odgovora, citata i retweetera (twitterapi, ~0,01 $ po pozivu, strop `crew.daily_usd` 0,8 $).
+Reagirači se vežu na novčanike (kol_ids twitter) i provjerava se kupnja tokena u 24 h prije poziva (chain_trades,
+live_trades). kol.db `engagers`. Značajke u skenu: `ekipa` (veliki računi u 30 min / 3, težina 6) i
+`ekipa_insajder` (10); pouzdanost +8. Strategija "Ekipa": 2+ velika računa i 1+ kupnja prije poziva. Na KOL
+stranici "Ekipa": tko ga pojačava (i koliko puta je kupio prije) i koga on pojačava.
+
+**Tragovi (5.11., `kol/traces.py`).** Helius webhook sada šalje i TRANSFER transakcije praćenih novčanika
+(hype.db `chain_transfers`: token i SOL ≥ 0,05 transferi). Svaki KOL krug: `primio_pa_zvao` (praćeni novčanik primio
+tokene, račun ih zvao unutar 24 h), `veza` (transfer između dva praćena novčanika), `supply` (≥ `traces.supply_pct`
+% supplya u jednom transferu). kol.db `traces`; na KOL stranici odjeljak "Tragovi"; u skenu značajka
+`primio_supply` (težina −6) i pouzdanost −10 ("primio supply, nije kupio").
+
+**X webhook (5.11., `kol/xhook.py`).** twitterapi.io filter pravila ("from:a OR from:b", do 250 znakova, ~15 računa
+po pravilu) za do `xhook.max_handles` (100) računa: lista uživo (watch), veliki računi po dosegu, zvijezde, pa
+ostatak po ocjeni; botovi nikad. Provjera svakih `interval_s` (30) sekundi; svaki KOL krug uskladi pravila
+(dodaj / ažuriraj / isključi stara). Objave stižu na `/hook/x?key=<KOL_HOOK_KEY>` (URL se jednom upiše u
+twitterapi.io dashboard → Webhook; piše na /usage) i kroz isti parser idu u kol.db calls (izvor `x_hook`), pa ih
+strategije i demo vide u sekundama. Prvih 5 sirovih payloada čuva se u kv `xhook_samples` radi provjere oblika.
+
+**Doseg (5.11., `kol/reach.py`).** Pratitelji + koliko naših dokazanih KOL-ova prati račun (kol.db `follows`,
+graf) daju početnu ocjenu računa: base `prior_score` + do 15 za pratitelje (log skala od 5k) + do 15 za praćenje
+(2 → +8, 5+ → +15), najviše `reach.prior_cap`. Izmjereni pozivi je preuzimaju kao i prije (shrinkage). Na stranici
+KOL-a: "Doseg: N pratitelja, prate ga M naših → početnih X bodova". Demo strategija "Veliki račun zove"
+(strat/config.json, `reach.min_followers` 20k i `min_followed_by` 2; botovi nikad) kupuje na njihove pozive i prije
+probe, pa se vrijednost signala mjeri protiv kontrole.
+
+**Socijali tokena (5.11., `hype/socials.py`).** Iz DexScreener podataka para: X link kao profil / zajednica / tuđi
+tweet / pretraga, Telegram (besplatni pregled t.me/s: pretplatnici, zadnji post, objave; za grupe broj članova),
+web, plaćeni profil (slika + header). Značajke `socijali_x`, `socijali_tg`, `socijali_placeni`,
+`ozbiljan_projekt` (plaćeni + pravi X profil + TG 50+ s postom u 24 h) i `sumnjivi_socijali` (tweet/pretraga ili bez
+TG-a) ulaze u hype ocjenu (težine 4/3/3/10/−6) i u pouzdanost (+12 / −8, vidljivo u Za/Protiv). Telegram se
+provjerava za tokene ≥ 50k, najviše 15 novih po skenu (SOCIALS_PROBES), keš 6 h u hype.db `socials`. Demo
+strategije "Ozbiljan projekt" i "Sumnjivi socijali" (strat/config.json) mjere obje tvrdnje protiv kontrole.
+
+**Bondani tokeni (5.11., `kol/graduates.py`).** Svaki KOL krug čita PumpSwap poolove s GeckoTerminala (po
+aktivnosti i volumenu, 5 stranica, besplatno) u kol.db `graduates`: tokeni koji su diplomirali s pump.funa i nisu
+umrli pri lansiranju (bez majora, FDV ≥ 30k). Popis samo raste. Iz njega: masovna sjenovita knjiga uzima
+`povijest_bondao` točke (ulaz = trenutak diplomiranja), a `run_wallets.py harvest` dodaje ih u tokene za koje vuče
+rane kupce (Helius), pa ti novčanici ulaze u ocjenjivanje, copy liste, webhook i insajdere. Tako povijest
+diplomiranih tokena, današnji novčanici i calleri dijele istu bazu i iste ocjene.
+
 **Obrisane objave (5.11., `kol/deleted.py`).** Poziv jednom pročitan ostaje u bazi; ali povijest iz backfilla ili
 kasnije čitanje timelinea vidi samo ono što je preživjelo, pa račun koji briše svaki rug izgleda bolje nego što jest.
 Zato se izmjereni X pozivi 2+ dana stari provjeravaju po ID-u objave (twitterapi.io, 0,15 $ na 1000, 200 po krugu,
@@ -165,6 +207,19 @@ ponovno svakih 14 dana; prazan odgovor za cijelu seriju = greška API-ja, ne bri
 razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici KOL-a: "Briše gubitnike: obrisao N, od
 toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
 živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
+
+## Masovna sjenovita knjiga (`learn/masovno.py`, `run_learn.py masovno`)
+
+5.11. (Nicholas: "10.000 nevidljivih tradeova dnevno, demo je samo izlog"). Točke odluke u shadow.db iz filtera:
+**bondao** (pump.fun → PumpSwap, živi tok), **trending** (kol.db), **KOL poziv** (prvi poziv dana, bez botova),
+**praćeni novčanik kupio** (chain_trades), **kontrola** (40 nasumičnih tokena skena ≥ 30k dnevno, mjerilo). Noću
+01–06 po Zagrebu i **povijest**: pozivi do 180 dana unatrag i kupnje naših A/B/S novčanika (1.200 točaka po noći).
+Nikad svježi pump.fun tokeni prije bondanja, nikad ispod 30k, nikad majori. Putanja cijene: GeckoTerminal 5-min
+svijeće (2 poziva po tokenu), po prolazu najviše `per_run_day` (300) odnosno `per_run_night` (500) poziva;
+run_sched svakih 30 min. Svaka točka se odigra s živim pravilima izlaza demo bota (`ret`, `hit`) i s fiksnim
+varijantama izlaza (brzi, srednji, spori, sat, ljestvica → `points.varijante`). Učenje čita iste točke kao i
+dosad (learn/outcomes). Admin: /usage → "Nevidljivi tradeovi" (po izvoru n, pogodak, prosjek, medijan, PF, varijante,
+razlika prema kontroli). Log: "masovno: novih točaka …; povijest +N; označeno M (K poziva)".
 
 ## Rug filter (`run_rug.py`)
 
@@ -221,8 +276,10 @@ Novčanici koji su na 2+ tokena kupili sat prije KOL poziva (`kol.db insiders`, 
 
 ## Živi tok (`run_live.py`, `live/`)
 
-5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`, besplatno, bez ključa) daje svaku kupnju i prodaju na
-pump.fun i PumpSwapu u sekundi. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
+5.11.: PumpPortal WebSocket (`wss://pumpportal.fun/api/data`) daje svaku kupnju i prodaju na pump.fun i PumpSwapu u
+sekundi. Novi tokeni su besplatni bez ključa; pretplata na kupnje/prodaje odabranih tokena i novčanika traži
+`PUMPPORTAL_API_KEY` čiji je novčanik napunjen s barem 0,02 SOL (pumpportal.fun → API key). Bez ključa proces to
+javi u logu i prima samo nove tokene. Proces `run_live.py loop` (start.sh; `LIVE_OFF=1` isključuje) drži jednu vezu i
 pretplaćuje se na: tokene koje gledamo (otvorene demo i strategijske pozicije, pa najsvježiji ocijenjeni kandidati
 s mcapom ≥ 30k, najviše 150), novčanike koje pratimo (Helius webhook lista + praćeni iz Natjecanja, najviše 200) i
 sve nove tokene. Liste se osvježavaju svaku minutu (pretplata/odjava samo za razliku). Zapisuje u hype.db:
@@ -242,9 +299,22 @@ Na stranici tokena kutija "Uživo": kupci, prodavači, kupnja/prodaja u SOL-u i 
 rečenici i zadnji dump. Na /izvori red "PumpPortal živi tok" sa zdravljem; na Pregledu brojač tradeova i novih
 tokena. `python3 run_live.py status` i `wanted` za provjeru iz terminala.
 
-Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene (novi kupci na sat, kupaca po
-transakciji, kupci rastu dok cijena pada = akumulacija), insajderi među svim kupcima gledanih tokena (ne samo među
-100 u webhooku), proporcionalna prodaja kad praćeni novčanik proda dio, prvih 60 s svakog launcha za rug filter.
+**Proporcionalna prodaja (5.11.).** `live_trades.balance_after` (PumpPortal `newTokenBalance`) daje udio koji je
+novčanik prodao: `live/pulse.sold_fraction` = prodano / (prodano + ostalo). Strategija Insajderi proda isti udio
+(najmanje 25 %), sve tek kad novčanik izađe (`strat/config.json` `proportional_sell`). Bez živog stanja (samo
+Helius) i dalje prodaje sve.
+
+Što dalje iz istih podataka (još nije): kupci po prozoru kao značajke ocjene, insajderi među svim kupcima gledanih
+tokena, prvih 60 s svakog bondanja za rug filter.
+
+**Povlačenje s dokazom (5.11., `run_paper.pullbacks`, `paper/rules.py` → `povlacenje`).** Nicholas: "čekaj
+povlačenje, ali samo s dokazom (profitabilni novčanici kupuju), ne ako MC padne prenisko". Token sa signalom u
+zadnjih `fresh_min` (180) minuta, cijena ≥ `pullback` (−12 %) ispod vrha od prvog signala (hype_snapshots), mcap ≥
+`min_mcap` (50k), kupnja praćenog novčanika (Helius lista) u zadnjih `buyers_min` (15) minuta. Način ulaza
+`povlacenje`, vlastiti ulog i limiti, jedan ulaz po tokenu, mjeri se kao svaki drugi način (shadow, arms).
+
+**Pravi trade limiti (5.11.)**: `trade/config.json` 0,1 SOL po tradeu (~15 $), 5 otvorenih, 1 SOL dnevno, stop na
+−0,4 SOL dnevno; mode ostaje `dry` dok neka strategija ne dokaže prednost u demu.
 
 ## Prave kupnje (`run_trade.py`)
 
@@ -308,6 +378,20 @@ dobio "database is locked" dok je drugi proces sažimao hype.db). Živi tok sada
 transakciji, a kod zauzete baze zadrži redove u memoriji (do 20.000) i pokuša u sljedećoj sekundi. Redak zdravlja
 razdvaja RAM na "procesi" (stvarno zauzeto) i "cache" (kernel ga oslobađa pod pritiskom): 2 GB plana nije pun kad
 piše 2000 MB, a Renderova metrika kaže 1 GB.
+
+**Novosti i večernja objava (5.11.).** `share/novosti.json`: svaki unos ima `naslov`/`tekst` (HR, za aplikaciju) i
+`naslov_en`/`tekst_en` (EN, za javni X profil); unos bez engleskih polja ne ide na karticu ni u objavu. Javna
+kartica `/share/novosti.png?d=YYYY-MM-DD` (`ui/sharecard.py`, Pillow + Inter font iz `ui/static/fonts`) crta
+današnje unose; `?lang=hr` za hrvatsku. Objavu preko Buffera radi rutina u claude.ai (tekst u scratchpadu sesije),
+samo iz te datoteke, bez internih podataka.
+
+**Makro režim BTC/ETH (5.11., `market/makro.py`).** Svaki sat (run_market collect): DefiLlama dnevne cijene BTC i ETH
+(market.db `btc`, `eth`) i satne BTC (`btc_h`). Stanje po imovini: raste (7 d ≥ +3 %, iznad 30-d prosjeka),
+konsolidacija nakon rasta (30 d ≥ +5 %, raspon 5 d ≤ 6 %, do 8 % ispod 30-d vrha, 7 d < +3 %), pada (7 d ≤ −5 % ili
+BTC −3 % u 4 h), konsolidacija nakon pada, neutralno. Sklonost altovima 0–1 (konsolidacija rasta 1, raste 0,7,
+neutralno 0,5, konsolidacija pada 0,3, pada 0), BTC 0,6 + ETH 0,4, spremljeno as-of u `makro`. Ulazi u hype ocjenu
+kao značajka `makro` (težina 8) i u demo gate: dok je BTC u "pada", nema novih ulaza (`gate.makro_pad`). Stranica
+Tržište pokazuje rečenicu stanja.
 
 ## Status
 

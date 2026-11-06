@@ -9,7 +9,7 @@ import sqlite3
 import time
 from urllib.parse import quote
 
-from league import store
+from league import namesake, store
 from ui import confidence, data, leaguedash
 from ui import topcheckui as topui
 from rugfilter import collapse
@@ -470,13 +470,18 @@ def _positions(mine, live, bot_dca):
                      'prodaji.</div>')
         if t["token"] in bot_dca:
             warn += f'<div class="pos-w mut">🔄 Bot predlaže DCA: {esc(bot_dca[t["token"]])}</div>'
+        big = namesake.check(t["token"], t["symbol"], mc_now or t["entry_mcap"]) if t["symbol"] else None
+        if big:
+            warn += f'<div class="pos-w">{namesake.text(big, t["symbol"], mc_now or t["entry_mcap"])}</div>'
         move = price / t["entry_px"] - 1 if price and t["entry_px"] else None
         pct = f' <small class={"pos" if (move or 0) > 0 else "neg" if (move or 0) < 0 else ""}>{move:+.0%}</small>' \
             if move is not None else ""
         meta = (f'Ulog {usd(t["size_usd"])[0]}' + (f' · vrijedi oko <b>${worth:,.2f}</b>' if worth is not None else "")
                 + f' · MC {usd(t["entry_mcap"])[0]} → {usd(mc_now)[0]} · kupljeno {ago(t["opened_ts"])[0]}'
                 + f' · {esc(origin(t))}'
-                + (f' · likvidnost {usd(liq)[0]}' if liq else ""))
+                + (f' · likvidnost {usd(liq)[0]}' if liq else "")
+                + (f' · cijena ${price:.3g} ({"DexScreener" if liq else "Jupiter, bez poola"}; osvježeno {time.strftime("%H:%M", time.gmtime())} UTC)'
+                   if price else ""))
         if price:
             act = ('<div class=pos-k>Prodaj</div><div class=pos-s>' + _sell_btn(t, 0.25, "25%", worth)
                    + _sell_btn(t, 0.5, "50%", worth) + _sell_btn(t, 1, "Sve", worth, " class=pos-all") + '</div>'
@@ -598,14 +603,20 @@ def _post(path, form, user):
             col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
             if col:
                 raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
-            size = float(form.get("size") or 0)
+            size = float(form.get("size_custom") or form.get("size") or 0)   # a typed amount beats the chips
             have = next((t for t in store.trades(con, user, "open") if t["token"] == token), None)
             if have:   # Nicholas 2.11.: buying a token you already hold adds to that position (average entry)
                 return _add_more(con, user, have, size, price, liq, back)
             symbol = form.get("symbol") or _symbol(token)
             store.buy(con, user, token, symbol, size, price, liq, form.get("source", "ručno"),
                       float(form["score"]) if form.get("score") else None, mcap)
-            return f"{back}?ok={quote(f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}')}"
+            msg = f'Kupljeno {symbol or token[:6]} za ${size:,.0f} na MC {_mc(mcap)}'
+            big = namesake.check(token, symbol, mcap)
+            if big:   # Filip 5.11.: pump.fun ARIA (MC $74k) bought while watching AriaAI on Binance
+                msg += (f'. Pozor: postoji {big["name"]} ({symbol}) s MC {_mc(big["mcap"])} na adresi '
+                        f'{big["token"][:4]}…{big["token"][-4:]}; ovaj ima MC {_mc(mcap)}. Ako si htio onaj veliki, '
+                        'kupio si kopiju.')
+            return f"{back}?ok={quote(msg)}"
         if path == "/natjecanje/sell":
             tid = int(form.get("id") or 0)
             t = next((t for t in store.trades(con, user, "open") if t["id"] == tid), None)
