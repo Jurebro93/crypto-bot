@@ -289,6 +289,7 @@ def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=
             if now - r["ts"] < cfg.get("retry_young_h", 6) * 3600:
                 continue
             con.execute("UPDATE points SET status='bez_cijene', labeled_ts=? WHERE id=?", (int(now), r["id"]))
+            con.commit()
             continue
         path = shadow.clean(path, shadow.config()["spike_x"])
         liq = path[0][2] if path else 0
@@ -317,6 +318,9 @@ def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=
                     (entry, liq, len(path), res["ret"], round(max2, 4), round(rets[0], 4), hit, res["exit_reason"], prof,
                      json.dumps(var), json.dumps(shadow._compress(entry, r["ts"], path)), int(now), r["id"]))
         done += 1
+        # 7.11. 11:42: one commit at the end held shadow.db's write lock across every GeckoTerminal call of the pass
+        # (minutes); the hourly shadow run, no longer serialised behind the heavy lock, died on "database is locked".
+        con.commit()
     con.commit()
     return done, used
 
