@@ -26,17 +26,21 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
-def run(name, args):
+def run(name, args, light=False):
     from ops import heavy   # one heavy job at a time (2.11.: overlapping jobs ran the 512 MB server out of memory)
-    code = heavy.run([sys.executable, os.path.join(ROOT, args[0]), *args[1:]], cwd=ROOT).returncode
+    cmd = [sys.executable, os.path.join(ROOT, args[0]), *args[1:]]
+    # 7.11. 10:45: a "light" job waits on an API (masovno: 500 GeckoTerminal calls at 30/min = 17 min), uses little
+    # memory and would otherwise hold the lock most of the time: the token status, shadow, collect and the learning
+    # fit all queued behind it for 12+ min after every deploy. Light jobs run without the lock.
+    code = (subprocess.run(cmd, cwd=ROOT) if light else heavy.run(cmd, cwd=ROOT)).returncode
     if code:
         print(f"{name}: izlaz {code}", file=sys.stderr, flush=True)
     return code
 
 
-def every(name, args, minutes):
+def every(name, args, minutes, light=False):
     while True:
-        run(name, args)
+        run(name, args, light=light)
         time.sleep(minutes * 60)
 
 
@@ -149,7 +153,7 @@ JOBS = [
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
     # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb
-    ("masovno", every, (["run_learn.py", "masovno"], float(os.environ.get("MASOVNO_EVERY_MIN", "30")))),
+    ("masovno", every, (["run_learn.py", "masovno"], float(os.environ.get("MASOVNO_EVERY_MIN", "30")), True)),
     ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
     # 7.11.: token status (DexScreener pair still there? exact pair page, fresh mcap, GeckoTerminal fallback)
