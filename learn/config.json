@@ -63,8 +63,9 @@
   "min_mcap": 30000,
   "min_liq": 15000,
   "horizon_h": 24,
-  "per_run_day": 500,
-  "per_run_night": 800,
+  "per_run_day": 150,
+  "per_run_night": 400,
+  "_per_run": "7.11. 11:35: GeckoTerminal je 30/min za SVE procese (KOL krug, status tokena, dugo, masovno); 500 po prolazu svakih 30 min uzimalo je više od pola toga i gušilo mjerenje KOL poziva. 150 danju / 400 noću = ~10k poziva dnevno.",
   "night": [
    1,
    6

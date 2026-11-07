@@ -20,7 +20,7 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS token_status (
     gt_price REAL, gt_fdv REAL, gt_vol24 REAL, checked_ts INTEGER, gt_checked_ts INTEGER)"""
 DAYS = 14          # tokens seen in signals this recently are checked
 MAX_TOKENS = 900   # per pass (30 DexScreener calls)
-MAX_GT = 120       # GeckoTerminal lookups per pass for tokens without a pair (30/min shared with the KOL cycle)
+MAX_GT = 40        # GeckoTerminal lookups per pass for tokens without a pair (30/min shared with the KOL cycle)
 
 
 def ensure(con):
@@ -94,19 +94,10 @@ def refresh(con, now=None, tokens=None, dex=None, gt=None, log=print):
         except Exception as e:  # noqa: BLE001
             log(f"status: DexScreener: {type(e).__name__}: {e}")
     # 7.11. 09:32: the first version kept ONE write transaction open across 120 GeckoTerminal lookups (~6 min) and
-    # locked hype.db for the live feed and the scanner ("database is locked"). Now: all network first, then short
-    # writes, each committed at once.
-    n_gt = 0
-    need_gt = []
-    for t in toks:
-        if t in found:
-            continue
-        last = (con.execute("SELECT gt_checked_ts FROM token_status WHERE token=?", (t,)).fetchone() or (None,))[0] or 0
-        if n_gt < MAX_GT and now - last >= 6 * 3600:
-            n_gt += 1
-            need_gt.append(t)
-    con.commit()   # the SELECTs opened nothing to hold, but be explicit
-    gts = {t: gt(t) for t in need_gt}
+    # locked hype.db for the live feed and the scanner ("database is locked"). 11:35: and the second wrote nothing
+    # until every GeckoTerminal lookup was done, which behind the shared 30/min gate (KOL round, masovno) took 30+
+    # min, so the pages never saw "nema para". Now: DexScreener results are written at once (short commits), then
+    # each GeckoTerminal answer is written as it comes.
     for t in toks:
         d = found.get(t)
         if d:
@@ -117,15 +108,24 @@ def refresh(con, now=None, tokens=None, dex=None, gt=None, log=print):
         else:
             con.execute("INSERT INTO token_status (token, has_pair, checked_ts) VALUES (?,0,?) ON CONFLICT(token) DO UPDATE "
                         "SET has_pair=0, checked_ts=excluded.checked_ts", (t, now))
-            if t in gts:
-                g = gts[t]
-                if g:
-                    con.execute("UPDATE token_status SET gt_price=?, gt_fdv=?, gt_vol24=?, gt_checked_ts=? WHERE token=?",
-                                (g["gt_price"], g["gt_fdv"], g["gt_vol24"], now, t))
-                else:
-                    con.execute("UPDATE token_status SET gt_checked_ts=? WHERE token=?", (now, t))
+    con.commit()
+    log(f"status: provjereno {len(toks)} tokena, s parom {len(found)}, bez para {len(toks) - len(found)}; GeckoTerminal slijedi")
+    n_gt = 0
+    for t in toks:
+        if t in found or n_gt >= MAX_GT:
+            continue
+        last = (con.execute("SELECT gt_checked_ts FROM token_status WHERE token=?", (t,)).fetchone() or (None,))[0] or 0
+        if now - last < 6 * 3600:
+            continue
+        n_gt += 1
+        g = gt(t)
+        if g:
+            con.execute("UPDATE token_status SET gt_price=?, gt_fdv=?, gt_vol24=?, gt_checked_ts=? WHERE token=?",
+                        (g["gt_price"], g["gt_fdv"], g["gt_vol24"], now, t))
+        else:
+            con.execute("UPDATE token_status SET gt_checked_ts=? WHERE token=?", (now, t))
         con.commit()
-    log(f"status: provjereno {len(toks)} tokena, s parom {len(found)}, bez para {len(toks) - len(found)}, GeckoTerminal {n_gt}")
+    log(f"status: gotovo, GeckoTerminal {n_gt} tokena bez para")
     return len(toks), len(found), n_gt
 
 
