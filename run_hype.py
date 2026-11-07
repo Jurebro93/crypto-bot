@@ -106,7 +106,10 @@ def apify_context(a):
     ctx = {"pump": {}, "trend_keys": {}, "trends": [], "errors": {}}
     if not apify.enabled() or a.no_apify:
         return ctx
+    budgets = apify.config().get("daily_usd") or {}
     for name, fn in (("pumpfun", sources.pumpfun_tokens), ("x_trends", sources.x_trends)):
+        if not budgets.get(name):   # 7.11.: a source switched off (budget 0) is skipped quietly, no BudgetExceeded each pass
+            continue
         try:
             ctx["pump" if name == "pumpfun" else "trends"] = fn()
         except Exception as e:
@@ -673,7 +676,7 @@ def cmd_status(a):
     """7.11.: which listed tokens still have a DexScreener pair, the exact pair page, fresh market caps (hype/tokenstatus)."""
     import sqlite3 as _sq
     from hype import tokenstatus
-    con = _sq.connect(tokenstatus.HYPE_DB, timeout=30)
+    con = _sq.connect(tokenstatus.HYPE_DB, timeout=120)   # 16:13: 30 s was less than the start-up maintenance holds the lock
     try:
         tokenstatus.refresh(con)
         from ui import prijedlog_log
