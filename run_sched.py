@@ -38,7 +38,15 @@ def run(name, args, light=False):
     return code
 
 
+LIGHT_START_DELAY_S = float(os.environ.get("SCHED_LIGHT_DELAY_S", "180"))
+
+
 def every(name, args, minutes, light=False):
+    # 7.11. 16:13: a light job starts the moment the scheduler does, i.e. in the middle of start.sh's database
+    # maintenance (WAL, pruning: 67 s with hype.db write-locked); the token status died on "database is locked".
+    # Light jobs now wait LIGHT_START_DELAY_S first.
+    if light:
+        time.sleep(LIGHT_START_DELAY_S)
     while True:
         run(name, args, light=light)
         time.sleep(minutes * 60)

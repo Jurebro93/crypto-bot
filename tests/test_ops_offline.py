@@ -403,3 +403,20 @@ class SchedLightTest(unittest.TestCase):
             self.assertEqual((sr.call_count, hr.call_count), (1, 0))
             run_sched.run("tokenstatus", ["run_hype.py", "status"])
             self.assertEqual((sr.call_count, hr.call_count), (1, 1))
+
+
+class SchedLightDelayTest(unittest.TestCase):
+    """7.11. 16:13: light jobs wait before their first run so they miss the start-up database maintenance."""
+
+    def test_light_waits_first(self):
+        import run_sched
+        calls = []
+        with mock.patch("run_sched.run", side_effect=lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(KeyboardInterrupt)), \
+                mock.patch("time.sleep") as sl:
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.every("x", ["a.py"], 5, light=True)
+            self.assertEqual(sl.call_args_list[0].args, (run_sched.LIGHT_START_DELAY_S,))
+            sl.reset_mock()
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.every("y", ["b.py"], 5)
+            self.assertFalse(sl.called)
