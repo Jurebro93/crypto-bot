@@ -234,7 +234,7 @@ def _pool_for(token, kol_db=None):
     if k is not None:
         try:
             r = k.execute("SELECT pair, liquidity FROM tokens WHERE token=?", (token,)).fetchone()
-            if r and r[0]:
+            if r and r[0] and (r[1] or 0) > 0:   # 7.11.: a pair with liquidity 0 in kol.db gave "-100 %" on every point
                 return r[0], r[1]
         except sqlite3.OperationalError:
             pass
@@ -242,7 +242,7 @@ def _pool_for(token, kol_db=None):
             k.close()
     from kol import measure
     p = measure.gecko_pool(token)
-    return (p["address"], p.get("liquidity")) if p else (None, None)
+    return (p["address"], p.get("liquidity") or None) if p else (None, None)
 
 
 def candles_path(token, ts, horizon_s, fetch=None, pool_for=None):
@@ -285,10 +285,22 @@ def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=
         path, entry, calls = candles_path(r["token"], r["ts"], horizon_s, fetch, pool_for)
         used += calls
         if not path or not entry:
+            # 7.11.: a token bonded minutes ago has no pool on GeckoTerminal yet; try again later, do not write it off
+            if now - r["ts"] < cfg.get("retry_young_h", 6) * 3600:
+                continue
             con.execute("UPDATE points SET status='bez_cijene', labeled_ts=? WHERE id=?", (int(now), r["id"]))
             continue
         path = shadow.clean(path, shadow.config()["spike_x"])
         liq = path[0][2] if path else 0
+        if not liq:   # unknown liquidity is not zero liquidity: assume the entry floor, flag it (7.11.)
+            liq = cfg["min_liq"]
+            path = [(t, p, liq) for t, p, _ in path]
+            try:
+                feats = json.loads(r["features"] or "{}")
+            except ValueError:
+                feats = {}
+            feats["liq_unknown"] = 1
+            con.execute("UPDATE points SET features=? WHERE id=?", (json.dumps(feats), r["id"]))
         res, prof = shadow.simulate(entry, liq, r["ts"], path, r["klasa"] or "default", "snap", base)
         var = {}
         for name, over in VARIANTS.items():
@@ -319,6 +331,9 @@ def run(path=None, now=None, budget=None, fetch=None, pool_for=None):
             return {"enabled": False}
         new = collect(con, now, cfg)
         hist = history(con, now, cfg) if is_night(now, cfg) else 0
+        # one-off repair (7.11.): points labelled with liquidity 0 were simulated as total losses; relabel them
+        con.execute("UPDATE points SET status='ceka', ret=NULL, varijante=NULL WHERE status='gotovo' AND COALESCE(liq,0)=0 "
+                    f"AND point IN ({','.join('?' * len(SOURCES))})", SOURCES)
         done, used = label(con, now, cfg, budget, fetch, pool_for)
         shadow._set_kv(con, "masovno_last", {"ts": now, "new": new, "history": hist, "labeled": done, "calls": used})
         con.commit()
