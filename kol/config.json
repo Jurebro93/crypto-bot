@@ -18,12 +18,48 @@
   "prepump": -25,
   "deletes": -15
  },
- "crew": {"lookback_h": 2, "min_age_min": 20, "per_run": 12, "daily_usd": 0.8, "caller_min_followers": 10000, "big_followers": 20000, "window_min": 30, "before_h": 24},
- "traces": {"supply_pct": 2.0, "call_window_h": 24, "lookback_h": 48},
- "xhook": {"max_handles": 100, "interval_s": 30, "resync_h": 6, "tag": "memesonar", "max_value": 250},
- "reach": {"min_followers": 20000, "min_followed_by": 2, "prior_cap": 70, "big_followers": 100000},
- "deleted": {"per_round": 200, "min_age_d": 2, "recheck_d": 14, "batch": 100},
- "trending": {"pages": 3, "per_run": 10, "pages_x": 2, "back_d": 7, "usd": 0.4, "max_fdv": 100000000},
+ "crew": {
+  "lookback_h": 2,
+  "min_age_min": 20,
+  "per_run": 12,
+  "daily_usd": 0.8,
+  "caller_min_followers": 10000,
+  "big_followers": 20000,
+  "window_min": 30,
+  "before_h": 24
+ },
+ "traces": {
+  "supply_pct": 2.0,
+  "call_window_h": 24,
+  "lookback_h": 48
+ },
+ "xhook": {
+  "max_handles": 100,
+  "interval_s": 30,
+  "resync_h": 6,
+  "tag": "memesonar",
+  "max_value": 250
+ },
+ "reach": {
+  "min_followers": 20000,
+  "min_followed_by": 2,
+  "prior_cap": 70,
+  "big_followers": 100000
+ },
+ "deleted": {
+  "per_round": 200,
+  "min_age_d": 2,
+  "recheck_d": 14,
+  "batch": 100
+ },
+ "trending": {
+  "pages": 3,
+  "per_run": 10,
+  "pages_x": 2,
+  "back_d": 7,
+  "usd": 0.4,
+  "max_fdv": 100000000
+ },
  "measure_tokens_per_run": 80,
  "flows_per_day": 60,
  "flow_pre_secs": 3600,
@@ -75,7 +111,12 @@
  "chain": {
   "max_wallets": 100,
   "resync_h": 24,
-  "share": {"ids": 0.4, "copy": 0.3, "signal": 0.1, "insajderi": 0.2},
+  "share": {
+   "ids": 0.4,
+   "copy": 0.3,
+   "signal": 0.1,
+   "insajderi": 0.2
+  },
   "min_copy": 35
  },
  "idents": {
@@ -96,8 +137,15 @@
   "dev_heavy": 5,
   "dev_heavy_share": 0.5,
   "force": [
-   "blossomscanner", "MaisonDunn1", "DreRob", "kennymadden1973", "GQ_Smooth_", "Truspect", "Humanevolvd",
-   "CiggyAlpha", "popmemecoin"
+   "blossomscanner",
+   "MaisonDunn1",
+   "DreRob",
+   "kennymadden1973",
+   "GQ_Smooth_",
+   "Truspect",
+   "Humanevolvd",
+   "CiggyAlpha",
+   "popmemecoin"
   ],
   "never": []
  },
@@ -120,17 +168,41 @@
   "gate": true
  },
  "discover": {
-  "daily_usd": 0.8,
+  "daily_usd": 0.3,
   "win_x": 1.0,
   "win_hours": 48,
   "win_per_run": 4,
   "win_pages": 3,
   "winners_usd": 0.12,
   "win_back_h": 48,
-  "trial": {"min_calls": 10, "days": 14, "min_views": 200},
-  "audit": {"top": 20, "every_d": 7, "per_run": 5, "posts": 8, "model": "claude-haiku-5-5",
-            "bad": ["hakiran", "dev", "placena_grupa", "bot", "suspendiran"]},
-  "graph": {"kols": 60, "every_d": 7, "per_run": 10, "min_followed_by": 2, "min_followers": 1000, "page": 200}
+  "trial": {
+   "min_calls": 10,
+   "days": 14,
+   "min_views": 200
+  },
+  "audit": {
+   "top": 20,
+   "every_d": 7,
+   "per_run": 5,
+   "posts": 8,
+   "model": "claude-haiku-5-5",
+   "bad": [
+    "hakiran",
+    "dev",
+    "placena_grupa",
+    "bot",
+    "suspendiran"
+   ]
+  },
+  "graph": {
+   "kols": 60,
+   "every_d": 7,
+   "per_run": 10,
+   "min_followed_by": 2,
+   "min_followers": 1000,
+   "page": 200
+  },
+  "_7_11": "7.11. retro: discover 54 % pogodak, 17 % ≥ +50 %, 21 pogodak po $ (najslabije); 0,8 → 0,3 $/dan"
  },
  "timeline_twapi": {
   "every_min": 30,

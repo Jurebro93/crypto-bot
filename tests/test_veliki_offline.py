@@ -42,6 +42,18 @@ class Veliki(unittest.TestCase):
         self.assertIn("veliki", masovno.SOURCES)
 
 
+class MakroGuard(unittest.TestCase):
+    def test_falling_market_widens_stop_and_pauses_stale(self):
+        cfg = srun.load_config()
+        ex = {"sl": -0.25, "stale_min": 45, "tp": [[0.15, 0.5]]}
+        self.assertEqual(srun.makro_guard(cfg, ex, falling=False), ex)
+        g = srun.makro_guard(cfg, ex, falling=True)
+        self.assertEqual(g["sl"], -0.5)
+        self.assertIsNone(g["stale_min"])
+        self.assertEqual(g["tp"], [[0.15, 0.5]])
+        self.assertIn("tg_poziv", srun.keys(cfg))
+
+
 class KolPotvrdjen(unittest.TestCase):
     def test_volume_confirmation_and_band(self):
         cfg = srun.load_config()
