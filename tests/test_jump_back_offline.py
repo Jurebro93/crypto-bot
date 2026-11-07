@@ -32,6 +32,17 @@ class JumpBack(unittest.TestCase):
         self.assertTrue(all(v < 1000 for _, v in pts), pts)
         self.assertEqual(len(pts), 5)
 
+    def test_position_x20_in_one_snapshot_is_bad_however_long(self):
+        con = self._con([26.0])
+        rows = [(26.45, '{"AI": 24.1}')] + [(5410.0, '{"AI": 5408.0}')] * 17 + [(19.85, '{"AI": 17.5}'), (20.0, '{"AI": 17.6}')]
+        con.execute("DELETE FROM equity")
+        con.executemany("INSERT INTO equity VALUES (?,?,?,1,?)", [(900 * i, "Jure", e, d) for i, (e, d) in enumerate(rows)])
+        js = history.jumps(con, {"Jure"})
+        self.assertEqual(len(js), 1)
+        self.assertTrue(js[0]["bad"])
+        self.assertEqual(len(js[0]["bad_ts"]), 17)
+        self.assertIn("x224", js[0]["text"])
+
     def test_real_gain_kept(self):
         con = self._con([900.0, 1600.0, 1550.0, 1580.0, 1600.0, 1620.0, 1500.0])
         js = history.jumps(con, {"Jure"})

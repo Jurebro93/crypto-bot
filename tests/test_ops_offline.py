@@ -394,7 +394,8 @@ class SchedLightTest(unittest.TestCase):
         import run_sched
         jobs = {j[0]: j for j in run_sched.JOBS}
         self.assertTrue(jobs["masovno"][2][-1])
-        self.assertEqual(len(jobs["tokenstatus"][2]), 2)
+        self.assertTrue(jobs["tokenstatus"][2][-1])
+        self.assertEqual(len(jobs["shadow"][2]), 2)
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0

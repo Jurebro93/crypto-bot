@@ -676,6 +676,8 @@ def cmd_status(a):
     con = _sq.connect(tokenstatus.HYPE_DB, timeout=30)
     try:
         tokenstatus.refresh(con)
+        from ui import prijedlog_log
+        print(f"prijedlog: ishodi upisani za {prijedlog_log.label(con)} prijedloga", flush=True)
     finally:
         con.close()
 
