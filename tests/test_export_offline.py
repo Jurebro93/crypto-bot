@@ -36,15 +36,11 @@ class Export(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DATA_DIR": d, "EXPORT_KEY": "tajna"}):
             self.assertEqual(self._call("kol.db", {"key": "kriva"}).sent, [404])
             h = self._call("kol.db", {"key": "tajna"})
-            body, data = h.wfile.getvalue(), b""
-            while body:   # chunked transfer: <hex size>\r\n<bytes>\r\n ... 0\r\n\r\n
-                n, _, body = body.partition(b"\r\n")
-                n = int(n, 16)
-                if n == 0:
-                    break
-                data, body = data + body[:n], body[n + 2:]
-            raw = gzip.decompress(data)
+            # 7.11.: the body is the plain gzip stream, no chunk framing (HTTP/1.0 server: Cloudflare passed the chunk
+            # sizes through as file content), and the connection closes after it
+            raw = gzip.decompress(h.wfile.getvalue())
             self.assertTrue(raw.startswith(b"SQLite format 3"))
+            self.assertTrue(h.close_connection)
             self.assertEqual(self._call("secrets.db", {"key": "tajna"}).sent, [404])   # not on the list
         with mock.patch.dict(os.environ, {"DATA_DIR": d, "EXPORT_KEY": ""}):
             self.assertEqual(self._call("kol.db", {"key": ""}).sent, [404])             # no key configured: no route

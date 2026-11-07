@@ -620,7 +620,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/gzip")
             self.send_header("Content-Disposition", f'attachment; filename="{name}.gz"')
             self.send_header("Cache-Control", "no-store")
-            self.send_header("Transfer-Encoding", "chunked")
+            # 7.11. 10:20: this server speaks HTTP/1.0, where "Transfer-Encoding: chunked" means nothing, so Cloudflare
+            # passed the chunk sizes through as part of the file (league.db.gz was "not in gzip format"). HTTP/1.0 has
+            # its own way: no length, write the body, close the connection.
+            self.send_header("Connection", "close")
             self.end_headers()
             comp = zlib.compressobj(3, wbits=31)
             with open(tmp.name, "rb") as f:
@@ -628,13 +631,9 @@ class Handler(BaseHTTPRequestHandler):
                     piece = f.read(4 << 20)
                     if not piece:
                         break
-                    out = comp.compress(piece)
-                    if out:
-                        self.wfile.write(f"{len(out):x}\r\n".encode() + out + b"\r\n")
-            out = comp.flush()
-            if out:
-                self.wfile.write(f"{len(out):x}\r\n".encode() + out + b"\r\n")
-            self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.write(comp.compress(piece))
+            self.wfile.write(comp.flush())
+            self.close_connection = True
         finally:
             try:
                 os.remove(tmp.name)
