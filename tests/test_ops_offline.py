@@ -352,7 +352,7 @@ class HeavyLockTest(unittest.TestCase):
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
-        self.assertIn("heavy.slot(wait=60)", open(os.path.join(root, "run_ui.py")).read())
+        self.assertIn("heavy.slot(wait=60, label=", open(os.path.join(root, "run_ui.py")).read())
 
 
 class HeavyPriorityTest(unittest.TestCase):
