@@ -37,16 +37,17 @@ def _sym_map():
 def wallets(qs):
     """Novčanici: Aktivnost (who just bought or sold) · Za kopiranje (the copy list) · Svi (every scored wallet)."""
     from ui.html import seg
-    v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista" if qs.get("only") == "list" else "")
-    sw = seg([("/wallets", "Aktivnost"), ("/wallets?v=lista", "Za kopiranje"), ("/wallets?v=svi", "Svi")],
-             "/wallets" + (f"?v={v}" if v else ""))
+    # 7.11. (Jure): the copy list with its verdict opens first; the raw activity feed (addresses) goes last
+    v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista")
+    sw = seg([("/wallets", "Za kopiranje"), ("/wallets?v=svi", "Svi"), ("/wallets?v=aktivnost", "Aktivnost")],
+             "/wallets" + (f"?v={v}" if v != "lista" else ""))
     try:   # 7.11. (Jure): the verdict and today's picks first on every view
         from ui import prijedlog
         top = prijedlog.box("novcanici")
     except Exception as e:  # noqa: BLE001
         print(f"novčanici: prijedlog: {type(e).__name__}: {e}")
         top = ""
-    if not v:
+    if v == "aktivnost":
         from ui import core
         try:
             act = core.wallet_block(n=40, hours=48)

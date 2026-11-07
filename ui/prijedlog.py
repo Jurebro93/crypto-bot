@@ -187,6 +187,30 @@ def _tl(token, sym=None):
     return f'<a href="/token/{quote(token)}" translate=no>{esc(sym) if sym else "<code>" + esc(short(token)) + "</code>"}</a>'
 
 
+def group_pick():
+    """The best crew of KOLs that call together (kol/together): follow them, enter when they post."""
+    try:
+        from kol import shillers, store as _ks, together
+        con = _ks.ro() if hasattr(_ks, "ro") else None
+        if con is None:
+            import sqlite3 as _s
+            con = _s.connect(f"file:{_ks.DB}?mode=ro", uri=True)
+            con.row_factory = _s.Row
+        try:
+            tog = together.build(con, shillers.handles())
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return None
+    good = [c for c in tog.get("clusters") or [] if c["stats"]["n"] >= 3 and (c["stats"]["hit"] or 0) >= 0.5
+            and (c["stats"]["rug"] or 0) < 0.4 and not c.get("shill")]
+    if not good:
+        return None
+    c = good[0]
+    return {"members": c["members"][:5], "n": c["stats"]["n"], "hit": c["stats"]["hit"], "rug": c["stats"]["rug"],
+            "tokens": c["tokens"]}
+
+
 def _chance_txt(c):
     if not c:
         return "povijest još nema dovoljno sličnih poziva"
@@ -288,6 +312,36 @@ def box(kind, now=None, rows=None):
                      "držanje. Tablice ispod su za one koji žele kopati sami.</p>")
         if picks:
             b.append("<p>Tokeni koje bih uzeo sada:</p><ol>" + "".join(_item(p, status) for p in picks[:2]) + "</ol>")
+    elif kind == "pregled":
+        parts = []
+        if picks:
+            parts.append("<p><b>U ovom trenutku bih uložio</b> u ove tokene (demo 25–50 $ po tokenu):</p><ol>"
+                         + "".join(_item(p, status) for p in picks) + "</ol>")
+        else:
+            parts.append("<p><b>U ovom trenutku ne bih ulazio ni u jedan token</b>: nijedan svjež nije prošao filtar "
+                         "(pouzdanost, rug provjera, živ par).</p>")
+        ws = wallet_picks(now, n=1)
+        if ws:
+            w, st_ = ws[0], ws[0]["stats"]
+            parts.append(f"<p><b>Pratio bih novčanik</b> {wlink(w['wallet'])} (pouzdanost {esc(w['tier'])}, "
+                         f"{st_.get('closed', 0)} zatvorenih, {(st_.get('win_rate') or 0):.0%} dobitnih) i kopirao njegove kupnje "
+                         "unutar 2 minute, 20–50 $ po tradeu.</p>")
+        else:
+            parts.append("<p><b>Novčanike još ne bih kopirao</b>: nijedan nema dovoljno zatvorenih tradeova u plusu.</p>")
+        g = group_pick()
+        if g:
+            mem = ", ".join(f'<a href="/kol/{esc(h)}">@{esc(h)}</a>' for h in g["members"])
+            parts.append(f"<p><b>Čekao bih da ova ekipa objavi token</b>: {mem}. Kad su zvali zajedno ({g['n']} puta), "
+                         f"token se udvostručio u {g['hit']:.0%} slučajeva, rug {(g['rug'] or 0):.0%}. Ulaz čim objave, "
+                         "ako je token ispod 1 M $ i još nije +25 % od poziva.</p>")
+        ch = chances()
+        mid = ch.get("100–300k") or ch.get("300k–1M")
+        parts.append("<p><b>Očekivanje i izlaz:</b> "
+                     + (f"u zadnja 2 tjedna {mid[0]:.0%} sličnih tokena (100k–1M) napravilo je +30 % u 24 h ({mid[1]} poziva); "
+                        if mid else "")
+                     + "ciljam +15 % na pola pozicije, ostatak vodim s pratećim stopom 15 %, stop −25 %; kod tokena 1 M+ "
+                     "ljestvica +15 %/+30 % i stop −20 %. Ako BTC pada, stop se širi na −50 % i držim do oporavka.</p>")
+        b += parts
     b.append("</div>" + JS)
     return "".join(b)
 

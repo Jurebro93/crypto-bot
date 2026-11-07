@@ -50,3 +50,16 @@ class Prijedlog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Pregled(unittest.TestCase):
+    def test_dashboard_text_and_wallet_views(self):
+        html = prijedlog.box("pregled", rows=[])
+        self.assertIn("U ovom trenutku", html)
+        self.assertIn("Očekivanje i izlaz", html)
+        self.assertIn("+15 %", html)
+        from ui import pages
+        import run_ui  # noqa: F401
+        title, body = pages.wallets({})
+        self.assertLess(body.find("Za kopiranje"), body.find("Aktivnost"))   # copy list first, activity last
+        self.assertIn("Prijedlog za danas", body)
