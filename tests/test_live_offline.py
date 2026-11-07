@@ -223,3 +223,19 @@ class ReconnectWhenUnfunded(unittest.TestCase):
         self.assertIn("RECONNECT_UNFUNDED_S", src)
         self.assertIn("spajam se ponovno", src)
         self.assertLessEqual(pumpportal.RECONNECT_UNFUNDED_S, 600)
+
+
+class HotTokens(unittest.TestCase):
+    def test_feed_counts_per_token_and_loop_has_hot_and_hourly_rules(self):
+        """6.11.: 12,366 trades in 8 minutes from 40 tokens: a hot token is dropped, the day budget is sliced hourly."""
+        import inspect
+        from live import pumpportal
+        f = pumpportal.Feed(None, log=lambda s: None)
+        for i in range(3):
+            f.take({"txType": "buy", "mint": "M" * 32, "signature": f"s{i}", "traderPublicKey": "w", "solAmount": 1,
+                    "tokenAmount": 5, "pool": "pump"}, now=1_800_000_000)
+        self.assertEqual(f.per_token["M" * 32], 3)
+        src = inspect.getsource(pumpportal.run)
+        self.assertIn("HOT_PER_MIN", src)
+        self.assertIn("hour_cap", src)
+        self.assertIn("prevruć", src)
