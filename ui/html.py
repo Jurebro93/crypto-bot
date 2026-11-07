@@ -883,9 +883,10 @@ EXT_SITES = [
 ]
 
 
-def ext_icons(mint, url=None, labels=False):
+def ext_icons(mint, url=None, labels=False, dead=False):
     """Row of small site icons, each opens the token on that site in a new tab. pump.fun only for pump.fun tokens.
-    url: the exact DexScreener pair page when we have it. labels=True also writes the site name (token page)."""
+    url: the exact DexScreener pair page when we have it. labels=True also writes the site name (token page).
+    dead=True (7.11.): DexScreener has no pair for this token any more: the icon is dimmed and says so."""
     if not mint:
         return ""
     m = quote(mint)
@@ -894,16 +895,26 @@ def ext_icons(mint, url=None, labels=False):
         if dom == "pump.fun" and not mint.endswith("pump"):
             continue
         href = url if (url and dom == "dexscreener.com") else mk(m)
-        out.append(f'<a href="{esc(href)}" target=_blank rel=noopener title="Otvori na: {esc(name)}">'
+        title = f"Otvori na: {name}"
+        style = ""
+        if dead and dom == "dexscreener.com":
+            title = "DexScreener više nema par za ovaj token (nema trgovanja); otvara pretragu"
+            href = f"https://dexscreener.com/search?q={m}"
+            style = ' style="opacity:.35"'
+        out.append(f'<a href="{esc(href)}" target=_blank rel=noopener title="{esc(title)}"{style}>'
                    f'<img src="https://www.google.com/s2/favicons?domain={dom}&sz=32" alt="" loading=lazy width=14 height=14>'
                    + (f"<span>{esc(name)}</span>" if labels else "") + "</a>")
     return f'<span class="xl{" xlb" if labels else ""}">' + "".join(out) + "</span>"
 
 
-def tlink(mint, sym=None):
-    """Token name opens our own page for the token; the small icons next to it open it on outside sites."""
+def tlink(mint, sym=None, status=None):
+    """Token name opens our own page for the token; the small icons next to it open it on outside sites.
+    status (hype/tokenstatus row): the DexScreener icon opens the exact pair page; a token without a pair says so."""
     label = esc(sym) if sym else f"<code>{esc(short(mint))}</code>"
-    return f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena" translate=no>{label}</a> ' + copy_icon(mint) + ext_icons(mint)
+    url = (status or {}).get("pair_url") if status and status.get("has_pair") else None
+    dead = bool(status) and not status.get("has_pair")
+    return (f'<a href="/token/{quote(mint)}" title="Otvori stranicu tokena" translate=no>{label}</a> ' + copy_icon(mint)
+            + ext_icons(mint, url=url, dead=dead))
 
 
 _COPY_JS = ("var m=this.dataset.m,b=this;(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject())"
