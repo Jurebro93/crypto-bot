@@ -63,8 +63,8 @@
   "min_mcap": 30000,
   "min_liq": 15000,
   "horizon_h": 24,
-  "per_run_day": 300,
-  "per_run_night": 500,
+  "per_run_day": 500,
+  "per_run_night": 800,
   "night": [
    1,
    6
@@ -72,7 +72,8 @@
   "history_days": 180,
   "history_per_night": 1200,
   "kontrola_per_day": 40,
-  "max_points_per_source_day": 600
+  "max_points_per_source_day": 600,
+  "retry_young_h": 6
  },
  "_masovno": "5.11. (Nicholas: 10.000 nevidljivih tradeova dnevno): masovna sjenovita knjiga, learn/masovno.py. Točke iz filtera (bondao, trending, KOL poziv, praćeni novčanik, kontrola), noću 01-06 Zagreb i povijest (history_days unatrag, history_per_night točaka). per_run_day/night = GeckoTerminal poziva po prolazu (run_sched svakih 30 min; 2 poziva po tokenu)."
 }

@@ -82,7 +82,7 @@ class Sources:
                        for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
                                           (since,)) if _ok(m) and ts]
 
-            kols, veliki = [], []
+            kols, veliki, potvrdjen = [], [], []
             # 5.11.: big accounts (reach): followers + followed by proven KOLs, trial or not (bots never)
             from kol import reach as _reach
             fby = _reach.followed_by(kc) if kc is not None else {}
@@ -94,6 +94,10 @@ class Sources:
                     continue
                 if h not in bad:
                     kols.append((tok, int(ts), h, scores.get(h) or 0))
+                    # 7.11. retro (22.896 poziva): računi 20–100k pratitelja na tokenu 100k–1M uz volumen ≥ 3×
+                    # u satu poslije = 87 % dosegne +15 %, rug 4 %. Razred i volumen se provjeravaju pri cijeni.
+                    if 20_000 <= (foll.get(h) or 0) < 100_000 and h not in bots_only:
+                        potvrdjen.append((tok, int(ts), f"{h} ({(foll.get(h) or 0) // 1000}k pratitelja)", scores.get(h) or 0))
                 if h not in bots_only and _reach.is_big(foll.get(h), fby.get(h.lower(), 0), vcfg):
                     veliki.append((tok, int(ts), f"{h} ({foll.get(h, 0) // 1000}k, prate ga {fby.get(h.lower(), 0)})", foll.get(h, 0)))
             for h, ca, ts in _q(hc, "SELECT handle, ca, ts FROM kol_mentions WHERE ts >= ? AND ca != ''", (since,)):
@@ -155,7 +159,7 @@ class Sources:
         except Exception:  # noqa: BLE001
             self.insiders = set()
         return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
-                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa}
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa, "potvrdjen": potvrdjen}
 
 
 def mix(src, min_score, window_s):
