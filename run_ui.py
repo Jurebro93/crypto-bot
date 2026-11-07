@@ -415,6 +415,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=604800")
             self.end_headers()
             return self.wfile.write(body)
+        if path.startswith("/admin/export/"):   # 7.11.: read-only database copy for offline analysis (EXPORT_KEY)
+            return self._export(path[len("/admin/export/"):], qs)
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -583,6 +585,44 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
             code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
+
+    EXPORTABLE = ("kol.db", "strat.db", "shadow.db", "paper.db", "hype.db", "league.db", "wallets.db", "tg.db", "market.db")
+
+    def _export(self, name, qs):
+        """A consistent read-only copy of one database (sqlite backup API), gzipped. Needs EXPORT_KEY (env) in ?key=;
+        without the env the route does not exist. 7.11.: the retro analysis (what separates +15 % from losers) runs
+        offline on these copies instead of on the 2 GB server."""
+        import gzip
+        import sqlite3 as _sq
+        import tempfile
+        key = os.environ.get("EXPORT_KEY") or ""
+        if not key or not hmac.compare_digest(qs.get("key", ""), key) or name not in self.EXPORTABLE:
+            return self._send(404, b"nema", "text/plain")
+        src = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.abspath(__file__)), name)
+        if not os.path.exists(src):
+            return self._send(404, b"nema baze", "text/plain")
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        try:
+            a, b = _sq.connect(f"file:{src}?mode=ro", uri=True), _sq.connect(tmp.name)
+            with b:
+                a.backup(b, pages=4096)
+            a.close()
+            b.close()
+            with open(tmp.name, "rb") as f:
+                body = gzip.compress(f.read(), compresslevel=3)
+        finally:
+            try:
+                os.remove(tmp.name)
+            except OSError:
+                pass
+        self.send_response(200)
+        self.send_header("Content-Type", "application/gzip")
+        self.send_header("Content-Disposition", f'attachment; filename="{name}.gz"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        return self.wfile.write(body)
 
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""

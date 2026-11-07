@@ -24,7 +24,7 @@ import time
 
 from ops import disk
 
-APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "14"))
+APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "7"))   # 7.11.: 93 MB of raw JSON; a week is enough to re-read a run
 VACUUM_MAX_MB = float(os.environ.get("VACUUM_MAX_MB", "400"))
 SLIM_FEATURES_H = float(os.environ.get("SLIM_FEATURES_H", "24"))
 COMPACT_WASTE = float(os.environ.get("COMPACT_WASTE", "0.35"))   # a freshly packed file has ~10-25% slack
