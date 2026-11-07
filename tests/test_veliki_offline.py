@@ -24,7 +24,10 @@ class Veliki(unittest.TestCase):
     def test_exits_for_big_tokens(self):
         cfg = srun.load_config()
         ex = {"sl": -0.35, "stale_min": 45, "tp": [[1.0, 0.5]], "max_hold_h": 24}
-        self.assertEqual(srun.exits_for(cfg, ex, 120_000), ex)
+        small = srun.exits_for(cfg, ex, 120_000)        # 7.11.: small tokens sell half at +15 %, stop −25 %
+        self.assertEqual(small["tp"][0][0], 0.15)
+        self.assertEqual(small["sl"], -0.25)
+        self.assertEqual(small["stale_min"], 45)          # the "nothing happens" rule stays for small tokens
         big = srun.exits_for(cfg, ex, 2_500_000)
         self.assertIsNone(big["stale_min"])
         self.assertEqual(big["sl"], -0.2)
@@ -37,6 +40,16 @@ class Veliki(unittest.TestCase):
         self.assertIn('default=500e6', src)
         self.assertIn("_majors", src)
         self.assertIn("veliki", masovno.SOURCES)
+
+
+class KolPotvrdjen(unittest.TestCase):
+    def test_volume_confirmation_and_band(self):
+        cfg = srun.load_config()
+        self.assertFalse(srun.volume_confirmed((1, 50000, 2e5, "S", "u"), cfg))             # no volume data
+        self.assertFalse(srun.volume_confirmed((1, 50000, 2e5, "S", "u", 100, 12000), cfg))  # 5-min pace = hourly pace
+        self.assertTrue(srun.volume_confirmed((1, 50000, 2e5, "S", "u", 4000, 12000), cfg))  # 4000*12 = 48k >= 3*12k
+        self.assertEqual(cfg["alat_bands"]["kol_potvrdjen"], [100000, 1000000])
+        self.assertIn("kol_potvrdjen", srun.keys(cfg))
 
 
 if __name__ == "__main__":

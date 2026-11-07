@@ -37,6 +37,12 @@
    "opis": "Kupi na svjež poziv KOL-a na X-u ili Telegramu. Botovi, hakirani spam računi, prodavači grupa, dev-ovi i računi još na probi su izbačeni."
   },
   {
+   "key": "kol_potvrdjen",
+   "name": "KOL potvrđen",
+   "icon": "✅",
+   "opis": "Kupi na poziv X računa s 20–100k pratitelja na tokenu 100k–1M $, ali tek kad volumen u zadnjih 5 min teče barem 3× brže od satnog tempa (reakcija na poziv). Iz retra 7.11.: 87 % takvih dosegne +15 %, rug 4 %."
+  },
+  {
    "key": "alat_mali",
    "name": "Izbor alata: mali",
    "icon": "🎯",
@@ -113,6 +119,10 @@
   "alat_veliki": [
    1000000,
    null
+  ],
+  "kol_potvrdjen": [
+   100000,
+   1000000
   ]
  },
  "exits_veliki_from": 1000000,
@@ -133,5 +143,19 @@
   "stale_min": null,
   "max_hold_h": 24
  },
- "_exits_veliki": "6.11. (Jure): tokeni s 1M+ pri ulazu (alat_veliki, KOL pozivi velikih, novčanici): bez 'ništa se ne događa', stop -20%, ljestvica +15%/+30%, do 24 h. Mjeri se 'koliko puta ≥ +15%' (p15), ne najveći dobitak."
+ "_exits_veliki": "6.11. (Jure): tokeni s 1M+ pri ulazu (alat_veliki, KOL pozivi velikih, novčanici): bez 'ništa se ne događa', stop -20%, ljestvica +15%/+30%, do 24 h. Mjeri se 'koliko puta ≥ +15%' (p15), ne najveći dobitak.",
+ "potvrda_vol_x": 3.0,
+ "exits_mali": {
+  "sl": -0.25,
+  "tp": [
+   [
+    0.15,
+    0.5
+   ]
+  ],
+  "trail_after": 0.15,
+  "trail": 0.15,
+  "breakeven_after_tp": false
+ },
+ "_exits_mali": "7.11. retro: breakeven nakon TP-a zatvarao vrh +18 % na −5 %, prateći stop vrh +35 % na +14 %; za tokene < 1M pola se proda na +15 %, ostatak prateći 15 %, stop −25 %. Mjeri se kroz '≥ +15 %' na karticama (prije/poslije 7.11.)."
 }

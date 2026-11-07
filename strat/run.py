@@ -42,6 +42,14 @@ def exit_rules(now):
     return cfg
 
 
+def volume_confirmed(m, cfg):
+    """7.11.: the market tuple may carry (vol_m5, vol_h1) at [5], [6]; confirmed when the last 5 minutes run at
+    potvrda_vol_x times the hourly pace. Without volume data the signal is not confirmed."""
+    if len(m) < 7 or not m[6]:
+        return False
+    return (m[5] or 0) * 12 >= cfg.get("potvrda_vol_x", 3.0) * m[6]
+
+
 def exits_for(cfg, ex, entry_mcap):
     """Exit rules for one position: the main demo's, overridden by cfg["exits_veliki"] for tokens that entered at
     or above exits_veliki_from. 6.11. (Jure): a $1M+ token does not pump in 45 minutes or die; it needs hours,
@@ -49,6 +57,9 @@ def exits_for(cfg, ex, entry_mcap):
     big = cfg.get("exits_veliki")
     if big and (entry_mcap or 0) >= cfg.get("exits_veliki_from", 1_000_000):
         return {**ex, **big}
+    small = cfg.get("exits_mali")   # 7.11. retro: peaks of +18/+35 % closed at −5/+14 %; sell half into the spike
+    if small and entry_mcap and entry_mcap < cfg.get("exits_veliki_from", 1_000_000):
+        return {**ex, **small}
     return ex
 
 
@@ -141,6 +152,7 @@ def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
            "insajderi": src.get("insajderi", []),
            "ozbiljan_projekt": src.get("ozbiljni", []), "sumnjivi_socijali": src.get("sumnjivi", []),
            "veliki_racun": src.get("veliki", []), "ekipa": src.get("ekipa", []),
+           "kol_potvrdjen": src.get("potvrdjen", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:
@@ -270,6 +282,10 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "prevelik token"
                 elif not band_of(cfg, k, mcap):
                     reason = "drugi razred market capa"
+                elif k == "kol_potvrdjen" and not volume_confirmed(m, cfg):
+                    if now - seen <= cfg["max_delay_min"] * 60:
+                        continue   # the reaction may still come: keep the signal pending a few more minutes
+                    reason = "volumen nije potvrdio poziv"
                 elif cfg.get("cash_limit", True) and acc[k]["cash"] < cfg["min_size_usd"]:
                     reason = "nema novca na računu"
                 else:   # cash_limit false (Nicholas 4.11.: "neograničeno tradeova"): always the full stake, cash may go < 0
