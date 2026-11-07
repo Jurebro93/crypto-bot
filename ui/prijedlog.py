@@ -134,18 +134,26 @@ def kol_picks(now=None, n=3):
     except Exception:  # noqa: BLE001
         return []
     out = []
+    proven = []
     for k in kols:
         try:
             s = json.loads(k["stats"] or "{}")
         except ValueError:
             s = {}
-        if (s.get("measured") or 0) < 10 or (k["score"] or 0) < good:
-            continue
+        k = dict(k)
+        k["_s"] = s
+        if (s.get("measured") or 0) >= 5 and (k["score"] or 0) >= good:
+            proven.append(k)
+    # proven accounts first; with fewer than n of them, the best on trial with at least 3 measured calls fill in
+    rest = [k for k in kols if (dict(k).get("stats") and json.loads(k["stats"] or "{}").get("measured", 0) >= 3)
+            and k["handle"] not in {p["handle"] for p in proven}]
+    for k in list(proven) + [dict(x, _s=json.loads(x["stats"] or "{}"), _trial=True) for x in rest]:
+        s = k["_s"]
         last = data.q(_kol_db(), "SELECT token, symbol, ts, mcap0 FROM calls WHERE handle=? AND kind='call' "
                                    "ORDER BY ts DESC LIMIT 1", (k["handle"],))
         last = last[0] if last else None
         out.append({"handle": k["handle"], "score": k["score"], "followers": k["followers"], "hit": s.get("hit_rate"),
-                    "measured": s.get("measured"), "last": dict(last) if last else None,
+                    "measured": s.get("measured"), "last": dict(last) if last else None, "trial": bool(k.get("_trial")),
                     "fresh": bool(last and now - (last["ts"] or 0) <= MAX_AGE_S)})
         if len(out) >= n:
             break
@@ -170,6 +178,13 @@ def wallet_picks(now=None, n=2):
             pass
         out.append({"wallet": w["wallet"], "tier": r["tier"], "stats": w.get("stats") or {}, "last": last})
     return out
+
+
+def _tl(token, sym=None):
+    """Compact token link for the box (no icon row: the lists below have them)."""
+    from ui.html import short
+    from urllib.parse import quote
+    return f'<a href="/token/{quote(token)}" translate=no>{esc(sym) if sym else "<code>" + esc(short(token)) + "</code>"}</a>'
 
 
 def _chance_txt(c):
@@ -205,7 +220,7 @@ CSS = ("<style>.pdj{border:2px solid var(--acc);border-radius:14px;padding:12px 
 def _item(p, status=None):
     st = (status or {}).get(p["token"])
     why = "; ".join(esc(w) for w in p["why"]) or "ocjena alata i Šansa"
-    return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{tlink(p["token"], p["symbol"], st)}</b> '
+    return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
             f'na <b>{usd(p["mcap0"])[0]}</b> u trenutku analize · pouzdanost {p["conf"] or 0:.0f}'
             f'<span class=why><br>Zašto: {why}. {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
@@ -240,13 +255,14 @@ def box(kind, now=None, rows=None):
     elif kind == "influenceri":
         ks = kol_picks(now)
         if ks:
-            b.append("<p>Koga danas slušati (dokazani, 10+ izmjerenih poziva):</p><ol>")
+            b.append("<p>Koga danas slušati (dokazani prvi; „na probi” = dobar početak, još premalo izmjerenih poziva):</p><ol>")
             for k in ks:
                 l = k["last"]
-                lt = (f" Zadnji poziv: {tlink(l['token'], l.get('symbol'), status.get(l['token']))} na {usd(l.get('mcap0'))[0]} "
+                lt = (f" Zadnji poziv: {_tl(l['token'], l.get('symbol'))}" + (f" na {usd(l['mcap0'])[0]}" if l.get("mcap0") else "") + " "
                       f"prije {max(0, (now - (l['ts'] or now)) / 3600):.1f} h." if l else " Bez poziva u zadnje vrijeme.")
-                b.append(f'<li><b><a href="/kol/{esc(k["handle"])}">@{esc(k["handle"])}</a></b> · moć poziva {k["score"]:.0f}, '
-                         f'pogodak {(k["hit"] or 0):.0%} na {k["measured"]} poziva.{lt}'
+                b.append(f'<li><b><a href="/kol/{esc(k["handle"])}">@{esc(k["handle"])}</a></b>'
+                         + (' <span class="b warn">na probi</span>' if k.get("trial") else ' <span class="b good">dokazan</span>')
+                         + f' · moć poziva {k["score"]:.0f}, pogodak {(k["hit"] or 0):.0%} na {k["measured"]} poziva.{lt}'
                          + (f'<span class=why><br>Ulaz ima smisla samo ako je token još blizu cijene poziva; '
                             f'provjeri ispod.</span>' if l and k["fresh"] else "") + "</li>")
             b.append("</ol>")
@@ -264,7 +280,7 @@ def box(kind, now=None, rows=None):
                 l = w["last"]
                 b.append(f'<li><b>{wlink(w["wallet"])}</b> · pouzdanost {esc(w["tier"])}, {s.get("closed", 0)} zatvorenih, '
                          f'{(s.get("win_rate") or 0):.0%} dobitnih, {(s.get("closed_pnl_sol") or 0):+.1f} SOL ukupno.'
-                         + (f" Zadnja kupnja: {tlink(l['mint'], None, status.get(l['mint']))} prije "
+                         + (f" Zadnja kupnja: {_tl(l['mint'])} prije "
                             f"{max(0, (now - (l['ts'] or now)) / 3600):.1f} h." if l else "") + "</li>")
             b.append("</ol><p class=why>Ulog 20–50 $ po tradeu, najviše 3 otvorene, izlazi po pravilima bota.</p>")
         else:

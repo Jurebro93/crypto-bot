@@ -613,20 +613,32 @@ class Handler(BaseHTTPRequestHandler):
                 a.backup(b, pages=4096)
             a.close()
             b.close()
+            # 7.11.: streamed in 4 MB pieces; a 1.1 GB hype.db read whole into memory would take the 2 GB server down
+            import zlib
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}.gz"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            comp = zlib.compressobj(3, wbits=31)
             with open(tmp.name, "rb") as f:
-                body = gzip.compress(f.read(), compresslevel=3)
+                while True:
+                    piece = f.read(4 << 20)
+                    if not piece:
+                        break
+                    out = comp.compress(piece)
+                    if out:
+                        self.wfile.write(f"{len(out):x}\r\n".encode() + out + b"\r\n")
+            out = comp.flush()
+            if out:
+                self.wfile.write(f"{len(out):x}\r\n".encode() + out + b"\r\n")
+            self.wfile.write(b"0\r\n\r\n")
         finally:
             try:
                 os.remove(tmp.name)
             except OSError:
                 pass
-        self.send_response(200)
-        self.send_header("Content-Type", "application/gzip")
-        self.send_header("Content-Disposition", f'attachment; filename="{name}.gz"')
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        return self.wfile.write(body)
 
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""

@@ -36,7 +36,14 @@ class Export(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DATA_DIR": d, "EXPORT_KEY": "tajna"}):
             self.assertEqual(self._call("kol.db", {"key": "kriva"}).sent, [404])
             h = self._call("kol.db", {"key": "tajna"})
-            raw = gzip.decompress(h.wfile.getvalue())
+            body, data = h.wfile.getvalue(), b""
+            while body:   # chunked transfer: <hex size>\r\n<bytes>\r\n ... 0\r\n\r\n
+                n, _, body = body.partition(b"\r\n")
+                n = int(n, 16)
+                if n == 0:
+                    break
+                data, body = data + body[:n], body[n + 2:]
+            raw = gzip.decompress(data)
             self.assertTrue(raw.startswith(b"SQLite format 3"))
             self.assertEqual(self._call("secrets.db", {"key": "tajna"}).sent, [404])   # not on the list
         with mock.patch.dict(os.environ, {"DATA_DIR": d, "EXPORT_KEY": ""}):
