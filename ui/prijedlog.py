@@ -250,13 +250,21 @@ def _makro_line():
 
 
 JS = r"""
-<script>(()=>{const b=document.getElementById('pdj');if(!b)return;const items=[...b.querySelectorAll('[data-p]')];if(!items.length)return;
+<script>(()=>{let b=document.getElementById('pdj');if(!b)return;
+// 7.11. (Jure): the box rebuilds itself every 60 s from the server (fresh picks), the page need not reload
+async function reload(){try{const r=await fetch('/api/prijedlog?box='+encodeURIComponent(b.dataset.kind),{cache:'no-store'});if(!r.ok)return;
+ const t=document.createElement('div');t.innerHTML=await r.text();const nb=t.querySelector('#pdj');if(!nb)return;b.replaceWith(nb);b=nb;prices()}catch(e){}}
+function age(){const a=document.getElementById('pdj-age'),ts=+(b.dataset.ts||0);if(!a||!ts)return;const s=Math.round(Date.now()/1000-ts);
+ a.textContent=s<15?'osvježeno upravo sada':'osvježeno prije '+(s<60?s+' s':Math.round(s/60)+' min')}
+setInterval(age,5000);setInterval(reload,60000);
+function prices(){const items=[...b.querySelectorAll('[data-p]')];if(!items.length)return;
 const fmt=v=>v>=1e6?'$'+(v/1e6).toFixed(2)+'M':v>=1e3?'$'+(v/1e3).toFixed(1)+'k':'$'+Math.round(v);
 async function tick(){try{const q=items.map(e=>e.dataset.p).join(',');const r=await fetch('/api/prijedlog?t='+q,{cache:'no-store'});if(!r.ok)return;const j=await r.json();
 items.forEach(e=>{const m=j[e.dataset.p];const s=e.querySelector('.pnow');if(!s)return;if(!m||!m.mcap){s.textContent='(cijena trenutno nedostupna)';return}
 const x=m.mcap/(+e.dataset.m0||m.mcap);let t='sada '+fmt(m.mcap)+' ('+(x>=1?'+':'')+Math.round((x-1)*100)+'% od analize): ';
 if(x>=__PULL__){t+='⏳ pričekaj povlačenje, ne juri';s.className='pnow neg'}else if(x<=__DROP__){t+='⚠️ pada, ne ulazi dok se ne okrene';s.className='pnow neg'}else{t+='✅ još je u zoni ulaza';s.className='pnow pos'}s.textContent=t})}catch(e){}}
-tick();setInterval(tick,60000)})()</script>""".replace("__PULL__", str(PULL_X)).replace("__DROP__", str(DROP_X))
+tick()}
+prices();setInterval(()=>{if(!document.hidden)prices()},60000)})()</script>""".replace("__PULL__", str(PULL_X)).replace("__DROP__", str(DROP_X))
 
 CSS = ("<style>.pdj{border:2px solid var(--acc);border-radius:14px;padding:12px 14px;margin:8px 0 14px;background:var(--card)}"
        ".pdj h2{margin:0 0 6px;font-size:17px}.pdj .an{color:var(--mut);font-size:13px;margin:0 0 8px}"
@@ -292,8 +300,9 @@ def box(kind, now=None, rows=None):
     head = (f"Analizirao sam u zadnja 24 h: {an.get('tokena', 0)} tokena, {an.get('poziva', 0)} poziva od "
             f"{an.get('kolova', 0)} računa, {an.get('novcanika', 0)} ocijenjenih novčanika i {an.get('tradeova', 0)} "
             "demo tradeova strategija.")
-    b = [CSS, '<div class="pdj" id="pdj"><h2>Prijedlog za danas</h2>', f"<p class=an>{esc(head)}"
-         + (f" Tržište: {esc(mak)}" if mak else "") + "</p>"]
+    b = [CSS, f'<div class="pdj" id="pdj" data-kind="{esc(kind)}" data-ts="{int(now)}"><h2>Prijedlog za danas '
+         f'<small class=mut style="font-weight:400;font-size:12px" id=pdj-age>osvježeno upravo sada</small></h2>',
+         f"<p class=an>{esc(head)}" + (f" Tržište: {esc(mak)}" if mak else "") + "</p>"]
     if kind == "tokeni":
         if picks:
             b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; ulog po razini vjerojatnosti (visoka = prošao sve "
@@ -375,7 +384,12 @@ def box(kind, now=None, rows=None):
 
 
 def api(qs):
-    """/api/prijedlog?t=mint,mint → {mint: {mcap, price}} live from DexScreener (the page polls every minute)."""
+    """/api/prijedlog?t=mint,mint → {mint: {mcap, price}} live from DexScreener (the page polls every minute);
+    ?box=tokeni|influenceri|novcanici|pregled → the whole box rebuilt now (HTML, no script)."""
+    kind = qs.get("box")
+    if kind in ("tokeni", "influenceri", "novcanici", "pregled"):
+        html = box(kind)
+        return html.split("<script>")[0]
     toks = [t for t in (qs.get("t") or "").split(",") if t][:12]
     if not toks:
         return "{}"

@@ -50,6 +50,14 @@ class Prijedlog(unittest.TestCase):
     def test_api_without_tokens(self):
         self.assertEqual(prijedlog.api({}), "{}")
 
+    def test_box_refreshes_itself(self):
+        html = prijedlog.box("tokeni", rows=[])
+        self.assertIn('data-kind="tokeni"', html)
+        self.assertIn("setInterval(reload,60000)", html)
+        fresh = prijedlog.api({"box": "tokeni"})
+        self.assertIn('id="pdj"', fresh)
+        self.assertNotIn("<script>", fresh)
+
 
 if __name__ == "__main__":
     unittest.main()
