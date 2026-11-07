@@ -586,7 +586,8 @@ class Handler(BaseHTTPRequestHandler):
             code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
 
-    EXPORTABLE = ("kol.db", "strat.db", "shadow.db", "paper.db", "hype.db", "league.db", "wallets.db", "tg.db", "market.db")
+    EXPORTABLE = ("kol.db", "strat.db", "shadow.db", "paper.db", "hype.db", "league.db", "wallets.db", "tg.db", "market.db",
+                  "koltest.db", "watch.db", "dugo.db")
 
     def _export(self, name, qs):
         """A consistent read-only copy of one database (sqlite backup API), gzipped. Needs EXPORT_KEY (env) in ?key=;
