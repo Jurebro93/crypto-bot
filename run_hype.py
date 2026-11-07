@@ -673,7 +673,7 @@ def cmd_status(a):
     """7.11.: which listed tokens still have a DexScreener pair, the exact pair page, fresh market caps (hype/tokenstatus)."""
     import sqlite3 as _sq
     from hype import tokenstatus
-    con = _sq.connect(tokenstatus.HYPE_DB)
+    con = _sq.connect(tokenstatus.HYPE_DB, timeout=30)
     try:
         tokenstatus.refresh(con)
     finally:
