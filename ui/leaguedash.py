@@ -396,7 +396,7 @@ def chart_data(d):
     # 6.11.: a bad price reading (Filip's ZEC at 6730x, two snapshots on 4.11.) drew a $2.3M spike that squashed every
     # other line to the floor. Such points are left out of the line (the step line holds the value before the spike);
     # the red "?" mark still tells the story, sitting on the real value.
-    bad = {(j["user"], int(j["ts"])) for j in d.get("jumps") or [] if j.get("bad")}
+    bad = {(j["user"], int(t)) for j in d.get("jumps") or [] if j.get("bad") for t in (j.get("bad_ts") or [j["ts"]])}
     ser = [{"name": p["user"], "c": col[p["user"]],
             "pts": [[int(t), round(v, 2)] for t, v in p["pts"] if (p["user"], int(t)) not in bad]}
            for p in sorted(d["players"], key=lambda p: d["users"].index(p["user"]) if p["user"] in d["users"] else 99)]

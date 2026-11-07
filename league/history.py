@@ -17,6 +17,7 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS equity (ts INTEGER, user TEXT, equity REA
 CREATE INDEX IF NOT EXISTS equity_ts ON equity(ts);"""
 JUMP_SHARE = 0.25   # a move of the account this big between two snapshots gets a "?" on the chart ...
 JUMP_MIN_USD = 250  # ... and at least this many dollars
+JUMP_BACK_SNAPS = 4  # a jump undone within this many snapshots (~1 h) is a bad price reading, not a trade
 
 
 def _ensure(con):
@@ -141,9 +142,9 @@ def jumps(con, users=None, since=0):
             by.setdefault(u, []).append((ts, e, json.loads(d) if d else None))
     out = []
     for u, pts in by.items():
-        skip = None
+        skip = set()
         for i in range(1, len(pts)):
-            if i == skip:  # the drop back after a spike: explained by the spike's mark
+            if i in skip:  # the drop back after a spike: explained by the spike's mark
                 continue
             (t0, e0, d0), (t1, e1, d1) = pts[i - 1], pts[i]
             diff = e1 - e0
@@ -158,13 +159,19 @@ def jumps(con, users=None, since=0):
                     who = (f" Najviše se promijenila pozicija {k}: ${a:,.0f} → ${b:,.0f}"
                            + (f" (x{b / a:.1f})" if a and b and b > a else "") + "." if a is not None and b is not None
                            else f" Promjena dolazi od pozicije {k}.")
-            back = i + 1 < len(pts) and abs(pts[i + 1][1] - e0) < 0.3 * abs(diff)
+            # 7.11. (Jure: "je li istina da je račun skočio ovoliko?"): the 1.11. spike lasted 2-3 snapshots (pairless at
+            # 80x for 30-45 min), so "back in the next snapshot" missed it and the chart drew $8k. Now: back within
+            # JUMP_BACK_SNAPS snapshots counts, and every snapshot of the spike is left out of the line.
+            back_at = next((j for j in range(i + 1, min(i + 1 + JUMP_BACK_SNAPS, len(pts)))
+                            if abs(pts[j][1] - e0) < 0.3 * abs(diff)), None)
+            back = back_at is not None
+            bad_ts = [pts[j][0] for j in range(i, back_at)] if back else []
             if back:
-                skip = i + 1
+                skip.update(range(i + 1, back_at + 1))
             text = (f"Račun {'skočio' if diff > 0 else 'pao'} s ${e0:,.0f} na ${e1:,.0f} u 15 minuta.{who}"
                     + (" U idućem mjerenju vratio se natrag, pa je najvjerojatnije bila pogrešna cijena s "
                        "DexScreenera, a ne stvarni rast. Od 1.11. alat takve cijene sam prepoznaje i ne koristi."
                        if back else ""))
             out.append({"ts": t1, "user": u, "before": round(e0, 2), "after": round(e1, 2), "text": text,
-                        "bad": bool(back)})
+                        "bad": bool(back), "bad_ts": bad_ts})
     return sorted(out, key=lambda x: x["ts"])
