@@ -56,10 +56,11 @@ def wallets(qs):
         return "Novčanici", "<h1>Novčanici</h1>" + top + sw + act
     show_all = v == "svi"
     from ui import preporuka
-    try:   # 4.11.: the verdict first, the table after ("what do I do with this")
+    try:   # 4.11.: the verdict first, the table after ("what do I do with this"); 7.11.: folded under the new box
         box = preporuka.wallets_box(data.wallets(scored_only=True), preporuka.copies_from_strat())
     except Exception as e:  # noqa: BLE001
         box = f"<div class=card>Preporuka se trenutno ne može složiti ({esc(type(e).__name__)}).</div>"
+    box = f"<details class=more><summary>Detalji preporuke: uvjeti, ljestvica +15/+30/+50 %, drugi izbor</summary>{box}</details>"
     min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
     min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
