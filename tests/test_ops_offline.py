@@ -385,3 +385,20 @@ class HeavyPriorityTest(unittest.TestCase):
     def test_start_sh_gives_the_backfill_priority(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         self.assertIn("python3 -m ops.heavy --prio run_kol.py backfill", open(os.path.join(root, "start.sh")).read())
+
+
+class SchedLightTest(unittest.TestCase):
+    """7.11.: masovno (17 min of GeckoTerminal waiting per pass) runs outside the heavy lock; the others inside."""
+
+    def test_masovno_light_others_locked(self):
+        import run_sched
+        jobs = {j[0]: j for j in run_sched.JOBS}
+        self.assertTrue(jobs["masovno"][2][-1])
+        self.assertEqual(len(jobs["tokenstatus"][2]), 2)
+        with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
+            sr.return_value.returncode = 0
+            hr.return_value.returncode = 0
+            run_sched.run("masovno", ["run_learn.py", "masovno"], light=True)
+            self.assertEqual((sr.call_count, hr.call_count), (1, 0))
+            run_sched.run("tokenstatus", ["run_hype.py", "status"])
+            self.assertEqual((sr.call_count, hr.call_count), (1, 1))

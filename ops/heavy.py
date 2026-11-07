@@ -45,7 +45,8 @@ def holder():
 
 
 def _label(args):
-    return " ".join(os.path.basename(str(a)) for a in args if not str(a).startswith("/")) or "?"
+    """'run_learn.py masovno' for [python, /app/run_learn.py, masovno]: the interpreter dropped, paths shortened."""
+    return " ".join(os.path.basename(str(a)) for a in args if str(a) != sys.executable) or "?"
 
 
 @contextlib.contextmanager
