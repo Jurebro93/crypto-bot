@@ -18,6 +18,7 @@ CREATE INDEX IF NOT EXISTS equity_ts ON equity(ts);"""
 JUMP_SHARE = 0.25   # a move of the account this big between two snapshots gets a "?" on the chart ...
 JUMP_MIN_USD = 250  # ... and at least this many dollars
 JUMP_BACK_SNAPS = 4  # a jump undone within this many snapshots (~1 h) is a bad price reading, not a trade
+JUMP_FAKE_X = 20     # a position at this multiple in one 15-min snapshot that later comes back: bad whatever the length
 
 
 def _ensure(con):
@@ -162,8 +163,12 @@ def jumps(con, users=None, since=0):
             # 7.11. (Jure: "je li istina da je račun skočio ovoliko?"): the 1.11. spike lasted 2-3 snapshots (pairless at
             # 80x for 30-45 min), so "back in the next snapshot" missed it and the chart drew $8k. Now: back within
             # JUMP_BACK_SNAPS snapshots counts, and every snapshot of the spike is left out of the line.
-            back_at = next((j for j in range(i + 1, min(i + 1 + JUMP_BACK_SNAPS, len(pts)))
-                            if abs(pts[j][1] - e0) < 0.3 * abs(diff)), None)
+            # a single position at 20x+ in one snapshot (Mario 3.11.: AI x224 for 4 h) is a bad reading however long
+            # it lasts, so for those the search for the way back runs to the end of the series
+            k_x = max((d1.get(k, 0) / d0[k] for k in d0 if d0.get(k) and d1.get(k)), default=0) \
+                if d0 and d1 and diff > 0 else 0
+            horizon = len(pts) if k_x >= JUMP_FAKE_X else min(i + 1 + JUMP_BACK_SNAPS, len(pts))
+            back_at = next((j for j in range(i + 1, horizon) if abs(pts[j][1] - e0) < 0.3 * abs(diff)), None)
             back = back_at is not None
             bad_ts = [pts[j][0] for j in range(i, back_at)] if back else []
             if back:
