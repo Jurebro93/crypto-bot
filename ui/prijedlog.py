@@ -297,12 +297,19 @@ def box(kind, now=None, rows=None):
         status = {}
     picks = token_picks(now, rows=rows, status=status)
     mak = _makro_line()
+    rec = ""
+    try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)
+        from ui import prijedlog_log
+        prijedlog_log.log(data.HYPE_DB, picks, kind, now)
+        rec = prijedlog_log.sentence(prijedlog_log.summary(data.HYPE_DB, now=now))
+    except Exception:  # noqa: BLE001
+        pass
     head = (f"Analizirao sam u zadnja 24 h: {an.get('tokena', 0)} tokena, {an.get('poziva', 0)} poziva od "
             f"{an.get('kolova', 0)} računa, {an.get('novcanika', 0)} ocijenjenih novčanika i {an.get('tradeova', 0)} "
             "demo tradeova strategija.")
     b = [CSS, f'<div class="pdj" id="pdj" data-kind="{esc(kind)}" data-ts="{int(now)}"><h2>Prijedlog za danas '
          f'<small class=mut style="font-weight:400;font-size:12px" id=pdj-age>osvježeno upravo sada</small></h2>',
-         f"<p class=an>{esc(head)}" + (f" Tržište: {esc(mak)}" if mak else "") + "</p>"]
+         f"<p class=an>{esc(head)}" + (f" Tržište: {esc(mak)}" if mak else "") + (f" {esc(rec)}" if rec else "") + "</p>"]
     if kind == "tokeni":
         if picks:
             b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; ulog po razini vjerojatnosti (visoka = prošao sve "

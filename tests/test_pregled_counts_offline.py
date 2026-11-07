@@ -154,8 +154,9 @@ class WalletRecommendation(unittest.TestCase):
         html = preporuka.wallets_box(ws, {"DDDDDD": (4, 0.12, 31.0)})
         self.assertIn("pouzdanost visoka", html)
         self.assertIn("Što bih ja napravio:", html)
-        self.assertIn("Kopirao bih", html)
-        self.assertIn("50 $ po tradeu", html)                      # first pick has high confidence
+        self.assertIn("Pratio bih", html)                         # audit 7.11. D1: A has no demo copies yet
+        self.assertIn("probnim ulogom 10 $", html)
+        self.assertNotIn("Kopirao bih", html)
         self.assertIn("Kad je naš demo bot kupio isto što i on (4×", html)
         self.assertNotIn("EEEEEE", html)
         self.assertIn("(4 prolazi uvjete)", html)

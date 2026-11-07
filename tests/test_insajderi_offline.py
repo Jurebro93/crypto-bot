@@ -194,7 +194,7 @@ class Ladder(unittest.TestCase):
         w.commit(); w.close()
         h = sqlite3.connect(os.path.join(tmp, "hype.db"))
         h.execute("CREATE TABLE hype_snapshots (token TEXT, ts INTEGER, price REAL, mcap REAL, liquidity REAL, PRIMARY KEY (token, ts))")
-        paths = {"A": [1.0, 1.2, 1.1], "B": [1.0, 1.4, 1.6], "C": [1.0, 0.9, 0.8]}    # D: no snapshots
+        paths = {"A": [1.0, 1.2, 1.1], "B": [1.0, 0.7, 1.6], "C": [1.0, 0.9, 0.8]}    # D: no snapshots; B: stop first
         for mint, pxs in paths.items():
             for j, px in enumerate(pxs):
                 h.execute("INSERT INTO hype_snapshots VALUES (?,?,?,0,0)", (mint, NOW - 5 * H + j * 1200, px))
@@ -206,6 +206,8 @@ class Ladder(unittest.TestCase):
         self.assertAlmostEqual(l["med_max"], 0.2)
         s = preporuka.ladder_sentence(l)
         self.assertIn("od 3 kupnji koje možemo provjeriti cijenom (od 4 u 30 dana), 67% je dalo barem +15 %", s)
+        self.assertEqual(l["net15"], 0.33)                      # audit 7.11. D2: B touched +60 % only after −30 %
+        self.assertIn("stvarno dalo uzeti na 33% kupnji", s)
 
 
 if __name__ == "__main__":
