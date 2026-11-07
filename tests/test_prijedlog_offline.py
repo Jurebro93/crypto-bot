@@ -27,11 +27,14 @@ class Prijedlog(unittest.TestCase):
         self.assertEqual(p["mcap0"], 160_000)              # the fresh DexScreener number wins
         self.assertEqual(p["why"], ["KOL pozvao", "volumen raste"])
         self.assertEqual(p["chance"], (0.46, 5000))
-        # dead pair, stale, weak and rugged rows are not picks
+        self.assertEqual(p["razina"], "visoka")
+        # dead pair, rugged and very old rows are never picks; older or weaker ones come graded lower (Jure 7.11.)
         self.assertEqual(prijedlog.token_picks(rows=[self._row()], status={T: {"has_pair": 0}}, ch=ch), [])
-        self.assertEqual(prijedlog.token_picks(rows=[self._row(age=8 * 3600)], status={}, ch=ch), [])
-        self.assertEqual(prijedlog.token_picks(rows=[self._row(conf=10)], status={}, ch=ch), [])
         self.assertEqual(prijedlog.token_picks(rows=[self._row(hard=True)], status={}, ch=ch), [])
+        self.assertEqual(prijedlog.token_picks(rows=[self._row(age=30 * 3600)], status={}, ch=ch), [])
+        self.assertEqual(prijedlog.token_picks(rows=[self._row(age=8 * 3600)], status={}, ch=ch)[0]["razina"], "srednja")
+        self.assertEqual(prijedlog.token_picks(rows=[self._row(conf=25)], status={}, ch=ch)[0]["razina"], "niska")
+        self.assertEqual(prijedlog.token_picks(rows=[self._row(conf=10)], status={}, ch=ch), [])
 
     def test_box_and_live_rule(self):
         html = prijedlog.box("tokeni", rows=[self._row()])

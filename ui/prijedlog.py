@@ -82,9 +82,10 @@ def analysed(now=None):
 
 
 def token_picks(now=None, n=3, rows=None, status=None, ch=None):
-    """Up to n tokens to enter now: fresh (<= MAX_AGE_S), relevant, still with a pair, best Šansa/confidence first.
-    Each: token, symbol, mcap0 (at analysis), ts0, conf, why (list), chance (share of similar calls that reached
-    +30 % in 24 h), band."""
+    """Up to n tokens to enter now, best Šansa/confidence first. Jure 7.11.: "danas ništa" is useless, so the
+    picks are graded instead of hidden: 'visoka' = passes every filter and is fresh (<= 6 h); 'srednja' = passes
+    but is older (<= 24 h); 'niska' = below the confidence bar but not rugged, with a live pair. The stake shrinks
+    with the grade. Each: token, symbol, mcap0 (at analysis), ts0, conf, why (list), chance, band, razina."""
     from ui import overview
     now = now or time.time()
     rows = rows if rows is not None else overview.token_rows()
@@ -96,15 +97,33 @@ def token_picks(now=None, n=3, rows=None, status=None, ch=None):
             status = {}
     ch = ch if ch is not None else chances()
     out = []
-    for r in sorted(rows, key=overview._rank, reverse=True):
-        if not overview.relevant(r) or now - (r["last_seen"] or 0) > MAX_AGE_S:
-            continue
+    ranked = sorted(rows, key=overview._rank, reverse=True)
+    for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= MAX_AGE_S),
+                       ("srednja", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= 24 * 3600),
+                       ("niska", lambda r: not overview.bad(r) and (r.get("conf") or 0) >= 20
+                        and now - (r["last_seen"] or 0) <= 24 * 3600)):
+        for r in ranked:
+            if len(out) >= n:
+                break
+            if any(p["token"] == r["token"] for p in out) or not ok(r):
+                continue
+            p = _pick(r, status, ch, now)
+            if p:
+                p["razina"] = razina
+                out.append(p)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _pick(r, status, ch, now):
+    if True:
         st = status.get(r["token"])
         if st and not st.get("has_pair"):
-            continue
+            return None
         mcap = (st or {}).get("mcap") or r.get("mcap")
         if not mcap or mcap < 30_000:
-            continue
+            return None
         try:
             from ui.radar import reasons
             why = reasons(r["features"], r["det"])[:3]
@@ -113,11 +132,8 @@ def token_picks(now=None, n=3, rows=None, status=None, ch=None):
         if not why:
             why = [t for p, t in r.get("conf_parts") or [] if p > 0][:3]
         b = _band(mcap)
-        out.append({"token": r["token"], "symbol": r["symbol"], "mcap0": mcap, "ts0": int(r["last_seen"] or now),
-                    "conf": r.get("conf"), "why": why, "band": b, "chance": ch.get(b)})
-        if len(out) >= n:
-            break
-    return out
+        return {"token": r["token"], "symbol": r["symbol"], "mcap0": mcap, "ts0": int(r["last_seen"] or now),
+                "conf": r.get("conf"), "why": why, "band": b, "chance": ch.get(b)}
 
 
 def kol_picks(now=None, n=3):
@@ -167,6 +183,14 @@ def wallet_picks(now=None, n=2):
         ranked = preporuka.rank_wallets(data.wallets(scored_only=True), preporuka.copies_from_strat())
     except Exception:  # noqa: BLE001
         return []
+    if not ranked:   # nobody passes the copy bar: the best by closed trades and win rate, graded 'niska'
+        try:
+            ws = [w for w in data.wallets(scored_only=True) if (w.get("stats") or {}).get("closed", 0) >= 3
+                  and (w.get("stats") or {}).get("closed_pnl_sol", 0) > 0]
+            ws.sort(key=lambda w: (-(w["stats"].get("win_rate") or 0), -(w["stats"].get("closed") or 0)))
+            ranked = [(w, {"tier": "niska"}) for w in ws[:n]]
+        except Exception:  # noqa: BLE001
+            ranked = []
     out = []
     for w, r in ranked[:n]:
         last = None
@@ -244,7 +268,11 @@ CSS = ("<style>.pdj{border:2px solid var(--acc);border-radius:14px;padding:12px 
 def _item(p, status=None):
     st = (status or {}).get(p["token"])
     why = "; ".join(esc(w) for w in p["why"]) or "ocjena alata i Šansa"
+    raz = p.get("razina") or "visoka"
+    cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}[raz]
+    stake = {"visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}[raz]
     return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
+            f'<span class="b {cls}">vjerojatnost {raz}</span> ulog {stake} · '
             f'na <b>{usd(p["mcap0"])[0]}</b> u trenutku analize · pouzdanost {p["conf"] or 0:.0f}'
             f'<span class=why><br>Zašto: {why}. {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
@@ -268,14 +296,15 @@ def box(kind, now=None, rows=None):
          + (f" Tržište: {esc(mak)}" if mak else "") + "</p>"]
     if kind == "tokeni":
         if picks:
-            b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada, s ulogom koji smiješ izgubiti (demo: 25–50 $):</p><ol>"
+            b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; ulog po razini vjerojatnosti (visoka = prošao sve "
+                     "filtre i svjež, srednja = prošao ali stariji od 6 h, niska = ispod praga pouzdanosti, samo mali ulog):</p><ol>"
                      + "".join(_item(p, status) for p in picks) + "</ol>")
             b.append("<p class=why>Pravilo: cijena ispod označava je li token još u zoni ulaza. Ako je otišao više od 25 % "
                      "od analize, ne juri ga; pričekaj povlačenje ili sljedeći prijedlog. Izlaz: pola na +15 %, ostatak "
                      "s pratećim stopom 15 %, stop −25 %.</p>")
         else:
-            b.append("<p>Trenutno <b>ne bih ulazio ni u što</b>: nijedan svjež token nije prošao filtar (pouzdanost, "
-                     "rug provjera, živ par). To je isto odluka; novi prijedlog čim ga podaci daju.</p>")
+            b.append("<p>Trenutno <b>nema nijednog tokena sa živim parom koji nije rug</b> u zadnja 24 h; novi prijedlog "
+                     "čim ga podaci daju (sken ide svake 2 minute).</p>")
     elif kind == "influenceri":
         ks = kol_picks(now)
         if ks:
@@ -298,7 +327,7 @@ def box(kind, now=None, rows=None):
     elif kind == "novcanici":
         ws = wallet_picks(now)
         if ws:
-            b.append("<p>Koga danas kopirati:</p><ol>")
+            b.append("<p>Koga danas kopirati (visoka/srednja = prošao uvjete kopiranja, niska = najbolji dostupni, još ispod praga, mali ulog):</p><ol>")
             for w in ws:
                 s = w["stats"]
                 l = w["last"]
@@ -308,8 +337,8 @@ def box(kind, now=None, rows=None):
                             f"{max(0, (now - (l['ts'] or now)) / 3600):.1f} h." if l else "") + "</li>")
             b.append("</ol><p class=why>Ulog 20–50 $ po tradeu, najviše 3 otvorene, izlazi po pravilima bota.</p>")
         else:
-            b.append("<p>Danas <b>ne bih kopirao nikoga</b>: nitko nema dovoljno zatvorenih tradeova u plusu uz razumno "
-                     "držanje. Tablice ispod su za one koji žele kopati sami.</p>")
+            b.append("<p>Još <b>nijedan novčanik nema ni 3 zatvorena tradea u plusu</b>; čim ga ima, piše ovdje s razinom "
+                     "vjerojatnosti. Tablice ispod su za one koji žele kopati sami.</p>")
         if picks:
             b.append("<p>Tokeni koje bih uzeo sada:</p><ol>" + "".join(_item(p, status) for p in picks[:2]) + "</ol>")
     elif kind == "pregled":
@@ -318,8 +347,7 @@ def box(kind, now=None, rows=None):
             parts.append("<p><b>U ovom trenutku bih uložio</b> u ove tokene (demo 25–50 $ po tokenu):</p><ol>"
                          + "".join(_item(p, status) for p in picks) + "</ol>")
         else:
-            parts.append("<p><b>U ovom trenutku ne bih ulazio ni u jedan token</b>: nijedan svjež nije prošao filtar "
-                         "(pouzdanost, rug provjera, živ par).</p>")
+            parts.append("<p><b>U ovom trenutku nema tokena sa živim parom koji nije rug</b> u zadnja 24 h.</p>")
         ws = wallet_picks(now, n=1)
         if ws:
             w, st_ = ws[0], ws[0]["stats"]
@@ -327,7 +355,7 @@ def box(kind, now=None, rows=None):
                          f"{st_.get('closed', 0)} zatvorenih, {(st_.get('win_rate') or 0):.0%} dobitnih) i kopirao njegove kupnje "
                          "unutar 2 minute, 20–50 $ po tradeu.</p>")
         else:
-            parts.append("<p><b>Novčanike još ne bih kopirao</b>: nijedan nema dovoljno zatvorenih tradeova u plusu.</p>")
+            parts.append("<p><b>Novčanici:</b> još nijedan nema ni 3 zatvorena tradea u plusu; čim ga ima, piše ovdje.</p>")
         g = group_pick()
         if g:
             mem = ", ".join(f'<a href="/kol/{esc(h)}">@{esc(h)}</a>' for h in g["members"])
