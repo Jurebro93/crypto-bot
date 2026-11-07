@@ -157,7 +157,9 @@ JOBS = [
     ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
     ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
     # 7.11.: token status (DexScreener pair still there? exact pair page, fresh mcap, GeckoTerminal fallback)
-    ("tokenstatus", every, (["run_hype.py", "status"], float(os.environ.get("TOKENSTATUS_EVERY_MIN", "360")))),
+    # light too (11:00): 30 DexScreener calls + up to 120 GeckoTerminal lookups; behind the KOL round it waited 12+ min
+    # and never ran all morning. GeckoTerminal 429s are a shared cross-process cooldown (event_calendar/http).
+    ("tokenstatus", every, (["run_hype.py", "status"], float(os.environ.get("TOKENSTATUS_EVERY_MIN", "360")), True)),
 ]
 
 
