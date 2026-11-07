@@ -74,7 +74,7 @@ if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PO
   done
 ) &
 
-# wallet registry: every WALLETS_EVERY_H hours (default 6) pull wallets from all analyses, then score the queue.
+# wallet registry: every WALLETS_EVERY_H hours (default 3) pull wallets from all analyses, then score the queue.
 # score stops at --credits per run and at WALLET_CREDIT_SHARE of the monthly Helius credits (default 15% = 1.5M)
 (
   sleep 600   # let the first hype learn finish so its smart wallets are imported
@@ -82,7 +82,7 @@ if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PO
     python3 -m ops.heavy run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
     python3 -m ops.heavy run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-12000}" --max 1000 >/dev/null || echo "wallets score nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
-    sleep $(( ${WALLETS_EVERY_H:-6} * 3600 ))
+    sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))   # 7.11. (Jure): fresher copy list; the credit share cap still holds
   done
 ) &
 

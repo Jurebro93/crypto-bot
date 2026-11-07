@@ -43,6 +43,12 @@
    "opis": "Kupi na poziv X računa s 20–100k pratitelja na tokenu 100k–1M $, ali tek kad volumen u zadnjih 5 min teče barem 3× brže od satnog tempa (reakcija na poziv). Iz retra 7.11.: 87 % takvih dosegne +15 %, rug 4 %."
   },
   {
+   "key": "tg_poziv",
+   "name": "Telegram poziv",
+   "icon": "📨",
+   "opis": "Kupi na svjež poziv (CA) iz praćenih Telegram kanala, bez X-a. Retro 7.11.: Telegram daje 4× više poziva od X-a, besplatno, 52 % dosegne +15 % i 35 % dosegne +50 % u 24 h."
+  },
+  {
    "key": "alat_mali",
    "name": "Izbor alata: mali",
    "icon": "🎯",
@@ -157,5 +163,10 @@
   "trail": 0.15,
   "breakeven_after_tp": false
  },
- "_exits_mali": "7.11. retro: breakeven nakon TP-a zatvarao vrh +18 % na −5 %, prateći stop vrh +35 % na +14 %; za tokene < 1M pola se proda na +15 %, ostatak prateći 15 %, stop −25 %. Mjeri se kroz '≥ +15 %' na karticama (prije/poslije 7.11.)."
+ "_exits_mali": "7.11. retro: breakeven nakon TP-a zatvarao vrh +18 % na −5 %, prateći stop vrh +35 % na +14 %; za tokene < 1M pola se proda na +15 %, ostatak prateći 15 %, stop −25 %. Mjeri se kroz '≥ +15 %' na karticama (prije/poslije 7.11.).",
+ "exits_makro": {
+  "sl": -0.5,
+  "stale_min": null
+ },
+ "_exits_makro": "7.11. (Jure 5.11.): dok BTC pada (market/makro 'pada', zadnja 3 h), stop se širi na −50 % i 'ništa se ne događa' se pauzira, da pad s tržištem ne ubije poziciju prije oporavka."
 }

@@ -112,7 +112,13 @@ def page(qs, view="novi"):
     event = [r for r in rows if r["events"] and not overview.bad(r)]
 
     st = _status()
-    b = ["<h1>Tokeni</h1>", HELLO, switch("/tokens"), f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}</div>",
+    try:   # 7.11. (Jure): first what the tool concluded and where to put money today; the lists after
+        from ui import prijedlog
+        top = prijedlog.box("tokeni", now, rows=rows)
+    except Exception as e:  # noqa: BLE001
+        print(f"tokeni: prijedlog: {type(e).__name__}: {e}")
+        top = ""
+    b = ["<h1>Tokeni</h1>", top, HELLO, switch("/tokens"), f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}</div>",
          _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.", st)]
 
     from hype.tokenstatus import market_cell

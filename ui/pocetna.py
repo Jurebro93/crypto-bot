@@ -420,6 +420,11 @@ def links_html():
 def page(qs=None):
     now = time.time()
     b = [CSS, "<h1>Pregled</h1>"]
+    try:   # 7.11. (Jure): "u ovom trenutku bih uložio…": tokens, wallet, crew, expected return and exit
+        from ui import prijedlog
+        b.append(prijedlog.box("pregled", now))
+    except Exception as e:  # noqa: BLE001
+        print(f"pregled: prijedlog: {type(e).__name__}: {e}")
     t = time.time()
     b.append(strategy_html(now))
     t = data.stage("/pregled strategije", t)

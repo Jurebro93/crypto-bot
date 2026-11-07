@@ -59,8 +59,23 @@ def exits_for(cfg, ex, entry_mcap):
         return {**ex, **big}
     small = cfg.get("exits_mali")   # 7.11. retro: peaks of +18/+35 % closed at −5/+14 %; sell half into the spike
     if small and entry_mcap and entry_mcap < cfg.get("exits_veliki_from", 1_000_000):
-        return {**ex, **small}
-    return ex
+        ex = {**ex, **small}
+    return makro_guard(cfg, ex)
+
+
+def makro_guard(cfg, ex, falling=None):
+    """Jure 5.11.: a token that falls with the whole market (BTC −5 %) is not a bad token. While BTC is in 'pada',
+    the stop widens and the 'nothing happens' exit pauses (cfg exits_makro); positions are held for the recovery."""
+    g = cfg.get("exits_makro")
+    if not g:
+        return ex
+    if falling is None:
+        try:
+            from market import makro
+            falling = makro.falling()
+        except Exception:  # noqa: BLE001
+            falling = False
+    return {**ex, **g} if falling else ex
 
 
 def market(tokens):
@@ -152,7 +167,7 @@ def wanted(src, cfg, now, last_random, out_wallets=(), top_wallets=None):
            "insajderi": src.get("insajderi", []),
            "ozbiljan_projekt": src.get("ozbiljni", []), "sumnjivi_socijali": src.get("sumnjivi", []),
            "veliki_racun": src.get("veliki", []), "ekipa": src.get("ekipa", []),
-           "kol_potvrdjen": src.get("potvrdjen", []),
+           "kol_potvrdjen": src.get("potvrdjen", []), "tg_poziv": src.get("tg", []),
            "mix": signals.mix(src, _paper_min_score(), cfg["mix_window_min"] * 60),
            "kontrola": signals.random_pick(src, now, last_random, cfg["kontrola_every_min"] * 60)}
     for k in cfg.get("alat_bands") or {}:

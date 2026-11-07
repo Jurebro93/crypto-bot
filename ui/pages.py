@@ -37,22 +37,30 @@ def _sym_map():
 def wallets(qs):
     """Novčanici: Aktivnost (who just bought or sold) · Za kopiranje (the copy list) · Svi (every scored wallet)."""
     from ui.html import seg
-    v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista" if qs.get("only") == "list" else "")
-    sw = seg([("/wallets", "Aktivnost"), ("/wallets?v=lista", "Za kopiranje"), ("/wallets?v=svi", "Svi")],
-             "/wallets" + (f"?v={v}" if v else ""))
-    if not v:
+    # 7.11. (Jure): the copy list with its verdict opens first; the raw activity feed (addresses) goes last
+    v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista")
+    sw = seg([("/wallets", "Za kopiranje"), ("/wallets?v=svi", "Svi"), ("/wallets?v=aktivnost", "Aktivnost")],
+             "/wallets" + (f"?v={v}" if v != "lista" else ""))
+    try:   # 7.11. (Jure): the verdict and today's picks first on every view
+        from ui import prijedlog
+        top = prijedlog.box("novcanici")
+    except Exception as e:  # noqa: BLE001
+        print(f"novčanici: prijedlog: {type(e).__name__}: {e}")
+        top = ""
+    if v == "aktivnost":
         from ui import core
         try:
             act = core.wallet_block(n=40, hours=48)
         except Exception as e:  # noqa: BLE001 - a broken block must not take the page down
             act = f"<div class=card>Aktivnost se trenutno ne može prikazati ({esc(type(e).__name__)}).</div>"
-        return "Novčanici", "<h1>Novčanici</h1>" + sw + act
+        return "Novčanici", "<h1>Novčanici</h1>" + top + sw + act
     show_all = v == "svi"
     from ui import preporuka
-    try:   # 4.11.: the verdict first, the table after ("what do I do with this")
+    try:   # 4.11.: the verdict first, the table after ("what do I do with this"); 7.11.: folded under the new box
         box = preporuka.wallets_box(data.wallets(scored_only=True), preporuka.copies_from_strat())
     except Exception as e:  # noqa: BLE001
         box = f"<div class=card>Preporuka se trenutno ne može složiti ({esc(type(e).__name__)}).</div>"
+    box = f"<details class=more><summary>Detalji preporuke: uvjeti, ljestvica +15/+30/+50 %, drugi izbor</summary>{box}</details>"
     min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
     min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
@@ -96,7 +104,7 @@ def wallets(qs):
     run = (f'<form id=run method=post action=/run/wallets class="flt adm-only"><button {"disabled" if since else ""}>'
            f'Ocijeni novčanike sada</button> <span class=mut>{esc(state)}</span></form>'
            + (f"<details class=adm-only><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
-    return "Novčanici", ("<h1>Novčanici</h1>" + sw + box + form
+    return "Novčanici", ("<h1>Novčanici</h1>" + top + sw + box + form
                          + table(head, rows, "wt", "Još nema novčanika. Bot ih skuplja sam svakih 6 h.") + run)
 
 

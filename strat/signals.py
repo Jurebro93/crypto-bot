@@ -82,7 +82,7 @@ class Sources:
                        for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
                                           (since,)) if _ok(m) and ts]
 
-            kols, veliki, potvrdjen = [], [], []
+            kols, veliki, potvrdjen, tg = [], [], [], []
             # 5.11.: big accounts (reach): followers + followed by proven KOLs, trial or not (bots never)
             from kol import reach as _reach
             fby = _reach.followed_by(kc) if kc is not None else {}
@@ -110,7 +110,9 @@ class Sources:
                     continue
                 for ca in (cas or "").split(","):
                     kols.append((ca, int(ts), h, scores.get(h) or 0))
+                    tg.append((ca, int(ts), h, scores.get(h) or 0))   # 7.11.: Telegram alone (free, 4x the X volume)
             kols = [k for k in kols if _ok(k[0]) and k[1]]
+            tg = [k for k in tg if _ok(k[0]) and k[1]]
 
             tool = []
             for tok, ts, cfg in _q(pc, "SELECT token, opened_ts, config FROM trades WHERE opened_ts >= ?", (since,)):
@@ -159,7 +161,8 @@ class Sources:
         except Exception:  # noqa: BLE001
             self.insiders = set()
         return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
-                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa, "potvrdjen": potvrdjen}
+                "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa, "potvrdjen": potvrdjen,
+                "tg": tg}
 
 
 def mix(src, min_score, window_s):
