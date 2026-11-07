@@ -358,7 +358,7 @@ def build_in_child(path):
     from ops import heavy
     try:
         # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory), then goes
-        with heavy.slot(wait=60):
+        with heavy.slot(wait=60, label="gradnja stranice"):
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
                                timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
         for ln in r.stderr.decode(errors="replace").splitlines():

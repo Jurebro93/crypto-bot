@@ -161,7 +161,7 @@ def full_check(con, mint, now):
         return have
     con.commit()
     from ops import heavy
-    with heavy.slot(wait=0) as got:   # the full check pulls many transactions: never on top of another heavy job
+    with heavy.slot(wait=0, label="topcheck") as got:   # the full check pulls many transactions: never on top of another heavy job
         if not got:
             return have
         try:
