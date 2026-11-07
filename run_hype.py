@@ -669,6 +669,17 @@ def auto_winners(min_mcap=1e6, max_days=7):
     return sorted(best, key=lambda t: -best[t])
 
 
+def cmd_status(a):
+    """7.11.: which listed tokens still have a DexScreener pair, the exact pair page, fresh market caps (hype/tokenstatus)."""
+    import sqlite3 as _sq
+    from hype import tokenstatus
+    con = _sq.connect(tokenstatus.HYPE_DB)
+    try:
+        tokenstatus.refresh(con)
+    finally:
+        con.close()
+
+
 def cmd_kol(a):
     """Start or stop the X KOL monitor (Apify xquik). Each account costs ~$3.24/month while it runs; the tweets
     arrive at run_ui.py's /hook/kol and feed the kol_x signal. Needs a daily budget for kol_monitor in apify.json."""
@@ -765,9 +776,10 @@ def main(argv=None):
     l.add_argument("--max-wallets", type=int, default=25, help="Helius budget: ~3 calls per wallet")
     l.add_argument("--pages", type=int, default=2)
     l.add_argument("--skip-first-secs", type=int, default=3)
+    sub.add_parser("status", help="DexScreener pair / fresh mcap / GeckoTerminal fallback for every listed token")
     a = p.parse_args(argv)
     {"scan": cmd_scan, "watch": cmd_watch, "track": cmd_track, "eval": cmd_eval, "wallet": cmd_wallet,
-     "buyers": cmd_buyers, "learn": cmd_learn, "kol": cmd_kol}[a.cmd](a)
+     "buyers": cmd_buyers, "learn": cmd_learn, "kol": cmd_kol, "status": cmd_status}[a.cmd](a)
     return 0
 
 

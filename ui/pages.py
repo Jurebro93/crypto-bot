@@ -335,8 +335,18 @@ def token(mint, qs):
     sym = sym or dsym
     # top to bottom: name + Šansa, rug warnings, one-sentence verdict, Za / Protiv, copy, outside sites; then the
     # layers behind taps; the Natjecanje buy box (bonus) last
+    try:   # 7.11.: the exact pair page, or "no pair any more" (hype/tokenstatus)
+        from hype import tokenstatus as _ts
+        st = _ts.read(data.HYPE_DB).get(mint)
+    except Exception:  # noqa: BLE001
+        st = None
+    if st and st.get("has_pair") and st.get("pair_url"):
+        url = st["pair_url"]
+    dead_note = ("<p class=mut>DexScreener više nema par za ovaj token (nema trgovanja). "
+                 + (f"GeckoTerminal: vrijednost ${st['gt_fdv']:,.0f}, promet 24 h ${st.get('gt_vol24') or 0:,.0f}." if st.get("gt_fdv") else "")
+                 + "</p>") if st and not st.get("has_pair") else ""
     actions = (f"<p>{quickbuy.copy_btn(mint, label='Kopiraj adresu ' + short(mint), big=True)}</p>"
-               f"<div class=ext-big>{ext_icons(mint, url)}</div>")
+               f"<div class=ext-big>{ext_icons(mint, url, dead=bool(st) and not st.get('has_pair'))}</div>{dead_note}")
     b = [_league._err(qs) + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
     natj = ""
     locked = None

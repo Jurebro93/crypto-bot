@@ -24,12 +24,26 @@ def _checks(r):
     return " ".join(badge(("✓ " if ok else "✗ ") + lab, "good" if ok else "bad") for lab, ok, _ in r["checks"] if ok is not None)
 
 
-def _main_table(rows, tid, empty):
+def _status():
+    """7.11.: hype/tokenstatus rows: exact pair page, dead tokens, fresh market caps."""
+    try:
+        from hype import tokenstatus
+        from ui import data as _d
+        return tokenstatus.read(_d.HYPE_DB)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _main_table(rows, tid, empty, st=None):
     from ui import confidence
+    from hype.tokenstatus import market_cell
+    st = st if st is not None else _status()
     return table(["Token", ("Confidence", "n"), ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), "Rug", "Zadnje"],
-                 [[tlink(r["token"], r["symbol"]), (confidence.badge_html(r["conf"]), r["conf"], "n"),
-                   usd(r["mcap"]), usd(r["liq"]), (_why(r), "", "wrap"), rugcell(r),
-                   ago(r["last_seen"])] for r in rows], tid, empty, mints=[r["token"] for r in rows])
+                 [[tlink(r["token"], r["symbol"], st.get(r["token"])), (confidence.badge_html(r["conf"]), r["conf"], "n"),
+                   market_cell(st.get(r["token"]), r["mcap"]),
+                   usd((st.get(r["token"]) or {}).get("liq") if (st.get(r["token"]) or {}).get("has_pair") else r["liq"]),
+                   (_why(r), "", "wrap"), rugcell(r), ago(r["last_seen"])] for r in rows], tid, empty,
+                 mints=[r["token"] for r in rows])
 
 
 def _strong(n=5):
@@ -97,17 +111,20 @@ def page(qs, view="novi"):
     older = [r for r in good if r["last_seen"] < now - ACTIVE_H * 3600]
     event = [r for r in rows if r["events"] and not overview.bad(r)]
 
+    st = _status()
     b = ["<h1>Tokeni</h1>", HELLO, switch("/tokens"), f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}</div>",
-         _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.")]
+         _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.", st)]
 
+    from hype.tokenstatus import market_cell
     erows = []
     for r in event:
         for e in r["events"]:
-            erows.append([tlink(r["token"], r["symbol"]), (f"{esc(e['event'])}", e["event"], "wrap"), esc(e["event_date"]),
+            s_ = st.get(r["token"])
+            erows.append([tlink(r["token"], r["symbol"], s_), (f"{esc(e['event'])}", e["event"], "wrap"), esc(e["event_date"]),
                           badge("pravi", "good") if e["role"] == "canonical" else badge("kopija"),
                           scorecell(e["score"]), (overview.confidence.badge_html(r["conf"]), r["conf"], "n"),
-                          rugcell(r), usd(e["mcap"]),
-                          usd(e["liquidity"])])
+                          rugcell(r), market_cell(s_, e["mcap"]),
+                          usd(s_["liq"] if s_ and s_.get("has_pair") else e["liquidity"])])
     if erows:
         b.append(f"<details style='margin-top:18px'><summary>Uz evente ({len(erows)})</summary>"
                  + table(["Token", ("Event", "wrap"), "Datum", "Uloga", ("Event ocjena", "n"), ("Confidence", "n"), "Rug",
@@ -115,6 +132,6 @@ def page(qs, view="novi"):
                          mints=[r["token"] for r in event for _ in r["events"]]) + "</details>")
     if older:
         b.append(f"<details style='margin-top:10px'><summary>Stariji, nisu viđeni u zadnja {ACTIVE_H} h ({len(older)})"
-                 f"</summary>{_main_table(older, 'to', 'Nema.')}</details>")
+                 f"</summary>{_main_table(older, 'to', 'Nema.', st)}</details>")
     b.append(modal())
     return "Tokeni", "".join(b)
