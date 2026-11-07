@@ -129,19 +129,26 @@ def refresh(con, now=None, tokens=None, dex=None, gt=None, log=print):
     return len(toks), len(found), n_gt
 
 
-def read(path=None):
-    """{token: row dict} for the pages; {} when the table does not exist yet."""
-    try:
-        con = sqlite3.connect(f"file:{path or HYPE_DB}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return {}
-    try:
-        con.row_factory = sqlite3.Row
-        return {r["token"]: dict(r) for r in con.execute("SELECT * FROM token_status")}
-    except sqlite3.Error:
-        return {}
-    finally:
-        con.close()
+def read(path=None, log=print):
+    """{token: row dict} for the pages; {} when the table does not exist yet. 7.11. 11:50: a /tokens build during the
+    status job's writes got {} and drew every token as alive, silently; now three tries 2 s apart, and the failure
+    is logged, so the pages say why a dead token looks alive."""
+    last = None
+    for attempt in range(3):
+        try:
+            con = sqlite3.connect(f"file:{path or HYPE_DB}?mode=ro", uri=True, timeout=15)
+            try:
+                con.row_factory = sqlite3.Row
+                return {r["token"]: dict(r) for r in con.execute("SELECT * FROM token_status")}
+            finally:
+                con.close()
+        except sqlite3.Error as e:
+            last = e
+            if "no such table" in str(e):
+                return {}
+            time.sleep(2)
+    log(f"status: čitanje nije uspjelo: {type(last).__name__}: {last}")
+    return {}
 
 
 def market_cell(status, mcap, now=None):
