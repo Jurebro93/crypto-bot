@@ -590,6 +590,14 @@ def page(qs):
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
         b.append("<h2 id=brojke>Brojke</h2>" + "".join(grid))
+        try:   # 7.11. (Jure): the verdict and today's picks first; the long intro folds under "pročitaj više"
+            from ui import prijedlog
+            top = prijedlog.box("influenceri")
+        except Exception as e:  # noqa: BLE001
+            print(f"influenceri: prijedlog: {type(e).__name__}: {e}")
+            top = ""
+        head = top + ("<details class=more><summary>Pročitaj više: kako mjerimo influencere</summary>" + head + "</details>"
+                      if head else "")
         body = (head + learnprogress.fold(_leads(main, cfg))
                 + "<p class=uc-more>Detalji za znatiželjne (otvori dodirom):</p>"
                 + learnprogress.fold(_leads("".join(b), cfg)))

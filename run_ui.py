@@ -560,6 +560,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, frag.encode("utf-8"))
         if path == "/api/natjecanje":
             return self._send(200, league.api().encode("utf-8"), "application/json")
+        if path == "/api/prijedlog":   # 7.11.: live market cap for the "Prijedlog za danas" picks
+            from ui import prijedlog
+            return self._send(200, prijedlog.api(qs).encode("utf-8"), "application/json")
         if path == "/api/paper":
             return self._send(200, paper.api(qs).encode("utf-8"), "application/json")
         if path.startswith("/api/evidence/"):
