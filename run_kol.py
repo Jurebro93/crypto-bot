@@ -241,10 +241,13 @@ def cycle(a):
     # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
     for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_search, cmd_collect, cmd_snap, cmd_converge, cmd_score,
                  cmd_traces, cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
+        t = time.time()
         try:
             step(a, con, cfg)
         except Exception as e:
             print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
+        if time.time() - t >= 60:   # 8.11.: the round was killed at 60 min for days and nobody could tell which step
+            print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
     con.close()
 
 
