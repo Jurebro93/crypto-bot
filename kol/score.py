@@ -409,7 +409,9 @@ def run(con, cfg, now=None):
     slow = slow_due(con, cfg, now)
     print(f"score: početak (botovi i proba: {'da' if slow else 'ne'}, validacija: {'da' if validate_due(con, cfg, now) else 'ne'})",
           flush=True)
-    if slow:
+    if slow:   # marked BEFORE the work: a round killed at its 60-min limit must not repeat the slow part next time
+        _mark(con, "slow_ts", now)
+        con.commit()
         changed += reclassify(con, bots.detect(con, cfg))
         lap("botovi")
     collect.mark_ambiguous(con)
@@ -425,8 +427,9 @@ def run(con, cfg, now=None):
                              "partial": None if handles is None else len(handles)}),))
     if validate_due(con, cfg, now):   # 8.11.: 83 of 146 s of a scoring pass locally (30+ min on the server's half CPU,
         from kol import validate       # the round was killed at 60 min every time); the statistics move slowly
-        validate.run(con, cfg, now)
         _mark(con, "validate_ts", now)
+        con.commit()
+        validate.run(con, cfg, now)
         lap("validacija")
     from kol import sessions
     sessions.zones(con, cfg)
@@ -435,7 +438,6 @@ def run(con, cfg, now=None):
     if slow:
         from kol import discover
         discover.annotate(con, cfg, now)
-        _mark(con, "slow_ts", now)
         lap("proba")
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)

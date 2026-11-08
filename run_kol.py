@@ -239,8 +239,10 @@ def cycle(a):
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
     # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
-    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_search, cmd_collect, cmd_snap, cmd_converge, cmd_score,
-                 cmd_traces, cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
+    # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
+    # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
+    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_measure,
+                 cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
         t = time.time()
         try:
             step(a, con, cfg)
