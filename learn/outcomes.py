@@ -54,7 +54,11 @@ def shadow_rows(cfg=None, now=None, path=None):
     since = now - cfg["skok_window_d"] * 86400
     from learn import champion
     hl = (cfg.get("model") or {}).get("half_life_d", champion.DEFAULT["half_life_d"])
-    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)}
+    from tiers import classify
+    # 8.11.: a point without a class (klasa NULL in shadow.db) crashed the daily fit for 2.7 days (sorted() of str and
+    # None); it gets its class from the market cap at the point, like rows() does for tokens without a tier row
+    return [{**r, "klasa": r.get("klasa") or classify.klasa(r.get("mcap"), None), "hit": bool(r["hit"]),
+             "max_ret": r["max2_ret"], "w": 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)}
             for r in shadow.rows(path, since=since) if r["features"] and not champion.in_holdout(r["ts"])]
 
 

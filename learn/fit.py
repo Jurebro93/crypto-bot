@@ -64,7 +64,10 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
         except Exception as e:  # noqa: BLE001 - a missing/locked shadow.db must not stop the daily learning
             print(f"učenje: sjenovita knjiga nije dostupna: {type(e).__name__}: {e}")
     report = []
-    for klasa in sorted(set(r["klasa"] for r in rows) | set(thr) | set(r["klasa"] for r in sh)):
+    for r in rows + sh:   # never let one row without a class stop every class from learning (8.11.)
+        if not r.get("klasa"):
+            r["klasa"] = "rizican"
+    for klasa in sorted({r["klasa"] for r in rows} | {k for k in thr if k} | {r["klasa"] for r in sh}):
         rk_sh = [r for r in sh if r["klasa"] == klasa]
         need_sh = max(30, cfg.get("min_rows_zarada", cfg["min_rows"]))   # never below 30 (R8)
         use_sh = len(rk_sh) >= need_sh
