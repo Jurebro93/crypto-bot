@@ -41,8 +41,8 @@ def _con(path, timeout=60):
     return con
 
 
-def retention(now=None):
-    """Delete raw data past its use. Returns {table: rows deleted}."""
+def retention(now=None, count_only=False):
+    """Delete raw data past its use. Returns {table: rows deleted}. count_only: ops/prune rules only count (start-up)."""
     now = now or time.time()
     out = {}
     hype = os.path.join(disk.DATA_DIR, "hype.db")
@@ -58,7 +58,7 @@ def retention(now=None):
         finally:
             con.close()
     from ops import prune   # 8.11.: unused data (ops/prune.py): counts only until DATA_PRUNE=on
-    out.update(prune.run_all(now))
+    out.update(prune.run_all(now, count_only=count_only))
     return out
 
 
@@ -199,7 +199,7 @@ def _compact_via_tmp(path, mb, new_mb):
 def startup():
     """Once before the loops start: retention, auto_vacuum switch (VACUUM where there is room), WAL on."""
     t0 = time.time()
-    gone = retention()
+    gone = retention(count_only=True)   # 8.11.: big deletes belong to the hourly job (Render's start-up deadline)
     nw, nf = slim_signals()
     if nw or nf:
         gone["hype_signals sažeto"] = nw + nf

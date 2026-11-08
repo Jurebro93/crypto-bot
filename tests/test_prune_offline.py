@@ -127,6 +127,18 @@ class Dry(unittest.TestCase):
         self.assertTrue(lines[0].startswith("čišćenje (suho brojanje"), lines)
         self.assertIn("w_pozivi 1", lines[0])
 
+    def test_count_only_never_deletes_even_when_on(self):
+        tmp = tempfile.mkdtemp()
+        path = _kol_db(tmp)
+        lines = []
+        with mock.patch.dict(os.environ, {"DATA_PRUNE": "on"}):
+            out = prune.run_all(NOW, data_dir=tmp, log=lines.append, count_only=True)
+            self.assertTrue(prune.on())   # the environment is back as it was
+        self.assertEqual(out["w_pozivi"], 1)
+        self.assertTrue(lines[0].startswith("čišćenje (brojanje pri startu"), lines)
+        con = sqlite3.connect(path)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM calls").fetchone()[0], 6)
+
 
 class Kol(unittest.TestCase):
     def test_on_deletes_pseudo_calls_and_inactive_accounts(self):

@@ -269,17 +269,28 @@ def growth(data_dir=None, now=None, state_path=None):
     return warn
 
 
-def run_all(now=None, data_dir=None, log=print):
-    """Every rule on every database; one log line. Returns {rule: rows}."""
+def run_all(now=None, data_dir=None, log=print, count_only=False):
+    """Every rule on every database; one log line. Returns {rule: rows}. count_only: count even when DATA_PRUNE=on
+    (start-up, 8.11.: the first deletion of 1.8 M rows took longer than Render's deadline for opening the port and the
+    start was repeated twice; deleting belongs to the hourly job, which has no deadline)."""
     data_dir = data_dir or disk.DATA_DIR
     now = now or time.time()
     out = {}
-    for fn, name in ((kol, "kol.db"), (wallets, "wallets.db"), (hype, "hype.db"), (paper, "paper.db")):
-        try:
-            out.update(fn(os.path.join(data_dir, name), now))
-        except Exception as e:  # noqa: BLE001 - one database must not stop the others
-            log(f"čišćenje {name} nije uspjelo: {type(e).__name__}: {e}")
-    mode = "brisanje" if on() else "suho brojanje, DATA_PRUNE=on briše"
+    env = dict(os.environ)
+    if count_only:
+        os.environ["DATA_PRUNE"] = "dry"
+    try:
+        for fn, name in ((kol, "kol.db"), (wallets, "wallets.db"), (hype, "hype.db"), (paper, "paper.db")):
+            try:
+                out.update(fn(os.path.join(data_dir, name), now))
+            except Exception as e:  # noqa: BLE001 - one database must not stop the others
+                log(f"čišćenje {name} nije uspjelo: {type(e).__name__}: {e}")
+    finally:
+        if count_only:
+            os.environ.clear()
+            os.environ.update(env)
+    mode = "brisanje" if on() and not count_only else ("brojanje pri startu, briše satni posao" if on()
+                                                        else "suho brojanje, DATA_PRUNE=on briše")
     log(f"čišćenje ({mode}): " + (", ".join(f"{k} {v:,}" for k, v in out.items() if v) or "ništa za obrisati"))
     try:
         for key, n, rate in growth(data_dir, now):
