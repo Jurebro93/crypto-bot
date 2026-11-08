@@ -234,6 +234,10 @@ def cmd_converge(a, con=None, cfg=None):
 
 
 def cycle(a):
+    # 8.11. 21:00: two rounds without bot detection still died at 60 min with no scoring part finished; nothing in
+    # the log said where. Every 10 min the main thread's stack goes to stderr, so the next kill shows the exact line.
+    import faulthandler
+    faulthandler.dump_traceback_later(600, repeat=True)
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
