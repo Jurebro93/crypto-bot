@@ -3,6 +3,39 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 8.11.2026. (večer)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Čišćenje podataka (PR #40, #41): obrisano ~275k pseudo-poziva anonimnih novčanika, 785 neaktivnih X računa, tradeovi 2.354 gubitnika (770k redaka), 1,05 M tickova netrgovanih tokena. wallets.db 937→555 MB, kol.db 567→416, paper.db 355→198; disk 1,5→2,1 GB slobodno. Brisanje radi satni posao (pri startu samo broji); nadzor rasta tablica javlja "raste brzo".
+- Izvori smeća zatvoreni: novčanik bez X računa više nije "poziv"; GeckoTerminal ne mjeri swapove ni bot objave (39.743 od 40.772 Telegram poziva nikad nije bilo izmjereno jer su swapovi uzimali red); bot novčanici (>60 tradeova/dan, 15 ih je radilo 57 % svih chain događaja) van iz Helius webhooka i PumpPortal praćenja.
+- KOL krug (PR #42): webhook, X watch i konvergencija idu prije sporog bodovanja; webhook prvi put sinkroniziran od 5.11. (13:20 UTC); validacija svakih 6 h umjesto svaki krug.
+- Učenje: u težine ulaze samo brojevi (masovno je spremao adresu novčanika i None kao "feature", learn6 padao svakih 6 h); run_hype learn više ne pada kad nema kandidata.
+- Pregled: kartica PumpPortal piše "zadnjih 48 h" (tablica čuva 48 h, pa je "ovaj tjedan" bio cijeli sadržaj).
+
+### U tijeku (alat radi sam)
+- KOL krug i dalje pada na rok od 60 min: search (Apify timeline) ~20 min, bodovanje 40+ min na serveru (lokalno 146 s). Od 15:55 UTC log mjeri trajanje svakog koraka (PR #43); popravak sporog dijela slijedi po tim brojkama.
+- Satno čišćenje briše inkrementalno (14:21: 8.767 w: poziva, 37 gubitnika, 23.506 tickova; 15:43: 10.267 / 7 / 19.539).
+- Dnevnik prijedloga skuplja ishode: do 16:10 upisano 13 ishoda.
+
+### Čeka Juru (odgovor "da/ne")
+1. Wallets score: 1.000 novčanika i 12.000 Helius kredita svaka 3 h puni wallet_trades +72k redaka/sat; od 100 bodovanih 9 ispadne profitabilno. Smanjiti na 500 / 6.000?
+2. Strategija "sigurica": započeta, prekinuta. Nastaviti?
+3. Sjenovite točke "krivulja92" i "lansiranje10": da?
+4. Sumnjivi socijali: strožiji ulaz ili pauza?
+5. Bubblemaps/StalkChain Faza 0 (besplatan test): kad?
+6. Apify gmgn 1,7 $/dan: provjera vrijednosti.
+
+### Odbačeno / nema smisla (po podacima)
+- "Koliko podataka alat ima" kao mjera vrijednosti: brojevi su bili točni zbrojevi redaka, ali 573k od 629k "kupnji novčanika" bili su swapovi botova koje ništa ne čita; 5.102 "influencera" uključivalo je 785 mrtvih računa. Od sada se broji samo što se koristi.
+- PumpPortal dnevni strop (70k) kao kontrola troška: strop reže tokene, a promet su radili praćeni botovi (114–199k tradeova/dan). Riješeno izbacivanjem botova, ne stropom.
+
+### Bot u 5 brojki (8.11., stanje 17:50 CET)
+- Strategije (ukupno od starta): KOL pozivi +294 % ($3.944), ali bez najboljeg tradea −$580 → "ne diraj pravi novac"; nasumična kontrola −44 %. Najveći gubitnici: Izbor alata mali −34,5 %, Insajderi −34,2 % (114 zatvorenih, 39 % uspješnih), Ozbiljan projekt −15 %, Telegram poziv −15,5 %.
+- Demo knjiga (paper) danas: −$108, 0 otvorenih pozicija u 16:48 UTC.
+- Prijedlozi zadnjih 7 dana, provjereni 24 h kasnije: razina visoka 3 od 12 dala +15 % prije stopa (stop prvi 6, medijan vrha +4 %). Srednja/niska još bez dovoljno ishoda.
+- Server: disk 2.139 MB slobodno (bilo 1.543), hype.db 1.406, wallets.db 555, kol.db 416, paper.db 198 MB. Greške danas: cmd_learn UnboundLocalError i learn6 TypeError (oba popravljena), 3 ponovna starta pri prvom brisanju (popravljeno).
+- PumpPortal: 4–13k tradeova po 10 min ovisno o vrućim tokenima; veza se prekida i obnavlja svakih par minuta ("no close frame") cijeli dan, podaci teku.
+
 ## 7.–8.11.2026.
 
 ### Odlučeno i napravljeno (spojeno, radi)
