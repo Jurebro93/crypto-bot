@@ -46,7 +46,9 @@ class FitNoneClass(unittest.TestCase):
                 mock.patch("learn.outcomes.config", return_value={"cilj": "vrh", "min_rows": 1000, "horizon_h": 24}), \
                 mock.patch("hype.score.load_weights", return_value={}), \
                 mock.patch("learn.weights.load", return_value={}):
-            rep = fit.run(None, now=1, apply=False)
+            from learn import store as lstore
+            con = lstore.connect(":memory:")
+            rep = fit.run(con, now=1, apply=False)
         self.assertEqual(sorted(r["klasa"] for r in rep), ["T1", "default"])
 
 
