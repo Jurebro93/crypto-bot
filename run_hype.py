@@ -17,6 +17,7 @@ import datetime as dt
 import glob
 import json
 import os
+import sqlite3
 import sys
 import time
 import urllib.parse
@@ -377,12 +378,19 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
             r["score"] = score.score(r["features"], wcls[r["tier"]["klasa"]])
     rows.sort(key=lambda r: -r["score"])
     con = store.connect(DB)  # fresh handle: a connection held across minutes of HTTP goes stale on the shared mount
-    for r in rows:
-        store.log_signal(con, r, wcls[r["tier"]["klasa"]])
-        store.snapshot(con, r["token"], r["price"], r["mcap"], r["liquidity"])
-        store.log_details(con, r)
-    con.commit()
-    save_tiers(rows, skipped, now_ms / 1000)
+
+    def _write():
+        for r in rows:
+            store.log_signal(con, r, wcls[r["tier"]["klasa"]])
+            store.snapshot(con, r["token"], r["price"], r["mcap"], r["liquidity"])
+            store.log_details(con, r)
+        con.commit()
+    from ops import dblock   # 8.11.: ~10 scans a night died on one locked write; now wait, retry, name the holder
+    dblock.retry(_write, "sken upis hype.db", path=DB)
+    try:
+        dblock.retry(lambda: save_tiers(rows, skipped, now_ms / 1000), "sken upis razina", path=DB)
+    except sqlite3.OperationalError as e:
+        print(f"sken: razine nisu upisane ovaj krug: {e}", flush=True)
     return rows
 
 
