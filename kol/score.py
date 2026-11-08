@@ -379,18 +379,28 @@ def validate_due(con, cfg, now):
 def run(con, cfg, now=None):
     from kol import bots, collect, measure
     now = now or int(time.time())
+    t_last = [time.time()]
+
+    def lap(label):   # 8.11.: which part of scoring eats the round (printed only when a part takes 30 s or more)
+        d = time.time() - t_last[0]
+        t_last[0] = time.time()
+        if d >= 30:
+            print(f"score: {label} {d:.0f} s", flush=True)
     changed = drop_fake_tokens(con)
     try:
         mark = json.loads((con.execute("SELECT value FROM kv WHERE key = 'score_mark'").fetchone() or ("{}",))[0])
     except (ValueError, TypeError):
         mark = {}
     changed += reclassify(con, bots.detect(con, cfg))
+    lap("botovi")
     collect.mark_ambiguous(con)
     changed += measure.revalidate(con, cfg)
     mark_first(con)
+    lap("priprema")
     handles = None if changed else touched_handles(con, mark, now)
     max_rowid = con.execute("SELECT COALESCE(MAX(rowid), 0) FROM calls").fetchone()[0]
     n = score_kols(con, cfg, now, handles)
+    lap(f"bodovanje {len(handles) if handles is not None else 'svih'}")
     con.execute("INSERT OR REPLACE INTO kv VALUES ('score_mark', ?)",
                 (json.dumps({"rowid": max_rowid, "ts": now, "full_ts": now if handles is None else mark.get("full_ts", now),
                              "partial": None if handles is None else len(handles)}),))
@@ -398,13 +408,17 @@ def run(con, cfg, now=None):
         from kol import validate       # the round was killed at 60 min every time); the statistics move slowly
         validate.run(con, cfg, now)
         con.execute("INSERT OR REPLACE INTO kv VALUES ('validate_ts', ?)", (str(now),))
+        lap("validacija")
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)
+    lap("sesije")
     from kol import discover
     discover.annotate(con, cfg, now)
+    lap("proba")
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
     con.commit()
+    lap("watch, grupe, signali, commit")
     return n, g, s
