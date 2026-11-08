@@ -49,6 +49,7 @@ class KolCycleOrder(unittest.TestCase):
         self.assertLess(names.index("cmd_chain"), names.index("cmd_search"))
         self.assertLess(names.index("cmd_chain"), names.index("cmd_score"))
         self.assertLess(names.index("cmd_converge"), names.index("cmd_score"))
+        self.assertLess(names.index("cmd_measure"), names.index("cmd_search"))   # network waits go last
         self.assertTrue(hasattr(run_kol, "cmd_chain"))
 
 
@@ -70,6 +71,7 @@ class ValidateThrottle(unittest.TestCase):
         t0 = 1_800_000_000
         self.assertTrue(score.slow_due(con, {}, t0))
         score._mark(con, "slow_ts", t0)
+        con.commit()
         self.assertFalse(score.slow_due(con, {}, t0 + 3 * 3600))
         self.assertTrue(score.slow_due(con, {}, t0 + 6 * 3600))
 
