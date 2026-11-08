@@ -136,7 +136,7 @@ def queue(con, limit, now=None):
                       (now,))
     out = []
     for wallet, scored_at, lab in cur:
-        if set(json.loads(lab or "[]")) & {"rugger", "cex", "mev"}:
+        if set(json.loads(lab or "[]")) & {"rugger", "cex", "mev", "izbačen"}:   # izbačen: ops/prune.py stripped it
             continue
         out.append((wallet, scored_at))
         if len(out) >= limit:

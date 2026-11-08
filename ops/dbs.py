@@ -24,7 +24,7 @@ import time
 
 from ops import disk
 
-APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "3"))   # 7.11.: 93 MB of raw JSON; a week is enough to re-read a run
+APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "1"))   # 8.11.: 149 MB of raw JSON at 3 days; calls are copied out within minutes
 VACUUM_MAX_MB = float(os.environ.get("VACUUM_MAX_MB", "400"))
 SLIM_FEATURES_H = float(os.environ.get("SLIM_FEATURES_H", "24"))
 COMPACT_WASTE = float(os.environ.get("COMPACT_WASTE", "0.35"))   # a freshly packed file has ~10-25% slack
@@ -57,6 +57,8 @@ def retention(now=None):
                 print(f"retencija apify_cache nije uspjela: {e}", flush=True)
         finally:
             con.close()
+    from ops import prune   # 8.11.: unused data (ops/prune.py): counts only until DATA_PRUNE=on
+    out.update(prune.run_all(now))
     return out
 
 
