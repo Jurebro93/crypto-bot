@@ -46,6 +46,42 @@ def _api(method, path="", body=None):
 
 
 SHARE = {"ids": 0.4, "copy": 0.3, "signal": 0.1, "insajderi": 0.2}   # of chain.max_wallets; a group's unused slots go to the next
+KEEP_DAYS = 14          # 8.11.: chain_trades / chain_transfers retention (was 30; readers look hours to a day back)
+MAX_TRADES_DAY = 60     # 8.11.: a wallet trading more than this a day is a bot, not a trader worth a webhook slot
+BUSY_LABELS = {"bundler", "mev", "cex", "rugger"}
+
+
+def too_busy(wallets, wallet_db=None, max_tpd=MAX_TRADES_DAY):
+    """Wallets among `wallets` that our own scoring (wallets.db stats) shows as bots: more than max_tpd trades a day
+    or a bundler/MEV/exchange/rugger label. 8.11.: 15 such wallets (600-6,900 trades a day, tier D or S, in the
+    webhook through the insider and signal groups) produced 57% of all chain events: a Helius credit each, a
+    PumpPortal trade each, a pseudo-call each in kol.db, and no signal anyone could trade on."""
+    try:
+        from wallets import store as wstore
+    except ImportError:
+        return set()
+    path = wallet_db or wstore.DB
+    if not wallets or not os.path.exists(path):
+        return set()
+    try:
+        src = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return set()
+    out = set()
+    try:
+        ws = list(wallets)
+        for i in range(0, len(ws), 500):
+            chunk = ws[i:i + 500]
+            q = ",".join("?" * len(chunk))
+            for w, st, lab in src.execute(f"SELECT wallet, stats, labels FROM wallets WHERE wallet IN ({q})", chunk):
+                s = json.loads(st or "{}")
+                if (s.get("trades_per_day") or 0) > max_tpd or set(json.loads(lab or "[]")) & BUSY_LABELS:
+                    out.add(w)
+    except sqlite3.Error:
+        pass
+    finally:
+        src.close()
+    return out
 
 
 def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
@@ -113,7 +149,9 @@ def wanted(con, cfg, wallet_db=None):
         if w not in seen:
             seen.add(w)
             out.append(w)
-    groups = [(ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0))]
+    busy = too_busy(set(ids) | set(copy) | set(signal) | set(ins), wallet_db) - set(followed)
+    groups = [([w for w in ws if w not in busy], sh) for ws, sh in
+              ((ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0)))]
     for second in (False, True):   # second pass: the slots a short group left over
         for ws, sh in groups:
             n = cap - len(out) if second else int(round(cap * sh))
@@ -224,8 +262,8 @@ def ingest(payload, hype_db=None):
                    ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
     con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
     con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
-    con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(time.time()) - 30 * 86400,))
-    con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(time.time()) - 30 * 86400,))
+    con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))
+    con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))
     con.commit()
     con.close()
     return len(rows) + len(transfers)

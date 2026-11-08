@@ -17,6 +17,7 @@ Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da 
 - Audit "dnevne odluke" provjeren: D1–D3 točni i ugrađeni, D4 već bio u redu.
 - Analize: Unipcs (mali tokeni reagiraju, veliki ne), retro +15 % (100k–300k, momentum, 20–100k pratitelja), trošak vs korist po izvoru (X i Helius novčanici vrijede, pumpfun ne), pump.fun "runner u 10 min" (0 od 129 nasumičnih ima 40k+13k; 2 od 129 doseglo 100k, oba s malim mcapom u 10. minuti), graduation sniper (dio nakon graduacije −9,7 % u 5 min na 117 bondanih).
 - Dokumenti na mailu/Driveu: statistika i plan Bubblemaps+StalkChain; SEO plan (programmatic influenceri, Telegram kanali, 5 blogova, novi klasteri); 10 vodiča sa screenshotovima.
+- Čišćenje podataka (8.11., Jure: "Kreni s tim"): ops/prune.py, prvo suho brojanje u logu, pa DATA_PRUNE=on briše. Pravila: novčanici bez X računa više ne postaju "pozivi" (572.899 od 744.088 poziva bilo je to), GeckoTerminal ne mjeri swapove ni bot objave (39.743 od 40.772 Telegram poziva nikad izmjereno jer su swapovi uzimali red), bot novčanici (>60 tradeova/dan, 15 ih je radilo 57 % svih događaja) van iz webhooka, gubitnici (tier D, 10+ zatvorenih bez dobiti, neaktivni 30 d) gube tradeove i ne boduju se više, chain_trades 14 d, apify 1 d, mrtvi tokeni 14 d, tickovi netrgovanih tokena 4 d. Rast tablica se prati po satu ("raste brzo").
 
 ### U tijeku (alat radi sam)
 - Dnevnik odluka skuplja ishode; prvi rezultat po razini 8.11. popodne.
@@ -24,7 +25,7 @@ Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da 
 - Jutarnji krug (06:30) i večernji krug (17:00) s logovima, bazama i izvještajem.
 
 ### Čeka Juru (odgovor "da/ne")
-1. Brisanje/retencija podataka (disk 1,5 GB slobodno, puni se 600 MB/dan, pun za 2–3 dana): apify cache 1 dan, chain_trades 14 dana, tickovi 7 dana, višak indeksa u wallets.db, tekst poziva starijih od 30 dana. Ušteda ~500 MB odmah.
+1. Čišćenje: nakon deploya suho brojanje u logu (sat vremena), pa uključiti brisanje (DATA_PRUNE=on) i dnevno sažimanje vraća disk. Očekivano: wallets.db −44 % redaka tradeova, paper.db −49 % tickova, kol.db −450k poziva.
 2. Strategija "sigurica" (visok confidence + dokazani influencer + dokazani novčanik, izlaz +10 %): započeta, prekinuta usred pripreme. Nastaviti?
 3. Sjenovite točke "krivulja92" i "lansiranje10" (mjerenje, bez kupnje): da?
 4. Sumnjivi socijali: −$850 dnevno dva dana zaredom, svi rugovi odatle. Strožiji ulaz ili pauza?

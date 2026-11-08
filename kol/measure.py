@@ -181,8 +181,11 @@ def due(con, now, limit):
     1.11.) asked GeckoTerminal for ~24 fetches per token a day; the free API (shared with other jobs) could not keep
     up, the newest calls took every slot and older ones never got their 1 h / 6 h / 24 h numbers."""
     marks = " OR ".join(f"(measured_ts < ts + {h * H} AND ts + {h * H + LAG} <= :now)" for h in (1, 6, 24))
+    # 8.11.: wallet swaps ('w:' pseudo-calls, kind buy/sell) and alert-bot posts (kind 'bot') are never scored, yet
+    # 487,235 of them waited in this queue while 39,743 of 40,772 Telegram calls had never been measured
     return [r[0] for r in con.execute(f"""
         SELECT token FROM calls WHERE complete = 0 AND COALESCE(mtry, 0) <= :now
+          AND handle NOT LIKE 'w:%' AND kind NOT IN ('bot', 'buy', 'sell')
           AND (measured_ts IS NULL OR {marks} OR measured_ts < :now - 6 * {H})
         GROUP BY token ORDER BY MAX(kind = 'call') DESC, MAX(ts) DESC LIMIT :lim""", {"now": now, "lim": limit})]
 
