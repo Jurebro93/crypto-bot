@@ -64,5 +64,15 @@ class ValidateThrottle(unittest.TestCase):
         self.assertTrue(score.validate_due(con, {"validate_every_h": 1}, t0 + 3600))
 
 
+    def test_slow_parts_every_six_hours(self):
+        from kol import score, store as kstore
+        con = kstore.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        t0 = 1_800_000_000
+        self.assertTrue(score.slow_due(con, {}, t0))
+        score._mark(con, "slow_ts", t0)
+        self.assertFalse(score.slow_due(con, {}, t0 + 3 * 3600))
+        self.assertTrue(score.slow_due(con, {}, t0 + 6 * 3600))
+
+
 if __name__ == "__main__":
     unittest.main()

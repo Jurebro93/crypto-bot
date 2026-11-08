@@ -365,15 +365,30 @@ def touched_handles(con, mark, now):
 
 
 VALIDATE_EVERY_H = 6
+SLOW_EVERY_H = 6   # 8.11.: bot detection over every stored post and the trial annotation of every account, too
+
+
+def _due(con, key, hours, now):
+    try:
+        last = float((con.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone() or (0,))[0])
+    except (ValueError, TypeError):
+        last = 0
+    return now - last >= hours * 3600
+
+
+def _mark(con, key, now):
+    con.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (key, str(now)))
 
 
 def validate_due(con, cfg, now):
     """The walk-forward / pair / range validation (kol/validate.py) runs every validate_every_h hours, not every round."""
-    try:
-        last = float((con.execute("SELECT value FROM kv WHERE key = 'validate_ts'").fetchone() or (0,))[0])
-    except (ValueError, TypeError):
-        last = 0
-    return now - last >= cfg.get("validate_every_h", VALIDATE_EVERY_H) * 3600
+    return _due(con, "validate_ts", cfg.get("validate_every_h", VALIDATE_EVERY_H), now)
+
+
+def slow_due(con, cfg, now):
+    """Bot detection (every post of every account) and trial annotation: every slow_every_h hours. 8.11.: the first
+    part of scoring (fake tokens, bots, reclassify) alone ran 40+ min on the server and the round died at 60 min."""
+    return _due(con, "slow_ts", cfg.get("slow_every_h", SLOW_EVERY_H), now)
 
 
 def run(con, cfg, now=None):
@@ -391,8 +406,12 @@ def run(con, cfg, now=None):
         mark = json.loads((con.execute("SELECT value FROM kv WHERE key = 'score_mark'").fetchone() or ("{}",))[0])
     except (ValueError, TypeError):
         mark = {}
-    changed += reclassify(con, bots.detect(con, cfg))
-    lap("botovi")
+    slow = slow_due(con, cfg, now)
+    print(f"score: početak (botovi i proba: {'da' if slow else 'ne'}, validacija: {'da' if validate_due(con, cfg, now) else 'ne'})",
+          flush=True)
+    if slow:
+        changed += reclassify(con, bots.detect(con, cfg))
+        lap("botovi")
     collect.mark_ambiguous(con)
     changed += measure.revalidate(con, cfg)
     mark_first(con)
@@ -407,15 +426,17 @@ def run(con, cfg, now=None):
     if validate_due(con, cfg, now):   # 8.11.: 83 of 146 s of a scoring pass locally (30+ min on the server's half CPU,
         from kol import validate       # the round was killed at 60 min every time); the statistics move slowly
         validate.run(con, cfg, now)
-        con.execute("INSERT OR REPLACE INTO kv VALUES ('validate_ts', ?)", (str(now),))
+        _mark(con, "validate_ts", now)
         lap("validacija")
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)
     lap("sesije")
-    from kol import discover
-    discover.annotate(con, cfg, now)
-    lap("proba")
+    if slow:
+        from kol import discover
+        discover.annotate(con, cfg, now)
+        _mark(con, "slow_ts", now)
+        lap("proba")
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
