@@ -86,6 +86,8 @@ def fit_weights(rows, epochs=400, lr=0.5, l2=0.01):
     """Logistic regression hit ~ features; coefficients rescaled so the positive ones sum to 100. A negative
     coefficient stays negative (before 2.11. it was cut to 0, so a signal that hurts could never be penalised);
     score.score subtracts it."""
+    rows = [{**r, "features": {k: v for k, v in r["features"].items() if isinstance(v, (int, float))
+                                and not isinstance(v, bool)}} for r in rows]   # 8.11.: a text or None is no feature
     feats = sorted({k for r in rows for k in r["features"]})
     if len(rows) < 30 or not any(r["hit"] for r in rows):
         return None
