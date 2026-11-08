@@ -41,8 +41,9 @@ def market(tokens):
                 t = (p.get("baseToken") or {}).get("address")
                 liq = (p.get("liquidity") or {}).get("usd") or 0
                 if t and liq >= best.get(t, (0, -1))[1]:
+                    v = p.get("volume") or {}
                     best[t] = (float(p.get("priceUsd") or 0), liq, p.get("marketCap") or p.get("fdv") or 0,
-                               (p.get("baseToken") or {}).get("symbol"), p.get("url"))
+                               (p.get("baseToken") or {}).get("symbol"), p.get("url"), v.get("m5") or 0, v.get("h1") or 0)
     except Exception as e:  # noqa: BLE001 - a failed pass just waits for the next minute
         print(f"  kol test dexscreener: {type(e).__name__}: {e}", file=sys.stderr)
         return None

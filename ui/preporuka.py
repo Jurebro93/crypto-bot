@@ -77,13 +77,16 @@ def _verdict(ranked):
                 f"ispalo je {c[1]:+.0%} po tradeu. Njegova zarada ne prenosi se na našu kopiju (kasnimo, drugačiji izlazi). "
                 "Čekao bih da se to promijeni.")
     stake = "50 $ po tradeu (5 % demo računa)" if r["tier"] == "visoka" else "20–25 $ po tradeu (2 %), dok ne skupi više povijesti"
+    proven = bool(c and c[0] >= 3)
+    if not proven:   # audit 7.11. D1: no copy advice before the demo copied him; follow, probe with 10 $
+        stake = "probnim ulogom 10 $ po tradeu dok demo ne skupi 3 kopije"
     second = ""
     if len(ranked) > 1 and ranked[1][1]["tier"] != "niska":
         w2 = ranked[1][0]
         second = f" Kao drugi izbor {wlink(w2['wallet'])}, s pola tog uloga."
-    proof = (f" Potvrda u demu: {c[0]} kopija, {c[1]:+.0%} po tradeu." if c and c[0] >= 3 else
-             " Demo ga još nije dovoljno kopirao, pa bih krenuo malo i gledao prve 3 kopije.")
-    return (f"Kopirao bih {wlink(w['wallet'])} s ulogom {stake}, najviše 3 otvorene pozicije odjednom, izlazi po "
+    proof = (f" Potvrda u demu: {c[0]} kopija, {c[1]:+.0%} po tradeu." if proven else
+             " Demo ga još nije kopirao ni 3 puta: njegov PnL je njegov, naša kopija kasni i izlazi drugačije, pa je ovo praćenje, ne preporuka kopiranja.")
+    return (f"{'Kopirao bih' if proven else 'Pratio bih'} {wlink(w['wallet'])} s {stake}, najviše 3 otvorene pozicije odjednom, izlazi po "
             f"pravilima bota (ne ručno). Razlog: {s.get('closed', 0)} zatvorenih u plusu, {(s.get('win_rate') or 0):.0%} dobitnih, "
             f"prosječno {per:+.2f} SOL po tradeu, drži ~{_hold(s.get('median_hold_min'))} pa ga kopija stigne."
             f"{proof}{second}"
@@ -152,6 +155,7 @@ def copies_from_strat():
 # ---------------- "what could we have taken" from the wallet's own buys (Nicholas 4.11.) ----------------
 
 LEVELS = (0.15, 0.30, 0.50)
+STOP = -0.25   # the bot's stop: a +15 % that comes after it is not counted in net15
 
 
 def wallet_ladder(wallet, days=30, horizon_h=24, wallet_db=None, hype_db=None, paper_db=None):
@@ -177,7 +181,7 @@ def wallet_ladder(wallet, days=30, horizon_h=24, wallet_db=None, hype_db=None, p
         return None
     from ui import data
     hcon, pcon = _ro_db(hype_db or data.HYPE_DB), _ro_db(paper_db or data.PAPER_DB)
-    maxes = []
+    maxes, net = [], []
     try:
         for mint, ts in buys:
             path = []
@@ -197,8 +201,14 @@ def wallet_ladder(wallet, days=30, horizon_h=24, wallet_db=None, hype_db=None, p
             p0 = next((px for t, px in path if t >= ts), None) or path[0][1]
             if not p0:
                 continue
-            best = max(px for t, px in path if t >= ts) if any(t >= ts for t, _ in path) else p0
+            after = [px for t, px in path if t >= ts]
+            best = max(after) if after else p0
             maxes.append(best / p0 - 1)
+            # audit 7.11. D2: +15 % touched after the stop would already have fired is not a hit a copier could take
+            rets = [px / p0 - 1 for px in after]
+            tp_at = next((i for i, r in enumerate(rets) if r >= LEVELS[0]), None)
+            sl_at = next((i for i, r in enumerate(rets) if r <= STOP), None)
+            net.append(tp_at is not None and (sl_at is None or tp_at < sl_at))
     finally:
         for c in (hcon, pcon):
             if c is not None:
@@ -206,7 +216,8 @@ def wallet_ladder(wallet, days=30, horizon_h=24, wallet_db=None, hype_db=None, p
     if not maxes:
         return {"buys": len(buys), "checked": 0, "hit": {}, "med_max": None}
     return {"buys": len(buys), "checked": len(maxes), "med_max": round(statistics.median(maxes), 3),
-            "hit": {lv: round(sum(1 for m in maxes if m >= lv) / len(maxes), 2) for lv in LEVELS}}
+            "hit": {lv: round(sum(1 for m in maxes if m >= lv) / len(maxes), 2) for lv in LEVELS},
+            "net15": round(sum(net) / len(net), 2)}
 
 
 def _ro_db(path):
@@ -226,4 +237,6 @@ def ladder_sentence(l):
     h = l["hit"]
     return (f" Da smo kupili kad i on: od {l['checked']} kupnji koje možemo provjeriti cijenom (od {l['buys']} u 30 dana), "
             f"{h[0.15]:.0%} je dalo barem +15 %, {h[0.30]:.0%} barem +30 %, {h[0.50]:.0%} barem +50 % unutar 24 h; "
-            f"medijan vrha {l['med_max']:+.0%}. Nitko ne izlazi na vrhu, ali +15 % na {h[0.15]:.0%} kupnji je ono što se stvarno dalo uzeti.")
+            f"medijan vrha {l['med_max']:+.0%}."
+            + (f" Uz stop −25 % kakav bot ima, +15 % se stvarno dalo uzeti na {l['net15']:.0%} kupnji (ostatak je prije prošao kroz stop)."
+               if l.get("net15") is not None else ""))

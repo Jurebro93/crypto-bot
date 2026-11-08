@@ -22,13 +22,31 @@
    "name": "Top novčanici",
    "icon": "👛",
    "opis": "Kupi unutar 2 minute nakon što neki od dokazanih novčanika kupi token. Dokazan = po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h, pouzdanost srednja/visoka) ili po našim kopijama (3+ zatvorene s plusom). Novčanik čije naše kopije gube više se ne kopira, ma kako mu povijest izgledala.",
-   "topups": [{"ts": 1793880000, "usd": 1000, "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"}]
+   "topups": [
+    {
+     "ts": 1793880000,
+     "usd": 1000,
+     "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"
+    }
+   ]
   },
   {
    "key": "kol",
    "name": "KOL pozivi",
    "icon": "📣",
    "opis": "Kupi na svjež poziv KOL-a na X-u ili Telegramu. Botovi, hakirani spam računi, prodavači grupa, dev-ovi i računi još na probi su izbačeni."
+  },
+  {
+   "key": "kol_potvrdjen",
+   "name": "KOL potvrđen",
+   "icon": "✅",
+   "opis": "Kupi na poziv X računa s 20–100k pratitelja na tokenu 100k–1M $, ali tek kad volumen u zadnjih 5 min teče barem 3× brže od satnog tempa (reakcija na poziv). Iz retra 7.11.: 87 % takvih dosegne +15 %, rug 4 %."
+  },
+  {
+   "key": "tg_poziv",
+   "name": "Telegram poziv",
+   "icon": "📨",
+   "opis": "Kupi na svjež poziv (CA) iz praćenih Telegram kanala, bez X-a. Retro 7.11.: Telegram daje 4× više poziva od X-a, besplatno, 52 % dosegne +15 % i 35 % dosegne +50 % u 24 h."
   },
   {
    "key": "alat_mali",
@@ -86,7 +104,10 @@
    "opis": "Nasumičan token iz istog skenera, najviše jednom u 30 min, ista pravila izlaza. Nije strategija nego mjerilo: strategija koja ga ne pobjeđuje nema prednost (audit 4.11., R6)."
   }
  ],
- "insajderi": {"window_min": 10, "min_wallets": 2},
+ "insajderi": {
+  "window_min": 10,
+  "min_wallets": 2
+ },
  "proportional_sell": true,
  "novcanici_top": 10,
  "novcanici_min_n": 3,
@@ -104,6 +125,48 @@
   "alat_veliki": [
    1000000,
    null
+  ],
+  "kol_potvrdjen": [
+   100000,
+   1000000
   ]
- }
+ },
+ "exits_veliki_from": 1000000,
+ "exits_veliki": {
+  "sl": -0.2,
+  "tp": [
+   [
+    0.15,
+    0.5
+   ],
+   [
+    0.3,
+    0.5
+   ]
+  ],
+  "trail_after": 0.3,
+  "trail": 0.2,
+  "stale_min": null,
+  "max_hold_h": 24
+ },
+ "_exits_veliki": "6.11. (Jure): tokeni s 1M+ pri ulazu (alat_veliki, KOL pozivi velikih, novčanici): bez 'ništa se ne događa', stop -20%, ljestvica +15%/+30%, do 24 h. Mjeri se 'koliko puta ≥ +15%' (p15), ne najveći dobitak.",
+ "potvrda_vol_x": 3.0,
+ "exits_mali": {
+  "sl": -0.25,
+  "tp": [
+   [
+    0.15,
+    0.5
+   ]
+  ],
+  "trail_after": 0.15,
+  "trail": 0.15,
+  "breakeven_after_tp": false
+ },
+ "_exits_mali": "7.11. retro: breakeven nakon TP-a zatvarao vrh +18 % na −5 %, prateći stop vrh +35 % na +14 %; za tokene < 1M pola se proda na +15 %, ostatak prateći 15 %, stop −25 %. Mjeri se kroz '≥ +15 %' na karticama (prije/poslije 7.11.).",
+ "exits_makro": {
+  "sl": -0.5,
+  "stale_min": null
+ },
+ "_exits_makro": "7.11. (Jure 5.11.): dok BTC pada (market/makro 'pada', zadnja 3 h), stop se širi na −50 % i 'ništa se ne događa' se pauzira, da pad s tržištem ne ubije poziciju prije oporavka."
 }

@@ -352,4 +352,71 @@ class HeavyLockTest(unittest.TestCase):
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
-        self.assertIn("heavy.slot(wait=60)", open(os.path.join(root, "run_ui.py")).read())
+        self.assertIn("heavy.slot(wait=60, label=", open(os.path.join(root, "run_ui.py")).read())
+
+
+class HeavyPriorityTest(unittest.TestCase):
+    """6.11.: a priority waiter (the KOL backfill) goes before other waiters; its ticket never outlives it."""
+
+    def setUp(self):
+        from ops import heavy
+        self.heavy = heavy
+        self.tmp = tempfile.mkdtemp()
+        self.p = mock.patch.object(heavy, "LOCK", os.path.join(self.tmp, "heavy.lock"))
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+
+    def test_others_step_aside_while_a_priority_ticket_waits(self):
+        open(self.heavy._prio_path(), "w").write("1")          # someone with priority is queueing
+        self.assertIsNone(self.heavy.run([sys.executable, "-c", "pass"], wait=0))   # a normal caller skips
+        r = self.heavy.run([sys.executable, "-c", "pass"], priority=True)           # the priority caller goes
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(os.path.exists(self.heavy._prio_path()))                     # ticket cleaned up
+        self.assertEqual(self.heavy.run([sys.executable, "-c", "pass"], wait=0).returncode, 0)
+
+    def test_stale_ticket_is_ignored(self):
+        open(self.heavy._prio_path(), "w").write("1")
+        old = time.time() - self.heavy.PRIO_MAX_AGE - 10
+        os.utime(self.heavy._prio_path(), (old, old))
+        self.assertEqual(self.heavy.run([sys.executable, "-c", "pass"], wait=0).returncode, 0)
+
+    def test_start_sh_gives_the_backfill_priority(self):
+        root = os.path.join(os.path.dirname(__file__), "..")
+        self.assertIn("python3 -m ops.heavy --prio run_kol.py backfill", open(os.path.join(root, "start.sh")).read())
+
+
+class SchedLightTest(unittest.TestCase):
+    """7.11.: masovno (17 min of GeckoTerminal waiting per pass) runs outside the heavy lock; the others inside."""
+
+    def test_masovno_light_others_locked(self):
+        import run_sched
+        jobs = {j[0]: j for j in run_sched.JOBS}
+        self.assertTrue(jobs["masovno"][2][-1])
+        self.assertTrue(jobs["tokenstatus"][2][-1])
+        self.assertEqual(len(jobs["shadow"][2]), 2)
+        with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
+            sr.return_value.returncode = 0
+            hr.return_value.returncode = 0
+            run_sched.run("masovno", ["run_learn.py", "masovno"], light=True)
+            self.assertEqual((sr.call_count, hr.call_count), (1, 0))
+            run_sched.run("tokenstatus", ["run_hype.py", "status"])
+            self.assertEqual((sr.call_count, hr.call_count), (1, 1))
+
+
+class SchedLightDelayTest(unittest.TestCase):
+    """7.11. 16:13: light jobs wait before their first run so they miss the start-up database maintenance."""
+
+    def test_light_waits_first(self):
+        import run_sched
+        calls = []
+        with mock.patch("run_sched.run", side_effect=lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(KeyboardInterrupt)), \
+                mock.patch("time.sleep") as sl:
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.every("x", ["a.py"], 5, light=True)
+            self.assertEqual(sl.call_args_list[0].args, (run_sched.LIGHT_START_DELAY_S,))
+            sl.reset_mock()
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.every("y", ["b.py"], 5)
+            self.assertFalse(sl.called)

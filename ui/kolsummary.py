@@ -209,7 +209,7 @@ def together_html(con, cfg, tog=None):
         out.append("<h3>Po mreži i plaćenim shillerima</h3>" + table(head, mixes, tid="tg_mix"))
     cl = tog["clusters"]
     rows = []
-    for c in cl[:30]:
+    for c in cl[:5]:   # 7.11. (Jure): 15+ groups confused everyone; the five strongest, the rest is in the data
         st = c["stats"]
         mem = ", ".join(_link(h) for h in c["members"][:8]) + (f" i još {len(c['members']) - 8}"
                                                                if len(c["members"]) > 8 else "")

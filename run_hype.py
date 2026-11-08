@@ -106,7 +106,10 @@ def apify_context(a):
     ctx = {"pump": {}, "trend_keys": {}, "trends": [], "errors": {}}
     if not apify.enabled() or a.no_apify:
         return ctx
+    budgets = apify.config().get("daily_usd") or {}
     for name, fn in (("pumpfun", sources.pumpfun_tokens), ("x_trends", sources.x_trends)):
+        if not budgets.get(name):   # 7.11.: a source switched off (budget 0) is skipped quietly, no BudgetExceeded each pass
+            continue
         try:
             ctx["pump" if name == "pumpfun" else "trends"] = fn()
         except Exception as e:
@@ -226,8 +229,15 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     except Exception:  # noqa: BLE001
         makro_f = None
     rows, skipped = [], []
+    try:
+        from kol import converge as _conv
+        _majors = _conv.majors()
+    except Exception:  # noqa: BLE001
+        _majors = set()
     for t, p in best.items():
         liq, mcap = (p.get("liquidity") or {}).get("usd") or 0, p.get("marketCap") or p.get("fdv") or 0
+        if t in _majors:
+            continue   # SOL, WBTC, stables, TRUMP...: never a candidate (Jure 5.11.)
         if (liq < a.min_liq or mcap > a.max_mcap or mcap < a.min_mcap) and t not in keep:
             # not scored, but remembered and price-tracked: the learning loop must see what the thresholds miss.
             # A retained token (featured on Pregled or already at a tier) is scored whatever its liquidity: it was
@@ -662,6 +672,19 @@ def auto_winners(min_mcap=1e6, max_days=7):
     return sorted(best, key=lambda t: -best[t])
 
 
+def cmd_status(a):
+    """7.11.: which listed tokens still have a DexScreener pair, the exact pair page, fresh market caps (hype/tokenstatus)."""
+    import sqlite3 as _sq
+    from hype import tokenstatus
+    con = _sq.connect(tokenstatus.HYPE_DB, timeout=120)   # 16:13: 30 s was less than the start-up maintenance holds the lock
+    try:
+        tokenstatus.refresh(con)
+        from ui import prijedlog_log
+        print(f"prijedlog: ishodi upisani za {prijedlog_log.label(con)} prijedloga", flush=True)
+    finally:
+        con.close()
+
+
 def cmd_kol(a):
     """Start or stop the X KOL monitor (Apify xquik). Each account costs ~$3.24/month while it runs; the tweets
     arrive at run_ui.py's /hook/kol and feed the kol_x signal. Needs a daily budget for kol_monitor in apify.json."""
@@ -710,7 +733,9 @@ def main(argv=None):
     for name in ("scan", "watch"):
         s = sub.add_parser(name)
         s.add_argument("--min-liq", type=float, default=5000)
-        s.add_argument("--max-mcap", type=float, default=5e6, help="ignore tokens already bigger than this")
+        # 6.11. (Jure): tokens over $1M in a good narrative can do x2-x4 too, with better wallets and KOLs behind them;
+        # they are scored and compared (strat alat_srednji/veliki, masovno "veliki"). Majors/wrapped/stables stay out.
+        s.add_argument("--max-mcap", type=float, default=500e6, help="ignore tokens already bigger than this")
         s.add_argument("--min-mcap", type=float, default=30000, help="4.11.: tokens under this are not analysed at all (most are rugs)")
         s.add_argument("--top", type=int, default=20)
         s.add_argument("--deep", type=int, default=10, help="copycat search + Helius check for this many")
@@ -756,9 +781,10 @@ def main(argv=None):
     l.add_argument("--max-wallets", type=int, default=25, help="Helius budget: ~3 calls per wallet")
     l.add_argument("--pages", type=int, default=2)
     l.add_argument("--skip-first-secs", type=int, default=3)
+    sub.add_parser("status", help="DexScreener pair / fresh mcap / GeckoTerminal fallback for every listed token")
     a = p.parse_args(argv)
     {"scan": cmd_scan, "watch": cmd_watch, "track": cmd_track, "eval": cmd_eval, "wallet": cmd_wallet,
-     "buyers": cmd_buyers, "learn": cmd_learn, "kol": cmd_kol}[a.cmd](a)
+     "buyers": cmd_buyers, "learn": cmd_learn, "kol": cmd_kol, "status": cmd_status}[a.cmd](a)
     return 0
 
 

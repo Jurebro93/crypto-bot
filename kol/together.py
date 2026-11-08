@@ -52,6 +52,34 @@ def _first_calls(con):
     return out
 
 
+def confirm_stats(groups, calls, tp=0.15):
+    """Audit 7.11. D3: the group's outcome is measured from the FIRST call, but the user only sees a group once the
+    third account has called. groups: [(token, start, end, handles, first)], calls: [(token, ts, p0, max24)] with
+    price at the call. -> {n, lag_med (min, first->third), moved (share already +30 % by the third call), rem_med
+    (median left to the 24 h peak from the third call's price), hit15, hit50, under (share with nothing left)}."""
+    by = defaultdict(list)
+    for t, ts, p0, m in calls:
+        if p0 and p0 > 0 and m is not None:
+            by[t].append((ts, p0, m))
+    lag, moved, rem = [], 0, []
+    for t, s, e, hs, _fh in groups:
+        if len(hs) < 3:
+            continue
+        cs = sorted(c for c in by.get(t, []) if s <= c[0] <= e + 1800)
+        if len(cs) < 3:
+            continue
+        (t1, p1, m1), (t3, p3, _) = cs[0], cs[2]
+        lag.append((t3 - t1) / 60)
+        moved += p3 / p1 - 1 >= 0.3
+        rem.append(p1 * (1 + m1) / p3 - 1)
+    n = len(rem)
+    if not n:
+        return {"n": 0}
+    return {"n": n, "lag_med": statistics.median(lag), "moved": moved / n, "rem_med": statistics.median(rem),
+            "hit15": sum(1 for r in rem if r >= tp) / n, "hit50": sum(1 for r in rem if r >= 0.5) / n,
+            "under": sum(1 for r in rem if r <= 0) / n}
+
+
 def _groups(con):
     try:
         return [(t, s, e, json.loads(hs), fh) for t, s, e, hs, fh in
@@ -129,8 +157,13 @@ def build(con, shill=frozenset(), now=None):
             "shill": sorted(x for x in members if x.lower() in shill),
             "best_lift": max((pair_info[(a, b)][1] or 0) for a, b in pair_info if a in members and b in members)})
     clusters.sort(key=lambda c: (-c["tokens"], -(c["stats"]["hit"] or 0)))
+    try:
+        calls = con.execute("""SELECT token, ts, p0, max24 FROM calls WHERE kind IN ('call', 'bot') AND p0 > 0
+                               AND max24 IS NOT NULL AND bad IS NULL""").fetchall()
+    except Exception:  # noqa: BLE001
+        calls = []
     return {"sizes": sizes, "mixes": mixes, "shills": shills, "clusters": clusters, "n_groups": len(groups),
-            "n_tokens": len(first)}
+            "n_tokens": len(first), "confirm": confirm_stats(groups, calls)}
 
 
 def _p(x):
@@ -166,6 +199,12 @@ def verdict(d):
     if a and b and a["n"] >= MIN_N:
         lines.append(f"Grupe u kojima je plaćeni shill s tvoje liste: {_p(a['hit'])} udvostručenih, rugova "
                      f"{_p(a['rug'])} (bez njih {_p(b['hit'])} i {_p(b['rug'])}).")
+    cf = d.get("confirm") or {}
+    if cf.get("n", 0) >= MIN_N:
+        lines.append(f"Mjereno od trenutka kad zove treći račun (tad korisnik vidi potvrdu, medijan {cf['lag_med']:.0f} min "
+                     f"nakon prvog): do vrha u 24 h ostaje medijan {cf['rem_med']:+.0%}, +15 % stigne u {_p(cf['hit15'])}, "
+                     f"+50 % u {_p(cf['hit50'])} slučajeva; u {_p(cf['moved'])} tokena cijena je već +30 % prije treće potvrde, "
+                     f"a u {_p(cf['under'])} vrh je prošao prije nje.")
     good = [c for c in d["clusters"] if c["stats"]["n"] >= 3 and (c["stats"]["hit"] or 0) >= 0.5]
     if d["clusters"]:
         lines.append(f"Dokazanih ekipa koje zovu zajedno: {len(d['clusters'])}"

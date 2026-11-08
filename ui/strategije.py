@@ -84,7 +84,11 @@ def _card(s, rank, n, color):
             + (f'<div class=mut style="font-size:12px">nadopunjeno +${s["topup"]:,.0f} (uloženo ukupno ${1000 + s["topup"]:,.0f})</div>'
                if s.get("topup") else "") +
             f'<div class=l>{s["closed"]} zatvoreno · {s["open"]} otvoreno · uspješnost {hit} · '
-            f'slobodno ${s["cash"]:,.0f}</div>' + _robust_line(s) +
+            f'slobodno ${s["cash"]:,.0f}</div>'
+            + (f'<div class=l title="udio zatvorenih tradeova koji su završili s barem +15 %; donja četvrtina = '
+               f'rezultat ispod kojeg je najgorih 25 % tradeova">≥ +15 %: <b>{s["p15"]:.0%}</b> '
+               f'({round(s["p15"] * s["closed"])} od {s["closed"]}) · donja četvrtina {s["q25"]:+.0%}</div>'
+               if s.get("p15") is not None else "") + _robust_line(s) +
             f'<div class=l style="margin-top:4px">{esc(s["opis"])}</div></div>')
 
 

@@ -189,3 +189,53 @@ class DemoExit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyBudget(unittest.TestCase):
+    """6.11.: 0.1 SOL burned in two hours by 150 tokens; the token feed stops for the day at MAX_TRADES_DAY."""
+
+    def test_day_count_survives_restart_and_resets_at_midnight(self):
+        import sqlite3 as _s
+        from live import pumpportal, store
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "live.db"))
+
+        class F:
+            n_trades = 0
+        f = F()
+        day1 = 1_800_000_000 - 1_800_000_000 % 86400 + 3600
+        f.n_trades = 500
+        self.assertEqual(pumpportal._day_count(con, f, day1), 500)
+        f.n_trades = 800
+        self.assertEqual(pumpportal._day_count(con, f, day1), 800)
+        f2 = F(); f2.n_trades = 100                       # restart: a fresh feed counter, the day total continues
+        self.assertEqual(pumpportal._day_count(con, f2, day1 + 60), 900)
+        self.assertEqual(pumpportal._day_count(con, f2, day1 + 86400), 0)   # next UTC day
+        self.assertLessEqual(pumpportal.MAX_TOKENS, 40)
+        self.assertLessEqual(pumpportal.MAX_TRADES_DAY, 20000)   # 0.02 SOL a day at most by default
+
+
+class ReconnectWhenUnfunded(unittest.TestCase):
+    def test_loop_reconnects_after_a_top_up(self):
+        """6.11.: 0.35 SOL arrived but the old socket kept answering 'unfunded': the balance is checked on connect."""
+        import inspect
+        from live import pumpportal
+        src = inspect.getsource(pumpportal.run)
+        self.assertIn("RECONNECT_UNFUNDED_S", src)
+        self.assertIn("spajam se ponovno", src)
+        self.assertLessEqual(pumpportal.RECONNECT_UNFUNDED_S, 600)
+
+
+class HotTokens(unittest.TestCase):
+    def test_feed_counts_per_token_and_loop_has_hot_and_hourly_rules(self):
+        """6.11.: 12,366 trades in 8 minutes from 40 tokens: a hot token is dropped, the day budget is sliced hourly."""
+        import inspect
+        from live import pumpportal
+        f = pumpportal.Feed(None, log=lambda s: None)
+        for i in range(3):
+            f.take({"txType": "buy", "mint": "M" * 32, "signature": f"s{i}", "traderPublicKey": "w", "solAmount": 1,
+                    "tokenAmount": 5, "pool": "pump"}, now=1_800_000_000)
+        self.assertEqual(f.per_token["M" * 32], 3)
+        src = inspect.getsource(pumpportal.run)
+        self.assertIn("HOT_PER_MIN", src)
+        self.assertIn("hour_cap", src)
+        self.assertIn("prevruć", src)
