@@ -101,7 +101,7 @@ def collect(con, now=None, cfg=None, hype_db=None, kol_db=None):
                 for mint, ts, w in h.execute("SELECT mint, MIN(ts), wallet FROM chain_trades WHERE side='buy' AND ts>=? "
                                              "GROUP BY mint", (since,)):
                     if not followed or w in followed:
-                        put("novcanik_kupio", mint, ts, None, w[:8], {"novcanik": w})
+                        put("novcanik_kupio", mint, ts, None, w)   # 8.11.: the address is detail, not a feature
             except sqlite3.OperationalError:
                 pass
             # control: random tokens the scanner saw today at >= min_mcap (first sighting), the baseline
@@ -131,7 +131,7 @@ def collect(con, now=None, cfg=None, hype_db=None, kol_db=None):
                     "SELECT c.token, MIN(c.ts), c.handle, c.symbol, c.followers, k.score FROM calls c "
                     "LEFT JOIN kols k ON k.handle=c.handle WHERE c.kind='call' AND c.ts>=? AND COALESCE(k.bot,0)=0 "
                     "AND c.handle NOT LIKE 'w:%' GROUP BY c.token", (since,)):
-                put("kol_poziv", token, ts, sym, handle, {"kol_score": score, "followers": foll})
+                put("kol_poziv", token, ts, sym, handle, {k: v for k, v in (("kol_score", score), ("followers", foll)) if v is not None})
         except sqlite3.OperationalError as e:
             print(f"masovno: kol.db: {e}")
         finally:
@@ -159,7 +159,7 @@ def history(con, now=None, cfg=None, kol_db=None, wallets_db=None, limit=None):
                 if token in skip:
                     continue
                 if _add(con, f"povijest_poziv:{token}:{_day(ts)}", token, "povijest_poziv", ts, sym, handle,
-                        {"kol_score": score, "followers": foll}):
+                        {k: v for k, v in (("kol_score", score), ("followers", foll)) if v is not None}):
                     n += 1
                 if n >= limit:
                     break

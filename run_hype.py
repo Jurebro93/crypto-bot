@@ -732,7 +732,6 @@ def cmd_learn(a):
         con.commit()
         print(f"  {s['score']:>3}  {w}  win {s['win_rate']:.0%}  pnl {s['pnl_sol']:+.1f} SOL  2x+ {s['big_wins']}  "
               f"zatvoreno {s['closed']}  {'BOT' if s['bot'] else ''}")
-    con.commit()
 
 
 def main(argv=None):

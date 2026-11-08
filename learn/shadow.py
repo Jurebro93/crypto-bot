@@ -369,7 +369,10 @@ def rows(path=None, point=None, since=None, klasa=None):
         out = []
         for r in con.execute(sql + " ORDER BY ts", args):
             d = dict(r)
-            d["features"] = json.loads(d["features"] or "{}")
+            # 8.11.: only numbers are features; masovno stored the wallet address ('novcanik') and None kol_scores
+            # here, and the weight fit crashed on "can't multiply sequence by float" (learn6 every 6 h)
+            d["features"] = {k: v for k, v in json.loads(d["features"] or "{}").items()
+                             if isinstance(v, (int, float)) and not isinstance(v, bool)}
             d.pop("path", None)
             out.append(d)
         return out

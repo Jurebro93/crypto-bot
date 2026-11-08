@@ -237,8 +237,10 @@ def cycle(a):
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_traces, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
+    # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
+    # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
+    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_search, cmd_collect, cmd_snap, cmd_converge, cmd_score,
+                 cmd_traces, cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
         try:
             step(a, con, cfg)
         except Exception as e:

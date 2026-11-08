@@ -364,6 +364,18 @@ def touched_handles(con, mark, now):
     return hs
 
 
+VALIDATE_EVERY_H = 6
+
+
+def validate_due(con, cfg, now):
+    """The walk-forward / pair / range validation (kol/validate.py) runs every validate_every_h hours, not every round."""
+    try:
+        last = float((con.execute("SELECT value FROM kv WHERE key = 'validate_ts'").fetchone() or (0,))[0])
+    except (ValueError, TypeError):
+        last = 0
+    return now - last >= cfg.get("validate_every_h", VALIDATE_EVERY_H) * 3600
+
+
 def run(con, cfg, now=None):
     from kol import bots, collect, measure
     now = now or int(time.time())
@@ -382,8 +394,10 @@ def run(con, cfg, now=None):
     con.execute("INSERT OR REPLACE INTO kv VALUES ('score_mark', ?)",
                 (json.dumps({"rowid": max_rowid, "ts": now, "full_ts": now if handles is None else mark.get("full_ts", now),
                              "partial": None if handles is None else len(handles)}),))
-    from kol import validate
-    validate.run(con, cfg, now)
+    if validate_due(con, cfg, now):   # 8.11.: 83 of 146 s of a scoring pass locally (30+ min on the server's half CPU,
+        from kol import validate       # the round was killed at 60 min every time); the statistics move slowly
+        validate.run(con, cfg, now)
+        con.execute("INSERT OR REPLACE INTO kv VALUES ('validate_ts', ?)", (str(now),))
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)
