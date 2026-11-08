@@ -76,5 +76,38 @@ class ValidateThrottle(unittest.TestCase):
         self.assertTrue(score.slow_due(con, {}, t0 + 6 * 3600))
 
 
+class MarkFirst(unittest.TestCase):
+    def test_same_flags_as_the_old_full_rewrite(self):
+        import random
+        from kol import score, store as kstore
+        con = kstore.connect(os.path.join(tempfile.mkdtemp(), "kol.db"))
+        rnd = random.Random(7)
+        rows = []
+        for i in range(600):
+            rows.append((f"t{i}", f"TOK{rnd.randint(0, 40)}", f"h{rnd.randint(0, 25)}", rnd.randint(1000, 9000),
+                         rnd.choice(["call", "call", "bot", "brag", "buy"])))
+        con.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind, first_by_kol, first_overall) VALUES "
+                        "(?,?,?,?,?, ?, ?)", [(*r, rnd.choice([None, 0, 1]), rnd.choice([None, 0, 1])) for r in rows])
+        con.commit()
+        # the old definition, row by row in Python
+        by_tok_h, by_tok = {}, {}
+        for tid, tok, h, ts, kind in rows:
+            if kind in ("call", "bot"):
+                by_tok_h.setdefault((tok, h), []).append((ts, tid))
+            if kind == "call":
+                by_tok.setdefault(tok, []).append(ts)
+        want = {}
+        for tid, tok, h, ts, kind in rows:
+            fbk = int(kind in ("call", "bot") and tid == min(by_tok_h[(tok, h)])[1])
+            fo = int(kind == "call" and ts == min(by_tok[tok]))
+            want[(tid, tok)] = (fbk, fo)
+        score.mark_first(con)
+        got = {(a, b): (c, d) for a, b, c, d in con.execute("SELECT tweet_id, token, first_by_kol, first_overall FROM calls")}
+        self.assertEqual(got, want)
+        before = con.total_changes
+        score.mark_first(con)   # second pass: no row is rewritten
+        self.assertEqual(con.total_changes - before, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

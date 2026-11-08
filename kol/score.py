@@ -34,14 +34,31 @@ def _med(xs):
 
 
 def mark_first(con):
-    """first_by_kol: the KOL's earliest call (not brag) on that token. first_overall: earliest caller on that token."""
+    """first_by_kol: the KOL's earliest call (not brag) on that token. first_overall: earliest caller on that token.
+
+    8.11.: until now two UPDATEs rewrote EVERY row of calls each round, each with a correlated subquery over the
+    token's calls (O(rows x calls per token)); on the server's network disk this one function ran 60+ min and the
+    KOL round was killed at its 60-min limit for three days (faulthandler showed the main thread here every time;
+    locally the same ran 13 s). Now the firsts are computed once into temp tables and only rows whose flag actually
+    changes are written."""
     # a bot account's posts (kind 'bot') get first_by_kol too, so its page still shows what its posts did; everything
     # that feeds signals also filters kind = 'call', so they never count there
-    con.execute("""UPDATE calls SET first_by_kol = kind IN ('call', 'bot') AND tweet_id = (SELECT c2.tweet_id FROM calls c2
-        WHERE c2.token = calls.token AND c2.handle = calls.handle AND c2.kind IN ('call', 'bot')
-        ORDER BY c2.ts, c2.tweet_id LIMIT 1)""")
-    con.execute("""UPDATE calls SET first_overall = kind = 'call' AND ts = (SELECT MIN(c2.ts) FROM calls c2
-        WHERE c2.token = calls.token AND c2.kind = 'call')""")
+    con.execute("DROP TABLE IF EXISTS temp._fk")
+    con.execute("""CREATE TEMP TABLE _fk AS SELECT token, handle, tweet_id FROM (
+        SELECT token, handle, tweet_id, ROW_NUMBER() OVER (PARTITION BY token, handle ORDER BY ts, tweet_id) rn
+        FROM calls WHERE kind IN ('call', 'bot')) WHERE rn = 1""")
+    con.execute("CREATE INDEX temp._fk_i ON _fk (token, tweet_id)")
+    is_first = "kind IN ('call', 'bot') AND EXISTS (SELECT 1 FROM temp._fk f WHERE f.token = calls.token AND f.tweet_id = calls.tweet_id)"
+    con.execute(f"UPDATE calls SET first_by_kol = 1 WHERE COALESCE(first_by_kol, 0) != 1 AND {is_first}")
+    con.execute(f"UPDATE calls SET first_by_kol = 0 WHERE COALESCE(first_by_kol, -1) != 0 AND NOT ({is_first})")
+    con.execute("DROP TABLE IF EXISTS temp._fo")
+    con.execute("CREATE TEMP TABLE _fo AS SELECT token, MIN(ts) ts FROM calls WHERE kind = 'call' GROUP BY token")
+    con.execute("CREATE INDEX temp._fo_i ON _fo (token)")
+    is_fo = "kind = 'call' AND ts = (SELECT f.ts FROM temp._fo f WHERE f.token = calls.token)"
+    con.execute(f"UPDATE calls SET first_overall = 1 WHERE COALESCE(first_overall, 0) != 1 AND {is_fo}")
+    con.execute(f"UPDATE calls SET first_overall = 0 WHERE COALESCE(first_overall, -1) != 0 AND NOT ({is_fo})")
+    con.execute("DROP TABLE IF EXISTS temp._fk")
+    con.execute("DROP TABLE IF EXISTS temp._fo")
 
 
 def impact(c):
