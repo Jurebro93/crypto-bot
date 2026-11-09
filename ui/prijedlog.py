@@ -81,11 +81,109 @@ def analysed(now=None):
     return n
 
 
-def token_picks(now=None, n=3, rows=None, status=None, ch=None):
-    """Up to n tokens to enter now, best Šansa/confidence first. Jure 7.11.: "danas ništa" is useless, so the
-    picks are graded instead of hidden: 'visoka' = passes every filter and is fresh (<= 6 h); 'srednja' = passes
-    but is older (<= 24 h); 'niska' = below the confidence bar but not rugged, with a live pair. The stake shrinks
-    with the grade. Each: token, symbol, mcap0 (at analysis), ts0, conf, why (list), chance, band, razina."""
+LIVE_MIN = {"txns_h1": 10, "vol_h1": 1000.0, "liq": 20000.0}   # 9.11. (Jure): a pick must have a live market NOW
+
+
+def live_market(tokens, fetch=None):
+    """token -> {price, liq, mcap, vol_h1, vol_h24, txns_h1, buys_h1, txns_h24, ch_h1, ch_h24} from DexScreener's
+    deepest pair (one request per 30 tokens, free); None when the request failed (then nothing is recommended)."""
+    tokens = list(dict.fromkeys(tokens))
+    if not tokens:
+        return {}
+    try:
+        from dexscreener import client
+        pairs = (fetch or (lambda t: client.tokens("solana", t)))(tokens)
+    except Exception:  # noqa: BLE001
+        return None
+    out = {}
+    for pr in pairs or []:
+        t = (pr.get("baseToken") or {}).get("address")
+        liq = (pr.get("liquidity") or {}).get("usd") or 0
+        if not t or (t in out and liq < out[t]["liq"]):
+            continue
+        tx, vol, ch = pr.get("txns") or {}, pr.get("volume") or {}, pr.get("priceChange") or {}
+        h1, h24 = tx.get("h1") or {}, tx.get("h24") or {}
+        out[t] = {"price": float(pr.get("priceUsd") or 0), "liq": float(liq), "mcap": float(pr.get("marketCap") or pr.get("fdv") or 0),
+                  "vol_h1": float(vol.get("h1") or 0), "vol_h24": float(vol.get("h24") or 0),
+                  "txns_h1": int((h1.get("buys") or 0) + (h1.get("sells") or 0)), "buys_h1": int(h1.get("buys") or 0),
+                  "txns_h24": int((h24.get("buys") or 0) + (h24.get("sells") or 0)),
+                  "ch_h1": ch.get("h1"), "ch_h24": ch.get("h24")}
+    return out
+
+
+def alive(lv):
+    """None when the token trades right now; otherwise the plain reason it is not a pick."""
+    if lv is None:
+        return "nema živog para na DexScreeneru"
+    if lv["txns_h1"] < LIVE_MIN["txns_h1"]:
+        return f"samo {lv['txns_h1']} transakcija u zadnjem satu (treba {LIVE_MIN['txns_h1']}+)"
+    if lv["vol_h1"] < LIVE_MIN["vol_h1"]:
+        return f"volumen u zadnjem satu ${lv['vol_h1']:,.0f} (treba ${LIVE_MIN['vol_h1']:,.0f}+)"
+    if lv["liq"] < LIVE_MIN["liq"]:
+        return f"likvidnost ${lv['liq']:,.0f} (treba ${LIVE_MIN['liq']:,.0f}+)"
+    return None
+
+
+def history(token):
+    """What the bases already know about the token: who called it, how its calls did minute by minute
+    (kol/minute.py) and how it ended when the box suggested it before. Zeros when a base is missing."""
+    out = {"callers": 0, "bots": 0, "first_call": None, "minute_n": 0, "minute_hit10": 0, "suggested": 0,
+           "sugg_hit": 0, "sugg_stop": 0}
+    try:
+        kp = _kol_db()
+        rows = data.q(kp, """SELECT c.handle, MIN(c.ts) AS ts, COALESCE(k.bot, 0) AS bot FROM calls c
+            LEFT JOIN kols k ON k.handle = c.handle WHERE c.token = ? AND c.kind = 'call' AND c.handle NOT LIKE 'w:%'
+            GROUP BY c.handle""", (token,))
+        out["callers"] = sum(1 for r in rows if not r["bot"])
+        out["bots"] = sum(1 for r in rows if r["bot"])
+        ts = [r["ts"] for r in rows if not r["bot"] and r["ts"]]
+        out["first_call"] = min(ts) if ts else None
+        mp = data.q(kp, "SELECT t10, sl_min FROM call_path WHERE token = ? AND entry IS NOT NULL AND bad IS NULL", (token,))
+        out["minute_n"] = len(mp)
+        out["minute_hit10"] = sum(1 for r in mp if r["t10"] is not None and (r["sl_min"] is None or r["t10"] < r["sl_min"]))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        rows = data.q(data.HYPE_DB, "SELECT hit, stop_first FROM prijedlog_log WHERE token = ? AND labelled_ts IS NOT NULL", (token,))
+        out["suggested"] = len(rows)
+        out["sugg_hit"] = sum(1 for r in rows if r["hit"])
+        out["sugg_stop"] = sum(1 for r in rows if r["stop_first"])
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def thesis(p):
+    """The case for the pick in plain words, from the measured data only: thesis, live market, history, against."""
+    lv, h = p.get("live") or {}, p.get("history") or {}
+    za = [w for w in (p.get("why") or []) if w]
+    parts = ["Teza: " + (za[0].rstrip(".") if za else "ocjena alata i Šansa iznad praga") + "."]
+    if lv:
+        turn = lv["vol_h1"] / lv["liq"] if lv.get("liq") else 0
+        ch1 = f"{lv['ch_h1']:+.0f} %" if lv.get("ch_h1") is not None else "?"
+        ch24 = f"{lv['ch_h24']:+.0f} %" if lv.get("ch_h24") is not None else "?"
+        parts.append(f"Uživo: {lv['txns_h1']} transakcija i ${lv['vol_h1']:,.0f} volumena u zadnjem satu ({turn:.1f}× likvidnosti), "
+                     f"cijena 1 h {ch1}, 24 h {ch24}.")
+    hist = []
+    hist.append(f"zvalo ga {h['callers']} računa" if h.get("callers") else "nitko ga od praćenih računa nije zvao")
+    if h.get("minute_n"):
+        hist.append(f"minutna provjera: {h['minute_hit10']} od {h['minute_n']} poziva dalo +10 % prije stopa")
+    else:
+        hist.append("još bez minutne provjere")
+    if h.get("suggested"):
+        hist.append(f"već predložen {h['suggested']}×: {h['sugg_hit']}× +15 % prije stopa, {h['sugg_stop']}× stop prvi")
+    parts.append("Povijest: " + "; ".join(hist) + ".")
+    protiv = [w for w in (p.get("protiv") or []) if w][:2]
+    if protiv:
+        parts.append("Protiv: " + "; ".join(w.rstrip(".") for w in protiv) + ".")
+    return " ".join(parts)
+
+
+def token_picks_ex(now=None, n=3, rows=None, status=None, ch=None, live=None, max_candidates=12):
+    """(picks, near, note). A pick passes every filter (not rugged, confidence >= 35, fresh <= 24 h, mcap >= 30k) AND
+    trades right now (LIVE_MIN) AND carries its thesis from the data. near: [(candidate, reason)] that failed only the
+    live check, so the page can say why nothing is offered instead of offering the least bad token (Jure 9.11.:
+    "token kojeg alat preporuči mora biti tu s razlogom"). note: why the live check could not run."""
     from ui import overview
     now = now or time.time()
     rows = rows if rows is not None else overview.token_rows()
@@ -96,24 +194,46 @@ def token_picks(now=None, n=3, rows=None, status=None, ch=None):
         except Exception:  # noqa: BLE001
             status = {}
     ch = ch if ch is not None else chances()
-    out = []
+    cands = []
     ranked = sorted(rows, key=overview._rank, reverse=True)
     for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= MAX_AGE_S),
-                       ("srednja", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= 24 * 3600),
-                       ("niska", lambda r: not overview.bad(r) and (r.get("conf") or 0) >= 20
-                        and now - (r["last_seen"] or 0) <= 24 * 3600)):
+                       ("srednja", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= 24 * 3600)):
         for r in ranked:
-            if len(out) >= n:
+            if len(cands) >= max_candidates:
                 break
-            if any(p["token"] == r["token"] for p in out) or not ok(r):
+            if any(p["token"] == r["token"] for p in cands) or not ok(r):
                 continue
             p = _pick(r, status, ch, now)
             if p:
                 p["razina"] = razina
-                out.append(p)
-        if len(out) >= n:
+                cands.append(p)
+    if not cands:
+        return [], [], ""
+    lv = live if live is not None else live_market([p["token"] for p in cands])
+    if lv is None:
+        return [], [], "provjera trenutnog prometa (DexScreener) nije uspjela, pa danas ništa ne predlažem"
+    picks, near = [], []
+    for p in cands:
+        m = lv.get(p["token"])
+        why_not = alive(m)
+        if why_not:
+            near.append((p, why_not))
+            continue
+        p["live"] = m
+        if m.get("mcap"):
+            p["mcap0"] = m["mcap"]
+        p["history"] = history(p["token"])
+        p["thesis"] = thesis(p)
+        picks.append(p)
+        if len(picks) >= n:
             break
-    return out
+    return picks, near, ""
+
+
+def token_picks(now=None, n=3, rows=None, status=None, ch=None, live=None):
+    """Up to n tokens to enter now, best first; see token_picks_ex. Only grades 'visoka' (fresh <= 6 h) and 'srednja'
+    (<= 24 h): a token below the confidence bar is never a pick any more (9.11.)."""
+    return token_picks_ex(now, n, rows, status, ch, live)[0]
 
 
 def _pick(r, status, ch, now):
@@ -132,8 +252,12 @@ def _pick(r, status, ch, now):
         if not why:
             why = [t for p, t in r.get("conf_parts") or [] if p > 0][:3]
         b = _band(mcap)
+        protiv = [t for p_, t in r.get("conf_parts") or [] if p_ < 0][:3]
+        rv = (r.get("rug") or {}).get("verdict") if isinstance(r.get("rug"), dict) else None
+        if rv and rv not in ("PROŠAO", "OK") and f"rug filter: {rv}" not in protiv:
+            protiv.insert(0, f"rug filter: {rv}")
         return {"token": r["token"], "symbol": r["symbol"], "mcap0": mcap, "ts0": int(r["last_seen"] or now),
-                "conf": r.get("conf"), "why": why, "band": b, "chance": ch.get(b)}
+                "conf": r.get("conf"), "why": why, "protiv": protiv, "band": b, "chance": ch.get(b)}
 
 
 def kol_picks(now=None, n=3):
@@ -163,13 +287,26 @@ def kol_picks(now=None, n=3):
     # proven accounts first; with fewer than n of them, the best on trial with at least 3 measured calls fill in
     rest = [k for k in kols if (dict(k).get("stats") and json.loads(k["stats"] or "{}").get("measured", 0) >= 3)
             and k["handle"] not in {p["handle"] for p in proven}]
+    minute_stats = {}
+    try:   # 9.11.: the minute check (kol/minute.py) is the honest measure; the leaderboard's hit is a 24-h wick
+        from kol import minute, store as kstore
+        kc = kstore.ro(_kol_db())
+        if kc is not None:
+            try:
+                minute_stats = dict(minute.handle_stats(kc, 14, int(now), min_n=1))
+            finally:
+                kc.close()
+    except Exception:  # noqa: BLE001
+        minute_stats = {}
     for k in list(proven) + [dict(x, _s=json.loads(x["stats"] or "{}"), _trial=True) for x in rest]:
         s = k["_s"]
         last = data.q(_kol_db(), "SELECT token, symbol, ts, mcap0 FROM calls WHERE handle=? AND kind='call' "
                                    "ORDER BY ts DESC LIMIT 1", (k["handle"],))
         last = last[0] if last else None
         out.append({"handle": k["handle"], "score": k["score"], "followers": k["followers"], "hit": s.get("hit_rate"),
-                    "measured": s.get("measured"), "last": dict(last) if last else None, "trial": bool(k.get("_trial")),
+                    "measured": s.get("measured"), "rug": s.get("rug_rate"), "late": s.get("prepump_rate"),
+                    "minute": minute_stats.get(k["handle"]),
+                    "last": dict(last) if last else None, "trial": bool(k.get("_trial")),
                     "fresh": bool(last and now - (last["ts"] or 0) <= MAX_AGE_S)})
         if len(out) >= n:
             break
@@ -191,6 +328,12 @@ def wallet_picks(now=None, n=2):
             ranked = [(w, {"tier": "niska"}) for w in ws[:n]]
         except Exception:  # noqa: BLE001
             ranked = []
+    proven = set()
+    try:
+        from wallets import dokazani
+        proven = set(dokazani.current())
+    except Exception:  # noqa: BLE001
+        pass
     out = []
     for w, r in ranked[:n]:
         last = None
@@ -200,7 +343,19 @@ def wallet_picks(now=None, n=2):
             last = dict(rows[0]) if rows else None
         except Exception:  # noqa: BLE001
             pass
-        out.append({"wallet": w["wallet"], "tier": r["tier"], "stats": w.get("stats") or {}, "last": last})
+        labels = w.get("labels") or []
+        if isinstance(labels, str):
+            try:
+                labels = json.loads(labels)
+            except ValueError:
+                labels = [x.strip() for x in labels.split(",") if x.strip()]
+        try:
+            from wallets import dokazani
+            cop = dokazani.copyable(w.get("stats") or {}, labels)
+        except Exception:  # noqa: BLE001
+            cop = None
+        out.append({"wallet": w["wallet"], "tier": r["tier"], "stats": w.get("stats") or {}, "last": last,
+                    "proven": w["wallet"] in proven, "copyable": cop})
     return out
 
 
@@ -273,20 +428,60 @@ CSS = ("<style>.pdj{border:2px solid var(--acc);border-radius:14px;padding:12px 
        ".pdj details{margin-top:6px}.pdj summary{cursor:pointer;color:var(--acc);font-size:13px}</style>")
 
 
+def kol_thesis(k):
+    """Why this account is (or is not yet) worth following, from the numbers: minute check first, then the old 24-h
+    wick measure, rugs and late calls."""
+    m = k.get("minute") or {}
+    parts = []
+    if m.get("n"):
+        parts.append(f"Minutna provjera (14 d): {m['hit10'] * m['n']:.0f} od {m['n']} poziva dalo +10 % prije stopa, "
+                     f"stop prvi {m['sl']:.0%}" + (f", do +10 % medijan {m['med_t10']:.0f} min" if m.get("med_t10") is not None else "") + ".")
+    else:
+        parts.append("Još bez minutne provjere (puni se od 9.11.): brojke su po staroj mjeri, najviši fitilj +50 % u 24 h.")
+    extra = []
+    if k.get("rug") is not None:
+        extra.append(f"rug {k['rug']:.0%}")
+    if k.get("late") is not None:
+        extra.append(f"kasni pozivi {k['late']:.0%}")
+    if extra:
+        parts.append("Protiv: " + ", ".join(extra) + ".")
+    return " ".join(parts)
+
+
+def wallet_thesis(w):
+    """Copyability and proof for a wallet pick: proven twice (wallets/dokazani), hold time, trades per day."""
+    s = w.get("stats") or {}
+    parts = [f"Dokazani dvaput: {'da' if w.get('proven') else 'ne'}.",
+             f"Kopirljiv: {'da' if w.get('copyable') else 'ne'} (drži medijan {s.get('median_hold_min') or 0:.0f} min, "
+             f"{s.get('trades_per_day') or 0:.0f} tradeova/dan)."]
+    return " ".join(parts)
+
+
 def _item(p, status=None):
-    st = (status or {}).get(p["token"])
-    why = "; ".join(esc(w) for w in p["why"]) or "ocjena alata i Šansa"
     raz = p.get("razina") or "visoka"
     cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}[raz]
     stake = {"visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}[raz]
+    text = p.get("thesis") or ("Zašto: " + ("; ".join(p["why"]) or "ocjena alata i Šansa") + ".")
     return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
             f'<span class="b {cls}">vjerojatnost {raz}</span> ulog {stake} · '
-            f'na <b>{usd(p["mcap0"])[0]}</b> u trenutku analize · pouzdanost {p["conf"] or 0:.0f}'
-            f'<span class=why><br>Zašto: {why}. {esc(_chance_txt(p["chance"]))}.</span>'
+            f'na <b>{usd(p["mcap0"])[0]}</b> sada · pouzdanost {p["conf"] or 0:.0f}'
+            f'<span class=why><br>{esc(text)} {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
 
 
-def box(kind, now=None, rows=None):
+def _near_html(near, note=""):
+    """Why nothing is offered: the live-check failures of the best candidates, never as a buy."""
+    if note:
+        return f"<p><b>Danas ništa ne predlažem:</b> {esc(note)}.</p>"
+    out = ["<p><b>Danas nijedan token ne prolazi sve provjere</b> (nije rug, pouzdanost 35+, svjež do 24 h, mcap 30k+ i "
+           "živ promet u zadnjem satu: 10+ transakcija, $1k+ volumena, $20k+ likvidnosti). Bolje ništa nego najmanje loš.</p>"]
+    if near:
+        out.append("<p class=why>Najbliži, ali <b>ne kupuj</b>: " + "; ".join(
+            f"{_tl(p['token'], p['symbol'])} ({esc(r)})" for p, r in near[:3]) + ".</p>")
+    return "".join(out)
+
+
+def box(kind, now=None, rows=None, live=None):
     """kind: tokeni | influenceri | novcanici. HTML of the box (with the live-price script)."""
     now = now or time.time()
     an = analysed(now)
@@ -295,7 +490,7 @@ def box(kind, now=None, rows=None):
         status = tokenstatus.read(data.HYPE_DB)
     except Exception:  # noqa: BLE001
         status = {}
-    picks = token_picks(now, rows=rows, status=status)
+    picks, near, note = token_picks_ex(now, rows=rows, status=status, live=live)
     mak = _makro_line()
     rec = ""
     try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)
@@ -312,15 +507,14 @@ def box(kind, now=None, rows=None):
          f"<p class=an>{esc(head)}" + (f" Tržište: {esc(mak)}" if mak else "") + (f" {esc(rec)}" if rec else "") + "</p>"]
     if kind == "tokeni":
         if picks:
-            b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; ulog po razini vjerojatnosti (visoka = prošao sve "
-                     "filtre i svjež, srednja = prošao ali stariji od 6 h, niska = ispod praga pouzdanosti, samo mali ulog):</p><ol>"
+            b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; svaki je prošao sve provjere i trguje se upravo sada "
+                     "(visoka = svjež do 6 h, srednja = do 24 h):</p><ol>"
                      + "".join(_item(p, status) for p in picks) + "</ol>")
             b.append("<p class=why>Pravilo: cijena ispod označava je li token još u zoni ulaza. Ako je otišao više od 25 % "
                      "od analize, ne juri ga; pričekaj povlačenje ili sljedeći prijedlog. Izlaz: pola na +15 %, ostatak "
                      "s pratećim stopom 15 %, stop −25 %.</p>")
         else:
-            b.append("<p>Trenutno <b>nema nijednog tokena sa živim parom koji nije rug</b> u zadnja 24 h; novi prijedlog "
-                     "čim ga podaci daju (sken ide svake 2 minute).</p>")
+            b.append(_near_html(near, note))
     elif kind == "influenceri":
         ks = kol_picks(now)
         if ks:
@@ -332,8 +526,9 @@ def box(kind, now=None, rows=None):
                 b.append(f'<li><b><a href="/kol/{esc(k["handle"])}">@{esc(k["handle"])}</a></b>'
                          + (' <span class="b warn">na probi</span>' if k.get("trial") else ' <span class="b good">dokazan</span>')
                          + f' · moć poziva {k["score"]:.0f}, pogodak {(k["hit"] or 0):.0%} na {k["measured"]} poziva.{lt}'
-                         + (f'<span class=why><br>Ulaz ima smisla samo ako je token još blizu cijene poziva; '
-                            f'provjeri ispod.</span>' if l and k["fresh"] else "") + "</li>")
+                         + f'<span class=why><br>{esc(kol_thesis(k))}'
+                         + (' Ulaz ima smisla samo ako je token još blizu cijene poziva; provjeri ispod.' if l and k["fresh"] else "")
+                         + '</span></li>')
             b.append("</ol>")
         else:
             b.append("<p>Danas <b>nema dokazanog influencera sa svježim pozivom</b>; ne ulazim na poziv samo zato što je "
@@ -350,7 +545,8 @@ def box(kind, now=None, rows=None):
                 b.append(f'<li><b>{wlink(w["wallet"])}</b> · pouzdanost {esc(w["tier"])}, {s.get("closed", 0)} zatvorenih, '
                          f'{(s.get("win_rate") or 0):.0%} dobitnih, {(s.get("closed_pnl_sol") or 0):+.1f} SOL ukupno.'
                          + (f" Zadnja kupnja: {_tl(l['mint'])} prije "
-                            f"{max(0, (now - (l['ts'] or now)) / 3600):.1f} h." if l else "") + "</li>")
+                            f"{max(0, (now - (l['ts'] or now)) / 3600):.1f} h." if l else "")
+                         + f'<span class=why><br>{esc(wallet_thesis(w))}</span></li>')
             b.append("</ol><p class=why>Ulog 20–50 $ po tradeu, najviše 3 otvorene, izlazi po pravilima bota.</p>")
         else:
             b.append("<p>Još <b>nijedan novčanik nema ni 3 zatvorena tradea u plusu</b>; čim ga ima, piše ovdje s razinom "
@@ -363,7 +559,7 @@ def box(kind, now=None, rows=None):
             parts.append("<p><b>U ovom trenutku bih uložio</b> u ove tokene (demo 25–50 $ po tokenu):</p><ol>"
                          + "".join(_item(p, status) for p in picks) + "</ol>")
         else:
-            parts.append("<p><b>U ovom trenutku nema tokena sa živim parom koji nije rug</b> u zadnja 24 h.</p>")
+            parts.append(_near_html(near, note))
         ws = wallet_picks(now, n=1)
         if ws:
             w, st_ = ws[0], ws[0]["stats"]
@@ -376,8 +572,10 @@ def box(kind, now=None, rows=None):
         if g:
             mem = ", ".join(f'<a href="/kol/{esc(h)}">@{esc(h)}</a>' for h in g["members"])
             parts.append(f"<p><b>Čekao bih da ova ekipa objavi token</b>: {mem}. Kad su zvali zajedno ({g['n']} puta), "
-                         f"token se udvostručio u {g['hit']:.0%} slučajeva, rug {(g['rug'] or 0):.0%}. Ulaz čim objave, "
-                         "ako je token ispod 1 M $ i još nije +25 % od poziva.</p>")
+                         f"token se udvostručio u {g['hit']:.0%} slučajeva, rug {(g['rug'] or 0):.0%} (stara mjera: najviši "
+                         f"fitilj u 24 h, na {g['n']} zajednička poziva; što su stvarno dali +5–30 % prije stopa po minutama "
+                         "piše na <a href=/ekipe>/ekipe</a>). Ulaz čim objave, ako je token ispod 1 M $ i još nije +25 % od "
+                         "poziva: na Autopilotu upiši račune odvojene zarezom.</p>")
         ch = chances()
         mid = ch.get("100–300k") or ch.get("300k–1M")
         parts.append("<p><b>Očekivanje i izlaz:</b> "
