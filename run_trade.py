@@ -18,6 +18,8 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
+import signal
 import sqlite3
 import sys
 import time
@@ -124,6 +126,56 @@ def _league():
     return sqlite3.connect(f"file:{LEAGUE_DB}?mode=ro", uri=True, timeout=10)
 
 
+MIN_MCAP_USD = 30_000   # CLAUDE.md: tokens under $30k are never bought; last line of defence behind league/copy.py
+PROOF = {"closed": 10, "win_rate": 0.4}   # 9.11. (audit P39): a follow needs this much demo proof before real money
+
+
+def _league_fresh(lg, since):
+    """New open demo trades of the real-trade account, with the columns copy trading adds when they exist."""
+    try:
+        return lg.execute("SELECT id, token, symbol, opened_ts, source, entry_mcap, follow_id, auto FROM trades "
+                          "WHERE user=? AND status='open' AND opened_ts>=?", (settings.LEAGUE_USER, since)).fetchall()
+    except sqlite3.OperationalError:
+        rows = lg.execute("SELECT id, token, symbol, opened_ts, source, NULL entry_mcap, NULL follow_id, NULL auto "
+                          "FROM trades WHERE user=? AND status='open' AND opened_ts>=?",
+                          (settings.LEAGUE_USER, since)).fetchall()
+        return rows
+
+
+def _call_ts(lg, trade_id):
+    """9.11. (audit P30/P31/P32): when the call itself was posted (copy_log.ev_ts of the entry), or None."""
+    try:
+        r = lg.execute("SELECT ev_ts FROM copy_log WHERE trade_id=? AND side='buy' AND action='ulaz'", (trade_id,)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return r[0] if r and r[0] else None
+
+
+def _tp_pct(auto_json, default):
+    """The exit target of the demo trade in percent ("+100%" of a TP/SL rule); the page default for anything else."""
+    try:
+        a = json.loads(auto_json or "null") or {}
+    except ValueError:
+        return default
+    m = re.fullmatch(r"\+?([0-9.]+)%", (a.get("tp") or "").strip()) if a.get("mode") == "tpsl" else None
+    return float(m.group(1)) if m else default
+
+
+def _no_proof(lg, follow_id):
+    """9.11. (audit P39, CLAUDE.md "dry dok strategija ne dokaže edge u demu"): the reason this follow has not earned
+    real money yet, or None. Only consulted when live (dry mirrors collect real quotes for exactly this proof)."""
+    try:
+        from league import copy as lcopy
+        r = lcopy.follow_results(lg).get(follow_id)
+    except Exception:  # noqa: BLE001 - no copy tables: no proof
+        r = None
+    closed, wins, pnl = (r["closed"], r["wins"], r["pnl"]) if r else (0, 0, 0.0)
+    if closed < PROOF["closed"] or pnl <= 0 or wins / closed < PROOF["win_rate"]:
+        return (f"praćenje bez dokaza u demu (zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $; "
+                f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih)")
+    return None
+
+
 def follow_league_once(con, cfg, since, now=None, quiet=False):
     """Mirror the competition account "pravi-trade": its new open trades -> buys, its (partial) exits -> sells.
     The share still held in the demo trade (qty / bought qty) is the share kept of the real position."""
@@ -134,24 +186,34 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
     try:
         lg.row_factory = sqlite3.Row
         try:
-            fresh = lg.execute("SELECT id, token, symbol, opened_ts, source FROM trades WHERE user=? AND status='open' "
-                               "AND opened_ts>=?", (settings.LEAGUE_USER, since)).fetchall()
+            fresh = _league_fresh(lg, since)
         except sqlite3.OperationalError:
             return   # no competition tables yet
         have = {lid for (lid,) in con.execute("SELECT league_id FROM positions WHERE league_id IS NOT NULL")}
-        tag = "LIVE" if executor.is_live(cfg) else "DRY"
+        live = executor.is_live(cfg)
+        tag = "LIVE" if live else "DRY"
         for t in fresh:
             if t["id"] in have:
                 continue
-            if now - t["opened_ts"] > cfg["max_signal_age_s"]:
+            size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
+            # 9.11. (audit P30/P31/P32): "fresh" is measured from the CALL (copy_log.ev_ts) when the copy loop wrote
+            # it, not from the demo entry; the demo may legally enter up to max_delay_min after the post
+            t0 = min(t["opened_ts"], _call_ts(lg, t["id"]) or t["opened_ts"])
+            why = None
+            if now - t0 > cfg["max_signal_age_s"]:
+                why = f"signal star {now - t0:.0f} s"
+            elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD:   # known bad only (P1/P7)
+                why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
+            elif live and not size and t["follow_id"] is not None:
+                why = _no_proof(lg, t["follow_id"])
+            if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
-                            "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(),
-                                                       "blocked", f"signal star {now - t['opened_ts']:.0f} s"))
+                            "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
                 con.commit()
                 continue
-            size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
-                             league_id=t["id"], size_sol=float(size) if size else None)
+                             league_id=t["id"], size_sol=float(size) if size else None,
+                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default")))
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:
@@ -218,20 +280,36 @@ def sell_all_once(con, cfg, now=None, quiet=False):
         settings.put(con, "sell_all", 0, "bot")
 
 
+STOPPING = {"flag": False}
+
+
+def _on_term(signum, frame):
+    """9.11. (audit P11): a deploy or the watchdog sends SIGTERM; the loop finishes the pass it is in (a swap and
+    its bookkeeping) and exits at the top of the next one instead of dying mid-swap."""
+    STOPPING["flag"] = True
+    print("pravi trade: SIGTERM, završavam tekući prolaz pa izlazim", flush=True)
+
+
 def cmd_follow(a):
     cfg = load(a.config)
     since = time.time() - cfg["max_signal_age_s"]
     print(f"Pratim račun {settings.LEAGUE_USER} (i paper.db ako je uključeno), mod "
           f"{'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
+    try:
+        signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):   # not the main thread (tests): no handler, the loop still works
+        pass
     beat = {"ts": 0, "live": None}
-    while True:
+    while not STOPPING["flag"]:
         try:
             con = executor.connect(DB)
             cfg = load(a.config, con)
             live_now = executor.is_live(cfg)
             if live_now != beat["live"]:   # 9.11.: the mode is visible in the log every time it changes, not only at start
+                # 9.11. (audit P37): config.json "mode" is informative only; what decides is the switch + env + key
                 print(f"pravi trade: mod {'LIVE' if live_now else 'DRY-RUN'} (prekidač {'uključen' if cfg.get('on') else 'isključen'}, "
-                      f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'})", flush=True)
+                      f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'}, "
+                      f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
                 beat["live"] = live_now
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
@@ -245,7 +323,7 @@ def cmd_follow(a):
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
-        if a.once:
+        if a.once or STOPPING["flag"]:
             return
         time.sleep(cfg["poll_s"])
 

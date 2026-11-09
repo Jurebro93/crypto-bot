@@ -83,6 +83,13 @@ def save_posts(con, channel, posts, source="web", now=None, hype_db=None):
                     (top["post"], top["ts"], ca_ts, len(new), len(with_ca), channel))
     if with_ca:
         mention(channel, with_ca, hype_db)
+        try:   # 9.11. (audit P25): a CA from a followed channel (2-second set) wakes the copy loop at once
+            from tg import poll as _poll
+            if channel in _poll.followed_channels():
+                from league import copy as _copy
+                _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
     return with_ca
 
 

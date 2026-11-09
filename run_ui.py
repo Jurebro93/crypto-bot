@@ -351,17 +351,35 @@ HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype s
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
 
 
+def _last_copy(path, why):
+    """(code, html bytes) when the child could not render `path`: the last snapshot pagecache saved on disk (served as
+    a 200 so the visitor sees data; its age shows in the page), or a 503 "try again in a minute". 9.11. (audit P33):
+    never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the copy/auto-sell
+    loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
+    snap = pagecache._load_snap((path, "", None))
+    if snap:
+        print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
+        return 200, gzip.decompress(snap[3])
+    print(f"ui: {why}, nema spremljene kopije {path}", flush=True)
+    html = page("Stranica nije dostupna", "<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom. "
+                "Pokušaj ponovno za minutu. <a href=/>Na pregled</a></p>", path)
+    return 503, i18n.translate(html).encode("utf-8")
+
+
 def build_in_child(path):
     """(code, html bytes) of `path` rendered by a short child process (`run_ui.py --render PATH`).
 
     The overview and the token list read every hype signal; built inside this long-lived server that memory stayed
     with it (~200 MB) and the 512 MB server ran out of memory every few minutes (1.11.). A child gives it all back
-    when it ends. Falls back to building here if the child fails."""
+    when it ends. 9.11. (audit P33): when the heavy lock stays busy for 60 s, or the child fails or times out, the
+    last saved copy (or a 503) is served instead of building here (_last_copy); this process never builds HEAVY pages."""
     import subprocess
     from ops import heavy
     try:
-        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory), then goes
-        with heavy.slot(wait=60, label="gradnja stranice"):
+        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory)
+        with heavy.slot(wait=60, label="gradnja stranice") as got:
+            if not got:   # 9.11. (audit P33): the lock stayed busy; a child next to a heavy job is what OOM-ed on 2.11.
+                return _last_copy(path, f"brava zauzeta ({heavy.holder() or 'nepoznat posao'}), dijete za {path} ne krećem")
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
                                timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
         for ln in r.stderr.decode(errors="replace").splitlines():
@@ -369,11 +387,10 @@ def build_in_child(path):
                 print(ln, flush=True)
         if r.returncode == 0 and r.stdout:
             return 200, r.stdout
-        print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",
-              flush=True)
+        why = f"dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}"
     except subprocess.TimeoutExpired:
-        print(f"ui: dijete za {path} predugo, gradim ovdje", flush=True)
-    return build(path, {})
+        why = f"dijete za {path} predugo"
+    return _last_copy(path, why)
 
 
 def english(raw, gz, lang):
@@ -673,6 +690,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
+        if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
+            self.send_header("Retry-After", "60")
         self.send_header("Vary", "Accept-Encoding")
         if not getattr(self, "_index", False):
             self.send_header("X-Robots-Tag", "noindex, nofollow")

@@ -66,10 +66,22 @@ def due(con, cfg, scores, now):
     elif validate:
         _PACE["validate_ts"] = now
     followed = followed_channels()
-    rows = con.execute("SELECT name, status, last_ca_ts, last_poll FROM channels "
-                       "WHERE status IN ('active','quiet','slow')").fetchall()
-    late = [(now - (lp or 0) - interval((n, s, ca), cfg, scores, now, followed), n) for n, s, ca, lp in rows]
-    poll = [n for over, n in sorted(late, reverse=True) if over >= 0]
+    if followed:   # 9.11. (audit P35): a followed channel is read every poll_followed_s whatever its status; one that
+        # tg.db does not know yet (typed as tg:<name> on /pravi-trade) is added, so it is read at all (visit() moves
+        # candidate/dead to active/quiet on the first read)
+        known = {n for (n,) in con.execute("SELECT name FROM channels")}
+        store.add_candidates(con, sorted(followed - known), "follow", now)
+    rows = con.execute("SELECT name, status, last_ca_ts, last_poll, fails FROM channels "
+                       "WHERE status IN ('active','quiet','slow')" + (" OR name IN (%s)" % ",".join("?" * len(followed))
+                                                                      if followed else ""), tuple(sorted(followed))).fetchall()
+    late = []
+    for n, s, ca, lp, fl in rows:
+        iv = interval((n, s, ca), cfg, scores, now, followed)
+        if n in followed and s == "dead" and (fl or 0) >= cfg.get("max_fails", 3):
+            iv = cfg["poll_active_s"]   # 9.11. (review izvori): a followed name t.me keeps refusing (typo, private
+            #                             channel) is not hit every 2 s for ever: the t.me IP and its 429 are shared
+        late.append((now - (lp or 0) - iv, n))
+    poll = [n for over, n in sorted(late, reverse=True) if over >= 0 and n not in validate]
     return validate, poll
 
 

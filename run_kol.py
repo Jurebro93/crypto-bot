@@ -34,6 +34,14 @@ def config():
 def cmd_collect(a, con=None, cfg=None):
     con = con or store.connect()
     n = collect.from_hype_cache(con) + collect.from_webhook(con)
+    con.commit()   # 9.11. (review izvori): xhook.drain opens its own connection; the kols upsert above left this one
+    #                holding the write lock, so the drain waited 60 s and left the spool untouched every round
+    try:   # 9.11. (audit P3/P21): webhook payloads spooled while the databases were locked
+        from kol import chainwatch, xhook
+        n += xhook.drain()
+        chainwatch.drain()
+    except Exception as e:  # noqa: BLE001
+        print(f"collect spool: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("telegram", collect.from_telegram), ("chain", collect.from_chain)):
         try:
             k = fn(con)

@@ -26,6 +26,9 @@ if [ -n "${PORT:-}" ]; then python3 deploy_wait.py --port "$PORT" & disown; fi
 
 # databases once before anything opens them: old raw Apify answers out, auto_vacuum switched on (one VACUUM per
 # file, only when the disk has room), WAL journal on (ops/dbs.py). A full disk (<100 MB free) no longer stops this.
+# 9.11. (audit P9): seconds, not minutes: the hype_signals slimming and the per-file compaction moved to the hourly
+# upkeep below (they ran here on every deploy, 20+ a day, while the UI, webhooks and trade waited); only a tight disk
+# (ops/dbs.STARTUP_COMPACT_FREE_MB) still compacts offline here, the one case where nothing else works.
 python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
@@ -34,10 +37,16 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # "wait -n; exit 1" taking the whole worker down (two full restarts on 5.11. because run_live hit a locked database)
 keep() { local name="$1"; shift; ( while true; do "$@"; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30; done ) & }
 if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PORT"; fi
+# 9.11. (audit P9): the real-money follower right after the UI (every loop below is backgrounded, so this only moves it
+# ahead of ~20 python start-ups fighting for 0.5 CPU; the real gain is the short --startup above, so a paper entry
+# from the deploy window is mirrored before max_signal_age_s runs out; it only reads paper.db/league.db/trade.db)
+keep trade python3 run_trade.py follow       # mirrors paper entries/exits as real (or dry-run) swaps
 
 # every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
-( while true; do sleep 3600; python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
+# 9.11. (audit P9): first pass after HOURLY_FIRST_S (10 min), not an hour: with 20+ deploys a day a loop that sleeps
+# an hour first never got its turn, and the hype_signals slimming + compaction now live only here (under the heavy lock)
+( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; sleep 3600; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 # 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
 # by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)
@@ -143,6 +152,6 @@ keep paper python3 run_paper.py run --scan --hype-args "--deep 20"   # hype scan
 # 5.11.: live buys/sells from PumpPortal (free WebSocket): tokens we watch, wallets we follow, new launches
 # -> hype.db live_trades; dump alerts the demo sells on within seconds (run_paper live_exits). LIVE_OFF=1 disables.
 if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-}; fi
-keep trade python3 run_trade.py follow       # mirrors paper entries/exits as real (or dry-run) swaps
+# (keep trade: started right after the UI above, 9.11.)
 
 wait   # every loop has its own supervisor; the worker itself only ends when Render stops it

@@ -147,7 +147,18 @@ def latest_full(mint):
         d = json.loads(r[2] or "{}")
     except ValueError:
         d = {}
-    return {"checked_at": r[0], "verdict": r[1], "data": {"hard_fails": d.get("hard_fails") or []}}
+    return {"checked_at": r[0], "verdict": r[1], "data": _full_data(d)}
+
+
+def _full_data(r):
+    """9.11. (audit P29): the judge needs more than the hard fails: the flags (snipers, bundles, fresh wallets, clusters
+    under the hard line), the score and the concentration numbers, so OPREZ is a warn with its reason."""
+    r = r or {}
+    L, h, c = r.get("launch") or {}, r.get("holders") or {}, r.get("cluster") or {}
+    return {"hard_fails": r.get("hard_fails") or [], "flags": r.get("flags") or [], "score": r.get("score"),
+            "holders": {"top10_pct": h.get("top10_pct")},
+            "launch": {"bundle_pct": L.get("bundle_pct"), "sniper_pct": L.get("sniper_pct")},
+            "cluster": {"holding_pct": c.get("holding_pct")}}
 
 
 def full_check(con, mint, now):
@@ -169,7 +180,7 @@ def full_check(con, mint, now):
             import run_rug
             r = check(mint)
             run_rug.save(r)
-            return {"checked_at": r["checked_at"], "verdict": r["verdict"], "data": {"hard_fails": r.get("hard_fails") or []}}
+            return {"checked_at": r["checked_at"], "verdict": r["verdict"], "data": _full_data(r)}
         except Exception as e:
             log(f"rug filter {mint[:6]}: {type(e).__name__}: {e}")
             return have
