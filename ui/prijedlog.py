@@ -141,7 +141,11 @@ def history(token):
         out["bots"] = sum(1 for r in rows if r["bot"])
         ts = [r["ts"] for r in rows if not r["bot"] and r["ts"]]
         out["first_call"] = min(ts) if ts else None
-        mp = data.q(kp, "SELECT t10, sl_min FROM call_path WHERE token = ? AND entry IS NOT NULL AND bad IS NULL", (token,))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from kol import minute
+        mp = data.q(minute.db_path(), "SELECT t10, sl_min FROM call_path WHERE token = ? AND entry IS NOT NULL AND bad IS NULL", (token,))
         out["minute_n"] = len(mp)
         out["minute_hit10"] = sum(1 for r in mp if r["t10"] is not None and (r["sl_min"] is None or r["t10"] < r["sl_min"]))
     except Exception:  # noqa: BLE001
@@ -291,14 +295,14 @@ def kol_picks(now=None, n=3):
     rest = [k for k in kols if (dict(k).get("stats") and json.loads(k["stats"] or "{}").get("measured", 0) >= 3)
             and k["handle"] not in {p["handle"] for p in proven}]
     minute_stats = {}
-    try:   # 9.11.: the minute check (kol/minute.py) is the honest measure; the leaderboard's hit is a 24-h wick
-        from kol import minute, store as kstore
-        kc = kstore.ro(_kol_db())
-        if kc is not None:
+    try:   # 9.11.: the minute check (kol/minute.py, minute.db) is the honest measure; the leaderboard's hit is a 24-h wick
+        from kol import minute
+        mc = minute.ro()
+        if mc is not None:
             try:
-                minute_stats = dict(minute.handle_stats(kc, 14, int(now), min_n=1))
+                minute_stats = dict(minute.handle_stats(mc, 14, int(now), min_n=1))
             finally:
-                kc.close()
+                mc.close()
     except Exception:  # noqa: BLE001
         minute_stats = {}
     for k in list(proven) + [dict(x, _s=json.loads(x["stats"] or "{}"), _trial=True) for x in rest]:

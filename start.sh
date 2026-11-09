@@ -93,6 +93,9 @@ if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PO
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
 keep kol python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}"
+# 9.11. (Jure: "napuni podatke za ekipe i drži ih svježima"): minute candles after every call, own process and own
+# minute.db (kol/minute.py); backlog first (crews before single callers), then every new call as soon as it is 70 min old
+keep minute python3 run_kol.py minute-loop
 
 # one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
 # backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.

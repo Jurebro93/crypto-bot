@@ -113,13 +113,17 @@ def cmd_measure(a, con=None, cfg=None):
 
 
 def cmd_minute(a, con=None, cfg=None):
-    """9.11. (Jure): 1-minute candles right after each call -> +5/10/15/20/30 % before the stop, per account and crew."""
+    """9.11. (Jure): 1-minute candles right after each call -> +5/10/15/20/30 % before the stop, per account and crew.
+    One pass (the loop below is the normal way); writes minute.db, reads kol.db."""
     from kol import minute
-    con, cfg = con or store.connect(), cfg or config()
-    t, c = minute.run(con, cfg)
-    hot = minute.hot(con, cfg)
-    print(f"minute: {t} tokena, {c} poziva po minutnim svijećama; vruća lista {len(hot['x'])} X, {len(hot['tg'])} TG, "
-          f"{len(hot['wallets'])} walleta")
+    minute.loop(cfg or config(), once=True)
+
+
+def cmd_minute_loop(a, con=None, cfg=None):
+    """start.sh: keep minute python3 run_kol.py minute-loop. The only writer of minute.db: fills the history as fast
+    as the free GeckoTerminal budget allows (crews first), then keeps up with new calls."""
+    from kol import minute
+    minute.loop(cfg or config())
 
 
 def cmd_flows(a, con=None, cfg=None):
@@ -255,9 +259,9 @@ def cycle(a):
     # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
     # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
     # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
-    # 9.11. 13:30: cmd_measure's session backfill (15 GeckoTerminal fetches) held the round 10+ min after "measure:"
-    # and cmd_minute behind it never ran in six rounds; the minute check (150 s budget) now goes before measure
-    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_minute,
+    # 9.11. 13:30: cmd_measure's session backfill held the round 10+ min and the minute check behind it never ran;
+    # the minute check is its own process now (run_kol.py minute-loop, minute.db), not a step of the round
+    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces,
                  cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
         t = time.time()
         try:
@@ -298,7 +302,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "snap", "measure", "minute", "flows", "score", "once", "live", "chain", "converge"):
+    for name in ("collect", "search", "snap", "measure", "minute", "minute-loop", "flows", "score", "once", "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -317,7 +321,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
-     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute}[a.cmd](a)
+     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute, "minute-loop": cmd_minute_loop}[a.cmd](a)
 
 
 if __name__ == "__main__":
