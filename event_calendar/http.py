@@ -33,7 +33,9 @@ _writes = 0
 # the KOL measurements, the Dugoročni candles and holder counts together). One file per host under /tmp holds
 # "next call allowed at" and "paused until" so the processes queue behind each other instead of each pacing alone
 # and all of them hitting 429 together. After a 429 everyone pauses SHARED_COOLDOWN seconds.
-SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "2.5"))}
+# 9.11. 14:18: 2.5 s (24/min) across our processes still drew 429s from the free API (30/min, shared egress);
+# 3.5 s (~17/min) leaves room for the odd retry and whoever shares the IP
+SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "3.5"))}
 SHARED_COOLDOWN = float(os.environ.get("GECKO_COOLDOWN_S", "60"))
 GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir(), "crypto-bot-gate")
 

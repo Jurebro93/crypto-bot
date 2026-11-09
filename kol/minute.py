@@ -208,8 +208,14 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
     pairs = dict(kcon.execute("SELECT token, pair FROM tokens WHERE token IN (%s)" % ",".join("?" * len(todo)), list(todo)))
     try:
         for tok, calls in todo.items():
-            if time.monotonic() > stop_at or (fetch is minutes and http.cooling(measure.GECKO) > 30):
+            if time.monotonic() > stop_at:
                 break
+            if fetch is minutes:   # after a 429 every process pauses (http.limited): wait it out inside the budget
+                cool = http.cooling(measure.GECKO)
+                if cool > 0:
+                    if time.monotonic() + cool > stop_at:
+                        break
+                    time.sleep(min(cool + 1, 180))
             first = min(ts for _, _, ts in calls)
             start, end = first - 10 * MIN, min(now, max(ts for _, _, ts in calls) + (HORIZON_MIN + 5) * MIN)
             try:
@@ -247,6 +253,15 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
     return n_tok, n_calls, left
 
 
+def cooling():
+    """Seconds GeckoTerminal is to be left alone (shared 429 pause, event_calendar/http.limited)."""
+    from kol import measure
+    try:
+        return http.cooling(measure.GECKO)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
     """`run_kol.py minute-loop`: the only writer of minute.db. Passes of loop_budget_s while there is a backlog
     (crews first), then a short pass whenever new calls are old enough (min_age_min), idle otherwise."""
@@ -270,7 +285,8 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
                 f"{len(hot_['x'])} X, {len(hot_['tg'])} TG, {len(hot_['wallets'])} walleta", flush=True)
             if once:
                 return
-            sleep(c["loop_sleep_s"] if left else c["idle_sleep_s"])
+            cool = cooling() if fetch is None else 0
+            sleep(max(c["loop_sleep_s"] if left else c["idle_sleep_s"], cool + 2 if t == 0 else 0))
     finally:
         mcon.close()
 

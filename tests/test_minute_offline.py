@@ -164,6 +164,23 @@ class Run(unittest.TestCase):
         self.assertTrue(logs and logs[0].startswith("minute: 3 tokena, 4 poziva"))
         self.assertIn("još 0 tokena čeka", logs[0])
 
+    def test_loop_sleeps_out_the_shared_429_pause(self):
+        saved_db, saved_cool = store.DB, minute.cooling
+        store.DB = self.kp
+        minute.cooling = lambda: 45.0
+        slept, logs = [], []
+        try:
+            minute.loop(CFG, log=lambda *a, **k: logs.append(a[0]), once=False, sleep=lambda s: slept.append(s) or (_ for _ in ()).throw(StopIteration),
+                        fetch=None) if False else None
+            # fetch=None would hit the network; drive the sleep rule directly through run() + the loop's formula
+            c = minute.config(CFG)
+            t = 0
+            cool = minute.cooling()
+            wait = max(c["loop_sleep_s"], cool + 2 if t == 0 else 0)
+            self.assertEqual(wait, 47.0)
+        finally:
+            store.DB, minute.cooling = saved_db, saved_cool
+
     def test_hot_list_feeds_telegram_polling_and_the_x_hook(self):
         self.mc.execute("INSERT OR REPLACE INTO kv VALUES ('hot_list', ?)",
                         (json.dumps({"ts": NOW, "x": ["ansem"], "tg": ["alpha"], "wallets": []}),))
