@@ -64,6 +64,8 @@ class LiveGate(unittest.TestCase):
         self.assertIn("transakcija", prijedlog.alive({**ALIVE, "txns_h1": 3}))
         self.assertIn("volumen", prijedlog.alive({**ALIVE, "vol_h1": 200.0}))
         self.assertIn("likvidnost", prijedlog.alive({**ALIVE, "liq": 9_000.0}))
+        self.assertIn("pada: -34 %", prijedlog.alive({**ALIVE, "ch_h1": -34.0}))   # CATPAD 9.11. 13:05
+        self.assertIsNone(prijedlog.alive({**ALIVE, "ch_h1": -12.0}))
 
     def test_pick_carries_live_numbers_history_and_thesis(self):
         from ui import data
