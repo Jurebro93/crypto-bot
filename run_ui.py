@@ -356,6 +356,10 @@ SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but the
 BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
 WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
 CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
+# 9.11. 22:00: the stdlib server keeps only 5 connections waiting to be accepted; with the CPU at 100 % (KOL search
+# round) the 1-2 s fragment polls of a few open Autopilot tabs overflowed it, the kernel refused the rest and Render
+# showed 502 (59 of them at 21:15 UTC) although the UI process was alive. A deeper backlog queues them instead.
+ThreadingHTTPServer.request_queue_size = int(os.environ.get("UI_BACKLOG", "128"))
 
 
 def _nice_child():

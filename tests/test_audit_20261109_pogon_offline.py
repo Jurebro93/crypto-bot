@@ -435,3 +435,35 @@ class AutopilotMenuForAdmins(unittest.TestCase):
         i = body.index("Autopilot</h2>")
         self.assertIn("adm-only", body[body.rfind("<h2", 0, i):i])
         self.assertNotIn("/pravi-trade", admstrip.strip(body))
+
+
+class KolSearchRoundIsCheap(unittest.TestCase):
+    """9.11. 22:00 (Jure: "nešto guši aplikaciju, ne učitava se"): Render metrics showed the one CPU at 100 % for
+    30-47 min of every hour and every faulthandler dump of the KOL search round stood in discover.graph_candidates,
+    whose NOT EXISTS ... LOWER() subquery scanned the calls table once per follows row. The same answer must now
+    come from one index pass, and the UI must queue a burst of polls instead of refusing them (502)."""
+
+    def test_candidates_skip_handles_that_posted_in_any_case_without_a_correlated_subquery(self):
+        import inspect
+        import sqlite3
+        from kol import discover, store
+        con = sqlite3.connect(":memory:")
+        con.executescript(store.SCHEMA)
+        con.execute(discover.FOLLOW_SCHEMA)
+        for src in ("pro1", "pro2"):
+            con.executemany("INSERT INTO follows VALUES (?,?,?,?,?)",
+                            [(src, "HiddenGem", 1, 4000, "solana degen"), (src, "fresh1", 1, 4000, "memecoin calls"),
+                             (src, "hoopsfan", 1, 9000, "basketball")])
+        con.execute("INSERT INTO follows VALUES (?,?,?,?,?)", ("pro1", "lonely", 1, 4000, "crypto"))   # one follower
+        con.execute("INSERT INTO calls (tweet_id, handle, token, ts, kind) VALUES (?,?,?,?,?)",
+                    ("t1", "hiddengem", "CA1", 1, "call"))   # posted already, in another letter case
+        cfg = {"discover": {"graph": {"min_followed_by": 2, "min_followers": 1000}}}
+        self.assertEqual(discover.graph_candidates(con, cfg), ["fresh1"])
+        src = "\n".join(l for l in inspect.getsource(discover.graph_candidates).splitlines() if not l.strip().startswith("#"))
+        self.assertNotIn("NOT EXISTS", src)
+        self.assertNotIn("LOWER(c.handle)", src)
+
+    def test_ui_accept_backlog_is_deep(self):
+        from http.server import ThreadingHTTPServer
+        import run_ui  # noqa: F401 - sets the backlog at import
+        self.assertGreaterEqual(ThreadingHTTPServer.request_queue_size, 64)
