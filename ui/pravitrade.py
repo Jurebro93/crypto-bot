@@ -389,7 +389,8 @@ def _follows(con, owner, st=None, prefill=""):
                   'jedan ulaz po tokenu čim prvi od njih objavi (ili kad ih zove 2–3), samo dok je token ispod zadanog MC-a (zadano $1M) i '
                   'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah. '
                   'Izlaz „po podacima” (influenceri i ekipe): alat pri svakom ulazu sam bira TP/SL iz izmjerenih poziva tog računa '
-                  'i ne ulazi kad nijedan par nije u plusu; pozicija se zatvara najkasnije nakon 60 min.</p>')
+                  'i ne ulazi kad nijedan par nije u plusu; ulazi samo do 2 min nakon poziva i dok cijena nije već +10 % '
+                  '(tako je i mjereno), a pozicija se zatvara najkasnije nakon 60 min.</p>')
     try:
         pool_box = _pool_line()
     except Exception:  # noqa: BLE001
@@ -1862,6 +1863,8 @@ def post(path, form, user):
                 if form.get("exit") == "podaci":   # 9.11.: the tool picks the pair at every entry (kol/tpsl.py)
                     tp = ""
                 max_mcap, max_runup = _parse_usd(form.get("max_mcap")), _parse_pct(form.get("max_runup"))
+                if form.get("exit") == "podaci" and max_runup is None:   # 10.11.: the data exit is measured for an
+                    max_runup = copy.DATA_MAX_RUNUP                       # entry before the price has run (10 %)
                 if kind == "ekipa":   # the crew defaults (Jure 9.11.); a KOL follow takes them only when filled in
                     max_mcap = EKIPA_MAX_MCAP if max_mcap is None else max_mcap
                     max_runup = EKIPA_MAX_RUNUP if max_runup is None else max_runup

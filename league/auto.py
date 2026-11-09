@@ -231,7 +231,8 @@ def run_once(con, market, now=None):
         if a["mode"] == "tpsl":
             hit = ("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else \
                   ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else \
-                  "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] else None
+                  "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] and (liq or 0) > 0 \
+                  else None   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
             if hit:
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))

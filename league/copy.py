@@ -52,6 +52,11 @@ EXIT_HR = {"smart": "Smart sell", "tpsl": "moj TP/SL", "manual": "prodajem sam",
            "podaci": "TP/SL po podacima (alat bira, ne ulazi kad se ne isplati)"}
 DATA_TP = "15%"   # exit of a "podaci" follow while the account has too few measured calls to decide (with DEFAULT_SL)
 DATA_HOLD_S = 3600   # a data exit is known for the measured hour after the call (kol/tpsl.HOLD_MIN): closed after it
+# 10.11. (review): kol/minute.py measures an entry at the close of the minute the call was posted in. A copy that
+# enters minutes later, or after the price already ran, is a different trade than the one the pair was chosen on, so
+# a "podaci" follow enters only this soon after the call and only while the price has not already moved this much.
+DATA_MAX_LATE_S = 120
+DATA_MAX_RUNUP = 0.10
 
 
 WAKE = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".copy_wake")
@@ -159,6 +164,8 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
             ex["max_runup"] = float(max_runup)
         if kind == "ekipa":
             ex["min_callers"] = max(1, min(int(min_callers or 1), len(members_of(target))))
+        if exit_mode == "podaci" and "max_runup" not in ex:
+            ex["max_runup"] = DATA_MAX_RUNUP
     if exit_mode == "tpsl":
         # checked now on a made-up entry so a typo shows here and not silently on the first copied trade
         tp_px, _ = auto.parse_level(tp, 1.0, 1e6, "tp")
@@ -686,10 +693,14 @@ def _enter(con, auto, mk, todo, now):
             why, conc_shown = _concentration(tok)
         dx = None
         if not why and f["exit"].get("mode") == "podaci":
-            # 9.11. (Jure): the tool decides from the measured calls; "no pair in the plus" is a skip like any gate
-            dx = data_exit(f, now)
-            if dx and dx.get("ok") is False:
-                why = dx["why"]
+            if now - ts > DATA_MAX_LATE_S:
+                why = (f"poziv je star {now - ts} s: izlaz po podacima mjeren je za ulaz u prvoj minuti nakon poziva "
+                       f"(najviše {DATA_MAX_LATE_S} s)")
+            else:
+                # 9.11. (Jure): the tool decides from the measured calls; "no pair in the plus" is a skip like any gate
+                dx = data_exit(f, now)
+                if dx and dx.get("ok") is False:
+                    why = dx["why"]
         if why:
             _log(con, f, tok, side, ts, now, "preskočeno", why, sym)
             continue

@@ -87,6 +87,27 @@ class Levels(unittest.TestCase):
         tie = row(2, {"u": {"10": 4}, "d": {"10": 4}})
         self.assertEqual(tpsl.outcome(tie, 10, 10), ("sl", -10.0))          # the same minute: the stop (order unknown)
 
+    def test_a_stop_fills_at_the_deepest_level_of_its_minute(self):
+        r = row(1, {"u": {}, "d": {"10": 4, "15": 4, "20": 4, "30": 9}})    # minute 4 printed -20 %, minute 9 -30 %
+        self.assertEqual(tpsl.outcome(r, 30, 10), ("sl", -20.0))            # a -10 % stop did not fill at -10 %
+        self.assertEqual(tpsl.outcome(r, 30, 15), ("sl", -20.0))
+        self.assertEqual(tpsl.outcome(r, 30, 20), ("sl", -20.0))
+        self.assertEqual(tpsl.outcome(r, 30, 30), ("sl", -30.0))
+        self.assertEqual(tpsl.outcome(row(2, LOSS), 20, 10), ("sl", -15.0))  # the fixture: -15 % in the stop's minute
+
+    def test_the_close_of_the_hour_is_never_booked_outside_the_pair(self):
+        # review 10.11.: an old row has no minute for +50 %, so its close (+300 %) was booked whole under TP 50
+        old = row(1, None, hi60=4.0, lo60=-0.05, r60=3.0)
+        self.assertEqual(tpsl.outcome(old, 50, 10), ("time", 50.0))
+        self.assertEqual(tpsl.outcome(old, 30, 10), ("time", 30.0))         # t30 is None in this row: still capped
+        # a second measurement whose levels disagree with the stored close (other pool): capped both ways
+        odd = row(2, {"u": {}, "d": {}}, r60=-0.9)
+        self.assertEqual(tpsl.outcome(odd, 20, 15), ("time", -15.0))
+        rows = [row(i, None, hi60=1.2, lo60=-0.02, r60=1.0) for i in range(9)] + \
+               [row(100 + i, None, sl_min=1, lo60=-0.6, r60=-0.5) for i in range(21)]
+        d = tpsl.decide(rows)                                                # 9 of 30 close the hour at +100 %
+        self.assertLessEqual(d["ev_raw"], (9 * 50 - 21 * 10) / 30 - tpsl.COST + 1e-9)   # never more than the target
+
     def test_old_rows_are_exact_for_minus_20_and_cautious_elsewhere(self):
         r = row(1, None, t5=2, t10=3, t15=8, t20=12, sl_min=9, lo60=-0.45, hi60=0.25, r60=-0.30)
         self.assertEqual(tpsl.outcome(r, 10, 20), ("tp", 10.0))             # exact: +10 % minute 3, -20 % minute 9
@@ -106,7 +127,8 @@ class Levels(unittest.TestCase):
         rows = [row(1, WIN), row(2, WIN), row(3, LOSS), row(4, {"u": {}, "d": {}}, r60=0.05)]
         g = tpsl.grid(rows)[(20, 20)]
         self.assertEqual((g["n"], g["tp"], g["sl"], g["time"]), (4, 0.5, 0.25, 0.25))
-        self.assertAlmostEqual(g["ev"], (20 + 20 - 20 + 5) / 4 - tpsl.COST)
+        self.assertAlmostEqual(g["ev"], (20 + 20 - 30 + 5) / 4 - tpsl.COST)  # the loser's stop minute printed -30 %
+        self.assertGreater(g["sd"], 0)
 
 
 class Decide(unittest.TestCase):
@@ -124,8 +146,9 @@ class Decide(unittest.TestCase):
         self.assertEqual((d["tp"], d["sl"], d["n"], d["n_new"]), (30, 10, 15, 5))   # the tight stop loses least on the losers
         self.assertAlmostEqual(d["win"], 0.8)
         self.assertAlmostEqual(d["need"], 0.30)
-        self.assertAlmostEqual(d["ev_raw"], (12 * 30 - 3 * 10) / 15 - 2)    # +20 % a trade before the caution
-        self.assertAlmostEqual(d["ev"], (20 * 15 + (-2) * 10) / 25)         # pulled toward "no edge" by 10 pseudo-calls
+        self.assertAlmostEqual(d["ev_raw"], (12 * 30 - 3 * 15) / 15 - 2)    # +19 % a trade before the caution
+        self.assertAlmostEqual(d["ev"], (19 * 15 + (-2) * 10) / 25)         # pulled toward "no edge" by 10 pseudo-calls
+        self.assertGreater(d["lo"], 0)                                       # ... and above zero at the low end
         self.assertIn("izlaz po podacima TP +30 % / SL −10 %", d["why"])
         self.assertIn("cilj prije stopa 80% (treba 30%)", d["why"])
 
@@ -150,26 +173,45 @@ class Decide(unittest.TestCase):
         self.assertIn("donja granica", d["why"])
         self.assertTrue(tpsl.decide(rows, z=0.5)["ok"])                      # the same calls pass a loose bound
 
+    def test_the_default_bound_rejects_a_mean_that_is_in_the_plus(self):
+        # 6 of 15 calls reach +50 %, 9 go straight down: +9 % a trade on the older AND the newer calls, and the
+        # cautious estimate is well over MIN_EV; only the spread says 15 calls like these prove nothing yet
+        big = {"u": {"10": 2, "15": 3, "20": 5, "30": 8, "50": 20}, "d": {}}
+        rows = [row(i, big if ch == "W" else LOSS, r60=0.5 if ch == "W" else -0.5) for i, ch in enumerate("WLLWLWLLWLLWLWL")]
+        d = tpsl.decide(rows)                                                # tpsl.Z, nothing passed in
+        self.assertEqual((d["tp"], d["sl"]), (50, 10))
+        self.assertAlmostEqual(d["ev_raw"], (6 * 50 - 9 * 15) / 15 - 2)
+        self.assertGreater(d["ev"], tpsl.MIN_EV)
+        self.assertGreater(d["ev_new"], 0)
+        self.assertLess(d["lo"], 0)
+        self.assertFalse(d["ok"])
+        self.assertTrue(d["why"].startswith("po podacima još nije dokazano"))
+
     def test_ten_lucky_calls_do_not_pass(self):
         win10 = {"u": {"10": 2}, "d": {}}
         rows = [row(i, win10 if ch == "W" else LOSS) for i, ch in enumerate("WLWWLWLWWL")]   # 6 x +10 %, 4 x -10 %
         d = tpsl.decide(rows)
         self.assertFalse(d["ok"])
         self.assertEqual((d["tp"], d["sl"]), (10, 10))
-        self.assertAlmostEqual(d["ev_raw"], 0.0)                             # +2 % gross, 2 % cost
-        self.assertAlmostEqual(d["ev"], -1.0)                                # and pulled toward -2 %
+        self.assertAlmostEqual(d["ev_raw"], -2.0)                            # 6 x +10, 4 x -15 (the stop minute), 2 % cost
+        self.assertAlmostEqual(d["ev"], -2.0)
         self.assertTrue(d["why"].startswith("po podacima se ne isplati"))
 
     def test_everybodys_result_lowers_the_start_but_never_lifts_it(self):
         rows = self._rows("WWWLWWWWLWWWWLW")
-        everybody = lambda ev: {f"{tp}/{sl}": {"n": 5000, "ev": ev} for tp in tpsl.TPS for sl in tpsl.SLS}   # noqa: E731
+        everybody = lambda ev, n=5000: {f"{tp}/{sl}": {"n": n, "ev": ev} for tp in tpsl.TPS for sl in tpsl.SLS}   # noqa: E731
+        alone = tpsl.decide(rows)["ev"]
+        self.assertAlmostEqual(alone, (19 * 15 + (-2) * 10) / 25)
         low = tpsl.decide(rows, pool=everybody(-8.0))
         self.assertEqual((low["tp"], low["sl"]), (30, 10))
-        self.assertAlmostEqual(low["ev"], (20 * 15 + (-8) * 10) / 25)       # the crowd loses 8 % a trade: a lower start
-        high = tpsl.decide(rows, pool=everybody(6.0))
-        self.assertAlmostEqual(high["ev"], (20 * 15 + 0 * 10) / 25)         # the crowd's plus counts as zero at most
-        none = tpsl.decide(rows, pool={"30/10": {"n": 0, "ev": -50.0}})     # an empty pool entry says nothing
-        self.assertAlmostEqual(none["ev"], (20 * 15 + (-2) * 10) / 25)
+        self.assertAlmostEqual(low["ev"], (19 * 15 + (-8) * 10) / 25)       # the crowd loses 8 % a trade: a lower start
+        self.assertAlmostEqual(tpsl.decide(rows, pool=everybody(6.0))["ev"], alone)     # the crowd's plus lifts nothing
+        self.assertAlmostEqual(tpsl.decide(rows, pool=everybody(-0.5))["ev"], alone)    # nor does "better than the cost"
+        self.assertAlmostEqual(tpsl.decide(rows, pool=everybody(-50.0, n=tpsl.POOL_MIN_N - 1))["ev"], alone)   # a thin pool says nothing
+        # ten calls that all close the hour a little up: no pool may carry them over the line (review 10.11.)
+        flat = [row(i, {"u": {}, "d": {}}, r60=0.03 + 0.004 * i) for i in range(10)]
+        self.assertFalse(tpsl.decide(flat)["ok"])
+        self.assertFalse(tpsl.decide(flat, pool=everybody(3.0))["ok"])
 
 
 class Reading(unittest.TestCase):
@@ -196,11 +238,26 @@ class Reading(unittest.TestCase):
         got = tpsl.rows(self.mc, ["goodkol"], now=NOW)
         self.assertEqual([r["lv"] for r in got], [None, None])
 
+    def test_an_unreadable_file_is_unknown_not_a_table_of_old_rows(self):
+        class Locked:
+            def execute(self, *a):
+                raise sqlite3.OperationalError("database is locked")
+        with self.assertRaises(sqlite3.OperationalError):
+            tpsl.rows(Locked(), ["goodkol"], now=NOW)
+        self.mc.execute("DROP TABLE call_path")                               # a damaged file: for_handles says "unknown"
+        self.mc.commit()
+        self.assertIsNone(tpsl.for_handles(["goodkol"], now=NOW, path=self.mp))
+
     def test_crew_is_judged_on_the_call_it_enters_on(self):
         rws = [row(1, WIN, "a", "T1", 100), row(2, LOSS, "b", "T1", 200), row(3, WIN, "a", "T2", 100),
                row(4, WIN, "b", "T2", 5000), row(5, WIN, "a", "T3", 300), row(6, WIN, "a", "T1", 150)]
         self.assertEqual([r["tweet_id"] for r in tpsl.crew_rows(rws, 1)], ["1", "3", "5"])    # the first caller of each
         self.assertEqual([r["tweet_id"] for r in tpsl.crew_rows(rws, 2)], ["2"])              # the 2nd member, in the window
+        # review 10.11.: A 12:00, B 12:40, C 13:00 with two callers needed: the copy enters on C (B and C are 20 min
+        # apart), so that is the call the crew is judged on, although B came 40 min after the crew's first call
+        late = [row(7, WIN, "a", "T9", 0), row(8, WIN, "b", "T9", 2400), row(9, LOSS, "c", "T9", 3600)]
+        self.assertEqual([r["tweet_id"] for r in tpsl.crew_rows(late, 2)], ["9"])
+        self.assertEqual([r["tweet_id"] for r in tpsl.crew_rows(late, 3)], [])
 
     def test_pool_is_saved_for_the_pages_and_for_handles_reads_it(self):
         for i, ch in enumerate("WWWLWWWWLWWWWLW"):
@@ -271,14 +328,70 @@ class MinuteLoopStoresLevels(unittest.TestCase):
         self.assertEqual(got, ["PAIR1"])
         self.assertEqual(self.mc.execute("SELECT COUNT(*) FROM call_lv WHERE tweet_id = '9'").fetchone()[0], 0)
 
-    def test_an_old_row_whose_candles_are_gone_keeps_its_path(self):
-        self.data["PAIR2"] = []                                               # GeckoTerminal has no candle there any more
+    def _old_row(self):
+        return (self.mc.execute("SELECT t10, sl_min, bad FROM call_path WHERE tweet_id = '9'").fetchone(),
+                (self.mc.execute("SELECT lv FROM call_lv WHERE tweet_id = '9'").fetchone() or (None,))[0])
+
+    def test_an_old_row_whose_candles_miss_its_minute_keeps_its_path(self):
+        self.data["PAIR2"] = candles(T0 + 7200, 30)                           # candles exist, but hours after that call
         minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: self.data[pool])
-        self.assertEqual(self.mc.execute("SELECT lv FROM call_lv WHERE tweet_id = '9'").fetchone()[0], minute.LV_FAILED)
-        self.assertEqual(self.mc.execute("SELECT t10, bad FROM call_path WHERE tweet_id = '9'").fetchone(), (2, None))
+        self.assertEqual(self._old_row(), ((2, 30, None), minute.LV_FAILED))
         got = []
         minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: got.append(pool) or self.data[pool])
         self.assertEqual(got, [])                                             # not asked again
+
+    def test_an_empty_answer_is_asked_again_tomorrow_not_written_off(self):
+        self.data["PAIR2"] = []
+        minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: self.data[pool])
+        self.assertEqual(self._old_row(), ((2, 30, None), None))              # no levels, and not given up on
+        got = []
+        fetch = lambda pool, s, e: got.append(pool) or self.data[pool]        # noqa: E731
+        minute.run(self.kc, self.mc, CFG, NOW + 3600, fetch=fetch)
+        self.assertEqual(got, [])                                             # waits a day
+        self.data["PAIR2"] = candles(T0 - 3600 - 600, 90, 1.0, {12: (1.0, 1.12, 1.0, 1.1)})
+        minute.run(self.kc, self.mc, CFG, NOW + minute.RELEVEL_RETRY_S + 60, fetch=fetch)
+        self.assertEqual(got, ["PAIR2"])
+        self.assertEqual(json.loads(self._old_row()[1])["u"]["10"], 2)
+
+    def test_a_pool_that_is_gone_or_a_token_kol_db_dropped_only_gives_up_on_the_levels(self):
+        class Gone(Exception):
+            code = 404
+
+        def fetch(pool, s, e):
+            if pool == "PAIR2":
+                raise Gone("Not Found")
+            return self.data[pool]
+        minute.run(self.kc, self.mc, CFG, NOW, fetch=fetch, log=lambda *a, **k: None)
+        self.assertEqual(self._old_row(), ((2, 30, None), minute.LV_FAILED))  # the path is not marked bad 'pool'
+        self.mc.execute("DELETE FROM call_lv WHERE tweet_id = '9'")
+        self.kc.execute("DELETE FROM tokens WHERE token = 'OLD'")             # retention dropped the token
+        self.kc.commit()
+        got = []
+        minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: got.append(pool) or self.data[pool])
+        self.assertEqual(got, [])                                             # nothing to ask without a pool
+        self.assertEqual(self._old_row(), ((2, 30, None), minute.LV_FAILED))
+
+    def test_a_host_held_by_another_job_writes_nothing_off(self):
+        # review 10.11.: "another job holds GeckoTerminal" came back as [] and the call was marked bad for good
+        from event_calendar import http
+        from kol import measure
+        saved = (http.get_json, measure._GT.wait)
+        http.get_json = lambda *a, **k: None
+        measure._GT.wait = lambda: None
+        try:
+            self.assertIsNone(minute.minutes("PAIR1", T0, T0 + 3600))
+        finally:
+            http.get_json, measure._GT.wait = saved
+        t, n, left = minute.run(self.kc, self.mc, CFG, NOW, fetch=lambda pool, s, e: None)   # the same answer in run()
+        self.assertEqual((t, n, left), (0, 0, 1))
+        self.assertEqual(self.mc.execute("SELECT COUNT(*) FROM call_path WHERE tweet_id = '1'").fetchone()[0], 0)
+        self.assertEqual(self._old_row(), ((2, 30, None), None))
+
+    def test_only_new_calls_hold_the_shared_host(self):
+        import inspect
+        src = inspect.getsource(minute.run)
+        self.assertIn("hold = fetch is minutes and n_new > 0", src)
+        self.assertIn("if tok in relevel or time.monotonic() + cool > stop_at:", src)
 
 
 class TimeLimit(unittest.TestCase):
@@ -306,6 +419,24 @@ class TimeLimit(unittest.TestCase):
         t = self.con.execute("SELECT status, note FROM trades WHERE id=?", (self.tid,)).fetchone()
         self.assertEqual(t[0], "closed")
         self.assertIn("auto vrijeme", t[1])
+
+    def test_a_zero_liquidity_read_at_the_deadline_waits_a_pass(self):
+        opened = self.con.execute("SELECT opened_ts FROM trades WHERE id=?", (self.tid,)).fetchone()[0]
+        auto.set_auto(self.con, "Ivan", self.tid, "tpsl", "20%", "-15%", from_eff=True, hold_s=3600)
+        self.assertEqual(auto.run_once(self.con, lambda toks: {A: (1.0, 0, None, 1e6)}, opened + 3700), [])
+        self.assertEqual(self.con.execute("SELECT status FROM trades WHERE id=?", (self.tid,)).fetchone()[0], "open")
+        done = auto.run_once(self.con, lambda toks: {A: (1.0, 50000, None, 1e6)}, opened + 3720)
+        self.assertIn("vrijeme", done[0][2])
+
+    def test_the_limit_survives_a_dca_buy_and_the_real_trade_reads_the_target(self):
+        import run_trade
+        from league import dca
+        opened = self.con.execute("SELECT opened_ts FROM trades WHERE id=?", (self.tid,)).fetchone()[0]
+        auto.set_auto(self.con, "Ivan", self.tid, "tpsl", "30%", "-10%", from_eff=True, hold_s=3600)
+        dca.add_to(self.con, self.tid, 10, 0.9, 50000)
+        a = json.loads(self.con.execute("SELECT auto FROM trades WHERE id=?", (self.tid,)).fetchone()[0])
+        self.assertEqual((a["tp"], a["sl"], a["until"]), ("+30%", "-10%", opened + 3600))
+        self.assertEqual(run_trade._tp_pct(json.dumps(a), 15), 30.0)          # the mirror checks its costs against +30 %
 
     def test_levels_still_come_first_and_plain_tpsl_has_no_limit(self):
         a = auto.set_auto(self.con, "Ivan", self.tid, "tpsl", "20%", "-15%", from_eff=True)
@@ -389,6 +520,22 @@ class CopyWithDataExit(unittest.TestCase):
         self.assertTrue(r["note"].startswith("po podacima se ne isplati"))
         s = copy.follow_log_summary(self.con, self.now - 86400)
         self.assertEqual(sum(v["preskočeno"] for v in s.values()), 1)         # shows up in "Zadnjih 24 h"
+
+    def test_a_late_call_is_not_entered_because_that_is_not_what_was_measured(self):
+        self._history("WWWLWWWWLWWWWLW")
+        fid = copy.follow(self.con, "Ivan", "kol", "goodkol", "@goodkol", 25, 10, "podaci")
+        self.con.execute("UPDATE follows SET created=?", (self.now - 3600,))
+        self.con.commit()
+        f = next(x for x in copy.follows(self.con, "Ivan") if x["id"] == fid)
+        self.assertEqual(f["exit"]["max_runup"], copy.DATA_MAX_RUNUP)         # and not after the price already ran
+        self.k.execute("INSERT INTO calls VALUES (?, 'goodkol', ?, 'call')", (A, self.now - copy.DATA_MAX_LATE_S - 30))
+        self.k.commit()
+        self.assertEqual(copy.run_once(self.con, self.market, self.now, self.paths), [])
+        r = copy.log(self.con)[0]
+        self.assertEqual(r["action"], "preskočeno")
+        self.assertIn("izlaz po podacima mjeren je za ulaz u prvoj minuti", r["note"])
+        typed = copy.follow(self.con, "Ivan", "kol", "otherkol", "", 25, 10, "podaci", max_runup=0.2)
+        self.assertEqual(next(x for x in copy.follows(self.con, "Ivan") if x["id"] == typed)["exit"]["max_runup"], 0.2)
 
     def test_too_few_measured_calls_keeps_the_default_pair(self):
         self._history("WWW")

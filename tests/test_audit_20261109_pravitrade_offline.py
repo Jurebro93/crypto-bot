@@ -339,6 +339,29 @@ def pravitrade_popup_with(t, live):
 
 
 class FollowForms(PageBase):
+    def test_data_exit_follow_through_the_form(self):
+        """10.11. (Jure: "neka alat dinamički odluči"): exit=podaci is stored as its own mode; the typed TP means
+        nothing, the run-up gate defaults to what the pair was measured for, a wallet is told why it cannot use it."""
+        from ui import pravitrade
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "@ansem", "exit": "podaci", "tp": "40%", "per_day": "3"}, "Jure")
+        self.assertIn("ok=", loc)
+        f = copy.follows(self.lg, settings.LEAGUE_USER)[0]
+        self.assertEqual((f["kind"], f["exit"]["mode"], f["exit"]["max_runup"]), ("kol", "podaci", copy.DATA_MAX_RUNUP))
+        self.assertNotIn("tp", f["exit"])
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "tg:a, tg:b", "exit": "podaci", "per_day": "3"}, "Jure")
+        self.assertIn("ok=", loc)
+        f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["kind"] == "ekipa")
+        self.assertEqual((f["exit"]["mode"], f["exit"]["max_runup"]), ("podaci", copy.DATA_MAX_RUNUP))   # not the crew's 25 %
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "@murad", "exit": "podaci", "max_runup": "20", "per_day": "3"}, "Jure")
+        f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["target"] == "murad")
+        self.assertAlmostEqual(f["exit"]["max_runup"], 0.20)                      # a typed limit wins
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "W" * 44, "exit": "podaci", "per_day": "3"}, "Jure")
+        self.assertIn("err=", loc)
+        self.assertIn("influencere", __import__("urllib.parse").parse.unquote(loc))
+        html = pravitrade._follows(self.lg, True, settings.raw(self.con))
+        self.assertIn("<option value=podaci>po podacima (alat bira TP/SL)</option>", html)
+        self.assertIn("TP/SL po podacima", html)
+
     def test_tpsl_follow_without_stop_stores_the_default_and_the_card_says_so(self):
         """P10/P17/P19: no 'zadani' stop that does not exist: /follow, 'Zaprati sve' and the cards agree on DEFAULT_SL."""
         from ui import pravitrade

@@ -20,7 +20,7 @@ and the expected result per trade is the mean over the calls, after cost.
 decide() picks the pair for one source (an account, or a crew's calls):
   - fewer than MIN_N measured calls (one per token): no decision (ok None); the caller keeps its default exit
   - every pair's mean is pulled toward "no edge" (minus the cost; everybody's result for that pair when that is
-    worse) by PRIOR_N pseudo-calls, so ten lucky calls do not look like a strategy
+    worse and stands on POOL_MIN_N+ calls) by PRIOR_N pseudo-calls, so ten lucky calls do not look like a strategy
   - the pair is chosen on the OLDER two thirds of the calls and must be in the plus on the NEWER third too (the
     "proven twice" idea of wallets/dokazani.py): a pair that only fits the past is not taken
   - the result per trade must be above zero even at the low end of its range (mean minus Z standard errors over
@@ -36,6 +36,7 @@ Nothing here costs an API call: it reads minute.db (read-only) and does arithmet
 """
 import json
 import math
+import os
 import sqlite3
 import time
 
@@ -45,9 +46,11 @@ COST = 2.0        # % of the stake per round trip: league/store.FEE is 1 % a sid
 MIN_N = 10        # measured calls (one per token) before the tool decides by itself
 MIN_EV = 1.0      # % per trade the cautious estimate must reach
 PRIOR_N = 10      # pseudo-calls of "no edge" every source starts with
+POOL_MIN_N = 200  # everybody's result counts as the starting point only from this many measured calls
 Z = 2.0           # standard errors the mean must stay above zero by (see the module text and the simulation there)
 DAYS = 30         # kol/minute.KEEP_DAYS
 HOLD_MIN = 60     # the measured horizon: a copy with a data exit is closed after this long (kol/minute.HORIZON_MIN)
+READ_TIMEOUT_S = 2   # how long a decision waits for minute.db before it is "unknown"
 LEGACY_UP = (5, 10, 15, 20, 30)   # the targets the old rows have an exact minute for (call_path t5..t30)
 
 _COLS = ("tweet_id", "token", "handle", "ts", "hi60", "lo60", "r60", "t5", "t10", "t15", "t20", "t30", "sl_min", "lv")
@@ -88,8 +91,16 @@ def outcome(row, tp, sl):
     if a is not None and (b is None or a < b):
         return "tp", float(tp)
     if b is not None:
-        return "sl", -float(sl)
-    return "time", (row.get("r60") or 0.0) * 100
+        # 10.11. (review): the price is checked every few seconds, not continuously: when the low of the stop's
+        # minute went through deeper levels too, the stop is booked at the deepest one touched in that minute
+        # (a -10 % stop in a minute that printed -30 % did not fill at -10 %). Old rows know only the level asked.
+        deep = max([d for d, m in dn.items() if m == b and d >= sl] or [sl]) if exact else sl
+        return "sl", -float(deep)
+    # neither level inside the hour: out at the close of minute 60, which by definition lies between the two.
+    # Clamped, because an old row has no minute for some targets (its close can sit above a target it "never
+    # reached") and a second measurement can disagree with the stored close; booking more than the target would
+    # be the optimistic guess this module never makes (10.11., review: +300 % was booked under TP 50).
+    return "time", max(-float(sl), min((row.get("r60") or 0.0) * 100, float(tp)))
 
 
 def grid(rows, cost=COST, tps=TPS, sls=SLS):
@@ -129,16 +140,16 @@ def decide(rows, pool=None, cost=COST, min_n=MIN_N, min_ev=MIN_EV, prior_n=PRIOR
     rows = sorted(rows, key=lambda r: r["ts"])
     n = len(rows)
     if n < min_n:
-        return {"ok": None, "n": n, "why": f"premalo izmjerenih poziva ({n} od {min_n}) za izlaz po podacima"}
+        return {"ok": None, "n": n, "why": f"premalo izmjerenih poziva ({n} od {min_n})"}
     k_new = max(3, n // 3)
     older, newer = rows[:n - k_new], rows[n - k_new:]
     g_old, g_new, g_all = grid(older, cost), grid(newer, cost), grid(rows, cost)
 
     def prior(pair):
-        # "no edge" loses the cost; when everybody's calls are known for this pair, their result, but never above
-        # zero: a source has to show its own edge, the crowd's luck does not carry it over the line
+        # "no edge" loses the cost. Everybody's result for this pair replaces it only when it is WORSE and stands
+        # on enough calls: a source has to show its own edge, the crowd's luck never lifts it over the line
         p = (pool or {}).get(pair) or (pool or {}).get(f"{pair[0]}/{pair[1]}")
-        return min(p["ev"], 0.0) if p and p.get("n") and "ev" in p else -cost
+        return min(p["ev"], -cost) if p and (p.get("n") or 0) >= POOL_MIN_N and "ev" in p else -cost
 
     best = max(g_old, key=lambda pr: (_shrunk(g_old[pr]["ev"], len(older), prior(pr), prior_n), -pr[1], pr[0]))
     a = g_all[best]
@@ -181,7 +192,10 @@ def rows(mcon, handles=None, days=DAYS, now=None):
         try:
             return mcon.execute(f"SELECT {cols}, l.lv FROM call_path c LEFT JOIN call_lv l ON l.tweet_id = c.tweet_id "
                                 f"AND l.token = c.token WHERE {where}", args).fetchall()
-        except sqlite3.OperationalError:   # a minute.db from before call_lv: its writer creates it on its next pass
+        except sqlite3.OperationalError as e:
+            if "no such table: call_lv" not in str(e):
+                raise   # locked / damaged: the caller treats it as "unknown" (10.11., review), never as "all old rows"
+            # a minute.db from before call_lv: its writer creates the table on its next pass
             return mcon.execute(f"SELECT {cols}, NULL FROM call_path c WHERE {where}", args).fetchall()
 
     if handles is None:
@@ -204,14 +218,18 @@ def rows(mcon, handles=None, days=DAYS, now=None):
 
 
 def crew_rows(rws, k=1, window_s=1800):
-    """One row per token for a crew: the call of the k-th different member within window_s of the crew's first call
-    on that token (k = 1: the first caller), which is the moment league/copy.py enters a crew follow."""
+    """One row per token for a crew: the first call at which k different members have called the token within the
+    window_s before it (k = 1: the first caller). That is the call league/copy.run_once enters a crew follow on
+    (it counts the members inside crew_window_min around the newest call, not from the crew's first call)."""
     by = {}
     for r in sorted(rws, key=lambda r: r["ts"]):
-        seen = by.setdefault(r["token"], [])
-        if r["handle"] not in {x["handle"] for x in seen}:
-            seen.append(r)
-    out = [seen[k - 1] for seen in by.values() if len(seen) >= k and seen[k - 1]["ts"] - seen[0]["ts"] <= window_s]
+        by.setdefault(r["token"], []).append(r)
+    out = []
+    for calls in by.values():
+        for i, r in enumerate(calls):
+            if len({x["handle"] for x in calls[:i + 1] if r["ts"] - x["ts"] <= window_s}) >= k:
+                out.append(r)
+                break
     return sorted(out, key=lambda r: r["ts"])
 
 
@@ -248,11 +266,12 @@ def for_handles(handles, k=1, window_s=1800, days=DAYS, now=None, path=None):
     hs = [h for h in handles if h]
     if not hs:
         return None
-    try:
-        mcon = minute.ro(path)
-    except sqlite3.Error:
+    p = path or minute.db_path()
+    if not os.path.exists(p) or not os.path.getsize(p):
         return None
-    if mcon is None:
+    try:   # a short wait: this read sits in front of a buy, and minute.db has one writer with short transactions
+        mcon = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=READ_TIMEOUT_S)
+    except sqlite3.Error:
         return None
     try:
         rws = rows(mcon, hs, days, now)

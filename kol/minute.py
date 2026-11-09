@@ -113,7 +113,12 @@ def minutes(pool, start, end):
     d = http.get_json(f"{measure.GECKO}/pools/{pool}/ohlcv/minute",
                       {"aggregate": 1, "before_timestamp": int(end) + MIN, "limit": limit, "currency": "usd"},
                       ttl=3600, headers={"Accept": "application/json"}, retries=0)
-    rows = ((d or {}).get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
+    if d is None:
+        # 10.11. (review): get_json answers None only when ANOTHER job holds GeckoTerminal (http.reserve). This used
+        # to become [] here, run() took it for "no candle" and wrote the call off for good (bad 'svijeca'). None
+        # makes run() stop the pass and try again next round.
+        return None
+    rows = (d.get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
     return sorted((int(r[0]), *map(float, r[1:6])) for r in rows)
 
 
@@ -177,6 +182,7 @@ def _done(mcon):
 
 
 RETRY_S = 3600   # 9.11. (audit P24): a token whose candles failed (403, timeout) waits this long before the next try
+RELEVEL_RETRY_S = 86400   # a second measurement that came back empty: once a day is enough
 
 
 def _retry(mcon):
@@ -273,7 +279,11 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
         return 0, 0, 0
     n_new = len(todo)
     todo = {**todo, **relevel}   # new calls first (dict order), the second measurements after them
-    if fetch is minutes:
+    # 10.11. (review): only NEW calls are worth holding GeckoTerminal for; a pass of second measurements alone
+    # runs unreserved (40 tokens x 3.5 s every few minutes would keep the KOL round and the shadow book off the
+    # host for hours) and stops the moment anybody else needs it
+    hold = fetch is minutes and n_new > 0
+    if hold:
         http.reserve(measure.GECKO, budget)
     stop_at = time.monotonic() + budget
     n_tok = n_calls = 0
@@ -287,8 +297,8 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
             if fetch is minutes:   # after a 429 every process pauses (http.limited): wait it out inside the budget
                 cool = http.cooling(measure.GECKO)
                 if cool > 0:
-                    if time.monotonic() + cool > stop_at:
-                        break
+                    if tok in relevel or time.monotonic() + cool > stop_at:
+                        break   # second measurements never wait on the host: next pass
                     time.sleep(min(cool + 1, 180))
             if tok in relevel and not pairs.get(tok):
                 # kol.db dropped the token (retention) or its pool since the first measurement: the path stays as it
@@ -319,6 +329,10 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                 continue
             if candles is None:    # another job holds the GeckoTerminal budget (http.reserve): next round
                 break
+            if tok in relevel and not candles:
+                _set_retry(mcon, tok, now + RELEVEL_RETRY_S, now)   # nothing came back: ask again tomorrow
+                mcon.commit()
+                continue
             n_tok += 1
             if tok not in relevel:
                 left -= 1
@@ -349,7 +363,7 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                 n_calls += 1
             mcon.commit()
     finally:
-        if fetch is minutes:
+        if hold:
             http.release(measure.GECKO)
     mcon.execute("DELETE FROM call_path WHERE ts < ?", (now - KEEP_DAYS * 86400,))
     mcon.execute("DELETE FROM call_lv WHERE ts < ?", (now - KEEP_DAYS * 86400,))
