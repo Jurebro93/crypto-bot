@@ -25,7 +25,8 @@ CFG = {"max_delay_min": 10,      # call/buy older than this when we see it: not 
        "price_wait_min": 5,      # a brand-new token often has no DexScreener pair for a few minutes
        "sell_lookback_min": 120,  # a wallet sale is retried this long when there is no price
        "min_liq": 5000, "max_mcap": 50e6, "min_size": 5, "max_size": 500, "max_per_day": 50,
-       "keep_log_days": 30}
+       "keep_log_days": 30,
+       "crew_window_min": 30}     # ekipa: members' calls on one token within this window count together
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS follows (
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS copy_log (
 CREATE INDEX IF NOT EXISTS copy_log_ts ON copy_log (ts);
 """
 
-KIND_HR = {"kol": "KOL", "wallet": "wallet"}
+KIND_HR = {"kol": "KOL", "wallet": "wallet", "ekipa": "ekipa"}
 EXIT_HR = {"smart": "Smart sell", "tpsl": "moj TP/SL", "manual": "prodajem sam", "mirror": "prodaj kad on proda",
            "mirror_smart": "prodaj kad on proda + Smart sell"}
 
@@ -100,14 +101,29 @@ def _paths():
 
 # ---------- follows -----------------------------------------------------------------------------------------------
 
-def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode="", tp="", sl="", once=False):
+def members_of(target):
+    """An 'ekipa' target is its members' handles joined by commas (X handles and tg:channels)."""
+    return [m.strip().lstrip("@") for m in (target or "").split(",") if m.strip().lstrip("@")]
+
+
+def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode="", tp="", sl="", once=False,
+           max_mcap=None, max_runup=None, min_callers=1):
     """Start following (or update an existing follow of the same target). Returns the follow id.
-    once (KOLs only): enter their next call, then stop following by itself."""
+    once (KOLs only): enter their next call, then stop following by itself.
+    9.11. (Jure): kind 'ekipa' = a crew of X/Telegram accounts (target 'a,b,tg:c'): one entry per token as soon as
+    min_callers of them have called it (1 = the first caller), only while the token is under max_mcap and the price is
+    not more than max_runup above where it was at the call. max_mcap / max_runup also work on a single KOL."""
     from . import auto
     ensure(con)
     if kind not in KIND_HR:
         raise ValueError("nepoznata vrsta praćenja")
     target = (target or "").strip()
+    if kind == "ekipa":
+        mem = sorted(set(members_of(target)))
+        if not mem:
+            raise ValueError("upiši račune ekipe odvojene zarezom (npr. tg:kanal1, tg:kanal2, @ime)")
+        target = ",".join(mem)
+        label = label or "ekipa: " + " + ".join(m[3:] if m.startswith("tg:") else "@" + m for m in mem)
     if not target:
         raise ValueError("koga pratiš?")
     size = float(size_usd or 0)
@@ -123,6 +139,13 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
     ex = {"mode": exit_mode}
     if once and kind == "kol":
         ex["once"] = True
+    if kind in ("kol", "ekipa"):
+        if max_mcap:
+            ex["max_mcap"] = float(max_mcap)
+        if max_runup is not None and max_runup != "":
+            ex["max_runup"] = float(max_runup)
+        if kind == "ekipa":
+            ex["min_callers"] = max(1, min(int(min_callers or 1), len(members_of(target))))
     if exit_mode == "tpsl":
         # checked now on a made-up entry so a typo shows here and not silently on the first copied trade
         tp_px, _ = auto.parse_level(tp, 1.0, 1e6, "tp")
@@ -171,6 +194,18 @@ def follows(con, user=None, active=True):
 
 
 def describe_exit(ex):
+    base = _describe_exit(ex)
+    cond = []
+    if ex.get("min_callers", 1) > 1:
+        cond.append(f"ulaz kad zovu {ex['min_callers']}+ iz ekipe")
+    if ex.get("max_mcap"):
+        cond.append(f"samo do MC ${ex['max_mcap'] / 1e6:g}M" if ex["max_mcap"] >= 1e6 else f"samo do MC ${ex['max_mcap'] / 1e3:g}k")
+    if ex.get("max_runup") is not None:
+        cond.append(f"ne ako je već +{ex['max_runup']:.0%} od poziva")
+    return " · ".join([x for x in [base] if x] + cond)
+
+
+def _describe_exit(ex):
     s = ("samo sljedeći call, " if ex.get("once") else "") + EXIT_HR.get(ex.get("mode"), "")
     if ex.get("mode") == "tpsl":
         s += " (" + ", ".join(p for p in (f"TP {ex.get('tp')}" if ex.get("tp") else "",
@@ -284,8 +319,9 @@ def market(tokens):
     for p in pairs:
         t, liq = p["baseToken"]["address"], (p.get("liquidity") or {}).get("usd") or 0
         if liq >= best.get(t, (0, -1))[1]:
+            ch = p.get("priceChange") or {}
             best[t] = (float(p.get("priceUsd") or 0), liq, p.get("url"), p.get("marketCap") or p.get("fdv"),
-                       p["baseToken"].get("symbol"))
+                       p["baseToken"].get("symbol"), {"m5": ch.get("m5"), "h1": ch.get("h1")})
     # fresh pump.fun tokens on the bonding curve: DexScreener has no liquidity for them, Jupiter does
     missing = [m for m in tokens if not best.get(m) or not best[m][1] or not best[m][0]]
     if missing:
@@ -295,9 +331,44 @@ def market(tokens):
         except Exception:  # noqa: BLE001
             jp = {}
         for m, (px, liq) in jp.items():
-            _, _, url, mc, sym = best.get(m, (0, 0, None, None, None))
-            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym)
+            _, _, url, mc, sym = best.get(m, (0, 0, None, None, None, None))[:5]
+            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym, None)
     return best
+
+
+def _runup(m, age_s):
+    """How far the price already moved by the time we see the call, from DexScreener's 5-min / 1-h change (fraction):
+    a call seen within 5 min uses m5 (it includes a few minutes before the call: conservative), within an hour h1;
+    None when unknown. The exact per-minute path comes later from kol/minute.py; this is the gate at entry time."""
+    ch = m[5] if len(m) > 5 else None
+    if not ch:
+        return None
+    v = ch.get("m5") if age_s <= 300 else (ch.get("h1") if age_s <= 3600 else None)
+    try:
+        return float(v) / 100 if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def followed_handles(user=None, path=None):
+    """X handles and tg:channels of every active KOL and crew follow (of `user`, or everyone): the accounts the bot
+    must hear from within seconds (tg/poll.py reads them every 2 s, kol/xhook.py puts them in the X webhook)."""
+    from . import store as lstore
+    p = path or lstore.DB
+    if not os.path.exists(p):
+        return set()
+    con = _ro(p)
+    if con is None:
+        return set()
+    try:
+        rows = _q(con, "SELECT kind, target FROM follows WHERE active = 1 AND kind IN ('kol', 'ekipa')" + (" AND user = ?" if user else ""),
+                  (user,) if user else ())
+    finally:
+        con.close()
+    out = set()
+    for kind, target in rows:
+        out |= set(members_of(target)) if kind == "ekipa" else {target}
+    return out
 
 
 def run_once(con, market_fn=None, now=None, paths=None):
@@ -312,14 +383,23 @@ def run_once(con, market_fn=None, now=None, paths=None):
     by_target = {}
     for f in fl:
         by_target.setdefault((f["kind"], f["target"]), []).append(f)
-    kols = sorted({f["target"] for f in fl if f["kind"] == "kol"})
+    crews = [(f, set(members_of(f["target"]))) for f in fl if f["kind"] == "ekipa"]
+    kols = sorted({f["target"] for f in fl if f["kind"] == "kol"} | {m for _, mem in crews for m in mem})
     wals = sorted({f["target"] for f in fl if f["kind"] == "wallet"})
     since = now - max(CFG["max_delay_min"], CFG["sell_lookback_min"]) * 60
     evs = sorted(events(kols, wals, since, paths), key=lambda e: e[3])
     todo = []   # (follow, token, side, ts)
+    win = CFG["crew_window_min"] * 60
     for target, tok, side, ts in evs:
         kind = "wallet" if target in wals else "kol"
-        for f in by_target.get((kind, target), []):
+        cands = list(by_target.get((kind, target), []))
+        if kind == "kol":
+            for f, mem in crews:   # a crew member called: enough of the crew on this token within the window?
+                if target in mem:
+                    n = len({t for t, tk, sd, t2 in evs if tk == tok and sd == "buy" and t in mem and abs(t2 - ts) <= win})
+                    if n >= int(f["exit"].get("min_callers") or 1):
+                        cands.append(f)
+        for f in cands:
             if ts < f["created"] - 60 or tok in STABLE:
                 continue   # calls from before the follow started are not copied
             if side == "buy" and now - ts > CFG["max_delay_min"] * 60:
@@ -377,6 +457,10 @@ def run_once(con, market_fn=None, now=None, paths=None):
             why = f"već {f['per_day']} ulaza danas (tvoj limit)"
         elif con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (f["user"], tok)).fetchone():
             why = "već imaš otvorenu poziciju u tom tokenu"
+        elif f["exit"].get("max_mcap") and mcap and mcap > f["exit"]["max_mcap"]:
+            why = f"token je već na MC ${mcap:,.0f} (tvoj strop ${f['exit']['max_mcap']:,.0f})"
+        elif f["exit"].get("max_runup") is not None and (_runup(m, now - ts) or 0) > f["exit"]["max_runup"]:
+            why = f"cijena je već +{_runup(m, now - ts):.0%} od poziva (tvoj prag +{f['exit']['max_runup']:.0%})"
         else:
             col = _rugged(tok, mcap, liq)
             if col:

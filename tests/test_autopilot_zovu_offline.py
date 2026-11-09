@@ -77,18 +77,20 @@ class Page(unittest.TestCase):
         self.assertLess(body.index("Zovu sada"), body.index("Što kupiti sada"))
         self.assertLess(body.index("Što kupiti sada"), body.index("Koga bot prati"))
 
-    def test_follow_all_callers_uses_the_target_and_skips_known(self):
+    def test_follow_all_callers_makes_one_crew_follow(self):
         pravitrade.post("/pravi-trade/tp", {"tp": "20"}, "Jure")
         copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "100%", "")
         self.lg.commit()
         self.assertIn("err=", pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Ivan"))
         loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha,@murad"}, "Jure")
         self.assertIn("ok=", loc)
-        fl = {f["target"]: f for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"}
-        self.assertEqual(sorted(fl), ["ansem", "murad", "tg:alpha"])
-        self.assertEqual(fl["ansem"]["exit"]["tp"], "100%")   # the existing follow keeps its own exit
-        self.assertEqual(fl["tg:alpha"]["exit"], {"mode": "tpsl", "tp": "20%", "sl": ""})
-        self.assertIn("Sve", pravitrade.post("/pravi-trade/followall", {"handles": "ansem"}, "Jure"))
+        fl = {f["target"]: f for f in copy.follows(self.lg, settings.LEAGUE_USER)}
+        self.assertEqual(sorted(fl), ["ansem", "ansem,murad,tg:alpha"])
+        self.assertEqual(fl["ansem"]["exit"]["tp"], "100%")   # the existing single follow keeps its own exit
+        crew = fl["ansem,murad,tg:alpha"]
+        self.assertEqual(crew["kind"], "ekipa")
+        self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
+        self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "murad, ansem, tg:alpha"}, "Jure"))
 
     def test_live_log_hides_stale_trial_orders(self):
         """9.11. (Jure): the log said "osvježeno sada" above skipped trial orders from 5.8 days ago."""

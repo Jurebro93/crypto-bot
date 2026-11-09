@@ -34,9 +34,10 @@ def followed_channels():
         if con is None:
             return out
         try:
-            out |= {f["target"][3:] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "kol" and f["target"].startswith("tg:")}
-        finally:
             con.close()
+            out |= {h[3:] for h in copy.followed_handles(settings.LEAGUE_USER, lstore.DB) if h.startswith("tg:")}
+        except Exception:  # noqa: BLE001
+            pass
     except Exception:  # noqa: BLE001
         pass
     return out
