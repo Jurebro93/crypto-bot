@@ -94,7 +94,9 @@ class FrozenStrategies(unittest.TestCase):
         import json
         cfg = json.load(open(os.path.join(ROOT, "strat", "config.json")))
         frozen = {s["key"] for s in cfg["strategies"] if s.get("frozen")}
-        self.assertEqual(frozen, {"sumnjivi_socijali", "alat_mali", "ozbiljan_projekt", "top_novcanici"})
+        # 9.11. (Jure, "isključi strategije koje troše API, a nisu profitabilne"): insajderi (−45,7 %, ispod kontrole)
+        # i ekipa (0 ulaza u 4 dana uz plaćeno čitanje reakcija) pridružene zamrznutima
+        self.assertEqual(frozen, {"sumnjivi_socijali", "alat_mali", "ozbiljan_projekt", "top_novcanici", "insajderi", "ekipa"})
         from strat import run
         w = run.wanted({"novcanici": [("T", NOW, "W", 0)], "sumnjivi": [("T", NOW, "x", 0)], "alat": [("T", NOW, "a", 0)]},
                        cfg, NOW, 0)

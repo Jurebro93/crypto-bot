@@ -100,7 +100,9 @@
    "key": "insajderi",
    "name": "Insajderi",
    "icon": "🕵️",
-   "opis": "Kupi kad 2+ novčanika koja inače kupuju prije KOL poziva (insajderi, bez snajpera) kupe isti token unutar 10 min, a nitko ga još nije pozvao. Izlaz: čim neki od njih proda, ili po pravilima bota."
+   "opis": "Kupi kad 2+ novčanika koja inače kupuju prije KOL poziva (insajderi, bez snajpera) kupe isti token unutar 10 min, a nitko ga još nije pozvao. Izlaz: čim neki od njih proda, ili po pravilima bota.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 125 zatvorenih, −45,7 %, ne pobjeđuje nasumičnu kontrolu nakon troškova; bez novih ulaza. Helius tokovi oko poziva ostaju za signal 'dev prodaje'."
   },
   {
    "key": "ozbiljan_projekt",
@@ -128,7 +130,9 @@
    "key": "ekipa",
    "name": "Ekipa",
    "icon": "🤝",
-   "opis": "Kupi kad poziv dobije reakcije 2+ velikih računa (20k+ pratitelja) u 30 min, a barem jedan od njih je tokenom trgovao prije poziva. Nicholas: 'tko se engagea na tuđi poziv, već je ušao prije'. Mjerimo vrijedi li."
+   "opis": "Kupi kad poziv dobije reakcije 2+ velikih računa (20k+ pratitelja) u 30 min, a barem jedan od njih je tokenom trgovao prije poziva. Nicholas: 'tko se engagea na tuđi poziv, već je ušao prije'. Mjerimo vrijedi li.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 0 ulaza u 4 dana uz $0,8/dan čitanja reakcija (twitterapi); čitanje reakcija isključeno (kol/config crew.daily_usd 0). Ekipe se sada mjere besplatno iz zajedničkih poziva (/ekipe)."
   },
   {
    "key": "kontrola",
