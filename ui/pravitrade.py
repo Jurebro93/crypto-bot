@@ -1565,13 +1565,36 @@ def _post_buy(con, tcon, form, user):
         raise ValueError(f"kupnja odbijena: {why_not}")
     if (lv[token].get("mcap") or 0) < 30_000:
         raise ValueError(f"kupnja odbijena: MC ${lv[token]['mcap']:,.0f}, ispod 30k")
+    # 9.11. (audit N4/N10): everything is checked BEFORE the demo trade is written. A ValueError used to come after
+    # store.buy, so the page showed the error while the position already existed, without an exit rule, and
+    # run_trade mirrored it (for real in LIVE); a stake above max_sol_per_trade was accepted here and silently
+    # blocked by gate_buy, leaving a demo position with no real one behind it.
+    ex = form.get("exit") or "smart"
+    tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    if ex == "tpsl":
+        if not sl:
+            sl = copy.DEFAULT_SL   # owner rule 9.11.: no explicit stop -> the default one, same as for copies
+        tp_px, _ = auto.parse_level(tp, price, mcap, "tp")   # raises on a typo or an MC level without entry MC
+        sl_px, _ = auto.parse_level(sl, price, mcap, "sl")
+        if tp_px is None and sl_px is None:
+            raise ValueError("upiši barem TP ili SL")
+        if tp_px is not None and tp_px <= price:
+            raise ValueError("TP mora biti iznad ulaznog MC-a")
+    elif ex != "smart":
+        raise ValueError("nepoznat način izlaza")
+    lim = _cfg(tcon)["max_sol_per_trade"]
+    if sol > lim:
+        raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
     sym = _symbol(token)
     tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap)
-    ex = form.get("exit") or "smart"
-    if ex == "smart":
+    try:
+        if ex == "smart":
+            auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
+        else:
+            auto.set_auto(con, settings.LEAGUE_USER, tid, "tpsl", tp, sl)
+    except ValueError as e:   # validated above, so this should not happen; never leave the position without an exit
         auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
-    elif ex == "tpsl":
-        auto.set_auto(con, settings.LEAGUE_USER, tid, "tpsl", form.get("tp", ""), form.get("sl", ""))
+        print(f"pravi trade: ručna kupnja {sym or token[:6]}: TP/SL odbijen ({e}), izlaz Smart sell", flush=True)
     sizes = dict(settings.raw(tcon).get("manual_size") or {})
     sizes[str(tid)] = sol
     settings.put(tcon, "manual_size", dict(list(sizes.items())[-200:]), user)
