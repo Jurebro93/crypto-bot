@@ -94,7 +94,7 @@ def minutes(pool, start, end):
     measure._GT.wait()
     d = http.get_json(f"{measure.GECKO}/pools/{pool}/ohlcv/minute",
                       {"aggregate": 1, "before_timestamp": int(end) + MIN, "limit": limit, "currency": "usd"},
-                      ttl=3600, headers={"Accept": "application/json"}, retries=1)
+                      ttl=3600, headers={"Accept": "application/json"}, retries=0)
     rows = ((d or {}).get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
     return sorted((int(r[0]), *map(float, r[1:6])) for r in rows)
 
