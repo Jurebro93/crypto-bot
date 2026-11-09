@@ -288,3 +288,50 @@ class P33HeavyPagesNeverHang(unittest.TestCase):
             self.assertAlmostEqual(os.path.getmtime(f), old, delta=2)
             pc._save_snap(key, gzip.compress(b"<html>b</html>"))   # a new build does replace it
             self.assertGreater(os.path.getmtime(f), old + 100)
+
+
+class WarmerAndChildPriority(unittest.TestCase):
+    """9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + the warmer's 22-45 s /pregled build every 5 min) and the
+    visitor's requests waited. The warmer keeps a page younger than WARM_SKIP_FRESH_S; child builds run niced."""
+
+    def setUp(self):
+        import run_ui
+        from ui import pagecache
+        self.run_ui, self.pagecache = run_ui, pagecache
+        self.saved_store = dict(pagecache._store)
+        pagecache._store.clear()
+
+    def tearDown(self):
+        self.pagecache._store.clear()
+        self.pagecache._store.update(self.saved_store)
+
+    def test_warm_build_keeps_a_fresh_page(self):
+        key = ("/pregled", "", None)
+        self.pagecache._store[key] = (time.time() - 10, 200, None, gzip.compress(b"<html>svjeze</html>"))
+        with mock.patch.object(self.run_ui, "build_in_child") as b:
+            self.assertEqual(self.run_ui.warm_build("/pregled"), (200, b"<html>svjeze</html>"))
+        b.assert_not_called()
+
+    def test_warm_build_rebuilds_an_old_page(self):
+        key = ("/pregled", "", None)
+        self.pagecache._store[key] = (time.time() - 1000, 200, None, gzip.compress(b"<html>staro</html>"))
+        with mock.patch.object(self.run_ui, "build_in_child", return_value=(200, b"<html>novo</html>")) as b:
+            self.assertEqual(self.run_ui.warm_build("/pregled"), (200, b"<html>novo</html>"))
+        b.assert_called_once_with("/pregled")
+        with mock.patch.object(self.run_ui, "build_in_child", return_value=(200, b"<html>prvi</html>")) as b:
+            self.pagecache._store.clear()                        # nothing cached yet (right after a deploy)
+            self.assertEqual(self.run_ui.warm_build("/tokens"), (200, b"<html>prvi</html>"))
+        b.assert_called_once_with("/tokens")
+
+    def test_child_build_runs_niced(self):
+        class R:
+            returncode, stdout, stderr = 0, b"<html>x</html>", b""
+        with mock.patch.object(heavy, "slot", return_value=contextlib.nullcontext(True)), \
+                mock.patch("subprocess.run", return_value=R()) as sr:
+            self.run_ui.build_in_child("/pregled")
+        self.assertIs(sr.call_args.kwargs.get("preexec_fn"), self.run_ui._nice_child)
+        with mock.patch("os.nice") as n:
+            self.run_ui._nice_child()
+        n.assert_called_once_with(self.run_ui.CHILD_NICE)
+        self.assertGreater(self.run_ui.CHILD_NICE, 0)
+        self.assertLess(self.run_ui.CHILD_NICE, heavy.NICE)      # below requests, above the heavy jobs

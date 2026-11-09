@@ -295,7 +295,7 @@ class ShortProcessRoundsTest(unittest.TestCase):
 class UiChildRenderTest(unittest.TestCase):
     def test_warm_pages_are_built_in_a_child(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
-        self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
+        self.assertIn('pagecache.warm(list(WARM), warm_build', src)   # 9.11.: warm_build skips a fresh page, else build_in_child
         import run_ui
         # 9.11. 19:32: /ekipe (180 s) and /kol (30 s) joined, built in this process they took it to 818 MB (watchdog)
         self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol"))
