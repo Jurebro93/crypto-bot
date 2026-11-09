@@ -548,6 +548,8 @@ def trigger_entries(con, cfg, rst, now):
         for tok, info in pullbacks(con, R["povlacenje"], now).items():
             if tok not in gone and tok not in traded:
                 want.setdefault(tok, ("povlacenje", info))
+    paused = rules.sl_paused(con, now, cfg)   # 9.11. JENSEN: 3 stop losses in a row, no re-entry right after a stop
+    want = {t: v for t, v in want.items() if t not in paused}
     if not want:
         return []
     mk = market(want) or {}

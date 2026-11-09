@@ -193,6 +193,20 @@ class AktivniEntry(unittest.TestCase):
         self.assertEqual(self.rp.intake(cfg, now=self.now + 60, quiet=True), [])  # once a day per token
         con.close()
 
+    def test_no_entry_while_paused_after_stop_losses(self):
+        """9.11. JENSEN: after 3 stop losses in 48 h the token waits 32 h, whatever trigger wants it."""
+        cfg = {**self.sim.load_config(), "explore": {"enabled": False}, "konv": {"enabled": False},
+               "rules": {"ab": {"enabled": False}, "kol3": {"enabled": False}}}
+        con = store.connect(self.rp.DB)
+        for h in (40, 30, 25):
+            tid = store.open_trade(con, "OKpump", "OK", {"opened_ts": self.now - h * 3600 - 600, "size_usd": 20,
+                                                          "entry_px": 1, "entry_eff": 1}, {"entry_mode": "aktivni"})
+            con.execute("UPDATE trades SET status='closed', closed_ts=?, exit_reason='stop_loss', ret=-0.3 WHERE id=?",
+                        (self.now - h * 3600, tid))
+        con.commit()
+        con.close()
+        self.assertEqual(self.rp.intake(cfg, now=self.now, quiet=True), [])
+
 
 if __name__ == "__main__":
     unittest.main()

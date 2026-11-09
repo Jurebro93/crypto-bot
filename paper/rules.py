@@ -44,6 +44,10 @@ DEFAULT = {
     # followed wallet (KOL / copy / insider list of the Helius webhook) bought during the pullback (last buyers_min).
     "povlacenje": {"enabled": True, "fresh_min": 180, "pullback": -0.12, "min_mcap": 50000, "buyers_min": 15,
                    "max_per_token": 1, "size_usd": 25, "max_open": 15, "max_per_day": None},
+    # 9.11. (morning report: JENSEN hit the stop loss 3 times in a row, first entry + 2 "povratak" an hour apart):
+    # no new demo entry into a token for `hours` after its stop loss, doubled for every further stop loss within
+    # window_h (8 h, 16 h, 32 h...), at most max_hours. Applies to every trigger, comebacks included.
+    "sl_cooldown": {"enabled": True, "hours": 8, "window_h": 48, "max_hours": 48},
     "sessions": {"enabled": True, "days": 7, "min_n": 30, "steps": [[1.0, 1.0], [0.85, 0.75], [0.7, 0.5]],
                  "pause_below": 0.7, "keep_frac": 0.2, "refresh_h": 24},
 }
@@ -102,6 +106,23 @@ def keep(token, frac, salt=""):
 
 def is_pump(mint):
     return (mint or "").endswith("pump")
+
+
+def sl_paused(con, now, cfg=None):
+    """{token: reason} of tokens still in their pause after a stop loss (see DEFAULT sl_cooldown)."""
+    r = config(cfg)["sl_cooldown"]
+    if not r["enabled"]:
+        return {}
+    out = {}
+    rows = con.execute("SELECT token, COUNT(*), MAX(closed_ts) FROM trades WHERE status='closed' AND "
+                       "exit_reason='stop_loss' AND closed_ts>=? GROUP BY token", (now - r["window_h"] * 3600,))
+    for tok, n, last in rows:
+        pause_h = min(r["max_hours"], r["hours"] * 2 ** (n - 1))
+        left = last + pause_h * 3600 - now
+        if left > 0:
+            out[tok] = (f"pauza nakon stop lossa: još {left / 3600:.1f} h"
+                        + (f" ({n}× stop loss u {r['window_h']} h)" if n > 1 else ""))
+    return out
 
 
 def gate(token, price, liq, mcap, t0, features=None, cfg=None):
