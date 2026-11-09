@@ -81,7 +81,8 @@ def analysed(now=None):
     return n
 
 
-LIVE_MIN = {"txns_h1": 10, "vol_h1": 1000.0, "liq": 20000.0}   # 9.11. (Jure): a pick must have a live market NOW
+LIVE_MIN = {"txns_h1": 10, "vol_h1": 1000.0, "liq": 20000.0, "max_drop_h1": -20.0}   # 9.11.: a pick must have a live market NOW
+# and must not be falling: CATPAD passed the first version at -34 % in the hour ("pada, ne ulazi" was only a note)
 
 
 def live_market(tokens, fetch=None):
@@ -121,6 +122,8 @@ def alive(lv):
         return f"volumen u zadnjem satu ${lv['vol_h1']:,.0f} (treba ${LIVE_MIN['vol_h1']:,.0f}+)"
     if lv["liq"] < LIVE_MIN["liq"]:
         return f"likvidnost ${lv['liq']:,.0f} (treba ${LIVE_MIN['liq']:,.0f}+)"
+    if lv.get("ch_h1") is not None and float(lv["ch_h1"]) <= LIVE_MIN["max_drop_h1"]:
+        return f"pada: {float(lv['ch_h1']):+.0f} % u zadnjem satu, ne ulazi dok se ne okrene"
     return None
 
 
@@ -474,7 +477,7 @@ def _near_html(near, note=""):
     if note:
         return f"<p><b>Danas ništa ne predlažem:</b> {esc(note)}.</p>"
     out = ["<p><b>Danas nijedan token ne prolazi sve provjere</b> (nije rug, pouzdanost 35+, svjež do 24 h, mcap 30k+ i "
-           "živ promet u zadnjem satu: 10+ transakcija, $1k+ volumena, $20k+ likvidnosti). Bolje ništa nego najmanje loš.</p>"]
+           "živ promet u zadnjem satu: 10+ transakcija, $1k+ volumena, $20k+ likvidnosti, i ne pada više od 20 % u satu). Bolje ništa nego najmanje loš.</p>"]
     if near:
         out.append("<p class=why>Najbliži, ali <b>ne kupuj</b>: " + "; ".join(
             f"{_tl(p['token'], p['symbol'])} ({esc(r)})" for p, r in near[:3]) + ".</p>")
