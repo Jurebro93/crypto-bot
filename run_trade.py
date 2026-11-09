@@ -218,6 +218,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
                 con.commit()
+                # 9.11. (Jure: "samo jedan trade izvršen, zašto?"): the reason used to be only in the positions table
+                _say(f"{tag} PRESKOČENO {t['symbol'] or t['token'][:6]} ({t['source'] or 'copy'}): {why}", quiet)
                 continue
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else None,

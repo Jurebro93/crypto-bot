@@ -325,10 +325,21 @@ def _follows(con, owner, st=None, prefill=""):
     auto_ids = {int(i) for i in st.get("auto_follows") or []}
     fl = copy.follows(con, settings.LEAGUE_USER)
     res = copy.follow_results(con)
+    try:   # 9.11. (Jure): what each follow did in the last 24 h (signals, entries, skips with reasons), from copy_log
+        day = copy.follow_log_summary(con, time.time() - 86400)
+    except Exception:  # noqa: BLE001 - the page must render even if the log table is missing
+        day = {}
     items = []
     for f in fl:
         r = res.get(f["id"], {"n": 0, "closed": 0, "wins": 0, "pnl": 0.0})
         proof = _proof_line(r)
+        d = day.get(f["id"])
+        if d:
+            why = "; ".join(f"{esc(k)}{' ×' + str(n) if n > 1 else ''}" for k, n in d["razlozi"])
+            last24 = (f'Zadnjih 24 h: {d["signali"]} signala · {d["ulaz"]} ulaza · preskočeno {d["preskočeno"]}'
+                      + (f' ({why})' if why else ''))
+        else:
+            last24 = "Zadnjih 24 h: nijedan signal koji bi prošao pravila kopiranja (nije zvao/kupio, ili poziv nije stigao na vrijeme)"
         if f["kind"] == "ekipa":
             who = "🤝 " + " + ".join(f'<a href="/kol/{quote(m)}">{"✈ " + esc(m[3:]) if m.startswith("tg:") else "@" + esc(m)}</a>'
                                     for m in copy.members_of(f["target"]))
@@ -342,6 +353,7 @@ def _follows(con, owner, st=None, prefill=""):
                      f'{"influencer" if f["kind"] == "kol" else ("ekipa" if f["kind"] == "ekipa" else "wallet")}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
                      f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
                      f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>'
+                     f'<p class=mut style="font-size:13px">{last24}</p>'
                      f'<p class=mut style="font-size:13px">{proof}</p>{stop}</details>')
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
     pre = esc(prefill or "")

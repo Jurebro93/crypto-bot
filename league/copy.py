@@ -227,6 +227,31 @@ def log(con, follow_id=None, user=None, limit=100):
     return [dict(r) for r in con.execute(sql, args)]
 
 
+def follow_log_summary(con, since, top=3):
+    """follow_id -> {'signali', 'ulaz', 'preskočeno', 'razlozi': [(razlog, n), ...]} from copy_log since `since`
+    (buy side only: what the followed account called or bought, what we entered, what we skipped and why).
+    9.11. (Jure: "voleti i influenceri koje pratim imali su jedan trade - zašto?"): the reasons lived only in the
+    table; now every follow on the page shows its last 24 h. Reasons are grouped with numbers blanked, so
+    "vidjeli smo ga tek 12 min nakon objave" and "... 37 min ..." count as one reason."""
+    import re as _re
+    ensure(con)
+    out = {}
+    rows = con.execute("SELECT follow_id, action, note FROM copy_log WHERE side='buy' AND ts>=? AND action IN "
+                       "('ulaz', 'preskočeno')", (int(since),)).fetchall()
+    for fid, action, note in rows:
+        r = out.setdefault(fid, {"signali": 0, "ulaz": 0, "preskočeno": 0, "_why": {}})
+        r["signali"] += 1
+        if action == "ulaz":
+            r["ulaz"] += 1
+        else:
+            r["preskočeno"] += 1
+            key = _re.sub(r"\d[\d.,]*", "N", (note or "bez razloga").split(";")[0].split(" (")[0]).strip()[:70]
+            r["_why"][key] = r["_why"].get(key, 0) + 1
+    for r in out.values():
+        r["razlozi"] = sorted(r.pop("_why").items(), key=lambda kv: -kv[1])[:top]
+    return out
+
+
 def follow_results(con):
     """follow_id -> {'n', 'open', 'closed', 'wins', 'pnl'} of the trades it opened (closed PnL only)."""
     ensure(con)
