@@ -149,6 +149,7 @@ class ArchiveTest(unittest.TestCase):
     def test_ui_hides_archived(self):
         from ui import data, overview
         self.archive.run(self.db, now=self.now, log=None)
+        self.archive.run(self.db, now=self.now + self.archive.CONFIRM_H * H + 60, log=None)   # confirmed 6 h later
         old = (data.HYPE_DB, dict(data.GROUPS))
         data.HYPE_DB = self.db
         data.GROUPS["hype"] = [self.db]
