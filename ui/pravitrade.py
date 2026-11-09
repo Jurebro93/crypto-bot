@@ -256,8 +256,8 @@ def _today(tcon, cfg):
             f'<span class="{"pos" if pnl > 0 else "neg" if pnl < 0 else ""}">{pnl:+.4f} SOL</span></p>')
 
 
-def _sec(title, meta, inner, open_=False, sid=""):
-    return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}><summary>{title}'
+def _sec(title, meta, inner, open_=False, sid="", hidden=False):
+    return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}{" hidden" if hidden else ""}><summary>{title}'
             f'<span class=m>{meta}</span></summary><div class=in>{inner}</div></details>')
 
 
@@ -392,6 +392,18 @@ def _windows(group, panes, default=14):
                         for d in WINDOWS)
 
 
+def followed_targets(con):
+    """Everything the real-money account already follows: KOL handles, crew members, wallets, and whole crews
+    (the sorted member list). 9.11. (Jure): "once a crew or account is followed it must leave the 'whom to follow'
+    lists" (he followed Arc Trending and it stayed on top)."""
+    out = set()
+    for f in copy.follows(con, settings.LEAGUE_USER):
+        out.add(f["target"])
+        if f["kind"] == "ekipa":
+            out |= set(copy.members_of(f["target"]))
+    return out
+
+
 def _follow_btn(kind, target, label, have, owner):
     if (kind, target) in have:
         return badge("već pratiš ✓", "good")
@@ -408,16 +420,21 @@ def _kol_section(con, owner):
     from ui import autopilot
     recs = autopilot.kol_recs()
     have = {(f["kind"], f["target"]) for f in copy.follows(con, settings.LEAGUE_USER)}
+    followed = followed_targets(con)
     panes = {}
+    any_items = False
     for d, rows in recs.items():
         items = []
-        for r in rows[:autopilot.SHOW]:
+        for r in [x for x in rows if x["handle"] not in followed][:autopilot.SHOW]:
             s = r["s"]
+            any_items = True
             items.append(f'<details class=ap-it><summary><span><a href="/kol/{quote(r["handle"])}">@{esc(r["handle"])}</a>'
                          f'{" ⚡" if r["live"] else ""}</span><span class=k>{s["hit"]:.0%} pogodaka · {s["n"]} callova</span>'
                          f'</summary><p>{esc(r["why"])}</p>{_follow_btn("kol", r["handle"], "", have, owner)}</details>')
         panes[d] = "".join(items) or f'<p class=mut>U zadnjih {d} dana nitko nema barem {autopilot.MIN_CALLS} izmjerena calla s malo rugova.</p>'
-    best = next((r for r in recs.get(14) or []), None)
+    if not any_items:   # 9.11. (Jure): an empty list is noise; the section appears when there is somebody to follow
+        return ""
+    best = next((r for r in recs.get(14) or [] if r["handle"] not in followed), None)
     meta = f'najbolji 14 d: @{esc(best["handle"])}' if best else "po zadnjih 7/14/30 dana"
     inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Pogodak = cijena je u 24 h nakon calla narasla +50% ili '
              f'više {tip("Mjerimo svaki call: najveći rast u 24 h, rezultat nakon 24 h i je li token rugan. Rugovi se broje dvostruko protiv. ⚡ = pratimo ga uživo, pa bot stigne ući na vrijeme.")}</p>'
@@ -448,13 +465,17 @@ def _wallet_section(con, owner):
     from ui import autopilot
     recs = autopilot.wallet_recs()
     have = {(f["kind"], f["target"]) for f in copy.follows(con, settings.LEAGUE_USER)}
+    followed = followed_targets(con)
     # 9.11. (Jure: "preporučeni walleti trebali bi biti povijesno analizirani, s PnL-om"): the proven-twice list
     # first (wallets/dokazani.py: own on-chain result before AND after a 5-day cut, copyable style only)
     try:
         from wallets import dokazani as _dok
-        proven = _dok.latest()[:autopilot.TOP]
+        proven = [r for r in _dok.latest() if r["wallet"] not in followed][:autopilot.TOP]
     except Exception:  # noqa: BLE001
         proven = []
+    recs = {d: [r for r in rows if r["wallet"] not in followed] for d, rows in recs.items()}
+    if not proven and not any(recs.values()):
+        return ""
     names = {}
     try:
         kc = copy._ro(copy._paths()["kol"])
@@ -506,20 +527,23 @@ def _buy_form(mint, cfg, exit_mode, owner):
 
 
 def _buy_now_card(cfg, owner):
-    """9.11. (Jure): at the top of the page, buy any token right now with the amount you choose."""
+    """9.11. (Jure): at the top of the page, buy any token right now with the amount you choose: address + SOL + Kupi.
+    Exit defaults to the target chosen below (TP) and the usual stop; the rest sits behind "Više"."""
     if not owner:
         return ""
+    tp_default = cfg.get("tp_default", 15)
     return ('<div class=card id=kupi-odmah><b>Kupi odmah</b> <span class=mut>bilo koji token, iznos po želji</span>'
             '<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             '(ako je Autopilot uključen)?\')" style="margin-top:8px"><input name=token placeholder="adresa tokena ili DexScreener link" '
-            'required style="flex:1;min-width:200px">'
+            'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
-            '<select name=exit aria-label="Kako prodati"><option value=smart>Smart sell</option><option value=tpsl>moj TP/SL</option>'
-            '<option value=manual>prodajem sam</option></select>'
-            '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
-            '<button>Kupi</button></form><p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao '
-            'automatske kupnje (rug, likvidnost, dnevni limit, rezerva za prodaju). Pravi novac ide samo kad je Autopilot uključen; '
-            'inače je ovo probna kupnja.</p></div>')
+            '<button class=ap-go>Kupi</button>'
+            f'<details style="flex-basis:100%"><summary class=mut style="font-size:13px">Više (izlaz: moj TP/SL, cilj +{tp_default} %)</summary>'
+            '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
+            f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
+            '<input name=sl placeholder="SL npr. -20%" size=9></details></form>'
+            '<p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide '
+            'samo kad je Autopilot uključen; inače je ovo probna kupnja. Prodaja: gumbi 20 % / 50 % / sve kod svake pozicije.</p></div>')
 
 
 TP_CHOICES = (5, 10, 15, 20, 30)
@@ -596,7 +620,7 @@ def ideas_inner(cfg, owner, now=None):
     except Exception as e:  # noqa: BLE001
         return f'<p class=mut>Prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
     if not picks:
-        html = '<p class=mut>Pregled danas još nije dao prijedlog (kutija "Prijedlog za danas" se gradi svakih ~5 min).</p>'
+        html = ""   # nothing concrete: the section stays hidden (Jure 9.11.: the page shows only what matters)
     else:
         out = []
         for p in picks:
@@ -622,7 +646,8 @@ def ideas_fragment(user):
 
 
 def _ideas_section(cfg, owner):
-    return _sec("Što kupiti sada", f"isti prijedlozi kao na Pregledu · ⟳ {IDEAS_EVERY_S} s", f'<div id=ap-ideje>{ideas_inner(cfg, owner)}</div>',
+    inner = ideas_inner(cfg, owner)
+    return _sec("Što kupiti sada", f"isti prijedlozi kao na Pregledu · ⟳ {IDEAS_EVERY_S} s", f'<div id=ap-ideje>{inner}</div>', hidden=not inner,
                 open_=True, sid="ideje")
 
 
@@ -670,9 +695,10 @@ def followed_wallets():
     return out
 
 
-def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype_db=None, followed=None, limit=8):
-    """[(token, callers, first_ts, last_ts, symbol)] worth showing: X/Telegram calls from kol/converge.events and
-    buys of the followed wallets only, minus everything kol/converge.not_a_memecoin rules out."""
+def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype_db=None, followed=None, limit=8, live=None):
+    """[(token, callers, first_ts, last_ts, symbol, live)] worth showing: X/Telegram calls from kol/converge.events
+    and buys of the followed wallets only, minus everything kol/converge.not_a_memecoin rules out, each checked live
+    on DexScreener (live: {token: market} for tests; None = fetch)."""
     from kol import converge, store as kstore
     ev, _scores, _fac = converge.events(int(now), window_s, kol_db=kol_db, tg_db=tg_db, hype_db=hype_db)
     ev = [e for e in ev if e[2] != "chain"]   # chain events there are every webhook wallet: replaced below
@@ -687,6 +713,8 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
                     ev.append((mint, ts, "chain", "w:" + w, "buy"))
             finally:
                 hc.close()
+    from kol.collect import is_solana_mint
+    ev = [e for e in ev if is_solana_mint(e[0])]   # an EVM tail from a Telegram post is not a token (Jure 9.11.)
     rows = group_callers(ev, now, window_s, limit=limit * 4)
     syms, liqs = {}, {}
     kc = copy._ro(kol_db or kstore.DB)
@@ -697,14 +725,46 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
                 syms[tok], liqs[tok] = sym, liq
         finally:
             kc.close()
+    rows = [r for r in rows if not converge.not_a_memecoin(r[0], syms.get(r[0]), liqs.get(r[0]))]
+    # every token shown is checked live (DexScreener) right now: a pair must exist, the market cap must be 30k+, it
+    # must not be a big liquid token, and the rug filter must not have archived it. No pair = no row, no link.
+    lv = live if live is not None else _live_cached([r[0] for r in rows[:limit * 2]], now)
+    if lv is None:
+        return []   # the check could not run: better nothing than an unchecked token with real money
+    try:
+        from rugfilter import archive
+        archived = archive.blocked()
+    except Exception:  # noqa: BLE001
+        archived = frozenset()
     out = []
     for tok, callers, first, last in rows:
-        if converge.not_a_memecoin(tok, syms.get(tok), liqs.get(tok)):
+        m = lv.get(tok)
+        if not m or not m.get("price") or (m.get("mcap") or 0) < 30_000 or tok in archived:
             continue
-        out.append((tok, callers, first, last, syms.get(tok)))
+        if converge.not_a_memecoin(tok, syms.get(tok), m.get("liq")):
+            continue
+        out.append((tok, callers, first, last, syms.get(tok), m))
         if len(out) >= limit:
             break
     return out
+
+
+_LIVE_CACHE = {"ts": 0.0, "key": (), "data": {}}
+
+
+def _live_cached(tokens, now, ttl=10):
+    """DexScreener state of the tokens in "Zovu sada", shared by the 2-s poll for ttl seconds (one request)."""
+    key = tuple(tokens)
+    if not key:
+        return {}
+    if _LIVE_CACHE["key"] == key and now - _LIVE_CACHE["ts"] < ttl:
+        return _LIVE_CACHE["data"]
+    from ui import prijedlog
+    data = prijedlog.live_market(list(key))
+    if data is None:
+        return None
+    _LIVE_CACHE.update(ts=now, key=key, data=data)
+    return data
 
 
 def callers_inner(cfg, owner, now=None):
@@ -717,13 +777,27 @@ def callers_inner(cfg, owner, now=None):
         rows = gather_callers(now)
     except Exception as e:  # noqa: BLE001
         return f'<p class=mut>Pozivi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
+    followed = set()
+    try:
+        from league import store as lstore
+        lc = copy._ro(lstore.DB)
+        if lc is not None:
+            try:
+                followed = followed_targets(lc)
+            finally:
+                lc.close()
+    except Exception:  # noqa: BLE001
+        pass
+    # a token whose every caller the bot already follows is the bot's job, not a suggestion (Jure 9.11.)
+    rows = [r for r in rows if not all((c[0][2:] if c[1] == "chain" else c[0]) in followed for c in r[1])]
     if not rows:
-        html = ('<p class=mut>U zadnjih sat vremena nitko koga mjerimo nije zvao memecoin (majori, zamotana imovina i '
-                'tokenizirane dionice se ne broje; kupnje se broje samo za novčanike koje pratiš i dokazane).</p>')
+        html = ""   # the section hides itself while there is nothing to show
     else:
         items = []
-        for tok, callers, first, last, sym in rows:
+        for tok, callers, first, last, sym, m in rows:
             who = ", ".join((f"👛 {c[0][2:8]}…" if c[1] == "chain" else ("✈ " + c[0][3:] if c[0].startswith("tg:") else "@" + c[0])) for c in callers[:6])
+            state = (f"MC ${m['mcap'] / 1000:,.0f}k · likv. ${m['liq'] / 1000:,.0f}k · 1 h {m['ch_h1']:+.0f} %"
+                     if m.get("ch_h1") is not None else f"MC ${m['mcap'] / 1000:,.0f}k · likv. ${m['liq'] / 1000:,.0f}k")
             more = f" +{len(callers) - 6}" if len(callers) > 6 else ""
             handles = ",".join(c[0] for c in callers if c[1] != "chain")
             follow = (f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
@@ -731,7 +805,7 @@ def callers_inner(cfg, owner, now=None):
                       if owner and handles else "")
             items.append(f'<details class=ap-it open><summary><span>{tlink(tok, sym)} <span class=ap-tag>{len(callers)} {"zove" if len(callers) == 1 else "zovu"}</span></span>'
                          f'<span class=k>prvi {esc(ago(first)[0])}{(" · zadnji " + esc(ago(last)[0])) if last != first else ""}</span></summary>'
-                         f'<p>{esc(who)}{more} · <a href="https://dexscreener.com/solana/{quote(tok)}" target=_blank rel=noopener>DexScreener ↗</a></p>'
+                         f'<p>{esc(who)}{more} · {esc(state)} · <a href="https://dexscreener.com/solana/{quote(tok)}" target=_blank rel=noopener>DexScreener ↗</a></p>'
                          f'{_buy_form(tok, cfg, "tpsl", owner)}{follow}</details>')
         html = "".join(items)
     _CALLERS_CACHE.update(ts=now, html=html)
@@ -749,10 +823,11 @@ def callers_fragment(user):
 
 
 def _callers_section(cfg, owner):
+    inner = callers_inner(cfg, owner)
     return _sec("Zovu sada", f"zadnjih 60 min · X, Telegram, tvoji i dokazani novčanici · ⟳ {LOG_EVERY_S} s",
-                f'<div id=ap-zovu>{callers_inner(cfg, owner)}</div><p class=mut style="font-size:13px;margin:8px 0 0">'
+                f'<div id=ap-zovu>{inner}</div><p class=mut style="font-size:13px;margin:8px 0 0">'
                 'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p>',
-                open_=True, sid="zovu")
+                open_=True, sid="zovu", hidden=not inner)
 
 
 def _token_section(cfg, owner):
@@ -772,18 +847,9 @@ def _token_section(cfg, owner):
     meta = f"{nd} dugoročna · {nm} moonshot" if items else "trenutno nema"
     head = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Dugoročni su stariji tokeni koji su preživjeli; moonshot '
             f'je svjež token s jakim signalom i prošlim rug checkom {tip("Moonshot: mali, novi token koji može narasti puno, ali i pasti na nulu. Bot ga preporuča samo kad je među najjačim prijedlozima, prošao rug check i nije usred pumpe ili pada. Nijedna preporuka nije jamstvo zarade.")}</p>')
-    inner = head + ("".join(items) or '<p class=mut>Trenutno nijedan token ne prolazi sve provjere. Lista se osvježava svakih nekoliko minuta.</p>')
-    if owner:
-        inner += ('<details class=ap-it><summary><span>Kupi drugi token</span><span class=k>adresa ili DexScreener link</span>'
-                  '</summary><form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token '
-                  'pravim novcem (ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili '
-                  'DexScreener link" required style="flex:1;min-width:200px">'
-                  f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
-                  '<select name=exit aria-label="Kako prodati"><option value=smart>Smart sell</option><option value=tpsl>'
-                  'moj TP/SL</option><option value=manual>prodajem sam</option></select>'
-                  '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
-                  '<button>Kupi</button></form><p class=mut style="font-size:13px">Prolazi iste provjere i limite kao '
-                  'automatske kupnje (rug, likvidnost, dnevni limit, rezerva za prodaju).</p></details>')
+    if not items:   # 9.11. (Jure): shown only with concrete suggestions; "Kupi odmah" at the top takes any token
+        return ""
+    inner = head + "".join(items)
     return _sec("Preporučeni tokeni", meta, inner, sid="tokeni")
 
 
@@ -794,7 +860,7 @@ def _sell_btns(pid, pending):
         return badge(f"prodaja {float(pending):.0%} u tijeku", "warn")
     return ('<div class=ap-btns>' + "".join(
         f'<form method=post action=/pravi-trade/sell onsubmit="return confirm(\'Prodati {lab} ove pozicije odmah?\')">'
-        f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button>Prodaj {lab}</button></form>'
+        f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button{" class=ap-stop" if fr == "1" else ""}>Prodaj {lab}</button></form>'
         for fr, lab in (("0.2", "20%"), ("0.5", "50%"), ("1", "sve"))) + '</div>')
 
 
@@ -919,7 +985,8 @@ def _log_section(tcon, cfg):
           "setInterval(()=>one('ap-ideje','/pravi-trade/ideje'),60000);"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
           "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
-          "if(h!==box.innerHTML&&!box.contains(document.activeElement))box.innerHTML=h}catch(e){}}"
+          "if(h!==box.innerHTML&&!box.contains(document.activeElement)){box.innerHTML=h;const d=box.closest('details.ap-sec');"
+          "if(d&&(id==='ap-zovu'||id==='ap-ideje'))d.hidden=!h.trim()}}catch(e){}}"
           "async function f(){if(document.visibilityState!=='visible')return;for(const [id,url] of L)await one(id,url)}"
           f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
     n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
@@ -1016,8 +1083,8 @@ def page(qs, user):
             copy.ensure(con)
             b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _tp_card(cfg, owner), _buy_now_card(cfg, owner),
-                 _positions(tcon, not owner, owner, cfg.get("sell_req")), _callers_section(cfg, owner),
+                 _wallet_card(tcon, cfg, con, owner), _positions(tcon, not owner, owner, cfg.get("sell_req")),
+                 _buy_now_card(cfg, owner), _tp_card(cfg, owner), _callers_section(cfg, owner),
                  _ideas_section(cfg, owner), _log_section(tcon, cfg),
                  _follows(con, owner, settings.raw(tcon), prefill=(qs.get("ekipa") or "") if isinstance(qs, dict) else ""), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]

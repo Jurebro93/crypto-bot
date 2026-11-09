@@ -8,6 +8,7 @@ import datetime as dt
 import json
 import os
 import re
+import sys
 import sqlite3
 import time
 
@@ -49,6 +50,19 @@ def tweet_ts(s):
 _HEX = re.compile(r"x?[0-9a-fA-F]+")
 
 
+def is_solana_mint(c):
+    """True only for a string that base58-decodes to exactly 32 bytes (a Solana public key). 9.11. (Jure): Telegram
+    channels post EVM addresses; their tail "x47c…a396" matched the base58 pattern and reached the Autopilot as a
+    token with a DexScreener link that opened nothing."""
+    if not c or not (32 <= len(c) <= 44) or _HEX.fullmatch(c) or not any(ch.isdigit() for ch in c):
+        return False
+    try:
+        import base58
+        return len(base58.b58decode(c)) == 32
+    except Exception:  # noqa: BLE001  (invalid characters, or base58 missing: then only the shape check above)
+        return "base58" not in str(sys.modules.get("base58", "")) and False
+
+
 def cas_in(text):
     """Solana addresses in a post. An EVM address "0x<40 hex>" is not one: the base58 pattern used to pick up its
     tail "x<hex>" (the leading 0 is not base58) as a fake Solana token."""
@@ -56,7 +70,7 @@ def cas_in(text):
     out = set()
     for m in _CA.finditer(text):
         c = m.group(0)
-        if not any(ch.isdigit() for ch in c) or _HEX.fullmatch(c):
+        if not is_solana_mint(c):
             continue
         if m.start() > 0 and text[m.start() - 1] == "0" and c[:1] in "xX":
             continue

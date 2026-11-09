@@ -18,6 +18,9 @@ from ui import pravitrade  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = int(time.time())
+# real-shaped Solana mints (32 bytes, base58) for the token checks
+WBTC_M, COINX_M, BANK_M, MEME_M = ("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+                                   "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8", "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq")
 
 
 class GroupCallers(unittest.TestCase):
@@ -51,27 +54,60 @@ class NotACall(unittest.TestCase):
         kp, hp, tp = os.path.join(d, "kol.db"), os.path.join(d, "hype.db"), os.path.join(d, "tg.db")
         kc = kstore.connect(kp)
         kc.executemany("INSERT INTO tokens (token, symbol, liquidity) VALUES (?,?,?)",
-                       [("WBTCTOKEN" + "1" * 32, "WBTC", 50e6), ("COINXTOKEN" + "1" * 31, "COINx", 3e6),
-                        ("BANKTOKEN" + "1" * 32, "BANK", 35_000), ("MEME" + "1" * 37, "MEME", 80_000)])
+                       [(WBTC_M, "WBTC", 50e6), (COINX_M, "COINx", 3e6),
+                        (BANK_M, "BANK", 35_000), (MEME_M, "MEME", 80_000)])
         kc.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,'call')",
-                       [("a", "WBTCTOKEN" + "1" * 32, "ansem", NOW - 300), ("b", "BANKTOKEN" + "1" * 32, "tg:alpha", NOW - 200),
-                        ("c", "MEME" + "1" * 37, "murad", NOW - 100)])
+                       [("a", WBTC_M, "ansem", NOW - 300), ("b", BANK_M, "tg:alpha", NOW - 200),
+                        ("c", MEME_M, "murad", NOW - 100)])
         kc.commit()
         kc.close()
         hc = sqlite3.connect(hp)
         hc.execute("CREATE TABLE chain_trades (wallet TEXT, mint TEXT, side TEXT, ts INTEGER)")
         hc.execute("CREATE TABLE kol_mentions (ts INTEGER, handle TEXT, ca TEXT)")
         hc.executemany("INSERT INTO chain_trades VALUES (?,?,?,?)",
-                       [("FOLLOWEDWALLET", "BANKTOKEN" + "1" * 32, "buy", NOW - 150), ("RANDOMWALLET", "COINXTOKEN" + "1" * 31, "buy", NOW - 50),
-                        ("RANDOMWALLET", "MEME" + "1" * 37, "buy", NOW - 40), ("FOLLOWEDWALLET", "MEME" + "1" * 37, "sell", NOW - 30)])
+                       [("FOLLOWEDWALLET", BANK_M, "buy", NOW - 150), ("RANDOMWALLET", COINX_M, "buy", NOW - 50),
+                        ("RANDOMWALLET", MEME_M, "buy", NOW - 40), ("FOLLOWEDWALLET", MEME_M, "sell", NOW - 30)])
         hc.commit()
         hc.close()
-        rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"})
+        live = {t: {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30,
+                    "buys_h1": 20, "txns_h24": 100, "ch_h1": 4.0, "ch_h24": 9.0}
+                for t in (WBTC_M, COINX_M, BANK_M, MEME_M)}
+        rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"}, live=live)
         got = {r[4]: [c[0] for c in r[1]] for r in rows}
         self.assertEqual(set(got), {"BANK", "MEME"})                  # WBTC (wrapped) and COINx (xStock) are gone
         self.assertEqual(got["BANK"], ["tg:alpha", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
         self.assertEqual(got["MEME"], ["murad"])                      # a random webhook wallet's buy does not
         self.assertEqual(rows[0][4], "BANK")                          # most callers first
+        self.assertEqual(rows[0][5]["mcap"], 90_000.0)                # the live state travels to the row
+        # 9.11. 15:37 (Jure, robinhood_trending): no live pair, under 30k, archived, or not a Solana mint -> no row
+        nopair = dict(live)
+        del nopair[BANK_M]
+        self.assertEqual([r[4] for r in pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=nopair)], ["MEME"])
+        small = {**live, MEME_M: {**live[MEME_M], "mcap": 12_000.0}}
+        self.assertEqual([r[4] for r in pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=small)], ["BANK"])
+        self.assertEqual(pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=None if False else {}), [])
+        saved = pravitrade._live_cached
+        pravitrade._live_cached = lambda toks, now, ttl=10: None     # DexScreener down: nothing is shown
+        try:
+            self.assertEqual(pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set()), [])
+        finally:
+            pravitrade._live_cached = saved
+
+    def test_evm_tails_are_not_tokens(self):
+        from kol import collect
+        self.assertTrue(collect.is_solana_mint("So11111111111111111111111111111111111111112"))
+        self.assertTrue(collect.is_solana_mint("ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"))
+        self.assertFalse(collect.is_solana_mint("x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396"))   # tail of 0x47c…a396
+        self.assertFalse(collect.is_solana_mint("8699c4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d64cd7"))
+        self.assertFalse(collect.is_solana_mint("BANKTOKEN" + "1" * 32))                         # not a real key
+        self.assertEqual(collect.cas_in("buy 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 now"), [])
+        self.assertEqual(collect.cas_in("CA: ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"), ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
+        from tg import reader
+        page = ('<div class="tgme_widget_message_wrap"><div data-post="c/1"></div><div class="tgme_widget_message_text">'
+                'ape 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 and ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump</div>'
+                '<time datetime="2026-11-09T10:32:01+00:00"></time></div>')
+        posts = reader.parse(page, "c")["posts"]
+        self.assertEqual(posts[0]["cas"], ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
 
 
 class Page(unittest.TestCase):
@@ -187,6 +223,43 @@ class Page(unittest.TestCase):
         finally:
             data.HYPE_DB, overview.token_rows = saved
             pravitrade._IDEAS_CACHE.clear()
+
+    def test_followed_accounts_leave_the_lists_and_empty_sections_hide(self):
+        """9.11. (Jure): Arc Trending stayed on top of "koga zapratiti" after he followed it; empty categories are noise."""
+        from ui import autopilot
+        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "arctrending", "", 25, 5, "tpsl", "15%", "")
+        copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "tg:a,tg:b", "", 25, 5, "tpsl", "15%", "")
+        self.lg.commit()
+        self.assertEqual(pravitrade.followed_targets(self.lg), {"arctrending", "tg:a,tg:b", "tg:a", "tg:b"})
+        saved = autopilot.kol_recs
+        rec = lambda h: {"handle": h, "live": True, "s": {"hit": 0.6, "n": 9}, "why": "dobar"}
+        try:
+            autopilot.kol_recs = lambda: {7: [rec("arctrending")], 14: [rec("arctrending"), rec("tg:a")], 30: []}
+            self.assertEqual(pravitrade._kol_section(self.lg, True), "")        # only followed ones: nothing to offer
+            autopilot.kol_recs = lambda: {7: [], 14: [rec("arctrending"), rec("newguy")], 30: []}
+            html = pravitrade._kol_section(self.lg, True)
+            self.assertIn("newguy", html)
+            self.assertNotIn("arctrending", html)
+            self.assertIn("najbolji 14 d: @newguy", html)
+        finally:
+            autopilot.kol_recs = saved
+        from ui import data
+        saved_hype = data.HYPE_DB
+        data.HYPE_DB = os.path.join(self.tmp.name, "nema-hype.db")   # no suggestion log: the ideas section stays hidden
+        pravitrade._IDEAS_CACHE.clear()
+        try:
+            _, body = pravitrade.page({}, "Jure")
+        finally:
+            data.HYPE_DB = saved_hype
+            pravitrade._IDEAS_CACHE.clear()
+        self.assertNotIn("Preporučeni tokeni", body)                # empty: hidden
+        self.assertNotIn("Preporučeni influenceri", body)
+        self.assertIn('id=zovu open hidden', body)                  # live sections exist but stay hidden while empty
+        self.assertIn('id=ideje open hidden', body)
+        self.assertLess(body.index("id=pozicije"), body.index("id=kupi-odmah"))   # positions first, then buy, then exit target
+        self.assertLess(body.index("id=kupi-odmah"), body.index("id=cilj"))
+        self.assertIn("class=ap-go>Kupi", body)
+        self.assertNotIn("Kupi drugi token", body)
 
     def test_fragments_need_access(self):
         self.assertIsNone(pravitrade.callers_fragment("Ivan"))
