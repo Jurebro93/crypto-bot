@@ -17,6 +17,7 @@ import time
 
 LOCK = os.environ.get("HEAVY_LOCK", "/tmp/memesonar-heavy.lock")
 PRIO_MAX_AGE = 4 * 3600   # a priority ticket older than this is stale (its holder died without cleaning up)
+WAIT_LOG_FIRST_S, WAIT_LOG_S = 120, 600   # a waiter logs after 2 min, then every 10 min (9.11., audit P63)
 
 
 def _prio_path():
@@ -67,8 +68,9 @@ def slot(wait=None, priority=False, label=None):
         t0, told = time.time(), 0
         while True:
             # 7.11. 10:40: after a deploy the 6-hourly token status waited 40+ min behind the start-up jobs and nobody
-            # could tell which one held the lock. Now the holder writes itself down and a waiter says so after 2 min.
-            if time.time() - t0 >= told + 120:
+            # could tell which one held the lock. Now the holder writes itself down and a waiter says so after 2 min,
+            # then every WAIT_LOG_S (10 min; 9.11., audit P63: a 42-min wait was 21 lines per waiter).
+            if time.time() - t0 >= told + (WAIT_LOG_FIRST_S if not told else WAIT_LOG_S):
                 told = time.time() - t0
                 print(f"brava: {label or 'posao'} čeka već {told / 60:.0f} min, drži je {holder() or 'nepoznat posao'}",
                       flush=True)

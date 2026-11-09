@@ -37,6 +37,7 @@ _writes = 0
 # 3.5 s (~17/min) leaves room for the odd retry and whoever shares the IP
 SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "3.5"))}
 SHARED_COOLDOWN = float(os.environ.get("GECKO_COOLDOWN_S", "60"))
+SHARED_403_PAUSE = float(os.environ.get("GECKO_403_PAUSE_S", "300"))   # 9.11. (audit P24)
 GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir(), "crypto-bot-gate")
 
 
@@ -218,6 +219,8 @@ def _fetch(req, timeout, retries=None):
                 delay = 0
             if e.code == 429:
                 limited(req.full_url, delay)
+            elif e.code == 403 and _shared(req.full_url)[0]:   # 9.11. (audit P24): GeckoTerminal's 403 burst is a
+                limited(req.full_url, SHARED_403_PAUSE)        # block too: every process pauses, not just this call
             if attempt == retries or not (e.code == 429 or e.code >= 500):
                 raise
             time.sleep(min(60, max(delay, 2 ** attempt)))

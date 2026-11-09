@@ -83,7 +83,7 @@ class Crew(unittest.TestCase):
         self.assertEqual(copy.run_once(self.lg, lambda toks: mk, NOW, self.paths), [])
         notes = {r[0]: r[1] for r in self.lg.execute("SELECT token, note FROM copy_log WHERE action='preskočeno'")}
         self.assertIn("strop $1,000,000", notes[TOK])
-        self.assertIn("+41% od poziva", notes[TOK2])
+        self.assertIn("+41% u zadnjih 5 min", notes[TOK2])   # 9.11. (audit P60): says what DexScreener measured
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
     def test_min_callers_waits_for_the_second_member(self):

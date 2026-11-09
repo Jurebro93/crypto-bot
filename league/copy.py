@@ -26,7 +26,12 @@ CFG = {"max_delay_min": 10,      # call/buy older than this when we see it: not 
        "sell_lookback_min": 120,  # a wallet sale is retried this long when there is no price
        "min_liq": 5000, "max_mcap": 50e6, "min_size": 5, "max_size": 500, "max_per_day": 50,
        "keep_log_days": 30,
-       "crew_window_min": 30}     # ekipa: members' calls on one token within this window count together
+       "crew_window_min": 30,     # ekipa: members' calls on one token within this window count together
+       # 9.11. (audit, CLAUDE.md): tokens under $30k are never bought automatically; a pool thinner than 3 % of the
+       # market cap cannot absorb one big holder selling, so the -20 % stop would never fill (P1/P5/P7, P41)
+       "min_mcap": 30_000, "min_liq_mcap": 0.03}
+DEFAULT_SL = "-20%"   # 9.11. (audit): every TP/SL copy without an explicit stop gets this one (kol/minute.py SL)
+DAY_TZ = "Europe/Zagreb"   # 9.11. (audit P58/P62): the per_day counter uses the same day as trade/executor.DAY_TZ
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS follows (
@@ -291,8 +296,18 @@ def _log(con, f, token, side, ev_ts, now, action, note, symbol=None, trade_id=No
                 (f["id"], token, side, ev_ts, int(now), symbol, action, note, trade_id))
 
 
+def _day_start(now, tz=None):
+    """Unix time of the last midnight in DAY_TZ (same logic as trade/executor._day_start; not imported so that
+    league/ does not pull in trade/wallet + jupiter)."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    z = ZoneInfo(tz or DAY_TZ)
+    d = datetime.datetime.fromtimestamp(now, z)
+    return int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())
+
+
 def _today(con, fid, now):
-    day0 = int(now) - int(now) % 86400
+    day0 = _day_start(int(now))   # 9.11. (audit P58/P62): was UTC midnight, 1-2 h off the real-money day limits
     return con.execute("SELECT COUNT(*) FROM copy_log WHERE follow_id=? AND side='buy' AND action='ulaz' AND ts>=?",
                        (fid, day0)).fetchone()[0]
 
@@ -332,8 +347,79 @@ def market(tokens):
             jp = {}
         for m, (px, liq) in jp.items():
             _, _, url, mc, sym = best.get(m, (0, 0, None, None, None, None))[:5]
-            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym, None)
+            # 9.11. (audit P1/P5/P8): the 6th element marks the source so run_once can tell "priced only by Jupiter
+            # on the bonding curve" (not bonded) from a real DexScreener pair; _runup reads no change out of it
+            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym, {"src": "jup"})
     return best
+
+
+def _bonding_curve(m):
+    """True when the market row came from the Jupiter fallback in market(): a pump.fun token still on the bonding
+    curve (no DexScreener pair with liquidity). CLAUDE.md: new pump.fun tokens are not taken, bonded ones are."""
+    ch = m[5] if len(m) > 5 else None
+    return bool(isinstance(ch, dict) and ch.get("src") == "jup")
+
+
+def _concentration(token):
+    """9.11. (audit P6/P41): supply concentration of the token from data the bot already has (topcheck.db RugCheck
+    summary, rug.db full report). Returns (why_block, shown): why_block is set ONLY on known bad values (top10 above
+    topcheck.safety.TOP10_FAIL, cluster / bundle / insiders / dev above rugfilter.score hard thresholds, a topcheck
+    verdict 'pao'); no row = (None, 'nepoznato'), never a reason to skip a fresh KOL copy. Any error = unknown."""
+    top10 = cluster = bundle = insiders = dev = None
+    verdict = None
+    try:
+        from topcheck import safety as tsafety
+        t10_fail, dev_fail = tsafety.TOP10_FAIL, tsafety.DEV_FAIL
+    except Exception:  # noqa: BLE001
+        t10_fail, dev_fail = 60.0, 20.0
+    try:
+        from rugfilter import score as rscore
+        cl_hard, bu_hard, in_hard = rscore.T["cluster_hard"], rscore.T["bundle_hard"], rscore.T["insider_hard"]
+    except Exception:  # noqa: BLE001
+        cl_hard, bu_hard, in_hard = 25, 20, 25
+    try:
+        from topcheck import store as tstore
+        row = tstore.read_all().get(token)
+        if row:
+            verdict = row.get("verdict")
+            rc = row.get("rc") or {}
+            top10, insiders, dev = rc.get("top10"), rc.get("insiders"), rc.get("dev_pct")
+    except Exception:  # noqa: BLE001 - a guard, never the reason the copy loop stops
+        pass
+    try:
+        from ui import data as udata
+        r = udata.rug_latest().get(token)
+        if r:
+            if top10 is None:
+                top10 = r.get("top10_pct")
+            cluster, bundle = r.get("cluster_pct"), r.get("bundle_pct")
+            if insiders is None:
+                insiders = ((r.get("data") or {}).get("rugcheck") or {}).get("insider_pct")
+    except Exception:  # noqa: BLE001
+        pass
+
+    def num(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    top10, cluster, bundle, insiders, dev = map(num, (top10, cluster, bundle, insiders, dev))
+    why = None
+    if verdict == "pao":
+        why = "rug check: pao (topcheck)"
+    elif top10 is not None and top10 > t10_fail:
+        why = f"koncentriran supply: top 10 holdera drži {top10:.0f}% (granica {t10_fail:g}%)"
+    elif cluster is not None and cluster > cl_hard:
+        why = f"koncentriran supply: jedan klaster walleta drži {cluster:.0f}% (granica {cl_hard:g}%)"
+    elif bundle is not None and bundle > bu_hard:
+        why = f"koncentriran supply: bundle {bundle:.0f}% u bloku kreacije (granica {bu_hard:g}%)"
+    elif insiders is not None and insiders > in_hard:
+        why = f"koncentriran supply: insajderi drže {insiders:.0f}% (granica {in_hard:g}%)"
+    elif dev is not None and dev > dev_fail:
+        why = f"koncentriran supply: dev drži {dev:.0f}% (granica {dev_fail:g}%)"
+    shown = f"top10 {top10:.0f}%" if top10 is not None else "nepoznato"
+    return why, shown
 
 
 def _runup(m, age_s):
@@ -348,6 +434,12 @@ def _runup(m, age_s):
         return float(v) / 100 if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _runup_window(age_s):
+    """9.11. (audit P59/P60): what _runup really measured, for the log: DexScreener's last-5-min or last-60-min
+    change, which is not "since the call" (h1 mostly covers the hour before a 5-10 min old call)."""
+    return "zadnjih 5 min" if age_s <= 300 else "zadnjih 60 min"
 
 
 def followed_handles(user=None, path=None):
@@ -390,16 +482,18 @@ def run_once(con, market_fn=None, now=None, paths=None):
     evs = sorted(events(kols, wals, since, paths), key=lambda e: e[3])
     todo = []   # (follow, token, side, ts)
     win = CFG["crew_window_min"] * 60
-    for target, tok, side, ts in evs:
+    for target, tok, side, ev_ts in evs:
         kind = "wallet" if target in wals else "kol"
-        cands = list(by_target.get((kind, target), []))
+        cands = [(f, ev_ts) for f in by_target.get((kind, target), [])]
         if kind == "kol":
             for f, mem in crews:   # a crew member called: enough of the crew on this token within the window?
                 if target in mem:
-                    n = len({t for t, tk, sd, t2 in evs if tk == tok and sd == "buy" and t in mem and abs(t2 - ts) <= win})
-                    if n >= int(f["exit"].get("min_callers") or 1):
-                        cands.append(f)
-        for f in cands:
+                    hits = [(t, t2) for t, tk, sd, t2 in evs if tk == tok and sd == "buy" and t in mem and abs(t2 - ev_ts) <= win]
+                    if len({t for t, _ in hits}) >= int(f["exit"].get("min_callers") or 1):
+                        # 9.11. (audit P4): the crew's signal is the NEWEST member's call in the window, not the first
+                        # one; otherwise an old first call made the fresh second call "too late" and blocked it
+                        cands.append((f, max(t2 for _, t2 in hits)))
+        for f, ts in cands:
             if ts < f["created"] - 60 or tok in STABLE:
                 continue   # calls from before the follow started are not copied
             if side == "buy" and now - ts > CFG["max_delay_min"] * 60:
@@ -447,8 +541,14 @@ def run_once(con, market_fn=None, now=None, paths=None):
         price, liq, _, mcap = m[:4]
         sym = m[4] if len(m) > 4 else None
         why = None
+        age_s = now - ts
         if (liq or 0) < CFG["min_liq"]:
             why = f"premala likvidnost (${liq or 0:,.0f}), ne bi se moglo izaći"
+        elif _bonding_curve(m):   # 9.11. (audit P1/P5/P8): CLAUDE.md "novi pump.fun tokeni se ne uzimaju; uzimaju se bondani"
+            why = "token je još na pump.fun krivulji (nema DexScreener para), uzimaju se bondani"
+        elif (mcap or 0) < CFG["min_mcap"]:   # 9.11. (audit P1/P5/P7): CLAUDE.md "tokeni ispod 30k $ mcapa se ne analiziraju"
+            why = (f"MC ${mcap:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)" if mcap
+                   else "MC nepoznat, a ispod 30k se ne kupuje")
         elif mcap and mcap > CFG["max_mcap"]:
             why = "velik token (preko $50M), to nije poziv na memecoin"
         elif mcap and liq and liq > mcap:
@@ -459,12 +559,20 @@ def run_once(con, market_fn=None, now=None, paths=None):
             why = "već imaš otvorenu poziciju u tom tokenu"
         elif f["exit"].get("max_mcap") and mcap and mcap > f["exit"]["max_mcap"]:
             why = f"token je već na MC ${mcap:,.0f} (tvoj strop ${f['exit']['max_mcap']:,.0f})"
-        elif f["exit"].get("max_runup") is not None and (_runup(m, now - ts) or 0) > f["exit"]["max_runup"]:
-            why = f"cijena je već +{_runup(m, now - ts):.0%} od poziva (tvoj prag +{f['exit']['max_runup']:.0%})"
+        elif f["exit"].get("max_runup") is not None and (_runup(m, age_s) or 0) > f["exit"]["max_runup"]:
+            # 9.11. (audit P59/P60): say what was measured (DexScreener m5/h1), not "od poziva"
+            why = (f"cijena je već +{_runup(m, age_s):.0%} u {_runup_window(age_s)} "
+                   f"(tvoj prag +{f['exit']['max_runup']:.0%} od poziva)")
+        elif mcap and liq and liq < CFG["min_liq_mcap"] * mcap:   # 9.11. (audit P41): one big holder would empty the pool
+            why = (f"likvidnost ${liq:,.0f} je samo {liq / mcap:.1%} MC-a (granica {CFG['min_liq_mcap']:.0%}): "
+                   "najveći holder bi srušio cijenu prije stopa")
         else:
             col = _rugged(tok, mcap, liq)
             if col:
                 why = f"token je rugan ({col['text']})"
+        conc_shown = "nepoznato"
+        if not why:   # 9.11. (audit P6): supply concentration, blocks only on KNOWN bad data
+            why, conc_shown = _concentration(tok)
         if why:
             _log(con, f, tok, side, ts, now, "preskočeno", why, sym)
             continue
@@ -476,16 +584,24 @@ def run_once(con, market_fn=None, now=None, paths=None):
             continue
         con.execute("UPDATE trades SET follow_id=? WHERE id=?", (f["id"], tid))
         mode = f["exit"].get("mode")
+        exit_note = ""
         try:
             if mode in ("smart", "mirror_smart"):
                 auto.set_auto(con, f["user"], tid, "smart")
             elif mode == "tpsl":
-                auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""), f["exit"].get("sl", ""))
-        except ValueError:
-            pass
+                # 9.11. (audit): no explicit stop -> DEFAULT_SL; levels from the effective entry (fee + impact)
+                auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""), f["exit"].get("sl") or DEFAULT_SL,
+                              from_eff=True)
+        except ValueError as e:   # 9.11. (audit P28): e.g. TP "$500k" on a token already at $600k: never leave the
+            try:                  # position (mirrored into real money) without an exit; fall back to Smart sell
+                auto.set_auto(con, f["user"], tid, "smart")
+                exit_note = f"; izlaz: Smart sell (TP/SL nije primjenjiv: {e})"
+            except ValueError as e2:
+                exit_note = f"; BEZ automatskog izlaza ({e2})"
         late = max(0, now - ts)
         _log(con, f, tok, side, ts, now, "ulaz", f"kupljeno za ${f['size_usd']:,.0f} na MC ${mcap or 0:,.0f}, "
-             f"{late // 60} min {late % 60} s nakon {'poziva' if f['kind'] == 'kol' else 'njegove kupnje'}", sym, tid)
+             f"{late // 60} min {late % 60} s nakon {'poziva' if f['kind'] in ('kol', 'ekipa') else 'njegove kupnje'}"
+             f", koncentracija: {conc_shown}{exit_note}", sym, tid)
         done.append((f["user"], f"copy {name}: kupljeno {sym or tok[:6]} za ${f['size_usd']:,.0f}"))
         if f["exit"].get("once"):
             con.execute("UPDATE follows SET active=0, stopped=? WHERE id=?", (now, f["id"]))

@@ -259,50 +259,86 @@ def _log_one(con, now, pid, token, side, mode, res, reason):
                 (int(now), pid, token, side, mode, res.get("amount_in"), res.get("amount_out"), res.get("cost_pct"),
                  res["status"], reason, res.get("error"), res.get("signature"), res.get("request_id"), res.get("route"),
                  res.get("code") if res.get("code") is not None else res.get("error_code"),
-                 res.get("fee_lamports") if mode == "live" else None, res.get("prio_lamports")))
+                 # 9.11. (audit P67): dry also keeps the network fee the quote estimated, so a dry day_pnl and
+                 # max_loss_day behave like live (the quote's price impact and Jupiter fee are in the amounts already)
+                 res.get("fee_lamports"), res.get("prio_lamports")))
 
 
-def sell_check(token, size_sol, max_cost_pct):
+NET_FEES_SOL = 0.002   # 9.11. (audit P38): network fees of a buy + a sell net of the rent that comes back
+
+
+def _quote_error(q):
+    """9.11. (audit P40): jupiter._call hands an HTTP error (429 keyless limit, 400, 5xx) back as the JSON body with
+    http_status instead of raising; a quote like that is no answer, not "no route"."""
+    if not isinstance(q, dict):
+        return "neispravan odgovor"
+    if q.get("http_status"):
+        return f"HTTP {q['http_status']}"
+    if not q.get("outAmount") and q.get("error"):
+        return str(q["error"])[:80]
+    return None
+
+
+def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
     """Before every buy: can the same amount be sold straight back? (audit 4.11. §20.4, T26). Quotes SOL -> token
     and then token -> SOL for what the first would give; no sell route, or a round trip losing more than twice the
     allowed swap cost, = reason to refuse the buy, whatever the score. A quote is not an executed sale (F10), but a
-    honeypot or a pool too thin to exit shows up here for free. Returns None when fine, else the reason."""
+    honeypot or a pool too thin to exit shows up here for free. Returns None when fine, else the reason.
+    tp_pct (9.11., audit P38): the exit target in percent; when the round trip plus network fees would eat half of
+    it, the buy has no edge left and is refused (TP +5 % with a 4 % round trip is a coin flip at best)."""
     amount = int(size_sol * LAMPORTS)
     err = None
     for route in ("v2", "ultra"):         # the same fallback as the swap itself
         try:
             q1 = jupiter.order(jupiter.SOL, token, amount, route=route)
+            bad = _quote_error(q1)
+            if bad:
+                err = bad
+                continue             # a limit or an error is not "no route": ask the other endpoint
             got = int(q1.get("outAmount") or 0)
             if not got:
                 return None          # no buy route: swap() reports that itself
             q2 = jupiter.order(token, jupiter.SOL, got, route=route)
+            bad = _quote_error(q2)
+            if bad:
+                err = bad
+                continue
             back = int(q2.get("outAmount") or 0)
             break
         except Exception as e:  # noqa: BLE001
             err = e
     else:
-        return f"provjera prodaje nije uspjela ({type(err).__name__}); ne kupujem naslijepo"
+        what = err if isinstance(err, str) else type(err).__name__
+        return f"provjera prodaje nije uspjela ({what}); ne kupujem naslijepo"
     if not back:
         return "simulacija prodaje: nema rute za prodaju natrag u SOL (moguć honeypot)"
     loss = 100 * (1 - back / amount)
     if max_cost_pct is not None and loss > 2 * max_cost_pct:
         return f"simulacija prodaje: kupnja pa odmah prodaja gubi {loss:.1f}% (granica {2 * max_cost_pct:g}%)"
+    if tp_pct:
+        total = loss + 100 * NET_FEES_SOL / size_sol
+        if total >= tp_pct / 2:
+            return (f"trošak kupnje i prodaje {total:.1f}% (swap {loss:.1f}% + mrežne naknade) pojeo bi pola cilja "
+                    f"+{tp_pct:g}%: nema ruba")
     return None
 
 
-def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None):
+def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
-    between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09)."""
+    between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09).
+    tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
     why = gate_buy(con, cfg, size_sol, now, live, token=token)
     if not why and cfg.get("sell_check", True):
-        why = sell_check(token, size_sol, cfg.get("max_cost_pct"))
+        why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct)
+    # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still
+    # counts in the day limit and day_pnl (reconcile_pending keeps it); blocked/failed rows go back to 0 below
     cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
-                      "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0)",
+                      "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0)",
                       (paper_id, league_id, token, symbol, int(now), mode, "blocked" if why else "pending",
-                       why or "namjera zapisana, šaljem"))
+                       why or "namjera zapisana, šaljem", 0 if why else size_sol))
     pid = cur.lastrowid
     con.commit()
     if why:
@@ -311,7 +347,7 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
         res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"], routes_for(cfg))
     ok = res["status"] in ("ok", "dry")
     status = "open" if ok else ("blocked" if res["status"] == "blocked" else "failed")
-    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS if live else 0
+    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS   # dry: the quote's estimate (P67)
     con.execute("UPDATE positions SET status=?, reason=?, sol_in=?, qty_raw=?, qty_left=?, fees_sol=? WHERE id=?",
                 (status, reason if ok else res.get("error"), res["amount_in"] / LAMPORTS if ok else 0,
                  res.get("amount_out") if ok else 0, res.get("amount_out") if ok else 0, fees, pid))
@@ -337,12 +373,39 @@ def reconcile_pending(con, now=None, min_age_s=60, balance_of=None):
                 continue
         if have > 0:
             con.execute("UPDATE positions SET status='open', qty_raw=?, qty_left=?, reason=? WHERE id=?",
-                        (have, have, "usklađeno s lancem nakon restarta (SOL ulog nepoznat)", pid))
+                        (have, have, "usklađeno s lancem nakon restarta (SOL ulog = zapisana namjera)", pid))
         else:
-            con.execute("UPDATE positions SET status='failed', reason=? WHERE id=?",
+            con.execute("UPDATE positions SET status='failed', sol_in=0, reason=? WHERE id=?",
                         ("prekinuto prije potvrde; u walletu nema tokena", pid))
         n += 1
+    n += _reconcile_pending_sells(con, now, min_age_s, balance_of)
     con.commit()
+    return n
+
+
+def _reconcile_pending_sells(con, now, min_age_s, balance_of=None):
+    """9.11. (audit P11): a sell whose intent row (orders status 'pending', written before the swap is sent) is still
+    there after min_age_s was cut off mid-swap. Live: qty_left is set from the wallet (nothing left -> closed), so a
+    partial exit is not sent twice and the books match the chain; what came back in SOL stays unknown (noted).
+    Dry: nothing was sent, the intent is just marked failed."""
+    rows = con.execute("SELECT o.id, o.position_id, p.token, p.mode, p.qty_left FROM orders o JOIN positions p ON p.id = o.position_id "
+                       "WHERE o.side='sell' AND o.status='pending' AND o.ts<=?", (int(now - min_age_s),)).fetchall()
+    n = 0
+    for oid, pid, token, mode, left in rows:
+        if mode == "live":
+            try:
+                have = (balance_of or (lambda t: wallet.token_raw_balance(wallet.address(), t)))(token)
+            except Exception:  # noqa: BLE001 - cannot tell yet: leave it pending, try next round
+                continue
+            if have < (left or 0):
+                done = have <= 0
+                con.execute("UPDATE positions SET qty_left=?, status=?, closed_ts=?, reason=? WHERE id=?",
+                            (max(have, 0), "closed" if done else "open", int(now) if done else None,
+                             "prodaja prekinuta usred swapa; količina usklađena s walletom, vraćeni SOL nepoznat", pid))
+        con.execute("UPDATE orders SET status='failed', error=? WHERE id=?",
+                    ("prekinuto usred swapa (proces ugašen); usklađeno s walletom nakon restarta" if mode == "live"
+                     else "prekinuto usred probe", oid))
+        n += 1
     return n
 
 
@@ -387,8 +450,15 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
     amount = left if close else min(left, int(qty * frac))
     if amount <= 0:
         return {"status": "noop"}
+    # 9.11. (audit P11): the intent is written and committed BEFORE the swap is sent (as buy() does), so a process
+    # killed mid-swap leaves a trace that reconcile_pending() settles against the wallet instead of selling twice
+    cur = con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, status, reason, route) "
+                      "VALUES (?,?,?,?,?,?,?,?,?)", (int(now), position_id, token, "sell", mode, amount, "pending", reason, None))
+    intent = cur.lastrowid
+    con.commit()
     res = swap(token, jupiter.SOL, amount, live, None, routes_for(cfg))
-    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS if live else 0
+    con.execute("DELETE FROM orders WHERE id=? AND status='pending'", (intent,))
+    fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS   # dry: the quote's estimate (P67)
     if res["status"] in ("ok", "dry"):
         left -= res["amount_in"]
         sol_back += res["amount_out"] / LAMPORTS

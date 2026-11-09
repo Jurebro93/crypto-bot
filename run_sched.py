@@ -8,8 +8,8 @@ process that ends and gives its memory back; this process only keeps the clock. 
   learn6  run_learn.py fit --samo-tezine  hype weights every learn/config.json every_h hours (default 6)
   exits   run_exits.py fit      once a day after exits/config.json run_at_utc (UTC), checked every 5 min
   exits_rb run_exits.py rollback every exits/config.json rollback_every_h hours: a losing exit profile goes back fast
-  market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
-  usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
+  market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60); light (no heavy lock, 9.11.)
+  usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15); light (no heavy lock, 9.11.)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
   postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
@@ -156,8 +156,10 @@ JOBS = [
     ("learn6", every_hours, (["run_learn.py", "fit", "--samo-tezine"], "learn/config.json")),
     ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
     ("exits_rb", every_hours, (["run_exits.py", "rollback"], "exits/config.json", "rollback_every_h")),
-    ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
-    ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
+    # 9.11. (audit P63): market and usage are small HTTP reads (tens of MB) and were queued behind the KOL round for up
+    # to 42 min, so the macro gate (market/makro.py, 3 h window) and the spend warnings aged by an hour: light, no lock
+    ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")), True)),
+    ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")), True)),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
     ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
     # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb

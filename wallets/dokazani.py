@@ -6,7 +6,9 @@ positions before the cut stayed profitable after it in 23 of 29 cases). Influenc
 our copies of "top" wallets lost 10 % a trade because they copied bots and snipers. So:
 
 copyable   median hold >= min_hold_min, <= max_tpd trades a day, no bot/sniper/bundler/mev/rugger/cex/dev label
-           (and not 'izbačen', stripped by ops/prune)
+           (and not 'izbačen', stripped by ops/prune); 9.11. (audit P55): and bag_share < max_bag_share, because
+           _realized only sees SOLD positions, so a wallet that sells its winners and holds its rugs to zero would
+           pass; wallets.stats (pnl.score, priced) already counts those old open losers as bags, no API call needed
 proven     on trades before now - cut_days: closed >= min_closed, realized > 0, win rate >= min_win;
            AND on trades after the cut: closed >= min_after and realized > 0  (proven twice, not once)
 
@@ -28,7 +30,8 @@ CREATE TABLE IF NOT EXISTS dokazani (
     closed_after INTEGER, realized_after REAL, win_after REAL, passed INTEGER, PRIMARY KEY (wallet, as_of));
 CREATE INDEX IF NOT EXISTS dokazani_asof ON dokazani (as_of);
 """
-RULE = {"cut_days": 5, "min_closed": 5, "min_win": 0.5, "min_after": 2, "min_hold_min": 10, "max_tpd": 50}
+RULE = {"cut_days": 5, "min_closed": 5, "min_win": 0.5, "min_after": 2, "min_hold_min": 10, "max_tpd": 50,
+        "max_bag_share": 0.3}   # same line as pnl.score: a third of the book in old losers
 BAD = {"bot", "sniper", "bundler", "mev", "rugger", "cex", "dev", "izbačen"}
 MIN_SOL = 0.02
 
@@ -41,6 +44,7 @@ def copyable(stats, labels, rule=None):
     r = rule or RULE
     s = stats or {}
     return ((s.get("median_hold_min") or 0) >= r["min_hold_min"] and (s.get("trades_per_day") or 0) <= r["max_tpd"]
+            and (s.get("bag_share") or 0) < r.get("max_bag_share", RULE["max_bag_share"])
             and not set(labels or ()) & BAD)
 
 
@@ -150,6 +154,7 @@ def latest(path=None, passed_only=True):
         except ValueError:
             s = {}
         r["style"], r["hold_min"], r["tpd"] = s.get("style"), s.get("median_hold_min"), s.get("trades_per_day")
+        r["bags"], r["bag_share"] = s.get("bags"), s.get("bag_share")   # 9.11. (audit P55): open losers, for the page
     rows.sort(key=lambda r: -(r.get("realized_after") or 0))
     return rows
 

@@ -1,7 +1,9 @@
 """DexScreener public API (no key). Docs: https://docs.dexscreener.com/api/reference
 
 Rate limits: 60 req/min for profiles/boosts/orders/metas, 300 req/min for pairs/search/tokens.
-Responses are cached briefly (DEX_CACHE_TTL, default 60 s) so reruns don't burn the limit.
+Responses are cached briefly (DEX_CACHE_TTL, default 60 s) so reruns don't burn the limit. 9.11. (audit P2): the
+live boxes and the demo TP/SL read through tokens_live() with a short cache (DEX_LIVE_TTL, default 3 s, never 1 s:
+the 300/min limit is per IP and shared by every process); the scanners keep the 60 s cache.
 """
 import os
 import threading
@@ -12,6 +14,7 @@ from event_calendar import http
 
 BASE = "https://api.dexscreener.com"
 CACHE_TTL = int(os.environ.get("DEX_CACHE_TTL", "60"))
+LIVE_TTL = max(2, int(os.environ.get("DEX_LIVE_TTL", "3")))   # 2-5 s for live callers (audit P2)
 
 
 class _Throttle:
@@ -34,9 +37,9 @@ _SLOW = _Throttle(55)
 _FAST = _Throttle(280)
 
 
-def _get(path, params=None, fast=False):
+def _get(path, params=None, fast=False, ttl=None):
     (_FAST if fast else _SLOW).wait()
-    return http.get_json(f"{BASE}{path}", params, ttl=CACHE_TTL)
+    return http.get_json(f"{BASE}{path}", params, ttl=CACHE_TTL if ttl is None else ttl)
 
 
 def _q(s):
@@ -197,9 +200,16 @@ def pick_pool(pairs, min_liq=1000):
     return best, why
 
 
-def tokens(chain, addresses):
-    """Pairs for up to 30 token addresses per request (batched here); prices pass the sanity check (sane())."""
+def tokens(chain, addresses, ttl=None):
+    """Pairs for up to 30 token addresses per request (batched here); prices pass the sanity check (sane()).
+    `ttl` None = the scanner cache (CACHE_TTL); the signature stays (chain, addresses) for callers and tests."""
     out = []
     for i in range(0, len(addresses), 30):
-        out += _get(f"/tokens/v1/{_q(chain)}/{','.join(addresses[i:i + 30])}", fast=True) or []
+        out += _get(f"/tokens/v1/{_q(chain)}/{','.join(addresses[i:i + 30])}", fast=True, ttl=ttl) or []
     return [sane(p) for p in out]
+
+
+def tokens_live(chain, addresses, ttl=None):
+    """9.11. (audit P2): tokens() for the 1-second boxes and the demo TP/SL: the same request path and rate limiter,
+    but a cache of LIVE_TTL seconds (never under 2 s) instead of 60 s, so a "⟳ 1 s" header shows numbers seconds old."""
+    return tokens(chain, addresses, ttl=LIVE_TTL if ttl is None else max(2, int(ttl)))
