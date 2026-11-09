@@ -20,7 +20,8 @@ FRESH_S = int(os.environ.get("UI_CACHE_FRESH_S", "45"))
 STALE_S = int(os.environ.get("UI_CACHE_STALE_S", "900"))
 MAX_ENTRIES = 60
 MAX_MB = float(os.environ.get("UI_CACHE_MAX_MB", "25"))   # gzipped bytes kept in all entries together
-BUILDS = int(os.environ.get("UI_BUILDS", "2"))            # pages built at the same time (each holds its rows in RAM)
+BUILDS = int(os.environ.get("UI_BUILDS", "1"))            # pages built at the same time (each holds its rows in RAM);
+                                                          # 9.11.: one at a time, two children + corr + ui came near 2 GiB
 SLOW_S = 2.0
 _data = os.environ.get("DATA_DIR")
 SNAP_DIR = os.environ.get("UI_SNAP_DIR") or (os.path.join(_data, "pagecache") if _data else "")
