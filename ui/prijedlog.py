@@ -108,7 +108,8 @@ def live_market(tokens, fetch=None):
                   "vol_h1": float(vol.get("h1") or 0), "vol_h24": float(vol.get("h24") or 0),
                   "txns_h1": int((h1.get("buys") or 0) + (h1.get("sells") or 0)), "buys_h1": int(h1.get("buys") or 0),
                   "txns_h24": int((h24.get("buys") or 0) + (h24.get("sells") or 0)),
-                  "ch_h1": ch.get("h1"), "ch_h24": ch.get("h24")}
+                  "vol_m5": float(vol.get("m5") or 0), "txns_m5": int(((tx.get("m5") or {}).get("buys") or 0) + ((tx.get("m5") or {}).get("sells") or 0)),
+                  "ch_m5": ch.get("m5"), "ch_h1": ch.get("h1"), "ch_h24": ch.get("h24")}
     return out
 
 
@@ -498,6 +499,19 @@ def box(kind, now=None, rows=None, live=None):
     except Exception:  # noqa: BLE001
         status = {}
     picks, near, note = token_picks_ex(now, rows=rows, status=status, live=live)
+    if live is None:   # 9.11. (Jure): the Autopilot's live engine is the source; Pregled follows it
+        try:
+            from ui import zivo
+            zr = zivo.rows(now)
+            if zr:
+                picks = [{"token": r["token"], "symbol": r.get("symbol") or (r["live"].get("symbol") if r.get("live") else None),
+                          "mcap0": r["live"]["mcap"], "ts0": int(r.get("ts0") or now), "conf": r.get("conf"), "why": r["reasons"],
+                          "protiv": [], "band": _band(r["live"]["mcap"]), "chance": None, "razina": "visoka", "live": r["live"],
+                          "history": history(r["token"]), "thesis": "Zašto sada: " + "; ".join(r["reasons"]) + ". " + r["expect"] + "."}
+                         for r in zr[:3]]
+                near, note = [], ""
+        except Exception:  # noqa: BLE001
+            pass
     mak = _makro_line()
     rec = ""
     try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)

@@ -95,7 +95,8 @@ def parse(page, channel):
         raw = html.unescape(body)  # links keep the CA in href, so search the markup too
         text = html.unescape(_TAG.sub(" ", body.replace("<br/>", "\n").replace("<br>", "\n")))
         text = re.sub(r"[ \t]+", " ", text).strip()
-        cas = sorted({c for c in _CA.findall(raw) if any(ch.isdigit() for ch in c)})
+        from kol.collect import cas_in   # 9.11.: EVM tails ("0x47c…") are not Solana mints
+        cas = cas_in(raw)
         v = _VIEWS.search(chunk)
         f = _FWD.search(chunk)
         info["posts"].append({

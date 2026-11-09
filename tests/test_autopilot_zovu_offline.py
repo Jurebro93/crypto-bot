@@ -18,6 +18,9 @@ from ui import pravitrade  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = int(time.time())
+# real-shaped Solana mints (32 bytes, base58) for the token checks
+WBTC_M, COINX_M, BANK_M, MEME_M = ("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+                                   "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8", "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq")
 
 
 class GroupCallers(unittest.TestCase):
@@ -51,27 +54,60 @@ class NotACall(unittest.TestCase):
         kp, hp, tp = os.path.join(d, "kol.db"), os.path.join(d, "hype.db"), os.path.join(d, "tg.db")
         kc = kstore.connect(kp)
         kc.executemany("INSERT INTO tokens (token, symbol, liquidity) VALUES (?,?,?)",
-                       [("WBTCTOKEN" + "1" * 32, "WBTC", 50e6), ("COINXTOKEN" + "1" * 31, "COINx", 3e6),
-                        ("BANKTOKEN" + "1" * 32, "BANK", 35_000), ("MEME" + "1" * 37, "MEME", 80_000)])
+                       [(WBTC_M, "WBTC", 50e6), (COINX_M, "COINx", 3e6),
+                        (BANK_M, "BANK", 35_000), (MEME_M, "MEME", 80_000)])
         kc.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,'call')",
-                       [("a", "WBTCTOKEN" + "1" * 32, "ansem", NOW - 300), ("b", "BANKTOKEN" + "1" * 32, "tg:alpha", NOW - 200),
-                        ("c", "MEME" + "1" * 37, "murad", NOW - 100)])
+                       [("a", WBTC_M, "ansem", NOW - 300), ("b", BANK_M, "tg:alpha", NOW - 200),
+                        ("c", MEME_M, "murad", NOW - 100)])
         kc.commit()
         kc.close()
         hc = sqlite3.connect(hp)
         hc.execute("CREATE TABLE chain_trades (wallet TEXT, mint TEXT, side TEXT, ts INTEGER)")
         hc.execute("CREATE TABLE kol_mentions (ts INTEGER, handle TEXT, ca TEXT)")
         hc.executemany("INSERT INTO chain_trades VALUES (?,?,?,?)",
-                       [("FOLLOWEDWALLET", "BANKTOKEN" + "1" * 32, "buy", NOW - 150), ("RANDOMWALLET", "COINXTOKEN" + "1" * 31, "buy", NOW - 50),
-                        ("RANDOMWALLET", "MEME" + "1" * 37, "buy", NOW - 40), ("FOLLOWEDWALLET", "MEME" + "1" * 37, "sell", NOW - 30)])
+                       [("FOLLOWEDWALLET", BANK_M, "buy", NOW - 150), ("RANDOMWALLET", COINX_M, "buy", NOW - 50),
+                        ("RANDOMWALLET", MEME_M, "buy", NOW - 40), ("FOLLOWEDWALLET", MEME_M, "sell", NOW - 30)])
         hc.commit()
         hc.close()
-        rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"})
+        live = {t: {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30,
+                    "buys_h1": 20, "txns_h24": 100, "ch_h1": 4.0, "ch_h24": 9.0}
+                for t in (WBTC_M, COINX_M, BANK_M, MEME_M)}
+        rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"}, live=live)
         got = {r[4]: [c[0] for c in r[1]] for r in rows}
         self.assertEqual(set(got), {"BANK", "MEME"})                  # WBTC (wrapped) and COINx (xStock) are gone
         self.assertEqual(got["BANK"], ["tg:alpha", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
         self.assertEqual(got["MEME"], ["murad"])                      # a random webhook wallet's buy does not
         self.assertEqual(rows[0][4], "BANK")                          # most callers first
+        self.assertEqual(rows[0][5]["mcap"], 90_000.0)                # the live state travels to the row
+        # 9.11. 15:37 (Jure, robinhood_trending): no live pair, under 30k, archived, or not a Solana mint -> no row
+        nopair = dict(live)
+        del nopair[BANK_M]
+        self.assertEqual([r[4] for r in pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=nopair)], ["MEME"])
+        small = {**live, MEME_M: {**live[MEME_M], "mcap": 12_000.0}}
+        self.assertEqual([r[4] for r in pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=small)], ["BANK"])
+        self.assertEqual(pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set(), live=None if False else {}), [])
+        saved = pravitrade._live_cached
+        pravitrade._live_cached = lambda toks, now, ttl=10: None     # DexScreener down: nothing is shown
+        try:
+            self.assertEqual(pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed=set()), [])
+        finally:
+            pravitrade._live_cached = saved
+
+    def test_evm_tails_are_not_tokens(self):
+        from kol import collect
+        self.assertTrue(collect.is_solana_mint("So11111111111111111111111111111111111111112"))
+        self.assertTrue(collect.is_solana_mint("ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"))
+        self.assertFalse(collect.is_solana_mint("x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396"))   # tail of 0x47c…a396
+        self.assertFalse(collect.is_solana_mint("8699c4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d64cd7"))
+        self.assertFalse(collect.is_solana_mint("BANKTOKEN" + "1" * 32))                         # not a real key
+        self.assertEqual(collect.cas_in("buy 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 now"), [])
+        self.assertEqual(collect.cas_in("CA: ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"), ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
+        from tg import reader
+        page = ('<div class="tgme_widget_message_wrap"><div data-post="c/1"></div><div class="tgme_widget_message_text">'
+                'ape 0x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396 and ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump</div>'
+                '<time datetime="2026-11-09T10:32:01+00:00"></time></div>')
+        posts = reader.parse(page, "c")["posts"]
+        self.assertEqual(posts[0]["cas"], ["ANLEpx1hMMGJ2vHwENrVhH1gkysDNwf5p4uNKJxGpump"])
 
 
 class Page(unittest.TestCase):
@@ -157,36 +193,40 @@ class Page(unittest.TestCase):
         self.assertIn("REAL", html)                         # a real order stays visible for a week
         self.assertNotIn("GTAVI", html)
 
-    def test_ideas_read_the_suggestion_log_and_never_build_token_rows(self):
-        """9.11. 12:30: building the picks in the UI process on every poll ran the server out of memory."""
-        import sqlite3
-        from ui import data, overview, prijedlog_log
-        hp = os.path.join(self.tmp.name, "hype.db")
-        con = sqlite3.connect(hp)
-        con.execute(prijedlog_log.SCHEMA)
-        con.executemany("INSERT INTO prijedlog_log (token, day, ts, kind, razina, mcap0, conf) VALUES (?,?,?,?,?,?,?)",
-                        [("TOKA", "d", NOW - 600, "danas", "niska", 50000, 30), ("TOKB", "d", NOW - 300, "danas", "visoka", 120000, 70),
-                         ("OLD", "d0", NOW - 2 * 86400, "danas", "visoka", 90000, 80)])
-        con.commit()
-        con.close()
-        saved = (data.HYPE_DB, overview.token_rows)
-        data.HYPE_DB = hp
+    def test_ideas_are_live_rows_and_never_build_token_rows(self):
+        """9.11. 12:30: building the picks in the UI process ran the server out of memory; 15:40 (Jure): the box must be
+        live (2 s), not "the same as Pregled every 60 s"."""
+        from ui import overview, zivo
+        saved = (overview.token_rows, zivo.rows)
 
         def boom(*a, **k):
             raise AssertionError("token_rows must not run in the UI process")
         overview.token_rows = boom
+        row = {"token": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", "symbol": "AAA", "src": "zovu", "why": ["zovu: ansem"], "ts0": NOW - 300,
+               "tier": 2, "live": {"price": 0.001, "liq": 50_000.0, "mcap": 120_000.0, "vol_h1": 8000.0, "txns_h1": 60, "vol_m5": 900.0,
+                                   "txns_m5": 7, "ch_m5": 12.0, "ch_h1": 5.0}, "callers10": ["ansem"], "smart10": 1,
+               "expect": "pozivatelji: +15 % prije stopa u 50% (6 izmjerenih poziva, minutna provjera)", "expect_v": 0.5,
+               "age_s": 300, "heat": 9.0, "reasons": ["novi pozivatelj u 10 min: @ansem", "1 pametnih novčanika kupilo u 10 min"]}
+        zivo.rows = lambda now=None, **k: [row]
         pravitrade._IDEAS_CACHE.clear()
         try:
-            picks = pravitrade.latest_picks(NOW)
-            self.assertEqual([p["token"] for p in picks], ["TOKB", "TOKA"])   # best grade first, nothing older than a day
             html = pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW)
-            self.assertIn("TOKB", html)
-            self.assertIn("dexscreener.com/solana/TOKB", html)
-            self.assertIn("vjerojatnost visoka", html)
-            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), html)   # cached
-        finally:
-            data.HYPE_DB, overview.token_rows = saved
+            self.assertIn("AAA", html)
+            self.assertIn("5 min +12 %", html)
+            self.assertIn("Zašto sada:", html)
+            self.assertIn("novi pozivatelj u 10 min: @ansem", html)
+            self.assertIn("1 pametnih novčanika kupilo", html)
+            self.assertIn("Očekivanje:", html)
+            self.assertIn("T2", html)
+            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 1), html)   # 2-s cache
+            zivo.rows = lambda now=None, **k: []
             pravitrade._IDEAS_CACHE.clear()
+            self.assertEqual(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), "")
+        finally:
+            overview.token_rows, zivo.rows = saved
+            pravitrade._IDEAS_CACHE.clear()
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop
 
     def test_fragments_need_access(self):
         self.assertIsNone(pravitrade.callers_fragment("Ivan"))
