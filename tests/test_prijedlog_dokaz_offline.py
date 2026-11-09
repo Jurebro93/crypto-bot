@@ -95,6 +95,9 @@ class LiveGate(unittest.TestCase):
         self.assertIn("0.1× likvidnosti", th)
         self.assertIn("već predložen 1×: 1× +15 % prije stopa", th)
         self.assertIn("Protiv: rug filter: OPREZ; mali TG", th)
+        ok_row = {**row(T), "rug": {"verdict": "PROLAZI"}}
+        p2 = prijedlog.token_picks(NOW, rows=[ok_row], status={}, ch={"100–300k": (0.3, 20)}, live={T: ALIVE})[0]
+        self.assertNotIn("rug filter", p2["thesis"])                       # a pass is never listed against
         html = prijedlog._item(p)
         self.assertIn("Teza:", html)
 

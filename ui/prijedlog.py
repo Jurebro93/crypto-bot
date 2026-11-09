@@ -262,7 +262,8 @@ def _pick(r, status, ch, now):
         b = _band(mcap)
         protiv = [t for p_, t in r.get("conf_parts") or [] if p_ < 0][:3]
         rv = (r.get("rug") or {}).get("verdict") if isinstance(r.get("rug"), dict) else None
-        if rv and rv not in ("PROŠAO", "OK") and f"rug filter: {rv}" not in protiv:
+        # only a verdict that is not a pass is a point against (15:43: "Protiv: rug filter: PROLAZI" was shown)
+        if rv and rv.upper() not in ("PROLAZI", "PROŠAO", "OK", "PROSAO") and f"rug filter: {rv}" not in protiv:
             protiv.insert(0, f"rug filter: {rv}")
         return {"token": r["token"], "symbol": r["symbol"], "mcap0": mcap, "ts0": int(r["last_seen"] or now),
                 "conf": r.get("conf"), "why": why, "protiv": protiv, "band": b, "chance": ch.get(b)}
