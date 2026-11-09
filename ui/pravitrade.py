@@ -12,6 +12,13 @@ tool's own picks of influencers, wallets and tokens from the last 7/14/30 days, 
   The page never asks for the key: the owner can save the wallet's public address here (or connect Phantom, which
   only hands over the public address) so the balance and the setup steps show before the key is in Render.
 - Recommendations: ui/autopilot.py.
+
+Before anything is listed on this page (Jure 9.11., after WBTC led "Zovu sada"), it has to answer three questions,
+and the code that lists it must enforce the answers, not a note: (1) does it belong here at all (a memecoin someone
+actually called or bought on purpose, not a major, a wrapped asset, a tokenised share or routing noise:
+kol/converge.not_a_memecoin); (2) how does it help the user make money from it right now (a live market this hour,
+a measured reason, a buy form that uses the chosen exit); (3) would the owner lose money or time if it were wrong
+(then it is not shown, or shown as "ne kupuj" with the reason).
 """
 import os
 import re
@@ -641,6 +648,65 @@ def group_callers(events, now, window_s=CALLERS_WINDOW_S, limit=8):
     return out[:limit]
 
 
+def followed_wallets():
+    """Wallets whose buys count as "zovu": the ones the real-money account follows plus the proven-twice list; the
+    other ~100 webhook wallets are data for the leaderboards, not calls."""
+    out = set()
+    try:
+        from league import store as lstore
+        con = copy._ro(lstore.DB)
+        if con is not None:
+            try:
+                out |= {f["target"] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "wallet"}
+            finally:
+                con.close()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from wallets import dokazani
+        out |= set(dokazani.current())
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype_db=None, followed=None, limit=8):
+    """[(token, callers, first_ts, last_ts, symbol)] worth showing: X/Telegram calls from kol/converge.events and
+    buys of the followed wallets only, minus everything kol/converge.not_a_memecoin rules out."""
+    from kol import converge, store as kstore
+    ev, _scores, _fac = converge.events(int(now), window_s, kol_db=kol_db, tg_db=tg_db, hype_db=hype_db)
+    ev = [e for e in ev if e[2] != "chain"]   # chain events there are every webhook wallet: replaced below
+    followed = followed_wallets() if followed is None else followed
+    if followed:
+        hc = copy._ro(hype_db or copy._paths()["hype"])
+        if hc is not None:
+            try:
+                q = ",".join("?" * len(followed))
+                for w, mint, ts in copy._q(hc, f"SELECT wallet, mint, ts FROM chain_trades WHERE ts >= ? AND side = 'buy' "
+                                               f"AND wallet IN ({q})", (int(now) - window_s, *sorted(followed))):
+                    ev.append((mint, ts, "chain", "w:" + w, "buy"))
+            finally:
+                hc.close()
+    rows = group_callers(ev, now, window_s, limit=limit * 4)
+    syms, liqs = {}, {}
+    kc = copy._ro(kol_db or kstore.DB)
+    if kc is not None and rows:
+        try:
+            q = ",".join("?" * len(rows))
+            for tok, sym, liq in copy._q(kc, f"SELECT token, symbol, liquidity FROM tokens WHERE token IN ({q})", [r[0] for r in rows]):
+                syms[tok], liqs[tok] = sym, liq
+        finally:
+            kc.close()
+    out = []
+    for tok, callers, first, last in rows:
+        if converge.not_a_memecoin(tok, syms.get(tok), liqs.get(tok)):
+            continue
+        out.append((tok, callers, first, last, syms.get(tok)))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def callers_inner(cfg, owner, now=None):
     """Live: who called which token in the last hour (X, Telegram, followed wallets). The point (Jure 9.11.): see the
     FIRST caller of a token at once and buy before the rest of his crew calls it."""
@@ -648,29 +714,22 @@ def callers_inner(cfg, owner, now=None):
     if now - _CALLERS_CACHE["ts"] < 2 and _CALLERS_CACHE["html"]:
         return _CALLERS_CACHE["html"]
     try:
-        from kol import converge, store as kstore
-        ev, _scores, _fac = converge.events(int(now), CALLERS_WINDOW_S)
-        rows = group_callers(ev, now)
-        syms = {}
-        kc = copy._ro(kstore.DB)
-        if kc is not None and rows:
-            q = ",".join("?" * len(rows))
-            syms = dict(copy._q(kc, f"SELECT token, symbol FROM tokens WHERE token IN ({q})", [r[0] for r in rows]))
-            kc.close()
+        rows = gather_callers(now)
     except Exception as e:  # noqa: BLE001
         return f'<p class=mut>Pozivi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
     if not rows:
-        html = '<p class=mut>U zadnjih sat vremena nitko koga mjerimo nije zvao token.</p>'
+        html = ('<p class=mut>U zadnjih sat vremena nitko koga mjerimo nije zvao memecoin (majori, zamotana imovina i '
+                'tokenizirane dionice se ne broje; kupnje se broje samo za novčanike koje pratiš i dokazane).</p>')
     else:
         items = []
-        for tok, callers, first, last in rows:
-            who = ", ".join((f"👛 {c[0][:6]}…" if c[1] == "chain" else ("✈ " + c[0][3:] if c[0].startswith("tg:") else "@" + c[0])) for c in callers[:6])
+        for tok, callers, first, last, sym in rows:
+            who = ", ".join((f"👛 {c[0][2:8]}…" if c[1] == "chain" else ("✈ " + c[0][3:] if c[0].startswith("tg:") else "@" + c[0])) for c in callers[:6])
             more = f" +{len(callers) - 6}" if len(callers) > 6 else ""
             handles = ",".join(c[0] for c in callers if c[1] != "chain")
-            follow = (f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti sve ove račune?\')">'
-                      f'<input type=hidden name=handles value="{esc(handles)}"><button>Zaprati sve ({len(callers)})</button></form>'
+            follow = (f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
+                      f'<input type=hidden name=handles value="{esc(handles)}"><button>Zaprati kao ekipu ({len(handles.split(","))})</button></form>'
                       if owner and handles else "")
-            items.append(f'<details class=ap-it open><summary><span>{tlink(tok, syms.get(tok))} <span class=ap-tag>{len(callers)} {"zove" if len(callers) == 1 else "zovu"}</span></span>'
+            items.append(f'<details class=ap-it open><summary><span>{tlink(tok, sym)} <span class=ap-tag>{len(callers)} {"zove" if len(callers) == 1 else "zovu"}</span></span>'
                          f'<span class=k>prvi {esc(ago(first)[0])}{(" · zadnji " + esc(ago(last)[0])) if last != first else ""}</span></summary>'
                          f'<p>{esc(who)}{more} · <a href="https://dexscreener.com/solana/{quote(tok)}" target=_blank rel=noopener>DexScreener ↗</a></p>'
                          f'{_buy_form(tok, cfg, "tpsl", owner)}{follow}</details>')
@@ -690,7 +749,7 @@ def callers_fragment(user):
 
 
 def _callers_section(cfg, owner):
-    return _sec("Zovu sada", f"zadnjih 60 min · X, Telegram, praćeni novčanici · ⟳ {LOG_EVERY_S} s",
+    return _sec("Zovu sada", f"zadnjih 60 min · X, Telegram, tvoji i dokazani novčanici · ⟳ {LOG_EVERY_S} s",
                 f'<div id=ap-zovu>{callers_inner(cfg, owner)}</div><p class=mut style="font-size:13px;margin:8px 0 0">'
                 'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p>',
                 open_=True, sid="zovu")
@@ -700,12 +759,16 @@ def _token_section(cfg, owner):
     from ui import autopilot
     recs = autopilot.token_recs()
     items = []
+    from kol import converge
     for kind, lab, ex in (("dugo", "dugoročno", "manual"), ("moon", "moonshot", "smart")):
         for r in recs.get(kind) or []:
+            if converge.not_a_memecoin(r["mint"], r.get("symbol")):   # 9.11.: never a major, wrapped asset or xStock
+                continue
             items.append(f'<details class=ap-it><summary><span>{tlink(r["mint"], r["symbol"])}</span>'
                          f'<span class="ap-tag {kind}">{lab}</span></summary><p>{esc(r["why"])}</p>'
                          f'{_buy_form(r["mint"], cfg, ex, owner)}</details>')
-    nd, nm = len(recs.get("dugo") or []), len(recs.get("moon") or [])
+    nd = sum(1 for r in recs.get("dugo") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
+    nm = sum(1 for r in recs.get("moon") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
     meta = f"{nd} dugoročna · {nm} moonshot" if items else "trenutno nema"
     head = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Dugoročni su stariji tokeni koji su preživjeli; moonshot '
             f'je svjež token s jakim signalom i prošlim rug checkom {tip("Moonshot: mali, novi token koji može narasti puno, ali i pasti na nulu. Bot ga preporuča samo kad je među najjačim prijedlozima, prošao rug check i nije usred pumpe ili pada. Nijedna preporuka nije jamstvo zarade.")}</p>')

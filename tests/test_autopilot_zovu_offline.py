@@ -33,6 +33,47 @@ class GroupCallers(unittest.TestCase):
         self.assertEqual((first, last), (NOW - 600, NOW - 100))   # ansem's first call, not his repeat
 
 
+class NotACall(unittest.TestCase):
+    def test_majors_wrapped_and_xstocks_are_never_calls(self):
+        from kol import converge
+        self.assertIn("major", converge.not_a_memecoin("So11111111111111111111111111111111111111112"))
+        self.assertIn("major", converge.not_a_memecoin("3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh", "WBTC"))
+        self.assertIn("zamotana", converge.not_a_memecoin("SomeOtherWrapped", "cbBTC"))
+        self.assertIn("xStock", converge.not_a_memecoin("Xc1", "COINx"))
+        self.assertIn("xStock", converge.not_a_memecoin("Xc2", "TSLAx"))
+        self.assertIn("likvidnost", converge.not_a_memecoin("Big1", "TRUMP", 9_000_000))
+        self.assertIsNone(converge.not_a_memecoin("Meme1", "BANK", 35_000))
+        self.assertIsNone(converge.not_a_memecoin("Meme2", "xdog", 35_000))   # lower-case ticker is not the pattern
+
+    def test_gather_callers_filters_noise_and_counts_only_followed_wallets(self):
+        from kol import store as kstore
+        d = tempfile.mkdtemp()
+        kp, hp, tp = os.path.join(d, "kol.db"), os.path.join(d, "hype.db"), os.path.join(d, "tg.db")
+        kc = kstore.connect(kp)
+        kc.executemany("INSERT INTO tokens (token, symbol, liquidity) VALUES (?,?,?)",
+                       [("WBTCTOKEN" + "1" * 32, "WBTC", 50e6), ("COINXTOKEN" + "1" * 31, "COINx", 3e6),
+                        ("BANKTOKEN" + "1" * 32, "BANK", 35_000), ("MEME" + "1" * 37, "MEME", 80_000)])
+        kc.executemany("INSERT INTO calls (tweet_id, token, handle, ts, kind) VALUES (?,?,?,?,'call')",
+                       [("a", "WBTCTOKEN" + "1" * 32, "ansem", NOW - 300), ("b", "BANKTOKEN" + "1" * 32, "tg:alpha", NOW - 200),
+                        ("c", "MEME" + "1" * 37, "murad", NOW - 100)])
+        kc.commit()
+        kc.close()
+        hc = sqlite3.connect(hp)
+        hc.execute("CREATE TABLE chain_trades (wallet TEXT, mint TEXT, side TEXT, ts INTEGER)")
+        hc.execute("CREATE TABLE kol_mentions (ts INTEGER, handle TEXT, ca TEXT)")
+        hc.executemany("INSERT INTO chain_trades VALUES (?,?,?,?)",
+                       [("FOLLOWEDWALLET", "BANKTOKEN" + "1" * 32, "buy", NOW - 150), ("RANDOMWALLET", "COINXTOKEN" + "1" * 31, "buy", NOW - 50),
+                        ("RANDOMWALLET", "MEME" + "1" * 37, "buy", NOW - 40), ("FOLLOWEDWALLET", "MEME" + "1" * 37, "sell", NOW - 30)])
+        hc.commit()
+        hc.close()
+        rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"})
+        got = {r[4]: [c[0] for c in r[1]] for r in rows}
+        self.assertEqual(set(got), {"BANK", "MEME"})                  # WBTC (wrapped) and COINx (xStock) are gone
+        self.assertEqual(got["BANK"], ["tg:alpha", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
+        self.assertEqual(got["MEME"], ["murad"])                      # a random webhook wallet's buy does not
+        self.assertEqual(rows[0][4], "BANK")                          # most callers first
+
+
 class Page(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -67,6 +108,7 @@ class Page(unittest.TestCase):
         self.assertIn("Cilj izlaza za nove kopije", body)
         self.assertIn("sada +10 %", body)
         self.assertIn("Zovu sada", body)
+        self.assertIn("tvoji i dokazani novčanici", body)
         self.assertIn("Što kupiti sada", body)
         self.assertIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "tpsl", True))   # TP/SL forms take it
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))

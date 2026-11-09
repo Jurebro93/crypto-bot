@@ -13,6 +13,7 @@ Score 0-100 (kol/config.json converge):
   a paid-promo pattern (promo_channels Telegram posts inside promo_secs and the first caller is not good).
 """
 import json
+import re
 import os
 import sqlite3
 import time
@@ -122,6 +123,28 @@ def majors():
         return aktivni.SKIP
     except Exception:  # noqa: BLE001
         return {"So11111111111111111111111111111111111111112", "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"}
+
+
+STOCKLIKE = re.compile(r"^[A-Z0-9]{1,6}x$")   # xStocks: COINx, TSLAx, SPYx, AAPLx, MCDx (tokenised shares)
+WRAPPED = {"WBTC", "CBBTC", "WETH", "WSOL", "SOL", "USDC", "USDT", "USD1", "USDS", "MSOL", "JITOSOL", "JUPSOL", "BSOL",
+           "STSOL", "PYUSD", "EURC", "WBNB", "WAVAX", "WMATIC", "TBTC", "ZBTC", "JLP"}
+
+
+def not_a_memecoin(token, symbol=None, liq=None, max_liq=None):
+    """Why this token can never be a call worth money on the Autopilot, or None. 9.11. (Jure): WBTC ($290M, 41
+    "wallets buying") and COINx (a tokenised Coinbase share) topped "Zovu sada"; tracked wallets route through them,
+    nobody calls them. Majors/stables/LSTs (paper/aktivni.SKIP), wrapped assets and xStocks by symbol, and anything
+    with more liquidity than a memecoin ever has (MAX_LIQ) are not calls."""
+    if token in majors():
+        return "major (SOL/stablecoin/LST), kroz njega se samo rutira"
+    sym = (symbol or "").strip()
+    if sym.upper() in WRAPPED:
+        return f"{sym}: zamotana imovina / stablecoin, ne memecoin"
+    if STOCKLIKE.match(sym):
+        return f"{sym}: tokenizirana dionica (xStock), ne memecoin"
+    if liq is not None and liq > (max_liq or MAX_LIQ):
+        return f"likvidnost ${liq / 1e6:.1f}M, to nije memecoin poziv"
+    return None
 
 
 MAX_LIQ = 1_500_000   # 5.11.: BTC and TRUMP topped the list (17 and 9 "wallets"): big liquid tokens are what wallets
