@@ -104,3 +104,47 @@ class FrozenStrategies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CopyWake(unittest.TestCase):
+    def test_wake_file_and_nap(self):
+        import time
+        from unittest import mock
+        from league import auto, copy
+        d = tempfile.mkdtemp()
+        with mock.patch.object(copy, "WAKE", os.path.join(d, ".copy_wake")):
+            t0 = time.time()
+            self.assertFalse(copy.woke_since(t0))
+            copy.wake()
+            self.assertTrue(copy.woke_since(t0 - 1))
+            t1 = time.time()
+            t = time.time()
+            auto._nap(2)                       # nothing new since t: sleeps the full 2 s
+            self.assertGreaterEqual(time.time() - t, 1.9)
+            import threading
+            threading.Timer(0.3, copy.wake).start()
+            t = time.time()
+            auto._nap(10)                      # woken by the file within ~1 s
+            self.assertLess(time.time() - t, 3)
+
+    def test_live_feed_mirror_wakes_the_copy(self):
+        import sqlite3
+        from unittest import mock
+        from live import store as lstore
+        from league import copy
+        con = sqlite3.connect(":memory:")
+        rows = [("s1", "MINT", "W1", "buy", 1.0, 100.0, 0.01, 50, "pump", 1000, 100.0)]
+        with mock.patch.object(copy, "wake") as w:
+            lstore.mirror_chain(con, rows, {"W1"})
+            w.assert_called_once()
+        with mock.patch.object(copy, "wake") as w:
+            lstore.mirror_chain(con, rows, {"OTHER"})
+            w.assert_not_called()
+
+
+class RealTradePage(unittest.TestCase):
+    def test_sections_get_the_tap_toggle_script(self):
+        from ui import pravitrade
+        self.assertIn("details.ap-sec,details.ap-it", pravitrade.TOGGLE_JS)
+        self.assertIn("sessionStorage", pravitrade.TOGGLE_JS)
+        self.assertTrue(pravitrade._with_toggle("<p>x</p>").endswith("</script>"))

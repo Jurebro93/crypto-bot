@@ -275,4 +275,10 @@ def ingest(payload, hype_db=None):
     con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))
     con.commit()
     con.close()
+    if rows:
+        try:
+            from league import copy as _copy   # 9.11.: the copy loop runs now, not at its next tick
+            _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
     return len(rows) + len(transfers)

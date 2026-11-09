@@ -43,6 +43,27 @@ EXIT_HR = {"smart": "Smart sell", "tpsl": "moj TP/SL", "manual": "prodajem sam",
            "mirror_smart": "prodaj kad on proda + Smart sell"}
 
 
+WAKE = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".copy_wake")
+
+
+def wake():
+    """9.11. (Jure: every second is money): a followed wallet's swap or a KOL post just arrived (Helius webhook,
+    PumpPortal feed, X webhook). The auto-sell loop in the dashboard sees the file and runs copy.run_once at once
+    instead of at its next 20-second tick."""
+    try:
+        with open(WAKE, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass
+
+
+def woke_since(ts):
+    try:
+        return os.path.getmtime(WAKE) > ts
+    except OSError:
+        return False
+
+
 def ensure(con):
     con.executescript(SCHEMA)
     have = {r[1] for r in con.execute("PRAGMA table_info(trades)")}

@@ -284,4 +284,15 @@ def loop(market, every=EVERY_S):
             con.close()
         except Exception as e:
             print(f"auto sell: {type(e).__name__}: {e}", file=sys.stderr)
-        time.sleep(every)
+        _nap(every)
+
+
+def _nap(every):
+    """Sleep up to `every` seconds, but wake within a second when a followed wallet or KOL just acted
+    (league/copy.wake): the real-money copy must not wait for the next tick (9.11.)."""
+    from . import copy
+    t0 = time.time()
+    while time.time() - t0 < every:
+        time.sleep(1)
+        if copy.woke_since(t0):
+            return
