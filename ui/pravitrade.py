@@ -256,6 +256,27 @@ def _today(tcon, cfg):
             f'<span class="{"pos" if pnl > 0 else "neg" if pnl < 0 else ""}">{pnl:+.4f} SOL</span></p>')
 
 
+POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age style="font-size:12px"></span>'
+            '<button onclick="this.closest(\'dialog\').close()">Zatvori ✕</button></div><div class=body><p class=mut>Učitavam…</p></div></dialog>')
+# 9.11. (Jure): everything opens in a pop-up, never a new page, and the pop-up re-fetches its content every second
+# while it is open (the swap is skipped while a field inside it has focus, so a stake being typed is never lost)
+POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0;"
+          "async function load(){if(!url)return;try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
+          "const b=d.querySelector('.body');if(h!==b.innerHTML&&!b.contains(document.activeElement))b.innerHTML=h;"
+          "n++;document.getElementById('ap-pop-age').textContent='uživo · osvježeno '+new Date().toLocaleTimeString()}catch(e){}}"
+          "document.addEventListener('click',e=>{const el=e.target.closest('[data-pop]');if(!el||e.target.closest('a,button,input,select,form'))return;"
+          "e.preventDefault();url=el.dataset.pop;d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';d.showModal();load();"
+          "clearInterval(t);t=setInterval(load,1000)});"
+          "d.addEventListener('close',()=>{clearInterval(t);url=''});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
+POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width:min(96vw,680px);width:96vw;background:var(--card);color:var(--fg)}"
+           "dialog#ap-pop::backdrop{background:rgba(0,0,0,.45)}dialog#ap-pop .bar2{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}"
+           "dialog#ap-pop .body{padding:10px 14px 16px;font-size:14px;line-height:1.45}dialog#ap-pop .body h3{margin:10px 0 4px;font-size:15px}"
+           ".ap-row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;"
+           "user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}.ap-row .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}"
+           ".ap-row b{font-weight:600}.ap-za{color:var(--good)}.ap-protiv{color:var(--bad)}.ap-verdict{font-weight:700;padding:6px 10px;border-radius:10px;margin:6px 0;display:inline-block}"
+           ".ap-verdict.ok{background:var(--goodbg);color:var(--good)}.ap-verdict.ne{background:var(--badbg);color:var(--bad)}</style>")
+
+
 def _sec(title, meta, inner, open_=False, sid="", hidden=False):
     return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}{" hidden" if hidden else ""}><summary>{title}'
             f'<span class=m>{meta}</span></summary><div class=in>{inner}</div></details>')
@@ -564,7 +585,7 @@ def _tp_card(cfg, owner):
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
-LIVE_IDEAS_S = 2
+LIVE_IDEAS_S = 1
 _IDEAS_CACHE = {}   # owner flag -> (ts, html)
 
 
@@ -619,20 +640,12 @@ def ideas_inner(cfg, owner, now=None):
         out = []
         for r in rs[:8]:
             m = r["live"]
-            tags = badge(r["src"], "") + (badge(f"T{r['tier']}", "good") if r.get("tier") else "")
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-            age = r["age_s"]
-            age_txt = f"{age / 60:.0f} min" if age < 3600 else f"{age / 3600:.1f} h"
-            reasons = "; ".join(r.get("reasons") or [])
-            out.append(f'<details class=ap-it open><summary><span>{tlink(r["token"], r.get("symbol") or m.get("symbol"))} {tags}</span>'
-                       f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></summary>'
-                       f'<p><b>Zašto sada:</b> {esc(reasons)}.<br>'
-                       f'Likv. ${m["liq"] / 1000:,.0f}k · vol 5 min ${m["vol_m5"]:,.0f} ({m["txns_m5"]} tx) · vol 1 h ${m["vol_h1"]:,.0f} ({m["txns_h1"]} tx) · '
-                       f'prvi signal prije {age_txt} ({esc("; ".join(r.get("why") or []))}).<br>'
-                       f'<b>Očekivanje:</b> {esc(r["expect"])}. '
-                       f'<a href="https://dexscreener.com/solana/{quote(r["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
-                       f'{_buy_form(r["token"], cfg, "tpsl", owner)}</details>')
+            why = (r.get("reasons") or [""])[0]
+            out.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(r["token"])}"><span><b>{esc(r.get("symbol") or m.get("symbol") or r["token"][:6])}</b>'
+                       f'{badge(r["src"], "")} <span class=mut style="font-size:13px">{esc(why)}</span></span>'
+                       f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></div>')
         html = "".join(out)
     _IDEAS_CACHE[bool(owner)] = (now, html)
     return html
@@ -654,7 +667,7 @@ def _ideas_section(cfg, owner):
                 f'<div id=ap-ideje>{inner}</div><p class=mut style="font-size:13px;margin:8px 0 0">Token je ovdje samo dok prolazi '
                 'rug check, tier i arhiv ruga, ima MC 30k+, 10+ tx i $1k+ volumena u zadnjem satu, $20k+ likvidnosti i ne pada; '
                 'red: tko je zadnji zvao, kupnje pametnih novčanika, promjena u 5 min, brzina novca.</p>', hidden=not inner,
-                open_=True, sid="ideje")
+                sid="ideje")
 
 
 CALLERS_WINDOW_S = 3600
@@ -758,7 +771,7 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
 _LIVE_CACHE = {"ts": 0.0, "key": (), "data": {}}
 
 
-def _live_cached(tokens, now, ttl=10):
+def _live_cached(tokens, now, ttl=1):
     """DexScreener state of the tokens in "Zovu sada", shared by the 2-s poll for ttl seconds (one request)."""
     key = tuple(tokens)
     if not key:
@@ -777,7 +790,7 @@ def callers_inner(cfg, owner, now=None):
     """Live: who called which token in the last hour (X, Telegram, followed wallets). The point (Jure 9.11.): see the
     FIRST caller of a token at once and buy before the rest of his crew calls it."""
     now = now or time.time()
-    if now - _CALLERS_CACHE["ts"] < 2 and _CALLERS_CACHE["html"]:
+    if now - _CALLERS_CACHE["ts"] < 1 and _CALLERS_CACHE["html"]:
         return _CALLERS_CACHE["html"]
     try:
         rows = gather_callers(now)
@@ -799,23 +812,211 @@ def callers_inner(cfg, owner, now=None):
     if not rows:
         html = ""   # the section hides itself while there is nothing to show
     else:
-        items = []
-        for tok, callers, first, last, sym, m in rows:
-            who = ", ".join((f"👛 {c[0][2:8]}…" if c[1] == "chain" else ("✈ " + c[0][3:] if c[0].startswith("tg:") else "@" + c[0])) for c in callers[:6])
-            state = (f"MC ${m['mcap'] / 1000:,.0f}k · likv. ${m['liq'] / 1000:,.0f}k · 1 h {m['ch_h1']:+.0f} %"
-                     if m.get("ch_h1") is not None else f"MC ${m['mcap'] / 1000:,.0f}k · likv. ${m['liq'] / 1000:,.0f}k")
-            more = f" +{len(callers) - 6}" if len(callers) > 6 else ""
-            handles = ",".join(c[0] for c in callers if c[1] != "chain")
-            follow = (f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
-                      f'<input type=hidden name=handles value="{esc(handles)}"><button>Zaprati kao ekipu ({len(handles.split(","))})</button></form>'
-                      if owner and handles else "")
-            items.append(f'<details class=ap-it open><summary><span>{tlink(tok, sym)} <span class=ap-tag>{len(callers)} {"zove" if len(callers) == 1 else "zovu"}</span></span>'
-                         f'<span class=k>prvi {esc(ago(first)[0])}{(" · zadnji " + esc(ago(last)[0])) if last != first else ""}</span></summary>'
-                         f'<p>{esc(who)}{more} · {esc(state)} · <a href="https://dexscreener.com/solana/{quote(tok)}" target=_blank rel=noopener>DexScreener ↗</a></p>'
-                         f'{_buy_form(tok, cfg, "tpsl", owner)}{follow}</details>')
-        html = "".join(items)
+        html = "".join(_crew_row(c, now) for c in crew_rows(rows, now))
     _CALLERS_CACHE.update(ts=now, html=html)
     return html
+
+
+def crew_rows(rows, now):
+    """One line per crew (Jure 9.11.: "Robinhood six times in a row cannot be"): the callers of a token form the crew;
+    a crew is named after its leader (the first caller of its newest token). [{key, name, members, tokens, last,
+    first}] newest first."""
+    by = {}
+    for tok, callers, first, last, sym, m in rows:
+        members = tuple(sorted(c[0] for c in callers))
+        g = by.setdefault(members, {"members": members, "tokens": [], "first": first, "last": last, "leader": callers[0][0]})
+        g["tokens"].append({"token": tok, "symbol": sym, "first": first, "last": last, "live": m, "callers": callers})
+        if last > g["last"]:
+            g["last"], g["leader"] = last, callers[0][0]
+        g["first"] = min(g["first"], first)
+    out = []
+    for members, g in by.items():
+        lead = g["leader"]
+        name = (lead[3:] if lead.startswith("tg:") else ("👛 " + lead[2:8] if lead.startswith("w:") else "@" + lead))
+        if len(members) > 1:
+            name = f"ekipa {name} +{len(members) - 1}"
+        g["name"], g["key"] = name, ",".join(h for h in members if not h.startswith("w:"))
+        g["tokens"].sort(key=lambda t: -t["last"])
+        out.append(g)
+    out.sort(key=lambda g: -g["last"])
+    return out
+
+
+def _crew_row(g, now):
+    t = g["tokens"][0]
+    m = t["live"]
+    ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
+    n = len(g["tokens"])
+    return (f'<div class=ap-row data-pop="/pravi-trade/ekipa?h={quote(g["key"] or g["leader"])}"><span><b>{esc(g["name"])}</b> '
+            f'<span class=mut style="font-size:13px">{n} {"token" if n == 1 else "tokena"} u 60 min · zadnji {esc(t["symbol"] or t["token"][:6])} '
+            f'{esc(ago(t["last"])[0])}</span></span><span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5}</span></div>')
+
+
+def _live_one(mint, now):
+    """DexScreener state of one token for a pop-up, shared with the 1-s cache."""
+    lv = _live_cached([mint], now)
+    return (lv or {}).get(mint) if lv is not None else None
+
+
+def token_popup(user, mint, now=None):
+    """GET /pravi-trade/token?m=: why this token is (or is not) worth entering RIGHT NOW, re-fetched every second
+    by the pop-up: live market, buyers vs sellers, callers in the last hour, smart-wallet buys, the tool's fresh
+    rug check and tier, a verdict with the reasons against, the expectation for +15 % and the buy form."""
+    from kol import converge
+    from kol.collect import is_solana_mint
+    from ui import prijedlog, zivo
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        cfg, owner = _cfg(tcon), settings.is_owner(user)
+    finally:
+        tcon.close()
+    now = now or time.time()
+    if not is_solana_mint(mint):
+        return "<p class=ap-protiv>To nije Solana adresa tokena.</p>"
+    m = _live_one(mint, now)
+    if m is None:
+        return "<p class=mut>Provjera uživo (DexScreener) trenutno ne uspijeva; bez nje ne nudim ulaz.</p>"
+    if not m:
+        return '<div class="ap-verdict ne">NE KUPUJ: nema živog para na DexScreeneru.</div>'
+    sym = m.get("symbol") or mint[:6]
+    try:
+        ev, _s, _f = converge.events(int(now), 3600)
+    except Exception:  # noqa: BLE001
+        ev = []
+    callers = sorted({(e[3], e[1]) for e in ev if e[0] == mint and e[4] == "call" and e[2] != "chain"}, key=lambda x: -x[1])
+    smart = zivo._smart_buys(now, {mint}).get(mint, 0)
+    top = {}
+    try:
+        from topcheck import store as tstore
+        top = tstore.read_all(max_age_h=1).get(mint) or {}
+    except Exception:  # noqa: BLE001
+        pass
+    tier = (zivo._tiers() or {}).get(mint) or {}
+    archived = False
+    try:
+        from rugfilter import archive
+        archived = mint in archive.blocked()
+    except Exception:  # noqa: BLE001
+        pass
+    za, protiv = [], []
+    if callers:
+        fresh = [h for h, ts in callers if now - ts <= 600]
+        if fresh:
+            za.append("novi pozivatelj u 10 min: " + ", ".join((h[3:] if h.startswith("tg:") else "@" + h) for h in fresh[:4]))
+    if smart:
+        za.append(f"{smart} pametnih novčanika kupilo u 10 min")
+    if (m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5:
+        za.append(f"+{m['ch_m5']:.0f} % u 5 min na ${m['vol_m5']:,.0f}")
+    buys, tx = m.get("buys_h1") or 0, m.get("txns_h1") or 0
+    if tx and buys / tx >= 0.55:
+        za.append(f"kupci prevladavaju: {buys} od {tx} transakcija u satu su kupnje")
+    if top.get("verdict") == "prolazi":
+        za.append(f"rug check alata prošao ({esc(ago(top.get('ts'))[0])})")
+    if tier.get("razina"):
+        za.append(f"tier T{tier['razina']}" + (f" ({tier.get('klasa')})" if tier.get("klasa") else ""))
+    why_not = prijedlog.alive(m)
+    if why_not:
+        protiv.append(why_not)
+    if (m.get("mcap") or 0) < 30_000:
+        protiv.append(f"MC ${m['mcap']:,.0f}, ispod 30k")
+    if (m.get("ch_m5") or 0) <= -10:
+        protiv.append(f"pada {m['ch_m5']:+.0f} % u 5 min")
+    if tx and buys / tx < 0.45:
+        protiv.append(f"prodavači prevladavaju: samo {buys} od {tx} transakcija u satu su kupnje")
+    if archived:
+        protiv.append("rug filter ga je arhivirao")
+    if top.get("verdict") in ("pao", "oprez"):
+        protiv.append(f"rug check alata: {top['verdict']}")
+    nm = converge.not_a_memecoin(mint, sym, m.get("liq"))
+    if nm:
+        protiv.append(nm)
+    if not za and not protiv:
+        protiv.append("nema nijednog svježeg razloga za ulaz (bez novog pozivatelja, pametne kupnje ili pokreta)")
+    ok = not protiv
+    band = prijedlog._band(m["mcap"])
+    exp_txt, _v = zivo.expectation([h for h, _ in callers], zivo._minute_stats(now), (zivo._chances() or {}).get(band))
+    ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
+    ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
+    ch24 = f"{m['ch_h24']:+.0f} %" if m.get("ch_h24") is not None else "?"
+    b = [f'<h3>{tlink(mint, sym)}</h3>',
+         f'<div class="ap-verdict {"ok" if ok else "ne"}">{"U REDU ZA ULAZ" if ok else "NE KUPUJ"}</div>',
+         f'<p>MC ${m["mcap"] / 1000:,.0f}k · likv. ${m["liq"] / 1000:,.0f}k · cijena 5 min {ch5} · 1 h {ch1} · 24 h {ch24}<br>'
+         f'Vol 5 min ${m["vol_m5"]:,.0f} ({m["txns_m5"]} tx) · 1 h ${m["vol_h1"]:,.0f} ({tx} tx, {buys} kupnji) · '
+         f'brzina novca {(m["vol_h1"] / m["liq"] if m.get("liq") else 0):.1f}× likvidnosti</p>']
+    if za:
+        b.append("<p class=ap-za><b>Za:</b> " + "; ".join(esc(x) for x in za) + ".</p>")
+    if protiv:
+        b.append("<p class=ap-protiv><b>Protiv:</b> " + "; ".join(esc(x) for x in protiv) + ".</p>")
+    b.append(f"<p><b>Očekivanje +15 %:</b> {esc(exp_txt)}.</p>")
+    if callers:
+        b.append("<p><b>Zvali u zadnjih 60 min:</b> " + ", ".join(
+            f'{esc(h[3:] if h.startswith("tg:") else "@" + h)} ({esc(ago(ts)[0])})' for h, ts in callers[:8]) + "</p>")
+    if top.get("state") and (top["state"] or {}).get("advice"):
+        b.append(f'<p class=mut>Svježa provjera alata: {esc(top["state"]["advice"])}</p>')
+    b.append(f'<p><a href="https://dexscreener.com/solana/{quote(mint)}" target=_blank rel=noopener>DexScreener ↗</a> · '
+             f'<a href="/token/{quote(mint)}">cijela stranica tokena</a></p>')
+    if ok or owner:
+        b.append(_buy_form(mint, cfg, "tpsl", owner) if ok else
+                 '<p class=mut style="font-size:13px">Gumb za kupnju je skriven dok token ne prolazi provjere.</p>')
+    return "".join(b)
+
+
+def crew_popup(user, handles, now=None):
+    """GET /pravi-trade/ekipa?h=a,b: the crew's tokens of the last hour with live state, each member's minute-check
+    record, and a follow-as-crew button; re-fetched every second."""
+    from kol import converge
+    from ui import zivo
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        cfg, owner = _cfg(tcon), settings.is_owner(user)
+    finally:
+        tcon.close()
+    now = now or time.time()
+    hs = [h.strip().lstrip("@") for h in (handles or "").split(",") if h.strip()]
+    if not hs:
+        return "<p class=mut>Nema računa.</p>"
+    mem = set(hs)
+    try:
+        ev, _s, _f = converge.events(int(now), 3600)
+    except Exception:  # noqa: BLE001
+        ev = []
+    toks = {}
+    for tok, ts, plat, who, kind in ev:
+        if kind == "call" and plat != "chain" and who in mem:
+            d = toks.setdefault(tok, {"first": ts, "last": ts, "who": {}})
+            d["first"], d["last"] = min(d["first"], ts), max(d["last"], ts)
+            d["who"][who] = min(d["who"].get(who, ts), ts)
+    ms = zivo._minute_stats(now)
+    b = ["<h3>" + " + ".join(esc(h[3:] if h.startswith("tg:") else "@" + h) for h in hs) + "</h3>"]
+    rec = []
+    for h in hs:
+        st = ms.get(h)
+        rec.append(f'{esc(h[3:] if h.startswith("tg:") else "@" + h)}: ' + (
+            f'+10 % prije stopa {st["hit10"]:.0%}, +15 % {st["hit15"]:.0%}, stop prvi {st["sl"]:.0%} na {st["n"]} poziva (14 d)'
+            if st else "još bez minutne provjere"))
+    b.append("<p><b>Uspjeh (minutna provjera):</b><br>" + "<br>".join(rec) + "</p>")
+    if toks:
+        lv = _live_cached(sorted(toks, key=lambda t: -toks[t]["last"])[:20], now) or {}
+        rows = []
+        for tok, d in sorted(toks.items(), key=lambda kv: -kv[1]["last"]):
+            m = lv.get(tok) or {}
+            state = (f'MC ${m["mcap"] / 1000:,.0f}k · 5 min {m["ch_m5"]:+.0f} %' if m.get("mcap") and m.get("ch_m5") is not None
+                     else ("bez para" if not m else f'MC ${m["mcap"] / 1000:,.0f}k'))
+            who = ", ".join(esc(w[3:] if w.startswith("tg:") else "@" + w) for w, _ in sorted(d["who"].items(), key=lambda x: x[1]))
+            rows.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(tok)}"><span><b>{esc(m.get("symbol") or tok[:6])}</b> '
+                        f'<span class=mut style="font-size:13px">{who} · prvi {esc(ago(d["first"])[0])}</span></span><span class=k>{state}</span></div>')
+        b.append("<p><b>Tokeni u zadnjih 60 min</b> (dodir = provjera tokena):</p>" + "".join(rows))
+    else:
+        b.append("<p class=mut>U zadnjih 60 min nema poziva ove ekipe.</p>")
+    if owner:
+        target = ",".join(hs)
+        b.append(f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
+                 f'<input type=hidden name=handles value="{esc(target)}"><button>Zaprati kao ekipu ({len(hs)})</button></form>')
+    return "".join(b)
 
 
 def callers_fragment(user):
@@ -833,7 +1034,7 @@ def _callers_section(cfg, owner):
     return _sec("Zovu sada", f"zadnjih 60 min · X, Telegram, tvoji i dokazani novčanici · ⟳ {LOG_EVERY_S} s",
                 f'<div id=ap-zovu>{inner}</div><p class=mut style="font-size:13px;margin:8px 0 0">'
                 'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p>',
-                open_=True, sid="zovu", hidden=not inner)
+                sid="zovu", hidden=not inner)
 
 
 def _token_section(cfg, owner):
@@ -845,9 +1046,9 @@ def _token_section(cfg, owner):
         for r in recs.get(kind) or []:
             if converge.not_a_memecoin(r["mint"], r.get("symbol")):   # 9.11.: never a major, wrapped asset or xStock
                 continue
-            items.append(f'<details class=ap-it><summary><span>{tlink(r["mint"], r["symbol"])}</span>'
-                         f'<span class="ap-tag {kind}">{lab}</span></summary><p>{esc(r["why"])}</p>'
-                         f'{_buy_form(r["mint"], cfg, ex, owner)}</details>')
+            items.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(r["mint"])}"><span><b>{esc(r["symbol"] or r["mint"][:6])}</b>'
+                         f'<span class="ap-tag {kind}">{lab}</span> <span class=mut style="font-size:13px">{esc((r["why"] or "")[:90])}</span></span>'
+                         f'<span class=k>dodir = provjera uživo</span></div>')
     nd = sum(1 for r in recs.get("dugo") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
     nm = sum(1 for r in recs.get("moon") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
     meta = f"{nd} dugoročna · {nm} moonshot" if items else "trenutno nema"
@@ -931,7 +1132,7 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None):
 # ---------- live trade log (Nicholas 4.11.: "log tradeova u real timeu, osvježava se puno češće") ----------------
 
 LOG_N = 15
-LOG_EVERY_S = 2   # 9.11. (Jure): every second is money; the log and the positions are re-fetched every 2 s
+LOG_EVERY_S = 1   # 9.11. (Jure): every second is money; log, positions, callers and ideas are re-fetched every second
 SIDE = {"buy": ("🟢", "kupnja"), "sell": ("🔴", "prodaja"), "rent": ("↩️", "depozit natrag")}
 STATUS = {"ok": ("prošlo", "good"), "dry": ("probno", ""), "failed": ("greška", "bad"), "blocked": ("preskočeno", "warn")}
 
@@ -997,7 +1198,7 @@ def _log_section(tcon, cfg):
           f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
     n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
     return _sec("Uživo: nalozi", f"⟳ svakih {LOG_EVERY_S} s · {n} danas",
-                f'<div id=ap-log>{log_html(tcon, cfg)}</div>{js}', open_=True, sid="uzivo")
+                f'<div id=ap-log>{log_html(tcon, cfg)}</div>{js}', sid="uzivo")
 
 
 # 9.11. (Jure, mobitel): the section headers needed 5-6 taps to open, sometimes closed instead. Their <summary> is
@@ -1096,6 +1297,7 @@ def page(qs, user):
                  _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]
         finally:
             con.close()
+        b.append(POP_CSS + POP_HTML + POP_JS)
         if owner:
             b.append(_invites(tcon))
         b += [_safety(), JS]
@@ -1353,6 +1555,16 @@ def _post_buy(con, tcon, form, user):
     col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
     if col:
         raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
+    # 9.11. (Jure, JENSEN 127k -> 14k): the same live gate as the lists, at the moment of the tap
+    from ui import prijedlog
+    lv = prijedlog.live_market([token])
+    if lv is None:
+        raise ValueError("provjera uživo (DexScreener) nije uspjela; kupnja odbijena")
+    why_not = prijedlog.alive(lv.get(token))
+    if why_not:
+        raise ValueError(f"kupnja odbijena: {why_not}")
+    if (lv[token].get("mcap") or 0) < 30_000:
+        raise ValueError(f"kupnja odbijena: MC ${lv[token]['mcap']:,.0f}, ispod 30k")
     sym = _symbol(token)
     tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap)
     ex = form.get("exit") or "smart"

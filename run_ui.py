@@ -512,6 +512,11 @@ class Handler(BaseHTTPRequestHandler):
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/token", "/pravi-trade/ekipa"):   # 9.11.: pop-ups, re-fetched every second while open
+            from ui import pravitrade
+            frag = (pravitrade.token_popup(self.user, qs.get("m", "")) if path == "/pravi-trade/token"
+                    else pravitrade.crew_popup(self.user, qs.get("h", "")))
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
             from ui import pravitrade
             fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,
