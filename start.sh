@@ -39,7 +39,9 @@ if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PO
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
 ( while true; do sleep 3600; python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
-( i=0; while true; do python3 -m ops.health || true; i=$((i+1)); if [ $i -le 10 ]; then sleep 60; else sleep 600; fi; done ) &
+# 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
+# by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)
+( i=0; while true; do if [ $i -le 10 ] || [ $((i % 10)) -eq 0 ]; then python3 -m ops.health || true; else python3 -m ops.health --quiet || true; fi; i=$((i+1)); sleep 60; done ) &
 # rugged tokens out of hype.db (rugfilter/archive.py): 2 min after every start, then hourly. Not tied to the hourly
 # upkeep above: deploys restart the service more often than once an hour, and that loop sleeps first.
 ( sleep 120; while true; do python3 -m ops.heavy -m rugfilter.archive || true; sleep 3600; done ) &
