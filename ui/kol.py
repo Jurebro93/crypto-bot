@@ -2,6 +2,8 @@
 group calls, KOL pairs that call together, wallets that sell into calls, and which call features correlate
 with a pump. /kol/<handle> lists one KOL's calls. All read-only from kol.db (written by run_kol.py)."""
 import json
+import re
+import sqlite3
 import time
 import os
 from urllib.parse import quote
@@ -39,6 +41,74 @@ def lift(x):
 
 def share(x):
     return ("–", -1, "n") if x is None else (f"{x * 100:.0f}%", x, "n")
+
+
+def hook_handles(con):
+    """9.11. (audit P42): the X accounts the twitterapi.io webhook delivers within seconds, lower-cased. kol/xhook.sync
+    saves its rule values ("from:a OR from:b") in kv 'xhook'; that set (followed + hot list + watch + big accounts) is
+    wider than the xquik monitor table the pages called "uživo". Empty before the first sync (no key / no public URL)."""
+    try:
+        r = con.execute("SELECT value FROM kv WHERE key = 'xhook'").fetchone()
+        vals = (json.loads(r[0]) if r else {}).get("values") or []
+    except (sqlite3.Error, ValueError, TypeError, AttributeError):
+        return set()
+    out = set()
+    for v in vals:
+        out.update(h.lower() for h in re.findall(r"from:(\S+)", v or ""))
+    return out
+
+
+def speed_badge(hook, monitor):
+    """'⚡ uživo' with the channel in the tooltip (X webhook: seconds; xquik monitor: the old Apify channel), or
+    'sporije' for an account we only see at scan time."""
+    if hook and monitor:
+        title = "X webhook (twitterapi.io) i xquik monitor: objave stižu u sekundama"
+    elif hook:
+        title = "X webhook (twitterapi.io): objave stižu u sekundama"
+    elif monitor:
+        title = "xquik monitor (Apify): stari kanal, pravila se osvježavaju svakih ~15 min"
+    else:
+        return badge("sporije", "warn")
+    return f'<span class="b good" title="{esc(title)}">⚡ uživo</span>'
+
+
+MINUTE_DAYS, MINUTE_MIN_N = 14, 3
+
+
+def minute_stats(now=None, days=MINUTE_DAYS, min_n=MINUTE_MIN_N, path=None):
+    """9.11. (audit P43): (handle -> kol/minute.handle_stats row, hot-list handles) for the influencer tables: hits
+    before the −20 % stop measured from the minute of the call (distinct tokens), the measure the real-money follows
+    should be chosen by; the hot list (kv hot_list) is what the X webhook and the 2-s Telegram reader actually follow.
+    ({}, set()) until minute.db has rows (it fills for a day or two after a deploy). Pure: no state kept."""
+    try:
+        from kol import minute
+        mcon = minute.ro(path)
+        stats = {}
+        if mcon is not None:
+            try:
+                stats = dict(minute.handle_stats(mcon, days, now or int(time.time()), min_n=min_n))
+            finally:
+                mcon.close()
+        hot = minute.hot_list(path)
+        hs = set(hot.get("x") or []) | {"tg:" + h for h in (hot.get("tg") or [])}
+    except Exception:  # noqa: BLE001 - the tables work without the minute layer
+        return {}, set()
+    return stats, hs
+
+
+MINUTE_HEAD = [("+10 % prije stopa", "n"), ("+15 % prije stopa", "n"), ("Stop prvi", "n"), ("Minutnih poziva", "n")]
+
+
+def minute_cells(s):
+    """Cells for MINUTE_HEAD from one handle_stats row; dashes when the account has no minute check yet."""
+    if not s:
+        return [("–", -1, "n mut")] * 4
+    return [share(s["hit10"]), share(s["hit15"]),
+            (f"{s['sl']:.0%}", round(s["sl"], 3), "n " + ("bad" if s["sl"] >= 0.3 else "")), num(s["n"])]
+
+
+def hot_badge(h, hot):
+    return (" " + badge("🔥 vruća lista", "good")) if h in hot else ""
 
 
 def profile_url(h):
@@ -212,6 +282,7 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
     out = []
     from kol.discover import excluded
     rows.sort(key=lambda k: excluded(k["stats"]))  # proven KOLs first, "na probi" after them (stable: by score)
+    ms, hot = minute_stats()   # 9.11. (audit P43): the minute measure and the hot list next to the 24-h fuse
     for k in rows:
         s = json.loads(k["stats"] or "{}")
         if s.get("measured", 0) < minc:
@@ -227,21 +298,23 @@ def _leaderboard(con, minf, minc, star=None, tid="kols", count=False):
         rng = (f' <span class=mut title="80% raspon: s ovoliko poziva prava ocjena je vjerojatno između '
                f'{s["score_lo"]:.0f} i {s["score_hi"]:.0f}">({s["score_lo"]:.0f}-{s["score_hi"]:.0f})</span>'
                if s.get("score_lo") is not None else "")
-        name = klink(k["handle"]) + (
+        name = klink(k["handle"]) + hot_badge(k["handle"], hot) + (
             f' <span class="b warn" title="{esc(s.get("trial_why", ""))}">na probi</span>{TRIAL_TIP}'
             if s.get("trial") else "") + (
             f' <span class="b bad" title="{esc(s.get("rug_why", ""))}">puno rugova</span>{RUG_TIP}'
             if s.get("rugger") else "") + (' <span class="b good" title="Njegov novčanik je kupio tokene koje je zvao">'
                                            'kupio</span>' if s.get("bought") else "")
         out.append([name, num(k["followers"]), (f"<b>{k['score']:.0f}</b>{rng}", k["score"], "n"),
-                    m(lift(k["power_rel"])), num(s.get("measured")), m(share(s.get("hit_rate"))),
+                    m(lift(k["power_rel"])), num(s.get("measured")), *minute_cells(ms.get(k["handle"])),
+                    m(share(s.get("hit_rate"))),
                     m(pct(s.get("med_max24"))), m(pct(s.get("med_r1h"))), m(lift(s.get("med_lift"))),
                     m(share(s.get("rug_rate"))), m(share(s.get("prepump_rate"))), m(share(s.get("first_rate"))),
                     num(s.get("brags")), num(s.get("med_views")),
                     ("–", -1, "n") if eng is None else (f"{eng * 100:.2g}%" if eng < 0.1 else f"{eng * 100:.0f}%", eng, "n"),
                     _zone(s), ago(last.get(k["handle"]))])
     html = table(["X račun", ("Pratitelji", "n"), ("Moć poziva", "n"), ("Moć/pratitelj", "n"), ("Poziva", "n"),
-                  ("Pogodak", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
+                  *MINUTE_HEAD,
+                  ("Pogodak 24 h (stara mjera)", "n"), ("Medijan max 24 h", "n"), ("Medijan 1 h", "n"), ("Medijan volumen ×", "n"),
                   ("Rugovi", "n"), ("Kasni pozivi", "n"), ("Prvi", "n"), ("Hvalisanja", "n"), ("Medijan pregleda", "n"), ("Engagement", "n"),
                   "Zona", "Zadnji poziv"],
                  out, tid=tid, empty="Još nema KOL-ova s izmjerenim pozivom u ovoj skupini (mjerenje kreće 1 h nakon "
@@ -311,19 +384,21 @@ def _sessions(con, cfg):
 
 
 def _watch(con):
-    import sqlite3
     from kol import live
     try:  # tables appear with the first run_kol.py round after the deploy
         mon = dict(con.execute("SELECT handle, last_run FROM monitor"))
         rows = con.execute("SELECT handle, score, since, reason FROM watch ORDER BY score DESC").fetchall()
     except sqlite3.OperationalError:
         mon, rows = {}, []
+    hook = hook_handles(con)   # 9.11. (audit P42): the webhook is the channel that actually delivers in seconds
     on = live.hook_url() is not None
     out = []
     for h, sc, since, why in rows:
         st = (badge("uživo", "good") if h in mon else badge("čeka pokretanje", "warn")) if on else badge("isključeno", "bad")
-        out.append([klink(h), (f"<b>{sc:.0f}</b>", sc, "n"), (esc(why), "", "wrap"), ago(since), st, ago(mon.get(h))])
-    return table(["X račun", ("Moć poziva", "n"), ("Razlog", "wrap"), "Na listi od", "Praćenje", "Zadnja sinkronizacija"],
+        wh = badge("webhook", "good") if h.lower() in hook else ("–", 0, "mut")
+        out.append([klink(h), (f"<b>{sc:.0f}</b>", sc, "n"), (esc(why), "", "wrap"), ago(since), st, wh, ago(mon.get(h))])
+    return table(["X račun", ("Moć poziva", "n"), ("Razlog", "wrap"), "Na listi od", "Praćenje (xquik)", "X webhook",
+                  "Zadnja sinkronizacija"],
                  out, tid="watch", empty="Još nijedan KOL ne prolazi uvjete (dovoljno poziva, rani i česti pogoci). "
                                          "Lista se puni sama kako se skupljaju izmjereni pozivi.")
 
@@ -530,7 +605,11 @@ def page(qs):
         b.append(tdesc(f"Moć poziva 0-100 iz KOL-ovih prvih poziva na token: pogodak (+{cfg['hit_x']:.0%} u 24 h), "
                        "medijan rasta, volumen nakon poziva, je li prvi, rugovi; kasni pozivi (cijena već 2× prije poziva) "
                        f"oduzimaju. S malo poziva ocjena je bliže {cfg['prior_score']} (nesigurno). Dobar KOL za signal: "
-                       f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive.") + _star_tabs(con, minf, minc))
+                       f"{cfg['good_score']}+. Klik na ime otvara sve njegove pozive. <b>+10 % / +15 % prije stopa</b> = "
+                       f"minutna provjera ({MINUTE_DAYS} dana, od minute objave, stop −20 %, barem {MINUTE_MIN_N} poziva; "
+                       "stranica <a href=/ekipe>Ekipe</a>): to je mjera za pravi novac, a pogodak +50 % u 24 h je stara mjera. "
+                       "<b>🔥 vruća lista</b> = račune s te liste X webhook i Telegram čitač prate u sekundama.")
+                 + _star_tabs(con, minf, minc))
 
         for name, fn in (("zajedno", lambda: kolsummary.together_html(con, cfg, tog)),
                          ("shilleri", lambda: kolsummary.shill_html(con, cfg)),
@@ -567,7 +646,9 @@ def page(qs):
             f"pogodak {w['min_hit']:.0%}+ i najviše {w['max_prepump']:.0%} kasnih poziva. Njihove nove postove dobivamo "
             "za nekoliko sekundi (xquik monitor, oko $0.11 po računu dnevno), pa hype sken unutar 2 min vidi token kao "
             "kandidata sa signalom kol_x. Redoslijed ide po donjoj granici raspona ocjene, pa dokazani KOL-ovi imaju prednost "
-            "pred sretnicima s par poziva. Lista se sama mijenja nakon svakog bodovanja.") + _watch(con))
+            "pred sretnicima s par poziva. Lista se sama mijenja nakon svakog bodovanja. <b>X webhook</b> = račun je u "
+            "pravilima twitterapi.io webhooka (praćeni pravim novcem, vruća lista, ova lista, veliki računi): to je kanal "
+            "koji objave stvarno dostavlja u sekundama, širi od xquik liste.") + _watch(con))
         b.append("<h2 id=grupe>Svi grupni pozivi</h2>" + tdesc(
             f"Dva ili više različitih autora zovu isti token unutar {cfg['group_secs'] // 60} min. Brojke su od prvog poziva "
             "u grupi. Dva dobra KOL-a bez prodaje devova = signal kol_group u hype ocjeni.") + _groups(con))

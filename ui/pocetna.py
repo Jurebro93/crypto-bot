@@ -184,6 +184,12 @@ def strategy_html(now=None):
             if rb.get("concentrated") else "")
     d7 = (f" · zadnjih 7 dana {_pct(best['d7'])}" if best.get("d7") is not None else "")
     d24 = (f" · zadnja 24 h {_pct(best['d24'])}" if best.get("d24") is not None else "")
+    # 9.11. (audit P69): d24/d7 come from the equity snapshots of the research ledger (open positions at mark, buys
+    # below $0), not from the "s pravih $1000" replay the card ranks by; say so instead of mixing the two books
+    if d24 or d7:
+        d7 += (' <span class=mut title="Promjena istraživačke knjige (equity snimke: otvorene pozicije po zadnjoj cijeni, '
+               'kupnje i kad nema gotovine), ne replaya s pravih $1000; dok račun ne ostane bez gotovine brojke se poklapaju">'
+               '(istraživačka knjiga)</span>')
     # 9.11. (Jure): only strategies in profit are listed here; the losers are a count and a link, the full table is
     # on /strategije. A reader deciding what to follow does not need twelve red rows.
     winners = [s for s in rank[1:] if s["real_ret"] > 0 and s["closed"]]
@@ -261,7 +267,8 @@ def metrics(now=None):
     for icon, label, href, path, table, col, where in (
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
             ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
-            ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            # 9.11. (audit P70): calls buy/sell come from every Helius-webhook wallet (leaderboard), not only followed ones
+            ("👛", "Kupnje i prodaje svih webhook novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
             ("⚡", "Kupnje i prodaje u živom toku (PumpPortal, zadnjih 48 h)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
             ("🎓", "Tokeni koji su bondali (živi tok)", "/izvori", hype_db_path(), "live_launches", "ts", "pool = 'migration'"),
             # 5.11.: the same number /izvori shows as "aktivnih Telegram kanala" (status 'active'); the page counted
@@ -394,16 +401,25 @@ def _hl_kol():
     if con is None:
         return None
     try:
-        k = core.top_kols(con, n=1)
+        ks = core.top_kols(con, n=5)
     finally:
         con.close()
-    if not k:
+    if not ks:
         return None
-    k = k[0]
+    # 9.11. (audit P43): among the top accounts by call power, the one with the best +15 % before the stop on the
+    # minute measure (kol/minute, the measure the real-money follows are chosen by); the 24-h fuse is the old measure
+    from ui.kol import minute_stats
+    ms, hot = minute_stats()
+    k = max(ks, key=lambda x: ((ms.get(x["handle"]) or {}).get("hit15", -1), x["score"] or 0))
     s = k["s"]
+    m = ms.get(k["handle"])
+    minute = (f' Minutna provjera: +15 % prije stopa {m["hit15"]:.0%}, stop prvi {m["sl"]:.0%} na {m["n"]} poziva'
+              + (" · 🔥 vruća lista" if k["handle"] in hot else "") + "." if m else
+              " Minutna provjera još nema njegovih poziva.")
     return _hl("📣", "Najbolji influencer",
                f'{klink(k["handle"])}: od {s.get("measured", 0)} izmjerenih poziva {(s.get("hit_rate") or 0):.0%} '
-               f'naraste, medijan vrha u 24 h {_pct(s.get("med_max24"), 0)}.', "/kol", "Svi influenceri")
+               f'naraste +50 % u 24 h (stara mjera), medijan vrha u 24 h {_pct(s.get("med_max24"), 0)}.{minute}',
+               "/kol", "Svi influenceri")
 
 
 def _hl_converge(now):
@@ -413,24 +429,36 @@ def _hl_converge(now):
     if con is None:
         return None
     skip = converge.majors()   # WBTC & co. are not "called"; they are what wallets trade through
+    try:   # 9.11. (audit P71): rugged-and-archived tokens are out, like on every other page
+        from rugfilter import archive
+        gone = archive.blocked()
+    except Exception:  # noqa: BLE001
+        gone = frozenset()
     try:
+        # 9.11. (audit P71): the same symbol rule as the Autopilot (kol/converge.not_a_memecoin: wrapped assets,
+        # xStocks), so a COINx cannot be the page's hot token while the Autopilot refuses it; the 24-h window stays
+        # (the page is pre-rendered for everyone and a 30-min window would mostly be empty)
         r = next((row for row in con.execute(
             "SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
             "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
             "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC LIMIT 20",
-            (now - 86400,)) if row[0] not in skip), None)
+            (now - 86400,)) if row[0] not in skip and row[0] not in gone
+            and not converge.not_a_memecoin(row[0], row[1])), None)
     except sqlite3.Error:
         return None
     finally:
         con.close()
     if not r:
         return None
-    tok, sym, nx, ntg, nch, _ = r
-    parts = [f"{n} {w}" for n, w in ((nx, "na X-u"), (ntg, "na Telegramu"), (nch, "novčanika")) if n]
+    tok, sym, nx, ntg, nch, cts = r
+    # n_chain counts every webhook wallet (kol/converge), not only the followed ones: say so
+    parts = [f"{n} {w}" for n, w in ((nx, "na X-u"), (ntg, "na Telegramu"), (nch, "webhook novčanika")) if n]
     if not parts:
         return None
+    from ui.html import ago
+    when = f' <span class=mut>(zadnji poziv {ago(cts)[0]})</span>' if cts else ""
     return _hl("🔥", "Najviše izvora zove isti token (24 h)",
-               f'{tlink(tok, sym)}: {", ".join(parts)}.', f"/token/{tok}", "Analiza tokena")
+               f'{tlink(tok, sym)}: {", ".join(parts)}.{when}', f"/token/{tok}", "Analiza tokena")
 
 
 def _hl_wallets(now):
@@ -447,8 +475,36 @@ def _hl_wallets(now):
         con.close()
     if not b and not s:
         return None
-    return _hl("👛", "Praćeni novčanici u zadnja 24 h",
-               f"<b class=pos>{b:,}</b> kupnji i <b class=neg>{s:,}</b> prodaja.", "/wallets", "Tko je kupio")
+    # 9.11. (audit P70): kol.db calls buy/sell are the swaps of ALL ~100 webhook wallets (data for the leaderboards);
+    # the Autopilot's "praćeni" are only the wallets the real-money account follows plus the proven-twice list
+    # (ui/pravitrade.followed_wallets), so the two populations get two names and two numbers
+    extra = _followed_buys(now)
+    return _hl("👛", "Svi webhook novčanici u zadnja 24 h",
+               f"<b class=pos>{b:,}</b> kupnji i <b class=neg>{s:,}</b> prodaja (svih praćenih leaderboard novčanika)."
+               + (f' Praćeni + dokazani (Autopilot): <b>{extra:,}</b> kupnji · <a href="/pravi-trade#zovu">Zovu sada</a>.'
+                  if extra is not None else ""), "/wallets", "Tko je kupio")
+
+
+def _followed_buys(now):
+    """Buys in the last 24 h of the wallets the Autopilot counts as calls (follows + proven twice), from hype.db
+    chain_trades like pravitrade.gather_callers; None when nothing is followed or the sources are missing."""
+    try:
+        from ui import pravitrade
+        from league import copy
+        followed = sorted(pravitrade.followed_wallets())
+        if not followed:
+            return None
+        con = _ro(copy._paths()["hype"])
+        if con is None:
+            return None
+        try:
+            q = ",".join("?" * len(followed))
+            return con.execute(f"SELECT COUNT(*) FROM chain_trades WHERE side = 'buy' AND ts >= ? AND wallet IN ({q})",
+                               (int(now) - 86400, *followed)).fetchone()[0]
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - the highlight works without the Autopilot number
+        return None
 
 
 def _hl_strategy_trade(now):

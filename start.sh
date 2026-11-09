@@ -35,7 +35,10 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
 # 5.11.: keep <name> <command...>: restarts just that process when it dies (30 s pause, logged), instead of
 # "wait -n; exit 1" taking the whole worker down (two full restarts on 5.11. because run_live hit a locked database)
-keep() { local name="$1"; shift; ( while true; do "$@"; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30; done ) & }
+# 9.11. (audit P11): a deploy's SIGTERM reaches the supervised process (run_trade.cmd_follow finishes the pass it is
+# in and exits, run_trade._on_term) instead of only the shell: the supervisor forwards TERM to its child and stops.
+keep() { local name="$1"; shift; ( pid=; trap 'kill -TERM $pid 2>/dev/null; wait $pid 2>/dev/null; exit 0' TERM; while true; do "$@" & pid=$!; wait $pid; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30 & wait $!; done ) & }
+trap 'kill -TERM $(jobs -p) 2>/dev/null; wait' TERM
 if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PORT"; fi
 # 9.11. (audit P9): the real-money follower right after the UI (every loop below is backgrounded, so this only moves it
 # ahead of ~20 python start-ups fighting for 0.5 CPU; the real gain is the short --startup above, so a paper entry
@@ -62,10 +65,13 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 ( sleep 150; while true; do python3 run_top.py once || echo "topcheck nije uspio"; sleep "${TOP_EVERY_S:-180}"; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): --night = waits for the night window (ops/heavy.NIGHT, 01-06
+# Zagreb) before taking the heavy-job lock. The calendar used to block the KOL round 2-3 min at EVERY start (20+
+# deploys a day) and the whole set below (wallets score, dugo, learn) held the single CPU during the day.
 (
   while true; do
-    python3 -m ops.heavy run_calendar.py --days 14 --top 40 >/dev/null || echo "kalendar nije uspio"
-    python3 -m ops.heavy run_dex.py scan --min-liq 5000 >/dev/null || echo "dex scan nije uspio"
+    python3 -m ops.heavy --night run_calendar.py --days 14 --top 40 >/dev/null || echo "kalendar nije uspio"
+    python3 -m ops.heavy --night run_dex.py scan --min-liq 5000 >/dev/null || echo "dex scan nije uspio"
     sleep $(( ${CALENDAR_EVERY_H:-6} * 3600 ))
   done
 ) &
@@ -80,7 +86,7 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
 (
   while true; do
-    python3 -m ops.heavy run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
+    python3 -m ops.heavy --night run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
     sleep 86400
   done
 ) &
@@ -90,12 +96,26 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 (
   sleep 600   # let the first hype learn finish so its smart wallets are imported
   while true; do
-    python3 -m ops.heavy run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
+    # 9.11. 21:40: harvest + score (Helius credits, minutes of CPU) only in the night window (--night); the proven
+    # list and the copy list are recomputed right after them, so they follow the nightly scores
+    python3 -m ops.heavy --night run_wallets.py harvest --feeds --tokens 15 >/dev/null || echo "wallets harvest nije uspio"
     # 9.11. (Jure): 1000 novčanika / 12.000 kredita svaka 3 h davalo je 9 profitabilnih od 100 bodovanih; pola toga
-    python3 -m ops.heavy run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-6000}" --max "${WALLETS_RUN_MAX:-500}" >/dev/null || echo "wallets score nije uspio"
+    python3 -m ops.heavy --night run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-6000}" --max "${WALLETS_RUN_MAX:-500}" >/dev/null || echo "wallets score nije uspio"
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"   # 9.11.: proven-twice list
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))   # 7.11. (Jure): fresher copy list; the credit share cap still holds
+  done
+) &
+# 9.11. (audit): the proven-twice list (first source of the Autopilot's auto pick) and the copy list are DB reads
+# only (no Helius), but in the loop above they sat behind harvest/score --night and so ran once a night; by day
+# our wallets' closed copies still change, so they get their own WALLETS_EVERY_H loop (the night loop keeps its
+# pass right after the scores)
+(
+  sleep 1200
+  while true; do
+    python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"
+    python3 -m ops.heavy run_wallets.py copy >/dev/null || true
+    sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done
 ) &
 
@@ -142,7 +162,8 @@ keep report python3 run_report.py loop
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
 # A fresh process per pass, so it holds no memory in the 6 h between passes.
-( sleep 300; while true; do python3 -m ops.heavy run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
+# 9.11. 21:40: --night (it held the lock and the CPU for 29 min every 6 h in the middle of the day)
+( sleep 300; while true; do python3 -m ops.heavy --night run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
 
 # SimianX second opinion on the long-term list + demo test of its long signals (simianx/, needs SIMIANX_API_KEY;
 # without it the pass ends at once). Light: waits on their API, so no ops.heavy slot. Real money only via /pravi-trade.

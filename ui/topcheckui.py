@@ -68,6 +68,7 @@ def token_box(top):
     if not top:
         return ""
     st = top.get("state") or {}
+    pass_txt = f' (prolaz provjere {esc(ago(top.get("ts"))[0])})' if top.get("rc_ts") else ""
     rows = "".join(
         f'<li><b>{ICON.get(s, "–")}</b> {esc(CHECK_LABEL.get(k, k))}: {esc(t)}</li>'
         for k, (s, t) in ((top.get("safety") or {}).get("checks") or {}).items())
@@ -75,5 +76,6 @@ def token_box(top):
             + (f'<p style="margin:4px 0">{state_badge(top)} {esc(st.get("advice") or "")}<br>'
                f'<span class=mut style="font-size:12px">{esc(st.get("why") or "")}</span></p>' if st else "")
             + f'<p style="margin:4px 0">{rug_badge(top)}</p><ul style="margin:4px 0 0 18px;padding:0;font-size:13px">{rows}</ul>'
-            + f'<p class=mut style="font-size:12px;margin:6px 0 0">Provjereno {esc(ago(top.get("ts"))[0])}; osvježava se svake '
-              '3 minute dok je token među prvih 20 prijedloga.</p></div>')
+            # 9.11. (audit P76): the RugCheck data time (rc_ts) when known, not the time of the last run_top pass
+            + f'<p class=mut style="font-size:12px;margin:6px 0 0">Podatak od {esc(ago(top.get("rc_ts") or top.get("ts"))[0])}'
+              f'{pass_txt}; osvježava se svake 3 minute dok je token među prvih 20 prijedloga.</p></div>')

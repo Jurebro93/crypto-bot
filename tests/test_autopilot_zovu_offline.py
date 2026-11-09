@@ -167,7 +167,9 @@ class Page(unittest.TestCase):
         self.assertEqual(fl["ansem"]["exit"]["tp"], "100%")   # the existing single follow keeps its own exit
         crew = fl["ansem,murad,tg:alpha"]
         self.assertEqual(crew["kind"], "ekipa")
-        self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
+        # 9.11. (audit P10/P19): "Zaprati sve" stores the default stop (league/copy.DEFAULT_SL), no position without one
+        self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": copy.DEFAULT_SL, "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
+        self.assertIn("SL -20%", copy.describe_exit(crew["exit"]))
         self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "murad, ansem, tg:alpha"}, "Jure"))
 
     def test_live_log_hides_stale_trial_orders(self):
@@ -219,9 +221,14 @@ class Page(unittest.TestCase):
             self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 0.5), html)   # 1-s cache
             zivo.rows = lambda now=None, **k: []
             pravitrade._IDEAS_CACHE.clear()
+            # 9.11. (audit P33 review): an empty list counts as "nothing to buy" only once the zivo thread has made its
+            # first pass (zivo._ROWS ts > 0); before that the fragment says 'učitavam…' and caches nothing
+            ts0 = zivo._ROWS["ts"]
+            zivo._ROWS["ts"] = float(NOW + 5)
             self.assertEqual(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), "")
         finally:
             overview.token_rows, zivo.rows = saved
+            zivo._ROWS["ts"] = ts0
             pravitrade._IDEAS_CACHE.clear()
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop
@@ -278,12 +285,30 @@ class Page(unittest.TestCase):
         self.assertIn("err=", loc)
         self.assertIn("odbijena", loc)
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
+        # 9.11. (audit P64): a token that trades fine but sits under $30k reaches the MC gate itself (the case above
+        # is refused earlier, by the traffic check, so it never exercised the 30k line)
+        healthy_small = {"price": 0.001, "liq": 30_000.0, "mcap": 20_000.0, "vol_h1": 20_000.0, "vol_h24": 1e5, "txns_h1": 80,
+                         "buys_h1": 50, "txns_h24": 900, "vol_m5": 900.0, "txns_m5": 6, "ch_m5": 1.0, "ch_h1": 3.0, "ch_h24": 10.0}
+        uil.market = lambda toks: {t: (0.001, 30_000.0, None, 20_000.0) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {t: dict(healthy_small) for t in toks}
+        try:
+            loc = pravitrade.post("/pravi-trade/buy", {"token": BANK_M, "sol": "0.1", "exit": "tpsl", "tp": "15%"}, "Jure")
+        finally:
+            prijedlog.live_market, uil.market = saved
+        self.assertIn("err=", loc)
+        self.assertIn("ispod%2030k", loc)
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
     def test_fragments_need_access(self):
-        self.assertIsNone(pravitrade.callers_fragment("Ivan"))
-        self.assertIsNone(pravitrade.ideas_fragment("Ivan"))
-        self.assertIsInstance(pravitrade.callers_fragment("Jure"), str)
-        self.assertIsInstance(pravitrade.ideas_fragment("Jure"), str)
+        saved = pravitrade.BG_REFRESH
+        pravitrade.BG_REFRESH = False   # no refresher thread in the test process: the synchronous path
+        try:
+            self.assertIsNone(pravitrade.callers_fragment("Ivan"))
+            self.assertIsNone(pravitrade.ideas_fragment("Ivan"))
+            self.assertIsInstance(pravitrade.callers_fragment("Jure"), str)
+            self.assertIsInstance(pravitrade.ideas_fragment("Jure"), str)
+        finally:
+            pravitrade.BG_REFRESH = saved
 
 
 class TelegramPolling(unittest.TestCase):

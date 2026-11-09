@@ -29,7 +29,8 @@ class Watchdog(unittest.TestCase):
     def test_process_list_runs_here(self):
         procs = health.process_list()
         self.assertTrue(all(isinstance(p, int) and mb >= 0 for p, _n, mb in procs))
-        self.assertEqual(health.processes(), sorted(health.processes(), key=lambda x: -x[1]))
+        procs = health.processes()   # 9.11. (audit): one reading; two live readings differ by a few MB and flaked
+        self.assertEqual(procs, sorted(procs, key=lambda x: -x[1]))
 
 
 if __name__ == "__main__":

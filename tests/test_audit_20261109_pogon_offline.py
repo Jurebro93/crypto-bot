@@ -180,8 +180,9 @@ class P63LightJobsAndQuietWaiters(unittest.TestCase):
         jobs = {j[0]: j for j in run_sched.JOBS}
         for name in ("market", "usage", "masovno", "tokenstatus"):
             self.assertTrue(jobs[name][2][-1] is True, name)
-        for name in ("shadow", "corr", "postai"):       # still under the lock: they read big tables
-            self.assertEqual(len(jobs[name][2]), 2, name)
+        for name in ("shadow", "corr"):                 # still under the lock; since 9.11. 21:40 also night-only
+            self.assertEqual(tuple(jobs[name][2][2:]), (False, True), name)
+        self.assertTrue(jobs["postai"][2][-1] is True)   # 9.11. 21:40: waits on the Haiku API -> light, not behind the lock
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0
@@ -288,3 +289,285 @@ class P33HeavyPagesNeverHang(unittest.TestCase):
             self.assertAlmostEqual(os.path.getmtime(f), old, delta=2)
             pc._save_snap(key, gzip.compress(b"<html>b</html>"))   # a new build does replace it
             self.assertGreater(os.path.getmtime(f), old + 100)
+
+
+class WarmerAndChildPriority(unittest.TestCase):
+    """9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + the warmer's 22-45 s /pregled build every 5 min) and the
+    visitor's requests waited. The warmer keeps a page younger than WARM_SKIP_FRESH_S; child builds run niced."""
+
+    def setUp(self):
+        import run_ui
+        from ui import pagecache
+        self.run_ui, self.pagecache = run_ui, pagecache
+        self.saved_store = dict(pagecache._store)
+        pagecache._store.clear()
+
+    def tearDown(self):
+        self.pagecache._store.clear()
+        self.pagecache._store.update(self.saved_store)
+
+    def test_warm_build_keeps_a_fresh_page(self):
+        key = ("/pregled", "", None)
+        self.pagecache._store[key] = (time.time() - 10, 200, None, gzip.compress(b"<html>svjeze</html>"))
+        with mock.patch.object(self.run_ui, "build_in_child") as b:
+            self.assertEqual(self.run_ui.warm_build("/pregled"), (200, b"<html>svjeze</html>"))
+        b.assert_not_called()
+
+    def test_warm_build_rebuilds_an_old_page(self):
+        key = ("/pregled", "", None)
+        self.pagecache._store[key] = (time.time() - 1000, 200, None, gzip.compress(b"<html>staro</html>"))
+        with mock.patch.object(self.run_ui, "build_in_child", return_value=(200, b"<html>novo</html>")) as b:
+            self.assertEqual(self.run_ui.warm_build("/pregled"), (200, b"<html>novo</html>"))
+        b.assert_called_once_with("/pregled")
+        with mock.patch.object(self.run_ui, "build_in_child", return_value=(200, b"<html>prvi</html>")) as b:
+            self.pagecache._store.clear()                        # nothing cached yet (right after a deploy)
+            self.assertEqual(self.run_ui.warm_build("/tokens"), (200, b"<html>prvi</html>"))
+        b.assert_called_once_with("/tokens")
+
+    def test_child_build_runs_niced(self):
+        class R:
+            returncode, stdout, stderr = 0, b"<html>x</html>", b""
+        with mock.patch.object(heavy, "slot", return_value=contextlib.nullcontext(True)), \
+                mock.patch("subprocess.run", return_value=R()) as sr:
+            self.run_ui.build_in_child("/pregled")
+        self.assertIs(sr.call_args.kwargs.get("preexec_fn"), self.run_ui._nice_child)
+        with mock.patch("os.nice") as n:
+            self.run_ui._nice_child()
+        n.assert_called_once_with(self.run_ui.CHILD_NICE)
+        self.assertGreater(self.run_ui.CHILD_NICE, 0)
+        self.assertLess(self.run_ui.CHILD_NICE, heavy.NICE)      # below requests, above the heavy jobs
+
+
+class NightWindow(unittest.TestCase):
+    """9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): heavy, non-urgent jobs run only in ops/heavy.NIGHT (Zagreb
+    01-06); the KOL round does the light steps by day and the full set at night; start.sh waits with --night."""
+
+    def _utc(self, h, m=0):
+        import datetime as dt
+        return dt.datetime(2026, 11, 9, h, m, tzinfo=dt.timezone.utc)   # CET: Zagreb = UTC + 1 in November
+
+    def test_night_now_follows_the_zagreb_window(self):
+        with mock.patch.object(heavy, "NIGHT", "0-6"):
+            self.assertEqual(heavy.night_hours(), (0, 6))
+            self.assertTrue(heavy.night_now(self._utc(23, 30)))    # 00:30 Zagreb
+            self.assertTrue(heavy.night_now(self._utc(4, 59)))     # 05:59 Zagreb
+            self.assertFalse(heavy.night_now(self._utc(5, 0)))     # 06:00 Zagreb: the window is to-exclusive
+            self.assertFalse(heavy.night_now(self._utc(12, 0)))
+        with mock.patch.object(heavy, "NIGHT", "22-6"):            # a window across midnight
+            self.assertTrue(heavy.night_now(self._utc(21, 30)))    # 22:30 Zagreb
+            self.assertFalse(heavy.night_now(self._utc(9, 0)))
+        with mock.patch.object(heavy, "NIGHT", ""):                # no window: as before, any time
+            self.assertIsNone(heavy.night_hours())
+            self.assertTrue(heavy.night_now(self._utc(12, 0)))
+
+    def test_main_accepts_night_and_waits(self):
+        with mock.patch.object(heavy, "wait_for_night") as w, mock.patch.object(heavy, "run") as r:
+            r.return_value = mock.Mock(returncode=0)
+            heavy.main(["--night", "run_dugo.py", "once"])
+        w.assert_called_once()
+        self.assertEqual(r.call_args.args[0][1:], ["run_dugo.py", "once"])
+        with mock.patch.object(heavy, "wait_for_night") as w, mock.patch.object(heavy, "run") as r:
+            r.return_value = mock.Mock(returncode=0)
+            heavy.main(["--prio", "--night", "run_kol.py", "backfill"])
+        w.assert_called_once()
+        self.assertTrue(r.call_args.kwargs.get("priority"))
+
+    def test_sched_marks_the_learning_jobs_night_only(self):
+        import run_sched
+        with mock.patch.object(heavy, "night_now", return_value=False):
+            self.assertTrue(run_sched.night_ok(False))
+            self.assertFalse(run_sched.night_ok(True))
+        jobs = {name: (fn.__name__, args) for name, fn, args in run_sched.JOBS}
+        self.assertTrue(jobs["shadow"][1][-1] is True and jobs["corr"][1][-1] is True)        # night flag of every()
+        self.assertTrue(jobs["learn6"][1][-1] is True and jobs["exits_rb"][1][-1] is True)    # night flag of every_hours()
+        self.assertEqual(jobs["postai"][1][2], True)                                           # light, not behind the lock
+        self.assertEqual(jobs["market"][1][2], True)
+        import json
+        self.assertEqual(json.load(open(os.path.join(ROOT, "learn/config.json")))["run_at_utc"], "02:30")  # 03:30 Zagreb
+        self.assertEqual(json.load(open(os.path.join(ROOT, "exits/config.json")))["run_at_utc"], "03:30")
+
+    def test_kol_round_is_light_by_day_and_full_at_night(self):
+        import run_kol
+        day, night = run_kol.round_steps(False), run_kol.round_steps(True)
+        for s in ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_crew"):
+            self.assertIn(s, day)
+        for s in ("cmd_score", "cmd_measure", "cmd_flows", "cmd_traces", "cmd_deleted"):
+            self.assertNotIn(s, day)
+            self.assertIn(s, night)
+        for s in day + night:
+            self.assertTrue(callable(getattr(run_kol, s)))
+        with mock.patch.object(heavy, "night_now", return_value=False), mock.patch.dict(os.environ, {"KOL_FULL_ROUND": "1"}):
+            self.assertIs(run_kol.round_steps(), run_kol.NIGHT_STEPS)
+        with mock.patch.object(heavy, "night_now", return_value=False), mock.patch.dict(os.environ, {"KOL_FULL_ROUND": ""}):
+            self.assertIs(run_kol.round_steps(), run_kol.DAY_STEPS)
+
+    def test_start_sh_waits_for_the_night_on_the_heavy_loops(self):
+        src = open(os.path.join(ROOT, "start.sh")).read()
+        for job in ("run_calendar.py", "run_dex.py scan", "run_hype.py learn", "run_wallets.py harvest", "run_wallets.py score", "run_dugo.py once"):
+            self.assertIn("ops.heavy --night " + job, src, job)
+        for job in ("run_wallets.py dokazani", "rugfilter.archive", "ops.health --hourly"):   # fresh/short: stay by day
+            self.assertNotIn("--night " + job, src, job)
+
+
+class AutopilotMenuForAdmins(unittest.TestCase):
+    """9.11. (Jure): the Autopilot is highlighted at the top of the menu for administrators and absent from the page
+    everybody else receives (class adm-only, stripped server-side by ui/admstrip)."""
+
+    def test_menu_has_the_admin_button_under_the_core_items(self):
+        from ui import admstrip, html
+        menu = html.side_menu("/pregled")
+        self.assertIn('class="sec-ap adm-only"', menu)
+        self.assertIn('href="/pravi-trade" class="ap"', menu)
+        others = [i for i in (menu.find('<div class="sec"'), menu.find('<div class="sec ')) if i >= 0]
+        self.assertLess(menu.index("sec-ap"), min(others))                        # before every other group
+        self.assertEqual(menu.count("/pravi-trade"), 1)                           # no second, plain entry below
+        self.assertNotIn("<h4>Autopilot</h4>", menu)
+        self.assertIn('class="ap on"', html.side_menu("/pravi-trade"))
+        stripped = admstrip.strip(menu)
+        self.assertNotIn("/pravi-trade", stripped)                                # a non-admin's copy has no trace of it
+        self.assertIn('href="/pregled"', stripped)                                # ... and keeps the rest of the menu
+        self.assertIn("Autopilot", html.ADMIN)
+        self.assertIn(".side .sec-ap a.ap", html.ADMIN_CSS)
+
+    def test_map_page_marks_the_autopilot_group_admin_only(self):
+        from ui import admstrip, html
+        _, body = html.map_page()
+        i = body.index("Autopilot</h2>")
+        self.assertIn("adm-only", body[body.rfind("<h2", 0, i):i])
+        self.assertNotIn("/pravi-trade", admstrip.strip(body))
+
+
+class KolSearchRoundIsCheap(unittest.TestCase):
+    """9.11. 22:00 (Jure: "nešto guši aplikaciju, ne učitava se"): Render metrics showed the one CPU at 100 % for
+    30-47 min of every hour and every faulthandler dump of the KOL search round stood in discover.graph_candidates,
+    whose NOT EXISTS ... LOWER() subquery scanned the calls table once per follows row. The same answer must now
+    come from one index pass, and the UI must queue a burst of polls instead of refusing them (502)."""
+
+    def test_candidates_skip_handles_that_posted_in_any_case_without_a_correlated_subquery(self):
+        import inspect
+        import sqlite3
+        from kol import discover, store
+        con = sqlite3.connect(":memory:")
+        con.executescript(store.SCHEMA)
+        con.execute(discover.FOLLOW_SCHEMA)
+        for src in ("pro1", "pro2"):
+            con.executemany("INSERT INTO follows VALUES (?,?,?,?,?)",
+                            [(src, "HiddenGem", 1, 4000, "solana degen"), (src, "fresh1", 1, 4000, "memecoin calls"),
+                             (src, "hoopsfan", 1, 9000, "basketball")])
+        con.execute("INSERT INTO follows VALUES (?,?,?,?,?)", ("pro1", "lonely", 1, 4000, "crypto"))   # one follower
+        con.execute("INSERT INTO calls (tweet_id, handle, token, ts, kind) VALUES (?,?,?,?,?)",
+                    ("t1", "hiddengem", "CA1", 1, "call"))   # posted already, in another letter case
+        cfg = {"discover": {"graph": {"min_followed_by": 2, "min_followers": 1000}}}
+        self.assertEqual(discover.graph_candidates(con, cfg), ["fresh1"])
+        src = "\n".join(l for l in inspect.getsource(discover.graph_candidates).splitlines() if not l.strip().startswith("#"))
+        self.assertNotIn("NOT EXISTS", src)
+        self.assertNotIn("LOWER(c.handle)", src)
+
+    def test_ui_accept_backlog_is_deep(self):
+        from http.server import ThreadingHTTPServer
+        import run_ui  # noqa: F401 - sets the backlog at import
+        self.assertGreaterEqual(ThreadingHTTPServer.request_queue_size, 64)
+
+
+class PopupNeverPilesUp(unittest.TestCase):
+    """9.11. 23:10 (Jure, screenshot: the Autopilot pop-up stays at "Učitavam…"): CPU at 100 % (KOL search round), the
+    pop-up fired a request every second without waiting for the previous one, and every request read kol.db, tg.db
+    (85 MB, no index on ts) and hype.db again. The scripts now keep one request in flight, the last hour of calls is
+    read once and shared, and the time reads have an index."""
+
+    def test_time_indexes_are_created_at_startup_and_by_the_owner_modules(self):
+        import sqlite3
+        import tempfile
+        from ops import dbs
+        from tg import store as tstore
+        with tempfile.TemporaryDirectory() as d:
+            hype, tg = os.path.join(d, "hype.db"), os.path.join(d, "tg.db")
+            con = sqlite3.connect(hype)
+            con.execute("CREATE TABLE kol_mentions (ts INTEGER, handle TEXT, ca TEXT, tickers TEXT, text TEXT)")
+            con.execute("CREATE TABLE hype_signals (ts INTEGER, token TEXT, score REAL, mcap REAL, liquidity REAL, symbol TEXT)")
+            con.commit()
+            con.close()
+            con = sqlite3.connect(tg)
+            con.execute("CREATE TABLE posts (channel TEXT, post INTEGER, ts INTEGER, seen_ts INTEGER, text TEXT, cas TEXT, "
+                        "tickers TEXT, views INTEGER, fwd_from TEXT, source TEXT, PRIMARY KEY (channel, post))")
+            con.commit()
+            con.close()
+            dbs.ensure_indexes(hype, tg)
+            con = sqlite3.connect(hype)
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN SELECT handle, ca, ts FROM kol_mentions "
+                                                      "WHERE ts >= ? AND ca != ''", (0,)))
+            con.close()
+            self.assertIn("kol_mentions_ts", plan)
+            con = sqlite3.connect(tg)
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN SELECT channel, ts, cas, fwd_from FROM posts "
+                                                      "WHERE ts >= ? AND cas != ''", (0,)))
+            con.close()
+            self.assertIn("posts_ts", plan)
+            dbs.ensure_indexes(os.path.join(d, "nema.db"), os.path.join(d, "nema2.db"))   # missing files: no error
+        self.assertIn("posts_ts ON posts (ts)", tstore.SCHEMA)
+        with open(os.path.join(ROOT, "hype", "sources.py"), encoding="utf-8") as f:
+            self.assertIn("kol_mentions_ts ON kol_mentions (ts)", f.read())
+
+    def test_events_are_read_once_and_shared_while_the_refresher_runs(self):
+        from kol import converge
+        from ui import pravitrade
+        calls = []
+        saved = (converge.events, pravitrade.BG_REFRESH, dict(pravitrade._EVENTS))
+
+        def fake(now, window_s, **kw):
+            calls.append(window_s)
+            return [("TOK", now, "x", "caller", "call")], {}, {}
+        converge.events = fake
+        try:
+            pravitrade._EVENTS.update(ts=0.0, ev=None)
+            pravitrade.BG_REFRESH = True
+            a = pravitrade._events_hour(1000)
+            b = pravitrade._events_hour(1001)
+            self.assertEqual(len(calls), 1)            # the second pop-up poll took the stored copy
+            self.assertIs(a, b)
+            pravitrade._events_hour(1002, fresh=True)   # the refresher thread always reads
+            self.assertEqual(len(calls), 2)
+            pravitrade._EVENTS["ts"] -= pravitrade.EVENTS_TTL_S + 1
+            pravitrade._events_hour(1003)               # an old copy is not served
+            self.assertEqual(len(calls), 3)
+            pravitrade.BG_REFRESH = False               # tests / refresher off: every call reads the databases
+            pravitrade._events_hour(1004)
+            pravitrade._events_hour(1004)
+            self.assertEqual(len(calls), 5)
+        finally:
+            converge.events, pravitrade.BG_REFRESH = saved[0], saved[1]
+            pravitrade._EVENTS.clear()
+            pravitrade._EVENTS.update(saved[2])
+
+    def test_popups_do_not_read_the_databases_themselves(self):
+        import inspect
+        from ui import pravitrade
+        for fn in (pravitrade.token_popup, pravitrade.crew_popup):
+            src = inspect.getsource(fn)
+            self.assertIn("_events_hour(now)", src)
+            self.assertNotIn("converge.events(", src)
+
+    def test_scripts_keep_one_request_in_flight(self):
+        from ui import leaguedash, paper, pravitrade
+        js = pravitrade.POP_JS
+        self.assertIn("if(!url||cur===url)return", js)          # a tick while the previous request is out does nothing
+        self.assertIn("AbortController", js)                    # ... and a request is given up after the timeout
+        self.assertIn(str(pravitrade.POP_TIMEOUT_MS), js)
+        self.assertIn("if(u!==url)return", js)                  # a late answer for a closed pop-up is dropped
+        self.assertIn("server je spor", js)
+        import sqlite3
+        t = sqlite3.connect(":memory:")
+        t.execute("CREATE TABLE orders (ts INTEGER)")
+        saved = (pravitrade.log_html, pravitrade._sec)
+        pravitrade.log_html, pravitrade._sec = (lambda tcon, cfg: ""), (lambda title, sub, body, sid=None: body)
+        try:
+            frag = pravitrade._log_section(t, {})
+        finally:
+            pravitrade.log_html, pravitrade._sec = saved
+        self.assertIn("if(run||document.visibilityState!=='visible')return", frag)
+        self.assertIn("finally{run=false}", frag)
+        for mod in (paper, leaguedash):
+            with open(mod.__file__, encoding="utf-8") as f:
+                src = f.read()
+            self.assertIn("busy=true", src)
+            self.assertIn("finally{busy=false}", src)

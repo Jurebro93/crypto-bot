@@ -354,6 +354,35 @@ HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
 SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but their last good build is kept on disk
 BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
+WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
+CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
+# 9.11. 22:00: the stdlib server keeps only 5 connections waiting to be accepted; with the CPU at 100 % (KOL search
+# round) the 1-2 s fragment polls of a few open Autopilot tabs overflowed it, the kernel refused the rest and Render
+# showed 502 (59 of them at 21:15 UTC) although the UI process was alive. A deeper backlog queues them instead.
+ThreadingHTTPServer.request_queue_size = int(os.environ.get("UI_BACKLOG", "128"))
+
+
+def _nice_child():
+    """Page builds run at nice CHILD_NICE: below the request threads (nice 0) and above the heavy jobs (ops/heavy
+    NICE). 9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + a 45-s /pregled build) and every visitor's request,
+    every 1-s Autopilot fragment, waited for CPU behind the page build."""
+    try:
+        os.nice(CHILD_NICE)
+    except (OSError, AttributeError):
+        pass
+
+
+def warm_build(path):
+    """build_in_child for the warmer: when the page was built less than WARM_SKIP_FRESH_S ago (a visitor's refresh or
+    the previous pass) the cached copy is kept, instead of another 22-45 s child build next to the heavy jobs every
+    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %). 9.11. (audit): pagecache.warm now
+    skips such a page before calling this (skip_fresh_s), so the stored copy is not re-packed with a new time; this
+    check stays as the guard for a visitor's build that landed in between."""
+    with pagecache._lock:
+        hit = pagecache._store.get((path, "", None))
+    if hit and time.time() - hit[0] < WARM_SKIP_FRESH_S:
+        return 200, gzip.decompress(hit[3])
+    return build_in_child(path)
 
 
 def _building_html(path):
@@ -405,7 +434,7 @@ def build_in_child(path):
                 print(f"ui: brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno "
                       f"{free if free is None else round(free)} MB: gradim {path} bez brave", flush=True)
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
-                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")), preexec_fn=_nice_child)
         for ln in r.stderr.decode(errors="replace").splitlines():
             if ln.startswith("ui-tijek:"):   # where a slow build spent its time
                 print(ln, flush=True)
@@ -1200,7 +1229,8 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")),
+                   skip_fresh_s=WARM_SKIP_FRESH_S)   # 9.11. (audit): the skip lives in warm(), so a kept page keeps its age
     pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading

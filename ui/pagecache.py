@@ -216,15 +216,24 @@ def clear():
         _store.clear()
 
 
-def warm(paths, build_for, every_s=None):
+def warm(paths, build_for, every_s=None, skip_fresh_s=0):
     """Render `paths` in the background now (and every `every_s` seconds if given), one after another.
-    Their plain views are also kept on disk (see SNAP_DIR)."""
+    Their plain views are also kept on disk (see SNAP_DIR). skip_fresh_s: a page whose stored copy is younger than
+    this is not rendered at all in that pass. 9.11. (audit): run_ui.warm_build returned the stored bytes for such a
+    page, but _build packed them again with ts=now, so the copy's age restarted on every pass (served as fresh up to
+    FRESH_S + skip_fresh_s) and with every_s below the threshold the page was never rebuilt; skipping here keeps the
+    real age."""
     _snap_paths.update(paths)
     def run():
         while True:
             for p in paths:
+                key = (p, "", None)
+                with _lock:
+                    hit = _store.get(key)
+                if skip_fresh_s and hit and time.time() - hit[0] < skip_fresh_s:
+                    continue
                 try:
-                    _render((p, "", None), lambda p=p: build_for(p))
+                    _render(key, lambda p=p: build_for(p))
                 except Exception:
                     pass
             if not every_s:

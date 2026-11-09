@@ -11,18 +11,24 @@ Two layers, so the page can be fast and still strict:
   transactions and change), callers of the last 10 min (kol/converge.events) and buys of the proven/followed
   wallets in the last 10 min (hype.db chain_trades). A token stays only while it trades now (prijedlog.alive) and
   is not falling; the order is what moved last: new callers, smart buys, 5-min change, money speed.
+  9.11. (audit P33): the 1-second fragment (/pravi-trade/ideje) only reads the cache; a daemon thread started on the
+  first call refreshes it every LIVE_TTL s while the page is open (no HTTP, no sleep in the request thread). The
+  60-s box on Pregled asks with sync=True and gets a fresh table in its own (child) process.
 - The expectation for +15 %: the callers' minute check (kol/minute.py handle_stats hit15) when they have one,
-  otherwise the market-cap band's measured chance of +30 % in 24 h (ui/prijedlog.chances).
+  otherwise the market-cap band's measured chance of +30 % in 24 h (ui/prijedlog.chances), marked as the old measure.
 """
+import threading
 import time
 
 CAND_TTL = 60
-LIVE_TTL = 1
+LIVE_TTL = 2          # 9.11. (audit P2/P33): 2-5 s, never 1 s (DexScreener's 300/min limit is shared by every process)
 RECENT_S = 600
 MAX_SIGNAL_AGE_S = 6 * 3600
+IDLE_STOP_S = 30      # the refresh thread stops this long after the last rows() call (nobody is watching)
 _CANDS = {"ts": 0.0, "rows": []}
 _ROWS = {"ts": 0.0, "rows": []}
 _MIN = {"ts": 0.0, "stats": {}}
+_BG = {"thread": None, "asked": 0.0, "lock": threading.Lock()}
 
 
 def _tiers():
@@ -76,19 +82,24 @@ def _sources(now):
         from topcheck import store as tstore
         for tok, r in tstore.read_all(max_age_h=1).items():
             st = (r.get("state") or {}).get("state")
+            if r.get("rank") is None:   # 9.11. (audit P52): dropped from the top list (unrank keeps the row an hour)
+                continue
             if r.get("verdict") == "prolazi" and st not in ("pumpa", "pada"):
                 out.append({"token": tok, "symbol": r.get("symbol"), "src": "alat", "ts0": r.get("ts"), "mcap0": r.get("mcap"),
                             "liq": r.get("liq"), "rank": r.get("rank"), "why": [f"#{r.get('rank')} alata, rug check prošao"]})
     except Exception:  # noqa: BLE001
         pass
-    try:   # the suggestion box's own picks (ui/prijedlog, already live-gated when logged)
-        from ui import prijedlog
-        for p in prijedlog.latest_picks(now, limit=10):
+    try:   # the suggestion box's own picks (ui/prijedlog_log, already live-gated when logged)
+        # 9.11. (audit P53/P54): latest_picks lives in ui/pravitrade (ui/prijedlog never had it, so this source was
+        # dead and silent). Only the box's own grades count: the live rows it logs as 'uživo' are this list (no loop).
+        from ui import pravitrade
+        for p in pravitrade.latest_picks(now, limit=10):
             if p.get("razina") == "visoka" and now - (p.get("ts") or 0) <= MAX_SIGNAL_AGE_S:
+                conf = p.get("conf")
                 out.append({"token": p["token"], "symbol": None, "src": "prijedlog", "ts0": p.get("ts"), "mcap0": p.get("mcap0"),
-                            "conf": p.get("conf"), "why": [f"prijedlog Pregleda, pouzdanost {p.get('conf') or 0:.0f}"]})
-    except Exception:  # noqa: BLE001
-        pass
+                            "conf": conf, "why": ["prijedlog Pregleda" + (f", pouzdanost {conf:.0f}" if conf is not None else "")]})
+    except Exception as e:  # noqa: BLE001
+        print(f"zivo: izvor prijedlog: {type(e).__name__}: {e}", flush=True)
     try:   # several sources on one token within 30 min (kol/converge, stored by the KOL round)
         from kol import store as kstore
         from league import copy
@@ -175,31 +186,73 @@ def expectation(callers, mstats, chance):
     """(text, value) for "+15 %": callers' minute check when any has one, else the band's +30 %/24 h chance."""
     hs = [mstats[h] for h in callers if h in mstats]
     if hs:
-        v = sum(s["hit15"] for s in hs) / len(hs)
         n = sum(s["n"] for s in hs)
+        # 9.11. (audit P85): pooled over the callers' calls (weighted by n), not a plain mean of per-account rates
+        v = sum(s["hit15"] * s["n"] for s in hs) / n if n else sum(s["hit15"] for s in hs) / len(hs)
         return f"pozivatelji: +15 % prije stopa u {v:.0%} ({n} izmjerenih poziva, minutna provjera)", v
-    if chance and chance[0] is not None:
-        return f"{chance[0]:.0%} sličnih tokena (po MC-u) dalo +30 % u 24 h ({chance[1]} poziva)", chance[0]
+    if chance and chance[0] is not None:   # the 24-h wick is the old measure: say so next to the number
+        return f"stara mjera: {chance[0]:.0%} sličnih tokena (po MC-u) dalo +30 % u 24 h ({chance[1]} poziva)", chance[0]
     return "još bez mjerenja", None
 
 
-def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None):
-    """The live table: candidates that trade right now, with fresh numbers, most active first. Cached LIVE_TTL."""
+def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, sync=False):
+    """The live table: candidates that trade right now, with fresh numbers, most active first. Cached LIVE_TTL.
+    9.11. (audit P33): without injected data this never fetches in the caller's thread: a fresh cache is returned,
+    a stale one is returned as it is while the refresh thread (started here) fills it; sync=True computes in place
+    (the 60-s Pregled box). Each row carries 'checked' = the time of its numbers, so a page shows data time."""
     now = now or time.time()
     injected = cands is not None
-    if not injected and now - _ROWS["ts"] < LIVE_TTL:
+    if injected:
+        return _compute(now, cands, live, callers, smart, mstats, chances)
+    _BG["asked"] = now
+    if now - _ROWS["ts"] < LIVE_TTL:
         return _ROWS["rows"]
+    if sync:
+        return _refresh(now)
+    _ensure_bg()
+    return _ROWS["rows"]
+
+
+def _refresh(now=None):
+    """Compute the live table now (HTTP) and store it; [] and an empty cache when the fetch failed."""
+    now = now or time.time()
+    try:
+        out = _compute(now)
+    except Exception as e:  # noqa: BLE001
+        print(f"zivo: osvježavanje: {type(e).__name__}: {e}", flush=True)
+        out = []
+    _ROWS.update(ts=now, rows=out)
+    return out
+
+
+def _bg_loop():
+    while True:
+        _refresh(time.time())
+        time.sleep(LIVE_TTL)
+        if time.time() - _BG["asked"] > IDLE_STOP_S:
+            with _BG["lock"]:
+                if time.time() - _BG["asked"] > IDLE_STOP_S:
+                    _BG["thread"] = None
+                    return
+
+
+def _ensure_bg():
+    with _BG["lock"]:
+        t = _BG["thread"]
+        if t is None or not t.is_alive():
+            t = threading.Thread(target=_bg_loop, daemon=True, name="zivo-live")
+            _BG["thread"] = t
+            t.start()
+
+
+def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None):
     from ui import prijedlog
-    cs = cands if injected else candidates(now)
+    cs = cands if cands is not None else candidates(now)
     if not cs:
-        if not injected:
-            _ROWS.update(ts=now, rows=[])
         return []
     toks = [c["token"] for c in cs][:30]
     lv = live if live is not None else prijedlog.live_market(toks)
     if lv is None:
-        if not injected:
-            _ROWS.update(ts=now, rows=[])
         return []
     callers = callers if callers is not None else _recent_callers(now, set(toks))
     smart = smart if smart is not None else _smart_buys(now, set(toks))
@@ -223,8 +276,6 @@ def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None,
         r["heat"] = (3 * len(r["callers10"]) + 4 * r["smart10"] + (m.get("ch_m5") or 0) / 10 + min(3.0, turn))
         out.append(r)
     out.sort(key=lambda r: (-r["heat"], r["age_s"]))
-    if not injected:
-        _ROWS.update(ts=now, rows=out)
     return out
 
 

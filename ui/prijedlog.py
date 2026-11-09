@@ -36,7 +36,9 @@ def chances(days=14):
     """{band: (share of calls with max24 >= TARGET, n)} from kol.db measured calls (the retro of 7.11.)."""
     out = {}
     try:
-        rows = data.q(_kol_db(), "SELECT mcap0, max24 FROM calls WHERE max24 IS NOT NULL AND kind IN ('call','bot') "
+        # 9.11. (audit P81): KOL calls only, as kol/together and kol/converge count them: no alert bots (they post
+        # every fresh pool) and no 'bad' rows (dust market cap) in the band's denominator
+        rows = data.q(_kol_db(), "SELECT mcap0, max24 FROM calls WHERE max24 IS NOT NULL AND kind = 'call' AND bad IS NULL "
                                    "AND ts >= ? AND source NOT IN ('kol_win')", (int(time.time() - days * 86400),))
     except Exception:  # noqa: BLE001
         rows = []
@@ -93,7 +95,8 @@ def live_market(tokens, fetch=None):
         return {}
     try:
         from dexscreener import client
-        pairs = (fetch or (lambda t: client.tokens("solana", t)))(tokens)
+        # 9.11. (audit P2): the live cache (DEX_LIVE_TTL, 3 s), not the scanners' 60 s; `fetch` stays the test seam
+        pairs = (fetch or (lambda t: client.tokens_live("solana", t)))(tokens)
     except Exception:  # noqa: BLE001
         return None
     out = {}
@@ -204,8 +207,12 @@ def token_picks_ex(now=None, n=3, rows=None, status=None, ch=None, live=None, ma
     ch = ch if ch is not None else chances()
     cands = []
     ranked = sorted(rows, key=overview._rank, reverse=True)
-    for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= MAX_AGE_S),
-                       ("srednja", lambda r: overview.relevant(r) and now - (r["last_seen"] or 0) <= 24 * 3600)):
+    # 9.11. (audit P79): freshness from the last real signal when overview gives it (signal_ts); last_seen also moves
+    # with a rug re-check (every 12 h), which is not a new signal
+    def _fresh(r):
+        return r.get("signal_ts") or r["last_seen"] or 0
+    for razina, ok in (("visoka", lambda r: overview.relevant(r) and now - _fresh(r) <= MAX_AGE_S),
+                       ("srednja", lambda r: overview.relevant(r) and now - _fresh(r) <= 24 * 3600)):
         for r in ranked:
             if len(cands) >= max_candidates:
                 break
@@ -375,8 +382,45 @@ def _tl(token, sym=None):
     return f'<a href="/token/{quote(token)}" translate=no>{esc(sym) if sym else "<code>" + esc(short(token)) + "</code>"}</a>'
 
 
-def group_pick():
-    """The best crew of KOLs that call together (kol/together): follow them, enter when they post."""
+CREW_MIN_N = 5          # 9.11. (audit P80): minute measurements before a crew's minute check decides (DNEVNIK 9.11.)
+CREW_MIN_HIT10 = 0.5
+CREW_MAX_SL = 0.3
+
+
+def crew_minute_ok(members, crews):
+    """None when the minute check (kol/minute.crew_stats 'crews': [(handles, stats, n_tokens, potential)]) has no
+    CREW_MIN_N+ measured first calls by 2+ of these members; else whether they gave +10 % before the stop in
+    CREW_MIN_HIT10+ with the stop first in at most CREW_MAX_SL (pooled over the matching crews)."""
+    mem = set(members or ())
+    rows = [(st["n"], st["hit10"], st["sl"]) for hs, st, *_ in crews or []
+            if st and len(set(hs)) >= 2 and set(hs) <= mem]
+    n = sum(r[0] for r in rows)
+    if n < CREW_MIN_N:
+        return None
+    hit10 = sum(r[0] * r[1] for r in rows) / n
+    sl = sum(r[0] * r[2] for r in rows) / n
+    return hit10 >= CREW_MIN_HIT10 and sl <= CREW_MAX_SL
+
+
+def _minute_crews(now=None):
+    try:
+        from kol import minute, store as _ks
+        mcon, kcon = minute.ro(), _ks.ro()
+        if mcon is None or kcon is None:
+            return []
+        try:
+            return minute.crew_stats(mcon, kcon, 14, int(now or time.time()), min_n=1).get("crews") or []
+        finally:
+            mcon.close()
+            kcon.close()
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def group_pick(crews=None):
+    """The best crew of KOLs that call together (kol/together): follow them, enter when they post.
+    9.11. (audit P80): a crew needs together.MIN_N joint calls (the module's own bar for a verdict, not 3) and, where
+    the minute check has measured it, +10 % before the stop in half of them; crews: injected for tests."""
     try:
         from kol import shillers, store as _ks, together
         con = _ks.ro() if hasattr(_ks, "ro") else None
@@ -390,13 +434,21 @@ def group_pick():
             con.close()
     except Exception:  # noqa: BLE001
         return None
-    good = [c for c in tog.get("clusters") or [] if c["stats"]["n"] >= 3 and (c["stats"]["hit"] or 0) >= 0.5
+    return pick_crew(tog.get("clusters") or [], crews if crews is not None else _minute_crews())
+
+
+def pick_crew(clusters, crews):
+    from kol import together
+    min_n = getattr(together, "MIN_N", 8)
+    good = [c for c in clusters if c["stats"]["n"] >= min_n and (c["stats"]["hit"] or 0) >= 0.5
             and (c["stats"]["rug"] or 0) < 0.4 and not c.get("shill")]
-    if not good:
-        return None
-    c = good[0]
-    return {"members": c["members"][:5], "n": c["stats"]["n"], "hit": c["stats"]["hit"], "rug": c["stats"]["rug"],
-            "tokens": c["tokens"]}
+    for c in good:
+        ok = crew_minute_ok(c["members"], crews)
+        if ok is False:   # known bad minute data: not recommended; None (no data yet) keeps the old measure
+            continue
+        return {"members": c["members"][:5], "n": c["stats"]["n"], "hit": c["stats"]["hit"], "rug": c["stats"]["rug"],
+                "tokens": c["tokens"], "minute": ok}
+    return None
 
 
 def _chance_txt(c):
@@ -468,12 +520,15 @@ def wallet_thesis(w):
 
 def _item(p, status=None):
     raz = p.get("razina") or "visoka"
-    cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}[raz]
-    stake = {"visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}[raz]
+    # 9.11. (audit P50/P51/P79): 'uživo' = the Autopilot's live list (fresh reason now); the grade is freshness, not a
+    # probability, so the badge says so
+    cls = {"uživo": "good", "visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "warn")
+    stake = {"uživo": "25 $", "visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}.get(raz, "20–25 $")
     text = p.get("thesis") or ("Zašto: " + ("; ".join(p["why"]) or "ocjena alata i Šansa") + ".")
     conf_txt = f' · pouzdanost {p["conf"]:.0f}' if p.get("conf") is not None else ""
+    grade = "uživo (Autopilot)" if raz == "uživo" else f"svježina {raz}"
     return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
-            f'<span class="b {cls}">vjerojatnost {raz}</span> ulog {stake} · '
+            f'<span class="b {cls}">{grade}</span> ulog {stake} · '
             f'na <b>{usd(p["mcap0"])[0]}</b> sada{conf_txt}'
             f'<span class=why><br>{esc(text)} {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
@@ -501,24 +556,28 @@ def box(kind, now=None, rows=None, live=None):
     except Exception:  # noqa: BLE001
         status = {}
     picks, near, note = token_picks_ex(now, rows=rows, status=status, live=live)
+    log_kind = kind
     if live is None:   # 9.11. (Jure): the Autopilot's live engine is the source; Pregled follows it
         try:
             from ui import zivo
-            zr = zivo.rows(now)
+            zr = zivo.rows(now, sync=True)
             if zr:
+                # 9.11. (audit P50/P51): these are the live list's rows, graded 'uživo' and logged under kind 'zivo',
+                # so the box's 7-day record keeps the two methods (freshness + confidence vs. live reasons) apart
                 picks = [{"token": r["token"], "symbol": r.get("symbol") or (r["live"].get("symbol") if r.get("live") else None),
                           "mcap0": r["live"]["mcap"], "ts0": int(r.get("ts0") or now), "conf": r.get("conf"), "why": r["reasons"],
-                          "protiv": [], "band": _band(r["live"]["mcap"]), "chance": None, "razina": "visoka", "live": r["live"],
+                          "protiv": [], "band": _band(r["live"]["mcap"]), "chance": None, "razina": "uživo", "live": r["live"],
                           "history": history(r["token"]), "thesis": "Zašto sada: " + "; ".join(r["reasons"]) + ". " + r["expect"] + "."}
                          for r in zr[:3]]
                 near, note = [], ""
+                log_kind = "zivo"
         except Exception:  # noqa: BLE001
             pass
     mak = _makro_line()
     rec = ""
     try:   # dnevnik odluka: write the picks down, show the box's own 7-day record (ui/prijedlog_log)
         from ui import prijedlog_log
-        prijedlog_log.log(data.HYPE_DB, picks, kind, now)
+        prijedlog_log.log(data.HYPE_DB, picks, log_kind, now)
         rec = prijedlog_log.sentence(prijedlog_log.summary(data.HYPE_DB, now=now))
     except Exception:  # noqa: BLE001
         pass
@@ -531,7 +590,8 @@ def box(kind, now=None, rows=None, live=None):
     if kind == "tokeni":
         if picks:
             b.append("<p>Ako želiš zaraditi danas, ovo bih ušao sada; svaki je prošao sve provjere i trguje se upravo sada "
-                     "(visoka = svjež do 6 h, srednja = do 24 h):</p><ol>"
+                     "(uživo = živa lista <a href=/pravi-trade#ideje>Autopilota</a> sa svježim razlogom, visoka = svjež do 6 h, "
+                     "srednja = do 24 h):</p><ol>"
                      + "".join(_item(p, status) for p in picks) + "</ol>")
             b.append("<p class=why>Pravilo: cijena ispod označava je li token još u zoni ulaza. Ako je otišao više od 25 % "
                      "od analize, ne juri ga; pričekaj povlačenje ili sljedeći prijedlog. Izlaz: pola na +15 %, ostatak "
