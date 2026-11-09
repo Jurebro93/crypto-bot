@@ -85,8 +85,11 @@ def daily(name, args, config, due=None):
     last_day, forced = _last_day(name), False
     while True:
         try:
-            with open(os.path.join(ROOT, config)) as f:
-                hh, mm = map(int, json.load(f)["run_at_utc"].split(":"))
+            if ":" in config and not config.endswith(".json"):   # a literal HH:MM (UTC), 9.11.: night jobs below
+                hh, mm = map(int, config.split(":"))
+            else:
+                with open(os.path.join(ROOT, config)) as f:
+                    hh, mm = map(int, json.load(f)["run_at_utc"].split(":"))
             now = dt.datetime.now(dt.timezone.utc)
             if not forced and due and due():
                 forced = True
@@ -170,6 +173,12 @@ JOBS = [
     # light too (11:00): 30 DexScreener calls + up to 120 GeckoTerminal lookups; behind the KOL round it waited 12+ min
     # and never ran all morning. GeckoTerminal 429s are a shared cross-process cooldown (event_calendar/http).
     ("tokenstatus", every, (["run_hype.py", "status"], float(os.environ.get("TOKENSTATUS_EVERY_MIN", "360")), True)),
+    # 9.11. 20:20 (Jure: "veliki poslovi od ponoći"): the long jobs once a day from midnight Zagreb (23:xx UTC in
+    # winter) instead of every few hours through the day. run_dugo held the heavy lock 29 min at 19:37 (6-hourly),
+    # the daily smart-wallet learning ran right after every deploy. Both were start.sh loops; a daily() here keeps
+    # the day of the last run on disk, so a deploy does not re-run them.
+    ("dugo", daily, (["run_dugo.py", "once"], os.environ.get("DUGO_AT_UTC", "23:05"))),
+    ("learn_auto", daily, (["run_hype.py", "learn", "--auto", "5"], os.environ.get("LEARN_AUTO_AT_UTC", "23:40"))),
 ]
 
 

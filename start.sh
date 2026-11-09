@@ -78,12 +78,8 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 ) &
 
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
-(
-  while true; do
-    python3 -m ops.heavy run_hype.py learn --auto 5 >/dev/null || echo "learn nije uspio"
-    sleep 86400
-  done
-) &
+# 9.11. 20:20 (Jure): from midnight Zagreb, run_sched.py "learn_auto" (LEARN_AUTO_AT_UTC, default 23:40); it used to
+# run right after every deploy here, under the heavy lock, in the middle of the day
 
 # wallet registry: every WALLETS_EVERY_H hours (default 3) pull wallets from all analyses, then score the queue.
 # score stops at --credits per run and at WALLET_CREDIT_SHARE of the monthly Helius credits (default 15% = 1.5M)
@@ -112,6 +108,8 @@ keep minute python3 run_kol.py minute-loop
 # container and with it the backfill, so it is best started when nobody deploys. Without it: 25 min after start.
 if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   (
+    # 9.11. 20:20 (Jure): without KOL_BACKFILL_AT it waits for 23:00 UTC (midnight Zagreb), not 25 min after start
+    KOL_BACKFILL_AT="${KOL_BACKFILL_AT:-23:00}"
     if [ -n "${KOL_BACKFILL_AT:-}" ]; then
       python3 -c "import time, datetime as d; h, m = map(int, '${KOL_BACKFILL_AT}'.split(':')); n = d.datetime.now(d.timezone.utc); t = n.replace(hour=h, minute=m, second=0, microsecond=0); t = t if t > n else t + d.timedelta(days=1); print(f'kol backfill: čekam do {t:%Y-%m-%d %H:%M} UTC', flush=True); time.sleep((t - n).total_seconds())"
     else
@@ -141,8 +139,8 @@ keep report python3 run_report.py loop
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
-# A fresh process per pass, so it holds no memory in the 6 h between passes.
-( sleep 300; while true; do python3 -m ops.heavy run_dugo.py once >/dev/null || echo "dugo nije uspio"; sleep $(( ${DUGO_EVERY_MIN:-360} * 60 )); done ) &
+# 9.11. 20:20 (Jure: "veliki poslovi od ponoći"): a pass held the heavy lock 29 min at 19:37; it runs once a day from
+# run_sched.py ("dugo", DUGO_AT_UTC, default 23:05 = 00:05 Zagreb in winter), not every 6 h here.
 
 # SimianX second opinion on the long-term list + demo test of its long signals (simianx/, needs SIMIANX_API_KEY;
 # without it the pass ends at once). Light: waits on their API, so no ops.heavy slot. Real money only via /pravi-trade.

@@ -452,18 +452,23 @@ def followers_of(kcon, handles, tg_db=None):
     return out
 
 
-def crew_detail(mcon, kcon, handles, days=30, now=None, tg_db=None, archived=frozenset()):
+def crew_detail(mcon, kcon, handles, days=30, now=None, tg_db=None, archived=frozenset(), all_groups=None, paths=None):
     """Everything the page shows for one crew: members with followers, who called first how often, and every shared
     token (newest first) with the first call's minute path, the old 24-h measure as fallback and the rug flag
-    (low within the hour <= RUG_LO, kol.db calls.rug, or the token archived by the rug filter)."""
+    (low within the hour <= RUG_LO, kol.db calls.rug, or the token archived by the rug filter).
+    all_groups / paths: _groups(kcon, since, 4+) and {(token, ts): minute row} computed once by the caller when it
+    asks for several crews (9.11. 20:20: /ekipe read both tables 12 times over and took 60 s to build)."""
     now = now or int(time.time())
     hs = tuple(sorted(set(handles)))
     since = now - days * 86400
-    groups = [g for g in _groups(kcon, since, max_size=max(4, len(hs))) if g[2] == hs]
+    if all_groups is None:
+        all_groups = _groups(kcon, since, max_size=max(4, len(hs)))
+    groups = [g for g in all_groups if g[2] == hs]
     first_counts = {}
     for _tok, _start, _hs, first in groups:
         first_counts[first] = first_counts.get(first, 0) + 1
-    paths = {(r["token"], r["ts"]): r for r in _rows(mcon, "ts >= ?", (since,))}
+    if paths is None:
+        paths = {(r["token"], r["ts"]): r for r in _rows(mcon, "ts >= ?", (since,))}
     toks = sorted({g[0] for g in groups})
     syms, old = {}, {}
     if toks:

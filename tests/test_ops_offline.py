@@ -355,9 +355,17 @@ class HeavyLockTest(unittest.TestCase):
     def test_wired_in(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         sh = open(os.path.join(root, "start.sh")).read()
-        for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "run_dugo.py once", "rugfilter.archive"):
+        for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "rugfilter.archive"):
             self.assertIn("python3 -m ops.heavy " + ("-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else "") + cmd, sh)
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
+        # 9.11. 20:20 (Jure): the long jobs once a day from midnight Zagreb, from the scheduler, not start.sh loops
+        self.assertNotIn("run_dugo.py once", sh)
+        self.assertNotIn("run_hype.py learn --auto", sh)
+        self.assertIn('KOL_BACKFILL_AT="${KOL_BACKFILL_AT:-23:00}"', sh)
+        import run_sched
+        jobs = {j[0]: j for j in run_sched.JOBS}
+        self.assertEqual((jobs["dugo"][1], jobs["dugo"][2][:2]), (run_sched.daily, (["run_dugo.py", "once"], "23:05")))
+        self.assertEqual(jobs["learn_auto"][2][:2], (["run_hype.py", "learn", "--auto", "5"], "23:40"))
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
         self.assertIn("heavy.slot(wait=0, label=\"gradnja stranice\")", open(os.path.join(root, "run_ui.py")).read())   # 9.11. 19:05: no 60 s wait
@@ -428,3 +436,32 @@ class SchedLightDelayTest(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 run_sched.every("y", ["b.py"], 5)
             self.assertFalse(sl.called)
+
+
+class SchedDailyLiteralTimeTest(unittest.TestCase):
+    """9.11. 20:20: daily() takes a literal HH:MM (UTC) as well as a config file with run_at_utc."""
+
+    def test_literal_time_runs_once_after_it(self):
+        import datetime as dt
+        import run_sched
+        calls = []
+        clock = [dt.datetime(2026, 11, 9, 22, 0, tzinfo=dt.timezone.utc)]
+
+        class FakeDT(dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return clock[0]
+
+        def tick(s):
+            clock[0] += dt.timedelta(minutes=70)
+            if len(calls) > 1 or clock[0].hour == 2 and clock[0].day == 10:
+                raise KeyboardInterrupt
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(run_sched, "STATE", os.path.join(d, "s.json")), \
+                mock.patch.object(run_sched.dt, "datetime", FakeDT), \
+                mock.patch.object(run_sched, "run", side_effect=lambda n, a, light=False: calls.append(a)), \
+                mock.patch.object(run_sched.time, "sleep", side_effect=tick):
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.daily("dugo", ["run_dugo.py", "once"], "23:05")
+        self.assertEqual(calls, [["run_dugo.py", "once"]])   # 22:00 no, 23:10 yes, 00:20 and 01:30 (same UTC day? no: new day but before 23:05) no
