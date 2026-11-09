@@ -509,6 +509,10 @@ class Handler(BaseHTTPRequestHandler):
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/pozicije":   # 9.11.: positions re-fetched every 2 s, swapped only when changed
+            from ui import pravitrade
+            frag = pravitrade.positions_fragment(self.user)
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
