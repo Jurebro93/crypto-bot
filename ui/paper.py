@@ -26,13 +26,28 @@ def _cfg():
         return {}
 
 
+def live_pairs(mints):
+    """9.11. (audit P2): DexScreener pairs through the short live cache (dexscreener/client.tokens_live, DEX_LIVE_TTL
+    3 s, never 1 s) for the demo TP/SL auto-sell and the pages; the scanners keep client.tokens (60 s). client.tokens
+    stays the seam the offline tests replace with a 2-argument stand-in, so such a stand-in is called as it is
+    (decided by its signature, not by catching TypeError, which would hide a real bug in the live path)."""
+    import inspect
+    from dexscreener import client
+    try:
+        legacy = "ttl" not in inspect.signature(client.tokens).parameters
+    except (TypeError, ValueError):
+        legacy = False
+    if legacy:
+        return client.tokens("solana", list(mints))
+    return client.tokens_live("solana", list(mints))
+
+
 def market(mints):
     """mint -> (price, liquidity, url, mcap) from the deepest pair, {} if DexScreener is unreachable."""
     if not mints:
         return {}
     try:
-        from dexscreener import client
-        pairs = client.tokens("solana", list(mints))
+        pairs = live_pairs(mints)
     except Exception:
         return {}
     best = {}
