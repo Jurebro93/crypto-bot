@@ -563,7 +563,8 @@ def _tp_card(cfg, owner):
             'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop ostaje kako je upisan ili zadani.</p></div>')
 
 
-IDEAS_EVERY_S = 60
+IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
+LIVE_IDEAS_S = 2
 _IDEAS_CACHE = {}   # owner flag -> (ts, html)
 
 
@@ -601,35 +602,37 @@ def latest_picks(now=None, limit=3):
 
 
 def ideas_inner(cfg, owner, now=None):
-    """The same picks as "Prijedlog za danas" on Pregled, read from the suggestion log (never built here), with a buy
-    form each. Cached IDEAS_EVERY_S."""
+    """9.11. (Jure): live, not "the same as Pregled every 60 s". ui/zivo: candidates through every slow filter, then
+    price / volume / new callers / smart-wallet buys refreshed every 2 s; a token stays only while it trades now."""
     now = now or time.time()
     c = _IDEAS_CACHE.get(bool(owner))
-    if c and now - c[0] < IDEAS_EVERY_S:
+    if c and now - c[0] < LIVE_IDEAS_S:
         return c[1]
     try:
-        picks = latest_picks(now)
-        syms = {}
-        if picks:
-            from kol import store as kstore
-            kc = copy._ro(kstore.DB)
-            if kc is not None:
-                q = ",".join("?" * len(picks))
-                syms = dict(copy._q(kc, f"SELECT token, symbol FROM tokens WHERE token IN ({q})", [p["token"] for p in picks]))
-                kc.close()
+        from ui import zivo
+        rs = zivo.rows(now)
     except Exception as e:  # noqa: BLE001
-        return f'<p class=mut>Prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
-    if not picks:
-        html = ""   # nothing concrete: the section stays hidden (Jure 9.11.: the page shows only what matters)
+        return f'<p class=mut>Živi prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
+    if not rs:
+        html = ""
     else:
         out = []
-        for p in picks:
-            raz = p.get("razina") or "visoka"
-            cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "")
-            out.append(f'<details class=ap-it open><summary><span>{tlink(p["token"], syms.get(p["token"]))} {badge("vjerojatnost " + raz, cls)}</span>'
-                       f'<span class=k>na ${(p.get("mcap0") or 0) / 1000:,.0f}k · pouzdanost {p.get("conf") or 0:.0f} · {esc(ago(p["ts"])[0])}</span></summary>'
-                       f'<p>Prijedlog s Pregleda. <a href="https://dexscreener.com/solana/{quote(p["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
-                       f'{_buy_form(p["token"], cfg, "tpsl", owner)}</details>')
+        for r in rs[:8]:
+            m = r["live"]
+            tags = badge(r["src"], "") + (badge(f"T{r['tier']}", "good") if r.get("tier") else "")
+            ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
+            ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
+            age = r["age_s"]
+            age_txt = f"{age / 60:.0f} min" if age < 3600 else f"{age / 3600:.1f} h"
+            reasons = "; ".join(r.get("reasons") or [])
+            out.append(f'<details class=ap-it open><summary><span>{tlink(r["token"], r.get("symbol") or m.get("symbol"))} {tags}</span>'
+                       f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></summary>'
+                       f'<p><b>Zašto sada:</b> {esc(reasons)}.<br>'
+                       f'Likv. ${m["liq"] / 1000:,.0f}k · vol 5 min ${m["vol_m5"]:,.0f} ({m["txns_m5"]} tx) · vol 1 h ${m["vol_h1"]:,.0f} ({m["txns_h1"]} tx) · '
+                       f'prvi signal prije {age_txt} ({esc("; ".join(r.get("why") or []))}).<br>'
+                       f'<b>Očekivanje:</b> {esc(r["expect"])}. '
+                       f'<a href="https://dexscreener.com/solana/{quote(r["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
+                       f'{_buy_form(r["token"], cfg, "tpsl", owner)}</details>')
         html = "".join(out)
     _IDEAS_CACHE[bool(owner)] = (now, html)
     return html
@@ -647,7 +650,10 @@ def ideas_fragment(user):
 
 def _ideas_section(cfg, owner):
     inner = ideas_inner(cfg, owner)
-    return _sec("Što kupiti sada", f"isti prijedlozi kao na Pregledu · ⟳ {IDEAS_EVERY_S} s", f'<div id=ap-ideje>{inner}</div>', hidden=not inner,
+    return _sec("Što kupiti sada", f"svi filteri + uživo cijena, volumen, pozivatelji, pametni novčanici · ⟳ {LIVE_IDEAS_S} s",
+                f'<div id=ap-ideje>{inner}</div><p class=mut style="font-size:13px;margin:8px 0 0">Token je ovdje samo dok prolazi '
+                'rug check, tier i arhiv ruga, ima MC 30k+, 10+ tx i $1k+ volumena u zadnjem satu, $20k+ likvidnosti i ne pada; '
+                'red: tko je zadnji zvao, kupnje pametnih novčanika, promjena u 5 min, brzina novca.</p>', hidden=not inner,
                 open_=True, sid="ideje")
 
 
@@ -981,8 +987,8 @@ def log_fragment(user):
 
 
 def _log_section(tcon, cfg):
-    js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije'],['ap-zovu','/pravi-trade/zovu']];"
-          "setInterval(()=>one('ap-ideje','/pravi-trade/ideje'),60000);"
+    js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije'],['ap-zovu','/pravi-trade/zovu'],"
+          "['ap-ideje','/pravi-trade/ideje']];"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
           "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
           "if(h!==box.innerHTML&&!box.contains(document.activeElement)){box.innerHTML=h;const d=box.closest('details.ap-sec');"

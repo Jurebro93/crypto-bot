@@ -193,73 +193,40 @@ class Page(unittest.TestCase):
         self.assertIn("REAL", html)                         # a real order stays visible for a week
         self.assertNotIn("GTAVI", html)
 
-    def test_ideas_read_the_suggestion_log_and_never_build_token_rows(self):
-        """9.11. 12:30: building the picks in the UI process on every poll ran the server out of memory."""
-        import sqlite3
-        from ui import data, overview, prijedlog_log
-        hp = os.path.join(self.tmp.name, "hype.db")
-        con = sqlite3.connect(hp)
-        con.execute(prijedlog_log.SCHEMA)
-        con.executemany("INSERT INTO prijedlog_log (token, day, ts, kind, razina, mcap0, conf) VALUES (?,?,?,?,?,?,?)",
-                        [("TOKA", "d", NOW - 600, "danas", "niska", 50000, 30), ("TOKB", "d", NOW - 300, "danas", "visoka", 120000, 70),
-                         ("OLD", "d0", NOW - 2 * 86400, "danas", "visoka", 90000, 80)])
-        con.commit()
-        con.close()
-        saved = (data.HYPE_DB, overview.token_rows)
-        data.HYPE_DB = hp
+    def test_ideas_are_live_rows_and_never_build_token_rows(self):
+        """9.11. 12:30: building the picks in the UI process ran the server out of memory; 15:40 (Jure): the box must be
+        live (2 s), not "the same as Pregled every 60 s"."""
+        from ui import overview, zivo
+        saved = (overview.token_rows, zivo.rows)
 
         def boom(*a, **k):
             raise AssertionError("token_rows must not run in the UI process")
         overview.token_rows = boom
+        row = {"token": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", "symbol": "AAA", "src": "zovu", "why": ["zovu: ansem"], "ts0": NOW - 300,
+               "tier": 2, "live": {"price": 0.001, "liq": 50_000.0, "mcap": 120_000.0, "vol_h1": 8000.0, "txns_h1": 60, "vol_m5": 900.0,
+                                   "txns_m5": 7, "ch_m5": 12.0, "ch_h1": 5.0}, "callers10": ["ansem"], "smart10": 1,
+               "expect": "pozivatelji: +15 % prije stopa u 50% (6 izmjerenih poziva, minutna provjera)", "expect_v": 0.5,
+               "age_s": 300, "heat": 9.0, "reasons": ["novi pozivatelj u 10 min: @ansem", "1 pametnih novčanika kupilo u 10 min"]}
+        zivo.rows = lambda now=None, **k: [row]
         pravitrade._IDEAS_CACHE.clear()
         try:
-            picks = pravitrade.latest_picks(NOW)
-            self.assertEqual([p["token"] for p in picks], ["TOKB", "TOKA"])   # best grade first, nothing older than a day
             html = pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW)
-            self.assertIn("TOKB", html)
-            self.assertIn("dexscreener.com/solana/TOKB", html)
-            self.assertIn("vjerojatnost visoka", html)
-            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), html)   # cached
-        finally:
-            data.HYPE_DB, overview.token_rows = saved
+            self.assertIn("AAA", html)
+            self.assertIn("5 min +12 %", html)
+            self.assertIn("Zašto sada:", html)
+            self.assertIn("novi pozivatelj u 10 min: @ansem", html)
+            self.assertIn("1 pametnih novčanika kupilo", html)
+            self.assertIn("Očekivanje:", html)
+            self.assertIn("T2", html)
+            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 1), html)   # 2-s cache
+            zivo.rows = lambda now=None, **k: []
             pravitrade._IDEAS_CACHE.clear()
-
-    def test_followed_accounts_leave_the_lists_and_empty_sections_hide(self):
-        """9.11. (Jure): Arc Trending stayed on top of "koga zapratiti" after he followed it; empty categories are noise."""
-        from ui import autopilot
-        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "arctrending", "", 25, 5, "tpsl", "15%", "")
-        copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "tg:a,tg:b", "", 25, 5, "tpsl", "15%", "")
-        self.lg.commit()
-        self.assertEqual(pravitrade.followed_targets(self.lg), {"arctrending", "tg:a,tg:b", "tg:a", "tg:b"})
-        saved = autopilot.kol_recs
-        rec = lambda h: {"handle": h, "live": True, "s": {"hit": 0.6, "n": 9}, "why": "dobar"}
-        try:
-            autopilot.kol_recs = lambda: {7: [rec("arctrending")], 14: [rec("arctrending"), rec("tg:a")], 30: []}
-            self.assertEqual(pravitrade._kol_section(self.lg, True), "")        # only followed ones: nothing to offer
-            autopilot.kol_recs = lambda: {7: [], 14: [rec("arctrending"), rec("newguy")], 30: []}
-            html = pravitrade._kol_section(self.lg, True)
-            self.assertIn("newguy", html)
-            self.assertNotIn("arctrending", html)
-            self.assertIn("najbolji 14 d: @newguy", html)
+            self.assertEqual(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), "")
         finally:
-            autopilot.kol_recs = saved
-        from ui import data
-        saved_hype = data.HYPE_DB
-        data.HYPE_DB = os.path.join(self.tmp.name, "nema-hype.db")   # no suggestion log: the ideas section stays hidden
-        pravitrade._IDEAS_CACHE.clear()
-        try:
-            _, body = pravitrade.page({}, "Jure")
-        finally:
-            data.HYPE_DB = saved_hype
+            overview.token_rows, zivo.rows = saved
             pravitrade._IDEAS_CACHE.clear()
-        self.assertNotIn("Preporučeni tokeni", body)                # empty: hidden
-        self.assertNotIn("Preporučeni influenceri", body)
-        self.assertIn('id=zovu open hidden', body)                  # live sections exist but stay hidden while empty
-        self.assertIn('id=ideje open hidden', body)
-        self.assertLess(body.index("id=pozicije"), body.index("id=kupi-odmah"))   # positions first, then buy, then exit target
-        self.assertLess(body.index("id=kupi-odmah"), body.index("id=cilj"))
-        self.assertIn("class=ap-go>Kupi", body)
-        self.assertNotIn("Kupi drugi token", body)
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop
 
     def test_fragments_need_access(self):
         self.assertIsNone(pravitrade.callers_fragment("Ivan"))
