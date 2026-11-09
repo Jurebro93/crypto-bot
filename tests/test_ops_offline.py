@@ -280,8 +280,10 @@ class ShortProcessRoundsTest(unittest.TestCase):
                 mock.patch.object(run_kol.time, "sleep", side_effect=fake_sleep):
             with self.assertRaises(Stop):
                 run_kol.cmd_loop(argparse.Namespace(every=20, verbose=False))
-        self.assertEqual(len(calls), 1)
+        # 9.11. 18:20: the locked round, then the network-bound search in a second child outside the lock
+        self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][-1], "once")
+        self.assertEqual(calls[1][-1], "search-round")
         self.assertTrue(calls[0][1].endswith("run_kol.py"))
 
     def test_paper_scan_runs_as_a_child(self):
@@ -358,7 +360,7 @@ class HeavyLockTest(unittest.TestCase):
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
-        self.assertIn("heavy.slot(wait=60, label=", open(os.path.join(root, "run_ui.py")).read())
+        self.assertIn("heavy.slot(wait=0, label=\"gradnja stranice\")", open(os.path.join(root, "run_ui.py")).read())   # 9.11. 19:05: no 60 s wait
 
 
 class HeavyPriorityTest(unittest.TestCase):

@@ -87,12 +87,15 @@ def _save_snap(key, gz):
         pass
 
 
-def _load_snap(key):
-    """(ts, 200, None, gz) from disk, dated so it counts as stale (a refresh starts), or None."""
+def _load_snap(key, stale_ok=False):
+    """(ts, 200, None, gz) from disk, dated so it counts as stale (a refresh starts), or None.
+    stale_ok: also a copy saved before the last clear() (a POST changed data since). 9.11. 18:08: a follow click
+    cleared the cache while the KOL round held the heavy lock, so Pregled was a 503 for 20 min instead of the copy
+    from 18:01 - the page shows its own build time, an older copy beats "try again in a minute"."""
     f = _snap_file(key)
     try:
         mt = os.path.getmtime(f) if f else 0
-        if not f or time.time() - mt > SNAP_MAX_S or mt < _cleared_at:   # a POST changed data since
+        if not f or time.time() - mt > SNAP_MAX_S or (mt < _cleared_at and not stale_ok):
             return None
         with open(f, "rb") as fh:
             gz = fh.read()
@@ -139,8 +142,8 @@ def get(key, build):
     now = time.time()
     with _lock:
         hit = _store.get(key)
-    if hit is None:   # right after a deploy: the copy saved on disk, refreshed in the background below
-        snap = _load_snap(key)
+    if hit is None:   # right after a deploy (or a POST's clear): the copy saved on disk, refreshed in the background
+        snap = _load_snap(key, stale_ok=True)   # 9.11. 19:05: waiting for a fresh build took 60 s+ behind the heavy lock
         if snap:
             with _lock:
                 hit = _store.setdefault(key, snap)

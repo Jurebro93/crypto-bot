@@ -220,6 +220,26 @@ class Run(unittest.TestCase):
             store.DB = saved
 
 
+class DbPath(unittest.TestCase):
+    def test_minute_db_lives_on_the_data_disk(self):
+        d = tempfile.mkdtemp()
+        saved = {k: os.environ.get(k) for k in ("MINUTE_DB", "DATA_DIR")}
+        try:
+            os.environ.pop("MINUTE_DB", None)
+            os.environ["DATA_DIR"] = d
+            self.assertEqual(minute.db_path(), os.path.join(d, "minute.db"))
+            os.environ["MINUTE_DB"] = os.path.join(d, "x.db")
+            self.assertEqual(minute.db_path(), os.path.join(d, "x.db"))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertIn(" minute.db;", open(os.path.join(ROOT, "start.sh")).read().replace("minute.db; do", "minute.db; do"))
+        self.assertIn("simianx.db minute.db; do", open(os.path.join(ROOT, "start.sh")).read())
+
+
 class Zones(unittest.TestCase):
     def test_telegram_time_without_offset_is_utc(self):
         from tg import reader

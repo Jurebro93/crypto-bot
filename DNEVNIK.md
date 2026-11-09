@@ -3,6 +3,38 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 9.11.2026. (večer)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Samokritika mjerenja: zone su bile ispravne (sve unix UTC), ali ulaz je kod GeckoTerminala bio 3–7 min PRIJE poziva, kod većine poziva cijena iz DexScreener snimke do 25 min POSLIJE, a "pogodak" fitilj +50 % u 24 h. Nova minutna provjera (kol/minute.py, vlastiti proces i baza minute.db): ulaz = zatvaranje minute poziva, +5/10/15/20/30 % samo PRIJE stopa −20 % u 60 min; stranica /ekipe po ekipi (članovi, pratitelji, tko zove prvi, zajednički tokeni, rug) i vruća lista koja se čita svake 2 s (TG) / prva u X webhooku. PR #54, #62–#66.
+- Autopilot (PR #53–#67): pozicije na vrhu s prodajom 20/50/100 %, Kupi odmah (adresa + SOL), cilj izlaza 5–30 %, praćenje bilo kojeg walleta/@računa/tg:kanala i EKIPE (zarezom; ulaz čim prvi objavi, do MC $1M, ne ako je već +25 %), "Zovu sada" po ekipi, "Što kupiti sada" uživo (svi filteri + svake 1 s cijena/volumen/novi pozivatelji/pametne kupnje, samo svježi razlozi), pop-upovi za svaki token i ekipu s presudom U REDU ZA ULAZ / NE KUPUJ, sve osvježeno svake 1 s; zapraćeni nestaju s lista, prazni odjeljci skriveni, odjeljci zatvoreni osim Pozicija; gumb Kupi odbija token koji ne prolazi živu provjeru u trenutku dodira.
+- Krivi podaci koje je Jure našao i što je promijenjeno u pravilo: RIPTRUMP ($0 prometa, nuđen zbog kalendarskog događaja) → prijedlog samo sa živim prometom i tezom, event ocjena bez nagrade za mrtav token; WBTC/COINx u "Zovu sada" → majori/zamotano/xStock/likvidnost >$1,5M nisu pozivi, kupnje broje samo tvoji i dokazani novčanici; EVM adrese iz Telegrama ("x47c…") → svaka adresa mora biti Solana mint (32 bajta); JENSEN rugiran na vrhu → ispada istog trena, Kupi odbija; GROK "pozvan prije 24 h" → samo svježi razlozi; "Protiv: rug filter: PROLAZI" → ispravljeno.
+- Rezanje troška (PR #57): zamrznuti Insajderi (−45,7 %) i Ekipa (0 ulaza, $0,8/dan reakcija), bodovanje novčanika 500/6.000 kredita, AI oznake 2.000/dan, PumpPortal poruka 1×/30 min.
+- 18:00–18:20 "aplikacija puca": (1) KOL korak cmd_search (twitterapi.io timelinei ~300 računa + GeckoTerminal trending) držao je tešku bravu 45 min (16:41) i 20+ min (18:05) pa nijedna stranica nije mogla graditi, a nakon klika (POST briše predmemoriju) Pregled/Tokeni su 20 min bili 503 → cmd_search ide u vlastiti proces BEZ brave, a zadnja spremljena kopija služi se i nakon klika; (2) utrka u signal_summary (dva prozora čitana jedan za drugim, novi signal između) rušila je /natjecanje svake sekunde dok UI nije narastao na 883 MB → jedna čitajuća transakcija + nedostajući token uzima svoj redak; /natjecanje gradi retke najviše 1× u 2 min.
+- 20:04 "aplikacija se predugo učitava": brava je i bez KOL searcha stalno zauzeta (run_dugo 29 min, wallets score...), gradnja Pregleda čekala je 60 s na nju pri svakom otvaranju nakon klika, CPU 100 % → gradnja stranice više ne čeka bravu (ide uz teški posao kad je slobodno ≥600 MB, inače odmah zadnja kopija), spremljena kopija služi se odmah i nakon klika pa se osvježi u pozadini, teški poslovi idu s nice 10 da UI prvi dobije CPU.
+- Stabilnost: OOM 12:30/12:56 (moj odjeljak gradio sve hype retke u UI procesu) → popravljeno (#55), nadzor memorije svake minute gasi proces iznad 800 MB umjesto da Render ugasi sve (#59), stranice se grade jedna po jedna. GeckoTerminal 429 → razmak uči stvarni limit (#66).
+
+### U tijeku (alat radi sam)
+- Minutno punjenje 30 dana: 1.265 poziva izmjereno, 35.834 čeka (4.603 tokena); 31–69 tokena po prolazu od ~10 min → gotovo za ~22 h (sutra popodne); ekipe prve. Prva ekipa s karticom: cryptobossgamble + vortex_gamble (37 zajedničkih tokena, 4 rug, +10 % prije stopa na 2 izmjerena). Vruća lista: 25 X, 6 TG računa.
+- Sutra 07:30: 10 vodiča s novim snimkama zaslona + zamjena stare mjere pogotka na ljestvici i preporučenim influencerima minutnom mjerom.
+- U grani, nespojeno (deploy sutra): BrokenPipe iz 1-s anketa više ne puni log Tracebackom.
+
+### Čeka Juru
+1. PumpPortal podatkovni novčanik: uplatiti ≥0,02 SOL ili živi tok ostaje ugašen.
+2. Ako minutno punjenje ostane ispod ~10 tokena/min: plaćeni izvor minutnih svijeća (Birdeye, ključ postoji) — cijena plana prije uključivanja.
+3. Ekipa robinhood_trending/chinesewhalespump…: zapratiti kao ekipu kad /ekipe pokaže njihove minutne brojke (danas nema dovoljno mjerenja).
+
+### Odbačeno / nema smisla (po podacima)
+- "Udvostručio se u 75 % (4 zajednička poziva)" kao dokaz za ekipu: stara mjera (fitilj 24 h) na 4 uzorka; zamjena su minutne brojke na /ekipe.
+- Prijedlog iz dnevnika Pregleda svakih 60 s na Autopilotu: nije live trading; zamijenjen živom listom.
+
+### Bot u 5 brojki (Provjereno sa /strategije, /pregled, /ekipe i Render loga; /admin/export mom računu nije dostupan)
+1. Demo: KOL pozivi $3.616 (+261,6 %, 133 zatvorenih, 22 % dobitnih; bez najboljeg tradea −$833), Izbor alata srednji $1.087 (+8,7 %); glavna demo knjiga danas −$121. KOL pozivi danas −$74.
+2. Najveći gubitnik: Sumnjivi socijali −$3.282 realizirano (zamrznuto); danas KOL potvrđen −$116 (7 zatvorenih, 0 % dobitnih).
+3. Pozicije koje su dotakle +15 % pa zatvorene ispod: ne mogu izmjeriti bez izvoza baze (pretpostavka: iz tablice tradeova 7 dana, više od polovice KOL tradeova s "najviši rast" >15 % zatvoreno je u minusu).
+4. Dnevnik prijedloga (7 d, 24 h kasnije): visoka 28 od 57 dalo +15 % prije stopa, stop prvi 24, medijan vrha +14 %; danas upisano 0 novih ishoda.
+5. Server: disk 2.071 MB slobodno (+40 MB/dan → ~50 dana), RAM stabilno (UI 100–260 MB, svi procesi ≤710 MB), greške: GeckoTerminal 429 ~3/h, BrokenPipe iz anketa (popravak u grani), KOL krug drži bravu 30+ min (bodovanje).
+
 ## 9.11.2026. (popodne, dopuna)
 
 ### Odlučeno i napravljeno (spojeno, radi)

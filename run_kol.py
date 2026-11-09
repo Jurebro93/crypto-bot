@@ -269,14 +269,35 @@ def cycle(a):
     # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
     # 9.11. 13:30: cmd_measure's session backfill held the round 10+ min and the minute check behind it never ran;
     # the minute check is its own process now (run_kol.py minute-loop, minute.db), not a step of the round
+    # 9.11. 18:20: cmd_search (twitterapi.io timelines, GeckoTerminal trending) took 45 min at 16:41 and 20+ min at
+    # 18:05 while holding the heavy-job lock: no page build, no exits rollback, no learn, no archive could run and
+    # Pregled/Tokeni fell to the last copy or a 503 ("aplikacija puca"). It is network waiting, not memory, so it
+    # runs after the round in its own child WITHOUT the lock (cmd_search_round); the collect after it goes with it.
     for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew):
         t = time.time()
         try:
             step(a, con, cfg)
         except Exception as e:
             print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
         if time.time() - t >= 60:   # 8.11.: the round was killed at 60 min for days and nobody could tell which step
+            print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
+    con.close()
+
+
+def cmd_search_round(a):
+    """The network-bound part of the round (cmd_search, then collect of what it found), in its own process and
+    outside the heavy-job lock: it waits on twitterapi.io/GeckoTerminal for 20-45 min and holds little memory."""
+    import faulthandler
+    faulthandler.dump_traceback_later(600, repeat=True)
+    con, cfg = store.connect(), config()
+    for step in (cmd_search, cmd_collect):
+        t = time.time()
+        try:
+            step(a, con, cfg)
+        except Exception as e:
+            print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
+        if time.time() - t >= 60:
             print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
     con.close()
 
@@ -297,12 +318,17 @@ def cmd_loop(a):
         # each round in its own short process (1.11.: this loop sat at ~85 MB between rounds on the 512 MB server,
         # trim could not hand it back); the round's memory goes back to the system when it ends
         import subprocess
-        args = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else []) + ["once"]
+        base = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else [])
+        timeout = max(600, a.every * 60 * 3)
         try:
             from ops import heavy   # one heavy job at a time on the 512 MB server (2.11.)
-            heavy.run(args, timeout=max(600, a.every * 60 * 3))
+            heavy.run(base + ["once"], timeout=timeout)
         except subprocess.TimeoutExpired:
             print("krug: predugo, prekinut", file=sys.stderr)
+        try:   # 9.11. 18:20: the network-bound search without the lock, so pages and other jobs are not held behind it
+            subprocess.run(base + ["search-round"], timeout=timeout, preexec_fn=heavy._nicer)
+        except subprocess.TimeoutExpired:
+            print("krug: search-round predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)
 
 
@@ -310,7 +336,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "snap", "measure", "minute", "minute-loop", "flows", "score", "once", "live", "chain", "converge"):
+    for name in ("collect", "search", "search-round", "snap", "measure", "minute", "minute-loop", "flows", "score", "once",
+                 "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -329,7 +356,8 @@ def main(argv=None):
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
-     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute, "minute-loop": cmd_minute_loop}[a.cmd](a)
+     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute, "minute-loop": cmd_minute_loop,
+     "search-round": cmd_search_round}[a.cmd](a)
 
 
 if __name__ == "__main__":

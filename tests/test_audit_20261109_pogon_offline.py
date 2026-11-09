@@ -98,17 +98,34 @@ class P33ChildNeverFallsBackHere(unittest.TestCase):
         self.b.stop()
 
     def test_busy_lock_serves_last_copy(self):
+        from ops import health
         snap = (time.time() - 100, 200, None, gzip.compress(b"<html>stara kopija</html>"))
         with mock.patch.object(heavy, "slot", return_value=contextlib.nullcontext(False)), \
+                mock.patch.object(health, "container_free_mb", return_value=150.0), \
                 mock.patch.object(self.pagecache, "_load_snap", return_value=snap) as ls, \
                 mock.patch("subprocess.run") as sr, contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(self.run_ui.build_in_child("/pregled"), (200, b"<html>stara kopija</html>"))
         sr.assert_not_called()                                   # no child next to the running heavy job
-        ls.assert_called_once_with(("/pregled", "", None))
+        ls.assert_called_once_with(("/pregled", "", None), stale_ok=True)   # also a copy from before a POST's clear()
         self.assertIn("brava zauzeta", out.getvalue())
 
-    def test_busy_lock_without_copy_is_503(self):
+    def test_busy_lock_with_free_memory_builds_beside_the_job(self):
+        """9.11. 19:05: the lock guards memory; with 1.2 GB free the page must not wait behind run_dugo (29 min)."""
+        from ops import health
+        done = mock.Mock(returncode=0, stdout=b"<html>svjeze</html>", stderr=b"")
         with mock.patch.object(heavy, "slot", return_value=contextlib.nullcontext(False)), \
+                mock.patch.object(health, "container_free_mb", return_value=1200.0), \
+                mock.patch.object(self.pagecache, "_load_snap") as ls, \
+                mock.patch("subprocess.run", return_value=done) as sr, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(self.run_ui.build_in_child("/pregled"), (200, b"<html>svjeze</html>"))
+        sr.assert_called_once()
+        ls.assert_not_called()
+        self.assertIn("gradim /pregled bez brave", out.getvalue())
+
+    def test_busy_lock_without_copy_is_503(self):
+        from ops import health
+        with mock.patch.object(heavy, "slot", return_value=contextlib.nullcontext(False)), \
+                mock.patch.object(health, "container_free_mb", return_value=150.0), \
                 mock.patch.object(self.pagecache, "_load_snap", return_value=None), \
                 mock.patch("subprocess.run") as sr, contextlib.redirect_stdout(io.StringIO()):
             code, html = self.run_ui.build_in_child("/tokens")

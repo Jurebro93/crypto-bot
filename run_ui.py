@@ -356,7 +356,7 @@ def _last_copy(path, why):
     a 200 so the visitor sees data; its age shows in the page), or a 503 "try again in a minute". 9.11. (audit P33):
     never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the copy/auto-sell
     loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
-    snap = pagecache._load_snap((path, "", None))
+    snap = pagecache._load_snap((path, "", None), stale_ok=True)
     if snap:
         print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
         return 200, gzip.decompress(snap[3])
@@ -374,12 +374,20 @@ def build_in_child(path):
     when it ends. 9.11. (audit P33): when the heavy lock stays busy for 60 s, or the child fails or times out, the
     last saved copy (or a 503) is served instead of building here (_last_copy); this process never builds HEAVY pages."""
     import subprocess
-    from ops import heavy
+    from ops import health, heavy
     try:
-        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory)
-        with heavy.slot(wait=60, label="gradnja stranice") as got:
-            if not got:   # 9.11. (audit P33): the lock stayed busy; a child next to a heavy job is what OOM-ed on 2.11.
-                return _last_copy(path, f"brava zauzeta ({heavy.holder() or 'nepoznat posao'}), dijete za {path} ne krećem")
+        # 9.11. 19:05: used to wait up to 60 s for the lock; with run_dugo (29 min) and wallets score holding it one
+        # after another, every visit to Pregled after a click waited the full minute and the browser showed the deploy
+        # page. Now: lock free -> build under it; busy but RAM for a child (UI_BUILD_FREE_MB) -> build next to the
+        # heavy job (the lock guards memory, 2.11. was a 512 MB server); busy and tight -> last copy at once.
+        with heavy.slot(wait=0, label="gradnja stranice") as got:
+            if not got:
+                free = health.container_free_mb()
+                if free is not None and free < float(os.environ.get("UI_BUILD_FREE_MB", "600")):
+                    return _last_copy(path, f"brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno {free:.0f} MB, "
+                                            f"dijete za {path} ne krećem")
+                print(f"ui: brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno "
+                      f"{free if free is None else round(free)} MB: gradim {path} bez brave", flush=True)
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
                                timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
         for ln in r.stderr.decode(errors="replace").splitlines():
@@ -701,7 +709,10 @@ class Handler(BaseHTTPRequestHandler):
             self._admin_cookie()
             self._trade_cookie()
         self.end_headers()
-        self.wfile.write(out)
+        try:
+            self.wfile.write(out)
+        except (BrokenPipeError, ConnectionResetError):   # 9.11.: the 1-s pollers abort old requests; not an error
+            return
 
     def _admin_cookie(self):
         """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""
