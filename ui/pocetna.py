@@ -84,6 +84,71 @@ def strategies(now=None):
             "rank": sorted(summ, key=lambda s: -s["value"])}
 
 
+def _real(s, bankroll):
+    """What a real $1,000 account would hold: the no-borrowing replay of the closed trades (strat/robust.portfolio).
+    The research ledger keeps buying below $0 so a strategy collects trades to learn from (config cash_limit false);
+    that number can read "-377 %" of a $1,000 account, which no real account can do (9.11., Jure: be self-critical)."""
+    pf = s.get("portfolio") or {}
+    v = pf.get("value")
+    if v is None:
+        return s["value"], s["ret"]
+    return v, v / bankroll - 1
+
+
+def _strategy_info(st, best, winners, hidden, control):
+    """The pop-up behind "Vidi više": what is measured, how to read it, and the conclusion for the leader."""
+    cfg = st["cfg"]
+    rb = best.get("robust") or {}
+    pf = best.get("portfolio") or {}
+    stt = best.get("status") or ()
+    n_all = len(st["rank"])
+    hit = f"{best['hit']:.0%}" if best.get("hit") is not None else "–"
+    p15 = f"{best['p15']:.0%}" if best.get("p15") is not None else "–"
+    ctrl = (f"Nasumični ulaz (kontrola) iz istog skenera stoji na {_pct(control['ret'])} nakon {control['closed']} "
+            f"zatvorenih: toliko gubi tržište samo po sebi u ovom razdoblju." if control else
+            "Nasumična kontrola još nema zatvorenih tradeova.")
+    conc = ""
+    if rb:
+        if rb.get("concentrated"):
+            conc = (f"Ukupno zatvoreno {rb['total']:+,.0f} $, ali najbolji trade nosi {rb['best']:+,.0f} $; bez njega "
+                    f"{rb['no_best']:+,.0f} $, bez 5 najboljih {rb['no_top5']:+,.0f} $. <b>Rezultat ovisi o jednom tradeu</b>, "
+                    "to nije dokaz da pravilo radi.")
+        else:
+            conc = (f"Ukupno zatvoreno {rb['total']:+,.0f} $; bez najboljeg tradea {rb['no_best']:+,.0f} $, bez 5 najboljih "
+                    f"{rb['no_top5']:+,.0f} $.")
+    skipped = (f" ({pf['skipped']} ulaza preskočeno jer na računu nije bilo novca)" if pf.get("skipped") else "")
+    verdict = f"<b>{esc(stt[1])}</b> · {esc(stt[2])}" if len(stt) >= 3 else "–"
+    body = (
+        f"<h3>Što se mjeri</h3>"
+        f"<p>{n_all} odvojenih demo računa po ${cfg['bankroll_usd']:,.0f}, od {st['days']:.0f} dana. Svaki kupuje po jednom "
+        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima: za tokene "
+        f"ispod 1 M $ pola se proda na +15 %, ostatak prati stop 15 % ispod vrha, stop −25 %; za tokene iznad 1 M $ stop −20 % "
+        f"i ljestvica +15 % / +30 %. Cijene su demo cijene s DexScreenera i GeckoTerminala, s troškom 1 % po strani. "
+        f"Nikad pravi novac.</p>"
+        f"<h3>Kako čitati brojke</h3>"
+        f"<ul><li><b>S pravih ${cfg['bankroll_usd']:,.0f}</b>: isti zatvoreni tradeovi ponovljeni s fiksnim računom bez "
+        f"posuđivanja; ulaz za koji nema gotovine se preskače. To je broj na ovoj kartici.</li>"
+        f"<li><b>Istraživačka knjiga</b>: račun koji kupuje i kad potroši novac, da strategija skupi dovoljno tradeova za "
+        f"učenje; zato na stranici Usporedba strategija može pasti ispod nule. Nije rezultat koji bi pravi račun imao.</li>"
+        f"<li><b>Tradeova u plusu</b>: udio zatvorenih tradeova s dobiti. <b>≥ +15 %</b>: udio koji je dosegao +15 %.</li>"
+        f"<li><b>Presuda</b>: <i>uči</i> dok nema 100 zatvorenih; <i>kandidat</i> tek kad po tradeu pobjeđuje nasumični ulaz, "
+        f"u obje polovice razdoblja i bez 5 najboljih tradeova; inače <i>ne diraj pravi novac</i>. Kandidat znači daljnje "
+        f"testiranje, ne pravi novac.</li>"
+        f"<li>Ovdje su samo strategije u plusu; {hidden} ih je u minusu ili bez tradeova i vide se na punoj stranici.</li></ul>"
+        f"<h3>Zaključak za {esc(best['icon'])} {esc(best['name'])}</h3>"
+        f"<p>S pravih ${cfg['bankroll_usd']:,.0f}: <b>${pf.get('value', best['value']):,.0f}</b>{skipped}. "
+        f"{best['closed']} zatvorenih, {hit} u plusu, {p15} doseglo +15 %. {conc}</p>"
+        f"<p>{ctrl}</p><p>Presuda: {verdict}.</p>"
+        f"<h3>Što još nije pouzdano</h3>"
+        f"<p>Otvorene pozicije vrijede po zadnjoj viđenoj cijeni, a za mrtve tokene ta cijena može biti stara. Demo ne "
+        f"plaća pravi slippage pri ulazu u tanke tokene. Razdoblje je kratko ({st['days']:.0f} dana) i jedno tržišno "
+        f"stanje; presuda se mijenja kad kontrola i strategije skupe više tradeova.</p>")
+    return ("<dialog id=strat-info><div class=bar2><button onclick=\"this.closest('dialog').close()\">Zatvori ✕</button></div>"
+            f"<div class=body>{body}</div></dialog>"
+            "<script>(function(){var d=document.getElementById('strat-info');if(d)d.addEventListener('click',function(e){"
+            "if(e.target===d)d.close()})})()</script>")
+
+
 def strategy_html(now=None):
     try:
         st = strategies(now)
@@ -93,30 +158,50 @@ def strategy_html(now=None):
         return ("<div class=ov-hero><div class=k>Najprofitabilnija strategija</div><div class=s>Pet demo računa po $1000 "
                 "još nema nijedan trade. Prvi ulazi dolaze unutar par minuta nakon pokretanja.</div>"
                 "<div class=s><a href=/strategije>Usporedba strategija →</a></div></div>")
-    cfg, rank = st["cfg"], st["rank"]
+    cfg = st["cfg"]
+    bankroll = cfg["bankroll_usd"]
+    # 9.11. (Jure: be self-critical): the card ranks by what a real $1,000 would hold (no borrowing), not by the
+    # research ledger, which keeps buying below $0 and showed "-377 %" accounts; see _real() and the pop-up
+    rows = []
+    for s in st["rank"]:
+        v, r = _real(s, bankroll)
+        rows.append({**s, "real_value": v, "real_ret": r})
+    control = next((s for s in rows if s["key"] == "kontrola"), None)
+    rank = sorted((s for s in rows if s["key"] != "kontrola"), key=lambda s: -s["real_value"]) or rows
     best = rank[0]
     total = sum(s["closed"] for s in rank)
-    profit = best["value"] - cfg["bankroll_usd"]
+    profit = best["real_value"] - bankroll
     hit = f"{best['hit']:.0%}" if best["hit"] is not None else "–"
     early = (f"<div class=s>⏳ Još je rano: zatvoreno {total} tradeova. Pouzdan pobjednik treba ~20 zatvorenih po "
              "strategiji.</div>" if total < 20 * len(rank) else "")
-    lead = "vodi" if best["ret"] > 0 else "najmanje gubi"
+    lead = "vodi" if best["real_ret"] > 0 else "najmanje gubi"
     # the same verdict as on /strategije (strat/robust.py): "uči" until 100 closed trades, "kandidat" only when it
     # beats the random control; without it "+342 %" on 33 trades read as a proven winner (4.11.)
     stt = best.get("status") or ()
     verdict = (f'<div class=s>Presuda: <b>{esc(stt[1])}</b> · {esc(stt[2])}</div>' if len(stt) >= 3 else "")
+    rb = best.get("robust") or {}
+    conc = (f'<div class=s>⚠ Bez najboljeg tradea: <b>{rb["no_best"]:+,.0f} $</b>. Plus nosi jedan trade.</div>'
+            if rb.get("concentrated") else "")
     d7 = (f" · zadnjih 7 dana {_pct(best['d7'])}" if best.get("d7") is not None else "")
     d24 = (f" · zadnja 24 h {_pct(best['d24'])}" if best.get("d24") is not None else "")
-    others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["ret"])} · '
-                     f'${s["value"]:,.0f}</span></li>' for i, s in enumerate(rank[1:], 2))
-    return (f'<div class=ov-hero><div class=k>Najprofitabilnija strategija · {lead}</div>'
+    # 9.11. (Jure): only strategies in profit are listed here; the losers are a count and a link, the full table is
+    # on /strategije. A reader deciding what to follow does not need twelve red rows.
+    winners = [s for s in rank[1:] if s["real_ret"] > 0 and s["closed"]]
+    hidden = len(rank) - 1 - len(winners)
+    others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["real_ret"])} · '
+                     f'${s["real_value"]:,.0f}</span></li>' for i, s in enumerate(winners, 2))
+    rest = (f'<div class=s>Još {hidden} strategija je u minusu ili bez tradeova; ovdje se ne prikazuju.</div>' if hidden else "")
+    return (f'<div class=ov-hero><div class=k>Najprofitabilnija strategija · {lead} · s pravih ${bankroll:,.0f}</div>'
             f'<div class=n>{esc(best["icon"])} {esc(best["name"])}</div>'
-            f'<div class="r {"pos" if best["ret"] > 0 else "neg" if best["ret"] < 0 else ""}">{best["ret"]:+.1%}</div>'
-            f'<div class=s>${cfg["bankroll_usd"]:,.0f} → <b>${best["value"]:,.0f}</b> ({profit:+,.0f} $) za '
+            f'<div class="r {"pos" if best["real_ret"] > 0 else "neg" if best["real_ret"] < 0 else ""}">{best["real_ret"]:+.1%}</div>'
+            f'<div class=s>${bankroll:,.0f} → <b>${best["real_value"]:,.0f}</b> ({profit:+,.0f} $) za '
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
-            f'<div class=s>{best["closed"]} zatvorenih tradeova, u plusu {hit} · {esc(best.get("opis") or "")}</div>'
-            f'{verdict}{early}<ul class=ov-rank>{others}</ul>'
-            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a></div></div>')
+            f'<div class=s>{best["closed"]} zatvorenih tradeova, {hit} tradeova u plusu · {esc(best.get("opis") or "")}</div>'
+            f'{verdict}{conc}{early}' + (f'<ul class=ov-rank>{others}</ul>' if others else "") + rest +
+            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a> · '
+            '<a href="#" onclick="document.getElementById(\'strat-info\').showModal();return false">'
+            'Vidi više: što se mjerilo, kako i zaključak</a></div></div>'
+            + _strategy_info(st, best, winners, hidden, control))
 
 
 # ---------- 2. how much data, and growth against last week ----------
