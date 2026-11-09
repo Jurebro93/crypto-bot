@@ -20,6 +20,30 @@
  "equity_every_min": 15,
  "strategies": [
   {
+   "key": "dokazani",
+   "name": "Dokazani novčanici",
+   "icon": "🧭",
+   "opis": "Kopija kupnje novčanika koji su dva puta zaredom dokazali plus: 5+ zatvorenih pozicija s 50 %+ dobitnih i realiziranim plusom prije datuma reza, pa plus i poslije njega; samo kopirljivi (drže 10+ minuta, do 50 tradeova dnevno, bez bot/sniper oznaka). Ulaz do 2 minute nakon njegove kupnje, izlaz pola na +10 %, ostatak na +15 %, stop −20 %, ili kad on proda. Za svaku kopiju se bilježi kašnjenje i njegova cijena ulaza, pa se klizanje kopiranja mjeri, ne pretpostavlja.",
+   "exits": {
+    "sl": -0.2,
+    "tp": [
+     [
+      0.1,
+      0.5
+     ],
+     [
+      0.15,
+      0.5
+     ]
+    ],
+    "trail_after": 0.15,
+    "trail": 0.1,
+    "stale_min": null,
+    "breakeven_after_tp": false
+   },
+   "_exits": "9.11. (Jure): izlaz na 10 ili 15 %; bez 'ništa se ne događa' izlaza jer dokazani novčanici drže 10+ min."
+  },
+  {
    "key": "top_novcanici",
    "name": "Top novčanici",
    "icon": "👛",
