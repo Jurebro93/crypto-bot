@@ -318,20 +318,44 @@ def drain(hype_db=None, log=print, max_files=200, timeout=None):
     return n
 
 
+_ENSURED = set()   # 9.11. (review izvori): hype.db paths whose chain tables this process has created
+
+
+def _create(con):
+    con.execute("""CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER,
+                   sol REAL, PRIMARY KEY (sig, mint))""")
+    con.execute("""CREATE TABLE IF NOT EXISTS chain_transfers (sig TEXT, src TEXT, dst TEXT, mint TEXT, amount REAL,
+                   ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
+    con.execute("CREATE INDEX IF NOT EXISTS chain_trades_ts ON chain_trades (ts)")   # 9.11.: the live callers box reads by time
+
+
+def ensure_tables(hype_db=None):
+    """Create chain_trades/chain_transfers once per process (the early return for payloads without swaps skipped it,
+    so a fresh install had no tables until the first real swap). A locked hype.db is not waited for."""
+    path = hype_db or HYPE_DB
+    if path in _ENSURED:
+        return
+    try:
+        con = sqlite3.connect(path, timeout=1)
+        _create(con)
+        con.commit()
+        con.close()
+        _ENSURED.add(path)
+    except sqlite3.OperationalError:
+        pass
+
+
 def ingest(payload, hype_db=None, _spool=True, timeout=None):
     """Called by the dashboard for each POST to /hook/chain. 9.11. (audit P21): on 'database is locked' the payload
     goes to the spool and the count comes back, so the dashboard answers 200 and the event is written later."""
     rows = parse(payload)
     transfers = parse_transfers(payload)
     if not rows and not transfers:
+        ensure_tables(hype_db)   # 9.11. (review izvori): a fresh install gets the tables before the first real swap
         return 0
     try:
         con = sqlite3.connect(hype_db or HYPE_DB, timeout=timeout or (60 if not _spool else 10))
-        con.execute("""CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER,
-                       sol REAL, PRIMARY KEY (sig, mint))""")
-        con.execute("""CREATE TABLE IF NOT EXISTS chain_transfers (sig TEXT, src TEXT, dst TEXT, mint TEXT, amount REAL,
-                       ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
-        con.execute("CREATE INDEX IF NOT EXISTS chain_trades_ts ON chain_trades (ts)")   # 9.11.: the live callers box reads by time
+        _create(con)
         con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
         con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
         now = time.time()

@@ -297,9 +297,12 @@ class UiChildRenderTest(unittest.TestCase):
         src = open(os.path.join(os.path.dirname(__file__), "..", "run_ui.py")).read()
         self.assertIn('pagecache.warm(list(WARM), build_in_child', src)
         import run_ui
-        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled"))
+        # 9.11. 19:32: /ekipe (180 s) and /kol (30 s) joined, built in this process they took it to 818 MB (watchdog)
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol"))
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
-        self.assertIn("build_in_child(path)) if path in HEAVY", src)
+        self.assertTrue(set(run_ui.SNAPSHOT_ONLY) <= set(run_ui.HEAVY))
+        self.assertIn("build_in_child(path)) if heavy_page", src)
+        self.assertIn("pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page", src)
 
     def test_child_failure_never_builds_here(self):
         """9.11. (audit P33): a failed child serves the last saved copy or a 503; build() never runs in this process."""

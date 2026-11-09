@@ -347,23 +347,39 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype signal: built by build_in_child, never in this process
+# pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
+# never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
+# memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
+SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but their last good build is kept on disk
+BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
+
+
+def _building_html(path):
+    """The 503 "being built" page: refreshes itself (meta refresh + Retry-After in _send) and offers the pages that
+    never wait (Autopilot, Natjecanje), so it is a short wait, not a dead end (9.11. 18:08-18:17: Pregled was this
+    page for 10 min and the only way on was to keep clicking)."""
+    body = (f"<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom; stranica se gradi u pozadini "
+            f"i ova se sama osvježava za {BUILDING_REFRESH_S} s. Pokušaj ponovno za minutu ako se ne pojavi.</p>"
+            f"<p><a href=/pravi-trade>Autopilot</a> · <a href=/natjecanje>Natjecanje</a> · <a href=/>Na pregled</a></p>")
+    html = page("Stranica nije dostupna", body, path)
+    meta = f'<meta http-equiv="refresh" content="{BUILDING_REFRESH_S}">'
+    html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
+    return 503, i18n.translate(html).encode("utf-8")
 
 
 def _last_copy(path, why):
     """(code, html bytes) when the child could not render `path`: the last snapshot pagecache saved on disk (served as
-    a 200 so the visitor sees data; its age shows in the page), or a 503 "try again in a minute". 9.11. (audit P33):
-    never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the copy/auto-sell
-    loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
+    a 200 so the visitor sees data; its age shows in the page), or the self-refreshing 503 (_building_html). 9.11.
+    (audit P33): never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the
+    copy/auto-sell loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
     snap = pagecache._load_snap((path, "", None), stale_ok=True)
     if snap:
         print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
         return 200, gzip.decompress(snap[3])
     print(f"ui: {why}, nema spremljene kopije {path}", flush=True)
-    html = page("Stranica nije dostupna", "<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom. "
-                "Pokušaj ponovno za minutu. <a href=/>Na pregled</a></p>", path)
-    return 503, i18n.translate(html).encode("utf-8")
+    return _building_html(path)
 
 
 def build_in_child(path):
@@ -618,11 +634,16 @@ class Handler(BaseHTTPRequestHandler):
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
-        mk = (lambda: build_in_child(path)) if path in HEAVY and not u.query else (lambda: build(path, qs))
+        heavy_page = path in HEAVY and not u.query
+        mk = (lambda: build_in_child(path)) if heavy_page else (lambda: build(path, qs))
+        # 9.11. 19:32: a heavy page that is in neither memory nor on disk is built in the background and the visitor
+        # gets the self-refreshing "being built" page at once, instead of a request that hangs 60-180 s (Cloudflare
+        # gives up at 100 s) while the child renders
+        fetch = (lambda k, b: pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page else pagecache.get
         if self.lang == "hr":
-            code, raw, gz = pagecache.get(key, mk)
+            code, raw, gz = fetch(key, mk)
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
-            code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
+            code, raw, gz = fetch(key, mk)   # cached Croatian page, then translated
             if code == 200:
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
@@ -1180,6 +1201,7 @@ def main(argv=None):
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
     pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

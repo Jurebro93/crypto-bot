@@ -269,13 +269,12 @@ NET_FEES_SOL = 0.002   # 9.11. (audit P38): network fees of a buy + a sell net o
 
 def _quote_error(q):
     """9.11. (audit P40): jupiter._call hands an HTTP error (429 keyless limit, 400, 5xx) back as the JSON body with
-    http_status instead of raising; a quote like that is no answer, not "no route"."""
+    http_status instead of raising; a quote like that is no answer, not "no route". A 200 answer with 'error' and no
+    outAmount (e.g. "No route found") is a real answer and stays on the honeypot path in sell_check (review novac)."""
     if not isinstance(q, dict):
         return "neispravan odgovor"
     if q.get("http_status"):
         return f"HTTP {q['http_status']}"
-    if not q.get("outAmount") and q.get("error"):
-        return str(q["error"])[:80]
     return None
 
 

@@ -40,7 +40,8 @@ class PraviTrade(unittest.TestCase):
         self.lg.close()
         self.tmp.cleanup()
 
-    def _demo_buy(self, token, opened=NOW):
+    def _demo_buy(self, token, opened=NOW - 30):   # 9.11. (review novac): a copy younger than COPY_BOOK_WAIT_S without
+        # follow_id / copy_log is left for the next tick (league/copy.py books them a few ms after store.buy commits)
         self.lg.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (settings.LEAGUE_USER, 1e9, 0))
         tid = store.buy(self.lg, settings.LEAGUE_USER, token, token, 25, 1.0, 1e6, "copy wallet X")
         self.lg.execute("UPDATE trades SET opened_ts=? WHERE id=?", (int(opened), tid))
