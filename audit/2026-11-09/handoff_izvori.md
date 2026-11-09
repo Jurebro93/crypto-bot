@@ -62,3 +62,24 @@ iste ključeve; `_pct(None)` mora ostati 0-tolerantan (provjeriti da None ne daj
   parametar `now`. run_ui.py:877 poziv bez promjene.
 - Sve nove tablice/kv: minute.db kv 'minute_retry' (P24), call_path bad='pool' (P24) – ui/coverage ne broji 'pool' zasebno
   (ui nije moje; po želji dodati SUM(bad='pool') u kol/minute.coverage – to je moje, javite ako treba).
+
+## Recenzija (adversarial review, izvori) – popravljeno u vlasništvu grupe
+- run_kol.py:37 `con.commit()` prije `xhook.drain()`: drain otvara vlastitu konekciju, a `collect.from_webhook` (kols UPSERT
+  piše uvijek) je držao write lock → drain bi čekao 60 s i spool se nikad ne bi praznio (P3). Test: XHookSpool.test_collect_drains_although_its_own_connection_wrote_first.
+- tg/poll.py due(): praćeni kanal sa statusom 'dead' i fails >= max_fails (tipfeler, privatni) čita se svakih poll_active_s, ne 2 s
+  zauvijek (t.me IP i 429 backoff su zajednički). Prvi uspješan visit() ga vraća u 2-s skup.
+- kol/xhook.py + kol/chainwatch.py spool(): ime datoteke s os.urandom tailom (dvije niti u istoj ms više ne prepisuju jedna drugu).
+- kol/chainwatch.py: drain() dobiva `timeout`; drain iz webhook niti čeka 10 s, ne 60.
+## Recenzija – izvan vlasništva (napomene)
+- .copy_wake (tracked u gitu iako je u .gitignore) je prljav u radnom stablu. Orkestrator: ne komitati; dugoročno
+  `git rm --cached .copy_wake` (pitati Juru). Moduli koji pišu pravi copy.WAKE (izmjereno po modulu, mtime prije/poslije):
+  tests/test_xhook_offline.py (moje – popravljeno: setUpModule patcha copy.WAKE u temp dir),
+  tests/test_hype_sources_offline.py (nije moje; piše ga preko hype/sources.ingest_kol_event → league/copy.wake, P25),
+  tests/test_live_offline.py, tests/test_pravitrade_offline.py, tests/test_register_offline.py (nisu moji; preko live/store.py:61
+  _copy.wake(), postojeće prije audita). Popravak za svaki: u modulu
+  `_WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))` + setUpModule/tearDownModule start/stop
+  (kao u tests/test_xhook_offline.py), ili centralno u league/copy.wake: preskočiti pisanje kad je env MEMESONAR_TEST=1.
+- kol/chainwatch.ingest: payload bez swapova sad zove ensure_tables() (jednom po procesu, timeout 1 s, zaključan hype.db se preskače),
+  pa svježa instalacija dobiva chain_trades/chain_transfers i prije prvog pravog swapa (recenzentska napomena, popravljeno).
+- ui/pravitrade.py:930: 'oprez' sad obuhvaća i "holderi nepoznati" → pop-up kaže "NE KUPUJ" i skriva gumb Kupi za tokene s light
+  RugCheck izvještajem; treba prikazati checks['holderi'][1] ("koncentracija nepoznata") kao razlog, kako je već u P36 handoffu.

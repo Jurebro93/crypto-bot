@@ -169,6 +169,20 @@ class ChainSpool(unittest.TestCase):
         self.assertEqual(seen, [(False, 10)])
 
 
+class ChainTables(unittest.TestCase):
+    def test_a_payload_without_swaps_still_creates_the_tables_once(self):   # review izvori
+        d = tempfile.mkdtemp()
+        db = os.path.join(d, "hype.db")
+        self.assertEqual(chainwatch.ingest([{"type": "UNKNOWN"}], db), 0)
+        con = sqlite3.connect(db)
+        names = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        con.close()
+        self.assertTrue({"chain_trades", "chain_transfers"} <= names)
+        self.assertIn(db, chainwatch._ENSURED)
+        with mock.patch.object(sqlite3, "connect", _locked):   # the second empty payload does not open the file again
+            self.assertEqual(chainwatch.ingest([{"type": "UNKNOWN"}], db), 0)
+
+
 class KolMentionsTime(unittest.TestCase):
     def test_ts_is_the_post_time_from_the_status_link_and_wakes_copy(self):   # P20, P25
         d = tempfile.mkdtemp()
