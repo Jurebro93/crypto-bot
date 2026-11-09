@@ -223,11 +223,16 @@ def cmd_follow(a):
     since = time.time() - cfg["max_signal_age_s"]
     print(f"Pratim račun {settings.LEAGUE_USER} (i paper.db ako je uključeno), mod "
           f"{'LIVE' if executor.is_live(cfg) else 'DRY-RUN'}, wallet {wallet.address()}")
-    beat = {"ts": 0}
+    beat = {"ts": 0, "live": None}
     while True:
         try:
             con = executor.connect(DB)
             cfg = load(a.config, con)
+            live_now = executor.is_live(cfg)
+            if live_now != beat["live"]:   # 9.11.: the mode is visible in the log every time it changes, not only at start
+                print(f"pravi trade: mod {'LIVE' if live_now else 'DRY-RUN'} (prekidač {'uključen' if cfg.get('on') else 'isključen'}, "
+                      f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'})", flush=True)
+                beat["live"] = live_now
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()

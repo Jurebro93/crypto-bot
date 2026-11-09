@@ -519,6 +519,16 @@ def _log_section(tcon, cfg):
                 f'<div id=ap-log>{log_html(tcon, cfg)}</div>{js}', open_=True, sid="uzivo")
 
 
+# 9.11. (Jure, mobitel): the section headers needed 5-6 taps to open, sometimes closed instead. Their <summary> is
+# display:flex, and mobile Safari/Chrome drop or double-fire taps on such summaries. The tap is handled by hand:
+# one tap = one toggle, and open sections are remembered for the page's reloads (sessionStorage).
+TOGGLE_JS = ("<script>(()=>{const K='ap-open';let open={};try{open=JSON.parse(sessionStorage.getItem(K)||'{}')}catch(e){}"
+             "document.querySelectorAll('details.ap-sec,details.ap-it').forEach((d,i)=>{const id=d.id||('ap'+i);"
+             "if(id in open)d.open=!!open[id];const s=d.querySelector(':scope>summary');if(!s)return;"
+             "s.addEventListener('click',e=>{if(e.target.closest('a,button,input,select'))return;e.preventDefault();"
+             "d.open=!d.open;open[id]=d.open;try{sessionStorage.setItem(K,JSON.stringify(open))}catch(x){}})})})()</script>")
+
+
 # ---------- limits, invites, safety -----------------------------------------------------------------------------
 
 def _limits(cfg, owner):
@@ -576,6 +586,10 @@ def _safety():
                 + "".join(f"<li>{t}</li>" for t in items) + "</ul>")
 
 
+def _with_toggle(html_body):
+    return html_body + TOGGLE_JS
+
+
 def page(qs, user):
     tcon = _tcon()
     try:
@@ -602,7 +616,7 @@ def page(qs, user):
         if owner:
             b.append(_invites(tcon))
         b += [_safety(), JS]
-        return TITLE, "".join(b)
+        return TITLE, _with_toggle("".join(b))
     finally:
         tcon.close()
 

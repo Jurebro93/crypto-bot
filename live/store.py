@@ -53,8 +53,14 @@ def mirror_chain(con, rows, followed):
     Natjecanje follows see a pump.fun buy even when the webhook is late or over its 100 addresses."""
     con.execute("""CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER,
                    sol REAL, PRIMARY KEY (sig, mint))""")
-    con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)",
-                    [(r[0], r[2], r[1], r[3], r[9], r[4] if r[3] == "buy" else None) for r in rows if r[2] in followed])
+    mine = [(r[0], r[2], r[1], r[3], r[9], r[4] if r[3] == "buy" else None) for r in rows if r[2] in followed]
+    con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", mine)
+    if mine:
+        try:
+            from league import copy as _copy   # 9.11.: a followed wallet traded: the copy loop runs within a second
+            _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def prune(con, now=None):
