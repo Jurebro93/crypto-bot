@@ -130,3 +130,26 @@ class Strategy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Page(unittest.TestCase):
+    def test_latest_rows_and_the_page_items(self):
+        tmp = tempfile.mkdtemp()
+        path, con = make_db(tmp)
+        dokazani.run(con, NOW, log=None)
+        con.close()
+        rows = dokazani.latest(path)
+        self.assertEqual([r["wallet"] for r in rows], ["PROVEN"])
+        self.assertEqual((rows[0]["hold_min"], rows[0]["tpd"], rows[0]["passed"]), (30, 5, 1))
+        self.assertEqual(dokazani.latest(os.path.join(tmp, "none.db")), [])
+        from ui import pravitrade
+        html = pravitrade._dokazani_items(rows, set(), True, {"PROVEN": "@proven"})
+        self.assertIn("Prije reza", html)
+        self.assertIn("@proven", html)
+        self.assertIn("Poslije reza", html)
+        card = pravitrade._buy_now_card({"size_sol": 0.1}, True)
+        self.assertIn("Kupi odmah", card)
+        self.assertIn('name=sol value="0.1"', card)
+        self.assertEqual(pravitrade._buy_now_card({"size_sol": 0.1}, False), "")
+        src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
+        self.assertLess(src.index("_buy_now_card(cfg, owner), _follows"), src.index("_kol_section(con, owner),\n"))

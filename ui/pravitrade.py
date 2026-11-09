@@ -350,10 +350,49 @@ def _kol_section(con, owner):
     return _sec("Preporučeni influenceri", meta, inner, sid="influenceri")
 
 
+def _dokazani_items(rows, have, owner, names=None):
+    """The proven-twice wallets (wallets/dokazani.py) with their own on-chain result before and after the cut."""
+    names = names or {}
+    items = []
+    for r in rows:
+        nm = names.get(r["wallet"])
+        nm = f' <span class=mut>{esc(nm)}</span>' if nm else ""
+        style = {"swing": "swing", "scalper": "scalper", "bot": "bot", "sniper": "sniper"}.get(r.get("style") or "", r.get("style") or "")
+        why = (f'Prije reza: {r["realized_before"]:+.1f} SOL na {r["closed_before"]} zatvorenih ({r["win_before"]:.0%} u plusu). '
+               f'Poslije reza: {r["realized_after"]:+.1f} SOL na {r["closed_after"]} zatvorenih'
+               + (f' ({r["win_after"]:.0%} u plusu)' if r.get("win_after") is not None else "") + ". "
+               + (f'Drži medijan {r["hold_min"]:.0f} min, {r["tpd"]:.0f} tradeova dnevno' if r.get("hold_min") is not None and r.get("tpd") is not None else "")
+               + (f', stil {style}.' if style else "."))
+        items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
+                     f'<span class=k>{r["realized_after"]:+.1f} SOL poslije reza · {r["closed_before"] + r["closed_after"]} zatv.</span></summary>'
+                     f'<p>{why}</p>{_follow_btn("wallet", r["wallet"], names.get(r["wallet"]) or "", have, owner)}</details>')
+    return "".join(items)
+
+
 def _wallet_section(con, owner):
     from ui import autopilot
     recs = autopilot.wallet_recs()
     have = {(f["kind"], f["target"]) for f in copy.follows(con, settings.LEAGUE_USER)}
+    # 9.11. (Jure: "preporučeni walleti trebali bi biti povijesno analizirani, s PnL-om"): the proven-twice list
+    # first (wallets/dokazani.py: own on-chain result before AND after a 5-day cut, copyable style only)
+    try:
+        from wallets import dokazani as _dok
+        proven = _dok.latest()[:autopilot.TOP]
+    except Exception:  # noqa: BLE001
+        proven = []
+    names = {}
+    try:
+        kc = copy._ro(copy._paths()["kol"])
+        if kc is not None:
+            names = {w: (f"@{tw}" if tw else (n or "")) for w, n, tw in copy._q(kc, "SELECT wallet, name, twitter FROM kol_ids")}
+            kc.close()
+    except Exception:  # noqa: BLE001
+        pass
+    dok = (f'<p class=mut style="margin:0 0 6px;font-size:13px"><b>Dokazani dvaput</b>: 5+ zatvorenih pozicija s plusom i 50 %+ dobitnih '
+           f'prije reza od 5 dana, pa opet plus poslije reza; samo walleti koje se može kopirati (drže 10+ min, do 50 tradeova dnevno, '
+           f'bez bot/sniper oznaka). Brojke su njihov vlastiti rezultat na lancu, ne naša kopija.</p>'
+           + (_dokazani_items(proven, have, owner, names) or
+              '<p class=mut>Lista se računa svaka 3 sata iz pohranjenih tradeova; prvi put nakon današnjeg deploya. Dok je prazna, nema koga kopirati.</p>'))
     panes = {}
     for d, rows in recs.items():
         items = []
@@ -367,9 +406,11 @@ def _wallet_section(con, owner):
                                       f'{autopilot.MIN_CLOSED} prodana tokena u plusu.</p>')
     best = next((r for r in recs.get(14) or []), None)
     meta = f'najbolji 14 d: {100 * best["s"]["roi"]:+.0f}%' if best else "po zadnjih 7/14/30 dana"
-    inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Povrat = koliko je SOL-a vratio na tokenima koje je '
+    inner = (dok + '<p style="margin:14px 0 4px"><b>Po zadnjih 7/14/30 dana</b> (samo walleti koje pratimo uživo)</p>'
+             + f'<p class=mut style="margin:0 0 6px;font-size:13px">Povrat = koliko je SOL-a vratio na tokenima koje je '
              f'kupio i prodao u tom razdoblju {tip("Iz njegovih stvarnih kupnji i prodaja na lancu (Helius). Gledamo postotak, ne SOL, jer bot ulaže svoj, manji iznos. Samo walleti koje pratimo uživo, da bot kupi u sekundama nakon njih.")}</p>'
              + _windows("wal", panes))
+    meta = f"{len(proven)} dokazanih · " + meta
     return _sec("Preporučeni walleti", meta, inner, sid="walleti")
 
 
@@ -385,6 +426,23 @@ def _buy_form(mint, cfg, exit_mode, owner):
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
             '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
             '<button>Kupi</button></form>')
+
+
+def _buy_now_card(cfg, owner):
+    """9.11. (Jure): at the top of the page, buy any token right now with the amount you choose."""
+    if not owner:
+        return ""
+    return ('<div class=card id=kupi-odmah><b>Kupi odmah</b> <span class=mut>bilo koji token, iznos po želji</span>'
+            '<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
+            '(ako je Autopilot uključen)?\')" style="margin-top:8px"><input name=token placeholder="adresa tokena ili DexScreener link" '
+            'required style="flex:1;min-width:200px">'
+            f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
+            '<select name=exit aria-label="Kako prodati"><option value=smart>Smart sell</option><option value=tpsl>moj TP/SL</option>'
+            '<option value=manual>prodajem sam</option></select>'
+            '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
+            '<button>Kupi</button></form><p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao '
+            'automatske kupnje (rug, likvidnost, dnevni limit, rezerva za prodaju). Pravi novac ide samo kad je Autopilot uključen; '
+            'inače je ovo probna kupnja.</p></div>')
 
 
 def _token_section(cfg, owner):
@@ -608,7 +666,7 @@ def page(qs, user):
             copy.ensure(con)
             b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
+                 _wallet_card(tcon, cfg, con, owner), _buy_now_card(cfg, owner), _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner),
                  _log_section(tcon, cfg), _positions(tcon, not owner, owner, cfg.get("sell_req")), _limits(cfg, owner)]
         finally:

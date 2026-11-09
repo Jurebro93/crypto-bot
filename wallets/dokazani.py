@@ -123,6 +123,37 @@ def current(path=None):
         con.close()
 
 
+def latest(path=None, passed_only=True):
+    """Rows of the latest run as dicts (plus the wallet's style/hold/trades-a-day from wallets.stats), best after-cut
+    result first; [] without the table."""
+    path = path or wstore.DB
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        con.row_factory = sqlite3.Row
+        last = con.execute("SELECT MAX(as_of) FROM dokazani").fetchone()[0]
+        if not last:
+            return []
+        rows = [dict(r) for r in con.execute("SELECT d.*, w.stats, w.labels FROM dokazani d LEFT JOIN wallets w ON w.wallet = d.wallet "
+                                             "WHERE d.as_of = ?" + (" AND d.passed = 1" if passed_only else ""), (last,))]
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    for r in rows:
+        try:
+            s = json.loads(r.pop("stats", None) or "{}")
+        except ValueError:
+            s = {}
+        r["style"], r["hold_min"], r["tpd"] = s.get("style"), s.get("median_hold_min"), s.get("trades_per_day")
+    rows.sort(key=lambda r: -(r.get("realized_after") or 0))
+    return rows
+
+
 def wallet_buy(hype_db, wallet, mint, near_ts):
     """The wallet's own fill from the live feed (hype.db live_trades): {mcap_sol, price_sol, ts} or None."""
     if not hype_db or not os.path.exists(hype_db):
