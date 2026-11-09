@@ -353,8 +353,20 @@ def timeline_handles(con, cfg, now=None):
                     key=lambda r: -_lower(r[2], r[1]))
     core = [r[0] for r in scored[:max(0, core_n - len(watch))]]
     taken = set(watch) | set(core)
-    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >=
-           (t.get("rug_refresh_d", 3) if r[0] in rug else t["refresh_d"]) * 86400]
+    # 9.11. (Jure: API calls only where a winner can be): an account with fewer than min_measured measured calls
+    # after its first read is read every low_refresh_d days, not every round; half the 300 accounts a round had
+    # under 5 measured calls and the round spent 20-30 min on them
+    def refresh_d(r):
+        if r[0] in rug:
+            return t.get("rug_refresh_d", 3)
+        try:
+            measured = json.loads(r[2] or "{}").get("measured", 0)
+        except (ValueError, TypeError):
+            measured = 0
+        if r[0] in last and measured < t.get("min_measured", 10):
+            return t.get("low_refresh_d", 7)
+        return t["refresh_d"]
+    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >= refresh_d(r) * 86400]
     # accounts the proven KOLs follow (kol/discover.py graph), read once each: if they call tokens, their calls
     # make them regular candidates; if not, they are not asked again
     cand = [h for h in discover.graph_candidates(con, cfg) if h not in taken and h not in last]

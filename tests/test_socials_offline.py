@@ -60,6 +60,8 @@ class Socials(unittest.TestCase):
         self.assertTrue(any("Sumnjivi" in t for _, t in parts2))
         from strat import run
         cfg = run.load_config()
+        for s in cfg["strategies"]:   # 9.11.: both frozen by Jure's decision; the signal plumbing is what is tested here
+            s.pop("frozen", None)
         self.assertIn("ozbiljan_projekt", run.keys(cfg))
         self.assertIn("sumnjivi_socijali", run.keys(cfg))
         w = run.wanted({"ozbiljni": [("A", NOW, "x", 70)], "sumnjivi": [("B", NOW, "y", 40)]}, cfg, NOW, 0, (), None)

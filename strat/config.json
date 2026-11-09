@@ -30,7 +30,9 @@
      "usd": 1000,
      "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"
     }
-   ]
+   ],
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 354 zatvorenih, −10,6 % po tradeu; kopiranje po povijesti novčanika ne radi s našim kašnjenjem. Zamjena: 'dokazani' novčanici s mjerenjem klizanja."
   },
   {
    "key": "kol",
@@ -54,7 +56,9 @@
    "key": "alat_mali",
    "name": "Izbor alata: mali",
    "icon": "🎯",
-   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene do 200k $ vrijednosti pri ulazu."
+   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene do 200k $ vrijednosti pri ulazu.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 43 zatvorenih, −12,4 % po tradeu, ispod kontrole; bez novih ulaza"
   },
   {
    "key": "alat_srednji",
@@ -78,13 +82,17 @@
    "key": "ozbiljan_projekt",
    "name": "Ozbiljan projekt",
    "icon": "🏛️",
-   "opis": "Kupi token koji ima plaćeni DexScreener profil, pravi X profil (ne tuđi tweet ni pretragu) i živ Telegram (50+ članova, post u 24 h). Netko stoji iza njega i gura ga; mjerimo vrijedi li to."
+   "opis": "Kupi token koji ima plaćeni DexScreener profil, pravi X profil (ne tuđi tweet ni pretragu) i živ Telegram (50+ članova, post u 24 h). Netko stoji iza njega i gura ga; mjerimo vrijedi li to.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 52 zatvorenih, 8 % dobitnih, ispod kontrole; bez novih ulaza"
   },
   {
    "key": "sumnjivi_socijali",
    "name": "Sumnjivi socijali",
    "icon": "🕵️‍♀️",
-   "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju."
+   "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 528 zatvorenih, −$3.371, −12,8 % po tradeu, sigurno ispod nasumične kontrole; bez novih ulaza"
   },
   {
    "key": "veliki_racun",
