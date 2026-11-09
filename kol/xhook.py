@@ -44,8 +44,9 @@ def handles(con, cfg):
     from kol import bots, discover, reach
     bad = bots.handles(con)
     out = []
-    try:   # 9.11.: the hot list (kol/minute.hot) goes first: measured +10 % before the stop on recent calls
-        hot = json.loads((con.execute("SELECT value FROM kv WHERE key = 'hot_list'").fetchone() or ["{}"])[0]).get("x") or []
+    try:   # 9.11.: the hot list (kol/minute.hot, minute.db) goes first: measured +10 % before the stop on recent calls
+        from kol import minute as _minute
+        hot = list(_minute.hot_list().get("x") or [])
     except Exception:  # noqa: BLE001
         hot = []
     try:   # the X accounts the real-money account follows (single or as a crew) must arrive within seconds

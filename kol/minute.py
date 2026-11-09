@@ -15,15 +15,22 @@ each target (+5..+30 %) was reached and the first minute the stop (-20 %) was hi
 only when it came BEFORE the stop. Calls with the token under $30k market cap at the entry are kept but not
 counted (CLAUDE.md: tokens under 30k are not analysed).
 
-Priority: tokens called by two or more different accounts first (crews), newest first; bot accounts and wallet
-pseudo-calls never. One request per token covers every call of that token within 16 hours.
+Own database minute.db (next to kol.db): the only writer is `run_kol.py minute-loop` (start.sh), which fills the
+history as fast as the free GeckoTerminal budget allows and then keeps up with new calls; the KOL round and the
+pages only read it. kol.db (calls, tokens, kols, groups) is read-only here.
 
-Output for the pages: handle_stats (per account), crew_stats (per group of callers, measured from the FIRST call
-of the group so a late echo cannot improve it), hot() = the small set worth reading every 1-2 s (kv hot_list),
-which tg/poll.py and kol/xhook.py read.
+Priority: tokens called by two or more different accounts first (crews), newest first. One request per token
+covers every call of that token within 16 hours.
+
+For the pages: handle_stats (per account), crew_stats (per group of callers, measured from the FIRST call of the
+group so a late echo cannot improve it), crew_detail (members, followers, who calls first, every shared token with
+its path and rug flag), hot() = the small set worth reading every 1-2 s (kv hot_list), read by tg/poll.py and
+kol/xhook.py.
 """
 import json
 import math
+import os
+import sqlite3
 import statistics
 import time
 
@@ -36,9 +43,11 @@ HORIZON_MIN = 60
 MIN_MCAP = 30000
 KEEP_DAYS = 30
 SPAN_S = 16 * 3600   # 1000 one-minute candles per request
+RUG_LO = -0.80       # the low within the hour at or under this: the call rugged on the copier
 
-DEFAULT = {"budget_s": 150, "per_run": 60, "days": 14, "min_age_min": 70, "hot_min_n": 5, "hot_min_hit": 0.5,
-           "hot_tp": 10, "hot_max_sl": 0.3, "hot_days": 14, "wick_x": 3.0}
+DEFAULT = {"budget_s": 150, "per_run": 60, "days": 30, "min_age_min": 70, "hot_min_n": 5, "hot_min_hit": 0.5,
+           "hot_tp": 10, "hot_max_sl": 0.3, "hot_days": 14, "wick_x": 3.0, "loop_budget_s": 540, "loop_sleep_s": 20,
+           "idle_sleep_s": 120}
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS call_path (
     tweet_id TEXT, token TEXT, handle TEXT, ts INTEGER, entry REAL, lag_s INTEGER, mcap_e REAL,
@@ -46,7 +55,27 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS call_path (
     t5 INTEGER, t10 INTEGER, t15 INTEGER, t20 INTEGER, t30 INTEGER, sl_min INTEGER,
     first_caller INTEGER, bad TEXT, measured_ts INTEGER, PRIMARY KEY (tweet_id, token));
 CREATE INDEX IF NOT EXISTS call_path_handle ON call_path (handle, ts);
-CREATE INDEX IF NOT EXISTS call_path_token ON call_path (token, ts)"""
+CREATE INDEX IF NOT EXISTS call_path_token ON call_path (token, ts);
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)"""
+
+
+def db_path():
+    from kol import store
+    return os.environ.get("MINUTE_DB") or os.path.join(os.path.dirname(os.path.abspath(store.DB)), "minute.db")
+
+
+def connect(path=None):
+    con = sqlite3.connect(path or db_path(), timeout=60)
+    con.executescript(SCHEMA)
+    con.commit()
+    return con
+
+
+def ro(path=None):
+    path = path or db_path()
+    if not os.path.exists(path) or not os.path.getsize(path):
+        return None
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
 
 
 def config(cfg):
@@ -54,6 +83,7 @@ def config(cfg):
 
 
 def ensure(con):
+    """Kept for callers that pass their own connection (tests)."""
     con.executescript(SCHEMA)
 
 
@@ -116,23 +146,34 @@ def clean_hit(row, tp):
     return t is not None and (sl is None or t < sl)
 
 
-def due(con, c, now):
-    """{token: [(tweet_id, handle, ts)]} of real calls without a minute path, crews first, newest first; at most
-    c['per_run'] tokens, and per token only the calls within SPAN_S of its newest one (the rest next time)."""
-    rows = con.execute("""
+def _done(mcon):
+    return {(r[0], r[1]) for r in mcon.execute("SELECT tweet_id, token FROM call_path")}
+
+
+def candidates(kcon, c, now):
+    """[(tweet_id, token, handle, ts, n_callers)] of real calls in the window (kol.db), crews first, newest first."""
+    return kcon.execute("""
         SELECT c.tweet_id, c.token, c.handle, c.ts,
                (SELECT COUNT(DISTINCT handle) FROM calls x WHERE x.token = c.token AND x.kind = 'call'
                   AND x.handle NOT LIKE 'w:%') AS n_callers
-          FROM calls c LEFT JOIN call_path p ON p.tweet_id = c.tweet_id AND p.token = c.token
-          LEFT JOIN kols k ON k.handle = c.handle
+          FROM calls c LEFT JOIN kols k ON k.handle = c.handle
           JOIN tokens t ON t.token = c.token AND t.pair IS NOT NULL
-         WHERE p.tweet_id IS NULL AND c.kind = 'call' AND c.handle NOT LIKE 'w:%' AND COALESCE(k.bot, 0) = 0
+         WHERE c.kind = 'call' AND c.handle NOT LIKE 'w:%' AND COALESCE(k.bot, 0) = 0
            AND c.bad IS NULL AND (c.mcap0 IS NULL OR c.mcap0 >= ?) AND c.ts BETWEEN ? AND ?
          ORDER BY (n_callers >= 2) DESC, c.ts DESC""",
-                       (MIN_MCAP, now - c["days"] * 86400, now - c["min_age_min"] * 60)).fetchall()
+                        (MIN_MCAP, now - c["days"] * 86400, now - c["min_age_min"] * 60)).fetchall()
+
+
+def due(kcon, mcon, c, now, per_run=None):
+    """{token: [(tweet_id, handle, ts)]} without a minute path yet; at most per_run tokens, and per token only the
+    calls within SPAN_S of its newest one (the rest next time)."""
+    done = _done(mcon)
     out = {}
-    for tid, tok, h, ts, _n in rows:
-        if tok not in out and len(out) >= c["per_run"]:
+    cap = per_run or c["per_run"]
+    for tid, tok, h, ts, _n in candidates(kcon, c, now):
+        if (tid, tok) in done:
+            continue
+        if tok not in out and len(out) >= cap:
             continue
         out.setdefault(tok, []).append((tid, h, ts))
     for tok, calls in out.items():
@@ -141,73 +182,101 @@ def due(con, c, now):
     return out
 
 
-def _supply(con, token):
-    r = con.execute("SELECT supply FROM tokens WHERE token = ?", (token,)).fetchone()
-    return r[0] if r else None
+def waiting(kcon, mcon, c, now):
+    """How many real calls of the window still have no minute path."""
+    done = _done(mcon)
+    return sum(1 for tid, tok, _h, _ts, _n in candidates(kcon, c, now) if (tid, tok) not in done)
 
 
-def run(con, cfg, now=None, fetch=None, log=print):
-    """Measure due calls within the budget. Returns (tokens fetched, calls stored)."""
+def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run=None):
+    """Measure due calls within the budget. Returns (tokens fetched, calls stored, tokens left due)."""
     from kol import measure
-    ensure(con)
+    ensure(mcon)
     c = config(cfg)
     now = now or int(time.time())
     fetch = fetch or minutes
-    todo = due(con, c, now)
+    budget = budget_s or c["budget_s"]
+    todo = due(kcon, mcon, c, now, per_run)
     if not todo:
-        return 0, 0
+        return 0, 0, 0
     if fetch is minutes:
-        http.reserve(measure.GECKO, c["budget_s"])
-    stop_at = time.monotonic() + c["budget_s"]
+        http.reserve(measure.GECKO, budget)
+    stop_at = time.monotonic() + budget
     n_tok = n_calls = 0
+    left = len(todo)
+    supply = dict(kcon.execute("SELECT token, supply FROM tokens WHERE token IN (%s)" % ",".join("?" * len(todo)), list(todo)))
+    pairs = dict(kcon.execute("SELECT token, pair FROM tokens WHERE token IN (%s)" % ",".join("?" * len(todo)), list(todo)))
     try:
         for tok, calls in todo.items():
             if time.monotonic() > stop_at or (fetch is minutes and http.cooling(measure.GECKO) > 30):
                 break
-            pair = con.execute("SELECT pair FROM tokens WHERE token = ?", (tok,)).fetchone()[0]
             first = min(ts for _, _, ts in calls)
             start, end = first - 10 * MIN, min(now, max(ts for _, _, ts in calls) + (HORIZON_MIN + 5) * MIN)
             try:
-                candles = fetch(pair, start, end)
+                candles = fetch(pairs[tok], start, end)
             except Exception as e:  # noqa: BLE001
                 log(f"  minute {tok[:8]}: {type(e).__name__}: {e}")
                 continue
             if candles is None:    # another job holds the GeckoTerminal budget (http.reserve): next round
                 break
             n_tok += 1
-            supply = _supply(con, tok)
-            first_ts = con.execute("SELECT MIN(ts) FROM calls WHERE token = ? AND kind = 'call' AND handle NOT LIKE 'w:%'",
-                                   (tok,)).fetchone()[0]
+            left -= 1
+            first_ts = kcon.execute("SELECT MIN(ts) FROM calls WHERE token = ? AND kind = 'call' AND handle NOT LIKE 'w:%'",
+                                    (tok,)).fetchone()[0]
             for tid, h, ts in calls:
                 o = path(candles, ts, wick=c["wick_x"])
                 if not o:
-                    con.execute("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
-                                "VALUES (?,?,?,?,'svijeca',?)", (tid, tok, h, ts, now))
+                    mcon.execute("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
+                                 "VALUES (?,?,?,?,'svijeca',?)", (tid, tok, h, ts, now))
                     continue
-                mcap = o["entry"] * supply if supply else None
+                mcap = o["entry"] * supply[tok] if supply.get(tok) else None
                 bad = "mcap" if mcap is not None and mcap < MIN_MCAP else None
-                con.execute("""INSERT OR REPLACE INTO call_path VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (tid, tok, h, ts, o["entry"], o["lag_s"], mcap, o["hi15"], o["hi30"], o["hi60"], o["lo60"],
-                             o["r60"], o["t5"], o["t10"], o["t15"], o["t20"], o["t30"], o["sl_min"],
-                             int(first_ts == ts), bad, now))
+                mcon.execute("INSERT OR REPLACE INTO call_path VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (tid, tok, h, ts, o["entry"], o["lag_s"], mcap, o["hi15"], o["hi30"], o["hi60"], o["lo60"],
+                              o["r60"], o["t5"], o["t10"], o["t15"], o["t20"], o["t30"], o["sl_min"],
+                              int(first_ts == ts), bad, now))
                 n_calls += 1
-            con.commit()
+            mcon.commit()
     finally:
         if fetch is minutes:
             http.release(measure.GECKO)
-    con.execute("DELETE FROM call_path WHERE ts < ?", (now - KEEP_DAYS * 86400,))
-    waiting = con.execute("""SELECT COUNT(*) FROM calls c LEFT JOIN call_path p ON p.tweet_id = c.tweet_id AND p.token = c.token
-        LEFT JOIN kols k ON k.handle = c.handle WHERE p.tweet_id IS NULL AND c.kind = 'call' AND c.handle NOT LIKE 'w:%'
-        AND COALESCE(k.bot, 0) = 0 AND c.bad IS NULL AND c.ts BETWEEN ? AND ?""",
-                          (now - c["days"] * 86400, now - c["min_age_min"] * 60)).fetchone()[0]
-    con.execute("INSERT OR REPLACE INTO kv VALUES ('minute_stats', ?)",
-                (json.dumps({"ts": now, "tokens": n_tok, "calls": n_calls, "waiting": waiting}),))
-    con.commit()
-    return n_tok, n_calls
+    mcon.execute("DELETE FROM call_path WHERE ts < ?", (now - KEEP_DAYS * 86400,))
+    mcon.execute("INSERT OR REPLACE INTO kv VALUES ('minute_stats', ?)",
+                 (json.dumps({"ts": now, "tokens": n_tok, "calls": n_calls, "waiting": waiting(kcon, mcon, c, now)}),))
+    mcon.commit()
+    return n_tok, n_calls, left
+
+
+def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
+    """`run_kol.py minute-loop`: the only writer of minute.db. Passes of loop_budget_s while there is a backlog
+    (crews first), then a short pass whenever new calls are old enough (min_age_min), idle otherwise."""
+    from kol import store
+    c = config(cfg)
+    mcon = connect()
+    try:
+        while True:
+            kcon = store.ro()
+            if kcon is None:
+                sleep(c["idle_sleep_s"])
+                if once:
+                    return
+                continue
+            try:
+                t, n, left = run(kcon, mcon, cfg, fetch=fetch, log=log, budget_s=c["loop_budget_s"], per_run=10_000)
+                hot_ = hot(mcon, kcon, cfg)
+            finally:
+                kcon.close()
+            log(f"minute: {t} tokena, {n} poziva po minutnim svijećama, još {left} tokena čeka; vruća lista "
+                f"{len(hot_['x'])} X, {len(hot_['tg'])} TG, {len(hot_['wallets'])} walleta", flush=True)
+            if once:
+                return
+            sleep(c["loop_sleep_s"] if left else c["idle_sleep_s"])
+    finally:
+        mcon.close()
 
 
 def _agg(rows):
-    """rows: dicts with t5..t30, sl_min, r60, hi15 -> stats dict (n, hit<tp>, sl, med_t10, med_r60, med_hi15)."""
+    """rows: dicts with t5..t30, sl_min, r60, hi15 -> stats dict (n, hit<tp>, sl, rug, med_t10, med_r60, med_hi15)."""
     n = len(rows)
     if not n:
         return None
@@ -215,6 +284,7 @@ def _agg(rows):
     for tp in TPS:
         out[f"hit{tp}"] = sum(1 for r in rows if clean_hit(r, tp)) / n
     out["sl"] = sum(1 for r in rows if r["sl_min"] is not None and not clean_hit(r, 10)) / n
+    out["rug"] = sum(1 for r in rows if r.get("rug")) / n
     t10 = [r["t10"] for r in rows if clean_hit(r, 10)]
     out["med_t10"] = statistics.median(t10) if t10 else None
     r60 = [r["r60"] for r in rows if r["r60"] is not None]
@@ -224,73 +294,156 @@ def _agg(rows):
     return out
 
 
-def _rows(con, where, args):
-    cols = ("tweet_id", "token", "handle", "ts", "entry", "lag_s", "t5", "t10", "t15", "t20", "t30", "sl_min", "r60", "hi15",
-            "first_caller")
-    return [dict(zip(cols, r)) for r in con.execute(
-        f"SELECT {', '.join(cols)} FROM call_path WHERE entry IS NOT NULL AND bad IS NULL AND {where}", args)]
+COLS = ("tweet_id", "token", "handle", "ts", "entry", "lag_s", "mcap_e", "hi15", "hi30", "hi60", "lo60", "r60",
+        "t5", "t10", "t15", "t20", "t30", "sl_min", "first_caller")
 
 
-def handle_stats(con, days=14, now=None, min_n=1):
+def _rows(mcon, where, args):
+    out = []
+    for r in mcon.execute(f"SELECT {', '.join(COLS)} FROM call_path WHERE entry IS NOT NULL AND bad IS NULL AND {where}", args):
+        d = dict(zip(COLS, r))
+        d["rug"] = d["lo60"] is not None and d["lo60"] <= RUG_LO
+        out.append(d)
+    return out
+
+
+def handle_stats(mcon, days=14, now=None, min_n=1):
     """[(handle, stats)] over the account's measured calls of the last `days`, most calls first."""
     now = now or int(time.time())
     by = {}
-    for r in _rows(con, "ts >= ?", (now - days * 86400,)):
+    for r in _rows(mcon, "ts >= ?", (now - days * 86400,)):
         by.setdefault(r["handle"], []).append(r)
     out = [(h, _agg(rs)) for h, rs in by.items() if len(rs) >= min_n]
     out.sort(key=lambda x: (-x[1]["n"], -x[1]["hit10"]))
     return out
 
 
-def crew_stats(con, days=14, now=None, min_n=2, max_size=4):
-    """Groups of accounts that called the same token within the group window (kol.db groups), measured from the
-    FIRST call of each group: {'crews': [(handles tuple, stats, n_tokens)], 'pairs': [((a, b), stats)]}. Groups of
-    more than max_size callers are paid campaigns, not a crew: skipped."""
-    now = now or int(time.time())
-    first = {(r["token"], r["ts"]): r for r in _rows(con, "ts >= ?", (now - days * 86400,))}
-    crews, pairs = {}, {}
-    for tok, start, handles in con.execute("SELECT token, start_ts, handles FROM groups WHERE start_ts >= ?",
-                                           (now - days * 86400,)):
+def _groups(kcon, since, max_size=4):
+    """[(token, start_ts, handles sorted tuple, first_handle)] from kol.db groups, crews of 2..max_size."""
+    out = []
+    for tok, start, handles, first in kcon.execute("SELECT token, start_ts, handles, first_handle FROM groups WHERE start_ts >= ?", (since,)):
         hs = sorted(set(json.loads(handles or "[]")))
-        if len(hs) < 2 or len(hs) > max_size:
-            continue
+        if 2 <= len(hs) <= max_size:
+            out.append((tok, start, tuple(hs), first))
+    return out
+
+
+def potential(stats, n_tokens):
+    """One number to rank crews by: how many shared tokens, times how often +10 % came before the stop, minus stops
+    and rugs. Shown on the page with its parts, never alone."""
+    return round(n_tokens * (stats["hit10"] + 0.5 * stats["hit20"] - stats["sl"] - stats["rug"]), 2)
+
+
+def crew_stats(mcon, kcon, days=14, now=None, min_n=2, max_size=4):
+    """Groups of accounts that called the same token within the group window (kol.db groups), measured from the
+    FIRST call of each group: {'crews': [(handles, stats, n_tokens, potential)], 'pairs': [((a, b), stats)]}.
+    Groups of more than max_size callers are paid campaigns, not a crew: skipped."""
+    now = now or int(time.time())
+    first = {(r["token"], r["ts"]): r for r in _rows(mcon, "ts >= ?", (now - days * 86400,))}
+    crews, pairs = {}, {}
+    for tok, start, hs, _first in _groups(kcon, now - days * 86400, max_size):
         r = first.get((tok, start))
         if not r:
             continue
-        crews.setdefault(tuple(hs), []).append(r)
+        crews.setdefault(hs, []).append(r)
         for i in range(len(hs)):
             for j in range(i + 1, len(hs)):
                 pairs.setdefault((hs[i], hs[j]), []).append(r)
-    out_c = [(hs, _agg(rs), len({r["token"] for r in rs})) for hs, rs in crews.items() if len(rs) >= min_n]
-    out_c.sort(key=lambda x: (-x[1]["n"], -x[1]["hit10"]))
+    out_c = []
+    for hs, rs in crews.items():
+        if len(rs) < min_n:
+            continue
+        st = _agg(rs)
+        nt = len({r["token"] for r in rs})
+        out_c.append((hs, st, nt, potential(st, nt)))
+    out_c.sort(key=lambda x: (-x[3], -x[1]["n"]))
     out_p = [(ab, _agg(rs)) for ab, rs in pairs.items() if len(rs) >= min_n]
     out_p.sort(key=lambda x: (-x[1]["n"], -x[1]["hit10"]))
     return {"crews": out_c, "pairs": out_p}
 
 
-def coverage(con, c=None, now=None):
+def followers_of(kcon, handles, tg_db=None):
+    """handle -> followers (X: kols.followers; tg:channel: tg.db channels.subs); None when unknown."""
+    out = {h: None for h in handles}
+    xs = [h for h in handles if not h.startswith("tg:")]
+    if xs:
+        q = ",".join("?" * len(xs))
+        for h, f in kcon.execute(f"SELECT handle, followers FROM kols WHERE handle IN ({q})", xs):
+            out[h] = f
+    tgs = [h[3:] for h in handles if h.startswith("tg:")]
+    if tgs:
+        p = tg_db or os.environ.get("TG_DB") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tg.db")
+        if os.path.exists(p):
+            try:
+                tc = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+                try:
+                    q = ",".join("?" * len(tgs))
+                    for n, s in tc.execute(f"SELECT name, subs FROM channels WHERE name IN ({q})", tgs):
+                        out["tg:" + n] = s
+                finally:
+                    tc.close()
+            except sqlite3.Error:
+                pass
+    return out
+
+
+def crew_detail(mcon, kcon, handles, days=30, now=None, tg_db=None, archived=frozenset()):
+    """Everything the page shows for one crew: members with followers, who called first how often, and every shared
+    token (newest first) with the first call's minute path, the old 24-h measure as fallback and the rug flag
+    (low within the hour <= RUG_LO, kol.db calls.rug, or the token archived by the rug filter)."""
+    now = now or int(time.time())
+    hs = tuple(sorted(set(handles)))
+    since = now - days * 86400
+    groups = [g for g in _groups(kcon, since, max_size=max(4, len(hs))) if g[2] == hs]
+    first_counts = {}
+    for _tok, _start, _hs, first in groups:
+        first_counts[first] = first_counts.get(first, 0) + 1
+    paths = {(r["token"], r["ts"]): r for r in _rows(mcon, "ts >= ?", (since,))}
+    toks = sorted({g[0] for g in groups})
+    syms, old = {}, {}
+    if toks:
+        q = ",".join("?" * len(toks))
+        syms = dict(kcon.execute(f"SELECT token, symbol FROM tokens WHERE token IN ({q})", toks))
+        for tok, ts, mcap0, max24, r24, rug in kcon.execute(
+                f"SELECT token, ts, mcap0, max24, r24h, rug FROM calls WHERE token IN ({q}) AND kind = 'call'", toks):
+            old.setdefault(tok, {})[ts] = (mcap0, max24, r24, rug)
+            if rug:
+                old[tok]["_rug"] = True
+    tokens = []
+    for tok, start, _hs, first in sorted(groups, key=lambda g: -g[1]):
+        p = paths.get((tok, start))
+        o = (old.get(tok) or {}).get(start) or (None, None, None, None)
+        rug = bool((p and p["rug"]) or (old.get(tok) or {}).get("_rug") or tok in archived)
+        tokens.append({"token": tok, "symbol": syms.get(tok), "ts": start, "first": first, "mcap0": o[0],
+                       "path": p, "max24": o[1], "r24": o[2], "rug": rug})
+    rs = [t["path"] for t in tokens if t["path"]]
+    return {"handles": hs, "followers": followers_of(kcon, hs, tg_db), "first": first_counts, "tokens": tokens,
+            "stats": _agg(rs), "n_tokens": len(tokens), "rugs": sum(1 for t in tokens if t["rug"]),
+            "doubled": sum(1 for t in tokens if (t["max24"] or 0) >= 1.0)}
+
+
+def coverage(mcon, kcon=None, c=None, now=None):
     """How much of the recent call history has a minute path: {measured, no_candle, small, waiting, last}."""
     c = c or DEFAULT
     now = now or int(time.time())
     try:
-        m, nc, sm = con.execute("""SELECT SUM(entry IS NOT NULL AND bad IS NULL), SUM(bad = 'svijeca'), SUM(bad = 'mcap')
-                                   FROM call_path WHERE ts >= ?""", (now - c["days"] * 86400,)).fetchone()
-        st = con.execute("SELECT value FROM kv WHERE key = 'minute_stats'").fetchone()
+        m, nc, sm = mcon.execute("""SELECT SUM(entry IS NOT NULL AND bad IS NULL), SUM(bad = 'svijeca'), SUM(bad = 'mcap')
+                                    FROM call_path WHERE ts >= ?""", (now - c["days"] * 86400,)).fetchone()
+        st = mcon.execute("SELECT value FROM kv WHERE key = 'minute_stats'").fetchone()
     except Exception:  # noqa: BLE001
         return {"measured": 0, "no_candle": 0, "small": 0, "waiting": None, "last": None}
     st = json.loads(st[0]) if st else {}
     return {"measured": m or 0, "no_candle": nc or 0, "small": sm or 0, "waiting": st.get("waiting"), "last": st.get("ts")}
 
 
-def hot(con, cfg, now=None, wallet_db=None):
+def hot(mcon, kcon, cfg, now=None, wallet_db=None):
     """The small set worth reading every 1-2 s: accounts whose measured calls of the last hot_days reached +hot_tp %
     before the stop at least hot_min_hit of the time, on hot_min_n+ calls, with the stop first on at most hot_max_sl;
-    plus the proven-twice copyable wallets (wallets/dokazani.py). Saved as kv hot_list. Anyone can enter or leave
-    the list at the next scoring, from the numbers alone."""
+    plus the proven-twice copyable wallets (wallets/dokazani.py). Saved as kv hot_list in minute.db."""
     c = config(cfg)
     now = now or int(time.time())
     x, tg = [], []
-    for h, s in handle_stats(con, c["hot_days"], now, c["hot_min_n"]):
+    for h, s in handle_stats(mcon, c["hot_days"], now, c["hot_min_n"]):
         if s[f"hit{c['hot_tp']}"] >= c["hot_min_hit"] and s["sl"] <= c["hot_max_sl"]:
             (tg if h.startswith("tg:") else x).append(h)
     wallets = []
@@ -300,16 +453,15 @@ def hot(con, cfg, now=None, wallet_db=None):
     except Exception:  # noqa: BLE001
         pass
     out = {"ts": now, "x": x, "tg": [h[3:] for h in tg], "wallets": wallets}
-    con.execute("INSERT OR REPLACE INTO kv VALUES ('hot_list', ?)", (json.dumps(out),))
-    con.commit()
+    mcon.execute("INSERT OR REPLACE INTO kv VALUES ('hot_list', ?)", (json.dumps(out),))
+    mcon.commit()
     return out
 
 
 def hot_list(path=None):
-    """The saved hot list ({ts, x, tg, wallets}); empty lists when kol.db has none yet."""
-    from kol import store
+    """The saved hot list ({ts, x, tg, wallets}); empty lists when minute.db has none yet."""
     empty = {"ts": 0, "x": [], "tg": [], "wallets": []}
-    con = store.ro(path)
+    con = ro(path)
     if con is None:
         return empty
     try:

@@ -90,8 +90,6 @@ MIGRATE = [("kols", "bot", "INTEGER DEFAULT 0"), ("kols", "bot_why", "TEXT"),
 def connect(path=None):
     con = sqlite3.connect(path or DB, timeout=60)
     con.executescript(SCHEMA)
-    from kol import minute as _minute   # 9.11.: call_path (minute candles after each call)
-    _minute.ensure(con)
     for table, col, typ in MIGRATE:
         if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")

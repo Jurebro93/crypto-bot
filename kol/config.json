@@ -220,7 +220,7 @@
  "minute": {
   "budget_s": 150,
   "per_run": 60,
-  "days": 14,
+  "days": 30,
   "min_age_min": 70,
   "hot_min_n": 5,
   "hot_min_hit": 0.5,
@@ -228,6 +228,10 @@
   "hot_max_sl": 0.3,
   "hot_days": 14,
   "wick_x": 3.0,
-  "_9_11": "Minutna provjera (kol/minute.py): 1-min svijeće GeckoTerminala nakon svakog poziva; ulaz = zatvaranje minute objave; hit = +tp % prije stopa -20 % unutar 60 min. Vruća lista: n>=hot_min_n poziva u hot_days dana, hit hot_tp >= hot_min_hit, stop prvi <= hot_max_sl."
+  "_9_11": "Minutna provjera (kol/minute.py): 1-min svijeće GeckoTerminala nakon svakog poziva; ulaz = zatvaranje minute objave; hit = +tp % prije stopa -20 % unutar 60 min. Vruća lista: n>=hot_min_n poziva u hot_days dana, hit hot_tp >= hot_min_hit, stop prvi <= hot_max_sl.",
+  "loop_budget_s": 540,
+  "loop_sleep_s": 20,
+  "idle_sleep_s": 120,
+  "_9_11b": "Vlastiti proces (run_kol.py minute-loop) i vlastita baza minute.db: prolazi po loop_budget_s dok ima zaostatka (ekipe prve), 30 dana povijesti; KOL krug i stranice samo čitaju."
  }
 }

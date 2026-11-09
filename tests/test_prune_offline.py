@@ -108,7 +108,7 @@ class Dry(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DATA_PRUNE": "dry"}):
             self.assertFalse(prune.on())
             out = prune.kol(path, NOW)
-        self.assertEqual(out, {"w_pozivi": 1, "minutne": 0, "neaktivni_x": 1, "neaktivni_x_pozivi": 1})
+        self.assertEqual(out, {"w_pozivi": 1, "neaktivni_x": 1, "neaktivni_x_pozivi": 1})
         con = sqlite3.connect(path)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM calls").fetchone()[0], 6)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM kols").fetchone()[0], 4)
@@ -146,7 +146,7 @@ class Kol(unittest.TestCase):
         path = _kol_db(tmp)
         with mock.patch.dict(os.environ, {"DATA_PRUNE": "on"}):
             out = prune.kol(path, NOW)
-        self.assertEqual(out, {"w_pozivi": 1, "minutne": 0, "neaktivni_x": 1, "neaktivni_x_pozivi": 1})
+        self.assertEqual(out, {"w_pozivi": 1, "neaktivni_x": 1, "neaktivni_x_pozivi": 1})
         con = sqlite3.connect(path)
         left = {r[0] for r in con.execute("SELECT tweet_id FROM calls")}
         self.assertEqual(left, {"s2", "s3", "t2", "t3"})
