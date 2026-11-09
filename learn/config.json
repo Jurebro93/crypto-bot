@@ -23,6 +23,8 @@
   "lookback_h": 72,
   "keep_days": 30
  },
+ "cilj_klasa": {"stabilni": {"ret": 0.3, "h": 72}, "default": {"ret": 0.3, "h": 72}},
+ "_cilj_klasa": "9.11. (jutarnji izvještaj): stabilni i default imali su metriku pogađanja 0,0 na cilju zarada u 24 h (veliki, stariji tokeni rijetko tako brzo naprave +10% nakon troškova), pa se nije imalo iz čega učiti. Te klase uče težine na cilju: cijena (druga najviša točka) dosegne +ret u h sati. Točke bez cijena za barem pola prozora se ne broje. Model odluke (gbm) i ostale klase ostaju na cilju zarada.",
  "every_h": 6,
  "_every_h": "Težine se preračunavaju svakih every_h sati (ne samo jednom dnevno), a svaka točka vrijedi to manje što je starija (poluvijek model.half_life_d dana).",
  "model": {

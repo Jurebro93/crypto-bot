@@ -80,7 +80,9 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
         zarada = cfg.get("cilj") == "zarada"
         rk = rk_sh if use_sh else ([] if zarada else [r for r in rows if r["klasa"] == klasa])
         old = weights.load(klasa, base)
-        rec = {"klasa": klasa, "n": len(rk), "skok": (cfg.get("shadow") or {}).get("hit_ret", 0.1) if use_sh else thr.get(klasa, 0),
+        dug = (cfg.get("cilj_klasa") or {}).get(klasa)
+        sk = (dug or {}).get("ret") if dug else (cfg.get("shadow") or {}).get("hit_ret", 0.1)
+        rec = {"klasa": klasa, "n": len(rk), "skok": sk if use_sh else thr.get(klasa, 0),
                "cilj": "zarada" if use_sh else ("nedovoljno" if zarada else "vrh"), "n_shadow": len(rk_sh),
                "applied": False, "old": old, "new": None, "metric_old": None, "metric_new": None, "note": ""}
         train, val = split.by_time(rk, horizon_s=cfg.get("purge_h", cfg.get("horizon_h", 24)) * 3600)
@@ -103,7 +105,8 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
                     rec["note"] = (f"pogađanje među 20% najbolje ocijenjenih na provjeri (noviji {len(val)} ishoda) "
                                    f"{mo} → {mn}")
                     if use_sh:
-                        rec["note"] += " (cilj: ostvariva zarada, sjenovita knjiga)"
+                        rec["note"] += (f" (cilj: cijena +{dug['ret']:.0%} u {dug['h']} h, sjenovita knjiga)" if dug
+                                        else " (cilj: ostvariva zarada, sjenovita knjiga)")
                     if apply:
                         weights.save(klasa, new, now)
                         rec["applied"] = True
