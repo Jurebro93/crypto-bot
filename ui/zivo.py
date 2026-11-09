@@ -17,7 +17,7 @@ Two layers, so the page can be fast and still strict:
 import time
 
 CAND_TTL = 60
-LIVE_TTL = 2
+LIVE_TTL = 1
 RECENT_S = 600
 MAX_SIGNAL_AGE_S = 6 * 3600
 _CANDS = {"ts": 0.0, "rows": []}

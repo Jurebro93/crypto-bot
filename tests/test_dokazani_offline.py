@@ -162,7 +162,7 @@ class RealTradePageRework(unittest.TestCase):
         for fr in ("0.2", "0.5", "1"):
             self.assertIn(f"name=frac value={fr}", btns)
         self.assertIn("user-select:none", pravitrade.CSS)
-        self.assertEqual(pravitrade.LOG_EVERY_S, 2)
+        self.assertEqual(pravitrade.LOG_EVERY_S, 1)   # 9.11. 15:50 (Jure): every second
         self.assertEqual(pravitrade._detect_kind("@ansem"), ("kol", "ansem"))
         self.assertEqual(pravitrade._detect_kind("tg:henrygems"), ("kol", "tg:henrygems"))
         self.assertEqual(pravitrade._detect_kind("9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"), ("wallet", "9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"))

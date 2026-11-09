@@ -317,19 +317,23 @@ class Safety(LiveRoutes):
 
 class ManualBuy(PraviTrade):
     def test_manual_buy_goes_through_demo_account_with_own_stake(self):
-        from ui import league as uleague, pravitrade
+        from ui import league as uleague, pravitrade, prijedlog
         from rugfilter import collapse
         os.environ["TRADE_OWNER"] = "Jure"
-        saved = (uleague.market, collapse.check, uleague._symbol)
+        saved = (uleague.market, collapse.check, uleague._symbol, prijedlog.live_market)
         uleague.market = lambda toks: {t: (1.0, 1e6, None, 5e5) for t in toks}
         collapse.check = lambda *a, **k: None
         uleague._symbol = lambda t: "MAN"
+        # 9.11.: the tap goes through the same live gate as the lists (trading now, MC 30k+, not falling)
+        prijedlog.live_market = lambda toks, fetch=None: {t: {"price": 1.0, "liq": 1e6, "mcap": 5e5, "vol_h1": 20_000.0, "vol_h24": 1e5,
+                                                               "txns_h1": 80, "buys_h1": 50, "txns_h24": 900, "vol_m5": 900.0, "txns_m5": 6,
+                                                               "ch_m5": 1.0, "ch_h1": 3.0, "ch_h24": 10.0} for t in toks}
         mint = "So11111111111111111111111111111111111111112"[:-1] + "3"
         try:
             loc = pravitrade.post("/pravi-trade/buy", {"token": mint, "sol": "0,02", "exit": "tpsl", "tp": "100%",
                                                        "sl": "-30%"}, "Jure")
         finally:
-            uleague.market, collapse.check, uleague._symbol = saved
+            uleague.market, collapse.check, uleague._symbol, prijedlog.live_market = saved
         self.assertIn("ok=", loc)
         t = store.trades(self.lg, settings.LEAGUE_USER, "open")[0]
         self.assertEqual(json.loads(t["auto"])["mode"], "tpsl")

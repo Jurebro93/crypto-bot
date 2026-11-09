@@ -213,12 +213,10 @@ class Page(unittest.TestCase):
             html = pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW)
             self.assertIn("AAA", html)
             self.assertIn("5 min +12 %", html)
-            self.assertIn("Zašto sada:", html)
-            self.assertIn("novi pozivatelj u 10 min: @ansem", html)
-            self.assertIn("1 pametnih novčanika kupilo", html)
-            self.assertIn("Očekivanje:", html)
-            self.assertIn("T2", html)
-            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 1), html)   # 2-s cache
+            self.assertIn("novi pozivatelj u 10 min: @ansem", html)                 # the first fresh reason, inline
+            self.assertIn('data-pop="/pravi-trade/token?m=4vJ9JU1b', html)         # the rest lives in the pop-up
+            self.assertNotIn("<form", html)                                          # compact rows, no inline forms
+            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 0.5), html)   # 1-s cache
             zivo.rows = lambda now=None, **k: []
             pravitrade._IDEAS_CACHE.clear()
             self.assertEqual(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), "")
@@ -227,6 +225,59 @@ class Page(unittest.TestCase):
             pravitrade._IDEAS_CACHE.clear()
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop
+
+    def test_crew_rows_and_popups(self):
+        m = {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30, "buys_h1": 20,
+             "txns_h24": 100, "vol_m5": 400.0, "txns_m5": 4, "ch_m5": 3.0, "ch_h1": 4.0, "ch_h24": 9.0, "symbol": "AAA"}
+        rows = [(WBTC_M, [("tg:robinhood_trending", "tg", NOW - 600)], NOW - 600, NOW - 600, "A1", m),
+                (COINX_M, [("tg:robinhood_trending", "tg", NOW - 100)], NOW - 100, NOW - 100, "A2", m),
+                (BANK_M, [("ansem", "x", NOW - 300), ("tg:alpha", "tg", NOW - 200)], NOW - 300, NOW - 200, "BANK", m)]
+        crews = pravitrade.crew_rows(rows, NOW)
+        self.assertEqual([c["name"] for c in crews], ["robinhood_trending", "ekipa @ansem +1"])   # one line per crew
+        self.assertEqual(len(crews[0]["tokens"]), 2)
+        self.assertEqual(crews[0]["tokens"][0]["symbol"], "A2")                                 # newest first
+        html = pravitrade._crew_row(crews[0], NOW)
+        self.assertIn("2 tokena u 60 min", html)
+        self.assertIn('data-pop="/pravi-trade/ekipa?h=tg%3Arobinhood_trending"', html)
+        # token pop-up: a rugged / falling token says NE KUPUJ and hides the buy form; a healthy one offers the buy
+        saved = (pravitrade._live_cached,)
+        dead = {**m, "mcap": 14_000.0, "ch_h1": -89.0, "txns_h1": 2, "vol_h1": 50.0}
+        pravitrade._live_cached = lambda toks, now, ttl=1: {toks[0]: dead}
+        try:
+            html = pravitrade.token_popup("Jure", BANK_M, NOW)
+            self.assertIn("NE KUPUJ", html)
+            self.assertIn("ispod 30k", html)
+            self.assertNotIn("<form method=post action=/pravi-trade/buy", html)
+            pravitrade._live_cached = lambda toks, now, ttl=1: {toks[0]: {**m, "ch_m5": 7.0, "vol_m5": 2500.0, "txns_m5": 9}}
+            html = pravitrade.token_popup("Jure", BANK_M, NOW)
+            self.assertIn("U REDU ZA ULAZ", html)
+            self.assertIn("+7 % u 5 min", html)
+            self.assertIn("/pravi-trade/buy", html)
+            self.assertIsNone(pravitrade.token_popup("Ivan", BANK_M, NOW))
+            self.assertIn("nije Solana adresa", pravitrade.token_popup("Jure", "x47c8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c5d6a396", NOW))
+            pravitrade._live_cached = lambda toks, now, ttl=1: None
+            self.assertIn("ne nudim ulaz", pravitrade.token_popup("Jure", BANK_M, NOW))
+            html = pravitrade.crew_popup("Jure", "tg:robinhood_trending,ansem", NOW)
+            self.assertIn("Uspjeh (minutna provjera)", html)
+            self.assertIn("Zaprati kao ekipu (2)", html)
+        finally:
+            (pravitrade._live_cached,) = saved
+
+    def test_manual_buy_refuses_a_token_that_fails_the_live_gate(self):
+        from ui import prijedlog
+        from ui import league as uil
+        saved = (prijedlog.live_market, uil.market)
+        uil.market = lambda toks: {t: (0.001, 30_000.0, None, 14_000.0) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {t: {"price": 0.001, "liq": 30_000.0, "mcap": 14_000.0, "vol_h1": 50.0,
+                                                               "vol_h24": 2000.0, "txns_h1": 2, "buys_h1": 0, "txns_h24": 20,
+                                                               "vol_m5": 0.0, "txns_m5": 0, "ch_m5": -40.0, "ch_h1": -89.0, "ch_h24": -90.0} for t in toks}
+        try:
+            loc = pravitrade.post("/pravi-trade/buy", {"token": BANK_M, "sol": "0.1", "exit": "tpsl", "tp": "15%"}, "Jure")
+        finally:
+            prijedlog.live_market, uil.market = saved
+        self.assertIn("err=", loc)
+        self.assertIn("odbijena", loc)
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
     def test_fragments_need_access(self):
         self.assertIsNone(pravitrade.callers_fragment("Ivan"))
