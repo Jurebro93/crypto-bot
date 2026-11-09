@@ -232,7 +232,7 @@ h1{font-size:clamp(38px,7vw,68px);line-height:1.04;letter-spacing:-.04em;margin:
 .small{color:var(--mut);font-size:14px;margin-top:16px}
 .phones{display:flex;justify-content:center;align-items:flex-end;gap:22px;margin:64px auto 0;padding:0 0 10px}
 .ph{width:250px;flex:none;border-radius:34px;background:#0b1220;padding:8px;box-shadow:0 40px 80px -30px rgba(11,18,32,.35)}
-.ph img{border-radius:27px;width:100%;aspect-ratio:390/844;object-fit:cover;object-position:top}
+.ph img{border-radius:27px;width:100%;aspect-ratio:390/844;object-fit:cover;object-position:top;background:#eef2f7;color:#64748b;font-size:13px}
 .ph.side{width:215px;opacity:.95}@media(min-width:761px){.ph.main{order:2}.ph.side+.ph.side{order:3}}
 @media(max-width:760px){.phones{justify-content:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 20px 20px;margin:48px -20px 0;
 gap:14px;scrollbar-width:none}.phones::-webkit-scrollbar{display:none}.ph,.ph.side{width:72vw;scroll-snap-align:center}}

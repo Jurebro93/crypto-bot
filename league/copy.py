@@ -46,7 +46,17 @@ CREATE INDEX IF NOT EXISTS copy_log_ts ON copy_log (ts);
 
 KIND_HR = {"kol": "KOL", "wallet": "wallet", "ekipa": "ekipa"}
 EXIT_HR = {"smart": "Smart sell", "tpsl": "moj TP/SL", "manual": "prodajem sam", "mirror": "prodaj kad on proda",
-           "mirror_smart": "prodaj kad on proda + Smart sell"}
+           "mirror_smart": "prodaj kad on proda + Smart sell",
+           # 9.11. (Jure: "neka alat dinamički odluči kad može biti profitabilno"): kol/tpsl.py picks TP/SL from the
+           # account's (crew's) measured calls at every entry and skips the entry when no pair is in the plus
+           "podaci": "TP/SL po podacima (alat bira, ne ulazi kad se ne isplati)"}
+DATA_TP = "15%"   # exit of a "podaci" follow while the account has too few measured calls to decide (with DEFAULT_SL)
+DATA_HOLD_S = 3600   # a data exit is known for the measured hour after the call (kol/tpsl.HOLD_MIN): closed after it
+# 10.11. (review): kol/minute.py measures an entry at the close of the minute the call was posted in. A copy that
+# enters minutes later, or after the price already ran, is a different trade than the one the pair was chosen on, so
+# a "podaci" follow enters only this soon after the call and only while the price has not already moved this much.
+DATA_MAX_LATE_S = 120
+DATA_MAX_RUNUP = 0.10
 
 
 WAKE = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".copy_wake")
@@ -138,7 +148,10 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
     if not 1 <= per_day <= CFG["max_per_day"]:
         raise ValueError(f"broj ulaza na dan mora biti između 1 i {CFG['max_per_day']}")
     exit_mode = exit_mode or ("mirror" if kind == "wallet" else "smart")
-    allowed = ("mirror", "mirror_smart", "tpsl") if kind == "wallet" else ("smart", "tpsl", "manual")
+    allowed = ("mirror", "mirror_smart", "tpsl") if kind == "wallet" else ("smart", "tpsl", "manual", "podaci")
+    if exit_mode == "podaci" and kind == "wallet":
+        raise ValueError("izlaz po podacima postoji za influencere i ekipe (njihovi se pozivi mjere po minutama); "
+                         "wallet se kopira s „prodaj kad on proda” ili s tvojim TP/SL")
     if exit_mode not in allowed:
         raise ValueError("nepoznat način izlaza")
     ex = {"mode": exit_mode}
@@ -151,6 +164,8 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
             ex["max_runup"] = float(max_runup)
         if kind == "ekipa":
             ex["min_callers"] = max(1, min(int(min_callers or 1), len(members_of(target))))
+        if exit_mode == "podaci" and "max_runup" not in ex:
+            ex["max_runup"] = DATA_MAX_RUNUP
     if exit_mode == "tpsl":
         # checked now on a made-up entry so a typo shows here and not silently on the first copied trade
         tp_px, _ = auto.parse_level(tp, 1.0, 1e6, "tp")
@@ -536,6 +551,19 @@ def followed_handles(user=None, path=None):
     return out
 
 
+def data_exit(f, now=None):
+    """9.11. (Jure): the TP/SL kol/tpsl.py picks for this KOL / crew follow from its measured calls, as the dict
+    tpsl.decide returns (ok True / False / None), or None when minute.db cannot be read. A crew is judged on the
+    call of its min_callers-th member, the moment a crew follow enters. Reads minute.db only; no API call."""
+    try:
+        from kol import tpsl
+        hs = members_of(f["target"]) if f["kind"] == "ekipa" else [f["target"]]
+        return tpsl.for_handles(hs, k=int(f["exit"].get("min_callers") or 1), window_s=CFG["crew_window_min"] * 60,
+                                now=now)
+    except Exception:  # noqa: BLE001 - an unreadable statistic is "unknown", never a block and never a crash
+        return None
+
+
 def run_once(con, market_fn=None, now=None, paths=None):
     """One pass: enter new calls/buys of followed KOLs and wallets, sell when a followed wallet sells.
     Returns [(user, text)] for the log."""
@@ -663,6 +691,16 @@ def _enter(con, auto, mk, todo, now):
         conc_shown = "nepoznato"
         if not why:   # 9.11. (audit P6): supply concentration, blocks only on KNOWN bad data
             why, conc_shown = _concentration(tok)
+        dx = None
+        if not why and f["exit"].get("mode") == "podaci":
+            if now - ts > DATA_MAX_LATE_S:
+                why = (f"poziv je star {now - ts} s: izlaz po podacima mjeren je za ulaz u prvoj minuti nakon poziva "
+                       f"(najviše {DATA_MAX_LATE_S} s)")
+            else:
+                # 9.11. (Jure): the tool decides from the measured calls; "no pair in the plus" is a skip like any gate
+                dx = data_exit(f, now)
+                if dx and dx.get("ok") is False:
+                    why = dx["why"]
         if why:
             _log(con, f, tok, side, ts, now, "preskočeno", why, sym)
             continue
@@ -682,6 +720,15 @@ def _enter(con, auto, mk, todo, now):
                 # 9.11. (audit): no explicit stop -> DEFAULT_SL; levels from the effective entry (fee + impact)
                 auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""), f["exit"].get("sl") or DEFAULT_SL,
                               from_eff=True)
+            elif mode == "podaci" and dx and dx.get("ok"):
+                # the pair was measured over the hour after the call: the position is closed at the end of that hour
+                auto.set_auto(con, f["user"], tid, "tpsl", f"{dx['tp']}%", f"-{dx['sl']}%", from_eff=True,
+                              hold_s=DATA_HOLD_S)
+                exit_note = "; " + dx["why"]
+            elif mode == "podaci":   # too few measured calls (or minute.db unreadable): the default pair until then
+                auto.set_auto(con, f["user"], tid, "tpsl", DATA_TP, DEFAULT_SL, from_eff=True)
+                exit_note = (f"; {(dx or {}).get('why') or 'minutna provjera nije dostupna'}: zadani izlaz "
+                             f"TP +{DATA_TP.rstrip('%')} % / SL {DEFAULT_SL.rstrip('%')} %")
         except ValueError as e:   # 9.11. (audit P28): e.g. TP "$500k" on a token already at $600k: never leave the
             try:                  # position (mirrored into real money) without an exit; fall back to Smart sell
                 auto.set_auto(con, f["user"], tid, "smart")

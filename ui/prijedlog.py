@@ -113,6 +113,9 @@ def live_market(tokens, fetch=None):
                   "txns_h24": int((h24.get("buys") or 0) + (h24.get("sells") or 0)),
                   "vol_m5": float(vol.get("m5") or 0), "txns_m5": int(((tx.get("m5") or {}).get("buys") or 0) + ((tx.get("m5") or {}).get("sells") or 0)),
                   "ch_m5": ch.get("m5"), "ch_h1": ch.get("h1"), "ch_h24": ch.get("h24")}
+        # 10.11. (Jure: "stavi to u tablicu kao na DexScreeneru"): every window the pair has, buys and sells apart
+        out[t]["w"] = {w: {"ch": ch.get(w), "vol": float(vol.get(w) or 0), "buys": int((tx.get(w) or {}).get("buys") or 0),
+                           "sells": int((tx.get(w) or {}).get("sells") or 0)} for w in ("m5", "h1", "h6", "h24")}
     return out
 
 
