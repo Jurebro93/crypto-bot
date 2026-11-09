@@ -227,7 +227,8 @@ function draw(d){
  $('#open').innerHTML=rows||'<tr><td colspan=19 class=empty>Nema otvorenih pozicija.</td></tr>';
  $('#upd').textContent='osvježeno '+new Date(d.ts*1000).toLocaleTimeString()+(d.live?'':' · DexScreener nedostupan, prikaz iz baze');
 }
-async function poll(){try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}}
+let busy=false;
+async function poll(){if(busy)return;busy=true;try{const r=await fetch('/api/paper',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){$('#upd').textContent='veza prekinuta, pokušavam ponovo…'}finally{busy=false}}
 poll();setInterval(poll,REFRESH*1000);
 """
 

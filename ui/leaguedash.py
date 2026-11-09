@@ -687,11 +687,12 @@ document.querySelectorAll('.chartbox [data-r]').forEach(b=>b.onclick=()=>{range=
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(draw,150)});draw();
 // live numbers every minute, no reload
 const upd=$('#upd');let last=Date.now();
-async function poll(){if(document.hidden)return;try{const r=await fetch('/api/natjecanje',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();
+let busy=false;
+async function poll(){if(document.hidden||busy)return;busy=true;try{const r=await fetch('/api/natjecanje',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();
  for(const k in j.v){const [txt,sg]=j.v[k];document.querySelectorAll(`[data-live="${CSS.escape(k)}"]`).forEach(e=>{e.textContent=txt;const td=e.closest('td');
    if(td&&td.dataset.v!==undefined&&sg)td.dataset.v=sg});document.querySelectorAll(`[data-live-cls="${CSS.escape(k)}"]`).forEach(e=>{
    e.classList.toggle('pos',sg>0);e.classList.toggle('neg',sg<0)})}
- window.EQ=j.chart;draw();last=Date.now();upd.textContent='osvježeno upravo sada'}catch(e){upd.textContent='veza prekinuta, pokušavam ponovo…'}}
+ window.EQ=j.chart;draw();last=Date.now();upd.textContent='osvježeno upravo sada'}catch(e){upd.textContent='veza prekinuta, pokušavam ponovo…'}finally{busy=false}}
 setInterval(()=>{const s=Math.round((Date.now()-last)/1000);if(!upd.textContent.startsWith('veza'))upd.textContent=s<10?'osvježeno upravo sada':`osvježeno prije ${s<60?s+' s':Math.round(s/60)+' min'}`},10000);
 setInterval(poll,__REFRESH__);document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-last>__REFRESH__)poll()});
 })();

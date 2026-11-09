@@ -182,6 +182,7 @@ def ingest_kol_event(payload, db_path, now=None):
     ts = min(now, hook_post(handle, now, text)[2] or now)
     con = sqlite3.connect(db_path)
     con.execute("CREATE TABLE IF NOT EXISTS kol_mentions (ts INTEGER, handle TEXT, ca TEXT, tickers TEXT, text TEXT)")
+    con.execute("CREATE INDEX IF NOT EXISTS kol_mentions_ts ON kol_mentions (ts)")   # 9.11.: read by time every second
     for ca in cas or [""]:
         con.execute("INSERT INTO kol_mentions VALUES (?,?,?,?,?)",
                     (ts, handle, ca, ",".join(tickers), text[:500]))

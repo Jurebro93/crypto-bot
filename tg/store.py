@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS posts (
     channel TEXT, post INTEGER, ts INTEGER, seen_ts INTEGER, text TEXT, cas TEXT, tickers TEXT, views INTEGER,
     fwd_from TEXT, source TEXT, PRIMARY KEY (channel, post));
 CREATE INDEX IF NOT EXISTS posts_seen ON posts (seen_ts);
+CREATE INDEX IF NOT EXISTS posts_ts ON posts (ts);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 

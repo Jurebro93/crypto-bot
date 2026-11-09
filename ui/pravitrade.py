@@ -265,15 +265,25 @@ POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age sty
             '<button onclick="this.closest(\'dialog\').close()">Zatvori ✕</button></div><div class=body><p class=mut>Učitavam…</p></div></dialog>')
 # 9.11. (Jure): everything opens in a pop-up, never a new page, and the pop-up re-fetches its content every second
 # while it is open (the swap is skipped while a field inside it has focus, so a stake being typed is never lost)
-POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0;"
+# 9.11. 23:10 (Jure: the pop-up stays at "Učitavam…"): setInterval fired a new request every second whether or not
+# the previous one had come back; with the server busy they piled up (each one more work for it) and none returned.
+# Now one request at a time per pop-up (cur = the URL in flight), given up after POP_TIMEOUT_MS, an answer for a
+# pop-up that was closed or changed meanwhile is dropped, and a slow server is said in the header instead of silence.
+POP_TIMEOUT_MS = 8000
+POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0,cur=null,ctl=null;"
           "const age=document.getElementById('ap-pop-age');"
-          "async function load(){if(!url)return;try{const r=await fetch(url,{cache:'no-store'});if(!r.ok){age.textContent='nema svježih podataka';return}const h=await r.text();"
+          "async function load(){if(!url||cur===url)return;const u=url;cur=u;let to=null;"
+          "try{ctl=new AbortController();const c=ctl;to=setTimeout(()=>c.abort()," + str(POP_TIMEOUT_MS) + ");"
+          "const r=await fetch(u,{cache:'no-store',signal:c.signal});if(u!==url)return;"
+          "if(!r.ok){age.textContent='nema svježih podataka';return}const h=await r.text();if(u!==url)return;"
           "const b=d.querySelector('.body');if(h!==b.innerHTML&&!b.contains(document.activeElement))b.innerHTML=h;"
-          "n++;age.textContent='uživo · osvježeno '+new Date().toLocaleTimeString()}catch(e){age.textContent='nema svježih podataka'}}"
+          "n++;age.textContent='uživo · osvježeno '+new Date().toLocaleTimeString()}"
+          "catch(e){if(u===url)age.textContent='server je spor, pokušavam ponovno…'}"
+          "finally{clearTimeout(to);if(cur===u)cur=null}}"
           "document.addEventListener('click',e=>{const el=e.target.closest('[data-pop]');if(!el||e.target.closest('a,button,input,select,form'))return;"
-          "e.preventDefault();url=el.dataset.pop;d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';d.showModal();load();"
+          "e.preventDefault();if(ctl)ctl.abort();url=el.dataset.pop;age.textContent='';d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';d.showModal();load();"
           "clearInterval(t);t=setInterval(load,1000)});"
-          "d.addEventListener('close',()=>{clearInterval(t);url=''});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
+          "d.addEventListener('close',()=>{clearInterval(t);url='';if(ctl)ctl.abort()});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
 POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width:min(96vw,680px);width:96vw;background:var(--card);color:var(--fg)}"
            "dialog#ap-pop::backdrop{background:rgba(0,0,0,.45)}dialog#ap-pop .bar2{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}"
            "dialog#ap-pop .body{padding:10px 14px 16px;font-size:14px;line-height:1.45}dialog#ap-pop .body h3{margin:10px 0 4px;font-size:15px}"
@@ -799,12 +809,39 @@ def followed_wallets():
     return out
 
 
+EVENTS_TTL_S = 3   # the last hour of calls is read from the databases at most this often for the pop-ups
+_EVENTS = {"ts": 0.0, "ev": None}
+
+
+def _events_hour(now=None, fresh=False):
+    """[(token, ts, platform, author, kind)] of the last CALLERS_WINDOW_S (kol/converge.events), shared by the
+    "Zovu sada" box and every pop-up. 9.11. 23:10 (Jure: the pop-up stays at "Učitavam…"): each pop-up poll (once a
+    second) read kol.db, tg.db and hype.db again in its request thread; with the CPU busy the polls piled up and
+    none came back. The refresher thread stores what it reads each pass (fresh=True) and the request threads take
+    that copy while it is younger than EVENTS_TTL_S. With the refresher off (tests) every call reads the databases."""
+    from kol import converge
+    now = now or time.time()
+    if BG_REFRESH and not fresh:
+        with _LOCK:
+            ts, ev = _EVENTS["ts"], _EVENTS["ev"]
+        if ev is not None and time.time() - ts < EVENTS_TTL_S:
+            return ev
+    ev = converge.events(int(now), CALLERS_WINDOW_S)[0]
+    if BG_REFRESH:
+        with _LOCK:
+            _EVENTS.update(ts=time.time(), ev=ev)
+    return ev
+
+
 def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype_db=None, followed=None, limit=8, live=None):
     """[(token, callers, first_ts, last_ts, symbol, live)] worth showing: X/Telegram calls from kol/converge.events
     and buys of the followed wallets only, minus everything kol/converge.not_a_memecoin rules out, each checked live
     on DexScreener (live: {token: market} for tests; None = fetch)."""
     from kol import converge, store as kstore
-    ev, _scores, _fac = converge.events(int(now), window_s, kol_db=kol_db, tg_db=tg_db, hype_db=hype_db)
+    if window_s == CALLERS_WINDOW_S and not (kol_db or tg_db or hype_db):
+        ev = list(_events_hour(now, fresh=True))   # the refresher's own read, kept for the pop-ups
+    else:
+        ev, _scores, _fac = converge.events(int(now), window_s, kol_db=kol_db, tg_db=tg_db, hype_db=hype_db)
     ev = [e for e in ev if e[2] != "chain"]   # chain events there are every webhook wallet: replaced below
     followed = followed_wallets() if followed is None else followed
     if followed:
@@ -1108,7 +1145,7 @@ def token_popup(user, mint, now=None):
         return '<div class="ap-verdict ne">NE KUPUJ: nema živog para na DexScreeneru.</div>'
     sym = m.get("symbol") or mint[:6]
     try:
-        ev, _s, _f = converge.events(int(now), 3600)
+        ev = _events_hour(now)
     except Exception:  # noqa: BLE001
         ev = []
     callers = sorted({(e[3], e[1]) for e in ev if e[0] == mint and e[4] == "call" and e[2] != "chain"}, key=lambda x: -x[1])
@@ -1247,7 +1284,7 @@ def crew_popup(user, handles, now=None):
         return "<p class=mut>Nema računa.</p>"
     mem = set(hs)
     try:
-        ev, _s, _f = converge.events(int(now), 3600)
+        ev = _events_hour(now)
     except Exception:  # noqa: BLE001
         ev = []
     toks = {}
@@ -1472,10 +1509,13 @@ def _log_section(tcon, cfg):
           "['ap-ideje','/pravi-trade/ideje']];"
           "function stale(box,on){box.style.opacity=on?'.55':'';box.title=on?'nema svježih podataka':''}"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
-          "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok){stale(box,true);return}const h=await r.text();stale(box,false);"
+          "const c=new AbortController(),to=setTimeout(()=>c.abort()," + str(POP_TIMEOUT_MS) + ");"
+          "try{const r=await fetch(url,{cache:'no-store',signal:c.signal});if(!r.ok){stale(box,true);return}const h=await r.text();stale(box,false);"
           "if(h!==box.innerHTML&&!box.contains(document.activeElement)){box.innerHTML=h;const d=box.closest('details.ap-sec');"
-          "if(d&&(id==='ap-zovu'||id==='ap-ideje'))d.hidden=!h.trim()}}catch(e){stale(box,true)}}"
-          "async function f(){if(document.visibilityState!=='visible')return;for(const [id,url] of L)await one(id,url)}"
+          "if(d&&(id==='ap-zovu'||id==='ap-ideje'))d.hidden=!h.trim()}}catch(e){stale(box,true)}finally{clearTimeout(to)}}"
+          # 9.11. 23:10: one pass at a time; a tick that finds the previous pass still waiting for the server is skipped
+          "let run=false;async function f(){if(run||document.visibilityState!=='visible')return;run=true;"
+          "try{for(const [id,url] of L)await one(id,url)}finally{run=false}}"
           f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
     n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
     return _sec("Uživo: nalozi", f"⟳ svakih {LOG_EVERY_S} s · {n} danas",

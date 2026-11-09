@@ -467,3 +467,107 @@ class KolSearchRoundIsCheap(unittest.TestCase):
         from http.server import ThreadingHTTPServer
         import run_ui  # noqa: F401 - sets the backlog at import
         self.assertGreaterEqual(ThreadingHTTPServer.request_queue_size, 64)
+
+
+class PopupNeverPilesUp(unittest.TestCase):
+    """9.11. 23:10 (Jure, screenshot: the Autopilot pop-up stays at "Učitavam…"): CPU at 100 % (KOL search round), the
+    pop-up fired a request every second without waiting for the previous one, and every request read kol.db, tg.db
+    (85 MB, no index on ts) and hype.db again. The scripts now keep one request in flight, the last hour of calls is
+    read once and shared, and the time reads have an index."""
+
+    def test_time_indexes_are_created_at_startup_and_by_the_owner_modules(self):
+        import sqlite3
+        import tempfile
+        from ops import dbs
+        from tg import store as tstore
+        with tempfile.TemporaryDirectory() as d:
+            hype, tg = os.path.join(d, "hype.db"), os.path.join(d, "tg.db")
+            con = sqlite3.connect(hype)
+            con.execute("CREATE TABLE kol_mentions (ts INTEGER, handle TEXT, ca TEXT, tickers TEXT, text TEXT)")
+            con.execute("CREATE TABLE hype_signals (ts INTEGER, token TEXT, score REAL, mcap REAL, liquidity REAL, symbol TEXT)")
+            con.commit()
+            con.close()
+            con = sqlite3.connect(tg)
+            con.execute("CREATE TABLE posts (channel TEXT, post INTEGER, ts INTEGER, seen_ts INTEGER, text TEXT, cas TEXT, "
+                        "tickers TEXT, views INTEGER, fwd_from TEXT, source TEXT, PRIMARY KEY (channel, post))")
+            con.commit()
+            con.close()
+            dbs.ensure_indexes(hype, tg)
+            con = sqlite3.connect(hype)
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN SELECT handle, ca, ts FROM kol_mentions "
+                                                      "WHERE ts >= ? AND ca != ''", (0,)))
+            con.close()
+            self.assertIn("kol_mentions_ts", plan)
+            con = sqlite3.connect(tg)
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN SELECT channel, ts, cas, fwd_from FROM posts "
+                                                      "WHERE ts >= ? AND cas != ''", (0,)))
+            con.close()
+            self.assertIn("posts_ts", plan)
+            dbs.ensure_indexes(os.path.join(d, "nema.db"), os.path.join(d, "nema2.db"))   # missing files: no error
+        self.assertIn("posts_ts ON posts (ts)", tstore.SCHEMA)
+        with open(os.path.join(ROOT, "hype", "sources.py"), encoding="utf-8") as f:
+            self.assertIn("kol_mentions_ts ON kol_mentions (ts)", f.read())
+
+    def test_events_are_read_once_and_shared_while_the_refresher_runs(self):
+        from kol import converge
+        from ui import pravitrade
+        calls = []
+        saved = (converge.events, pravitrade.BG_REFRESH, dict(pravitrade._EVENTS))
+
+        def fake(now, window_s, **kw):
+            calls.append(window_s)
+            return [("TOK", now, "x", "caller", "call")], {}, {}
+        converge.events = fake
+        try:
+            pravitrade._EVENTS.update(ts=0.0, ev=None)
+            pravitrade.BG_REFRESH = True
+            a = pravitrade._events_hour(1000)
+            b = pravitrade._events_hour(1001)
+            self.assertEqual(len(calls), 1)            # the second pop-up poll took the stored copy
+            self.assertIs(a, b)
+            pravitrade._events_hour(1002, fresh=True)   # the refresher thread always reads
+            self.assertEqual(len(calls), 2)
+            pravitrade._EVENTS["ts"] -= pravitrade.EVENTS_TTL_S + 1
+            pravitrade._events_hour(1003)               # an old copy is not served
+            self.assertEqual(len(calls), 3)
+            pravitrade.BG_REFRESH = False               # tests / refresher off: every call reads the databases
+            pravitrade._events_hour(1004)
+            pravitrade._events_hour(1004)
+            self.assertEqual(len(calls), 5)
+        finally:
+            converge.events, pravitrade.BG_REFRESH = saved[0], saved[1]
+            pravitrade._EVENTS.clear()
+            pravitrade._EVENTS.update(saved[2])
+
+    def test_popups_do_not_read_the_databases_themselves(self):
+        import inspect
+        from ui import pravitrade
+        for fn in (pravitrade.token_popup, pravitrade.crew_popup):
+            src = inspect.getsource(fn)
+            self.assertIn("_events_hour(now)", src)
+            self.assertNotIn("converge.events(", src)
+
+    def test_scripts_keep_one_request_in_flight(self):
+        from ui import leaguedash, paper, pravitrade
+        js = pravitrade.POP_JS
+        self.assertIn("if(!url||cur===url)return", js)          # a tick while the previous request is out does nothing
+        self.assertIn("AbortController", js)                    # ... and a request is given up after the timeout
+        self.assertIn(str(pravitrade.POP_TIMEOUT_MS), js)
+        self.assertIn("if(u!==url)return", js)                  # a late answer for a closed pop-up is dropped
+        self.assertIn("server je spor", js)
+        import sqlite3
+        t = sqlite3.connect(":memory:")
+        t.execute("CREATE TABLE orders (ts INTEGER)")
+        saved = (pravitrade.log_html, pravitrade._sec)
+        pravitrade.log_html, pravitrade._sec = (lambda tcon, cfg: ""), (lambda title, sub, body, sid=None: body)
+        try:
+            frag = pravitrade._log_section(t, {})
+        finally:
+            pravitrade.log_html, pravitrade._sec = saved
+        self.assertIn("if(run||document.visibilityState!=='visible')return", frag)
+        self.assertIn("finally{run=false}", frag)
+        for mod in (paper, leaguedash):
+            with open(mod.__file__, encoding="utf-8") as f:
+                src = f.read()
+            self.assertIn("busy=true", src)
+            self.assertIn("finally{busy=false}", src)

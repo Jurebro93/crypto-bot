@@ -99,20 +99,32 @@ def slim_signals(path=None, now=None, batch=SLIM_BATCH):
     return nw, nf
 
 
-def ensure_indexes(path=None):
-    path = path or os.path.join(disk.DATA_DIR, "hype.db")
-    if not os.path.exists(path) or os.path.getsize(path) == 0:
-        return
-    con = _con(path)
-    try:
-        con.execute("CREATE INDEX IF NOT EXISTS hype_signals_cover ON hype_signals "
-                    "(ts, token, score, mcap, liquidity, symbol)")
-        con.commit()
-    except sqlite3.OperationalError as e:
-        if "no such table" not in str(e):
-            print(f"indeks hype signala nije napravljen: {e}", flush=True)
-    finally:
-        con.close()
+# 9.11. 23:10 (Jure: pop-up on the Autopilot page stays at "Učitavam…"): kol/converge.events reads the last hour of
+# these tables BY TIME every second (the "Zovu sada" box, every open pop-up), and neither had an index on ts, so each
+# read scanned the whole table (tg.db posts 85 MB). One index each turns the scan into a range read.
+TIME_INDEXES = (("hype.db", "hype_signals_cover", "hype_signals (ts, token, score, mcap, liquidity, symbol)"),
+                ("hype.db", "kol_mentions_ts", "kol_mentions (ts)"),
+                ("tg.db", "posts_ts", "posts (ts)"))
+
+
+def ensure_indexes(path=None, tg_path=None):
+    """Create the read indexes the dashboard depends on (start-up, before the loops). path: hype.db, tg_path: tg.db;
+    a missing file or table is skipped (the owner module creates the index with the table)."""
+    paths = {"hype.db": path or os.path.join(disk.DATA_DIR, "hype.db"),
+             "tg.db": tg_path or os.environ.get("TG_DB") or os.path.join(disk.DATA_DIR, "tg.db")}
+    for db, name, spec in TIME_INDEXES:
+        f = paths[db]
+        if not os.path.exists(f) or os.path.getsize(f) == 0:
+            continue
+        con = _con(f)
+        try:
+            con.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
+            con.commit()
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e):
+                print(f"indeks {name} nije napravljen: {e}", flush=True)
+        finally:
+            con.close()
 
 
 def waste(path):
