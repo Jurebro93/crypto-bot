@@ -61,3 +61,38 @@ class Snap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnapshotAfterClearTest(unittest.TestCase):
+    """9.11. 18:08: a POST's clear() made the saved copy 'out of date' while the KOL round held the heavy lock, so
+    Pregled was a 503 for 20 min. The last-copy fallback may serve a copy from before the clear (stale_ok)."""
+
+    def setUp(self):
+        import tempfile
+        from ui import pagecache
+        self.pagecache = pagecache
+        self.saved = (pagecache.SNAP_DIR, set(pagecache._snap_paths), pagecache._cleared_at)
+        self.tmp = tempfile.mkdtemp()
+        pagecache.SNAP_DIR = self.tmp
+        pagecache._snap_paths.add("/probna")   # not /pregled: a background render from an earlier test may still write it
+        pagecache._cleared_at = 0.0
+
+    def tearDown(self):
+        import shutil
+        pc = self.pagecache
+        pc.SNAP_DIR, paths, pc._cleared_at = self.saved
+        pc._snap_paths.clear()
+        pc._snap_paths.update(paths)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_stale_ok_serves_copy_from_before_clear(self):
+        import gzip
+        import time
+        pc = self.pagecache
+        key = ("/probna", "", None)
+        pc._save_snap(key, gzip.compress(b"<html>kopija</html>"))
+        self.assertIsNotNone(pc._load_snap(key))
+        pc._cleared_at = time.time() + 1      # a POST after the save
+        self.assertIsNone(pc._load_snap(key))                  # the normal path waits for a fresh build
+        snap = pc._load_snap(key, stale_ok=True)               # the last-copy fallback does not
+        self.assertEqual(gzip.decompress(snap[3]), b"<html>kopija</html>")

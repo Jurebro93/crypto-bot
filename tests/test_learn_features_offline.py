@@ -46,11 +46,12 @@ class KolCycleOrder(unittest.TestCase):
         src = open(os.path.join(ROOT, "run_kol.py")).read()
         steps = src.split("for step in (")[1].split("):")[0]
         names = [s.strip() for s in steps.replace("\n", "").split(",") if s.strip()]
-        self.assertLess(names.index("cmd_chain"), names.index("cmd_search"))
         self.assertLess(names.index("cmd_chain"), names.index("cmd_score"))
         self.assertLess(names.index("cmd_converge"), names.index("cmd_score"))
-        self.assertLess(names.index("cmd_measure"), names.index("cmd_search"))   # network waits go last
+        # 9.11. 18:20: the network-bound search is not a step of the locked round any more (cmd_search_round)
+        self.assertNotIn("cmd_search", names)
         self.assertTrue(hasattr(run_kol, "cmd_chain"))
+        self.assertTrue(hasattr(run_kol, "cmd_search_round"))
 
 
 class ValidateThrottle(unittest.TestCase):
