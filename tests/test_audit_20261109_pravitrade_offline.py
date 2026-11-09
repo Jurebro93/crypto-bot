@@ -109,7 +109,7 @@ class ManualBuy(unittest.TestCase):
 
 MINT2 = "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
 HEALTHY = {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30, "buys_h1": 20,
-           "txns_h24": 100, "vol_m5": 400.0, "txns_m5": 4, "ch_m5": 3.0, "ch_h1": 4.0, "ch_h24": 9.0, "symbol": "AAA"}
+           "txns_h24": 100, "vol_m5": 400.0, "txns_m5": 6, "ch_m5": 3.0, "ch_h1": 4.0, "ch_h24": 9.0, "symbol": "AAA"}
 MOVING = {**HEALTHY, "ch_m5": 7.0, "vol_m5": 2500.0, "txns_m5": 9}
 NOW = int(time.time())
 
@@ -244,7 +244,7 @@ class PopupVerdict(PageBase):
         self.assertIn("NE KUPUJ", html)
         self.assertIn("samo 2.0% MC-a", html)
         self.assertIn(f"granica {copy.CFG['min_liq_mcap']:.0%}", html)
-        self.assertIn("(44% MC-a)", pravitrade_popup_with(self, dict(MOVING)))   # the share is shown when healthy too
+        self.assertIn("44% MC-a", pravitrade_popup_with(self, dict(MOVING)))   # the share is shown when healthy too
 
     def test_weak_callers_veto_the_verdict_and_the_manual_buy(self):
         """P47: the callers' own minute check (hit15 on 5+ calls) is the only measured outcome of copying them; when
@@ -336,6 +336,106 @@ def pravitrade_supply_cache_clear():
 def pravitrade_popup_with(t, live):
     t.live[MINT2] = live
     return t.popup()
+
+
+class NoDuplicatesAndLiveTokens(PageBase):
+    """10.11. (Jure, Autopilot): "koga već pratim ne prikazuj u prijedlozima ili ga zazeleni", "token s 0 volumena
+    nema smisla da bude tu", "brojke stavi u tablicu kao na DexScreeneru"."""
+
+    def test_followed_set_is_read_on_any_connection_and_in_any_case(self):
+        from ui import pravitrade
+        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "Trade_titan1", "", 25, 5, "tpsl", "15%", "-20%")
+        copy.follow(self.lg, settings.LEAGUE_USER, "wallet", "W" * 44, "", 25, 5)
+        copy.follow(self.lg, settings.LEAGUE_USER, "ekipa", "tg:alpha, murad", "", 25, 5, "tpsl", "15%", "-20%")
+        self.lg.commit()
+        want = {"Trade_titan1", "W" * 44, "murad,tg:alpha", "murad", "tg:alpha"}
+        self.assertEqual(pravitrade.followed_targets(self.lg), want)
+        ro = copy._ro(store.DB)   # the plain read-only connection "Zovu sada" uses: this raised and the set was empty
+        try:
+            self.assertEqual(pravitrade.followed_targets(ro), want)
+        finally:
+            ro.close()
+        self.assertTrue(pravitrade._is_followed("trade_titan1", want))        # typed in another letter case
+        self.assertTrue(pravitrade._is_followed("w:" + "W" * 44, want))        # a wallet as "Zovu sada" names it
+        self.assertFalse(pravitrade._is_followed("somebody", want))
+
+    def test_zovu_sada_drops_fully_followed_rows_and_marks_the_followed_in_a_row_that_stays(self):
+        from ui import pravitrade
+        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "-20%")
+        self.lg.commit()
+        m = dict(MOVING)
+        rows = [("TOK1" + "1" * 40, [("ansem", "x", NOW - 60)], NOW - 60, NOW - 60, "ONE", m),
+                ("TOK2" + "2" * 40, [("ansem", "x", NOW - 50), ("murad", "x", NOW - 40)], NOW - 50, NOW - 40, "TWO", m)]
+        saved = pravitrade.gather_callers
+        pravitrade.gather_callers = lambda now, **k: list(rows)
+        try:
+            html = pravitrade.callers_inner(None, True, NOW, force=True)
+        finally:
+            pravitrade.gather_callers = saved
+        self.assertNotIn("ONE", html)                       # only ansem called it, and the bot follows him already
+        self.assertIn("TWO", html)                          # murad is not followed: the row stays
+        self.assertIn("već pratiš ✓ @ansem", html)          # ... with the followed one in green
+        self.assertIn("ap-mine", html)
+
+    def test_a_typed_handle_takes_the_spelling_the_database_has(self):
+        import sqlite3
+        from ui import pravitrade
+        kp = os.path.join(self.tmp.name, "kol.db")
+        k = sqlite3.connect(kp)
+        k.execute("CREATE TABLE kols (handle TEXT)")
+        k.executemany("INSERT INTO kols VALUES (?)", [("ansem",), ("tg:AlphaCalls",)])
+        k.commit()
+        k.close()
+        self.assertEqual(pravitrade._canonical("Ansem", kp), "ansem")
+        self.assertEqual(pravitrade._canonical("tg:alphacalls", kp), "tg:AlphaCalls")
+        self.assertEqual(pravitrade._canonical("NewGuy", kp), "NewGuy")            # unknown: as typed
+        self.assertEqual(pravitrade._canonical("W" * 44, kp), "W" * 44)            # an address is never touched
+
+    def test_recommended_tokens_are_checked_live_and_the_sleeping_ones_are_left_out(self):
+        from ui import autopilot, pravitrade
+        awake, dead = "AWAKE" + "1" * 39, "DEAD" + "2" * 40
+        saved = (autopilot.token_recs, pravitrade._live_cached)
+        autopilot.token_recs = lambda now=None: {"dugo": [{"mint": dead, "symbol": "DEAD", "why": "preživio"},
+                                                          {"mint": awake, "symbol": "AWAKE", "why": "preživio"}], "moon": []}
+        state = {awake: dict(MOVING), dead: {**HEALTHY, "txns_m5": 0, "vol_m5": 0.0, "txns_h1": 1, "vol_h1": 3.0}}
+        pravitrade._live_cached = lambda toks, now, ttl=1, wait=None: {t: state[t] for t in toks}
+        try:
+            html = pravitrade._token_section({}, True)
+            self.assertIn("AWAKE", html)
+            self.assertNotIn("DEAD", html)                                          # 0 tx in 5 min: not recommended
+            self.assertIn("5 min 9 tx", html)
+            pravitrade._live_cached = lambda toks, now, ttl=1, wait=None: None      # no live answer: nothing offered
+            self.assertEqual(pravitrade._token_section({}, True), "")
+        finally:
+            autopilot.token_recs, pravitrade._live_cached = saved
+
+    def test_popup_shows_the_market_as_a_table_and_says_why_a_quiet_token_is_not_offered(self):
+        w = {"m5": {"ch": None, "vol": 0.0, "buys": 0, "sells": 0}, "h1": {"ch": -0.2, "vol": 3.0, "buys": 0, "sells": 1},
+             "h6": {"ch": 1.5, "vol": 800.0, "buys": 4, "sells": 6}, "h24": {"ch": 9.0, "vol": 5200.0, "buys": 40, "sells": 31}}
+        dead = {**HEALTHY, "mcap": 166_000.0, "liq": 86_000.0, "txns_m5": 0, "vol_m5": 0.0, "txns_h1": 1, "buys_h1": 0,
+                "vol_h1": 3.0, "ch_m5": None, "w": w}
+        html = pravitrade_popup_with(self, dead)
+        self.assertIn("NE KUPUJ", html)
+        self.assertIn("<table class=ap-mk>", html)
+        for head in ("<th>5 min</th>", "<th>1 h</th>", "<th>6 h</th>", "<th>24 h</th>", "MARKET CAP", "LIKVIDNOST"):
+            self.assertIn(head, html)
+        self.assertIn("<b>$166.0k</b>", html)
+        self.assertIn("<small>52% MC-a</small>", html)
+        self.assertIn("<span class=pos>40</span> / <span class=neg>31</span>", html)   # buys / sells apart, as on DexScreener
+        self.assertIn('<span class="pos">+9.0 %</span>', html)
+        self.assertNotIn("Vol 5 min", html)                                           # the old two lines of text are gone
+        self.assertIn("samo 1 transakcija u zadnjem satu", html)                      # the hourly rule speaks first
+        quiet = {**MOVING, "txns_m5": 2, "vol_m5": 150.0, "ch_m5": 1.0}                # trades in the hour, asleep now
+        html = pravitrade_popup_with(self, quiet)
+        self.assertIn("samo 2 transakcije u zadnjih 5 min (treba 5+)", html)
+        self.assertIn("NE KUPUJ", html)
+
+    def test_many_accounts_posting_the_address_is_said_as_a_social_signal(self):
+        self.events = [(MINT2, NOW - 60 * (i + 1), "x", f"acc{i}", "call") for i in range(6)]
+        html = pravitrade_popup_with(self, dict(MOVING))
+        self.assertIn("društveni signal: 6 različitih računa objavilo je adresu u zadnjih 60 min", html)
+        self.events = self.events[:3]
+        self.assertNotIn("društveni signal", pravitrade_popup_with(self, dict(MOVING)))
 
 
 class FollowForms(PageBase):

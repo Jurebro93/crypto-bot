@@ -1,6 +1,26 @@
 [
  {
   "datum": "2026-11-10",
+  "naslov": "Autopilot nudi samo tokene koji upravo trguju",
+  "tekst": "token bez prometa više se ne nudi: u „Zovu sada” i „Preporučeni tokeni” ulazi samo token s barem 5 transakcija u zadnjih 5 minuta, provjereno uživo. Token koji spava vrati se na listu kad se probudi, a u pop-upu piše zašto ga nema."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Tržišni podaci u tablici kao na DexScreeneru",
+  "tekst": "u pop-upu tokena market cap i likvidnost su u okvirima, a cijena, volumen i transakcije (kupnje i prodaje odvojeno) u stupcima za 5 min, 1 h, 6 h i 24 h."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Koga već pratiš, ne nudi se ponovno",
+  "tekst": "račun, ekipa ili novčanik koji bot već prati nestaje iz prijedloga, a u retku koji ostaje zbog drugih pozivatelja označen je zeleno „već pratiš”. Ime upisano drugim velikim i malim slovima prepoznaje se kao isti račun."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Društveni signal u provjeri tokena",
+  "tekst": "kad adresu tokena u zadnjih sat vremena objavi 5 ili više različitih računa, to piše među razlozima za ulaz."
+ },
+ {
+  "datum": "2026-11-10",
   "naslov": "Izlaz po podacima: alat sam bira TP i SL",
   "tekst": "za praćenje influencera i ekipa postoji novi izlaz „po podacima”: alat iz izmjerenih poziva tog računa sam bira take profit i stop loss pri svakom ulazu, a ne ulazi kad nijedan par nije u plusu. Traži barem 10 izmjerenih poziva, plus i na starijim i na novijim pozivima, i rezultat iznad nule i kad se uzme oprezna donja granica. Pozicija se zatvara najkasnije nakon 60 minuta, koliko je i mjereno."
  },

@@ -14,9 +14,12 @@ Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da 
 
 - "Što je novo" stajalo je na 5.11. (Jure 23:35: "ispada da se na alatu ne radi"): upisano 31 novost za 6.–10.11. u share/novosti.json, samo hrvatski tekst (bez engleskih polja unos ne ide na karticu ni u večernju X objavu), bez internih naziva i troškova. Vidljivo nakon sljedećeg deploya.
 
+- Autopilot, Jurine primjedbe 9./10.11. oko ponoći (u grani): (1) "koga već pratim ne prikazuj u prijedlozima": u "Zovu sada" se popis zapraćenih čitao preko veze na kojoj to čitanje puca, greška se gutala i skup je uvijek bio prazan, pa nitko nikad nije nestao s liste; sad radi na svakoj vezi, u bilo kojem velikom/malom slovu, a zapraćeni u retku koji ostaje je zelen; upisani @Ime dobiva oblik iz baze (inače ga kopiranje nikad ne bi vidjelo). (2) "token s 0 volumena nema smisla": "Zovu sada" i "Preporučeni tokeni" nude samo token s 5+ transakcija u zadnjih 5 min (uživo); pop-up kaže zašto ga nema. (3) "brojke u tablicu kao na DexScreeneru": okviri MC / likvidnost i stupci 5 min / 1 h / 6 h / 24 h s cijenom, volumenom i kupnjama/prodajama. (4) društveni signal: 5+ različitih računa objavilo adresu u satu piše među razlozima. (5) javna naslovnica: slika u okviru mobitela koja još nije stigla je svijetla, ne crna. Neovisni pregled TP/SL koda našao je 10 stvari (najteža: stari redak je pod TP 50 knjižio zatvaranje sata iznad cilja); sve popravljeno, suite 1090 OK.
+
 ### Čeka Juru
 1. Merge TP/SL po podacima i novosti (sljedeći skupni deploy), ne 01–06 CET.
-2. Za koja praćenja uključiti izlaz "po podacima": samo nova, ili prebaciti i postojeća influencer/ekipa praćenja?
+2. Sljedeći korak za "tokene koji se bude" (tvoj prijedlog): lista trending tokena koji su pali pa im se vraća promet, uz broj računa koji su objavili adresu u zadnja 3 h i kupnje dokazanih novčanika; treba li i omjer kupnji/prodaja kao signal uz provjeru može li se token prodati.
+2a. Za koja praćenja uključiti izlaz "po podacima": samo nova, ili prebaciti i postojeća influencer/ekipa praćenja?
 3. Novosti 6.–10.11. i na X (engleski tekst uz unose), ili ostaju samo u aplikaciji?
 4. Brava "dokaz u demu" za pravi novac ostaje (10 zatvorenih, PnL > 0, 40 % dobitnih); prijedlog da izvor s dokazom iz povijesti prođe ranije čeka tvoju odluku.
 

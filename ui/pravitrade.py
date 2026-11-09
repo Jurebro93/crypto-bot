@@ -291,7 +291,15 @@ POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width
            ".ap-row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;"
            "user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}.ap-row .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}"
            ".ap-row b{font-weight:600}.ap-za{color:var(--good)}.ap-protiv{color:var(--bad)}.ap-verdict{font-weight:700;padding:6px 10px;border-radius:10px;margin:6px 0;display:inline-block}"
-           ".ap-verdict.ok{background:var(--goodbg);color:var(--good)}.ap-verdict.ne{background:var(--badbg);color:var(--bad)}</style>")
+           ".ap-verdict.ok{background:var(--goodbg);color:var(--good)}.ap-verdict.ne{background:var(--badbg);color:var(--bad)}"
+           ".ap-tag.ap-mine{background:var(--goodbg);color:var(--good)}"
+           "table.ap-mk{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0}table.ap-mk th,table.ap-mk td{padding:5px 6px;"
+           "text-align:right;border-top:1px solid var(--line);white-space:nowrap}table.ap-mk th{font-weight:600;color:var(--mut)}"
+           "table.ap-mk td:first-child,table.ap-mk th:first-child{text-align:left;color:var(--mut)}"
+           ".ap-mk .pos{color:var(--good)}.ap-mk .neg{color:var(--bad)}"
+           ".ap-box{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.ap-box div{flex:1;min-width:92px;border:1px solid var(--line);"
+           "border-radius:10px;padding:6px 8px;text-align:center}.ap-box small{display:block;color:var(--mut);font-size:11.5px}"
+           ".ap-box b{font-size:15px}</style>")
 
 
 def _sec(title, meta, inner, open_=False, sid="", hidden=False):
@@ -549,11 +557,44 @@ def followed_targets(con):
     (the sorted member list). 9.11. (Jure): "once a crew or account is followed it must leave the 'whom to follow'
     lists" (he followed Arc Trending and it stayed on top)."""
     out = set()
-    for f in copy.follows(con, settings.LEAGUE_USER):
-        out.add(f["target"])
-        if f["kind"] == "ekipa":
-            out |= set(copy.members_of(f["target"]))
+    # 10.11. (Jure: "koga već pratim ne prikazuj u prijedlozima"): this went through copy.follows(), which needs a
+    # Row connection; "Zovu sada" calls it with a plain read-only one, the TypeError was swallowed there and the
+    # followed set was always EMPTY, so nobody ever left that list. A plain query works on any connection.
+    try:
+        rows = con.execute("SELECT kind, target FROM follows WHERE user = ? AND active = 1", (settings.LEAGUE_USER,)).fetchall()
+    except sqlite3.OperationalError:   # no follows table yet
+        return out
+    for kind, target in rows:
+        out.add(target)
+        if kind == "ekipa":
+            out |= set(copy.members_of(target))
     return out
+
+
+def _is_followed(name, followed):
+    """Is this account (X handle, 'tg:kanal', wallet or 'w:wallet') one the bot already follows? X handles and
+    Telegram names in any letter case (a follow typed as @Ansem is the account stored as ansem)."""
+    n = name[2:] if name.startswith("w:") else name
+    return n in followed or n.lower() in {x.lower() for x in followed}
+
+
+def _canonical(handle, kol_db=None):
+    """The handle as kol.db stores it (X and Telegram names are case-insensitive, the databases are not): a follow
+    typed as '@Ansem' must become 'ansem', or league/copy.events (exact match) never sees his calls and the lists
+    keep offering him. Unknown accounts stay as typed."""
+    if not handle or re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", handle):
+        return handle
+    try:
+        kc = copy._ro(kol_db or copy._paths()["kol"])
+        if kc is None:
+            return handle
+        try:
+            r = copy._q(kc, "SELECT handle FROM kols WHERE handle = ? COLLATE NOCASE LIMIT 1", (handle,))
+        finally:
+            kc.close()
+        return r[0][0] if r else handle
+    except Exception:  # noqa: BLE001 - the name as typed is still a valid follow
+        return handle
 
 
 def _follow_btn(kind, target, label, have, owner):
@@ -577,7 +618,7 @@ def _kol_section(con, owner):
     any_items = False
     for d, rows in recs.items():
         items = []
-        for r in [x for x in rows if x["handle"] not in followed][:autopilot.SHOW]:
+        for r in [x for x in rows if not _is_followed(x["handle"], followed)][:autopilot.SHOW]:
             s = r["s"]
             any_items = True
             mi = s.get("minute") or {}
@@ -591,7 +632,7 @@ def _kol_section(con, owner):
         panes[d] = "".join(items) or f'<p class=mut>U zadnjih {d} dana nitko nema barem {autopilot.MIN_CALLS} izmjerena calla s malo rugova.</p>'
     if not any_items:   # 9.11. (Jure): an empty list is noise; the section appears when there is somebody to follow
         return ""
-    best = next((r for r in recs.get(14) or [] if r["handle"] not in followed), None)
+    best = next((r for r in recs.get(14) or [] if not _is_followed(r["handle"], followed)), None)
     meta = f'najbolji 14 d: @{esc(best["handle"])}' if best else "po zadnjih 7/14/30 dana"
     inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Minutna provjera = +10 % prije stopa −20 % u 60 min od minute '
              f'poziva; "pogodak" (stara mjera, samo gdje minutne provjere još nema) = +50 % u 24 h '
@@ -894,6 +935,24 @@ def followed_wallets():
     return out
 
 
+# 10.11. (Jure, pop-up of a token with 0 tx in 5 min and 1 in the hour: "nema smisla da token bude tu; možda čak u
+# 5 minuta više od 5 ili 10 transakcija, da vidimo tokene koji se bude"): a token is offered on this page only while
+# it trades NOW. Constants, not a guess per list: "Zovu sada", "Preporučeni tokeni" and the pop-up verdict share them.
+AWAKE_TX_M5 = int(os.environ.get("AP_AWAKE_TX_M5", "5"))
+SOCIAL_MIN = 5   # this many different accounts posting the address inside the hour is said as a reason (Jure 10.11.)
+
+
+def asleep(m):
+    """None while the token trades right now (live DexScreener state `m`), else the reason it is not offered."""
+    tx5 = int((m or {}).get("txns_m5") or 0)
+    if tx5 < AWAKE_TX_M5:
+        word = "transakcije" if tx5 % 10 in (2, 3, 4) and tx5 % 100 not in (12, 13, 14) else "transakcija"
+        return f"samo {tx5} {word} u zadnjih 5 min (treba {AWAKE_TX_M5}+)"
+    if ((m or {}).get("vol_m5") or 0) <= 0:
+        return "bez prometa u zadnjih 5 min"
+    return None
+
+
 EVENTS_TTL_S = 3   # the last hour of calls is read from the databases at most this often for the pop-ups
 _EVENTS = {"ts": 0.0, "ev": None}
 
@@ -969,6 +1028,8 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
         if not m or not m.get("price") or (m.get("mcap") or 0) < 30_000 or tok in archived:
             continue
         if converge.not_a_memecoin(tok, syms.get(tok), m.get("liq")):
+            continue
+        if asleep(m):   # 10.11. (Jure): a call nobody trades on is not a line here; it appears when the token wakes up
             continue
         out.append((tok, callers, first, last, syms.get(tok), m))
         if len(out) >= limit:
@@ -1097,11 +1158,11 @@ def callers_inner(cfg, owner, now=None, force=False):
     except Exception:  # noqa: BLE001
         pass
     # a token whose every caller the bot already follows is the bot's job, not a suggestion (Jure 9.11.)
-    rows = [r for r in rows if not all((c[0][2:] if c[1] == "chain" else c[0]) in followed for c in r[1])]
+    rows = [r for r in rows if not all(_is_followed(c[0], followed) for c in r[1])]
     if not rows:
         html = ""   # the section hides itself while there is nothing to show
     else:
-        html = "".join(_crew_row(c, now) for c in crew_rows(rows, now))
+        html = "".join(_crew_row(c, now, followed) for c in crew_rows(rows, now))
     with _LOCK:
         _CALLERS_CACHE.update(ts=now, html=html)
     return html
@@ -1132,17 +1193,72 @@ def crew_rows(rows, now):
     return out
 
 
-def _crew_row(g, now):
+def _crew_row(g, now, followed=()):
     t = g["tokens"][0]
     m = t["live"]
     ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
     n = len(g["tokens"])
+    # 10.11. (Jure: "ili ga zazeleni da vidim da sam ga već zapratio"): a row stays while somebody in it is not
+    # followed yet; the ones the bot already follows are named in green
+    mine = [h for h in g["members"] if _is_followed(h, followed)]
+    tag = ""
+    if mine:
+        names = ", ".join(esc(h[3:] if h.startswith("tg:") else ("👛 " + h[2:8] if h.startswith("w:") else "@" + h)) for h in mine)
+        tag = f' <span class="ap-tag ap-mine" title="bot ih već prati">već pratiš ✓ {names}</span>'
     # 9.11. (audit P73): a crew made only of wallets has no X/Telegram handle to follow as a crew (their buys are
     # already copied by the wallet follows), so the row opens its newest token, not a crew pop-up with "w:…"
     pop = (f"/pravi-trade/ekipa?h={quote(g['key'])}" if g["key"] else f"/pravi-trade/token?m={quote(t['token'])}")
-    return (f'<div class=ap-row data-pop="{pop}"><span><b>{esc(g["name"])}</b> '
+    return (f'<div class=ap-row data-pop="{pop}"><span><b>{esc(g["name"])}</b>{tag} '
             f'<span class=mut style="font-size:13px">{n} {"token" if n == 1 else "tokena"} u 60 min · zadnji {esc(t["symbol"] or t["token"][:6])} '
             f'{esc(ago(t["last"])[0])}</span></span><span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5}</span></div>')
+
+
+def _usd_short(x):
+    x = float(x or 0)
+    return f"${x / 1e6:.2f}M" if x >= 1e6 else f"${x / 1e3:.1f}k" if x >= 1e3 else f"${x:.0f}"
+
+
+def _market_table(m):
+    """10.11. (Jure: "stavi to u tablicu kao na DexScreeneru, da bude prepoznatljiv format"): market cap and liquidity
+    in boxes, then one column per window (5 min, 1 h, 6 h, 24 h) with the price change, the volume and the
+    transactions as buys / sells: DexScreener's own layout, from the same response the verdict uses."""
+    w = m.get("w")
+    if not w:   # a live state without the windows (older cache entry, tests): what the flat fields have
+        b1, t1 = m.get("buys_h1"), m.get("txns_h1")
+        w = {"m5": {"ch": m.get("ch_m5"), "vol": m.get("vol_m5"), "tx": m.get("txns_m5")},
+             "h1": {"ch": m.get("ch_h1"), "vol": m.get("vol_h1"), "buys": b1, "sells": (t1 - b1) if t1 is not None and b1 is not None else None},
+             "h24": {"ch": m.get("ch_h24"), "vol": m.get("vol_h24"), "tx": m.get("txns_h24")}}
+    cols = [(k, lab) for k, lab in (("m5", "5 min"), ("h1", "1 h"), ("h6", "6 h"), ("h24", "24 h")) if k in w]
+
+    def pct(d):
+        x = d.get("ch")
+        if x is None:
+            return "–"
+        x = float(x)
+        return f'<span class="{"pos" if x > 0 else "neg" if x < 0 else ""}">{x:+.1f} %</span>'
+
+    def txn(d):
+        if d.get("buys") is None and d.get("sells") is None:
+            return "–" if d.get("tx") is None else str(int(d["tx"]))
+        return str(int((d.get("buys") or 0) + (d.get("sells") or 0)))
+
+    def split(d):
+        if d.get("buys") is None and d.get("sells") is None:
+            return "–"
+        return f'<span class=pos>{int(d.get("buys") or 0)}</span> / <span class=neg>{int(d.get("sells") or 0)}</span>'
+
+    def row(name, fn):
+        return f"<tr><td>{name}</td>" + "".join(f"<td>{fn(w.get(k) or {})}</td>" for k, _ in cols) + "</tr>"
+
+    liq_pct = f'<small>{m["liq"] / m["mcap"]:.0%} MC-a</small>' if m.get("mcap") and m.get("liq") else ""
+    turn = f'{m["vol_h1"] / m["liq"]:.1f}×' if m.get("liq") else "–"
+    return ('<div class=ap-box>'
+            f'<div><small>MARKET CAP</small><b>{_usd_short(m.get("mcap"))}</b></div>'
+            f'<div><small>LIKVIDNOST</small><b>{_usd_short(m.get("liq"))}</b>{liq_pct}</div>'
+            f'<div><small>PROMET 1 h / LIKV.</small><b>{turn}</b></div></div>'
+            '<table class=ap-mk><tr><th></th>' + "".join(f"<th>{lab}</th>" for _, lab in cols) + "</tr>"
+            + row("Cijena", pct) + row("Volumen", lambda d: "–" if d.get("vol") is None else _usd_short(d["vol"]))
+            + row("Transakcije", txn) + row("Kupnje / prodaje", split) + "</table>")
 
 
 def _live_one(mint, now):
@@ -1234,6 +1350,7 @@ def token_popup(user, mint, now=None):
     except Exception:  # noqa: BLE001
         ev = []
     callers = sorted({(e[3], e[1]) for e in ev if e[0] == mint and e[4] == "call" and e[2] != "chain"}, key=lambda x: -x[1])
+    n_social = len({h for h, _ in callers})   # 10.11. (Jure: "5 ili 10 računa objavilo adresu = jak signal")
     smart = zivo._smart_buys(now, {mint}).get(mint, 0)
     top = {}
     try:
@@ -1258,6 +1375,8 @@ def token_popup(user, mint, now=None):
             za.append("novi pozivatelj u 10 min: " + ", ".join((h[3:] if h.startswith("tg:") else "@" + h) for h in fresh[:4]))
     if smart:
         za.append(f"{smart} pametnih novčanika kupilo u 10 min")
+    if n_social >= SOCIAL_MIN:   # described, not a verdict by itself: a campaign posts the same address too
+        za_static.append(f"društveni signal: {n_social} različitih računa objavilo je adresu u zadnjih 60 min")
     if ((m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5
             and (m.get("txns_m5") or 0) >= zivo.MOVE_TX_M5):
         za.append(f"+{m['ch_m5']:.0f} % u 5 min na ${m['vol_m5']:,.0f} ({m['txns_m5']} tx)")
@@ -1279,6 +1398,9 @@ def token_popup(user, mint, now=None):
     why_not = prijedlog.alive(m)
     if why_not:
         protiv.append(why_not)
+    quiet = asleep(m)   # 10.11. (Jure): the lists leave such a token out; here it says why
+    if quiet and not why_not:
+        protiv.append(quiet)
     if (m.get("mcap") or 0) < 30_000:
         protiv.append(f"MC ${m['mcap']:,.0f}, ispod 30k")
     if (m.get("ch_m5") or 0) <= -10:
@@ -1314,18 +1436,12 @@ def token_popup(user, mint, now=None):
     rc_missing_txt = "RugCheck nije odgovorio" if top else "rug check nije rađen"
     band = prijedlog._band(m["mcap"])
     exp_txt, _v = zivo.expectation(caller_hs, mstats, (zivo._chances() or {}).get(band))
-    ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
-    ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-    ch24 = f"{m['ch_h24']:+.0f} %" if m.get("ch_h24") is not None else "?"
     verdict = ("NE KUPUJ" if not ok else
                f"U REDU ZA ULAZ · {rc_missing_txt}, tko drži supply nepoznato" if rc_missing else
                "U REDU ZA ULAZ · holderi nepoznati" if holders_unknown else "U REDU ZA ULAZ")
-    liq_pct = f" ({m['liq'] / m['mcap']:.0%} MC-a)" if m.get("mcap") and m.get("liq") else ""
     b = [f'<h3>{tlink(mint, sym)}</h3>',
          f'<div class="ap-verdict {"ok" if ok else "ne"}">{esc(verdict)}</div>',
-         f'<p>MC ${m["mcap"] / 1000:,.0f}k · likv. ${m["liq"] / 1000:,.0f}k{liq_pct} · cijena 5 min {ch5} · 1 h {ch1} · 24 h {ch24}<br>'
-         f'Vol 5 min ${m["vol_m5"]:,.0f} ({m["txns_m5"]} tx) · 1 h ${m["vol_h1"]:,.0f} ({tx} tx, {buys} kupnji) · '
-         f'brzina novca {(m["vol_h1"] / m["liq"] if m.get("liq") else 0):.1f}× likvidnosti</p>']
+         _market_table(m)]
     if za or za_static:
         b.append("<p class=ap-za><b>Za:</b> " + "; ".join(esc(x) for x in za)
                  + (("; " if za else "") + '<span class=mut>' + "; ".join(esc(x) for x in za_static) + "</span>" if za_static else "")
@@ -1444,15 +1560,22 @@ def _token_section(cfg, owner):
     recs = autopilot.token_recs()
     items = []
     from kol import converge
+    recs = {k: [r for r in recs.get(k) or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol"))]   # 9.11.: never a
+            for k in ("dugo", "moon")}                                                                       # major or xStock
+    # 10.11. (Jure: a recommended token with 0 tx in 5 min and 1 in the hour): the list was never checked live
+    # ("dodir = provjera uživo"); now every token on it is, and one that does not trade right now is left out.
+    # No live answer = nothing is recommended (the same rule as "Zovu sada").
+    mints = sorted({r["mint"] for rows in recs.values() for r in rows})
+    lv = (_live_cached(mints, time.time()) or {}) if mints else {}
+    recs = {k: [r for r in rows if lv.get(r["mint"]) and not asleep(lv[r["mint"]])] for k, rows in recs.items()}
     for kind, lab, ex in (("dugo", "dugoročno", "manual"), ("moon", "moonshot", "smart")):
         for r in recs.get(kind) or []:
-            if converge.not_a_memecoin(r["mint"], r.get("symbol")):   # 9.11.: never a major, wrapped asset or xStock
-                continue
+            m = lv[r["mint"]]
+            state = f'MC ${m["mcap"] / 1000:,.0f}k · 5 min {m["txns_m5"]} tx' if m.get("mcap") else f'5 min {m["txns_m5"]} tx'
             items.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(r["mint"])}"><span><b>{esc(r["symbol"] or r["mint"][:6])}</b>'
                          f'<span class="ap-tag {kind}">{lab}</span> <span class=mut style="font-size:13px">{esc((r["why"] or "")[:90])}</span></span>'
-                         f'<span class=k>dodir = provjera uživo</span></div>')
-    nd = sum(1 for r in recs.get("dugo") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
-    nm = sum(1 for r in recs.get("moon") or [] if not converge.not_a_memecoin(r["mint"], r.get("symbol")))
+                         f'<span class=k>{state}</span></div>')
+    nd, nm = len(recs["dugo"]), len(recs["moon"])
     meta = f"{nd} dugoročna · {nm} moonshot" if items else "trenutno nema"
     head = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Dugoročni su stariji tokeni koji su preživjeli; moonshot '
             f'je svjež token s jakim signalom i prošlim rug checkom {tip("Moonshot: mali, novi token koji može narasti puno, ali i pasti na nulu. Bot ga preporuča samo kad je među najjačim prijedlozima, prošao rug check i nije usred pumpe ili pada. Nijedna preporuka nije jamstvo zarade.")}</p>')
@@ -1859,6 +1982,10 @@ def post(path, form, user):
                     kind, target = _detect_kind(target)
                 if not target:
                     raise ValueError("upiši adresu walleta ili @influencera")
+                if kind == "kol":      # 10.11.: '@Ansem' typed by hand is the account kol.db knows as 'ansem'
+                    target = _canonical(target)
+                elif kind == "ekipa":
+                    target = ", ".join(_canonical(m) for m in copy.members_of(target))
                 tp = form.get("tp", "") or (f"{_cfg(tcon).get('tp_default', 15)}%" if form.get("exit") == "tpsl" else "")
                 if form.get("exit") == "podaci":   # 9.11.: the tool picks the pair at every entry (kol/tpsl.py)
                     tp = ""

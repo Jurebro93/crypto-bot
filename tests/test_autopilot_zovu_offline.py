@@ -70,11 +70,18 @@ class NotACall(unittest.TestCase):
         hc.commit()
         hc.close()
         live = {t: {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30,
-                    "buys_h1": 20, "txns_h24": 100, "ch_h1": 4.0, "ch_h24": 9.0}
+                    "buys_h1": 20, "txns_h24": 100, "ch_h1": 4.0, "ch_h24": 9.0, "txns_m5": 8, "vol_m5": 600.0}
                 for t in (WBTC_M, COINX_M, BANK_M, MEME_M)}
         rows = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"}, live=live)
         got = {r[4]: [c[0] for c in r[1]] for r in rows}
         self.assertEqual(set(got), {"BANK", "MEME"})                  # WBTC (wrapped) and COINx (xStock) are gone
+        # 10.11. (Jure: "token s 0 volumena nema smisla da bude tu; u 5 minuta više od 5 transakcija"): a called token
+        # nobody trades right now is not a line; it comes back when it wakes up
+        quiet = {**live, MEME_M: {**live[MEME_M], "txns_m5": 0, "vol_m5": 0.0, "txns_h1": 1}}
+        again = pravitrade.gather_callers(NOW, kol_db=kp, tg_db=tp, hype_db=hp, followed={"FOLLOWEDWALLET"}, live=quiet)
+        self.assertEqual({r[4] for r in again}, {"BANK"})
+        self.assertIn("samo 0 transakcija u zadnjih 5 min (treba 5+)", pravitrade.asleep(quiet[MEME_M]))
+        self.assertIsNone(pravitrade.asleep(live[MEME_M]))
         self.assertEqual(got["BANK"], ["tg:alpha", "w:FOLLOWEDWALLET"])   # the followed wallet's buy counts
         self.assertEqual(got["MEME"], ["murad"])                      # a random webhook wallet's buy does not
         self.assertEqual(rows[0][4], "BANK")                          # most callers first
