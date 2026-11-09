@@ -321,13 +321,28 @@ def _rugged(token, mcap, liq):
         return None
 
 
+def _live_pairs(client, tokens):
+    """9.11. (audit P2/P26): the copy loop prices through the short live cache (dexscreener/client.tokens_live,
+    DEX_LIVE_TTL 3 s, never 1 s), not the scanners' 60-s cache, so a TP/SL exit and a copy entry see prices seconds
+    old. client.tokens stays the seam the offline tests replace with a 2-argument stand-in (same rule as
+    ui/paper.live_pairs: decided by the signature, not by catching TypeError)."""
+    import inspect
+    try:
+        legacy = "ttl" not in inspect.signature(client.tokens).parameters
+    except (TypeError, ValueError):
+        legacy = False
+    if legacy:
+        return client.tokens("solana", list(tokens))
+    return client.tokens_live("solana", list(tokens))
+
+
 def market(tokens):
     """token -> (price, liquidity, url, mcap, symbol) from the deepest DexScreener pair; {} when unreachable."""
     if not tokens:
         return {}
     try:
         from dexscreener import client
-        pairs = client.tokens("solana", list(tokens))
+        pairs = _live_pairs(client, tokens)
     except Exception:  # noqa: BLE001 - no price this minute, retried next minute
         return {}
     best = {}

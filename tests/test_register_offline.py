@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -11,6 +12,19 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from league import members, store  # noqa: E402
+
+from league import copy as _copy  # noqa: E402
+
+# 9.11. (audit review): live/store.py (via league.members) wakes the copy loop (league/copy.wake); the tests must not touch the repo's .copy_wake
+_WAKE = mock.patch.object(_copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))
+
+
+def setUpModule():
+    _WAKE.start()
+
+
+def tearDownModule():
+    _WAKE.stop()
 
 
 class Register(unittest.TestCase):

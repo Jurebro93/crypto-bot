@@ -86,6 +86,21 @@ class Crew(unittest.TestCase):
         self.assertIn("+41% u zadnjih 5 min", notes[TOK2])   # 9.11. (audit P60): says what DexScreener measured
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
+    def test_runup_of_a_5_to_10_min_old_call_reads_the_hour_change(self):
+        """9.11. (audit P66): the only run_once path past 5 min (max_delay_min 10) gates on DexScreener's h1, not m5;
+        the log says which window it measured. No linear scaling (verifier)."""
+        copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
+                    max_mcap=1e6, max_runup=0.25)
+        self.backdate()
+        self.call("tg:kolclant", TOK, NOW - 420)    # 7 min old: h1 decides
+        self.call("tg:kolclant", TOK2, NOW - 400)
+        mk = {TOK: (0.001, 50_000, None, 300_000, "A", {"m5": 2.0, "h1": 60.0}),
+              TOK2: (0.001, 50_000, None, 300_000, "B", {"m5": 60.0, "h1": 2.0})}
+        copy.run_once(self.lg, lambda toks: mk, NOW, self.paths)
+        self.assertEqual({r[0] for r in self.lg.execute("SELECT token FROM trades")}, {TOK2})
+        notes = {r[0]: r[1] for r in self.lg.execute("SELECT token, note FROM copy_log WHERE action='preskočeno'")}
+        self.assertIn("+60% u zadnjih 60 min", notes[TOK])
+
     def test_min_callers_waits_for_the_second_member(self):
         copy.follow(self.lg, "pravi-trade", "ekipa", ",".join(CREW), "", 25, 5, "tpsl", "15%", "",
                     max_mcap=1e6, max_runup=0.25, min_callers=2)

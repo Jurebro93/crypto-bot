@@ -221,9 +221,14 @@ class Page(unittest.TestCase):
             self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 0.5), html)   # 1-s cache
             zivo.rows = lambda now=None, **k: []
             pravitrade._IDEAS_CACHE.clear()
+            # 9.11. (audit P33 review): an empty list counts as "nothing to buy" only once the zivo thread has made its
+            # first pass (zivo._ROWS ts > 0); before that the fragment says 'učitavam…' and caches nothing
+            ts0 = zivo._ROWS["ts"]
+            zivo._ROWS["ts"] = float(NOW + 5)
             self.assertEqual(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), "")
         finally:
             overview.token_rows, zivo.rows = saved
+            zivo._ROWS["ts"] = ts0
             pravitrade._IDEAS_CACHE.clear()
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop

@@ -35,7 +35,10 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
 # 5.11.: keep <name> <command...>: restarts just that process when it dies (30 s pause, logged), instead of
 # "wait -n; exit 1" taking the whole worker down (two full restarts on 5.11. because run_live hit a locked database)
-keep() { local name="$1"; shift; ( while true; do "$@"; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30; done ) & }
+# 9.11. (audit P11): a deploy's SIGTERM reaches the supervised process (run_trade.cmd_follow finishes the pass it is
+# in and exits, run_trade._on_term) instead of only the shell: the supervisor forwards TERM to its child and stops.
+keep() { local name="$1"; shift; ( pid=; trap 'kill -TERM $pid 2>/dev/null; wait $pid 2>/dev/null; exit 0' TERM; while true; do "$@" & pid=$!; wait $pid; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30 & wait $!; done ) & }
+trap 'kill -TERM $(jobs -p) 2>/dev/null; wait' TERM
 if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PORT"; fi
 # 9.11. (audit P9): the real-money follower right after the UI (every loop below is backgrounded, so this only moves it
 # ahead of ~20 python start-ups fighting for 0.5 CPU; the real gain is the short --startup above, so a paper entry

@@ -94,6 +94,8 @@ def _token_rows(since=None):
                     "cand": cands.get(t), "collapse": col, "peak": pk.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
                     "mcap": mcap, "last_seen": last_seen, "det": det or {},
+                    # 9.11. (audit P79): the last real signal (not a rug check or candidate time) for freshness
+                    "signal_ts": s["last"]["ts"] if s else 0,
                     "features": feats, "top": top})
     return out
 

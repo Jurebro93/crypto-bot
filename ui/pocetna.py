@@ -267,7 +267,8 @@ def metrics(now=None):
     for icon, label, href, path, table, col, where in (
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
             ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
-            ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            # 9.11. (audit P70): calls buy/sell come from every Helius-webhook wallet (leaderboard), not only followed ones
+            ("👛", "Kupnje i prodaje svih webhook novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
             ("⚡", "Kupnje i prodaje u živom toku (PumpPortal, zadnjih 48 h)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
             ("🎓", "Tokeni koji su bondali (živi tok)", "/izvori", hype_db_path(), "live_launches", "ts", "pool = 'migration'"),
             # 5.11.: the same number /izvori shows as "aktivnih Telegram kanala" (status 'active'); the page counted

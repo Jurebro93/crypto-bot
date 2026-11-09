@@ -473,16 +473,22 @@ def _kol_section(con, owner):
         for r in [x for x in rows if x["handle"] not in followed][:autopilot.SHOW]:
             s = r["s"]
             any_items = True
+            mi = s.get("minute") or {}
+            if s.get("mjera") == "minutna" and mi.get("n"):   # 9.11. (audit P12/P15/P16): the minute measure first
+                k = f'{(mi.get("hit10") or 0):.0%} +10 % prije stopa · {mi["n"]} poziva'
+            else:
+                k = f'{s["hit"]:.0%} pogodaka · {s["n"]} callova (stara mjera)'
             items.append(f'<details class=ap-it><summary><span><a href="/kol/{quote(r["handle"])}">@{esc(r["handle"])}</a>'
-                         f'{" ⚡" if r["live"] else ""}</span><span class=k>{s["hit"]:.0%} pogodaka · {s["n"]} callova</span>'
+                         f'{" ⚡" if r["live"] else ""}</span><span class=k>{k}</span>'
                          f'</summary><p>{esc(r["why"])}</p>{_follow_btn("kol", r["handle"], "", have, owner)}</details>')
         panes[d] = "".join(items) or f'<p class=mut>U zadnjih {d} dana nitko nema barem {autopilot.MIN_CALLS} izmjerena calla s malo rugova.</p>'
     if not any_items:   # 9.11. (Jure): an empty list is noise; the section appears when there is somebody to follow
         return ""
     best = next((r for r in recs.get(14) or [] if r["handle"] not in followed), None)
     meta = f'najbolji 14 d: @{esc(best["handle"])}' if best else "po zadnjih 7/14/30 dana"
-    inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Pogodak = cijena je u 24 h nakon calla narasla +50% ili '
-             f'više {tip("Mjerimo svaki call: najveći rast u 24 h, rezultat nakon 24 h i je li token rugan. Rugovi se broje dvostruko protiv. ⚡ = pratimo ga uživo, pa bot stigne ući na vrijeme.")}</p>'
+    inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Minutna provjera = +10 % prije stopa −20 % u 60 min od minute '
+             f'poziva; "pogodak" (stara mjera, samo gdje minutne provjere još nema) = +50 % u 24 h '
+             f'{tip("Minutna mjera (kol/minute.py) rangira; stara mjera: najveći rast u 24 h, rezultat nakon 24 h i je li token rugan, rugovi dvostruko protiv. ⚡ = pratimo ga uživo, pa bot stigne ući na vrijeme.")}</p>'
              + _windows("kol", panes))
     return _sec("Preporučeni influenceri", meta, inner, sid="influenceri")
 
@@ -545,8 +551,11 @@ def _wallet_section(con, owner):
             items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
                          f'<span class=k>{100 * s["roi"]:+.0f}% · {s["win"]:.0%} u plusu</span></summary>'
                          f'<p>{esc(r["why"])}</p>{_follow_btn("wallet", r["wallet"], r["name"], have, owner)}</details>')
+        # 9.11. (audit P14): chain_trades sells carry no SOL amount, so the window return is mostly unknown; say so
         panes[d] = "".join(items) or (f'<p class=mut>U zadnjih {d} dana nijedan wallet koji pratimo uživo nema barem '
-                                      f'{autopilot.MIN_CLOSED} prodana tokena u plusu.</p>')
+                                      f'{autopilot.MIN_CLOSED} prodana tokena s poznatim povratom u plusu (iznos prodaja '
+                                      f'se često ne zapisuje, pa je povrat po prozoru nepoznat; auto-izbor uzima '
+                                      f'"dokazane dvaput" gore).</p>')
     best = next((r for r in recs.get(14) or []), None)
     meta = f'najbolji 14 d: {100 * best["s"]["roi"]:+.0f}%' if best else "po zadnjih 7/14/30 dana"
     inner = (dok + '<p style="margin:14px 0 4px"><b>Po zadnjih 7/14/30 dana</b> (samo walleti koje pratimo uživo)</p>'
@@ -650,7 +659,7 @@ def latest_picks(now=None, limit=3):
         return []
     finally:
         con.close()
-    order = {"visoka": 0, "srednja": 1, "niska": 2}
+    order = {"uživo": 0, "visoka": 0, "srednja": 1, "niska": 2}   # 9.11. (audit P50/P51): zivo rows rank with 'visoka'
     out, seen = [], set()
     for tok, raz, mcap0, conf, ts in rows:
         if tok in seen:
@@ -674,6 +683,8 @@ def ideas_inner(cfg, owner, now=None, force=False):
         rs = zivo.rows(now)
     except Exception as e:  # noqa: BLE001
         return f'<p class=mut>Živi prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
+    if not rs and not zivo._ROWS.get("ts"):   # 9.11. (audit P33 review): the zivo thread has not filled its cache yet
+        return '<p class=mut>učitavam…</p>'   # not cached, so the next poll gets the real list
     if not rs:
         html = ""
     else:
@@ -1173,7 +1184,7 @@ def token_popup(user, mint, now=None):
     else:
         sup = "rug check alata: nije rađen (token nije među top 20 prijedloga) · tko drži supply: nepoznato"
     b.append(f"<p><b>Holderi:</b> {esc(sup)}.</p>")
-    b.append(f"<p><b>Očekivanje +15 %:</b> {esc(exp_txt)}.</p>")
+    b.append(f"<p><b>Očekivanje:</b> {esc(exp_txt)}.</p>")   # 9.11. (audit P85): the fallback text is "stara mjera: ... +30 % u 24 h"
     if callers:
         b.append("<p><b>Zvali u zadnjih 60 min:</b> " + ", ".join(
             f'{esc(h[3:] if h.startswith("tg:") else "@" + h)} ({esc(ago(ts)[0])})' for h, ts in callers[:8]) + "</p>")

@@ -3,6 +3,36 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 9.11.2026. (noć, audit)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Audit Autopilota (audit/2026-11-09-autopilot.md; 61 nalaz spojen iz 85 potvrđenih, 12 odbačenih) našao je tri vrste problema: (1) svježina – "⟳ 1 s" je crtao brojke iz 60-s DexScreener keša, 1-s fragmenti radili su HTTP i spavali u niti zahtjeva, prikazivalo se vrijeme crtanja umjesto vremena podatka; (2) tumačenje – light RugCheck izvještaj bez holdera bio je "rug check prošao", nepoznati udjeli holdera brojali su se kao 0 (bodovi za "dobru koncentraciju"), stara mjera pogotka (fitilj +50 % u 24 h) rangirala je influencere iako minutna mjera postoji, prodaje bez SOL iznosa pravile su ROI novčanika; (3) novac – kopije bez stopa, TP/SL od sirove umjesto stvarne cijene ulaza, svježina mjerena od demo ulaza umjesto od poziva, pravi novac bez dokaza u demu, Jupiter 429 tumačen kao "nema prodavača". Popravljeno u 6 grupa datoteka (pogon, izvori, novac, pravitrade, zivo, stranice) + integracija predaja među grupama; 1.028 testova zeleno.
+- Pogon (PR #69–#72, #74, grana): priprema baza pri deployu traje sekunde (sažimanje i čišćenje prešlo u satni posao), teške stranice nikad se ne grade u UI procesu (dijete na nice 5, warmer ne gradi stranicu mlađu od 4 min), /ekipe i /kol u djetetu sa zadnjom kopijom na disku, market/usage lagani poslovi, noćni prozor 01–06 CET za teške poslove (Jure: "brave zakaži za iza ponoć"), danju CPU Autopilotu i stranicama.
+- Izvori: DexScreener živi keš 3 s (najmanje 2 s; limit 300/min dijele svi procesi) za Autopilot, demo TP/SL i copy petlju, skeneri 60 s; X i Helius webhook pri zaključanoj bazi spremaju na disk i vraćaju 200 (ništa se ne gubi); svježa provjera bez podatka o holderima = "oprez", ne "prolazi"; praćeni TG kanal koji nije u bazi ulazi odmah; dokazani novčanici s udjelom "bagova" (neprodanih) ≥ 30 % nisu za kopiranje; udjeli holdera/bundlera/snajpera iz RugCheck + rug filtera kad pump.fun ploče nema (i u skenu).
+- Novac: ulaz samo MC ≥ 30k, samo bondani, likvidnost ≥ 3 % MC-a, koncentracija blokira samo na POZNATO lošem podatku; zadani stop −20 % za svaku TP/SL kopiju bez upisanog stopa (isti prag kao minutna provjera), TP/SL od stvarne cijene ulaza; svježina od poziva; pravi novac samo praćenju s dokazom u demu (10+ zatvorenih, PnL > 0, 40 %+ dobitnih; ručne kupnje izuzete); prodaja upisuje namjeru prije swapa i usklađuje se poslije; Jupiter 429/4xx = "nema odgovora, ne kupujem naslijepo"; ručna kupnja provjerava TP/SL i ulog PRIJE upisa demo tradea; deploy šalje SIGTERM procesu pravog novca, koji dovrši prolaz i izađe.
+- Autopilot uživo (pravitrade + zivo): minutna provjera je primarni rang influencera (fitilj samo rezerva, označena "stara mjera"), i na karticama "+10 % prije stopa · N poziva"; pop-up verdikt traži svjež razlog, veto pozivatelja iz minutne provjere (svi poznati pozivatelji hit15 < 30 % na 5+ poziva → Kupi odbija), rug check "nije rađen" i "tko drži supply: nepoznato" umjesto prolaza, vrijeme RugCheck podatka umjesto prolaza provjere, red "likvidnost X % MC-a", dokaz u demu po praćenju ("pravi novac: da/ne"); 1-s fragmenti čitaju keš koji puni pozadinska nit (nema HTTP-a ni spavanja u niti zahtjeva), "podaci od HH:MM:SS UTC" umjesto vremena crtanja, "učitavam…" dok prve brojke ne stignu; novčanici: prodaja bez SOL iznosa = zatvoreno ali povrat nepoznat, udio neprodanih kažnjava; dokazani novčanici prvi izvor auto-izbora.
+- Stranice: minutna mjera i vruća lista na Influenceri/Copy trading/Pregled, oznake Autopilota na Walleti, starost tržišnih podataka i "ispod 30k" na Tokeni, holderi "nepoznato" (nikad bodovi za nepoznato), zadnji stvarni signal kao svježina prijedloga, kartica "Kupnje i prodaje svih webhook novčanika" (brojala je sve webhook novčanike, ne samo praćene).
+- Ispravak ranijeg zapisa (popodne, "DexScreener batch keš 1 s"): keš je stvarno bio 60 s; sada živi keš 3 s, živa lista 2 s u pozadinskoj niti, skeneri 60 s.
+
+### U tijeku (alat radi sam)
+- Minutno punjenje 30 dana nastavlja (brojke u večernjem zapisu dolje); teški poslovi (dugoročni sken, puni KOL krug, bodovanje novčanika) čekaju noćni prozor 01–06 CET.
+- Pozadinske niti Autopilota pune živi keš; prvi gledatelj nakon deploya vidi "učitavam…" najviše ~2 s.
+- Deploy ove grane: jedan merge za sve valove (pogon + izvori + novac su već u main kroz #69–#74; pravitrade, zivo, stranice, noćni prozor i integracija čekaju jedan PR).
+
+### Čeka Juru
+1. LIVE prekidač na /pravi-trade uključen od 16:20 UTC, a pravilo (CLAUDE.md) kaže "dry dok strategija ne dokaže edge u demu": ostaje uključen (sad s vratima "dokaz u demu"), ili isključiti dok barem jedno praćenje ne prođe prag?
+2. Pragovi dokaza u demu (10+ zatvorenih, PnL > 0, 40 %+ dobitnih) – potvrda; vrijede li i za izvore bez praćenja (SimianX, ručne kupnje s lige), koji sad idu bez tih vrata?
+3. PumpPortal podatkovni ključ/novčanik (≥ 0,02 SOL) – kao jučer: bez uplate živi tok ostaje ugašen.
+4. Jedan merge po valu (deploy skuplja promjene) ostaje pravilo, ili se svaka grupa spaja zasebno čim je zelena?
+5. Pravi trade SPSC 17:19–17:28 UTC, −0,024 SOL: tvoj ručni test ili ulaz Autopilota? S novim vratima (dokaz u demu, svježina od poziva) takav ulaz bi sada bio blokiran – je li to u redu?
+6. Tri manje odluke: smiju li X webhook računi bez monitora u auto-izbor influencera (P42)? Ostaje li veto slabih pozivatelja i na ručnu kupnju "Kupi odmah" (P47)? Smije li se .copy_wake maknuti iz gita (datoteka je u .gitignore, a ipak praćena)?
+
+### Odbačeno / nema smisla (po podacima)
+- 12 nalaza audita (§6 izvještaja): namjerni rezervni putovi i dokumentirane odluke (Pregled nudi zadnje prijedloge kad je živa lista prazna, 'since' pri startu pravog novca, holder polja kao značajke za učenje a ne pragovi, javna lista /tokens po broju holdera, UTC vs Zagreb u dnevnom limitu kozmetika) – ostaju kako jesu.
+
+### Bot u 5 brojki
+- Bez novih mjerenja (noć je otišla na popravke, ništa od ovoga još nije na serveru); vrijede brojke iz zapisa "9.11.2026. (večer)" dolje.
+
 ## 9.11.2026. (večer)
 
 ### Odlučeno i napravljeno (spojeno, radi)
