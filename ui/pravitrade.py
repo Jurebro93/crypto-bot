@@ -20,6 +20,7 @@ kol/converge.not_a_memecoin); (2) how does it help the user make money from it r
 a measured reason, a buy form that uses the chosen exit); (3) would the owner lose money or time if it were wrong
 (then it is not shown, or shown as "ne kupuj" with the reason).
 """
+import json
 import os
 import re
 import sqlite3
@@ -359,12 +360,17 @@ def _follows(con, owner, st=None, prefill=""):
         stop = (f'<form method=post action=/pravi-trade/stop><input type=hidden name=id value={f["id"]}>'
                 '<button>Prestani pratiti</button></form>') if owner else ""
         by = '<span class="ap-tag dugo">🤖 alat</span>' if f["id"] in auto_ids else ""
+        try:
+            dline = _data_exit_line(f)
+        except Exception:  # noqa: BLE001 - the list renders without the statistic
+            dline = ""
         items.append(f'<details class=ap-it><summary><span>{who}<span class=ap-tag>'
                      f'{"influencer" if f["kind"] == "kol" else ("ekipa" if f["kind"] == "ekipa" else "wallet")}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
                      f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
                      f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>'
                      f'<p class=mut style="font-size:13px">{last24}</p>'
-                     f'<p class=mut style="font-size:13px">{proof}</p>{stop}</details>')
+                     + (f'<p class=mut style="font-size:13px">{dline}</p>' if dline else '')
+                     + f'<p class=mut style="font-size:13px">{proof}</p>{stop}</details>')
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
     pre = esc(prefill or "")
     meta = (("🤖 " if st.get("auto_pick") else "")
@@ -375,14 +381,92 @@ def _follows(con, owner, st=None, prefill=""):
                   f'<input name=target placeholder="adresa walleta, @influencer, tg:kanal ili ekipa: tg:a, tg:b, @c" required value="{pre}" style="flex:1;min-width:220px">'
                   '<label>na dan <input name=per_day value=5 inputmode=numeric style="width:46px"></label>'
                   '<select name=exit aria-label="Izlaz"><option value="">zadano</option><option value=mirror>prodaj kad on proda</option>'
-                  f'<option value=tpsl{" selected" if pre else ""}>moj TP/SL</option></select><input name=tp placeholder="TP %" size=6> <input name=sl placeholder="SL %" size=6>'
+                  f'<option value=tpsl{" selected" if pre else ""}>moj TP/SL</option>'
+                  '<option value=podaci>po podacima (alat bira TP/SL)</option></select><input name=tp placeholder="TP %" size=6> <input name=sl placeholder="SL %" size=6>'
                   '<label>do MC <input name=max_mcap placeholder="npr. 1M" size=6></label> <label>ne ako je već <input name=max_runup placeholder="+25 %" size=5></label> '
                   '<label>od <select name=min_callers aria-label="Koliko iz ekipe mora zvati"><option value=1>1. poziva</option><option value=2>2 zovu</option><option value=3>3 zovu</option></select></label>'
                   '<button>Zaprati</button></form><p class=mut style="font-size:13px;margin:0 0 8px">Ekipa = više računa odvojenih zarezom: '
                   'jedan ulaz po tokenu čim prvi od njih objavi (ili kad ih zove 2–3), samo dok je token ispod zadanog MC-a (zadano $1M) i '
-                  'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah.</p>')
-    inner = _auto_box(st, owner) + anyone + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Upiši koga pratiti ili odaberi iz preporuka ispod.</p>')
+                  'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah. '
+                  'Izlaz „po podacima” (influenceri i ekipe): alat pri svakom ulazu sam bira TP/SL iz izmjerenih poziva tog računa '
+                  'i ne ulazi kad nijedan par nije u plusu; pozicija se zatvara najkasnije nakon 60 min.</p>')
+    try:
+        pool_box = _pool_line()
+    except Exception:  # noqa: BLE001
+        pool_box = ""
+    inner = (_auto_box(st, owner) + anyone
+             + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Upiši koga pratiti ili odaberi iz preporuka ispod.</p>')
+             + pool_box)
     return _sec("Koga bot prati", meta, inner, open_=not fl, sid="pratim")
+
+
+_DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
+DATA_EXIT_TTL_S = 60
+POOL_SHOW = ((15, 20), (20, 40), (20, 20), (30, 15))   # the pairs Jure asked about, plus two with the target >= the stop
+
+
+def _data_exit_line(f, now=None):
+    """9.11. (Jure: "neka alat dinamički odluči kad može biti profitabilno"): what kol/tpsl.py says about this KOL /
+    crew follow right now, from its measured calls: the TP/SL it would take, or that no pair is in the plus (then a
+    follow with the exit "po podacima" does not enter), or how many measured calls are still missing. '' for wallets
+    (their buys are not measured by the minute) and when minute.db cannot be read."""
+    if f["kind"] not in ("kol", "ekipa"):
+        return ""
+    sig = json.dumps(f["exit"], sort_keys=True)
+    hit = _DATA_EXIT.get(f["id"])
+    if hit and time.time() - hit[0] < DATA_EXIT_TTL_S and hit[1] == sig:
+        d = hit[2]
+    else:
+        d = copy.data_exit(f, now)
+        _DATA_EXIT[f["id"]] = (time.time(), sig, d)
+    if not d:
+        return ""
+    own = f["exit"].get("mode") == "podaci"
+    if d.get("ok") is None:
+        tail = (f" Do tada vrijedi zadani izlaz TP +{copy.DATA_TP.rstrip('%')} % / SL {copy.DEFAULT_SL.rstrip('%')} %." if own else "")
+        return f"Po podacima: {esc(d['why'])}.{tail}"
+    if d["ok"]:
+        return (f"Po podacima alat bi uzeo {esc(d['base'])}; na novijih {d['n_new']} poziva {d['ev_new']:+.1f} %."
+                + ("" if own else " (Ovo praćenje koristi svoj izlaz; „po podacima” se bira u formi.)"))
+    return (f"{esc(d['why'][:1].upper() + d['why'][1:])}." + (" Bot zato sada NE ulazi u njegove pozive." if own
+                                                               else " (Ovo praćenje ipak ulazi, jer koristi svoj izlaz.)"))
+
+
+def _pool_line():
+    """Everybody's measured calls under a few TP/SL pairs (kol/tpsl.save_pool, written by the minute loop): the share
+    that reached the target before the stop, the share the pair needs for zero, and the result per trade after cost."""
+    try:
+        from kol import minute, tpsl
+        mc = minute.ro()
+        if mc is None:
+            return ""
+        try:
+            p = tpsl.load_pool(mc)
+        finally:
+            mc.close()
+    except Exception:  # noqa: BLE001 - a missing statistic never breaks the page
+        return ""
+    if not p.get("n") or not p.get("pairs"):
+        return ""
+    best = max(p["pairs"].items(), key=lambda kv: kv[1]["ev"])
+    show = [f"{tp}/{sl}" for tp, sl in POOL_SHOW if f"{tp}/{sl}" in p["pairs"]]
+    if best[0] not in show:
+        show.append(best[0])
+    cells = []
+    for k in show:
+        d = p["pairs"][k]
+        tp, sl = k.split("/")
+        cells.append(f'<tr><td>TP +{tp} % / SL −{sl} %{" (najbolji)" if k == best[0] else ""}</td><td class=n>{d["tp"]:.0%}</td>'
+                     f'<td class=n>{d["need"]:.0%}</td><td class="n {"pos" if d["ev"] > 0 else "neg"}">{d["ev"]:+.1f} %</td></tr>')
+    n_txt = f'{p["n"]:,}'.replace(",", ".")
+    return ('<details class=ap-it><summary><span>Koji TP/SL se isplati (svi izmjereni pozivi)</span>'
+            f'<span class=k>{n_txt} poziva · 30 d</span></summary>'
+            '<table class=t style="font-size:13px"><tr><th>izlaz</th><th class=n>cilj prije stopa</th>'
+            '<th class=n>treba za nulu</th><th class=n>po tradeu</th></tr>' + "".join(cells) + '</table>'
+            f'<p class=mut style="font-size:13px">Račun: treba = (SL + trošak) / (TP + SL), trošak {p.get("cost", 2):g} % po krugu. '
+            'Širi stop traži VIŠE pogodaka, ne manje; isplati se samo ako dovoljno zaustavljenih tradeova pretvori u dobitne. '
+            'Mjereno 60 min nakon poziva; što ne dotakne ni cilj ni stop, izlazi po cijeni nakon 60 min. '
+            'Stariji pozivi (prije 10.11.) imaju točnu minutu samo za stop −20 %, ostali stopovi se za njih računaju oprezno.</p></details>')
 
 
 def _proof_line(r):
@@ -1775,6 +1859,8 @@ def post(path, form, user):
                 if not target:
                     raise ValueError("upiši adresu walleta ili @influencera")
                 tp = form.get("tp", "") or (f"{_cfg(tcon).get('tp_default', 15)}%" if form.get("exit") == "tpsl" else "")
+                if form.get("exit") == "podaci":   # 9.11.: the tool picks the pair at every entry (kol/tpsl.py)
+                    tp = ""
                 max_mcap, max_runup = _parse_usd(form.get("max_mcap")), _parse_pct(form.get("max_runup"))
                 if kind == "ekipa":   # the crew defaults (Jure 9.11.); a KOL follow takes them only when filled in
                     max_mcap = EKIPA_MAX_MCAP if max_mcap is None else max_mcap

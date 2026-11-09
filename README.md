@@ -208,6 +208,14 @@ razmjerno udjelu gubitnika među obrisanima (puno od 5 obrisanih). Na stranici K
 toga M gubitnika". Pozivi iz backfilla ne mogu sadržavati već obrisane objave, pa su po definiciji "preživjeli";
 živo čitanje svakih 30 min hvata objavu prije brisanja i to je glavna obrana.
 
+### Izlaz po podacima (`kol/tpsl.py`, 9.11.)
+
+Račun koji vrijedi za svaki par: trade koji uzima +TP % ili gubi SL %, uz trošak c % po krugu, na nuli je kad cilj dođe prije stopa u `(SL + c) / (TP + SL)` tradeova. Uz demo trošak od 2 %: TP 15 / SL 20 traži 63 %, TP 20 / SL 40 traži 70 %, TP 30 / SL 15 traži 38 %. Širi stop DIŽE prag; isplati se samo ako dovoljno zaustavljenih tradeova pretvori u dobitne, a to znaju samo izmjerene putanje.
+
+Minutna provjera uz svaki poziv sprema prvu minutu dodira svake razine (+5 do +100 %, −10 do −50 %) u `minute.db` (tablica `call_lv`), pa se za bilo koji par zna je li cilj došao prije stopa (ista minuta = stop). `tpsl.decide` bira par po izvoru (račun ili ekipa): najmanje 10 izmjerenih poziva, prosjek povučen prema "bez prednosti" s 10 pseudo-poziva, par izabran na starije dvije trećine poziva mora biti u plusu i na novijoj trećini, oprezna procjena mora biti barem +1 % po tradeu nakon troška, a prosjek iznad nule i na donjoj granici (prosjek minus 2 standardne pogreške). Zadnji uvjet je iz simulacije (`audit/2026-11-09/sim_tpsl.py`): izvor BEZ ikakve prednosti prolazio je u 7–30 % slučajeva samo po prosjeku, s donjom granicom u 1–9 %.
+
+Praćenje s izlazom "po podacima" (influenceri i ekipe, forma na `/pravi-trade`) pri svakom ulazu pita tu odluku: nijedan par u plusu = ulaz se preskače i piše u dnevnik kopiranja; premalo poziva = zadani TP 15 / SL −20; inače TP/SL iz podataka i zatvaranje najkasnije nakon 60 min (rok koji je mjeren). Bez ijednog API poziva. Pozivi izmjereni prije 10.11. imaju točnu minutu samo za stop −20 %: za ostale stopove računaju se oprezno (dvosmisleno = gubitak) dok ih minutna petlja ne izmjeri ponovno, što radi sama kad joj red čekanja padne ispod 40 tokena.
+
 ## Masovna sjenovita knjiga (`learn/masovno.py`, `run_learn.py masovno`)
 
 5.11. (Nicholas: "10.000 nevidljivih tradeova dnevno, demo je samo izlog"). Točke odluke u shadow.db iz filtera:

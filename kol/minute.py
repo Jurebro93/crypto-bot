@@ -44,10 +44,17 @@ MIN_MCAP = 30000
 KEEP_DAYS = 30
 SPAN_S = 16 * 3600   # 1000 one-minute candles per request
 RUG_LO = -0.80       # the low within the hour at or under this: the call rugged on the copier
+# 9.11. (Jure: "TP 20 / SL -40? alat neka sam odluči"): the first minute each level above and below the entry was
+# touched, so kol/tpsl.py can answer "target before stop?" for ANY take profit / stop pair, not only +5..+30 / -20
+UPS = (5, 10, 15, 20, 30, 40, 50, 75, 100)
+DOWNS = (10, 15, 20, 25, 30, 40, 50)
 
 DEFAULT = {"budget_s": 150, "per_run": 60, "days": 30, "min_age_min": 70, "hot_min_n": 5, "hot_min_hit": 0.5,
            "hot_tp": 10, "hot_max_sl": 0.3, "hot_days": 14, "wick_x": 3.0, "loop_budget_s": 540, "loop_sleep_s": 20,
-           "idle_sleep_s": 120}
+           "idle_sleep_s": 120,
+           # calls measured before the levels were stored are measured again (no new source, the same free candles),
+           # but only when fewer than this many tokens with NEW calls are waiting, at most this many tokens a pass
+           "relevel_per_run": 40}
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS call_path (
     tweet_id TEXT, token TEXT, handle TEXT, ts INTEGER, entry REAL, lag_s INTEGER, mcap_e REAL,
@@ -56,7 +63,10 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS call_path (
     first_caller INTEGER, bad TEXT, measured_ts INTEGER, PRIMARY KEY (tweet_id, token));
 CREATE INDEX IF NOT EXISTS call_path_handle ON call_path (handle, ts);
 CREATE INDEX IF NOT EXISTS call_path_token ON call_path (token, ts);
-CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)"""
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS call_lv (tweet_id TEXT, token TEXT, ts INTEGER, lv TEXT, PRIMARY KEY (tweet_id, token));
+CREATE INDEX IF NOT EXISTS call_lv_ts ON call_lv (ts)"""
+LV_FAILED = "x"   # call_lv.lv of a call whose second measurement found no candle: the old row stays, not asked again
 
 
 def db_path():
@@ -126,6 +136,7 @@ def path(candles, ts, horizon_min=HORIZON_MIN, wick=3.0):
     hi = {15: None, 30: None, 60: None}
     lo = None
     last_close = None
+    up, dn = {}, {}   # level % -> first minute touched (UPS on the capped high, DOWNS on the low)
     for c in candles:
         if c[0] <= m0 or c[0] > m0 + horizon_min * MIN:
             continue
@@ -141,6 +152,13 @@ def path(candles, ts, horizon_min=HORIZON_MIN, wick=3.0):
                 o[f"t{tp}"] = int(k)
         if o["sl_min"] is None and c[3] <= entry * (1 + SL):
             o["sl_min"] = int(k)
+        for u in UPS:
+            if u not in up and capped >= entry * (1 + u / 100):
+                up[u] = int(k)
+        for d in DOWNS:
+            if d not in dn and c[3] <= entry * (1 - d / 100):
+                dn[d] = int(k)
+    o["lv"] = {"u": {str(u): m for u, m in up.items()}, "d": {str(d): m for d, m in dn.items()}}
     for w in hi:
         o[f"hi{w}"] = (hi[w] / entry - 1) if hi[w] is not None else None
     o["lo60"] = (lo / entry - 1) if lo is not None else None
@@ -209,6 +227,30 @@ def due(kcon, mcon, c, now, per_run=None):
     return out
 
 
+def relevel_due(mcon, c, now, skip=(), cap=None):
+    """{token: [(tweet_id, handle, ts)]} of calls measured before call_lv existed (a path, no levels), newest first,
+    at most `cap` tokens and per token only the calls within the span of its newest one. They are measured again
+    with the same candles so every stop level gets its exact minute; kol/tpsl.py is cautious with them until then."""
+    cap = c["relevel_per_run"] if cap is None else cap
+    if cap <= 0:
+        return {}
+    wait = {t for t, u in _retry(mcon).items() if u > now}
+    out = {}
+    for tid, tok, h, ts in mcon.execute(
+            "SELECT p.tweet_id, p.token, p.handle, p.ts FROM call_path p LEFT JOIN call_lv l "
+            "ON l.tweet_id = p.tweet_id AND l.token = p.token WHERE l.tweet_id IS NULL AND p.entry IS NOT NULL "
+            "AND p.bad IS NULL AND p.ts >= ? ORDER BY p.ts DESC", (now - c["days"] * 86400,)):
+        if tok in skip or tok in wait:
+            continue
+        if tok not in out and len(out) >= cap:
+            continue
+        out.setdefault(tok, []).append((tid, h, ts))
+    for tok, calls in out.items():
+        newest = max(ts for _, _, ts in calls)
+        out[tok] = [x for x in calls if newest - x[2] <= SPAN_S - 2 * 3600]
+    return out
+
+
 def waiting(kcon, mcon, c, now):
     """How many real calls of the window still have no minute path."""
     done = _done(mcon)
@@ -224,13 +266,18 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
     fetch = fetch or minutes
     budget = budget_s or c["budget_s"]
     todo = due(kcon, mcon, c, now, per_run)
-    if not todo:
+    relevel = {}
+    if len(todo) < c["relevel_per_run"]:   # the backlog of new calls is (nearly) done: old rows get their levels
+        relevel = relevel_due(mcon, c, now, skip=todo, cap=c["relevel_per_run"] - len(todo))
+    if not todo and not relevel:
         return 0, 0, 0
+    n_new = len(todo)
+    todo = {**todo, **relevel}   # new calls first (dict order), the second measurements after them
     if fetch is minutes:
         http.reserve(measure.GECKO, budget)
     stop_at = time.monotonic() + budget
     n_tok = n_calls = 0
-    left = len(todo)
+    left = n_new   # tokens with NEW calls still waiting (the log line); second measurements are not counted
     supply = dict(kcon.execute("SELECT token, supply FROM tokens WHERE token IN (%s)" % ",".join("?" * len(todo)), list(todo)))
     pairs = dict(kcon.execute("SELECT token, pair FROM tokens WHERE token IN (%s)" % ",".join("?" * len(todo)), list(todo)))
     try:
@@ -243,6 +290,13 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                     if time.monotonic() + cool > stop_at:
                         break
                     time.sleep(min(cool + 1, 180))
+            if tok in relevel and not pairs.get(tok):
+                # kol.db dropped the token (retention) or its pool since the first measurement: the path stays as it
+                # is, and the token must not come back every pass and hold a place in the short relevel queue
+                mcon.executemany("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
+                                 [(tid, tok, ts, LV_FAILED) for tid, _h, ts in calls])
+                mcon.commit()
+                continue
             first = min(ts for _, _, ts in calls)
             start, end = first - 10 * MIN, min(now, max(ts for _, _, ts in calls) + (HORIZON_MIN + 5) * MIN)
             try:
@@ -251,7 +305,11 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                 log(f"  minute {tok[:8]}: {type(e).__name__}: {e}")
                 # 9.11. (audit P24): 404 = GeckoTerminal does not know the pool: the calls are recorded as bad 'pool'
                 # so the token leaves the queue; anything else (403, timeout) waits RETRY_S instead of heading every pass
-                if getattr(e, "code", None) == 404:
+                if getattr(e, "code", None) == 404 and tok in relevel:
+                    # measured once already: the path stays, only the levels are given up on
+                    mcon.executemany("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
+                                     [(tid, tok, ts, LV_FAILED) for tid, _h, ts in calls])
+                elif getattr(e, "code", None) == 404:
                     mcon.executemany("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
                                      "VALUES (?,?,?,?,'pool',?)", [(tid, tok, h, ts, now) for tid, h, ts in calls])
                     left -= 1
@@ -262,11 +320,15 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
             if candles is None:    # another job holds the GeckoTerminal budget (http.reserve): next round
                 break
             n_tok += 1
-            left -= 1
+            if tok not in relevel:
+                left -= 1
             first_ts = kcon.execute("SELECT MIN(ts) FROM calls WHERE token = ? AND kind = 'call' AND handle NOT LIKE 'w:%'",
                                     (tok,)).fetchone()[0]
             for tid, h, ts in calls:
                 o = path(candles, ts, wick=c["wick_x"])
+                if not o and tok in relevel:   # the candle is gone since the first measurement: keep that one
+                    mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)", (tid, tok, ts, LV_FAILED))
+                    continue
                 if not o:
                     mcon.execute("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
                                  "VALUES (?,?,?,?,'svijeca',?)", (tid, tok, h, ts, now))
@@ -277,12 +339,15 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                              (tid, tok, h, ts, o["entry"], o["lag_s"], mcap, o["hi15"], o["hi30"], o["hi60"], o["lo60"],
                               o["r60"], o["t5"], o["t10"], o["t15"], o["t20"], o["t30"], o["sl_min"],
                               int(first_ts == ts), bad, now))
+                mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
+                             (tid, tok, ts, json.dumps(o["lv"], separators=(",", ":"))))
                 n_calls += 1
             mcon.commit()
     finally:
         if fetch is minutes:
             http.release(measure.GECKO)
     mcon.execute("DELETE FROM call_path WHERE ts < ?", (now - KEEP_DAYS * 86400,))
+    mcon.execute("DELETE FROM call_lv WHERE ts < ?", (now - KEEP_DAYS * 86400,))
     mcon.execute("INSERT OR REPLACE INTO kv VALUES ('minute_stats', ?)",
                  (json.dumps({"ts": now, "tokens": n_tok, "calls": n_calls, "waiting": waiting(kcon, mcon, c, now)}),))
     mcon.commit()
@@ -315,6 +380,11 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
             try:
                 t, n, left = run(kcon, mcon, cfg, fetch=fetch, log=log, budget_s=c["loop_budget_s"], per_run=10_000)
                 hot_ = hot(mcon, kcon, cfg)
+                try:   # 9.11.: which TP/SL pair pays over ALL measured calls (kol/tpsl.py), kept in kv tpsl_pool
+                    from kol import tpsl
+                    tpsl.save_pool(mcon)
+                except Exception as e:  # noqa: BLE001 - the measuring loop never dies on a statistic
+                    log(f"  tpsl: {type(e).__name__}: {e}")
             finally:
                 kcon.close()
             log(f"minute: {t} tokena, {n} poziva po minutnim svijećama, još {left} tokena čeka; vruća lista "

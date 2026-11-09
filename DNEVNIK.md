@@ -3,6 +3,29 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 9.11.2026. (kasna večer, deploy #75 i TP/SL po podacima)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Deploy #75 u 23:16 CET (Jure: "Da, mergaj sada"): gušenje servera i pop-up "Učitavam…". Provjereno na Renderu 12 min nakon deploya: KOL search krug 86 s (prije 2.809 s i 1.981 s), CPU 5–41 % (prije 100 % po 30–47 min svakog sata), nula 5xx od 23:21 (502/503 samo u minuti deploya), UI proces 66–69 MB, pravi trade petlja živa.
+- Uzroci (Render metrike + ispisi stanja procesa): upit graph_candidates skenirao je tablicu poziva za svaki redak grafa praćenja; čitanje "poziva zadnjeg sata" svake sekunde skeniralo je cijelu tablicu Telegram objava (85 MB) i X spominjanja jer nemaju indeks po vremenu; pop-up je slao zahtjev svake sekunde ne čekajući prethodni; UI je držao samo 5 veza u redu čekanja.
+
+### U tijeku (alat radi sam, u grani, nije na serveru)
+- TP/SL po podacima (Jure: "TP 20 / SL −40? koliko pogodaka treba? neka alat dinamički odluči"). Račun: treba = (SL + trošak) / (TP + SL); TP 15/SL 20 traži 63 %, TP 20/SL 40 traži 70 %: širi stop diže prag. Minutna provjera sprema prvu minutu dodira svake razine; kol/tpsl.py po izvoru bira par (10+ poziva, povučeno prema "bez prednosti", dokazano na starijim i novijim pozivima, prosjek iznad nule i na donjoj granici od 2 standardne pogreške) ili kaže "ne ulazi". Simulacija: izvor bez prednosti prolazi u 1–9 % slučajeva (samo po prosjeku 7–30 %), izvor s jakom prednošću u 42–97 %, ovisno o broju poziva i nemiru cijene. Novi izlaz praćenja "po podacima" za influencere i ekipe, zatvaranje nakon 60 min; na stranici redak "Po podacima: …" uz svako praćenje i tablica "Koji TP/SL se isplati" preko svih izmjerenih poziva. Brojke se pune nakon sljedećeg deploya.
+
+- "Što je novo" stajalo je na 5.11. (Jure 23:35: "ispada da se na alatu ne radi"): upisano 31 novost za 6.–10.11. u share/novosti.json, samo hrvatski tekst (bez engleskih polja unos ne ide na karticu ni u večernju X objavu), bez internih naziva i troškova. Vidljivo nakon sljedećeg deploya.
+
+### Čeka Juru
+1. Merge TP/SL po podacima i novosti (sljedeći skupni deploy), ne 01–06 CET.
+2. Za koja praćenja uključiti izlaz "po podacima": samo nova, ili prebaciti i postojeća influencer/ekipa praćenja?
+3. Novosti 6.–10.11. i na X (engleski tekst uz unose), ili ostaju samo u aplikaciji?
+4. Brava "dokaz u demu" za pravi novac ostaje (10 zatvorenih, PnL > 0, 40 % dobitnih); prijedlog da izvor s dokazom iz povijesti prođe ranije čeka tvoju odluku.
+
+### Odbačeno / nema smisla (po podacima)
+- Fiksni TP 20 / SL −40 kao zadani par: traži 70 % čistih pogodaka; dnevnik prijedloga (7 d) ima 49 % za +15 % prije stopa −20 %.
+
+### Bot u 5 brojki
+- Bez novih mjerenja večeras; vrijede brojke iz zapisa "9.11.2026. (večer)" dolje. Server nakon deploya: CPU 5–41 %, RAM 1,6–1,8 GB (od toga 1,3–1,5 GB keš datoteka), disk 2,1 GB slobodno.
+
 ## 9.11.2026. (noć, audit)
 
 ### Odlučeno i napravljeno (spojeno, radi)

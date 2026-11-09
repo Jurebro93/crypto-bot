@@ -51,10 +51,13 @@ def parse_level(text, entry_px, entry_mcap, kind, pct_base=None):
     return (pct_base or entry_px) * (1 + pct / 100), f"{pct:+g}%"
 
 
-def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False):
+def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False, hold_s=None, until=None):
     """from_eff (9.11., audit P38): percent TP/SL measured from the effective entry (entry_eff: fee + impact) instead
     of the raw entry price, so "+15 %" means +15 % on what was really paid. Copy trading (real money) uses it; the
-    players' own rules keep the raw entry (their tests and pages count on it)."""
+    players' own rules keep the raw entry (their tests and pages count on it).
+    hold_s (9.11., kol/tpsl.py): a TP/SL chosen from the measured hour after a call is only known for that hour, so
+    the position is sold at the market hold_s seconds after it was opened if neither level was touched (stored as
+    the unix time `until`; a DCA buy passes the stored `until` back so the limit does not restart)."""
     t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
     if not t:
         raise ValueError("nema te otvorene pozicije")
@@ -76,6 +79,8 @@ def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False):
                 "tp_in": tp or "", "sl_in": sl or ""}   # typed text: a DCA buy re-reads a percent from the new average
         if from_eff:
             auto["from_eff"] = True
+        if until or hold_s:
+            auto["until"] = int(until or (t["opened_ts"] or time.time()) + hold_s)
     else:
         raise ValueError("nepoznat način")
     con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(auto) if auto else None, trade_id))
@@ -182,6 +187,10 @@ def describe(auto_json):
     if a["mode"] == "smart":
         return "auto: Smart sell"
     parts = ([f"TP {a['tp']}"] if a.get("tp") else []) + ([f"SL {a['sl']}"] if a.get("sl") else [])
+    if a.get("until"):   # 9.11.: a data exit (kol/tpsl.py) is closed at the end of the measured hour
+        import datetime as _dt
+        import zoneinfo
+        parts.append("najdulje do " + _dt.datetime.fromtimestamp(a["until"], zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%H:%M"))
     return "auto: " + ", ".join(parts)
 
 
@@ -221,7 +230,8 @@ def run_once(con, market, now=None):
         name = t["symbol"] or t["token"][:6]
         if a["mode"] == "tpsl":
             hit = ("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else \
-                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else None
+                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else \
+                  "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] else None
             if hit:
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
