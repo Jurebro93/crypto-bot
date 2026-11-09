@@ -1251,7 +1251,7 @@ def _market_table(m):
         return f"<tr><td>{name}</td>" + "".join(f"<td>{fn(w.get(k) or {})}</td>" for k, _ in cols) + "</tr>"
 
     liq_pct = f'<small>{m["liq"] / m["mcap"]:.0%} MC-a</small>' if m.get("mcap") and m.get("liq") else ""
-    turn = f'{m["vol_h1"] / m["liq"]:.1f}×' if m.get("liq") else "–"
+    turn = f'{(m.get("vol_h1") or 0) / m["liq"]:.1f}×' if m.get("liq") else "–"
     return ('<div class=ap-box>'
             f'<div><small>MARKET CAP</small><b>{_usd_short(m.get("mcap"))}</b></div>'
             f'<div><small>LIKVIDNOST</small><b>{_usd_short(m.get("liq"))}</b>{liq_pct}</div>'
