@@ -130,3 +130,49 @@ class Strategy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Page(unittest.TestCase):
+    def test_latest_rows_and_the_page_items(self):
+        tmp = tempfile.mkdtemp()
+        path, con = make_db(tmp)
+        dokazani.run(con, NOW, log=None)
+        con.close()
+        rows = dokazani.latest(path)
+        self.assertEqual([r["wallet"] for r in rows], ["PROVEN"])
+        self.assertEqual((rows[0]["hold_min"], rows[0]["tpd"], rows[0]["passed"]), (30, 5, 1))
+        self.assertEqual(dokazani.latest(os.path.join(tmp, "none.db")), [])
+        from ui import pravitrade
+        html = pravitrade._dokazani_items(rows, set(), True, {"PROVEN": "@proven"})
+        self.assertIn("Prije reza", html)
+        self.assertIn("@proven", html)
+        self.assertIn("Poslije reza", html)
+        card = pravitrade._buy_now_card({"size_sol": 0.1}, True)
+        self.assertIn("Kupi odmah", card)
+        self.assertIn('name=sol value="0.1"', card)
+        self.assertEqual(pravitrade._buy_now_card({"size_sol": 0.1}, False), "")
+        src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
+        self.assertLess(src.index("_buy_now_card(cfg, owner),"), src.index("_kol_section(con, owner),"))
+
+
+class RealTradePageRework(unittest.TestCase):
+    def test_sell_buttons_headers_refresh_and_follow_anyone(self):
+        from ui import pravitrade
+        btns = pravitrade._sell_btns(7, None)
+        for fr in ("0.2", "0.5", "1"):
+            self.assertIn(f"name=frac value={fr}", btns)
+        self.assertIn("user-select:none", pravitrade.CSS)
+        self.assertEqual(pravitrade.LOG_EVERY_S, 2)
+        self.assertEqual(pravitrade._detect_kind("@ansem"), ("kol", "ansem"))
+        self.assertEqual(pravitrade._detect_kind("tg:henrygems"), ("kol", "tg:henrygems"))
+        self.assertEqual(pravitrade._detect_kind("9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"), ("wallet", "9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"))
+        src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
+        body = src[src.index("def page(qs, user):"):]
+        self.assertLess(body.index("_positions(tcon, not owner"), body.index("_follows(con, owner"))
+        self.assertIn("/pravi-trade/pozicije", open(os.path.join(ROOT, "run_ui.py")).read())
+        import sqlite3 as _s
+        from trade import executor
+        tcon = executor.connect(":memory:")
+        inner, meta, has_open = pravitrade.positions_inner(tcon, False, True, {})
+        self.assertIn("Još nema pozicija", inner)
+        self.assertEqual((meta, has_open), ("0 otvoreno", False))

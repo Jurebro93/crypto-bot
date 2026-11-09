@@ -14,6 +14,7 @@ tool's own picks of influencers, wallets and tokens from the last 7/14/30 days, 
 - Recommendations: ui/autopilot.py.
 """
 import os
+import re
 import sqlite3
 import time
 from urllib.parse import quote
@@ -46,13 +47,15 @@ CSS = """<style>
 .ap-day{font-size:13px;color:var(--mut);margin:6px 0 0}
 details.ap-sec{border:1px solid var(--line);border-radius:16px;padding:0;margin:0 0 10px;background:var(--card)}
 details.ap-sec>summary{list-style:none;padding:13px 16px;display:flex;justify-content:space-between;gap:10px;
-  align-items:center;color:var(--fg);font-weight:600}
+  align-items:center;color:var(--fg);font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;
+  -webkit-touch-callout:none;touch-action:manipulation}
 details.ap-sec>summary::-webkit-details-marker{display:none}
 details.ap-sec>summary .m{font-weight:400;color:var(--mut);font-size:13px;text-align:right}
 details.ap-sec>summary::after{content:'▾';color:var(--mut);margin-left:4px}details.ap-sec[open]>summary::after{content:'▴'}
 details.ap-sec>.in{padding:0 16px 14px}
 details.ap-it{border-top:1px solid var(--line);padding:0}
-details.ap-it>summary{list-style:none;padding:10px 0;display:flex;justify-content:space-between;gap:8px;align-items:center}
+details.ap-it>summary{list-style:none;padding:10px 0;display:flex;justify-content:space-between;gap:8px;align-items:center;
+  cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 details.ap-it>summary::-webkit-details-marker{display:none}
 details.ap-it>summary .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}
 details.ap-it p{margin:0 0 8px;font-size:14px;line-height:1.45}
@@ -303,8 +306,46 @@ def _follows(con, owner, st=None):
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
     meta = (("🤖 " if st.get("auto_pick") else "")
             + (f"{len(fl)}: {esc(names)}{'…' if len(fl) > 3 else ''}" if fl else "još nikoga"))
-    inner = _auto_box(st, owner) + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Uključi da alat sam bira ili odaberi iz preporuka ispod.</p>')
+    anyone = ""
+    if owner:   # 9.11. (Jure): follow any wallet or influencer from the whole database, not only the recommended ones
+        anyone = ('<form method=post action=/pravi-trade/follow style="margin:10px 0 4px"><input type=hidden name=kind value=auto>'
+                  '<input name=target placeholder="adresa walleta ili @influencer ili tg:kanal" required style="flex:1;min-width:220px">'
+                  '<label>na dan <input name=per_day value=5 inputmode=numeric style="width:46px"></label>'
+                  '<select name=exit aria-label="Izlaz"><option value="">zadano</option><option value=mirror>prodaj kad on proda</option>'
+                  '<option value=tpsl>moj TP/SL</option></select><input name=tp placeholder="TP %" size=6> <input name=sl placeholder="SL %" size=6>'
+                  '<button>Zaprati</button></form><p class=mut style="font-size:13px;margin:0 0 8px">Wallet koji još ne pratimo uživo '
+                  'dodaje se u Helius webhook odmah; prvi njegov trade bot vidi čim webhook potvrdi (obično unutar minute).</p>')
+    inner = _auto_box(st, owner) + anyone + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Upiši koga pratiti ili odaberi iz preporuka ispod.</p>')
     return _sec("Koga bot prati", meta, inner, open_=not fl, sid="pratim")
+
+
+def _detect_kind(target):
+    """'auto' follow form: a base58 address is a wallet, 'tg:kanal' a Telegram channel, anything else an X handle."""
+    t = (target or "").strip().lstrip("@")
+    if t.startswith("tg:"):
+        return "kol", t
+    if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", t):
+        return "wallet", t
+    return "kol", t.split("/")[-1]
+
+
+def _add_live_wallet(wallet_addr):
+    """A followed wallet that is not in the Helius webhook yet: resync the webhook now (kol/chainwatch.sync puts a
+    player's follows first). Returns True when the webhook now has it, False when it will take the next KOL round."""
+    try:
+        import json as _json
+        from kol import chainwatch, store as kstore
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")) as f:
+            cfg = _json.load(f)
+        kcon = kstore.connect()
+        try:
+            chainwatch.sync(kcon, cfg["chain"])
+        finally:
+            kcon.close()
+        return wallet_addr in _live_wallets()
+    except Exception as e:  # noqa: BLE001
+        print(f"pravi trade: webhook sync nakon praćenja nije uspio: {type(e).__name__}: {e}", flush=True)
+        return False
 
 
 # ---------- the tool's picks ------------------------------------------------------------------------------------
@@ -350,10 +391,49 @@ def _kol_section(con, owner):
     return _sec("Preporučeni influenceri", meta, inner, sid="influenceri")
 
 
+def _dokazani_items(rows, have, owner, names=None):
+    """The proven-twice wallets (wallets/dokazani.py) with their own on-chain result before and after the cut."""
+    names = names or {}
+    items = []
+    for r in rows:
+        nm = names.get(r["wallet"])
+        nm = f' <span class=mut>{esc(nm)}</span>' if nm else ""
+        style = {"swing": "swing", "scalper": "scalper", "bot": "bot", "sniper": "sniper"}.get(r.get("style") or "", r.get("style") or "")
+        why = (f'Prije reza: {r["realized_before"]:+.1f} SOL na {r["closed_before"]} zatvorenih ({r["win_before"]:.0%} u plusu). '
+               f'Poslije reza: {r["realized_after"]:+.1f} SOL na {r["closed_after"]} zatvorenih'
+               + (f' ({r["win_after"]:.0%} u plusu)' if r.get("win_after") is not None else "") + ". "
+               + (f'Drži medijan {r["hold_min"]:.0f} min, {r["tpd"]:.0f} tradeova dnevno' if r.get("hold_min") is not None and r.get("tpd") is not None else "")
+               + (f', stil {style}.' if style else "."))
+        items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
+                     f'<span class=k>{r["realized_after"]:+.1f} SOL poslije reza · {r["closed_before"] + r["closed_after"]} zatv.</span></summary>'
+                     f'<p>{why}</p>{_follow_btn("wallet", r["wallet"], names.get(r["wallet"]) or "", have, owner)}</details>')
+    return "".join(items)
+
+
 def _wallet_section(con, owner):
     from ui import autopilot
     recs = autopilot.wallet_recs()
     have = {(f["kind"], f["target"]) for f in copy.follows(con, settings.LEAGUE_USER)}
+    # 9.11. (Jure: "preporučeni walleti trebali bi biti povijesno analizirani, s PnL-om"): the proven-twice list
+    # first (wallets/dokazani.py: own on-chain result before AND after a 5-day cut, copyable style only)
+    try:
+        from wallets import dokazani as _dok
+        proven = _dok.latest()[:autopilot.TOP]
+    except Exception:  # noqa: BLE001
+        proven = []
+    names = {}
+    try:
+        kc = copy._ro(copy._paths()["kol"])
+        if kc is not None:
+            names = {w: (f"@{tw}" if tw else (n or "")) for w, n, tw in copy._q(kc, "SELECT wallet, name, twitter FROM kol_ids")}
+            kc.close()
+    except Exception:  # noqa: BLE001
+        pass
+    dok = (f'<p class=mut style="margin:0 0 6px;font-size:13px"><b>Dokazani dvaput</b>: 5+ zatvorenih pozicija s plusom i 50 %+ dobitnih '
+           f'prije reza od 5 dana, pa opet plus poslije reza; samo walleti koje se može kopirati (drže 10+ min, do 50 tradeova dnevno, '
+           f'bez bot/sniper oznaka). Brojke su njihov vlastiti rezultat na lancu, ne naša kopija.</p>'
+           + (_dokazani_items(proven, have, owner, names) or
+              '<p class=mut>Lista se računa svaka 3 sata iz pohranjenih tradeova; prvi put nakon današnjeg deploya. Dok je prazna, nema koga kopirati.</p>'))
     panes = {}
     for d, rows in recs.items():
         items = []
@@ -367,9 +447,11 @@ def _wallet_section(con, owner):
                                       f'{autopilot.MIN_CLOSED} prodana tokena u plusu.</p>')
     best = next((r for r in recs.get(14) or []), None)
     meta = f'najbolji 14 d: {100 * best["s"]["roi"]:+.0f}%' if best else "po zadnjih 7/14/30 dana"
-    inner = (f'<p class=mut style="margin:0 0 6px;font-size:13px">Povrat = koliko je SOL-a vratio na tokenima koje je '
+    inner = (dok + '<p style="margin:14px 0 4px"><b>Po zadnjih 7/14/30 dana</b> (samo walleti koje pratimo uživo)</p>'
+             + f'<p class=mut style="margin:0 0 6px;font-size:13px">Povrat = koliko je SOL-a vratio na tokenima koje je '
              f'kupio i prodao u tom razdoblju {tip("Iz njegovih stvarnih kupnji i prodaja na lancu (Helius). Gledamo postotak, ne SOL, jer bot ulaže svoj, manji iznos. Samo walleti koje pratimo uživo, da bot kupi u sekundama nakon njih.")}</p>'
              + _windows("wal", panes))
+    meta = f"{len(proven)} dokazanih · " + meta
     return _sec("Preporučeni walleti", meta, inner, sid="walleti")
 
 
@@ -385,6 +467,23 @@ def _buy_form(mint, cfg, exit_mode, owner):
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
             '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
             '<button>Kupi</button></form>')
+
+
+def _buy_now_card(cfg, owner):
+    """9.11. (Jure): at the top of the page, buy any token right now with the amount you choose."""
+    if not owner:
+        return ""
+    return ('<div class=card id=kupi-odmah><b>Kupi odmah</b> <span class=mut>bilo koji token, iznos po želji</span>'
+            '<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
+            '(ako je Autopilot uključen)?\')" style="margin-top:8px"><input name=token placeholder="adresa tokena ili DexScreener link" '
+            'required style="flex:1;min-width:200px">'
+            f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
+            '<select name=exit aria-label="Kako prodati"><option value=smart>Smart sell</option><option value=tpsl>moj TP/SL</option>'
+            '<option value=manual>prodajem sam</option></select>'
+            '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
+            '<button>Kupi</button></form><p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao '
+            'automatske kupnje (rug, likvidnost, dnevni limit, rezerva za prodaju). Pravi novac ide samo kad je Autopilot uključen; '
+            'inače je ovo probna kupnja.</p></div>')
 
 
 def _token_section(cfg, owner):
@@ -423,17 +522,38 @@ def _sell_btns(pid, pending):
     return ('<div class=ap-btns>' + "".join(
         f'<form method=post action=/pravi-trade/sell onsubmit="return confirm(\'Prodati {lab} ove pozicije odmah?\')">'
         f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button>Prodaj {lab}</button></form>'
-        for fr, lab in (("0.5", "50%"), ("1", "sve"))) + '</div>')
+        for fr, lab in (("0.2", "20%"), ("0.5", "50%"), ("1", "sve"))) + '</div>')
 
 
 def _positions(tcon, viewer_buy, owner=False, pending=None):
-    """Only what exists: open positions first, closed ones behind one more tap. Nothing at all = no section."""
+    """Positions section: open ones first with 20/50/100 % sell buttons, closed ones behind one more tap. The inner
+    part is re-fetched every LOG_EVERY_S seconds (positions_fragment) and swapped only when it changed, so a tap is
+    never lost to a redraw (9.11., Jure: real money, every second counts)."""
+    inner, meta, has_open = positions_inner(tcon, viewer_buy, owner, pending)
+    return _sec("Pozicije", meta, f'<div id=ap-pos>{inner}</div>', open_=True, sid="pozicije")
+
+
+def positions_fragment(user):
+    """GET /pravi-trade/pozicije: the inner HTML of the positions section, same access as the page."""
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        cfg = _cfg(tcon)
+        owner = settings.is_owner(user)
+        return positions_inner(tcon, not owner, owner, cfg.get("sell_req"))[0]
+    finally:
+        tcon.close()
+
+
+def positions_inner(tcon, viewer_buy, owner=False, pending=None):
+    """(inner html, meta text, has open) of the positions section."""
     pending = pending or {}
     rows = tcon.execute("SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, "
                         "closed_ts, COALESCE(fees_sol,0) FROM positions WHERE status IN ('open','closed') "
                         "ORDER BY id DESC LIMIT 60").fetchall()
     if not rows:
-        return ""
+        return '<p class=mut style="margin:0">Još nema pozicija. Kupi odmah gore ili zaprati nekoga.</p>', "0 otvoreno", False
     sigs = dict(tcon.execute("SELECT position_id, signature FROM orders WHERE signature IS NOT NULL ORDER BY id"))
     open_, closed, tot = [], [], 0.0
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees) in rows:
@@ -460,13 +580,13 @@ def _positions(tcon, viewer_buy, owner=False, pending=None):
                   f'uloženo − mrežne naknade {tip("Jupiterova naknada (0,05–0,1%) je već u iznosima. Mrežne naknade su potpis, prioritet i depozit za novi token račun (~0,002 SOL), koji se vrati kad se pozicija proda do kraja.")}'
                   f'</span></summary>{"".join(closed)}</details>')
     meta = f"{len(open_)} otvoreno" + (f" · {len(closed)} zatvoreno" if closed else "")
-    return _sec("Pozicije", meta, inner, open_=bool(open_), sid="pozicije")
+    return inner, meta, bool(open_)
 
 
 # ---------- live trade log (Nicholas 4.11.: "log tradeova u real timeu, osvježava se puno češće") ----------------
 
 LOG_N = 15
-LOG_EVERY_S = 5
+LOG_EVERY_S = 2   # 9.11. (Jure): every second is money; the log and the positions are re-fetched every 2 s
 SIDE = {"buy": ("🟢", "kupnja"), "sell": ("🔴", "prodaja"), "rent": ("↩️", "depozit natrag")}
 STATUS = {"ok": ("prošlo", "good"), "dry": ("probno", ""), "failed": ("greška", "bad"), "blocked": ("preskočeno", "warn")}
 
@@ -510,9 +630,11 @@ def log_fragment(user):
 
 
 def _log_section(tcon, cfg):
-    js = ("<script>(()=>{const box=document.getElementById('ap-log');if(!box)return;async function f(){"
-          "if(document.visibilityState!=='visible')return;try{const r=await fetch('/pravi-trade/log',{cache:'no-store'});"
-          "if(r.ok)box.innerHTML=await r.text()}catch(e){}}"
+    js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije']];"
+          "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
+          "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
+          "if(h!==box.innerHTML&&!box.contains(document.activeElement))box.innerHTML=h}catch(e){}}"
+          "async function f(){if(document.visibilityState!=='visible')return;for(const [id,url] of L)await one(id,url)}"
           f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
     n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
     return _sec("Uživo: nalozi", f"⟳ svakih {LOG_EVERY_S} s · {n} danas",
@@ -608,9 +730,10 @@ def page(qs, user):
             copy.ensure(con)
             b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
-                 _wallet_section(con, owner), _token_section(cfg, owner),
-                 _log_section(tcon, cfg), _positions(tcon, not owner, owner, cfg.get("sell_req")), _limits(cfg, owner)]
+                 _wallet_card(tcon, cfg, con, owner), _buy_now_card(cfg, owner),
+                 _positions(tcon, not owner, owner, cfg.get("sell_req")), _log_section(tcon, cfg),
+                 _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
+                 _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]
         finally:
             con.close()
         if owner:
@@ -756,12 +879,19 @@ def post(path, form, user):
             if path == "/pravi-trade/follow":
                 kind = form.get("kind", "")
                 target = (form.get("target") or "").strip().lstrip("@")
-                if kind == "wallet" and target not in _live_wallets():
-                    raise ValueError("ovaj wallet ne pratimo uživo (Helius), pa bot ne bi vidio njegove kupnje na vrijeme. "
-                                     "Odaberi wallet iz Preporučenih walleta")
+                if kind == "auto":
+                    kind, target = _detect_kind(target)
+                if not target:
+                    raise ValueError("upiši adresu walleta ili @influencera")
                 copy.follow(con, settings.LEAGUE_USER, kind, target, form.get("label", ""), 25,
                             form.get("per_day") or 5, form.get("exit", ""), form.get("tp", ""), form.get("sl", ""))
-                return f"{BACK}?ok={qq(f'Bot prati {target}.')}#pratim"
+                con.commit()
+                note = ""
+                if kind == "wallet" and target not in _live_wallets():
+                    # 9.11.: any wallet from the database can be followed; it goes into the Helius webhook right now
+                    note = (" Dodan u Helius webhook." if _add_live_wallet(target)
+                            else " U webhook ulazi u sljedećem KOL krugu (do 45 min); do tada bot ne vidi njegove kupnje.")
+                return f"{BACK}?ok={qq(f'Bot prati {target}.{note}')}#pratim"
             if path == "/pravi-trade/copyfollow":
                 src = next((f for f in copy.follows(con, active=None) if f["id"] == int(form.get("id") or 0)), None)
                 if not src:

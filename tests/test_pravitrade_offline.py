@@ -146,17 +146,21 @@ class PraviTrade(unittest.TestCase):
         self.assertFalse(settings.simianx_on(self.con))   # audit 4.11.: locked until it has the same proof
         self.assertFalse(settings.merged(CFG, self.con)["simianx"])
 
-        loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "WALLETADDR", "per_day": "3"}, "Jure")
-        self.assertIn("err=", loc)   # not watched live: refused
-        saved = pravitrade._live_wallets
-        pravitrade._live_wallets = lambda: {"WALLETADDR"}
+        # 9.11. (Jure): any wallet can be followed; one not in the Helius webhook yet is added to it (or, when the
+        # sync cannot run, the page says it joins in the next KOL round) instead of being refused
+        saved = pravitrade._add_live_wallet
+        pravitrade._add_live_wallet = lambda w: False
         try:
             loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "WALLETADDR", "per_day": "3"}, "Jure")
         finally:
-            pravitrade._live_wallets = saved
+            pravitrade._add_live_wallet = saved
         self.assertIn("ok=", loc)
+        self.assertIn("KOL%20krugu", loc)
         fl = copy.follows(self.lg, settings.LEAGUE_USER)
         self.assertEqual([(f["kind"], f["target"], f["exit"]["mode"]) for f in fl], [("wallet", "WALLETADDR", "mirror")])
+        loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "@ansem", "per_day": "3"}, "Jure")
+        self.assertIn("ok=", loc)
+        self.assertEqual([f["target"] for f in copy.follows(self.lg, settings.LEAGUE_USER) if f["kind"] == "kol"], ["ansem"])
 
 
 if __name__ == "__main__":
