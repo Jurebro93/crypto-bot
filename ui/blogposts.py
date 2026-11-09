@@ -1164,3 +1164,4 @@ good record is rarely on their list.</li>
 
 # Posts added on 1 November 2026 live in their own module (sources noted per figure).
 from ui import blogposts_nov  # noqa: E402,F401
+from ui import blogposts_seo  # noqa: E402,F401

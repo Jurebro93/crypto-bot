@@ -70,7 +70,11 @@ class Public(unittest.TestCase):
         self.assertIn("Disallow: /", r)
         self.assertIn("Sitemap: https://example.com/sitemap.xml", r)
         sm = public.route("/sitemap.xml")[1].decode()
-        self.assertIn("https://example.com/influencer/ddddddd8a", sm)
+        # 9.11. (SEO plan): a profile is offered to search engines only with 10+ clean measured calls; this one has 1,
+        # so it exists (links work) but is noindex and out of the sitemap
+        self.assertNotIn("https://example.com/influencer/ddddddd8a", sm)
+        self.assertIn('<meta name=robots content="noindex,follow">', public.route("/influencer/ddddddd8a")[1].decode())
+        self.assertIn("https://example.com/telegram-channels", sm)
         self.assertIn("https://example.com/hr", sm)
 
     def test_landing_english_main(self):
