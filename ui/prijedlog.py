@@ -471,9 +471,10 @@ def _item(p, status=None):
     cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}[raz]
     stake = {"visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}[raz]
     text = p.get("thesis") or ("Zašto: " + ("; ".join(p["why"]) or "ocjena alata i Šansa") + ".")
+    conf_txt = f' · pouzdanost {p["conf"]:.0f}' if p.get("conf") is not None else ""
     return (f'<li data-p="{esc(p["token"])}" data-m0="{p["mcap0"]:.0f}"><b>{_tl(p["token"], p["symbol"])}</b> '
             f'<span class="b {cls}">vjerojatnost {raz}</span> ulog {stake} · '
-            f'na <b>{usd(p["mcap0"])[0]}</b> sada · pouzdanost {p["conf"] or 0:.0f}'
+            f'na <b>{usd(p["mcap0"])[0]}</b> sada{conf_txt}'
             f'<span class=why><br>{esc(text)} {esc(_chance_txt(p["chance"]))}.</span>'
             f'<span class="pnow mut">provjeravam trenutnu cijenu…</span></li>')
 
