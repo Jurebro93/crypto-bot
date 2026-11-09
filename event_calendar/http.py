@@ -59,14 +59,14 @@ def _gate(suffix, fn):
             pass
         f.seek(0)
         try:
-            state = [float(x) for x in f.read().split()[:2]]
+            state = [float(x) for x in f.read().split()[:3]]
         except ValueError:
             state = []
-        state = (state + [0.0, 0.0])[:2]
+        state = (state + [0.0, 0.0, 0.0])[:3]   # [next_ok, paused_until, gap learned from 429s (0 = default)]
         new = fn(state)
         f.seek(0)
         f.truncate()
-        f.write(f"{new[0]} {new[1]}")
+        f.write(f"{new[0]} {new[1]} {new[2] if len(new) > 2 else 0.0}")
         return new
 
 
@@ -130,15 +130,41 @@ def cooling(url):
     return max(0.0, st[1] - time.time(), reserved_by_other(url))
 
 
+GAP_GROW, GAP_SHRINK, GAP_MAX = 1.5, 0.97, 20.0   # 9.11.: the limit we really get on Render's shared egress is
+                                                   # below the documented 30/min; the gap learns it (AIMD)
+
+
 def limited(url, retry_after=0):
-    """Note a 429 from a shared-limit host: every process pauses before its next call there."""
-    suffix, _ = _shared(url)
+    """Note a 429 from a shared-limit host: every process pauses before its next call there, and the shared gap
+    between calls grows by GAP_GROW (up to GAP_MAX s) so the pause does not just repeat."""
+    suffix, gap = _shared(url)
     if suffix:
         until = time.time() + max(SHARED_COOLDOWN, retry_after or 0)
         try:
-            _gate(suffix, lambda s: [max(s[0], until), max(s[1], until)])
+            _gate(suffix, lambda s: [max(s[0], until), max(s[1], until), min(GAP_MAX, max(s[2] or gap, gap) * GAP_GROW)])
         except OSError:
             pass
+
+
+def eased(url):
+    """A successful call: the learned gap shrinks back slowly towards the default."""
+    suffix, gap = _shared(url)
+    if suffix:
+        try:
+            _gate(suffix, lambda s: [s[0], s[1], (max(gap, s[2] * GAP_SHRINK) if s[2] else 0.0)])
+        except OSError:
+            pass
+
+
+def current_gap(url):
+    suffix, gap = _shared(url)
+    if not suffix:
+        return 0.0
+    try:
+        st = _gate(suffix, lambda s: s)
+    except OSError:
+        return gap
+    return max(gap, st[2] or 0.0)
 
 
 def _pace_shared(url):
@@ -149,12 +175,13 @@ def _pace_shared(url):
     def take(s):
         now = time.time()
         start = max(now, s[0], s[1])
-        return [start + gap, s[1], start]   # the third value is only for us: when this call may go (not stored)
+        g = max(gap, s[2] or 0.0)
+        return [start + g, s[1], s[2], start]   # the fourth value is only for us: when this call may go (not stored)
     try:
         st = _gate(suffix, take)
     except OSError:
         return
-    wait = st[2] - time.time() if len(st) > 2 else 0
+    wait = st[3] - time.time() if len(st) > 3 else 0
     if wait > 0:
         time.sleep(min(wait, 180))
 
@@ -180,6 +207,7 @@ def _fetch(req, timeout, retries=None):
                 data = json.load(resp)
             if meter:
                 meter.helius(req.full_url, req.data, data)
+            eased(req.full_url)
             return data
         except urllib.error.HTTPError as e:
             if meter:
