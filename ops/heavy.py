@@ -112,6 +112,46 @@ def slot(wait=None, priority=False, label=None):
 
 NICE = int(os.environ.get("HEAVY_NICE", "10"))   # 9.11. 19:05: CPU at 100 % from run_dugo/wallets score starved the UI
 
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): the heavy, non-urgent jobs (scoring, learning, wallet scoring,
+# calendar, long-term layer) run only in this window of Zagreb hours; by day the single CPU belongs to the Autopilot,
+# the live feeds and the pages. "from-to" with to exclusive; "" (empty) = any time, as before.
+NIGHT = os.environ.get("HEAVY_NIGHT", "0-6")
+NIGHT_TZ = "Europe/Zagreb"
+
+
+def night_hours():
+    """(from, to) Zagreb hours of the night window, or None when the window is off."""
+    try:
+        a, b = NIGHT.split("-")
+        a, b = int(a), int(b)
+    except (ValueError, AttributeError):
+        return None
+    if not NIGHT or a == b:
+        return None
+    return a, b
+
+
+def night_now(now=None):
+    """True when heavy jobs may run: inside the night window (or no window configured)."""
+    win = night_hours()
+    if win is None:
+        return True
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    h = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(NIGHT_TZ)).hour
+    a, b = win
+    return a <= h < b if a < b else (h >= a or h < b)   # "22-6" wraps midnight
+
+
+def wait_for_night(label=None, step=60):
+    """Block until the night window; one log line when the wait starts."""
+    if night_now():
+        return
+    win = night_hours()
+    print(f"noć: {label or 'posao'} čeka noćni prozor ({win[0]:02d}-{win[1]:02d} Zagreb)", flush=True)
+    while not night_now():
+        time.sleep(step)
+
 
 def _nicer():
     try:
@@ -132,14 +172,19 @@ def run(args, wait=None, priority=False, **kw):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    priority = False
-    if argv and argv[0] == "--prio":
-        priority = True
+    priority = night = False
+    while argv and argv[0] in ("--prio", "--night"):
+        if argv[0] == "--prio":
+            priority = True
+        else:
+            night = True   # 9.11.: wait for the night window (HEAVY_NIGHT) before taking the lock
         argv = argv[1:]
     if not argv:
-        sys.exit("upotreba: python3 -m ops.heavy [--prio] SKRIPTA.py [argumenti]")
+        sys.exit("upotreba: python3 -m ops.heavy [--prio] [--night] SKRIPTA.py [argumenti]")
     if argv[0].endswith(".py") or argv[0] == "-m":
         argv = [sys.executable] + argv
+    if night:
+        wait_for_night(_label(argv))
     return run(argv, priority=priority).returncode
 
 

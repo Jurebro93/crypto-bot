@@ -255,12 +255,32 @@ def cmd_converge(a, con=None, cfg=None):
     print(f"konvergencija: {len(conv)} tokena" + "".join(f"\n  {t} {r['score']:.0f} {'+'.join(r['platforms'])}" for t, r in best))
 
 
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): by day a round does only the cheap, freshness-critical steps
+# (webhook spool, chain list, X watch, live KOLs, snapshots, convergence, crews: seconds to a few minutes); the
+# scoring (40+ min of CPU), traces, the GeckoTerminal measure, Helius flows and the deleted-posts check run only in
+# the night window (ops/heavy.NIGHT). KOL_FULL_ROUND=1 forces the full round at any hour.
+DAY_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_crew")
+NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_score", "cmd_traces",
+               "cmd_measure", "cmd_flows", "cmd_deleted", "cmd_crew")
+
+
+def round_steps(full=None):
+    """Names of the steps of one round: the full set at night (or when forced), the light set by day."""
+    if full is None:
+        from ops import heavy
+        full = os.environ.get("KOL_FULL_ROUND") == "1" or heavy.night_now()
+    return NIGHT_STEPS if full else DAY_STEPS
+
+
 def cycle(a):
     # 8.11. 21:00: two rounds without bot detection still died at 60 min with no scoring part finished; nothing in
     # the log said where. Every 10 min the main thread's stack goes to stderr, so the next kill shows the exact line.
     import faulthandler
     faulthandler.dump_traceback_later(600, repeat=True)
     con, cfg = store.connect(), config()
+    names = round_steps()
+    if names is DAY_STEPS:
+        print("krug: dnevni (lagani) krug; ocjenjivanje, mjerenje i tokovi idu u noćnom prozoru", flush=True)
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
@@ -273,8 +293,8 @@ def cycle(a):
     # 18:05 while holding the heavy-job lock: no page build, no exits rollback, no learn, no archive could run and
     # Pregled/Tokeni fell to the last copy or a 503 ("aplikacija puca"). It is network waiting, not memory, so it
     # runs after the round in its own child WITHOUT the lock (cmd_search_round); the collect after it goes with it.
-    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew):
+    for name in names:
+        step = globals()[name]
         t = time.time()
         try:
             step(a, con, cfg)

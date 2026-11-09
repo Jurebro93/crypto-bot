@@ -358,8 +358,11 @@ class HeavyLockTest(unittest.TestCase):
     def test_wired_in(self):
         root = os.path.join(os.path.dirname(__file__), "..")
         sh = open(os.path.join(root, "start.sh")).read()
+        import re
         for cmd in ("run_wallets.py score", "run_calendar.py", "run_dex.py scan", "run_dugo.py once", "rugfilter.archive"):
-            self.assertIn("python3 -m ops.heavy " + ("-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else "") + cmd, sh)
+            # 9.11. 21:40: the heavy ones carry --night (wait for the night window) between ops.heavy and the script
+            mod = "-m " if "." in cmd.split()[0] and not cmd.endswith(".py") and "run_" not in cmd else ""
+            self.assertRegex(sh, r"python3 -m ops\.heavy (--night )?" + re.escape(mod + cmd))
         self.assertIn("heavy.run(", open(os.path.join(root, "run_sched.py")).read())
         self.assertIn("heavy.run(", open(os.path.join(root, "run_kol.py")).read())
         self.assertIn("heavy.run(cmd, wait=0", open(os.path.join(root, "run_paper.py")).read())
@@ -406,7 +409,7 @@ class SchedLightTest(unittest.TestCase):
         jobs = {j[0]: j for j in run_sched.JOBS}
         self.assertTrue(jobs["masovno"][2][-1])
         self.assertTrue(jobs["tokenstatus"][2][-1])
-        self.assertEqual(len(jobs["shadow"][2]), 2)
+        self.assertFalse(jobs["shadow"][2][2])   # shadow stays under the lock (and since 9.11. 21:40 runs at night only)
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0

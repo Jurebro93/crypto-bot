@@ -180,8 +180,9 @@ class P63LightJobsAndQuietWaiters(unittest.TestCase):
         jobs = {j[0]: j for j in run_sched.JOBS}
         for name in ("market", "usage", "masovno", "tokenstatus"):
             self.assertTrue(jobs[name][2][-1] is True, name)
-        for name in ("shadow", "corr", "postai"):       # still under the lock: they read big tables
-            self.assertEqual(len(jobs[name][2]), 2, name)
+        for name in ("shadow", "corr"):                 # still under the lock; since 9.11. 21:40 also night-only
+            self.assertEqual(tuple(jobs[name][2][2:]), (False, True), name)
+        self.assertTrue(jobs["postai"][2][-1] is True)   # 9.11. 21:40: waits on the Haiku API -> light, not behind the lock
         with mock.patch("subprocess.run") as sr, mock.patch("ops.heavy.run") as hr:
             sr.return_value.returncode = 0
             hr.return_value.returncode = 0
@@ -335,3 +336,74 @@ class WarmerAndChildPriority(unittest.TestCase):
         n.assert_called_once_with(self.run_ui.CHILD_NICE)
         self.assertGreater(self.run_ui.CHILD_NICE, 0)
         self.assertLess(self.run_ui.CHILD_NICE, heavy.NICE)      # below requests, above the heavy jobs
+
+
+class NightWindow(unittest.TestCase):
+    """9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): heavy, non-urgent jobs run only in ops/heavy.NIGHT (Zagreb
+    00-06); the KOL round does the light steps by day and the full set at night; start.sh waits with --night."""
+
+    def _utc(self, h, m=0):
+        import datetime as dt
+        return dt.datetime(2026, 11, 9, h, m, tzinfo=dt.timezone.utc)   # CET: Zagreb = UTC + 1 in November
+
+    def test_night_now_follows_the_zagreb_window(self):
+        with mock.patch.object(heavy, "NIGHT", "0-6"):
+            self.assertEqual(heavy.night_hours(), (0, 6))
+            self.assertTrue(heavy.night_now(self._utc(23, 30)))    # 00:30 Zagreb
+            self.assertTrue(heavy.night_now(self._utc(4, 59)))     # 05:59 Zagreb
+            self.assertFalse(heavy.night_now(self._utc(5, 0)))     # 06:00 Zagreb: the window is to-exclusive
+            self.assertFalse(heavy.night_now(self._utc(12, 0)))
+        with mock.patch.object(heavy, "NIGHT", "22-6"):            # a window across midnight
+            self.assertTrue(heavy.night_now(self._utc(21, 30)))    # 22:30 Zagreb
+            self.assertFalse(heavy.night_now(self._utc(9, 0)))
+        with mock.patch.object(heavy, "NIGHT", ""):                # no window: as before, any time
+            self.assertIsNone(heavy.night_hours())
+            self.assertTrue(heavy.night_now(self._utc(12, 0)))
+
+    def test_main_accepts_night_and_waits(self):
+        with mock.patch.object(heavy, "wait_for_night") as w, mock.patch.object(heavy, "run") as r:
+            r.return_value = mock.Mock(returncode=0)
+            heavy.main(["--night", "run_dugo.py", "once"])
+        w.assert_called_once()
+        self.assertEqual(r.call_args.args[0][1:], ["run_dugo.py", "once"])
+        with mock.patch.object(heavy, "wait_for_night") as w, mock.patch.object(heavy, "run") as r:
+            r.return_value = mock.Mock(returncode=0)
+            heavy.main(["--prio", "--night", "run_kol.py", "backfill"])
+        w.assert_called_once()
+        self.assertTrue(r.call_args.kwargs.get("priority"))
+
+    def test_sched_marks_the_learning_jobs_night_only(self):
+        import run_sched
+        with mock.patch.object(heavy, "night_now", return_value=False):
+            self.assertTrue(run_sched.night_ok(False))
+            self.assertFalse(run_sched.night_ok(True))
+        jobs = {name: (fn.__name__, args) for name, fn, args in run_sched.JOBS}
+        self.assertTrue(jobs["shadow"][1][-1] is True and jobs["corr"][1][-1] is True)        # night flag of every()
+        self.assertTrue(jobs["learn6"][1][-1] is True and jobs["exits_rb"][1][-1] is True)    # night flag of every_hours()
+        self.assertEqual(jobs["postai"][1][2], True)                                           # light, not behind the lock
+        self.assertEqual(jobs["market"][1][2], True)
+        import json
+        self.assertEqual(json.load(open(os.path.join(ROOT, "learn/config.json")))["run_at_utc"], "02:30")  # 03:30 Zagreb
+        self.assertEqual(json.load(open(os.path.join(ROOT, "exits/config.json")))["run_at_utc"], "03:30")
+
+    def test_kol_round_is_light_by_day_and_full_at_night(self):
+        import run_kol
+        day, night = run_kol.round_steps(False), run_kol.round_steps(True)
+        for s in ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_crew"):
+            self.assertIn(s, day)
+        for s in ("cmd_score", "cmd_measure", "cmd_flows", "cmd_traces", "cmd_deleted"):
+            self.assertNotIn(s, day)
+            self.assertIn(s, night)
+        for s in day + night:
+            self.assertTrue(callable(getattr(run_kol, s)))
+        with mock.patch.object(heavy, "night_now", return_value=False), mock.patch.dict(os.environ, {"KOL_FULL_ROUND": "1"}):
+            self.assertIs(run_kol.round_steps(), run_kol.NIGHT_STEPS)
+        with mock.patch.object(heavy, "night_now", return_value=False), mock.patch.dict(os.environ, {"KOL_FULL_ROUND": ""}):
+            self.assertIs(run_kol.round_steps(), run_kol.DAY_STEPS)
+
+    def test_start_sh_waits_for_the_night_on_the_heavy_loops(self):
+        src = open(os.path.join(ROOT, "start.sh")).read()
+        for job in ("run_calendar.py", "run_dex.py scan", "run_hype.py learn", "run_wallets.py harvest", "run_wallets.py score", "run_dugo.py once"):
+            self.assertIn("ops.heavy --night " + job, src, job)
+        for job in ("run_wallets.py dokazani", "rugfilter.archive", "ops.health --hourly"):   # fresh/short: stay by day
+            self.assertNotIn("--night " + job, src, job)
