@@ -1,95 +1,505 @@
 [
- {"datum": "2026-11-09", "naslov": "Demo: pauza nakon stop lossa", "tekst": "demo bot više ne kupuje isti token odmah nakon što ga je izbacio stop loss. Čeka 8 sati, a ako se to ponovi unutar 48 sati, pauza se udvostručuje (16 h, 32 h, najviše 48 h). Povod: token JENSEN je zaredom tri puta pogodio stop loss (prvi ulaz i dva ponovna ulaza u razmaku od sat vremena)."},
- {"datum": "2026-11-05", "naslov": "Ulaz na povlačenje samo s dokazom", "tekst": "novi način ulaza demo bota: token sa svježim signalom koji je pao barem 12 % od vrha, ali je i dalje iznad 50k $, i kojeg je u zadnjih 15 min kupio neki od praćenih novčanika. Bez tog dokaza ili ispod 50k nema ulaza: pad u mali mcap je dump, ne prilika.", "naslov_en": "Buying the dip only with proof", "tekst_en": "a new demo entry mode: a token with a fresh signal that dropped at least 12% from its high but still sits above $50k, and that one of the followed wallets bought in the last 15 minutes. Without that proof, or below $50k, there is no entry: a dip into a tiny cap is a dump, not an opportunity."},
- {"datum": "2026-11-05", "naslov": "Natjecanje: cijena pozicije s izvorom i vremenom", "tekst": "svaka otvorena pozicija pokazuje odakle je cijena (DexScreener pool ili Jupiter) i kad je osvježena; stranica koja se ne uspije obnoviti više ne prikazuje stare brojeve u tišini.", "naslov_en": "Competition: position price with its source and time", "tekst_en": "every open position now shows where its price comes from (DexScreener pool or Jupiter) and when it was refreshed; a page that fails to rebuild no longer silently shows old numbers."},
- {"datum": "2026-11-05", "naslov": "Ekipa: tko pojačava čije pozive i tko je ušao prije", "tekst": "za svaki svjež poziv velikog računa alat čita tko je odgovorio, retweetao ili citirao u prvih 30 minuta, povezuje te račune s njihovim novčanicima i provjerava jesu li token kupili prije poziva. Na stranici influencera: tko ga pojačava i koga on pojačava. Nova demo strategija 'Ekipa' kupuje kad 2+ velika računa reagiraju, a barem jedan je ušao prije poziva.", "naslov_en": "Crew: who amplifies whose calls and who was in before", "tekst_en": "for every fresh call by a big account the tool reads who replied, retweeted or quoted it within 30 minutes, links those accounts to their wallets and checks whether they bought the token before the call. On the influencer page: who amplifies them and whom they amplify. A new demo strategy, 'Crew', buys when 2+ big accounts react and at least one was in before the call."},
- {"datum": "2026-11-05", "naslov": "Proporcionalna prodaja: kad insajder proda dio, i mi prodamo isti dio", "tekst": "živi tok daje količinu i preostalo stanje svake prodaje, pa strategija Insajderi više ne prodaje sve čim netko proda: proda isti udio koji je prodao novčanik (najmanje četvrtinu), a sve tek kad on izađe.", "naslov_en": "Proportional selling: when an insider sells part, we sell the same part", "tekst_en": "the live feed carries the amount and remaining balance of every sell, so the Insiders strategy no longer dumps everything the moment someone sells: it sells the same share the wallet sold (at least a quarter), and everything only when the wallet is out."},
- {"datum": "2026-11-05", "naslov": "Tragovi: transferi oko influencera", "tekst": "uz kupnje i prodaje praćenih novčanika sad stižu i transferi. Tri pravila: novčanik je tokene primio (ne kupio) pa ih račun zvao u 24 h = plaćena promocija; transfer između dva praćena novčanika = ista ekipa; primljen ≥ 2 % supplya. Vidljivo na stranici influencera („Tragovi”) i kao minus u pouzdanosti tokena.", "naslov_en": "Traces: transfers around influencers", "tekst_en": "besides buys and sells of followed wallets, transfers now arrive too. Three rules: a wallet received tokens (did not buy them) and the account called them within 24 h = paid promotion; a transfer between two followed wallets = the same crew; ≥ 2% of a token's supply received. Shown on the influencer page ('Traces') and as a confidence penalty on the token."},
- {"datum": "2026-11-05", "naslov": "Pozivi s X-a u sekundama (webhook)", "tekst": "do 100 najvažnijih računa (najbolji po ocjeni, zvijezde, veliki računi) prati se preko pravila koja se provjeravaju svakih 30 s, a objava stiže na naš webhook čim izađe. Dosad: 10 računa svakih 15 min.", "naslov_en": "X calls within seconds (webhook)", "tekst_en": "up to 100 of the most important accounts (best scores, stars, big accounts) are followed through rules checked every 30 s, and a post reaches our webhook as soon as it is out. Until now: 10 accounts every 15 minutes."},
- {"datum": "2026-11-05", "naslov": "Makro režim: BTC i ETH ulaze u odluku", "tekst": "svaki sat alat određuje stanje BTC-a i ETH-a (raste / konsolidacija nakon rasta / pada / konsolidacija nakon pada / neutralno) iz dnevnih i satnih cijena. 'Konsolidacija nakon rasta' je prozor za altove i diže ocjenu tokena; dok BTC pada, demo bot ne otvara nove ulaze. Vidljivo na stranici Tržište.", "naslov_en": "Macro regime: BTC and ETH now shape decisions", "tekst_en": "every hour the tool classifies BTC and ETH (rising / consolidating after a rise / falling / consolidating after a fall / neutral) from daily and hourly prices. 'Consolidating after a rise' is the window for alts and lifts token scores; while BTC is falling, the demo bot opens no new entries. Shown on the Market page."},
- {"datum": "2026-11-05", "naslov": "Doseg računa: veliki influenceri vrijede i prije probe", "tekst": "broj pratitelja i koliko ga naših dokazanih KOL-ova prati sad određuju početnu ocjenu računa (do +30 bodova), pa veliki račun bez povijesti kod nas više ne vrijedi nula. Nova demo strategija 'Veliki račun zove' (20k+ pratitelja, prate ga 2+ naša KOL-a) mjeri koliko taj signal stvarno vrijedi.", "naslov_en": "Account reach: big influencers count before they finish their trial", "tekst_en": "follower count and how many of our proven KOLs follow an account now set its starting score (up to +30), so a big account with no history here no longer counts as zero. A new demo strategy, 'Big account calls' (20k+ followers, followed by 2+ of our KOLs), measures what that signal is really worth."},
- {"datum": "2026-11-05", "naslov": "Socijali tokena: pravi X profil, živ Telegram, plaćeni profil", "tekst": "alat sad razlikuje pravi X profil od tuđeg tweeta ili pretrage, provjerava Telegram (članovi, zadnji post) i vidi plaćeni DexScreener profil. 'Ozbiljan projekt' (sve troje) dobiva +12 pouzdanosti i vlastitu demo strategiju; 'sumnjivi socijali' −8 i kontrolnu strategiju koja mjeri vrijedi li sumnja.", "naslov_en": "Token socials: real X profile, live Telegram, paid profile", "tekst_en": "the tool now tells a real X profile from someone else's tweet or a search page, checks Telegram (members, last post) and sees a paid DexScreener profile. A 'serious project' (all three) gets +12 confidence and its own demo strategy; 'suspicious socials' get −8 and a control strategy that measures whether the suspicion holds."},
- {"datum": "2026-11-05", "naslov": "Top novčanici: dokazani po povijesti, kopija u 2 minute", "tekst": "strategija više ne kopira svaki praćeni novčanik dok ga naše 3 kopije ne presude: novčanik mora biti dokazan po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h) ili po našim kopijama, a kupnja se kopira samo ako je mlađa od 2 minute. Novčanik čije naše kopije gube ispada bez obzira na povijest.", "naslov_en": "Top wallets: proven by their own history, copied within 2 minutes", "tekst_en": "the strategy no longer copies every followed wallet until our three copies judge it: a wallet must be proven by its own history (10+ closed trades in profit, holds under 6 h) or by our copies, and a buy is copied only if it is under 2 minutes old. A wallet whose copies lose is dropped regardless of history."},
- {"datum": "2026-11-05", "naslov": "Živi tok kupnji i prodaja (sekundno)", "tekst": "svaka kupnja i prodaja gledanih tokena i praćenih novčanika na pump.fun i PumpSwapu stiže u sekundi. Na stranici tokena kutija „Uživo” (kupci, prodavači, neto za 1/5/15 min), a demo bot na dump (puno prodavača, prodaja ≥ 2,5× kupnje, −8 %) proda u sekundama umjesto da čeka minutu.", "naslov_en": "Live buys and sells, second by second", "tekst_en": "every buy and sell of watched tokens and followed wallets on pump.fun and PumpSwap arrives within a second. The token page gets a “Live” box (buyers, sellers, net flow for 1/5/15 min), and on a dump (many sellers, sells ≥ 2.5× buys, −8%) the demo bot exits in seconds instead of waiting for the next minute."},
- {"datum": "2026-11-05", "naslov": "Tokeni ispod 30k $ se ne analiziraju", "tekst": "sken, demo bot i pouzdanost odbacuju tokene ispod 30.000 $ tržišne vrijednosti: većina je rug, a signali na njima ništa ne dokazuju. Pouzdanost tokena od 30 do 50k dobiva −15.", "naslov_en": "Tokens under $30k are no longer analysed", "tekst_en": "the scanner, the demo bot and the confidence score reject tokens below $30k market cap: most are rugs and their signals prove nothing. Tokens between $30k and $50k lose 15 confidence points."},
- {"datum": "2026-11-05", "naslov": "Obrisane objave influencera se pamte", "tekst": "pozivi na X-u se nakon 2 dana provjeravaju po ID-u objave; obrisani se i dalje broje, a račun koji briše gubitničke pozive gubi bodove („Briše gubitnike”). Brisanjem se ocjena više ne može popraviti.", "naslov_en": "Deleted influencer posts are remembered", "tekst_en": "X calls are re-checked by post ID after two days; deleted ones still count, and an account that deletes its losing calls loses points (“deletes losers”). Deleting a post can no longer improve a score."},
- {"datum": "2026-11-05", "naslov": "Trending tokeni kao izvor influencera", "tekst": "svaki krug sprema trending tokene (GeckoTerminal, DexScreener boosts) i pita X tko je objavio njihovu adresu: ti računi postaju KOL kandidati, a tokeni ulaze u povijesnu pretragu.", "naslov_en": "Trending tokens as a source of influencers", "tekst_en": "every round stores the trending tokens (GeckoTerminal, DexScreener boosts) and asks X who posted their address: those accounts become KOL candidates and the tokens join the historical search."},
- {"datum": "2026-11-05", "naslov": "Demo: Europa na pauzi kao Azija i Amerika", "tekst": "sesija koja gubi (faktor dobiti ispod 0,7 na 30+ tradeova) sad odmah ide na pauzu novih ulaza, jednako u Aziji, Europi i Americi. Prije se ulog smanjivao korak po korak dnevno, pa je Europa s faktorom 0,17 i dalje kupovala s 50–75% uloga. Povratak gore ostaje postupan, jedan korak dnevno kad rezultati porastu.", "naslov_en": "Demo: Europe session paused like Asia and the US", "tekst_en": "a session with a profit factor below 0.7 on 30+ trades now pauses new entries at once, the same rule for Asia, Europe and the US. Recovery stays gradual, one step a day."},
- {"datum": "2026-11-05", "naslov": "Novi signal: grupni poziv 3+ KOL-a u 10 minuta", "tekst": "kad 3 ili više različitih KOL-ova (bez botova) objave isti token unutar 10 minuta, to je sad poseban signal u hype ocjeni. Težinu mu postavlja učenje samo. Demo ulazi okidača 3 KOL-a bilježe je li grupa stigla u 10 ili tek u 15 minuta, a na stranici Demo trading i u jutarnjem izvještaju vidi se koji prozor bolje prolazi.", "naslov_en": "New signal: 3+ KOLs calling the same token within 10 minutes", "tekst_en": "when three or more different KOLs (no bots) post the same token within 10 minutes it is now its own signal in the hype score; its weight is set by learning."},
- {"datum": "2026-11-05", "naslov": "Izlazi: brži povratak na stara pravila", "tekst": "naučena pravila izlaza koja live gube vraćaju se na prethodna i kad im je tipičan (srednji) trade jasno lošiji, ne samo prosjek. Provjera ide svaka 3 sata umjesto jednom dnevno, a vraćena pravila se 3 dana ne uče ponovno. Povod: moonshot pravila za američku sesiju imala su medijan −33% nakon 50 tradeova.", "naslov_en": "Exits: faster rollback to the previous rules", "tekst_en": "learned exit rules that lose live are rolled back when their typical (median) trade is clearly worse, not only the average. The check runs every 3 hours."},
- {"datum": "2026-11-05", "naslov": "Top novčanici: nadopunjeni i uče dalje", "tekst": "demo račun strategije pao je na oko −80 %, pa je nadopunjen s 1.000 $ (vidljivo na kartici) i odmrznut: demo račun služi učenju, ne zamrzava se zbog gubitka. Sljedeći korak: izbor novčanika po njihovoj vlastitoj povijesti i ulaz unutar minute iz živog toka.", "naslov_en": "Top wallets: refilled and learning on", "tekst_en": "the strategy's demo account had dropped about 80%, so it was topped up by $1,000 (shown on its card) and unfrozen: a demo account exists to learn, not to be frozen for a loss. Next: picking wallets by their own history and entering within a minute from the live feed."},
- {"datum": "2026-11-04", "naslov": "Strategije: status, kontrola i rezultat bez najboljeg tradea", "tekst": "svaka strategija sad ima status: „uči” (manje od 100 zatvorenih tradeova), „kandidat” (bolja od nasumičnog ulaza u obje polovice razdoblja i bez 5 najboljih tradeova; znači samo daljnje testiranje) ili „ne diraj pravi novac”. Nasumični ulaz (kontrola) je vraćen kao mjerilo i ne natječe se. Uz svaki rezultat piše i rezultat bez najboljeg tradea, bez 5 najboljih i bez najboljeg tokena: ako plus tada nestane, piše „koncentrirano”. Novi red „S pravih $1.000 bez posuđivanja” pokazuje što bi ostalo kad račun ne smije u minus. Na Demo tradingu „zarađuje” je sad „u plusu”, s istim provjerama."},
- {"datum": "2026-11-04", "naslov": "Sigurnost i pravi trade: strože zaštite", "tekst": "dnevni limit gubitka za pravi trade je 0,15 SOL, računa se od ponoći po zagrebačkom vremenu i uključuje naknade neuspjelih pokušaja. Prije svake prave kupnje alat provjerava može li token prodati natrag u SOL; ako ne može ili bi gubitak bio prevelik, kupnja se odbija. Isti token se ne kupuje dvaput dok je otvoren. „Kopiraj demo” i SimianX za pravi trade su zaključani dok demo ne dokaže zaradu. Lozinka mora imati barem 12 znakova. Bot i dalje radi samo u demo načinu."},
- {"datum": "2026-11-04", "naslov": "Točniji brojevi: novčanici, cijene, KOL test, učenje", "tekst": "zarada novčanika računa se po svakoj kupnji i prodaji redom (kasnija kupnja više ne mijenja već ostvarenu zaradu), a token bez poznate cijene više se ne broji kao 0. Token čiji se poolovi ne slažu u cijeni (kao PYTH) ide van rangiranja s oznakom „sumnjiva cijena”. Objava samo s tickerom koji ima više tokena je „nejasan token” i ne broji se kao poziv. KOL test: ulazi koji se još prate više se ne broje kao „nikad do +20%”. Učenje: model se uči na starijim, a provjerava na novijim podacima; bez dovoljno stvarnih ishoda piše „nedovoljno podataka”, a model koji je bolji ali bi i dalje gubio dobiva „bolji, ne trgujemo”. Tablica signala ima dva jasno nazvana omjera (× od svih, × od slabog) i stupac za sve tokene."},
- {"datum": "2026-11-04", "naslov": "Tržište: BTC i Fear & Greed", "tekst": "na stranici Tržište je jedan novi red: režim trencheva, promjena BTC-a kroz 7 dana i Fear & Greed indeks (izvor alternative.me, besplatno). Samo informacija: bot ih ne koristi u odluci dok test ne pokaže da dodaju nešto. Pojmovnik ima nove pojmove (kontrola, kandidat, koncentrirano, simulacija prodaje, nejasan token, sumnjiva cijena, postotni bodovi) i ispravke (confidence i šansa su bodovi, ne vjerojatnost; mint i freeze authority nisu isto; volumen je promet, ne priljev)."},
- {"datum": "2026-11-04", "naslov": "Strategije: samo top novčanici, izbor alata po veličini tokena", "tekst": "usporedba strategija više ne kopira sve praćene novčanike, nego samo 10 najboljih: one čije su kupnje, kad smo ih kopirali, najviše zaradile (novi novčanik se mjeri dok ne skupi 3 tradea, dokazano loš se više ne kopira). Na stranici Usporedba strategija je tablica koje novčanike kopiramo i zašto. Izbor alata je podijeljen na tri zasebna računa: mali tokeni (do 200k $), srednji (200k–1M $) i veliki (preko 1M $). Mix i Nasumično su isključeni; KOL pozivi ostaju. Novi računi kreću od $1000."},
- {"datum": "2026-11-04", "naslov": "Influenceri: jasnije tablice na mobitelu i pogodak iz zadnjih 50 poziva", "tekst": "svaka tablica na stranici Influenceri ima ispod naslova jednu rečenicu što pokazuje, a nazivi stupaca su jasniji (npr. kod parova: „Zajedničkih tokena”, „Da je slučajno”, „Češće od slučaja”, „Presuda”). Na mobitelu je naziv sad iznad vrijednosti, pa se ništa ne preklapa i ne izlazi preko ruba (vrijedi za sve tablice u aplikaciji). Kanal s jednim izmjerenim pozivom više ne pokazuje „Pogodak 100%”. Ocjena i pogodak sad se računaju iz zadnjih 50 poziva kanala i prikazuju tek od 10 izmjerenih poziva, a ispod toga piše „premalo”. Kanali s dovoljno podataka su na vrhu tablice. Novi stupac „Povijest 2×” pokazuje koliko je zadnjih poziva otišlo barem 2× prema Call Analyser i SpyDefi izvozima. Alat sad prvo čita stariju povijest kanala koji imaju manje od 50 poziva."},
- {"datum": "2026-11-04", "naslov": "Nova početna: Pregled", "tekst": "aplikacija se sad otvara na stranici Pregled (prva u izborniku i u donjoj traci na mobitelu). Na vrhu je strategija koja trenutno najviše zarađuje od 5 demo računa, koliko i za koliko dana, s poretkom ostalih. Ispod je koliko podataka alat ima (tokeni, novčanici, influenceri, pozivi, Telegram kanali i poruke) i koliko je novih ovaj tjedan u odnosu na prošli, pa par zanimljivosti (token koji zove najviše izvora, najbolji trade, najbolji influencer, što su kupili praćeni novčanici) i brzi linkovi na najvažnije stranice. Bez pravog novca, demo rezultati nisu jamstvo zarade."},
- {"datum": "2026-11-04", "naslov": "Demo trading: što zarađuje, a što ne, na prvi pogled", "tekst": "stranica Demo trading sad počinje jednom rečenicom: koje strategije zarađuju, a koje su blizu nule. Za svaku strategiju je kartica s presudom (zarađuje / blizu nule / gubi) i što bi je dovelo u plus. Novo: rezultati po veličini tokena (ispod 50k, 50–200k, 200k–1M i preko 1M $), jer mali i veliki tokeni nisu ista igra; raspon koji gubi bot sam dobiva sve manje ulaza, a u tokene ispod 20k $ više ne ulazi. Razlozi gubitka (kasni ulaz, nema pokreta…) otvaraju se dodirom i objašnjavaju što znače i što bot radi. Nova demo strategija „Aktivni stariji tokeni”: tokeni stariji od 3 dana koji danas imaju najviše kupnji i prodaja, umjesto samo najnovijih. Sve tablice su dolje u Detaljima."},
- {"datum": "2026-11-04", "naslov": "Influenceri: sažetak na vrhu i „Zovu zajedno”", "tekst": "stranica Influenceri sad na vrhu u jednoj rečenici kaže koliko se računa dokazalo i kako prolaze tokeni kad ih zove više računa zajedno, uz tri broja i nekoliko rečenica običnim riječima. Najbolji influenceri su opisani riječima (koliko poziva naraste, zove li prvi, ima li puno rugova). Novo: odjeljak „Zovu zajedno” uspoređuje tokene koje zove jedan račun s onima koje zovu dvojica, trojica ili više, X i Telegram zajedno, i pokazuje ekipe koje stalno zovu zajedno (prati ih, gledaj ili izbjegavaj). Dodani su i plaćeni shilleri s naše liste (Telegram kanali i X računi) s iskrenom ocjenom; dok ne dokažu rezultate, ne ulaze u signale ni praćenje uživo. Sve stare tablice su u odjeljcima koji se otvaraju dodirom, a izbornik sekcija sad uvijek odvede na pravu tablicu. Dodana je i povijest Telegram callera za zadnjih 6 mjeseci (iz izvoza kanala Call Analyser i SpyDefi): koliko poziva svakog kanala je otišlo barem 2× i 5×, i je li kanal još aktivan; aktivni kanali se sad čitaju uživo."},
- {"datum": "2026-11-04", "naslov": "Učenje: koliko je alat bolji, jednim pogledom", "tekst": "na vrhu stranice Učenje sad u jednoj rečenici piše je li alat bolji nego prvih dana, uz tri broja (koliko tradeova je u plusu, prosjek po tradeu nakon troškova, koliko ih završi rugom ili stop lossom) i mali graf dan po dan. Ispod je običnim riječima: je li demo zaradio, na kojim signalima zarađuje, a na kojima gubi i zašto, što je alat sam promijenio i kako se sam popravlja. Sve stare tablice su u Detaljima koji se otvaraju dodirom."},
- {"datum": "2026-11-04", "naslov": "Pravi trade je sada Autopilot", "tekst": "stranica Pravi trade zove se Autopilot i puno je čišća. Na vrhu je wallet s kojeg bot trguje (stanje u SOL-u i USDC-u) i upute u 4 koraka kako ga postaviti. Sve ostalo je u kratkim odjeljcima koji se otvaraju dodirom: koga bot prati, preporučeni influenceri i walleti (alat ih bira po rezultatima zadnjih 7, 14 ili 30 dana) i preporučeni tokeni (dugoročni i poneki moonshot, svaki s razlogom). Novo: gumb „Neka alat sam bira” – alat svaki sat sam odabere najbolje influencere i wallete po rezultatima (7, 14 ili 30 dana) i makne one koji ispadnu; tvoja ručna praćenja ne dira. Na vrhu je i dnevnik naloga uživo (svaka kupnja i prodaja, osvježava se svakih 5 sekundi, s linkom na Solscan). Demo tablice su maknute. Stranicu vide samo vlasnik i pozvani; preporuke nisu jamstvo zarade."},
- {"datum": "2026-11-04", "naslov": "Eventi na jednom mjestu, s kalendarom", "tekst": "Eventi i Prije eventa sad su jedna stranica. Na vrhu je kalendar s obojenim točkicama po važnosti događaja (svjetloplavo slabo, crveno vrlo jako) i skalom boja; dodir na dan otvori sve detalje događaja. Ispod je uredna lista po datumu: ključne riječi su male oznake, a razlozi i ostali tokeni otvaraju se tek na „zašto”, pa su redovi kratki i na mobitelu. Na dnu je praćenje tokena prije eventa."},
- {"datum": "2026-11-04", "naslov": "Bot u Natjecanju igra 2. krug pametnije", "tekst": "bot u Natjecanju sad troši novac samo na vrste ulaza koje su u zadnjih 7 dana dokazano zarađivale. Ostale prilike i dalje kupuje u demu da bi učio. Kad neka vrsta počne gubiti, sama ispada. Vidi Učenje → Bot u Natjecanju."},
- {"datum": "2026-11-04", "naslov": "2. krug bota i 💀 za rekt", "tekst": "bot je u Natjecanju pao na nulu, pa igra 2. krug s novih $1000 (vidi se na ljestvici i grafu), a ispod piše gdje je najviše gubio u 1. krugu. Tko od igrača padne na nulu dobiva novih $1000, a uz ime mu ostaje 💀×N; čim je opet u plusu, dobiva 🔄 comeback. Natjecanje sad pokazuje i 5 strategija alata (novčanici, influenceri, izbor alata, Mix, nasumično) da se vidi koji tip tradeova najbolje zarađuje, a strategije više ne staju kad potroše $1000, nego trguju dalje da alat uči na više podataka."},
- {"datum": "2026-11-04", "naslov": "Što je novo", "tekst": "nova stranica Što je novo (izbornik Pomoć) s poviješću svih novosti po datumima. Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom, koja nestane kad je otvoriš."},
- {"datum": "2026-11-03", "naslov": "Pravi trade", "tekst": "nova stranica Pravi trade: bot kupuje i prodaje pravim SOL-om iz zasebnog walleta, samo za KOL-ove i walletove koje odabereš, unutar tvojih limita (ulog, dnevna potrošnja i gubitak). Prekidač je zadano ugašen, uvijek ostaje rezerva SOL-a za prodaju, a upozorenja javljaju zagušenu mrežu, premalo SOL-a ili prodaju koja ne prolazi. Pozvani korisnici stranicu samo gledaju i mogu kupiti isti token sami preko Jupitera."},
- {"datum": "2026-11-03", "naslov": "Najizgledniji token po eventu", "tekst": "na kartici eventa sad piše koji je token tog događaja najizgledniji za pumpu (ocjena 0-100 s razlozima), a ispod su svi ostali poredani po ocjeni."},
- {"datum": "2026-11-03", "naslov": "SimianX drugo mišljenje", "tekst": "na Dugoročnim tokenima uz našu ocjenu stoji i drugo mišljenje SimianX AI-ja; signali se prvo testiraju na demo računu."},
- {"datum": "2026-11-03", "naslov": "Pozivnice na jednom mjestu", "tekst": "stranica Pozivnice i zahtjevi pokazuje sve linkove za registraciju: kopiraj, pošalji na WhatsApp, e-mail ili Telegram, ili obriši link jednim klikom. Računi napravljeni s obrisanim linkom ostaju."},
- {"datum": "2026-11-03", "naslov": "E-mail kod registracije", "tekst": "kod registracije i zahtjeva za pristup sada se upisuje e-mail, da vam možemo javiti nove mogućnosti alata. Tko ga još nema, vidi žuti okvir na vrhu stranice s linkom na Postavke."},
- {"datum": "2026-11-03", "naslov": "Uloge korisnika", "tekst": "svaki korisnik ima ulogu: Admin, Prijatelj ili Osnovni. Novi korisnici su Osnovni: vide tokene, influencere i novčanike i igraju svojim demo računom, ali ne vide potrošnju ni postavke i ne pokreću ništa što košta. Admin mijenja uloge na stranici Korisnici i uloge."},
- {"datum": "2026-11-02", "naslov": "Jednostavnija aplikacija", "tekst": "aplikacija se otvara na Tokenima, a dolje su samo Tokeni, Influenceri, Novčanici i Više. Tokeni imaju gumbe Novi · Jaki · Dugoročni, Novčanici prvo pokazuju tko je upravo kupio ili prodao, a stranica tokena na vrhu ima Šansu, jednu rečenicu presude, Za i Protiv i gumb za kopiranje adrese. Uvodni tekstovi su maknuti; svaki broj i dalje ima ⓘ s objašnjenjem."},
- {"datum": "2026-11-02", "naslov": "Svježa provjera preporučenih tokena", "tekst": "prvih 20 prijedloga u Natjecanju alat sad provjerava svake 3 minute: nova analiza u svakom skenu, stanje tržišta (🚀 pumpa: ne kupuj nego pričekaj, ↗ pad uz oporavak, 📉 pada, ➖ stabilno) s kratkim savjetom i obavezan rug check (mint i freeze authority, zaključan LP, top holderi, dev, honeypot test prodaje, pun rug filter). Token koji padne na rug checku se skriva i ne nudi za kupnju."},
- {"datum": "2026-11-02", "naslov": "Dokup u postojeću poziciju", "tekst": "ako u Kupi token odmah (ili na stranici tokena) kupiš token koji već imaš, iznos se sad doda u tu poziciju umjesto greške: pozicija naraste, a ulazna cijena postane prosjek svih kupnji."},
- {"datum": "2026-11-02", "naslov": "Demo bez dnevnog limita", "tekst": "demo više nema dnevni limit ulaza, pa i popodne i navečer kupi svaku priliku koja prođe pravila. Tako alat uči iz svih prilika, ne samo jutarnjih."},
- {"datum": "2026-11-02", "naslov": "5 strategija, svaka sa $1000", "tekst": "pet odvojenih demo računa po $1000 trguje paralelno: jedan kopira praćene novčanike, drugi ulazi na KOL pozive, treći kupuje ono što bira alat, četvrti (Mix) samo kad se dva izvora slože, a peti kupuje nasumično kao kontrola sreće. Svi prodaju po istim pravilima, pa se vidi koji izvor stvarno zarađuje. Vidi Bot trguje → Usporedba strategija."},
- {"datum": "2026-11-02", "naslov": "Alat sam traži gdje rezati gubitak", "tekst": "svaki dan na papiru isproba svaki stop loss (od -10% do bez stopa) i koliko se minuta nakon kupnje uključuje (odmah, 15, 30 ili 60 min), na tisućama prilika, posebno i za pozive influencera. Najbolju kombinaciju sam primijeni. Vidi Izlazi → Gdje rezati gubitak."},
- {"datum": "2026-11-02", "naslov": "KOL-ovi s puno rugova izbačeni iz copy tradinga", "tekst": "ako više od 30% poziva nekog KOL-a završi kao rug (na barem 10 mjerenja), alat ga više ne prati uživo, ne nudi za copy trading i njegovi pozivi ne otvaraju demo ulaze. KOL test sad mjeri i stop −30% te stop koji se uključi tek nakon 30 minuta, jer cijena prije +100% obično prvo padne oko 20%."},
- {"datum": "2026-11-02", "naslov": "KOL-ovi s puno rugova čitaju se rjeđe", "tekst": "ako više od 30% poziva nekog KOL-a završi kao rug (na barem 10 mjerenja), alat ga ne izbacuje, nego njegove objave čita rjeđe (svaka 3 dana) i označi ga „puno rugova“. KOL test sad mjeri i stop −30% te stop koji se uključi tek nakon 30 minuta, jer cijena prije +100% obično prvo padne oko 20%."},
- {"datum": "2026-11-02", "naslov": "Koga prate najbolji KOL-ovi", "tekst": "alat jednom tjedno pogleda koga prate dokazani KOL-ovi. Račun kojeg prate barem dvojica, a bavi se kriptom, dolazi na čitanje, pa tako nalazimo male, rane callere prije nego ih otkrije gomila. Trošak je oko $1 mjesečno."},
- {"datum": "2026-11-02", "naslov": "Pravi KOL-ovi, ne glasni", "tekst": "alat sad traži KOL-ove unatrag od tokena koji su stvarno narasli: tko je objavio CA prije rasta. Novi računi su 2 tjedna „na probi“ prije nego ih pratimo uživo, oznaka „kupio“ znači da je njihov novčanik kupio što zovu, a AI svaki tjedan provjeri profil najboljih 20 i izbaci hakirane, dev-ove i prodavače grupa."},
- {"datum": "2026-11-02", "naslov": "Lažni KOL-ovi izbačeni", "tekst": "s KOL liste i iz statistike izbačeni su računi koji nisu KOL-ovi: hakirani profili koji objavljuju isti „klikni za glasanje“ spam (link je vjerojatno drainer), prodavači plaćenih grupa i dev-ovi koji zovu vlastite tokene. Alat ih od sad sam prepoznaje, a na njihovom profilu piše razlog."},
- {"datum": "2026-11-02", "naslov": "AI čita objave i sam testira ideje", "tekst": "AI sad pročita svaku KOL i Telegram objavu s tokenom (poziv, upozorenje, plaćena reklama, koliko je autor uvjeren) i svaki dan predloži nova pravila koja se sama testiraju na novim prilikama. Na Učenju vidiš koliko to košta i isplati li se."},
- {"datum": "2026-11-02", "naslov": "Je li alat pametniji?", "tekst": "na vrhu stranice Učenje sad svaki tjedan piše bira li alat bolje od prošlog tjedna i od pravila „kupi sve“. Novi model koji vidi kombinacije signala prvo 7 dana radi samo u probi, a demo preuzima tek ako dokazano zarađuje više."},
- {"datum": "2026-11-01", "naslov": "400 KOL-ova svakih pola sata", "tekst": "čim se uključi novi izvor (twitterapi.io), alat čita objave ~400 KOL-ova svakih 20-30 minuta umjesto 100 svaka 2 sata, pa brže uči tko stvarno pogađa. Trošak ima dnevni strop od $0,70."},
- {"datum": "2026-11-01", "naslov": "KOL-ovi: provjera točnosti i tko koga kopira", "tekst": "alat sad sam provjerava predviđa li njegova ocjena KOL-ova budućnost, uz svaku ocjenu piše raspon, a parovi KOL-ova dobivaju test slučajnosti. Nova tablica pokazuje koji veliki KOL-ovi zovu tokene tek nakon malih. Svaka 2 sata čitamo ~100 najboljih, a 10 najboljih pratimo uživo."},
- {"datum": "2026-11-01", "naslov": "Alat uči iz svake prilike", "tekst": "alat sad na svakoj prilici za kupnju „na papiru“ kupi token i nakon 24 h izračuna koliko bi stvarno zaradio s našim pravilima izlaza. Tako uči iz tisuća prilika dnevno umjesto par desetaka pravih kupnji, a ocjena uči iz stvarne zarade, ne iz vrha grafa. Vidi Učenje → Sjenovita knjiga."},
- {"datum": "2026-11-01", "naslov": "Zabavna stranica dok se alat osvježava", "tekst": "umjesto crne greške 502 tijekom kratkog osvježavanja (20–40 s) sad vidiš MemeSonar stranicu sa šalom, zadnjom novosti i mini igrom „Pumpaj dok čekaš“. Stranica se sama vrati čim je alat spreman."},
- {"datum": "2026-11-01", "naslov": "Nova stranica za prijavu", "tekst": "prijava je sad svijetla i jednostavna, u istom stilu kao naslovnica, s gumbom za prikaz lozinke i izborom HR/EN. Na mobitelu sve stane na ekran."},
- {"datum": "2026-11-01", "naslov": "Novo ime: MemeSonar", "tekst": "KriptoRadar sad se zove MemeSonar i dobio je novi logo. Uskoro je i na vlastitoj adresi memesonar.app, a stari link automatski vodi tamo."},
- {"datum": "2026-11-01", "naslov": "Novi pump.fun tokeni", "tekst": "u natjecanju sad kupiš i svježe pump.fun tokene koji su još na krivulji."},
- {"datum": "2026-11-01", "naslov": "Pozicije kao lista ili kartice + dokup", "tekst": "moje pozicije na Natjecanju sad su po defaultu kratka lista (token, vrijednost, zarada), a dodirom se otvori prodaja 25/50/Sve/iznos, dokup +$10/+$25/+$50 u istu poziciju i TP/SL. Gumb Lista/Kartice pamti tvoj izbor. Automatski DCA se otvara s već upisanom adresom tokena."},
- {"datum": "2026-11-01", "naslov": "Pozicije na vrhu Natjecanja", "tekst": "tvoje otvorene pozicije su sad prve na Natjecanju, svaka kao kartica koja stane na mobitel: zarada uživo, gumbi 25%, 50% i Sve ili upišeš iznos u $, i uvijek pita za potvrdu prije prodaje. Prodani dio odmah vraća novac na račun, ostatak ostaje otvoren. Odmah ispod su TP/SL, DCA, stanje računa i kupnje/prodaje, a predloženi tokeni su manji i niže."},
- {"datum": "2026-11-01", "naslov": "Kraće tablice", "tekst": "duge tablice sad prikazuju prvih 25 redova, a gumb „Vidi još 25” ispod tablice dodaje sljedećih 25 (ili „Prikaži sve”). Sortiranje i pretraga i dalje rade na cijeloj tablici, pa stranice na mobitelu više nisu beskrajne."},
- {"datum": "2026-11-01", "naslov": "Jedan TP/SL za sve pozicije", "tekst": "u Natjecanju → Auto sell sad jednom kvačicom postaviš isti take profit i stop loss (ili pametni izlaz) na sve otvorene pozicije odjednom, a druga kvačica ga pamti i stavlja na svaku novu kupnju (ručnu, brzu i DCA). Postotak se računa od ulaza svake pozicije posebno, a nakon DCA kupnje se pomakne na novi prosjek."},
- {"datum": "2026-11-01", "naslov": "Lakše kretanje po dugim stranicama", "tekst": "na dugim stranicama (Pregled, Tokeni, Natjecanje, KOL, Demo, blog i alati) ispod naslova je red kartica sa svim sekcijama stranice koji ostaje na vrhu dok scrollaš, pa jednim dodirom skačeš na bilo koju tablicu, a sekcija u kojoj si je označena. Kad odeš niže, dolje desno se pojavi strelica ↑ za povratak na vrh."},
- {"datum": "2026-11-01", "naslov": "Javne stranice o tržištu", "tekst": "pet novih javnih stranica na engleskom i hrvatskom iz podataka s Tržišta: Tržište danas, Indeks sezone meme coina (0-100, godina povijesti), Solana launchpadi (pump.fun, bonk.fun, Meteora), Solana DEX volumen i Najbolje vrijeme za trgovanje (po satu, u tvojoj vremenskoj zoni), s interaktivnim grafovima i widgetom koji drugi mogu ugraditi."},
- {"datum": "2026-11-01", "naslov": "Postavke i engleski jezik", "tekst": "na dnu izbornika su nove ⚙️ Postavke: promijeni lozinku, stavi profilnu sliku (vidi se na ljestvici i podiju), upiši X, Telegram i ostale mreže da te ekipa prati, odjavi se sa svih uređaja. Pored Odjave je prekidač HR / EN: cijela aplikacija sad radi i na engleskom."},
- {"datum": "2026-11-01", "naslov": "Telegram trading botovi", "tekst": "javni članak o najpoznatijim Telegram trading botovima (Trojan, BonkBot, Maestro, GMGN, Banana Gun) sa službenim linkovima i naknadama, objašnjenjem svake postavke (slippage, prioritetna naknada, MEV zaštita, take profit, stop loss) i vodičem korak po korak za postavljanje svakog bota, na engleskom i hrvatskom."},
- {"datum": "2026-11-01", "naslov": "Zašto je teško pratiti velike influencere", "tekst": "novi članak na engleskom i hrvatskom: kako sniper botovi plaćaju veću naknadu da kupe prije svih na pozivu velikih influencera, s kalkulatorom koliko skuplje ulaziš iza botova, i zašto Rastuće zvijezde ostavljaju više prostora."},
- {"datum": "2026-11-01", "naslov": "Zvijezde i rastuće zvijezde", "tekst": "ljestvica influencera ima dvije kartice: Zvijezde (Murad, Ansem i ekipa, sad ih pratimo posebno) i Rastuće zvijezde (manje poznati koje tražimo), uz objašnjenje zašto botovi s većom naknadom uđu prije pratitelja velikih imena."},
- {"datum": "2026-11-01", "naslov": "Članci: porez, kartice, firma", "tekst": "tri nova javna članka na engleskom i hrvatskom: porez na kriptovalute u Hrvatskoj (12%, pravilo dvije godine, JOPPD korak po korak), kripto kartice za plaćanje u Hrvatskoj i može li firma (d.o.o., obrt) ulagati u kripto."},
- {"datum": "2026-11-01", "naslov": "Vodiči za svaki meme coin", "tekst": "za svaki od top 100 Solana meme coina javne stranice Kako kupiti, Je li siguran (provjera ruga) i Prognoza cijene, plus dnevne liste (najveći rast, popularni, novi) i članak o najboljim EU reguliranim kripto mjenjačnicama za Hrvatsku, na engleskom i hrvatskom."},
- {"datum": "2026-11-01", "naslov": "Najbolji kripto alati", "tekst": "javna usporedba 38 alata u 7 kategorija (praćenje novčanika, analiza, trading botovi, novčanici, provjera ruga, API-ji, copy trading) s cijenama, tablicama i grafovima, na engleskom i hrvatskom; dovodi ljude s Googlea na Zatraži pristup."},
- {"datum": "2026-11-01", "naslov": "Javni kripto rječnik", "tekst": "36 osnovnih pojmova (rug pull, KOL, copy trading, DCA, likvidnost…) javno na engleskom i hrvatskom, svaki na svojoj stranici koju Google može naći; dovodi nove ljude na Zatraži pristup."},
- {"datum": "2026-11-01", "naslov": "Javna ljestvica meme coina", "tekst": "najveći Solana meme coini po tržišnoj vrijednosti na javnoj stranici, a svaki coin ima svoju stranicu s grafom, sigurnosnom provjerom i pozivima influencera; dovodi ljude s Googlea na Zatraži pristup."},
- {"datum": "2026-11-01", "naslov": "Brža kupnja", "tekst": "na vrhu Natjecanja zalijepiš adresu i kupiš, a uz svaki token je 📋 za kopiranje adrese."},
- {"datum": "2026-11-01", "naslov": "Blog", "tekst": "javni blog s 10 tekstova na engleskom i hrvatskom (wallet tracking, copy trading, influenceri, rug pullovi, pump.fun, DCA) s grafovima iz naših podataka; dovodi ljude s Googlea na Zatraži pristup."},
- {"datum": "2026-11-01", "naslov": "Naslovna stranica", "tekst": "nova svijetla i jednostavna javna stranica MemeSonara za ljude bez računa, prilagođena mobitelu: šest funkcija, žive brojke i gumb Zatraži pristup. Zahtjevi stižu na Natjecanje → Zahtjevi za pristup, pozivnica jednim klikom."},
- {"datum": "2026-11-01", "naslov": "Pojmovnik i grafovi", "tekst": "svaki pojam ima ⓘ koji otvara objašnjenje običnim riječima, nova stranica Pojmovnik, a KOL-ovi i novčanici imaju grafove rasta i padova kroz vrijeme."},
- {"datum": "2026-11-01", "naslov": "Naš token", "tekst": "novi tab: zajednički trezor, generator vlastitog Solana tokena s lansiranjem iz Phantoma (test pa pump.fun), marketinški plan i influenceri za suradnju."},
- {"datum": "2026-11-01", "naslov": "Automatski DCA", "tekst": "na Natjecanju odabereš token, iznos i ritam, alat sam kupuje u pravilnim razmacima."},
- {"datum": "2026-11-01", "naslov": "Predloženi tokeni", "tekst": "Fartcoin, Useless i drugi jaki tokeni na Natjecanju, kupnja jednim klikom."},
- {"datum": "2026-11-01", "naslov": "Za WhatsApp", "tekst": "sažetak aplikacije sa slikom, spreman za ovu grupu jednim dodirom."},
- {"datum": "2026-11-01", "naslov": "Pozovi prijatelja", "tekst": "link za registraciju na Natjecanju, novi igrač dobiva $1,000 demo novca."},
- {"datum": "2026-11-01", "naslov": "Copy trading", "tekst": "prati influencera ili wallet, alat kupuje i prodaje kad i on."},
- {"datum": "2026-11-01", "naslov": "Samo dobri tokeni", "tekst": "rugovi i slabi tokeni se sami brišu svaki sat, bot uči iz njih."},
- {"datum": "2026-11-01", "naslov": "Jaki tokeni", "tekst": "novi popis starijih tokena od 5 M$ naviše sa stalnim volumenom."},
- {"datum": "2026-11-01", "naslov": "Pametniji bot", "tekst": "jači anti-rug filter i ulaz kad 3+ KOL-a zovu isti token."},
- {"datum": "2026-11-01", "naslov": "Novo Natjecanje", "tekst": "postolje, graf računa i brojke koje se same osvježavaju."},
- {"datum": "2026-11-01", "naslov": "Brža aplikacija", "tekst": "novi izbornik, tražilica i Pregled za 3 sekunde."},
- {"datum": "2026-10-31", "naslov": "KOL test", "tekst": "7 dana bot ulazi s $50 na svaki svježi poziv influencera."},
- {"datum": "2026-10-31", "naslov": "Ručna prodaja", "tekst": "u demo tradingu prodaješ 25%, 50% ili sve."},
- {"datum": "2026-10-31", "naslov": "Jutarnji izvještaj", "tekst": "svaki dan prije 8 h: što je bot naučio i tokeni za taj dan."}
+ {
+  "datum": "2026-11-09",
+  "naslov": "Demo: pauza nakon stop lossa",
+  "tekst": "demo bot više ne kupuje isti token odmah nakon što ga je izbacio stop loss. Čeka 8 sati, a ako se to ponovi unutar 48 sati, pauza se udvostručuje (16 h, 32 h, najviše 48 h). Povod: token JENSEN je zaredom tri puta pogodio stop loss (prvi ulaz i dva ponovna ulaza u razmaku od sat vremena).",
+  "naslov_en": "Demo: a pause after a stop loss",
+  "tekst_en": "the demo bot no longer buys the same token right after a stop loss closed it. It waits 8 hours, and if it happens again within 48 hours the pause doubles (16 h, 32 h, at most 48 h). The reason: JENSEN hit the stop loss three times in a row (the first entry and two re-entries an hour apart)."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Ulaz na povlačenje samo s dokazom",
+  "tekst": "novi način ulaza demo bota: token sa svježim signalom koji je pao barem 12 % od vrha, ali je i dalje iznad 50k $, i kojeg je u zadnjih 15 min kupio neki od praćenih novčanika. Bez tog dokaza ili ispod 50k nema ulaza: pad u mali mcap je dump, ne prilika.",
+  "naslov_en": "Buying the dip only with proof",
+  "tekst_en": "a new demo entry mode: a token with a fresh signal that dropped at least 12% from its high but still sits above $50k, and that one of the followed wallets bought in the last 15 minutes. Without that proof, or below $50k, there is no entry: a dip into a tiny cap is a dump, not an opportunity."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Natjecanje: cijena pozicije s izvorom i vremenom",
+  "tekst": "svaka otvorena pozicija pokazuje odakle je cijena (DexScreener pool ili Jupiter) i kad je osvježena; stranica koja se ne uspije obnoviti više ne prikazuje stare brojeve u tišini.",
+  "naslov_en": "Competition: position price with its source and time",
+  "tekst_en": "every open position now shows where its price comes from (DexScreener pool or Jupiter) and when it was refreshed; a page that fails to rebuild no longer silently shows old numbers."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Ekipa: tko pojačava čije pozive i tko je ušao prije",
+  "tekst": "za svaki svjež poziv velikog računa alat čita tko je odgovorio, retweetao ili citirao u prvih 30 minuta, povezuje te račune s njihovim novčanicima i provjerava jesu li token kupili prije poziva. Na stranici influencera: tko ga pojačava i koga on pojačava. Nova demo strategija 'Ekipa' kupuje kad 2+ velika računa reagiraju, a barem jedan je ušao prije poziva.",
+  "naslov_en": "Crew: who amplifies whose calls and who was in before",
+  "tekst_en": "for every fresh call by a big account the tool reads who replied, retweeted or quoted it within 30 minutes, links those accounts to their wallets and checks whether they bought the token before the call. On the influencer page: who amplifies them and whom they amplify. A new demo strategy, 'Crew', buys when 2+ big accounts react and at least one was in before the call."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Proporcionalna prodaja: kad insajder proda dio, i mi prodamo isti dio",
+  "tekst": "živi tok daje količinu i preostalo stanje svake prodaje, pa strategija Insajderi više ne prodaje sve čim netko proda: proda isti udio koji je prodao novčanik (najmanje četvrtinu), a sve tek kad on izađe.",
+  "naslov_en": "Proportional selling: when an insider sells part, we sell the same part",
+  "tekst_en": "the live feed carries the amount and remaining balance of every sell, so the Insiders strategy no longer dumps everything the moment someone sells: it sells the same share the wallet sold (at least a quarter), and everything only when the wallet is out."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Tragovi: transferi oko influencera",
+  "tekst": "uz kupnje i prodaje praćenih novčanika sad stižu i transferi. Tri pravila: novčanik je tokene primio (ne kupio) pa ih račun zvao u 24 h = plaćena promocija; transfer između dva praćena novčanika = ista ekipa; primljen ≥ 2 % supplya. Vidljivo na stranici influencera („Tragovi”) i kao minus u pouzdanosti tokena.",
+  "naslov_en": "Traces: transfers around influencers",
+  "tekst_en": "besides buys and sells of followed wallets, transfers now arrive too. Three rules: a wallet received tokens (did not buy them) and the account called them within 24 h = paid promotion; a transfer between two followed wallets = the same crew; ≥ 2% of a token's supply received. Shown on the influencer page ('Traces') and as a confidence penalty on the token."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Pozivi s X-a u sekundama (webhook)",
+  "tekst": "do 100 najvažnijih računa (najbolji po ocjeni, zvijezde, veliki računi) prati se preko pravila koja se provjeravaju svakih 30 s, a objava stiže na naš webhook čim izađe. Dosad: 10 računa svakih 15 min.",
+  "naslov_en": "X calls within seconds (webhook)",
+  "tekst_en": "up to 100 of the most important accounts (best scores, stars, big accounts) are followed through rules checked every 30 s, and a post reaches our webhook as soon as it is out. Until now: 10 accounts every 15 minutes."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Makro režim: BTC i ETH ulaze u odluku",
+  "tekst": "svaki sat alat određuje stanje BTC-a i ETH-a (raste / konsolidacija nakon rasta / pada / konsolidacija nakon pada / neutralno) iz dnevnih i satnih cijena. 'Konsolidacija nakon rasta' je prozor za altove i diže ocjenu tokena; dok BTC pada, demo bot ne otvara nove ulaze. Vidljivo na stranici Tržište.",
+  "naslov_en": "Macro regime: BTC and ETH now shape decisions",
+  "tekst_en": "every hour the tool classifies BTC and ETH (rising / consolidating after a rise / falling / consolidating after a fall / neutral) from daily and hourly prices. 'Consolidating after a rise' is the window for alts and lifts token scores; while BTC is falling, the demo bot opens no new entries. Shown on the Market page."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Doseg računa: veliki influenceri vrijede i prije probe",
+  "tekst": "broj pratitelja i koliko ga naših dokazanih KOL-ova prati sad određuju početnu ocjenu računa (do +30 bodova), pa veliki račun bez povijesti kod nas više ne vrijedi nula. Nova demo strategija 'Veliki račun zove' (20k+ pratitelja, prate ga 2+ naša KOL-a) mjeri koliko taj signal stvarno vrijedi.",
+  "naslov_en": "Account reach: big influencers count before they finish their trial",
+  "tekst_en": "follower count and how many of our proven KOLs follow an account now set its starting score (up to +30), so a big account with no history here no longer counts as zero. A new demo strategy, 'Big account calls' (20k+ followers, followed by 2+ of our KOLs), measures what that signal is really worth."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Socijali tokena: pravi X profil, živ Telegram, plaćeni profil",
+  "tekst": "alat sad razlikuje pravi X profil od tuđeg tweeta ili pretrage, provjerava Telegram (članovi, zadnji post) i vidi plaćeni DexScreener profil. 'Ozbiljan projekt' (sve troje) dobiva +12 pouzdanosti i vlastitu demo strategiju; 'sumnjivi socijali' −8 i kontrolnu strategiju koja mjeri vrijedi li sumnja.",
+  "naslov_en": "Token socials: real X profile, live Telegram, paid profile",
+  "tekst_en": "the tool now tells a real X profile from someone else's tweet or a search page, checks Telegram (members, last post) and sees a paid DexScreener profile. A 'serious project' (all three) gets +12 confidence and its own demo strategy; 'suspicious socials' get −8 and a control strategy that measures whether the suspicion holds."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Top novčanici: dokazani po povijesti, kopija u 2 minute",
+  "tekst": "strategija više ne kopira svaki praćeni novčanik dok ga naše 3 kopije ne presude: novčanik mora biti dokazan po vlastitoj povijesti (10+ zatvorenih tradeova u plusu, drži kraće od 6 h) ili po našim kopijama, a kupnja se kopira samo ako je mlađa od 2 minute. Novčanik čije naše kopije gube ispada bez obzira na povijest.",
+  "naslov_en": "Top wallets: proven by their own history, copied within 2 minutes",
+  "tekst_en": "the strategy no longer copies every followed wallet until our three copies judge it: a wallet must be proven by its own history (10+ closed trades in profit, holds under 6 h) or by our copies, and a buy is copied only if it is under 2 minutes old. A wallet whose copies lose is dropped regardless of history."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Živi tok kupnji i prodaja (sekundno)",
+  "tekst": "svaka kupnja i prodaja gledanih tokena i praćenih novčanika na pump.fun i PumpSwapu stiže u sekundi. Na stranici tokena kutija „Uživo” (kupci, prodavači, neto za 1/5/15 min), a demo bot na dump (puno prodavača, prodaja ≥ 2,5× kupnje, −8 %) proda u sekundama umjesto da čeka minutu.",
+  "naslov_en": "Live buys and sells, second by second",
+  "tekst_en": "every buy and sell of watched tokens and followed wallets on pump.fun and PumpSwap arrives within a second. The token page gets a “Live” box (buyers, sellers, net flow for 1/5/15 min), and on a dump (many sellers, sells ≥ 2.5× buys, −8%) the demo bot exits in seconds instead of waiting for the next minute."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Tokeni ispod 30k $ se ne analiziraju",
+  "tekst": "sken, demo bot i pouzdanost odbacuju tokene ispod 30.000 $ tržišne vrijednosti: većina je rug, a signali na njima ništa ne dokazuju. Pouzdanost tokena od 30 do 50k dobiva −15.",
+  "naslov_en": "Tokens under $30k are no longer analysed",
+  "tekst_en": "the scanner, the demo bot and the confidence score reject tokens below $30k market cap: most are rugs and their signals prove nothing. Tokens between $30k and $50k lose 15 confidence points."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Obrisane objave influencera se pamte",
+  "tekst": "pozivi na X-u se nakon 2 dana provjeravaju po ID-u objave; obrisani se i dalje broje, a račun koji briše gubitničke pozive gubi bodove („Briše gubitnike”). Brisanjem se ocjena više ne može popraviti.",
+  "naslov_en": "Deleted influencer posts are remembered",
+  "tekst_en": "X calls are re-checked by post ID after two days; deleted ones still count, and an account that deletes its losing calls loses points (“deletes losers”). Deleting a post can no longer improve a score."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Trending tokeni kao izvor influencera",
+  "tekst": "svaki krug sprema trending tokene (GeckoTerminal, DexScreener boosts) i pita X tko je objavio njihovu adresu: ti računi postaju KOL kandidati, a tokeni ulaze u povijesnu pretragu.",
+  "naslov_en": "Trending tokens as a source of influencers",
+  "tekst_en": "every round stores the trending tokens (GeckoTerminal, DexScreener boosts) and asks X who posted their address: those accounts become KOL candidates and the tokens join the historical search."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Demo: Europa na pauzi kao Azija i Amerika",
+  "tekst": "sesija koja gubi (faktor dobiti ispod 0,7 na 30+ tradeova) sad odmah ide na pauzu novih ulaza, jednako u Aziji, Europi i Americi. Prije se ulog smanjivao korak po korak dnevno, pa je Europa s faktorom 0,17 i dalje kupovala s 50–75% uloga. Povratak gore ostaje postupan, jedan korak dnevno kad rezultati porastu.",
+  "naslov_en": "Demo: Europe session paused like Asia and the US",
+  "tekst_en": "a session with a profit factor below 0.7 on 30+ trades now pauses new entries at once, the same rule for Asia, Europe and the US. Recovery stays gradual, one step a day."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Novi signal: grupni poziv 3+ KOL-a u 10 minuta",
+  "tekst": "kad 3 ili više različitih KOL-ova (bez botova) objave isti token unutar 10 minuta, to je sad poseban signal u hype ocjeni. Težinu mu postavlja učenje samo. Demo ulazi okidača 3 KOL-a bilježe je li grupa stigla u 10 ili tek u 15 minuta, a na stranici Demo trading i u jutarnjem izvještaju vidi se koji prozor bolje prolazi.",
+  "naslov_en": "New signal: 3+ KOLs calling the same token within 10 minutes",
+  "tekst_en": "when three or more different KOLs (no bots) post the same token within 10 minutes it is now its own signal in the hype score; its weight is set by learning."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Izlazi: brži povratak na stara pravila",
+  "tekst": "naučena pravila izlaza koja live gube vraćaju se na prethodna i kad im je tipičan (srednji) trade jasno lošiji, ne samo prosjek. Provjera ide svaka 3 sata umjesto jednom dnevno, a vraćena pravila se 3 dana ne uče ponovno. Povod: moonshot pravila za američku sesiju imala su medijan −33% nakon 50 tradeova.",
+  "naslov_en": "Exits: faster rollback to the previous rules",
+  "tekst_en": "learned exit rules that lose live are rolled back when their typical (median) trade is clearly worse, not only the average. The check runs every 3 hours."
+ },
+ {
+  "datum": "2026-11-05",
+  "naslov": "Top novčanici: nadopunjeni i uče dalje",
+  "tekst": "demo račun strategije pao je na oko −80 %, pa je nadopunjen s 1.000 $ (vidljivo na kartici) i odmrznut: demo račun služi učenju, ne zamrzava se zbog gubitka. Sljedeći korak: izbor novčanika po njihovoj vlastitoj povijesti i ulaz unutar minute iz živog toka.",
+  "naslov_en": "Top wallets: refilled and learning on",
+  "tekst_en": "the strategy's demo account had dropped about 80%, so it was topped up by $1,000 (shown on its card) and unfrozen: a demo account exists to learn, not to be frozen for a loss. Next: picking wallets by their own history and entering within a minute from the live feed."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Strategije: status, kontrola i rezultat bez najboljeg tradea",
+  "tekst": "svaka strategija sad ima status: „uči” (manje od 100 zatvorenih tradeova), „kandidat” (bolja od nasumičnog ulaza u obje polovice razdoblja i bez 5 najboljih tradeova; znači samo daljnje testiranje) ili „ne diraj pravi novac”. Nasumični ulaz (kontrola) je vraćen kao mjerilo i ne natječe se. Uz svaki rezultat piše i rezultat bez najboljeg tradea, bez 5 najboljih i bez najboljeg tokena: ako plus tada nestane, piše „koncentrirano”. Novi red „S pravih $1.000 bez posuđivanja” pokazuje što bi ostalo kad račun ne smije u minus. Na Demo tradingu „zarađuje” je sad „u plusu”, s istim provjerama."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Sigurnost i pravi trade: strože zaštite",
+  "tekst": "dnevni limit gubitka za pravi trade je 0,15 SOL, računa se od ponoći po zagrebačkom vremenu i uključuje naknade neuspjelih pokušaja. Prije svake prave kupnje alat provjerava može li token prodati natrag u SOL; ako ne može ili bi gubitak bio prevelik, kupnja se odbija. Isti token se ne kupuje dvaput dok je otvoren. „Kopiraj demo” i SimianX za pravi trade su zaključani dok demo ne dokaže zaradu. Lozinka mora imati barem 12 znakova. Bot i dalje radi samo u demo načinu."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Točniji brojevi: novčanici, cijene, KOL test, učenje",
+  "tekst": "zarada novčanika računa se po svakoj kupnji i prodaji redom (kasnija kupnja više ne mijenja već ostvarenu zaradu), a token bez poznate cijene više se ne broji kao 0. Token čiji se poolovi ne slažu u cijeni (kao PYTH) ide van rangiranja s oznakom „sumnjiva cijena”. Objava samo s tickerom koji ima više tokena je „nejasan token” i ne broji se kao poziv. KOL test: ulazi koji se još prate više se ne broje kao „nikad do +20%”. Učenje: model se uči na starijim, a provjerava na novijim podacima; bez dovoljno stvarnih ishoda piše „nedovoljno podataka”, a model koji je bolji ali bi i dalje gubio dobiva „bolji, ne trgujemo”. Tablica signala ima dva jasno nazvana omjera (× od svih, × od slabog) i stupac za sve tokene."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Tržište: BTC i Fear & Greed",
+  "tekst": "na stranici Tržište je jedan novi red: režim trencheva, promjena BTC-a kroz 7 dana i Fear & Greed indeks (izvor alternative.me, besplatno). Samo informacija: bot ih ne koristi u odluci dok test ne pokaže da dodaju nešto. Pojmovnik ima nove pojmove (kontrola, kandidat, koncentrirano, simulacija prodaje, nejasan token, sumnjiva cijena, postotni bodovi) i ispravke (confidence i šansa su bodovi, ne vjerojatnost; mint i freeze authority nisu isto; volumen je promet, ne priljev)."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Strategije: samo top novčanici, izbor alata po veličini tokena",
+  "tekst": "usporedba strategija više ne kopira sve praćene novčanike, nego samo 10 najboljih: one čije su kupnje, kad smo ih kopirali, najviše zaradile (novi novčanik se mjeri dok ne skupi 3 tradea, dokazano loš se više ne kopira). Na stranici Usporedba strategija je tablica koje novčanike kopiramo i zašto. Izbor alata je podijeljen na tri zasebna računa: mali tokeni (do 200k $), srednji (200k–1M $) i veliki (preko 1M $). Mix i Nasumično su isključeni; KOL pozivi ostaju. Novi računi kreću od $1000."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Influenceri: jasnije tablice na mobitelu i pogodak iz zadnjih 50 poziva",
+  "tekst": "svaka tablica na stranici Influenceri ima ispod naslova jednu rečenicu što pokazuje, a nazivi stupaca su jasniji (npr. kod parova: „Zajedničkih tokena”, „Da je slučajno”, „Češće od slučaja”, „Presuda”). Na mobitelu je naziv sad iznad vrijednosti, pa se ništa ne preklapa i ne izlazi preko ruba (vrijedi za sve tablice u aplikaciji). Kanal s jednim izmjerenim pozivom više ne pokazuje „Pogodak 100%”. Ocjena i pogodak sad se računaju iz zadnjih 50 poziva kanala i prikazuju tek od 10 izmjerenih poziva, a ispod toga piše „premalo”. Kanali s dovoljno podataka su na vrhu tablice. Novi stupac „Povijest 2×” pokazuje koliko je zadnjih poziva otišlo barem 2× prema Call Analyser i SpyDefi izvozima. Alat sad prvo čita stariju povijest kanala koji imaju manje od 50 poziva."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Nova početna: Pregled",
+  "tekst": "aplikacija se sad otvara na stranici Pregled (prva u izborniku i u donjoj traci na mobitelu). Na vrhu je strategija koja trenutno najviše zarađuje od 5 demo računa, koliko i za koliko dana, s poretkom ostalih. Ispod je koliko podataka alat ima (tokeni, novčanici, influenceri, pozivi, Telegram kanali i poruke) i koliko je novih ovaj tjedan u odnosu na prošli, pa par zanimljivosti (token koji zove najviše izvora, najbolji trade, najbolji influencer, što su kupili praćeni novčanici) i brzi linkovi na najvažnije stranice. Bez pravog novca, demo rezultati nisu jamstvo zarade."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Demo trading: što zarađuje, a što ne, na prvi pogled",
+  "tekst": "stranica Demo trading sad počinje jednom rečenicom: koje strategije zarađuju, a koje su blizu nule. Za svaku strategiju je kartica s presudom (zarađuje / blizu nule / gubi) i što bi je dovelo u plus. Novo: rezultati po veličini tokena (ispod 50k, 50–200k, 200k–1M i preko 1M $), jer mali i veliki tokeni nisu ista igra; raspon koji gubi bot sam dobiva sve manje ulaza, a u tokene ispod 20k $ više ne ulazi. Razlozi gubitka (kasni ulaz, nema pokreta…) otvaraju se dodirom i objašnjavaju što znače i što bot radi. Nova demo strategija „Aktivni stariji tokeni”: tokeni stariji od 3 dana koji danas imaju najviše kupnji i prodaja, umjesto samo najnovijih. Sve tablice su dolje u Detaljima."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Influenceri: sažetak na vrhu i „Zovu zajedno”",
+  "tekst": "stranica Influenceri sad na vrhu u jednoj rečenici kaže koliko se računa dokazalo i kako prolaze tokeni kad ih zove više računa zajedno, uz tri broja i nekoliko rečenica običnim riječima. Najbolji influenceri su opisani riječima (koliko poziva naraste, zove li prvi, ima li puno rugova). Novo: odjeljak „Zovu zajedno” uspoređuje tokene koje zove jedan račun s onima koje zovu dvojica, trojica ili više, X i Telegram zajedno, i pokazuje ekipe koje stalno zovu zajedno (prati ih, gledaj ili izbjegavaj). Dodani su i plaćeni shilleri s naše liste (Telegram kanali i X računi) s iskrenom ocjenom; dok ne dokažu rezultate, ne ulaze u signale ni praćenje uživo. Sve stare tablice su u odjeljcima koji se otvaraju dodirom, a izbornik sekcija sad uvijek odvede na pravu tablicu. Dodana je i povijest Telegram callera za zadnjih 6 mjeseci (iz izvoza kanala Call Analyser i SpyDefi): koliko poziva svakog kanala je otišlo barem 2× i 5×, i je li kanal još aktivan; aktivni kanali se sad čitaju uživo."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Učenje: koliko je alat bolji, jednim pogledom",
+  "tekst": "na vrhu stranice Učenje sad u jednoj rečenici piše je li alat bolji nego prvih dana, uz tri broja (koliko tradeova je u plusu, prosjek po tradeu nakon troškova, koliko ih završi rugom ili stop lossom) i mali graf dan po dan. Ispod je običnim riječima: je li demo zaradio, na kojim signalima zarađuje, a na kojima gubi i zašto, što je alat sam promijenio i kako se sam popravlja. Sve stare tablice su u Detaljima koji se otvaraju dodirom."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Pravi trade je sada Autopilot",
+  "tekst": "stranica Pravi trade zove se Autopilot i puno je čišća. Na vrhu je wallet s kojeg bot trguje (stanje u SOL-u i USDC-u) i upute u 4 koraka kako ga postaviti. Sve ostalo je u kratkim odjeljcima koji se otvaraju dodirom: koga bot prati, preporučeni influenceri i walleti (alat ih bira po rezultatima zadnjih 7, 14 ili 30 dana) i preporučeni tokeni (dugoročni i poneki moonshot, svaki s razlogom). Novo: gumb „Neka alat sam bira” – alat svaki sat sam odabere najbolje influencere i wallete po rezultatima (7, 14 ili 30 dana) i makne one koji ispadnu; tvoja ručna praćenja ne dira. Na vrhu je i dnevnik naloga uživo (svaka kupnja i prodaja, osvježava se svakih 5 sekundi, s linkom na Solscan). Demo tablice su maknute. Stranicu vide samo vlasnik i pozvani; preporuke nisu jamstvo zarade."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Eventi na jednom mjestu, s kalendarom",
+  "tekst": "Eventi i Prije eventa sad su jedna stranica. Na vrhu je kalendar s obojenim točkicama po važnosti događaja (svjetloplavo slabo, crveno vrlo jako) i skalom boja; dodir na dan otvori sve detalje događaja. Ispod je uredna lista po datumu: ključne riječi su male oznake, a razlozi i ostali tokeni otvaraju se tek na „zašto”, pa su redovi kratki i na mobitelu. Na dnu je praćenje tokena prije eventa."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Bot u Natjecanju igra 2. krug pametnije",
+  "tekst": "bot u Natjecanju sad troši novac samo na vrste ulaza koje su u zadnjih 7 dana dokazano zarađivale. Ostale prilike i dalje kupuje u demu da bi učio. Kad neka vrsta počne gubiti, sama ispada. Vidi Učenje → Bot u Natjecanju."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "2. krug bota i 💀 za rekt",
+  "tekst": "bot je u Natjecanju pao na nulu, pa igra 2. krug s novih $1000 (vidi se na ljestvici i grafu), a ispod piše gdje je najviše gubio u 1. krugu. Tko od igrača padne na nulu dobiva novih $1000, a uz ime mu ostaje 💀×N; čim je opet u plusu, dobiva 🔄 comeback. Natjecanje sad pokazuje i 5 strategija alata (novčanici, influenceri, izbor alata, Mix, nasumično) da se vidi koji tip tradeova najbolje zarađuje, a strategije više ne staju kad potroše $1000, nego trguju dalje da alat uči na više podataka."
+ },
+ {
+  "datum": "2026-11-04",
+  "naslov": "Što je novo",
+  "tekst": "nova stranica Što je novo (izbornik Pomoć) s poviješću svih novosti po datumima. Kad se nešto doda, na vrhu aplikacije se pojavi kratka obavijest s linkom, koja nestane kad je otvoriš."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "Pravi trade",
+  "tekst": "nova stranica Pravi trade: bot kupuje i prodaje pravim SOL-om iz zasebnog walleta, samo za KOL-ove i walletove koje odabereš, unutar tvojih limita (ulog, dnevna potrošnja i gubitak). Prekidač je zadano ugašen, uvijek ostaje rezerva SOL-a za prodaju, a upozorenja javljaju zagušenu mrežu, premalo SOL-a ili prodaju koja ne prolazi. Pozvani korisnici stranicu samo gledaju i mogu kupiti isti token sami preko Jupitera."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "Najizgledniji token po eventu",
+  "tekst": "na kartici eventa sad piše koji je token tog događaja najizgledniji za pumpu (ocjena 0-100 s razlozima), a ispod su svi ostali poredani po ocjeni."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "SimianX drugo mišljenje",
+  "tekst": "na Dugoročnim tokenima uz našu ocjenu stoji i drugo mišljenje SimianX AI-ja; signali se prvo testiraju na demo računu."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "Pozivnice na jednom mjestu",
+  "tekst": "stranica Pozivnice i zahtjevi pokazuje sve linkove za registraciju: kopiraj, pošalji na WhatsApp, e-mail ili Telegram, ili obriši link jednim klikom. Računi napravljeni s obrisanim linkom ostaju."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "E-mail kod registracije",
+  "tekst": "kod registracije i zahtjeva za pristup sada se upisuje e-mail, da vam možemo javiti nove mogućnosti alata. Tko ga još nema, vidi žuti okvir na vrhu stranice s linkom na Postavke."
+ },
+ {
+  "datum": "2026-11-03",
+  "naslov": "Uloge korisnika",
+  "tekst": "svaki korisnik ima ulogu: Admin, Prijatelj ili Osnovni. Novi korisnici su Osnovni: vide tokene, influencere i novčanike i igraju svojim demo računom, ali ne vide potrošnju ni postavke i ne pokreću ništa što košta. Admin mijenja uloge na stranici Korisnici i uloge."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Jednostavnija aplikacija",
+  "tekst": "aplikacija se otvara na Tokenima, a dolje su samo Tokeni, Influenceri, Novčanici i Više. Tokeni imaju gumbe Novi · Jaki · Dugoročni, Novčanici prvo pokazuju tko je upravo kupio ili prodao, a stranica tokena na vrhu ima Šansu, jednu rečenicu presude, Za i Protiv i gumb za kopiranje adrese. Uvodni tekstovi su maknuti; svaki broj i dalje ima ⓘ s objašnjenjem."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Svježa provjera preporučenih tokena",
+  "tekst": "prvih 20 prijedloga u Natjecanju alat sad provjerava svake 3 minute: nova analiza u svakom skenu, stanje tržišta (🚀 pumpa: ne kupuj nego pričekaj, ↗ pad uz oporavak, 📉 pada, ➖ stabilno) s kratkim savjetom i obavezan rug check (mint i freeze authority, zaključan LP, top holderi, dev, honeypot test prodaje, pun rug filter). Token koji padne na rug checku se skriva i ne nudi za kupnju."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Dokup u postojeću poziciju",
+  "tekst": "ako u Kupi token odmah (ili na stranici tokena) kupiš token koji već imaš, iznos se sad doda u tu poziciju umjesto greške: pozicija naraste, a ulazna cijena postane prosjek svih kupnji."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Demo bez dnevnog limita",
+  "tekst": "demo više nema dnevni limit ulaza, pa i popodne i navečer kupi svaku priliku koja prođe pravila. Tako alat uči iz svih prilika, ne samo jutarnjih."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "5 strategija, svaka sa $1000",
+  "tekst": "pet odvojenih demo računa po $1000 trguje paralelno: jedan kopira praćene novčanike, drugi ulazi na KOL pozive, treći kupuje ono što bira alat, četvrti (Mix) samo kad se dva izvora slože, a peti kupuje nasumično kao kontrola sreće. Svi prodaju po istim pravilima, pa se vidi koji izvor stvarno zarađuje. Vidi Bot trguje → Usporedba strategija."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Alat sam traži gdje rezati gubitak",
+  "tekst": "svaki dan na papiru isproba svaki stop loss (od -10% do bez stopa) i koliko se minuta nakon kupnje uključuje (odmah, 15, 30 ili 60 min), na tisućama prilika, posebno i za pozive influencera. Najbolju kombinaciju sam primijeni. Vidi Izlazi → Gdje rezati gubitak."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "KOL-ovi s puno rugova izbačeni iz copy tradinga",
+  "tekst": "ako više od 30% poziva nekog KOL-a završi kao rug (na barem 10 mjerenja), alat ga više ne prati uživo, ne nudi za copy trading i njegovi pozivi ne otvaraju demo ulaze. KOL test sad mjeri i stop −30% te stop koji se uključi tek nakon 30 minuta, jer cijena prije +100% obično prvo padne oko 20%."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "KOL-ovi s puno rugova čitaju se rjeđe",
+  "tekst": "ako više od 30% poziva nekog KOL-a završi kao rug (na barem 10 mjerenja), alat ga ne izbacuje, nego njegove objave čita rjeđe (svaka 3 dana) i označi ga „puno rugova“. KOL test sad mjeri i stop −30% te stop koji se uključi tek nakon 30 minuta, jer cijena prije +100% obično prvo padne oko 20%."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Koga prate najbolji KOL-ovi",
+  "tekst": "alat jednom tjedno pogleda koga prate dokazani KOL-ovi. Račun kojeg prate barem dvojica, a bavi se kriptom, dolazi na čitanje, pa tako nalazimo male, rane callere prije nego ih otkrije gomila. Trošak je oko $1 mjesečno."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Pravi KOL-ovi, ne glasni",
+  "tekst": "alat sad traži KOL-ove unatrag od tokena koji su stvarno narasli: tko je objavio CA prije rasta. Novi računi su 2 tjedna „na probi“ prije nego ih pratimo uživo, oznaka „kupio“ znači da je njihov novčanik kupio što zovu, a AI svaki tjedan provjeri profil najboljih 20 i izbaci hakirane, dev-ove i prodavače grupa."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Lažni KOL-ovi izbačeni",
+  "tekst": "s KOL liste i iz statistike izbačeni su računi koji nisu KOL-ovi: hakirani profili koji objavljuju isti „klikni za glasanje“ spam (link je vjerojatno drainer), prodavači plaćenih grupa i dev-ovi koji zovu vlastite tokene. Alat ih od sad sam prepoznaje, a na njihovom profilu piše razlog."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "AI čita objave i sam testira ideje",
+  "tekst": "AI sad pročita svaku KOL i Telegram objavu s tokenom (poziv, upozorenje, plaćena reklama, koliko je autor uvjeren) i svaki dan predloži nova pravila koja se sama testiraju na novim prilikama. Na Učenju vidiš koliko to košta i isplati li se."
+ },
+ {
+  "datum": "2026-11-02",
+  "naslov": "Je li alat pametniji?",
+  "tekst": "na vrhu stranice Učenje sad svaki tjedan piše bira li alat bolje od prošlog tjedna i od pravila „kupi sve“. Novi model koji vidi kombinacije signala prvo 7 dana radi samo u probi, a demo preuzima tek ako dokazano zarađuje više."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "400 KOL-ova svakih pola sata",
+  "tekst": "čim se uključi novi izvor (twitterapi.io), alat čita objave ~400 KOL-ova svakih 20-30 minuta umjesto 100 svaka 2 sata, pa brže uči tko stvarno pogađa. Trošak ima dnevni strop od $0,70."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "KOL-ovi: provjera točnosti i tko koga kopira",
+  "tekst": "alat sad sam provjerava predviđa li njegova ocjena KOL-ova budućnost, uz svaku ocjenu piše raspon, a parovi KOL-ova dobivaju test slučajnosti. Nova tablica pokazuje koji veliki KOL-ovi zovu tokene tek nakon malih. Svaka 2 sata čitamo ~100 najboljih, a 10 najboljih pratimo uživo."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Alat uči iz svake prilike",
+  "tekst": "alat sad na svakoj prilici za kupnju „na papiru“ kupi token i nakon 24 h izračuna koliko bi stvarno zaradio s našim pravilima izlaza. Tako uči iz tisuća prilika dnevno umjesto par desetaka pravih kupnji, a ocjena uči iz stvarne zarade, ne iz vrha grafa. Vidi Učenje → Sjenovita knjiga."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Zabavna stranica dok se alat osvježava",
+  "tekst": "umjesto crne greške 502 tijekom kratkog osvježavanja (20–40 s) sad vidiš MemeSonar stranicu sa šalom, zadnjom novosti i mini igrom „Pumpaj dok čekaš“. Stranica se sama vrati čim je alat spreman."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Nova stranica za prijavu",
+  "tekst": "prijava je sad svijetla i jednostavna, u istom stilu kao naslovnica, s gumbom za prikaz lozinke i izborom HR/EN. Na mobitelu sve stane na ekran."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Novo ime: MemeSonar",
+  "tekst": "KriptoRadar sad se zove MemeSonar i dobio je novi logo. Uskoro je i na vlastitoj adresi memesonar.app, a stari link automatski vodi tamo."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Novi pump.fun tokeni",
+  "tekst": "u natjecanju sad kupiš i svježe pump.fun tokene koji su još na krivulji."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Pozicije kao lista ili kartice + dokup",
+  "tekst": "moje pozicije na Natjecanju sad su po defaultu kratka lista (token, vrijednost, zarada), a dodirom se otvori prodaja 25/50/Sve/iznos, dokup +$10/+$25/+$50 u istu poziciju i TP/SL. Gumb Lista/Kartice pamti tvoj izbor. Automatski DCA se otvara s već upisanom adresom tokena."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Pozicije na vrhu Natjecanja",
+  "tekst": "tvoje otvorene pozicije su sad prve na Natjecanju, svaka kao kartica koja stane na mobitel: zarada uživo, gumbi 25%, 50% i Sve ili upišeš iznos u $, i uvijek pita za potvrdu prije prodaje. Prodani dio odmah vraća novac na račun, ostatak ostaje otvoren. Odmah ispod su TP/SL, DCA, stanje računa i kupnje/prodaje, a predloženi tokeni su manji i niže."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Kraće tablice",
+  "tekst": "duge tablice sad prikazuju prvih 25 redova, a gumb „Vidi još 25” ispod tablice dodaje sljedećih 25 (ili „Prikaži sve”). Sortiranje i pretraga i dalje rade na cijeloj tablici, pa stranice na mobitelu više nisu beskrajne."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Jedan TP/SL za sve pozicije",
+  "tekst": "u Natjecanju → Auto sell sad jednom kvačicom postaviš isti take profit i stop loss (ili pametni izlaz) na sve otvorene pozicije odjednom, a druga kvačica ga pamti i stavlja na svaku novu kupnju (ručnu, brzu i DCA). Postotak se računa od ulaza svake pozicije posebno, a nakon DCA kupnje se pomakne na novi prosjek."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Lakše kretanje po dugim stranicama",
+  "tekst": "na dugim stranicama (Pregled, Tokeni, Natjecanje, KOL, Demo, blog i alati) ispod naslova je red kartica sa svim sekcijama stranice koji ostaje na vrhu dok scrollaš, pa jednim dodirom skačeš na bilo koju tablicu, a sekcija u kojoj si je označena. Kad odeš niže, dolje desno se pojavi strelica ↑ za povratak na vrh."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Javne stranice o tržištu",
+  "tekst": "pet novih javnih stranica na engleskom i hrvatskom iz podataka s Tržišta: Tržište danas, Indeks sezone meme coina (0-100, godina povijesti), Solana launchpadi (pump.fun, bonk.fun, Meteora), Solana DEX volumen i Najbolje vrijeme za trgovanje (po satu, u tvojoj vremenskoj zoni), s interaktivnim grafovima i widgetom koji drugi mogu ugraditi."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Postavke i engleski jezik",
+  "tekst": "na dnu izbornika su nove ⚙️ Postavke: promijeni lozinku, stavi profilnu sliku (vidi se na ljestvici i podiju), upiši X, Telegram i ostale mreže da te ekipa prati, odjavi se sa svih uređaja. Pored Odjave je prekidač HR / EN: cijela aplikacija sad radi i na engleskom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Telegram trading botovi",
+  "tekst": "javni članak o najpoznatijim Telegram trading botovima (Trojan, BonkBot, Maestro, GMGN, Banana Gun) sa službenim linkovima i naknadama, objašnjenjem svake postavke (slippage, prioritetna naknada, MEV zaštita, take profit, stop loss) i vodičem korak po korak za postavljanje svakog bota, na engleskom i hrvatskom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Zašto je teško pratiti velike influencere",
+  "tekst": "novi članak na engleskom i hrvatskom: kako sniper botovi plaćaju veću naknadu da kupe prije svih na pozivu velikih influencera, s kalkulatorom koliko skuplje ulaziš iza botova, i zašto Rastuće zvijezde ostavljaju više prostora."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Zvijezde i rastuće zvijezde",
+  "tekst": "ljestvica influencera ima dvije kartice: Zvijezde (Murad, Ansem i ekipa, sad ih pratimo posebno) i Rastuće zvijezde (manje poznati koje tražimo), uz objašnjenje zašto botovi s većom naknadom uđu prije pratitelja velikih imena."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Članci: porez, kartice, firma",
+  "tekst": "tri nova javna članka na engleskom i hrvatskom: porez na kriptovalute u Hrvatskoj (12%, pravilo dvije godine, JOPPD korak po korak), kripto kartice za plaćanje u Hrvatskoj i može li firma (d.o.o., obrt) ulagati u kripto."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Vodiči za svaki meme coin",
+  "tekst": "za svaki od top 100 Solana meme coina javne stranice Kako kupiti, Je li siguran (provjera ruga) i Prognoza cijene, plus dnevne liste (najveći rast, popularni, novi) i članak o najboljim EU reguliranim kripto mjenjačnicama za Hrvatsku, na engleskom i hrvatskom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Najbolji kripto alati",
+  "tekst": "javna usporedba 38 alata u 7 kategorija (praćenje novčanika, analiza, trading botovi, novčanici, provjera ruga, API-ji, copy trading) s cijenama, tablicama i grafovima, na engleskom i hrvatskom; dovodi ljude s Googlea na Zatraži pristup."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Javni kripto rječnik",
+  "tekst": "36 osnovnih pojmova (rug pull, KOL, copy trading, DCA, likvidnost…) javno na engleskom i hrvatskom, svaki na svojoj stranici koju Google može naći; dovodi nove ljude na Zatraži pristup."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Javna ljestvica meme coina",
+  "tekst": "najveći Solana meme coini po tržišnoj vrijednosti na javnoj stranici, a svaki coin ima svoju stranicu s grafom, sigurnosnom provjerom i pozivima influencera; dovodi ljude s Googlea na Zatraži pristup."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Brža kupnja",
+  "tekst": "na vrhu Natjecanja zalijepiš adresu i kupiš, a uz svaki token je 📋 za kopiranje adrese."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Blog",
+  "tekst": "javni blog s 10 tekstova na engleskom i hrvatskom (wallet tracking, copy trading, influenceri, rug pullovi, pump.fun, DCA) s grafovima iz naših podataka; dovodi ljude s Googlea na Zatraži pristup."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Naslovna stranica",
+  "tekst": "nova svijetla i jednostavna javna stranica MemeSonara za ljude bez računa, prilagođena mobitelu: šest funkcija, žive brojke i gumb Zatraži pristup. Zahtjevi stižu na Natjecanje → Zahtjevi za pristup, pozivnica jednim klikom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Pojmovnik i grafovi",
+  "tekst": "svaki pojam ima ⓘ koji otvara objašnjenje običnim riječima, nova stranica Pojmovnik, a KOL-ovi i novčanici imaju grafove rasta i padova kroz vrijeme."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Naš token",
+  "tekst": "novi tab: zajednički trezor, generator vlastitog Solana tokena s lansiranjem iz Phantoma (test pa pump.fun), marketinški plan i influenceri za suradnju."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Automatski DCA",
+  "tekst": "na Natjecanju odabereš token, iznos i ritam, alat sam kupuje u pravilnim razmacima."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Predloženi tokeni",
+  "tekst": "Fartcoin, Useless i drugi jaki tokeni na Natjecanju, kupnja jednim klikom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Za WhatsApp",
+  "tekst": "sažetak aplikacije sa slikom, spreman za ovu grupu jednim dodirom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Pozovi prijatelja",
+  "tekst": "link za registraciju na Natjecanju, novi igrač dobiva $1,000 demo novca."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Copy trading",
+  "tekst": "prati influencera ili wallet, alat kupuje i prodaje kad i on."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Samo dobri tokeni",
+  "tekst": "rugovi i slabi tokeni se sami brišu svaki sat, bot uči iz njih."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Jaki tokeni",
+  "tekst": "novi popis starijih tokena od 5 M$ naviše sa stalnim volumenom."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Pametniji bot",
+  "tekst": "jači anti-rug filter i ulaz kad 3+ KOL-a zovu isti token."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Novo Natjecanje",
+  "tekst": "postolje, graf računa i brojke koje se same osvježavaju."
+ },
+ {
+  "datum": "2026-11-01",
+  "naslov": "Brža aplikacija",
+  "tekst": "novi izbornik, tražilica i Pregled za 3 sekunde."
+ },
+ {
+  "datum": "2026-10-31",
+  "naslov": "KOL test",
+  "tekst": "7 dana bot ulazi s $50 na svaki svježi poziv influencera."
+ },
+ {
+  "datum": "2026-10-31",
+  "naslov": "Ručna prodaja",
+  "tekst": "u demo tradingu prodaješ 25%, 50% ili sve."
+ },
+ {
+  "datum": "2026-10-31",
+  "naslov": "Jutarnji izvještaj",
+  "tekst": "svaki dan prije 8 h: što je bot naučio i tokeni za taj dan."
+ }
 ]
