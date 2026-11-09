@@ -373,6 +373,13 @@ def token(mint, qs):
                      f'{esc(arch["reason"])} ({esc(archive.KIND_HR.get(arch["kind"], arch["kind"]))}). '
                      f'Izbačen {_t.strftime("%d.%m. %H:%M", _t.gmtime(arch["archived_ts"]))} UTC: bot ga više ne prati i ne troši '
                      'API kredite na njega, a čuva samo podatke s ulaza da iz njih uči kako izgleda rug. Kupnja je zaključana.</div>')
+        rec = None if arch else archive.recovered(mint, data.HYPE_DB)
+        if rec:
+            import time as _t
+            b.append(f'<div class=card><b>↩ Vraćen u praćenje</b> {_t.strftime("%d.%m. %H:%M", _t.gmtime(rec["recovered_ts"]))} UTC: '
+                     f'bio je izbačen kao rug {_t.strftime("%d.%m.", _t.gmtime(rec["archived_ts"]))} ({esc(rec["reason"] or "")}), '
+                     f'a zatim se oporavio na {rec["mcap"] / rec["peak_mcap"]:.0%} vrha (${rec["mcap"] / 1000:,.0f}k od '
+                     f'${rec["peak_mcap"] / 1000:,.0f}k). Rug profil ga više ne broji kao rug; bot ga opet prati.</div>')
         if col:
             b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
                      'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')

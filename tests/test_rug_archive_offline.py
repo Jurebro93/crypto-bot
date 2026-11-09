@@ -62,7 +62,10 @@ class ArchiveTest(unittest.TestCase):
     def test_archive_and_purge(self):
         a = self.archive
         n, rows = a.run(self.db, now=self.now, log=None)
-        self.assertEqual(n, 2)                       # rugged (crash) + mech (rug mechanics)
+        self.assertEqual(n, 1)                       # mech (rug mechanics) at once; the crash goes on watch first
+        self.assertEqual(a.blocked(self.db, ttl=0), {"mech"})
+        n, rows = a.run(self.db, now=self.now + a.CONFIRM_H * H + 60, log=None)   # 9.11.: still collapsed 6 h later
+        self.assertEqual(n, 1)
         self.assertGreater(rows, 0)
         gone = a.blocked(self.db, ttl=0)
         self.assertEqual(gone, {"rugged", "mech"})   # not healthy, not too young, not the profile's own stop
@@ -85,11 +88,45 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM hype_signals WHERE token='healthy'").fetchone()[0], 120)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM token_tier WHERE token='rugged'").fetchone()[0], 1)
         con.close()
-        # second run: nothing new
-        self.assertEqual(a.run(self.db, now=self.now, log=None)[0], 0)
+        # third run: nothing new
+        self.assertEqual(a.run(self.db, now=self.now + a.CONFIRM_H * H + 120, log=None)[0], 0)
         sm = a.summary(self.db, now=self.now)
         self.assertEqual(sm["n"], 2)
         self.assertEqual(sm["by_kind"], {"srusen": 1, "mehanika": 1})
+
+    def test_bounce_before_confirmation_is_not_archived(self):
+        a = self.archive
+        a.run(self.db, now=self.now, log=None)                      # 'rugged' goes on watch
+        con = sqlite3.connect(self.db)
+        self.assertEqual(con.execute("SELECT token FROM rug_watch").fetchall(), [("rugged",)])
+        ts = self.now + 2 * H
+        con.execute("INSERT INTO hype_snapshots VALUES ('rugged', ?, ?, ?, ?)", (ts, 150000 / 1e9, 150000, 50000))  # back to 75% of peak
+        con.commit(); con.close()
+        a.run(self.db, now=self.now + a.CONFIRM_H * H + 60, log=None)
+        self.assertNotIn("rugged", a.blocked(self.db, ttl=0))
+        con = sqlite3.connect(self.db)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM rug_watch WHERE token='rugged'").fetchone()[0], 0)  # off the watch
+        con.close()
+
+    def test_recovered_token_comes_back(self):
+        a = self.archive
+        t2 = self.now + a.CONFIRM_H * H + 60
+        a.run(self.db, now=self.now, log=None)
+        a.run(self.db, now=t2, log=None)
+        self.assertIn("rugged", a.blocked(self.db, ttl=0))
+        con = sqlite3.connect(self.db)
+        from hype import tokenstatus
+        tokenstatus.ensure(con)
+        con.execute("INSERT OR REPLACE INTO token_status (token, has_pair, mcap, checked_ts) VALUES ('rugged', 1, 90000, ?)",
+                    (t2 + 3 * H,))                                   # 45% of the 200k peak, above the 40% line
+        con.commit(); con.close()
+        logs = []
+        a.run(self.db, now=t2 + 4 * H, log=logs.append)
+        self.assertNotIn("rugged", a.blocked(self.db, ttl=0))
+        rec = a.recovered("rugged", self.db)
+        self.assertEqual((rec["kind"], round(rec["mcap"] / rec["peak_mcap"], 2)), ("srusen", 0.45))
+        self.assertIsNone(a.get("rugged", self.db))                 # out of the rug profile's data
+        self.assertTrue(any("vraćeno u praćenje" in l for l in logs), logs)
 
     def test_open_position_protected(self):
         a = self.archive
