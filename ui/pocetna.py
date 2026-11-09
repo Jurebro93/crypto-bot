@@ -107,15 +107,20 @@ def strategy_html(now=None):
     verdict = (f'<div class=s>Presuda: <b>{esc(stt[1])}</b> · {esc(stt[2])}</div>' if len(stt) >= 3 else "")
     d7 = (f" · zadnjih 7 dana {_pct(best['d7'])}" if best.get("d7") is not None else "")
     d24 = (f" · zadnja 24 h {_pct(best['d24'])}" if best.get("d24") is not None else "")
+    # 9.11. (Jure): only strategies in profit are listed here; the losers are a count and a link, the full table is
+    # on /strategije. A reader deciding what to follow does not need twelve red rows.
+    winners = [s for s in rank[1:] if s["ret"] > 0 and s["closed"]]
+    hidden = len(rank) - 1 - len(winners)
     others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["ret"])} · '
-                     f'${s["value"]:,.0f}</span></li>' for i, s in enumerate(rank[1:], 2))
+                     f'${s["value"]:,.0f}</span></li>' for i, s in enumerate(winners, 2))
+    rest = (f'<div class=s>Još {hidden} strategija je u minusu ili bez tradeova; ovdje se ne prikazuju.</div>' if hidden else "")
     return (f'<div class=ov-hero><div class=k>Najprofitabilnija strategija · {lead}</div>'
             f'<div class=n>{esc(best["icon"])} {esc(best["name"])}</div>'
             f'<div class="r {"pos" if best["ret"] > 0 else "neg" if best["ret"] < 0 else ""}">{best["ret"]:+.1%}</div>'
             f'<div class=s>${cfg["bankroll_usd"]:,.0f} → <b>${best["value"]:,.0f}</b> ({profit:+,.0f} $) za '
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
             f'<div class=s>{best["closed"]} zatvorenih tradeova, u plusu {hit} · {esc(best.get("opis") or "")}</div>'
-            f'{verdict}{early}<ul class=ov-rank>{others}</ul>'
+            f'{verdict}{early}' + (f'<ul class=ov-rank>{others}</ul>' if others else "") + rest +
             '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a></div></div>')
 
 
