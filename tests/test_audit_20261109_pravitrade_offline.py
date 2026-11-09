@@ -375,6 +375,7 @@ class NoDuplicatesAndLiveTokens(PageBase):
         self.assertNotIn("ONE", html)                       # only ansem called it, and the bot follows him already
         self.assertIn("TWO", html)                          # murad is not followed: the row stays
         self.assertIn("već pratiš ✓ @ansem", html)          # ... with the followed one in green
+        self.assertIn("5 min +7 % · 9 tx", html)            # and how awake the token is (transactions in 5 min)
         self.assertIn("ap-mine", html)
 
     def test_a_typed_handle_takes_the_spelling_the_database_has(self):

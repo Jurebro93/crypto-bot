@@ -1210,7 +1210,8 @@ def _crew_row(g, now, followed=()):
     pop = (f"/pravi-trade/ekipa?h={quote(g['key'])}" if g["key"] else f"/pravi-trade/token?m={quote(t['token'])}")
     return (f'<div class=ap-row data-pop="{pop}"><span><b>{esc(g["name"])}</b>{tag} '
             f'<span class=mut style="font-size:13px">{n} {"token" if n == 1 else "tokena"} u 60 min · zadnji {esc(t["symbol"] or t["token"][:6])} '
-            f'{esc(ago(t["last"])[0])}</span></span><span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5}</span></div>')
+            f'{esc(ago(t["last"])[0])}</span></span><span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · '
+            f'{int(m.get("txns_m5") or 0)} tx</span></div>')   # 10.11. (Jure): how awake the token is, at a glance
 
 
 def _usd_short(x):
