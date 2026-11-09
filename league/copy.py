@@ -346,10 +346,12 @@ def market(tokens):
         except Exception:  # noqa: BLE001
             jp = {}
         for m, (px, liq) in jp.items():
+            had_pair = m in best   # 9.11. (review novac): DexScreener knows the pair, it just has no price / liquidity now
             _, _, url, mc, sym = best.get(m, (0, 0, None, None, None, None))[:5]
             # 9.11. (audit P1/P5/P8): the 6th element marks the source so run_once can tell "priced only by Jupiter
             # on the bonding curve" (not bonded) from a real DexScreener pair; _runup reads no change out of it
-            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym, {"src": "jup"})
+            best[m] = (px, liq, url, mc or (px * 1e9 if m.endswith("pump") else None), sym,
+                       {"src": "jup", "dex_pair": True} if had_pair else {"src": "jup"})
     return best
 
 
@@ -360,11 +362,38 @@ def _bonding_curve(m):
     return bool(isinstance(ch, dict) and ch.get("src") == "jup")
 
 
+def _dex_pair_empty(m):
+    """9.11. (review novac): True when DexScreener HAS a pair for the token but returned no price / liquidity this
+    minute, so market() fell back to Jupiter: not "still on the bonding curve", just no usable quote right now."""
+    ch = m[5] if len(m) > 5 else None
+    return bool(isinstance(ch, dict) and ch.get("src") == "jup" and ch.get("dex_pair"))
+
+
+_CONC_CACHE = None   # 9.11. (review novac): per-run_once pass cache of the topcheck / rug tables; None outside a pass
+
+
+def _conc_tables():
+    """(topcheck rows by token, rug_latest rows by token); each {} when the reader is missing or fails."""
+    tc, rug = {}, {}
+    try:
+        from topcheck import store as tstore
+        tc = tstore.read_all() or {}
+    except Exception:  # noqa: BLE001 - a guard, never the reason the copy loop stops
+        pass
+    try:
+        from ui import data as udata
+        rug = udata.rug_latest() or {}
+    except Exception:  # noqa: BLE001
+        pass
+    return tc, rug
+
+
 def _concentration(token):
     """9.11. (audit P6/P41): supply concentration of the token from data the bot already has (topcheck.db RugCheck
     summary, rug.db full report). Returns (why_block, shown): why_block is set ONLY on known bad values (top10 above
     topcheck.safety.TOP10_FAIL, cluster / bundle / insiders / dev above rugfilter.score hard thresholds, a topcheck
-    verdict 'pao'); no row = (None, 'nepoznato'), never a reason to skip a fresh KOL copy. Any error = unknown."""
+    verdict 'pao'); no row = (None, 'nepoznato'), never a reason to skip a fresh KOL copy. Any error = unknown.
+    Inside run_once both tables are read once per pass (_CONC_CACHE), not once per candidate (review novac)."""
     top10 = cluster = bundle = insiders = dev = None
     verdict = None
     try:
@@ -377,9 +406,14 @@ def _concentration(token):
         cl_hard, bu_hard, in_hard = rscore.T["cluster_hard"], rscore.T["bundle_hard"], rscore.T["insider_hard"]
     except Exception:  # noqa: BLE001
         cl_hard, bu_hard, in_hard = 25, 20, 25
+    if _CONC_CACHE is None:
+        tc, rug = _conc_tables()
+    else:
+        if "tc" not in _CONC_CACHE:
+            _CONC_CACHE["tc"], _CONC_CACHE["rug"] = _conc_tables()
+        tc, rug = _CONC_CACHE["tc"], _CONC_CACHE["rug"]
     try:
-        from topcheck import store as tstore
-        row = tstore.read_all().get(token)
+        row = tc.get(token)
         if row:
             verdict = row.get("verdict")
             rc = row.get("rc") or {}
@@ -387,8 +421,7 @@ def _concentration(token):
     except Exception:  # noqa: BLE001 - a guard, never the reason the copy loop stops
         pass
     try:
-        from ui import data as udata
-        r = udata.rug_latest().get(token)
+        r = rug.get(token)
         if r:
             if top10 is None:
                 top10 = r.get("top10_pct")
@@ -507,6 +540,19 @@ def run_once(con, market_fn=None, now=None, paths=None):
         con.commit()
         return []
     mk = (market_fn or market)({t for _, t, _, _ in todo}) or {}
+    global _CONC_CACHE
+    _CONC_CACHE = {}   # 9.11. (review novac): topcheck / rug tables read once for this pass (see _concentration)
+    try:
+        done = _enter(con, auto, mk, todo, now)
+    finally:
+        _CONC_CACHE = None
+    con.execute("DELETE FROM copy_log WHERE ts < ?", (now - CFG["keep_log_days"] * 86400,))
+    con.commit()
+    return done
+
+
+def _enter(con, auto, mk, todo, now):
+    """The second half of run_once: sells and gated buys for the candidates in todo. Returns [(user, text)]."""
     done = []
     stopped = set()   # "only the next call" follows that already entered this minute
     for f, tok, side, ts in todo:
@@ -537,6 +583,10 @@ def run_once(con, market_fn=None, now=None, paths=None):
         if not m or not m[0]:
             if now - ts > CFG["price_wait_min"] * 60:
                 _log(con, f, tok, side, ts, now, "preskočeno", "DexScreener nema cijenu tog tokena")
+            continue
+        if _dex_pair_empty(m):   # 9.11. (review novac): a bonded token DexScreener has a pair for, but no quote this
+            if now - ts > CFG["price_wait_min"] * 60:   # minute: retry, do not call it "still on the bonding curve"
+                _log(con, f, tok, side, ts, now, "preskočeno", "DexScreener ima par, ali trenutno bez cijene/likvidnosti")
             continue
         price, liq, _, mcap = m[:4]
         sym = m[4] if len(m) > 4 else None
@@ -606,6 +656,4 @@ def run_once(con, market_fn=None, now=None, paths=None):
         if f["exit"].get("once"):
             con.execute("UPDATE follows SET active=0, stopped=? WHERE id=?", (now, f["id"]))
             stopped.add(f["id"])
-    con.execute("DELETE FROM copy_log WHERE ts < ?", (now - CFG["keep_log_days"] * 86400,))
-    con.commit()
     return done

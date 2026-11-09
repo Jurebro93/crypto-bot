@@ -128,6 +128,8 @@ def _league():
 
 MIN_MCAP_USD = 30_000   # CLAUDE.md: tokens under $30k are never bought; last line of defence behind league/copy.py
 PROOF = {"closed": 10, "win_rate": 0.4}   # 9.11. (audit P39): a follow needs this much demo proof before real money
+COPY_BOOK_WAIT_S = 5   # 9.11. (review novac): league/copy.py commits the demo trade a few ms before its follow_id and
+                       # copy_log row; a copy read in that gap looks like a manual buy with a fresh signal
 
 
 def _league_fresh(lg, since):
@@ -164,6 +166,8 @@ def _tp_pct(auto_json, default):
 def _no_proof(lg, follow_id):
     """9.11. (audit P39, CLAUDE.md "dry dok strategija ne dokaže edge u demu"): the reason this follow has not earned
     real money yet, or None. Only consulted when live (dry mirrors collect real quotes for exactly this proof)."""
+    if follow_id is None:   # 9.11. (review novac): a copy whose follow was never booked has no proof to look up
+        return "kopija bez zapisa praćenja (follow_id); bez dokaza u demu ne ide u pravi novac"
     try:
         from league import copy as lcopy
         r = lcopy.follow_results(lg).get(follow_id)
@@ -196,15 +200,19 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             if t["id"] in have:
                 continue
             size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
+            is_copy = (t["source"] or "").startswith("copy ")   # league/copy.py: "copy KOL x" / "copy wallet x" / "copy ekipa x"
+            call_ts = _call_ts(lg, t["id"])
+            if is_copy and (t["follow_id"] is None or call_ts is None) and now - t["opened_ts"] < COPY_BOOK_WAIT_S:
+                continue   # 9.11. (review novac): the copy loop is still booking follow_id / copy_log: next tick (`since` is fixed)
             # 9.11. (audit P30/P31/P32): "fresh" is measured from the CALL (copy_log.ev_ts) when the copy loop wrote
             # it, not from the demo entry; the demo may legally enter up to max_delay_min after the post
-            t0 = min(t["opened_ts"], _call_ts(lg, t["id"]) or t["opened_ts"])
+            t0 = min(t["opened_ts"], call_ts or t["opened_ts"])
             why = None
             if now - t0 > cfg["max_signal_age_s"]:
                 why = f"signal star {now - t0:.0f} s"
             elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD:   # known bad only (P1/P7)
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
-            elif live and not size and t["follow_id"] is not None:
+            elif live and not size and (t["follow_id"] is not None or is_copy):   # a copy never passes as "manual"
                 why = _no_proof(lg, t["follow_id"])
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
@@ -213,7 +221,7 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 continue
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else None,
-                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default")))
+                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15))   # 15: the page default (ui/pravitrade)
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:

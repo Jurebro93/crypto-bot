@@ -109,6 +109,51 @@ class CopyGates(unittest.TestCase):
         self.assertEqual(mk[PUMP][3], 0.00001 * 1e9)
         self.assertAlmostEqual(copy._runup(mk[TOK], 60), 0.01)
 
+    def test_dex_pair_without_a_quote_is_retried_not_called_bonding_curve(self):   # review novac (market fallback)
+        from dexscreener import client
+        from ui import paper
+        saved = (client.tokens, paper.jup_prices)
+        client.tokens = lambda chain, mints: [{"baseToken": {"address": TOK, "symbol": "D"}, "priceUsd": "0",
+                                               "liquidity": {"usd": 0}, "marketCap": 400_000, "url": "u"}]
+        paper.jup_prices = lambda mints: {m: (0.001, 50_000.0) for m in mints}
+        try:
+            mk = copy.market({TOK, PUMP})
+        finally:
+            client.tokens, paper.jup_prices = saved
+        self.assertTrue(copy._bonding_curve(mk[PUMP]) and not copy._dex_pair_empty(mk[PUMP]))   # really on the curve
+        self.assertTrue(copy._dex_pair_empty(mk[TOK]))                                          # DexScreener has the pair
+        self.follow()
+        self.call("ansem", TOK, NOW - 30)
+        self.assertEqual(self.run_once({TOK: mk[TOK]}), [])
+        self.assertEqual(self.notes(), {})                               # not skipped: retried next minute
+        self.assertEqual(self.run_once({TOK: mk[TOK]}, NOW + copy.CFG["price_wait_min"] * 60 + 1), [])
+        self.assertEqual(self.notes()[TOK][0], "preskočeno")
+        self.assertIn("DexScreener ima par", self.notes()[TOK][1])
+        self.assertNotIn("krivulji", self.notes()[TOK][1])
+        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
+
+    def test_concentration_tables_are_read_once_per_pass(self):   # review novac (race window in copy.run_once)
+        copy._concentration = self._conc
+        from topcheck import store as tstore
+        from ui import data as udata
+        saved = (tstore.read_all, udata.rug_latest)
+        reads = []
+        tstore.read_all = lambda path=None, max_age_h=24: reads.append("tc") or {}
+        udata.rug_latest = lambda: reads.append("rug") or {}
+        try:
+            self.follow()
+            toks = [TOK, TOK2, "Tok3" + "x" * 40]
+            for t in toks:
+                self.call("ansem", t, NOW - 30)
+            out = self.run_once({t: row() for t in toks})
+            self.assertEqual(len(out), 3)
+            self.assertEqual(sorted(reads), ["rug", "tc"])             # once per pass, not once per candidate
+            self.assertIsNone(copy._CONC_CACHE)                         # and nothing stale survives the pass
+            copy._concentration(TOK)                                    # outside a pass: a fresh read
+            self.assertEqual(len(reads), 4)
+        finally:
+            tstore.read_all, udata.rug_latest = saved
+
     def test_crew_old_first_call_and_fresh_second_call_enters(self):   # P4
         self.follow(kind="ekipa", target=",".join(CREW), min_callers=2, max_mcap=1e6, max_runup=0.25)
         self.call("tg:alpha", TOK, NOW - 900)                      # 15 min ago: alone it is too late
@@ -303,6 +348,13 @@ class Executor(unittest.TestCase):
         self.assertIsNone(executor.sell_check("M", 0.05, 6))
         self.assertIsNone(executor.sell_check("M", 0.05, 6, tp_pct=15))
 
+    def test_sell_check_keeps_the_honeypot_diagnosis(self):   # review novac: a 200 "No route found" is an answer
+        ok = {"outAmount": "50000000000", "inUsdValue": 100, "outUsdValue": 99}
+        jupiter.order = lambda i, o, a, taker=None, route="v2": ok if i == jupiter.SOL else {"error": "No route found"}
+        why = executor.sell_check("M", 0.05, 6)
+        self.assertIn("honeypot", why)
+        self.assertNotIn("nije uspjela", why)
+
     def test_cost_against_target_gate(self):   # P38
         def order(i, o, a, taker=None, route="v2"):   # the round trip loses 4 % of the SOL, 2 % per leg
             out = a * 1000 if i == jupiter.SOL else int(a // 1000 * 0.96)
@@ -357,7 +409,8 @@ class Mirror(unittest.TestCase):
         self.lg.close()
         self.tmp.cleanup()
 
-    def demo(self, token, opened=NOW, mcap=None, follow_id=None, ev_ts=None):
+    def demo(self, token, opened=NOW - 30, mcap=None, follow_id=None, ev_ts=None):
+        """A demo copy trade (source "copy kol x"), by default 30 s old: past the COPY_BOOK_WAIT_S bookkeeping wait."""
         tid = store.buy(self.lg, settings.LEAGUE_USER, token, token, 25, 1.0, 1e6, "copy kol x", None, mcap)
         self.lg.execute("UPDATE trades SET opened_ts=?, follow_id=? WHERE id=?", (int(opened), follow_id, tid))
         if ev_ts and follow_id:
@@ -374,11 +427,51 @@ class Mirror(unittest.TestCase):
         fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "")
         self.demo("LATE", opened=NOW - 5, follow_id=fid, ev_ts=NOW - 500)   # demo entered 8 min after the post
         self.demo("OK", opened=NOW - 5, follow_id=fid, ev_ts=NOW - 60)
-        self.demo("NOLOG", opened=NOW - 5)                                   # no copy_log: the demo entry counts
+        self.demo("NOLOG", opened=NOW - 30)                                  # no copy_log: the demo entry counts
         run_trade.follow_league_once(self.con, cfg, since=0, now=NOW, quiet=True)
         st = dict(self.con.execute("SELECT token, status FROM positions"))
         self.assertEqual(st, {"LATE": "blocked", "OK": "open", "NOLOG": "open"})
         self.assertIn("signal star", self.reasons()["LATE"])
+
+    def test_copy_trade_waits_for_its_bookkeeping(self):   # review novac: store.buy commits before follow_id / copy_log
+        cfg = settings.merged(CFG, self.con)
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "")
+        tid = self.demo("RACE", opened=NOW - 1)                              # a copy, read in the gap: no follow_id yet
+        run_trade.follow_league_once(self.con, cfg, since=0, now=NOW, quiet=True)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 0)   # not judged yet
+        self.lg.execute("UPDATE trades SET follow_id=? WHERE id=?", (fid, tid))
+        self.lg.execute("INSERT INTO copy_log VALUES (?,?,?,?,?,?,?,?,?)",
+                        (fid, "RACE", "buy", NOW - 400, NOW - 1, "RACE", "ulaz", "kupljeno", tid))
+        self.lg.commit()
+        run_trade.follow_league_once(self.con, cfg, since=0, now=NOW + 1, quiet=True)
+        self.assertEqual(dict(self.con.execute("SELECT token, status FROM positions")), {"RACE": "blocked"})
+        self.assertIn("signal star", self.reasons()["RACE"])                 # judged on the call, not the demo entry
+        # live: a copy that never got its follow_id is not a manual buy; it needs proof like any follow
+        executor.is_live = lambda cfg: True
+        self.demo("ORPHAN", opened=NOW - 30)
+        run_trade.follow_league_once(self.con, cfg, since=0, now=NOW + 1, quiet=True)
+        self.assertEqual(self.con.execute("SELECT status FROM positions WHERE token='ORPHAN'").fetchone()[0], "blocked")
+        self.assertIn("bez dokaza", self.reasons()["ORPHAN"])
+        self.assertEqual(self.fake.executed, [])
+
+    def test_smart_demo_trade_gets_the_page_default_target(self):   # review novac: _tp_pct docstring vs code
+        cfg = {**settings.merged(CFG, self.con), "tp_default": None}   # a config without the page setting
+        seen = {}
+
+        def fake_buy(con, cfg, token, symbol=None, **kw):
+            seen[token] = kw.get("tp_pct")
+            return {"status": "blocked", "error": "test"}
+        saved = executor.buy
+        executor.buy = fake_buy
+        try:
+            self.demo("SMART")
+            tid = self.demo("RULE")
+            self.lg.execute("UPDATE trades SET auto=? WHERE id=?", (json.dumps({"mode": "tpsl", "tp": "+40%"}), tid))
+            self.lg.commit()
+            run_trade.follow_league_once(self.con, cfg, since=0, now=NOW, quiet=True)
+        finally:
+            executor.buy = saved
+        self.assertEqual(seen, {"SMART": 15, "RULE": 40.0})   # smart: the page default (ui/pravitrade shows 15 %)
 
     def test_under_30k_entry_mcap_is_the_last_line(self):   # P1 / P7 (known bad only)
         cfg = settings.merged(CFG, self.con)
