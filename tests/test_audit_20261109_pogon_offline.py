@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -209,3 +210,81 @@ class P63LightJobsAndQuietWaiters(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class P33HeavyPagesNeverHang(unittest.TestCase):
+    """9.11. 19:32: /ekipe (180 s) and /kol (30 s) built in the UI process pushed it to 818 MB -> memory watchdog ->
+    Cloudflare 502 + deploy page for a minute; a heavy page without a copy hung the request 60-180 s. Now: HEAVY
+    pages are built by a child in the background and the visitor gets the self-refreshing 503 at once."""
+
+    def setUp(self):
+        import run_ui
+        from ui import pagecache
+        self.run_ui, self.pagecache = run_ui, pagecache
+        self.saved_store = dict(pagecache._store)
+        pagecache._store.clear()
+
+    def tearDown(self):
+        self.pagecache._store.clear()
+        self.pagecache._store.update(self.saved_store)
+
+    def test_ekipe_and_kol_are_heavy_and_kept_on_disk(self):
+        self.assertIn("/ekipe", self.run_ui.HEAVY)
+        self.assertIn("/kol", self.run_ui.HEAVY)
+        self.assertEqual(set(self.run_ui.SNAPSHOT_ONLY), {"/ekipe", "/kol"})
+        with mock.patch.object(self.pagecache, "_snap_paths", set()):
+            self.pagecache.snapshot(self.run_ui.SNAPSHOT_ONLY)
+            self.assertIn("/ekipe", self.pagecache._snap_paths)
+
+    def test_building_page_refreshes_itself_and_offers_autopilot(self):
+        code, html = self.run_ui._building_html("/pregled")
+        self.assertEqual(code, 503)
+        self.assertIn(b'<head><meta http-equiv="refresh"', html)
+        self.assertIn(b"/pravi-trade", html)
+        self.assertIn("Pokušaj ponovno za minutu".encode(), html)
+
+    def test_get_bg_returns_placeholder_then_the_page(self):
+        key = ("/p33-bg", "", None)
+        built = threading.Event()
+
+        def build():
+            built.set()
+            return 200, b"<html>gotovo</html>"
+
+        with mock.patch.object(self.pagecache, "trim"), \
+                mock.patch.object(self.pagecache, "_load_snap", return_value=None):
+            code, raw, gz = self.pagecache.get_bg(key, build, lambda: (503, b"<p>slaze se</p>"))
+            self.assertEqual((code, raw, gz), (503, b"<p>slaze se</p>", None))
+            self.assertTrue(built.wait(5))                       # the build ran, in the background
+            for _ in range(200):                                 # ... and its result lands in the cache right after
+                if key in self.pagecache._store:
+                    break
+                time.sleep(0.02)
+            code, raw, gz = self.pagecache.get_bg(key, build, lambda: (503, b"nikad"))
+        self.assertEqual(code, 200)
+        self.assertEqual(gzip.decompress(gz), b"<html>gotovo</html>")
+
+    def test_get_bg_serves_the_disk_copy_at_once(self):
+        key = ("/p33-bg2", "", None)
+        snap = (time.time() - 100, 200, None, gzip.compress(b"<html>kopija</html>"))
+        with mock.patch.object(self.pagecache, "trim"), \
+                mock.patch.object(self.pagecache, "_load_snap", return_value=snap), \
+                mock.patch.object(self.pagecache, "_refresh") as rf:
+            code, raw, gz = self.pagecache.get_bg(key, lambda: (200, b"novo"), lambda: (503, b"nikad"))
+            time.sleep(0.05)
+        self.assertEqual((code, gzip.decompress(gz)), (200, b"<html>kopija</html>"))
+        rf.assert_called_once()                                  # ... and the fresh build was started behind it
+
+    def test_save_snap_keeps_the_age_of_an_unchanged_copy(self):
+        pc = self.pagecache
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(pc, "SNAP_DIR", d), \
+                mock.patch.object(pc, "_snap_paths", {"/p33-snap"}):
+            key = ("/p33-snap", "", None)
+            pc._save_snap(key, gzip.compress(b"<html>a</html>"))
+            f = pc._snap_file(key)
+            old = time.time() - 3600
+            os.utime(f, (old, old))
+            pc._save_snap(key, gzip.compress(b"<html>a</html>"))   # the same page again (the old copy served)
+            self.assertAlmostEqual(os.path.getmtime(f), old, delta=2)
+            pc._save_snap(key, gzip.compress(b"<html>b</html>"))   # a new build does replace it
+            self.assertGreater(os.path.getmtime(f), old + 100)

@@ -73,11 +73,25 @@ def _snap_file(key):
     return os.path.join(SNAP_DIR, (key[0].strip("/").replace("/", "_") or "index") + ".html.gz")
 
 
+def _same_snapshot(f, gz):
+    """True when the file already holds this page (gzip bytes differ per call because of the header time, so the
+    contents are compared). run_ui._last_copy serves the old snapshot as a 200 and _build would save it again with
+    a new mtime, so the copy would never count as older than SNAP_MAX_S while the heavy lock stays busy (9.11.)."""
+    try:
+        with open(f, "rb") as fh:
+            old = fh.read()
+        return gzip.decompress(old) == gzip.decompress(gz)
+    except (OSError, EOFError, gzip.BadGzipFile, ValueError):
+        return False
+
+
 def _save_snap(key, gz):
     f = _snap_file(key)
     if not f:
         return
     try:
+        if _same_snapshot(f, gz):   # 9.11. (audit P33 review): a served-again old copy keeps its age
+            return
         os.makedirs(SNAP_DIR, exist_ok=True)
         tmp = f + ".tmp"
         with open(tmp, "wb") as fh:
@@ -161,6 +175,38 @@ def get(key, build):
     if hit and age < STALE_S:      # someone else is already refreshing it
         return hit[1:]
     return _render(key, build)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
+
+
+def get_bg(key, build, placeholder):
+    """Like get(), but a page that is in neither memory nor on disk is rendered in the background and placeholder()
+    -> (code, raw bytes) is returned at once; a copy older than STALE_S is served while it is refreshed instead of
+    rebuilt while the visitor waits. For the HEAVY pages (run_ui): 9.11. 19:32 a visitor waited 60-180 s for the
+    child, Cloudflare gave up at 100 s, and the UI process was meanwhile pushed past the memory watchdog."""
+    with _lock:
+        hit = _store.get(key)
+    if hit is None:
+        snap = _load_snap(key, stale_ok=True)
+        if snap:
+            with _lock:
+                hit = _store.setdefault(key, snap)
+    now = time.time()
+    with _lock:
+        hit = _store.get(key)
+        age = now - hit[0] if hit else None
+        start_bg = (hit is None or age >= FRESH_S) and key not in _busy
+        if start_bg:
+            _busy.add(key)
+    if start_bg:
+        threading.Thread(target=_refresh, args=(key, build), daemon=True, name="page-refresh").start()
+    if hit:
+        return hit[1:]
+    code, raw = placeholder()
+    return code, raw, None
+
+
+def snapshot(paths):
+    """Keep the plain view of `paths` on disk like warm() does, without rendering them now (9.11.: /ekipe, /kol)."""
+    _snap_paths.update(paths)
 
 
 def clear():
