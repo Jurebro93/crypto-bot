@@ -34,14 +34,31 @@ def _med(xs):
 
 
 def mark_first(con):
-    """first_by_kol: the KOL's earliest call (not brag) on that token. first_overall: earliest caller on that token."""
+    """first_by_kol: the KOL's earliest call (not brag) on that token. first_overall: earliest caller on that token.
+
+    8.11.: until now two UPDATEs rewrote EVERY row of calls each round, each with a correlated subquery over the
+    token's calls (O(rows x calls per token)); on the server's network disk this one function ran 60+ min and the
+    KOL round was killed at its 60-min limit for three days (faulthandler showed the main thread here every time;
+    locally the same ran 13 s). Now the firsts are computed once into temp tables and only rows whose flag actually
+    changes are written."""
     # a bot account's posts (kind 'bot') get first_by_kol too, so its page still shows what its posts did; everything
     # that feeds signals also filters kind = 'call', so they never count there
-    con.execute("""UPDATE calls SET first_by_kol = kind IN ('call', 'bot') AND tweet_id = (SELECT c2.tweet_id FROM calls c2
-        WHERE c2.token = calls.token AND c2.handle = calls.handle AND c2.kind IN ('call', 'bot')
-        ORDER BY c2.ts, c2.tweet_id LIMIT 1)""")
-    con.execute("""UPDATE calls SET first_overall = kind = 'call' AND ts = (SELECT MIN(c2.ts) FROM calls c2
-        WHERE c2.token = calls.token AND c2.kind = 'call')""")
+    con.execute("DROP TABLE IF EXISTS temp._fk")
+    con.execute("""CREATE TEMP TABLE _fk AS SELECT token, handle, tweet_id FROM (
+        SELECT token, handle, tweet_id, ROW_NUMBER() OVER (PARTITION BY token, handle ORDER BY ts, tweet_id) rn
+        FROM calls WHERE kind IN ('call', 'bot')) WHERE rn = 1""")
+    con.execute("CREATE INDEX temp._fk_i ON _fk (token, tweet_id)")
+    is_first = "kind IN ('call', 'bot') AND EXISTS (SELECT 1 FROM temp._fk f WHERE f.token = calls.token AND f.tweet_id = calls.tweet_id)"
+    con.execute(f"UPDATE calls SET first_by_kol = 1 WHERE COALESCE(first_by_kol, 0) != 1 AND {is_first}")
+    con.execute(f"UPDATE calls SET first_by_kol = 0 WHERE COALESCE(first_by_kol, -1) != 0 AND NOT ({is_first})")
+    con.execute("DROP TABLE IF EXISTS temp._fo")
+    con.execute("CREATE TEMP TABLE _fo AS SELECT token, MIN(ts) ts FROM calls WHERE kind = 'call' GROUP BY token")
+    con.execute("CREATE INDEX temp._fo_i ON _fo (token)")
+    is_fo = "kind = 'call' AND ts = (SELECT f.ts FROM temp._fo f WHERE f.token = calls.token)"
+    con.execute(f"UPDATE calls SET first_overall = 1 WHERE COALESCE(first_overall, 0) != 1 AND {is_fo}")
+    con.execute(f"UPDATE calls SET first_overall = 0 WHERE COALESCE(first_overall, -1) != 0 AND NOT ({is_fo})")
+    con.execute("DROP TABLE IF EXISTS temp._fk")
+    con.execute("DROP TABLE IF EXISTS temp._fo")
 
 
 def impact(c):
@@ -364,33 +381,84 @@ def touched_handles(con, mark, now):
     return hs
 
 
+VALIDATE_EVERY_H = 6
+SLOW_EVERY_H = 6   # 8.11.: bot detection over every stored post and the trial annotation of every account, too
+
+
+def _due(con, key, hours, now):
+    try:
+        last = float((con.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone() or (0,))[0])
+    except (ValueError, TypeError):
+        last = 0
+    return now - last >= hours * 3600
+
+
+def _mark(con, key, now):
+    con.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (key, str(now)))
+
+
+def validate_due(con, cfg, now):
+    """The walk-forward / pair / range validation (kol/validate.py) runs every validate_every_h hours, not every round."""
+    return _due(con, "validate_ts", cfg.get("validate_every_h", VALIDATE_EVERY_H), now)
+
+
+def slow_due(con, cfg, now):
+    """Bot detection (every post of every account) and trial annotation: every slow_every_h hours. 8.11.: the first
+    part of scoring (fake tokens, bots, reclassify) alone ran 40+ min on the server and the round died at 60 min."""
+    return _due(con, "slow_ts", cfg.get("slow_every_h", SLOW_EVERY_H), now)
+
+
 def run(con, cfg, now=None):
     from kol import bots, collect, measure
     now = now or int(time.time())
+    t_last = [time.time()]
+
+    def lap(label):   # 8.11.: which part of scoring eats the round (printed only when a part takes 30 s or more)
+        d = time.time() - t_last[0]
+        t_last[0] = time.time()
+        if d >= 30:
+            print(f"score: {label} {d:.0f} s", flush=True)
     changed = drop_fake_tokens(con)
     try:
         mark = json.loads((con.execute("SELECT value FROM kv WHERE key = 'score_mark'").fetchone() or ("{}",))[0])
     except (ValueError, TypeError):
         mark = {}
-    changed += reclassify(con, bots.detect(con, cfg))
+    slow = slow_due(con, cfg, now)
+    print(f"score: početak (botovi i proba: {'da' if slow else 'ne'}, validacija: {'da' if validate_due(con, cfg, now) else 'ne'})",
+          flush=True)
+    if slow:   # marked BEFORE the work: a round killed at its 60-min limit must not repeat the slow part next time
+        _mark(con, "slow_ts", now)
+        con.commit()
+        changed += reclassify(con, bots.detect(con, cfg))
+        lap("botovi")
     collect.mark_ambiguous(con)
     changed += measure.revalidate(con, cfg)
     mark_first(con)
+    lap("priprema")
     handles = None if changed else touched_handles(con, mark, now)
     max_rowid = con.execute("SELECT COALESCE(MAX(rowid), 0) FROM calls").fetchone()[0]
     n = score_kols(con, cfg, now, handles)
+    lap(f"bodovanje {len(handles) if handles is not None else 'svih'}")
     con.execute("INSERT OR REPLACE INTO kv VALUES ('score_mark', ?)",
                 (json.dumps({"rowid": max_rowid, "ts": now, "full_ts": now if handles is None else mark.get("full_ts", now),
                              "partial": None if handles is None else len(handles)}),))
-    from kol import validate
-    validate.run(con, cfg, now)
+    if validate_due(con, cfg, now):   # 8.11.: 83 of 146 s of a scoring pass locally (30+ min on the server's half CPU,
+        from kol import validate       # the round was killed at 60 min every time); the statistics move slowly
+        _mark(con, "validate_ts", now)
+        con.commit()
+        validate.run(con, cfg, now)
+        lap("validacija")
     from kol import sessions
     sessions.zones(con, cfg)
     sessions.learn(con, cfg, now)
-    from kol import discover
-    discover.annotate(con, cfg, now)
+    lap("sesije")
+    if slow:
+        from kol import discover
+        discover.annotate(con, cfg, now)
+        lap("proba")
     build_watch(con, cfg, now)
     g = build_groups(con, cfg)
     s = build_signals(con, cfg, now)
     con.commit()
+    lap("watch, grupe, signali, commit")
     return n, g, s

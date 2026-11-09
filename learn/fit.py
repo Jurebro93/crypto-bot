@@ -63,11 +63,17 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
             sh = outcomes.shadow_rows(cfg, now, shadow_path)
         except Exception as e:  # noqa: BLE001 - a missing/locked shadow.db must not stop the daily learning
             print(f"učenje: sjenovita knjiga nije dostupna: {type(e).__name__}: {e}")
-    report = []
-    for r in rows + sh:   # never let one row without a class stop every class from learning (8.11.)
+    # 8.11.: a row without a class (token_tier missing, mcap unknown) crashed the whole run ('<' between str and
+    # None) since the evening of 7.11.: learning and the 6-hourly weights had not run all night. Such rows learn
+    # with the default class.
+    for r in rows:
         if not r.get("klasa"):
-            r["klasa"] = "rizican"
-    for klasa in sorted({r["klasa"] for r in rows} | {k for k in thr if k} | {r["klasa"] for r in sh}):
+            r["klasa"] = "default"
+    for r in sh:
+        if not r.get("klasa"):
+            r["klasa"] = "default"
+    report = []
+    for klasa in sorted(set(r["klasa"] for r in rows) | set(k for k in thr if k) | set(r["klasa"] for r in sh)):
         rk_sh = [r for r in sh if r["klasa"] == klasa]
         need_sh = max(30, cfg.get("min_rows_zarada", cfg["min_rows"]))   # never below 30 (R8)
         use_sh = len(rk_sh) >= need_sh

@@ -234,15 +234,26 @@ def cmd_converge(a, con=None, cfg=None):
 
 
 def cycle(a):
+    # 8.11. 21:00: two rounds without bot detection still died at 60 min with no scoring part finished; nothing in
+    # the log said where. Every 10 min the main thread's stack goes to stderr, so the next kill shows the exact line.
+    import faulthandler
+    faulthandler.dump_traceback_later(600, repeat=True)
     con, cfg = store.connect(), config()
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
-    for step in (cmd_collect, cmd_search, cmd_collect, cmd_snap, cmd_score, cmd_live, cmd_xhook, cmd_chain, cmd_traces, cmd_converge,
-                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_score):
+    # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
+    # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
+    # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
+    # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
+    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_measure,
+                 cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
+        t = time.time()
         try:
             step(a, con, cfg)
         except Exception as e:
             print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
+        if time.time() - t >= 60:   # 8.11.: the round was killed at 60 min for days and nobody could tell which step
+            print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
     con.close()
 
 

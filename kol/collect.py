@@ -612,11 +612,13 @@ def from_chain(con, hype_db=None):
         rows = []
     finally:
         src.close()
-    who = wallet_handles(con)
+    who = {w: h for w, h in wallet_handles(con).items() if not h.startswith("w:")}
     n, top = 0, last
     for sig, wallet, mint, side, ts, sol in rows:
         top = max(top, ts)
-        h = who.get(wallet) or "w:" + wallet[:6]
+        h = who.get(wallet)
+        if not h:   # 8.11.: a wallet without a known X account is not a KOL call; its swaps stay in chain_trades
+            continue   # (572,899 'w:' pseudo-calls ate the GeckoTerminal measuring budget of real calls)
         n += con.execute("""INSERT OR IGNORE INTO calls (tweet_id, token, handle, ts, url, text, followers, likes,
             retweets, views, kind, match, source, symbol) VALUES (?,?,?,?,?,?,0,0,0,0,?,?,?,NULL)""",
                          (f"sig:{sig}", mint, h, ts, f"https://solscan.io/tx/{sig}", f"{side} {sol or 0:.2f} SOL",

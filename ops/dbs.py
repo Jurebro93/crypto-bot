@@ -24,7 +24,7 @@ import time
 
 from ops import disk
 
-APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "3"))   # 7.11.: 93 MB of raw JSON; a week is enough to re-read a run
+APIFY_KEEP_DAYS = float(os.environ.get("APIFY_KEEP_DAYS", "1"))   # 8.11.: 149 MB of raw JSON at 3 days; calls are copied out within minutes
 VACUUM_MAX_MB = float(os.environ.get("VACUUM_MAX_MB", "400"))
 SLIM_FEATURES_H = float(os.environ.get("SLIM_FEATURES_H", "24"))
 COMPACT_WASTE = float(os.environ.get("COMPACT_WASTE", "0.35"))   # a freshly packed file has ~10-25% slack
@@ -41,8 +41,8 @@ def _con(path, timeout=60):
     return con
 
 
-def retention(now=None):
-    """Delete raw data past its use. Returns {table: rows deleted}."""
+def retention(now=None, count_only=False):
+    """Delete raw data past its use. Returns {table: rows deleted}. count_only: ops/prune rules only count (start-up)."""
     now = now or time.time()
     out = {}
     hype = os.path.join(disk.DATA_DIR, "hype.db")
@@ -57,6 +57,8 @@ def retention(now=None):
                 print(f"retencija apify_cache nije uspjela: {e}", flush=True)
         finally:
             con.close()
+    from ops import prune   # 8.11.: unused data (ops/prune.py): counts only until DATA_PRUNE=on
+    out.update(prune.run_all(now, count_only=count_only))
     return out
 
 
@@ -197,7 +199,7 @@ def _compact_via_tmp(path, mb, new_mb):
 def startup():
     """Once before the loops start: retention, auto_vacuum switch (VACUUM where there is room), WAL on."""
     t0 = time.time()
-    gone = retention()
+    gone = retention(count_only=True)   # 8.11.: big deletes belong to the hourly job (Render's start-up deadline)
     nw, nf = slim_signals()
     if nw or nf:
         gone["hype_signals sažeto"] = nw + nf
