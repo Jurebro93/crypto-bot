@@ -251,6 +251,8 @@ class MinuteLoopStoresLevels(unittest.TestCase):
         self.assertEqual(lv["1"]["u"], {"5": 2, "10": 2, "15": 5, "20": 5})
         self.assertEqual(lv["1"]["d"], {"10": 20, "15": 20, "20": 20, "25": 20, "30": 20})
         self.assertEqual(lv["9"]["d"]["30"], 20)                              # the old row now has every stop's minute
+        self.assertEqual(self.mc.execute("SELECT t10, sl_min, r60, first_caller FROM call_path WHERE tweet_id = '9'").fetchone(),
+                         (2, 30, -0.2, 1))                                    # ... and its stored path was not rewritten
         r = tpsl.rows(self.mc, ["ansem"], now=NOW)
         self.assertEqual([x["lv"] is not None for x in r], [True, True])
         self.assertEqual(tpsl.outcome(r[0], 10, 30), ("tp", 10.0))

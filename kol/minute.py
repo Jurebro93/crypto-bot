@@ -326,8 +326,13 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                                     (tok,)).fetchone()[0]
             for tid, h, ts in calls:
                 o = path(candles, ts, wick=c["wick_x"])
-                if not o and tok in relevel:   # the candle is gone since the first measurement: keep that one
-                    mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)", (tid, tok, ts, LV_FAILED))
+                if tok in relevel:
+                    # a second measurement only ADDS the levels: the stored path (entry, t5..t30, sl_min, first_caller,
+                    # which the leaderboard and the crews read) is never rewritten, and a call whose candle is gone
+                    # since then is marked so it is not asked for again
+                    mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
+                                 (tid, tok, ts, json.dumps(o["lv"], separators=(",", ":")) if o else LV_FAILED))
+                    n_calls += 1 if o else 0
                     continue
                 if not o:
                     mcon.execute("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
