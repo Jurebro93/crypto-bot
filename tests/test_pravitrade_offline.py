@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,6 +18,15 @@ from tests.test_trade_offline import CFG, FakeJup  # noqa: E402
 from trade import executor, jupiter, settings  # noqa: E402
 
 NOW = time.time()
+_WAKE = mock.patch.object(copy, "WAKE", os.path.join(tempfile.mkdtemp(), ".copy_wake"))
+
+
+def setUpModule():   # 9.11. (review izvori): follows and buys wake the copy loop; the tests must not touch the repo's .copy_wake
+    _WAKE.start()
+
+
+def tearDownModule():
+    _WAKE.stop()
 
 
 class PraviTrade(unittest.TestCase):

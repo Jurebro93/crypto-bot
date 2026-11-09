@@ -23,6 +23,7 @@ a measured reason, a buy form that uses the chosen exit); (3) would the owner lo
 import os
 import re
 import sqlite3
+import threading
 import time
 from urllib.parse import quote
 
@@ -34,6 +35,10 @@ BACK = "/pravi-trade"
 TITLE = "Autopilot"
 USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 _BAL = {}   # (address, what) -> (ts, value): one RPC call a minute at most
+# 9.11. (audit P47): callers whose minute check (kol/minute.py) says they reach +15 % before the stop in fewer than
+# WEAK_HIT15 of WEAK_MIN_N+ measured calls are a reason against, in the pop-up and in the manual buy. Only when the
+# statistic exists: no measurement is "nepoznato", never a block.
+WEAK_HIT15, WEAK_MIN_N = 0.3, 5
 
 CSS = """<style>
 .ap-sub{color:var(--mut);margin:-4px 0 14px;font-size:14px}
@@ -261,9 +266,10 @@ POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age sty
 # 9.11. (Jure): everything opens in a pop-up, never a new page, and the pop-up re-fetches its content every second
 # while it is open (the swap is skipped while a field inside it has focus, so a stake being typed is never lost)
 POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0;"
-          "async function load(){if(!url)return;try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
+          "const age=document.getElementById('ap-pop-age');"
+          "async function load(){if(!url)return;try{const r=await fetch(url,{cache:'no-store'});if(!r.ok){age.textContent='nema svježih podataka';return}const h=await r.text();"
           "const b=d.querySelector('.body');if(h!==b.innerHTML&&!b.contains(document.activeElement))b.innerHTML=h;"
-          "n++;document.getElementById('ap-pop-age').textContent='uživo · osvježeno '+new Date().toLocaleTimeString()}catch(e){}}"
+          "n++;age.textContent='uživo · osvježeno '+new Date().toLocaleTimeString()}catch(e){age.textContent='nema svježih podataka'}}"
           "document.addEventListener('click',e=>{const el=e.target.closest('[data-pop]');if(!el||e.target.closest('a,button,input,select,form'))return;"
           "e.preventDefault();url=el.dataset.pop;d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';d.showModal();load();"
           "clearInterval(t);t=setInterval(load,1000)});"
@@ -322,6 +328,7 @@ def _follows(con, owner, st=None, prefill=""):
     items = []
     for f in fl:
         r = res.get(f["id"], {"n": 0, "closed": 0, "wins": 0, "pnl": 0.0})
+        proof = _proof_line(r)
         if f["kind"] == "ekipa":
             who = "🤝 " + " + ".join(f'<a href="/kol/{quote(m)}">{"✈ " + esc(m[3:]) if m.startswith("tg:") else "@" + esc(m)}</a>'
                                     for m in copy.members_of(f["target"]))
@@ -334,7 +341,8 @@ def _follows(con, owner, st=None, prefill=""):
         items.append(f'<details class=ap-it><summary><span>{who}<span class=ap-tag>'
                      f'{"influencer" if f["kind"] == "kol" else ("ekipa" if f["kind"] == "ekipa" else "wallet")}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
                      f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
-                     f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>{stop}</details>')
+                     f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>'
+                     f'<p class=mut style="font-size:13px">{proof}</p>{stop}</details>')
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
     pre = esc(prefill or "")
     meta = (("🤖 " if st.get("auto_pick") else "")
@@ -353,6 +361,22 @@ def _follows(con, owner, st=None, prefill=""):
                   'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah.</p>')
     inner = _auto_box(st, owner) + anyone + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Upiši koga pratiti ili odaberi iz preporuka ispod.</p>')
     return _sec("Koga bot prati", meta, inner, open_=not fl, sid="pratim")
+
+
+def _proof_line(r):
+    """9.11. (audit P39): what run_trade.follow_league_once needs before a follow's copies go into real money
+    (run_trade.PROOF: closed demo copies, PnL > 0, share of winners), shown per follow so a LIVE buy "blocked:
+    praćenje bez dokaza u demu" is no surprise. Same thresholds, read from run_trade, never a second copy."""
+    try:
+        from run_trade import PROOF
+    except Exception:  # noqa: BLE001 - the page must render without the trade process module
+        PROOF = {"closed": 10, "win_rate": 0.4}
+    closed, wins, pnl = r.get("closed", 0), r.get("wins", 0), r.get("pnl", 0.0)
+    have = f"zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $"
+    need = f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih"
+    proven = closed >= PROOF["closed"] and pnl > 0 and wins / closed >= PROOF["win_rate"]
+    return (f"Dokaz u demu: {esc(have)} · pravi novac: <b>{'da' if proven else 'još ne'}</b> ({esc(need)})"
+            + ("" if proven else "; do tada se njegove kopije kupuju samo probno"))
 
 
 def _detect_kind(target):
@@ -475,7 +499,9 @@ def _dokazani_items(rows, have, owner, names=None):
                f'Poslije reza: {r["realized_after"]:+.1f} SOL na {r["closed_after"]} zatvorenih'
                + (f' ({r["win_after"]:.0%} u plusu)' if r.get("win_after") is not None else "") + ". "
                + (f'Drži medijan {r["hold_min"]:.0f} min, {r["tpd"]:.0f} tradeova dnevno' if r.get("hold_min") is not None and r.get("tpd") is not None else "")
-               + (f', stil {style}.' if style else "."))
+               + (f', stil {style}' if style else "")
+               # 9.11. (audit P55): open losers he never closed ("bags"), so a nice realized PnL is read with them
+               + (f' · {int(r["bags"])} bagova (kupljeni tokeni koje nije zatvorio)' if r.get("bags") is not None else "") + ".")
         items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
                      f'<span class=k>{r["realized_after"]:+.1f} SOL poslije reza · {r["closed_before"] + r["closed_after"]} zatv.</span></summary>'
                      f'<p>{why}</p>{_follow_btn("wallet", r["wallet"], names.get(r["wallet"]) or "", have, owner)}</details>')
@@ -543,13 +569,14 @@ def _buy_form(mint, cfg, exit_mode, owner):
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
             f'<input name=tp placeholder="TP npr. 100%" size=9{f" value={tp_default}%" if exit_mode == "tpsl" else ""}> '
-            '<input name=sl placeholder="SL npr. -30%" size=9>'
+            f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14>'
             '<button>Kupi</button></form>')
 
 
 def _buy_now_card(cfg, owner):
     """9.11. (Jure): at the top of the page, buy any token right now with the amount you choose: address + SOL + Kupi.
-    Exit defaults to the target chosen below (TP) and the usual stop; the rest sits behind "Više"."""
+    Exit defaults to the target chosen below (TP) and, with no stop typed in, the default stop league/copy.DEFAULT_SL
+    (audit P17/P19: the page used to promise "the usual stop" that did not exist); the rest sits behind "Više"."""
     if not owner:
         return ""
     tp_default = cfg.get("tp_default", 15)
@@ -559,10 +586,10 @@ def _buy_now_card(cfg, owner):
             'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
             '<button class=ap-go>Kupi</button>'
-            f'<details style="flex-basis:100%"><summary class=mut style="font-size:13px">Više (izlaz: moj TP/SL, cilj +{tp_default} %)</summary>'
+            f'<details style="flex-basis:100%"><summary class=mut style="font-size:13px">Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {copy.DEFAULT_SL})</summary>'
             '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
             f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
-            '<input name=sl placeholder="SL npr. -20%" size=9></details></form>'
+            f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14></details></form>'
             '<p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide '
             'samo kad je Autopilot uključen; inače je ovo probna kupnja. Prodaja: gumbi 20 % / 50 % / sve kod svake pozicije.</p></div>')
 
@@ -581,12 +608,24 @@ def _tp_card(cfg, owner):
                    for v in TP_CHOICES)
     return (f'<div class=card id=cilj><b>Cilj izlaza za nove kopije</b> <span class=mut>sada +{cur} %</span>'
             f'<div class=ap-btns>{btns}</div><p class=mut style="font-size:13px;margin:6px 0 0">Vrijedi za svako novo praćenje i '
-            'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop ostaje kako je upisan ili zadani.</p></div>')
+            'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop: kako je upisan, inače '
+            f'zadani {esc(copy.DEFAULT_SL)} (isti prag kao minutna provjera). Praćenja s izlazom "zadano" (Smart sell) imaju svoj stop.</p></div>')
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
 LIVE_IDEAS_S = 1
 _IDEAS_CACHE = {}   # owner flag -> (ts, html)
+# 9.11. (audit P48/P33/P75): the 1-s fragments (/zovu, /ideje) and the 1-s pop-ups are read by the browser every
+# second per viewer. Their DexScreener state lives LIVE_TTL_S (DexScreener's 300/min IP limit is shared by every
+# process: never 1 s), and in the UI process a daemon thread (_bg_loop) renews it plus the two fragments' HTML, so a
+# request thread only reads the caches: no HTTP, no retry sleep, no five-database pass per viewer per second. The
+# caches are guarded by _LOCK (ThreadingHTTPServer). BG_REFRESH False (tests) = the old synchronous path.
+LIVE_TTL_S = 3
+BG_REFRESH = os.environ.get("AP_BG_REFRESH", "1") == "1"
+BG_WANT_S = 8          # a token set a pop-up / fragment asked for in the last BG_WANT_S s is kept fresh
+_LOCK = threading.RLock()
+_BG = {"thread": None, "ts": 0.0, "runs": 0}
+_LIVE_WANT = {}        # token tuple -> ts of the last request for it (what the background thread keeps fresh)
 
 
 def latest_picks(now=None, limit=3):
@@ -622,12 +661,13 @@ def latest_picks(now=None, limit=3):
     return out[:limit]
 
 
-def ideas_inner(cfg, owner, now=None):
+def ideas_inner(cfg, owner, now=None, force=False):
     """9.11. (Jure): live, not "the same as Pregled every 60 s". ui/zivo: candidates through every slow filter, then
-    price / volume / new callers / smart-wallet buys refreshed every 2 s; a token stays only while it trades now."""
+    price / volume / new callers / smart-wallet buys refreshed every 2 s; a token stays only while it trades now.
+    The HTML does not depend on cfg/owner; force=True (background thread) recomputes past the cache."""
     now = now or time.time()
     c = _IDEAS_CACHE.get(bool(owner))
-    if c and now - c[0] < LIVE_IDEAS_S:
+    if c and now - c[0] < LIVE_IDEAS_S and not force:
         return c[1]
     try:
         from ui import zivo
@@ -647,8 +687,19 @@ def ideas_inner(cfg, owner, now=None):
                        f'{badge(r["src"], "")} <span class=mut style="font-size:13px">{esc(why)}</span></span>'
                        f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></div>')
         html = "".join(out)
-    _IDEAS_CACHE[bool(owner)] = (now, html)
+    with _LOCK:   # the same HTML for both viewer kinds (one computation in the background thread serves both)
+        _IDEAS_CACHE[bool(owner)] = (now, html)
+        _IDEAS_CACHE[not bool(owner)] = (now, html)
     return html
+
+
+def _stamp(html, ts):
+    """The data time of a cached fragment (never the render time), under the rows; nothing when there are no rows,
+    so the section's hide-when-empty logic still works."""
+    if not html or not ts:
+        return html or ""
+    return html + (f'<p class=mut style="font-size:12px;margin:6px 0 0">podaci od '
+                   f'{time.strftime("%H:%M:%S", time.gmtime(ts))} UTC</p>')
 
 
 def ideas_fragment(user):
@@ -656,9 +707,14 @@ def ideas_fragment(user):
     try:
         if not settings.can_view(tcon, user):
             return None
-        return ideas_inner(_cfg(tcon), settings.is_owner(user))
+        cfg, owner = _cfg(tcon), settings.is_owner(user)
     finally:
         tcon.close()
+    if _bg_start():   # the background thread fills the cache; this request thread only reads it
+        with _LOCK:
+            c = _IDEAS_CACHE.get(bool(owner)) or (0.0, "")
+        return _stamp(c[1], c[0])
+    return ideas_inner(cfg, owner)
 
 
 def _ideas_section(cfg, owner):
@@ -737,11 +793,12 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
     rows = group_callers(ev, now, window_s, limit=limit * 4)
     syms, liqs = {}, {}
     kc = copy._ro(kol_db or kstore.DB)
-    if kc is not None and rows:
+    if kc is not None:   # 9.11. (audit P75): closed even when there is nothing to look up (it leaked a handle a second)
         try:
-            q = ",".join("?" * len(rows))
-            for tok, sym, liq in copy._q(kc, f"SELECT token, symbol, liquidity FROM tokens WHERE token IN ({q})", [r[0] for r in rows]):
-                syms[tok], liqs[tok] = sym, liq
+            if rows:
+                q = ",".join("?" * len(rows))
+                for tok, sym, liq in copy._q(kc, f"SELECT token, symbol, liquidity FROM tokens WHERE token IN ({q})", [r[0] for r in rows]):
+                    syms[tok], liqs[tok] = sym, liq
         finally:
             kc.close()
     rows = [r for r in rows if not converge.not_a_memecoin(r[0], syms.get(r[0]), liqs.get(r[0]))]
@@ -768,29 +825,97 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
     return out
 
 
-_LIVE_CACHE = {"ts": 0.0, "key": (), "data": {}}
+_LIVE_CACHE = {}   # token tuple -> (ts, data): "Zovu sada", each open pop-up and each crew pop-up keep their own slot
 
 
-def _live_cached(tokens, now, ttl=1):
-    """DexScreener state of the tokens in "Zovu sada", shared by the 2-s poll for ttl seconds (one request)."""
+def _live_cached(tokens, now, ttl=LIVE_TTL_S, wait=None):
+    """DexScreener state of a token set, shared for ttl seconds (one request per set). 9.11. (audit P48): wait=False
+    (a request thread while the background thread runs) never fetches when a slot exists: it returns the slot, up to
+    a few seconds old, and the background thread renews it; only a set nobody asked for yet is fetched here, once."""
     key = tuple(tokens)
     if not key:
         return {}
-    if _LIVE_CACHE["key"] == key and now - _LIVE_CACHE["ts"] < ttl:
-        return _LIVE_CACHE["data"]
+    with _LOCK:
+        hit = _LIVE_CACHE.get(key)
+        if wait is not True:   # the refresher's own renewals do not count as a request (a closed pop-up expires)
+            _LIVE_WANT[key] = now
+    if wait is None:   # the refresher itself and the synchronous path fetch; request threads beside a refresher read
+        wait = threading.current_thread() is _BG["thread"] or not _bg_running()
+    if hit and (now - hit[0] < ttl or (not wait and now - hit[0] < 60)):
+        return hit[1]
     from ui import prijedlog
     data = prijedlog.live_market(list(key))
     if data is None:
         return None
-    _LIVE_CACHE.update(ts=now, key=key, data=data)
+    with _LOCK:
+        _LIVE_CACHE[key] = (now, data)
+        if len(_LIVE_CACHE) > 64:   # pop-ups come and go: forget the sets nobody asks for
+            for k in [k for k in _LIVE_CACHE if now - _LIVE_WANT.get(k, 0) > BG_WANT_S]:
+                _LIVE_CACHE.pop(k, None)
+                _LIVE_WANT.pop(k, None)
     return data
 
 
-def callers_inner(cfg, owner, now=None):
-    """Live: who called which token in the last hour (X, Telegram, followed wallets). The point (Jure 9.11.): see the
-    FIRST caller of a token at once and buy before the rest of his crew calls it."""
+def _bg_running():
+    t = _BG["thread"]
+    return bool(t and t.is_alive())
+
+
+def _bg_start():
+    """Start the refresher once per UI process (first fragment request); False when it is off (tests) or dead."""
+    if not BG_REFRESH:
+        return False
+    with _LOCK:
+        if _bg_running():
+            return True
+        t = threading.Thread(target=_bg_loop, daemon=True, name="autopilot-live")
+        _BG["thread"] = t
+        t.start()
+    return True
+
+
+def _bg_pass(now=None):
+    """One refresher pass: the token sets asked for in the last BG_WANT_S s (pop-ups, crews) renewed when older
+    than LIVE_TTL_S, then the "Zovu sada" and "Što kupiti sada" HTML. Every step in its own try: a failing source
+    leaves the others' caches alone (stale data with its time beats no data)."""
     now = now or time.time()
-    if now - _CALLERS_CACHE["ts"] < 1 and _CALLERS_CACHE["html"]:
+    with _LOCK:
+        # 9.11. (review): a set whose fetch returned None never enters _LIVE_CACHE, so the eviction there never saw
+        # its WANT entry; forget requests nobody repeated in 10 x BG_WANT_S
+        for k in [k for k, ts in _LIVE_WANT.items() if now - ts > 10 * BG_WANT_S]:
+            _LIVE_WANT.pop(k, None)
+        want = [k for k, ts in _LIVE_WANT.items() if now - ts <= BG_WANT_S and now - (_LIVE_CACHE.get(k) or (0,))[0] >= LIVE_TTL_S]
+    for key in want:
+        try:
+            _live_cached(key, now, wait=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"autopilot uživo: DexScreener za {len(key)} tokena nije uspio: {type(e).__name__}: {e}", flush=True)
+    with _LOCK:   # "Što kupiti sada" goes through zivo.rows (its own DexScreener request): at most once per LIVE_TTL_S
+        ideas_due = now - (_IDEAS_CACHE.get(False) or (0.0,))[0] >= LIVE_TTL_S
+    steps = [lambda: callers_inner(None, False, now, force=True)]
+    if ideas_due:
+        steps.append(lambda: ideas_inner(None, False, now, force=True))
+    for fn in steps:
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            print(f"autopilot uživo: osvježavanje nije uspjelo: {type(e).__name__}: {e}", flush=True)
+    _BG["ts"], _BG["runs"] = now, _BG["runs"] + 1
+
+
+def _bg_loop():
+    while True:
+        t0 = time.time()
+        _bg_pass(t0)
+        time.sleep(max(0.2, LIVE_IDEAS_S - (time.time() - t0)))   # the owner's 1-s cadence, for the DB-sourced parts
+
+
+def callers_inner(cfg, owner, now=None, force=False):
+    """Live: who called which token in the last hour (X, Telegram, followed wallets). The point (Jure 9.11.): see the
+    FIRST caller of a token at once and buy before the rest of his crew calls it. The HTML does not depend on
+    cfg/owner; force=True (background thread) recomputes past the 1-s cache."""
+    now = now or time.time()
+    if now - _CALLERS_CACHE["ts"] < 1 and _CALLERS_CACHE["html"] and not force:
         return _CALLERS_CACHE["html"]
     try:
         rows = gather_callers(now)
@@ -813,7 +938,8 @@ def callers_inner(cfg, owner, now=None):
         html = ""   # the section hides itself while there is nothing to show
     else:
         html = "".join(_crew_row(c, now) for c in crew_rows(rows, now))
-    _CALLERS_CACHE.update(ts=now, html=html)
+    with _LOCK:
+        _CALLERS_CACHE.update(ts=now, html=html)
     return html
 
 
@@ -847,7 +973,10 @@ def _crew_row(g, now):
     m = t["live"]
     ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
     n = len(g["tokens"])
-    return (f'<div class=ap-row data-pop="/pravi-trade/ekipa?h={quote(g["key"] or g["leader"])}"><span><b>{esc(g["name"])}</b> '
+    # 9.11. (audit P73): a crew made only of wallets has no X/Telegram handle to follow as a crew (their buys are
+    # already copied by the wallet follows), so the row opens its newest token, not a crew pop-up with "w:…"
+    pop = (f"/pravi-trade/ekipa?h={quote(g['key'])}" if g["key"] else f"/pravi-trade/token?m={quote(t['token'])}")
+    return (f'<div class=ap-row data-pop="{pop}"><span><b>{esc(g["name"])}</b> '
             f'<span class=mut style="font-size:13px">{n} {"token" if n == 1 else "tokena"} u 60 min · zadnji {esc(t["symbol"] or t["token"][:6])} '
             f'{esc(ago(t["last"])[0])}</span></span><span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5}</span></div>')
 
@@ -856,6 +985,61 @@ def _live_one(mint, now):
     """DexScreener state of one token for a pop-up, shared with the 1-s cache."""
     lv = _live_cached([mint], now)
     return (lv or {}).get(mint) if lv is not None else None
+
+
+def _callers_veto(handles, mstats):
+    """9.11. (audit P47): the reason against when the callers' own minute check (kol/minute.py, hit15 = reached +15 %
+    before the stop) is weak: WEAK_MIN_N+ measured calls and fewer than WEAK_HIT15 of them. None when nobody has a
+    measurement (then zivo.expectation falls back to the MC band's chance, which is NOT a caller statistic and must
+    not veto). Used by the pop-up verdict and the manual buy alike."""
+    # 9.11. (review): handles deduplicated (a caller who called twice in the hour is one account, not two) and the
+    # rate pooled over their calls, weighted by n: the same formula as zivo.expectation (P85), so the pop-up's
+    # "Očekivanje +15 %" and this veto can never disagree. A plain mean let a noise account (n=3, 0 %) veto next to
+    # a strong one (n=50, 55 %).
+    hs = [mstats[h] for h in dict.fromkeys(handles or []) if h in (mstats or {})]
+    if not hs:
+        return None
+    n = sum(int(s.get("n") or 0) for s in hs)
+    v = sum(float(s.get("hit15") or 0) * int(s.get("n") or 0) for s in hs) / n if n else 0.0
+    if n >= WEAK_MIN_N and v < WEAK_HIT15:
+        return f"pozivatelji dođu do +15 % prije stopa samo u {v:.0%} ({n} izmjerenih poziva, minutna provjera)"
+    return None
+
+
+_SUPPLY_CACHE = {}   # mint -> (ts, shape): the rug.db row is read at most once a minute per open pop-up
+
+
+def _pct(v):
+    return "nepoznato" if v is None else f"{float(v):.0f} %"
+
+
+def _supply_line(mint, top, now):
+    """9.11. (audit P77/P76/P56): who holds the supply, from data already on disk (topcheck RugCheck summary, rug.db
+    full report through topcheck.holders.pumpfun_shape), with the time of the RugCheck data (rc_ts), not of the last
+    run_top pass (ts). Unknown stays "nepoznato": a holder count is never shown, missing data is never "u redu"."""
+    shape = None
+    try:
+        from topcheck import holders
+        c = _SUPPLY_CACHE.get(mint)
+        if c and now - c[0] < 60:
+            shape = c[1]
+        else:
+            shape = holders.pumpfun_shape([mint], tc={mint: top} if top else {}).get(mint)
+            _SUPPLY_CACHE[mint] = (now, shape)
+            if len(_SUPPLY_CACHE) > 200:
+                for k in [k for k, (ts, _) in _SUPPLY_CACHE.items() if now - ts > 600]:
+                    _SUPPLY_CACHE.pop(k, None)
+    except Exception:  # noqa: BLE001 - no rug.db / topcheck: unknown, never an error on the page
+        shape = None
+    if not shape:
+        return "tko drži supply: nepoznato (nema RugCheck ni rug filter podatka)"
+    parts = [f"top 10 {_pct(shape.get('top10HoldersPercent'))} (bez poolova)", f"insajderi {_pct(shape.get('insidersPercent'))}",
+             f"dev {_pct(shape.get('devHoldingsPercent'))}", f"bundle {_pct(shape.get('bundlerOwnedPercent'))}",
+             f"snajperi {_pct(shape.get('snipersOwnedPercent'))}"]
+    when = ""
+    if top and top.get("rc_ts"):
+        when = f" · RugCheck podatak {ago(top['rc_ts'])[0]}"
+    return f"tko drži supply: {', '.join(parts)} ({shape.get('izvor') or 'izvor nepoznat'}){when}"
 
 
 def token_popup(user, mint, now=None):
@@ -900,22 +1084,34 @@ def token_popup(user, mint, now=None):
         archived = mint in archive.blocked()
     except Exception:  # noqa: BLE001
         pass
-    za, protiv = [], []
+    # 9.11. (audit P45): "za" is split: fresh reasons (the same three ui/zivo.fresh_reasons counts, same thresholds)
+    # decide the verdict; the static ones (hourly buyer share, rug check, tier) only describe. Without a fresh reason
+    # the verdict is NE KUPUJ, as in the live list, so the pop-up never offers real money on yesterday's call.
+    za, za_static, protiv = [], [], []
     if callers:
         fresh = [h for h, ts in callers if now - ts <= 600]
         if fresh:
             za.append("novi pozivatelj u 10 min: " + ", ".join((h[3:] if h.startswith("tg:") else "@" + h) for h in fresh[:4]))
     if smart:
         za.append(f"{smart} pametnih novčanika kupilo u 10 min")
-    if (m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5:
-        za.append(f"+{m['ch_m5']:.0f} % u 5 min na ${m['vol_m5']:,.0f}")
+    if ((m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5
+            and (m.get("txns_m5") or 0) >= zivo.MOVE_TX_M5):
+        za.append(f"+{m['ch_m5']:.0f} % u 5 min na ${m['vol_m5']:,.0f} ({m['txns_m5']} tx)")
     buys, tx = m.get("buys_h1") or 0, m.get("txns_h1") or 0
     if tx and buys / tx >= 0.55:
-        za.append(f"kupci prevladavaju: {buys} od {tx} transakcija u satu su kupnje")
+        za_static.append(f"kupci prevladavaju: {buys} od {tx} transakcija u satu su kupnje")
+    safety = top.get("safety") or {}
+    checks = safety.get("checks") or {}
+    hold = checks.get("holderi") or (None, "")
+    # 9.11. (audit P29/P36, handoff izvori): 'oprez' now also means "holders unknown"; that alone is shown as
+    # "nepoznato" (never a block: no data -> no buy would kill every fresh token), any other warn or fail is a reason
+    holders_unknown = hold[0] == "warn" and "nepoznat" in (hold[1] or "")
+    rc_issues = [t for t in (safety.get("fails") or []) + (safety.get("warns") or []) if "nepoznat" not in t]
     if top.get("verdict") == "prolazi":
-        za.append(f"rug check alata prošao ({esc(ago(top.get('ts'))[0])})")
+        # 9.11. (audit P76): the time of the RugCheck data (rc_ts), not of the last run_top pass (ts)
+        za_static.append(f"rug check alata prošao (RugCheck podatak {esc(ago(top.get('rc_ts') or top.get('ts'))[0])})")
     if tier.get("razina"):
-        za.append(f"tier T{tier['razina']}" + (f" ({tier.get('klasa')})" if tier.get("klasa") else ""))
+        za_static.append(f"tier T{tier['razina']}" + (f" ({tier.get('klasa')})" if tier.get("klasa") else ""))
     why_not = prijedlog.alive(m)
     if why_not:
         protiv.append(why_not)
@@ -925,30 +1121,58 @@ def token_popup(user, mint, now=None):
         protiv.append(f"pada {m['ch_m5']:+.0f} % u 5 min")
     if tx and buys / tx < 0.45:
         protiv.append(f"prodavači prevladavaju: samo {buys} od {tx} transakcija u satu su kupnje")
+    # 9.11. (audit P41, handoff novac): the same pool-depth gate the automatic entry has (league/copy.CFG min_liq_mcap)
+    min_liq = copy.CFG.get("min_liq_mcap", 0.03)
+    if m.get("mcap") and m.get("liq") and m["liq"] < min_liq * m["mcap"]:
+        protiv.append(f"likvidnost ${m['liq']:,.0f} je samo {m['liq'] / m['mcap']:.1%} MC-a (granica {min_liq:.0%}): "
+                      "najveći holder bi srušio cijenu prije stopa")
     if archived:
         protiv.append("rug filter ga je arhivirao")
-    if top.get("verdict") in ("pao", "oprez"):
-        protiv.append(f"rug check alata: {top['verdict']}")
+    if top.get("verdict") == "pao" or (top.get("verdict") == "oprez" and rc_issues):
+        protiv.append(f"rug check alata: {top['verdict']}" + (f" ({'; '.join(rc_issues[:3])})" if rc_issues else ""))
     nm = converge.not_a_memecoin(mint, sym, m.get("liq"))
     if nm:
         protiv.append(nm)
-    if not za and not protiv:
-        protiv.append("nema nijednog svježeg razloga za ulaz (bez novog pozivatelja, pametne kupnje ili pokreta)")
+    mstats = zivo._minute_stats(now)
+    caller_hs = sorted({h for h, _ in callers})   # 9.11. (review): one entry per account for the veto and the expectation
+    veto = _callers_veto(caller_hs, mstats)
+    if veto:
+        protiv.append(veto)
+    if not za:
+        protiv.append("nema svježeg razloga za ulaz (bez novog pozivatelja u 10 min, kupnje pametnog novčanika ili pokreta "
+                      f"+{zivo.MOVE_M5:.0f} % u 5 min s prometom)")
     ok = not protiv
+    # 9.11. (audit P49): a token outside the top 20 has no rug check at all; the verdict says so instead of looking
+    # like a safety confirmation, and the supply line below says "nepoznato"
+    rc_missing = not top or top.get("verdict") in (None, "nepoznato")
+    # 9.11. (review): a topcheck row with verdict 'nepoznato' means the token WAS on the list but RugCheck did not
+    # answer; say that instead of "nije rađen" so Jure knows the difference
+    rc_missing_txt = "RugCheck nije odgovorio" if top else "rug check nije rađen"
     band = prijedlog._band(m["mcap"])
-    exp_txt, _v = zivo.expectation([h for h, _ in callers], zivo._minute_stats(now), (zivo._chances() or {}).get(band))
+    exp_txt, _v = zivo.expectation(caller_hs, mstats, (zivo._chances() or {}).get(band))
     ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
     ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
     ch24 = f"{m['ch_h24']:+.0f} %" if m.get("ch_h24") is not None else "?"
+    verdict = ("NE KUPUJ" if not ok else
+               f"U REDU ZA ULAZ · {rc_missing_txt}, tko drži supply nepoznato" if rc_missing else
+               "U REDU ZA ULAZ · holderi nepoznati" if holders_unknown else "U REDU ZA ULAZ")
+    liq_pct = f" ({m['liq'] / m['mcap']:.0%} MC-a)" if m.get("mcap") and m.get("liq") else ""
     b = [f'<h3>{tlink(mint, sym)}</h3>',
-         f'<div class="ap-verdict {"ok" if ok else "ne"}">{"U REDU ZA ULAZ" if ok else "NE KUPUJ"}</div>',
-         f'<p>MC ${m["mcap"] / 1000:,.0f}k · likv. ${m["liq"] / 1000:,.0f}k · cijena 5 min {ch5} · 1 h {ch1} · 24 h {ch24}<br>'
+         f'<div class="ap-verdict {"ok" if ok else "ne"}">{esc(verdict)}</div>',
+         f'<p>MC ${m["mcap"] / 1000:,.0f}k · likv. ${m["liq"] / 1000:,.0f}k{liq_pct} · cijena 5 min {ch5} · 1 h {ch1} · 24 h {ch24}<br>'
          f'Vol 5 min ${m["vol_m5"]:,.0f} ({m["txns_m5"]} tx) · 1 h ${m["vol_h1"]:,.0f} ({tx} tx, {buys} kupnji) · '
          f'brzina novca {(m["vol_h1"] / m["liq"] if m.get("liq") else 0):.1f}× likvidnosti</p>']
-    if za:
-        b.append("<p class=ap-za><b>Za:</b> " + "; ".join(esc(x) for x in za) + ".</p>")
+    if za or za_static:
+        b.append("<p class=ap-za><b>Za:</b> " + "; ".join(esc(x) for x in za)
+                 + (("; " if za else "") + '<span class=mut>' + "; ".join(esc(x) for x in za_static) + "</span>" if za_static else "")
+                 + ".</p>")
     if protiv:
         b.append("<p class=ap-protiv><b>Protiv:</b> " + "; ".join(esc(x) for x in protiv) + ".</p>")
+    if top:
+        sup = _supply_line(mint, top, now)
+    else:
+        sup = "rug check alata: nije rađen (token nije među top 20 prijedloga) · tko drži supply: nepoznato"
+    b.append(f"<p><b>Holderi:</b> {esc(sup)}.</p>")
     b.append(f"<p><b>Očekivanje +15 %:</b> {esc(exp_txt)}.</p>")
     if callers:
         b.append("<p><b>Zvali u zadnjih 60 min:</b> " + ", ".join(
@@ -1000,7 +1224,9 @@ def crew_popup(user, handles, now=None):
             if st else "još bez minutne provjere"))
     b.append("<p><b>Uspjeh (minutna provjera):</b><br>" + "<br>".join(rec) + "</p>")
     if toks:
-        lv = _live_cached(sorted(toks, key=lambda t: -toks[t]["last"])[:20], now) or {}
+        # 9.11. (review): a stable cache key (the 20 latest tokens, sorted by mint): ordering by 'last' changed the
+        # key with every new call, which meant a new slot and a synchronous DexScreener fetch in the 1-s handler
+        lv = _live_cached(sorted(sorted(toks, key=lambda t: -toks[t]["last"])[:20]), now) or {}
         rows = []
         for tok, d in sorted(toks.items(), key=lambda kv: -kv[1]["last"]):
             m = lv.get(tok) or {}
@@ -1013,9 +1239,16 @@ def crew_popup(user, handles, now=None):
     else:
         b.append("<p class=mut>U zadnjih 60 min nema poziva ove ekipe.</p>")
     if owner:
-        target = ",".join(hs)
-        b.append(f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
-                 f'<input type=hidden name=handles value="{esc(target)}"><button>Zaprati kao ekipu ({len(hs)})</button></form>')
+        # 9.11. (audit P73): wallets ("w:…") are not crew members: a crew follow never fires on a wallet (copy.events
+        # reads X/Telegram), and their buys are copied by the wallet follows already
+        acc = [h for h in hs if not h.startswith("w:")]
+        if acc:
+            target = ",".join(acc)
+            b.append(f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti ove račune kao ekipu?\')">'
+                     f'<input type=hidden name=handles value="{esc(target)}"><button>Zaprati kao ekipu ({len(acc)})</button></form>')
+        else:
+            b.append('<p class=mut style="font-size:13px">Samo novčanici: njih bot prati zasebno (gumb „Prati pravim novcem” kod '
+                     'walleta), ekipa se radi od X/Telegram računa.</p>')
     return "".join(b)
 
 
@@ -1024,9 +1257,14 @@ def callers_fragment(user):
     try:
         if not settings.can_view(tcon, user):
             return None
-        return callers_inner(_cfg(tcon), settings.is_owner(user))
+        cfg, owner = _cfg(tcon), settings.is_owner(user)
     finally:
         tcon.close()
+    if _bg_start():   # the background thread fills the cache; this request thread only reads it
+        with _LOCK:
+            ts, html = _CALLERS_CACHE["ts"], _CALLERS_CACHE["html"]
+        return _stamp(html, ts)
+    return callers_inner(cfg, owner)
 
 
 def _callers_section(cfg, owner):
@@ -1190,10 +1428,11 @@ def log_fragment(user):
 def _log_section(tcon, cfg):
     js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije'],['ap-zovu','/pravi-trade/zovu'],"
           "['ap-ideje','/pravi-trade/ideje']];"
+          "function stale(box,on){box.style.opacity=on?'.55':'';box.title=on?'nema svježih podataka':''}"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
-          "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
+          "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok){stale(box,true);return}const h=await r.text();stale(box,false);"
           "if(h!==box.innerHTML&&!box.contains(document.activeElement)){box.innerHTML=h;const d=box.closest('details.ap-sec');"
-          "if(d&&(id==='ap-zovu'||id==='ap-ideje'))d.hidden=!h.trim()}}catch(e){}}"
+          "if(d&&(id==='ap-zovu'||id==='ap-ideje'))d.hidden=!h.trim()}}catch(e){stale(box,true)}}"
           "async function f(){if(document.visibilityState!=='visible')return;for(const [id,url] of L)await one(id,url)}"
           f"setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
     n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(time.time() - 86400),)).fetchone()[0]
@@ -1459,40 +1698,51 @@ def post(path, form, user):
                     max_mcap = EKIPA_MAX_MCAP if max_mcap is None else max_mcap
                     max_runup = EKIPA_MAX_RUNUP if max_runup is None else max_runup
                 ex_mode = form.get("exit", "")
-                if kind == "ekipa" and ex_mode == "mirror":
-                    ex_mode = ""
+                if kind in ("ekipa", "kol") and ex_mode == "mirror":   # 9.11. (audit P74): "prodaj kad on proda" has no
+                    ex_mode = ""                                         # meaning for a call; the default (Smart sell) instead
+                # 9.11. (audit P10/P17/P19): "moj TP/SL" without a stop typed in gets the default stop, stored on the
+                # follow so the list shows it (league/copy.run_once would apply the same DEFAULT_SL anyway)
+                sl = (form.get("sl") or "").strip() or (copy.DEFAULT_SL if ex_mode == "tpsl" else "")
+                min_callers = int(form.get("min_callers") or 1)
                 copy.follow(con, settings.LEAGUE_USER, kind, target, form.get("label", ""), 25,
-                            form.get("per_day") or 5, ex_mode, tp, form.get("sl", ""),
-                            max_mcap=max_mcap, max_runup=max_runup, min_callers=int(form.get("min_callers") or 1))
+                            form.get("per_day") or 5, ex_mode, tp, sl,
+                            max_mcap=max_mcap, max_runup=max_runup, min_callers=min_callers)
                 con.commit()
                 note = ""
                 if kind == "ekipa":
                     mem = copy.members_of(target)
-                    return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC ${max_mcap:,.0f}, ne ako je već +{max_runup:.0%}.')}#pratim"
+                    mc = max(1, min(min_callers, len(mem)))   # 9.11. (audit P72): the message says the saved condition
+                    when = "čim prvi od njih objavi" if mc == 1 else f"kad token zovu {mc}+ od njih"
+                    return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz {when}, do MC ${max_mcap:,.0f}, ne ako je već +{max_runup:.0%}.')}#pratim"
                 if kind == "wallet" and target not in _live_wallets():
                     # 9.11.: any wallet from the database can be followed; it goes into the Helius webhook right now
                     note = (" Dodan u Helius webhook." if _add_live_wallet(target)
                             else " U webhook ulazi u sljedećem KOL krugu (do 45 min); do tada bot ne vidi njegove kupnje.")
                 return f"{BACK}?ok={qq(f'Bot prati {target}.{note}')}#pratim"
             if path == "/pravi-trade/followall":   # 9.11.: follow the callers of a token from "Zovu sada" as ONE crew
-                mem = sorted({h.strip().lstrip("@") for h in (form.get("handles") or "").split(",") if h.strip().lstrip("@")})
+                raw = {h.strip().lstrip("@") for h in (form.get("handles") or "").split(",") if h.strip().lstrip("@")}
+                # 9.11. (audit P73): "w:…" wallets never fire a crew follow (copy.events reads X/Telegram only)
+                mem = sorted(h for h in raw if not h.startswith("w:"))
                 if not mem:
-                    raise ValueError("nema računa za praćenje")
+                    raise ValueError("nema X/Telegram računa za ekipu" + (": novčanike prati zasebno (gumb „Prati pravim novcem”)"
+                                                                        if raw else ""))
                 target = ",".join(mem)
                 if any(f["target"] == target for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "ekipa"):
                     return f"{BACK}?ok={qq('Tu ekipu već pratiš.')}#pratim"
                 tp = f"{_cfg(tcon).get('tp_default', 15)}%"
-                copy.follow(con, settings.LEAGUE_USER, "ekipa", target, "", 25, 5, "tpsl", tp, "",
+                copy.follow(con, settings.LEAGUE_USER, "ekipa", target, "", 25, 5, "tpsl", tp, copy.DEFAULT_SL,   # P10/P19: the default stop
                             max_mcap=EKIPA_MAX_MCAP, max_runup=EKIPA_MAX_RUNUP, min_callers=1)
                 con.commit()
-                return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC $1M, ne ako je već +25 %.')}#pratim"
+                return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC $1M, ne ako je već +25 %, stop {copy.DEFAULT_SL}.')}#pratim"
             if path == "/pravi-trade/copyfollow":
                 src = next((f for f in copy.follows(con, active=None) if f["id"] == int(form.get("id") or 0)), None)
                 if not src:
                     raise ValueError("to praćenje ne postoji")
                 ex = src["exit"]
+                # 9.11. (audit P72): the copy keeps the MC cap, run-up gate and crew condition, not only the exit
                 copy.follow(con, settings.LEAGUE_USER, src["kind"], src["target"], src["label"], 25, src["per_day"],
-                            ex.get("mode", ""), ex.get("tp", ""), ex.get("sl", ""))
+                            ex.get("mode", ""), ex.get("tp", ""), ex.get("sl", ""), once=bool(ex.get("once")),
+                            max_mcap=ex.get("max_mcap"), max_runup=ex.get("max_runup"), min_callers=int(ex.get("min_callers") or 1))
                 who = src["label"] or src["target"]
                 return f"{BACK}?ok={qq(f'Bot prati {who}.')}#pratim"
             if path == "/pravi-trade/buy":
@@ -1533,9 +1783,26 @@ def post(path, form, user):
         tcon.close()
 
 
+def _buy_callers_veto(token, now=None):
+    """The P47 veto for the manual buy: the token's X/Telegram callers of the last hour against their minute check.
+    Any failure to read the sources means no statistic, so None (unknown is never a block)."""
+    now = now or time.time()
+    try:
+        from kol import converge
+        from ui import zivo
+        ev, _s, _f = converge.events(int(now), 3600)
+        handles = sorted({e[3] for e in ev if e[0] == token and e[4] == "call" and e[2] != "chain"})
+        if not handles:
+            return None
+        return _callers_veto(handles, zivo._minute_stats(now))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _post_buy(con, tcon, form, user):
-    """Manual buy: a demo trade on the real-trade account (same rug/liquidity checks as Natjecanje), its own SOL
-    stake for the mirror, and its exit rule; run_trade.py turns it into the real swap within the limits."""
+    """Manual buy: a demo trade on the real-trade account (same live gate as the lists: trading now, MC 30k+, not
+    falling, not collapsed, callers' minute check not weak), its own SOL stake for the mirror, and its exit rule;
+    run_trade.py turns it into the real swap within the limits."""
     from urllib.parse import quote as qq
     from league import auto
     from rugfilter import collapse
@@ -1565,6 +1832,11 @@ def _post_buy(con, tcon, form, user):
         raise ValueError(f"kupnja odbijena: {why_not}")
     if (lv[token].get("mcap") or 0) < 30_000:
         raise ValueError(f"kupnja odbijena: MC ${lv[token]['mcap']:,.0f}, ispod 30k")
+    # 9.11. (audit P47): the callers' measured outcome is the one fact about copying such a call; when it exists and
+    # is weak the buy is refused (same rule as the pop-up verdict). No measurement = no veto; a failing read = no veto.
+    veto = _buy_callers_veto(token)
+    if veto:
+        raise ValueError(f"kupnja odbijena: {veto}")
     # 9.11. (audit N4/N10): everything is checked BEFORE the demo trade is written. A ValueError used to come after
     # store.buy, so the page showed the error while the position already existed, without an exit rule, and
     # run_trade mirrored it (for real in LIVE); a stake above max_sol_per_trade was accepted here and silently
