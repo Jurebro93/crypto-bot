@@ -299,15 +299,21 @@ class UiChildRenderTest(unittest.TestCase):
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
         self.assertIn("build_in_child(path)) if path in HEAVY", src)
 
-    def test_child_failure_falls_back_to_building_here(self):
+    def test_child_failure_never_builds_here(self):
+        """9.11. (audit P33): a failed child serves the last saved copy or a 503; build() never runs in this process."""
         import run_ui
+        from ui import pagecache
 
         class R:
             returncode, stdout, stderr = 1, b"", b"boom"
         with mock.patch("subprocess.run", return_value=R()), \
-                mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b:
-            self.assertEqual(run_ui.build_in_child("/"), (200, b"here"))
-        b.assert_called_once_with("/", {})
+                mock.patch.object(run_ui, "build", return_value=(200, b"here")) as b, \
+                mock.patch.object(pagecache, "_load_snap", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code, html = run_ui.build_in_child("/pregled")
+        self.assertEqual(code, 503)
+        self.assertIn("Pokušaj ponovno".encode(), html)
+        b.assert_not_called()
 
 
 class HeavyLockTest(unittest.TestCase):

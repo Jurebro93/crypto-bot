@@ -12,8 +12,9 @@
   signal. Every other row keeps ts, score, price, mcap, liquidity, sources (charts, collapse filter, history table);
   its weights are dropped at once and its features after SLIM_FEATURES_H hours. Nothing any page or loop reads is
   lost; the per-scan feature history of older rows is.
-- Compaction: a file with >= COMPACT_WASTE (35%) of dead space is rewritten (VACUUM) at start-up and once a day, when the
-  disk has room for the rewritten copy. Without it the slimmed rows would keep their old pages.
+- Compaction: a file with >= COMPACT_WASTE (35%) of dead space is rewritten (VACUUM) once a day (hourly()), when the
+  disk has room for the rewritten copy, and at start-up only when the disk is tight (9.11., audit P9). Without it the
+  slimmed rows would keep their old pages.
 - Covering index on hype_signals (ts, token, score, mcap, liquidity, symbol): Pregled reads the newest signals from
   the ~5 MB index instead of the whole 200+ MB table.
 """
@@ -29,6 +30,9 @@ VACUUM_MAX_MB = float(os.environ.get("VACUUM_MAX_MB", "400"))
 SLIM_FEATURES_H = float(os.environ.get("SLIM_FEATURES_H", "24"))
 COMPACT_WASTE = float(os.environ.get("COMPACT_WASTE", "0.35"))   # a freshly packed file has ~10-25% slack
 SLIM_BATCH = 3000
+# 9.11. (audit P9): offline compaction at start-up only when the data disk is this tight; the daily online compact
+# (hourly) needs room for a full copy, so a tight disk is the one case where the start-up must do it before the loops
+STARTUP_COMPACT_FREE_MB = float(os.environ.get("STARTUP_COMPACT_FREE_MB", "500"))
 
 
 def files():
@@ -197,13 +201,17 @@ def _compact_via_tmp(path, mb, new_mb):
 
 
 def startup():
-    """Once before the loops start: retention, auto_vacuum switch (VACUUM where there is room), WAL on."""
+    """Once before the loops start: retention count, auto_vacuum switch (VACUUM where there is room), WAL on.
+
+    9.11. (audit P9): slim_signals (a full pass over hype_signals) and the dbstat waste() + compact of every file ran
+    here on every deploy, before run_ui (webhooks, copy loop) and run_trade could start: minutes of 503 after each of
+    20+ deploys a day. Both already run hourly (hourly()), so here only the seconds-long work stays; the offline
+    compaction (the only one that works on a full disk) stays, but only when the disk is tight."""
     t0 = time.time()
     gone = retention(count_only=True)   # 8.11.: big deletes belong to the hourly job (Render's start-up deadline)
-    nw, nf = slim_signals()
-    if nw or nf:
-        gone["hype_signals sažeto"] = nw + nf
     ensure_indexes()
+    free0 = disk.free_mb()   # 9.11. (audit P9): offline compact only on a tight disk; unknown free space (None) is not
+    tight = free0 is not None and free0 < STARTUP_COMPACT_FREE_MB   # tight: compact() could not finish anyway
     msgs = []
     for path in files():
         name = os.path.basename(path)
@@ -221,7 +229,7 @@ def startup():
             vacuumed = bool(msgs) and msgs[-1].startswith(name + " ")
             con.execute("PRAGMA journal_mode=WAL")
             con.close()
-            done = None if vacuumed else compact(path, offline=True)
+            done = None if vacuumed or not tight else compact(path, offline=True)
             if done:
                 msgs.append(done)
         except sqlite3.OperationalError as e:
