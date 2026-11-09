@@ -407,3 +407,31 @@ class NightWindow(unittest.TestCase):
             self.assertIn("ops.heavy --night " + job, src, job)
         for job in ("run_wallets.py dokazani", "rugfilter.archive", "ops.health --hourly"):   # fresh/short: stay by day
             self.assertNotIn("--night " + job, src, job)
+
+
+class AutopilotMenuForAdmins(unittest.TestCase):
+    """9.11. (Jure): the Autopilot is highlighted at the top of the menu for administrators and absent from the page
+    everybody else receives (class adm-only, stripped server-side by ui/admstrip)."""
+
+    def test_menu_has_the_admin_button_under_the_core_items(self):
+        from ui import admstrip, html
+        menu = html.side_menu("/pregled")
+        self.assertIn('class="sec-ap adm-only"', menu)
+        self.assertIn('href="/pravi-trade" class="ap"', menu)
+        others = [i for i in (menu.find('<div class="sec"'), menu.find('<div class="sec ')) if i >= 0]
+        self.assertLess(menu.index("sec-ap"), min(others))                        # before every other group
+        self.assertEqual(menu.count("/pravi-trade"), 1)                           # no second, plain entry below
+        self.assertNotIn("<h4>Autopilot</h4>", menu)
+        self.assertIn('class="ap on"', html.side_menu("/pravi-trade"))
+        stripped = admstrip.strip(menu)
+        self.assertNotIn("/pravi-trade", stripped)                                # a non-admin's copy has no trace of it
+        self.assertIn('href="/pregled"', stripped)                                # ... and keeps the rest of the menu
+        self.assertIn("Autopilot", html.ADMIN)
+        self.assertIn(".side .sec-ap a.ap", html.ADMIN_CSS)
+
+    def test_map_page_marks_the_autopilot_group_admin_only(self):
+        from ui import admstrip, html
+        _, body = html.map_page()
+        i = body.index("Autopilot</h2>")
+        self.assertIn("adm-only", body[body.rfind("<h2", 0, i):i])
+        self.assertNotIn("/pravi-trade", admstrip.strip(body))
