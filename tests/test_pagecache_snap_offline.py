@@ -49,14 +49,23 @@ class Snap(unittest.TestCase):
         pagecache.get(("/kol", "", None), lambda: (200, b"a"))
         self.assertEqual(os.listdir(pagecache.SNAP_DIR), [])
 
-    def test_clear_invalidates_snapshot(self):
+    def test_clear_serves_snapshot_at_once_and_refreshes(self):
+        """9.11. 19:05: after a POST's clear() the saved copy is served at once (stale) and rebuilt in the background,
+        instead of the visitor waiting for the build (60 s+ behind the heavy lock)."""
+        import gzip
         key = ("/pregled", "", None)
         pagecache.get(key, lambda: (200, b"old"))
         time.sleep(0.01)
         pagecache.clear()
         code, raw, gz = pagecache.get(key, lambda: (200, b"new"))
-        import gzip
-        self.assertEqual(raw or gzip.decompress(gz), b"new")
+        self.assertEqual(raw or gzip.decompress(gz), b"old")      # at once, from disk
+        for _ in range(200):                                        # the background refresh brings the new one
+            time.sleep(0.01)
+            with pagecache._lock:
+                hit = pagecache._store.get(key)
+            if hit and gzip.decompress(hit[3]) == b"new":
+                break
+        self.assertEqual(gzip.decompress(hit[3]), b"new")
 
 
 if __name__ == "__main__":

@@ -142,8 +142,8 @@ def get(key, build):
     now = time.time()
     with _lock:
         hit = _store.get(key)
-    if hit is None:   # right after a deploy: the copy saved on disk, refreshed in the background below
-        snap = _load_snap(key)
+    if hit is None:   # right after a deploy (or a POST's clear): the copy saved on disk, refreshed in the background
+        snap = _load_snap(key, stale_ok=True)   # 9.11. 19:05: waiting for a fresh build took 60 s+ behind the heavy lock
         if snap:
             with _lock:
                 hit = _store.setdefault(key, snap)
