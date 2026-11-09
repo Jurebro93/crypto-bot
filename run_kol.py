@@ -255,8 +255,10 @@ def cycle(a):
     # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
     # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
     # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
-    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_measure,
-                 cmd_minute, cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
+    # 9.11. 13:30: cmd_measure's session backfill (15 GeckoTerminal fetches) held the round 10+ min after "measure:"
+    # and cmd_minute behind it never ran in six rounds; the minute check (150 s budget) now goes before measure
+    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_minute,
+                 cmd_measure, cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
         t = time.time()
         try:
             step(a, con, cfg)

@@ -173,6 +173,30 @@ class Run(unittest.TestCase):
         con.close()
 
 
+class RoundOrder(unittest.TestCase):
+    def test_minute_runs_before_measure_and_backfill_has_a_budget(self):
+        import run_kol
+        src = open(run_kol.__file__).read()
+        self.assertLess(src.index("cmd_traces, cmd_minute"), src.index("cmd_measure, cmd_flows"))
+        from kol import sessions
+        d = tempfile.mkdtemp()
+        con = store.connect(os.path.join(d, "kol.db"))
+        for i in range(5):
+            con.execute("INSERT INTO tokens (token, pair) VALUES (?, ?)", (f"T{i}", f"P{i}"))
+            con.execute("INSERT INTO calls (tweet_id, token, handle, ts, kind, p0) VALUES (?,?,?,?,'call',1.0)", (f"c{i}", f"T{i}", "h", NOW - 3600))
+        con.commit()
+        calls = []
+
+        def slow(pair, lo, hi):
+            calls.append(pair)
+            time.sleep(0.05)
+            return [(NOW - 3600, 1, 1, 1, 1, 10.0)]
+        n = sessions.backfill(con, {"sessions": {"hours_backfill": 15}}, slow, NOW, budget_s=0.01)
+        self.assertEqual(n, 1)                      # one token, then the budget stops it
+        self.assertEqual(sessions.backfill(con, {"sessions": {"hours_backfill": 15}}, slow, NOW, budget_s=60), 4)
+        con.close()
+
+
 class Zones(unittest.TestCase):
     def test_telegram_time_without_offset_is_utc(self):
         from tg import reader
