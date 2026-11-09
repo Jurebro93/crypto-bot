@@ -12,6 +12,8 @@
  "mix_window_min": 60,
  "kontrola_every_min": 30,
  "min_liq": 5000,
+ "min_mcap": 30000,
+ "_min_mcap": "9.11.: ispod 30k $ pri ulazu nema ulaza ni u jednoj strategiji (Jureovo pravilo). Do tada je 228 od 1.750 zatvorenih ulaza bilo ispod 30k; jedan od njih (WWIII, 9,4k $ mcap, 70x u 8 min) nosio je cijeli plus strategije KOL pozivi.",
  "max_mcap": 50000000,
  "price_wait_min": 10,
  "missing_h": 6,
