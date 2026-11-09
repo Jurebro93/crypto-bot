@@ -110,11 +110,23 @@ def slot(wait=None, priority=False, label=None):
                 pass
 
 
+NICE = int(os.environ.get("HEAVY_NICE", "10"))   # 9.11. 19:05: CPU at 100 % from run_dugo/wallets score starved the UI
+
+
+def _nicer():
+    try:
+        os.nice(NICE)
+    except OSError:
+        pass
+
+
 def run(args, wait=None, priority=False, **kw):
-    """subprocess.run(args, **kw) under the lock; None if the lock was busy for longer than `wait` seconds."""
+    """subprocess.run(args, **kw) under the lock; None if the lock was busy for longer than `wait` seconds.
+    The child runs at a lower CPU priority (nice NICE) so the UI answers first."""
     with slot(wait, priority=priority, label=_label(args)) as got:
         if not got:
             return None
+        kw.setdefault("preexec_fn", _nicer)
         return subprocess.run(args, **kw)
 
 

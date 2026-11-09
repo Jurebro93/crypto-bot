@@ -326,7 +326,7 @@ def cmd_loop(a):
         except subprocess.TimeoutExpired:
             print("krug: predugo, prekinut", file=sys.stderr)
         try:   # 9.11. 18:20: the network-bound search without the lock, so pages and other jobs are not held behind it
-            subprocess.run(base + ["search-round"], timeout=timeout)
+            subprocess.run(base + ["search-round"], timeout=timeout, preexec_fn=heavy._nicer)
         except subprocess.TimeoutExpired:
             print("krug: search-round predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)

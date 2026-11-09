@@ -97,6 +97,38 @@ def container_mb():
     return None
 
 
+def container_limit_mb():
+    """The cgroup memory limit in MB (Render plan), or the machine's MemTotal when the cgroup says 'max'; None if unknown."""
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(p) as f:
+                v = f.read().strip()
+            if v != "max" and int(v) < 2**50:
+                return int(v) / 2**20
+        except (OSError, ValueError):
+            pass
+    try:
+        with open("/proc/meminfo") as f:
+            for ln in f:
+                if ln.startswith("MemTotal:"):
+                    return int(ln.split()[1]) / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def container_free_mb():
+    """MB the processes could still take: limit minus what they hold (anon). Page cache is not counted as used, the
+    kernel drops it under pressure. None when the cgroup does not say. 9.11. 19:05: the page build waited 60 s on the
+    heavy lock behind run_dugo (29 min) and wallets score while 1.2 GB were free; the lock is about memory, so a build
+    may go next to a heavy job when there is room."""
+    limit = container_limit_mb()
+    anon, _ = container_split_mb()
+    if limit is None or anon is None:
+        return None
+    return max(0.0, limit - anon)
+
+
 def line(tables=False):
     procs = processes()
     total = container_mb()
