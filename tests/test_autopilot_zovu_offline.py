@@ -113,6 +113,37 @@ class Page(unittest.TestCase):
         self.assertIn("REAL", html)                         # a real order stays visible for a week
         self.assertNotIn("GTAVI", html)
 
+    def test_ideas_read_the_suggestion_log_and_never_build_token_rows(self):
+        """9.11. 12:30: building the picks in the UI process on every poll ran the server out of memory."""
+        import sqlite3
+        from ui import data, overview, prijedlog_log
+        hp = os.path.join(self.tmp.name, "hype.db")
+        con = sqlite3.connect(hp)
+        con.execute(prijedlog_log.SCHEMA)
+        con.executemany("INSERT INTO prijedlog_log (token, day, ts, kind, razina, mcap0, conf) VALUES (?,?,?,?,?,?,?)",
+                        [("TOKA", "d", NOW - 600, "danas", "niska", 50000, 30), ("TOKB", "d", NOW - 300, "danas", "visoka", 120000, 70),
+                         ("OLD", "d0", NOW - 2 * 86400, "danas", "visoka", 90000, 80)])
+        con.commit()
+        con.close()
+        saved = (data.HYPE_DB, overview.token_rows)
+        data.HYPE_DB = hp
+
+        def boom(*a, **k):
+            raise AssertionError("token_rows must not run in the UI process")
+        overview.token_rows = boom
+        pravitrade._IDEAS_CACHE.clear()
+        try:
+            picks = pravitrade.latest_picks(NOW)
+            self.assertEqual([p["token"] for p in picks], ["TOKB", "TOKA"])   # best grade first, nothing older than a day
+            html = pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW)
+            self.assertIn("TOKB", html)
+            self.assertIn("dexscreener.com/solana/TOKB", html)
+            self.assertIn("vjerojatnost visoka", html)
+            self.assertIs(pravitrade.ideas_inner(settings.merged(CFG, self.con), True, NOW + 5), html)   # cached
+        finally:
+            data.HYPE_DB, overview.token_rows = saved
+            pravitrade._IDEAS_CACHE.clear()
+
     def test_fragments_need_access(self):
         self.assertIsNone(pravitrade.callers_fragment("Ivan"))
         self.assertIsNone(pravitrade.ideas_fragment("Ivan"))
