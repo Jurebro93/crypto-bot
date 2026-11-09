@@ -22,11 +22,12 @@
   "lookback_h": 2,
   "min_age_min": 20,
   "per_run": 12,
-  "daily_usd": 0.8,
+  "daily_usd": 0,
   "caller_min_followers": 10000,
   "big_followers": 20000,
   "window_min": 30,
-  "before_h": 24
+  "before_h": 24,
+  "_9_11": "0 = isključeno (Jure 9.11.): strategija Ekipa nije dala nijedan ulaz u 4 dana; ekipe se mjere iz zajedničkih poziva (kol/minute.py, /ekipe) bez troška."
  },
  "traces": {
   "supply_pct": 2.0,

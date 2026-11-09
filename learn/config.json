@@ -43,8 +43,9 @@
  "postai": {
   "enabled": true,
   "window_h": 6,
-  "per_run": 2500,
-  "per_day": 12000
+  "per_run": 500,
+  "per_day": 2000,
+  "_9_11": "12000/dan (do ~$10/dan Haiku) nije opravdano dok oznake ne dokažu težinu u učenju; 2000/dan, najnovije objave prve."
  },
  "_postai": "AI (Claude Haiku 5.5, batch = pola cijene) čita svaku KOL i TG objavu s tokenom: poziv/spominjanje/upozorenje/reklama, plaćeno, uvjerenje 1-5, je li autor kupio. Dnevni limit per_day objava drži trošak ispod ~$1/dan.",
  "detektiv": {

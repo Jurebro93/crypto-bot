@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kol import crew, store as kstore  # noqa: E402
 
 CFG = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")))
+# 9.11.: engager reads are off in the shipped config (crew.daily_usd 0); the mechanism is tested with a budget
+CFG = {**CFG, "crew": {**CFG["crew"], "daily_usd": 0.8}}
 NOW = 1_800_000_000
 MINT = "M" * 44
 W_INS = "I" * 44

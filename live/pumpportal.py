@@ -148,6 +148,9 @@ def subscribe_msgs(tokens, wallets, prev=(set(), set())):
     return out
 
 
+_LAST_BALANCE_LOG = [0.0]
+
+
 class Feed:
     """Collects parsed rows and writes them in batches (one commit a second, not one per trade)."""
 
@@ -172,7 +175,11 @@ class Feed:
             text = str(msg)
             if "Minimum balance" in text or "only available when connecting with an API key" in text:
                 self.balance_error = True   # unfunded key: resubscribe everything at the next refresh (no restart)
-            if self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
+                # 9.11.: the same line came twice a minute for days (every reconnect is a new Feed); once per 30 min
+                if (now or time.time()) - _LAST_BALANCE_LOG[0] >= 1800:
+                    _LAST_BALANCE_LOG[0] = now or time.time()
+                    self.log(f"live: poruka {text[:200]} (PumpPortal podatkovni ključ treba ≥ 0.02 SOL; ponavljam svakih 30 min)")
+            elif self.n_other < 20:   # subscription acks and errors: the first few go to the log (5.11.: 0 trades?)
                 self.n_other += 1
                 self.log(f"live: poruka {text[:200]}")
         return kind
