@@ -8,7 +8,6 @@ import datetime as dt
 import json
 import os
 import re
-import sys
 import sqlite3
 import time
 
@@ -58,9 +57,12 @@ def is_solana_mint(c):
         return False
     try:
         import base58
+    except ImportError:   # 9.11. (audit P57): without the package only the shape check (the old line was always False)
+        return bool(_CA.fullmatch(c))
+    try:
         return len(base58.b58decode(c)) == 32
-    except Exception:  # noqa: BLE001  (invalid characters, or base58 missing: then only the shape check above)
-        return "base58" not in str(sys.modules.get("base58", "")) and False
+    except Exception:  # noqa: BLE001  (invalid characters)
+        return False
 
 
 def cas_in(text):

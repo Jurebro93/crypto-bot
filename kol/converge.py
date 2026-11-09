@@ -189,12 +189,14 @@ def compute(now=None, cfg=None, good=50, **paths):
 
 
 def save(con, conv, now=None):
-    """kol.db converge: newest state per token (kept 7 days)."""
+    """kol.db converge: newest state per token (kept 7 days). 9.11. (audit P22): score and n_* are the CURRENT
+    values (what score_token counted in the window), not the historical maximum: the pages read the row as the state
+    now, and a stale peak with a fresh ts ranked tokens whose crowd had left."""
     now = now or int(time.time())
     for tok, r in conv.items():
         con.execute("""INSERT INTO converge VALUES (?,?,?,?,?,?,?,?,?,?,NULL,0,?,?) ON CONFLICT (token) DO UPDATE SET
-            ts=excluded.ts, score=MAX(score, excluded.score), n_x=MAX(n_x, excluded.n_x), n_tg=MAX(n_tg, excluded.n_tg),
-            n_chain=MAX(n_chain, excluded.n_chain), n_other=MAX(n_other, excluded.n_other), platforms=excluded.platforms,
+            ts=excluded.ts, score=excluded.score, n_x=excluded.n_x, n_tg=excluded.n_tg,
+            n_chain=excluded.n_chain, n_other=excluded.n_other, platforms=excluded.platforms,
             handles=excluded.handles, kol_selling=excluded.kol_selling, updated=excluded.updated""",
                     (tok, r["last_ts"], r["first_ts"], r["score"], r["n_x"], r["n_tg"], r["n_chain"], r["n_other"],
                      json.dumps(r["platforms"]), json.dumps(r["handles"]), r["kol_selling"], now))

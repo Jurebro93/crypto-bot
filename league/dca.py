@@ -127,7 +127,8 @@ def add_to(con, trade_id, size_usd, price, liq):
     if a and a.get("mode") == "tpsl" and ("tp_in" in a or "sl_in" in a):
         from league import auto as autosell   # a TP/SL typed in percent follows the new average entry
         try:
-            autosell.set_auto(con, t["user"], trade_id, "tpsl", a.get("tp_in", ""), a.get("sl_in", ""))
+            autosell.set_auto(con, t["user"], trade_id, "tpsl", a.get("tp_in", ""), a.get("sl_in", ""),
+                              from_eff=bool(a.get("from_eff")))   # 9.11.: a copy's levels stay on the effective entry
         except ValueError:
             pass
     con.commit()

@@ -121,10 +121,13 @@ def sell_test(quote, usd_in):
 
 def judge(mint, rc, sell=None, full=None, pumpfun_suffix="pump"):
     """Combine the checks. `rc` is summarize_rc() output, `sell` sell_test() output, `full` the newest rug.db row
-    ({'verdict', 'data': {'hard_fails': [...]}}) or None. Returns {'verdict', 'fails', 'warns', 'oks', 'checks'};
-    checks maps each line the page shows (mint, freeze, lp, holderi, dev, honeypot, rug filter) to (status, text),
-    status in 'ok' | 'warn' | 'fail' | None (not checked)."""
+    ({'verdict', 'data': {'hard_fails': [...], 'flags': [...], 'holders': {'top10_pct'}, ...}}) or None. Returns
+    {'verdict', 'fails', 'warns', 'oks', 'checks'}; checks maps each line the page shows (mint, freeze, lp, holderi,
+    dev, honeypot, rug filter) to (status, text), status in 'ok' | 'warn' | 'fail' | None (not checked).
+    9.11. (audit P36): holders unknown is a warn, so the verdict is 'oprez', never 'prolazi' on missing data."""
     fails, warns, oks, checks = [], [], [], {}
+    fdata = (full or {}).get("data") or {}
+    full_t10 = _num((fdata.get("holders") or {}).get("top10_pct"))   # 9.11. (audit P29): rug.db top10 when RugCheck has none
 
     def put(key, status, text):
         checks[key] = (status, text)
@@ -154,15 +157,17 @@ def judge(mint, rc, sell=None, full=None, pumpfun_suffix="pump"):
             put("lp", "warn", f"LP zaključan ili spaljen {lp:.0f}%")
         else:
             put("lp", "ok", f"LP zaključan ili spaljen {lp:.0f}%")
-        t10 = rc["top10"]
+        t10, src = rc["top10"], ""
+        if t10 is None and full_t10 is not None:
+            t10, src = full_t10, " (rug filter)"
         if t10 is None:
-            put("holderi", None, "nema podatka o holderima")
+            put("holderi", "warn", "nema podatka o holderima: koncentracija nepoznata")
         elif t10 > TOP10_FAIL:
-            put("holderi", "fail", f"top 10 holdera drži {t10:.0f}% (bez poolova)")
+            put("holderi", "fail", f"top 10 holdera drži {t10:.0f}% (bez poolova){src}")
         elif t10 > TOP10_WARN:
-            put("holderi", "warn", f"top 10 holdera drži {t10:.0f}%")
+            put("holderi", "warn", f"top 10 holdera drži {t10:.0f}%{src}")
         else:
-            put("holderi", "ok", f"top 10 holdera drži {t10:.0f}%")
+            put("holderi", "ok", f"top 10 holdera drži {t10:.0f}%{src}")
         dev = rc["dev_pct"]
         many = rc["creator_tokens"] >= 10
         if dev is not None and dev > DEV_FAIL:
@@ -209,10 +214,13 @@ def judge(mint, rc, sell=None, full=None, pumpfun_suffix="pump"):
             hard = [h for h in hard if not h.startswith("likvidnost samo")]
             if v == "ODBAČEN" and not hard:
                 v = "OPREZ"
+        flags = [f for f in (fdata.get("flags") or []) if f]
         if v == "ODBAČEN":
             put("rugfilter", "fail", "rug filter: " + (hard[0] if hard else "ODBAČEN"))
         elif v == "VISOK RIZIK":
-            put("rugfilter", "warn", "rug filter: visok rizik")
+            put("rugfilter", "warn", "rug filter: visok rizik" + (f" ({flags[0]})" if flags else ""))
+        elif v == "OPREZ":   # 9.11. (audit P29): snipers, bundles, fresh wallets, clusters under the hard line are a warn
+            put("rugfilter", "warn", "rug filter: oprez" + (f" ({flags[0]})" if flags else ""))
         else:
             put("rugfilter", "ok", f"rug filter: {(v or '').lower() or 'prošao'}")
     if fails:

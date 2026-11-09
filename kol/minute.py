@@ -150,6 +150,24 @@ def _done(mcon):
     return {(r[0], r[1]) for r in mcon.execute("SELECT tweet_id, token FROM call_path")}
 
 
+RETRY_S = 3600   # 9.11. (audit P24): a token whose candles failed (403, timeout) waits this long before the next try
+
+
+def _retry(mcon):
+    """{token: not before ts} from kv minute_retry."""
+    try:
+        r = mcon.execute("SELECT value FROM kv WHERE key = 'minute_retry'").fetchone()
+        return json.loads(r[0]) if r else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _set_retry(mcon, token, until, now):
+    d = {t: u for t, u in _retry(mcon).items() if u > now}
+    d[token] = int(until)
+    mcon.execute("INSERT OR REPLACE INTO kv VALUES ('minute_retry', ?)", (json.dumps(d),))
+
+
 def candidates(kcon, c, now):
     """[(tweet_id, token, handle, ts, n_callers)] of real calls in the window (kol.db), crews first, newest first."""
     return kcon.execute("""
@@ -168,10 +186,11 @@ def due(kcon, mcon, c, now, per_run=None):
     """{token: [(tweet_id, handle, ts)]} without a minute path yet; at most per_run tokens, and per token only the
     calls within SPAN_S of its newest one (the rest next time)."""
     done = _done(mcon)
+    wait = {t for t, u in _retry(mcon).items() if u > now}   # 9.11. (audit P24): failed fetch: not every pass
     out = {}
     cap = per_run or c["per_run"]
     for tid, tok, h, ts, _n in candidates(kcon, c, now):
-        if (tid, tok) in done:
+        if (tid, tok) in done or tok in wait:
             continue
         if tok not in out and len(out) >= cap:
             continue
@@ -222,6 +241,15 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                 candles = fetch(pairs[tok], start, end)
             except Exception as e:  # noqa: BLE001
                 log(f"  minute {tok[:8]}: {type(e).__name__}: {e}")
+                # 9.11. (audit P24): 404 = GeckoTerminal does not know the pool: the calls are recorded as bad 'pool'
+                # so the token leaves the queue; anything else (403, timeout) waits RETRY_S instead of heading every pass
+                if getattr(e, "code", None) == 404:
+                    mcon.executemany("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
+                                     "VALUES (?,?,?,?,'pool',?)", [(tid, tok, h, ts, now) for tid, h, ts in calls])
+                    left -= 1
+                else:
+                    _set_retry(mcon, tok, now + RETRY_S, now)
+                mcon.commit()
                 continue
             if candles is None:    # another job holds the GeckoTerminal budget (http.reserve): next round
                 break
@@ -324,12 +352,25 @@ def _rows(mcon, where, args):
 
 
 def handle_stats(mcon, days=14, now=None, min_n=1):
-    """[(handle, stats)] over the account's measured calls of the last `days`, most calls first."""
+    """[(handle, stats)] over the account's measured calls of the last `days`, most calls first. 9.11. (audit P23):
+    one call per (account, token), the FIRST one, as kol/score and sessions count (first_by_kol): an account that
+    posts the same CA five times is one measured call, not five; stats['n_posts'] keeps the raw count."""
     now = now or int(time.time())
-    by = {}
+    posts, first = {}, {}
     for r in _rows(mcon, "ts >= ?", (now - days * 86400,)):
-        by.setdefault(r["handle"], []).append(r)
-    out = [(h, _agg(rs)) for h, rs in by.items() if len(rs) >= min_n]
+        posts[r["handle"]] = posts.get(r["handle"], 0) + 1
+        k = (r["handle"], r["token"])
+        if k not in first or r["ts"] < first[k]["ts"]:
+            first[k] = r
+    by = {}
+    for (h, _tok), r in first.items():
+        by.setdefault(h, []).append(r)
+    out = []
+    for h, rows in by.items():
+        if len(rows) >= min_n:
+            s = _agg(rows)
+            s["n_posts"] = posts[h]
+            out.append((h, s))
     out.sort(key=lambda x: (-x[1]["n"], -x[1]["hit10"]))
     return out
 
