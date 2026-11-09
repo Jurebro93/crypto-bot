@@ -83,5 +83,16 @@ run_ui.py dijele "pogon" (zaglavlje/HEAVY), "javno" (rute) → rute dodaje "javn
 
 | faza | stanje | bilješka |
 |---|---|---|
-| 0 | u tijeku | merge u 00:45 |
-| 1–7 | čeka 01:10 | |
+| 0 | GOTOVO | PR #76 spojen 00:44 CET (47723d9); grana vraćena na main; deploy provjeren u 00:5x |
+| 1 | čeka 01:10 | tri workflowa: audit koda, web izvori i cijene, savjeti tradera |
+| 2 | čeka fazu 1 | |
+| 3 | čeka fazu 1 | |
+| 4 | čeka fazu 3 | |
+| 5 | čeka fazu 4 | |
+| 6 | čeka | prezentacija, prijedlog profitabilnosti, audit podataka, UI prijedlozi |
+| 7 | čeka 06:00 | jedan PR, merge iza 06:00 (odobreno unaprijed) |
+
+## Dnevnik noći (kratko, novije gore)
+
+- 00:44 PR #76 spojen. Sentry: org `serprise` (de.sentry.io) bez projekata i grešaka.
+- 00:36 Zakazani osigurači: 01:12 i 03:30 (nastavi ako je stalo), 06:40 (jutarnja provjera).
