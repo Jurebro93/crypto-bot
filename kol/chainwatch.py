@@ -269,6 +269,7 @@ def ingest(payload, hype_db=None):
                    sol REAL, PRIMARY KEY (sig, mint))""")
     con.execute("""CREATE TABLE IF NOT EXISTS chain_transfers (sig TEXT, src TEXT, dst TEXT, mint TEXT, amount REAL,
                    ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
+    con.execute("CREATE INDEX IF NOT EXISTS chain_trades_ts ON chain_trades (ts)")   # 9.11.: the live callers box reads by time
     con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
     con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
     con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))

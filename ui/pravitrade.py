@@ -461,11 +461,13 @@ def _buy_form(mint, cfg, exit_mode, owner):
                 'walleta (Jupiter) ↗</a></p>')
     opts = "".join(f'<option value={v}{" selected" if v == exit_mode else ""}>{lab}</option>'
                    for v, lab in (("smart", "Smart sell"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")))
+    tp_default = cfg.get("tp_default", 15)   # the exit target chosen at the top of the page (_tp_card)
     return ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             f'(ako je Autopilot uključen)?\')"><input type=hidden name=token value="{esc(mint)}">'
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
-            '<input name=tp placeholder="TP npr. 100%" size=9> <input name=sl placeholder="SL npr. -30%" size=9>'
+            f'<input name=tp placeholder="TP npr. 100%" size=9{f" value={tp_default}%" if exit_mode == "tpsl" else ""}> '
+            '<input name=sl placeholder="SL npr. -30%" size=9>'
             '<button>Kupi</button></form>')
 
 
@@ -484,6 +486,137 @@ def _buy_now_card(cfg, owner):
             '<button>Kupi</button></form><p class=mut style="font-size:13px;margin:6px 0 0">Prolazi iste provjere i limite kao '
             'automatske kupnje (rug, likvidnost, dnevni limit, rezerva za prodaju). Pravi novac ide samo kad je Autopilot uključen; '
             'inače je ovo probna kupnja.</p></div>')
+
+
+TP_CHOICES = (5, 10, 15, 20, 30)
+
+
+def _tp_card(cfg, owner):
+    """9.11. (Jure): the exit target for new copies, chosen at the top because it is the most important part of
+    the trade: 5 / 10 / 15 / 20 / 30 %. New follows and buys with 'moj TP/SL' get it when their TP box is empty."""
+    cur = int(cfg.get("tp_default") or 15)
+    if not owner:
+        return f'<p class=mut style="font-size:13px">Cilj izlaza za nove kopije: +{cur} %.</p>'
+    btns = "".join(f'<form method=post action=/pravi-trade/tp style="margin:0"><input type=hidden name=tp value={v}>'
+                   f'<button class="{"on" if v == cur else ""}" style="min-height:40px{";font-weight:700" if v == cur else ""}">+{v} %</button></form>'
+                   for v in TP_CHOICES)
+    return (f'<div class=card id=cilj><b>Cilj izlaza za nove kopije</b> <span class=mut>sada +{cur} %</span>'
+            f'<div class=ap-btns>{btns}</div><p class=mut style="font-size:13px;margin:6px 0 0">Vrijedi za svako novo praćenje i '
+            'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop ostaje kako je upisan ili zadani.</p></div>')
+
+
+def ideas_inner(cfg, owner, now=None):
+    """The same picks as "Prijedlog za danas" on Pregled (ui/prijedlog.token_picks), with a buy form each."""
+    now = now or time.time()
+    try:
+        from ui import prijedlog
+        picks = prijedlog.token_picks(now)
+    except Exception as e:  # noqa: BLE001
+        return f'<p class=mut>Prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
+    if not picks:
+        return '<p class=mut>Trenutno nema tokena sa živim parom koji nije rug; novi prijedlog čim ga sken da (svake 2 min).</p>'
+    out = []
+    for p in picks:
+        raz = p.get("razina") or "visoka"
+        cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "")
+        why = "; ".join(esc(w) for w in (p.get("why") or [])) or "ocjena alata"
+        out.append(f'<details class=ap-it open><summary><span>{tlink(p["token"], p.get("symbol"))} {badge("vjerojatnost " + raz, cls)}</span>'
+                   f'<span class=k>na ${(p.get("mcap0") or 0) / 1000:,.0f}k · pouzdanost {p.get("conf") or 0:.0f}</span></summary>'
+                   f'<p>{why}. <a href="https://dexscreener.com/solana/{quote(p["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
+                   f'{_buy_form(p["token"], cfg, "tpsl", owner)}</details>')
+    return "".join(out)
+
+
+def ideas_fragment(user):
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        return ideas_inner(_cfg(tcon), settings.is_owner(user))
+    finally:
+        tcon.close()
+
+
+def _ideas_section(cfg, owner):
+    return _sec("Što kupiti sada", "isti prijedlozi kao na Pregledu · ⟳ 10 s", f'<div id=ap-ideje>{ideas_inner(cfg, owner)}</div>',
+                open_=True, sid="ideje")
+
+
+CALLERS_WINDOW_S = 3600
+_CALLERS_CACHE = {"ts": 0, "html": ""}
+
+
+def group_callers(events, now, window_s=CALLERS_WINDOW_S, limit=8):
+    """[(token, callers[(who, platform, ts)], first_ts, last_ts)] from kol/converge.events rows, most callers first,
+    then newest. 'buy' events are followed wallets' buys ('chain'); calls from X and Telegram."""
+    by = {}
+    for tok, ts, plat, who, kind in events:
+        if kind not in ("call", "buy") or now - ts > window_s:
+            continue
+        d = by.setdefault(tok, {})
+        if who not in d or d[who][1] > ts:
+            d[who] = (plat, ts)
+    out = []
+    for tok, d in by.items():
+        callers = sorted(((who, plat, ts) for who, (plat, ts) in d.items()), key=lambda c: c[2])
+        out.append((tok, callers, callers[0][2], callers[-1][2]))
+    out.sort(key=lambda r: (-len(r[1]), -r[3]))
+    return out[:limit]
+
+
+def callers_inner(cfg, owner, now=None):
+    """Live: who called which token in the last hour (X, Telegram, followed wallets). The point (Jure 9.11.): see the
+    FIRST caller of a token at once and buy before the rest of his crew calls it."""
+    now = now or time.time()
+    if now - _CALLERS_CACHE["ts"] < 2 and _CALLERS_CACHE["html"]:
+        return _CALLERS_CACHE["html"]
+    try:
+        from kol import converge, store as kstore
+        ev, _scores, _fac = converge.events(int(now), CALLERS_WINDOW_S)
+        rows = group_callers(ev, now)
+        syms = {}
+        kc = copy._ro(kstore.DB)
+        if kc is not None and rows:
+            q = ",".join("?" * len(rows))
+            syms = dict(copy._q(kc, f"SELECT token, symbol FROM tokens WHERE token IN ({q})", [r[0] for r in rows]))
+            kc.close()
+    except Exception as e:  # noqa: BLE001
+        return f'<p class=mut>Pozivi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
+    if not rows:
+        html = '<p class=mut>U zadnjih sat vremena nitko koga mjerimo nije zvao token.</p>'
+    else:
+        items = []
+        for tok, callers, first, last in rows:
+            who = ", ".join((f"👛 {c[0][:6]}…" if c[1] == "chain" else ("✈ " + c[0][3:] if c[0].startswith("tg:") else "@" + c[0])) for c in callers[:6])
+            more = f" +{len(callers) - 6}" if len(callers) > 6 else ""
+            handles = ",".join(c[0] for c in callers if c[1] != "chain")
+            follow = (f'<form method=post action=/pravi-trade/followall onsubmit="return confirm(\'Zapratiti sve ove račune?\')">'
+                      f'<input type=hidden name=handles value="{esc(handles)}"><button>Zaprati sve ({len(callers)})</button></form>'
+                      if owner and handles else "")
+            items.append(f'<details class=ap-it open><summary><span>{tlink(tok, syms.get(tok))} <span class=ap-tag>{len(callers)} {"zove" if len(callers) == 1 else "zovu"}</span></span>'
+                         f'<span class=k>prvi {esc(ago(first)[0])}{(" · zadnji " + esc(ago(last)[0])) if last != first else ""}</span></summary>'
+                         f'<p>{esc(who)}{more} · <a href="https://dexscreener.com/solana/{quote(tok)}" target=_blank rel=noopener>DexScreener ↗</a></p>'
+                         f'{_buy_form(tok, cfg, "tpsl", owner)}{follow}</details>')
+        html = "".join(items)
+    _CALLERS_CACHE.update(ts=now, html=html)
+    return html
+
+
+def callers_fragment(user):
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        return callers_inner(_cfg(tcon), settings.is_owner(user))
+    finally:
+        tcon.close()
+
+
+def _callers_section(cfg, owner):
+    return _sec("Zovu sada", f"zadnjih 60 min · X, Telegram, praćeni novčanici · ⟳ {LOG_EVERY_S} s",
+                f'<div id=ap-zovu>{callers_inner(cfg, owner)}</div><p class=mut style="font-size:13px;margin:8px 0 0">'
+                'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p>',
+                open_=True, sid="zovu")
 
 
 def _token_section(cfg, owner):
@@ -603,8 +736,20 @@ def log_html(tcon, cfg):
                         f"ORDER BY o.id DESC LIMIT {LOG_N}").fetchall()
     if not rows:
         return head + '<p class=mut style="margin:0">Još nema nijednog naloga. Čim bot nešto kupi ili proda, pojavi se ovdje.</p>'
+    # 9.11. (Jure): "osvježeno sada, a nalozi od prije 5.8 dana, što mi to govori?" Only the last 24 h (and every real
+    # order of the last 7 days) is listed; older trial/skipped attempts are one line, so nothing stale looks live.
+    recent = [r for r in rows if r[0] >= now - 86400 or (r[3] == "live" and r[0] >= now - 7 * 86400)]
+    older = [r for r in rows if r not in recent]
     items = []
-    for ts, tok, side, mode, st, ain, aout, err, why, sig, sym in rows:
+    if not recent:
+        items.append('<p class=mut style="margin:0 0 6px">Danas nema naloga: bot nije ništa kupio ni pokušao kupiti.</p>')
+    if older:
+        kinds = ", ".join(f"{sum(1 for r in older if r[4] == k)} {STATUS.get(k, (k,))[0]}" for k in ("ok", "dry", "blocked", "failed")
+                          if any(r[4] == k for r in older))
+        items.append(f'<p class=mut style="font-size:12px;margin:0 0 6px">Starije od 24 h: {len(older)} naloga ({esc(kinds)}), '
+                     f'zadnji {esc(ago(older[0][0])[0])}; probno = bez pravog novca, preskočeno = bot nije kupio (limit, rug, '
+                     'likvidnost…).</p>')
+    for ts, tok, side, mode, st, ain, aout, err, why, sig, sym in recent:
         icon, word = SIDE.get(side, ("•", side))
         lab, css = STATUS.get(st, (st, ""))
         lam = ain if side == "buy" else aout
@@ -630,7 +775,8 @@ def log_fragment(user):
 
 
 def _log_section(tcon, cfg):
-    js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije']];"
+    js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije'],['ap-zovu','/pravi-trade/zovu']];"
+          "setInterval(()=>one('ap-ideje','/pravi-trade/ideje'),10000);"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
           "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
           "if(h!==box.innerHTML&&!box.contains(document.activeElement))box.innerHTML=h}catch(e){}}"
@@ -730,8 +876,9 @@ def page(qs, user):
             copy.ensure(con)
             b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
                  'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _buy_now_card(cfg, owner),
-                 _positions(tcon, not owner, owner, cfg.get("sell_req")), _log_section(tcon, cfg),
+                 _wallet_card(tcon, cfg, con, owner), _tp_card(cfg, owner), _buy_now_card(cfg, owner),
+                 _positions(tcon, not owner, owner, cfg.get("sell_req")), _callers_section(cfg, owner),
+                 _ideas_section(cfg, owner), _log_section(tcon, cfg),
                  _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]
         finally:
@@ -838,6 +985,14 @@ def post(path, form, user):
             settings.put(tcon, "on", on, user)
             print(f"pravi trade: {user} je {'UKLJUČIO' if on else 'isključio'} prekidač", flush=True)
             return f"{BACK}?ok={qq('Autopilot je uključen.' if on else 'Autopilot je isključen: nove kupnje staju.')}"
+        if path == "/pravi-trade/tp":   # 9.11.: the exit target for new copies (owner only)
+            if not settings.is_owner(user):
+                return f"{BACK}?err={qq('samo vlasnik')}"
+            v = int(float(form.get("tp") or 15))
+            if v not in TP_CHOICES:
+                return f"{BACK}?err={qq('cilj izlaza: 5, 10, 15, 20 ili 30 %')}"
+            settings.put(tcon, "tp_default", v, user)
+            return f"{BACK}?ok={qq(f'Cilj izlaza za nove kopije: +{v} %.')}#cilj"
         if path == "/pravi-trade/sellall":
             settings.put(tcon, "on", False, user)
             settings.put(tcon, "sell_all", int(time.time()), user)
@@ -883,8 +1038,9 @@ def post(path, form, user):
                     kind, target = _detect_kind(target)
                 if not target:
                     raise ValueError("upiši adresu walleta ili @influencera")
+                tp = form.get("tp", "") or (f"{_cfg(tcon).get('tp_default', 15)}%" if form.get("exit") == "tpsl" else "")
                 copy.follow(con, settings.LEAGUE_USER, kind, target, form.get("label", ""), 25,
-                            form.get("per_day") or 5, form.get("exit", ""), form.get("tp", ""), form.get("sl", ""))
+                            form.get("per_day") or 5, form.get("exit", ""), tp, form.get("sl", ""))
                 con.commit()
                 note = ""
                 if kind == "wallet" and target not in _live_wallets():
@@ -892,6 +1048,17 @@ def post(path, form, user):
                     note = (" Dodan u Helius webhook." if _add_live_wallet(target)
                             else " U webhook ulazi u sljedećem KOL krugu (do 45 min); do tada bot ne vidi njegove kupnje.")
                 return f"{BACK}?ok={qq(f'Bot prati {target}.{note}')}#pratim"
+            if path == "/pravi-trade/followall":   # 9.11.: follow every caller of a token from "Zovu sada"
+                have = {f["target"] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "kol"}
+                added = []
+                for h in (form.get("handles") or "").split(","):
+                    h = h.strip().lstrip("@")
+                    if h and h not in have:
+                        tp = f"{_cfg(tcon).get('tp_default', 15)}%"
+                        copy.follow(con, settings.LEAGUE_USER, "kol", h, "", 25, 5, "tpsl", tp, "")
+                        added.append(h)
+                con.commit()
+                return f"{BACK}?ok={qq('Bot prati: ' + ', '.join(added) if added else 'Sve već pratiš.')}#pratim"
             if path == "/pravi-trade/copyfollow":
                 src = next((f for f in copy.follows(con, active=None) if f["id"] == int(form.get("id") or 0)), None)
                 if not src:

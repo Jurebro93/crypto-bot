@@ -237,6 +237,9 @@ def route(path, qs):
     if path == "/izvori":
         from ui import izvori
         return izvori.page(qs)
+    if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
+        from ui import ekipe
+        return ekipe.page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -509,9 +512,11 @@ class Handler(BaseHTTPRequestHandler):
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
-        if path == "/pravi-trade/pozicije":   # 9.11.: positions re-fetched every 2 s, swapped only when changed
+        if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
             from ui import pravitrade
-            frag = pravitrade.positions_fragment(self.user)
+            fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,
+                  "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
+            frag = fn(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path == "/pravi-trade":
             from ui import pravitrade
