@@ -5,7 +5,7 @@ import os
 import sqlite3
 import time
 
-from ui.html import ago, badge, esc, num, table, tdesc, tlink
+from ui.html import tip, ago, badge, esc, num, table, tdesc, tlink
 from ui.kol import klink
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -135,7 +135,9 @@ def page(qs):
         b.append("<div class=grid>" + "".join([
             _stat(st.get("active", 0), "aktivnih Telegram kanala"), _stat(st.get("candidate", 0), "kandidata"),
             _stat(n24, "Telegram objava s CA (24 h)"),
-            _stat(f"{lag_med:.0f} s" if lag_med is not None else "–", "kašnjenje čitanja (medijan)"),
+            _stat(f"{lag_med:.0f} s" if lag_med is not None else "–", "kašnjenje čitanja (medijan)" + tip(
+                "Koliko kasno MI pročitamo objavu kanala (t.me/s se čita svakih 30 s do 5 min, praćeni kanali svake 2 s). "
+                "Uspješnost poziva mjeri se od trenutka objave, ne od našeg čitanja, pa ovo kašnjenje ne ulazi u ocjenu kanala.")),
             _stat(n_ids, "KOL novčanika s imenom"), _stat(buys, "kupnji KOL novčanika (24 h)"),
             _stat(len(conv), "konvergencija (6 h)")]) + "</div>")
 

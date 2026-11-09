@@ -88,6 +88,11 @@ def kol(path, now=None):
     con = _con(path)
     try:
         out["w_pozivi"] = _delete(con, "calls", "handle LIKE 'w:%' AND ts < ?", (int(now - W_KEEP_DAYS * D),))
+        try:   # 9.11.: minute paths (kol/minute.py) keep KEEP_DAYS of history
+            from kol import minute as _minute
+            out["minutne"] = _delete(con, "call_path", "ts < ?", (int(now - _minute.KEEP_DAYS * D),))
+        except sqlite3.OperationalError:
+            pass
         cut = int(now - INACTIVE_DAYS * D)
         rows = con.execute("SELECT handle, stats FROM kols WHERE handle NOT LIKE 'tg:%' AND handle NOT LIKE 'w:%' "
                            "AND COALESCE(last_seen, first_seen, 0) < ?", (cut,)).fetchall()

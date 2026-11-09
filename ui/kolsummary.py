@@ -188,7 +188,9 @@ def top_html(con, cfg, tog=None):
 
 def together_html(con, cfg, tog=None):
     tog = tog or together.build(con, shillers.handles())
-    out = ["<h2 id=zajedno>Zovu zajedno</h2>", tdesc(
+    out = ["<h2 id=zajedno>Zovu zajedno</h2>", '<p class=mut>Novo (9.11.): <a href="/ekipe">Ekipe i minutna provjera</a>: '
+           "mogu li se nakon poziva ekipe ili računa uzeti +5/10/15/20/30 % prije stopa, po minutnim svijećama od minute "
+           "poziva.</p>", tdesc(
         f"Više računa (X i Telegram) zove isti token unutar {cfg['group_secs'] // 60} min. Uspoređujemo kako prođe "
         "token kad ga zove jedan račun i kad ga zove gužva, i tražimo ekipe koje to rade stalno (češće nego što bi "
         "dala slučajnost).")]

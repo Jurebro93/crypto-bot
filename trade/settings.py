@@ -75,6 +75,7 @@ def merged(cfg, con):
     out["sell_req"] = s.get("sell_req") or {}
     out["manual_size"] = s.get("manual_size") or {}
     out["heartbeat"] = s.get("heartbeat") or 0
+    out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
     return out
 
 

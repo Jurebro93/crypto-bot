@@ -11,8 +11,41 @@ from tg import reader, store
 PRIORITY = {"shill_list": 0, "kolscan": 0, "solanatracker": 0, "tgstat": 1, "channels.txt": 1, "x": 2}
 
 
-def interval(row, cfg, scores, now):
+_PACE = {"validate_ts": 0}
+
+
+def followed_channels():
+    """Telegram channels read every poll_followed_s (9.11., Jure: a small set every 1-2 s, the rest on the normal
+    schedule): the hot list from the minute check (kol/minute.hot) and the channels the real-money account follows
+    (league.db follows, target 'tg:<name>')."""
+    out = set()
+    try:   # the hot list (kol/minute.hot): channels whose calls measurably reach the target before the stop
+        from kol import minute
+        out |= set(minute.hot_list().get("tg") or [])
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from league import copy, store as lstore
+        from trade import settings
+        import os as _os
+        if not _os.path.exists(lstore.DB):
+            return out
+        con = copy._ro(lstore.DB)
+        if con is None:
+            return out
+        try:
+            out |= {f["target"][3:] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "kol" and f["target"].startswith("tg:")}
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def interval(row, cfg, scores, now, followed=()):
     name, status, last_ca_ts = row
+    if name in followed:
+        return cfg.get("poll_followed_s", 2)
     if status == "active" and ((last_ca_ts or 0) >= now - cfg["hot_hours"] * 3600
                                or scores.get(name, 0) >= cfg["hot_score"]):
         return cfg["poll_hot_s"]
@@ -27,9 +60,14 @@ def due(con, cfg, scores, now):
                        (now - cfg["recheck_dead_d"] * 86400,)).fetchall()
     order = sorted(cands, key=lambda r: PRIORITY.get((r[1] or "").split(":")[0], 3)) + dead
     validate = [n for n, _ in order][:cfg["validate_per_tick"]]
+    if 0 <= now - _PACE["validate_ts"] < cfg.get("validate_every_s", 10):   # the tick is 3 s now; validation stays paced
+        validate = []
+    elif validate:
+        _PACE["validate_ts"] = now
+    followed = followed_channels()
     rows = con.execute("SELECT name, status, last_ca_ts, last_poll FROM channels "
                        "WHERE status IN ('active','quiet','slow')").fetchall()
-    late = [(now - (lp or 0) - interval((n, s, ca), cfg, scores, now), n) for n, s, ca, lp in rows]
+    late = [(now - (lp or 0) - interval((n, s, ca), cfg, scores, now, followed), n) for n, s, ca, lp in rows]
     poll = [n for over, n in sorted(late, reverse=True) if over >= 0]
     return validate, poll
 

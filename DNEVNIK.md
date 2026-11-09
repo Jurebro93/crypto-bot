@@ -3,6 +3,22 @@
 Jedan zapis po danu, uvijek isti odjeljci: Odlučeno · U tijeku · Čeka Juru · Odbačeno · Bot u 5 brojki.
 Piše ga alat svaki dan u 18:00 CET i šalje Juri; stariji dani ostaju ovdje da se ne traži po porukama.
 
+## 9.11.2026. (popodne, dopuna)
+
+### Odlučeno i napravljeno (spojeno, radi)
+- Samokritika mjerenja (Jure: "poziv u 10:32 ↔ svijeća 10:32, točne zone"): zone su bile u redu (sve je unix UTC: X createdAt s +0000, Telegram <time datetime> s pomakom, Telethon aware, lanac vrijeme bloka; Telegram bez pomaka od sada čita kao UTC). Problem je bio drugdje: GeckoTerminal mjeri 5-min svijeće i ulaz 3-7 min PRIJE poziva, a većina poziva dobivala je cijenu iz DexScreener snimke do 25 min NAKON objave, a "pogodak" je bio fitilj +50 % u 24 h. Za pravi novac to je prekasno i preoptimistično.
+- Nova minutna provjera (kol/minute.py, stranica /ekipe): minutne svijeće od minute poziva, ulaz = zatvaranje te minute (kašnjenje zapisano), +5/10/15/20/30 % broji se samo ako dođe PRIJE stopa −20 % unutar 60 min; fitilj najviše 3× tijela; ispod $30k ne broji se. Po računu, po ekipi (2-4 računa, mjereno od PRVOG poziva grupe; 5+ = plaćena kampanja) i po paru. Red: tokeni koje zove 2+ računa prvi, ~60 tokena po KOL krugu iz besplatnog GeckoTerminala; povijest 14 dana puni se kroz dan-dva.
+- Vruća lista (kv hot_list): računi s 5+ izmjerenih poziva u 14 d, +10 % prije stopa u 50 %+ i stop prvi ≤30 %, plus walleti dokazani dvaput. Telegram kanale s liste i kanale koje Autopilot prati čitamo svake 2 s (ostalih ~1000 ostaje na starom rasporedu), X računi s liste prvi u webhook, walleti su već prvi u Helius listi. Tko ispadne iz brojki, ispadne s liste.
+- Autopilot: cilj izlaza (+5/10/15/20/30 %) na vrhu za sve nove kopije; "Zovu sada" (tko je u zadnjih 60 min zvao koji token, X/Telegram/praćeni walleti, svake 2 s) s "Zaprati sve" i kupnjom odmah nakon prvog pozivatelja; "Što kupiti sada" = isti prijedlozi kao Pregled s DexScreener linkom; "Uživo: nalozi" više ne prikazuje stare probne/preskočene naloge kao da su svježi (Jure: "osvježeno sada, nalozi od prije 5,8 dana?").
+- Objašnjenje "kašnjenja": uspješnost kanala mjeri se od trenutka objave (ne od našeg čitanja); "kašnjenje čitanja" na /izvori je koliko kasno MI pročitamo objavu, i to sada ima objašnjenje na stranici.
+
+### U tijeku (alat radi sam)
+- /ekipe se puni; prve brojke za ekipe nekoliko sati nakon deploya, cijelih 14 dana za dan-dva. Tek kad ekipa ima 5+ mjerenja s +10 % prije stopa u 50 %+, ulazi na vruću listu.
+
+### Čeka Juru
+- Odabir ekipa/računa s /ekipe za Autopilot (pravi novac tek kad Jure uključi prekidač; bot sam ne kreće).
+- PumpPortal novčanik za podatke: treba ≥0,02 SOL.
+
 ## 8.11.2026. (večer)
 
 ### Odlučeno i napravljeno (spojeno, radi)

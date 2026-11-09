@@ -41,8 +41,13 @@ def k_num(s):
 
 
 def iso_ts(s):
+    """t.me <time datetime="2026-11-09T10:32:01+00:00"> -> unix seconds. A value without an offset is read as UTC
+    (never the server's local clock), so a call's minute matches the candle's minute (kol/minute.py)."""
     try:
-        return int(dt.datetime.fromisoformat(s).timestamp())
+        d = dt.datetime.fromisoformat(s)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=dt.timezone.utc)
+        return int(d.timestamp())
     except (TypeError, ValueError):
         return None
 

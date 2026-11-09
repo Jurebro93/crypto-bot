@@ -112,6 +112,16 @@ def cmd_measure(a, con=None, cfg=None):
         print(f"sesije: satni volumen za {b} starijih tokena")
 
 
+def cmd_minute(a, con=None, cfg=None):
+    """9.11. (Jure): 1-minute candles right after each call -> +5/10/15/20/30 % before the stop, per account and crew."""
+    from kol import minute
+    con, cfg = con or store.connect(), cfg or config()
+    t, c = minute.run(con, cfg)
+    hot = minute.hot(con, cfg)
+    print(f"minute: {t} tokena, {c} poziva po minutnim svijećama; vruća lista {len(hot['x'])} X, {len(hot['tg'])} TG, "
+          f"{len(hot['wallets'])} walleta")
+
+
 def cmd_flows(a, con=None, cfg=None):
     con, cfg = con or store.connect(), cfg or config()
     if not os.environ.get("HELIUS_API_KEY"):
@@ -246,7 +256,7 @@ def cycle(a):
     # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
     # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
     for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_measure,
-                 cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
+                 cmd_minute, cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
         t = time.time()
         try:
             step(a, con, cfg)
@@ -286,7 +296,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "snap", "measure", "flows", "score", "once", "live", "chain", "converge"):
+    for name in ("collect", "search", "snap", "measure", "minute", "flows", "score", "once", "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -305,7 +315,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
-     "chain": cmd_chain, "converge": cmd_converge}[a.cmd](a)
+     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute}[a.cmd](a)
 
 
 if __name__ == "__main__":

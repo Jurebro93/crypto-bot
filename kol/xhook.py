@@ -44,6 +44,13 @@ def handles(con, cfg):
     from kol import bots, discover, reach
     bad = bots.handles(con)
     out = []
+    try:   # 9.11.: the hot list (kol/minute.hot) goes first: measured +10 % before the stop on recent calls
+        hot = json.loads((con.execute("SELECT value FROM kv WHERE key = 'hot_list'").fetchone() or ["{}"])[0]).get("x") or []
+    except Exception:  # noqa: BLE001
+        hot = []
+    for h in hot:
+        if h not in bad and h not in out:
+            out.append(h)
     for (h,) in con.execute("SELECT handle FROM watch ORDER BY score DESC"):
         if h not in bad and h not in out:
             out.append(h)
