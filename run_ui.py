@@ -701,7 +701,10 @@ class Handler(BaseHTTPRequestHandler):
             self._admin_cookie()
             self._trade_cookie()
         self.end_headers()
-        self.wfile.write(out)
+        try:
+            self.wfile.write(out)
+        except (BrokenPipeError, ConnectionResetError):   # 9.11.: the 1-s pollers abort old requests; not an error
+            return
 
     def _admin_cookie(self):
         """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""

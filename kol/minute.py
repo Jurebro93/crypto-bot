@@ -60,8 +60,16 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)"""
 
 
 def db_path():
+    """minute.db on the persistent disk (DATA_DIR, Render /var/data): 9.11. 17:43 the first version put it next to
+    kol.db's path in the repo folder, which start.sh symlinks only for the known names, so a deploy wiped 1,265
+    measured calls. start.sh now symlinks minute.db too; this is the belt to that suspender."""
     from kol import store
-    return os.environ.get("MINUTE_DB") or os.path.join(os.path.dirname(os.path.abspath(store.DB)), "minute.db")
+    if os.environ.get("MINUTE_DB"):
+        return os.environ["MINUTE_DB"]
+    data = os.environ.get("DATA_DIR")
+    if data and os.path.isdir(data):
+        return os.path.join(data, "minute.db")
+    return os.path.join(os.path.dirname(os.path.abspath(store.DB)), "minute.db")
 
 
 def connect(path=None):
