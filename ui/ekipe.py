@@ -86,13 +86,17 @@ def page(qs, now=None):
              + "</div>")
     b.append(f"<p class=mut>Razdoblje: {tabs}. Red: prvo tokeni koje zove 2+ računa, pa najnoviji; oko "
              f"{cfg['per_run']} tokena po KOL krugu (besplatni GeckoTerminal), pa se povijest puni kroz dan-dva.</p>")
+    b.append('<p>Bilo koju ekipu (ili vlastitu, npr. <code>tg:kanal1, tg:kanal2, @ime</code>) bot može pratiti pravim novcem: '
+             '<a href="/pravi-trade#pratim">Autopilot → Koga bot prati</a>, upiši račune odvojene zarezom. Ulaz čim prvi od njih objavi, '
+             'samo dok je token ispod zadanog MC-a (zadano $1M) i nije već +25 % od poziva.</p>')
     b.append("<h2 id=vruce>Vruća lista: čita se svake 1–2 s</h2>" + tdesc(
         f"Računi s barem {cfg['hot_min_n']} izmjerenih poziva u {cfg['hot_days']} dana, +{cfg['hot_tp']} % prije stopa u "
         f"barem {cfg['hot_min_hit']:.0%} slučajeva i stop prvi u najviše {cfg['hot_max_sl']:.0%}; plus walleti dokazani "
         "dvaput. Telegram kanale s liste čitamo svake 2 s, X račune dobivamo webhookom, wallete Helius javlja odmah. "
         "Tko ispadne iz brojki, ispadne i s liste; tko uđe u brojke, uđe na listu u sljedećem krugu.")
              + _hot_html(hot) + (f"<p class=mut>Lista iz {ago(hot['ts'])[0]}.</p>" if hot.get("ts") else ""))
-    rows = [_stat_row(" + ".join(_link(h) for h in hs_), s, [num(nt)]) for hs_, s, nt in cs["crews"][:40]]
+    rows = [_stat_row(" + ".join(_link(h) for h in hs_) + f' <a class=mut href="/pravi-trade?ekipa={quote(",".join(hs_))}#pratim">zaprati ekipu →</a>',
+                      s, [num(nt)]) for hs_, s, nt in cs["crews"][:40]]
     b.append("<h2 id=ekipe>Ekipe koje zovu zajedno</h2>" + tdesc(
         "Dva do četiri računa (X i Telegram) zvala su isti token unutar 30 min; pet i više je plaćena kampanja i ne broji "
         "se. Brojka je od PRVOG poziva u grupi: toliko bi dobio tko kupi čim prvi od njih objavi.")

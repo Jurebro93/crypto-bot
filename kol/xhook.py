@@ -48,7 +48,13 @@ def handles(con, cfg):
         hot = json.loads((con.execute("SELECT value FROM kv WHERE key = 'hot_list'").fetchone() or ["{}"])[0]).get("x") or []
     except Exception:  # noqa: BLE001
         hot = []
-    for h in hot:
+    try:   # the X accounts the real-money account follows (single or as a crew) must arrive within seconds
+        from league import copy as _copy
+        from trade import settings as _settings
+        followed = sorted(h for h in _copy.followed_handles(_settings.LEAGUE_USER) if not h.startswith("tg:"))
+    except Exception:  # noqa: BLE001
+        followed = []
+    for h in followed + hot:
         if h not in bad and h not in out:
             out.append(h)
     for (h,) in con.execute("SELECT handle FROM watch ORDER BY score DESC"):

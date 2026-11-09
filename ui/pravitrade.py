@@ -286,7 +286,7 @@ def _auto_box(st, owner):
     return f'<p style="font-size:14px;margin:0 0 6px">{what}</p>{form}{hist}'
 
 
-def _follows(con, owner, st=None):
+def _follows(con, owner, st=None, prefill=""):
     st = st or {}
     auto_ids = {int(i) for i in st.get("auto_follows") or []}
     fl = copy.follows(con, settings.LEAGUE_USER)
@@ -294,27 +294,35 @@ def _follows(con, owner, st=None):
     items = []
     for f in fl:
         r = res.get(f["id"], {"n": 0, "closed": 0, "wins": 0, "pnl": 0.0})
-        who = (f'<a href="/kol/{quote(f["target"])}">@{esc(f["target"])}</a>' if f["kind"] == "kol"
-               else wlink(f["target"]) + (f" {esc(f['label'])}" if f["label"] else ""))
+        if f["kind"] == "ekipa":
+            who = "🤝 " + " + ".join(f'<a href="/kol/{quote(m)}">{"✈ " + esc(m[3:]) if m.startswith("tg:") else "@" + esc(m)}</a>'
+                                    for m in copy.members_of(f["target"]))
+        else:
+            who = (f'<a href="/kol/{quote(f["target"])}">@{esc(f["target"])}</a>' if f["kind"] == "kol"
+                   else wlink(f["target"]) + (f" {esc(f['label'])}" if f["label"] else ""))
         stop = (f'<form method=post action=/pravi-trade/stop><input type=hidden name=id value={f["id"]}>'
                 '<button>Prestani pratiti</button></form>') if owner else ""
         by = '<span class="ap-tag dugo">🤖 alat</span>' if f["id"] in auto_ids else ""
         items.append(f'<details class=ap-it><summary><span>{who}<span class=ap-tag>'
-                     f'{"influencer" if f["kind"] == "kol" else "wallet"}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
+                     f'{"influencer" if f["kind"] == "kol" else ("ekipa" if f["kind"] == "ekipa" else "wallet")}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
                      f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
                      f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>{stop}</details>')
     names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
+    pre = esc(prefill or "")
     meta = (("🤖 " if st.get("auto_pick") else "")
             + (f"{len(fl)}: {esc(names)}{'…' if len(fl) > 3 else ''}" if fl else "još nikoga"))
     anyone = ""
     if owner:   # 9.11. (Jure): follow any wallet or influencer from the whole database, not only the recommended ones
         anyone = ('<form method=post action=/pravi-trade/follow style="margin:10px 0 4px"><input type=hidden name=kind value=auto>'
-                  '<input name=target placeholder="adresa walleta ili @influencer ili tg:kanal" required style="flex:1;min-width:220px">'
+                  f'<input name=target placeholder="adresa walleta, @influencer, tg:kanal ili ekipa: tg:a, tg:b, @c" required value="{pre}" style="flex:1;min-width:220px">'
                   '<label>na dan <input name=per_day value=5 inputmode=numeric style="width:46px"></label>'
                   '<select name=exit aria-label="Izlaz"><option value="">zadano</option><option value=mirror>prodaj kad on proda</option>'
-                  '<option value=tpsl>moj TP/SL</option></select><input name=tp placeholder="TP %" size=6> <input name=sl placeholder="SL %" size=6>'
-                  '<button>Zaprati</button></form><p class=mut style="font-size:13px;margin:0 0 8px">Wallet koji još ne pratimo uživo '
-                  'dodaje se u Helius webhook odmah; prvi njegov trade bot vidi čim webhook potvrdi (obično unutar minute).</p>')
+                  f'<option value=tpsl{" selected" if pre else ""}>moj TP/SL</option></select><input name=tp placeholder="TP %" size=6> <input name=sl placeholder="SL %" size=6>'
+                  '<label>do MC <input name=max_mcap placeholder="npr. 1M" size=6></label> <label>ne ako je već <input name=max_runup placeholder="+25 %" size=5></label> '
+                  '<label>od <select name=min_callers aria-label="Koliko iz ekipe mora zvati"><option value=1>1. poziva</option><option value=2>2 zovu</option><option value=3>3 zovu</option></select></label>'
+                  '<button>Zaprati</button></form><p class=mut style="font-size:13px;margin:0 0 8px">Ekipa = više računa odvojenih zarezom: '
+                  'jedan ulaz po tokenu čim prvi od njih objavi (ili kad ih zove 2–3), samo dok je token ispod zadanog MC-a (zadano $1M) i '
+                  'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah.</p>')
     inner = _auto_box(st, owner) + anyone + ("".join(items) or '<p class=mut style="margin:0">Još nikoga. Upiši koga pratiti ili odaberi iz preporuka ispod.</p>')
     return _sec("Koga bot prati", meta, inner, open_=not fl, sid="pratim")
 
@@ -322,11 +330,30 @@ def _follows(con, owner, st=None):
 def _detect_kind(target):
     """'auto' follow form: a base58 address is a wallet, 'tg:kanal' a Telegram channel, anything else an X handle."""
     t = (target or "").strip().lstrip("@")
+    if "," in t:   # 9.11.: several accounts = a crew (one entry per token, conditions on MC and run-up)
+        return "ekipa", t
     if t.startswith("tg:"):
         return "kol", t
     if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", t):
         return "wallet", t
     return "kol", t.split("/")[-1]
+
+
+def _parse_usd(x):
+    """'1M', '1,5M', '800k', '1000000' -> float; None when blank."""
+    t = (x or "").strip().lower().replace("$", "").replace(" ", "").replace(",", ".")
+    if not t:
+        return None
+    mult = 1e6 if t.endswith("m") else (1e3 if t.endswith("k") else 1)
+    return float(t.rstrip("mk")) * mult
+
+
+def _parse_pct(x):
+    t = (x or "").strip().replace("%", "").replace("+", "").replace(",", ".")
+    return float(t) / 100 if t else None
+
+
+EKIPA_MAX_MCAP, EKIPA_MAX_RUNUP = 1_000_000, 0.25   # Jure 9.11.: "ulaz čim objave, ako je ispod 1 M $ i još nije +25 %"
 
 
 def _add_live_wallet(wallet_addr):
@@ -929,7 +956,7 @@ def page(qs, user):
                  _wallet_card(tcon, cfg, con, owner), _tp_card(cfg, owner), _buy_now_card(cfg, owner),
                  _positions(tcon, not owner, owner, cfg.get("sell_req")), _callers_section(cfg, owner),
                  _ideas_section(cfg, owner), _log_section(tcon, cfg),
-                 _follows(con, owner, settings.raw(tcon)), _kol_section(con, owner),
+                 _follows(con, owner, settings.raw(tcon), prefill=(qs.get("ekipa") or "") if isinstance(qs, dict) else ""), _kol_section(con, owner),
                  _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]
         finally:
             con.close()
@@ -1089,26 +1116,38 @@ def post(path, form, user):
                 if not target:
                     raise ValueError("upiši adresu walleta ili @influencera")
                 tp = form.get("tp", "") or (f"{_cfg(tcon).get('tp_default', 15)}%" if form.get("exit") == "tpsl" else "")
+                max_mcap, max_runup = _parse_usd(form.get("max_mcap")), _parse_pct(form.get("max_runup"))
+                if kind == "ekipa":   # the crew defaults (Jure 9.11.); a KOL follow takes them only when filled in
+                    max_mcap = EKIPA_MAX_MCAP if max_mcap is None else max_mcap
+                    max_runup = EKIPA_MAX_RUNUP if max_runup is None else max_runup
+                ex_mode = form.get("exit", "")
+                if kind == "ekipa" and ex_mode == "mirror":
+                    ex_mode = ""
                 copy.follow(con, settings.LEAGUE_USER, kind, target, form.get("label", ""), 25,
-                            form.get("per_day") or 5, form.get("exit", ""), tp, form.get("sl", ""))
+                            form.get("per_day") or 5, ex_mode, tp, form.get("sl", ""),
+                            max_mcap=max_mcap, max_runup=max_runup, min_callers=int(form.get("min_callers") or 1))
                 con.commit()
                 note = ""
+                if kind == "ekipa":
+                    mem = copy.members_of(target)
+                    return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC ${max_mcap:,.0f}, ne ako je već +{max_runup:.0%}.')}#pratim"
                 if kind == "wallet" and target not in _live_wallets():
                     # 9.11.: any wallet from the database can be followed; it goes into the Helius webhook right now
                     note = (" Dodan u Helius webhook." if _add_live_wallet(target)
                             else " U webhook ulazi u sljedećem KOL krugu (do 45 min); do tada bot ne vidi njegove kupnje.")
                 return f"{BACK}?ok={qq(f'Bot prati {target}.{note}')}#pratim"
-            if path == "/pravi-trade/followall":   # 9.11.: follow every caller of a token from "Zovu sada"
-                have = {f["target"] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "kol"}
-                added = []
-                for h in (form.get("handles") or "").split(","):
-                    h = h.strip().lstrip("@")
-                    if h and h not in have:
-                        tp = f"{_cfg(tcon).get('tp_default', 15)}%"
-                        copy.follow(con, settings.LEAGUE_USER, "kol", h, "", 25, 5, "tpsl", tp, "")
-                        added.append(h)
+            if path == "/pravi-trade/followall":   # 9.11.: follow the callers of a token from "Zovu sada" as ONE crew
+                mem = sorted({h.strip().lstrip("@") for h in (form.get("handles") or "").split(",") if h.strip().lstrip("@")})
+                if not mem:
+                    raise ValueError("nema računa za praćenje")
+                target = ",".join(mem)
+                if any(f["target"] == target for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "ekipa"):
+                    return f"{BACK}?ok={qq('Tu ekipu već pratiš.')}#pratim"
+                tp = f"{_cfg(tcon).get('tp_default', 15)}%"
+                copy.follow(con, settings.LEAGUE_USER, "ekipa", target, "", 25, 5, "tpsl", tp, "",
+                            max_mcap=EKIPA_MAX_MCAP, max_runup=EKIPA_MAX_RUNUP, min_callers=1)
                 con.commit()
-                return f"{BACK}?ok={qq('Bot prati: ' + ', '.join(added) if added else 'Sve već pratiš.')}#pratim"
+                return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC $1M, ne ako je već +25 %.')}#pratim"
             if path == "/pravi-trade/copyfollow":
                 src = next((f for f in copy.follows(con, active=None) if f["id"] == int(form.get("id") or 0)), None)
                 if not src:
