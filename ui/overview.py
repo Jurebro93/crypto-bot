@@ -52,15 +52,19 @@ def _token_rows(since=None):
     gone = archive.blocked(data.HYPE_DB)   # rugged and archived: out of the live data, on no page
     from topcheck import store as topstore
     tops = topstore.read_all()   # fresh check of the recommended tokens (run_top.py): market state + rug check
+    shape = _holder_shape(tops, rugs)
     out = []
     for t in (set(sigs) | set(rugs) | set(evs) | set(cands)) - gone:
         s = sigs.get(t)
+        det = dets.get(t)
+        if shape.get(t) and not (det or {}).get("pumpfun"):   # 9.11. (audit P56): concentration from data we have
+            det = {**(det or {}), "pumpfun": shape[t]}
         last_seen = max([s["last"]["ts"] if s else 0, rugs[t]["checked_at"] if t in rugs else 0,
                          cands[t]["first_ts"] if t in cands else 0]
                         + [_iso_ts(e["seen_at"]) or 0 for e in evs.get(t, [])])
         if since and last_seen < since:
             continue
-        cs = evidence.checks(t, s["last"] if s else None, dets.get(t), rugs.get(t), evs.get(t), cands.get(t))
+        cs = evidence.checks(t, s["last"] if s else None, det, rugs.get(t), evs.get(t), cands.get(t))
         sym = (s["last"]["symbol"] if s else None) or (rugs[t]["symbol"] if t in rugs else None) or \
             (evs[t][0]["symbol"] if t in evs else None) or (cands[t]["symbol"] if t in cands else None)
         mcap = (s["last"]["mcap"] if s else None) or ((rugs[t]["data"].get("market") or {}).get("mcap") if t in rugs else None)
@@ -73,7 +77,7 @@ def _token_rows(since=None):
         tier = tiers.get(t) or {}
         feats = (data.js(s["last"]["features"], {}) or {}) if s else {}
         conf, parts = confidence.score(s["last"]["score"] if s else None,
-                                       feats, dets.get(t, {}),
+                                       feats, det or {},
                                        rugs[t]["verdict"] if t in rugs else None, role, liq, mcap, klasa=tier.get("klasa"))
         if tier.get("t0") == "pad":
             hard = True
@@ -89,9 +93,27 @@ def _token_rows(since=None):
                     "conf": conf, "conf_parts": parts, "liq": liq, "rug": rugs.get(t), "events": evs.get(t, []),
                     "cand": cands.get(t), "collapse": col, "peak": pk.get(t),
                     "hype": s["max"] if s else None, "hype_last": s["last"]["score"] if s else None,
-                    "mcap": mcap, "last_seen": last_seen, "det": dets.get(t, {}),
+                    "mcap": mcap, "last_seen": last_seen, "det": det or {},
                     "features": feats, "top": top})
     return out
+
+
+def _holder_shape(tops, rugs):
+    """9.11. (audit P56): mint -> pump.fun-shaped concentration (top10, bundlers, snipers, dev, insiders) from the
+    topcheck RugCheck summary and the newest rug.db report, both already in memory here (no extra queries); None
+    fields stay None (unknown), see topcheck/holders.pumpfun_shape. The Apify pump.fun field has budget 0 since 7.11.,
+    so without this every token read "nema podatka o holderima"."""
+    try:
+        from topcheck import holders
+        rugmap = {}
+        for t, r in rugs.items():
+            tup = (r.get("bundle_pct"), r.get("sniper_pct"), r.get("top10_pct"))
+            if any(v is not None for v in tup):
+                rugmap[t] = tup
+        return holders.pumpfun_shape(sorted(set(tops or ()) | set(rugmap)), tc=tops or {}, rug=rugmap)
+    except Exception as e:  # noqa: BLE001 - an extra layer never takes the token list down
+        print(f"tokeni: holderi iz topcheck/rug.db: {type(e).__name__}: {e}")
+        return {}
 
 
 MIN_SHOW_CONF = 35   # = "pratiti" on the confidence scale (ui/confidence.LEVELS); below it a token is not a candidate
