@@ -148,12 +148,13 @@ class PraviTrade(unittest.TestCase):
 
         # 9.11. (Jure): any wallet can be followed; one not in the Helius webhook yet is added to it (or, when the
         # sync cannot run, the page says it joins in the next KOL round) instead of being refused
-        saved = pravitrade._add_live_wallet
+        saved = (pravitrade._add_live_wallet, pravitrade._live_wallets)
         pravitrade._add_live_wallet = lambda w: False
+        pravitrade._live_wallets = lambda: set()   # never the repo's own kol.db (a stale one made this order-dependent)
         try:
             loc = pravitrade.post("/pravi-trade/follow", {"kind": "wallet", "target": "WALLETADDR", "per_day": "3"}, "Jure")
         finally:
-            pravitrade._add_live_wallet = saved
+            pravitrade._add_live_wallet, pravitrade._live_wallets = saved
         self.assertIn("ok=", loc)
         self.assertIn("KOL%20krugu", loc)
         fl = copy.follows(self.lg, settings.LEAGUE_USER)

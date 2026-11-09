@@ -505,26 +505,76 @@ def _tp_card(cfg, owner):
             'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop ostaje kako je upisan ili zadani.</p></div>')
 
 
-def ideas_inner(cfg, owner, now=None):
-    """The same picks as "Prijedlog za danas" on Pregled (ui/prijedlog.token_picks), with a buy form each."""
+IDEAS_EVERY_S = 60
+_IDEAS_CACHE = {}   # owner flag -> (ts, html)
+
+
+def latest_picks(now=None, limit=3):
+    """Today's "Prijedlog za danas" picks as the Pregled box logged them (ui/prijedlog_log in hype.db), best grade
+    first. 9.11. 12:30: the first version built the picks here (overview.token_rows, every hype signal) on every
+    10-s poll; the UI process went 100 MB -> 1.6 GB in three minutes and the service was OOM-restarted. The box on
+    Pregled is built in a child process and logs its picks; this only reads that log."""
+    import sqlite3
+    from ui import data
     now = now or time.time()
+    path = data.HYPE_DB
+    if not os.path.exists(path):
+        return []
     try:
-        from ui import prijedlog
-        picks = prijedlog.token_picks(now)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        rows = con.execute("SELECT token, razina, mcap0, conf, ts FROM prijedlog_log WHERE ts >= ? ORDER BY ts DESC LIMIT 30",
+                           (int(now - 24 * 3600),)).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    order = {"visoka": 0, "srednja": 1, "niska": 2}
+    out, seen = [], set()
+    for tok, raz, mcap0, conf, ts in rows:
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append({"token": tok, "razina": raz or "visoka", "mcap0": mcap0, "conf": conf, "ts": ts})
+    out.sort(key=lambda p: (order.get(p["razina"], 3), -(p["conf"] or 0), -(p["ts"] or 0)))
+    return out[:limit]
+
+
+def ideas_inner(cfg, owner, now=None):
+    """The same picks as "Prijedlog za danas" on Pregled, read from the suggestion log (never built here), with a buy
+    form each. Cached IDEAS_EVERY_S."""
+    now = now or time.time()
+    c = _IDEAS_CACHE.get(bool(owner))
+    if c and now - c[0] < IDEAS_EVERY_S:
+        return c[1]
+    try:
+        picks = latest_picks(now)
+        syms = {}
+        if picks:
+            from kol import store as kstore
+            kc = copy._ro(kstore.DB)
+            if kc is not None:
+                q = ",".join("?" * len(picks))
+                syms = dict(copy._q(kc, f"SELECT token, symbol FROM tokens WHERE token IN ({q})", [p["token"] for p in picks]))
+                kc.close()
     except Exception as e:  # noqa: BLE001
         return f'<p class=mut>Prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
     if not picks:
-        return '<p class=mut>Trenutno nema tokena sa živim parom koji nije rug; novi prijedlog čim ga sken da (svake 2 min).</p>'
-    out = []
-    for p in picks:
-        raz = p.get("razina") or "visoka"
-        cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "")
-        why = "; ".join(esc(w) for w in (p.get("why") or [])) or "ocjena alata"
-        out.append(f'<details class=ap-it open><summary><span>{tlink(p["token"], p.get("symbol"))} {badge("vjerojatnost " + raz, cls)}</span>'
-                   f'<span class=k>na ${(p.get("mcap0") or 0) / 1000:,.0f}k · pouzdanost {p.get("conf") or 0:.0f}</span></summary>'
-                   f'<p>{why}. <a href="https://dexscreener.com/solana/{quote(p["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
-                   f'{_buy_form(p["token"], cfg, "tpsl", owner)}</details>')
-    return "".join(out)
+        html = '<p class=mut>Pregled danas još nije dao prijedlog (kutija "Prijedlog za danas" se gradi svakih ~5 min).</p>'
+    else:
+        out = []
+        for p in picks:
+            raz = p.get("razina") or "visoka"
+            cls = {"visoka": "good", "srednja": "warn", "niska": "bad"}.get(raz, "")
+            out.append(f'<details class=ap-it open><summary><span>{tlink(p["token"], syms.get(p["token"]))} {badge("vjerojatnost " + raz, cls)}</span>'
+                       f'<span class=k>na ${(p.get("mcap0") or 0) / 1000:,.0f}k · pouzdanost {p.get("conf") or 0:.0f} · {esc(ago(p["ts"])[0])}</span></summary>'
+                       f'<p>Prijedlog s Pregleda. <a href="https://dexscreener.com/solana/{quote(p["token"])}" target=_blank rel=noopener>DexScreener ↗</a></p>'
+                       f'{_buy_form(p["token"], cfg, "tpsl", owner)}</details>')
+        html = "".join(out)
+    _IDEAS_CACHE[bool(owner)] = (now, html)
+    return html
 
 
 def ideas_fragment(user):
@@ -538,7 +588,7 @@ def ideas_fragment(user):
 
 
 def _ideas_section(cfg, owner):
-    return _sec("Što kupiti sada", "isti prijedlozi kao na Pregledu · ⟳ 10 s", f'<div id=ap-ideje>{ideas_inner(cfg, owner)}</div>',
+    return _sec("Što kupiti sada", f"isti prijedlozi kao na Pregledu · ⟳ {IDEAS_EVERY_S} s", f'<div id=ap-ideje>{ideas_inner(cfg, owner)}</div>',
                 open_=True, sid="ideje")
 
 
@@ -776,7 +826,7 @@ def log_fragment(user):
 
 def _log_section(tcon, cfg):
     js = ("<script>(()=>{const L=[['ap-log','/pravi-trade/log'],['ap-pos','/pravi-trade/pozicije'],['ap-zovu','/pravi-trade/zovu']];"
-          "setInterval(()=>one('ap-ideje','/pravi-trade/ideje'),10000);"
+          "setInterval(()=>one('ap-ideje','/pravi-trade/ideje'),60000);"
           "async function one(id,url){const box=document.getElementById(id);if(!box)return;"
           "try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return;const h=await r.text();"
           "if(h!==box.innerHTML&&!box.contains(document.activeElement))box.innerHTML=h}catch(e){}}"
