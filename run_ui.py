@@ -356,7 +356,7 @@ def _last_copy(path, why):
     a 200 so the visitor sees data; its age shows in the page), or a 503 "try again in a minute". 9.11. (audit P33):
     never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the copy/auto-sell
     loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
-    snap = pagecache._load_snap((path, "", None))
+    snap = pagecache._load_snap((path, "", None), stale_ok=True)
     if snap:
         print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
         return 200, gzip.decompress(snap[3])

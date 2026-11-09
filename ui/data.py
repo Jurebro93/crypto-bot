@@ -216,12 +216,19 @@ def signal_summary(limit=50000, recent_since=None):
             continue
         try:
             if first is None:  # newest file: aggregated in SQL
+                try:   # one read transaction: both windows below see the same signals (WAL snapshot)
+                    con.execute("BEGIN")
+                except sqlite3.OperationalError:
+                    pass
                 agg = {r["token"]: r for r in con.execute(
                     f"SELECT token, MIN(ts) f, MAX(COALESCE(score, 0)) m, MAX(ts) l FROM {win} GROUP BY token", (limit,))}
                 for r in con.execute(f"SELECT {', '.join('h.' + c.strip() for c in SIG_COLS.split(','))} FROM hype_signals h "
                                      f"JOIN (SELECT token, MAX(ts) l FROM {win} GROUP BY token) a "
                                      "ON h.token = a.token AND h.ts = a.l", (limit,)):
-                    a = agg[r["token"]]
+                    # 9.11. 17:58: the two windows are read one after the other; a signal written in between put a
+                    # token in the second that the first had not seen -> KeyError on every /natjecanje build for
+                    # minutes (the UI process grew to 883 MB rebuilding). Such a token takes its own row as the whole.
+                    a = agg.get(r["token"]) or {"f": r["ts"], "m": r["score"]}
                     sigs[r["token"]] = {"last": dict(r), "first_ts": a["f"], "max": max(0, a["m"] or 0)}
                 if recent_since is not None:
                     recent += [tuple(r) for r in con.execute(

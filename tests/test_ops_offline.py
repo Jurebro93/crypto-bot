@@ -280,8 +280,10 @@ class ShortProcessRoundsTest(unittest.TestCase):
                 mock.patch.object(run_kol.time, "sleep", side_effect=fake_sleep):
             with self.assertRaises(Stop):
                 run_kol.cmd_loop(argparse.Namespace(every=20, verbose=False))
-        self.assertEqual(len(calls), 1)
+        # 9.11. 18:20: the locked round, then the network-bound search in a second child outside the lock
+        self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][-1], "once")
+        self.assertEqual(calls[1][-1], "search-round")
         self.assertTrue(calls[0][1].endswith("run_kol.py"))
 
     def test_paper_scan_runs_as_a_child(self):

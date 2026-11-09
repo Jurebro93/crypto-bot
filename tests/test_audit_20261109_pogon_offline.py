@@ -104,7 +104,7 @@ class P33ChildNeverFallsBackHere(unittest.TestCase):
                 mock.patch("subprocess.run") as sr, contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(self.run_ui.build_in_child("/pregled"), (200, b"<html>stara kopija</html>"))
         sr.assert_not_called()                                   # no child next to the running heavy job
-        ls.assert_called_once_with(("/pregled", "", None))
+        ls.assert_called_once_with(("/pregled", "", None), stale_ok=True)   # also a copy from before a POST's clear()
         self.assertIn("brava zauzeta", out.getvalue())
 
     def test_busy_lock_without_copy_is_503(self):
