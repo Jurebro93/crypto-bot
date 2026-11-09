@@ -69,9 +69,9 @@ class Strat(unittest.TestCase):
             self.assertEqual(p["size_usd"], self.cfg["size_usd"])
 
     def test_frozen_strategy_takes_no_new_entries(self):
-        # 5.11. popodne: Top novčanici unfrozen and topped up (strat/config.json "topups"), the freeze flag still works
+        # 5.11. popodne: Top novčanici topped up (strat/config.json "topups"); 9.11.: frozen again by Jure's decision
         live = [s for s in run.load_config()["strategies"] if s["key"] == "top_novcanici"][0]
-        self.assertFalse(live.get("frozen"))
+        self.assertTrue(live.get("frozen"))
         self.assertEqual(sum(t["usd"] for t in live["topups"]), 1000)
         for s in self.cfg["strategies"]:
             if s["key"] == "top_novcanici":
@@ -269,7 +269,7 @@ class Strat(unittest.TestCase):
         for s in self.cfg["strategies"]:
             self.assertIn(s["name"], body)
         self.assertIn("<svg", body)
-        self.assertEqual(len(rep), 12)   # 5 + insajderi + ozbiljan + sumnjivi + veliki račun + ekipa (5.11.) + KOL potvrđen + Telegram poziv (7.11.)
+        self.assertEqual(len(rep), 13)   # 5 + insajderi + ozbiljan + sumnjivi + veliki račun + ekipa (5.11.) + KOL potvrđen + Telegram poziv (7.11.) + dokazani (9.11.)
         self.assertEqual(rep[-1]["key"], "kol")      # the stopped-out account is last
         from report import ai, collect, render
         os.environ["REPORT_DB_DIR"] = tempfile.mkdtemp()

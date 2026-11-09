@@ -149,6 +149,15 @@ def wanted(con, cfg, wallet_db=None):
         if w not in seen:
             seen.add(w)
             out.append(w)
+    try:   # 9.11.: the proven-twice copyable wallets (wallets/dokazani.py) come before every leaderboard group
+        from wallets import dokazani as _dok
+        proven = sorted(_dok.current(wallet_db))
+    except Exception:  # noqa: BLE001
+        proven = []
+    for w in proven[:max(1, cap // 2)]:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
     busy = too_busy(set(ids) | set(copy) | set(signal) | set(ins), wallet_db) - set(followed)
     groups = [([w for w in ws if w not in busy], sh) for ws, sh in
               ((ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0)))]

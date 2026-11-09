@@ -78,9 +78,15 @@ class Sources:
             names = {w: (tw and "@" + tw) or name or w[:6]
                      for w, tw, name in _q(kc, "SELECT wallet, twitter, name FROM kol_ids")}
 
-            wallets = [(m, int(ts), wallet_label(w, names), 0)
-                       for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
-                                          (since,)) if _ok(m) and ts]
+            buys = [(w, m, ts) for w, m, ts in _q(hc, "SELECT wallet, mint, ts FROM chain_trades WHERE side='buy' AND ts >= ?",
+                                                   (since,)) if _ok(m) and ts]
+            wallets = [(m, int(ts), wallet_label(w, names), 0) for w, m, ts in buys]
+            try:   # 9.11.: proven-twice copyable wallets (wallets/dokazani.py); the label carries the full address so
+                from wallets import dokazani as _dok   # the copy can be matched to the wallet's own sells and fills
+                proven = _dok.current(getattr(self, "wallet_db", None))
+            except Exception:  # noqa: BLE001
+                proven = set()
+            dokazani = [(m, int(ts), f"dokazani novčanik {w}", 0) for w, m, ts in buys if w in proven]
 
             kols, veliki, potvrdjen, tg = [], [], [], []
             # 5.11.: big accounts (reach): followers + followed by proven KOLs, trial or not (bots never)
@@ -160,7 +166,7 @@ class Sources:
             self.insiders = good
         except Exception:  # noqa: BLE001
             self.insiders = set()
-        return {"novcanici": wallets, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
+        return {"novcanici": wallets, "dokazani": dokazani, "kol": kols, "alat": tool, "scored": scored, "insajderi": ins,
                 "ozbiljni": ozbiljni, "sumnjivi": sumnjivi, "veliki": veliki, "ekipa": ekipa, "potvrdjen": potvrdjen,
                 "tg": tg}
 

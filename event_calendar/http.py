@@ -68,8 +68,56 @@ def _gate(suffix, fn):
         return new
 
 
+def _reserve_path(suffix):
+    return os.path.join(GATE_DIR, suffix + ".reserved")
+
+
+def reserve(url, seconds):
+    """9.11.: hold a shared-limit host for this process for `seconds`: other processes' calls there return None at
+    once (and cooling() tells them how long), so the job that matters most (the KOL call measurement, 0 tokens all
+    morning behind masovno/status/dugo/sessions) gets the whole free limit for its budget. Reserving again extends."""
+    suffix, _ = _shared(url)
+    if not suffix:
+        return
+    try:
+        os.makedirs(GATE_DIR, exist_ok=True)
+        with open(_reserve_path(suffix), "w") as f:
+            f.write(f"{time.time() + seconds} {os.getpid()}")
+    except OSError:
+        pass
+
+
+def release(url):
+    suffix, _ = _shared(url)
+    if not suffix:
+        return
+    try:
+        with open(_reserve_path(suffix)) as f:
+            _, pid = f.read().split()[:2]
+        if int(pid) == os.getpid():
+            os.remove(_reserve_path(suffix))
+    except (OSError, ValueError, IndexError):
+        pass
+
+
+def reserved_by_other(url):
+    """Seconds another process still holds this shared host for (0 = free, or ours)."""
+    suffix, _ = _shared(url)
+    if not suffix:
+        return 0.0
+    try:
+        with open(_reserve_path(suffix)) as f:
+            until, pid = f.read().split()[:2]
+    except (OSError, ValueError, IndexError):
+        return 0.0
+    if int(pid) == os.getpid():
+        return 0.0
+    return max(0.0, float(until) - time.time())
+
+
 def cooling(url):
-    """Seconds until a shared-limit host may be called again after a 429 (0 = go)."""
+    """Seconds until a shared-limit host may be called again: after a 429, or while another process holds it
+    (reserve()). 0 = go."""
     suffix, _ = _shared(url)
     if not suffix:
         return 0.0
@@ -77,7 +125,7 @@ def cooling(url):
         st = _gate(suffix, lambda s: s)
     except OSError:
         return 0.0
-    return max(0.0, st[1] - time.time())
+    return max(0.0, st[1] - time.time(), reserved_by_other(url))
 
 
 def limited(url, retry_after=0):
@@ -219,6 +267,8 @@ def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=
     if ttl and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
         with open(path) as f:
             return json.load(f)
+    if reserved_by_other(url):   # another job holds this shared host: no call, the caller retries next round
+        return None
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})})
     data = _fetch(req, timeout, retries)
     _write(path, json.dumps(data))

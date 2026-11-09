@@ -1130,3 +1130,4 @@ Jupitera</a>).</li>
 
 # Croatian versions of the 1 November 2026 posts.
 from ui import blogposts_hr_nov  # noqa: E402,F401
+from ui import blogposts_hr_seo  # noqa: E402,F401

@@ -46,6 +46,11 @@ GLOSS = {"wallet tracker": "smart-money", "smart money": "smart-money", "sniper"
          "likvidnost": "liquidity", "pogodak": "hit-rate", "kasni pozivi": "late-call"}
 # Glossary chips under each post.
 TERMS = {
+    "best-crypto-telegram-channels": ("crypto-call", "hit-rate", "late-call", "bot-account", "rug-pull"),
+    "top-crypto-twitter-accounts-by-call-accuracy": ("kol", "crypto-call", "hit-rate", "late-call", "bot-account"),
+    "memecoin-telegram-groups-explained": ("bot-account", "sniper-bot", "smart-money", "graduation", "late-call"),
+    "how-to-spot-a-pump-fun-runner": ("pump-fun", "graduation", "sniper-bot", "bundler", "liquidity"),
+    "how-to-check-a-kol-track-record": ("kol", "crypto-call", "hit-rate", "late-call", "call-power"),
     "what-is-wallet-tracking": ("smart-money", "crypto-wallet", "sniper-bot", "insider-wallet", "copy-trading"),
     "what-is-copy-trading": ("copy-trading", "smart-money", "take-profit", "stop-loss", "roi"),
     "what-is-a-kol-in-crypto": ("kol", "crypto-call", "call-power", "hit-rate", "late-call", "bot-account"),
@@ -85,7 +90,7 @@ CATS = [
      "Korak po korak: kupnja meme coina, swap na Jupiteru, plan trgovanja, DCA i koliko košta slippage.",
      ("how-to-buy-solana-meme-coins", "how-to-use-jupiter-swap", "how-to-trade-meme-coins", "what-is-pump-fun",
       "market-cap-liquidity-slippage", "what-is-dca-in-crypto", "perps-settings-after-october-10",
-      "what-to-do-with-an-airdrop")),
+      "what-to-do-with-an-airdrop", "how-to-spot-a-pump-fun-runner")),
     ("exchanges-and-cards", "mjenjacnice-i-kartice", "Exchanges and cards", "Mjenjačnice i kartice",
      "Where to buy crypto legally in Croatia and the EU, and which cards let you spend it.",
      "Gdje legalno kupiti kripto u Hrvatskoj i EU i kojim karticama ga možeš trošiti.",
@@ -103,7 +108,9 @@ CATS = [
      "Wallet tracking, copy trading and crypto influencer (KOL) calls: what the data says works.",
      "Praćenje novčanika, copy trading i pozivi kripto influencera (KOL): što prema podacima radi.",
      ("what-is-a-kol-in-crypto", "why-big-influencer-calls-are-hard-to-trade", "influencer-clustering",
-      "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets")),
+      "what-is-wallet-tracking", "what-is-copy-trading", "tokens-sent-to-kol-wallets",
+      "top-crypto-twitter-accounts-by-call-accuracy", "how-to-check-a-kol-track-record",
+      "best-crypto-telegram-channels", "memecoin-telegram-groups-explained")),
     ("prediction-markets", "prediction-marketi", "Prediction markets", "Prediction marketi",
      "How Polymarket markets resolve, how to read the rules and how to spot odds that move before the news.",
      "Kako se rješavaju Polymarket tržišta, kako čitati pravila i kako uočiti kvote koje se pomaknu prije vijesti.",
@@ -219,7 +226,12 @@ TOOLS_FOR = {"what-is-wallet-tracking": ("wallet-trackers",), "what-is-copy-trad
              "address-poisoning": ("crypto-wallets",), "zero-trust-support-calls": ("crypto-wallets",),
              "tokens-sent-to-kol-wallets": ("wallet-trackers", "copy-trading-platforms"),
              "fake-volume-check": ("crypto-analysis-tools", "rug-checkers"), "what-to-do-with-an-airdrop": ("crypto-wallets",),
-             "perps-settings-after-october-10": ("trading-bots",)}
+             "perps-settings-after-october-10": ("trading-bots",),
+             "best-crypto-telegram-channels": ("telegram-trading-bots", "crypto-analysis-tools"),
+             "top-crypto-twitter-accounts-by-call-accuracy": ("crypto-analysis-tools",),
+             "memecoin-telegram-groups-explained": ("telegram-trading-bots", "wallet-trackers"),
+             "how-to-spot-a-pump-fun-runner": ("trading-bots", "rug-checkers"),
+             "how-to-check-a-kol-track-record": ("crypto-analysis-tools",)}
 TOOL_NAME = {"en": {"wallet-trackers": "Best wallet trackers", "crypto-analysis-tools": "Best crypto analysis tools",
                     "trading-bots": "Best Solana trading bots", "rug-checkers": "Best rug checkers",
                     "copy-trading-platforms": "Best copy trading platforms", "crypto-wallets": "Best crypto wallets",

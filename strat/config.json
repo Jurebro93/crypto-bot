@@ -20,6 +20,30 @@
  "equity_every_min": 15,
  "strategies": [
   {
+   "key": "dokazani",
+   "name": "Dokazani novčanici",
+   "icon": "🧭",
+   "opis": "Kopija kupnje novčanika koji su dva puta zaredom dokazali plus: 5+ zatvorenih pozicija s 50 %+ dobitnih i realiziranim plusom prije datuma reza, pa plus i poslije njega; samo kopirljivi (drže 10+ minuta, do 50 tradeova dnevno, bez bot/sniper oznaka). Ulaz do 2 minute nakon njegove kupnje, izlaz pola na +10 %, ostatak na +15 %, stop −20 %, ili kad on proda. Za svaku kopiju se bilježi kašnjenje i njegova cijena ulaza, pa se klizanje kopiranja mjeri, ne pretpostavlja.",
+   "exits": {
+    "sl": -0.2,
+    "tp": [
+     [
+      0.1,
+      0.5
+     ],
+     [
+      0.15,
+      0.5
+     ]
+    ],
+    "trail_after": 0.15,
+    "trail": 0.1,
+    "stale_min": null,
+    "breakeven_after_tp": false
+   },
+   "_exits": "9.11. (Jure): izlaz na 10 ili 15 %; bez 'ništa se ne događa' izlaza jer dokazani novčanici drže 10+ min."
+  },
+  {
    "key": "top_novcanici",
    "name": "Top novčanici",
    "icon": "👛",
@@ -30,7 +54,9 @@
      "usd": 1000,
      "why": "5.11.: Nicholas: demo račun je za učenje; nadopunjen nakon −80 % i odmrznut, uči dalje"
     }
-   ]
+   ],
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 354 zatvorenih, −10,6 % po tradeu; kopiranje po povijesti novčanika ne radi s našim kašnjenjem. Zamjena: 'dokazani' novčanici s mjerenjem klizanja."
   },
   {
    "key": "kol",
@@ -54,7 +80,9 @@
    "key": "alat_mali",
    "name": "Izbor alata: mali",
    "icon": "🎯",
-   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene do 200k $ vrijednosti pri ulazu."
+   "opis": "Kupi isto što glavni demo bot po ocjeni alata, samo tokene do 200k $ vrijednosti pri ulazu.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 43 zatvorenih, −12,4 % po tradeu, ispod kontrole; bez novih ulaza"
   },
   {
    "key": "alat_srednji",
@@ -78,13 +106,17 @@
    "key": "ozbiljan_projekt",
    "name": "Ozbiljan projekt",
    "icon": "🏛️",
-   "opis": "Kupi token koji ima plaćeni DexScreener profil, pravi X profil (ne tuđi tweet ni pretragu) i živ Telegram (50+ članova, post u 24 h). Netko stoji iza njega i gura ga; mjerimo vrijedi li to."
+   "opis": "Kupi token koji ima plaćeni DexScreener profil, pravi X profil (ne tuđi tweet ni pretragu) i živ Telegram (50+ članova, post u 24 h). Netko stoji iza njega i gura ga; mjerimo vrijedi li to.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 52 zatvorenih, 8 % dobitnih, ispod kontrole; bez novih ulaza"
   },
   {
    "key": "sumnjivi_socijali",
    "name": "Sumnjivi socijali",
    "icon": "🕵️‍♀️",
-   "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju."
+   "opis": "Kupi token čiji je X link tuđi tweet ili pretraga, ili koji nema Telegram. Nicholas: 'po meni ne može biti dobar izbor, ali prati i takve pa mi dokaži suprotno'. Kontrolna strategija za tu tvrdnju.",
+   "frozen": true,
+   "frozen_why": "9.11. (Jure): 528 zatvorenih, −$3.371, −12,8 % po tradeu, sigurno ispod nasumične kontrole; bez novih ulaza"
   },
   {
    "key": "veliki_racun",
