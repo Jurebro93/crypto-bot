@@ -293,6 +293,8 @@ def step(now=None, cfg=None, path=None, market_fn=None, sources=None, ex=None, q
                     reason = "lažni pool"
                 elif liq < cfg["min_liq"]:
                     reason = "premala likvidnost"
+                elif mcap < cfg.get("min_mcap", 0):   # 9.11.: Jure's rule, tokens under $30k are not analysed; a $9k
+                    reason = "premali token"            # pump.fun entry gave the KOL account a 70x in 8 min no one could sell
                 elif mcap > cfg["max_mcap"]:
                     reason = "prevelik token"
                 elif not band_of(cfg, k, mcap):

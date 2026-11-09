@@ -326,3 +326,14 @@ class TopWalletsAndBands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinMcap(unittest.TestCase):
+    def test_config_has_the_30k_floor_and_intake_names_the_reason(self):
+        import json as _json
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg = _json.load(open(os.path.join(root, "strat", "config.json")))
+        self.assertEqual(cfg["min_mcap"], 30000)
+        src = open(os.path.join(root, "strat", "run.py")).read()
+        self.assertIn('mcap < cfg.get("min_mcap", 0)', src)
+        self.assertIn('"premali token"', src)
