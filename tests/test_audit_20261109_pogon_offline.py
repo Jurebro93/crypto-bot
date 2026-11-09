@@ -340,7 +340,7 @@ class WarmerAndChildPriority(unittest.TestCase):
 
 class NightWindow(unittest.TestCase):
     """9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): heavy, non-urgent jobs run only in ops/heavy.NIGHT (Zagreb
-    00-06); the KOL round does the light steps by day and the full set at night; start.sh waits with --night."""
+    01-06); the KOL round does the light steps by day and the full set at night; start.sh waits with --night."""
 
     def _utc(self, h, m=0):
         import datetime as dt

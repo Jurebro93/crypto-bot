@@ -135,5 +135,150 @@ class StartShForwardsTerm(unittest.TestCase):
         self.assertIn("trap 'kill -TERM $(jobs -p)", sh)
 
 
+class NightWindowDefault(unittest.TestCase):
+    """Review 9.11. (noć): the code window was 00-06 Zagreb while CLAUDE.md, learn/masovno.py and DNEVNIK say 01-06;
+    the default is now "1-6" (deploys still come at 00:xx). The proven-twice list and the copy list (DB reads) get
+    their own daytime loop in start.sh instead of sitting behind harvest/score --night once a night."""
+
+    def test_default_window_is_01_06_zagreb(self):
+        import inspect
+        from ops import heavy
+        self.assertIn('os.environ.get("HEAVY_NIGHT", "1-6")', inspect.getsource(heavy))
+        with mock.patch.object(heavy, "NIGHT", "1-6"):
+            self.assertEqual(heavy.night_hours(), (1, 6))
+
+    def test_start_sh_has_a_daytime_dokazani_loop(self):
+        sh = open(os.path.join(ROOT, "start.sh"), encoding="utf-8").read()
+        lines = [ln for ln in sh.splitlines() if "run_wallets.py dokazani" in ln and not ln.strip().startswith("#")]
+        self.assertEqual(len(lines), 2)   # once right after the nightly scores, once in its own WALLETS_EVERY_H loop
+        self.assertTrue(all("--night" not in ln for ln in lines))
+
+
+class IdeasFragmentBackground(unittest.TestCase):
+    """Review: on the background path (BG_REFRESH=1 in production) an empty _IDEAS_CACHE returned "" (box hidden)
+    instead of 'učitavam…', and the stamp showed the HTML assembly time rather than the DexScreener data time."""
+
+    def setUp(self):
+        from ui import pravitrade
+        self.pt = pravitrade
+        self.saved = (pravitrade.BG_REFRESH, pravitrade._BG["thread"], dict(pravitrade._IDEAS_CACHE))
+        pravitrade._IDEAS_CACHE.clear()
+
+        class Fake:
+            def is_alive(self):
+                return True
+        pravitrade.BG_REFRESH, pravitrade._BG["thread"] = True, Fake()
+        self.patches = [mock.patch.object(pravitrade, "_tcon", lambda: mock.MagicMock()),
+                        mock.patch.object(pravitrade.settings, "can_view", lambda con, user: True),
+                        mock.patch.object(pravitrade.settings, "is_owner", lambda user: True),
+                        mock.patch.object(pravitrade, "_cfg", lambda con: {})]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.pt.BG_REFRESH, self.pt._BG["thread"] = self.saved[0], self.saved[1]
+        self.pt._IDEAS_CACHE.clear()
+        self.pt._IDEAS_CACHE.update(self.saved[2])
+
+    def test_empty_cache_says_loading_and_stamp_uses_data_time(self):
+        self.assertIn("učitavam", self.pt.ideas_fragment("Jure"))
+        with self.pt._LOCK:
+            self.pt._IDEAS_CACHE[True] = (NOW, "<div class=ap-row>IDEJA</div>", NOW - 40)
+        html = self.pt.ideas_fragment("Jure")
+        self.assertIn("IDEJA", html)
+        self.assertIn("podaci od " + time.strftime("%H:%M:%S", time.gmtime(NOW - 40)) + " UTC", html)
+        with self.pt._LOCK:
+            self.pt._IDEAS_CACHE[True] = (NOW, "<div class=ap-row>STARO</div>")   # a 2-tuple still works
+        self.assertIn("podaci od " + time.strftime("%H:%M:%S", time.gmtime(NOW)) + " UTC", self.pt.ideas_fragment("Jure"))
+        with self.pt._LOCK:
+            self.pt._IDEAS_CACHE[True] = (NOW, "", NOW)
+        self.assertEqual(self.pt.ideas_fragment("Jure"), "")   # a real empty list after the first pass: hidden
+
+    def test_ideas_inner_keeps_the_oldest_checked_time(self):
+        from ui import zivo
+        rows = [{"token": TOK, "symbol": "A", "src": "x", "reasons": ["zove"], "checked": NOW - 7,
+                 "live": {"mcap": 50_000, "ch_m5": 1.0, "ch_h1": 2.0}},
+                {"token": "B" * 44, "symbol": "B", "src": "x", "reasons": [], "checked": NOW - 3,
+                 "live": {"mcap": 60_000, "ch_m5": None, "ch_h1": None}}]
+        with mock.patch.object(zivo, "rows", lambda now=None, **k: rows):
+            html = self.pt.ideas_inner({}, True, now=NOW, force=True)
+        self.assertIn("MC $50k", html)
+        self.assertEqual(self.pt._IDEAS_CACHE[True][0], NOW)        # compute time: the TTL
+        self.assertEqual(self.pt._IDEAS_CACHE[True][2], NOW - 7)    # data time: the oldest row shown
+
+
+class LiveNegativeCache(unittest.TestCase):
+    """Review: prijedlog.live_market -> None (DexScreener 429/5xx) cached nothing, so each 1-s poll of an open pop-up
+    fetched again in the request thread; the failure is now remembered for LIVE_TTL_S and the old slot (< 60 s) or
+    None is returned meanwhile."""
+
+    def setUp(self):
+        from ui import pravitrade, prijedlog
+        self.pt, self.pr = pravitrade, prijedlog
+        self.saved = (pravitrade._BG["thread"], dict(pravitrade._LIVE_CACHE), dict(pravitrade._LIVE_WANT),
+                      dict(pravitrade._LIVE_FAIL), prijedlog.live_market)
+        pravitrade._BG["thread"] = None   # no refresher: the synchronous path fetches
+        for d in (pravitrade._LIVE_CACHE, pravitrade._LIVE_WANT, pravitrade._LIVE_FAIL):
+            d.clear()
+
+    def tearDown(self):
+        self.pt._BG["thread"], c, w, f, self.pr.live_market = self.saved
+        for d, v in ((self.pt._LIVE_CACHE, c), (self.pt._LIVE_WANT, w), (self.pt._LIVE_FAIL, f)):
+            d.clear()
+            d.update(v)
+
+    def test_failure_is_remembered_for_the_ttl(self):
+        calls = []
+        self.pr.live_market = lambda toks, fetch=None: calls.append(1) and None
+        self.assertIsNone(self.pt._live_cached([TOK], NOW))
+        self.assertIsNone(self.pt._live_cached([TOK], NOW + 1))
+        self.assertIsNone(self.pt._live_cached([TOK], NOW + 2.5))
+        self.assertEqual(len(calls), 1)                              # one request per LIVE_TTL_S, not per poll
+        self.assertIsNone(self.pt._live_cached([TOK], NOW + 3.1))
+        self.assertEqual(len(calls), 2)
+
+    def test_old_slot_is_served_while_dexscreener_fails(self):
+        self.pr.live_market = lambda toks, fetch=None: {TOK: {"mcap": 1.0}}
+        self.assertEqual(self.pt._live_cached([TOK], NOW), {TOK: {"mcap": 1.0}})
+        self.pr.live_market = lambda toks, fetch=None: None
+        self.assertEqual(self.pt._live_cached([TOK], NOW + 4), {TOK: {"mcap": 1.0}})     # 4 s old: kept
+        self.assertEqual(self.pt._live_cached([TOK], NOW + 5), {TOK: {"mcap": 1.0}})     # within the negative TTL
+        self.assertIsNone(self.pt._live_cached([TOK], NOW + 70))                         # too old to show: None
+        self.pr.live_market = lambda toks, fetch=None: {TOK: {"mcap": 2.0}}
+        self.assertEqual(self.pt._live_cached([TOK], NOW + 74), {TOK: {"mcap": 2.0}})    # recovered: fetched again
+        self.assertNotIn((TOK,), self.pt._LIVE_FAIL)
+
+
+class WarmSkipsFreshPages(unittest.TestCase):
+    """Review (run_ui.warm_build): a build that returned the stored bytes was re-packed with ts=now, so the page's
+    age restarted every pass; pagecache.warm now skips a page younger than skip_fresh_s before rendering."""
+
+    def test_fresh_page_is_not_rendered_and_keeps_its_time(self):
+        import gzip
+        from ui import pagecache
+        saved = dict(pagecache._store)
+        pagecache._store.clear()
+        built = []
+        try:
+            fresh = (time.time() - 10, 200, None, gzip.compress(b"<html>a</html>"))
+            pagecache._store[("/warm-a", "", None)] = fresh
+            pagecache._store[("/warm-b", "", None)] = (time.time() - 1000, 200, None, gzip.compress(b"<html>b0</html>"))
+            pagecache.warm(["/warm-a", "/warm-b"], lambda p: built.append(p) or (200, b"<html>" + p.encode() + b"</html>"),
+                           skip_fresh_s=240)
+            for _ in range(100):
+                if built:
+                    break
+                time.sleep(0.02)
+            time.sleep(0.05)
+            self.assertEqual(built, ["/warm-b"])
+            self.assertIs(pagecache._store[("/warm-a", "", None)], fresh)
+            self.assertEqual(gzip.decompress(pagecache._store[("/warm-b", "", None)][3]), b"<html>/warm-b</html>")
+        finally:
+            pagecache._store.clear()
+            pagecache._store.update(saved)
+
+
 if __name__ == "__main__":
     unittest.main()

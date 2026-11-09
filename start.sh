@@ -65,7 +65,7 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 ( sleep 150; while true; do python3 run_top.py once || echo "topcheck nije uspio"; sleep "${TOP_EVERY_S:-180}"; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
-# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): --night = waits for the night window (ops/heavy.NIGHT, 00-06
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): --night = waits for the night window (ops/heavy.NIGHT, 01-06
 # Zagreb) before taking the heavy-job lock. The calendar used to block the KOL round 2-3 min at EVERY start (20+
 # deploys a day) and the whole set below (wallets score, dugo, learn) held the single CPU during the day.
 (
@@ -104,6 +104,18 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"   # 9.11.: proven-twice list
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))   # 7.11. (Jure): fresher copy list; the credit share cap still holds
+  done
+) &
+# 9.11. (audit): the proven-twice list (first source of the Autopilot's auto pick) and the copy list are DB reads
+# only (no Helius), but in the loop above they sat behind harvest/score --night and so ran once a night; by day
+# our wallets' closed copies still change, so they get their own WALLETS_EVERY_H loop (the night loop keeps its
+# pass right after the scores)
+(
+  sleep 1200
+  while true; do
+    python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"
+    python3 -m ops.heavy run_wallets.py copy >/dev/null || true
+    sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done
 ) &
 

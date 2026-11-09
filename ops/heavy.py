@@ -115,7 +115,9 @@ NICE = int(os.environ.get("HEAVY_NICE", "10"))   # 9.11. 19:05: CPU at 100 % fro
 # 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): the heavy, non-urgent jobs (scoring, learning, wallet scoring,
 # calendar, long-term layer) run only in this window of Zagreb hours; by day the single CPU belongs to the Autopilot,
 # the live feeds and the pages. "from-to" with to exclusive; "" (empty) = any time, as before.
-NIGHT = os.environ.get("HEAVY_NIGHT", "0-6")
+# 9.11. (audit): default 01-06 Zagreb, the window CLAUDE.md names (teški poslovi 01–06 CET) and learn/masovno.py
+# already uses; at 00:xx deploys still come, so the heavy jobs start an hour later.
+NIGHT = os.environ.get("HEAVY_NIGHT", "1-6")
 NIGHT_TZ = "Europe/Zagreb"
 
 

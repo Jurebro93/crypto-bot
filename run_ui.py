@@ -371,7 +371,9 @@ def _nice_child():
 def warm_build(path):
     """build_in_child for the warmer: when the page was built less than WARM_SKIP_FRESH_S ago (a visitor's refresh or
     the previous pass) the cached copy is kept, instead of another 22-45 s child build next to the heavy jobs every
-    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %)."""
+    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %). 9.11. (audit): pagecache.warm now
+    skips such a page before calling this (skip_fresh_s), so the stored copy is not re-packed with a new time; this
+    check stays as the guard for a visitor's build that landed in between."""
     with pagecache._lock:
         hit = pagecache._store.get((path, "", None))
     if hit and time.time() - hit[0] < WARM_SKIP_FRESH_S:
@@ -1223,7 +1225,8 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")),
+                   skip_fresh_s=WARM_SKIP_FRESH_S)   # 9.11. (audit): the skip lives in warm(), so a kept page keeps its age
     pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading

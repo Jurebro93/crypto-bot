@@ -685,10 +685,14 @@ def ideas_inner(cfg, owner, now=None, force=False):
         return f'<p class=mut>Živi prijedlozi trenutno nisu dostupni ({esc(type(e).__name__)}).</p>'
     if not rs and not zivo._ROWS.get("ts"):   # 9.11. (audit P33 review): the zivo thread has not filled its cache yet
         return '<p class=mut>učitavam…</p>'   # not cached, so the next poll gets the real list
+    data_ts = now
     if not rs:
         html = ""
     else:
         out = []
+        # 9.11. (audit): the stamp shows the time of the DexScreener numbers (each zivo row carries 'checked'), not
+        # the time this HTML was assembled: after zivo's IDLE_STOP_S the rows can be old while the HTML is fresh
+        data_ts = min((r.get("checked") or now) for r in rs[:8])
         for r in rs[:8]:
             m = r["live"]
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
@@ -699,8 +703,8 @@ def ideas_inner(cfg, owner, now=None, force=False):
                        f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></div>')
         html = "".join(out)
     with _LOCK:   # the same HTML for both viewer kinds (one computation in the background thread serves both)
-        _IDEAS_CACHE[bool(owner)] = (now, html)
-        _IDEAS_CACHE[not bool(owner)] = (now, html)
+        _IDEAS_CACHE[bool(owner)] = (now, html, data_ts)   # (compute time for the TTL, HTML, data time for the stamp)
+        _IDEAS_CACHE[not bool(owner)] = (now, html, data_ts)
     return html
 
 
@@ -724,7 +728,9 @@ def ideas_fragment(user):
     if _bg_start():   # the background thread fills the cache; this request thread only reads it
         with _LOCK:
             c = _IDEAS_CACHE.get(bool(owner)) or (0.0, "")
-        return _stamp(c[1], c[0])
+        if not c[0]:   # 9.11. (audit): no pass yet (zivo's thread still fetching): say so instead of hiding the box
+            return '<p class=mut>učitavam…</p>'
+        return _stamp(c[1], c[2] if len(c) > 2 else c[0])
     return ideas_inner(cfg, owner)
 
 
@@ -837,6 +843,7 @@ def gather_callers(now, window_s=CALLERS_WINDOW_S, kol_db=None, tg_db=None, hype
 
 
 _LIVE_CACHE = {}   # token tuple -> (ts, data): "Zovu sada", each open pop-up and each crew pop-up keep their own slot
+_LIVE_FAIL = {}    # token tuple -> ts of the last fetch that returned None (9.11. (audit): negative cache, see below)
 
 
 def _live_cached(tokens, now, ttl=LIVE_TTL_S, wait=None):
@@ -848,22 +855,33 @@ def _live_cached(tokens, now, ttl=LIVE_TTL_S, wait=None):
         return {}
     with _LOCK:
         hit = _LIVE_CACHE.get(key)
+        failed = _LIVE_FAIL.get(key, 0.0)
         if wait is not True:   # the refresher's own renewals do not count as a request (a closed pop-up expires)
             _LIVE_WANT[key] = now
     if wait is None:   # the refresher itself and the synchronous path fetch; request threads beside a refresher read
         wait = threading.current_thread() is _BG["thread"] or not _bg_running()
     if hit and (now - hit[0] < ttl or (not wait and now - hit[0] < 60)):
         return hit[1]
+    # 9.11. (audit): a fetch that returned None (DexScreener 429/5xx) used to leave no slot, so every 1-s poll of an
+    # open pop-up fetched again in the request thread, with the http retry sleeps; the failure is remembered for ttl
+    # seconds and the old slot (at most 60 s, the same bound the read-only path accepts) or None is returned
+    old = hit[1] if hit and now - hit[0] < 60 else None
+    if now - failed < ttl:
+        return old
     from ui import prijedlog
     data = prijedlog.live_market(list(key))
     if data is None:
-        return None
+        with _LOCK:
+            _LIVE_FAIL[key] = now
+        return old
     with _LOCK:
+        _LIVE_FAIL.pop(key, None)
         _LIVE_CACHE[key] = (now, data)
         if len(_LIVE_CACHE) > 64:   # pop-ups come and go: forget the sets nobody asks for
             for k in [k for k in _LIVE_CACHE if now - _LIVE_WANT.get(k, 0) > BG_WANT_S]:
                 _LIVE_CACHE.pop(k, None)
                 _LIVE_WANT.pop(k, None)
+                _LIVE_FAIL.pop(k, None)
     return data
 
 
@@ -895,6 +913,7 @@ def _bg_pass(now=None):
         # its WANT entry; forget requests nobody repeated in 10 x BG_WANT_S
         for k in [k for k, ts in _LIVE_WANT.items() if now - ts > 10 * BG_WANT_S]:
             _LIVE_WANT.pop(k, None)
+            _LIVE_FAIL.pop(k, None)
         want = [k for k, ts in _LIVE_WANT.items() if now - ts <= BG_WANT_S and now - (_LIVE_CACHE.get(k) or (0,))[0] >= LIVE_TTL_S]
     for key in want:
         try:

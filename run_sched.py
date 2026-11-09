@@ -163,7 +163,7 @@ def whatsapp(name, args, minutes):
 
 
 # 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): everything that recomputes or learns (learn6, exits rollback,
-# shadow, corr) runs only in the night window (ops/heavy.NIGHT, 00-06 Zagreb); the daily fits moved into it
+# shadow, corr) runs only in the night window (ops/heavy.NIGHT, 01-06 Zagreb); the daily fits moved into it
 # (learn/config.json run_at_utc 02:30, exits/config.json 03:30). By day only the light, fresh jobs run: market,
 # usage, masovno (light, night-aware itself), postai (API-bound, light since 9.11.), token status.
 JOBS = [
