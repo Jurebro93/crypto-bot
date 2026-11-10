@@ -594,7 +594,8 @@ class McpQueue(Base):
                                           "reason": "Grok: 3 calleri u 5 min"})
         self.assertEqual((code, out["status"]), (202, "pending_approval"))
         self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])   # nothing bought yet
-        self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "require_approval": False})[0], 400)
+        # 10.11.: without approval only while the owner has grok_autotrade on (ui/grokauto); off by default -> 403
+        self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "require_approval": False})[0], 403)
         self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 9})[0], 400)    # over the limit
         self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "sell", "amount": 0.5})[0], 400)  # nothing open
         _, body = pravitrade.page({}, "Jure")
