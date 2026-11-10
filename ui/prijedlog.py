@@ -135,16 +135,18 @@ def live_market(tokens, fetch=None):
     return out
 
 
-def alive(lv):
-    """None when the token trades right now; otherwise the plain reason it is not a pick."""
+def alive(lv, min_liq=None):
+    """None when the token trades right now; otherwise the plain reason it is not a pick. min_liq: the liquidity
+    floor (default LIVE_MIN["liq"], the lists'); 0 = no floor (10.11. Jure: the owner's own manual buy)."""
     if lv is None:
         return "nema živog para na DexScreeneru"
     if lv["txns_h1"] < LIVE_MIN["txns_h1"]:
         return f"samo {lv['txns_h1']} transakcija u zadnjem satu (treba {LIVE_MIN['txns_h1']}+)"
     if lv["vol_h1"] < LIVE_MIN["vol_h1"]:
         return f"volumen u zadnjem satu ${lv['vol_h1']:,.0f} (treba ${LIVE_MIN['vol_h1']:,.0f}+)"
-    if lv["liq"] < LIVE_MIN["liq"]:
-        return f"likvidnost ${lv['liq']:,.0f} (treba ${LIVE_MIN['liq']:,.0f}+)"
+    floor = LIVE_MIN["liq"] if min_liq is None else min_liq
+    if lv["liq"] < floor:
+        return f"likvidnost ${lv['liq']:,.0f} (treba ${floor:,.0f}+)"
     if lv.get("ch_h1") is not None and float(lv["ch_h1"]) <= LIVE_MIN["max_drop_h1"]:
         return f"pada: {float(lv['ch_h1']):+.0f} % u zadnjem satu, ne ulazi dok se ne okrene"
     return None

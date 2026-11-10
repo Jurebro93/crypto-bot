@@ -99,6 +99,30 @@ class ManualBuy(unittest.TestCase):
         self.assertAlmostEqual(a["sl_px"], 0.8)
         self.assertAlmostEqual(a["tp_px"], 2.0)
 
+    def test_owner_buy_has_no_liquidity_floor_but_the_lists_keep_it(self):
+        """10.11. (Jure: "likvidnost 16.000, a traži 20.000 ... makni limit za likvidnost"): the owner's manual buy
+        of a token with $16k liquidity goes through; the lists' gate (prijedlog.alive default) still asks 20k+;
+        the other checks (activity, 30k MC) stay on the manual buy."""
+        from ui import prijedlog
+        thin = {**LIVE_ROW, "liq": 16_000.0, "mcap": 50_000.0}
+        prijedlog.live_market = lambda toks, fetch=None: {t: dict(thin) for t in toks}
+        loc = self._buy(tp="", exit="smart")
+        self.assertIn("ok=", loc)
+        self.assertEqual(len(self._open()), 1)
+        self.assertIn("likvidnost $16,000 (treba $20,000+)", prijedlog.alive(thin))     # lists: unchanged
+        self.assertIsNone(prijedlog.alive(thin, min_liq=0))
+        dead = {**thin, "txns_h1": 0, "vol_h1": 0.0}
+        prijedlog.live_market = lambda toks, fetch=None: {t: dict(dead) for t in toks}
+        loc = self._buy(tp="", exit="smart")
+        self.assertIn("err=", loc)
+        self.assertIn("transakcija", unquote(loc))
+        small = {**thin, "mcap": 25_000.0}
+        prijedlog.live_market = lambda toks, fetch=None: {t: dict(small) for t in toks}
+        loc = self._buy(tp="", exit="smart")
+        self.assertIn("err=", loc)
+        self.assertIn("ispod 30k", unquote(loc))
+        self.assertEqual(len(self._open()), 1)
+
     def test_good_buy_still_goes_through_with_its_stake(self):
         loc = self._buy()
         self.assertIn("ok=", loc)

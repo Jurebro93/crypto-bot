@@ -3151,8 +3151,8 @@ def _buy_callers_veto(token, now=None):
 
 
 def _post_buy(con, tcon, form, user):
-    """Manual buy: a demo trade on the real-trade account (same live gate as the lists: trading now, MC 30k+, not
-    falling, not collapsed, callers' minute check not weak), its own SOL stake for the mirror, and its exit rule;
+    """Manual buy: a demo trade on the real-trade account (the lists' live gate without their liquidity floor:
+    trading now, MC 30k+, not falling, not collapsed, callers' minute check not weak), its own SOL stake for the mirror, and its exit rule;
     run_trade.py turns it into the real swap within the limits."""
     from urllib.parse import quote as qq
     from league import auto
@@ -3178,7 +3178,10 @@ def _post_buy(con, tcon, form, user):
     lv = prijedlog.live_market([token])
     if lv is None:
         raise ValueError("provjera uživo (DexScreener) nije uspjela; kupnja odbijena")
-    why_not = prijedlog.alive(lv.get(token))
+    # 10.11. (Jure: "likvidnost 16.000, a traži 20.000; ako sam ja ručno, treba kupiti bez obzira. Makni limit za
+    # likvidnost"): the owner's own buy has no liquidity floor; the swap's cost cap (trade/config max_cost_pct, the
+    # quote's real slippage and fees) still refuses a pool too thin for the stake, and the 30k MC rule stays
+    why_not = prijedlog.alive(lv.get(token), min_liq=0)
     if why_not:
         raise ValueError(f"kupnja odbijena: {why_not}")
     if (lv[token].get("mcap") or 0) < 30_000:
