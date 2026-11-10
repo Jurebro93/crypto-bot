@@ -365,14 +365,21 @@ class WalletsAutopilotMarks(unittest.TestCase):
                 mock.patch.object(pages, "autopilot_marks", return_value=marks):
             title, html = pages.wallets({})
             _, html_all = pages.wallets({"v": "svi"})
+            _, table = pages.wallets({"v": "tablica"})                              # every column one tap away
         self.assertEqual(title, "Novčanici")
-        self.assertIn("Dokazani dvaput", html)
-        self.assertIn("Prati Autopilot", html)
-        self.assertIn("lista iz prije 1.0 h", html)                                 # data time of the proven list
-        self.assertLess(html.index("PROVEN"), html.index("FOLLOWED"))
-        self.assertLess(html.index("FOLLOWED"), html.index("BEST"))
-        self.assertLess(html_all.index("BEST"), html_all.index("PROVEN"))           # "Svi" keeps the copy_score order
-        self.assertIn("Dokazani dvaput", html_all)
+        # 10.11. (Jure, prijedlog 4.6): rows instead of the table; the marks are a dot "dokazan dvaput" / "prati
+        # Autopilot" in the row and the columns Dokazan / Autopilot on a computer; the hero above the list names the
+        # first proven wallet, so the order is checked inside the list (.ms-wl)
+        self.assertIn("dokazan dvaput", html)
+        self.assertIn("prati Autopilot", html)
+        self.assertIn("lista dokazanih prije 1 h", html)                            # data time of the proven list
+        lst, lst_all = html[html.index('class="ms-wl"'):], html_all[html_all.index('class="ms-wl"'):]
+        self.assertLess(lst.index("PROVEN"), lst.index("FOLLOWED"))
+        self.assertLess(lst.index("FOLLOWED"), lst.index("BEST"))
+        self.assertLess(lst_all.index("BEST"), lst_all.index("PROVEN"))             # "Svi" keeps the copy_score order
+        self.assertIn(">Dokazan<", html_all)
+        self.assertIn("Dokazani dvaput", table)
+        self.assertIn("lista iz prije 1.0 h", table)
 
 
 class SnapshotAge(unittest.TestCase):
