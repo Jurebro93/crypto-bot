@@ -429,9 +429,11 @@ class Box(Pipeline):
         self.assertEqual((summ["preskocio"], summ["nije_proslo"]), (3, 1))   # the line's "3 preskočeno · 1 nije prošlo"
         at = [html.index(s) for s in ("YNG", "FFF", "AAA", "SKB")]
         self.assertEqual(at, sorted(at))                                      # newest first
-        self.assertIn('class="v miss">propušteno<', html)
-        self.assertIn('class="v ok">dobro preskočen<', html)
-        self.assertIn('class="v wait">mjeri se<', html)
+        # 10.11. (prijedlog dizajna, maketa autopilot.html): the shared row; the verdict is a word after a dot
+        # (orange = propušteno, green = dobro preskočen, grey = the rest), not a coloured word
+        self.assertIn('<span class="ms-dot warn" aria-hidden="true"></span>propušteno<', html)
+        self.assertIn('<span class="ms-dot good" aria-hidden="true"></span>dobro preskočen<', html)
+        self.assertIn('<span class="ms-dot" aria-hidden="true"></span>mjeri se<', html)
         self.assertIn("+15 % za 6 min · najviše +30 %", html)
         self.assertIn("−20 % za 3 min", html)
         self.assertIn("nije prošlo (tehnički)", html)
@@ -474,10 +476,12 @@ class Box(Pipeline):
             self.demo_skip(f"MANY{i:02d}", f"M{i:02d}", NOW - 2 * H - i * 120, "likvidnost $4k je samo 0.9% MC-a " * (6 if i == 0 else 1))
         html = self.box()
         self.assertIn("Od 18 preskočenih:", html)
-        self.assertIn('<details class=ap-it id=ap-sk-sve><summary><span>Prikaži sve</span><span class=k>još 3</span>', html)
+        # 10.11. (maketa): "Prikaži sve" is one more row that opens; the rows are the shared rows
+        self.assertIn('<details class=ap-it id=ap-sk-sve><summary><div class="ms-row"><div class="ms-m"><div class="ms-t">'
+                      'Prikaži sve</div></div><div class="ms-e"><div class="ms-v mut">još 3</div>', html)
         shown = html.split("id=ap-sk-sve")[0]
-        self.assertEqual(shown.count("class=ap-skr"), 15)
-        self.assertIn("…</small>", html)                                     # the long one is cut on a word ...
+        self.assertEqual(shown.count("ap-skr"), 15)
+        self.assertIn("…</div>", html)                                       # the long one is cut on a word ...
         self.assertIn('title="likvidnost $4k je samo 0.9% MC-a likvidnost', html)   # ... whole in its title
 
     def test_empty_states(self):
@@ -498,7 +502,8 @@ class Box(Pipeline):
         self._reset()
         frag = self.pt.dnevnik_fragment("Jure")                               # the fragment renders with all of it
         self.assertIn("Od 1 preskočenog", frag)
-        self.assertIn("@media(max-width:700px){.ap-skr{grid-template-areas", self.pt.CSS)   # the phone layout
+        # the phone layout (10.11.: the shared row, whose reason and numbers may take two lines each)
+        self.assertIn(".ap-wrap .ms-s,.ap-wrap.ms-row .ms-s{white-space:normal", self.pt.CSS)
 
     def test_configured_target_is_mentioned_only_when_it_differs(self):
         self.measured()

@@ -30,7 +30,9 @@ from urllib.parse import quote
 
 from league import copy, store
 from trade import executor, pumpportal, settings, wallet
-from ui.html import ago, badge, esc, short, tip, tlink, wlink
+from ui import redak
+from ui.html import ago, esc, short, tlink, wlink
+from ui.redak import Html, cat, dot, raw, row
 
 BACK = "/pravi-trade"
 TITLE = "Autopilot"
@@ -41,92 +43,91 @@ _BAL = {}   # (address, what) -> (ts, value): one RPC call a minute at most
 # statistic exists: no measurement is "nepoznato", never a block.
 WEAK_HIT15, WEAK_MIN_N = 0.3, 5
 
+# 10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4, maketa audit/2026-11-10/makete/autopilot.html): the page speaks the
+# shared calm language of ui/redak.py and ui/html.MS_CSS (rows, hero, five type sizes 34/22/17/15/13, colours only
+# for signed numbers, a dot for a state). What is below is only what this page needs on top of it: the switch in the
+# title row, sections that open on a tap and look like the shared row, the chart's range under the plot, the sell
+# buttons and forms inside an opened row. Values are copied from the mock-up.
 CSS = """<style>
-.ap{max-width:1080px;font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
-.ap h1{margin:4px 0 12px}.ap p{margin:0 0 10px}
-.ap .mut,.ap small,.ap code{font-size:13px}
-.ap button{background:var(--card);color:var(--fg);border-color:var(--line2)}
+.ap{font-size:17px;line-height:1.4;font-variant-numeric:tabular-nums}
+.ap p{margin:0 0 10px}
+.ap .mut,.ap small{font-size:15px}.ap code{font-size:13px}
+.ap a{color:var(--acc)}
+.ap button{background:var(--card);color:var(--fg);border-color:var(--line2);font-size:15px}
 .ap button:hover{background:var(--soft);border-color:var(--line2);box-shadow:none}
 .ap button.ap-go{background:var(--fg);color:#fff;border-color:var(--fg)}.ap button.ap-go:hover{background:#1f2937}
 .ap button.ap-stop{color:var(--bad)}
-.ap-head{margin:0 0 8px}
-.ap-state{display:flex;justify-content:space-between;align-items:center;gap:6px 12px;flex-wrap:wrap;font-size:13px;color:var(--mut)}
-.ap-state b{color:var(--fg);font-weight:600}.ap-state a{color:var(--mut)}
-.ap-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin-right:7px}
-.ap-dot.good{background:var(--good)}.ap-dot.warn{background:var(--warn)}.ap-dot.bad{background:var(--bad)}.ap-dot.acc{background:var(--acc)}
-.ap-val{margin:14px 0 4px;line-height:1.1;display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap}
-.ap-val b{font-size:40px;font-weight:750;letter-spacing:-.035em;font-variant-numeric:normal}
-.ap-val span{font-size:20px;color:var(--mut);white-space:nowrap}
-.ap p.ap-note{font-size:13px;color:var(--mut);margin:0 0 14px}
-.ap-pnl{display:flex;gap:10px 28px;flex-wrap:wrap;margin:0 0 16px}
-.ap-pnl span{display:flex;flex-direction:column;font-weight:600}.ap-pnl small{font-weight:400;color:var(--mut)}
-.ap-btns{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.ap-btns form{margin:0}.ap-btns button{min-height:42px}
-.ap-pos .ap-btns{margin:8px 0 0}
-.ap p.ap-w{margin:0 0 8px;padding:8px 12px;border-radius:10px;font-size:13px;background:var(--warnbg)}
-.ap p.ap-w.bad{background:var(--badbg)}.ap p.ap-w.ok{background:var(--goodbg)}
-.ap p.ap-day{font-size:13px;color:var(--mut);margin:0 0 8px}
-.ap-chart{margin:8px 0 26px}
-.ap p.ap-cap{margin:34px 0 10px;font-size:13px;color:var(--mut)}
-details.ap-sec,.ap-blk{border-top:1px solid var(--line);margin:0;padding:0;background:none;border-radius:0}
-.ap>details.ap-sec:last-of-type{border-bottom:1px solid var(--line)}
-details.ap-sec>summary,.ap-blk>.h{list-style:none;padding:16px 0;display:flex;justify-content:space-between;gap:12px;
-  align-items:center;color:var(--fg);font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;
-  -webkit-touch-callout:none;touch-action:manipulation}
-.ap-blk>.h{cursor:default;padding-bottom:10px}.ap-blk{padding-bottom:18px}
-details.ap-sec>summary::-webkit-details-marker{display:none}
-details.ap-sec>summary small{display:block;font-weight:400;color:var(--mut);margin-top:2px}
-details.ap-sec>summary .m,.ap-blk>.h .m{font-weight:400;color:var(--mut);font-size:13px;text-align:right;margin-left:auto;max-width:55%}
-details.ap-sec>summary>.t,.ap-blk>.h>span:first-child,details.ap-it>summary>span:first-child{flex:1 1 auto;min-width:9em}
-details.ap-sec>summary::after{content:'';flex:none;width:7px;height:7px;border-right:1.5px solid var(--mut);
-  border-bottom:1.5px solid var(--mut);transform:rotate(45deg);margin:-4px 3px 0 2px}
-details.ap-sec[open]>summary::after{transform:rotate(-135deg);margin-top:4px}
-details.ap-sec>.in{padding:0 0 20px}
-details.ap-sec details.ap-sec>summary{padding:12px 0;font-weight:500}
-details.ap-it{border-top:1px solid var(--line);padding:0}
-details.ap-it>summary{list-style:none;padding:12px 0;display:flex;justify-content:space-between;gap:10px;align-items:center;
-  color:var(--fg);cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-details.ap-it>summary::-webkit-details-marker{display:none}
-details.ap-it>summary .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}
-details.ap-it p{margin:0 0 8px}
-details.ap-it form,.ap-blk form{margin:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.ap-win{display:inline-flex;background:var(--soft);border-radius:10px;padding:3px;gap:2px;margin:2px 0 10px}
-.ap .ap-win button{border:0;background:none;padding:0 12px;min-height:32px;border-radius:8px;color:var(--mut);font-weight:500}
-.ap .ap-win button.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(11,18,32,.14)}
+.ap-top{padding:8px 0 0}
+.ap-tog{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--mut)}.ap-tog form{margin:0}
+.ap button.ap-sw{flex:none;display:block;width:51px;height:31px;min-height:0;padding:0;border:0;border-radius:999px;
+  background:var(--line2);position:relative;cursor:pointer;box-shadow:none;transform:none}
+.ap button.ap-sw:hover{background:var(--line2)}.ap button.ap-sw.on,.ap button.ap-sw.on:hover{background:var(--good)}
+.ap button.ap-sw::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;
+  box-shadow:0 2px 4px rgba(0,0,0,.2)}
+.ap button.ap-sw.on::after{left:auto;right:2px}
+.ap-state{display:flex;align-items:center;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;font-size:15px;color:var(--mut);margin:8px 0 0}
+.ap-state a{color:var(--acc);font-weight:500;text-decoration:none}
+.ap .ms-hero .ms-line .pos,.ap .ms-hero .ms-line .neg{font-weight:500}
+.ap-alerts:empty{display:none}.ap-alerts{margin:14px 0 0}
+.ap p.ap-w{margin:6px 0 0;font-size:15px;color:var(--fg)}
+.ap p.ap-w::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warn);margin:0 8px 1px 0;vertical-align:middle}
+.ap p.ap-w.bad::before{background:var(--bad)}.ap p.ap-w.ok::before{background:var(--good)}
+.ap-chart{margin:22px 0 0}.ap-chart:empty{display:none}
+.ap .apc{display:flex;flex-direction:column}
+.ap .apc-read{order:0;margin:0 0 6px}.ap .apc-plot{order:1}.ap .apc-top{order:2;margin:14px 0 0;gap:8px;flex-wrap:nowrap}
+.ap .apc-leg{order:3;margin-top:10px}.ap .apc-tbl{order:4}
+.ap .apc-seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;gap:0}.ap .apc-seg[data-k=r]{flex:1}
+.ap .apc-seg button{flex:1;font-size:13px;font-weight:400;padding:5px 12px;min-height:0;border-radius:9px;color:var(--fg)}
+.ap .apc-seg button.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+@media(max-width:700px){.ap .apc-seg[data-k=u]{display:none}}
+.ap-grp{margin:0}
+.ap-grp.ap-first{margin-top:18px}
+details.ap-sec,details.ap-it{margin:0;padding:0;background:none;border:0;border-radius:0;border-bottom:1px solid var(--line)}
+.ap-grp>details:last-child,#ap-pos>details:last-of-type{border-bottom:0}
+details.ap-sec>summary,details.ap-it>summary{list-style:none;display:block;padding:0;cursor:pointer;color:var(--fg);
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+details.ap-sec>summary::-webkit-details-marker,details.ap-it>summary::-webkit-details-marker{display:none}
+details.ap-sec>summary>.ms-row,details.ap-it>summary>.ms-row{border-bottom:0}
+details[open]>summary>.ms-row>.ms-chev{transform:rotate(135deg);margin-top:-5px}
+details>summary>.ms-row .ms-v.mut{font-weight:400}
+.ap .in{font-size:15px;padding:2px 0 22px}.ap .in>:last-child{margin-bottom:0}
+.ap .in details.ap-sec,.ap .in details.ap-it{border-top:1px solid var(--line);border-bottom:0}
+.ap .in>details:first-child{border-top:0}
+.ap h3.ap-sub{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:18px 0 6px;display:flex;justify-content:space-between;gap:12px}
+.ap .in>h3.ap-sub:first-child,.ap .in>div:first-child>h3.ap-sub:first-child,.ap-sk>h3.ap-sub:first-child{margin-top:0}.ap h3.ap-sub span+span{font-weight:400;color:var(--mut);font-size:15px}
+.ap .ms-hint{font-size:15px}
+.ap-wrap .ms-s,.ap-wrap.ms-row .ms-s{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+.ap-wrap.ms-row,.ap-wrap .ms-row{align-items:flex-start}.ap-wrap.ms-row .ms-e{max-width:45%}
+.ap-wrap.ms-row .ms-e .ms-s{white-space:normal}
+.ap .ms-row .ms-s a{color:var(--acc)}
+.ap .ms-h2 .ap-n{font-size:15px;font-weight:400;color:var(--mut);letter-spacing:0}
+.ap-btns{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}.ap-btns form{margin:0}.ap-btns button{min-height:42px}
+.ap form.ap-danger{margin:0}
+.ap button.ap-danger{display:block;width:100%;text-align:left;font-size:17px;color:var(--bad);background:none;border:0;
+  border-top:1px solid var(--line);border-radius:0;padding:16px 0;min-height:0;box-shadow:none;cursor:pointer}
+.ap button.ap-danger:hover{background:none;color:var(--bad);text-decoration:underline}
+.ap-lnk{color:var(--acc);cursor:pointer;font-weight:500}
+details.ap-it p,details.ap-sec p{margin:0 0 8px}
+details.ap-it form,details.ap-sec form{margin:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ap-win{display:inline-flex;background:var(--soft);border-radius:11px;padding:3px;gap:0;margin:2px 0 10px}
+.ap .ap-win button{border:0;background:none;padding:0 12px;min-height:30px;border-radius:9px;color:var(--fg);font-size:13px;font-weight:400}
+.ap .ap-win button.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
 .ap-steps{margin:8px 0 0;padding-left:0;list-style:none;counter-reset:s}
-.ap-steps li{margin:0 0 12px;padding-left:30px;position:relative}
+.ap-steps li{margin:0 0 12px;padding-left:32px;position:relative}
 .ap-steps li::before{position:absolute;left:0;top:0;width:22px;height:22px;border-radius:50%;text-align:center;
-  line-height:22px;font-size:13px;background:var(--soft);counter-increment:s;content:counter(s)}
-.ap-steps li.ok::before{content:'✓';background:var(--good);color:#fff}
+  line-height:22px;font-size:13px;background:var(--soft);color:var(--mut);counter-increment:s;content:counter(s)}
+.ap-steps li.ok::before{background:var(--good);color:#fff}
 .ap-steps form{margin:6px 0 0;display:flex;gap:6px;flex-wrap:wrap}
 .ap-tag{font-size:13px;padding:0 7px;border-radius:999px;background:var(--soft);color:var(--mut);margin-left:6px;
   font-weight:400;white-space:nowrap}
-.ap-tag.moon{background:var(--warnbg);color:var(--warn)}.ap-tag.dugo{background:var(--goodbg);color:var(--good)}
 .ap-tok{color:var(--acc);font-weight:600}
-.ap-lim label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:10px 0}
+.ap-lim label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:10px 0}.ap-lim label.ap-chk{display:block}
 .ap-lim input[type=text],.ap-lim input:not([type]){width:90px}
-.ap-pos,.ap-lg{border-top:1px solid var(--line);padding:12px 0}
-.ap-pos[data-pop],.ap-lg[data-pop]{cursor:pointer}
-.ap-pos .r,.ap-lg{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.ap-lg{flex-wrap:nowrap;align-items:flex-start}.ap-lg small{display:block;color:var(--mut)}
-.ap-lg .k{font-size:13px;color:var(--mut);white-space:nowrap;text-align:right}
-.ap-row::after{content:'';flex:none;width:6px;height:6px;border-right:1.5px solid var(--mut);border-top:1.5px solid var(--mut);
-  transform:rotate(45deg);margin:0 3px 0 2px}
-.ap-row u{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;cursor:pointer}
-.ap-sk{border:1px solid var(--line);border-radius:12px;padding:12px 14px 0;margin:0 0 16px}
-.ap .ap-sk p{margin:0 0 8px}.ap .ap-sk p.h{font-weight:500;font-size:14.5px}
-.ap .ap-sk p.f{font-size:12.5px;color:var(--mut);border-top:1px solid var(--line);padding:9px 0 11px;margin:0}
-.ap-skr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t v" "w d";gap:2px 16px;
-  border-top:1px solid var(--line);padding:9px 0;font-size:14px;cursor:pointer;align-items:baseline}
-.ap-skr .t{grid-area:t;min-width:0;overflow-wrap:break-word}.ap-skr .t .mut{margin-left:2px}
-.ap .ap-skr .w{grid-area:w;color:var(--mut);font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
-.ap-skr .v{grid-area:v;text-align:right;font-weight:600;white-space:nowrap}
-.ap-skr .d{grid-area:d;text-align:right;font-size:13px;white-space:nowrap}
-.ap-skr .v.miss{color:var(--warn)}.ap-skr .v.ok{color:var(--good)}.ap-skr .v.wait,.ap-skr .v.none,.ap-skr .v.floor{color:var(--mut);font-weight:500}
-.ap-skr .d.wait,.ap-skr .d.none{color:var(--mut)}
-.ap-sk details.ap-it>summary{padding:9px 0;font-size:13px;color:var(--mut)}
-.ap-lg>span:first-child{min-width:0;overflow-wrap:anywhere}
-@media(max-width:700px){.ap-skr{grid-template-areas:"t v" "w w" "d d"}.ap-skr .d{text-align:left;white-space:normal}}
-@media(max-width:700px){.ap-val b{font-size:34px}.ap-val span{font-size:18px}}
+.ap .ms-row u{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;cursor:pointer}
+.ap-sk{margin:0 0 6px}.ap .ap-sk p.ap-sk-h{font-size:17px;margin:0 0 4px}
+.ap-sk .ms-row{min-height:0}
+.ap .in table.t{font-size:13px}
+#dnevnik>summary .ms-s,#influenceri>summary .ms-s{white-space:normal}
 </style>"""
 
 # 10.11. (Jure: "stranica mora biti čista"): the 7/14/30-day switch and the Phantom button are handled from the
@@ -220,46 +221,65 @@ def _need_sol(cfg, n_open):
     return cfg["size_sol"] + executor.BUY_OVERHEAD_SOL + executor.reserve_sol(cfg, n_open + 1)
 
 
+def _steps_ok(cfg, addr, sol, n_open):
+    """Which of the four setup steps are done, from what we can see without asking anybody: [address saved, enough
+    SOL for the first buy, key in Render, switch on]. Shared by the setup list and the state line's "Dovrši 3/4"."""
+    return [bool(addr), sol is not None and sol >= _need_sol(cfg, n_open), executor.armed(), bool(cfg["on"])]
+
+
 def _setup(tcon, cfg, addr, key_addr, saved, sol, usdc, n_open):
     """The four steps to a working wallet, ticked from what we can see: {'html', 'warn', 'done', 'total', 'ready'}.
-    10.11. (Jure: "čista stranica"): open right under the header only while the WALLET is not ready (address, SOL,
-    key: 'ready' False); the last step is the switch, which the header already offers, so a wallet that is only
-    switched off does not push a to-do list above the chart. Otherwise closed at the bottom."""
+    10.11. (Jure, prijedlog 3.4 "spaja pilulu stanja i Postavljanje walleta"): the steps live inside the row "Wallet i
+    uplata" under "Još"; while the wallet is not ready (address, SOL, key: 'ready' False) the state line under the
+    title says "Dovrši 3/4" and opens them. 'html' is the inside of that row (the row itself is _wallet_row)."""
     need = _need_sol(cfg, n_open)
-    steps = [
-        (bool(addr), "<b>Napravi zaseban račun u Phantomu.</b> U Phantomu dodirni ikonu računa gore lijevo → "
-                     "<i>Add / Connect Wallet</i> → <i>Create New Account</i>. Ne koristi glavni wallet: bot smije "
-                     "potrošiti sve što je u ovom."
-         + ('<form method=post action=/pravi-trade/wallet id=ap-addr-f>'
-            f'<input id=ap-addr name=addr placeholder="javna adresa walleta" value="{esc(saved or "")}" '
-            'style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
-            '<button>Spremi adresu</button>'
-            '<button type=button id=ap-phantom title="Phantom daje samo javnu adresu, ništa ne potpisuje">'
-            'Poveži Phantom (samo adresa)</button></form>')),
-        (sol is not None and sol >= need,
-         f"<b>Uplati SOL na tu adresu.</b> Za prvu kupnju treba barem <b>{need:.3f} SOL</b> (ulog {cfg['size_sol']:g} + "
-         f"naknade i rezerva za prodaju {tip('Rezerva: dio SOL-a uvijek ostaje u walletu da bot može platiti mrežne naknade prodaje, i kad je sve drugo uloženo.')}). "
-         "Imaš USDC? Bot kupuje SOL-om i njime plaća naknade, pa USDC prvo zamijeni: "
-         '<a href="https://jup.ag/swap/USDC-SOL" target=_blank rel=noopener>Zamijeni USDC u SOL na Jupiteru ↗</a>'
-         + (f'<br><span class=mut>Sada u walletu: {usdc:.2f} USDC.</span>' if usdc else "")),
-        (executor.armed(),
-         "<b>Ključ bot-walleta postavlja samo vlasnik, izravno u Renderu.</b> U "
-         f'<a href="{_render_env_url()}" target=_blank rel=noopener>Render → Environment ↗</a> moraju postojati '
-         "<code>SOLANA_PRIVATE_KEY</code> i <code>TRADE_LIVE</code> = <code>1</code>. Aplikacija ključ nikad ne traži, "
-         "ne sprema i ne prikazuje, i nitko ga ne upisuje ovdje ni u chat."),
-        (bool(cfg["on"]), "<b>Odaberi koga bot prati</b> (sekcija „Koga bot prati”) i dodirni <i>Uključi Autopilot</i>. "
-                          "Za prvi put stavi ulog 0,01 SOL u Limitima i pogledaj prvu kupnju na Solscanu."),
+    texts = [
+        "<b>Napravi zaseban račun u Phantomu.</b> U Phantomu dodirni ikonu računa gore lijevo → "
+        "<i>Add / Connect Wallet</i> → <i>Create New Account</i>. Ne koristi glavni wallet: bot smije "
+        "potrošiti sve što je u ovom."
+        + ('<form method=post action=/pravi-trade/wallet id=ap-addr-f>'
+           f'<input id=ap-addr name=addr placeholder="javna adresa walleta" value="{esc(saved or "")}" '
+           'style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
+           '<button>Spremi adresu</button>'
+           '<button type=button id=ap-phantom title="Phantom daje samo javnu adresu, ništa ne potpisuje">'
+           'Poveži Phantom (samo adresa)</button></form>'),
+        f"<b>Uplati SOL na tu adresu.</b> Za prvu kupnju treba barem <b>{redak.sol(need, 3)}</b> (ulog "
+        f"{_g(cfg['size_sol'])} + naknade i rezerva koja uvijek ostaje u walletu da bot može "
+        "platiti mrežne naknade prodaje). Imaš USDC? Bot kupuje SOL-om i njime plaća naknade, pa USDC prvo zamijeni: "
+        '<a href="https://jup.ag/swap/USDC-SOL" target=_blank rel=noopener>Zamijeni USDC u SOL na Jupiteru ↗</a>'
+        + (f'<br><span class=mut>Sada u walletu: {redak.num(usdc, 2)} USDC.</span>' if usdc else ""),
+        "<b>Ključ bot-walleta postavlja samo vlasnik, izravno u Renderu.</b> U "
+        f'<a href="{_render_env_url()}" target=_blank rel=noopener>Render → Environment ↗</a> moraju postojati '
+        "<code>SOLANA_PRIVATE_KEY</code> i <code>TRADE_LIVE</code> = <code>1</code>. Aplikacija ključ nikad ne traži, "
+        "ne sprema i ne prikazuje, i nitko ga ne upisuje ovdje ni u chat.",
+        "<b>Odaberi koga bot prati</b> (redak „Koga prati”) i uključi prekidač gore desno. "
+        "Za prvi put stavi ulog 0,01 SOL u Pravilima i pogledaj prvu kupnju na Solscanu.",
     ]
-    done = sum(1 for ok, _ in steps if ok)
+    oks = _steps_ok(cfg, addr, sol, n_open)
+    done = sum(oks)
     warn = ""
     if key_addr and saved and key_addr != saved:
         warn = (f'<p class="ap-w bad">Ključ u Renderu pripada drugom walletu (<code>{esc(short(key_addr))}</code>) '
                 f'nego spremljena adresa (<code>{esc(short(saved))}</code>). Bot trguje s walletom ključa.</p>')
-    items = "".join(f'<li class="{"ok" if ok else ""}">{txt}</li>' for ok, txt in steps)
-    ready = all(ok for ok, _ in steps[:3])
-    html = _sec("Postavljanje walleta", f"{done}/{len(steps)} gotovo", f"<ol class=ap-steps>{items}</ol>",
-                open_=not ready, sid="postavljanje")
-    return {"html": html, "warn": warn, "done": done, "total": len(steps), "ready": ready}
+    items = "".join(f'<li class="{"ok" if ok else ""}">{txt}</li>' for ok, txt in zip(oks, texts))
+    ready = all(oks[:3])
+    html = (f'<h3 class=ap-sub><span>Postavljanje walleta</span><span>{done}/{len(texts)} gotovo</span></h3>'
+            f"<ol class=ap-steps>{items}</ol>")
+    return {"html": html, "warn": warn, "done": done, "total": len(texts), "ready": ready, "sol": sol, "usdc": usdc}
+
+
+def _dec(x):
+    """Decimals a setting needs to be read as typed: 0.05 -> 2, 0.005 -> 3, 1 -> 0 (for redak.num)."""
+    t = f"{float(x):g}"
+    return len(t.split(".")[1]) if "." in t and "e" not in t else 0
+
+
+def _g(x):
+    """A setting as typed, with a decimal comma: 0.05 -> "0,05", 1 -> "1" (the old f"{x:g}")."""
+    try:
+        return redak.num(x, _dec(x))
+    except (TypeError, ValueError):
+        return str(x)
 
 
 # ---------- money over time: trade/equity.py (another group's module, so always behind try/except) --------------
@@ -347,17 +367,19 @@ def _rates(summary, now=None):
 
 
 def _fiat(x):
-    """187 / 12.40 / 1 234: whole units from 100 up, a plain space between thousands (no comma to misread)."""
-    return f"{x:,.0f}".replace(",", " ") if abs(x) >= 100 else f"{x:.2f}"
+    """187 / 12,40 / 1 234: whole units from 100 up, a decimal comma below (pravilo 8), a space between thousands."""
+    return redak.num(x, 0 if abs(x) >= 100 else 2)
 
 
 def _state(cfg):
-    """(dot colour, words) of the switch: real money, on without the key (trial only), or off."""
+    """(dot colour, words) of the line under the title: real money, on without the key (trial only), or off.
+    10.11. (maketa autopilot.html: "● Probno: ključ još nije postavljen"): plain words after a dot, no capitals;
+    "Uključen" / "Isključen" is said once, in the title row (with the switch for the owner)."""
     if cfg["on"] and executor.armed():
-        return "good", "UKLJUČEN: trguje pravim novcem"
+        return "good", "Trguje pravim novcem"
     if cfg["on"]:
-        return "warn", "Uključen, ali bez ključa: radi probno"
-    return "", "ISKLJUČEN: samo probno, bez novca"
+        return "warn", "Probno: ključ još nije postavljen"
+    return "", "Samo probno, bez novca"
 
 
 def _addr_html(addr):
@@ -365,64 +387,69 @@ def _addr_html(addr):
         return "<span>Wallet još nije postavljen.</span>"
     return (f'<span translate=no title="{esc(addr)}"><code>{esc(short(addr))}</code> · '
             f'<a href="#" role=button data-m="{esc(addr)}" onclick="var m=this.dataset.m,b=this;'
-            f"(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject()).then(function(){{b.textContent='kopirano ✓'}},"
+            f"(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject()).then(function(){{b.textContent='kopirano'}},"
             f"function(){{prompt('Kopiraj adresu:',m)}});return false\">kopiraj adresu</a> · "
             f'<a href="https://solscan.io/account/{quote(addr)}" target=_blank rel=noopener>Solscan ↗</a></span>')
 
 
-def _sign_cls(x):
-    return "pos" if x > 0 else "neg" if x < 0 else ""
+def _signed(x, dec=3, unit="SOL"):
+    """A signed number coloured by its sign (pravilo 4, the only place for green and red): "+0,029 SOL", "−3,7 %"."""
+    txt = redak.sol(x, dec, sign=True) if unit == "SOL" else redak.pct(x, dec)
+    t = redak.tone(x)
+    return Html(f'<span class="{t}">{redak.h(txt)}</span>') if t else redak.h(txt)
 
 
 def _value_html(s, r):
-    """The big number: the wallet's whole value in SOL, beside it the same in dollars and euros at the live rate;
-    then PnL of the last 24 h and in total; under it, small, what 1 SOL is worth, the money put in and the part in
-    open positions. 10.11. (screenshots at 390 px): two PnL cells, not three, and one small line, so the chart
-    starts on the first screen of a phone."""
+    """The big number (maketa: "2,00 SOL", under it "≈ 323 $ · 278 € · danas 0,00 SOL"): the wallet's whole value in
+    SOL and one line with the same in dollars and euros at the live rate, the result of the last 24 h and the result
+    in total against the money put in. 10.11.: the rate of 1 SOL, the money put in, the part in open positions and
+    USDC moved one tap away, into "Wallet i uplata" under "Još" (pravilo 6)."""
     val, usd, eur = float(s["value_sol"]), r.get("sol_usd"), r.get("usd_eur")
-    fiat = (f"{_fiat(val * usd)} $" + (f" · {_fiat(val * usd * eur)} €" if eur else "")) if usd else ""
-    note = [f"1 SOL = {_fiat(usd)} $" + (f" · {_fiat(usd * eur)} €" if eur else "")] if usd else []
-    pnl, p24, net = s.get("pnl_sol"), s.get("pnl_24h_sol"), s.get("net_in_sol")
-    if net is not None:
-        note.append(f"uplaćeno {float(net):.3f} SOL")
-    if s.get("tokens_sol"):
-        note.append(f"{float(s['tokens_sol']):.3f} SOL u pozicijama")
-    if s.get("usdc"):
-        note.append(f"{float(s['usdc']):.2f} USDC")
-    cells = []
+    bits = []
+    if usd:
+        bits.append(f"≈ {_fiat(val * usd)} $" + (f" · {_fiat(val * usd * eur)} €" if eur else ""))
+    p24, pnl, net = s.get("pnl_24h_sol"), s.get("pnl_sol"), s.get("net_in_sol")
     if p24 is not None:
-        cells.append(f'<span><small>Zadnja 24 h</small><span class="{_sign_cls(p24)}">{p24:+.3f} SOL</span></span>')
-    if pnl is not None:   # the share is counted here from the two SOL amounts, so it never depends on another unit
-        pct = f" · {100.0 * pnl / net:+.1f} %" if net and net > 0 else ""
-        cells.append(f'<span><small>Ukupno</small><span class="{_sign_cls(pnl)}">{pnl:+.3f} SOL{pct}</span></span>')
-    return (f'<div class=ap-val><b>{val:.3f} SOL</b>' + (f"<span>{fiat}</span>" if fiat else "") + "</div>"
-            + (f'<p class=ap-note>{" · ".join(note)}</p>' if note else "")
-            + (f'<div class=ap-pnl>{"".join(cells)}</div>' if cells else ""))
+        bits.append(cat("24 h ", _signed(p24)))
+    if pnl is not None and net and net > 0:   # the share is counted from the two SOL amounts, never another unit
+        bits.append(cat("ukupno ", _signed(100.0 * pnl / net, 1, "%")))
+    return redak.hero(redak.num(val, 3), why=cat(*bits, sep=" · ") if bits else None, big=True, unit="SOL")
 
 
-def _switch_html(on, n_open):
-    """The owner's switch. Off and nothing open = one button; the red one appears only when there is something to stop."""
-    b = ['<div class=ap-btns>']
+def _switch_html(on, n_open=0):
+    """The owner's switch in the title row (maketa: "Uključen" and a switch; it replaces the button "Isključi
+    Autopilot (nove kupnje staju)"). Same form and the same confirmation as the buttons before it. "Prodaj sve i
+    isključi" is under the open positions now (SELL_ALL), where the positions it sells are."""
     if on:
-        b.append('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Isključiti Autopilot? Nove '
-                 'kupnje staju odmah, otvorene pozicije se i dalje prodaju po pravilima.\')"><input type=hidden name=on '
-                 'value=0><button>Isključi Autopilot</button></form>')
+        form = ('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Isključiti Autopilot? Nove '
+                'kupnje staju odmah, otvorene pozicije se i dalje prodaju po pravilima.\')"><input type=hidden name=on '
+                'value=0><button class="ap-sw on" role=switch aria-checked=true aria-label="Isključi Autopilot" '
+                'title="Isključi Autopilot"></button></form>')
     else:
-        b.append('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Uključiti Autopilot? Bot će '
-                 'SAM kupovati pravim SOL-om iz walleta, i preko noći, unutar Limita, dok ne dodirneš Isključi.\')">'
-                 '<input type=hidden name=on value=1><button class=ap-go>Uključi Autopilot (pravi novac)</button></form>')
-    if on or n_open:   # nothing to sell and nothing running: no red button
-        b.append('<form method=post action=/pravi-trade/sellall onsubmit="return confirm(\'Prodati SVE otvorene '
-                 'pozicije odmah i isključiti Autopilot?\')"><button class=ap-stop>Prodaj sve i isključi</button></form>')
-    b.append('</div>')
-    return "".join(b)
+        form = ('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Uključiti Autopilot? Bot će '
+                'SAM kupovati pravim SOL-om iz walleta, i preko noći, unutar Limita, dok ne dodirneš Isključi.\')">'
+                '<input type=hidden name=on value=1><button class=ap-sw role=switch aria-checked=false '
+                'aria-label="Uključi Autopilot (pravi novac)" title="Uključi Autopilot (pravi novac)"></button></form>')
+    return f'<div class=ap-tog><span>{"Uključen" if on else "Isključen"}</span>{form}</div>'
 
 
-def _head_inner(tcon, cfg, con, owner, now=None):
-    """Inside of the header (#ap-head), also the answer of /pravi-trade/graf: state, the wallet's value "X SOL · $ · €",
-    PnL, the owner's switch, whatever stops a trade right now, and the chart. Every part is one top-level element, so
-    the 45-s refresh swaps only the parts that changed (PATCH_JS). Without trade.equity (or before its first
-    snapshot) the value is the plain SOL balance of the wallet, as before."""
+SELL_ALL = ('<form method=post action=/pravi-trade/sellall class=ap-danger onsubmit="return confirm(\'Prodati SVE otvorene '
+            'pozicije odmah i isključiti Autopilot?\')"><button class=ap-danger>Prodaj sve i isključi</button></form>')
+
+
+def _title(owner=False, on=None, n_open=0):
+    """The title row: "Autopilot" and the switch for the owner; an invited player reads the same word without it."""
+    right = (_switch_html(on, n_open) if owner else
+             f'<div class=ap-tog><span>{"Uključen" if on else "Isključen"}</span></div>' if on is not None else "")
+    return f'<div class="ms-top ap-top"><h1 class=ms-h1>{TITLE}</h1>{right}</div>'
+
+
+def _head_inner(tcon, cfg, con, owner, now=None, msg=""):
+    """Inside of the header (#ap-head), also the answer of /pravi-trade/graf: the title with the owner's switch, the
+    state line (with "Dovrši 3/4" while the wallet is not ready), the wallet's value as one big number, whatever stops
+    a trade right now, and the chart. Every part is one top-level element, so the 45-s refresh swaps only the parts
+    that changed (PATCH_JS). Without trade.equity (or before its first snapshot) the value is the plain SOL balance
+    of the wallet, as before. msg: the answer to the owner's last form (page view only; the refresh drops it)."""
     now = now or time.time()
     armed, on = executor.armed(), cfg["on"]
     addr, _key_addr, _saved = _addr(tcon)
@@ -431,25 +458,32 @@ def _head_inner(tcon, cfg, con, owner, now=None):
     has_eq = s.get("value_sol") is not None
     n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open' AND mode=?",
                           ("live" if on and armed else "dry",)).fetchone()[0]
-    dot, words = _state(cfg)
-    b = [f'<div class=ap-state><span><i class="ap-dot {dot}"></i><b>{words}</b></span>{_addr_html(addr)}</div>']
     if has_eq:
-        b.append(_value_html(s, _rates(s, now)))
+        hero = _value_html(s, _rates(s, now))
+        sol_now = s.get("sol")
     else:   # no history yet (or no trade.equity): the plain balance, with the live rate when there is one
-        sol, usdc = _balance(addr), _usdc(addr)
-        r = _rates({}, now) if sol is not None else {}
+        sol_now = _balance(addr)
+        r = _rates({}, now) if sol_now is not None else {}
         usd, eur = r.get("sol_usd"), r.get("usd_eur")
-        fiat = (f"{_fiat(sol * usd)} $" + (f" · {_fiat(sol * usd * eur)} €" if eur else "")) if usd else ""
-        note = ([f"1 SOL = {_fiat(usd)} $" + (f" · {_fiat(usd * eur)} €" if eur else "")] if usd else []) + (
-            [f"{usdc:.2f} USDC"] if usdc else [])
-        b.append(f'<div class=ap-val><b>{"–" if sol is None else f"{sol:.3f}"} SOL</b>'
-                 + (f"<span>{fiat}</span>" if fiat else "") + "</div>"
-                 + (f'<p class=ap-note>{" · ".join(note)}</p>' if note else ""))
-    if owner:
-        b.append(_switch_html(on, n_open))
-    alerts = '<p class="ap-w bad">Prodaja svega je u tijeku…</p>' if cfg.get("sell_all") else ""
+        bits = [f"≈ {_fiat(sol_now * usd)} $" + (f" · {_fiat(sol_now * usd * eur)} €" if eur else "")] if usd else []
+        try:   # without the history the line says today's result (all fees in), as the header did before
+            day = _today(tcon, cfg)
+            if day["spent"] or day["pnl"]:
+                bits.append(cat("danas ", _signed(day["pnl"], 4)))
+        except Exception:  # noqa: BLE001
+            pass
+        hero = redak.hero("–" if sol_now is None else redak.num(sol_now, 3), why=cat(*bits, sep=" · ") if bits else None,
+                          big=True, unit="SOL")
+    d, words = _state(cfg)
+    link = ""
+    if owner:   # the setup steps are under "Još"; while the wallet is not ready the state line leads there
+        oks = _steps_ok(cfg, addr, sol_now, n_open)
+        if not all(oks[:3]):
+            link = f'<a href="#postavljanje">Dovrši {sum(oks)}/{len(oks)}</a>'
+    b = [_title(owner, on, n_open), f"<div class=ap-state><span>{dot(d, words)}</span>{link}</div>", hero]
+    alerts = msg + ('<p class="ap-w bad">Prodaja svega je u tijeku…</p>' if cfg.get("sell_all") else "")
     try:
-        alerts += _warnings(tcon, cfg, con) + _today(tcon, cfg, result=not has_eq)
+        alerts += _warnings(tcon, cfg, con)
     except Exception as e:  # noqa: BLE001 - a broken check must not cost the owner the switch above it
         print(f"autopilot: upozorenja nisu složena: {type(e).__name__}: {e}", flush=True)
     b.append(f"<div class=ap-alerts>{alerts}</div>")
@@ -468,9 +502,9 @@ def _head_inner(tcon, cfg, con, owner, now=None):
     return "".join(b)
 
 
-def _head(tcon, cfg, con, owner):
+def _head(tcon, cfg, con, owner, msg=""):
     return (f'<section class=ap-head id=ap-head data-src=/pravi-trade/graf data-every={HEAD_EVERY_S}>'
-            f'{_head_inner(tcon, cfg, con, owner)}</section>')
+            f'{_head_inner(tcon, cfg, con, owner, msg=msg)}</section>')
 
 
 def head_fragment(user):
@@ -490,24 +524,23 @@ def head_fragment(user):
         tcon.close()
 
 
-def _today(tcon, cfg, result=True):
-    """Today's spend against the daily limit. result=False (the header already shows PnL from the value history):
-    only the spend, so the same thing is not said twice with two slightly different numbers."""
-    now = time.time()
-    mode = "live" if executor.is_live(cfg) else "dry"
+def _today(tcon, cfg, result=True, now=None):
+    """Today's spend (in the mode the switch trades in) and, with result=True, today's result with all fees:
+    {'spent', 'pnl', 'live'}. 10.11.: the spend is said in the "Pravila" row against the daily limit; the result
+    is the "danas" in the line under the big number while there is no value history (with it, that line says the
+    last 24 h)."""
+    now = now or time.time()
+    live = executor.is_live(cfg)
+    mode = "live" if live else "dry"
     start = executor._day_start(now, cfg.get("day_tz"))
     spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
                          "('open','closed','pending')", (mode, start)).fetchone()[0]
     pnl = executor.day_pnl(tcon, now, mode, cfg.get("day_tz")) if result else 0
-    if not spent and not pnl:
-        return ""
-    word = "pravo" if mode == "live" else "probno"
-    tail = (f' · rezultat (uz sve naknade) <span class="{_sign_cls(pnl)}">{pnl:+.4f} SOL</span>' if result else "")
-    return f'<p class=ap-day>Danas ({word}): potrošeno {spent:.3f} od {cfg["max_sol_per_day"]:g} SOL{tail}</p>'
+    return {"spent": float(spent or 0), "pnl": float(pnl or 0), "live": live}
 
 
-POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age style="font-size:12px"></span>'
-            '<button onclick="this.closest(\'dialog\').close()">Zatvori ✕</button></div><div class=body><p class=mut>Učitavam…</p></div></dialog>')
+POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age style="font-size:13px"></span>'
+            '<button onclick="this.closest(\'dialog\').close()">Zatvori</button></div><div class=body><p class=mut>Učitavam…</p></div></dialog>')
 # 9.11. (Jure): everything opens in a pop-up, never a new page, and the pop-up re-fetches its content every second
 # while it is open (the swap is skipped while a field inside it has focus, so a stake being typed is never lost)
 # 9.11. 23:10 (Jure: the pop-up stays at "Učitavam…"): setInterval fired a new request every second whether or not
@@ -533,26 +566,70 @@ POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window
           "d.addEventListener('close',()=>{clearInterval(t);url='';if(ctl)ctl.abort()});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
 POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width:min(96vw,680px);width:96vw;background:var(--card);color:var(--fg)}"
            "dialog#ap-pop::backdrop{background:rgba(0,0,0,.45)}dialog#ap-pop .bar2{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}"
-           "dialog#ap-pop .body{padding:10px 14px 16px;font-size:14px;line-height:1.45}dialog#ap-pop .body h3{margin:10px 0 4px;font-size:15px}"
+           "dialog#ap-pop .body{padding:10px 14px 16px;font-size:15px;line-height:1.45}dialog#ap-pop .body h3{margin:10px 0 4px;font-size:17px}"
            ".ap-row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;"
            "user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}.ap-row .k{font-size:13px;color:var(--mut);text-align:right;white-space:nowrap}"
            ".ap-row b{font-weight:600}.ap-za{color:var(--good)}.ap-protiv{color:var(--bad)}.ap-verdict{font-weight:700;padding:6px 10px;border-radius:10px;margin:6px 0;display:inline-block}"
            ".ap-verdict.ok{background:var(--goodbg);color:var(--good)}.ap-verdict.ne{background:var(--badbg);color:var(--bad)}"
            ".ap-tag.ap-mine{background:var(--goodbg);color:var(--good)}"
-           "table.ap-mk{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0}table.ap-mk th,table.ap-mk td{padding:5px 6px;"
+           "table.ap-mk{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}table.ap-mk th,table.ap-mk td{padding:5px 6px;"
            "text-align:right;border-top:1px solid var(--line);white-space:nowrap}table.ap-mk th{font-weight:600;color:var(--mut)}"
            "table.ap-mk td:first-child,table.ap-mk th:first-child{text-align:left;color:var(--mut)}"
            ".ap-mk .pos{color:var(--good)}.ap-mk .neg{color:var(--bad)}"
            ".ap-box{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.ap-box div{flex:1;min-width:92px;border:1px solid var(--line);"
-           "border-radius:10px;padding:6px 8px;text-align:center}.ap-box small{display:block;color:var(--mut);font-size:11.5px}"
+           "border-radius:10px;padding:6px 8px;text-align:center}.ap-box small{display:block;color:var(--mut);font-size:13px}"
            ".ap-box b{font-size:15px}</style>")
 
 
-def _sec(title, meta, inner, open_=False, sid="", hidden=False):
-    # 10.11. (screenshots at 390 px): the title in its own box, so a long one-line summary on the right wraps
-    # instead of squeezing the title into a column of single words
+_CHEV = '<span class="ms-chev" aria-hidden="true"></span>'
+
+
+def _srow(name, reason=None, value=None, sub=None, **kw):
+    """The shared row (ui/redak.row) for inside a <summary>: the same look and the same arrow, but no link of its
+    own, because the tap opens the section (TOGGLE_JS) instead of leaving the page."""
+    r = row(name, reason, value, sub, **kw)
+    return raw(r[:-len("</div>")] + _CHEV + "</div>")
+
+
+def _prow(tok, **kw):
+    """The shared row for a token on this page: a tap opens the Autopilot's own live pop-up (/pravi-trade/token,
+    POP_JS: verdict, market, buy form), the same as before 10.11., not the evidence pop-up of the other pages that
+    redak.row(mint=...) would open."""
+    if not tok:
+        return row(**kw)
+    r = row(mint=tok, **kw)
+    return raw(r.replace(f'data-mint="{redak.h(tok)}"', f'data-pop="/pravi-trade/token?m={quote(tok)}"', 1))
+
+
+def _sec(title, meta, inner, open_=False, sid="", hidden=False, value=None, sub=None):
+    """A section that opens on a tap. 10.11. (maketa autopilot.html): closed it is one shared row (name, one line,
+    at most one number, the arrow; ui/redak.row), opened the content follows under it. title/meta are text, or Html
+    when they carry markup."""
+    r = _srow(title, meta or None, value, sub, value_tone="mut" if value not in (None, "") else None)
     return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}{" hidden" if hidden else ""}>'
-            f'<summary><span class=t>{title}</span><span class=m>{meta}</span></summary><div class=in>{inner}</div></details>')
+            f'<summary>{r}</summary><div class=in>{inner}</div></details>')
+
+
+def _item(name, reason, inner, value=None, sub=None, iid="", value_tone=None):
+    """One opening row inside a section (a follow, a recommendation, a position): the same row as _sec, one level
+    down. iid: an id, so the row stays open across the 1-s refresh (TOGGLE_JS remembers open rows by id)."""
+    r = _srow(name, reason or None, value, sub, value_tone=value_tone)
+    return (f'<details class=ap-it{f" id={iid}" if iid else ""}><summary>{r}</summary>'
+            f'<div class=in>{inner}</div></details>')
+
+
+def _group(*parts, first=False):
+    """Rows that belong together (maketa: "Kako trguje", "Još"); the last one has no line under it."""
+    body = "".join(p for p in parts if p)
+    return f'<div class="ap-grp{" ap-first" if first else ""}">{body}</div>' if body else ""
+
+
+def _h2(title, right="", rid="", sid=""):
+    """Section title (22 px) with a quiet count on the right, e.g. "Otvorene pozicije 3 od 5"."""
+    i = f" id={sid}" if sid else ""
+    r = f'<span class=ap-n{f" id={rid}" if rid else ""}>{esc(right)}</span>' if (right or rid) else ""
+    # data-sec="": no chip bar (ui/secnav) built from these titles (prijedlog pravilo 6: no standing bars)
+    return f'<h2 class=ms-h2{i} data-sec=""><span>{esc(title)}</span>{r}</h2>'
 
 
 # ---------- who the bot follows ----------------------------------------------------------------------------------
@@ -561,17 +638,21 @@ def _auto_box(st, owner):
     """The switch that lets the tool choose whom to follow (Nicholas 4.11.: "neka alat sam odredi koga pratit")."""
     from ui.autopilot import WINDOWS
     on, days, n = bool(st.get("auto_pick")), int(st.get("auto_days") or 14), int(st.get("auto_n") or 3)
-    what = (f"<b>Alat sam bira koga prati:</b> {'uključeno' if on else 'isključeno'}. "
-            f"{tip('Svaki sat alat uzme najbolje influencere (samo one koje pratimo uživo) i wallete iz preporuka za odabrano razdoblje. Koga je on dodao, njega i makne kad ispadne iz najboljih (dvostruko širi popis, da se ne mijenja svaki sat). Tvoja ručna praćenja ne dira. Kad nekoga sam prestaneš pratiti, alat ga više ne vraća.')}")
+    what = f"<b>Alat sam bira koga prati:</b> {'uključeno' if on else 'isključeno'}."
     if on:
         what += f" Bira {n} influencera i {n} walleta po rezultatima zadnjih {days} dana, provjera svaki sat."
+    # 10.11. (pravilo 6: bez ⓘ): what the tool does with its picks, as one quiet sentence under the switch
+    how = ('<p class=mut>Svaki sat uzme najbolje influencere (samo one koje pratimo uživo) i wallete iz preporuka; koga '
+           'je on dodao, njega i makne kad ispadne iz najboljih. Tvoja ručna praćenja ne dira, a koga sam prestaneš '
+           'pratiti, ne vraća.</p>')
     log = st.get("auto_log") or []
     hist = "".join(f'<li>{"dodao" if x["op"] == "+" else "maknuo"} '
                    f'{"@" + esc(x["target"]) if x["kind"] == "kol" else esc(short(x["target"]))} '
-                   f'<span class=mut>({esc(ago(x["ts"])[0])}): {esc(x["why"])}</span></li>' for x in log[:5])
-    hist = f'<details class=ap-it><summary><span>Zadnje promjene alata</span><span class=k>{len(log)}</span></summary><ul class=mut style="margin:0 0 8px;padding-left:18px">{hist}</ul></details>' if log else ""
+                   f'<span class=mut>({esc(redak.ago(x["ts"]))}): {esc(x["why"])}</span></li>' for x in log[:5])
+    hist = _item("Zadnje promjene alata", None, f'<ul class=mut style="margin:0;padding-left:18px">{hist}</ul>',
+                 value=str(len(log)), value_tone="mut") if log else ""
     if not owner:
-        return f'<p>{what}</p>{hist}'
+        return f'<p>{what}</p>{how}{hist}'
     days_opt = "".join(f'<option value={d}{" selected" if d == days else ""}>zadnjih {d} dana</option>' for d in WINDOWS)
     n_opt = "".join(f'<option value={k}{" selected" if k == n else ""}>{k} + {k}</option>' for k in (1, 2, 3, 5))
     form = ('<form method=post action=/pravi-trade/auto class=ap-btns style="align-items:center;margin:0 0 10px">'
@@ -584,10 +665,27 @@ def _auto_box(st, owner):
                '<button class=ap-go onclick="return confirm(\'Alat će sam dodavati i micati influencere i wallete koje bot '
                'prati pravim novcem (kad je Autopilot uključen). Uključiti?\')">Neka alat sam bira</button>')
             + '</form>')
-    return f'<p>{what}</p>{form}{hist}'
+    return f'<p>{what}</p>{form}{how}{hist}'
+
+
+_KIND_WORD = {"kol": "influencer", "ekipa": "ekipa", "wallet": "wallet"}
+
+
+def _follow_name(f):
+    """A follow as plain text for its row: @handle, the Telegram channel, the crew's members, a wallet's label or
+    its short address (a wallet's label can be the whole address)."""
+    if f["kind"] == "ekipa":
+        return " + ".join(m[3:] if m.startswith("tg:") else "@" + m for m in copy.members_of(f["target"]))
+    if f["kind"] == "kol":
+        return f["target"][3:] if f["target"].startswith("tg:") else "@" + f["target"]
+    lab = f.get("label") or ""
+    return lab if lab and len(lab) < 30 else short(f["target"])
 
 
 def _follows(con, owner, st=None, prefill=""):
+    """"Koga prati" under "Kako trguje" (maketa): one row with the names and how many; opened, the tool's own
+    choice, the form to follow anybody (owner), and one row per follow (who, what kind, entries) that opens its
+    numbers and "Prestani pratiti"."""
     st = st or {}
     auto_ids = {int(i) for i in st.get("auto_follows") or []}
     fl = copy.follows(con, settings.LEAGUE_USER)
@@ -615,28 +713,29 @@ def _follows(con, owner, st=None, prefill=""):
                    else wlink(f["target"]) + (f" {esc(f['label'])}" if f["label"] else ""))
         stop = (f'<form method=post action=/pravi-trade/stop><input type=hidden name=id value={f["id"]}>'
                 '<button>Prestani pratiti</button></form>') if owner else ""
-        by = '<span class="ap-tag dugo">odabrao alat</span>' if f["id"] in auto_ids else ""
+        by = f["id"] in auto_ids
         try:
             dline = _data_exit_line(f)
         except Exception:  # noqa: BLE001 - the list renders without the statistic
             dline = ""
-        items.append(f'<details class=ap-it><summary><span>{who}<span class=ap-tag>'
-                     f'{"influencer" if f["kind"] == "kol" else ("ekipa" if f["kind"] == "ekipa" else "wallet")}</span>{by}</span><span class=k>{r["n"]} ulaza</span>'
-                     f'</summary><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
-                     f' · prati od {esc(ago(f["created"])[0])}{" · dodao ga je alat" if by else ""}</p>'
-                     f'<p class=mut>{last24}</p>'
-                     + (f'<p class=mut>{dline}</p>' if dline else '')
-                     + f'<p class=mut>{proof}</p>{stop}</details>')
-    # 10.11. (screenshots): the closed header names two at most, a wallet by its short address (the label of a wallet
-    # follow can be the whole address, which pushed the title into a column of single words)
-    names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else short(f["target"]) if f["kind"] == "wallet"
-                      else (f["label"] or "ekipa") for f in fl[:2])
+        reason = " · ".join(x for x in (_KIND_WORD.get(f["kind"], f["kind"]), "odabrao alat" if by else "",
+                                         esc(copy.describe_exit(f["exit"]) or "zadani izlaz")) if x)
+        inner = (f'<p>{who}</p><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
+                 f' · prati od {esc(redak.ago(f["created"]))}{" · dodao ga je alat" if by else ""}</p>'
+                 f'<p class=mut>{last24}</p>'
+                 + (f'<p class=mut>{dline}</p>' if dline else '')
+                 + f'<p class=mut>{proof}</p>{stop}')
+        items.append(_item(_follow_name(f), raw(reason), inner, value=str(r["n"]), sub="ulaza",
+                           iid=f"prati-{f['id']}", value_tone="mut"))
+    # 10.11. (screenshots): the closed row names two at most, a wallet by its short address
+    names = ", ".join(_follow_name(f) for f in fl[:2])
     pre = esc(prefill or "")
-    meta = ((f"{len(fl)}: {esc(names)}{f' +{len(fl) - 2}' if len(fl) > 2 else ''}" if fl else "još nikoga")
-            + (" · alat bira sam" if st.get("auto_pick") else ""))
+    meta = ((f"{names} i još {len(fl) - 2}" if len(fl) > 2 else names) if fl else "još nikoga") + (
+        " · alat bira sam" if st.get("auto_pick") else "")
     anyone = ""
     if owner:   # 9.11. (Jure): follow any wallet or influencer from the whole database, not only the recommended ones
-        anyone = ('<form method=post action=/pravi-trade/follow style="margin:10px 0 4px"><input type=hidden name=kind value=auto>'
+        anyone = ('<h3 class=ap-sub><span>Zaprati</span></h3>'
+                  '<form method=post action=/pravi-trade/follow style="margin:0 0 4px"><input type=hidden name=kind value=auto>'
                   f'<input name=target placeholder="adresa walleta, @influencer, tg:kanal ili ekipa: tg:a, tg:b, @c" required value="{pre}" style="flex:1;min-width:220px">'
                   '<label>na dan <input name=per_day value=5 inputmode=numeric style="width:46px"></label>'
                   '<select name=exit aria-label="Izlaz"><option value="">zadano</option><option value=mirror>prodaj kad on proda</option>'
@@ -645,7 +744,7 @@ def _follows(con, owner, st=None, prefill=""):
                   '<label>do MC <input name=max_mcap placeholder="npr. 1M" size=6></label> <label>ne ako je već <input name=max_runup placeholder="+25 %" size=5></label> '
                   '<label>od <select name=min_callers aria-label="Koliko iz ekipe mora zvati"><option value=1>1. poziva</option><option value=2>2 zovu</option><option value=3>3 zovu</option></select></label>'
                   '<button class=ap-go>Zaprati</button></form><p class=mut>Ekipa = više računa odvojenih zarezom: '
-                  'jedan ulaz po tokenu čim prvi od njih objavi (ili kad ih zove 2–3), samo dok je token ispod zadanog MC-a (zadano $1M) i '
+                  'jedan ulaz po tokenu čim prvi od njih objavi (ili kad ih zove 2–3), samo dok je token ispod zadanog MC-a (zadano 1M $) i '
                   'nije već narastao više od zadanog (+25 %) od poziva. Wallet koji još ne pratimo uživo dodaje se u Helius webhook odmah. '
                   'Izlaz „po podacima” (influenceri i ekipe): alat pri svakom ulazu sam bira TP/SL iz izmjerenih poziva tog računa '
                   'i ne ulazi kad nijedan par nije u plusu; ulazi samo do 2 min nakon poziva i dok cijena nije već +10 % '
@@ -654,10 +753,9 @@ def _follows(con, owner, st=None, prefill=""):
         pool_box = _pool_line()
     except Exception:  # noqa: BLE001
         pool_box = ""
-    inner = (_auto_box(st, owner) + anyone
-             + ("".join(items) or '<p class=mut>Još nikoga. Upiši koga pratiti ili odaberi iz preporuka alata na dnu stranice.</p>')
-             + pool_box)
-    return _sec("Koga bot prati", meta, inner, open_=not fl or bool(prefill), sid="pratim")
+    listed = ("".join(items) or '<p class=mut>Još nikoga. Upiši koga pratiti ili odaberi iz preporuka alata pod „Još”.</p>')
+    inner = (listed + pool_box + '<h3 class=ap-sub><span>Automatski izbor</span></h3>' + _auto_box(st, owner) + anyone)
+    return _sec("Koga prati", meta, inner, open_=not fl or bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
 
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
@@ -716,17 +814,18 @@ def _pool_line():
     for k in show:
         d = p["pairs"][k]
         tp, sl = k.split("/")
-        cells.append(f'<tr><td>TP +{tp} % / SL −{sl} %{" (najbolji)" if k == best[0] else ""}</td><td class=n>{d["tp"]:.0%}</td>'
-                     f'<td class=n>{d["need"]:.0%}</td><td class="n {"pos" if d["ev"] > 0 else "neg"}">{d["ev"]:+.1f} %</td></tr>')
-    n_txt = f'{p["n"]:,}'.replace(",", ".")
-    return ('<details class=ap-it><summary><span>Koji TP/SL se isplati (svi izmjereni pozivi)</span>'
-            f'<span class=k>{n_txt} poziva · 30 d</span></summary>'
-            '<table class=t><tr><th>izlaz</th><th class=n>cilj prije stopa</th>'
-            '<th class=n>treba za nulu</th><th class=n>po tradeu</th></tr>' + "".join(cells) + '</table>'
-            f'<p class=mut>Račun: treba = (SL + trošak) / (TP + SL), trošak {p.get("cost", 2):g} % po krugu. '
-            'Širi stop traži VIŠE pogodaka, ne manje; isplati se samo ako dovoljno zaustavljenih tradeova pretvori u dobitne. '
-            'Mjereno 60 min nakon poziva; što ne dotakne ni cilj ni stop, izlazi po cijeni nakon 60 min. '
-            'Stariji pozivi (prije 10.11.) imaju točnu minutu samo za stop −20 %, ostali stopovi se za njih računaju oprezno.</p></details>')
+        cells.append(f'<tr><td>TP +{tp} % / SL −{sl} %{" (najbolji)" if k == best[0] else ""}</td>'
+                     f'<td class=n>{redak.pct(d["tp"], sign=False, frac=True)}</td>'
+                     f'<td class=n>{redak.pct(d["need"], sign=False, frac=True)}</td>'
+                     f'<td class="n {"pos" if d["ev"] > 0 else "neg"}">{redak.pct(d["ev"], 1)}</td></tr>')
+    inner = ('<table class=t><tr><th>izlaz</th><th class=n>cilj prije stopa</th>'
+             '<th class=n>treba za nulu</th><th class=n>po tradeu</th></tr>' + "".join(cells) + '</table>'
+             f'<p class=mut>Račun: treba = (SL + trošak) / (TP + SL), trošak {_g(p.get("cost", 2))} % '
+             'po krugu. Širi stop traži VIŠE pogodaka, ne manje; isplati se samo ako dovoljno zaustavljenih tradeova pretvori '
+             'u dobitne. Mjereno 60 min nakon poziva; što ne dotakne ni cilj ni stop, izlazi po cijeni nakon 60 min. '
+             'Stariji pozivi (prije 10.11.) imaju točnu minutu samo za stop −20 %, ostali stopovi se za njih računaju oprezno.</p>')
+    return _item("Koji TP/SL se isplati", f"svi izmjereni pozivi, 30 d", inner, value=redak.num(p["n"]), sub="poziva",
+                 value_tone="mut")
 
 
 def _proof_line(r):
@@ -850,7 +949,7 @@ def _canonical(handle, kol_db=None):
 
 def _follow_btn(kind, target, label, have, owner):
     if (kind, target) in have:
-        return badge("već pratiš ✓", "good")
+        return f"<p>{dot('good', 'već pratiš')}</p>"
     if not owner:
         return ""
     return ('<form method=post action=/pravi-trade/follow onsubmit="return confirm(\'Bot će kupovati pravim novcem na '
@@ -860,35 +959,90 @@ def _follow_btn(kind, target, label, have, owner):
             '<input type=hidden name=per_day value=5><button>Prati pravim novcem</button></form>')
 
 
+def _kol_verdict(r, days):
+    """(dot colour, word) of the shared influencer verdict (ui/kolsummary, prijedlog 4.0: "drži se", "samo brzo",
+    "ne isplati se", "premalo poziva") for a recommendation row: the row's own when ui/autopilot gives it, else
+    asked from kolsummary (one cached build per window for every page). None when neither is there."""
+    w, k = r.get("verdict"), r.get("verdict_key")
+    try:
+        from ui import kolsummary
+        if not w:
+            v = kolsummary.kol_verdict(r["handle"], days=days)
+            w, k = v["word"], v["key"]
+        return kolsummary.VERDICT_DOT.get(k, ""), w
+    except Exception:  # noqa: BLE001 - the list renders without the word
+        return ("", w) if w else None
+
+
+def _can_copy(r):
+    """10.11. (Jure, influencer ranking): an account the bot can actually copy is one we watch live (we enter in
+    seconds); ui/autopilot gives it as "can_copy", older rows say the same as "live"."""
+    return bool(r.get("can_copy", r.get("live")))
+
+
+def _kol_item(r, days, have, owner):
+    """One recommended influencer: the shared verdict word and the minute check's share as the one number (maketa:
+    "● samo brzo · 30 poziva", "70 %"). An account the minute check has not measured often enough says so instead
+    of a percentage; the old 24-h wick is only a detail inside. An account we do not watch live gets no follow
+    button (the bot would come too late)."""
+    s = r["s"]
+    mi = s.get("minute") or {}
+    v = _kol_verdict(r, days)
+    if s.get("mjera") == "minutna" and mi.get("n"):   # 9.11. (audit P12/P15/P16): the minute measure first
+        value, sub = redak.pct(mi.get("hit10") or 0, sign=False, frac=True), "u 1 h"
+        fact = f'{mi["n"]} poziva'
+        detail = f'{value} poziva dođe do +10 % prije stopa −20 % u prvom satu ({mi["n"]} izmjerenih).'
+    else:
+        value = sub = None
+        fact = "premalo minutnih poziva"
+        detail = (f'Stara mjera: {redak.pct(s.get("hit") or 0, sign=False, frac=True)} pogodaka u {s.get("n") or 0} '
+                  'poziva (vrh +50 % u 24 h); minutna provjera još nema dovoljno poziva.')
+    if v and v[1].startswith("premalo") and fact.startswith("premalo"):   # one "premalo", in the words that say why
+        v, fact = (v[0], fact), (f'{s["n"]} poziva' if s.get("n") else "")
+    reason = cat(dot(v[0], v[1]) if v else None, fact, "uživo" if r.get("live") else None, sep=" · ")
+    inner = (f'<p>{esc(r.get("why") or "")}</p><p class=mut>{esc(detail)}</p>'
+             f'<p><a href="/kol/{quote(r["handle"])}">Profil @{esc(r["handle"])}</a></p>'
+             + (_follow_btn("kol", r["handle"], "", have, owner) if _can_copy(r) else
+                "<p class=mut>Ne pratimo ga uživo, pa bi bot u njegove pozive ušao prekasno.</p>"))
+    return _item(f'@{r["handle"]}', reason, inner, value=value, sub=sub)
+
+
 def _kol_section(con, owner):
+    """Preporučeni influenceri. 10.11. (Jure, the ranking made honest): the best of 14 days is named only when the
+    bot can copy him (watched live) and the minute check has measured him; accounts we do not watch live are a quiet
+    group of their own without the follow button; every row carries the shared verdict word."""
     from ui import autopilot
     recs = autopilot.kol_recs()
     have = {(f["kind"], f["target"]) for f in copy.follows(con, settings.LEAGUE_USER)}
     followed = followed_targets(con)
+    need = getattr(autopilot, "MIN_MINUTE", 10)
     panes = {}
     any_items = False
-    for d, rows in recs.items():
-        items = []
-        for r in [x for x in rows if not _is_followed(x["handle"], followed)][:autopilot.SHOW]:
-            s = r["s"]
-            any_items = True
-            mi = s.get("minute") or {}
-            if s.get("mjera") == "minutna" and mi.get("n"):   # 9.11. (audit P12/P15/P16): the minute measure first
-                k = f'{(mi.get("hit10") or 0):.0%} +10 % prije stopa · {mi["n"]} poziva'
-            else:
-                k = f'{s["hit"]:.0%} pogodaka · {s["n"]} callova (stara mjera)'
-            items.append(f'<details class=ap-it><summary><span><a href="/kol/{quote(r["handle"])}">@{esc(r["handle"])}</a>'
-                         f'{"<span class=ap-tag>uživo</span>" if r["live"] else ""}</span><span class=k>{k}</span>'
-                         f'</summary><p>{esc(r["why"])}</p>{_follow_btn("kol", r["handle"], "", have, owner)}</details>')
-        panes[d] = "".join(items) or f'<p class=mut>U zadnjih {d} dana nitko nema barem {autopilot.MIN_CALLS} izmjerena calla s malo rugova.</p>'
+    for d, rows_d in recs.items():
+        cand = [x for x in rows_d if not _is_followed(x["handle"], followed)][:autopilot.SHOW]
+        any_items = any_items or bool(cand)
+        fast, slow = [r for r in cand if _can_copy(r)], [r for r in cand if not _can_copy(r)]
+        html = "".join(_kol_item(r, d, have, owner) for r in fast)
+        if not html:
+            html = (f'<p class=mut>U zadnjih {d} dana nitko nema barem {autopilot.MIN_CALLS} izmjerena calla s malo rugova.</p>'
+                    if not cand else f'<p class=mut>Nijedan praćeni uživo još nema {need} izmjerenih poziva.</p>')
+        if slow:
+            html += ('<h3 class=ap-sub><span>Dobri, ali prespori za nas (ne pratimo ih uživo)</span></h3>'
+                     + "".join(_kol_item(r, d, have, owner) for r in slow))
+        panes[d] = html
     if not any_items:   # 9.11. (Jure): an empty list is noise; the section appears when there is somebody to follow
         return ""
-    best = next((r for r in recs.get(14) or [] if not _is_followed(r["handle"], followed)), None)
-    meta = f'najbolji 14 d: @{esc(best["handle"])}' if best else "po zadnjih 7/14/30 dana"
-    inner = (f'<p class=mut>Minutna provjera = +10 % prije stopa −20 % u 60 min od minute '
-             f'poziva; "pogodak" (stara mjera, samo gdje minutne provjere još nema) = +50 % u 24 h '
-             f'{tip("Minutna mjera (kol/minute.py) rangira; stara mjera: najveći rast u 24 h, rezultat nakon 24 h i je li token rugan, rugovi dvostruko protiv. Oznaka uživo = pratimo ga uživo, pa bot stigne ući na vrijeme.")}</p>'
-             + _windows("kol", panes))
+    best = next((r for r in recs.get(14) or [] if not _is_followed(r["handle"], followed) and _can_copy(r)
+                 and (r.get("s") or {}).get("mjera") == "minutna"), None)
+    if best:
+        v = _kol_verdict(best, 14)
+        meta = f'najbolji 14 d: @{best["handle"]}' + (f" · {v[1]}" if v else "")
+    else:
+        meta = f"nijedan praćeni uživo još nema {need} izmjerenih poziva"
+    inner = (_windows("kol", panes)
+             + '<p class=ms-hint>Minutna provjera = +10 % prije stopa −20 % u 60 min od minute poziva; "pogodak" (stara '
+               'mjera, samo gdje minutne provjere još nema) = +50 % u 24 h. Uživo = pratimo ga uživo, pa bot stigne ući '
+               'na vrijeme.</p>')
     return _sec("Preporučeni influenceri", meta, inner, sid="influenceri")
 
 
@@ -898,18 +1052,21 @@ def _dokazani_items(rows, have, owner, names=None):
     items = []
     for r in rows:
         nm = names.get(r["wallet"])
-        nm = f' <span class=mut>{esc(nm)}</span>' if nm else ""
         style = {"swing": "swing", "scalper": "scalper", "bot": "bot", "sniper": "sniper"}.get(r.get("style") or "", r.get("style") or "")
-        why = (f'Prije reza: {r["realized_before"]:+.1f} SOL na {r["closed_before"]} zatvorenih ({r["win_before"]:.0%} u plusu). '
-               f'Poslije reza: {r["realized_after"]:+.1f} SOL na {r["closed_after"]} zatvorenih'
-               + (f' ({r["win_after"]:.0%} u plusu)' if r.get("win_after") is not None else "") + ". "
+        why = (f'Prije reza: {redak.sol(r["realized_before"], 1, sign=True)} na {r["closed_before"]} zatvorenih '
+               f'({redak.pct(r["win_before"], sign=False, frac=True)} u plusu). '
+               f'Poslije reza: {redak.sol(r["realized_after"], 1, sign=True)} na {r["closed_after"]} zatvorenih'
+               + (f' ({redak.pct(r["win_after"], sign=False, frac=True)} u plusu)' if r.get("win_after") is not None else "") + ". "
                + (f'Drži medijan {r["hold_min"]:.0f} min, {r["tpd"]:.0f} tradeova dnevno' if r.get("hold_min") is not None and r.get("tpd") is not None else "")
                + (f', stil {style}' if style else "")
                # 9.11. (audit P55): open losers he never closed ("bags"), so a nice realized PnL is read with them
                + (f' · {int(r["bags"])} bagova (kupljeni tokeni koje nije zatvorio)' if r.get("bags") is not None else "") + ".")
-        items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
-                     f'<span class=k>{r["realized_after"]:+.1f} SOL poslije reza · {r["closed_before"] + r["closed_after"]} zatv.</span></summary>'
-                     f'<p>{why}</p>{_follow_btn("wallet", r["wallet"], names.get(r["wallet"]) or "", have, owner)}</details>')
+        reason = " · ".join(x for x in (short(r["wallet"]) if nm else "",
+                                         f'{r["closed_before"] + r["closed_after"]} zatvorenih', style) if x)
+        inner = (f'<p>{esc(why)}</p><p>{wlink(r["wallet"])}</p>'
+                 + _follow_btn("wallet", r["wallet"], nm or "", have, owner))
+        items.append(_item(nm or short(r["wallet"]), reason, inner, value=redak.sol(r["realized_after"], 1, sign=True),
+                           sub="poslije reza", value_tone=redak.tone(r["realized_after"])))
     return "".join(items)
 
 
@@ -936,31 +1093,34 @@ def _wallet_section(con, owner):
             kc.close()
     except Exception:  # noqa: BLE001
         pass
-    dok = (f'<p class=mut><b>Dokazani dvaput</b>: 5+ zatvorenih pozicija s plusom i 50 %+ dobitnih '
-           f'prije reza od 5 dana, pa opet plus poslije reza; samo walleti koje se može kopirati (drže 10+ min, do 50 tradeova dnevno, '
-           f'bez bot/sniper oznaka). Brojke su njihov vlastiti rezultat na lancu, ne naša kopija.</p>'
+    dok = ('<h3 class=ap-sub><span>Dokazani dvaput</span></h3>'
            + (_dokazani_items(proven, have, owner, names) or
-              '<p class=mut>Lista se računa svaka 3 sata iz pohranjenih tradeova; prvi put nakon današnjeg deploya. Dok je prazna, nema koga kopirati.</p>'))
+              '<p class=mut>Lista se računa svaka 3 sata iz pohranjenih tradeova; prvi put nakon današnjeg deploya. Dok je prazna, nema koga kopirati.</p>')
+           + '<p class=ms-hint>5+ zatvorenih pozicija s plusom i 50 %+ dobitnih prije reza od 5 dana, pa opet plus poslije '
+             'reza; samo walleti koje se može kopirati (drže 10+ min, do 50 tradeova dnevno, bez bot/sniper oznaka). Brojke '
+             'su njihov vlastiti rezultat na lancu, ne naša kopija.</p>')
     panes = {}
-    for d, rows in recs.items():
+    for d, rows_d in recs.items():
         items = []
-        for r in rows[:autopilot.SHOW]:
-            s = r["s"]
-            nm = f' <span class=mut>{esc(r["name"])}</span>' if r["name"] else ""
-            items.append(f'<details class=ap-it><summary><span>{wlink(r["wallet"])}{nm}</span>'
-                         f'<span class=k>{100 * s["roi"]:+.0f}% · {s["win"]:.0%} u plusu</span></summary>'
-                         f'<p>{esc(r["why"])}</p>{_follow_btn("wallet", r["wallet"], r["name"], have, owner)}</details>')
+        for r in rows_d[:autopilot.SHOW]:
+            st = r["s"]
+            inner = (f'<p>{esc(r["why"])}</p><p>{wlink(r["wallet"])}</p>'
+                     + _follow_btn("wallet", r["wallet"], r["name"], have, owner))
+            items.append(_item(r["name"] or short(r["wallet"]),
+                               f'{short(r["wallet"]) + " · " if r["name"] else ""}{redak.pct(st["win"], sign=False, frac=True)} u plusu',
+                               inner, value=redak.pct(st["roi"], frac=True), sub="povrat", value_tone=redak.tone(st["roi"])))
         # 9.11. (audit P14): chain_trades sells carry no SOL amount, so the window return is mostly unknown; say so
         panes[d] = "".join(items) or (f'<p class=mut>U zadnjih {d} dana nijedan wallet koji pratimo uživo nema barem '
                                       f'{autopilot.MIN_CLOSED} prodana tokena s poznatim povratom u plusu (iznos prodaja '
                                       f'se često ne zapisuje, pa je povrat po prozoru nepoznat; auto-izbor uzima '
                                       f'"dokazane dvaput" gore).</p>')
     best = next((r for r in recs.get(14) or []), None)
-    meta = f'najbolji 14 d: {100 * best["s"]["roi"]:+.0f}%' if best else "po zadnjih 7/14/30 dana"
-    inner = (dok + '<p style="margin:14px 0 4px"><b>Po zadnjih 7/14/30 dana</b> (samo walleti koje pratimo uživo)</p>'
-             + f'<p class=mut>Povrat = koliko je SOL-a vratio na tokenima koje je '
-             f'kupio i prodao u tom razdoblju {tip("Iz njegovih stvarnih kupnji i prodaja na lancu (Helius). Gledamo postotak, ne SOL, jer bot ulaže svoj, manji iznos. Samo walleti koje pratimo uživo, da bot kupi u sekundama nakon njih.")}</p>'
-             + _windows("wal", panes))
+    meta = f'najbolji 14 d: {redak.pct(best["s"]["roi"], frac=True)}' if best else "po zadnjih 7/14/30 dana"
+    inner = (dok + '<h3 class=ap-sub><span>Po zadnjih 7/14/30 dana</span></h3>'
+             + _windows("wal", panes)
+             + '<p class=ms-hint>Samo walleti koje pratimo uživo, da bot kupi u sekundama nakon njih. Povrat = koliko je '
+               'SOL-a vratio na tokenima koje je kupio i prodao u tom razdoblju, iz njegovih kupnji i prodaja na lancu; '
+               'gledamo postotak, ne SOL, jer bot ulaže svoj, manji iznos.</p>')
     meta = f"{len(proven)} dokazanih · " + meta
     return _sec("Preporučeni walleti", meta, inner, sid="walleti")
 
@@ -983,25 +1143,25 @@ def _buy_form(mint, cfg, exit_mode, owner):
 
 def _buy_now_card(cfg, owner):
     """9.11. (Jure): buy any token right now with the amount you choose: address + SOL + Kupi.
-    Exit defaults to the target chosen below (TP) and, with no stop typed in, the default stop league/copy.DEFAULT_SL
-    (audit P17/P19: the page used to promise "the usual stop" that did not exist); the rest sits behind "Više".
-    10.11.: a plain block in the page's one column (no card), after the positions and the follows."""
+    Exit defaults to the target chosen in "Pravila" (TP) and, with no stop typed in, the default stop
+    league/copy.DEFAULT_SL (audit P17/P19: the page used to promise "the usual stop" that did not exist); the rest
+    sits behind "Više". 10.11. (maketa): the row "Kupi ručno" under "Kako trguje"; the form and its confirmation
+    are the same."""
     if not owner:
         return ""
     tp_default = cfg.get("tp_default", 15)
-    return ('<section class=ap-blk id=kupi-odmah><div class=h><span>Kupi odmah (ručna kupnja)</span>'
-            '<span class=m>bilo koji token, iznos po želji</span></div>'
-            '<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
-            '(ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili DexScreener link" '
-            'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
-            f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
-            '<button class=ap-go>Kupi</button>'
-            f'<details style="flex-basis:100%"><summary class=mut>Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {copy.DEFAULT_SL})</summary>'
-            '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
-            f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
-            f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14></details></form>'
-            '<p class=mut style="margin:0">Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide '
-            'samo kad je Autopilot uključen; inače je ovo probna kupnja. Prodaja: gumbi 20 % / 50 % / sve kod svake pozicije.</p></section>')
+    inner = ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
+             '(ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili DexScreener link" '
+             'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
+             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
+             '<button class=ap-go>Kupi</button>'
+             f'<details style="flex-basis:100%"><summary class=mut>Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {copy.DEFAULT_SL})</summary>'
+             '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
+             f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
+             f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14></details></form>'
+             '<p class=mut>Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide samo kad je Autopilot '
+             'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”.</p>')
+    return _sec("Kupi ručno", "bilo koji token, iznos po želji", inner, sid="kupi-odmah")
 
 
 TP_CHOICES = (5, 10, 15, 20, 30)
@@ -1009,17 +1169,32 @@ TP_CHOICES = (5, 10, 15, 20, 30)
 
 def _tp_card(cfg, owner):
     """9.11. (Jure): the exit target for new copies: 5 / 10 / 15 / 20 / 30 %. New follows and buys with 'moj TP/SL'
-    get it when their TP box is empty. 10.11.: one closed row with the current value in its header."""
+    get it when their TP box is empty. 10.11. (maketa: "Pravila" spaja "Cilj izlaza" i "Limiti"): the first block
+    inside the row "Pravila" (id=cilj stays the anchor the form returns to)."""
     cur = int(cfg.get("tp_default") or 15)
+    head = f'<h3 class=ap-sub><span>Cilj izlaza za nove kopije</span><span>sada +{cur} %</span></h3>'
     if not owner:
-        return f'<p class=mut>Cilj izlaza za nove kopije: +{cur} %.</p>'
+        return f'<div id=cilj>{head}</div>'
     btns = "".join(f'<form method=post action=/pravi-trade/tp style="margin:0"><input type=hidden name=tp value={v}>'
                    f'<button{" class=ap-go" if v == cur else ""}>+{v} %</button></form>' for v in TP_CHOICES)
-    return _sec("Cilj izlaza za nove kopije", f"sada +{cur} %",
-                f'<div class=ap-btns>{btns}</div><p class=mut style="margin:0">Vrijedi za svako novo praćenje i '
-                'kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop: kako je upisan, inače '
-                f'zadani {esc(copy.DEFAULT_SL)} (isti prag kao minutna provjera). Praćenja s izlazom "zadano" (Smart sell) imaju svoj stop.</p>',
-                sid="cilj")
+    return (f'<div id=cilj>{head}<div class=ap-btns style="margin:0 0 10px">{btns}</div><p class=mut>Vrijedi za svako novo '
+            'praćenje i kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop: kako je '
+            f'upisan, inače zadani {esc(copy.DEFAULT_SL)} (isti prag kao minutna provjera). Praćenja s izlazom "zadano" '
+            '(Smart sell) imaju svoj stop.</p></div>')
+
+
+def _rules(tcon, cfg, owner):
+    """10.11. (maketa: "Pravila · ulog 0,1 SOL · cilj +15 % · najviše 1 dnevno"): one row under "Kako trguje" for
+    the exit target and the limits; its line also says today's spend against the daily limit (it was a line in the
+    header before)."""
+    try:
+        spent = _today(tcon, cfg, result=False)["spent"]
+    except Exception:  # noqa: BLE001
+        spent = None
+    meta = (f'ulog {_g(cfg["size_sol"])} SOL · cilj +{int(cfg.get("tp_default") or 15)} % · '
+            + (f'danas {redak.num(spent, 2)} od {_g(cfg["max_sol_per_day"])} SOL' if spent is not None
+               else f'najviše {_g(cfg["max_sol_per_day"])} SOL dnevno'))
+    return _sec("Pravila", meta, _tp_card(cfg, owner) + _limits(cfg, owner), sid="pravila")
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
@@ -1107,9 +1282,11 @@ def ideas_inner(cfg, owner, now=None, force=False):
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
             why = (r.get("reasons") or [""])[0]
-            out.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(r["token"])}"><span><b class=ap-tok>{esc(r.get("symbol") or m.get("symbol") or r["token"][:6])}</b>'
-                       f'<span class=ap-tag>{esc(r["src"])}</span> <span class=mut>{esc(why)}</span></span>'
-                       f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · 1 h {ch1}</span></div>')
+            # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
+            # as the one number and the price moves under it; a tap opens the live pop-up as before
+            out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],
+                             reason=" · ".join(x for x in (r.get("src") or "", why) if x),
+                             value=redak.usd(m.get("mcap")), sub=f"5 min {ch5} · 1 h {ch1}"))
         html = "".join(out)
     with _LOCK:   # the same HTML for both viewer kinds (one computation in the background thread serves both)
         _IDEAS_CACHE[bool(owner)] = (now, html, data_ts)   # (compute time for the TTL, HTML, data time for the stamp)
@@ -1164,13 +1341,14 @@ def _live_box(box_id, url, empty):
 
 
 def _ideas_section(cfg, owner):
-    """10.11. (Jure: "nije mi jasno Što kupiti sada, tu su tokeni na koje ne mogu kliknuti: makni na dno"): at the
-    bottom, closed, with a title and one sentence that say what the list is; every row opens the token pop-up."""
-    return _sec("Što alat sada predlaže za kupnju", "uživo",
-                '<p class=mut>Tokeni koji u ovom trenutku prolaze sve provjere alata (rug check, tier, MC 30k+, 10+ transakcija i '
-                '$1k+ volumena u zadnjem satu, $20k+ likvidnosti, ne padaju) i imaju svjež razlog za ulaz: novi poziv, kupnju pametnog '
-                'novčanika ili pokret cijene. Dodirni token za provjeru uživo i kupnju.</p>'
-                + _live_box("ap-ideje", "/pravi-trade/ideje", "Trenutno nijedan token ne prolazi sve provjere. Popis se puni sam čim se neki pojavi."),
+    """10.11. (Jure: "nije mi jasno Što kupiti sada, tu su tokeni na koje ne mogu kliknuti: makni na dno"): under
+    "Još", closed, with a title and one line that say what the list is; every row opens the token pop-up. The
+    sentence that explains the checks is under the list (pravilo 6)."""
+    return _sec("Što alat sada predlaže za kupnju", "tokeni koji upravo prolaze sve provjere",
+                _live_box("ap-ideje", "/pravi-trade/ideje", "Trenutno nijedan token ne prolazi sve provjere. Popis se puni sam čim se neki pojavi.")
+                + '<p class=ms-hint>Tokeni koji u ovom trenutku prolaze sve provjere alata (rug check, tier, MC 30k+, 10+ '
+                  'transakcija i 1k+ $ volumena u zadnjem satu, 20k+ $ likvidnosti, ne padaju) i imaju svjež razlog za ulaz: '
+                  'novi poziv, kupnju pametnog novčanika ili pokret cijene. Dodirni token za provjeru uživo i kupnju.</p>',
                 sid="ideje")
 
 
@@ -1504,12 +1682,12 @@ def _crew_row(g, now, followed=()):
     ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
     n = len(g["tokens"])
     # 10.11. (Jure: "ili ga zazeleni da vidim da sam ga već zapratio"): a row stays while somebody in it is not
-    # followed yet; the ones the bot already follows are named in green
+    # followed yet; the ones the bot already follows are named after a green dot (pravilo 5: a dot, not a tick)
     mine = [h for h in g["members"] if _is_followed(h, followed)]
-    tag = ""
+    tag = None
     if mine:
-        names = ", ".join(esc(h[3:] if h.startswith("tg:") else ("wallet " + h[2:8] if h.startswith("w:") else "@" + h)) for h in mine)
-        tag = f' <span class="ap-tag ap-mine" title="bot ih već prati">već pratiš ✓ {names}</span>'
+        names = ", ".join(h[3:] if h.startswith("tg:") else ("wallet " + h[2:8] if h.startswith("w:") else "@" + h) for h in mine)
+        tag = raw(f'<span class=ap-mine title="bot ih već prati">{dot("good")}već pratiš {esc(names)}</span>')
     # 9.11. (audit P73): a crew made only of wallets has no X/Telegram handle to follow as a crew (their buys are
     # already copied by the wallet follows), so its name is plain text and only the token opens
     who = esc(g["name"])
@@ -1517,10 +1695,10 @@ def _crew_row(g, now, followed=()):
         who = f'<u data-pop="/pravi-trade/ekipa?h={quote(g["key"])}" title="Otvori ekipu i sve njezine tokene">{who}</u>'
     verb = "kupio" if g["leader"].startswith("w:") else "zove"
     more = f' · {n} {"tokena" if n > 1 else "token"} u 60 min' if n > 1 else ""
-    return (f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(t["token"])}"><span><b class=ap-tok>{esc(t["symbol"] or t["token"][:6])}</b>{tag} '
-            f'<span class=mut>{verb} {who} · {esc(ago(t["last"])[0])}{more}</span></span>'
-            f'<span class=k>MC ${m["mcap"] / 1000:,.0f}k · 5 min {ch5} · '
-            f'{int(m.get("txns_m5") or 0)} tx</span></div>')   # 10.11. (Jure): how awake the token is, at a glance
+    # 10.11. (maketa): the shared row; the market cap as the one number, how awake the token is under it (Jure 10.11.)
+    return _prow(t["token"], name=t["symbol"] or t["token"][:6],
+                 reason=cat(raw(f'{verb} {who} · {esc(redak.ago(t["last"]))}{esc(more)}'), tag, sep=" · "),
+                 value=redak.usd(m.get("mcap")), sub=f'5 min {ch5} · {int(m.get("txns_m5") or 0)} tx')
 
 
 def _usd_short(x):
@@ -1865,15 +2043,14 @@ def callers_fragment(user):
 
 
 def _callers_section(cfg, owner):
-    """10.11. (Jure: "nije mi jasno Zovu sada"): at the bottom, closed, named for what it is, with one sentence; the
-    list is fetched (and built on the server) only while the section is open."""
-    return _sec("Tko sada zove koji token", "zadnjih 60 min",
-                '<p class=mut>Tokeni koje su u zadnjih 60 minuta objavili influenceri i Telegram kanali ili kupili walleti koje '
-                'pratiš i dokazani walleti, a upravo se trguju. Koga bot već prati, ne ponavlja se ovdje. Dodirni token za provjeru '
-                'uživo i kupnju, podcrtano ime za cijelu ekipu.</p>'
-                + _live_box("ap-zovu", "/pravi-trade/zovu", "U zadnjih 60 minuta nema poziva koji sada prolazi provjere.")
-                + '<p class=mut style="margin:10px 0 0">Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: '
-                '<a href="/ekipe">Ekipe i minutna provjera</a>.</p>', sid="zovu")
+    """10.11. (Jure: "nije mi jasno Zovu sada"): under "Još", closed, named for what it is, with one line; the list
+    is fetched (and built on the server) only while the section is open; the explanation is under the list."""
+    return _sec("Tko sada zove koji token", "pozivi i kupnje praćenih, zadnjih 60 min",
+                _live_box("ap-zovu", "/pravi-trade/zovu", "U zadnjih 60 minuta nema poziva koji sada prolazi provjere.")
+                + '<p class=ms-hint>Tokeni koje su u zadnjih 60 minuta objavili influenceri i Telegram kanali ili kupili walleti '
+                  'koje pratiš i dokazani walleti, a upravo se trguju. Koga bot već prati, ne ponavlja se ovdje. Dodirni token za '
+                  'provjeru uživo i kupnju, podcrtano ime za cijelu ekipu. Tko od njih stvarno nosi +5/10/15/20/30 % nakon '
+                  'poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p>', sid="zovu")
 
 
 def _token_section(cfg, owner):
@@ -1892,17 +2069,18 @@ def _token_section(cfg, owner):
     for kind, lab, ex in (("dugo", "dugoročno", "manual"), ("moon", "moonshot", "smart")):
         for r in recs.get(kind) or []:
             m = lv[r["mint"]]
-            state = f'MC ${m["mcap"] / 1000:,.0f}k · 5 min {m["txns_m5"]} tx' if m.get("mcap") else f'5 min {m["txns_m5"]} tx'
-            items.append(f'<div class=ap-row data-pop="/pravi-trade/token?m={quote(r["mint"])}"><span><b class=ap-tok>{esc(r["symbol"] or r["mint"][:6])}</b>'
-                         f'<span class="ap-tag {kind}">{lab}</span> <span class=mut>{esc((r["why"] or "")[:90])}</span></span>'
-                         f'<span class=k>{state}</span></div>')
+            # 10.11. (maketa): the shared row; the market cap as the one number, how awake it is under it
+            items.append(_prow(r["mint"], name=r["symbol"] or r["mint"][:6],
+                               reason=" · ".join(x for x in (lab, (r["why"] or "")[:90]) if x),
+                               value=redak.usd(m["mcap"]) if m.get("mcap") else None, sub=f'5 min {m["txns_m5"]} tx'))
     nd, nm = len(recs["dugo"]), len(recs["moon"])
     meta = f"{nd} dugoročna · {nm} moonshot" if items else "trenutno nema"
-    head = (f'<p class=mut>Dugoročni su stariji tokeni koji su preživjeli; moonshot '
-            f'je svjež token s jakim signalom i prošlim rug checkom {tip("Moonshot: mali, novi token koji može narasti puno, ali i pasti na nulu. Bot ga preporuča samo kad je među najjačim prijedlozima, prošao rug check i nije usred pumpe ili pada. Nijedna preporuka nije jamstvo zarade.")}</p>')
-    if not items:   # 9.11. (Jure): shown only with concrete suggestions; "Kupi odmah" at the top takes any token
+    if not items:   # 9.11. (Jure): shown only with concrete suggestions; "Kupi ručno" takes any token
         return ""
-    inner = head + "".join(items)
+    inner = ("".join(items)
+             + '<p class=ms-hint>Dugoročni su stariji tokeni koji su preživjeli; moonshot je mali, svjež token s jakim '
+               'signalom i prošlim rug checkom, koji može narasti puno, ali i pasti na nulu. Nijedna preporuka nije jamstvo '
+               'zarade.</p>')
     return _sec("Preporučeni tokeni", meta, inner, sid="tokeni")
 
 
@@ -1920,11 +2098,11 @@ def _recs_section():
     """10.11. (Jure: "čista, minimalistička"): the tool's picks of influencers, wallets and tokens in ONE closed
     section at the bottom. Nothing is computed for it until it is opened (the token picks are checked live on
     DexScreener, which a page view should not wait for); then /pravi-trade/preporuke fills it once."""
-    return _sec("Preporuke alata", "koga pratiti i koje tokene",
-                '<p class=mut>Influenceri, walleti i tokeni koje alat iz izmjerenih rezultata predlaže za praćenje i kupnju. '
-                'Dodirni redak za detalje.</p>'
+    return _sec("Preporuke alata", "influenceri, walleti i tokeni za praćenje",
                 f'<div id=ap-recs data-src=/pravi-trade/preporuke data-every=0 data-lazy '
-                f'data-empty="Alat trenutno nema prijedloga koji prolaze provjere.">{LOADING}</div>', sid="preporuke")
+                f'data-empty="Alat trenutno nema prijedloga koji prolaze provjere.">{LOADING}</div>'
+                '<p class=ms-hint>Koga i što alat iz izmjerenih rezultata predlaže za praćenje i kupnju. Dodirni redak za '
+                'detalje.</p>', sid="preporuke")
 
 
 def recs_fragment(user):
@@ -1949,11 +2127,11 @@ def recs_fragment(user):
 
 def _sell_btns(pid, pending):
     if pending is not None:
-        return f'<p class=mut style="margin:8px 0 0">Prodaja {float(pending):.0%} je u tijeku.</p>'
+        return f'<p class=mut>Prodaja {redak.pct(pending, sign=False, frac=True)} je u tijeku.</p>'
     return ('<div class=ap-btns>' + "".join(
         f'<form method=post action=/pravi-trade/sell onsubmit="return confirm(\'Prodati {lab} ove pozicije odmah?\')">'
         f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button{" class=ap-stop" if fr == "1" else ""}>Prodaj {lab}</button></form>'
-        for fr, lab in (("0.2", "20%"), ("0.5", "50%"), ("1", "sve"))) + '</div>')
+        for fr, lab in (("0.2", "20 %"), ("0.5", "50 %"), ("1", "sve"))) + '</div>')
 
 
 def _tok(tok, sym=None):
@@ -1970,69 +2148,109 @@ def _mode_tag(mode):
     return f'<span class=ap-tag>{"pravi novac" if mode == "live" else "probno"}</span>'
 
 
-def _positions(tcon, viewer_buy, owner=False, pending=None):
-    """Positions section: open ones first with 20/50/100 % sell buttons, closed ones behind one more tap. The inner
-    part is re-fetched every LOG_EVERY_S seconds while the section is open (positions_fragment) and only the rows
-    that changed are swapped, so a tap is never lost to a redraw (9.11., Jure: real money, every second counts)."""
-    inner, meta, has_open = positions_inner(tcon, viewer_buy, owner, pending)
-    return _sec("Pozicije", meta, f'<div id=ap-pos data-src=/pravi-trade/pozicije data-every={LOG_EVERY_S}>{inner}</div>',
-                open_=True, sid="pozicije")
+def _who(reason):
+    """Whom a position copies, short, from its source (run_trade passes league/copy's "copy KOL ansem" through):
+    "@ansem", "wallet 7xKX…gAsU", "ekipa murad, tg:alpha", "ručno", "demo strategija"; None when the text is not a
+    source (then it is said in full inside the row)."""
+    t = " ".join(str(reason or "").split(" · pokušaj")[0].split())
+    if t.startswith("copy "):
+        kind, _, name = t[5:].partition(" ")
+        if kind == "KOL" and name:
+            return name[3:] if name.startswith("tg:") else "@" + name.lstrip("@")
+        if kind == "wallet" and name:
+            return "wallet " + (short(name) if len(name) > 20 else name)
+        return t[5:] or None
+    if t.startswith("kopija ") and len(t) < 60:   # the same said in Croatian (hand-written or older rows)
+        return t[7:]
+    if t.startswith("ručno"):
+        return "ručno"
+    if t.startswith("paper"):
+        return "demo strategija"
+    return None
+
+
+def _positions(tcon, viewer_buy, owner=False, pending=None, cfg=None):
+    """"Otvorene pozicije 3 od 5" (maketa): one row per open position (what, whom it copies, when, the stake, how
+    much of it is still held); a tap on the row opens the sell buttons 20 % / 50 % / sve (owner) and the live check;
+    "Zatvorene" one more row; "Prodaj sve i isključi" in red under them. The list is re-fetched every LOG_EVERY_S
+    seconds (positions_fragment) and only the rows that changed are swapped, so a tap is never lost to a redraw
+    (9.11., Jure: real money, every second counts); an opened row stays open (it has an id)."""
+    inner, meta, has_open = positions_inner(tcon, viewer_buy, owner, pending, cfg)
+    return (_h2("Otvorene pozicije", meta, rid="ap-pos-n", sid="pozicije")
+            + f'<div id=ap-pos data-src=/pravi-trade/pozicije data-every={LOG_EVERY_S}>{inner}</div>')
 
 
 def positions_fragment(user):
-    """GET /pravi-trade/pozicije: the inner HTML of the positions section, same access as the page. The section's
-    one-line summary (how many open, how many closed) rides along and is copied into its header."""
+    """GET /pravi-trade/pozicije: the rows of the positions, same access as the page. The count ("3 od 5") rides
+    along and is copied into the section's title."""
     tcon = _tcon()
     try:
         if not settings.can_view(tcon, user):
             return None
         cfg = _cfg(tcon)
         owner = settings.is_owner(user)
-        inner, meta, _ = positions_inner(tcon, not owner, owner, cfg.get("sell_req"))
-        return inner + f'<span hidden data-meta="#pozicije>summary .m">{esc(meta)}</span>'
+        inner, meta, _ = positions_inner(tcon, not owner, owner, cfg.get("sell_req"), cfg)
+        return inner + f'<span hidden data-meta="#ap-pos-n">{esc(meta)}</span>'
     finally:
         tcon.close()
 
 
-def positions_inner(tcon, viewer_buy, owner=False, pending=None):
-    """(inner html, meta text, has open) of the positions section."""
+def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
+    """(inner html, meta text, has open) of the positions. meta: "3 od 5" (open of cfg max_open), or "3 otvoreno"
+    without cfg. With cfg and the owner, the red "Prodaj sve i isključi" comes last whenever the switch is on or
+    something is open (the same rule as before 10.11., when it stood under the header)."""
     pending = pending or {}
     # 10.11.: +status keeps the planner on the key, newest first, stopping at 60; with the (status, opened_ts) index
     # trade/aplog.py adds it would collect every open and closed position ever and sort them, once a second
     rows = tcon.execute("SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, "
                         "closed_ts, COALESCE(fees_sol,0) FROM positions WHERE +status IN ('open','closed') "
                         "ORDER BY id DESC LIMIT 60").fetchall()
+    sell_all = SELL_ALL if (owner and cfg and cfg.get("on")) else ""
+    cap = f' od {cfg["max_open"]}' if cfg and cfg.get("max_open") else " otvoreno"
     if not rows:
-        return '<p class=mut style="margin:0">Još nema pozicija. Kupi odmah ispod ili zaprati nekoga.</p>', "0 otvoreno", False
+        return ('<p class=ms-hint style="margin:4px 0 12px">Još nema pozicija. Kupi ručno ili zaprati nekoga pod „Kako trguje”.</p>'
+                + sell_all, f"0{cap}", False)
     # 10.11. (Jure: "sekundni poslovi ne čitaju cijelu bazu"): this runs every second while the section is open; it read
     # the signature of every order ever made, now only those of the closed positions listed (orders_pos index)
     shut = [r[0] for r in rows if r[5] == "closed"]
     sigs = dict(tcon.execute(f"SELECT position_id, signature FROM orders WHERE position_id IN ({','.join('?' * len(shut))}) "
                              "AND signature IS NOT NULL ORDER BY id", shut)) if shut else {}
-    open_, closed, tot = [], [], 0.0
+    # the trial word only where it tells something: when real and trial positions are listed together (the state
+    # line under the title already says which mode the bot is in; prijedlog 3.4: "probno" was on every position)
+    mixed = len({r[4] for r in rows}) > 1
+    open_, closed = [], []
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees) in rows:
+        trial = "probno" if (mixed and mode != "live") else None
         if st == "open":
-            act = _sell_btns(pid, pending.get(str(pid))) if owner else (
-                f'<a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a>' if viewer_buy else "")
-            open_.append(f'<div class=ap-pos{_pop(tok)}><div class=r><span>{_tok(tok, sym)}{_mode_tag(mode)}</span><span class=mut>'
-                         f'{esc(ago(ts)[0])}</span></div><div class=mut>uloženo {sin or 0:.3f} SOL · '
-                         f'još drži {f"{ql / q:.0%}" if q else "–"}{f" · vraćeno {sback:.4f} SOL" if sback else ""}'
-                         f'{" · " + esc(why) if why else ""}</div>{act}</div>')
+            pend = pending.get(str(pid))
+            who = _who(why)
+            act = _sell_btns(pid, pend) if owner else (
+                f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
+            line = " · ".join(x for x in (
+                f"uloženo {redak.sol(sin or 0, 3)}", f"vraćeno {redak.sol(sback, 4)}" if sback else "",
+                "pravi novac" if mode == "live" else "probno", "" if who else (why or "")) if x)
+            inner = (f"<p class=mut>{esc(line)}</p>{act}"
+                     f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
+            held = f"drži {redak.pct(ql / q, sign=False, frac=True)}" if q else "drži –"
+            open_.append(_item(sym or short(tok or ""), " · ".join(x for x in (who, redak.ago(ts), trial) if x), inner,
+                               value=redak.sol(sin or 0, 3), sub="prodaja u tijeku" if pend is not None else held,
+                               iid=f"poz-{pid}"))
         else:
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
-            tot += pnl if mode == "live" else 0
             sig = sigs.get(pid)
-            link = (f' · <a href="https://solscan.io/tx/{esc(sig)}" target=_blank rel=noopener>Solscan ↗</a>'
-                    if sig else "")
-            closed.append(f'<div class=ap-pos{_pop(tok)}><div class=r><span>{_tok(tok, sym)}{_mode_tag(mode)}</span>'
-                          f'<span class="{_sign_cls(pnl)}">{pnl:+.4f} SOL</span></div>'
-                          f'<div class=mut>{esc(ago(cts or ts)[0])}{link}</div></div>')
-    inner = "".join(open_) or '<p class=mut style="margin:0 0 12px">Ništa otvoreno.</p>'
+            link = (f'<a href="https://solscan.io/tx/{esc(sig)}" target=_blank rel=noopener>Solscan ↗</a>' if sig else None)
+            closed.append(_prow(tok, name=sym or short(tok or ""),
+                                reason=cat(redak.ago(cts or ts), trial, raw(link) if link else None, sep=" · "),
+                                value=redak.sol(pnl, 4, sign=True), value_tone=redak.tone(pnl)))
+    inner = "".join(open_) or '<p class=ms-hint style="margin:4px 0 12px">Ništa otvoreno.</p>'
     if closed:
-        inner += (f'<details class=ap-it id=zatvorene><summary><span>Zatvorene ({len(closed)})</span><span class=k>zarada nakon naknada '
-                  f'{tip("Zarada = vraćeno − uloženo − mrežne naknade. Jupiterova naknada (0,05–0,1%) je već u iznosima. Mrežne naknade su potpis, prioritet i depozit za novi token račun (~0,002 SOL), koji se vrati kad se pozicija proda do kraja.")}'
-                  f'</span></summary>{"".join(closed)}</details>')
-    meta = f"{len(open_)} otvoreno" + (f" · {len(closed)} zatvoreno" if closed else "")
+        inner += _item("Zatvorene", "rezultat nakon svih naknada", "".join(closed)
+                       + '<p class=ms-hint>Zarada = vraćeno − uloženo − mrežne naknade (potpis, prioritet i depozit za račun '
+                         'tokena, oko 0,002 SOL, koji se vrati kad se pozicija proda do kraja); Jupiterova naknada je već u '
+                         'iznosima.</p>', value=str(len(closed)), iid="zatvorene", value_tone="mut")
+    if owner and cfg and (cfg.get("on") or open_):   # nothing to sell and nothing running: no red button
+        inner += SELL_ALL
+    meta = f"{len(open_)}{cap}"
     return inner, meta, bool(open_)
 
 
@@ -2049,8 +2267,9 @@ LINE_TTL_S = 15   # the closed log's one-line summary of the last 24 h: on every
 DAY_ROWS = 1000   # decisions read for that line when trade.aplog has no summary_24h of its own (aplog.DAY_LIMIT)
 SIDE = {"buy": "kupnja", "sell": "prodaja", "rent": "depozit natrag"}
 STATUS = {"ok": ("prošlo", "good"), "dry": ("probno", ""), "failed": ("greška", "bad"), "blocked": ("preskočeno", "warn")}
-KIND_HR = {"kupio": ("KUPIO", "good"), "prodao": ("PRODAO", "acc"), "preskocio": ("PRESKOČIO", ""),
-           "nije_proslo": ("NIJE PROŠLO", "warn")}
+# 10.11. (maketa, pravilo 5): a decision is a word after a dot, not a word in capitals
+KIND_HR = {"kupio": ("kupio", "good"), "prodao": ("prodao", "acc"), "preskocio": ("preskočio", ""),
+           "nije_proslo": ("nije prošlo", "warn")}
 _DN = {"ts": 0.0, "key": None, "rows": None}
 _DN_LINE = {"ts": 0.0, "key": None, "line": None}
 
@@ -2229,24 +2448,27 @@ def _skip_src(s):
     return f"wallet {short(m.group(1))}" if m else s
 
 
+_SKIP_DOT = {"miss": "warn", "ok": "good"}   # propušteno = a warning, dobro preskočen = fine; the rest grey
+
+
 def _skip_row(e, v, owner, now):
+    """One skipped buy as the shared row (10.11., maketa): the token; when, whose signal and the reason under it;
+    the verdict as a word after a dot on the right and what the price did under it. The row opens the token pop-up."""
     from kol import preskoceni
     tok = e.get("token") or ""
     full = " ".join(str(((e.get("why") or e.get("why_short")) if owner else e.get("why_short")) or "").split())
     why = _cut(full)
-    meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source"))) if x)
-    tag = "<span class=ap-tag>nije prošlo (tehnički)</span>" if e.get("kind") == "nije_proslo" else ""
-    title = f' title="{esc(full)}"' if why != full else ""
-    # four cells of a grid: token + time + source | verdict on the first line, the reason | the numbers under them
-    # (on a phone the reason and the numbers take the whole width, so neither becomes a column of single words)
-    return (f'<div class=ap-skr{_pop(tok)}><span class=t>{_tok(tok, e.get("symbol"))}{tag} <span class=mut>{esc(meta)}</span></span>'
-            f'<b class="v {v["kind"]}">{esc(v["word"])}</b>'
-            + (f"<small class=w{title}>{esc(why)}</small>" if why else "")
-            + f'<span class="d {v["kind"]}">{esc(v["detail"])}</span></div>')
+    meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source")),
+                                  "nije prošlo (tehnički)" if e.get("kind") == "nije_proslo" else "") if x)
+    r = _prow(tok, name=e.get("symbol") or short(tok), reason=cat(meta, raw("<br>") if why else None, why),
+              value=dot(_SKIP_DOT.get(v["kind"], ""), v["word"]), sub=v["detail"], title=full if why != full else None)
+    # the reason and the numbers may take two lines each on a phone (neither becomes a column of single words)
+    return raw(r.replace('class="ms-row', 'class="ms-row ap-wrap ap-skr', 1))
 
 
 def _skip_html(rows, paths, now, owner, tp_cfg):
-    """The box for one kind of viewer (the owner reads the reason as written, an invited player its short word)."""
+    """The block for one kind of viewer (the owner reads the reason as written, an invited player its short word):
+    the answer in one sentence, which rule cost the most, the rows, the rest behind "Prikaži sve", how it is measured."""
     from kol import preskoceni
     tp, sl = preskoceni.TP, _sl_pct()
     keys = [(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows]
@@ -2255,7 +2477,7 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
                              e.get("ts") or 0, now, tp, sl) for e, k in zip(rows, keys)]
     head = preskoceni.sentence([v for e, v in zip(rows, vs) if e["kind"] == "preskocio"],
                                [v for e, v in zip(rows, vs) if e["kind"] == "nije_proslo"], tp, sl)
-    b = [f"<p class=h>{esc(head)}</p>"]
+    b = ['<h3 class=ap-sub><span>Preskočeni u zadnja 24 h</span></h3>', f"<p class=ap-sk-h>{esc(head)}</p>"]
     missed = {}
     for e, v in zip(rows, vs):
         if v["kind"] == "miss" and e["kind"] == "preskocio":
@@ -2267,8 +2489,8 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
     items = [_skip_row(e, v, owner, now) for e, v in zip(rows, vs)]
     b += items[:SKIP_SHOW]
     if len(items) > SKIP_SHOW:
-        b.append(f"<details class=ap-it id=ap-sk-sve><summary><span>Prikaži sve</span><span class=k>još "
-                 f"{len(items) - SKIP_SHOW}</span></summary>{''.join(items[SKIP_SHOW:])}</details>")
+        b.append(_item("Prikaži sve", None, "".join(items[SKIP_SHOW:]), value=f"još {len(items) - SKIP_SHOW}",
+                       iid="ap-sk-sve", value_tone="mut"))
     note = (f"Mjereno od trenutka odluke, 1-minutnim svijećama, 60 min: propušteno = +{tp} % prije −{sl} %; "
             f"dobro preskočen = prvo −{sl} % ili +{tp} % nije došao.")
     if paths is None:
@@ -2280,7 +2502,7 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
         note += f" Autopilot sada izlazi na +{tp_cfg} %" + (
             f": {k} od {len(known)} izmjerenih bi ga {'dosegao' if k % 10 == 1 and k % 100 != 11 else 'dosegla'} "
             f"prije −{sl} %." if known else ".")
-    b.append(f"<p class=f>{esc(note)}</p>")
+    b.append(f"<p class=ms-hint>{esc(note)}</p>")
     return f'<div class=ap-sk id=ap-sk>{"".join(b)}</div>'
 
 
@@ -2306,56 +2528,65 @@ def skip_box(tcon, cfg, now=None, owner=True):
 
 
 def _dnevnik_row(e, owner=True):
-    """One decision: what (KUPIO / PRODAO / PRESKOČIO / NIJE PROŠLO), which token, how much, on whose signal, why,
-    and for a decision without a buy whether it should have bought (aplog 'trebao': True = every rule passed and the
-    order failed; False = a rule said no, which is the correct behaviour). The row opens the token pop-up. The
-    owner reads the reason as written (aplog scrubs addresses and keys from it); an invited viewer gets its short
-    word only (aplog: "anything public shows why_short"), never a route's raw error text."""
+    """One decision as the shared row (10.11., maketa): the token; under it what happened as a word after a dot
+    (kupio / prodao / preskočio / nije prošlo), the money it was (pravi novac / probno / demo) and on whose signal,
+    the reason, and for a decision without a buy whether it should have bought (aplog 'trebao': True = every rule
+    passed and the order failed; False = a rule said no, which is the correct behaviour); on the right the amount
+    (or a sale's result) and when. The row opens the token pop-up. The owner reads the reason as written (aplog
+    scrubs addresses and keys from it); an invited viewer gets its short word only (aplog: "anything public shows
+    why_short"), never a route's raw error text."""
     kind = e.get("kind")
-    word, dot = KIND_HR.get(kind, (str(kind or "?").upper(), ""))
+    word, d = KIND_HR.get(kind, (str(kind or "?"), ""))
     tok = e.get("token") or ""
     sell = e.get("side") == "sell"
-    bits = []
+    tag = "demo" if e.get("stage") == "demo" else ("pravi novac" if e.get("mode") == "live" else "probno")
+    value, vt, amount = None, None, None
     if e.get("sol"):
-        bits.append(f'{float(e["sol"]):.3f} SOL')
+        amount = redak.sol(e["sol"], 3)
     if kind == "prodao" and e.get("pnl_pct") is not None:   # percent units (12.4 = +12.4 %), like cost_pct elsewhere
-        bits.append(f'<span class="{_sign_cls(e["pnl_pct"])}">{float(e["pnl_pct"]):+.1f} %</span>')
-    if e.get("source"):
-        bits.append(f'signal: {esc(e["source"])}')
+        value, vt = redak.pct(e["pnl_pct"], 1), redak.tone(e["pnl_pct"])
+    else:
+        value, amount = amount, None
+    lines = [cat(dot(d, word), tag, amount, f'signal: {_skip_src(e["source"])}' if e.get("source") else None, sep=" · ")]
     why = (e.get("why") or e.get("why_short")) if owner else e.get("why_short")
     if why:
-        bits.append(esc(str(why)[:180]))
-    should = ""
+        lines.append(str(why)[:180])
+    should = None
     if kind in ("preskocio", "nije_proslo") and e.get("trebao") is not None:
         if sell:   # a sale that keeps failing: the bot tries again, nothing for the owner to decide
-            should = "<small>Trebao je prodati: da. Prodaja nije prošla, bot pokušava ponovno.</small>" if e["trebao"] else ""
+            should = raw("Trebao je prodati: da. Prodaja nije prošla, bot pokušava ponovno.") if e["trebao"] else None
         else:
-            should = ("<small><b>Trebao je kupiti: da.</b> Sva pravila su prošla, ali nalog nije.</small>" if e["trebao"] else
-                      "<small>Trebao je kupiti: ne, pravilo je reklo ne.</small>")
-    tag = "demo" if e.get("stage") == "demo" else ("pravi novac" if e.get("mode") == "live" else "probno")
-    link = (f'<br><a href="https://solscan.io/tx/{quote(str(e["sig"]))}" target=_blank rel=noopener>Solscan ↗</a>'
-            if e.get("sig") else "")
+            should = raw("<b>Trebao je kupiti: da.</b> Sva pravila su prošla, ali nalog nije." if e["trebao"] else
+                         "Trebao je kupiti: ne, pravilo je reklo ne.")
+    link = (raw(f'<a href="https://solscan.io/tx/{quote(str(e["sig"]))}" target=_blank rel=noopener>Solscan ↗</a>')
+            if e.get("sig") else None)
+    tail = cat(should, link, sep=" · ")
+    if tail:
+        lines.append(tail)
     ts = e.get("ts") or 0
-    return (f'<div class=ap-lg{_pop(tok)}><span><i class="ap-dot {dot}"></i><b>{word}</b> {_tok(tok, e.get("symbol")) if tok else ""}'
-            f'<span class=ap-tag>{tag}</span>' + (f'<small>{" · ".join(bits)}</small>' if bits else "") + should + '</span>'
-            f'<span class=k title="{time.strftime("%d.%m. %H:%M:%S", time.gmtime(ts))} UTC">{esc(ago(ts)[0])}{link}</span></div>')
+    r = _prow(tok, name=e.get("symbol") or (short(tok) if tok else word), reason=cat(*lines, sep=raw("<br>")),
+              value=value, value_tone=vt, sub=redak.ago(ts),
+              title=f'{time.strftime("%d.%m. %H:%M:%S", time.gmtime(ts))} UTC')
+    return raw(r.replace('class="ms-row', 'class="ms-row ap-wrap', 1))
 
 
 def dnevnik_inner(tcon, cfg, now=None, owner=True):
-    """The open log: when the trade process last reported, then one row per decision, newest first. Without
-    trade.aplog: the order list (log_html)."""
+    """The open log: first the skipped buys (why, and what the price did after), then when the trade process last
+    reported and one row per decision, newest first. Every part is a top-level element, so the 1-s refresh swaps
+    only the rows that changed. Without trade.aplog: the order list (log_html)."""
     now = now or time.time()
     rows = dnevnik_data(tcon, now)
     if rows is None:
         return log_html(tcon, cfg)
     beat = cfg.get("heartbeat") or 0
-    alive = f"Autopilot se zadnji put javio {ago(beat)[0]}" if beat else "Autopilot se još nije javio"
-    head = f'<p class=mut>{esc(alive)}. Svaki redak je jedna odluka: što je vidio, što je napravio i zašto.</p>'
+    alive = f"Autopilot se zadnji put javio {redak.ago(beat)}" if beat else "Autopilot se još nije javio"
+    head = f'<p class=ms-hint>{esc(alive)}. Svaki redak je jedna odluka: što je vidio, što je napravio i zašto.</p>'
     if not rows:
-        return head + '<p class=mut style="margin:0">Još nema nijedne odluke. Čim Autopilot vidi prvi signal, pojavi se ovdje.</p>'
+        return head + '<p class=ms-hint>Još nema nijedne odluke. Čim Autopilot vidi prvi signal, pojavi se ovdje.</p>'
     # 10.11. (Jure): first, right under the one-line summary, why each skipped buy was skipped and what it did after
     box = _safe("preskočeni", skip_box, tcon, cfg, now, owner)
-    return box + head + "".join(_dnevnik_row(e, owner) for e in rows[:LOG_ROWS])
+    return (box + '<h3 class=ap-sub><span>Sve odluke</span></h3>' + head
+            + "".join(_dnevnik_row(e, owner) for e in rows[:LOG_ROWS]))
 
 
 def dnevnik_fragment(user):
@@ -2445,16 +2676,17 @@ POLL_JS = ("<script>(()=>{if(window.apTick)return;const st=new WeakMap();"
 
 
 def _log_section(tcon, cfg):
-    """"Dnevnik Autopilota": closed, with the one-line summary under its title; the rows are fetched when it is
-    opened and every LOG_EVERY_S seconds while it stays open."""
+    """"Dnevnik odluka" (maketa): one row right under the chart with the one-line summary of the last 24 h (it may
+    take two lines, CSS #dnevnik); the rows are fetched when it is opened and every LOG_EVERY_S seconds while it
+    stays open."""
     try:
         line = dnevnik_line(tcon)
     except Exception:  # noqa: BLE001 - a missing table must not cost the page its log section
         line = ""
     box = (f'<div id=ap-dnevnik data-src=/pravi-trade/dnevnik data-every={LOG_EVERY_S} data-lazy>{LOADING}</div>'
-           '<p class=mut style="margin:12px 0 0"><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
+           '<p class=ms-hint><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
            '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p>')
-    return _sec(f'<span>Dnevnik Autopilota<small id=ap-dn-sum>{esc(line)}</small></span>', "", box, sid="dnevnik")
+    return _sec("Dnevnik odluka", raw(f"<span id=ap-dn-sum>{esc(line)}</span>"), box, sid="dnevnik")
 
 
 # 9.11. (Jure, mobitel): the section headers needed 5-6 taps to open, sometimes closed instead. Their <summary> is
@@ -2462,10 +2694,12 @@ def _log_section(tcon, cfg):
 # one tap = one toggle, and open sections are remembered for the page's reloads (sessionStorage).
 # 10.11.: handled from the document, so sections that arrive later (the recommendations, fetched when opened) get it
 # too; only sections with an id are remembered; a link to a section (#limiti after saving) opens it; opening a
-# section wakes the poller, so its content is there at once.
+# section wakes the poller, so its content is there at once. 10.11. (maketa): a link inside the page ("Dovrši 3/4"
+# in the state line, #postavljanje) opens its section too (hashchange), not only a link that loads the page.
 TOGGLE_JS = ("<script>(()=>{const K='ap-open',Q='details.ap-sec,details.ap-it';let open={};try{open=JSON.parse(sessionStorage.getItem(K)||'{}')}catch(e){}"
              "window.apOpen=root=>root.querySelectorAll(Q).forEach(d=>{if(d.id&&d.id in open)d.open=!!open[d.id]});window.apOpen(document);"
-             "for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details'))t.open=true;"
+             "const reveal=()=>{for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details'))t.open=true};"
+             "reveal();addEventListener('hashchange',reveal);"
              "document.addEventListener('click',e=>{const s=e.target.closest('summary');if(!s||e.target.closest('a,button,input,select,.tip'))return;"
              "const d=s.parentElement;if(!d.matches(Q))return;e.preventDefault();"
              "d.open=!d.open;if(d.id){open[d.id]=d.open;try{sessionStorage.setItem(K,JSON.stringify(open))}catch(x){}}"
@@ -2477,29 +2711,32 @@ TOGGLE_JS = ("<script>(()=>{const K='ap-open',Q='details.ap-sec,details.ap-it';l
 # ---------- limits, invites, safety -----------------------------------------------------------------------------
 
 def _limits(cfg, owner):
-    meta = f'ulog {cfg["size_sol"]:g} SOL · najviše {cfg["max_sol_per_day"]:g}/dan · stop −{cfg["max_loss_day"]:g}'
+    """The limits, the second block inside "Pravila" (id=limiti stays the anchor the form returns to). The owner
+    gets the form, an invited player the values."""
+    head = '<h3 class=ap-sub><span>Limiti</span></h3>'
     if not owner:
-        items = "".join(f"<li>{esc(lab)}: <b>{cfg.get(k, '–')}</b></li>" for k, (lab, *_rest) in settings.LIMITS.items())
+        items = "".join(f"<li>{esc(lab)}: <b>{esc(_g(cfg.get(k)) if cfg.get(k) is not None else '–')}</b></li>"
+                        for k, (lab, *_rest) in settings.LIMITS.items())
         items += f"<li>SimianX signali: <b>{'uključeni' if cfg.get('simianx') else 'isključeni'}</b></li>"
-        return _sec("Limiti", meta, f"<ul style='margin:0;padding-left:18px'>{items}</ul>", sid="limiti")
+        return f"<div id=limiti>{head}<ul style='margin:0;padding-left:18px'>{items}</ul></div>"
     fields = "".join(f'<label>{esc(lab)} <input name={k} value="{cfg.get(k, "")}" inputmode=decimal></label>'
                      for k, (lab, *_rest) in settings.LIMITS.items())
     def box(k, c, t):
         if k in settings.LOCKED:   # audit 4.11.: greyed out with the reason, the server ignores it anyway
-            return (f'<label style="justify-content:flex-start;opacity:.6"><input type=checkbox disabled> {t}'
-                    f'<br><span class=mut style="font-size:12px">🔒 {esc(settings.LOCKED[k])}</span></label>')
-        return f'<label style="justify-content:flex-start"><input type=checkbox name={k} value=1{c}> {t}</label>'
+            return (f'<label class=ap-chk style="opacity:.6"><input type=checkbox disabled> {t}'
+                    f'<br><span class=mut>{esc(settings.LOCKED[k])}</span></label>')
+        return f'<label class=ap-chk><input type=checkbox name={k} value=1{c}> {t}</label>'
     extra = (box(k="follow_paper", c=" checked" if cfg.get("follow_paper") else "",
                  t="prati i demo strategiju bota (uz influencere i wallete gore)")
              + box(k="use_pump", c=" checked" if cfg.get("use_pump", True) else "",
-                   t=f"ako Jupiter ne prođe, probaj preko PumpPortala (naknada {pumpportal.FEE_PCT}%)")
+                   t=f"ako Jupiter ne prođe, probaj preko PumpPortala (naknada {_g(pumpportal.FEE_PCT)} %)")
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
-    inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim>{fields}{extra}'
-             '<p class=mut style="font-size:13px">Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili '
-             'dnevni gubitak, nove kupnje staju do ponoći (po zagrebačkom vremenu); prodaje idu dalje. Dnevni gubitak uključuje i naknade '
-             'neuspjelih pokušaja.</p><button>Spremi limite</button></form>')
-    return _sec("Limiti", meta, inner, sid="limiti")
+    inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
+             '<p class=mut>Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili dnevni gubitak, nove kupnje '
+             'staju do ponoći (po zagrebačkom vremenu); prodaje idu dalje. Dnevni gubitak uključuje i naknade neuspjelih '
+             'pokušaja.</p><button>Spremi limite</button></form>')
+    return f"<div id=limiti>{head}{inner}</div>"
 
 
 def _invites(tcon):
@@ -2507,10 +2744,10 @@ def _invites(tcon):
     boxes = "".join(f'<label style="display:block;margin:4px 0"><input type=checkbox name=u value="{esc(u)}"'
                     f'{" checked" if u.lower() in inv else ""}> {esc(u)}</label>'
                     for u in store.users() if not settings.is_owner(u))
-    inner = ('<form method=post action=/pravi-trade/invite><p class=mut style="font-size:13px;margin-top:0">Pozvani vide '
+    inner = ('<form method=post action=/pravi-trade/invite style="display:block"><p class=mut style="margin-top:0">Pozvani vide '
              'stanje, pozicije i koga bot prati. Ne mogu ništa mijenjati ni trošiti tvoj novac; „Kupi i ti” im otvara '
              f'Jupiter u <b>njihovom</b> walletu.</p>{boxes or "<p>Nema drugih igrača.</p>"}<button>Spremi tko vidi</button></form>')
-    return _sec("Tko još vidi stranicu", f"{len(inv)} pozvanih", inner, sid="pozivnice")
+    return _sec("Tko vidi stranicu", f"{len(inv)} pozvanih", inner, sid="pozivnice")
 
 
 def _safety():
@@ -2518,8 +2755,8 @@ def _safety():
              "nije u kodu ni na ovoj stranici.",
              "U walletu drži samo iznos kojim bot smije trgovati.",
              "Dnevni limit potrošnje i dnevni gubitak zaustavljaju nove kupnje do ponoći.",
-             f"U walletu uvijek ostaje barem {executor.RESERVE_FLOOR_SOL:g} SOL (i {executor.SELL_COST_SOL:g} SOL po otvorenoj "
-             "poziciji) za mrežne naknade prodaje.",
+             f"U walletu uvijek ostaje barem {_g(executor.RESERVE_FLOOR_SOL)} SOL (i {_g(executor.SELL_COST_SOL)} SOL po "
+             "otvorenoj poziciji) za mrežne naknade prodaje.",
              "Swap se ne radi ako je trošak (klizanje + naknada) veći od limita.",
              "Rute redom: Jupiter → Jupiter Ultra → PumpPortal (ako je uključen). Na sljedeću se ide samo kad swap sigurno "
              "nije prošao, da se ništa ne kupi dvaput.",
@@ -2527,8 +2764,42 @@ def _safety():
              "Ulazi se samo dok je signal svjež; rugani tokeni, lažni poolovi i premala likvidnost se preskaču.",
              "Preporuke su izračun iz povijesti, ne obećanje: memecoini mogu pasti na nulu.",
              "Prekidač mijenja samo vlasnik; pozvani samo gledaju.")
-    return _sec("Kako je zaštićeno", "", "<ul style='margin:0;padding-left:18px;font-size:14px'>"
-                + "".join(f"<li>{t}</li>" for t in items) + "</ul>")
+    return _sec("Kako je zaštićeno", "", "<ul style='margin:0;padding-left:18px'>"
+                + "".join(f"<li>{t}</li>" for t in items) + "</ul>", sid="zastita")
+
+
+def _wallet_row(tcon, owner, setup=None):
+    """"Wallet i uplata" under "Još" (maketa: "1,842 SOL i 25 USDC · ytiQ…tiRAD"): the address with copy and Solscan,
+    what is in the wallet, the money put in and the result against it, the rate of 1 SOL, and for the owner the
+    setup steps (id=postavljanje: "Dovrši 3/4" in the state line opens it). Balances come from the value history
+    (no network on a page view); without it from the owner's setup check (which read the wallet anyway)."""
+    setup = setup or {}
+    addr = _addr(tcon)[0]
+    try:
+        s = equity_data(tcon)["summary"]
+    except Exception:  # noqa: BLE001
+        s = {}
+    sol_b = s.get("sol") if s.get("value_sol") is not None else setup.get("sol")
+    usdc = s.get("usdc") if s.get("value_sol") is not None else setup.get("usdc")
+    have = " i ".join(x for x in (redak.sol(sol_b, 3) if sol_b is not None else "",
+                                  f"{_fiat(usdc)} USDC" if usdc else "") if x)
+    meta = " · ".join(x for x in (have, short(addr) if addr else "još nije postavljen") if x)
+    facts = []
+    if have:
+        facts.append(f"U walletu: {have}.")
+    net, pnl = s.get("net_in_sol"), s.get("pnl_sol")
+    if net is not None:
+        facts.append(cat(f"Uplaćeno {redak.sol(net, 3)}",
+                         cat(", rezultat ", _signed(pnl), f" ({redak.pct(100.0 * pnl / net, 1)})" if net and net > 0 else "")
+                         if pnl is not None else None,
+                         f", u otvorenim pozicijama {redak.sol(s['tokens_sol'], 3)}" if s.get("tokens_sol") else None, "."))
+    if s.get("sol_usd"):
+        r = _rates(s)
+        facts.append(f"1 SOL = {_fiat(r['sol_usd'])} $" + (f" · {_fiat(r['sol_usd'] * r['usd_eur'])} €" if r.get("usd_eur") else ""))
+    inner = (f"<p>{_addr_html(addr)}</p>" + "".join(f"<p class=mut>{redak.h(f)}</p>" for f in facts)
+             + setup.get("html", ""))
+    value = f'{setup["done"]}/{setup["total"]}' if setup and not setup.get("ready") else None
+    return _sec("Wallet i uplata", meta, inner, sid="postavljanje", value=value)
 
 
 def _with_toggle(html_body):
@@ -2536,27 +2807,29 @@ def _with_toggle(html_body):
 
 
 def page(qs, user):
-    """10.11. (Jure: "stranica autopilot mora biti čista, minimalistička, jednostavna, pregledna"), the order of
-    audit/2026-11-10/dizajn.md section 2: (1) the header (state, the value in SOL · $ · €, PnL, the owner's switch)
-    with (2) the chart; (3) the decision log, closed; (4) positions; (5) whom the bot follows + the add form;
-    (6) the manual buy (and the exit target it uses); (7) at the bottom, closed: the tool's recommendations, "who
-    calls what now", "what to buy now", limits, invites, safety. One column; a closed section fetches nothing until
-    it is opened; every part is built behind its own try (_safe), so one broken statistic never costs the switch."""
+    """10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4 and the mock-up audit/2026-11-10/makete/autopilot.html, in
+    the order of audit/2026-11-10/dizajn.md section 2): the header (title with the owner's switch, one state line,
+    the wallet's value as one big number) with the chart; "Dnevnik odluka" as one row; "Otvorene pozicije" as rows
+    with "Zatvorene" and the red "Prodaj sve i isključi" under them; "Kako trguje" (Koga prati, Pravila, Kupi ručno);
+    "Još" at the bottom for the rarely used parts (who calls what now, what to buy now, the tool's recommendations,
+    Wallet i uplata with the setup steps, who sees the page, how it is protected). One column (ms-page); a closed row
+    fetches nothing until it is opened; every part is built behind its own try (_safe), so one broken statistic
+    never costs the switch."""
     tcon = _tcon()
     try:
         if not settings.can_view(tcon, user):
-            return (TITLE, f'<h1>{TITLE}</h1><div class=card>Ova stranica je samo za pozvane. '
-                    'Ako želiš pristup, javi se vlasniku aplikacije.</div>')
+            return (TITLE, f'<div class="ap ms-page">{_title()}<p class=ms-hint>Ova stranica je samo za pozvane. '
+                    'Ako želiš pristup, javi se vlasniku aplikacije.</p></div>' + CSS)
         owner = settings.is_owner(user)
         cfg = _cfg(tcon)
         msg = ""
         if qs.get("err"):
             msg = f'<p class="ap-w bad"><b>Nije prošlo:</b> {esc(qs["err"])}</p>'
         elif qs.get("ok"):
-            msg = f'<p class="ap-w ok">✓ {esc(qs["ok"])}</p>'
+            msg = f'<p class="ap-w ok">{esc(qs["ok"])}</p>'
         prefill = (qs.get("ekipa") or "") if isinstance(qs, dict) else ""
         setup = {}
-        if owner:   # the wallet's setup steps: under the header while the wallet is not ready, else at the bottom
+        if owner:   # the wallet's setup steps: inside "Wallet i uplata"; the state line says "Dovrši 3/4" until ready
             def _mk_setup():
                 addr, key_addr, saved = _addr(tcon)
                 n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0]
@@ -2565,27 +2838,24 @@ def page(qs, user):
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, '<div class=ap>', f'<h1>{TITLE}</h1>', msg,
-                 _safe("zaglavlje", _head, tcon, cfg, con, owner,
-                       fallback='<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
-                 setup.get("warn", "")]
-            if setup and not setup.get("ready"):
-                b.append(setup["html"])
-            b += [_safe("dnevnik", _log_section, tcon, cfg),
-                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req")),
-                  _safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
-                  _safe("kupnja", _buy_now_card, cfg, owner),
-                  _safe("cilj", _tp_card, cfg, owner),
-                  '<p class=ap-cap>Alati i postavke</p>',
-                  _recs_section(), _callers_section(cfg, owner), _ideas_section(cfg, owner),
-                  _safe("limiti", _limits, cfg, owner)]
+            b = [CSS, '<div class="ap ms-page">',
+                 _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
+                       fallback=_title(owner, cfg.get("on")) + msg
+                       + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
+                 setup.get("warn", ""),
+                 _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
+                 _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
+                 _h2("Kako trguje"),
+                 _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
+                        _safe("pravila", _rules, tcon, cfg, owner),
+                        _safe("kupnja", _buy_now_card, cfg, owner))]
         finally:
             con.close()
-        if owner:
-            b.append(_safe("pozivnice", _invites, tcon))
-            if setup.get("ready"):
-                b.append(setup["html"])
-        b += [_safety(), '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]
+        b += [_h2("Još"),
+              _group(_callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
+                     _safe("wallet", _wallet_row, tcon, owner, setup),
+                     _safe("pozivnice", _invites, tcon) if owner else "", _safety()),
+              '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]
         return TITLE, _with_toggle("".join(b))
     finally:
         tcon.close()
@@ -2624,21 +2894,21 @@ def _warnings(tcon, cfg, con):
             reserve = executor.reserve_sol(cfg, n_open_live)
             need = cfg["size_sol"] + executor.BUY_OVERHEAD_SOL + executor.reserve_sol(cfg, n_open_live + 1)
             if bal < reserve:
-                w.append(("bad", f"Opasno malo SOL-a: {bal:.4f}. Za prodaju {n_open_live} otvorenih pozicija treba "
-                                 f"barem {reserve:.4f} SOL za mrežne naknade. Uplati SOL u wallet."))
+                w.append(("bad", f"Opasno malo SOL-a: {redak.sol(bal, 4)}. Za prodaju {n_open_live} otvorenih pozicija "
+                                 f"treba barem {redak.sol(reserve, 4)} za mrežne naknade. Uplati SOL u wallet."))
             elif bal < need:
-                w.append(("warn", f"Premalo SOL-a za novu kupnju: stanje {bal:.4f}, treba {need:.4f} (ulog "
-                                  f"{cfg['size_sol']:g} + naknade i depozit {executor.BUY_OVERHEAD_SOL:g} + rezerva za "
-                                  f"prodaju {executor.reserve_sol(cfg, n_open_live + 1):.4f}). Bot neće kupovati, "
-                                  "prodaje rade."))
+                w.append(("warn", f"Premalo SOL-a za novu kupnju: stanje {redak.sol(bal, 4)}, treba {redak.sol(need, 4)} "
+                                  f"(ulog {_g(cfg['size_sol'])} + naknade i depozit {_g(executor.BUY_OVERHEAD_SOL)} + "
+                                  f"rezerva za prodaju {redak.num(executor.reserve_sol(cfg, n_open_live + 1), 4)}). Bot neće "
+                                  "kupovati, prodaje rade."))
     mode = "live" if executor.is_live(cfg) else "dry"
     start = executor._day_start(now, cfg.get("day_tz"))
     spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
                          "('open','closed','pending')", (mode, start)).fetchone()[0]
     if spent >= cfg["max_sol_per_day"] - 1e-9:
-        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({spent:.3f} SOL): nove kupnje tek nakon ponoći (Zagreb)."))
+        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({redak.sol(spent, 3)}): nove kupnje tek nakon ponoći (Zagreb)."))
     if executor.day_pnl(tcon, now, mode, cfg.get("day_tz")) <= -cfg["max_loss_day"]:
-        w.append(("bad", f"Dnevni gubitak je dosegnuo -{cfg['max_loss_day']:g} SOL: nove kupnje stoje do ponoći (Zagreb). Uključene su i naknade neuspjelih pokušaja."))
+        w.append(("bad", f"Dnevni gubitak je dosegnuo −{_g(cfg['max_loss_day'])} SOL: nove kupnje stoje do ponoći (Zagreb). Uključene su i naknade neuspjelih pokušaja."))
     recent = tcon.execute("SELECT code, error, prio_lamports, status FROM orders WHERE ts>=? ORDER BY id DESC LIMIT 30",
                           (now - 1800,)).fetchall()
     landed_fail = sum(1 for c, *_ in recent if c in (-1000, -1005, -1006, -2000))
@@ -2648,8 +2918,8 @@ def _warnings(tcon, cfg, con):
                           "ponavlja automatski, ali ulazi mogu kasniti."))
     if prio and max(prio[:5]) >= 1_000_000:
         p = max(prio[:5]) / executor.LAMPORTS
-        w.append(("warn", f"Mreža je zagušena: naknada za prioritet je sad oko {p:.4f} SOL po swapu, to je "
-                          f"{100 * p / cfg['size_sol']:.1f}% uloga od {cfg['size_sol']:g} SOL."))
+        w.append(("warn", f"Mreža je zagušena: naknada za prioritet je sad oko {redak.sol(p, 4)} po swapu, to je "
+                          f"{redak.pct(100 * p / cfg['size_sol'], 1, sign=False)} uloga od {_g(cfg['size_sol'])} SOL."))
     if any(c == 2 for c, *_ in recent):
         w.append(("bad", "Jupiter javlja da wallet nema dovoljno SOL-a za mrežnu naknadu. Uplati malo SOL-a."))
     if any("429" in (e or "") or "HTTPError" in (e or "") for _, e, _, _ in recent):
@@ -2665,7 +2935,7 @@ def _warnings(tcon, cfg, con):
         w.append(("bad", f"Ne može se prodati: {', '.join(stuck)}. Zadnja 3 pokušaja nisu prošla (moguće nema "
                          "likvidnosti ili je rug). Bot pokušava i dalje, najviše svakih 10 min."))
     if cfg["size_sol"] < 0.03:
-        w.append(("warn", f"Ulog {cfg['size_sol']:g} SOL je malen: mrežne naknade i depozit (~0,003 SOL po kupnji, "
+        w.append(("warn", f"Ulog {_g(cfg['size_sol'])} SOL je malen: mrežne naknade i depozit (~0,003 SOL po kupnji, "
                           "depozit se vrati) su velik dio uloga."))
     if not copy.follows(con, settings.LEAGUE_USER) and not cfg.get("follow_paper") and not cfg.get("simianx"):
         w.append(("warn", "Bot nikoga ne prati: neće ništa kupiti dok ne dodaš influencera ili wallet."))

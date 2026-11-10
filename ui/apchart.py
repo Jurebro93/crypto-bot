@@ -21,6 +21,9 @@ pokraj 1 SOL živa pretvorba u dolare i eure, profit and loss kroz vrijeme u ist
   three data colours change) or the class apc-dark (a complete dark set, for a page without those variables).
 - The public Autopilot page calls this with the same arguments: nothing here is owner-only, nothing links anywhere,
   nothing but the numbers it was given leaves this module.
+- 10.11. (Jure, prijedlog dizajna, pravila 3 i 8): axis text 13 px (the smallest of the five type sizes), and in
+  Croatian a decimal comma and a true minus in every number the chart writes. Only the look: the data, the ranges
+  and the units are the same. The Autopilot page places the range switch under the plot with its own CSS.
 """
 import json
 
@@ -69,7 +72,7 @@ min-height:32px;border-radius:8px;cursor:pointer;transform:none}
 .apc svg{display:block;width:100%;touch-action:pan-y;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
 .apc svg:focus{outline:none}.apc svg:focus-visible{outline:2px solid var(--apc-val);outline-offset:2px;border-radius:6px}
 .apc-ax line{stroke:var(--apc-grid);stroke-width:1}.apc-ax line.apc-zero{stroke:var(--apc-axis)}
-.apc-ax text,.apc-cap,.apc-dl{font-size:11px;fill:var(--apc-mut)}
+.apc-ax text,.apc-cap,.apc-dl{font-size:13px;fill:var(--apc-mut)}
 .apc-cap{font-weight:600;paint-order:stroke;stroke:var(--apc-surface);stroke-width:4px;stroke-linejoin:round}
 .apc-dl{paint-order:stroke;stroke:var(--apc-surface);stroke-width:3px;stroke-linejoin:round}
 .apc-va{fill:var(--apc-val);opacity:.08}
@@ -116,8 +119,9 @@ try{Object.assign(st,JSON.parse(localStorage.getItem(key)||'{}'))}catch(e){}
 if(!D.u||!(st.u in UN))st.u='sol';
 let P=[],G=null,cur=-1,w0=0;
 const k=i=>st.u==='sol'?1:st.u==='usd'?D.u[i]:D.u[i]*D.e[i];
-const fmt=(v,s)=>{const a=Math.abs(v),d=st.u==='sol'?(a>=100?1:a>=10?2:3):(a>=1000?0:a>=100?1:2);return(v<0?'−':s?'+':'')+a.toFixed(d)+UN[st.u]};
-const tick=v=>{const s=+v.toPrecision(6);return(Math.abs(s)>=1000?s.toFixed(0):String(s)).replace('-','−')};
+const dc=x=>D.loc==='hr'?x.replace('.',','):x;
+const fmt=(v,s)=>{const a=Math.abs(v),d=st.u==='sol'?(a>=100?1:a>=10?2:3):(a>=1000?0:a>=100?1:2);return(v<0?'−':s?'+':'')+dc(a.toFixed(d))+UN[st.u]};
+const tick=v=>{const s=+v.toPrecision(6);return dc((Math.abs(s)>=1000?s.toFixed(0):String(s)).replace('-','−'))};
 const when=(t,o)=>new Date(t*1000).toLocaleString(D.loc,o);
 const near=ts=>{let lo=0,hi=n-1;while(lo<hi){const m=(lo+hi)>>1;D.t[m]<ts?lo=m+1:hi=m}return lo};
 const path=(a,yi)=>a.map((p,j)=>(j?'L':'M')+p[0].toFixed(1)+' '+p[yi].toFixed(1)).join('');
@@ -148,7 +152,7 @@ d0=new Date(t0*1000),hm={hour:'2-digit',minute:'2-digit'},dm={day:'numeric',mont
 const xl=(t,o)=>{const X=x(t);S('text',{x:X,y:H-7,'text-anchor':X<18?'start':X>pw-18?'end':'middle'},ax,when(t,o));nt++};
 if(t1>t0)for(let t=d0.getTime()/1000;t<=t1;t+=sx){if(t<t0)continue;const dt=new Date(t*1000);xl(t,sx<DAY&&(dt.getHours()||dt.getMinutes())?hm:dm)}
 if(!nt){xl(t0,hm);if(t1>t0)xl(t1,hm)}
-let lx=-1e9;(D.d||[]).forEach(d=>{if(d[0]<t0||d[0]>t1)return;const X=x(d[0]),s=fmt(d[1]*k(Math.min(n-1,near(d[0]))),1).replace(/(\.\d*?)0+(?= )/,'$1').replace(/\.(?= )/,''),w=s.length*6.3,
+let lx=-1e9;(D.d||[]).forEach(d=>{if(d[0]<t0||d[0]>t1)return;const X=x(d[0]),s=fmt(d[1]*k(Math.min(n-1,near(d[0]))),1).replace(/([.,]\d*?)0+(?= )/,'$1').replace(/[.,](?= )/,''),w=s.length*7.4,
 a=X<w/2+2?'start':X>pw-w/2-2?'end':'middle',l=a==='start'?X:a==='end'?X-w:X-w/2;
 S('line',{x1:X,x2:X,y1:16,y2:y0+hp,class:'apc-dep'},svg);
 if(l>lx+8){S('text',{x:a==='start'?X+2:a==='end'?X-2:X,y:11,'text-anchor':a,class:'apc-dl'},svg,s);lx=l+w}});
@@ -270,6 +274,8 @@ def chart_html(series, summary, deposits=(), ident="ap", compact=False, lang="hr
     if val is None:   # no summary: the newest point says the same
         val, pnl = data["v"][-1], data["p"][-1]
     now_txt = f'{L["now"]} {val:.3f} SOL · {L["pnl_word"]} {pnl or 0:+.3f} SOL'
+    if lang == "hr":   # 10.11. (prijedlog, pravilo 8): decimal comma and a true minus in Croatian, as the script draws
+        now_txt = now_txt.replace(".", ",").replace("-", "−")
     leg = ""
     if data["d"]:
         leg += f'<span><i></i>{esc(L["leg_dep"])}</span>'

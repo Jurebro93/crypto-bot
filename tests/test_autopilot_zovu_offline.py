@@ -164,12 +164,12 @@ class Page(unittest.TestCase):
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))
         self.assertIn("/pravi-trade/zovu", body)  # polled every LOG_EVERY_S seconds
         self.assertIn("/pravi-trade/ideje", body)
-        # 10.11.: the order of audit/2026-11-10/dizajn.md section 2: log, positions, follows, manual buy (+ its exit
-        # target), and only then, closed at the bottom, the recommendations and the two live lists, then the limits
-        order = [body.index(x) for x in ("id=dnevnik", "id=pozicije", "id=pratim", "id=kupi-odmah", "id=cilj",
-                                         "id=preporuke", "id=zovu", "id=ideje", "id=limiti")]
+        # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): log, positions, then "Kako trguje" (follows, Pravila
+        # = exit target + limits, manual buy), and only then, closed under "Još", the two live lists and the picks
+        order = [body.index(x) for x in ("id=dnevnik", "id=pozicije", "id=pratim", "id=cilj", "id=limiti",
+                                         "id=kupi-odmah", "id=zovu", "id=ideje", "id=preporuke")]
         self.assertEqual(order, sorted(order))
-        for sid in ("dnevnik", "preporuke", "zovu", "ideje", "limiti"):   # closed until tapped
+        for sid in ("dnevnik", "preporuke", "zovu", "ideje", "pravila"):   # closed until tapped
             self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)
 
     def test_follow_all_callers_makes_one_crew_follow(self):
