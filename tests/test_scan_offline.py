@@ -456,7 +456,7 @@ class XMomentum(Base):
             self.assertAlmostEqual(store.spent(scon, "xusd", NOW), 12 * 0.00015, places=6)
             from kol import twapi
             self.assertAlmostEqual(twapi.spent(kcon, NOW), 12 * 0.00015, places=6)    # twapi's own day counter too
-            store.add_spent(scon, "xusd", 1.0, NOW)                             # the scanner's X budget is spent
+            store.add_spent(scon, "xusd", self.cfg["x_usd_day"], NOW)            # the scanner's X budget is spent
             self.assertIsNone(xmom.measure(B, "BBB", NOW, scon, kcon, self.cfg, get=self.net.x))
             self.assertEqual(self.net.calls["x"], 1)
         finally:
