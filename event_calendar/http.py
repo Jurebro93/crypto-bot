@@ -58,7 +58,12 @@ def _cg_key_raw():
 # CG_DAILY_CALLS (default 3000 a day, ~90k a month, under the smallest paid plan) is the day's budget for the key;
 # past it, the calls go to the free GeckoTerminal again (and its pace) until midnight UTC. Counted across processes.
 def _cg_day_file():
-    return os.path.join(GATE_DIR, "coingecko.day")
+    """10.11. (Jure: "postavljen je, što se ne koristi?"): the day's count lived in GATE_DIR (/tmp), which every deploy
+    empties, so the budget started again from 0 after each of today's 9 deploys and the cap held nothing. It is kept
+    on the persistent disk (DATA_DIR) when there is one; GATE_DIR (tests, a laptop) otherwise."""
+    data = os.environ.get("DATA_DIR")
+    base = data if data and os.path.isdir(data) else GATE_DIR
+    return os.path.join(base, "coingecko.day")
 
 
 def cg_used(today=None):
@@ -78,7 +83,7 @@ def _cg_take():
     today = time.strftime("%Y-%m-%d", time.gmtime())
     cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
     try:
-        os.makedirs(GATE_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(_cg_day_file()), exist_ok=True)
         with open(_cg_day_file(), "a+") as f:
             try:
                 import fcntl
