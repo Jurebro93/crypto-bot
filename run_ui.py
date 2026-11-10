@@ -36,8 +36,12 @@ PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(
 APP_URL = os.environ.get("APP_URL", "").strip().rstrip("/") if SITE_URL else ""
 if APP_URL:
     os.environ["APP_URL"] = APP_URL
+# 10.11. (Jure): the public Autopilot page is SHARED, not PUBLIC: a visitor reads it on the site and a logged-in
+# player reads it (and writes in its chat) on the app host, where the login cookie is; a PUBLIC path would send the
+# player from the app host to the site, where nobody is logged in.
 SHARED_PATH = re.compile(r"^/(static/landing/.*|hook/.*|nas-token/\d+/meta\.json|jezik|sw\.js|cekamo-deploy|healthz|"
-                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest)$")   # served on every host
+                         r"favicon\.ico|favicon\.svg|apple-touch-icon\.png|icon-(192|512)\.png|site\.webmanifest|"
+                         r"(en/)?autopilot|autopilot/chat)$")   # served on every host
 
 
 def _host(url_or_host):
@@ -539,6 +543,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=600")
             self.end_headers()
             return self.wfile.write(body)
+        if path in ("/autopilot", "/en/autopilot", "/autopilot/chat"):   # 10.11. (Jure): public Autopilot page and its chat
+            return self._autopilot(path, qs, ok)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
             from ui import nastoken
@@ -850,6 +856,8 @@ class Handler(BaseHTTPRequestHandler):
         if need:   # e.g. a basic user posting /run/wallets by hand: refused before anything starts
             print(f"uloge: odbijeno {self.who or '-'} ({self.role}) POST {path}", flush=True)
             return self._forbidden(path, need)
+        if path.startswith("/autopilot/"):   # 10.11.: chat of the public Autopilot page (no cached page changes)
+            return self._autopilot_post(path)
         pagecache.clear()   # a run or a trade changes what the pages show
         origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
         same_site = not origin or urlsplit(origin).netloc == self.headers.get("Host")
@@ -1113,6 +1121,53 @@ class Handler(BaseHTTPRequestHandler):
             err = landing.ERR_EN.get(err, err) if lang == "en" else err
             return self._send(400, landing.page_html({}, err=err, form=form, lang=lang).encode("utf-8"))
         return self._redirect(("/" if lang == "en" else "/hr") + "?poslano=1#forma")
+
+    def _autopilot(self, path, qs, ok):
+        """10.11. (Jure): /autopilot is readable without a login on every host. A visitor gets it in a light public
+        frame (Croatian, /en/autopilot through ui/i18n); a logged-in player gets it inside the app, where the chat
+        form and +1 work. /autopilot/chat is the message list alone, re-fetched by the page every 15 s."""
+        from ui import apjavno
+        if ok and path == apjavno.PATH_EN:   # inside the app the language is the player's own setting
+            return self._redirect(apjavno.PATH)
+        if not ok and qs.get("prijava") == "1":   # "Prijavi se" on the public copy: only a visitor needs the form
+            return self._redirect("/prijava?next=" + apjavno.PATH)
+        user = self.user if ok else None
+        lang = self.lang if ok else ("en" if path == apjavno.PATH_EN or qs.get("l") == "en" else "hr")
+        self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
+        try:
+            if path == apjavno.CHAT_PATH:
+                html = apjavno.chat_fragment(user, qs)
+            elif ok:
+                html = page(*apjavno.page(qs, user, lang), path)
+            else:
+                html = apjavno.guest_html(qs, lang)
+        except Exception:
+            err = _error_html()   # the traceback goes to the server log, never to the page
+            html = page("Greška", err, path) if ok else f"<!doctype html><meta charset=utf-8><title>Greška</title>{err}"
+            return self._send(500, html.encode("utf-8"))
+        i18n.LANG.set(lang)
+        return self._send(200, i18n.translate(html).encode("utf-8"), translated=True)
+
+    def _autopilot_post(self, path):
+        """Chat of /autopilot (message, +1, hide a message): logged-in players only, with a same-site Origin and the
+        form token, as strict as the money forms (CSRF_STRICT). It sits before pagecache.clear() because a chat line
+        changes no cached page. ajax=1 (the page script): the answer is the refreshed message list, not a redirect."""
+        from ui import apjavno
+        form = dict(parse_qsl(self._read_body(20_000).decode("utf-8", "replace")))
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        same_site = urlsplit(origin).netloc == self.headers.get("Host") if origin else not AUTH
+        want = csrf_token(self._session_value())
+        token_ok = not AUTH or bool(want) and hmac.compare_digest(form.get("_csrf", "").encode(), want.encode())
+        if not same_site or not token_ok:
+            print(f"csrf: odbijeno {self.who or '-'} POST {path} (origin={'da' if origin else 'prazan'})", flush=True)
+            self.send_response(403)
+            self.end_headers()
+            return
+        if form.get("ajax") != "1":
+            return self._redirect(apjavno.post(path, form, self.user))
+        ok, code = apjavno.act(path, form, self.user)
+        frag = apjavno.chat_fragment(self.user, {}, err="" if ok else code)
+        return self._send(200, i18n.translate(frag).encode("utf-8"), translated=True)
 
     def _static(self, name):
         """Screenshots of the public page: only plain file names from ui/static/landing."""
