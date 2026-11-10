@@ -709,8 +709,15 @@ def _tick(con, st, now=None):
     top = _max_oid(con)
     if st.get("oid") is not None and top > st["oid"] and _moved_since(con, st["oid"]):
         st["quiet"] = now + SETTLE_S
+        st["after_trade"] = True
     st["oid"] = top
-    out = snapshot(con, now=now) if now >= st.get("quiet", 0) else None
+    out = None
+    if now >= st.get("quiet", 0):
+        # 10.11. (Jure: "nakon svakog tradea bi se trebala osvježiti stranica"): the first snapshot after a real swap
+        # is taken as soon as the balance has settled, not up to EVERY_S later, so the public page shows the new value
+        out = snapshot(con, now=now, force=bool(st.get("after_trade")))
+        if out is not None:
+            st["after_trade"] = False
     if not st.get("filled"):
         backfill(con, now=now)
         st["filled"] = _backfilled(con)
