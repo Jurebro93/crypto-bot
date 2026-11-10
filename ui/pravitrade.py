@@ -112,6 +112,20 @@ details.ap-it form,.ap-blk form{margin:0 0 10px;display:flex;gap:6px;flex-wrap:w
 .ap-row::after{content:'';flex:none;width:6px;height:6px;border-right:1.5px solid var(--mut);border-top:1.5px solid var(--mut);
   transform:rotate(45deg);margin:0 3px 0 2px}
 .ap-row u{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;cursor:pointer}
+.ap-sk{border:1px solid var(--line);border-radius:12px;padding:12px 14px 0;margin:0 0 16px}
+.ap .ap-sk p{margin:0 0 8px}.ap .ap-sk p.h{font-weight:500;font-size:14.5px}
+.ap .ap-sk p.f{font-size:12.5px;color:var(--mut);border-top:1px solid var(--line);padding:9px 0 11px;margin:0}
+.ap-skr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t v" "w d";gap:2px 16px;
+  border-top:1px solid var(--line);padding:9px 0;font-size:14px;cursor:pointer;align-items:baseline}
+.ap-skr .t{grid-area:t;min-width:0;overflow-wrap:break-word}.ap-skr .t .mut{margin-left:2px}
+.ap .ap-skr .w{grid-area:w;color:var(--mut);font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
+.ap-skr .v{grid-area:v;text-align:right;font-weight:600;white-space:nowrap}
+.ap-skr .d{grid-area:d;text-align:right;font-size:13px;white-space:nowrap}
+.ap-skr .v.miss{color:var(--warn)}.ap-skr .v.ok{color:var(--good)}.ap-skr .v.wait,.ap-skr .v.none{color:var(--mut);font-weight:500}
+.ap-skr .d.wait,.ap-skr .d.none{color:var(--mut)}
+.ap-sk details.ap-it>summary{padding:9px 0;font-size:13px;color:var(--mut)}
+.ap-lg>span:first-child{min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.ap-skr{grid-template-areas:"t v" "w w" "d d"}.ap-skr .d{text-align:left;white-space:normal}}
 @media(max-width:700px){.ap-val b{font-size:34px}.ap-val span{font-size:18px}}
 </style>"""
 
@@ -2144,6 +2158,151 @@ def dnevnik_line(tcon, now=None):
     return line
 
 
+# 10.11. (Jure: "piše da je 12 redova preskočeno; zanima me zašto i kako su performali nakon toga: jesu li ipak
+# dosegli 15 % ili su preskočeni s dobrim razlogom"): a small box at the top of the open log, right under its one-line
+# summary. One sentence with the answer, then one row per skipped buy of the last 24 h (the set the "N preskočeno"
+# counts, plus the technical failures, which the bot should have bought), each with who gave the signal, the reason
+# and what the price did in the hour after the decision (kol/preskoceni.py, measured by the minute loop). The open log
+# is asked for every second: the box is built at most every SKIP_TTL_S, reads minute.db read-only by key for the
+# listed rows and never touches the network.
+SKIP_TTL_S = 30
+SKIP_SHOW = 15     # rows shown at once; the rest behind "Prikaži sve"
+SKIP_WHY = 110     # characters of the owner's reason in a row (the whole text is in the row's title)
+_SK = {"ts": 0.0, "key": None, "html": None}
+
+
+def _sl_pct():
+    """The Autopilot's default stop as a positive whole percent (league/copy.DEFAULT_SL "-20%" -> 20)."""
+    try:
+        return abs(int(float(str(copy.DEFAULT_SL).strip().rstrip("%"))))
+    except ValueError:
+        return 20
+
+
+def _skip_rows(tcon, now):
+    """(skipped buys of the last 24 h newest first, whether anything was bought) from trade.aplog; (None, False)
+    without the module."""
+    from kol import preskoceni
+    ap = _aplog_mod()
+    if ap is None:
+        return None, False
+    lcon = _league_ro()
+    try:
+        rows = list(ap.entries(tcon, lcon, limit=getattr(ap, "DAY_LIMIT", DAY_ROWS), since=int(now - 86400), now=now) or [])
+    finally:
+        if lcon is not None:
+            lcon.close()
+    rows = [e for e in rows if (e.get("ts") or 0) >= now - 86400]
+    return preskoceni.skipped(rows), any(e.get("kind") == "kupio" for e in rows)
+
+
+def _skip_paths(keys):
+    """{(token, minute): skip_path row}, or None when minute.db (or its table) is not there yet."""
+    from kol import minute, preskoceni
+    try:
+        con = minute.ro()
+    except sqlite3.Error:
+        return None
+    if con is None:
+        return None
+    try:
+        return preskoceni.lookup(con, keys)
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def _cut(text, n=SKIP_WHY):
+    t = " ".join(str(text or "").split())
+    if len(t) <= n:
+        return t
+    return t[:n].rsplit(" ", 1)[0].rstrip(",;:·-–(") + "…"
+
+
+def _skip_src(s):
+    """Who gave the signal, short: a wallet follow's label can be its whole address ("wallet 7xKX…sAsU"), a crew's
+    label starts with the kind again ("ekipa ekipa: @murad + …" -> "ekipa @murad + …")."""
+    s = " ".join(str(s or "").split())
+    s = re.sub(r"^(\w+) \1:?\s*", r"\1 ", s)
+    m = re.fullmatch(r"wallet ([1-9A-HJ-NP-Za-km-z]{20,})", s)
+    return f"wallet {short(m.group(1))}" if m else s
+
+
+def _skip_row(e, v, owner, now):
+    from kol import preskoceni
+    tok = e.get("token") or ""
+    full = " ".join(str(((e.get("why") or e.get("why_short")) if owner else e.get("why_short")) or "").split())
+    why = _cut(full)
+    meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source"))) if x)
+    tag = "<span class=ap-tag>nije prošlo (tehnički)</span>" if e.get("kind") == "nije_proslo" else ""
+    title = f' title="{esc(full)}"' if why != full else ""
+    # four cells of a grid: token + time + source | verdict on the first line, the reason | the numbers under them
+    # (on a phone the reason and the numbers take the whole width, so neither becomes a column of single words)
+    return (f'<div class=ap-skr{_pop(tok)}><span class=t>{_tok(tok, e.get("symbol"))}{tag} <span class=mut>{esc(meta)}</span></span>'
+            f'<b class="v {v["kind"]}">{esc(v["word"])}</b>'
+            + (f"<small class=w{title}>{esc(why)}</small>" if why else "")
+            + f'<span class="d {v["kind"]}">{esc(v["detail"])}</span></div>')
+
+
+def _skip_html(rows, paths, now, owner, tp_cfg):
+    """The box for one kind of viewer (the owner reads the reason as written, an invited player its short word)."""
+    from kol import preskoceni
+    tp, sl = preskoceni.TP, _sl_pct()
+    keys = [(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows]
+    vs = [preskoceni.verdict((paths or {}).get(k), e.get("ts") or 0, now, tp, sl) for e, k in zip(rows, keys)]
+    head = preskoceni.sentence([v for e, v in zip(rows, vs) if e["kind"] == "preskocio"],
+                               [v for e, v in zip(rows, vs) if e["kind"] == "nije_proslo"], tp, sl)
+    b = [f"<p class=h>{esc(head)}</p>"]
+    missed = {}
+    for e, v in zip(rows, vs):
+        if v["kind"] == "miss" and e["kind"] == "preskocio":
+            w = e.get("why_short") or "ostalo"
+            missed[w] = missed.get(w, 0) + 1
+    if missed:   # which RULE cost the most: the reasons of the rule skips that would have paid
+        b.append("<p class=mut>Propušteni po razlogu: " + esc(", ".join(
+            f"{n} {w}" for w, n in sorted(missed.items(), key=lambda kv: (-kv[1], kv[0])))) + ".</p>")
+    items = [_skip_row(e, v, owner, now) for e, v in zip(rows, vs)]
+    b += items[:SKIP_SHOW]
+    if len(items) > SKIP_SHOW:
+        b.append(f"<details class=ap-it id=ap-sk-sve><summary><span>Prikaži sve</span><span class=k>još "
+                 f"{len(items) - SKIP_SHOW}</span></summary>{''.join(items[SKIP_SHOW:])}</details>")
+    note = (f"Mjereno od trenutka odluke, 1-minutnim svijećama, 60 min: propušteno = +{tp} % prije −{sl} %; "
+            f"dobro preskočen = prvo −{sl} % ili +{tp} % nije došao.")
+    if paths is None:
+        note += " Mjerenje još nije pokrenuto."
+    if tp_cfg != tp:   # the target the Autopilot really exits at, only when it is not the +15 % asked about here
+        known = [preskoceni.hit((paths or {}).get(k), tp_cfg, sl) for k in keys]
+        known = [h for h in known if h is not None]
+        k = sum(known)
+        note += f" Autopilot sada izlazi na +{tp_cfg} %" + (
+            f": {k} od {len(known)} izmjerenih bi ga {'dosegao' if k % 10 == 1 and k % 100 != 11 else 'dosegla'} "
+            f"prije −{sl} %." if known else ".")
+    b.append(f"<p class=f>{esc(note)}</p>")
+    return f'<div class=ap-sk id=ap-sk>{"".join(b)}</div>'
+
+
+def skip_box(tcon, cfg, now=None, owner=True):
+    """The box for the top of the open log (owner or invited viewer), kept SKIP_TTL_S per database. '' without
+    trade.aplog or without any decision in the last 24 h; one quiet line when nothing was skipped."""
+    now = now or time.time()
+    with _LOCK:
+        if _SK["key"] == settings.DB and _SK["html"] is not None and 0 <= now - _SK["ts"] < SKIP_TTL_S:
+            return _SK["html"][bool(owner)]
+    rows, bought = _skip_rows(tcon, now)
+    if not rows:
+        quiet = '<p class=mut id=ap-sk>U zadnja 24 h nijedan signal nije preskočen.</p>' if bought else ""
+        html = {True: quiet, False: quiet}
+    else:
+        from kol import preskoceni
+        paths = _skip_paths([(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows])
+        tp_cfg = int(cfg.get("tp_default") or 15)
+        html = {o: _skip_html(rows, paths, now, o, tp_cfg) for o in (True, False)}
+    with _LOCK:
+        _SK.update(ts=now, key=settings.DB, html=html)
+    return html[bool(owner)]
+
+
 def _dnevnik_row(e, owner=True):
     """One decision: what (KUPIO / PRODAO / PRESKOČIO / NIJE PROŠLO), which token, how much, on whose signal, why,
     and for a decision without a buy whether it should have bought (aplog 'trebao': True = every rule passed and the
@@ -2192,7 +2351,9 @@ def dnevnik_inner(tcon, cfg, now=None, owner=True):
     head = f'<p class=mut>{esc(alive)}. Svaki redak je jedna odluka: što je vidio, što je napravio i zašto.</p>'
     if not rows:
         return head + '<p class=mut style="margin:0">Još nema nijedne odluke. Čim Autopilot vidi prvi signal, pojavi se ovdje.</p>'
-    return head + "".join(_dnevnik_row(e, owner) for e in rows[:LOG_ROWS])
+    # 10.11. (Jure): first, right under the one-line summary, why each skipped buy was skipped and what it did after
+    box = _safe("preskočeni", skip_box, tcon, cfg, now, owner)
+    return box + head + "".join(_dnevnik_row(e, owner) for e in rows[:LOG_ROWS])
 
 
 def dnevnik_fragment(user):

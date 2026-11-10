@@ -17,7 +17,8 @@ counted (CLAUDE.md: tokens under 30k are not analysed).
 
 Own database minute.db (next to kol.db): the only writer is `run_kol.py minute-loop` (start.sh), which fills the
 history as fast as the free GeckoTerminal budget allows and then keeps up with new calls; the KOL round and the
-pages only read it. kol.db (calls, tokens, kols, groups) is read-only here.
+pages only read it. kol.db (calls, tokens, kols, groups) is read-only here. 10.11.: after each pass the loop also
+measures the Autopilot's skipped buys the same way (kol/preskoceni.py, table skip_path), within a small budget.
 
 Priority: tokens called by two or more different accounts first (crews), newest first. One request per token
 covers every call of that token within 16 hours.
@@ -388,6 +389,7 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
     from kol import store
     c = config(cfg)
     mcon = connect()
+    _late = []
     try:
         while True:
             kcon = store.ro()
@@ -404,10 +406,22 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
                     tpsl.save_pool(mcon)
                 except Exception as e:  # noqa: BLE001 - the measuring loop never dies on a statistic
                     log(f"  tpsl: {type(e).__name__}: {e}")
+                # 10.11. (Jure: "12 preskočeno: zašto, i jesu li ipak dosegli +15 %?"): the Autopilot's skipped buys,
+                # measured the same way, AFTER the calls and within their own small budget: unreserved, never waiting
+                # on GeckoTerminal, only a few while calls are still waiting (kol/preskoceni.py)
+                try:
+                    from kol import preskoceni
+                    preskoceni.maybe_run(mcon, kcon, cfg, fetch=fetch, busy=left > 0,
+                                         log=lambda *a, **k: _late.append((a, k)))
+                except Exception as e:  # noqa: BLE001 - never stops the call measurements
+                    _late.append(((f"  preskočeni: {type(e).__name__}: {e}",), {}))
             finally:
                 kcon.close()
             log(f"minute: {t} tokena, {n} poziva po minutnim svijećama, još {left} tokena čeka; vruća lista "
                 f"{len(hot_['x'])} X, {len(hot_['tg'])} TG, {len(hot_['wallets'])} walleta", flush=True)
+            for a, k in _late:   # the skips' lines after the pass's own line, which stays the first
+                log(*a, **k)
+            _late.clear()
             if once:
                 return
             cool = cooling() if fetch is None else 0

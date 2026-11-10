@@ -11,7 +11,8 @@ ui.pravitrade.page, the /pravi-trade/* fragments beside it).
 
 What is seeded: trade.db with the equity history of 10 days (3 rebuilt from orders, src='recon', then a snapshot
 every 5 min; the opening deposit and two more), open, closed, blocked and failed positions with their orders;
-league.db with three follows of the real-trade account and copy_log skips of the demo stage.
+league.db with three follows of the real-trade account and copy_log skips of the demo stage; minute.db with what
+the price did after the skips (kol/preskoceni.py skip_path: every verdict of the box under the log's summary line).
 --moduli DIR: load trade/equity.py and trade/aplog.py from DIR (read only, no bytecode written) when this checkout
 does not have them yet; without them the page shows its fallback (plain balance, the order list). --prazno: no
 equity rows (the chart's empty state). Everything that would reach the network or a key is replaced in this
@@ -139,8 +140,10 @@ def seed(d, now=None, empty=False, on=True):
     ]
     tcon.execute("DELETE FROM positions")
     tcon.execute("DELETE FROM orders")
+    toks = {}   # symbol -> (mint, decision ts): the skip_path rows below are keyed by them
     for sym, ago_s, status, reason, sin, sback, src in pos:
         tok, ts = _mint(rng), now - ago_s
+        toks[sym] = (tok, ts)
         closed_ts = ts + rng.randint(600, 5400) if status == "closed" else None
         q = 1_000_000_000 if status in ("open", "closed") else None
         left = 0 if status == "closed" else (q // 2 if sback else q)
@@ -167,19 +170,70 @@ def seed(d, now=None, empty=False, on=True):
     copy.ensure(lg)
     lg.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (settings.LEAGUE_USER, 1e9, now))
     f1 = copy.follow(lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "-20%")
-    copy.follow(lg, settings.LEAGUE_USER, "wallet", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "", 25, 5, "mirror")
-    copy.follow(lg, settings.LEAGUE_USER, "ekipa", "murad,tg:alpha_calls", "", 25, 5, "tpsl", "15%", "-20%",
-                max_mcap=1e6, max_runup=0.25)
+    f2 = copy.follow(lg, settings.LEAGUE_USER, "wallet", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "", 25, 5, "mirror")
+    f3 = copy.follow(lg, settings.LEAGUE_USER, "ekipa", "murad,tg:alpha_calls", "", 25, 5, "tpsl", "15%", "-20%",
+                     max_mcap=1e6, max_runup=0.25)
     lg.execute("DELETE FROM copy_log")
-    for ago_s, sym, note in ((12 * 60, "BONK9", "signal star 11 min (vidjeli smo ga tek sada)"),
-                             (80 * 60, "PEPE4", "MC nepoznat: bez cijene na DexScreeneru"),
-                             (4 * 3600, "SLOP", "likvidnost $6k je samo 1.1% MC-a"),
-                             (9 * 3600, "RUGME", "rug filter: lažni pool")):
+    for ago_s, sym, note, fid in ((12 * 60, "BONK9", "signal star 11 min (vidjeli smo ga tek sada)", f1),
+                                  (80 * 60, "PEPE4", "MC nepoznat: bez cijene na DexScreeneru", f1),
+                                  (4 * 3600, "SLOP", "likvidnost $6k je samo 1.1% MC-a", f1),
+                                  (9 * 3600, "RUGME", "rug filter: lažni pool", f1),
+                                  # 10.11. (Jure: the box of skipped buys): enough skips of every kind for "prikaži sve"
+                                  (3 * 3600, "MOCHI", "praćenje bez dokaza u demu (zatvorenih 2 od 10)", f3),
+                                  (5 * 3600, "ZEUS", "MC 24k ispod 30k", f2),
+                                  (8 * 3600, "FROGE", "signal star 6 min (vidjeli smo ga tek sada)", f1),
+                                  (11 * 3600, "KITTY", "likvidnost $4k je samo 0.9% MC-a", f3),
+                                  (13 * 3600, "NEIRO2", "token je još na pump.fun krivulji: uzimaju se bondani", f1),
+                                  (15 * 3600, "DOGEAI", "cijena je već +31 % od poziva (strop +25 %)", f3),
+                                  (17 * 3600, "BRETT3", "honeypot: nema rute za prodaju", f2),
+                                  (19 * 3600, "POPCAT2", "praćenje bez dokaza u demu (zatvorenih 3 od 10)", f1),
+                                  (21 * 3600, "TRUMPX", "MC 18k ispod 30k", f2),
+                                  (23 * 3600, "SIGMA", "limit: 5 otvorenih pozicija", f1)):
+        tok = _mint(rng)
+        toks[sym] = (tok, now - ago_s)
         lg.execute("INSERT INTO copy_log (follow_id, token, side, ev_ts, ts, symbol, action, note, trade_id) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)", (f1, _mint(rng), "buy", now - ago_s - 30, now - ago_s, sym, "preskočeno", note, None))
+                   "VALUES (?,?,?,?,?,?,?,?,?)", (fid, tok, "buy", now - ago_s - 30, now - ago_s, sym, "preskočeno", note, None))
     lg.commit()
     lg.close()
+    _skip_paths(toks, now)
     return {"sol": sol_last}
+
+
+# what the price did in the hour after each skip (kol/preskoceni.py): t15 / sl_min = first minute of +15 % / -20 %,
+# hi60 / lo60 / r60 = the highest, the lowest and the close after 60 min. LATE and BONK9 are younger than 65 min
+# ("mjeri se"), KITTY has no row yet ("čeka mjerenje"), PEPE4 / BRETT3 have no pool / no candle ("nema podataka").
+SKIP_PATHS = {   # symbol: (t15, sl_min, hi60, lo60, r60, peak minute) or the bad word
+    "PEPE4": "pool", "BRETT3": "svijeca",
+    "NOPROOF": (6, None, 0.42, -0.05, 0.18, 23), "MOCHI": (14, 31, 0.23, -0.27, -0.22, 17),
+    "SLOP": (None, None, 0.09, -0.14, -0.08, 4), "ZEUS": (None, 7, 0.04, -0.48, -0.35, 2),
+    "TINY": (40, 3, 0.20, -0.31, 0.05, 41), "STUCK": (9, None, 0.61, -0.03, 0.33, 38),
+    "FROGE": (None, None, 0.11, -0.19, -0.12, 9), "RUGME": (None, 2, 0.01, -0.86, -0.82, 1),
+    "NEIRO2": (22, None, 0.17, -0.12, 0.06, 24), "DOGEAI": (None, 44, 0.05, -0.21, -0.18, 3),
+    "POPCAT2": (None, None, 0.13, -0.09, 0.02, 31), "TRUMPX": (3, None, 1.05, -0.10, 0.40, 12),
+    "SIGMA": (None, 12, 0.06, -0.33, -0.25, 1),
+}
+
+
+def _skip_paths(toks, now):
+    from kol import minute, preskoceni
+    mcon = minute.connect()
+    try:
+        preskoceni.ensure(mcon)
+        mcon.execute("DELETE FROM skip_path")
+        for sym, v in SKIP_PATHS.items():
+            tok, ts = toks[sym]
+            m = preskoceni.minute_of(ts)
+            if isinstance(v, str):
+                mcon.execute("INSERT INTO skip_path (token, ts, bad, retry_ts, done_ts) VALUES (?,?,?,?,?)",
+                             (tok, m, v, now + 86400, now))
+                continue
+            t15, sl, hi, lo, r60, peak = v
+            mcon.execute("INSERT INTO skip_path (token, ts, pool, entry, lag_s, t15, sl_min, hi60, lo60, r60, max_min, lv, "
+                         "done_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (tok, m, "POOL" + sym, 0.0001, 30, t15, sl, hi, lo, r60, peak, "{}", now))
+        mcon.commit()
+    finally:
+        mcon.close()
 
 
 def _fakes(sol):
