@@ -104,17 +104,21 @@ Već srezano 7.–9.11. (prov., DNEVNIK): Apify pumpfun ugašen (−24 $/mj), di
   (jedan po jedan), jednog pisca po SQLite bazi, prekid pri deployu. Noćas je `run_dugo` držao bravu 21 min uz ≈ 10 % CPU-a,
   a 6 poslova čekalo je 12–22 min: to je brava, ne jezgra.
 
-**Preostali sekundni otpad** (sintetika na kopijama baza; apsolutni udio na Renderu nije izmjeren, pretp.):
+**Sekundni otpad** (sintetika na kopijama baza; apsolutni udio na Renderu nije izmjeren, pretp.). S1, S2 i S8 su u grani od
+06:32 (commit `fe250af`), **još nisu na serveru** (prov.):
 
-| Što | Trošak | Popravak (sekundni.md) |
-|---|---|---|
-| `prijedlog.chances()` bez keša, svake 2 s zauvijek i svake 1 s po pop-upu | 166 ms po čitanju, ≈ 7–8 % jezgre stalno | S1: keš 10 min ili zbroj u SQL-u |
-| Pozadinske niti Autopilota i "zivo" nikad ne staju | ≈ 2 % + drže zivo živim, do ~45 DexScreener poziva/min | S3: stani nakon 30 s bez gledatelja |
-| Pop-up tokena čita cijelu `token_tier` i `top_check` svake sekunde | ≈ 320 ms po osvježavanju ≈ 30 % jezgre po otvorenom pop-upu | S2: čitanje po ključu |
-| 4 fragmenta u sekundi po gledatelju, i za zatvorene sekcije | 62.638 odgovora i 40.689 prekinutih u 24 h (prov., audit 9.11.) | S12: samo otvorene sekcije, jedan zahtjev |
-| `run_trade` 5 punih prolaza tablica svake sekunde | 3,5 ms ≈ 0,35 % | S5: indeksi + `PRAGMA data_version` |
+| Što | Trošak | Popravak (sekundni.md) | Stanje |
+|---|---|---|---|
+| `prijedlog.chances()` bez keša, svake 2 s zauvijek i svake 1 s po pop-upu | 166 ms po čitanju, ≈ 7–8 % jezgre stalno | S1: keš 10 min po razredu MC-a | u grani |
+| Pop-up i stranica tokena čitaju cijelu `token_tier` za jedan redak | 146 ms po osvježavanju | S2: čitanje po ključu | u grani |
+| Živi DexScreener poziv s rokom 30 s i ponavljanjima | copy petlja i TP/SL mogu stajati minutama | S8: rok 5 s, bez ponavljanja | u grani |
+| Pozadinske niti Autopilota i "zivo" nikad ne staju | ≈ 2 % + drže zivo živim, do ~45 DexScreener poziva/min | S3: stani nakon 30 s bez gledatelja | otvoreno |
+| Pop-up čita i cijelu `top_check` svake sekunde | dio od ≈ 320 ms po osvježavanju (≈ 30 % jezgre po pop-upu prije S2) | čitanje po ključu | otvoreno |
+| 4 fragmenta u sekundi po gledatelju, i za zatvorene sekcije | 62.638 odgovora i 40.689 prekinutih u 24 h (prov., audit 9.11.) | S12: samo otvorene sekcije, jedan zahtjev | otvoreno |
+| `run_trade` 5 punih prolaza tablica svake sekunde | 3,5 ms ≈ 0,35 % | S5: indeksi + `PRAGMA data_version` | otvoreno |
 
-S1 + S2 + S3 skidaju ≈ 10 % CPU-a stalno i ≈ 30 % po otvorenom pop-upu (pretp., sintetika), trud mali, rizik nizak.
+S1 + S2 + S3 zajedno skidaju ≈ 10 % CPU-a stalno i ≈ 30 % po otvorenom pop-upu (pretp., sintetika); S3 je najveći
+preostali komad, trud mali, rizik nizak.
 
 **Cijena** (pretp., znanje modela, nepotvrđeno; provjera: Render dashboard → Settings → Instance Type, 1 minuta):
 
