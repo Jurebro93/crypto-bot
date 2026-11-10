@@ -139,7 +139,7 @@ nisu uračunati). Za 20/20 i 30/15 udio pogodaka nije izmjeren: E5 ga daje iz `c
 
 **Pokrivenost.** Planirano je 10 kutova istraživanja; **šest nije završilo** (on-chain statistika, signali ulaza, izlazi i
 rizik, botovi, rug provjere, režim tržišta). Prijedlog stoji na četiri: YouTube (70 pretraga), X traderi (60), copy
-novčanici (3 od 15+, limit) i KOL pozivi (0 pretraga, samo plan mjerenja T1–T9). U tablicama je 73 izvornih tvrdnji (30 + 25
+novčanici (3 od 15+, limit) i KOL pozivi (0 pretraga, samo plan mjerenja T1–T9). U tablicama su 73 izvorne tvrdnje (30 + 25
 + 18) i 6 prenesenih. Brojke su iz sažetaka pretrage; WebFetch je bio blokiran, otvorena je samo stranica dimasaf na GitHubu.
 
 **YouTube** (videe nitko nije gledao; sadržaj samo preko sažetaka i prijepisa; 44 od 47 videa samo naslov i opis):
