@@ -23,6 +23,7 @@ process only: the wallet balance, the SOL/EUR rate, the "armed" check.
 """
 import argparse
 import importlib.util
+import json
 import math
 import os
 import random
@@ -191,6 +192,17 @@ def seed(d, now=None, empty=False, on=True):
                    "VALUES (?,?,?,?,?,?,?,?,?)", (fid, tok, "buy", ts - before, ts - 2, sym, "ulaz", "kupljeno", tid))
         tcon.execute("UPDATE positions SET league_id=? WHERE id=?", (tid, pids[sym]))
         sigs[sym] = ts - before
+    # 10.11. (Jure: ulazni MC i TP/SL otvorene pozicije): the open real positions follow a demo trade with an entry MC
+    # and an exit rule (PNUT2: TP +15 % / SL -60 % from the effective entry; GIGA: Smart sell)
+    for sym, fid, mc, rule in (("PNUT2", f1, 82_000.0, {"mode": "tpsl", "tp": "+15%", "sl": "-60%", "tp_px": 1.15,
+                                                       "sl_px": 0.4, "tp_in": "15%", "sl_in": "-60%", "from_eff": True}),
+                               ("GIGA", f2, 410_000.0, {"mode": "smart"})):
+        tok, ts = toks[sym]
+        tid = lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, source, follow_id, "
+                         "entry_px, entry_eff, entry_mcap, qty, auto) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (settings.LEAGUE_USER, tok, sym, ts - 2, "open", 25, "copy", fid, 1.0, 1.0, mc, 25.0,
+                          json.dumps(rule))).lastrowid
+        tcon.execute("UPDATE positions SET league_id=? WHERE id=?", (tid, pids[sym]))
     tcon.commit()
     tcon.close()
     for ago_s, sym, note, fid in ((12 * 60, "BONK9", "signal star 11 min (vidjeli smo ga tek sada)", f1),
