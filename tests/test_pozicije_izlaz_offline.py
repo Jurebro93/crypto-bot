@@ -462,6 +462,76 @@ class RememberedExit(Base):
         self.assertIn('class="ap-toast ok" role=status', body)
 
 
+class McpQueue(Base):
+    """10.11. (MCP server MemeSonar za Groka): /api/mcp/* needs Bearer MCP_API_KEY; execute_trade only queues a
+    request; the owner approves (it goes through his manual buy / sell) or rejects it on the Autopilot page."""
+
+    def setUp(self):
+        super().setUp()
+        self._key = os.environ.get("MCP_API_KEY")
+        os.environ["MCP_API_KEY"] = "k-test"
+
+    def tearDown(self):
+        if self._key is None:
+            os.environ.pop("MCP_API_KEY", None)
+        else:
+            os.environ["MCP_API_KEY"] = self._key
+        super().tearDown()
+
+    def test_key_is_required_and_off_without_it(self):
+        from ui import mcpapi
+        self.assertTrue(mcpapi.authorized("Bearer k-test"))
+        self.assertFalse(mcpapi.authorized("Bearer nope"))
+        self.assertFalse(mcpapi.authorized(None))
+        os.environ.pop("MCP_API_KEY")
+        self.assertIsNone(mcpapi.authorized("Bearer k-test"))            # no key on Render: the API does not exist
+
+    def test_trade_request_waits_and_the_owner_approves_a_buy(self):
+        from ui import mcpapi, pravitrade
+        code, out = mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "require_approval": True,
+                                          "reason": "Grok: 3 calleri u 5 min"})
+        self.assertEqual((code, out["status"]), (202, "pending_approval"))
+        self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])   # nothing bought yet
+        self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "require_approval": False})[0], 400)
+        self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 9})[0], 400)    # over the limit
+        self.assertEqual(mcpapi.trade_request({"token": MINT, "side": "sell", "amount": 0.5})[0], 400)  # nothing open
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Zahtjevi s Groka · 1", body)
+        self.assertIn("Grok: 3 calleri u 5 min", body)
+        self.assertNotIn("Zahtjevi s Groka", pravitrade.page({}, "netko")[1])
+        loc = self.post("/pravi-trade/mcpok", {"id": out["id"]})
+        self.assertIn("ok=", loc)
+        self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)   # through the manual buy
+        self.assertEqual(mcpapi.pending(self.con), [])
+        self.assertIn("err=", self.post("/pravi-trade/mcpok", {"id": out["id"]}))       # never twice
+
+    def test_owner_rejects_and_a_sell_request_asks_every_lot(self):
+        from ui import mcpapi
+        _, out = mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05})
+        self.assertIn("ok=", self.post("/pravi-trade/mcpno", {"id": out["id"]}))
+        self.assertEqual(mcpapi.pending(self.con), [])
+        for _ in range(2):
+            self.con.execute("INSERT INTO positions (token, opened_ts, mode, status, sol_in) VALUES (?,?,?,?,?)",
+                             (MINT, int(time.time()), "dry", "open", 0.05))
+        self.con.commit()
+        _, out = mcpapi.trade_request({"token": MINT, "side": "sell", "amount": 0.5})
+        self.assertIn("ok=", self.post("/pravi-trade/mcpok", {"id": out["id"]}))
+        self.assertEqual(sorted(settings.raw(self.con)["sell_req"].values()), [0.5, 0.5])
+
+    def test_api_answers_json(self):
+        from ui import mcpapi
+        code, text = mcpapi.answer("/api/mcp/token", {"address": "nije-adresa"})
+        self.assertEqual(code, 400)
+        self.assertIn("Solana", text)
+        self.assertEqual(mcpapi.answer("/api/mcp/nema", {})[0], 404)
+        code, text = mcpapi.answer("/api/mcp/token", {"address": MINT})
+        self.assertEqual(code, 200)
+        self.assertIn('"market_cap_usd": 82000.0', text)
+        code, text = mcpapi.answer("/api/mcp/portfolio", {})
+        self.assertEqual(code, 200)
+        self.assertIn('"open_positions": []', text)
+
+
 class Header(unittest.TestCase):
     def test_split_line_says_free_sol_positions_and_the_snapshot_time(self):
         from ui import pravitrade
