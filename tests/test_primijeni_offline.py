@@ -107,6 +107,72 @@ class Apply(Base):
         self.assertIsNotNone(rows[0]["applied_ts"])
 
 
+class AcceptedAndOwnerList(Base):
+    """10.11. (Jure: "16 prihvaćenih bilješki nije ništa promijenilo ... primijeni #41 odmah, uvezi težine #45-#62,
+    #40 #42 #43 #44 iza zastavica u sjenu, status primijenjeno s applied_ts")."""
+
+    def test_an_accepted_note_can_still_be_applied_a_rejected_cannot(self):
+        nid = self.suggest({"key": "tp_default", "to": 30})
+        assistnotes.decide(self.tc, nid, "prihvaćeno")
+        st, _ = assistnotes.apply(self.tc, nid)
+        self.assertEqual(st, "primijenjeno")
+        self.assertEqual(settings.raw(self.tc)["tp_default"], 30)
+        nid2 = self.suggest({"key": "tp_default", "to": 50})
+        assistnotes.decide(self.tc, nid2, "odbijeno")
+        with self.assertRaises(ValueError):
+            assistnotes.apply(self.tc, nid2)
+
+    def test_the_owners_list_is_applied_once_and_every_note_says_so(self):
+        for _ in range(62):
+            self.suggest({"key": "tp_default", "to": 20})     # notes #1..#62 exist; some get accepted first
+        for nid in (41, 45, 46, 56):
+            assistnotes.decide(self.tc, nid, "prihvaćeno")
+        done = assistnotes.owner_once(self.tc)
+        self.assertTrue(any("#41 sl_default 60 → 30" in t for t in done))
+        self.assertEqual(settings.raw(self.tc)["sl_default"], 30)
+        w = settings.raw(self.tc)["caller_weights"]
+        self.assertEqual((w["0xMarko77"], w["ddddddd8a"], w["tg:what_yteiiiidbdksndjdb"], w["Strong69106"]),
+                         (1.4, 0.5, 0.3, 0.5))
+        self.assertEqual(len(w), 11)
+        for f in ("caller_weights", "require_signal", "runup_default", "dca_cap", "caller_ev_rank"):
+            self.assertEqual(settings.flag(f, con=self.tc), "shadow")
+        self.assertEqual(settings.raw(self.tc)["dca_token_cap"], 0.3)
+        self.assertEqual(settings.raw(self.tc)["runup_max"], 0.10)
+        rows = {r["id"]: r for r in assistnotes.notes(self.tc, "primijenjeno", "suggestion", 100, 0)[0]}
+        for nid in (40, 41, 42, 43, 44, 45, 46, 47, 48, 56, 57, 58, 59, 60, 61, 62):
+            self.assertIn(nid, rows)
+        log = assistnotes.applied(self.tc, 200)
+        self.assertTrue(any(a["note_id"] == 41 and a["key"] == "sl_default" and (a["old"], a["new"]) == (60, 30)
+                            for a in log))
+        self.assertTrue(any(a["note_id"] == 44 and a["key"] == "flag:caller_ev_rank" and a["new"] == "shadow"
+                            for a in log))
+        self.assertEqual(assistnotes.owner_once(self.tc), [])                 # never twice
+        self.assertEqual(settings.raw(self.tc)["sl_default"], 30)
+
+    def test_mcp_notes_show_applied_ts_for_the_owners_list(self):
+        from ui import mcpdata
+        for _ in range(45):
+            self.suggest({"key": "tp_default", "to": 20})
+        assistnotes.owner_once(self.tc)
+        self.tc.commit()
+        rows = {r["id"]: r for r in mcpdata.assistant_notes(status="primijenjeno", limit=100)["rows"]}
+        self.assertEqual((rows[41]["applied_key"], rows[41]["old_value"], rows[41]["new_value"]), ("sl_default", 60, 30))
+        self.assertIsNotNone(rows[41]["applied_ts"])
+        self.assertEqual(rows[45]["new_value"], 1.4)
+
+    def test_the_page_lists_accepted_notes_with_the_apply_button(self):
+        from ui import pravitrade
+        pravitrade._LIVE_CACHE.clear()
+        pravitrade._LIVE_FAIL.clear()
+        nid = self.suggest({"key": "tp_default", "to": 30})
+        assistnotes.decide(self.tc, nid, "prihvaćeno")
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Prihvaćeni, još nisu primijenjeni", body)
+        self.assertIn("1 prihvaćeno bez promjene", body)
+        loc = unquote(pravitrade.post("/pravi-trade/asapply", {"id": str(nid)}, "Jure"))
+        self.assertIn("Primijenjeno", loc)
+
+
 class Page(Base):
     def test_the_buttons_say_what_they_do(self):
         from ui import pravitrade
