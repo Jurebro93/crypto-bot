@@ -101,14 +101,15 @@ class Base(unittest.TestCase):
 
 class LiveDays(Base):
     def test_start_date_is_the_documented_launch_day_and_env_overrides_it(self):
-        self.assertEqual(sitelog.start_date(), dt.date(2026, 11, 1))
+        self.assertEqual(sitelog.start_date(), dt.date(2026, 9, 24))   # 10.11. (Jure): 24.9.
         os.environ["SITE_LIVE_SINCE"] = "2026-09-24"
         self.assertEqual(sitelog.start_date(), dt.date(2026, 9, 24))
         self.assertEqual(sitelog.live_days(ts(2026, 11, 10)), 47)          # Jure's "live 47 dana"
         os.environ["SITE_LIVE_SINCE"] = "jučer"                              # unreadable: the constant, not a crash
-        self.assertEqual(sitelog.start_date(), dt.date(2026, 11, 1))
+        self.assertEqual(sitelog.start_date(), dt.date(2026, 9, 24))   # 10.11. (Jure): 24.9.
 
     def test_days_follow_the_zagreb_calendar_and_never_go_negative(self):
+        os.environ["SITE_LIVE_SINCE"] = "2026-11-01"   # 10.11.: the calendar maths, on the old 1.11. start (the default is 24.9. now)
         self.assertEqual(sitelog.live_days(ts(2026, 11, 10)), 9)
         self.assertEqual(sitelog.live_days(ts(2026, 11, 9, 22, 59)), 8)     # 23:59 in Zagreb on the 9th
         self.assertEqual(sitelog.live_days(ts(2026, 11, 9, 23, 0)), 9)      # midnight in Zagreb: the 10th

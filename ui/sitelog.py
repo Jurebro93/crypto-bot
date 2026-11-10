@@ -38,7 +38,8 @@ NEW_POSTS_DAYS = 7                   # a post is "new" for a week after its date
 # The git history of this repository is shallow (it starts on 4.11.), so the commit that added ui/landing.py cannot
 # confirm it. Jure's "47 dana" was an example in his message: 47 days before 10.11. is 24.9., a month before the
 # tool's first network run (README: 2026-10-30). If the site should count from another day, set SITE_LIVE_SINCE.
-LIVE_SINCE = "2026-11-01"
+# 10.11. (Jure): "24.9." -> the site counts from 24.9.2026.
+LIVE_SINCE = "2026-09-24"
 
 DB = None   # None = public.db (ui/coins.DB); tests point it at a temp file
 
@@ -77,7 +78,7 @@ def start_date():
             return dt.date.fromisoformat(s)
         except ValueError:
             continue
-    return dt.date(2026, 11, 1)
+    return dt.date(2026, 9, 24)
 
 
 def live_days(now=None):
