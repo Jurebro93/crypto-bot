@@ -576,7 +576,9 @@ class Page(Base):
         self.seed()
 
         def summary(con, now=None):
-            con.execute("CREATE TABLE IF NOT EXISTS equity (ts INTEGER PRIMARY KEY, sol REAL)")
+            # 10.11. (spajanje s grupom novac): executor.connect now creates "equity" itself, so the stand-in needs a
+            # table of its own to still fail on the read-only handle
+            con.execute("CREATE TABLE IF NOT EXISTS equity_probe (ts INTEGER PRIMARY KEY, sol REAL)")
             return {"value_sol": 1.5, "net_in_sol": 1.0, "pnl_sol": 0.5}
         equity = fake("trade.equity", summary=summary, series=lambda con, since=None, max_points=600: [],
                       deposits=lambda con: [])
