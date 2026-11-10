@@ -573,6 +573,7 @@ def hope_stop(con, lcon=None, market=None):
 OWNER_FLAG_ORDERS = (
     ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
     ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
+    ("range_dca", "paper", "vlasnik u chatu 10.11.: range_dca, start = paper (samo demo račun)"),
 )
 
 

@@ -167,6 +167,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it
 ( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio"; python3 -m research.hope_report || true ) &
 
+# 10.11. (Jure, flag range_dca): range + DCA data (rangedca/, run_range.py), a short process every RANGE_EVERY_S:
+# DexScreener snapshots of the range candidates the hype scan does not snapshot itself (free), every 5 min the ranges
+# from the minute series, at most RANGE_GT_DAY (60) GeckoTerminal seeds a day, Helius only for open range positions
+# (RANGE_HELIUS_CREDITS_DAY 3000, log-only unless RANGE_HOLDER_RULE=act). Flag off: it reads the flag and ends.
+# The backtest over the data we have, nightly (01-06 Zagreb) -> output/range-backtest-*.{json,md} and the log.
+( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
+( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
+
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
 keep kol python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}"

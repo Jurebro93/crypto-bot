@@ -396,7 +396,7 @@ class PaperGate(Base):
         self.assertEqual(settings.flag(gd.FLAG, con=self.tc), "paper")
         settings.set_flag(self.tc, gd.FLAG, "off", "Jure", now=later)             # down is always allowed
         settings.set_flag(self.tc, "dca_guard", "paper", "Jure", now=later)       # other flags: no gate
-        self.assertEqual(list(settings.FLAGS)[-1], gd.FLAG)
+        self.assertIn(gd.FLAG, settings.FLAGS)   # 10.11.: range_dca (G13) came after it
         self.assertEqual(settings.FLAGS[gd.FLAG][0], "G12")
 
 

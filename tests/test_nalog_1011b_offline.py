@@ -56,9 +56,11 @@ class Flags(Base):
 class LaterOrders(Base):
     def test_each_order_once_never_live(self):
         done = assistnotes.owner_flag_orders(self.tc, now=NOW)
-        self.assertEqual(done, ["zastavica market_scan: off → shadow", "zastavica group_discovery: off → shadow"])
+        self.assertEqual(done, ["zastavica market_scan: off → shadow", "zastavica group_discovery: off → shadow",
+                                "zastavica range_dca: off → paper"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
-        self.assertEqual({x["key"] for x in assistnotes.applied(self.tc)[:2]}, {"flag:market_scan", "flag:group_discovery"})
+        self.assertEqual({x["key"] for x in assistnotes.applied(self.tc)[:3]},
+                         {"flag:market_scan", "flag:group_discovery", "flag:range_dca"})
         settings.set_flag(self.tc, "market_scan", "off", "Jure")                   # the owner turns it off later
         self.assertEqual(assistnotes.owner_flag_orders(self.tc, now=NOW), [])     # it stays off
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "off")

@@ -380,6 +380,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                     print(text, flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"planovi izlaza: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 10.11. (Jure, flag range_dca): the range rounds' exits, the same 1-s pass (rangedca/trade.py)
+                from rangedca import trade as rtrade
+                for text in rtrade.exits_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"range izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             if time.time() - beat >= FAST_BEAT_S:
                 beat = time.time()
                 n, priced = fast_once.last
@@ -494,6 +500,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"dca: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 10.11. (Jure, flag range_dca): range entries, lot 1 and lot 2 (rangedca/trade.py); off: one flag read
+                from rangedca import trade as rtrade
+                for user, what in rtrade.run_once(con):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"range ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # rekt: a player (or the bot) under $25 starts a new round with $1,000 (league/rekt.py)
                 from . import rekt
                 from ui import leaguedash

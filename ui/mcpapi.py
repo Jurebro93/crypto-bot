@@ -193,7 +193,18 @@ def token(address, now=None):
         tcon.close()
     return {"ts": int(now), "token": address, "market": _market_row(m),
             "under_30k": bool(m and (m.get("mcap") or 0) < 30_000), "called_last_hour": called,
-            "our_open_lots": pos, "dexscreener": f"https://dexscreener.com/solana/{address}"}
+            "our_open_lots": pos, "dexscreener": f"https://dexscreener.com/solana/{address}",
+            "range": _range_of(address, now)}
+
+
+def _range_of(address, now):
+    """10.11. (flag range_dca): zones, touches, recoveries, every range_score component (rangedca/view.py); None when
+    the token is not watched or range.db does not exist."""
+    try:
+        from rangedca import view
+        return view.token(address, now)
+    except Exception as e:  # noqa: BLE001 - the token details answer without it
+        return {"error": type(e).__name__}
 
 
 def portfolio(now=None):
@@ -620,11 +631,15 @@ TOOLS += [
                      "only be TIGHTENED, never looser than the current stop nor than sl_default), time_stop "
                      "{after_min, if_pnl_below_pct} (counted from the last entry), reason (one line). Runs under the "
                      "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
-                     "one; live = both. A price older than 60 s fires only the hard stop. Answer: plan_id, the plan in "
-                     "force, the stop price per account and what it replaced."),
+                     "one; live = both. A price older than 60 s fires only the hard stop. accounts (optional): the "
+                     "Autopilot accounts the plan applies to, e.g. [\"autopilot-paper\"] for a range position "
+                     "(get_range_candidates names its account), so it never touches the other account's position in "
+                     "the same token; a range position's own exits keep running next to the plan (a plan only "
+                     "tightens). Answer: plan_id, the plan in force, the stop price per account and what it replaced."),
      "inputSchema": {"type": "object", "properties": {
          "token_address": {"type": "string"},
          "plan": {"type": "object", "properties": {
+             "accounts": {"type": "array", "items": {"type": "string", "enum": ["pravi-trade", "autopilot-paper"]}},
              "take_profits": {"type": "array", "items": {"type": "object", "properties": {
                  "at_pct": {"type": "number"}, "at_mc_usd": {"type": "number"}, "sell_share": {"type": "number"}}}},
              "trailing": {"type": "object", "properties": {"activate_pct": {"type": "number"},
@@ -713,6 +728,23 @@ def source_stats(now=None):
     return d
 
 
+# 10.11. (Jure, flag range_dca): the range + DCA strategy's candidates (rangedca/view.py)
+TOOLS.append(
+    {"name": "get_range_candidates", "annotations": _READ,
+     "description": ("Bonded Solana tokens MemeSonar sees trading in a range (from minute candles of the last 6-24 h, "
+                     "recomputed every 5 min): per token the zones (range_low_low/top = bottom zone, range_high_low/top "
+                     "= top zone, in price and market cap), every touch, the recoveries from the bottom, range_score "
+                     "0-1 and its six components (recoveries, recovery_speed, higher_lows, volume_hold, "
+                     "buy_share_at_low, sell_pressure_on_drop, each with value, score and weight), the position in the "
+                     "range (0 % = range_low_low, 100 % = range_high_top), the 5-minute numbers, exclusions, and whether "
+                     "an entry would pass now. Also the open range positions (account, lots, exit levels) and the paper "
+                     "proof (closed rounds, EV per round, the live gate: >= 20 rounds with EV > 0). Tokens under $30k "
+                     "market cap and tokens still on the pump.fun curve are never in it. To tighten a range position's "
+                     "exits use set_exit_plan with plan.accounts set to its account."),
+     "inputSchema": {"type": "object", "properties": {
+         "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7}}}})
+
+
 def _xfeat_tool(name, a, kid):
     """10.11. (Grok MCP audit 10): the two X feature tools (ui/xfeat.py)."""
     from ui import xfeat
@@ -787,6 +819,8 @@ def _tool(name, args, kid="local"):
         "get_research": lambda a: __import__("research.store", fromlist=["read"]).read(
             a.get("name"), a.get("part"), a.get("limit"), a.get("offset"), a.get("sort")),
         "get_source_stats": lambda a: source_stats(),
+        "get_range_candidates": lambda a: __import__("rangedca.view", fromlist=["candidates"]).candidates(
+            a.get("min_score")),
     }
     if name in data_tools:
         d = data_tools[name](args)

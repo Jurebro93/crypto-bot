@@ -15,6 +15,10 @@ paused plans:
   time_stop     {after_min, if_pnl_below_pct}: after_min minutes after the LAST entry, sell everything when the
                 result is under if_pnl_below_pct %
   reason        one line
+  accounts      (optional, 10.11. range_dca) the Autopilot accounts the plan applies to, e.g. ["autopilot-paper"];
+                without it every Autopilot account holding the token (the old behaviour). A token still has ONE
+                active plan and a new one replaces it whatever the scope. With it, a plan meant for a range position
+                on the demo account never takes over a copy of the same token on the real account.
 
 The executor (run_once) runs every second inside league/auto.fast_loop (the Autopilot's 1-s exit thread): it reads
 the price of every planned token (league/copy.market, Jupiter when DexScreener has none), keeps the peak since the
@@ -56,6 +60,12 @@ def ensure(con):
 def _users():
     from trade import settings as ts
     return (ts.LEAGUE_USER, ts.PAPER_USER)
+
+
+def _scope(plan):
+    """The accounts a stored plan applies to (every Autopilot account when it names none)."""
+    acc = (plan or {}).get("accounts")
+    return tuple(u for u in _users() if not acc or u in acc)
 
 
 def _lots(con, user, token):
@@ -113,9 +123,16 @@ def current_stop_px(con, user, token, lots=None):
     """The position's stop in force: an active plan's stop, else the tightest auto sl_px of its lots; None = none."""
     lots = lots if lots is not None else _lots(con, user, token)
     p = active(con, token)
-    if p and p["state"].get("stop_px", {}).get(user):
+    if p and user in _scope(p["plan"]) and p["state"].get("stop_px", {}).get(user):
         return p["state"]["stop_px"][user]
     s = [json.loads(t["auto"]).get("sl_px") for t in lots if t.get("auto") and (json.loads(t["auto"]) or {}).get("sl_px")]
+    try:   # 10.11. (range_dca): a range position's own hard stop is its stop (a plan may only tighten it)
+        from rangedca import trade as rtrade
+        rs = rtrade.stop_px(con, user, token)
+        if rs:
+            s.append(rs)
+    except Exception:  # noqa: BLE001 - no range module or table: the lots' own stops
+        pass
     return max(s) if s else None
 
 
@@ -154,10 +171,17 @@ def validate(con, token, plan, sl_default, now=None):
     stop = _level(plan["stop"], "stop") if plan.get("stop") is not None else None
     if not (out["take_profits"] or out["trailing"] or stop or out["time_stop"]):
         raise ValueError("an empty plan: give take_profits, trailing, stop or time_stop")
-    held = {u: _lots(con, u, token) for u in _users()}
+    acc = plan.get("accounts")
+    if acc is not None:
+        acc = [acc] if isinstance(acc, str) else acc
+        if not isinstance(acc, list) or not acc or any(a not in _users() for a in acc):
+            raise ValueError(f"accounts must be a list of {', '.join(_users())}")
+        out["accounts"] = sorted(set(acc))
+    held = {u: _lots(con, u, token) for u in _scope(out)}
     held = {u: l for u, l in held.items() if l}
     if not held:
-        raise ValueError("no open Autopilot position in that token: a plan is only for an open position")
+        raise ValueError("no open Autopilot position in that token" + (" on those accounts" if acc else "")
+                         + ": a plan is only for an open position")
     stop_px = {}
     for u, lots in held.items():
         avg, ratio = _avg(lots), _mc_ratio(lots)
@@ -235,7 +259,8 @@ def in_force_tokens(con, user):
         if m == "off" or not flags.applies("exit_plans", user, m) or paused():
             return set()
         ensure(con)
-        return {t for (t,) in con.execute("SELECT DISTINCT token FROM exit_plans WHERE status='active'")}
+        return {t for t, pl in con.execute("SELECT token, plan FROM exit_plans WHERE status='active'")
+                if user in _scope(json.loads(pl or "{}"))}
     except Exception:  # noqa: BLE001
         return set()
 
@@ -343,7 +368,7 @@ def run_once(con, market, now=None):
             continue
         price, mcap, liq, age = q[tok]
         any_open = False
-        for user in _users():
+        for user in _scope(p["plan"]):   # 10.11.: a plan with "accounts" leaves the other account's lots alone
             lots = _lots(con, user, tok)
             if not lots:
                 continue
@@ -393,6 +418,8 @@ def view(con, token, user, price=None, mcap=None):
     p = active(con, token)
     if not p:
         return None
+    if user not in _scope(p["plan"]):
+        return {"plan_id": p["id"], "plan": p["plan"], "note": f"the plan applies to {', '.join(_scope(p['plan']))} only"}
     lots = _lots(con, user, token)
     if not lots:
         return {"plan_id": p["id"], "plan": p["plan"], "note": "no open lots on this account"}

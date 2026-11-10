@@ -82,6 +82,8 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
     "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
                                "ekipa izlazne likvidnosti negativno"),
+    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, EV > 0
+    "range_dca": ("G13", "Raspon + DCA: ulaz na dnu raspona, lot 2 na -10 do -15 %, pola van u gornjoj zoni"),
 }
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
@@ -262,6 +264,14 @@ def live_refusal(con, name, paper=None, now=None):
     st = flag_state(con)[name]
     if st["mode"] == "live":
         return None
+    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds with EV > 0 (rangedca/gate.py), on top
+        try:
+            from rangedca import gate as _range_gate
+            why = _range_gate.refusal(now=now)
+        except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+            why = f"dokaz range_dca nije čitljiv ({type(e).__name__})"
+        if why:
+            return why
     if st["mode"] != "paper" or not st["since"]:
         return f"prvo najmanje {PAPER_DAYS} dana u paper modu"
     days = (now - st["since"]) / 86400
