@@ -56,7 +56,13 @@ def connect(path):
         have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
         for col, typ in cols:
             if col not in have:
-                con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                try:
+                    con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                except sqlite3.OperationalError as e:
+                    # 10.11. (deploy #95): the trade loop and its equity thread both added a new column at start;
+                    # the second one saw "duplicate column name". The column is there: nothing to do.
+                    if "duplicate column" not in str(e):
+                        raise
     _extras(con)
     return con
 
