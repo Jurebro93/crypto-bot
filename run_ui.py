@@ -30,6 +30,7 @@ if SITE_URL:
 PUBLIC_PATH = re.compile(r"^/(hr(/.*)?|en|robots\.txt|sitemap\.xml|influencers?(/.*)?|solana-meme-coins(/.*)?|coin/.*|"
                          r"glossary(/.*)?|blog(/.*)?|best-crypto-tools(/.*)?|how-to-buy(/.*)?|rug-check(/.*)?|"
                          r"solana-market|meme-coin-season-index|solana-launchpads|solana-dex-volume|best-time-to-trade-crypto|"
+                         r"telegram-channels|telegram/.*|"   # 10.11. (pregled): linked from the landing log and blogs
                          r"embed/.*|static/landing/.*|share/novosti\.png)$")
 
 
@@ -902,7 +903,17 @@ class Handler(BaseHTTPRequestHandler):
             multi = parse_qs(self._read_body(100_000).decode("utf-8", "replace"))
             form = {k: v[-1] for k, v in multi.items()}
             form["u_list"] = multi.get("u", [])
-            return self._redirect(pravitrade.post(path, form, self.user))
+            to = pravitrade.post(path, form, self.user)
+            if path in ("/pravi-trade/switch", "/pravi-trade/sellall"):
+                # 10.11. (pregled): pagecache was cleared above BEFORE the switch was saved, and the public page keeps
+                # "live" 30 s: forget both after it, so no page keeps saying "tradamo pravim novcem" once it is off
+                try:
+                    from ui import apjavno
+                    apjavno.reset_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+                pagecache.clear()
+            return self._redirect(to)
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)
             form = dict(parse_qsl(self.rfile.read(min(n, 100_000)).decode("utf-8", "replace")))

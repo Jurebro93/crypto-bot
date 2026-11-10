@@ -312,6 +312,30 @@ class State(Base):
             self.assertEqual(apjavno.landing_strip("hr"), "")           # the front page never fails because of it
 
 
+class SwitchOff(Base):
+    def test_switching_off_forgets_the_live_state_at_once(self):
+        """10.11. (pregled): after the owner switches off, the banner and /autopilot must not keep saying "live"
+        for the 30 s of the state cache; run_ui calls apjavno.reset_cache() after the switch is saved."""
+        self.live()
+        self.assertTrue(apjavno.live_state()["live"])
+        con = self.trade(on=False)
+        con.close()
+        self.assertTrue(apjavno.live_state()["live"])   # still the cached answer
+        apjavno.reset_cache()
+        self.assertFalse(apjavno.live_state()["live"])
+        import inspect
+        import run_ui
+        src = inspect.getsource(run_ui.Handler)
+        i = src.index('to = pravitrade.post(path, form, self.user)')
+        self.assertIn("apjavno.reset_cache()", src[i:i + 900])
+        self.assertIn("pagecache.clear()", src[i:i + 900])
+
+    def test_unnamed_reason_is_not_printed(self):
+        self.assertEqual(apjavno._why("ostalo"), "")
+        self.assertEqual(apjavno._why("signal star"), "signal star")
+        self.assertEqual(apjavno._why("https://x.y/?api-key=abc"), apjavno.NEUTRAL_REASON)
+
+
 class Page(Base):
     def seed(self, on=True):
         con = self.trade(on=on)
@@ -702,6 +726,24 @@ class Http(unittest.TestCase):
         code, hdr, _ = self.call("/prijava", {"name": name, "pw": pw, "next": "/autopilot"})
         self.assertEqual(code, 303, name)
         return hdr["Set-Cookie"].split(";")[0]
+
+    def test_huge_or_unicode_numbers_are_not_a_server_error(self):
+        """10.11. (pregled): "prije" and a message id passed isdigit() with 20+ digits or "²" and reached int() and
+        SQLite: a visitor got a 500 and a logged-in player a dropped connection."""
+        self.start()
+        ivan = self.login("Ivan", "ivanpw")
+        for q in ("99999999999999999999999", "%C2%B2", "-1", "1e9"):
+            self.assertEqual(self.call("/autopilot?prije=" + q)[0], 200, q)
+            self.assertEqual(self.call("/autopilot/chat?prije=" + q)[0], 200, q)
+        code, hdr, _ = self.call("/autopilot/plus", {"id": "99999999999999999999999"}, cookie=ivan)
+        self.assertIn(code, (200, 303))
+
+    def test_telegram_pages_stay_on_the_public_site(self):
+        """10.11. (pregled): the landing log and the blogs link to /telegram-channels; it must not move to the app host."""
+        import run_ui
+        self.assertTrue(run_ui.PUBLIC_PATH.match("/telegram-channels"))
+        self.assertTrue(run_ui.PUBLIC_PATH.match("/telegram/neki-kanal"))
+        self.assertFalse(run_ui.PUBLIC_PATH.match("/pravi-trade"))
 
     def test_read_without_login_write_only_logged_in(self):
         self.start()

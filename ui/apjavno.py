@@ -280,11 +280,19 @@ def messages(con, user=None, before=None, limit=PAGE_N, with_hidden=False):
     return rows
 
 
+_ID = re.compile(r"[0-9]{1,18}")   # 10.11. (pregled): a message id or "prije" fits a SQLite integer; isdigit() let
+                                   # 20+ digits and Unicode digits ("²") through to int() and SQLite (500, dropped POST)
+
+
+def _before_ok(x):
+    return bool(_ID.fullmatch(str(x or "")))
+
+
 def _int(x):
-    try:
-        return int(str(x or "").strip())
-    except ValueError:
+    t = str(x or "").strip()
+    if not _ID.fullmatch(t):
         raise ChatError("gone")
+    return int(t)
 
 
 def act(path, form, user):
@@ -374,7 +382,7 @@ def chat_fragment(user=None, qs=None, err=""):
     """The message list (GET /autopilot/chat and the answer to a chat form sent by the page script). The guest
     version is the same for everybody and kept GUEST_TTL_S."""
     qs = qs or {}
-    before = qs.get("prije") if str(qs.get("prije") or "").isdigit() else None
+    before = qs.get("prije") if _before_ok(qs.get("prije")) else None
     key = ("chat",)
     if not user and not before and not err:
         hit = _GUEST.get(key)
@@ -398,7 +406,7 @@ def chat_fragment(user=None, qs=None, err=""):
 
 def _chat_box(user, qs, lang="hr", logged_in=None):
     qs = qs or {}
-    older = str(qs.get("prije") or "").isdigit()
+    older = _before_ok(qs.get("prije"))
     b = ['<h2 id=chat data-sec="">Prijedlozi i komentari</h2>'
          '<p class=apj-sub>Što bi Autopilot trebao raditi bolje? Napiši prijedlog ili primjedbu i daj +1 onima s kojima '
          'se slažeš. Poruke vide svi.</p>']
@@ -656,6 +664,12 @@ def _source_text(src):
     return src or ""
 
 
+def _why(text):
+    """10.11. (pregled): "ostalo" says nothing to a visitor (the 24-h line already leaves it out): no reason printed."""
+    w = reason(text)
+    return "" if w == "ostalo" else w
+
+
 def _move(r):
     """One row of trade.aplog.entries reduced to what the page prints, every field checked."""
     token, sig = str(r.get("token") or ""), str(r.get("sig") or "")
@@ -664,7 +678,7 @@ def _move(r):
     source = _source_text(reason(r.get("source")))
     return {"ts": int(_num(r.get("ts")) or 0), "kind": r.get("kind"), "token": token if ADDR.fullmatch(token) else None,
             "symbol": str(r.get("symbol") or "")[:20], "source": "" if source == NEUTRAL_REASON else source,
-            "why": reason(r.get("why_short")), "sol": _num(r.get("sol")), "pnl_pct": _num(r.get("pnl_pct")),
+            "why": _why(r.get("why_short")), "sol": _num(r.get("sol")), "pnl_pct": _num(r.get("pnl_pct")),
             "mode": "live" if r.get("mode") == "live" else "dry", "sig": sig if SIG.fullmatch(sig) else None}
 
 
