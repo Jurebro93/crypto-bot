@@ -573,8 +573,9 @@ class McpHosted(Base):
         self.assertEqual((code, r["protocolVersion"], r["serverInfo"]["name"]), (200, "2025-03-26", "MemeSonar"))
         self.assertEqual(mcpapi.rpc(b'{"jsonrpc":"2.0","method":"notifications/initialized"}'), (202, ""))
         tools = json.loads(mcpapi.rpc(b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}')[1])["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools],
+        self.assertEqual([t["name"] for t in tools][:4],
                          ["get_market_signals", "get_token_details", "get_portfolio_status", "execute_trade"])
+        self.assertIn("get_caller_leaderboard", [t["name"] for t in tools])   # 10.11.: the analysis tools follow
         self.assertTrue(tools[3]["annotations"]["destructiveHint"])
         call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                 "params": {"name": "get_token_details", "arguments": {"token_address": MINT}}}

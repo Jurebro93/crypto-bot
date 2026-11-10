@@ -272,9 +272,89 @@ TOOLS = [
 ]
 
 
+_PAGE = {"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+         "offset": {"type": "integer", "minimum": 0, "default": 0}}
+_PAGED = " Paginated: limit 1-500 (default 100), offset; the answer has total and next_offset while more rows exist. Times are unix seconds."
+TOOLS += [
+    {"name": "get_caller_leaderboard", "annotations": _READ,
+     "description": ("Every tracked caller (X and Telegram): handle, platform, followers, first/last call ts, total calls, "
+                     "hit_rate (24 h high >= +50 %), avg and median price change 1 h / 24 h after the call (fractions), "
+                     "x2_share (24 h high >= 2x), rug_count, avg market cap at call, call_power (0-100), and flags "
+                     "big_name / rising_star / bragger (definitions in the answer). sort: score | hit_rate | calls | "
+                     "avg_r24h | x2_share | followers | last_call_ts | power_rel." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"platform": {"type": "string", "enum": ["x", "telegram"]},
+                                                      "min_calls": {"type": "integer", "minimum": 0},
+                                                      "sort": {"type": "string"}, **_PAGE}}},
+    {"name": "get_caller_history", "annotations": _READ,
+     "description": ("Every call of one caller, newest first: token, symbol, call ts, price and market cap at the call, "
+                     "max/min within the first hour (minute candles), max within 24 h, price at 1 h / 24 h, rug flag, "
+                     "and how many other callers called the same token within 15 min before / after. platform: x or "
+                     "telegram (a Telegram channel may also be given as tg:<channel>)." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"handle": {"type": "string"},
+                                                      "platform": {"type": "string", "enum": ["x", "telegram"]},
+                                                      "since_ts": {"type": "integer"}, **_PAGE},
+                     "required": ["handle"]}},
+    {"name": "get_token_history", "annotations": _READ,
+     "description": ("One token: every call in order (caller, platform, ts, market cap at call), its price / market cap "
+                     "series (at most 500 points), rug-check results (rug filter, RugCheck top check, rug archive) and "
+                     "every Autopilot trade on it (demo trade it follows and the real position)."),
+     "inputSchema": {"type": "object", "properties": {"token_address": {"type": "string"}}, "required": ["token_address"]}},
+    {"name": "get_wallet_leaderboard", "annotations": _READ,
+     "description": ("Tracked wallets: realized / unrealized PnL (SOL), win rate, median hold time, style, tier, scores and "
+                     "the linked influencer handle when known. kind: influencer (a known influencer's wallet) or smart "
+                     "(tier S/A/B)." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["influencer", "smart"]}, **_PAGE}}},
+    {"name": "get_wallet_history", "annotations": _READ,
+     "description": ("One wallet's buys and sells, newest first: token, ts, side, SOL size, token amount, market cap in "
+                     "SOL when the trade was seen live; plus its tier, PnL, win rate and linked handle." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"address": {"type": "string"}, **_PAGE}, "required": ["address"]}},
+    {"name": "get_wallet_clusters", "annotations": _READ,
+     "description": ("Groups of wallets that buy together (common funder, same rug cluster, same-second buys) with members "
+                     "and tokens, and clusters of callers that call the same tokens together; newest analysis snapshot."),
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "get_autopilot_trades", "annotations": _READ,
+     "description": ("Every open and closed Autopilot position (real money and trial): token, entry/exit ts, entry/exit "
+                     "market cap, SOL in/out, fees, PnL, exit reason (TP / SL / time / smart sell / mirror / manual), "
+                     "whether it was a DCA lot, its exit rule, and the signal that opened it (follow, signal ts, "
+                     "entry note, score)." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"}, **_PAGE}}},
+    {"name": "get_scoring_config", "annotations": _READ,
+     "description": ("The weights, thresholds, TP/SL defaults and filters the Autopilot uses: caller score weights, caller "
+                     "verdict thresholds, the Autopilot's pick rules, copy filters, the real-money proof gate, Autopilot "
+                     "limits, rug filter thresholds and hype weights. Read-only."),
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "submit_caller_weights",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Suggest per-caller weights (0-2, 1 = neutral) with a reason. Stored as PENDING suggestions for the "
+                     "owner's review on the MemeSonar dashboard; live scoring does NOT change until the owner approves. "
+                     "Does not trade. At most 200 per call."),
+     "inputSchema": {"type": "object", "properties": {"weights": {"type": "array", "maxItems": 200, "items": {
+         "type": "object", "properties": {"handle": {"type": "string"}, "platform": {"type": "string", "enum": ["x", "telegram"]},
+                                          "weight": {"type": "number", "minimum": 0, "maximum": 2}, "reason": {"type": "string"}},
+         "required": ["handle", "weight"]}}}, "required": ["weights"]}},
+]
+
+
 def _tool(name, args):
     """(result dict, is_error) of one tool call."""
     args = args if isinstance(args, dict) else {}
+    from ui import mcpdata
+    data_tools = {
+        "get_caller_leaderboard": lambda a: mcpdata.caller_leaderboard(a.get("platform"), a.get("min_calls"), a.get("sort"),
+                                                                       a.get("limit"), a.get("offset")),
+        "get_caller_history": lambda a: mcpdata.caller_history(a.get("handle"), a.get("platform"), a.get("since_ts"),
+                                                               a.get("limit"), a.get("offset")),
+        "get_token_history": lambda a: mcpdata.token_history(a.get("token_address")),
+        "get_wallet_leaderboard": lambda a: mcpdata.wallet_leaderboard(a.get("kind"), a.get("limit"), a.get("offset")),
+        "get_wallet_history": lambda a: mcpdata.wallet_history(a.get("address"), a.get("limit"), a.get("offset")),
+        "get_wallet_clusters": lambda a: mcpdata.wallet_clusters(),
+        "get_autopilot_trades": lambda a: mcpdata.autopilot_trades(a.get("since_ts"), a.get("limit"), a.get("offset")),
+        "get_scoring_config": lambda a: mcpdata.scoring_config(),
+        "submit_caller_weights": lambda a: mcpdata.submit_caller_weights(a.get("weights")),
+    }
+    if name in data_tools:
+        d = data_tools[name](args)
+        return d, isinstance(d, dict) and "error" in d
     if name == "get_market_signals":
         return signals(), False
     if name == "get_token_details":
