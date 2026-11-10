@@ -207,6 +207,25 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
     return cur.lastrowid
 
 
+def set_exit(con, user, follow_id, tp="", sl=""):
+    """10.11. (Jure: "za svakog influencera mogu odabrati poseban take profit ili stop loss"): the follow's exit becomes
+    "moj TP/SL" with this target and stop for every new entry ("" stop = the account's default stop at the entry,
+    default_sl); its entry conditions (MC cap, run-up, crew size, once) stay. Returns the new exit."""
+    from . import auto
+    ensure(con)
+    r = con.execute("SELECT exit FROM follows WHERE id=? AND user=? AND active=1", (follow_id, user)).fetchone()
+    if not r:
+        raise ValueError("to praćenje ne postoji")
+    tp, sl = (tp or "").strip(), (sl or "").strip()
+    auto.parse_level(tp, 1.0, 1e6, "tp")   # a typo shows now, not on the next entry
+    auto.parse_level(sl, 1.0, 1e6, "sl")
+    ex = json.loads(r[0] or "{}")
+    ex.update(mode="tpsl", tp=tp, sl=sl)
+    con.execute("UPDATE follows SET exit=? WHERE id=?", (json.dumps(ex), follow_id))
+    con.commit()
+    return ex
+
+
 def unfollow(con, user, follow_id):
     ensure(con)
     n = con.execute("UPDATE follows SET active=0, stopped=? WHERE id=? AND user=? AND active=1",
