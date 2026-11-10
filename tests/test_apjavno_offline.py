@@ -224,10 +224,19 @@ class Chat(Base):
         self.assertNotIn("bilo što", body)
 
     def test_guest_list_is_kept_a_few_seconds_and_refreshed_on_change(self):
+        import sqlite3
         apjavno.post("/autopilot/poruka", {"text": "prva"}, "Ivan")
         self.assertIn("prva", apjavno.chat_fragment(None))
-        with mock.patch.object(apjavno, "_lcon", side_effect=AssertionError("čitanje baze")):
+        with mock.patch.object(apjavno, "_lcon", side_effect=AssertionError("čitanje baze")), \
+                mock.patch.object(apjavno, "_lcon_read", side_effect=AssertionError("čitanje baze")):
             self.assertIn("prva", apjavno.chat_fragment(None))      # served from memory, no database read
+        # the list a page asks for every 15 s reads through a read-only handle, without league's schema script
+        con = apjavno._lcon_read()
+        with self.assertRaises(sqlite3.OperationalError):
+            con.execute("INSERT INTO ap_chat (ts, user, text) VALUES (1, 'x', 'y')")
+        con.close()
+        with mock.patch.object(store, "connect", side_effect=AssertionError("shema svaki put")):
+            self.assertIn("prva", apjavno.chat_fragment("Panda"))
         apjavno.post("/autopilot/poruka", {"text": "druga"}, "Ivan")
         self.assertIn("druga", apjavno.chat_fragment(None))          # a new message drops the kept copy
 
@@ -371,7 +380,10 @@ class Page(Base):
                  "why": RAW_ERROR, "why_short": RAW_ERROR, "sol": 0.12, "pnl_pct": 20.0, "mode": "live", "stage": "pravi",
                  "sig": RAW_ERROR, "trebao": None},
                 {"ts": int(time.time()) - 40, "kind": "prodao", "token": "nije adresa", "symbol": "WIF", "source": "",
-                 "why": "stop", "why_short": "stop", "sol": 0.08, "pnl_pct": -20.0, "mode": "dry", "stage": "pravi",
+                 "why": "stop", "why_short": "stop (SL)", "sol": 0.08, "pnl_pct": -20.0, "mode": "live", "stage": "pravi",
+                 "sig": None, "trebao": None},
+                {"ts": int(time.time()) - 35, "kind": "kupio", "token": MINT, "symbol": "PROBNI", "source": "",
+                 "why": "", "why_short": "", "sol": 0.1, "pnl_pct": None, "mode": "dry", "stage": "pravi",
                  "sig": None, "trebao": None},
                 {"ts": int(time.time()) - 30, "kind": "nije_proslo", "token": MINT, "symbol": "MEW", "source": "",
                  "why": RAW_ERROR, "why_short": RAW_ERROR, "sol": None, "pnl_pct": None, "mode": "live", "stage": "pravi",
@@ -390,14 +402,96 @@ class Page(Base):
             apjavno.reset_cache()
             _, body = apjavno.page({}, None)
             self.assertIn(apjavno.NEUTRAL_REASON, body)          # a bad reason is replaced, the row stays
+            self.assertNotIn("izvor: " + apjavno.NEUTRAL_REASON, body)   # a bad source is left out, not replaced
             self.assertIn("izvor: @dobar_kol", body)
-            self.assertIn("stop", body)
+            self.assertIn("stop (SL)", body)
             self.assertIn("+20.0 %", body)
             self.assertIn(f"https://solscan.io/tx/{'5' * 88}", body)
             self.assertIn("3 signal star", body)
             self.assertIn("9 signala", body)
             self.assertNotIn("MEW", body)                         # only entries and exits are listed
-            self.assertIn("<span class=apj-tag>probno</span>", body)   # a trial row among real ones is marked
+            # 10.11.: the list counts the same money as the statistics: with real trades, a trial buy is left out
+            # (it used to be listed with a "probno" tag; nobody could find it on Solscan, so it read as a fake trade)
+            self.assertNotIn("PROBNI", body)
+            self.assertIn("Zadnji ulazi i izlazi <small>pravi novac</small>", body)
+
+    def test_moves_fill_up_from_positions_and_day_line_covers_the_day(self):
+        """10.11.: the LOG_N newest decisions can all be skips on a busy day: the buys and sells before them come
+        from the positions. The 24-h line is counted over the whole day (summary_24h), not over those rows."""
+        self.seed()
+        self.live()
+        now = int(time.time())
+        skips = [{"ts": now - i, "kind": "preskocio", "token": MINT, "symbol": "X", "source": "KOL a", "why": "",
+                  "why_short": "signal star", "sol": None, "pnl_pct": None, "mode": "live", "stage": "demo", "sig": None,
+                  "trebao": False, "side": "buy"} for i in range(apjavno.LOG_N)]
+        seen = {}
+
+        def summary_24h(tcon, lcon=None, now=None, ttl=5):
+            seen["day"] = True
+            return {"signali": 300, "kupio": 2, "prodao": 0, "preskocio": 298, "nije_proslo": 0,
+                    "razlozi": [("ostalo", 150), ("signal star", 90), ("kasni poziv", 40), ("likvidnost", 10),
+                                ("rug", 8)]}
+        aplog = fake("trade.aplog", entries=lambda tcon, lcon=None, limit=80, since=None, now=None: skips[:limit],
+                     summary=mock.Mock(side_effect=AssertionError("samo LOG_N redaka")), summary_24h=summary_24h)
+        with module("trade.aplog", aplog):
+            apjavno.reset_cache()
+            s = apjavno.snapshot()
+            _, body = apjavno.page({}, None)
+        self.assertTrue(seen.get("day"))
+        self.assertEqual({m["symbol"] for m in s["moves"]}, {"BONK", "WIF", "MEW", "PNUT"})   # real ones, no STARI
+        self.assertTrue(all(m["mode"] == "live" for m in s["moves"]))
+        # the three most frequent reasons that say something ("ostalo" does not)
+        self.assertIn("Zadnja 24 h: 300 signala · 2 kupljeno · 298 preskočeno (90 signal star, 40 kasni poziv, "
+                      "10 likvidnost)", body)
+        self.assertNotIn("0 prodano", body)                         # a zero says nothing
+        self.assertNotIn("ostalo", body)
+        self.assertNotIn("nije prošlo", body)
+
+    def test_sources_read_like_the_rest_of_the_page(self):
+        self.assertEqual(apjavno._source_text("KOL ansem"), "@ansem")
+        self.assertEqual(apjavno._source_text("wallet Kit 7"), "novčanik Kit 7")
+        self.assertEqual(apjavno._source_text("ekipa a, b"), "ekipa a, b")
+        self.assertEqual(apjavno._move({"kind": "kupio", "source": "x" * 80})["source"], "")    # long raw text: left out
+        self.assertEqual(apjavno._move({"kind": "kupio", "source": RAW_ERROR})["source"], "")
+
+    def test_since_is_the_first_real_buy_after_the_switch(self):
+        """The switch can go on in trial mode before the key is there: "pravim novcem od" is then the first real buy."""
+        con = self.trade(on=True)
+        con.execute("UPDATE settings SET ts=? WHERE k='on'", (1_800_000_000,))
+        for ts, mode in ((1_799_000_000, "live"), (1_800_000_500, "dry"), (1_800_086_400, "live")):
+            con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, sol_in) VALUES (?,?,?,?,?,?)",
+                        (MINT, "T", ts, mode, "closed", 0.1))
+        con.commit()
+        con.close()
+        with mock.patch.object(executor, "armed", return_value=True):
+            apjavno.reset_cache()
+            self.assertEqual(apjavno.live_state()["since"], 1_800_086_400)
+        apjavno.reset_cache()
+        self.assertEqual(apjavno.live_state(), {"live": False, "on": True, "since": 1_800_000_000})   # trial: the switch
+
+    def test_chart_in_the_page_language(self):
+        self.seed()
+        langs = []
+
+        def chart_html(series, summary, deposits=(), ident="ap", compact=False, lang="hr"):
+            langs.append(lang)
+            return f"<svg id=graf-{lang}></svg>"
+        equity = fake("trade.equity", summary=lambda con, now=None: {"value_sol": 1.0},
+                      series=lambda con, since=None, max_points=600: [{"ts": 1, "value_sol": 1.0}], deposits=lambda con: [])
+        with module("trade.equity", equity), module("ui.apchart", fake("ui.apchart", chart_html=chart_html)):
+            apjavno.reset_cache()
+            self.assertIn("<svg id=graf-en></svg>", apjavno.page({}, None, "en")[1])
+            self.assertIn("<svg id=graf-hr></svg>", apjavno.page({}, None, "hr")[1])
+            apjavno.page({}, "Ivan", "hr")
+        self.assertEqual(langs, ["en", "hr"])                      # drawn once per snapshot and language
+
+    def test_log_line_carries_no_url_query(self):
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            apjavno._warn("graf", RuntimeError(RAW_ERROR))
+        self.assertIn("https://rpc.primjer.invalid/…", out.getvalue())
+        self.assertNotIn(SECRET, out.getvalue())
 
     def test_reason_filter(self):
         for ok in ("signal star", "MC ispod 30k", "bez dokaza u demu", "kasni poziv", "likvidnost", "rug", "limit", "TP +15 %",
@@ -500,7 +594,8 @@ class Page(Base):
         self.live()
         apjavno.guest_html({})
         with mock.patch.object(apjavno, "_read", side_effect=AssertionError("čitanje baza")), \
-                mock.patch.object(apjavno, "_lcon", side_effect=AssertionError("čitanje baze")):
+                mock.patch.object(apjavno, "_lcon", side_effect=AssertionError("čitanje baze")), \
+                mock.patch.object(apjavno, "_lcon_read", side_effect=AssertionError("čitanje baze")):
             for _ in range(20):
                 apjavno.guest_html({})       # the whole guest page from memory
             apjavno.snapshot()
@@ -655,7 +750,10 @@ class Http(unittest.TestCase):
         # the view-only account and the shared password have no player: no writing
         code, hdr, _ = self.call("/autopilot/poruka", {"text": "gledatelj"}, viewer)
         self.assertEqual((code, hdr["Location"]), (303, "/autopilot?e=login#chat"))
-        self.assertNotIn('action="/autopilot/poruka"', self.call("/autopilot", cookie=viewer)[2])
+        body = self.call("/autopilot", cookie=viewer)[2]
+        self.assertNotIn('action="/autopilot/poruka"', body)
+        self.assertNotIn("Prijavi se", body)                  # already logged in: the link would only reload the page
+        self.assertIn(apjavno.ERR["login"], body)
         # +1 on and off (the page script: the refreshed list comes straight back)
         code, _, frag = self.call("/autopilot/plus", {"id": "1", "ajax": "1"}, jure)
         self.assertEqual(code, 200)

@@ -4,12 +4,15 @@ real databases, the network or a wallet: two temporary SQLite files are filled a
     cd /home/user/wt/javno && python3 audit/2026-11-10/seed_javno.py                 # http://127.0.0.1:8765/autopilot
     python3 audit/2026-11-10/seed_javno.py --probno                                  # the same in trial mode (no real money)
     python3 audit/2026-11-10/seed_javno.py --port 9000 --dir /tmp/moj-prikaz
+    python3 audit/2026-11-10/seed_javno.py --moduli /home/user/wt/novac /home/user/wt/apui   # the other groups' real modules
 
 Log in at /prijava as Ivan (lozinka: demo-ivan-123), Panda (demo-panda-123) or the owner Jure (demo-jure-123).
 "Live" is simulated only inside this process (executor.armed is replaced here); no key or env switch is involved.
 
 The modules of the other groups (trade/equity.py, trade/aplog.py, ui/apchart.py) are used when they exist in the tree.
-While one is missing, a small stand-in defined below is put in its place FOR THIS PREVIEW ONLY, so the page shows
+--moduli DIR... loads them from other checkouts (DIR/trade/equity.py, ...) into THIS PROCESS ONLY, so the preview shows
+the real chart and the real decision log before the branches are merged; nothing is copied into this tree.
+While one is still missing, a small stand-in defined below is put in its place FOR THIS PREVIEW ONLY, so the page shows
 every section: equity and aplog follow the contract in audit/2026-11-10/dizajn.md; the chart has no stand-in, the page
 then shows its own plain fallback line.
 """
@@ -75,12 +78,12 @@ def seed_trade(path, now, live, rnd):
         closed = opened + rnd.randint(8, 55) * 60
         fees = 0.0006
         back = 0.1 + res + fees
-        src = "@" + KOLS[i % 3] if i % 4 else WALLETS[i % 2][1]
+        src = f"KOL {KOLS[i % 3]}" if i % 4 else f"wallet {WALLETS[i % 2][1]}"   # as league/copy.py writes it
         cur = con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, qty_left, "
                           "sol_back, closed_ts, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                          (mint, sym, opened, mode, "closed", f"kopija {src}", 0.1, 10 ** 9, 0, back, closed, fees))
+                          (mint, sym, opened, mode, "closed", f"copy {src}", 0.1, 10 ** 9, 0, back, closed, fees))
         pid = cur.lastrowid
-        for ts, side, why in ((opened, "buy", f"kopija {src}"), (closed, "sell", "TP +15 %" if res > 0 else "SL -20 %")):
+        for ts, side, why in ((opened, "buy", f"copy {src}"), (closed, "sell", "TP +15 %" if res > 0 else "SL -20 %")):
             con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, amount_out, status, reason, signature, "
                         "route, fee_lamports) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         (ts, pid, mint, side, mode, int(0.1e9), int(back * 1e9), "ok" if live else "dry", why,
@@ -90,16 +93,16 @@ def seed_trade(path, now, live, rnd):
         opened = int(now - (50 + 70 * j) * 60)
         cur = con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, qty_left, "
                           "sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,0,0.0003)",
-                          (mint, sym, opened, mode, "open", f"kopija @{KOLS[j]}", 0.1, 10 ** 9, 10 ** 9))
+                          (mint, sym, opened, mode, "open", f"copy KOL {KOLS[j]}", 0.1, 10 ** 9, 10 ** 9))
         con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, amount_out, status, reason, signature, "
                     "route, fee_lamports) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (opened, cur.lastrowid, mint, "buy", mode, int(0.1e9), 10 ** 9, "ok" if live else "dry",
-                     f"kopija @{KOLS[j]}", sig(rnd) if live else None, "v2", 300_000))
+                     f"copy KOL {KOLS[j]}", sig(rnd) if live else None, "v2", 300_000))
         events.append((opened, -0.1, 0.1))
     # signals the rules refused, and one technical failure whose raw text must never reach the public page
-    skips = ["signal star 412 s (granica 180 s)", "market cap 21 400 $ ispod 30 000 $", "praćenje još nema dokaz u demu "
+    skips = ["signal star 412 s (granica 180 s)", "MC 21 400 $ ispod 30k", "praćenje bez dokaza u demu "
              "(6 zatvorenih, treba 10+)", "likvidnost 2 900 $ ispod 5 000 $", "signal star 233 s (granica 180 s)",
-             "praćenje još nema dokaz u demu (3 zatvorenih, treba 10+)", "dnevni limit: potrošeno 0.500 od 0.5 SOL"]
+             "praćenje bez dokaza u demu (3 zatvorenih, treba 10+)", "dnevni limit: potrošeno 0.500 od 0.5 SOL"]
     for k, why in enumerate(skips):
         sym, mint = TOKENS[(k + 3) % len(TOKENS)]
         con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason) VALUES (?,?,?,?,?,?)",
@@ -143,6 +146,15 @@ def seed_league(path, now):
     for kind, target, label, mode, tp, sl, days in rows:
         fid = copy.follow(con, user, kind, target, label, 25, 5, mode, tp, sl)
         con.execute("UPDATE follows SET created=? WHERE id=?", (int(now - days * 86400), fid))
+    # the demo copy stage's own skips (trade.aplog reads them for the follows of the real-money account)
+    fids = [r[0] for r in con.execute("SELECT id FROM follows WHERE user=? ORDER BY id", (user,))]
+    notes = ["poziv je star 9 min (granica 3 min)", "MC 18 400 $ ispod 30k", "likvidnost 2 100 $ ispod 3 % MC-a",
+             "poziv je star 5 min (granica 3 min)", "token još na krivulji: uzimaju se bondani"]
+    for k, note in enumerate(notes):
+        sym, mint = TOKENS[(k + 2) % len(TOKENS)]
+        con.execute("INSERT OR REPLACE INTO copy_log (follow_id, token, side, ev_ts, ts, symbol, action, note) "
+                    "VALUES (?,?,?,?,?,?,?,?)", (fids[k % len(fids)], mint, "buy", int(now - (k + 1) * 3.3 * 3600),
+                                                 int(now - (k + 1) * 3.3 * 3600), sym, "preskočeno", note))
     for who, age, text, voters in CHAT:
         cur = con.execute("INSERT INTO ap_chat (ts, user, text) VALUES (?,?,?)", (int(now - age), who, text))
         for v in voters:
@@ -197,7 +209,7 @@ def _standin_aplog():
         t = (text or "").lower()
         for key, group in (("signal star", "signal star"), ("market cap", "MC ispod 30k"), ("dokaz u demu", "bez dokaza u demu"),
                            ("likvidnost", "likvidnost"), ("limit", "limit"), ("tp ", "cilj dosegnut"), ("sl ", "stop"),
-                           ("kopija", "")):
+                           ("copy ", "")):
             if key in t:
                 return group
         return "tehnika"
@@ -212,15 +224,15 @@ def _standin_aplog():
             kind = "nije_proslo" if failed else ("kupio" if side == "buy" else "prodao")
             text = err if failed else why
             pnl = (100 * ((sback or 0) - (sin or 0) - (fees or 0)) / sin) if kind == "prodao" and sin else None
-            out.append({"ts": ts, "kind": kind, "token": tok, "symbol": sym, "source": (why or "").replace("kopija ", "")
+            out.append({"ts": ts, "kind": kind, "token": tok, "symbol": sym, "source": (why or "").replace("copy ", "")
                         if kind == "kupio" else "", "why": text, "why_short": why_short(text),
                         "sol": (ain if side == "buy" else aout or 0) / 1e9 if not failed else None, "pnl_pct": pnl,
-                        "mode": mode, "stage": "pravi", "sig": sg, "trebao": True if failed else None})
+                        "mode": mode, "stage": "pravi", "sig": sg, "trebao": True if failed else None, "side": side})
         for ts, tok, sym, mode, why in tcon.execute("SELECT opened_ts, token, symbol, mode, reason FROM positions WHERE "
                                                     "status='blocked' AND opened_ts>=? ORDER BY id DESC LIMIT ?", (since or 0, limit)):
             out.append({"ts": ts, "kind": "preskocio", "token": tok, "symbol": sym, "source": "", "why": why,
                         "why_short": why_short(why), "sol": None, "pnl_pct": None, "mode": mode, "stage": "pravi",
-                        "sig": None, "trebao": False})
+                        "sig": None, "trebao": False, "side": "buy"})
         out.sort(key=lambda r: r["ts"], reverse=True)
         return out[:limit]
 
@@ -239,9 +251,31 @@ def _standin_aplog():
     return m
 
 
+def load_real(dirs):
+    """The other groups' real modules from their checkouts, for this process only. Returns what was loaded."""
+    out = []
+    for name in ("trade.equity", "trade.aplog", "ui.apchart"):
+        if importlib.util.find_spec(name) is not None:
+            continue   # already in this tree (after the merge): that one wins
+        rel = os.path.join(*name.split(".")) + ".py"
+        for d in dirs or ():
+            fp = os.path.join(d, rel)
+            if os.path.isfile(fp):
+                spec = importlib.util.spec_from_file_location(name, fp)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[name] = mod
+                spec.loader.exec_module(mod)
+                setattr(sys.modules[name.split(".")[0]], name.split(".")[1], mod)
+                out.append(f"{name} iz {d}")
+                break
+    return out
+
+
 def install_standins():
     used = []
     for name, make in (("trade.equity", _standin_equity), ("trade.aplog", _standin_aplog)):
+        if name in sys.modules:
+            continue
         if importlib.util.find_spec(name) is None:
             mod = make()
             sys.modules[name] = mod
@@ -272,6 +306,8 @@ def main(argv=None):
     p.add_argument("--dir", help="mapa za privremene baze (zadano: nova privremena mapa)")
     p.add_argument("--probno", action="store_true", help="probni rad: Autopilot nije uživo, bez trake i bloka na naslovnici")
     p.add_argument("--samo-baze", action="store_true", help="napuni baze i izađi, bez poslužitelja")
+    p.add_argument("--moduli", nargs="*", default=[], help="checkouti drugih grupa s trade/equity.py, trade/aplog.py, "
+                   "ui/apchart.py (samo za ovaj prikaz)")
     a = p.parse_args(argv)
     d = a.dir or tempfile.mkdtemp(prefix="javno-")
     os.makedirs(d, exist_ok=True)
@@ -286,13 +322,23 @@ def main(argv=None):
     sys.path.insert(0, ROOT)
     now, live, rnd = time.time(), not a.probno, random.Random(7)
     import trade  # noqa: F401
+    import ui  # noqa: F401
+    real = load_real(a.moduli)
     seed_trade(os.environ["TRADE_DB"], now, live, rnd)
     seed_league(os.environ["LEAGUE_DB"], now)
     used = install_standins()
+    if "trade.aplog" in sys.modules and hasattr(sys.modules["trade.aplog"], "ensure"):
+        from trade import executor
+        con = executor.connect(os.environ["TRADE_DB"])
+        sys.modules["trade.aplog"].ensure(con)   # its indexes (after the merge executor.connect adds them itself)
+        con.commit()
+        con.close()
     if live:
         from trade import executor
         executor.armed = lambda: True     # this process only: "the key and the env switch are there"; nothing can be signed
     print(f"baze: {d}")
+    if real:
+        print("pravi moduli drugih grupa (samo ovaj proces): " + ", ".join(real))
     if used:
         print("zamjene samo za ovaj prikaz (pravi modul još nije u stablu): " + ", ".join(used))
     if a.samo_baze:

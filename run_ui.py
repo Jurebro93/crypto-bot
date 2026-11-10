@@ -1138,7 +1138,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)
             elif ok:
-                html = page(*apjavno.page(qs, user, lang), path)
+                html = page(*apjavno.page(qs, user, lang, logged_in=True), path)
             else:
                 html = apjavno.guest_html(qs, lang)
         except Exception:

@@ -2,7 +2,7 @@
 dati primjedbu, čuva se, svi vide i reagiraju s plus jedan ... javno stoji adresa novčanika"), the "Autopilot je live"
 banner of the app and the highlighted block for the public front page.
 
-    page(qs, user, lang)       (title, body): the same body for a guest and a player; a player also gets the chat form
+    page(qs, user, lang, logged_in)  (title, body): the same body for a guest and a player; a player also gets the chat form
     guest_html(qs, lang)       the whole document for a visitor without a login (light frame, no app menu)
     chat_fragment(user, qs)    the message list alone (GET /autopilot/chat), re-fetched every POLL_S seconds
     post(path, form, user)     chat forms /autopilot/poruka, /autopilot/plus, /autopilot/sakrij -> where to go next
@@ -43,7 +43,8 @@ RATE_N, RATE_S = 5, 600      # messages per player: 5 in 10 minutes
 VOTE_N, VOTE_S = 30, 60      # +1 taps per player in a minute (each one is a small write)
 PAGE_N = 50                  # messages per page of the chat
 MOVES_N = 12                 # entries and exits listed
-LOG_N = 200                  # rows asked from trade.aplog (entries, exits and the skipped signals of the day)
+LOG_N = 200                  # newest rows asked from trade.aplog for the entries and exits (skips come with them)
+DAY_N = 1000                 # decisions of the last 24 h read for the day's line (trade.aplog.DAY_LIMIT)
 FOLLOWS_N = 30
 LIVE_TTL_S = 30
 SNAP_TTL_S = 30
@@ -56,10 +57,12 @@ HANDLE = re.compile(r"[A-Za-z0-9_]{1,30}")
 _EMAIL = re.compile(r"[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+")
 _LONG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{80,}")        # as long as a secret key: hidden when someone pastes one by mistake
 _PCT = re.compile(r"[+\-−]?\d{1,4}(?:[.,]\d{1,2})?\s?%")
-# 10.11.: what a reason must not contain to be printed; raw errors carry links, query strings, braces, stack traces
-_NOT_A_REASON = re.compile(r"https?:|://|www\.|[?&=<>{}\[\]\\]|\bapi\b|\bkey\b|\bhttp|traceback|\berror\b|exception|errno|"
-                           r"timed? ?out|\bline \d", re.I)
+# 10.11.: what a reason must not contain to be printed; raw errors carry links, query strings, braces, quotes, stack
+# traces and exception names ("KeyError: 'x'", "JSONDecodeError"), none of which a short reason of trade.aplog has
+_NOT_A_REASON = re.compile(r"https?:|://|www\.|[?&=<>{}\[\]\\'\"`]|\bapi\b|\bkey\b|\bhttp|traceback|error\b|exception|"
+                           r"errno|timed? ?out|\bline \d|\bfile \"", re.I)
 NEUTRAL_REASON = "tehnički razlog"
+MODE_TAG = {"live": "pravi novac", "dry": "probno, bez pravog novca"}   # which money a section counts
 
 _lock = threading.Lock()
 _LIVE = {"ts": 0.0, "val": None}
@@ -118,7 +121,8 @@ def _warn(what, e):
     if now - _WARNED.get(key, 0) < 600:
         return
     _WARNED[key] = now
-    print(f"apjavno: {what}: {type(e).__name__}: {str(e)[:160]}", flush=True)
+    text = re.sub(r"(https?://[^/\s?]+)\S*", r"\1/…", str(e))[:160]   # an RPC address carries its key in the URL
+    print(f"apjavno: {what}: {type(e).__name__}: {text}", flush=True)
 
 
 # ---------- databases ---------------------------------------------------------------------------------------------
@@ -165,6 +169,16 @@ def _lcon():
     con = store.connect()
     ensure(con)
     return con
+
+
+def _lcon_read():
+    """league.db for the message list, asked every POLL_S by every open page: read-only and without league's whole
+    schema script (store.connect runs it on every open), once this process has made sure the chat tables exist."""
+    from league import store
+    p = os.path.abspath(store.DB)
+    if p not in _ENSURED or not os.path.exists(p):
+        return _lcon()
+    return sqlite3.connect("file:" + quote(p) + "?mode=ro", uri=True, timeout=5)
 
 
 # ---------- chat: data --------------------------------------------------------------------------------------------
@@ -332,7 +346,7 @@ def _msgs_html(rows, user, mod, note=""):
                     f'<button class="apj-plus{" on" if m["mine"] else ""}" aria-pressed={"true" if m["mine"] else "false"} '
                     f'title="{"Makni svoj +1" if m["mine"] else "Slažem se: +1"}"><i>+1</i>{f"<b>{n}</b>" if n else ""}</button></form>')
         else:
-            vote = f'<span class=apj-plus title="Prijavi se da daš +1"><i>+1</i>{f"<b>{n}</b>" if n else ""}</span>'
+            vote = f'<span class=apj-plus title="+1 daju igrači prijavljeni svojim imenom"><i>+1</i>{f"<b>{n}</b>" if n else ""}</span>'
         hide = ""
         if mod:
             hide = (f'<form method=post action="{PATH}/sakrij" class="apj-ajax apj-hide"><input type=hidden name=id value={m["id"]}>'
@@ -367,7 +381,7 @@ def chat_fragment(user=None, qs=None, err=""):
         if hit and time.time() - hit[0] < GUEST_TTL_S:
             return hit[1]
     try:
-        con = _lcon()
+        con = _lcon_read()
         try:
             mod = can_moderate(user)
             rows = messages(con, user, before=before, with_hidden=mod)
@@ -382,7 +396,7 @@ def chat_fragment(user=None, qs=None, err=""):
     return out
 
 
-def _chat_box(user, qs, lang="hr"):
+def _chat_box(user, qs, lang="hr", logged_in=None):
     qs = qs or {}
     older = str(qs.get("prije") or "").isdigit()
     b = ['<h2 id=chat data-sec="">Prijedlozi i komentari</h2>'
@@ -394,6 +408,8 @@ def _chat_box(user, qs, lang="hr"):
                  'aria-label="Tvoj prijedlog ili primjedba"></textarea>'
                  f'<div class=apj-fr><span>kao <b translate=no>{esc(user)}</b> · <span id=apj-cnt>0</span>/{MAX_LEN}</span>'
                  '<button>Pošalji</button></div></form>')
+    elif logged_in:   # in the app without an own name: a login link would only reload this page
+        b.append(f'<p class=apj-guest>Čitati mogu svi. {esc(ERR["login"])}</p>')
     else:
         from ui import urls
         home = "/" if lang == "en" else "/hr"
@@ -425,8 +441,16 @@ def _state(tcon):
     from trade import executor
     cfg = _cfg(tcon)
     on = bool(cfg.get("on"))
+    live = bool(executor.is_live(cfg))
     row = tcon.execute("SELECT ts FROM settings WHERE k='on'").fetchone() if on else None
-    return {"live": bool(executor.is_live(cfg)), "on": on, "since": int(row[0]) if row and row[0] else None}
+    since = int(row[0]) if row and row[0] else None
+    if live and since:
+        # 10.11.: the switch can go on in trial mode, before the key and TRADE_LIVE are there; "pravim novcem od" is
+        # then the first real buy after it (walks positions_opened from the switch time, stops at the first match)
+        first = tcon.execute("SELECT opened_ts FROM positions WHERE opened_ts >= ? AND mode='live' AND "
+                             "status IN ('open','closed') ORDER BY opened_ts LIMIT 1", (since,)).fetchone()
+        since = int(first[0]) if first and first[0] else since
+    return {"live": live, "on": on, "since": since}
 
 
 def live_state():
@@ -511,13 +535,24 @@ def _spark(series):
             f'<div class=apj-ax><span>{lo:.3f} SOL</span><span>vrijednost novčanika kroz vrijeme</span><span>{hi:.3f} SOL</span></div>')
 
 
-def _chart(summ, series, deposits):
+def _chart(summ, series, deposits, lang="hr"):
     try:
         from ui import apchart
-        return apchart.chart_html(series, summ, deposits, ident="apj", compact=True)
+        return apchart.chart_html(series, summ, deposits, ident="apj", compact=True, lang=lang)
     except Exception as e:  # noqa: BLE001 - the chart is another group's module
         _warn("graf", e)
         return _spark(series)
+
+
+def chart_for(s, lang="hr"):
+    """The chart of a snapshot in one language, drawn once per snapshot and language: ui/apchart.py has its own
+    English words, and its script data is not something ui/i18n translates on the way out."""
+    lang = "en" if lang == "en" else "hr"
+    charts = s.setdefault("charts", {})
+    if lang not in charts:
+        summ, series, deposits = s.get("chart_in") or ({}, [], [])
+        charts[lang] = _chart(summ, series, deposits, lang)
+    return charts[lang]
 
 
 _PNL = "COALESCE(sol_back,0)-COALESCE(sol_in,0)-COALESCE(fees_sol,0)"
@@ -611,62 +646,113 @@ def reason(text):
     return NEUTRAL_REASON if len(t) > 48 or _NOT_A_REASON.search(t) else t
 
 
+def _source_text(src):
+    """trade.aplog's source ("KOL ansem", "wallet Kit 12", "ekipa ...") in the words the rest of the page uses."""
+    kind, _, name = (src or "").partition(" ")
+    if kind == "KOL" and HANDLE.fullmatch(name.lstrip("@")):
+        return "@" + name.lstrip("@")
+    if kind == "wallet" and name:
+        return "novčanik " + name
+    return src or ""
+
+
 def _move(r):
     """One row of trade.aplog.entries reduced to what the page prints, every field checked."""
     token, sig = str(r.get("token") or ""), str(r.get("sig") or "")
+    # the source goes through reason() whole (cut first, a long raw text would slip under its length rule); a source
+    # that is not fit to print is left out, "izvor: tehnički razlog" would say nothing
+    source = _source_text(reason(r.get("source")))
     return {"ts": int(_num(r.get("ts")) or 0), "kind": r.get("kind"), "token": token if ADDR.fullmatch(token) else None,
-            "symbol": str(r.get("symbol") or "")[:20], "source": reason(str(r.get("source") or "")[:48]),
+            "symbol": str(r.get("symbol") or "")[:20], "source": "" if source == NEUTRAL_REASON else source,
             "why": reason(r.get("why_short")), "sol": _num(r.get("sol")), "pnl_pct": _num(r.get("pnl_pct")),
             "mode": "live" if r.get("mode") == "live" else "dry", "sig": sig if SIG.fullmatch(sig) else None}
 
 
-def _moves_fallback(tcon):
-    """Entries and exits straight from the positions while trade/aplog.py is missing: no reasons, only what happened."""
+def _moves_fallback(tcon, mode, before=None):
+    """Entries and exits straight from the positions while trade/aplog.py is missing (or to fill the list up below
+    what it returned): no reasons, only what happened, in one kind of money. `before`: only events older than this."""
     out = []
-    for token, sym, opened, closed, mode, status, sin, sback, fees in tcon.execute(
-            "SELECT token, symbol, opened_ts, closed_ts, mode, status, sol_in, sol_back, COALESCE(fees_sol,0) FROM positions "
-            "WHERE status IN ('open','closed') ORDER BY id DESC LIMIT ?", (MOVES_N,)):
+    for token, sym, opened, closed, status, sin, sback, fees in tcon.execute(
+            "SELECT token, symbol, opened_ts, closed_ts, status, sol_in, sol_back, COALESCE(fees_sol,0) FROM positions "
+            "WHERE mode=? AND status IN ('open','closed') ORDER BY id DESC LIMIT ?", (mode, MOVES_N)):
         base = {"token": token, "symbol": sym, "mode": mode, "source": "", "why_short": "", "sig": None}
         out.append({**base, "ts": opened, "kind": "kupio", "sol": sin, "pnl_pct": None})
         if status == "closed":
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
             out.append({**base, "ts": closed or opened, "kind": "prodao", "sol": sback,
                         "pnl_pct": 100 * pnl / sin if sin else None})
+    if before is not None:
+        out = [r for r in out if (r["ts"] or 0) < before]
     out.sort(key=lambda r: r["ts"] or 0, reverse=True)
     return [_move(r) for r in out[:MOVES_N]]
 
 
 def _day(summ):
-    """The last 24 h in one line of counts; the reasons are the short groups, checked once more."""
+    """The last 24 h in one line of counts; the reasons are the short groups, checked once more. The three most
+    frequent that say something: "ostalo" (a reason trade.aplog has no word for yet) and an unfit text are left out."""
     if not isinstance(summ, dict):
         return None
     out = {k: int(_num(summ.get(k)) or 0) for k in ("signali", "kupio", "prodao", "preskocio", "nije_proslo")}
     out["razlozi"] = []
-    for item in list(summ.get("razlozi") or [])[:3]:
+    for item in list(summ.get("razlozi") or [])[:20]:
         try:
             why, n = item
-            out["razlozi"].append((reason(why), int(n)))
+            why, n = reason(why), int(n)
         except (TypeError, ValueError):
             continue
+        if why and why not in ("ostalo", NEUTRAL_REASON) and len(out["razlozi"]) < 3:
+            out["razlozi"].append((why, n))
     return out
 
 
-def _moves(tcon, lcon, now):
-    """(entries and exits, 24-h line or None) from trade.aplog; from the positions alone when that is not there."""
+def _day_rows(aplog, tcon, lcon, now):
+    """The 24-h summary over the WHOLE day: summary_24h when trade/aplog.py has it (kept a few seconds there), else
+    summary() of the day's decisions. Not of the LOG_N newest rows: on a busy day those cover a few hours only."""
+    fn = getattr(aplog, "summary_24h", None)
+    if callable(fn):
+        return fn(tcon, lcon, now=now)
+    return aplog.summary(aplog.entries(tcon, lcon, limit=DAY_N, since=int(now) - 86400), now)
+
+
+def _moves(tcon, lcon, now, mode):
+    """(entries and exits, 24-h line or None) from trade.aplog; from the positions alone when that is not there.
+    10.11.: only the money the statistics count (`mode`): a trial buy of last week among real ones would read as
+    a real trade nobody can find on Solscan."""
     try:
         from trade import aplog
-        rows = list(aplog.entries(tcon, lcon, limit=LOG_N) or [])
-        moves = [_move(r) for r in rows if isinstance(r, dict) and r.get("kind") in ("kupio", "prodao")][:MOVES_N]
-        return moves, _day(aplog.summary(rows, now))
+        rows = [r for r in (aplog.entries(tcon, lcon, limit=LOG_N) or []) if isinstance(r, dict)]
+        moves = [_move(r) for r in rows if r.get("kind") in ("kupio", "prodao")]
+        moves = [m for m in moves if m["mode"] == mode][:MOVES_N]
+        if len(moves) < MOVES_N and len(rows) >= LOG_N:
+            # LOG_N decisions were mostly skips: the older buys and sells come straight from the positions
+            oldest = min(int(_num(r.get("ts")) or 0) for r in rows)
+            moves += _moves_fallback(tcon, mode, before=oldest)[:MOVES_N - len(moves)]
+        try:
+            day = _day(_day_rows(aplog, tcon, lcon, now))
+        except Exception as e:  # noqa: BLE001 - the line is a nicety, the list stays
+            _warn("dnevnik 24 h", e)
+            day = None
+        return moves, day
     except Exception as e:  # noqa: BLE001 - another group's module
         _warn("dnevnik", e)
-    return _moves_fallback(tcon), None
+    return _moves_fallback(tcon, mode), None
+
+
+def _empty(now):
+    """A snapshot with nothing in it: every section shows its plain "not yet" sentence, nothing claims real money."""
+    return {"ts": now, "state": {"live": False, "on": False, "since": None}, "addr": None, "eq": _eq_public({}),
+            "chart_in": None, "stats": None, "follows": [], "moves": [], "day": None}
+
+
+def _mode(s):
+    """The kind of money the page reports on: the statistics' choice, or the switch state when they failed."""
+    st = s.get("stats")
+    return st["mode"] if st else ("live" if s["state"]["live"] else "dry")
 
 
 def _read(now):
     """Everything from the databases, each part on its own: a part that fails leaves its place empty."""
-    snap = {"ts": now, "state": {"live": False, "on": False, "since": None}, "addr": None, "eq": _eq_public({}),
-            "chart": "", "stats": None, "follows": [], "moves": [], "day": None}
+    snap = _empty(now)
     raw = {}
     tcon = _tcon()
     lcon = None
@@ -680,13 +766,11 @@ def _read(now):
                 _warn("stanje", e)
             summ, series, deposits = _equity(tcon)
             snap["eq"] = _eq_public(summ)
-            snap["chart"] = _chart(summ, series, deposits)
+            snap["chart_in"] = (summ, series, deposits)   # drawn per language by chart_for()
             try:
                 snap["stats"] = _stats(tcon, snap["state"]["live"])
             except Exception as e:  # noqa: BLE001
                 _warn("statistika", e)
-        else:
-            snap["chart"] = _spark([])
         snap["addr"] = _address(raw)
         try:
             lcon = _lcon()
@@ -695,7 +779,7 @@ def _read(now):
             _warn("praćeni", e)
         if tcon is not None:
             try:
-                snap["moves"], snap["day"] = _moves(tcon, lcon, now)
+                snap["moves"], snap["day"] = _moves(tcon, lcon, now, _mode(snap))
             except Exception as e:  # noqa: BLE001
                 _warn("ulazi i izlazi", e)
     finally:
@@ -723,8 +807,7 @@ def snapshot(now=None):
                 val = _read(now or t)
         except Exception as e:  # noqa: BLE001
             _warn("snimka", e)
-            val = hit or {"ts": t, "state": {"live": False, "on": False, "since": None}, "addr": None,
-                          "eq": _eq_public({}), "chart": _spark([]), "stats": None, "follows": [], "moves": [], "day": None}
+            val = hit or _empty(t)
         _SNAP.update(ts=time.time(), val=val)
         _LIVE.update(ts=time.time(), val=val["state"])   # the banner and the page never disagree
         return val
@@ -736,6 +819,7 @@ CSS = """<style>
 .apj{max-width:760px;margin:0 auto;padding:0 0 28px}
 .apj h1{font-size:30px;font-weight:800;letter-spacing:-.035em;margin:12px 0 0;line-height:1.15}
 .apj h2{font-size:19px;font-weight:750;letter-spacing:-.02em;margin:36px 0 10px;padding:0;line-height:1.25}
+.apj h2[id]{scroll-margin-top:84px}
 .apj h2 small{font-size:12px;font-weight:600;color:var(--mut);background:var(--soft);border-radius:999px;padding:2px 9px;
  margin-left:6px;vertical-align:middle;letter-spacing:0}
 .apj a{color:var(--acc,#4f46e5)}
@@ -752,7 +836,8 @@ CSS = """<style>
  font-variant-numeric:tabular-nums;margin:2px 0 0}
 .apj-big small{font-size:.4em;font-weight:700;color:var(--mut);letter-spacing:-.01em}
 .apj-conv{font-size:20px;color:var(--mut);font-variant-numeric:tabular-nums;margin:2px 0 0}
-.apj-pnl{margin:10px 0 0;font-size:15px;font-variant-numeric:tabular-nums}.apj-pnl .mut{color:var(--mut)}
+.apj-pnl{display:flex;flex-wrap:wrap;gap:4px 18px;margin:10px 0 0;font-size:15px;font-variant-numeric:tabular-nums}
+.apj-pnl>span{white-space:nowrap}.apj-pnl b{font-weight:650}.apj-pnl .mut{color:var(--mut)}
 .apj .pos{color:var(--good,#16a34a)}.apj .neg{color:var(--bad,#dc2626)}
 .apj-say{color:var(--mut);font-size:15.5px;line-height:1.5;margin:14px 0 0;max-width:62ch}
 .apj-wait{color:var(--mut);font-size:14.5px;margin:10px 0 0}
@@ -895,11 +980,11 @@ def _hero(s):
                  f'<div class=apj-big translate=no>{v:.3f} <small>SOL</small></div>'
                  + (f'<div class=apj-conv translate=no>{conv}</div>' if conv else ""))
         pnl, pct, d24 = eq.get("pnl_sol"), eq.get("pnl_pct"), eq.get("pnl_24h_sol")
-        if pnl is not None:
-            line = (f'<span class="{_cls(pnl)}">{pnl:+.3f} SOL{f" ({pct:+.1f} %)" if pct is not None else ""}</span> '
-                    '<span class=mut>od početka</span>')
+        if pnl is not None:   # two pieces that wrap as a whole on a phone, never in the middle of a number
+            line = (f'<span><span class=mut>Od početka</span> <b class="{_cls(pnl)}">{pnl:+.3f} SOL'
+                    f'{f" ({pct:+.1f} %)" if pct is not None else ""}</b></span>')
             if d24 is not None:
-                line += f' <span class=mut>· zadnja 24 h</span> <span class="{_cls(d24)}">{d24:+.3f} SOL</span>'
+                line += f'<span><span class=mut>Zadnja 24 h</span> <b class="{_cls(d24)}">{d24:+.3f} SOL</b></span>'
             b.append(f'<p class=apj-pnl>{line}</p>')
     else:
         b.append('<p class=apj-wait>Vrijednost novčanika mjeri se svakih 5 minuta. Prva snimka još nije stigla.</p>')
@@ -920,8 +1005,7 @@ def _stats_html(st):
     if not st:
         return ('<h2 data-sec="">Statistika</h2><p class=apj-wait>Statistika se trenutno ne može učitati. Pokušaj ponovno '
                 'za minutu.</p>')
-    tag = "pravi novac" if st["mode"] == "live" else "probno, bez pravog novca"
-    head = f'<h2 data-sec="">Statistika <small>{tag}</small></h2>'
+    head = f'<h2 data-sec="">Statistika <small>{MODE_TAG[st["mode"]]}</small></h2>'
     if not st["n"]:
         return (head + '<p class=apj-wait>Još nema zatvorenih tradeova. Čim bot zatvori prvi, brojke se pojave ovdje.'
                 + (f' Otvoreno sada: {st["open"]}.' if st["open"] else "") + '</p>')
@@ -937,7 +1021,7 @@ def _stats_html(st):
         return tile(f'{r["pnl"]:+.3f} SOL', label + sym, _cls(r["pnl"]))
     return (head + '<div class=apj-stats>'
             + tile(st["n"], "Zatvoreni tradeovi")
-            + tile(f'{st["wins"]} <small>({st["wins"] / st["n"]:.0%})</small>', "Dobitni")
+            + tile(f'{st["wins"]} <small>({round(100 * st["wins"] / st["n"])} %)</small>', "Dobitni")
             + tile(f'{st["pnl"]:+.3f} SOL', "Ukupni rezultat", _cls(st["pnl"]))
             + edge("best", "Najbolji trade") + edge("worst", "Najgori trade")
             + tile(st["open"], "Otvoreno sada") + '</div>'
@@ -982,13 +1066,16 @@ def _follows_html(rows):
     return head + f'<ul class=apj-list>{"".join(items)}</ul>'
 
 
-def _moves_html(rows, day, live):
-    head = '<h2 data-sec="">Zadnji ulazi i izlazi</h2>'
+def _moves_html(rows, day, mode):
+    head = f'<h2 data-sec="">Zadnji ulazi i izlazi <small>{MODE_TAG[mode]}</small></h2>'
     line = ""
     if day and day.get("signali"):
-        why = ", ".join(f"{n} {esc(w)}" for w, n in day["razlozi"] if w)
-        line = (f'<p class=apj-day>Zadnja 24 h: {day["signali"]} signala · {day["kupio"]} kupljeno · {day["prodao"]} prodano · '
-                f'{day["preskocio"]} preskočeno{f" ({why})" if why else ""} · {day["nije_proslo"]} nije prošlo</p>')
+        why = ", ".join(f"{n} {esc(w)}" for w, n in day["razlozi"])   # short: a zero count is left out below
+        parts = [f'{day["signali"]} signala', f'{day["kupio"]} kupljeno']
+        parts += [f'{n} {word}' for n, word in ((day["prodao"], "prodano"),) if n]
+        parts += [f'{day["preskocio"]} preskočeno{f" ({why})" if why else ""}'] if day["preskocio"] else []
+        parts += [f'{day["nije_proslo"]} nije prošlo'] if day["nije_proslo"] else []
+        line = f'<p class=apj-day>Zadnja 24 h: {" · ".join(parts)}</p>'
     if not rows:
         return head + '<p class=apj-wait>Još nema nijednog ulaza. Čim bot nešto kupi ili proda, pojavi se ovdje.</p>' + line
     items = []
@@ -1003,15 +1090,13 @@ def _moves_html(rows, day, live):
         if m["sig"]:   # the time is the link to the proof: the transaction itself on Solscan
             when = (f'<a href="https://solscan.io/tx/{quote(m["sig"])}" target=_blank rel="noopener nofollow" '
                     f'title="Otvori transakciju na Solscanu">{when} ↗</a>')
-        other = ('<span class=apj-tag>probno</span>' if live and m["mode"] != "live" else
-                 '<span class=apj-tag>pravi novac</span>' if not live and m["mode"] == "live" else "")
         if buy:
             right = f'{m["sol"]:.3f} SOL' if m["sol"] is not None else ""
         else:
             right = (f'<span class="{_cls(m["pnl_pct"], 1)}">{m["pnl_pct"]:+.1f} %</span>' if m["pnl_pct"] is not None
                      else (f'{m["sol"]:.3f} SOL' if m["sol"] is not None else ""))
         items.append(f'<li data-k={"kupio" if buy else "prodao"}><span class="apj-k{" buy" if buy else ""}">'
-                     f'{"Kupio" if buy else "Prodao"}</span><div class=mid><b translate=no>{name}</b>{other}'
+                     f'{"Kupio" if buy else "Prodao"}</span><div class=mid><b translate=no>{name}</b>'
                      f'{f"<small>{sub}</small>" if sub else ""}</div>'
                      f'<div class=r><span translate=no>{right}</span><small>{when}</small></div></li>')
     seg = ('<div class=apj-seg data-for=apj-moves><button type=button class=on data-k="">Sve</button>'
@@ -1023,16 +1108,17 @@ FINE = ("Ovo nije financijski savjet. Meme tokeni su vrlo rizični i prošli rez
         "stanje jednog novčanika, sa svim naknadama, i osvježavaju se svakih nekoliko minuta.")
 
 
-def page(qs, user, lang="hr"):
+def page(qs, user, lang="hr", logged_in=None):
     """(title, body). The body is Croatian; the English version is the same page run through ui/i18n by the caller
-    (run_ui), like every other page of the app."""
+    (run_ui), like every other page of the app. logged_in: inside the app without a player's own name (the shared
+    password, the view-only account): no chat form and no "Prijavi se" either, only why not (default: bool(user))."""
     s = snapshot()
     title = TITLE if s["state"]["live"] else "Autopilot (probni rad)"
     body = (CSS + '<div class=apj>' + _hero(s) + _wallet(s["addr"])
-            + f'<div class=apj-chart>{s["chart"]}</div>'
+            + f'<div class=apj-chart>{chart_for(s, lang)}</div>'
             + _stats_html(s["stats"]) + _follows_html(s["follows"])
-            + _moves_html(s["moves"], s["day"], s["state"]["live"])
-            + _chat_box(user, qs, lang)
+            + _moves_html(s["moves"], s["day"], _mode(s))
+            + _chat_box(user, qs, lang, logged_in)
             + f'<p class=apj-fine>{FINE}</p></div>' + JS)
     return title, body
 
@@ -1123,7 +1209,9 @@ BANNER_CSS = ("<style>.apj-ban{display:flex;align-items:center;justify-content:c
 
 def banner_html(user=None, path=""):
     """10.11. (Jure): the big line on top of every app page while Autopilot trades real money; it leads to /autopilot
-    and is left out on that page itself. "" otherwise. live_state() is kept 30 s, so this costs nothing per page."""
+    and is left out on that page itself. "" otherwise. live_state() is kept 30 s, so this costs nothing per page.
+    A page kept by ui/pagecache keeps the line it was built with until it is rebuilt (at most UI_CACHE_STALE_S);
+    the owner's switch is a POST, and every POST clears that cache, so switching off takes the line down at once."""
     if path in (PATH, PATH_EN) or not live_state()["live"]:
         return ""
     return (f'{BANNER_CSS}<a class=apj-ban href="{PATH}"><span class=d></span><span class=t><b>Autopilot je live:</b> podacima '
