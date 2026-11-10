@@ -76,6 +76,8 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "confluence": ("G9", "Ulaz tek kad se poklope 2+ callera i kupnja novčanika s tierom"),
     # 10.11. ~21:45 (Jure): the MCP client's exit plan per position, executed by the server (league/exitplan.py)
     "exit_plans": ("G10", "Planovi izlaza s MCP-a (set_exit_plan): TP-ovi, trailing, stop, time stop"),
+    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, EV > 0
+    "range_dca": ("G13", "Raspon + DCA: ulaz na dnu raspona, lot 2 na -10 do -15 %, pola van u gornjoj zoni"),
 }
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
@@ -253,6 +255,14 @@ def live_refusal(con, name, paper=None, now=None):
     st = flag_state(con)[name]
     if st["mode"] == "live":
         return None
+    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds with EV > 0 (rangedca/gate.py), on top
+        try:
+            from rangedca import gate as _range_gate
+            why = _range_gate.refusal(now=now)
+        except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+            why = f"dokaz range_dca nije čitljiv ({type(e).__name__})"
+        if why:
+            return why
     if st["mode"] != "paper" or not st["since"]:
         return f"prvo najmanje {PAPER_DAYS} dana u paper modu"
     days = (now - st["since"]) / 86400
