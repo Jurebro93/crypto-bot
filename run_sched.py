@@ -15,6 +15,8 @@ process that ends and gives its memory back; this process only keeps the clock. 
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
   whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
   web     run_web.py daily      once a day at 02:00 Zagreb time (WEB_DAILY_HOUR): public tables fresh + site log row; light
+  events  run_events.py tick    every EVENTS_EVERY_MIN minutes (default 5): events.db sync, feed health, stale requests; light
+  evreport run_events.py ev     once a day at 23:30 Zagreb: the EV report per feature phase (events/evreport.py); light
 """
 import datetime as dt
 import json
@@ -130,7 +132,7 @@ WEB_HOUR = _env_hour("WEB_DAILY_HOUR", 2)
 LOCAL_RETRY_S, LOCAL_TRIES = 1800, 3
 
 
-def local_due(hour, last_day, now=None, tz=WEB_TZ):
+def local_due(hour, last_day, now=None, tz=WEB_TZ, minute=0):
     """The local date (ISO) a once-a-day job is due for right now, or None: it is `hour`:00 or later in `tz` and the
     job has not run for that local date yet. Local time, not UTC (10.11., Jure: "zadatak u 2 po noći"): 02:00 in
     Zagreb is 01:00 UTC in winter and 00:00 UTC in summer. The night the clocks go back, 02:00 comes twice and the
@@ -138,10 +140,10 @@ def local_due(hour, last_day, now=None, tz=WEB_TZ):
     from zoneinfo import ZoneInfo
     local = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(tz))
     day = local.date().isoformat()
-    return day if local.hour >= hour and last_day != day else None
+    return day if (local.hour, local.minute) >= (hour, minute) and last_day != day else None
 
 
-def daily_local(name, args, hour, light=True):
+def daily_local(name, args, hour, light=True, minute=0):
     """Once per Zagreb day, at `hour`:00 or at the first check after it (a restart in the morning catches up), the
     day kept on the disk like daily(). 10.11.: the web refresh (run_web.py daily) only re-reads our own databases for
     a few seconds, so it runs light: under the heavy lock it would queue behind the night's long jobs (KOL history,
@@ -153,7 +155,7 @@ def daily_local(name, args, hour, light=True):
     while True:
         wait = 300
         try:
-            day = local_due(hour, last_day)
+            day = local_due(hour, last_day, minute=minute) if minute else local_due(hour, last_day)
             if day:
                 if day != tries_day:   # failures count per day: two late failures must not cost the next night
                     tries, tries_day = 0, day
@@ -249,6 +251,12 @@ JOBS = [
     # 10.11. (Jure: "podaci bi se trebali jednom dnevno osvježiti na cijelom webu ... zadatak u 2 po noći"): public
     # tables rebuilt from our own databases, blog data blocks counted again, one row in the site log (run_web.py)
     ("web", daily_local, (["run_web.py", "daily"], WEB_HOUR)),
+    # 11.11. (Jure, events.db): every 5 min the append-only sync of the old tables into events.db, the feed health check
+    # (no events of an active type for > 60 min, 08-24 Zagreb -> alert) and stale MCP requests (events/night.tick);
+    # light: keyset reads by rowid, a few hundred rows a pass
+    ("events", every, (["run_events.py", "tick"], float(os.environ.get("EVENTS_EVERY_MIN", "5")), True)),
+    # 11.11.: the EV report per feature phase at 23:30 Zagreb (events/evreport.py: table + output/ev-report-*); light
+    ("evreport", daily_local, (["run_events.py", "ev"], 23, True, 30)),
 ]
 
 

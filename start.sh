@@ -13,6 +13,9 @@ done
 ln -sfn "$DATA_DIR/output" output
 # 10.11. early.db (smart_discovery's early buyers + group_discovery's group_* tables, kol/groupdisc.py): persistent too
 touch "$DATA_DIR/early.db"; ln -sfn "$DATA_DIR/early.db" early.db
+# 11.11. events.db (one log of every call, wallet trade, price, trade and signal, events/store.py): persistent too; the
+# collectors write into it only once this file exists
+touch "$DATA_DIR/events.db"; ln -sfn "$DATA_DIR/events.db" events.db
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -174,6 +177,13 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # The backtest over the data we have, nightly (01-06 Zagreb) -> output/range-backtest-*.{json,md} and the log.
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
+
+# 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
+# outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,
+# channels and wallets, groupdisc's night pass (skipped when its own loop above already ran), the range backtest
+# (skipped when today's exists), early wallets, retention and the size line; Helius at most 5000 credits a night.
+# Tried every 30 min under the heavy lock inside the night window; before 03:00 or once done it ends at once.
+( sleep 2100; while true; do python3 -m ops.heavy --night run_events.py night || echo "noćna obrada događaja nije uspjela"; sleep 1800; done ) &
 
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group

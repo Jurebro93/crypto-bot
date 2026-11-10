@@ -182,6 +182,11 @@ def submit(subject, subject_kind="token", features=None, ts_asof=None, backfill=
         rid = cur.lastrowid
     finally:
         con.close()
+    try:   # 11.11. dual write into events.db (events/hooks.py), type x_post
+        from events import hooks as _ev
+        _ev.xfeat_saved(rid, kind, subj, asof, feats, source, backfill)
+    except Exception:  # noqa: BLE001
+        pass
     print(f"mcp: X značajke #{rid} za {kind} {subj[:8]} spremljene", flush=True)
     return {"id": rid, "subject": subj, "subject_kind": kind, "ts_observed": now, "ts_asof": asof,
             "backfill": bool(backfill), "status": "stored",

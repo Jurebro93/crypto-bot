@@ -529,6 +529,16 @@ def _candle_path(mc, tok, ts):
         return None
 
 
+def _night_outcomes(pairs):
+    """{(tweet_id, token): outcome} of events.db call_outcomes (the night batch, events/outcomes + remeasure); {}
+    without events.db."""
+    try:
+        from events import outcomes
+        return outcomes.lookup(pairs)
+    except Exception:  # noqa: BLE001 - the history answers without it
+        return {}
+
+
 def caller_history(handle, platform=None, since_ts=None, limit=None, offset=None):
     limit, offset = _page(limit, offset)
     h = _handle(handle, platform)
@@ -548,6 +558,7 @@ def caller_history(handle, platform=None, since_ts=None, limit=None, offset=None
                            f"{pair} AS pair FROM calls c WHERE handle=? COLLATE NOCASE AND kind='call' AND ts>=? "
                            f"ORDER BY ts DESC LIMIT ? OFFSET ?", (h, since, limit, offset))
         syms = _symbols(kc, hc, [c["token"] for c in calls if not c["symbol"]])
+        night = _night_outcomes([(c["tweet_id"], c["token"]) for c in calls])
         rows = []
         bad = _bad(mc)
         for c in calls:
@@ -616,6 +627,16 @@ def caller_history(handle, platform=None, since_ts=None, limit=None, offset=None
                          "price_24h": _f(price_24h, 12), "change_24h": _f(ch24, 4), "price_24h_source": p24_src,
                          "measure_status": mstat, "rug": bool(c["rug"]),
                          "other_callers_15m_before": before, "other_callers_15m_after": after})
+            o = night.get((tid, tok))
+            if o and o["status"] in ("ok", "unavailable") and mstat != "measured":
+                # 11.11. (events/remeasure.py): the night measured it from minute candles, or says why it cannot
+                r = rows[-1]
+                r.update(measure_status=o["status"], measure_reason=o["reason"], measure_source=o["src"])
+                for k in ("max_1h", "max_24h", "change_24h"):
+                    if r.get(k) is None and o.get(k) is not None:
+                        r[k] = _f(o[k], 4)
+                if r.get("max_1h") is not None and not r.get("max_1h_source"):
+                    r["max_1h_source"] = o["src"]
     finally:
         _close(kc, mc, hc)
     return _paged(rows, limit, offset, total=total, handle=h, platform=platform_of(h),
@@ -627,7 +648,9 @@ def caller_history(handle, platform=None, since_ts=None, limit=None, offset=None
                                "price_24h": "price 24 h after the call; price_24h_source calls (kol/measure candles) | "
                                             "snapshots (DexScreener, within 25 min); measure_status: measured, "
                                             "pending, no_pair, bad:mcap / bad:skok (untrusted), measured_without_24h, "
-                                            "never_measured (queued for the night backfill)",
+                                            "never_measured (queued for the night backfill); after the night "
+                                            "remeasure ok (measure_source gt_minute: minute candles) or unavailable "
+                                            "(measure_reason says why: nema poola, ispod 30k, no trade within 30 min)",
                                "change_1h": "fraction; change_1h_source calls (r1h) | minute (r60 from the minute entry)",
                                "max_24h": "highest move within 24 h (fraction); min_24h is not measured"})
 
