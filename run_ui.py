@@ -1325,6 +1325,8 @@ def main(argv=None):
         # 10.11. (Jure: MC u trenutku poziva i pomak u 5/10/15 min bez čekanja na svijeće): live samples of the skips
         from ui import pravitrade as _pt
         threading.Thread(target=_pt.skip_sampler_loop, daemon=True, name="preskoceni-uzivo").start()
+        # 10.11. (Jure: "DCA ide ručno, granice postavljam ručno"): the owner's dokup orders, watched every second
+        threading.Thread(target=_pt.dca_loop, daemon=True, name="dca-nalozi").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background

@@ -140,6 +140,8 @@ color:var(--fg);font-size:15px;text-decoration:none;white-space:nowrap}.ap-fn a:
 .ap [id]{scroll-margin-top:120px}
 .ap-qb{margin:16px 0 6px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
 .ap-split{margin:-6px 0 8px;font-size:13px}
+.ap-pnl{margin:4px 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.ap-pnl .ap-pnl-v{font-size:22px}.ap-pnl>div{margin:2px 0}
 .ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .ap-exit input{width:auto}
 .ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
@@ -2355,19 +2357,36 @@ def _exit_form(pid, rule, cfg):
 
 
 def _now_mcap(tokens):
-    """{token: market cap now} from the shared live cache (_live_cached: the background thread renews it while it is
-    asked for; a request thread fetches only a set nobody asked for yet). {} when DexScreener does not answer."""
+    """({token: market cap now}, unix time of that quote) from the shared live cache (_live_cached: the background
+    thread renews it every LIVE_TTL_S while it is asked for; a request thread fetches only a set nobody asked for
+    yet). ({}, None) when DexScreener does not answer."""
+    key = tuple(sorted(tokens))
     try:
-        live = _live_cached(tuple(sorted(tokens)), time.time()) or {}
+        _bg_start()   # 10.11. (Jure: "to treba osvježavati non stop"): the renewal runs off the request thread
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        live = _live_cached(key, time.time()) or {}
     except Exception:  # noqa: BLE001 - the rows render without the move
-        return {}
-    return {t: (live.get(t) or {}).get("mcap") for t in tokens}
+        return {}, None
+    with _LOCK:
+        hit = _LIVE_CACHE.get(key)
+    return {t: (live.get(t) or {}).get("mcap") for t in tokens}, (hit[0] if hit and live else None)
 
 
-def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
+def _pct_html(pct, big=False):
+    """+11,0 % in green, −4,2 % in red, bold (10.11., Jure: "PnL zelenim ili crvenim slovima")."""
+    t = redak.tone(pct)
+    cls = " ".join(x for x in (t, "ap-pnl-v" if big else "") if x)
+    return f'<b class="{cls}">{esc(redak.pct(pct, 1))}</b>' if cls else f"<b>{esc(redak.pct(pct, 1))}</b>"
+
+
+def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, mc_ts=None, orders=None, dca_log=None):
     """One open position = every open lot of a token (oldest first). Closed: name, whom it copies (or "2 ulaza"), the
-    entry MC(s), the stake in total, the share still held. Open: one line per lot ("1. ulaz 11:56 na MC $60k ·
-    0,150 SOL (≈ +55 %)"), the exit, the owner's exit form and sell buttons (every lot), the live check."""
+    entry MC(s), the move (green / red) and the stake. Open (10.11., Jure: "ništa lijepo istaknuto; boldano MC na
+    kojem smo ušli, PnL zelenim/crvenim uz sat kad se točno osvježio, non stop"): one block with the move from the
+    (average) entry, MC now and the clock time of that quote, the entry MC in bold; one line per lot; the exit; the
+    owner's DCA orders (dokup na padu), exit form and sell buttons (every lot); the live check."""
     import datetime as _dt
     import zoneinfo
     z = zoneinfo.ZoneInfo("Europe/Zagreb")
@@ -2378,16 +2397,12 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
     trial = "probno" if (mixed and mode != "live") else None
     who = _who(first[6]) if len(lots) == 1 else f"{len(lots)} ulaza"
     lines, mcs, rules = [], [], []
-    def move_html(pct):   # 10.11. (Jure: "profit and loss zelenim ili crvenim slovima, osvježava se svake sekunde")
-        t = redak.tone(pct)
-        txt = esc(f"≈ {pct:+.1f} %")
-        return f'<b class="{t}">{txt}</b>' if t else f"<b>{txt}</b>"
     for n, (pid, _t, _s, ts, _m, _st, why, sin, sback, q, ql, _c, _f, lid) in enumerate(lots, 1):
         mc, rule, demo_open = demo.get(lid, (None, None, False))
         mcs.append((mc, sin or 0))
         rules.append((lid, rule, demo_open))
-        head = esc(f"{n}. ulaz {_dt.datetime.fromtimestamp(ts, z):%H:%M}" + (f" na MC {_usd_short(mc)}" if mc else ""))
-        move = f" ({move_html((mc_now / mc - 1) * 100)})" if mc and mc_now else ""
+        head = esc(f"{n}. ulaz {_dt.datetime.fromtimestamp(ts, z):%H:%M}") + (f" na MC <b>{esc(_usd_short(mc))}</b>" if mc else "")
+        move = f" ({_pct_html((mc_now / mc - 1) * 100)})" if mc and mc_now else ""
         tail = [redak.sol(sin or 0, 3)]
         if sback:
             tail.append(f"vraćeno {redak.sol(sback, 4)}")
@@ -2398,16 +2413,23 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
     wsum = sum(w for m, w in mcs if m and w)
     avg_mc = wsum / sum(w / m for m, w in mcs if m and w) if wsum else None
     pnl_all = (mc_now / avg_mc - 1) * 100 if avg_mc and mc_now else None
-    line = "".join(f"<p class=mut>{x}</p>" for x in lines)
-    if len(lots) > 1 and avg_mc:
-        line += f"<p class=mut>Prosječni ulaz MC {esc(_usd_short(avg_mc))}" + (f" ({move_html(pnl_all)})" if pnl_all is not None else "") + "</p>"
-    line += f'<p class=mut>{"pravi novac" if mode == "live" else "probno"}' + (
-        f" · MC sada {esc(_usd_short(mc_now))}" if mc_now else "") + "</p>"
+    clock = _dt.datetime.fromtimestamp(mc_ts, z).strftime("%H:%M:%S") if mc_ts else None
+    top = '<div class=ap-pnl>'
+    top += (f'<div>PnL {_pct_html(pnl_all, big=True)}</div>' if pnl_all is not None else
+            '<div class=mut>PnL: čekam cijenu</div>')
+    top += ('<div class=mut>' + (f"MC sada <b>{esc(_usd_short(mc_now))}</b>" if mc_now else "MC sada –")
+            + (f" · osvježeno <b>{clock}</b>" if clock else "") + "</div>")
+    if avg_mc:
+        top += (f'<div class=mut>{"Prosječni ulaz" if len(lots) > 1 else "Ulaz"} na MC <b>{esc(_usd_short(avg_mc))}</b> · '
+                f'{"pravi novac" if mode == "live" else "probno"}</div>')
+    top += "</div>"
+    line = top + "".join(f"<p class=mut>{x}</p>" for x in lines)
     exits = {_exit_words(r) for lid, r, _o in rules if lid}
     exit_html = (f"<p class=mut>Izlaz: {esc(' / '.join(sorted(x or 'nije postavljen' for x in exits)))}"
-                 + (" (svaki ulaz od svoje cijene)" if len(lots) > 1 else "") + "</p>") if exits else ""
+                 + (" (od prosječnog ulaza, zatvara sve ulaze)" if len(lots) > 1 else "") + "</p>") if exits else ""
     lid0, rule0, open0 = next(((lid, r, o) for lid, r, o in rules if lid and o), (None, None, False))
     if owner and lid0 and pend is None:
+        exit_html += _dca_block(tok, sym, orders or [], dca_log or [], cfg, avg_mc, mc_now)
         exit_html += _exit_form(pid0, rule0, cfg)
     act = _sell_btns(",".join(map(str, ids)), pend) if owner else (
         f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
@@ -2418,12 +2440,180 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
     mc_words = ", ".join(_usd_short(m) for m, _w in mcs if m)
     reason = " · ".join(x for x in (who, f"ulaz MC {mc_words}" if mc_words else "", redak.ago(lots[-1][3]), trial) if x)
     stake = redak.sol(sum(r[7] or 0 for r in lots), 3)
-    if pnl_all is not None:   # the move first, coloured, the stake under it (refreshed with the list every second)
-        return _item(sym or short(tok or ""), reason, inner, value=f"≈ {pnl_all:+.1f} %",
-                     sub="prodaja u tijeku" if pend is not None else f"{stake} · {held}", iid=f"poz-{pid0}",
-                     value_tone=redak.tone(pnl_all))
+    if pnl_all is not None:   # the move first, coloured, the stake and the quote's clock time under it
+        return _item(sym or short(tok or ""), reason, inner, value=redak.pct(pnl_all, 1),
+                     sub="prodaja u tijeku" if pend is not None else " · ".join(x for x in (stake, held, clock) if x),
+                     iid=f"poz-{pid0}", value_tone=redak.tone(pnl_all))
     return _item(sym or short(tok or ""), reason, inner, value=stake,
                  sub="prodaja u tijeku" if pend is not None else held, iid=f"poz-{pid0}")
+
+
+# ---------- DCA: dokup na padu, granice postavlja vlasnik ------------------------------------------------------------
+# 10.11. (Jure: "DCA ide ručno. Postavljaju se granice ručno, ne automatski"): on an open position the owner sets a
+# level (MC "$70k" or a drop from the average entry "-20%") and a SOL amount; when the live MC touches the level the
+# bot buys that amount into the same position (the manual buy path: one more lot, the exit from the new average). One
+# order buys once. Orders live in trade settings "dca_orders"; dca_loop (a thread in run_ui) watches them every second.
+DCA_EVERY_S = 1.0
+_DCA_LOCK = threading.Lock()
+
+
+def _dca_orders(tcon):
+    return list(settings.raw(tcon).get("dca_orders") or [])
+
+
+def _dca_block(tok, sym, orders, log, cfg, avg_mc, mc_now):
+    """The owner's DCA orders of one position: the active ones (with "Ukloni"), the last results, and the form."""
+    mine = [o for o in orders if o.get("token") == tok]
+    rows = "".join(
+        f'<form method=post action=/pravi-trade/dcadel class=ap-exit><input type=hidden name=id value="{esc(str(o["id"]))}">'
+        f'<span>Dokup na MC <b>{esc(_usd_short(o["mc"]))}</b> za {esc(redak.sol(o["sol"], 3))}'
+        + (f' ({esc(o["txt"])} od prosjeka)' if str(o.get("txt", "")).endswith("%") else "")
+        + '</span> <button>Ukloni</button></form>' for o in mine)
+    done = "".join(f"<p class=mut>{esc(x['text'])}</p>" for x in log if x.get("token") == tok)[:2000]
+    size = (cfg or {}).get("size_sol") or 0.1
+    form = (f'<form method=post action=/pravi-trade/dca class=ap-exit><input type=hidden name=token value="{esc(tok)}">'
+            '<label>Dokupi na MC <input name=lvl placeholder="$70k ili -20%" size=10 autocomplete=off></label> '
+            f'<label>SOL <input name=sol value="{size:g}" inputmode=decimal size=5></label> '
+            '<button>Postavi dokup</button></form>')
+    hint = ('<p class=mut>Kad MC padne na tu granicu, bot dokupi taj iznos u istu poziciju (jednom po nalogu); izlaz se '
+            'onda računa od novog prosjeka. Postotak je od prosječnog ulaza' + (f" ({esc(_usd_short(avg_mc))})" if avg_mc else "")
+            + '.</p>')
+    return f'<h3 class=ap-sub><span>DCA (dokup na padu)</span><span>{len(mine)} aktivno</span></h3>{rows}{done}{form}{hint}'
+
+
+def _dca_level(txt, avg_mc):
+    """'$70k' / '70k' / '70000' -> that MC; '-20%' / '20%' -> the average entry MC minus 20 %."""
+    s = (txt or "").strip().lower().replace(" ", "").replace(",", ".")
+    if not s:
+        raise ValueError("upiši granicu: MC (npr. $70k) ili pad od prosječnog ulaza (npr. -20%)")
+    if s.endswith("%"):
+        if not avg_mc:
+            raise ValueError("ulazni MC ove pozicije nije poznat; upiši granicu kao MC (npr. $70k)")
+        pct = abs(float(s.rstrip("%").lstrip("+-")))
+        if not 0 < pct < 100:
+            raise ValueError("pad mora biti između 0 i 100 %")
+        return avg_mc * (1 - pct / 100)
+    m = re.fullmatch(r"\$?([0-9.]+)([kmb])?(mc)?", s)
+    if not m:
+        raise ValueError(f"ne razumijem '{txt}': upiši MC (npr. $70k) ili postotak (npr. -20%)")
+    return float(m.group(1)) * {"k": 1e3, "m": 1e6, "b": 1e9}.get(m.group(2) or "", 1)
+
+
+def _post_dca(con, tcon, form, user):
+    from urllib.parse import quote as qq
+    tok = (form.get("token") or "").strip()
+    lots = tcon.execute("SELECT id, league_id, symbol, sol_in FROM positions WHERE token=? AND status='open'", (tok,)).fetchall()
+    if not lots:
+        raise ValueError("ta pozicija nije otvorena")
+    demo = _demo_sides(r[1] for r in lots)
+    mcs = [(demo.get(r[1], (None,))[0], r[3] or 0) for r in lots]
+    wsum = sum(w for m, w in mcs if m and w)
+    avg_mc = wsum / sum(w / m for m, w in mcs if m and w) if wsum else None
+    lvl = _dca_level(form.get("lvl"), avg_mc)
+    if lvl < 30_000:
+        raise ValueError(f"granica MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
+    sol = float((form.get("sol") or "0").replace(",", "."))
+    lab, _typ, lo, hi = settings.LIMITS["size_sol"]
+    cfg = _cfg(tcon)
+    if not lo <= sol <= min(hi, cfg["max_sol_per_trade"]):
+        raise ValueError(f"SOL mora biti između {lo:g} i {min(hi, cfg['max_sol_per_trade']):g}")
+    now_mc, _ = _now_mcap([tok])
+    if now_mc.get(tok) and lvl >= now_mc[tok]:
+        raise ValueError(f"granica MC ${lvl:,.0f} nije ispod sadašnjeg MC-a ${now_mc[tok]:,.0f}: za kupnju sada koristi Kupi")
+    sym = lots[0][2] or tok[:6]
+    with _DCA_LOCK:
+        orders = _dca_orders(tcon)
+        if len([o for o in orders if o.get("token") == tok]) >= 5:
+            raise ValueError("najviše 5 DCA naloga po poziciji")
+        orders.append({"id": int(time.time() * 1000), "token": tok, "sym": sym, "mc": round(lvl, 2), "sol": sol,
+                       "txt": (form.get("lvl") or "").strip(), "made": int(time.time())})
+        settings.put(tcon, "dca_orders", orders, user)
+    print(f"pravi trade: DCA nalog {sym}: dokup {sol:g} SOL na MC ${lvl:,.0f}", flush=True)
+    pid = lots[0][0]
+    return f"{BACK}?ok={qq(f'DCA: dokup {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}.')}#poz-{pid}"
+
+
+def _post_dcadel(tcon, form, user):
+    from urllib.parse import quote as qq
+    oid = str(form.get("id") or "")
+    with _DCA_LOCK:
+        orders = _dca_orders(tcon)
+        left = [o for o in orders if str(o.get("id")) != oid]
+        if len(left) == len(orders):
+            raise ValueError("taj DCA nalog više ne postoji")
+        settings.put(tcon, "dca_orders", left, user)
+    return f"{BACK}?ok={qq('DCA nalog uklonjen.')}#pozicije"
+
+
+def _dca_note(tcon, tok, text):
+    log = list(settings.raw(tcon).get("dca_log") or [])
+    log.insert(0, {"ts": int(time.time()), "token": tok, "text": text})
+    settings.put(tcon, "dca_log", log[:30], "alat")
+
+
+def dca_once(tcon, now=None, live_fn=None, buy_fn=None):
+    """One pass over the DCA orders: an order whose position is closed is dropped; an order whose level the live MC
+    touched buys once through the manual buy path (_post_buy) and is removed, with what happened in "dca_log".
+    Returns [(order, result text)]."""
+    now = now or time.time()
+    orders = _dca_orders(tcon)
+    if not orders:
+        return []
+    open_toks = {r[0] for r in tcon.execute("SELECT DISTINCT token FROM positions WHERE status='open'")}
+    toks = sorted({o["token"] for o in orders if o["token"] in open_toks})
+    live = {}
+    if toks:
+        if live_fn is not None:
+            live = {t: (m or {}).get("mcap") for t, m in (live_fn(toks) or {}).items()}
+        else:
+            live, _ = _now_mcap(toks)
+    done, keep = [], []
+    for o in orders:
+        if o["token"] not in open_toks:
+            done.append((o, f"DCA {o.get('sym')}: pozicija je zatvorena, nalog uklonjen"))
+            continue
+        mc = live.get(o["token"])
+        if not mc or mc > o["mc"]:
+            keep.append(o)
+            continue
+        con = store.connect()
+        try:
+            copy.ensure(con)
+            (buy_fn or _post_buy)(con, tcon, {"token": o["token"], "sol": f"{o['sol']:g}", "exit": "tpsl", "tp": "",
+                                              "sl": ""}, settings.owner())
+            done.append((o, f"DCA {o.get('sym')}: dokupljeno {o['sol']:g} SOL na MC ${mc:,.0f} (granica ${o['mc']:,.0f})"))
+        except ValueError as e:
+            done.append((o, f"DCA {o.get('sym')}: dokup na MC ${mc:,.0f} nije prošao: {e}"))
+        finally:
+            con.close()
+    if done:
+        with _DCA_LOCK:
+            cur = _dca_orders(tcon)   # orders added by the page meanwhile stay
+            gone = {str(o["id"]) for o, _ in done}
+            settings.put(tcon, "dca_orders", [o for o in cur if str(o.get("id")) not in gone], "alat")
+        for o, text in done:
+            _dca_note(tcon, o["token"], text)
+            print(f"pravi trade: {text}", flush=True)
+    return done
+
+
+def dca_loop(every=DCA_EVERY_S):
+    """Background thread body for run_ui.py: dca_once every `every` seconds (one settings read when there is nothing
+    to watch), its own connection."""
+    con = None
+    while True:
+        try:
+            if con is None:
+                con = settings.connect()
+            dca_once(con)
+        except Exception as e:  # noqa: BLE001 - a failed pass is retried in `every` seconds
+            print(f"DCA: {type(e).__name__}: {e}", flush=True)
+            try:
+                con.close()
+            except Exception:  # noqa: BLE001
+                pass
+            con = None
+        time.sleep(every)
 
 
 def _positions(tcon, viewer_buy, owner=False, pending=None, cfg=None):
@@ -2486,11 +2676,12 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     for r in rows:
         if r[5] == "open":
             groups.setdefault(r[1], []).append(r)
-    now_mc = _now_mcap(list(groups)) if groups else {}
+    now_mc, mc_ts = _now_mcap(list(groups)) if groups else ({}, None)
+    st = settings.raw(tcon) if (owner and groups) else {}
     open_, closed = [], []
     for tok, lots in groups.items():
         open_.append(_lot_group(tok, sorted(lots, key=lambda r: r[0]), demo, now_mc.get(tok), pending, owner,
-                                viewer_buy, cfg, mixed))
+                                viewer_buy, cfg, mixed, mc_ts, st.get("dca_orders") or [], st.get("dca_log") or []))
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees, lid) in rows:
         trial = "probno" if (mixed and mode != "live") else None
         if st == "open":
@@ -3641,6 +3832,10 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path == "/pravi-trade/dca":   # 10.11. (Jure): DCA, dokup na padu s ručnom granicom
+            return _post_dca(None, tcon, form, user)
+        if path == "/pravi-trade/dcadel":
+            return _post_dcadel(tcon, form, user)
         if path == "/pravi-trade/wallet":
             from ui.real import ADDR
             addr = (form.get("addr") or "").strip()
