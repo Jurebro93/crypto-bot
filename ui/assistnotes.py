@@ -572,6 +572,7 @@ def hope_stop(con, lcon=None, market=None):
 # runs once too): (flag, mode, why). Never live from here.
 OWNER_FLAG_ORDERS = (
     ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
+    ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
 )
 
 

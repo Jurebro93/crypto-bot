@@ -11,6 +11,8 @@ for f in xfeat.db calendar.db hype.db paper.db rug.db wallets.db trade.db usage.
   ln -sfn "$DATA_DIR/$f" "$f"
 done
 ln -sfn "$DATA_DIR/output" output
+# 10.11. early.db (smart_discovery's early buyers + group_discovery's group_* tables, kol/groupdisc.py): persistent too
+touch "$DATA_DIR/early.db"; ln -sfn "$DATA_DIR/early.db" early.db
 export CAL_CACHE_DIR="$DATA_DIR/cache" LEARNED_DIR="$DATA_DIR/learned" PYTHONUNBUFFERED=1 UI_SNAP_DIR="$DATA_DIR/pagecache"
 # memory: glibc gives every thread its own malloc arena (up to 8 per CPU the host reports, not our 0.5 CPU), and
 # freed memory stays parked in them, so the threaded dashboard climbed to ~200 MB and the 512 MB server ran out
@@ -153,6 +155,13 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # (wallets/solfill.py, one Helius getTransaction each): night window only (--night, 01-06 Zagreb), at most
 # SOLFILL_MAX_NIGHT (200) calls a night, counted by the job itself, so the hourly tries after the first find it spent
 ( sleep 1500; while true; do python3 -m ops.heavy --night -m wallets.solfill || echo "solfill nije uspio"; sleep 3600; done ) &
+
+# 10.11. (Jure, flag group_discovery, kol/groupdisc.py): caller crews and hidden wallet lists, shadow only. The full pass
+# in the night window (--night, 01-06 Zagreb; at most once in 20 h however often we deploy): caller groups from kol.db,
+# Helius for the first 30 min of called tokens under 100k (at most GROUPS_NIGHT_CREDITS a pass, default 3000), wallet
+# groups, results. Every 15 min a cheap pass on our databases (no Helius by default). Flag off: both end at once.
+( sleep 1800; while true; do python3 -m ops.heavy --night -m kol.groupdisc night --credits "${GROUPS_NIGHT_CREDITS:-3000}" || echo "grupe (noć) nisu uspjele"; sleep 3600; done ) &
+( sleep 960; while true; do low python3 -m kol.groupdisc incr || echo "grupe (15 min) nisu uspjele"; sleep 900; done ) &
 
 # 10.11. (Jure, Hope research, option 1): one read-only run after the deploy, ~120 Helius pages (~1.2k credits);
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it

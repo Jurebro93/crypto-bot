@@ -79,7 +79,13 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure: skener tržišta bez callera, scan/): never buys; shadow = measured per source, paper only through
     # paper_refusal (>= 30 shadow outcomes and EV > 0 of the scanner's own sources)
     "market_scan": ("G11", "Skener tržišta bez callera (final stretch, migrirani, beta mete, rani X), mjeri u sjeni"),
+    # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
+    "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
+                               "ekipa izlazne likvidnosti negativno"),
 }
+# 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
+# or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
+PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})
@@ -269,16 +275,25 @@ def live_refusal(con, name, paper=None, now=None):
 
 
 def paper_refusal(con, name, now=None):
-    """None when `name` may go to paper, else the reason in Croatian. Most flags may (paper moves no real money);
-    market_scan only when one of its sources has the measured proof (scan/shadow.flag_paper_refusal: >= 30 finished
-    shadow outcomes and EV > 0). A proof that cannot be read refuses. Nothing calls set_flag on its own."""
-    if name != "market_scan":
+    """None when `name` may go from off / shadow to paper, else the reason in Croatian. Most flags may (paper moves
+    no real money); market_scan only with its sources' measured proof (scan/shadow.flag_paper_refusal: >= 30 finished
+    shadow outcomes and EV > 0); the flags in PAPER_GATES through their own proof (e.g. group_discovery). A proof that
+    cannot be read refuses. Nothing calls set_flag on its own."""
+    if name == "market_scan":
+        try:
+            from scan import shadow
+            return shadow.flag_paper_refusal(now=now)
+        except Exception as e:  # noqa: BLE001 - no proof readable: no paper
+            return f"dokaz iz sjene nije čitljiv ({type(e).__name__})"
+    spec = PAPER_GATES.get(name)
+    if not spec:
         return None
     try:
-        from scan import shadow
-        return shadow.flag_paper_refusal(now=now)
-    except Exception as e:  # noqa: BLE001 - no proof readable: no paper
-        return f"dokaz iz sjene nije čitljiv ({type(e).__name__})"
+        import importlib
+        mod, fn = spec.split(":")
+        return getattr(importlib.import_module(mod), fn)(con, now=now)
+    except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+        return f"dokaz se ne može pročitati ({type(e).__name__})"
 
 
 def set_flag(con, name, mode, who="", paper=None, now=None):
