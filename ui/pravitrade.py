@@ -1352,7 +1352,8 @@ def _suggest_section(tcon, owner):
     items = []
     for r in rows:
         pc = r.get("proposed_change")
-        auto = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY)
+        auto = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY
+                                         or isinstance(pc.get("insider_label"), dict))   # 10.11. kol/precall.py
         ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
               if r.get("evidence") else "")
         diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code>'

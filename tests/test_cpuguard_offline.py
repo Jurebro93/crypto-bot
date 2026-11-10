@@ -915,7 +915,8 @@ class Priorities(unittest.TestCase):
             m = re.search(r"low (?:keep \w+ )?python3 (\S+)(.*)", ln)
             if m:
                 name, kind, _ = g.classify(["python3", m.group(1)] + m.group(2).split())
-                self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe"), ln)
+                self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe",
+                                     "insajderi"), ln)
                 self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
 
     def test_guard_starts_right_after_ui_and_trade_before_the_background(self):

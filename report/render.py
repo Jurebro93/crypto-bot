@@ -290,6 +290,11 @@ def render(data, ai, source):
     if sk and (sk.get("day") or sk.get("gate_window") or sk.get("checked_24h")):
         out.append(section("Skener tržišta: sjena po izvoru", skener_body(sk)))
 
+    # 10.11.: pre-call insiders and launches from 10k (kol/precall.py, flag insider_copy)
+    ins = data.get("insajderi")
+    if ins:
+        out.append(section("Insajderi prije poziva i nova lansiranja od 10k", insajderi_body(ins)))
+
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:
@@ -398,6 +403,37 @@ def skener_body(sk):
                  f"GeckoTerminal {sp.get('gt_calls', 0):.0f}/{cap.get('gt_calls', 0)} poziva, X "
                  f"{sp.get('x_usd', 0):.2f}/{cap.get('x_usd', 0):.2f} $.")
     return body + bullets(items)
+
+
+def insajderi_body(d):
+    """kol/precall.report_data: launches, new candidates, the confirmed wallets, their paper copies, the day's cost."""
+    st = d.get("status") or {}
+    items = [f"Zastavica insider_copy: {e(d.get('mode'))}. Nova lansiranja (24 h): {d.get('launches_24h', 0)}, "
+             f"provjereno na DexScreeneru {d.get('checked_24h', 0)}, do 10k {d.get('reached_10k_24h', 0)} (idu skeneru "
+             f"kao final stretch, ne kupuju se).",
+             f"Novčanici: {st.get('confirmed', 0)} potvrđenih izvan uzorka, {st.get('candidate', 0)} kandidata, "
+             f"{st.get('excluded', 0)} isključenih (snajperi, botovi, relayeri, dev), {st.get('watch', 0)} se promatra."]
+    p = d.get("paper") or {}
+    if p.get("n") or p.get("open"):
+        items.append(f"Demo kopije insajdera: {p['n']} zatvorenih, EV {pct(p.get('ev'), True)}, PnL {money(p.get('pnl'))}"
+                     f", otvoreno {p.get('open', 0)} (za live treba 20+ zatvorenih s EV iznad nule).")
+    cost = d.get("cost_24h") or {}
+    items.append("Trošak 24 h: Helius " + str(sum(v["helius_credits"] for v in cost.values())) + " kredita, DexScreener "
+                 + str(sum(v["dex_calls"] for v in cost.values())) + " poziva (besplatno, s ograničenjem).")
+    body = bullets(items)
+    rows = [[e(r["wallet"][:6] + "…"), e(r["status"]), str(r["tokens"]), str(r["first"]),
+             f"{r['med_min']:.0f} min" if r.get("med_min") is not None else "–", pct(r.get("rose30"))]
+            for r in d.get("new_24h") or []]
+    if rows:
+        body += para("Novi u zadnja 24 h:") + table(["Novčanik", "Status", "Tokena", "Prije 1. poziva",
+                                                     "Medijan prije poziva", "+30 % u 1 h"], rows)
+    rows = [[e(r["wallet"][:6] + "…"), f"{r['sel']} / {r['conf']}", str(r["tokens"]),
+             f"{r['med_min']:.0f} min" if r.get("med_min") is not None else "–", pct(r.get("rose30")),
+             pct(r.get("sold_into"))] for r in d.get("confirmed") or []]
+    if rows:
+        body += para("Potvrđeni (odabir / potvrda):") + table(["Novčanik", "Odabir / potvrda", "Tokena",
+                                                               "Medijan prije poziva", "+30 % u 1 h", "Prodao u poziv"], rows)
+    return body
 
 
 def _sl_label(sl):

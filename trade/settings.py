@@ -82,10 +82,15 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
     "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
                                "ekipa izlazne likvidnosti negativno"),
+    # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
+    # live_refusal + LIVE_GATES
+    "insider_copy": ("G14", "Insajderi prije poziva: novčanici koji kupuju prije poziva callera, kopiranje u demo"),
 }
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
+# 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
+LIVE_GATES = {"insider_copy": "kol.precall:live_refusal"}
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})
@@ -271,6 +276,14 @@ def live_refusal(con, name, paper=None, now=None):
         return "paper račun još nema nijedan zatvoren trade"
     if (paper.get("pnl") or 0) <= 0:
         return f"paper račun je u minusu ({paper['pnl']:+.2f} $ na {paper['n']} tradeova)"
+    spec = LIVE_GATES.get(name)
+    if spec:   # 10.11.: e.g. insider_copy also needs >= 20 closed paper copies of its own with EV > 0
+        try:
+            import importlib
+            mod, fn = spec.split(":")
+            return getattr(importlib.import_module(mod), fn)(con, now=now)
+        except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+            return f"dokaz za live se ne može pročitati ({type(e).__name__})"
     return None
 
 

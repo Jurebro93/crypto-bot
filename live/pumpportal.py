@@ -255,7 +255,7 @@ async def run(con, log=print, refresh_s=60, new_tokens=False, migrations=True, s
         try:
             async with websockets.connect(ws_url(), ping_interval=20, ping_timeout=20, max_queue=4096) as ws:
                 backoff = 5
-                if new_tokens:   # every new pump.fun launch: 99% die in minutes (Nicholas 5.11.), off by default
+                if new_tokens:   # every new pump.fun launch (free): on by default since 10.11. (run_live.new_tokens_on)
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
                 if migrations:   # tokens that bonded (graduated to PumpSwap): free, and these are the ones worth a look
                     await ws.send(json.dumps({"method": "subscribeMigration"}))

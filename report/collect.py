@@ -275,7 +275,19 @@ def collect(now=None):
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
             "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
+    data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
     return data
+
+
+def insajderi(now):
+    """Pre-call insiders and launches from 10k (kol/precall.report_data): new candidates, the confirmed ones, their
+    paper copies and the day's cost per source. None before the first pass."""
+    try:
+        from kol import precall
+        path = db_path("early.db") if os.environ.get("REPORT_DB_DIR") else None
+        return precall.report_data(now, path=path)
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def skener(now):

@@ -1288,7 +1288,9 @@ def incremental(cfg=None, now=None, log=print, sol_usd=None, fetch=None, credits
         lt = _q(hc, "SELECT mint, wallet, ts, mcap_sol FROM live_trades WHERE side = 'buy' AND ts >= ?", (now - 2100,))
         first_seen = dict(_q(hc, "SELECT mint, MIN(ts) FROM live_trades WHERE mint IN (SELECT DISTINCT mint FROM "
                                  "live_trades WHERE side = 'buy' AND ts >= ?) GROUP BY mint", (now - 2100,))) if lt else {}
-        launches = dict(_q(hc, "SELECT mint, ts FROM live_launches WHERE ts >= ?", (now - 7 * 86400,))) if lt else {}
+        # 10.11.: only the launches of the traded mints (every new pump.fun token is captured now, 20-40k a day)
+        launches = dict(_q(hc, "SELECT mint, ts FROM live_launches WHERE ts >= ? AND mint IN (SELECT DISTINCT mint FROM "
+                               "live_trades WHERE side = 'buy' AND ts >= ?)", (now - 7 * 86400, now - 2100))) if lt else {}
         if hc is not None:
             hc.close()
         eb = _q(con, "SELECT mint, wallet, first_buy_ts FROM early_buyers WHERE first_buy_ts >= ?", (now - 2100,))

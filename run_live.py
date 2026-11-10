@@ -7,16 +7,35 @@
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 
 from live import pulse, pumpportal, store
 
 
+def new_tokens_on(a, env=None):
+    """10.11. (Jure: "uključi hvatanje svih novih tokena"): every new pump.fun token is captured by default (free
+    PumpPortal event; kol/precall.py measures the ones that reach 10k). Off only on purpose: --no-new, or
+    LIVE_NEW_TOKENS=0 in the environment. --new keeps working (on), so an old LIVE_ARGS cannot switch it off by
+    leaving it out."""
+    env = os.environ if env is None else env
+    if getattr(a, "no_new", False):
+        return False, "--no-new"
+    if getattr(a, "new", False):
+        return True, "--new"
+    v = (env.get("LIVE_NEW_TOKENS") or "1").strip().lower()
+    if v in ("0", "false", "no", "off", "ne"):
+        return False, "LIVE_NEW_TOKENS=0"
+    return True, "zadano (LIVE_NEW_TOKENS)"
+
+
 def cmd_loop(a):
     con = store.connect()
     log = lambda s: print(s, flush=True)
-    asyncio.run(pumpportal.run(con, log=log, refresh_s=a.refresh, new_tokens=a.new, migrations=not a.no_migrations))
+    new, why = new_tokens_on(a)
+    log(f"live: novi pump.fun tokeni {'se hvataju' if new else 'se NE hvataju'} ({why})")
+    asyncio.run(pumpportal.run(con, log=log, refresh_s=a.refresh, new_tokens=new, migrations=not a.no_migrations))
 
 
 def cmd_status(a):
@@ -46,7 +65,8 @@ if __name__ == "__main__":
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("loop")
     s.add_argument("--refresh", type=int, default=60, help="seconds between re-reading the watched lists")
-    s.add_argument("--new", action="store_true", help="also every new pump.fun token (off: 99% die in minutes)")
+    s.add_argument("--new", action="store_true", help="every new pump.fun token (the default since 10.11.)")
+    s.add_argument("--no-new", action="store_true", help="no new pump.fun tokens (or LIVE_NEW_TOKENS=0)")
     s.add_argument("--no-migrations", action="store_true", help="skip bonded (migrated) tokens")
     s.set_defaults(fn=cmd_loop)
     sub.add_parser("status").set_defaults(fn=cmd_status)

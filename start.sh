@@ -163,6 +163,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ( sleep 1800; while true; do python3 -m ops.heavy --night -m kol.groupdisc night --credits "${GROUPS_NIGHT_CREDITS:-3000}" || echo "grupe (noć) nisu uspjele"; sleep 3600; done ) &
 ( sleep 960; while true; do low python3 -m kol.groupdisc incr || echo "grupe (15 min) nisu uspjele"; sleep 900; done ) &
 
+# 10.11. (Jure, flag insider_copy G14, kol/precall.py): pre-call insiders. Every 15 min a cheap pass: new pump.fun
+# launches priced by DexScreener at +10/+30/+90 min (free; at most 40 calls a pass, 4000 a day; a token at 10k goes to
+# the market scanner as final_stretch, never bought), fresh calls and their buyers from our databases, the copy step
+# (shadow lines; paper: the demo account follows the confirmed wallets). In the night window the Helius windows before
+# the calls (INSIDERS_NIGHT_CREDITS, default 3000 a pass) and the wallet analysis. Flag off: both end at once.
+( sleep 2100; while true; do python3 -m ops.heavy --night -m kol.precall night --credits "${INSIDERS_NIGHT_CREDITS:-3000}" || echo "insajderi (noć) nisu uspjeli"; sleep 3600; done ) &
+( sleep 1020; while true; do low python3 -m kol.precall incr || echo "insajderi (15 min) nisu uspjeli"; sleep 900; done ) &
+
 # 10.11. (Jure, Hope research, option 1): one read-only run after the deploy, ~120 Helius pages (~1.2k credits);
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it
 ( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio"; python3 -m research.hope_report || true ) &
@@ -223,6 +231,8 @@ low keep report python3 run_report.py loop
 keep paper python3 run_paper.py run --scan --hype-args "--deep 20"   # hype scan, demo entries/exits, daily review
 # 5.11.: live buys/sells from PumpPortal (free WebSocket): tokens we watch, wallets we follow, new launches
 # -> hype.db live_trades; dump alerts the demo sells on within seconds (run_paper live_exits). LIVE_OFF=1 disables.
+# 10.11.: every new pump.fun token is captured by default (free event; run_live.new_tokens_on): only LIVE_NEW_TOKENS=0
+# or "--no-new" in LIVE_ARGS switch it off, so LIVE_ARGS without "--new" no longer does
 if [ -z "${LIVE_OFF:-}" ]; then keep live python3 run_live.py loop ${LIVE_ARGS:-}; fi
 # (keep trade: started right after the UI above, 9.11.)
 
