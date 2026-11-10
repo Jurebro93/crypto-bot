@@ -1,0 +1,165 @@
+"""Is every feed still flowing? (11.11., Jure: the wallet feed was empty for ~20 h and nobody noticed.)
+
+check() runs with the 5-min tick: for every event type that is ACTIVE (at least ACTIVE_MIN events in the 7 days before
+its newest event, about one an hour, so a type that is sparse by nature, e.g. trades on a quiet day, never alarms,
+while a feed that stopped a day ago still does) and whose newest
+event is older than GAP_MIN (60) minutes, while the clock in Zagreb is between 08 and 24, it records an alert:
+
+  usage.db alerts (usage/watch.remember, key "events:gap:<type>", service "podaci"): the history on the Potrošnja
+  page shows when it started and when it was last seen; the server log gets a line when an alert is new or got
+  worse and once a day while it lasts (usage/watch.to_log); events.db kv "health" keeps the current list for
+  get_hourly_brief. Outside 08-24 nothing is raised (a quiet night is normal), but a gap that started at night is
+  raised at 08:00 if it still lasts.
+
+gaps() answers "when was a feed empty" from the old table itself (hype.db chain_trades by its ts index), so the
+question can be asked about days before events.db existed: python3 run_events.py gaps --hours 48
+"""
+import datetime as dt
+import sqlite3
+import time
+from zoneinfo import ZoneInfo
+
+from events import sources, store
+
+TZ = "Europe/Zagreb"
+WINDOW = (8, 24)        # [from, to) Zagreb hours in which a gap is raised
+GAP_MIN = 60
+ACTIVE_MIN = 7 * 24     # events in 7 days for a type to count as a feed that should not stop
+SERVICE = "podaci"
+NAMES = {"call": "pozivi (X/Telegram)", "wallet_buy": "kupnje praćenih novčanika", "wallet_sell": "prodaje praćenih "
+         "novčanika", "transfer": "transferi novčanika", "x_post": "X objave", "price_tick": "cijene",
+         "trade": "tradeovi Autopilota", "signal": "signali"}
+
+
+def in_window(now=None, window=WINDOW):
+    h = dt.datetime.fromtimestamp(now or time.time(), ZoneInfo(TZ)).hour
+    return window[0] <= h < window[1]
+
+
+def status(econ, now=None):
+    """[{type, last_ts, gap_min, n7d, active, sources: {source: last_ts}}] of every type, from the (type, ts) index.
+    n7d is counted only up to ACTIVE_MIN (enough to know the type is a feed; the 5-min tick stays cheap), and the
+    newest event per source is read only for a type that is silent longer than GAP_MIN."""
+    now = int(now or time.time())
+    out = []
+    for t in store.TYPES:
+        last = econ.execute("SELECT MAX(ts) FROM events WHERE type = ?", (t,)).fetchone()[0]
+        # the 7 days BEFORE the newest event: a feed that went silent 20 h ago is still a feed that should flow
+        n7 = econ.execute("SELECT COUNT(*) FROM (SELECT 1 FROM events WHERE type = ? AND ts >= ? LIMIT ?)",
+                          (t, (last or 0) - 7 * 86400 * 1000, ACTIVE_MIN)).fetchone()[0] if last else 0
+        gap = round((now - last / 1000) / 60, 1) if last else None
+        by = {}
+        if last and gap > GAP_MIN:
+            for s, ts in econ.execute("SELECT source, MAX(ts) FROM events WHERE type = ? AND ts >= ? GROUP BY source",
+                                      (t, last - 7 * 86400 * 1000)):
+                by[s or "?"] = int(ts // 1000)
+        out.append({"type": t, "last_ts": int(last // 1000) if last else None, "gap_min": gap, "n7d": int(n7 or 0),
+                    "active": n7 >= ACTIVE_MIN, "sources": by})
+    return out
+
+
+def _hhmm(ts):
+    return dt.datetime.fromtimestamp(ts, ZoneInfo(TZ)).strftime("%d.%m. %H:%M")
+
+
+def alerts_for(st, now=None, window=WINDOW, gap_min=GAP_MIN):
+    """The alerts of a status() list (pure: the tests give it any clock)."""
+    now = int(now or time.time())
+    if not in_window(now, window):
+        return []
+    out = []
+    for s in st:
+        if not s["active"] or s["last_ts"] is None or s["gap_min"] is None or s["gap_min"] <= gap_min:
+            continue
+        hours = s["gap_min"] / 60
+        name = NAMES.get(s["type"], s["type"])
+        src = ", ".join(f"{k} {_hhmm(v)}" for k, v in sorted(s["sources"].items(), key=lambda x: -x[1]))
+        out.append({"key": f"events:gap:{s['type']}", "service": SERVICE, "level": "bad" if hours >= 6 else "warn",
+                    "type": s["type"], "gap_min": s["gap_min"], "last_ts": s["last_ts"],
+                    "title": f"Nema događaja: {name} već {hours:.1f} h" if hours >= 2 else
+                             f"Nema događaja: {name} već {s['gap_min']:.0f} min",
+                    "detail": f"Zadnji događaj {_hhmm(s['last_ts'])} (Zagreb); po izvoru: {src or '-'}. Tip je aktivan "
+                              f"(barem {ACTIVE_MIN} događaja u 7 dana prije zadnjeg), provjera radi od "
+                              f"{window[0]:02d} do {window[1]:02d} h."})
+    return out
+
+
+def record(alerts, now=None, log=print, usage_db=None):
+    """Into usage.db alerts (the history on the Potrošnja page) and the log (new, worse, or once a day)."""
+    if not alerts:
+        return 0
+    try:
+        from usage import meter, watch
+        con = meter.connect(usage_db)
+        try:
+            watch.remember(con, alerts, now)
+            for a in watch.to_log(con, alerts, now):
+                log(f"UPOZORENJE podaci: {a['title']}. {a['detail']}")
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001 - the alert still goes to the log
+        for a in alerts:
+            log(f"UPOZORENJE podaci: {a['title']} ({type(e).__name__} pri upisu u usage.db)")
+    return len(alerts)
+
+
+def check(econ=None, now=None, log=print, usage_db=None):
+    """status + alerts; stores {"ts", "alerts", "status"} in events.db kv "health" for the brief. Returns alerts."""
+    now = int(now or time.time())
+    own = econ is None
+    econ = econ or store.connect()
+    try:
+        st = status(econ, now)
+        al = alerts_for(st, now)
+        record(al, now, log, usage_db)
+        store.kv_put(econ, "health", {"ts": now, "alerts": al, "status": st})
+        econ.commit()
+        return al
+    finally:
+        if own:
+            econ.close()
+
+
+def latest(econ=None, max_age_s=1800):
+    """The last check's alerts for get_hourly_brief ([] when the check is older than max_age_s)."""
+    own = econ is None
+    econ = econ or store.ro()
+    if econ is None:
+        return {"ts": None, "alerts": [], "note": "events.db još ne postoji"}
+    try:
+        h = store.kv_get(econ, "health") or {}
+    finally:
+        if own:
+            econ.close()
+    if not h or time.time() - (h.get("ts") or 0) > max_age_s:
+        return {"ts": h.get("ts"), "alerts": [], "note": "provjera zdravlja nije radila zadnjih 30 min"}
+    return {"ts": h.get("ts"), "alerts": h.get("alerts") or []}
+
+
+def gaps(hours=48, now=None, min_gap_min=GAP_MIN, paths=None):
+    """{"wallet_feed": [(from_ts, to_ts, minutes)], "calls": [...]} longest silences of the old tables in the last
+    `hours` (chain_trades and kol.db calls by their ts indexes; the last row of each list may run up to now)."""
+    now = int(now or time.time())
+    since = now - int(hours * 3600)
+    paths = paths or sources.db_paths()
+    out = {}
+    for name, db, sql in (("wallet_feed", "hype", "SELECT ts FROM chain_trades WHERE ts >= ? ORDER BY ts"),
+                          ("wallet_feed_buys", "hype", "SELECT ts FROM chain_trades WHERE ts >= ? AND side = 'buy' "
+                                                       "ORDER BY ts"),
+                          ("calls", "kol", "SELECT ts FROM calls WHERE ts >= ? AND kind = 'call' ORDER BY ts")):
+        con = sources._ro(paths.get(db))
+        if con is None:
+            continue
+        try:
+            ts = [int(r[0]) for r in con.execute(sql, (since,)) if r[0]]
+        except sqlite3.Error:
+            continue
+        finally:
+            con.close()
+        prev, found = since, []
+        for t in ts + [now]:
+            if t - prev > min_gap_min * 60:
+                found.append((prev, t, round((t - prev) / 60)))
+            prev = max(prev, t)
+        out[name] = sorted(found, key=lambda g: -g[2])
+    return out

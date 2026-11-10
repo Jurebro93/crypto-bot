@@ -249,7 +249,8 @@ def portfolio(now=None):
                 "open_positions": out,
                 "grok_autotrade": _grok_part(tcon, now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
-                                "waiting_for_owner": [r for r in raw.get("mcp_requests") or [] if r.get("status") == "pending"]}}
+                                # 11.11.: only what can still be approved (not expired, not a sell of a closed position)
+                                "waiting_for_owner": pending(tcon, now)}}
     finally:
         tcon.close()
 
@@ -363,11 +364,77 @@ def trade_request(body, now=None):
                  "message": "Waiting for the owner's approval on the MemeSonar Autopilot page; expires in 15 minutes."}
 
 
+def _open_tokens(tcon):
+    try:
+        return {t for (t,) in tcon.execute("SELECT DISTINCT token FROM positions WHERE status='open'")}
+    except Exception:  # noqa: BLE001 - no positions table yet: nothing is open
+        return set()
+
+
+def request_status(r, now, open_tokens):
+    """11.11. (Jure: request g1794340688000 for Hope still "pending" after the position was closed): the status a
+    request really has now. A pending sell whose position is no longer open is "obsolete"; a pending request older
+    than REQUEST_TTL_S is "expired" (it can no longer be approved: the market moved); everything else as stored."""
+    st = r.get("status")
+    if st != "pending":
+        return st
+    if r.get("side") == "sell" and r.get("token") not in open_tokens:
+        return "obsolete"
+    if now - (r.get("ts") or 0) >= REQUEST_TTL_S:
+        return "expired"
+    return "pending"
+
+
 def pending(tcon, now=None):
-    """The requests that still wait for the owner (younger than REQUEST_TTL_S), oldest first."""
+    """The requests that still wait for the owner (younger than REQUEST_TTL_S, and a sell only while its position is
+    open), oldest first."""
     now = now or time.time()
-    return [r for r in settings.raw(tcon).get("mcp_requests") or []
-            if r.get("status") == "pending" and now - r.get("ts", 0) < REQUEST_TTL_S]
+    reqs = settings.raw(tcon).get("mcp_requests") or []
+    if not any(r.get("status") == "pending" for r in reqs):
+        return []
+    op = _open_tokens(tcon)
+    return [r for r in reqs if request_status(r, now, op) == "pending"]
+
+
+def requests_view(tcon, now=None, limit=20):
+    """The last `limit` requests, newest first, each with its real status (pending | expired | obsolete | approved |
+    rejected | failed ...) and its age in minutes (get_hourly_brief)."""
+    now = now or time.time()
+    reqs = list(settings.raw(tcon).get("mcp_requests") or [])[-int(limit):]
+    op = _open_tokens(tcon)
+    out = []
+    for r in reversed(reqs):
+        d = {k: r.get(k) for k in ("id", "ts", "token", "side", "amount", "reason", "decided", "note")}
+        d["status"] = request_status(r, now, op)
+        d["age_min"] = round((now - (r.get("ts") or now)) / 60, 1)
+        out.append(d)
+    return out
+
+
+def tidy_requests(tcon=None, now=None):
+    """Store the real status of stale pending requests (obsolete / expired, with the time and the reason), so every
+    reader of trade settings sees it. Run by the 5-min events tick (run_events.py tick). Returns requests changed."""
+    now = int(now or time.time())
+    own = tcon is None
+    tcon = tcon or settings.connect()
+    try:
+        reqs = list(settings.raw(tcon).get("mcp_requests") or [])
+        if not any(r.get("status") == "pending" for r in reqs):
+            return 0
+        op = _open_tokens(tcon)
+        n = 0
+        for r in reqs:
+            st = request_status(r, now, op)
+            if st != r.get("status"):
+                r["status"], r["decided"] = st, now
+                r["note"] = "pozicija je već zatvorena" if st == "obsolete" else "isteklo bez odgovora (15 min)"
+                n += 1
+        if n:
+            settings.put(tcon, "mcp_requests", reqs, "events")
+        return n
+    finally:
+        if own:
+            tcon.close()
 
 
 def decide(tcon, rid, status, note=""):
@@ -814,6 +881,30 @@ INSTRUCTIONS += (" Start with get_grok_tasks and get_trade_candidates: the candi
                  "and your fresh X rows (submit_x_features) feed the ranking and the scanner.")
 
 
+# 11.11. (Jure, events.db): one read-only call with what an hourly look needs (events/brief.py)
+TOOLS.append(
+    {"name": "get_hourly_brief", "annotations": _READ,
+     "description": ("Everything for an hourly look in one read-only call. portfolio: get_portfolio_status's answer "
+                     "(open positions with entry and current market cap, PnL %, exit plan, account live | trial; "
+                     "wallet SOL; grok_autotrade state and what is left today) plus paper_positions (the paper "
+                     "account's open demo trades, account paper). trade_requests: the last 20 execute_trade requests "
+                     "with their real status (pending; expired = older than 15 min; obsolete = a sell whose position "
+                     "is already closed; approved, rejected, failed). signals: tokens with calls, followed wallets' "
+                     "buys or signals (scan, groups, autopilot, grok) since `since`, most sources first, with "
+                     "precomputed features: rug verdict and snipers %, fees_paid_sol and volume_1h_usd, "
+                     "run_up_since_first_seen_pct, phase (final_stretch = on the curve, migrated), X numbers "
+                     "(posts_per_h, unique authors, template_share, brag_ratio), every caller's and wallet's score "
+                     "(n, n_measured, hit_rate = +20 % within 4 h, median max 4 h, EV) and wallets' early-buyer "
+                     "record. groups: group activity and hidden_group signals. range_candidates: range_score >= 0.7. "
+                     "grok_predictions: Grok predictions past their deadline with outcomes ([] while no predictions "
+                     "store exists, with a note). health: feed gap alerts (no events of an active type for > 60 min, "
+                     "08-24 Zagreb) and last night's batch. timing_ms per part."),
+     "inputSchema": {"type": "object", "properties": {
+         "since": {"type": ["string", "integer"],
+                   "description": "ISO 8601 or unix seconds / milliseconds; default the last 60 minutes"},
+         "limit_signals": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30}}}})
+
+
 def _xfeat_tool(name, a, kid):
     """10.11. (Grok MCP audit 10): the two X feature tools (ui/xfeat.py)."""
     from ui import xfeat
@@ -873,6 +964,10 @@ def _tool(name, args, kid="local"):
     if name == "get_insider_candidates":   # 10.11. insider_copy (kol/precall.py)
         from kol import precall
         d = precall.mcp_tool(name, args)
+        return d, "error" in d
+    if name == "get_hourly_brief":   # 11.11. events/brief.py
+        from events import brief
+        d = brief.build(args.get("since"), args.get("limit_signals"))
         return d, "error" in d
     from ui import mcpdata
     data_tools = {

@@ -169,6 +169,11 @@ def save(con, calls):
               first_seen=MIN(first_seen, excluded.first_seen), last_seen=MAX(last_seen, excluded.last_seen)""",
                     (c["handle"], au.get("name"), c["followers"] or None, int(au.get("verified") or 0), c["ts"], c["ts"]))
     mark_ambiguous(con, {c["tweet_id"] for c in calls if c.get("match") == "ticker"})
+    try:   # 11.11. dual write into events.db (events/hooks.py): queued, never waits, never breaks the round
+        from events import hooks as _ev
+        _ev.calls_saved(con, calls)
+    except Exception:  # noqa: BLE001
+        pass
     return n
 
 

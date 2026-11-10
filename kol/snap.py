@@ -67,6 +67,11 @@ def take(con, now=None, fetch=None):
                      p.get("pairAddress"), mcap / price if mcap else None, (p.get("pairCreatedAt") or 0) // 1000 or None,
                      _num((p.get("liquidity") or {}).get("usd")), now))
     con.executemany("INSERT OR REPLACE INTO snaps VALUES (?,?,?,?,?,?)", rows)
+    try:   # 11.11. dual write into events.db (events/hooks.py), type price_tick (one per token per minute, 30k+)
+        from events import hooks as _ev
+        _ev.prices(rows)
+    except Exception:  # noqa: BLE001
+        pass
     con.execute("DELETE FROM snaps WHERE ts < ?", (now - KEEP_S,))
     con.commit()
     return len(rows)

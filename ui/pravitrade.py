@@ -1309,6 +1309,38 @@ def _mcp_section(tcon, owner):
     return _sec("Grok (MCP)", meta, inner, sid="mcp")
 
 
+def _ev_card(owner):
+    """11.11. (Jure, events/evreport.py, 23:30 every day): EV per feature phase as ONE closed row under "Još" (owner
+    only): per flag and part the signals, hit rate, EV and the baseline without the feature. A proposal to move a
+    flag is only text: the owner switches flags by hand under "Zastavice"."""
+    if not owner:
+        return ""
+    from events import evreport
+    rep = evreport.latest()
+    if not rep or not rep.get("rows"):
+        return ""
+    rows = rep["rows"]
+    props = [r for r in rows if r.get("proposal")]
+
+    def tone(x):
+        return "pos" if (x or 0) > 0 else "neg" if x is not None else ""
+    cells = "".join(
+        f'<tr><td>{esc(r["flag"])}<br><span class=mut>{esc(r["phase"])} · {esc(r["part"])}</span></td>'
+        f'<td class=n>{r.get("n_outcomes") or 0}/{r.get("n") or 0}</td>'
+        f'<td class=n>{redak.pct(r.get("hit_rate"), sign=False, frac=True)}</td>'
+        f'<td class="n {tone(r.get("ev_pct"))}">{redak.pct(r.get("ev_pct"), 1)}</td>'
+        f'<td class=n>{redak.pct(r.get("baseline_ev_pct"), 1)}</td>'
+        f'<td class=n>{redak.pct(r.get("max_dd_pct"), 1, sign=False)}</td></tr>' for r in rows)
+    inner = ('<table class=t><tr><th>značajka</th><th class=n>ishodi/n</th><th class=n>pogodak</th><th class=n>EV</th>'
+             '<th class=n>bez nje</th><th class=n>max pad</th></tr>' + cells + '</table>'
+             + "".join(f'<p><b>{esc(r["flag"])}</b>: {esc(r["proposal"])}</p>' for r in props)
+             + '<p class=mut>EV po tradeu nakon troška; "bez nje" je ista mjera bez značajke gdje se može odrediti. '
+               'Prijedlog za sljedeću fazu dolazi tek uz barem 20 ishoda i EV iznad nule, a fazu mijenjaš samo ti, '
+               'ručno, pod Zastavicama.</p>')
+    return _sec("EV po značajkama", f"{rep['day']} · {len(rows)} redaka", inner, sid="ev-znacajke",
+                value=str(len(props)) if props else None, sub="prijedloga" if props else None)
+
+
 VERDICT_TONE = {"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
 
 
@@ -4384,7 +4416,8 @@ def page(qs, user):
             con.close()
         b += [_h2("Još", sid="jos"),
               _safe("sazetak", _summary_card, tcon, owner),
-              _group(_safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
+              _group(_safe("ev", _ev_card, owner),   # 11.11.: EV per feature phase, one closed row (events/evreport)
+                     _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
                      _safe("pozivnice", _invites, tcon) if owner else "", _safety()),

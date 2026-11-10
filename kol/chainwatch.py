@@ -422,6 +422,11 @@ def ingest(payload, hype_db=None, _spool=True, timeout=None):
             _PRUNED["ts"] = now
         con.commit()
         con.close()
+        try:   # 11.11. dual write into events.db (events/hooks.py): queued, never waits, never fails the webhook
+            from events import hooks as _ev
+            _ev.chain_ingested(payload, rows, transfers)
+        except Exception:  # noqa: BLE001
+            pass
     except sqlite3.OperationalError:
         if _spool and spool(payload, hype_db) is not None:
             return len(rows) + len(transfers)
