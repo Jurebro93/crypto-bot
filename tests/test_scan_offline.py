@@ -176,7 +176,7 @@ class FlagOff(Base):
                 self.assertEqual(mcpapi.signals(NOW)["signals"], [])
 
     def test_flag_is_last_and_g11(self):
-        self.assertEqual(list(settings.FLAGS)[-1], "market_scan")
+        self.assertIn("market_scan", settings.FLAGS)   # 10.11.: group_discovery (G12) came after it
         self.assertEqual(settings.FLAGS["market_scan"][0], "G11")
         self.assertNotIn("market_scan", settings.DATA_FLAGS)
         tcon = settings.connect(self.trade)
@@ -573,7 +573,7 @@ class PaperGate(Base):
         names = {t["name"]: t for t in mcpapi.TOOLS}
         self.assertTrue(names["get_source_stats"]["annotations"]["readOnlyHint"])
         self.assertEqual(names["get_market_signals"]["inputSchema"]["properties"]["source"]["enum"],
-                         ["caller", "wallet", "scan", "beta"])
+                         ["caller", "wallet", "scan", "beta", "hidden_group"])
         res = json.loads(mcpapi.rpc(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                                 "params": {"name": "get_source_stats", "arguments": {}}}).encode())[1])
         self.assertFalse(res["result"]["isError"])
