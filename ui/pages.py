@@ -382,124 +382,478 @@ def tier_html(mint):
             f"<span class=mut>{esc(t.get('t0_razlog') or '')}{esc(put)} · potrošeno ~{t.get('credits') or 0} Helius kredita</span></p>")
 
 
+# 10.11. (Jure: "Ostalo mi se sviđa", prijedlog 4.3, maketa token.html): the token page as a detail page in the calm
+# language. Top like Apple Dionice (name and short address left, mcap and 24 h right), the mcap chart with the calls as
+# dots (ui/tokenchart), one verdict panel (pouzdanost, the same number as on the list, šansa next to it; one sentence;
+# one "Za / Protiv" line), Kupi as a sheet and Kopiraj adresu, the outside sites as words, then Tržište, Tko ga je
+# zvao, Smart walleti, Provjera ruga, and "Kako je dobio ocjenu" (full reading, the seven layers, live pulse) one tap
+# away. Every number of the old page is still here; nothing is computed differently.
+
+TOKEN_CSS = """<style>
+.tkp-back{display:inline-flex;align-items:center;gap:7px;color:var(--acc);font-size:17px;padding:8px 0 0;text-decoration:none}
+.tkp-back::before{content:"";width:9px;height:9px;border-left:2px solid var(--acc);border-bottom:2px solid var(--acc);transform:rotate(45deg);margin-left:3px}
+.tkp-dh{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:12px 0 0}
+.tkp-dh>div{min-width:0}.tkp-dh .ms-h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tkp-r{text-align:right;flex:none}
+.tkp-px{font-size:22px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tkp-s{font-size:15px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tkp-cp{all:unset;cursor:pointer;color:var(--mut)}.tkp-cp:hover{color:var(--fg)}
+.tkp-ci{display:inline-block;width:11px;height:13px;border:1.6px solid currentColor;border-radius:3px;margin:0 2px -2px 6px;box-shadow:2px -2px 0 -.5px #fff,3px -3px 0 0 currentColor}
+.tkp-msg{border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:12px 0 0;font-size:15px}
+.tkp-msg.neg{border-color:var(--bad)}
+.tkp-v .ms-name{margin-top:2px}.tkp-v .ms-name+p{margin-top:6px}
+.tkp-go{margin:12px 0 0;padding:11px 0 0;border-top:1px solid var(--line2);font-size:15px;color:var(--mut);line-height:1.4}
+.tkp-go b{color:var(--fg);font-weight:600}
+.tkp-btns{display:flex;gap:10px;margin:16px 0 0}
+.tkp-btn{all:unset;box-sizing:border-box;flex:1;display:block;text-align:center;border-radius:12px;padding:13px 0;font-size:17px;font-weight:600;cursor:pointer}
+.tkp-btn.p{background:var(--fg);color:#fff}.tkp-btn.s{background:var(--soft);color:var(--fg)}
+.tkp-btn.p[aria-disabled=true]{background:var(--line2)}
+.tkp-links{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.6}.tkp-links a{color:var(--acc);text-decoration:none}
+.tkp-chg{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:14px;margin:12px 0 0;overflow:hidden}
+.tkp-chg div{padding:9px 0;text-align:center}.tkp-chg div+div{border-left:1px solid var(--line)}
+.tkp-chg span{display:block;font-size:13px;color:var(--mut)}.tkp-chg b{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.tkp-kv{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;margin:4px 0 0}
+.tkp-kv div{padding:11px 0;border-bottom:1px solid var(--line);min-width:0}
+.tkp-kv span{display:block;font-size:13px;color:var(--mut)}.tkp-kv b{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.tkp .pos{color:var(--good)}.tkp .neg{color:var(--bad)}
+.tkp-h2s{font-size:15px;font-weight:400;letter-spacing:0;color:var(--mut)}
+.tkp-state{font-size:15px;color:var(--mut);margin:8px 0 2px}
+.tkp-chk{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:46px;border-bottom:1px solid var(--line);font-size:17px}
+.tkp-chk:last-child{border-bottom:0}.tkp-chk span{font-size:15px;color:var(--mut);text-align:right}
+.tkp-chk span.warn{color:var(--warn)}.tkp-chk span.bad{color:var(--bad)}
+.tkp-d>summary{list-style:none;cursor:pointer}.tkp-d>summary::-webkit-details-marker{display:none}
+.tkp-d[open]>summary .ms-chev{transform:rotate(135deg)}
+.tkp-d>.tkp-in{padding:4px 0 18px;font-size:15px;line-height:1.5}
+.tkp-d:not(:last-child)>summary.ms-row{border-bottom:1px solid var(--line)}
+.tkp-list{list-style:none;margin:6px 0;padding:0}.tkp-list li{padding:3px 0}
+.tkp-all{margin:6px 0 0}.tkp-all>summary{font-size:15px;color:var(--acc)}
+.tkp-g2>section>.ms-h2:first-child{margin-top:40px}
+@media(min-width:900px){
+ .tkp-g2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);column-gap:44px;align-items:start}
+ .tkp-g2.a .ms-panel{margin-top:16px}
+ .tkp-kv{grid-template-columns:1fr 1fr 1fr}
+}
+</style>"""
+
+TOKEN_JS = """<script>(()=>{const sh=document.getElementById('qb-sheet');
+document.addEventListener('click',e=>{const c=e.target.closest('[data-copy]');if(c){e.preventDefault();const m=c.dataset.copy,
+ t=c.querySelector('.tkp-cl')||c,o=t.textContent,done=()=>{t.textContent='Kopirano';setTimeout(()=>t.textContent=o,1500)};
+ (navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject()).then(done,()=>prompt('Kopiraj adresu:',m));return}
+ const b=e.target.closest('[data-buy]');if(b&&sh&&sh.showModal){e.preventDefault();sh.showModal();return}
+ if(sh&&(e.target===sh||e.target.closest('#qb-sheet [data-close]')))sh.close();
+ const a=e.target.closest('a[href^="#"]');if(a){const d=document.getElementById(a.getAttribute('href').slice(1));if(d&&d.tagName==='DETAILS')d.open=true}});
+const d=location.hash&&document.getElementById(location.hash.slice(1));if(d&&d.tagName==='DETAILS')d.open=true})()</script>"""
+
+DEX_NAME = {"raydium": "Raydium", "pumpswap": "PumpSwap", "meteora": "Meteora", "orca": "Orca", "launchlab": "LaunchLab"}
+TOKEN_LINKS = (("DexScreener", "dexscreener.com"), ("Birdeye", "birdeye.so"), ("GMGN", "gmgn.ai"), ("Solscan", "solscan.io"),
+               ("X", "x.com"))
+
+
+def _short_addr(a):
+    return f"{a[:4]}…{a[-4:]}" if a and len(a) > 10 else (a or "")
+
+
+def _price_txt(p):
+    """0.000412 -> "0,000412 $" (three significant digits), 1.234 -> "1,23 $"."""
+    import math
+    from ui.redak import NBSP, num
+    try:
+        p = float(p)
+    except (TypeError, ValueError):
+        return None
+    if p <= 0:
+        return None
+    dec = 2 if p >= 1 else max(2, -math.floor(math.log10(p)) + 2)
+    return f"{num(p, min(dec, 12))}{NBSP}$"
+
+
+def _age_txt(ms):
+    if not ms:
+        return None
+    d = time.time() - ms / 1000
+    return f"{int(d // 3600)} h" if d < 2 * 86400 else f"{int(d // 86400)} d"
+
+
+def _token_status(mint):
+    """The token's hype/tokenstatus row by its key (the page used to read the whole table for one row)."""
+    rows = data.q(data.HYPE_DB, "SELECT * FROM token_status WHERE token=?", (mint,))
+    return rows[0] if rows else None
+
+
+def _zone_mcap0(mint, now):
+    """mcap at the moment today's suggestion (Pregled) showed this token, or None (prijedlog_log, by key)."""
+    rows = data.q(data.HYPE_DB, "SELECT mcap0 FROM prijedlog_log WHERE token=? AND ts>=? ORDER BY ts DESC LIMIT 1",
+                  (mint, int(now - 86400)))
+    return rows[0]["mcap0"] if rows and rows[0].get("mcap0") else None
+
+
+def _token_links(mint, url=None, dead=False):
+    from ui.html import EXT_SITES
+    from urllib.parse import quote as _q
+    mk = {dom: f for _, dom, f in EXT_SITES}
+    out = []
+    for name, dom in TOKEN_LINKS:
+        href = url if (dom == "dexscreener.com" and url and not dead) else (
+            f"https://dexscreener.com/search?q={_q(mint)}" if dom == "dexscreener.com" and dead else mk[dom](_q(mint)))
+        out.append(f'<a href="{esc(href)}" target=_blank rel=noopener>{esc(name)}</a>')
+    return " · ".join(out)
+
+
+def _market_html(pair, st, top, rug, det, pl, url):
+    """Tržište (like DexScreener): 5 min, 1 h, 6 h, 24 h in one strip, then price, liquidity, volume, buys / sells,
+    holders, top 10, age and where it trades. Live pair first (DexScreener, 60 s cache), then what the bases know."""
+    from ui import redak as R
+    b = [R.section("Tržište", "DexScreener" if url else None, url)]
+    ch = (pair or {}).get("priceChange") or {}
+    if pair and any(ch.get(k) is not None for k in ("m5", "h1", "h6", "h24")):
+        b.append('<div class="tkp-chg">' + "".join(
+            f'<div><span>{lab}</span><b class="{R.tone(ch.get(k))}">{esc(R.pct(ch.get(k)))}</b></div>'
+            for k, lab in (("m5", "5 min"), ("h1", "1 h"), ("h6", "6 h"), ("h24", "24 h"))) + "</div>")
+    last = pl[-1] if pl else {}
+    tx = ((pair or {}).get("txns") or {}).get("h1") or {}
+    rc = (top or {}).get("rc") or {}
+    pf = (det or {}).get("pumpfun") or {}
+    holders = rc.get("holders") or next((x["holders"] for x in reversed(pl or []) if x.get("holders")), None) or pf.get("holders")
+    t10 = rc.get("top10")
+    if t10 is None:
+        t10 = (rug or {}).get("top10_pct")
+    if t10 is None and pf.get("top10HoldersPercent") is not None:
+        v = pf["top10HoldersPercent"]
+        t10 = v / 100 if v > 100 else v
+    dex = (pair or {}).get("dexId") or (st or {}).get("dex_id")
+    kv = [("Cijena", _price_txt((pair or {}).get("priceUsd") or (st or {}).get("price"))),
+          ("Likvidnost", R.usd(((pair or {}).get("liquidity") or {}).get("usd") or (st or {}).get("liq") or None)),
+          ("Volumen 1 h", R.usd(((pair or {}).get("volume") or {}).get("h1") or last.get("vol_h1") or None)),
+          ("Kupnje / prodaje 1 h", f'{R.num(tx.get("buys"))} / {R.num(tx.get("sells"))}' if tx else
+           (f'{R.num(last.get("buys_h1"))} / {R.num(last.get("sells_h1"))}' if last.get("buys_h1") is not None else None)),
+          ("Holderi", R.num(holders) if holders else None),
+          ("Top 10 holdera", R.pct(t10, sign=False) if t10 is not None else None),
+          ("Starost", _age_txt((pair or {}).get("pairCreatedAt"))),
+          ("Bondan", None if not dex else ("ne, još na krivulji" if dex == "pumpfun" else f"da, {DEX_NAME.get(dex, dex)}"))]
+    kv = [(k, v) for k, v in kv if v and v != R.DASH and v != "– / –"]
+    if kv:
+        b.append('<div class="tkp-kv">' + "".join(f"<div><span>{esc(k)}</span><b>{esc(v)}</b></div>" for k, v in kv) + "</div>")
+    if st and not st.get("has_pair"):
+        b.append(R.hint("DexScreener više nema par za ovaj token (nema trgovanja)."
+                        + (f" GeckoTerminal: vrijednost {R.usd(st['gt_fdv'])}, promet 24 h {R.usd(st.get('gt_vol24') or 0)}."
+                           if st.get("gt_fdv") else "")))
+    elif not kv:
+        b.append(R.hint("Tržišni podaci za ovaj token trenutno nisu dostupni."))
+    s = (top or {}).get("state") or {}
+    if s.get("advice"):
+        lab = (s.get("label") or "").split(" ", 1)[-1] if s.get("label") else ""
+        b.append(R.hint(f"{lab}: {s['advice']}" if lab else s["advice"]))
+    return "".join(b)
+
+
+def _callers_html(mint, mcap_now, now):
+    """Tko ga je zvao: the four newest first calls with the one influencer verdict (ui/kolsummary), the mcap at the
+    call and the rise since; "Svih N" opens the full table of posts and KOL wallet trades (ui/kol.token_section)."""
+    import json
+    from ui import redak as R
+    from ui import tokenchart
+    cs = tokenchart.calls(mint)
+    try:
+        from ui import kol as _kol
+        full = _kol.token_section(mint)
+    except Exception:  # noqa: BLE001
+        full = ""
+    head = R.section("Tko ga je zvao", f"Svih {len(cs)}" if len(cs) > 4 or (full and cs) else None, "#pozivi")
+    if not cs:
+        return head + R.hint("Nitko od praćenih računa ga nije objavio.") + (
+            f'<details class="tkp-all" id="pozivi"><summary>Kupnje KOL novčanika</summary>{full}</details>' if full else "")
+    show = sorted(cs, key=lambda c: -c[0])[:4]
+    first = cs[0][0]
+    rug = {}
+    try:
+        from kol import store
+        hs = [c[1] for c in show]
+        for r in data.q(store.DB, f"SELECT handle, stats FROM kols WHERE handle IN ({','.join('?' * len(hs))})", hs):
+            rug[r["handle"]] = (json.loads(r["stats"] or "{}") or {}).get("rug_rate")
+    except Exception:  # noqa: BLE001
+        pass
+    from ui import kolsummary
+    items = []
+    for ts_, hnd, m0 in show:
+        v = kolsummary.kol_verdict(hnd)
+        rr = rug.get(hnd)
+        when = ("prvi, " if ts_ == first else "") + R.ago(ts_, now)
+        if rr is not None and rr >= 0.3:
+            reason = R.cat(R.raw(f'<span class="ms-warn">{esc(R.pct(rr, sign=False, frac=True))} rugova</span>'), " · ", when)
+        else:
+            reason = R.cat(R.dot(v["dot"]) if v.get("dot") else "", v["word"], " · ", when)
+        growth = (mcap_now / m0 - 1) * 100 if (mcap_now and m0) else None
+        name = (hnd[3:] + " (TG)") if hnd.startswith("tg:") else "@" + hnd
+        items.append(R.row(name, reason=reason, value=R.usd(m0) if m0 else R.DASH,
+                           sub=R.pct(growth) if growth is not None else None, sub_tone=R.tone(growth), href=f"/kol/{hnd}"))
+    return (head + R.rows(items) + R.hint("Desno: mcap kod poziva i koliko je od tada narastao.")
+            + (f'<details class="tkp-all" id="pozivi"><summary>Svi pozivi i kupnje KOL novčanika</summary>{full}</details>'
+               if full else ""))
+
+
+def _smart_html(mint, det, now):
+    """Smart walleti: who of the registry bought it (good roles only), how much, and whether it still holds."""
+    from ui import redak as R
+    sg = [x for x in data.sightings(token=mint) if x.get("role") in ("early_buyer", "smart", "top_trader", "holder", "manual")]
+    seen, rows = set(), []
+    for x in sg:
+        if x["wallet"] not in seen:
+            seen.add(x["wallet"])
+            rows.append(x)
+    n_sm = len((det or {}).get("smart_buyers") or [])
+    sub = f"{n_sm} među prvima" if n_sm else (f"{len(rows)} iz registra" if rows else "")
+    head = f'<h2 class="ms-h2"><span>Smart walleti</span><span class="tkp-h2s">{esc(sub)}</span></h2>'
+    if not rows:
+        return head + R.hint("Nijedan wallet iz registra nije zabilježen na ovom tokenu.")
+    rows = sorted(rows, key=lambda x: -(x.get("sol_in") or 0))[:5]
+    ws = [x["wallet"] for x in rows]
+    proven = set()
+    try:
+        from wallets import dokazani
+        proven = {r["wallet"] for r in dokazani.latest()}
+    except Exception:  # noqa: BLE001
+        pass
+    reg = {r["wallet"]: r for r in data.q(data.WALLET_DB, f"SELECT wallet, copy_score FROM wallets WHERE wallet IN "
+                                                          f"({','.join('?' * len(ws))})", ws)}
+    items = []
+    for x in rows:
+        w = x["wallet"]
+        tr = data.q(data.WALLET_DB, "SELECT tokens, kind FROM wallet_trades WHERE wallet=? AND mint=?", (w, mint))
+        bought = sum(t["tokens"] or 0 for t in tr if t["kind"] == "buy")
+        sold = sum(t["tokens"] or 0 for t in tr if t["kind"] == "sell")
+        if bought and sold:
+            f = min(1.0, sold / bought)
+            hold = "prodao sve" if f >= 0.95 else "prodao pola" if 0.4 <= f <= 0.6 else f"prodao {R.pct(f, sign=False, frac=True)}"
+        elif bought:
+            hold = "još drži"
+        else:
+            hold = None
+        cs_ = (reg.get(w) or {}).get("copy_score")
+        if w in proven:
+            what = R.cat(R.dot("good"), "dokazan dvaput")
+        elif cs_:
+            what = f"copy ocjena {R.num(cs_)}"
+        else:
+            what = ROLE.get(x["role"], (x["role"],))[0]
+        items.append(R.row(_short_addr(w), reason=R.cat(what, " · ", R.ago(x.get("ts"), now)),
+                           value=R.sol(x.get("sol_in"), 2) if x.get("sol_in") else None, sub=hold, href=f"/wallet/{w}"))
+    return head + R.rows(items)
+
+
+def _rug_html(top, rug, now):
+    """Provjera ruga: the fresh check of a recommended token (topcheck) or else the newest rug filter report."""
+    from ui import redak as R, topcheckui
+    state, rows = topcheckui.check_state(top), topcheckui.check_rows(top)
+    if not rows:
+        state, rows = topcheckui.rug_state(rug), topcheckui.rug_rows(rug)
+    when = R.ago(state[2], now) if state and state[2] else ""
+    head = f'<h2 class="ms-h2"><span>Provjera ruga</span><span class="tkp-h2s">{esc(when)}</span></h2>'
+    if not state:
+        return head + R.hint("Još nije provjeren: puna provjera ide tokenima koji prođu prve razine analize.")
+    return (head + f'<div class="tkp-state">{R.dot(state[0], state[1])}</div>'
+            + "".join(f'<div class="tkp-chk">{esc(k)}<span class="{kind or ""}">{esc(v)}</span></div>' for k, v, kind in rows))
+
+
+def _sum_row(title, sub=None, value=None):
+    """A row that opens what is under it (<summary> in the ms-row look)."""
+    return (f'<summary class="ms-row"><div class="ms-m"><div class="ms-t">{esc(title)}</div>'
+            + (f'<div class="ms-s">{esc(sub)}</div>' if sub else "") + "</div>"
+            + (f'<div class="ms-e"><div class="ms-v mut" style="font-weight:400">{esc(value)}</div></div>' if value else "")
+            + '<span class="ms-chev" aria-hidden="true"></span></summary>')
+
+
 def token(mint, qs):
+    from ui import redak as R
+    now = time.time()
     ev = data.event_tokens(mint)
     sigs = data.hype_signals("token=?", (mint,), "ts DESC")
     rugs = data.rug_reports(mint)
-    sym = (ev[0]["symbol"] if ev else None) or (sigs[0]["symbol"] if sigs else None) or (rugs[0]["symbol"] if rugs else None)
-    url = (ev[0]["url"] if ev else None) or (sigs[0]["url"] if sigs else None)
-    from ui import league as _league, quickbuy
+    from ui import evidence, quickbuy, tokenchart
+    from ui.tokens import SHEET_CSS
     dsym, dlist = quickbuy.dugo_info(mint)
-    sym = sym or dsym
-    # top to bottom: name + Šansa, rug warnings, one-sentence verdict, Za / Protiv, copy, outside sites; then the
-    # layers behind taps; the Natjecanje buy box (bonus) last
     try:   # 7.11.: the exact pair page, or "no pair any more" (hype/tokenstatus)
-        from hype import tokenstatus as _ts
-        st = _ts.read(data.HYPE_DB).get(mint)
+        st = _token_status(mint)
     except Exception:  # noqa: BLE001
         st = None
+    pair = evidence.live_pair(mint)
+    rug = rugs[0] if rugs else None
+    sym = (ev[0]["symbol"] if ev else None) or (sigs[0]["symbol"] if sigs else None) or (rug["symbol"] if rug else None) \
+        or ((pair or {}).get("baseToken") or {}).get("symbol") or dsym
+    name = ((pair or {}).get("baseToken") or {}).get("name") or ((rug or {}).get("data") or {}).get("name") \
+        or (sigs[0].get("name") if sigs else None)
+    url = (ev[0]["url"] if ev else None) or (sigs[0]["url"] if sigs else None)
     if st and st.get("has_pair") and st.get("pair_url"):
         url = st["pair_url"]
-    dead_note = ("<p class=mut>DexScreener više nema par za ovaj token (nema trgovanja). "
-                 + (f"GeckoTerminal: vrijednost ${st['gt_fdv']:,.0f}, promet 24 h ${st.get('gt_vol24') or 0:,.0f}." if st.get("gt_fdv") else "")
-                 + "</p>") if st and not st.get("has_pair") else ""
-    actions = (f"<p>{quickbuy.copy_btn(mint, label='Kopiraj adresu ' + short(mint), big=True)}</p>"
-               f"<div class=ext-big>{ext_icons(mint, url, dead=bool(st) and not st.get('has_pair'))}</div>{dead_note}")
-    b = [_league._err(qs) + ('<p><a href="/natjecanje#moj"><b>Vidi svoj račun na Natjecanju →</b></a></p>' if qs.get("ok") else "")]
-    natj = ""
-    locked = None
-    if not (ev or sigs or rugs):
-        b.insert(0, f"<h1>{esc(sym or short(mint))}</h1>")
-        b.append((f'<p class=mut>Na popisu <a href="/dugorocno">{esc(dlist)}</a>.</p>' if dlist else
-                  "<p class=mut>Ovaj token nije ni u jednoj analizi.</p>") + actions)
-        b.append(quickbuy.token_box(mint, sym))
-    else:
+    url = (pair or {}).get("url") or url
+    dead = bool(st) and not st.get("has_pair") and not pair
+    analysed = bool(ev or sigs or rugs)
+
+    locked = why_bad = rec_note = None
+    top = None
+    if analysed:
         from rugfilter import archive, collapse
         arch = archive.get(mint, data.HYPE_DB)
         col = None if arch else collapse.check(collapse.peaks(data.HYPE_DB, [mint]).get(mint))
         if arch:
-            import time as _t
-            b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan i izbačen iz praćenja:</b> '
-                     f'{esc(arch["reason"])} ({esc(archive.KIND_HR.get(arch["kind"], arch["kind"]))}). '
-                     f'Izbačen {_t.strftime("%d.%m. %H:%M", _t.gmtime(arch["archived_ts"]))} UTC: bot ga više ne prati i ne troši '
-                     'API kredite na njega, a čuva samo podatke s ulaza da iz njih uči kako izgleda rug. Kupnja je zaključana.</div>')
+            why_bad = (f'Rugan i izbačen iz praćenja {time.strftime("%d.%m. %H:%M", time.gmtime(arch["archived_ts"]))} UTC: '
+                       f'{arch["reason"]} ({archive.KIND_HR.get(arch["kind"], arch["kind"])}); kupnja je zaključana')
         rec = None if arch else archive.recovered(mint, data.HYPE_DB)
         if rec:
-            import time as _t
-            b.append(f'<div class=card><b>↩ Vraćen u praćenje</b> {_t.strftime("%d.%m. %H:%M", _t.gmtime(rec["recovered_ts"]))} UTC: '
-                     f'bio je izbačen kao rug {_t.strftime("%d.%m.", _t.gmtime(rec["archived_ts"]))} ({esc(rec["reason"] or "")}), '
-                     f'a zatim se oporavio na {rec["mcap"] / rec["peak_mcap"]:.0%} vrha (${rec["mcap"] / 1000:,.0f}k od '
-                     f'${rec["peak_mcap"] / 1000:,.0f}k). Rug profil ga više ne broji kao rug; bot ga opet prati.</div>')
+            rec_note = (f'Vraćen u praćenje {time.strftime("%d.%m. %H:%M", time.gmtime(rec["recovered_ts"]))} UTC: bio je '
+                        f'izbačen kao rug {time.strftime("%d.%m.", time.gmtime(rec["archived_ts"]))} ({rec["reason"] or ""}), '
+                        f'a zatim se oporavio na {R.pct(rec["mcap"] / rec["peak_mcap"], sign=False, frac=True)} vrha '
+                        f'({R.usd(rec["mcap"])} od {R.usd(rec["peak_mcap"])}).')
         if col:
-            b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
-                     'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')
+            why_bad = f'Rugan: {col["text"]}; maknut je s prijedloga i kupnja je zaključana'
         if arch or col:
             locked = "token je rugan"
         from topcheck import store as topstore
-        from ui import topcheckui
         top = topstore.read_all().get(mint)
         if top and top.get("verdict") == "pao" and not locked:
             locked = "token je pao na obaveznom rug checku"
-        topbox = topcheckui.token_box(top)
-        natj = quickbuy.token_box(mint, sym, locked)
-        from ui import narrative
-        b.append(narrative.verdict_html(mint))
-        tiers = tier_html(mint)
+            why_bad = why_bad or ("Pao na obaveznoj provjeri ruga: " + "; ".join(((top.get("safety") or {}).get("fails") or [])[:2]))
+        if not why_bad and rug and rug["verdict"] == "ODBAČEN":
+            why_bad = "Rug filter ga je odbacio: " + "; ".join((rug["data"].get("hard_fails") or ["tvrdi pad"])[:2])
 
-    # summary: one card with the verdict numbers, then "za" / "protiv" from the confidence parts
-    sigs_asc = sigs[::-1]
     sig = sigs[0] if sigs else None
-    from ui import confidence, evidence, sansa
+    from ui import confidence, sansa
     _, det = evidence.details(mint)
     pc = data.paper_candidates(mint)
     cand = pc[0] if pc else None
-    cs = evidence.checks(mint, sig, det, rugs[0] if rugs else None, ev, cand)
+    cs = evidence.checks(mint, sig, det, rug, ev, cand)
     role = "canonical" if any(e["role"] == "canonical" for e in ev) else None
-    mk = (rugs[0]["data"].get("market") if rugs else None) or {}
-    conf, parts = confidence.score(sig["score"] if sig else None, (data.js(sig["features"], {}) or {}) if sig else {}, det,
-                                   rugs[0]["verdict"] if rugs else None, role,
-                                   (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
+    mk = (rug["data"].get("market") if rug else None) or {}
+    feats = (data.js(sig["features"], {}) or {}) if sig else {}
+    cargs = (sig["score"] if sig else None, feats, det, rug["verdict"] if rug else None, role,
+             (sig or {}).get("liquidity") or mk.get("liquidity"), (sig or {}).get("mcap") or mk.get("mcap"))
+    conf, parts = confidence.score(*cargs)
+    keyed = confidence.parts_keyed(*cargs)
     sn, an, pr, pa = sansa.score(conf, cs)
     best = max(ev, key=lambda e: e["score"] or 0) if ev else None
-    if ev or sigs or rugs:
-        b.insert(0, f"<div class=tokhead><h1>{esc(sym or short(mint))}</h1><div class=sn><small>Šansa {info('Šansa')}</small>"
-                    f"<b>{sn}</b></div></div>")
-    za = [t for p_, t in parts if p_ > 0]
-    protiv = [t for p_, t in parts if p_ < 0]
-    if ev or sigs or rugs:
-        if za or protiv:
-            b.append("<div class=grid style='grid-template-columns:1fr 1fr;gap:12px'>"
-                     "<div class=card><b style='color:var(--good)'>Za</b><ul class=r>"
-                     + "".join(f"<li class=good>{esc(t)}</li>" for t in za[:5]) + ("<li class=mut>ništa izmjereno</li>" if not za else "")
-                     + "</ul></div><div class=card><b style='color:var(--bad)'>Protiv</b><ul class=r>"
-                     + "".join(f"<li class=bad>{esc(t)}</li>" for t in protiv[:5]) + ("<li class=mut>nema zabilježenih rizika</li>" if not protiv else "")
-                     + "</ul></div></div>")
-        try:
-            from live import pulse as _lp
-            topbox += _lp.token_html(mint)
-        except Exception:  # noqa: BLE001 - the live card never breaks the page
-            pass
-        b.append(actions + topbox)
-        b.append("<h2>Brojke</h2><div class=grid>")
-        for v, l in [(f"<b>{sn}</b>", "šansa za skok"), (conf, "confidence"),
-                     (f"{an}/{sansa.N} {sansa.dots_html(cs)}", "slojeva analizirano"),
-                     (max(s["score"] or 0 for s in sigs) if sigs else "–", "hype max"),
-                     (verdict(rugs[0]["verdict"]) if rugs else "–", "rug presuda"),
-                     (best["score"] if best else "–", "event ocjena")]:
-            b.append(f"<div class=stat><div class=v>{v}</div><div class=l>{l}</div></div>")
-        b.append("</div>" + tiers)
+    mcap_now = (pair or {}).get("marketCap") or (pair or {}).get("fdv") or ((st or {}).get("mcap") if (st or {}).get("has_pair") else None) \
+        or (sig or {}).get("mcap") or mk.get("mcap")
+    ch = (pair or {}).get("priceChange") or {}
+    h1 = ch.get("h1")
+    m0 = _zone_mcap0(mint, now) if analysed else None
+    zone_x = mcap_now / m0 if (mcap_now and m0) else None
+    from ui import narrative
+    try:
+        from ui.radar import reasons as _reasons
+        why = _reasons(feats, det) if sig else []
+    except Exception:  # noqa: BLE001
+        why = []
+
+    b = [TOKEN_CSS, tokenchart.CSS, f"<style>{SHEET_CSS}{quickbuy.SHEET_CSS}</style>", '<div class="ms-page ms-wide tkp">']
+    if qs.get("err"):
+        b.append(f'<p class="tkp-msg neg">Nije prošlo, ništa nije spremljeno: {esc(qs["err"])}</p>')
+    elif qs.get("ok"):
+        b.append(f'<p class="tkp-msg">{esc(qs["ok"])} <a href="/natjecanje#moj">Vidi svoj račun na Natjecanju</a></p>')
+    b.append('<a class="tkp-back" href="/tokens">Tokeni</a>')
+    sub = R.cat(name + " · " if name and name != sym else "",
+                R.raw(f'<button type="button" class="tkp-cp" data-copy="{esc(mint)}" title="Kopiraj adresu {esc(mint)}">'
+                      f'<span class="tkp-cl">{esc(_short_addr(mint))}</span><span class="tkp-ci" aria-hidden="true"></span></button>'))
+    right = ""
+    if mcap_now:
+        right = (f'<div class="tkp-r"><div class="tkp-px">{esc(R.usd(mcap_now))}</div>'
+                 + (f'<div class="tkp-s">24 h <span class="{R.tone(ch["h24"])}">{esc(R.pct(ch["h24"]))}</span></div>'
+                    if ch.get("h24") is not None else "") + "</div>")
+    b.append(f'<div class="tkp-dh"><div><h1 class="ms-h1" translate=no>{esc(sym or _short_addr(mint))}</h1>'
+             f'<div class="tkp-s">{sub}</div></div>{right}</div>')
+
+    # verdict panel, buttons, outside sites
+    if analysed:
+        word, kind = narrative.token_verdict(conf, mcap_now, rug["verdict"] if rug else None, locked,
+                                             (top or {}).get("verdict"), h1, zone_x)
+        sentence = narrative.token_sentence(why, word, zone_x, why_bad, h1)
+        za, protiv = narrative.za_protiv(keyed, parts)
+        zt, pt = narrative.za_protiv_line(za, protiv)
+        lbl = R.cat(R.dot(kind) if kind in ("warn", "bad") else "", f"Pouzdanost {conf} · šansa za skok {sn}")
+        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">{lbl}</div><div class="ms-name">{esc(word)}</div>'
+                 f'<p>{esc(sentence)}</p><div class="tkp-go"><b>Za:</b> {esc(zt)} <b>Protiv:</b> {esc(pt)}</div></div>')
+    else:
+        panel = (f'<div class="ms-panel ms-verdict tkp-v"><div class="ms-lbl">Bez analize</div><div class="ms-name">'
+                 f'{"Na popisu " + esc(dlist) if dlist else "Nije u analizi"}</div><p>'
+                 + (f'Token je na popisu <a href="/dugorocno">{esc(dlist)}</a>; brojke su na stranici Dugoročni.' if dlist else
+                    "Ovaj token nije ni u jednoj analizi. Tržište i vanjske stranice su ispod.") + "</p></div>")
+    if rec_note:
+        panel += R.hint(rec_note)
+    buy_txt = (f"Kupnja je zaključana: {locked}." if locked else
+               'Kupnja: demo 50 $ na Natjecanju<span class="adm-only"> ili Autopilot (pravi novac)</span>.')
+    actions = ('<div class="tkp-btns"><button type="button" class="tkp-btn p" data-buy'
+               + (' aria-disabled="true"' if locked else "") + '>Kupi</button>'
+               f'<button type="button" class="tkp-btn s" data-copy="{esc(mint)}"><span class="tkp-cl">Kopiraj adresu</span></button></div>'
+               f'<p class="tkp-links">{buy_txt}<br>{_token_links(mint, url, dead)}</p>')
+    chart = tokenchart.chart_html(mint, sym or "", now)
+    if chart:
+        b.append(f'<div class="tkp-g2 a"><div>{chart}</div><div>{panel}{actions}</div></div>')
+    else:
+        b.append(panel + actions)
+
+    pl = data.token_pulse(mint)
+    b.append('<div class="tkp-g2"><section>' + _market_html(pair, st, top, rug, det, pl, url) + "</section><section>"
+             + _callers_html(mint, mcap_now, now) + "</section></div>")
+    b.append('<div class="tkp-g2"><section>' + _smart_html(mint, det, now) + "</section><section>"
+             + _rug_html(top, rug, now) + "</section></div>")
+
+    # how it got its grade: the full reading, the seven layers, live pulse (all one tap away)
     opened = qs.get("sve") == "1"
-    b.append(f"<h2>Slojevi</h2><p class=mut style='font-size:12px'><a href='?sve={'0' if opened else '1'}'>"
-             f"{'Sklopi sve' if opened else 'Otvori sve'}</a></p>")
+    b.append(R.section("Kako je dobio ocjenu"))
+    full = []
+    if analysed:
+        try:
+            head_, paras = narrative.interpret(mint)
+        except Exception as e:  # noqa: BLE001 - never break the page over the summary
+            print(f"narrative {mint}: {type(e).__name__}: {e}")
+            head_, paras = "", []
+        pts = "".join(f'<li><b class="{R.tone(p)}">{esc(R.num(p, 0, sign=True))}</b> {esc(t)}</li>' for p, t in parts)
+        full.append(f'<details class="tkp-d"{" open" if opened else ""}>'
+                    + _sum_row("Cijelo tumačenje", "za i protiv, svaki razlog s brojem")
+                    + f'<div class="tkp-in"><p>{head_}</p>{"".join(paras)}'
+                    + (f"<p><b>Pouzdanost {conf}</b>, po dijelovima:</p><ul class=tkp-list>{pts}</ul>" if pts else "")
+                    + sansa.explain_html(sn, conf, an, pr, pa).replace("confidence", "pouzdanost") + "</div></details>")
+    layers = _layers_html(mint, ev, sigs, rugs, pc, best, role, opened)
+    full.append(f'<details class="tkp-d" id="slojevi"{" open" if opened else ""}>'
+                + _sum_row("Slojevi analize", "KOL, hype, rug, puls, walleti, X, event", f"{an} od {sansa.N}")
+                + f'<div class="tkp-in">{sansa.dots_html(cs)} {tier_html(mint) if analysed else ""}{layers}</div></details>')
+    from hype import pulse as hpulse
+    sf = hpulse.strength(pl) if pl else {}
+    try:
+        from live import pulse as _lp
+        live_html = _lp.token_html(mint)
+    except Exception:  # noqa: BLE001 - the live card never breaks the page
+        live_html = ""
+    full.append(f'<details class="tkp-d" id="puls"{" open" if opened else ""}>'
+                + _sum_row("Puls uživo", (hpulse.describe(sf) or "").replace("Snaga: ", "")
+                           or ("kupci i prodavači u zadnjih 15 min" if live_html else "nema očitanja u zadnja 24 h"))
+                + f'<div class="tkp-in">{live_html}{_pulse_table(pl)}</div></details>')
+    b.append('<div class="ms-list">' + "".join(full) + "</div>")
+    b.append(R.hint("Pouzdanost: koliko se neovisni izvori slažu. Šansa za skok: koliko je sličnih tokena nastavilo rasti.")
+             .replace("</p>", ' <a class="ms-acc" href="/pojmovnik#confidence" style="text-decoration:none">Pojmovnik</a></p>'))
+    b.append(quickbuy.buy_sheet(mint, sym, locked) + "</div>" + TOKEN_JS)
+    # a detail page of about three screens: no row of section chips on top (ui/secnav builds one from 3+ <h2>)
+    return sym or short(mint), "".join(b).replace("<h2", '<h2 data-sec=""')
+
+
+def _pulse_table(pl):
+    """The pulse readings (hype/pulse, every 2 min while the token is interesting), newest first."""
+    if not pl:
+        return ""
+    return table(["Vrijeme", ("Mcap", "n"), ("Vol 5 min", "n"), ("Vol 1 h", "n"), ("Kupnje 1 h", "n"), ("Prodaje 1 h", "n"),
+                  ("Holderi (puls)", "n")],
+                 [[ts(x["ts"]), usd(x["mcap"]), usd(x["vol_m5"]), usd(x["vol_h1"]), num(x["buys_h1"]), num(x["sells_h1"]),
+                   (f"{x['holders']} <span class=mut>{esc(x['holders_src'] or '')}</span>", x["holders"], "n") if x["holders"] else num(None)]
+                  for x in pl[::-1][:48]])
+
+
+def _layers_html(mint, ev, sigs, rugs, pc, best, role, opened):
+    """The analysis layers as they were on the old page (event, hype, rug filter, demo trading, wallets), each folded,
+    with every table. 10.11.: moved under "Kako je dobio ocjenu → Slojevi analize"; the KOL layer is under "Tko ga je
+    zvao" and the pulse under "Puls uživo"."""
+    b = [f"<p class=mut style='font-size:13px'><a href='?sve={'0' if opened else '1'}'>{'Sklopi sve' if opened else 'Otvori sve'}</a></p>"]
+    sigs_asc = sigs[::-1]
 
     def sec(sid, title, summary, force=False):
         return (f"<details id={sid}{' open' if opened or force else ''}><summary><b>{title}</b> "
                 f"<span class=mut>· {summary}</span></summary>")
-
-    from ui import kol
-    kol_html = kol.token_section(mint)
-    if kol_html:
-        b.append(sec("kol", "KOL sloj", "tko ga je zvao na X-u i što je cijena napravila") + kol_html + "</details>")
 
     # layer 1: event
     ev_sum = (f"{esc(best['event'])} · {'pravi' if role else 'kopija'} · ocjena {best['score']}" if best else "nije vezan uz event")
@@ -509,9 +863,9 @@ def token(mint, qs):
     for e in ev:
         d = dict(e["data"])
         d.setdefault("cto", e["cto"])
-        role = "pravi (canonical)" if e["role"] == "canonical" else "kopija (copycat)"
+        erole = "pravi (canonical)" if e["role"] == "canonical" else "kopija (copycat)"
         b.append(f'<div class=card><b>{esc(e["event"])}</b> · {esc(e["event_date"])} · pojam '
-                 f'<code>{esc(e["keyword"])}</code> · {badge(role, "good" if e["role"] == "canonical" else "")}'
+                 f'<code>{esc(e["keyword"])}</code> · {badge(erole, "good" if e["role"] == "canonical" else "")}'
                  f'<p class=mut>Token pripada eventu jer mu je simbol jednak pojmu ili ime sadrži pojam. '
                  f'Unutar eventa najviša ocjena je "pravi", ostali su kopije.</p>')
         b.append(breakdown(explain.organic(d), "Organska ocjena", e["score"]))
@@ -538,13 +892,13 @@ def token(mint, qs):
         b.append(f"<p>Zadnji signal {ts(last['ts'])[0]} UTC, ocjena <b>{last['score']}</b>, otkud je došao: "
                  f"{esc(labels.sources(last['sources']))}. Ocjena = Σ(signal × težina) / Σ težina izmjerenih signala × 100; "
                  f"provjera koja nije rađena (npr. X buzz) ne ulazi ni u zbroj ni u nazivnik.</p>")
-        b.append(tdesc('Raspis zadnje hype ocjene: koliko je svaki signal izmjeren (0-1), koliko vrijedi i koliko je bodova donio.') + table(["Signal", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
+        b.append(table(["Signal", ("Vrijednost 0-1", "n"), ("Težina", "n"), ("Doprinos", "n"), "", ("Što mjeri", "wrap")], rows))
         b.append(f"<p>Zbroj doprinosa: <b>{sum(r[3][1] for r in rows):.1f}</b> <span class=mut>(spremljeno {last['score']})</span></p>")
         snaps = data.hype_snapshots(mint)
         if len(snaps) > 1:
             b.append("<h3>Cijena od prvog signala</h3>" + _spark(snaps, sigs_asc[0]["price"]))
         b.append("<h3>Svi signali</h3>")
-        b.append(tdesc('Svaki put kad ga je hype skener zabilježio, s cijenom i izvorima u tom trenutku.') + table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
+        b.append(table(["Vrijeme", ("Ocjena", "n"), ("Cijena", "n"), ("Mcap", "n"), ("Likvidnost", "n"), "Izvori"],
                        [[ts(s["ts"]), scorecell(s["score"]), price(s["price"]), usd(s["mcap"]),
                          usd(s["liquidity"]), (esc(labels.sources(s["sources"])), "", "wrap")] for s in sigs[:200]]))
     b.append("</details>")
@@ -584,18 +938,18 @@ def token(mint, qs):
                 ("Dev", f"{short(dv.get('wallet', ''))} · napravio {dv.get('tokens_created', '–')} tokena (živih {dv.get('tokens_alive', '–')}) · "
                         f"drži {dv.get('hold_pct', '–')}% · prodao {dv.get('sold_pct', '–')}%"),
                 ("Likvidnost / max ulaz (5% slippage)", f"${m.get('liquidity') or 0:,.0f} / ${m.get('max_entry_usd_5pct') or 0:,.0f}")]
-        b.append(tdesc('Rezultati pojedinih provjera rug filtera (Helius + RugCheck): ovlasti, dev, holderi, likvidnost.') + table(["Provjera", ("Vrijednost", "wrap")], [[esc(k), (esc(x), "", "wrap")] for k, x in metr]))
+        b.append(table(["Provjera", ("Vrijednost", "wrap")], [[esc(k), (esc(x), "", "wrap")] for k, x in metr]))
         top = h.get("top") or []
         if top:
-            b.append("<h3>Top holderi</h3>" + tdesc('Najveći holderi i jesu li povezani s devom ili međusobno (insajderi).') + table(["Wallet", ("%", "n"), "Insajder"],
-                                                     [[wlink(x["wallet"]), num(x.get("pct"), "{:.1f}"),
-                                                       badge("da", "bad") if x.get("insider") else "ne"] for x in top]))
+            b.append("<h3>Top holderi</h3>" + table(["Wallet", ("%", "n"), "Insajder"],
+                                                   [[wlink(x["wallet"]), num(x.get("pct"), "{:.1f}"),
+                                                     badge("da", "bad") if x.get("insider") else "ne"] for x in top]))
         md = os.path.join("rug", f"{mint}.md")
         if data.read_output(md) is not None:
             b.append(f'<p><a href="/outputs/{quote(md)}">Puni rug izvještaj</a></p>')
         if len(rugs) > 1:
-            b.append("<h3>Ranije provjere</h3>" + tdesc('Prijašnje rug provjere istog tokena.') + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
-                                                        [[ts(x["checked_at"]), verdict(x["verdict"]), num(x["score"])] for x in rugs[1:]]))
+            b.append("<h3>Ranije provjere</h3>" + table(["Vrijeme", "Presuda", ("Ocjena", "n")],
+                                                       [[ts(x["checked_at"]), verdict(x["verdict"]), num(x["score"])] for x in rugs[1:]]))
     b.append("</details>")
 
     if pc:
@@ -608,37 +962,24 @@ def token(mint, qs):
                      f"max {(t['max_ret'] or 0):+.0%}" + (f", izlaz: {esc(labels.exit_reason(t['exit_reason']))}" if t['exit_reason'] else "") + "</p>")
         b.append("</div></details>")
 
-    # pulse: what the token did after it earned attention (retained in every scan)
-    pl = data.token_pulse(mint)
-    if pl:
-        from hype import pulse as hpulse
-        sf = hpulse.strength(pl)
-        hold = [x for x in pl if x["holders"]]
-        b.append(sec("puls", "6. Puls (osvježavanje svaka 2 min)",
-                     (hpulse.describe(sf) or f"{len(pl)} očitanja") + (f" · holderi {hold[-1]['holders']}" if hold else "")))
-        b.append(tdesc("Očitanja za token koji je stigao do razine 1: ostaje u svakom skenu dok god je zanimljiv, pa su ocjena "
-                       "i snaga svježi. Najnovije prvo; holderi iz Heliusa svakih 30 min ili s pump.fun ploče.")
-                 + table(["Vrijeme", ("Mcap", "n"), ("Vol 5 min", "n"), ("Vol 1 h", "n"), ("Kupnje 1 h", "n"), ("Prodaje 1 h", "n"),
-                          ("Holderi (puls)", "n")],
-                         [[ts(x["ts"]), usd(x["mcap"]), usd(x["vol_m5"]), usd(x["vol_h1"]), num(x["buys_h1"]), num(x["sells_h1"]),
-                           (f"{x['holders']} <span class=mut>{esc(x['holders_src'] or '')}</span>", x["holders"], "n") if x["holders"] else num(None)]
-                          for x in pl[::-1][:48]]))
-        b.append("</details>")
-
-    # wallets on this token
+    # wallets on this token (10.11.: copy score and labels of just these wallets, by key, not the whole registry)
     sg = data.sightings(token=mint)
     b.append(sec("walleti", "5. Walleti viđeni na ovom tokenu", f"{len(sg)} iz registra"))
-    wmap = {w["wallet"]: w for w in data.wallets(scored_only=False)}
-    b.append(tdesc('Walleti iz registra koji su kupovali ovaj token, s ulogom (rani kupac, top trader…) i ocjenom.') + table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
+    ws = sorted({x["wallet"] for x in sg})
+    wmap = {}
+    for i in range(0, len(ws), 500):
+        part = ws[i:i + 500]
+        for w in data.q(data.WALLET_DB, f"SELECT wallet, copy_score, tier, labels FROM wallets WHERE wallet IN ({','.join('?' * len(part))})", part):
+            w["labels"] = data.js(w.get("labels"), []) or []
+            wmap[w["wallet"]] = w
+    b.append(table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
                    [[wlink(x["wallet"]), esc(ROLE.get(x["role"], (x["role"],))[0]), esc(SOURCE.get(x["source"], x["source"])),
                      num(x["sol_in"], "{:.2f}"), num((wmap.get(x["wallet"]) or {}).get("copy_score")),
                      tierb((wmap.get(x["wallet"]) or {}).get("tier")),
                      " ".join(badge(l, "bad") for l in (wmap.get(x["wallet"]) or {}).get("labels", []))] for x in sg],
                    empty="Nijedan wallet nije zabilježen za ovaj token."))
     b.append("</details>")
-    if natj:
-        b.append("<h2>Natjecanje</h2>" + natj)
-    return sym or short(mint), "".join(b)
+    return "".join(b)
 
 
 def _spark(snaps, base):

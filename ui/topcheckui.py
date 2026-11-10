@@ -63,6 +63,103 @@ CHECK_LABEL = {"mint": "Mint authority", "freeze": "Freeze authority", "lp": "LP
 ICON = {"ok": "✓", "warn": "⚠", "fail": "✗", None: "–"}
 
 
+# ---------- 10.11.: "Provjera ruga" on the token page as rows (prijedlog 4.3, maketa token.html) --------------------
+# One row per check: name left, the result in a few words right ("Mint authority · ugašen"), a state line on top
+# ("● Prolazi sve provjere") and the age of the data next to the heading. Same data as token_box, calmer.
+ROW_LABEL = {"mint": "Mint authority", "freeze": "Freeze authority", "lp": "Likvidnost", "holderi": "Top 10 holdera",
+             "dev": "Dev", "honeypot": "Probna prodaja", "rugfilter": "Rug filter", "rugcheck": "RugCheck"}
+# the words a check's text starts with, dropped on the right side ("mint authority ugašen" -> "ugašen")
+_LEAD = {"mint": "mint authority", "freeze": "freeze authority", "lp": "likvidnost", "holderi": "top 10 holdera",
+         "dev": "dev", "honeypot": "testna prodaja", "rugfilter": "rug filter", "rugcheck": "rugcheck"}
+KIND = {"ok": "", "warn": "warn", "fail": "bad"}
+
+
+def _value(k, text):
+    """The result part of a check text, short: "top 10 holdera drži 21%" -> "21 %",
+    "testna prodaja prolazi (97% vrijednosti)" -> "prolazi, vraća 97 %"."""
+    import re
+    t = (text or "").strip()
+    lead = _LEAD.get(k)
+    if lead and t.lower().startswith(lead):
+        t = t[len(lead):].strip(" :,")
+    if k == "holderi":
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*%", t)
+        if m:
+            return m.group(1).replace(".", ",") + " %"
+    if k == "honeypot":
+        m = re.search(r"\((\d+(?:[.,]\d+)?)\s*% vrijednosti\)", t)
+        head = re.split(r"[(,]", t)[0].strip()
+        return f"{head}, vraća {m.group(1)} %" if m else head
+    t = re.split(r"[(]", t)[0].strip().rstrip(",")
+    return re.sub(r"(\d)%", r"\1 %", t) or "–"
+
+
+def check_rows(top):
+    """[(label, value, kind)] from the fresh check of a recommended token (topcheck safety.checks); [] without one.
+    kind: "" ok, "warn", "bad" (ui/redak tones), None when the check did not run."""
+    out = []
+    for k, (s, t) in (((top or {}).get("safety") or {}).get("checks") or {}).items():
+        out.append((ROW_LABEL.get(k, CHECK_LABEL.get(k, k)), _value(k, t), KIND.get(s)))
+    return out
+
+
+def check_state(top):
+    """(dot kind, sentence, ts) for the state line above the rows; None without a fresh check."""
+    if not top or not top.get("verdict"):
+        return None
+    fails, warns, _ = _reasons(top)
+    ts = top.get("rc_ts") or top.get("ts")
+    v = top["verdict"]
+    if v == "pao" or fails:
+        return "bad", "Pao: " + "; ".join(fails[:2]) if fails else "Pao na provjeri ruga", ts
+    if v == "oprez" or warns:
+        return "warn", "Oprez: " + "; ".join(warns[:2]) if warns else "Oprez", ts
+    if v == "prolazi":
+        return "good", "Prolazi sve provjere", ts
+    return "", "Provjera čeka", ts
+
+
+def rug_rows(rug):
+    """[(label, value, kind)] from the newest rug filter report (rug.db) when the token has no fresh check."""
+    if not rug:
+        return []
+    d = rug.get("data") or {}
+    au = d.get("authorities") or {}
+    L, hd, dv = (d.get(k) or {} for k in ("launch", "holders", "dev"))
+
+    def pct(v):
+        return "–" if v is None else f"{v:g} %".replace(".", ",")
+    rows = [("Mint authority", "aktivan" if au.get("mintAuthority") else "ugašen", "bad" if au.get("mintAuthority") else ""),
+            ("Freeze authority", "aktivan" if au.get("freezeAuthority") else "ugašen", "bad" if au.get("freezeAuthority") else "")]
+    if hd.get("top10_pct") is not None:
+        rows.append(("Top 10 holdera", pct(hd["top10_pct"]), "warn" if hd["top10_pct"] >= 35 else ""))
+    if dv:
+        rows.append(("Dev", f"drži {pct(dv.get('hold_pct'))}, prodao {pct(dv.get('sold_pct'))}",
+                     "warn" if (dv.get("hold_pct") or 0) >= 5 else ""))
+    if L.get("bundle_pct") is not None:
+        rows.append(("Bundle", pct(L["bundle_pct"]), "warn" if L["bundle_pct"] >= 15 else ""))
+    if L.get("sniper_pct") is not None:
+        rows.append(("Snajperi", pct(L["sniper_pct"]), ""))
+    return rows
+
+
+def rug_state(rug):
+    """(dot kind, sentence, ts) from the rug filter verdict."""
+    if not rug:
+        return None
+    d = rug.get("data") or {}
+    v = (rug.get("verdict") or "").upper()
+    if v == "PROLAZI":
+        return "good", "Prolazi rug filter", rug.get("checked_at")
+    if v == "OPREZ":
+        return "warn", "Oprez: " + "; ".join((d.get("flags") or ["manje zastavice"])[:2]), rug.get("checked_at")
+    if v == "ODBAČEN":
+        return "bad", "Odbačen: " + "; ".join((d.get("hard_fails") or ["tvrdi pad"])[:2]), rug.get("checked_at")
+    if v == "VISOK RIZIK":
+        return "bad", "Visok rizik: " + "; ".join((d.get("flags") or [])[:2]), rug.get("checked_at")
+    return "", v.capitalize() or "Nije provjeren", rug.get("checked_at")
+
+
 def token_box(top):
     """Token page: the fresh market state and the line-by-line rug check (only for recommended tokens)."""
     if not top:

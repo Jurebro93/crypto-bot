@@ -162,6 +162,46 @@ def token_box(mint, symbol, locked=None):
             '🔄 Pokreni DCA</button></a>' + copy_btn(mint) + '</div>')
 
 
+def buy_sheet(mint, symbol, locked=None, stake=50):
+    """10.11. (Jure, prijedlog 4.3: blok Natjecanje → list "Kupi"): the token page's Kupi opens this sheet instead of
+    the box with three buttons at the bottom of the page. Demo on Natjecanje (the same /natjecanje/buy form and checks
+    as token_box), DCA, and for the owner the Autopilot's manual buy (a link: real money is bought only on the Autopilot
+    page with its confirmation; class adm-only, removed for everyone else by ui/admstrip). The page is cached for
+    everyone, so a guest who taps Kupi gets the normal "prijavi se" answer from Natjecanje. Needs tokens.SHEET_CSS."""
+    if not MINT.fullmatch(mint or ""):
+        return ""
+    sym = symbol or mint[:6]
+    head = (f'<dialog class="tk-sheet qb-sheet" id="qb-sheet" aria-label="Kupi {esc(sym)}"><div class="tk-grab"></div>'
+            f'<div class="tk-sh">Kupi {esc(sym)}</div>')
+    if locked:
+        return (head + f'<p class="qb-note">Kupnja je zaključana: {esc(locked)}.</p>'
+                '<button type="button" class="tk-done" data-close>Zatvori</button></dialog>')
+    form = ('<form method="post" action="/natjecanje/buy" class="qb-form">'
+            f'<input type="hidden" name="token" value="{esc(mint)}"><input type="hidden" name="symbol" value="{esc(symbol or "")}">'
+            '<input type="hidden" name="source" value="stranica tokena">'
+            f'<input type="hidden" name="back" value="/token/{esc(mint)}">'
+            '<label class="tk-o">Ulog u demu<span class="qb-amt"><input name="size" type="number" inputmode="numeric" '
+            f'min="1" step="1" value="{int(stake)}" aria-label="Ulog u dolarima"> $</span></label>'
+            '<button class="tk-done">Kupi na Natjecanju</button></form>')
+    return (head + '<div class="tk-gl">Demo na Natjecanju, po živoj cijeni (1 % naknade)</div>'
+            f'<div class="tk-grp2">{form}</div>'
+            '<div class="tk-gl">Drugi načini</div><div class="tk-grp2">'
+            f'<a class="tk-o" href="/natjecanje?dca={esc(mint)}#dca">DCA na Natjecanju<span class="ms-chev"></span></a>'
+            '<a class="tk-o adm-only" href="/pravi-trade#kupi-odmah">Autopilot, ručno (pravi novac)<span class="ms-chev"></span></a>'
+            '</div><p class="qb-note">Za demo kupnju moraš biti prijavljen svojim imenom. Adresu možeš i kopirati pa je '
+            'zalijepiti u svoj wallet.</p><button type="button" class="tk-done qb-x" data-close>Zatvori</button></dialog>')
+
+
+SHEET_CSS = """
+.qb-sheet .qb-form{padding:0 0 12px}.qb-sheet .qb-form .tk-done{width:calc(100% - 28px);margin:4px 14px 0}
+.qb-amt{display:flex;align-items:center;gap:6px;color:var(--mut)}
+.qb-amt input{width:84px;text-align:right;font-size:17px;padding:6px 10px;border-radius:10px}
+.qb-note{font-size:15px;color:var(--mut);margin:0 4px 12px;line-height:1.4}
+.qb-x{background:#fff;color:var(--fg)}
+html.adm .qb-sheet .tk-o.adm-only{display:flex!important}
+"""
+
+
 def dugo_info(mint):
     """(symbol, list label) when the token is on today's Dugoročni lists, else (None, None)."""
     try:
