@@ -1,7 +1,8 @@
 """The data side of the MemeSonar MCP server (mcp_server/, Grok's tools), 10.11. (Jure: "MCP server MemeSonar:
 get_market_signals, get_token_details, get_portfolio_status, execute_trade s require_approval").
 
-    GET  /api/mcp/signals             what is being called right now (X, Telegram, followed wallets) + live market
+    GET  /api/mcp/signals             what is being called right now (X, Telegram, followed wallets) + live market,
+                                      and the market scanner's finds (scan, beta) while market_scan is on; ?source=
     GET  /api/mcp/token?address=...   one token: live market, who called it in the last hour, our position in it
     GET  /api/mcp/portfolio           the Autopilot: mode, wallet value, open positions with PnL, open orders
     POST /api/mcp/trade               a trade REQUEST: it waits on the Autopilot page until the owner taps
@@ -85,18 +86,81 @@ def _market_row(m):
             "buy_share_1h": round(buys / tx, 3) if tx else None}
 
 
-def signals(now=None):
+SIGNAL_SOURCES = ("caller", "wallet", "scan", "beta")
+_SCAN_NULL = {"beta_score": None, "beta_parent": None, "x_momentum_score": None, "x_early": None, "lead_time_min": None}
+
+
+def _scan_fields(r, xm, first_call_ts=None):
+    """The market scanner's fields of one token (scan/market.recent row r, X momentum xm) for a signal row."""
+    from scan import market as smarket
+    x = xm or {}
+    return {"beta_score": r.get("beta_score"), "beta_parent": r.get("beta_parent"),
+            "x_momentum_score": x.get("x_momentum_score"), "x_early": x.get("x_early"),
+            "x_source": x.get("source"), "lead_time_min": smarket.lead_for(r, first_call_ts),
+            "stage": r.get("stage"), "tradeable": bool(r.get("tradeable")),
+            "pass_reasons": r.get("reasons") or [], "fees_paid_sol": r.get("fees_paid_sol"),
+            "buy_share": r.get("buy_share"), "holders": r.get("holders"), "top10_pct": r.get("top10_pct"),
+            "scan_found_ts": r.get("first_pass_ts") or r.get("checked_ts"), "scan_via": r.get("via")}
+
+
+def signals(now=None, source=None):
     """Tokens called in the last hour by the accounts the tool tracks (and buys of followed wallets), most callers
-    first, each with its live market."""
-    from ui import pravitrade
+    first, each with its live market; while the flag market_scan is on, also the market scanner's passers of the last
+    hour (source scan, with their pass reasons) and the betas of the active metas (source beta). A token the scanner
+    found that a caller also called is ONE row (source caller or wallet, plus the scanner's fields and lead_time_min:
+    how many minutes earlier the scanner had it). source: caller | wallet | scan | beta filters; None = everything
+    (the rows before 10.11. keep their fields; the new ones are added)."""
+    src = (source or "").strip().lower() or None
+    if src and src not in SIGNAL_SOURCES:
+        return {"error": f"source must be one of {', '.join(SIGNAL_SOURCES)}"}
     now = now or time.time()
-    rows = pravitrade.gather_callers(now)
-    out = []
-    for tok, callers, first_ts, last_ts, sym, live in rows:
-        out.append({"token": tok, "symbol": sym, "callers": [{"who": w, "platform": p, "ts": int(ts)} for w, p, ts in callers],
-                    "n_callers": len(callers), "first_call_ts": int(first_ts), "last_call_ts": int(last_ts),
-                    "market": _market_row(live), "under_30k": bool(live and (live.get("mcap") or 0) < 30_000)})
-    return {"ts": int(now), "source": "MemeSonar (X, Telegram, followed wallets; DexScreener live)", "signals": out}
+    scan_rows, xm = {}, {}
+    try:
+        from scan import market as smarket, store as sstore, xmom
+        if sstore.on():
+            scan_rows = smarket.recent(now)
+            xm = xmom.latest(list(scan_rows), since=now - 6 * 3600, now=now) if scan_rows else {}
+    except Exception as e:  # noqa: BLE001 - the scanner's part never breaks the callers' answer
+        print(f"mcp: skener: {type(e).__name__}: {e}", flush=True)
+        scan_rows, xm = {}, {}
+    out, seen = [], set()
+    if src in (None, "caller", "wallet"):
+        from ui import pravitrade
+        for tok, callers, first_ts, last_ts, sym, live in pravitrade.gather_callers(now):
+            plats = {p for _w, p, _ts in callers}
+            kinds = (["caller"] if plats & {"x", "tg"} else []) + (["wallet"] if "chain" in plats else [])
+            if src and src not in kinds:
+                continue
+            row = {"token": tok, "symbol": sym, "callers": [{"who": w, "platform": p, "ts": int(ts)} for w, p, ts in callers],
+                   "n_callers": len(callers), "first_call_ts": int(first_ts), "last_call_ts": int(last_ts),
+                   "market": _market_row(live), "under_30k": bool(live and (live.get("mcap") or 0) < 30_000),
+                   "source": kinds[0] if kinds else "caller", "sources": kinds, **_SCAN_NULL}
+            if tok in scan_rows:
+                row.update(_scan_fields(scan_rows[tok], xm.get(tok), first_ts))
+                row["sources"] = kinds + [s for s in scan_rows[tok]["sources"] if s in ("scan", "beta")]
+            out.append(row)
+            seen.add(tok)
+    if src in (None, "scan", "beta"):
+        for tok, r in scan_rows.items():
+            if tok in seen:
+                continue   # one row per token: the caller's row above already carries the scanner's fields
+            kinds = [s for s in ("scan", "beta") if s in r["sources"]] or (["scan"] if r.get("passed") else [])
+            if src and src not in kinds:
+                continue
+            if src == "beta" and (r.get("beta_score") or 0) < 0.6:
+                continue
+            if not kinds:
+                continue
+            m = {"price": r.get("price"), "mcap": r.get("mcap"), "liq": r.get("liq"), "vol_h1": r.get("vol_h1"),
+                 "ch_h1": r.get("ch_h1"), "ch_h24": r.get("ch_h24")}
+            row = {"token": tok, "symbol": r.get("symbol"), "callers": [], "n_callers": 0, "first_call_ts": None,
+                   "last_call_ts": None, "market": _market_row(m), "market_ts": r.get("checked_ts"),
+                   "under_30k": (r.get("mcap") or 0) < 30_000, "source": kinds[0], "sources": kinds, **_SCAN_NULL}
+            row.update(_scan_fields(r, xm.get(tok)))
+            out.append(row)
+    return {"ts": int(now), "source": "MemeSonar (X, Telegram, followed wallets; DexScreener live; market scanner "
+                                      "in shadow while the flag market_scan is on)",
+            "filter": src, "signals": out}
 
 
 def token(address, now=None):
@@ -296,7 +360,7 @@ def decide(tcon, rid, status, note=""):
 def answer(path, qs):
     """(status, JSON text) of a GET."""
     if path == "/api/mcp/signals":
-        data = signals()
+        data = signals(source=qs.get("source"))
     elif path == "/api/mcp/token":
         data = token(qs.get("address") or qs.get("token"))
     elif path == "/api/mcp/portfolio":
@@ -323,8 +387,19 @@ TOOLS = [
     {"name": "get_market_signals", "annotations": _READ,
      "description": ("Meme coins being called right now on Solana by the X and Telegram accounts MemeSonar tracks, and "
                      "buys of the wallets it follows: per token the callers, first/last call time and the live market "
-                     "(price, market cap, liquidity, volume, 5m/1h/24h change, buys share of the last hour)."),
-     "inputSchema": {"type": "object", "properties": {}}},
+                     "(price, market cap, liquidity, volume, 5m/1h/24h change, buys share of the last hour). While the "
+                     "market scanner runs (shadow, it never buys) also tokens found WITHOUT a caller: source scan "
+                     "(passed the scanner's filters in the last hour: stage final_stretch = still on the bonding "
+                     "curve, tradeable=false, or migrated; pass_reasons, fees_paid_sol (estimated from volume), "
+                     "buy_share, holders, top10_pct) and source beta (copies the narrative of a top runner: "
+                     "beta_score >= 0.6, beta_parent = the runner's mint). Every row: source, sources, beta_score, "
+                     "x_momentum_score (growth of unique organic X authors in the last 15 min vs the hour before, "
+                     "log2; > 0 = growing), x_early (growing and no known caller posted it yet), lead_time_min (how "
+                     "many minutes before the first caller the scanner had it; negative = the caller was first); "
+                     "null when unknown. One row per token. source filters: caller | wallet | scan | beta; none = all."),
+     "inputSchema": {"type": "object", "properties": {
+         "source": {"type": "string", "enum": ["caller", "wallet", "scan", "beta"],
+                    "description": "only rows of this source (default: all)"}}}},
     {"name": "get_token_details", "annotations": _READ,
      "description": ("One Solana token by its address: live market, who called it in the last hour, MemeSonar's open "
                      "position in it. Tokens under $30k market cap are flagged (MemeSonar does not trade them)."),
@@ -568,7 +643,29 @@ TOOLS += [
          "sort": {"type": "string", "enum": ["first_buy_ts", "sol_in", "pnl_sol", "net_tok"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
          "offset": {"type": "integer", "minimum": 0, "default": 0}}}},
+    # 10.11. (market scanner, flag market_scan): how each signal source does in shadow, and whether it may go to paper
+    {"name": "get_source_stats", "annotations": _READ,
+     "description": ("Shadow results per signal source (caller, wallet, scan, beta) of the market scanner: every "
+                     "candidate that passed all filters gets a shadow entry at the moment it was found, then its "
+                     "DexScreener price path is followed. Per source for the last 24 h and the gate window: found, n "
+                     "(finished outcomes, tradeable tokens only), hit1h / hit4h (+20 % reached within 1 h / 4 h), "
+                     "sl_first (-30 % touched before +20 %), ev (mean result of the shadow trade: TP +20 % / SL -30 %, "
+                     "first touched wins, else out at 4 h, minus 2 % round-trip cost), median; paper_gate per source "
+                     "('prolazi' or the reason: >= 30 outcomes and EV > 0 are needed, never applied automatically); "
+                     "measured_only_day (curve / under-30k tokens); lead_time over callers; beta results by the "
+                     "parent meta's state (raste / pada); today's spend per paid source and the caps. Read-only."),
+     "inputSchema": {"type": "object", "properties": {}}},
 ]
+
+
+def source_stats(now=None):
+    """get_source_stats: scan/shadow.report_data, or a note before the scanner ever ran."""
+    from scan import shadow, store as sstore
+    d = shadow.report_data(now)
+    if d is None:
+        return {"ts": int(now or time.time()), "mode": sstore.mode(), "note": "the market scanner has not run yet "
+                "(flag market_scan off, or no pass so far): no shadow outcomes"}
+    return d
 
 
 def _xfeat_tool(name, a, kid):
@@ -640,12 +737,14 @@ def _tool(name, args, kid="local"):
         "get_exit_events": lambda a: exit_events(a.get("since_ts"), a.get("limit")),
         "get_research": lambda a: __import__("research.store", fromlist=["read"]).read(
             a.get("name"), a.get("part"), a.get("limit"), a.get("offset"), a.get("sort")),
+        "get_source_stats": lambda a: source_stats(),
     }
     if name in data_tools:
         d = data_tools[name](args)
         return d, isinstance(d, dict) and "error" in d
     if name == "get_market_signals":
-        return signals(), False
+        d = signals(source=args.get("source"))
+        return d, "error" in d
     if name == "get_token_details":
         d = token(args.get("token_address") or args.get("address"))
         return d, "error" in d

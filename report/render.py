@@ -285,6 +285,11 @@ def render(data, ai, source):
         body += table(["Strategija", "Ukupno", "Zadnja 24 h", "Zatvoreno / otvoreno", "Uspješnost"], rows)
         out.append(section("Usporedba strategija", body, ("/strategije", "Usporedba strategija")))
 
+    # 10.11.: the market scanner in shadow (scan/, flag market_scan): one line per signal source
+    sk = data.get("skener")
+    if sk and (sk.get("day") or sk.get("gate_window") or sk.get("checked_24h")):
+        out.append(section("Skener tržišta: sjena po izvoru", skener_body(sk)))
+
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:
@@ -351,6 +356,48 @@ def render(data, ai, source):
 <tr><td style="font-size:11px;color:{MUT};padding:4px 2px 20px">{src} · podaci iz baza bota, bez dodatnih Helius/Apify poziva ·
 {link("/izvjestaj", "svi izvještaji")} · {link("/", "dashboard")}</td></tr>
 </table></td></tr></table></body></html>"""
+
+
+SOURCE_HR = {"caller": "Calleri (X, Telegram)", "wallet": "Praćeni novčanici", "scan": "Skener (bez callera)",
+             "beta": "Beta mete"}
+
+
+def skener_body(sk):
+    """The scanner's section: per source the last 24 h next to the gate window, the paper gate, lead time, spend."""
+    gate = {r["source"]: r for r in sk.get("gate_window") or []}
+    day = {r["source"]: r for r in sk.get("day") or []}
+    rows = []
+    for s in ("caller", "wallet", "scan", "beta"):
+        d, g = day.get(s) or {}, gate.get(s) or {}
+        if not d and not g:
+            continue
+        rows.append([e(SOURCE_HR[s]), f"{d.get('found', 0)}", pct(d.get("hit1h")), pct(d.get("hit4h")),
+                     pct(d.get("sl_first")), pct(d.get("ev"), True),
+                     f"{g.get('n', 0)} · EV {pct(g.get('ev'), True)}", e(sk["paper_gate"].get(s) or "–")])
+    rule = sk.get("rule") or {}
+    body = para(f"Svaki kandidat koji prođe sve filtre dobiva ulaz u sjeni u trenutku kad je nađen. Pravilo: +"
+                f"{rule.get('tp', 0.2):.0%} ili −{rule.get('sl', 0.3):.0%}, što prvo dođe, inače izlaz nakon "
+                f"{rule.get('horizon_h', 4)} h, trošak {rule.get('cost', 0.02):.0%}. Ništa se ne kupuje.")
+    body += table(["Izvor", "Prošlo 24 h", "+20 % u 1 h", "+20 % u 4 h", "−30 % prvo", "EV 24 h",
+                   f"Ishoda {sk.get('gate_days', 30)} d", "Paper"], rows) if rows else para("Još nema ulaza u sjeni.")
+    items = []
+    lt = sk.get("lead_time") or {}
+    if lt.get("n"):
+        items.append(f"Prednost pred callerima (7 dana): medijan {lt['median_min']:+.0f} min na {lt['n']} tokena, "
+                     f"skener prvi u {pct(lt['share_before_callers'])} slučajeva.")
+    mo = [r for r in sk.get("measured_only_day") or [] if r.get("n")]
+    if mo:
+        items.append("Samo mjerenje (krivulja, ispod 30k): " + "; ".join(
+            f"{SOURCE_HR.get(r['source'], r['source'])} {r['n']} ishoda, EV {pct(r['ev'], True)}" for r in mo) + ".")
+    for b in sk.get("beta_by_meta_state") or []:
+        if b["window"] == "4h":
+            items.append(f"Beta dok meta {b['state']} (4 h): {b['n']} tokena, prosjek {pct(b['mean'], True)}, "
+                         f"u plusu {pct(b['hit'])}.")
+    sp, cap = sk.get("spend_today") or {}, sk.get("caps") or {}
+    items.append(f"Trošak danas: Helius {sp.get('helius_credits', 0):.0f}/{cap.get('helius_credits', 0)} kredita, "
+                 f"GeckoTerminal {sp.get('gt_calls', 0):.0f}/{cap.get('gt_calls', 0)} poziva, X "
+                 f"{sp.get('x_usd', 0):.2f}/{cap.get('x_usd', 0):.2f} $.")
+    return body + bullets(items)
 
 
 def _sl_label(sl):

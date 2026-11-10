@@ -53,6 +53,17 @@ class Flags(Base):
         self.assertIn("flag:dca_cap", [x["key"] for x in cfg["applied_suggestions"]])
 
 
+class LaterOrders(Base):
+    def test_each_order_once_never_live(self):
+        done = assistnotes.owner_flag_orders(self.tc, now=NOW)
+        self.assertEqual(done, ["zastavica market_scan: off → shadow"])
+        self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
+        self.assertEqual(assistnotes.applied(self.tc)[0]["key"], "flag:market_scan")
+        settings.set_flag(self.tc, "market_scan", "off", "Jure")                   # the owner turns it off later
+        self.assertEqual(assistnotes.owner_flag_orders(self.tc, now=NOW), [])     # it stays off
+        self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "off")
+
+
 class HopeStop(Base):
     def trade(self, user=settings.LEAGUE_USER, sl="-40%", entry=1.0, eff=1.02):
         tid = self.lc.execute("INSERT INTO trades (user, token, symbol, opened_ts, size_usd, status, entry_px, entry_eff, qty)"
