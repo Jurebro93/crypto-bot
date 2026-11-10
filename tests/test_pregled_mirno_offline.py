@@ -86,6 +86,19 @@ class Helpers(unittest.TestCase):
         self.assertEqual(prijedlog._why1(p, short=True), "Novac ulazi brzo")
         self.assertTrue(prijedlog._why1(p).endswith("likvidnosti."))
 
+    def test_plain_reasons(self):
+        P = prijedlog.plain
+        self.assertEqual(P("novi pozivatelji u 10 min: @KukiTheFreak, @gordontardo"),
+                         "@KukiTheFreak i @gordontardo su ga upravo objavili")
+        self.assertEqual(P("novi pozivatelj u 10 min: @a"), "@a ga je upravo objavio")
+        self.assertEqual(P("3 pametnih novčanika kupilo u 10 min"), "3 dobra novčanika su ga upravo kupila")
+        self.assertEqual(P("5 pametnih novčanika kupilo u 10 min"), "5 dobrih novčanika ga je upravo kupilo")
+        self.assertEqual(P("+66 % u 5 min na $55,430 (850 tx)"), "cijena brzo raste (+66\u00a0% u 5 min)")
+        self.assertEqual(P("novac ulazi brzo: volumen sata 2.1× likvidnosti"), "puno novca ulazi")
+        self.assertEqual(prijedlog.because({"why": ["novi pozivatelji u 10 min: @K, @g"], "live": {"ch_h1": 61}}),
+                         "@K i @g su ga upravo objavili i cijena mu raste (+61\u00a0% u zadnjem satu)")
+        self.assertEqual(prijedlog.because({"why": [], "live": {}}), "alat mu daje visoku ocjenu")
+
     def test_counts_in_one_pass_equal_the_separate_counts(self):
         path = os.path.join(tempfile.mkdtemp(), "kol.db")
         con = sqlite3.connect(path)
@@ -109,15 +122,20 @@ class CompactBox(unittest.TestCase):
         seen = visible(html)
         self.assertIn("Najbolji ulaz sada", seen)
         self.assertIn("GIGAFROG", seen)
-        self.assertIn("pouzdanost 94 · 412k $ · 1 h", seen)
-        self.assertIn("Ulog u demu 25–50 $", seen)
-        self.assertIn("3 smart walleta među prvim kupcima", seen)       # the row, in the maketa's words
-        self.assertIn("1 smart wallet među prvim kupcima", seen)
-        self.assertIn("Izlaz: pola na +15 %", seen)
+        # 10.11. 19:18 (Jure): one verb and one sentence why, in everyday words
+        self.assertIn("vrijedi 412k $ · zadnji sat +18 %", seen)
+        self.assertIn("Kupi jer puno novca ulazi i cijena mu raste (+18 % u zadnjem satu).", seen)
+        self.assertIn("Uloži 25–50 $ u demu", seen)
+        self.assertIn("Kupi jer među prvim kupcima ima 3 dobra novčanika", seen)
+        self.assertIn("Kupi jer među prvim kupcima ima 1 dobar novčanik", seen)
+        self.assertIn("Kad kupiš: pola prodaj na +15 %", seen)
+        for jargon in ("pouzdanost", "živa lista", "pratećim stopom", "smart wallet"):
+            self.assertNotIn(jargon, seen)
+        self.assertIn("Nemoj kupiti sada", html)                         # the live check flips the verb
         self.assertIn("Cijeli prijedlog za danas", seen)
         self.assertNotIn("Teza:", seen)                                 # the thesis is one tap away
         self.assertNotIn("Analizirao sam", seen)
-        self.assertLess(len(seen.split()), 80)
+        self.assertLess(len(seen.split()), 90)   # whole plain sentences (10.11. 19:18) cost a few words
         self.assertIsNone(EMOJI.search(seen))
         # the pop-up keeps the whole old text, the wallet and the exit rule
         full = html[html.index('<dialog id="pdj-full"'):html.index("</dialog>")]
@@ -140,12 +158,12 @@ class CompactBox(unittest.TestCase):
         near = [(pick(T2, "ARIA", 83, 268_000, "x"), "samo 4 transakcija u zadnjem satu (treba 10+)")]
         html = prijedlog.box("pregled", NOW, parts=parts(near=near))
         seen = visible(html)
-        self.assertIn("Danas ništa", seen)
+        self.assertIn("Nemoj kupiti ništa sada", seen)
         self.assertIn("Bolje ništa nego najmanje loš", seen)
-        self.assertIn("ne kupuj: samo 4 transakcija", seen)
+        self.assertIn("nemoj kupiti jer samo 4 transakcija", seen)
         self.assertIn("nijedan token ne prolazi sve provjere", html)        # the full text in the pop-up
         note = prijedlog.box("pregled", NOW, parts=parts(note="provjera trenutnog prometa (DexScreener) nije uspjela"))
-        self.assertIn("Provjera trenutnog prometa (DexScreener) nije uspjela.", visible(note))
+        self.assertIn("Jer provjera trenutnog prometa (DexScreener) nije uspjela.", visible(note))
 
     def test_api_returns_the_compact_box_without_script(self):
         with mock.patch.object(prijedlog, "pregled_parts", return_value=parts(PICKS)):

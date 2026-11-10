@@ -440,6 +440,21 @@ TOOLS += [
          "subject_kind": {"type": "string", "enum": ["token", "handle", "wallet"], "default": "token"},
          "since": {"type": "integer"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}},
          "required": ["subject"]}},
+    {"name": "get_research", "annotations": _READ,
+     "description": ("One-off research reports MemeSonar computed from the chain and its own databases (read only). "
+                     "No name: the list of reports. name (e.g. hope-20261110: every buyer of the Hope token on the "
+                     "pump.fun curve and the PumpSwap pool with first buy time, market cap at that buy, SOL in/out, "
+                     "first and last sell, phase, wallets.db tier, linked X/Telegram account; the calls of the token "
+                     "from kol.db and the callers' known wallets). part: summary (default), wallets, calls, "
+                     "calls_before_marko, holders_top20, caller_trades, bundles or all. Lists are paged: limit 1-500 "
+                     "(default 100), offset; wallets can be sorted by first_buy_ts (default), sol_in, pnl_sol, net_tok."),
+     "inputSchema": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "part": {"type": "string", "enum": ["summary", "wallets", "calls", "calls_before_marko", "holders_top20",
+                                             "caller_trades", "bundles", "all"], "default": "summary"},
+         "sort": {"type": "string", "enum": ["first_buy_ts", "sol_in", "pnl_sol", "net_tok"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+         "offset": {"type": "integer", "minimum": 0, "default": 0}}}},
 ]
 
 
@@ -508,6 +523,8 @@ def _tool(name, args, kid="local"):
                                                                  a.get("offset")),
         "get_scoring_config": lambda a: mcpdata.scoring_config(),
         "submit_caller_weights": lambda a: mcpdata.submit_caller_weights(a.get("weights"), kid=kid),
+        "get_research": lambda a: __import__("research.store", fromlist=["read"]).read(
+            a.get("name"), a.get("part"), a.get("limit"), a.get("offset"), a.get("sort")),
     }
     if name in data_tools:
         d = data_tools[name](args)
