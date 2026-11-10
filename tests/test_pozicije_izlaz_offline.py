@@ -196,6 +196,11 @@ class Positions(Base):
         self.assertIn("err=", self.post("/pravi-trade/exit", {"id": "999", "tp": "30%", "sl": ""}))
 
 
+def pravitrade_gate(tcon, sol):
+    from ui import pravitrade
+    return pravitrade._gate_now(tcon, sol, MINT)
+
+
 class AddToPosition(Base):
     """10.11. (Jure: "ako unesem adresu istog tokena koji je već u poziciji, pozicija se podeblja; nadopišu se dva
     ulaza: prvi ulaz na toliko market capa (PnL), drugi ulaz ..."): a manual buy of a held token is one more lot."""
@@ -217,6 +222,19 @@ class AddToPosition(Base):
         from tests.test_trade_offline import CFG
         cfg = settings.merged(dict(CFG, sell_check=False), self.con)
         run_trade.follow_league_once(self.con, cfg, since=0, now=now, quiet=True)
+
+    def test_a_buy_over_the_day_limit_is_refused_on_the_page_not_after_it_said_sent(self):
+        """10.11. (Jure: "piše da je kupovina prošla, a ne piše otvorena pozicija"): run_trade refused it for the day
+        limit after the page had said "poslana". The page asks the same gate first and writes nothing."""
+        settings.put(self.con, "max_sol_per_day", 0.08, "Jure")
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+        self.mirror(time.time())
+        loc = unquote(self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+        self.assertIn("err=", loc)
+        self.assertIn("dnevni limit", loc)
+        self.assertIn("Pravila", loc)
+        self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)   # no demo lot without a real one
+        self.assertIsNone(pravitrade_gate(self.con, 0.03))                               # under the limit: passes
 
     def test_second_buy_of_a_held_token_is_a_second_lot_with_the_same_exit(self):
         from ui import league as uleague, prijedlog
