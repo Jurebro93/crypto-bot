@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")"
 DATA_DIR="${DATA_DIR:-/var/data}"
 mkdir -p "$DATA_DIR/output"
-for f in xfeat.db calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db tg.db koltest.db strat.db shadow.db ai.db nastoken.db public.db analytics.db topcheck.db simianx.db minute.db; do
+for f in xfeat.db calendar.db hype.db paper.db rug.db wallets.db trade.db usage.db league.db market.db kol.db watch.db corr.db dugo.db tg.db koltest.db strat.db shadow.db ai.db nastoken.db public.db analytics.db topcheck.db scan.db simianx.db minute.db; do
   touch "$DATA_DIR/$f"
   ln -sfn "$DATA_DIR/$f" "$f"
 done
@@ -86,6 +86,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # free; full Helius rug filter at most every 12 h per token, 30 a day). A short process per pass: RugCheck reports can
 # be 2 MB of JSON, and a process that ends gives that memory back.
 ( sleep 150; while true; do low python3 run_top.py once || echo "topcheck nije uspio"; sleep "${TOP_EVERY_S:-180}"; done ) &
+
+# 10.11. (Jure: skener tržišta bez callera; scan/, flag market_scan G11): every SCAN_EVERY_S (150 s) one short pass:
+# pump.fun / PumpSwap / Raydium tokens from what the bot already stores (PumpPortal migrations and trades, hype scan,
+# KOL graduates), DexScreener (free) and a few GeckoTerminal pages; the copy loop's filters + fees / rug / stage; every
+# candidate that passes is measured in shadow per source (caller, wallet, scan, beta). It never buys, in any mode.
+# Flag off: the pass ends at once (no database, no network, no log line). Day caps in scan/config.json: Helius 5000
+# credits, GeckoTerminal 150 calls, X $0.30. The 15-min meta refresh takes the heavy-job lock only when it is free.
+( sleep 420; while true; do low python3 run_scan.py once || echo "skener tržišta nije uspio"; sleep "${SCAN_EVERY_S:-150}"; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 # 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): --night = waits for the night window (ops/heavy.NIGHT, 01-06

@@ -568,10 +568,37 @@ def hope_stop(con, lcon=None, market=None):
             lcon.close()
 
 
+# 10.11. later orders of the owner, each applied ONCE (its own settings key, so a new entry added in a later deploy
+# runs once too): (flag, mode, why). Never live from here.
+OWNER_FLAG_ORDERS = (
+    ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
+)
+
+
+def owner_flag_orders(con, now=None):
+    """Apply the entries of OWNER_FLAG_ORDERS not applied yet. [text] of what was done."""
+    done = []
+    for name, mode, why in OWNER_FLAG_ORDERS:
+        key = f"owner_flag_once:{name}:{mode}"
+        if mode not in ("off", "shadow", "paper") or name not in settings.FLAGS or settings.raw(con).get(key):
+            continue
+        old = settings.flag_state(con)[name]["mode"]
+        if old != mode:
+            settings.set_flag(con, name, mode, "Jure (chat 10.11.)", now=now)
+            new = settings.flag_state(con)[name]["mode"]
+            record_applied(con, 0, f"flag:{name}", old, new, why)
+            done.append(f"zastavica {name}: {old} → {new}")
+        settings.put(con, key, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
 def owner_once_b(con, lcon=None, market=None, now=None):
     """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
     missing. Returns True when nothing is left to do."""
     owner_flags_b(con, now)
+    owner_flag_orders(con, now)
     raw = settings.raw(con)
     if raw.get(HOPE_KEY):
         return True

@@ -76,6 +76,9 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "confluence": ("G9", "Ulaz tek kad se poklope 2+ callera i kupnja novčanika s tierom"),
     # 10.11. ~21:45 (Jure): the MCP client's exit plan per position, executed by the server (league/exitplan.py)
     "exit_plans": ("G10", "Planovi izlaza s MCP-a (set_exit_plan): TP-ovi, trailing, stop, time stop"),
+    # 10.11. (Jure: skener tržišta bez callera, scan/): never buys; shadow = measured per source, paper only through
+    # paper_refusal (>= 30 shadow outcomes and EV > 0 of the scanner's own sources)
+    "market_scan": ("G11", "Skener tržišta bez callera (final stretch, migrirani, beta mete, rani X), mjeri u sjeni"),
 }
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
@@ -265,9 +268,23 @@ def live_refusal(con, name, paper=None, now=None):
     return None
 
 
+def paper_refusal(con, name, now=None):
+    """None when `name` may go to paper, else the reason in Croatian. Most flags may (paper moves no real money);
+    market_scan only when one of its sources has the measured proof (scan/shadow.flag_paper_refusal: >= 30 finished
+    shadow outcomes and EV > 0). A proof that cannot be read refuses. Nothing calls set_flag on its own."""
+    if name != "market_scan":
+        return None
+    try:
+        from scan import shadow
+        return shadow.flag_paper_refusal(now=now)
+    except Exception as e:  # noqa: BLE001 - no proof readable: no paper
+        return f"dokaz iz sjene nije čitljiv ({type(e).__name__})"
+
+
 def set_flag(con, name, mode, who="", paper=None, now=None):
     """Owner's change of one flag (the page checks is_owner). Raises ValueError with the reason when refused.
-    Going down (to off, shadow or paper) is always allowed; "since" restarts on every change of mode."""
+    Going down (to off or shadow) is always allowed, and to paper from live; up to paper only past paper_refusal;
+    "since" restarts on every change of mode."""
     if name not in FLAGS:
         raise ValueError("nepoznata zastavica")
     if mode not in FLAG_MODES:
@@ -280,6 +297,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
         why = live_refusal(con, name, paper, now)
         if why:
             raise ValueError(f"{name} ne može u live: {why}")
+    if mode == "paper" and cur["mode"] in ("off", "shadow"):
+        why = paper_refusal(con, name, now)
+        if why:
+            raise ValueError(f"{name} ne može u paper: {why}")
     val = {"mode": mode, "since": now, "who": who}
     put(con, f"flag:{name}", val, who)
     _FLAG_CACHE.clear()
