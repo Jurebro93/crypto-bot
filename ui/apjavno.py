@@ -50,6 +50,13 @@ LIVE_TTL_S = 30
 SNAP_TTL_S = 30
 GUEST_TTL_S = 10
 POLL_S = 15                  # the message list refreshes this often, never every second
+# 10.11. (Jure: "nakon svakog tradea bi se trebala osvježiti stranica, da korisnici u bilo kojem momentu vide što bot
+# radi"): the wallet value, the chart, the statistics, who is followed and the entries and exits are re-fetched every
+# LIVE_POLL_S while the tab is visible (LIVE_PATH, the same HTML for everybody, kept GUEST_TTL_S); a part whose HTML
+# did not change is left alone, so a chosen range or filter stays.
+LIVE_PATH = "/autopilot/zivo"
+LIVE_POLL_S = 15
+LIVE_PARTS = ("hero", "chart", "stats", "follows", "moves")
 
 ADDR = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")       # a Solana address (a secret key is 87+ characters: never matches)
 SIG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{64,90}")        # a transaction signature
@@ -945,6 +952,16 @@ function put(h,force){const t=document.createElement('template');t.innerHTML=h;c
 async function poll(){if(busy||document.hidden||!box||!box.dataset.src)return;busy=true;
  try{const r=await fetch(box.dataset.src,{cache:'no-store'});if(r.ok)put(await r.text())}catch(e){}finally{busy=false}}
 if(box)setInterval(poll,__POLL__);
+let lbusy=false;async function live(){if(lbusy||document.hidden||!R.dataset.live)return;lbusy=true;
+ try{const r=await fetch(R.dataset.live,{cache:'no-store'});if(!r.ok)return;const t=document.createElement('template');
+  t.innerHTML=await r.text();let chart=false;
+  t.content.querySelectorAll('.apj-live[id]').forEach(nu=>{const cur=document.getElementById(nu.id);
+   if(!cur||cur.dataset.v===nu.dataset.v)return;
+   const g=cur.querySelector('.apj-seg[data-for] button.on'),k=g?g.dataset.k:'';
+   cur.replaceWith(nu);if(nu.id==='apj-l-chart')chart=true;
+   if(k){const b=nu.querySelector('.apj-seg[data-for] button[data-k="'+k+'"]');if(b)b.click()}});
+  if(chart&&window.apcInit)window.apcInit()}catch(e){}finally{lbusy=false}}
+setInterval(live,__LIVE__);document.addEventListener('visibilitychange',()=>{if(!document.hidden)live()});
 const ta=R.querySelector('.apj-form textarea'),cnt=document.getElementById('apj-cnt');
 const count=()=>{if(ta&&cnt)cnt.textContent=ta.value.length};
 if(ta){ta.addEventListener('input',count);ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)&&ta.form.requestSubmit){e.preventDefault();ta.form.requestSubmit()}})}
@@ -953,7 +970,8 @@ R.addEventListener('submit',async e=>{const f=e.target.closest('form.apj-ajax');
  try{const r=await fetch(f.getAttribute('action'),{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:d});
   if(!r.ok){location.reload();return}put(await r.text(),true);
   if(f.classList.contains('apj-form')&&!box.querySelector('.apj-note.bad')){f.reset();count()}}
- catch(err){f.submit()}finally{busy=false;if(btn)btn.disabled=false}})})()</script>""".replace("__POLL__", str(POLL_S * 1000))
+ catch(err){f.submit()}finally{busy=false;if(btn)btn.disabled=false}})})()</script>""".replace(
+    "__POLL__", str(POLL_S * 1000)).replace("__LIVE__", str(LIVE_POLL_S * 1000))
 
 
 def _cls(v, nd=3):
@@ -1120,7 +1138,32 @@ def _moves_html(rows, day, mode):
 
 
 FINE = ("Ovo nije financijski savjet. Meme tokeni su vrlo rizični i prošli rezultati ne jamče buduće. Brojke su stvarno "
-        "stanje jednog novčanika, sa svim naknadama, i osvježavaju se svakih nekoliko minuta.")
+        "stanje jednog novčanika, sa svim naknadama. Stranica se sama osvježava svakih 15 sekundi, a vrijednost "
+        "novčanika odmah nakon svakog tradea (inače svakih 5 minuta).")
+
+
+def _parts(s, lang):
+    """The live parts of the page, in order, as (name, html)."""
+    return [("hero", _hero(s)), ("chart", f'<div class=apj-chart>{chart_for(s, lang)}</div>'),
+            ("stats", _stats_html(s["stats"])), ("follows", _follows_html(s["follows"])),
+            ("moves", _moves_html(s["moves"], s["day"], _mode(s)))]
+
+
+def _live_div(name, html):
+    v = hashlib.sha1(html.encode("utf-8")).hexdigest()[:12]
+    return f'<div class=apj-live id=apj-l-{name} data-v={v}>{html}</div>'
+
+
+def live_fragment(lang="hr"):
+    """GET /autopilot/zivo: the live parts alone (every one in its div with a version), for the page script. The same
+    for every visitor and kept GUEST_TTL_S; the snapshot behind it is SNAP_TTL_S old at most."""
+    key = ("live", lang)
+    hit = _GUEST.get(key)
+    if hit and time.time() - hit[0] < GUEST_TTL_S:
+        return hit[1]
+    out = "".join(_live_div(n, h) for n, h in _parts(snapshot(), lang))
+    _GUEST[key] = (time.time(), out)
+    return out
 
 
 def page(qs, user, lang="hr", logged_in=None):
@@ -1129,10 +1172,10 @@ def page(qs, user, lang="hr", logged_in=None):
     password, the view-only account): no chat form and no "Prijavi se" either, only why not (default: bool(user))."""
     s = snapshot()
     title = TITLE if s["state"]["live"] else "Autopilot (probni rad)"
-    body = (CSS + '<div class=apj>' + _hero(s) + _wallet(s["addr"])
-            + f'<div class=apj-chart>{chart_for(s, lang)}</div>'
-            + _stats_html(s["stats"]) + _follows_html(s["follows"])
-            + _moves_html(s["moves"], s["day"], _mode(s))
+    parts = dict(_parts(s, lang))
+    src = LIVE_PATH + ("?l=en" if lang == "en" else "")
+    body = (CSS + f'<div class=apj data-live="{src}">' + _live_div("hero", parts["hero"]) + _wallet(s["addr"])
+            + "".join(_live_div(n, parts[n]) for n in ("chart", "stats", "follows", "moves"))
             + _chat_box(user, qs, lang, logged_in)
             + f'<p class=apj-fine>{FINE}</p></div>' + JS)
     return title, body

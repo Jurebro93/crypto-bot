@@ -310,6 +310,27 @@ class Guards(Base):
         self.assertEqual((r["flow_sol"], r["tokens_sol"]), (0.0, 0.1))
         self.assertEqual(len(self.rows()), 3)
 
+    def test_a_trade_gets_its_snapshot_as_soon_as_it_settles_not_five_minutes_later(self):
+        """10.11. (Jure: "nakon svakog tradea bi se trebala osvježiti stranica"): the first look after SETTLE_S takes
+        the snapshot even when EVERY_S has not passed since the last one; without a new trade it is EVERY_S again."""
+        os.environ["SOLANA_PUBLIC_KEY"] = "ADDR"
+        bal = {"sol": 1.0}
+        equity._sol_balance = lambda a: bal["sol"]
+        equity._usdc_balance = lambda a: 0.0
+        equity._pairs = lambda mints: [{"chainId": "solana", "baseToken": {"address": equity.WSOL},
+                                        "quoteToken": {"address": equity.USDC}, "priceUsd": "150",
+                                        "liquidity": {"usd": 1e6}}]
+        equity._usd_eur_fetch = lambda: 0.9
+        st = {}
+        self.assertIsNotNone(equity._tick(self.con, st, now=NOW))
+        pid = self.position(sol_in=0.1, ts=NOW + 10)
+        self.order(NOW + 10, "buy", a_in=int(0.1 * L), pid=pid)
+        bal["sol"] = 0.9
+        self.assertIsNone(equity._tick(self.con, st, now=NOW + 20))                    # settling
+        self.assertIsNotNone(equity._tick(self.con, st, now=NOW + 20 + equity.SETTLE_S))   # 65 s, not 300 s
+        self.assertIsNone(equity._tick(self.con, st, now=NOW + 100 + equity.SETTLE_S))     # no trade: EVERY_S again
+        self.assertEqual(len(self.rows()), 2)
+
     def test_order_booked_right_after_the_check_belongs_to_the_next_snapshot(self):
         """10.11. (review novac): the ledger is counted up to the newest order the balance was measured with; a swap
         booked a moment later is counted once, by the next snapshot (it was counted now AND then)."""

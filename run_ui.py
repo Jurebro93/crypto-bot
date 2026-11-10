@@ -564,7 +564,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=600")
             self.end_headers()
             return self.wfile.write(body)
-        if path in ("/autopilot", "/en/autopilot", "/autopilot/chat"):   # 10.11. (Jure): public Autopilot page and its chat
+        if path in ("/autopilot", "/en/autopilot", "/autopilot/chat", "/autopilot/zivo"):   # 10.11. (Jure): public Autopilot page, its chat and its live parts
             return self._autopilot(path, qs, ok)
         m = re.fullmatch(r"/nas-token/(\d+)/meta\.json", path)
         if m:   # public token metadata: wallets, pump.fun and explorers read it without logging in
@@ -1243,6 +1243,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)
+            elif path == apjavno.LIVE_PATH:   # 10.11.: the live parts, re-fetched every 15 s by the page (not indexed)
+                self._index = False
+                html = apjavno.live_fragment(lang)
             elif ok:
                 html = page(*apjavno.page(qs, user, lang, logged_in=True), path)
             else:

@@ -615,6 +615,24 @@ class Page(Base):
         self.assertIn("1.500 <small>SOL</small>", body)
         self.assertTrue(apjavno._RW["need"])
 
+    def test_the_page_refreshes_its_live_parts_by_itself(self):
+        """10.11. (Jure: "korisnici u bilo kojem momentu trebaju vidjeti što bot radi"): every live part carries a
+        version; /autopilot/zivo answers the same parts, so the page script swaps only what changed."""
+        self.trade(on=False).close()
+        body = apjavno.page({}, None)[1]
+        self.assertIn('data-live="/autopilot/zivo"', body)
+        for name in apjavno.LIVE_PARTS:
+            self.assertIn(f"id=apj-l-{name} data-v=", body)
+        self.assertIn("setInterval(live,15000)", body)
+        frag = apjavno.live_fragment("hr")
+        for name in apjavno.LIVE_PARTS:
+            self.assertIn(f"id=apj-l-{name} data-v=", frag)
+        import re as _re
+        ver = lambda h, n: _re.search(f"id=apj-l-{n} data-v=(\\w+)", h).group(1)   # noqa: E731
+        self.assertEqual(ver(body, "stats"), ver(frag, "stats"))   # unchanged data -> the same version, no swap
+        self.assertNotIn("apj-chat", frag)                          # the chat has its own refresh
+        self.assertIn('data-live="/autopilot/zivo?l=en"', apjavno.page({}, None, "en")[1])
+
     def test_snapshot_is_kept_and_guest_page_too(self):
         self.seed()
         self.live()
@@ -760,6 +778,11 @@ class Http(unittest.TestCase):
         self.assertNotIn("noindex", hdr.get("X-Robots-Tag") or "")   # 10.11. (Jure: "da", u Google)
         self.assertIn("noindex", self.call("/autopilot/chat")[1].get("X-Robots-Tag", ""))   # the fragment stays out
         self.assertEqual(self.call("/autopilot/chat")[0], 200)
+        code, hdr, body = self.call("/autopilot/zivo")                       # 10.11.: the live parts, no login
+        self.assertEqual(code, 200)
+        self.assertIn("id=apj-l-hero", body)
+        self.assertIn("noindex", hdr.get("X-Robots-Tag", ""))
+        self.assertEqual(self.call("/autopilot/zivo?l=en")[0], 200)
         self.assertEqual(self.call("/tokens")[0], 401)          # the app itself still needs the login
         # ... and can write nothing
         self.assertEqual(self.call("/autopilot/poruka", {"text": "gost"})[0], 401)
