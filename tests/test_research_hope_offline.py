@@ -144,6 +144,20 @@ class Hope(unittest.TestCase):
         self.assertTrue(err)
         self.assertIn("get_research", [t["name"] for t in mcpapi.TOOLS])
 
+    def test_report_lines_from_the_file(self):
+        from research import hope_report
+        self.run_it()
+        lines = []
+        with mock.patch.object(hope_report, "TODAY0", MIGR - 7200):
+            self.assertEqual(hope_report.main([], log=lines.append), 0)
+            self.assertEqual(hope_report.main([], log=lines.append), 0)            # once
+        text = "\n".join(lines)
+        for s in ("Vremenska crta", "Najveći rani novčanici", "Prodali u Markov poziv", "Raspodjela", "Top 20 holdera",
+                  "Poznati novčanici", "Isti slot danas", "Tko drži supply"):
+            self.assertIn(s, text)
+        self.assertIn("poslao 0.80 % na 2 novčanika", text)                       # K spread to D1, D2
+        self.assertIn("hope report: već napravljeno", lines)
+
     def test_main_runs_once(self):
         with mock.patch.dict(os.environ, {"HELIUS_API_KEY": "k"}), mock.patch.object(hope, "run") as run:
             self.assertEqual(hope.main([]), 0)
