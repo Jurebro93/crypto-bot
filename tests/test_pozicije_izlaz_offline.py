@@ -532,6 +532,63 @@ class McpQueue(Base):
         self.assertIn('"open_positions": []', text)
 
 
+class McpHosted(Base):
+    """10.11. (Jure: "napravi mcp key, ne znam raditi s pip install"): the app serves MCP at /mcp; the owner makes the
+    key on the Autopilot page (settings mcp_key); Grok needs only the address and the key."""
+
+    def setUp(self):
+        super().setUp()
+        self._key = os.environ.pop("MCP_API_KEY", None)
+
+    def tearDown(self):
+        if self._key is not None:
+            os.environ["MCP_API_KEY"] = self._key
+        super().tearDown()
+
+    def test_owner_makes_the_key_and_the_page_shows_it_only_to_him(self):
+        from ui import mcpapi, pravitrade
+        self.assertIsNone(mcpapi.authorized("Bearer x"))                       # no key yet: the endpoint is off
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Napravi MCP ključ", body)
+        self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))
+        k = settings.raw(self.con)["mcp_key"]
+        self.assertTrue(k.startswith("ms_") and len(k) > 40)
+        self.assertTrue(mcpapi.authorized(f"Bearer {k}"))
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn(f'value="{k}"', body)
+        self.assertIn("https://app.memesonar.app/mcp", body)
+        settings.put(self.con, "invited", ["gost"], "Jure")
+        self.assertNotIn(k, pravitrade.page({}, "gost")[1])
+        self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))             # a new key: the old one stops
+        self.assertFalse(mcpapi.authorized(f"Bearer {k}"))
+        self.assertIn("ok=", self.post("/pravi-trade/mcpkeyoff", {}))
+        self.assertIsNone(mcpapi.authorized("Bearer anything"))
+
+    def test_json_rpc_initialize_list_call_and_notifications(self):
+        from ui import mcpapi
+        code, out = mcpapi.rpc(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                           "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                                                      "clientInfo": {"name": "grok", "version": "1"}}}).encode())
+        r = json.loads(out)["result"]
+        self.assertEqual((code, r["protocolVersion"], r["serverInfo"]["name"]), (200, "2025-03-26", "MemeSonar"))
+        self.assertEqual(mcpapi.rpc(b'{"jsonrpc":"2.0","method":"notifications/initialized"}'), (202, ""))
+        tools = json.loads(mcpapi.rpc(b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}')[1])["result"]["tools"]
+        self.assertEqual([t["name"] for t in tools],
+                         ["get_market_signals", "get_token_details", "get_portfolio_status", "execute_trade"])
+        self.assertTrue(tools[3]["annotations"]["destructiveHint"])
+        call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "get_token_details", "arguments": {"token_address": MINT}}}
+        res = json.loads(mcpapi.rpc(json.dumps(call).encode())[1])["result"]
+        self.assertFalse(res["isError"])
+        self.assertEqual(res["structuredContent"]["market"]["market_cap_usd"], 82000.0)
+        call["params"] = {"name": "execute_trade", "arguments": {"token_address": MINT, "amount": 0.05, "side": "buy",
+                                                                  "require_approval": False}}
+        self.assertTrue(json.loads(mcpapi.rpc(json.dumps(call).encode())[1])["result"]["isError"])
+        bad = json.loads(mcpapi.rpc(b'{"jsonrpc":"2.0","id":4,"method":"nope"}')[1])
+        self.assertEqual(bad["error"]["code"], -32601)
+        self.assertEqual(json.loads(mcpapi.rpc(b"{not json")[1])["error"]["code"], -32700)
+
+
 class Header(unittest.TestCase):
     def test_split_line_says_free_sol_positions_and_the_snapshot_time(self):
         from ui import pravitrade

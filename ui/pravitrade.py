@@ -1266,6 +1266,43 @@ def _float_nav(owner):
     return f'<nav class=ap-fn aria-label="Dijelovi stranice">{links}</nav>' + FLOAT_JS
 
 
+MCP_URL = os.environ.get("MCP_PUBLIC_URL") or "https://app.memesonar.app/mcp"
+
+
+def _mcp_section(tcon, owner):
+    """10.11. (Jure: "napravi mcp key, ne znam raditi s pip install"): Grok connects to the MCP endpoint the app
+    hosts; the owner makes the key with one tap and copies it from here (it never goes through a chat)."""
+    if not owner:
+        return ""
+    from ui import mcpapi
+    k = str(settings.raw(tcon).get("mcp_key") or "")
+    env = bool((os.environ.get("MCP_API_KEY") or "").strip())
+    if env:
+        inner = ("<p>Ključ je postavljen na Renderu (MCP_API_KEY); vrijedi on, ne ovaj s stranice.</p>")
+    elif k:
+        inner = (f'<p><b>Adresa:</b> <code>{esc(MCP_URL)}</code></p>'
+                 f'<p><b>Ključ:</b> <input id=mcpk type=password value="{esc(k)}" readonly style="width:100%;max-width:440px" '
+                 'autocomplete=off> <button type=button onclick="var i=document.getElementById(\'mcpk\');'
+                 'i.type=i.type===\'password\'?\'text\':\'password\'">Prikaži</button> '
+                 '<button type=button class=ap-buy onclick="var i=document.getElementById(\'mcpk\');'
+                 '(navigator.clipboard?navigator.clipboard.writeText(i.value):Promise.reject()).then(()=>{this.textContent='
+                 '\'Kopirano\'},()=>{i.type=\'text\';i.select()})">Kopiraj ključ</button></p>'
+                 '<p class=mut>U Groku dodaj MCP server: URL gornja adresa, zaglavlje <code>Authorization</code> s '
+                 'vrijednošću <code>Bearer &lt;ključ&gt;</code>. Ključ ne šalji u chat ni u objave.</p>'
+                 '<div class=ap-btns><form method=post action=/pravi-trade/mcpkey onsubmit="return confirm(\'Napraviti novi '
+                 'ključ? Stari prestaje raditi odmah.\')" style="margin:0"><button>Novi ključ</button></form>'
+                 '<form method=post action=/pravi-trade/mcpkeyoff onsubmit="return confirm(\'Ugasiti pristup za Groka?\')" '
+                 'style="margin:0"><button class=ap-cancel>Ugasi pristup</button></form></div>')
+    else:
+        inner = ('<p>Grok se spaja na MemeSonar preko adrese <code>' + esc(MCP_URL) + '</code>. Ništa ne treba '
+                 'instalirati.</p><form method=post action=/pravi-trade/mcpkey style="margin:0"><button class="ap-buy ap-wide">'
+                 'Napravi MCP ključ</button></form>')
+    inner += ('<p class=mut>Grok vidi signale, token i portfelj; trgovinu samo traži, a ona čeka tvoje „Odobri” na vrhu '
+              'ove stranice.</p>')
+    meta = "uključen" if (k or env) else "isključen"
+    return _sec("Grok (MCP)", meta, inner, sid="mcp")
+
+
 def _mcp_requests(tcon, owner):
     """10.11. (MCP server MemeSonar, Grok's execute_trade): the trade requests that wait for the owner, each with
     Odobri / Odbij. Nothing a client asks for moves money before this tap (ui/mcpapi.py)."""
@@ -3807,7 +3844,7 @@ def page(qs, user):
         finally:
             con.close()
         b += [_h2("Još", sid="jos"),
-              _group(_callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
+              _group(_safe("grok", _mcp_section, tcon, owner), _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
                      _safe("pozivnice", _invites, tcon) if owner else "", _safety()),
               '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]
@@ -3951,6 +3988,14 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path == "/pravi-trade/mcpkey":   # 10.11. (Jure: "napravi mcp key"): a new key, the old one stops
+            from ui import mcpapi
+            mcpapi.new_key(tcon, user)
+            print(f"pravi trade: {user} je napravio novi MCP ključ", flush=True)
+            return f"{BACK}?ok={qq('MCP ključ je napravljen. Kopiraj ga ispod i upiši u Groka.')}#mcp"
+        if path == "/pravi-trade/mcpkeyoff":
+            settings.put(tcon, "mcp_key", "", user)
+            return f"{BACK}?ok={qq('Pristup za Groka je ugašen.')}#mcp"
         if path == "/pravi-trade/mcpno":   # 10.11.: the owner turns down a request of the MCP server
             from ui import mcpapi
             if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio"):

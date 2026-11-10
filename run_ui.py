@@ -509,6 +509,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._export(path[len("/admin/export/"):], qs)
         if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
             return self._mcp_get(path, qs)
+        if path == "/mcp":   # 10.11.: the hosted MCP endpoint answers POST only (no server-initiated stream)
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -796,6 +802,15 @@ class Handler(BaseHTTPRequestHandler):
             code, out = 500, json.dumps({"error": f"{type(e).__name__}"})
         return self._send(code, out.encode("utf-8"), "application/json")
 
+    def _mcp_rpc(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        code, out = mcpapi.rpc(self.rfile.read(min(n, 200_000)))
+        return self._send(code, out.encode("utf-8"), "application/json")
+
     def _mcp_post(self):
         from ui import mcpapi
         a = self._mcp_auth()
@@ -916,6 +931,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
             return self._mcp_post()
+        if u.path == "/mcp":   # 10.11.: the MCP endpoint for Grok, hosted in the app (ui/mcpapi.rpc), Bearer key
+            return self._mcp_rpc()
         if u.path == "/prijava":
             return self._login_post()
         if u.path == "/registracija":
