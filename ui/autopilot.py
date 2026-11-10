@@ -546,10 +546,52 @@ AUTO_EVERY_S = 3600
 _LAST = {"ts": 0}
 
 
-def auto_targets(days, n, keep=(), skip=(), ev=None):
+def _weighted(rows, weights):
+    """10.11. (Jure, flag caller_weights): the influencer rows re-ordered by the owner-applied caller weights
+    (settings caller_weights, 0-2; ui/assistnotes "Primijeni na bota"): weight 0 drops the account, 1 changes
+    nothing, above 1 lifts it and under 1 lowers it by that share of its own score (score + (w - 1) * |score|, so
+    the direction is right for a negative score too). Handles compare without case and without "@"."""
+    if not weights:
+        return rows
+    w = {str(k).lower().lstrip("@"): float(v) for k, v in weights.items()}
+    out = []
+    for r in rows:
+        k = w.get(r["handle"].lower().lstrip("@"), 1.0)
+        if k <= 0:
+            continue
+        sc = float((r.get("s") or {}).get("score") or 0)
+        out.append((sc + (k - 1) * abs(sc), r))
+    out.sort(key=lambda x: -x[0])
+    return [r for _, r in out]
+
+
+def caller_weights_flag():
+    """(weights to rank with or None, weights to shadow or None) of the flag caller_weights for the Autopilot account."""
+    try:
+        from league import flags
+        from trade import settings
+        m = flags.mode("caller_weights")
+        if m == "off":
+            return None, None
+        tcon = settings.connect()
+        try:
+            wts = settings.raw(tcon).get("caller_weights") or {}
+        finally:
+            tcon.close()
+        if not wts:
+            return None, None
+        if flags.applies("caller_weights", settings.LEAGUE_USER, m):
+            return wts, None
+        return None, (wts if flags.shadowing("caller_weights", settings.LEAGUE_USER, m) else None)
+    except Exception:  # noqa: BLE001 - unreadable settings = the old rank
+        return None, None
+
+
+def auto_targets(days, n, keep=(), skip=(), ev=None, weights=None):
     """[(kind, target, label, why)] the tool would follow: the n best live-watched influencers and the n best wallets of
     the window. An earlier pick in `keep` stays while it is still in the top 2n, so the list does not churn every hour.
-    ev: rank influencers by the point-in-time EV (flag caller_ev_rank, kol_recs)."""
+    ev: rank influencers by the point-in-time EV (flag caller_ev_rank, kol_recs).
+    weights: the owner-applied caller weights (flag caller_weights, _weighted)."""
     out = []
     proven = proven_wallets()   # 9.11. (audit P13/P14): proven-twice wallets first, the window list after them
     seen = {r["wallet"] for r in proven}
@@ -557,8 +599,8 @@ def auto_targets(days, n, keep=(), skip=(), ev=None):
     # vouches for (MIN_MINUTE+ calls); the 24-h wick fallback ("too optimistic for real money", 9.11.) stays a hint
     # 10.11. (pregled): an earlier pick that is still live and still recommended stays whatever the measure (a count
     # going 10 -> 9 as old calls leave the window must not unfollow it: a new follow id restarts its demo proof)
-    groups = (("kol", [r for r in (kol_recs(ev=True) if ev else kol_recs()).get(days) or [] if r["live"] and (
-                   r["s"].get("mjera") == "minutna" or ("kol", r["handle"]) in keep)]),
+    groups = (("kol", _weighted([r for r in (kol_recs(ev=True) if ev else kol_recs()).get(days) or [] if r["live"] and (
+                   r["s"].get("mjera") == "minutna" or ("kol", r["handle"]) in keep)], weights)),
               ("wallet", proven + [r for r in wallet_recs().get(days) or [] if r["wallet"] not in seen]))
     for kind, rows in groups:
         key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
@@ -592,9 +634,12 @@ def sync_follows(con, tcon, now=None, force=False):
     manual = {(f["kind"], f["target"]) for fid, f in active.items() if fid not in auto_ids}
     skip = {tuple(x) for x in s.get("auto_skip") or []}
     ev_on, ev_shadow = ev_flag()   # 10.11. (Grok MCP audit 5): flag caller_ev_rank
-    want = auto_targets(days, n, keep=set(mine), skip=skip, ev=ev_on)
+    w_on, w_shadow = caller_weights_flag()   # 10.11. (Jure): flag caller_weights
+    want = auto_targets(days, n, keep=set(mine), skip=skip, ev=ev_on, weights=w_on)
     if ev_shadow:
         _shadow_picks(con, days, n, mine, skip, want, now)
+    if w_shadow:
+        _shadow_weights(con, days, n, mine, skip, want, now, ev_on, w_shadow)
     if not want:   # no data (e.g. stats not computed yet): keep what we have rather than drop everyone
         return []
     want_keys = {(k, t) for k, t, _, _ in want}
@@ -623,6 +668,24 @@ def sync_follows(con, tcon, now=None, force=False):
         log = ([{"ts": int(now), "op": op, "kind": k, "target": t, "why": w} for op, k, t, w in changes] + log)[:30]
         settings.put(tcon, "auto_log", log, "alat")
     return [f"autopilot {op} {k} {t}" for op, k, t, _ in changes]
+
+
+def _shadow_weights(con, days, n, mine, skip, want, now, ev, weights):
+    """caller_weights in shadow / paper: the influencers the weighted rank would follow instead, one shadow_decisions
+    line per difference ("prati" / "ne prati") with the weight that made it."""
+    try:
+        from league import flags
+        new = auto_targets(days, n, keep=set(mine), skip=skip, ev=ev, weights=weights)
+        new_k = {t for k, t, _, _ in new if k == "kol"}
+        old_k = {t for k, t, _, _ in want if k == "kol"}
+        low = {str(k).lower().lstrip("@"): v for k, v in weights.items()}
+        for h in sorted(old_k ^ new_k):
+            flags.shadow(con, "caller_weights", mine.get(("kol", h)), h, "prati" if h in old_k else "ne prati",
+                         "prati" if h in new_k else "ne prati",
+                         {"days": days, "weight": low.get(h.lower().lstrip("@"), 1.0)}, now)
+        con.commit()
+    except Exception as e:  # noqa: BLE001 - a lost shadow line never stops the auto pick
+        print(f"autopilot: sjena caller_weights: {type(e).__name__}: {e}", flush=True)
 
 
 def _shadow_picks(con, days, n, mine, skip, want, now):

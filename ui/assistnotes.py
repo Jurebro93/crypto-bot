@@ -313,9 +313,50 @@ def _apply_caller(con, pc):
     return h, old, cur[h]
 
 
+def _to_shadow(con, flag):
+    """10.11. (Jure: "svaku iza zastavice, prvo shadow"): a rule an applied suggestion sets is switched to shadow when
+    it is off; a flag already in shadow, paper or live stays where the owner put it. Never live from here."""
+    if settings.flag(flag, con=con) == "off":
+        settings.set_flag(con, flag, "shadow", "asistent (Primijeni)")
+        return f"; zastavica {flag}: sjena"
+    return ""
+
+
+def _apply_dca_cap(con, v):
+    v = round(float(v), 4)
+    if not 0.01 <= v <= 5:
+        raise ValueError("dca_token_cap mora biti 0,01-5 SOL")
+    _set_settings(con, "dca_token_cap", v)
+    _to_shadow(con, "dca_cap")
+    return v
+
+
+def _apply_require_signal(con, v):
+    on = v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "da", "on", "yes")
+    if on:
+        _to_shadow(con, "require_signal")
+    elif settings.flag("require_signal", con=con) != "off":
+        settings.set_flag(con, "require_signal", "off", "asistent (Primijeni)")
+    return on
+
+
+def _apply_runup(con, v):
+    v = float(v)
+    if v > 2:   # "15" is meant as 15 %
+        v = v / 100
+    if not 0.02 <= v <= 2.0:
+        raise ValueError("runup_max mora biti 0,02-2 (2 % do 200 % iznad prvog poziva)")
+    _set_settings(con, "runup_max", round(v, 4))
+    _to_shadow(con, "runup_default")
+    return round(v, 4)
+
+
 APPLY = {"tp_default": _apply_tp, "sl_default": _apply_sl, "size_sol": _apply_limit("size_sol"),
          "max_open": _apply_limit("max_open"), "auto_skip": _apply_auto_skip,
-         **{f"copy.{k}": _apply_copy(k) for k in COPY_CFG}}
+         **{f"copy.{k}": _apply_copy(k) for k in COPY_CFG},
+         # 10.11. (Jure): rules behind a flag; applying one sets its value and moves its flag from off to shadow
+         "dca_token_cap": _apply_dca_cap, "require_signal": _apply_require_signal, "runup_max": _apply_runup}
+FLAG_OF = {"dca_token_cap": "dca_cap", "require_signal": "require_signal", "runup_max": "runup_default"}
 
 
 def _current(con, key):
@@ -325,7 +366,37 @@ def _current(con, key):
         return (raw.get("copy_cfg") or {}).get(key[5:], copy.CFG.get(key[5:]))
     if key in ("tp_default", "sl_default"):
         return settings.merged({"size_sol": 0.1, "max_sol_per_trade": 0.1}, con).get(key)
+    if key == "dca_token_cap":
+        return raw.get(key, settings.DCA_TOKEN_CAP)
+    if key == "require_signal":
+        return settings.flag("require_signal", con=con) != "off"
+    if key == "runup_max":
+        from league import copy
+        return raw.get(key, copy.RUNUP_DEFAULT)
     return raw.get(key, None)
+
+
+def effective(con):
+    """10.11. (Jure: Grok mora moći provjeriti): every key "Primijeni" can change with its value in force now, the
+    flag it sits behind (and that flag's mode), and the caller weights."""
+    out = {}
+    for key in APPLY:
+        try:
+            v = _current(con, key)
+        except Exception:  # noqa: BLE001
+            v = None
+        row = {"value": v}
+        if key in FLAG_OF:
+            row.update(flag=FLAG_OF[key], flag_mode=settings.flag(FLAG_OF[key], con=con))
+        out[key] = row
+    out["caller_weights"] = {"value": settings.raw(con).get("caller_weights") or {}, "flag": "caller_weights",
+                             "flag_mode": settings.flag("caller_weights", con=con)}
+    return out
+
+
+def applied(con, limit=50):
+    """The applied suggestions, newest first: [{ts, note_id, key, old, new}] (settings applied_log)."""
+    return list(settings.raw(con).get("applied_log") or [])[:limit]
 
 
 def decide(con, nid, status, owner_note=""):
@@ -355,16 +426,19 @@ def apply(con, nid, owner_note=""):
     if pc and "caller" in pc and "weight" in pc:
         h, old, new = _apply_caller(con, pc)
         applied = {"key": f"caller_weights.{h}", "old": old, "new": new}
-        words = f"težina callera {h}: {old} → {new}"
+        words = f"težina callera {h}: {old} → {new}" + _to_shadow(con, "caller_weights")
     elif pc and pc.get("key") in APPLY:
         key = pc["key"]
         old = _current(con, key)
         if "from" in pc and pc["from"] is not None and old is not None and str(pc["from"]) != str(old) \
                 and _num(pc["from"]) != _num(old):
             raise ValueError(f"{key} je sada {old}, ne {pc['from']} kako prijedlog pretpostavlja; prihvati ga ručno")
+        flag_was = settings.flag(FLAG_OF[key], con=con) if key in FLAG_OF else None
         new = APPLY[key](con, pc.get("to"))
         applied = {"key": key, "old": old, "new": new}
         words = f"{key}: {old} → {new}"
+        if key in FLAG_OF and flag_was == "off" and settings.flag(FLAG_OF[key], con=con) == "shadow":
+            words += f"; zastavica {FLAG_OF[key]}: sjena (uživo uključuješ ti)"
     if applied is None:
         con.execute("UPDATE assistant_notes SET status='prihvaćeno', decided_ts=?, owner_note=? WHERE id=?",
                     (int(time.time()), note, d["id"]))

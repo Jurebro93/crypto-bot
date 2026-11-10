@@ -71,6 +71,12 @@ DATA_MAX_RUNUP = 0.10
 # accounts gets when the flag applies, measured from the token's FIRST call overall (kol.db calls.p0), not from
 # DexScreener's 5-min change; a run-up that cannot be measured is a skip
 RUNUP_DEFAULT = 0.10
+_RUNUP = {"cap": RUNUP_DEFAULT}   # the cap in force: trade settings "runup_max" (ui/assistnotes "Primijeni"), read each pass
+# 10.11. (Jure, flag require_signal): an Autopilot entry needs at least one caller's call or a buy by a wallet with a
+# tier on that token within SIGNAL_WINDOW_S; KOL / crew copies have their caller by definition, so in practice it
+# stops copies of wallets without a tier when nobody else is in, and SimianX signals with nobody behind them
+SIGNAL_WINDOW_S = 3600
+SIGNAL_TIERS = ("S", "A", "B")
 # 10.11. (Grok MCP audit 4, flag stop_grace): a proven follow's copy keeps its stop asleep this long after the entry
 # (league/auto: TP and the rug flags still fire); "proven" is run_trade.PROOF on the follow's own closed demo trades
 GRACE_S = 180
@@ -789,7 +795,8 @@ def _runup_gate(con, f, m, tok, age_s, price, rmode, first):
     on = _flag_applies("runup_default", f["user"], rmode)
     if not on and not _flag_shadowing("runup_default", f["user"], rmode):
         return old_why
-    cap = ex["max_runup"] if ex.get("max_runup") is not None else RUNUP_DEFAULT
+    # a cap the flag wrote at the follow (runup_src "flag") follows the cap in force; the owner's own cap stays his
+    cap = ex["max_runup"] if ex.get("max_runup") is not None and ex.get("runup_src") != "flag" else _RUNUP["cap"]
     fc = first()
     r = runup_from_first(tok, price, first=fc or {})
     if r is None:
@@ -813,6 +820,78 @@ def _runup_gate(con, f, m, tok, age_s, price, rmode, first):
     except Exception:  # noqa: BLE001 - a lost shadow line never stops the copy
         pass
     return old_why
+
+
+def _wallet_tiers(wallets):
+    """{wallet: tier} from wallets.db for the given wallets (missing = no tier)."""
+    ws = sorted({w for w in wallets if w})
+    if not ws:
+        return {}
+    wc = _ro(os.environ.get("WALLET_DB") or os.path.join(ROOT, "wallets.db"))
+    if wc is None:
+        return {}
+    try:
+        return dict(wc.execute(f"SELECT wallet, tier FROM wallets WHERE wallet IN ({','.join('?' * len(ws))})", ws))
+    except sqlite3.Error:
+        return {}
+    finally:
+        wc.close()
+
+
+def signal_for(tok, now, wallet=None, window_s=SIGNAL_WINDOW_S, paths=None):
+    """(True, why) when the token has a caller's call or a tiered wallet's buy in the last window_s (or `wallet`, the
+    copied one, has a tier); (False, why) otherwise. kol.db calls (kind 'call', no 'w:' pseudo-calls), hype.db
+    chain_trades buys with wallets.db tiers. Unknown (no database) counts as no signal."""
+    p = paths or _paths()
+    own = _wallet_tiers([wallet]).get(wallet) if wallet else None
+    if own in SIGNAL_TIERS:
+        return True, f"novčanik s tierom {own}"
+    kc = _ro(p["kol"])
+    if kc is not None:
+        try:
+            r = kc.execute("SELECT handle FROM calls WHERE token=? AND kind='call' AND handle NOT LIKE 'w:%' "
+                           "AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT 1", (tok, now - window_s, now + 60)).fetchone()
+            if r:
+                return True, f"poziv {r[0]}"
+        except sqlite3.Error:
+            pass
+        finally:
+            kc.close()
+    hc = _ro(p["hype"])
+    if hc is not None:
+        try:
+            buyers = [w for (w,) in hc.execute("SELECT DISTINCT wallet FROM chain_trades WHERE mint=? AND side='buy' "
+                                                "AND ts BETWEEN ? AND ?", (tok, now - window_s, now + 60))]
+        except sqlite3.Error:
+            buyers = []
+        finally:
+            hc.close()
+        tiers = _wallet_tiers(buyers)
+        good = [w for w in buyers if tiers.get(w) in SIGNAL_TIERS]
+        if good:
+            return True, f"kupnja novčanika s tierom {tiers[good[0]]}"
+    return False, f"nijedan caller ni novčanik s tierom ({'/'.join(SIGNAL_TIERS)}) u zadnjih {window_s // 60} min"
+
+
+def _signal_gate(con, f, tok, now, smode, paths=None):
+    """The require_signal gate of one copy (see SIGNAL_WINDOW_S): the reason to skip when the flag applies, else
+    None; in shadow / paper for the Autopilot account the skip it would make is logged in shadow_decisions."""
+    if smode == "off" or f["kind"] in ("kol", "ekipa"):
+        return None
+    on = _flag_applies("require_signal", f["user"], smode)
+    if not on and not _flag_shadowing("require_signal", f["user"], smode):
+        return None
+    ok, why = signal_for(tok, now, wallet=f["target"] if f["kind"] == "wallet" else None, paths=paths)
+    if ok:
+        return None
+    if on:
+        return f"bez signala: {why}"
+    try:
+        from . import flags
+        flags.shadow(con, "require_signal", f["id"], tok, "ulaz", "preskočeno", {"gate": "signal", "why": why})
+    except Exception:  # noqa: BLE001 - a lost shadow line never stops the copy
+        pass
+    return None
 
 
 def _grace_at_entry(con, f, tid, liq):
@@ -907,17 +986,21 @@ def apply_cfg_overrides():
     """10.11.: CFG values the owner moved into trade settings ("copy_cfg", set only by his "Primijeni" on an
     assistant's suggestion, ui/assistnotes.APPLY) hold from the next pass; min_mcap never under 30k (CLAUDE.md)."""
     au, ts = _autopilot_user()
-    over = {}
+    over, cap = {}, None
     if ts is not None:
         try:
             con = sqlite3.connect(f"file:{ts.DB}?mode=ro", uri=True, timeout=5)
             try:
                 row = con.execute("SELECT v FROM settings WHERE k='copy_cfg'").fetchone()
+                rc = con.execute("SELECT v FROM settings WHERE k='runup_max'").fetchone()
             finally:
                 con.close()
             over = json.loads(row[0]) if row else {}
+            cap = float(json.loads(rc[0])) if rc else None
         except (sqlite3.Error, ValueError, TypeError):
             over = {}
+    # 10.11. (Jure: "Primijeni" može mijenjati runup_default): the flag's cap, RUNUP_DEFAULT until the owner applies one
+    _RUNUP["cap"] = cap if cap is not None and 0.02 <= cap <= 2.0 else RUNUP_DEFAULT
     CFG.clear()
     CFG.update(_BASE_CFG)
     for k, v in (over or {}).items():
@@ -1033,6 +1116,7 @@ def _enter(con, auto, mk, todo, now, paths=None):
     done = []
     stopped = set()   # "only the next call" follows that already entered this minute
     rmode = _flag_mode("runup_default")   # 10.11. (Grok MCP audit 3): read once per pass (cached 2 s anyway)
+    smode = _flag_mode("require_signal")  # 10.11. (Jure): "bez ulaza bez signala"
     firsts = {}   # token -> first call in kol.db, read at most once per pass
     for f, tok, side, ts in todo:
         if f["id"] in stopped:
@@ -1091,6 +1175,8 @@ def _enter(con, auto, mk, todo, now, paths=None):
             why = f"token je već na MC ${mcap:,.0f} (tvoj strop ${f['exit']['max_mcap']:,.0f})"
         elif (rw := _runup_gate(con, f, m, tok, age_s, price, rmode, lambda: _first(firsts, tok, paths))):
             why = rw   # 10.11. (Grok MCP audit 3): the old m5 / h1 rule, or the first-call rule of runup_default
+        elif (sw := _signal_gate(con, f, tok, now, smode, paths)):
+            why = sw   # 10.11. (Jure, flag require_signal)
         elif mcap and liq and liq < CFG["min_liq_mcap"] * mcap:   # 9.11. (audit P41): one big holder would empty the pool
             why = (f"likvidnost ${liq:,.0f} je samo {liq / mcap:.1%} MC-a (granica {CFG['min_liq_mcap']:.0%}): "
                    "najveći holder bi srušio cijenu prije stopa")

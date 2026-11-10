@@ -1354,7 +1354,8 @@ def _suggest_section(tcon, owner):
         ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
               if r.get("evidence") else "")
         diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code>'
-                + ("" if auto else ' <span class=mut>(ne primjenjuje se sama: Primijeni je samo označi za ručnu izmjenu)</span>')
+                + ("" if auto else ' <span class=mut>(bot je ne zna primijeniti sam: „Primijeni na bota” je samo '
+                                   'označi kao prihvaćenu za ručnu izmjenu)</span>')
                 + "</p>") if pc else ""
         items.append(
             f'<div class=ap-sug id=as-{r["id"]}><p><b>{esc(r.get("title") or "")}</b> <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
@@ -1363,13 +1364,18 @@ def _suggest_section(tcon, owner):
             + diff + ev
             + f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
             '<input name=note placeholder="tvoja bilješka (nije obavezno)" maxlength=1000 style="flex:1;min-width:160px" autocomplete=off>'
-            '<button>Prihvati</button>'
+            # 10.11. (Jure: "prihvaćaju li se promjene kad kliknem Prihvati?"): the words say what each tap does
+            '<button>Označi prihvaćenim (bez promjene)</button>'
             '<button formaction=/pravi-trade/asno class=ap-cancel>Odbij</button>'
-            '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu?\')">Primijeni</button>'
+            '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">'
+            'Primijeni na bota</button>'
             '</form></div>')
     inner = ("".join(items) + '<p class=mut>Prijedloge piše asistent preko MCP-a; ništa se ne mijenja dok ne tapneš. '
-             'Primijeni mijenja samo dopuštene postavke (TP, stop, ulog, broj pozicija, preskočeni, filtri kopiranja, '
-             'težina callera) i zapisuje staru i novu vrijednost.</p>')
+             '„Označi prihvaćenim” samo zapiše da se slažeš, bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
+             'stop, ulog, broj pozicija, preskočeni, filtri kopiranja, strop SOL-a po tokenu, prag rasta od prvog poziva, '
+             'pravilo bez signala i težina callera; staru i novu vrijednost zapisuje. Pravila iza zastavice (težina '
+             'callera, strop po tokenu, prag rasta, bez signala) tako idu u sjenu: zapisuju što bi napravila, a uživo '
+             'ih uključuješ ti pod „Zastavice plana”, nakon backtesta.</p>')
     return _sec("Prijedlozi asistenta", f"{total} čeka", inner, sid="prijedlozi")
 
 
@@ -4723,6 +4729,33 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
+def _owner_buy_rules(lcon, tcon, token, sol, now=None):
+    """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
+    dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
+                    live = the buy is refused with the reason; shadow / paper = logged in shadow_decisions.
+    require_signal  the owner's own buy always goes through ("ručno mora proći"): a buy without a caller or a tiered
+                    wallet behind it is only logged, in every mode but off, so the rule's effect can be read."""
+    from league import copy as lcopy, flags as lflags
+    now = now or time.time()
+    U = settings.LEAGUE_USER
+    m = lflags.mode("dca_cap")
+    if m != "off":
+        cap = float(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        held = tcon.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE token=? AND status IN ('open','pending')",
+                            (token,)).fetchone()[0] or 0.0
+        if held + sol > cap + 1e-9:
+            why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
+            if lflags.applies("dca_cap", U, m):
+                raise ValueError(f"kupnja nije poslana: {why} (Pravila → Zastavice plana: dca_cap)")
+            if lflags.shadowing("dca_cap", U, m):
+                lflags.shadow(lcon, "dca_cap", None, token, "kupi", "odbij", {"held": held, "sol": sol, "cap": cap}, now)
+    if lflags.mode("require_signal") != "off":
+        ok, why = lcopy.signal_for(token, now)
+        if not ok:
+            lflags.shadow(lcon, "require_signal", None, token, "kupi (ručno)", "bez signala", {"why": why, "manual": True},
+                          now)
+
+
 def _post_buy(con, tcon, form, user):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
@@ -4787,6 +4820,7 @@ def _post_buy(con, tcon, form, user):
     if why:
         hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
         raise ValueError(f"kupnja nije poslana: {why}.{hint}")
+    _owner_buy_rules(con, tcon, token, sol)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
     sym = _symbol(token)
     # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held
     # gets one more lot (its own demo trade and real swap, run_trade passes add=True for a manual stake) with the exit
