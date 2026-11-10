@@ -74,6 +74,8 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. ~21:00 (Grok, "Prihvaćeno, ali nije primijenjeno", Jure: "Primijeni ovo"): TP +10 % / stop -20 % pays only
     # at ~73 % hits and the best callers have 50-60 %, so an entry needs 2+ callers AND a tiered wallet's buy
     "confluence": ("G9", "Ulaz tek kad se poklope 2+ callera i kupnja novčanika s tierom"),
+    # 10.11. ~21:45 (Jure): the MCP client's exit plan per position, executed by the server (league/exitplan.py)
+    "exit_plans": ("G10", "Planovi izlaza s MCP-a (set_exit_plan): TP-ovi, trailing, stop, time stop"),
 }
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",

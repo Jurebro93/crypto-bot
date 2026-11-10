@@ -1455,6 +1455,37 @@ def _grok_auto_live(tcon, owner):
             f'<p class=mut>{esc(line)}</p>{_grok_rows(grokauto.log_rows(tcon, 5))}{kill}</section>')
 
 
+def _exit_plans_block(tcon, owner):
+    """10.11. (Jure: exit plans, "Kill switch na Autopilot stranici: Pauziraj exit planove"): only while plans exist
+    or are paused: how many are active, the flag's mode, and the switch (paused: every position's default TP/SL)."""
+    if not owner:
+        return ""
+    from league import exitplan, store as lstore
+    paused = bool(settings.raw(tcon).get("exit_plans_paused"))
+    lcon = lstore.connect()
+    try:
+        exitplan.ensure(lcon)
+        rows = lcon.execute("SELECT id, token, reason FROM exit_plans WHERE status='active' ORDER BY id DESC").fetchall()
+    finally:
+        lcon.close()
+    if not rows and not paused:
+        return ""
+    mode = settings.flag("exit_plans", con=tcon)
+    words = {"off": "zastavica isključena: ne rade", "shadow": "sjena: samo zapisuju", "paper": "rade na demo računu, "
+             "za pravi samo zapisuju", "live": "rade i na pravom novcu"}.get(mode, mode)
+    items = "".join(f'<li><a href="/token/{esc(t)}">{esc(short(t))}</a> · plan #{pid}'
+                    + (f' <span class=mut>· {esc(r)}</span>' if r else "") + "</li>" for pid, t, r in rows[:6])
+    if paused:
+        btn = ('<form method=post action=/pravi-trade/exitresume style="margin:0"><button>Nastavi exit planove</button></form>')
+        head = "pauzirani: vrijedi zadani TP/SL"
+    else:
+        btn = ('<form method=post action=/pravi-trade/exitpause class=ap-danger onsubmit="return confirm(\'Pauzirati sve '
+               'exit planove? Pozicije se vraćaju na zadani TP/SL.\')"><button class=ap-danger>Pauziraj exit planove</button></form>')
+        head = f"{len(rows)} aktivnih · {words}"
+    return (f'<section class="ap-qb ap-plans" id=exit-planovi><h2 class=ap-qb-h>Planovi izlaza <span class=mut>· '
+            f'{esc(head)}</span></h2><ul class=ap-grok-log>{items}</ul>{btn}</section>')
+
+
 def _grok_auto_setup(tcon, owner):
     """Under "Kako trguje": the switch (when off) and Grok's own limits."""
     if not owner:
@@ -4341,6 +4372,7 @@ def page(qs, user):
                  _safe("kupnja", _buy_now_card, cfg, owner),
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
                  _safe("grok-auto", _grok_auto_live, tcon, owner),   # 10.11.: only while the owner has it on
+                 _safe("exit-planovi", _exit_plans_block, tcon, owner),   # 10.11.: only while plans exist
                  _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
@@ -4471,6 +4503,11 @@ def post(path, form, user):
                 return f"{BACK}?err={qq('zadani stop: ' + ', '.join(f'−{x}' for x in settings.SL_CHOICES) + ' %')}#stop"
             settings.put(tcon, "sl_default", v, user)
             return f"{BACK}?ok={qq(f'Zadani stop za nove ulaze: −{v} %.')}#stop"
+        if path in ("/pravi-trade/exitpause", "/pravi-trade/exitresume"):   # 10.11. league/exitplan kill switch
+            pause = path.endswith("pause")
+            settings.put(tcon, "exit_plans_paused", pause, user)
+            print(f"pravi trade: {user} je {'PAUZIRAO' if pause else 'nastavio'} exit planove", flush=True)
+            return f"{BACK}?ok={qq('Exit planovi su pauzirani: pozicije imaju zadani TP/SL.' if pause else 'Exit planovi opet rade.')}#exit-planovi"
         if path in ("/pravi-trade/grokon", "/pravi-trade/grokoff", "/pravi-trade/groklimits"):   # 10.11. ui/grokauto
             from ui import grokauto
             if path == "/pravi-trade/groklimits":

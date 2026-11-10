@@ -30,15 +30,18 @@ class Flags(Base):
         done = assistnotes.owner_flags_b(self.tc, now=NOW)
         modes = {n: settings.flag_state(self.tc)[n]["mode"] for n, _ in assistnotes.OWNER_FLAGS_B}
         self.assertEqual(modes, {"x_features_ingest": "shadow", "require_signal": "paper", "dca_cap": "paper",
-                                 "smart_discovery": "shadow", "confluence": "shadow"})
+                                 "smart_discovery": "shadow", "confluence": "shadow", "exit_plans": "paper"})
         log = assistnotes.applied(self.tc)
         self.assertEqual({(x["key"], x["old"], x["new"]) for x in log},
                          {("flag:x_features_ingest", "off", "shadow"), ("flag:require_signal", "shadow", "paper"),
                           ("flag:dca_cap", "shadow", "paper"), ("flag:smart_discovery", "off", "shadow"),
-                          ("flag:confluence", "off", "shadow"),
-                          ("dca_cap_owner", "samo zapis (shadow)", "tvrdi strop 0.3 SOL po tokenu")})
+                          ("flag:confluence", "off", "shadow"), ("flag:exit_plans", "off", "paper"),
+                          ("dca_cap_owner", "samo zapis (shadow)", "tvrdi strop 0.3 SOL po tokenu"),
+                          ("grok_autotrade", "off", "on")})
         self.assertTrue(all(x["ts"] for x in log))
-        self.assertEqual(len(done), 6)
+        self.assertEqual(len(done), 8)
+        from ui import grokauto
+        self.assertTrue(grokauto.state(self.tc)["on"])                             # "Uključi je, neka Grok trada"
         self.assertEqual(assistnotes.owner_flags_b(self.tc, now=NOW), [])          # once
         self.assertNotIn("live", modes.values())
         # what Grok reads

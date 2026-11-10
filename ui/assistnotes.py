@@ -379,14 +379,14 @@ def _current(con, key):
     return raw.get(key, None)
 
 
-def record_applied(con, nid, key, old, new, note=""):
+def record_applied(con, nid, key, old, new, note="", client=None):
     """An owner-ordered change that is already done: one line in applied_log for note `nid` (with the time) and the
     note marked primijenjeno, so get_assistant_notes / get_scoring_config show it. A note that is missing or was
     rejected only gets the log line."""
     ensure(con)
     now = int(time.time())
     log = list(settings.raw(con).get("applied_log") or [])
-    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new})
+    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new, **({"client": client} if client else {})})
     _set_settings(con, "applied_log", log[:200])
     con.execute("UPDATE assistant_notes SET status='primijenjeno', decided_ts=?, owner_note=COALESCE(owner_note, ?) "
                 "WHERE id=? AND status IN ('novo', 'prihvaćeno')", (now, (note or "")[:1000] or None, int(nid)))
@@ -451,7 +451,8 @@ def owner_once(con):
 # in applied_log (note_id 0: no note behind it), which get_scoring_config shows with the flag modes.
 OWNER_ONCE_B_KEY = "owner_once_1011b"
 OWNER_FLAGS_B = (("x_features_ingest", "shadow"), ("require_signal", "paper"), ("dca_cap", "paper"),
-                 ("smart_discovery", "shadow"), ("confluence", "shadow"))
+                 ("smart_discovery", "shadow"), ("confluence", "shadow"),
+                 ("exit_plans", "paper"))   # 10.11. ~21:45 (Jure): "flag exit_plans, start = paper, pa live nakon testa"
 # 10.11. ~21:00 (Jure: "Primijeni ovo i makni sa autopilot screena" on Grok's "Prihvaćeno, ali nije primijenjeno: SL je
 # još 60 %, Hope DCA 0.6 SOL (cap 0.3)"): sl_default 30 was applied at 17:34 UTC (log "#41 sl_default 60 → 30"); the
 # cap becomes the owner's hard limit on his own buys (dca_cap_owner, ui/pravitrade._owner_buy_rules); Grok's rule
@@ -493,6 +494,12 @@ def owner_flags_b(con, now=None):
         _set_settings(con, "dca_cap_owner", True)
         record_applied(con, 43, "dca_cap_owner", "samo zapis (shadow)", f"tvrdi strop {cap:g} SOL po tokenu", why)
         done.append(f"#43 strop po tokenu za tvoje kupnje: {cap:g} SOL (tvrdo)")
+    # 10.11. ~21:45 (Jure: "Uključi je, neka Grok trada"): Grok autotrade on, within its own limits (ui/grokauto)
+    from ui import grokauto
+    if not grokauto.state(con, now)["on"]:
+        grokauto.set_on(con, True, "Jure (chat 10.11.)", now)
+        record_applied(con, 0, "grok_autotrade", "off", "on", why)
+        done.append("Grok autotrade: uključen (limiti " + ", ".join(f"{k} {v:g}" for k, v in grokauto.limits(con).items()) + ")")
     for (nid,) in con.execute("SELECT id FROM assistant_notes WHERE title LIKE ? AND status IN ('novo', 'prihvaćeno')",
                               (GROK_NOTE_TITLE,)).fetchall():
         record_applied(con, nid, "grok_note", "novo", "primijenjeno: sl_default 30 (17:34 UTC), strop 0,3 SOL tvrdo, "

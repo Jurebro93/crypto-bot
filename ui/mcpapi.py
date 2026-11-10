@@ -139,6 +139,7 @@ def portfolio(now=None):
             g = by.setdefault(tok, {"token": tok, "symbol": sym, "lots": [], "exit": pravitrade._exit_words(rule)})
             g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0)})
         out = []
+        plans = _plans_for(sorted(by), now_mc)
         for tok, g in by.items():
             w = [(l["entry_market_cap_usd"], l["sol_in"] or 0) for l in g["lots"]]
             wsum = sum(s for m, s in w if m and s)
@@ -146,6 +147,7 @@ def portfolio(now=None):
             mc = now_mc.get(tok)
             g.update(sol_in=_num(sum(l["sol_in"] or 0 for l in g["lots"]), 4), avg_entry_market_cap_usd=_num(avg, 0),
                      market_cap_now_usd=_num(mc, 0), pnl_pct=_num((mc / avg - 1) * 100, 2) if mc and avg else None)
+            g["exit_plan"] = plans.get(tok)   # 10.11.: the plan in force, peak MC since entry, distance to each trigger
             out.append(g)
         raw = settings.raw(tcon)
         return {"ts": int(now), "price_ts": int(mc_ts) if mc_ts else None,
@@ -161,6 +163,61 @@ def portfolio(now=None):
                                 "waiting_for_owner": [r for r in raw.get("mcp_requests") or [] if r.get("status") == "pending"]}}
     finally:
         tcon.close()
+
+
+def set_exit_plan(token, plan, kid="mcp"):
+    """10.11. (league/exitplan): validate and store the plan, log it in applied_suggestions (ts, old, new, client)."""
+    from league import exitplan, store as lstore
+    from trade import executor
+    tok = str(token or "").strip()
+    if not MINT.fullmatch(tok):
+        return {"error": "token_address must be a Solana token address"}
+    tcon = settings.connect()
+    lcon = lstore.connect()
+    try:
+        sl_default = float(settings.merged(executor.load_config(), tcon).get("sl_default") or 30)
+        try:
+            out = exitplan.set_plan(lcon, tok, plan, sl_default, client=f"mcp:{kid}")
+        except ValueError as e:
+            return {"error": str(e)}
+        from ui import assistnotes
+        old = out["replaced"]
+        assistnotes.record_applied(tcon, 0, f"exit_plan:{tok}", old if isinstance(old, str) else old.get("plan"),
+                                   out["plan"], "set_exit_plan", client=f"mcp:{kid}")
+        print(f"mcp: plan izlaza #{out['plan_id']} za {tok[:6]}: {out['plan'].get('reason') or ''}", flush=True)
+        out["flag_mode"] = settings.flag("exit_plans", con=tcon)
+        out["paused_by_owner"] = bool(settings.raw(tcon).get("exit_plans_paused"))
+        return out
+    finally:
+        lcon.close()
+        tcon.close()
+
+
+def exit_events(since_ts=None, limit=None):
+    from league import exitplan, store as lstore
+    lcon = lstore.connect()
+    try:
+        try:
+            lim = max(1, min(500, int(limit or 200)))
+        except (TypeError, ValueError):
+            lim = 200
+        return {"events": exitplan.events(lcon, since_ts or 0, lim)}
+    finally:
+        lcon.close()
+
+
+def _plans_for(tokens, now_mc):
+    """{token: exit plan view of the real Autopilot account} for get_portfolio_status."""
+    try:
+        from league import exitplan, store as lstore
+        lcon = lstore.connect()
+        try:
+            exitplan.ensure(lcon)
+            return {t: exitplan.view(lcon, t, settings.LEAGUE_USER, mcap=now_mc.get(t)) for t in tokens}
+        finally:
+            lcon.close()
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _grok_part(tcon, now):
@@ -465,6 +522,37 @@ TOOLS += [
          "subject_kind": {"type": "string", "enum": ["token", "handle", "wallet"], "default": "token"},
          "since": {"type": "integer"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}},
          "required": ["subject"]}},
+    {"name": "set_exit_plan",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+     "description": ("Set the exit plan of one OPEN Autopilot position (all its lots); it replaces the position's "
+                     "default TP/SL and is executed by the MemeSonar server every second, no owner tap (it only sells). "
+                     "plan: take_profits [{at_pct (from the average entry) OR at_mc_usd, sell_share 0-1}] (shares add "
+                     "up to at most 1, each fires once), trailing {activate_pct, trail_pct} (from +activate_pct, sell "
+                     "all at -trail_pct from the peak after the activation), stop {at_pct OR at_mc_usd} (hard stop: may "
+                     "only be TIGHTENED, never looser than the current stop nor than sl_default), time_stop "
+                     "{after_min, if_pnl_below_pct} (counted from the last entry), reason (one line). Runs under the "
+                     "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
+                     "one; live = both. A price older than 60 s fires only the hard stop. Answer: plan_id, the plan in "
+                     "force, the stop price per account and what it replaced."),
+     "inputSchema": {"type": "object", "properties": {
+         "token_address": {"type": "string"},
+         "plan": {"type": "object", "properties": {
+             "take_profits": {"type": "array", "items": {"type": "object", "properties": {
+                 "at_pct": {"type": "number"}, "at_mc_usd": {"type": "number"}, "sell_share": {"type": "number"}}}},
+             "trailing": {"type": "object", "properties": {"activate_pct": {"type": "number"},
+                                                           "trail_pct": {"type": "number"}}},
+             "stop": {"type": "object", "properties": {"at_pct": {"type": "number"}, "at_mc_usd": {"type": "number"}}},
+             "time_stop": {"type": "object", "properties": {"after_min": {"type": "number"},
+                                                            "if_pnl_below_pct": {"type": "number"}}},
+             "reason": {"type": "string"}}}},
+         "required": ["token_address", "plan"]}},
+    {"name": "get_exit_events", "annotations": _READ,
+     "description": ("Executed exit-plan triggers since since_ts (unix s), newest first: plan_id, account, token, "
+                     "trigger (tp1, tp2, trailing, stop, time_stop), price, market cap, share sold, PnL in USD of the "
+                     "demo side, mode (izvršeno = executed, sjena = logged only), stale (the price was older than 60 s), "
+                     "and the real sell's cost/slippage %, tx signature and status when it landed."),
+     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
+                                                      "limit": {"type": "integer", "minimum": 1, "maximum": 500}}}},
     {"name": "get_research", "annotations": _READ,
      "description": ("One-off research reports MemeSonar computed from the chain and its own databases (read only). "
                      "No name: the list of reports. name (e.g. hope-20261110: every buyer of the Hope token on the "
@@ -548,6 +636,8 @@ def _tool(name, args, kid="local"):
                                                                  a.get("offset")),
         "get_scoring_config": lambda a: mcpdata.scoring_config(),
         "submit_caller_weights": lambda a: mcpdata.submit_caller_weights(a.get("weights"), kid=kid),
+        "set_exit_plan": lambda a: set_exit_plan(a.get("token_address") or a.get("token"), a.get("plan"), kid),
+        "get_exit_events": lambda a: exit_events(a.get("since_ts"), a.get("limit")),
         "get_research": lambda a: __import__("research.store", fromlist=["read"]).read(
             a.get("name"), a.get("part"), a.get("limit"), a.get("offset"), a.get("sort")),
     }
