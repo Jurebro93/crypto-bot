@@ -142,7 +142,9 @@ class Positions(Base):
         inner, meta, has_open = pravitrade.positions_inner(self.con, False, True, {}, cfg)
         self.assertTrue(has_open)
         self.assertIn("ulaz MC $82.0k", inner)                       # the closed row
-        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(<b>≈ \+0\.0 %</b>\)")   # inside, with the move
+        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC <b>\$82\.0k</b> \(<b>0,0\xa0%</b>\)")   # inside, bold entry MC
+        self.assertRegex(inner, r"MC sada <b>\$82\.0k</b> · osvježeno <b>\d\d:\d\d:\d\d</b>")   # the quote's clock time
+        self.assertIn("Ulaz na MC <b>$82.0k</b>", inner)
         self.assertIn("Izlaz: TP +15 % · SL −60 %", inner)
         self.assertIn("action=/pravi-trade/exit", inner)
         self.assertIn('name=sl value="-60%"', inner)                 # the quick TP buttons keep the stop
@@ -248,9 +250,10 @@ class AddToPosition(Base):
         self.assertEqual(inner.count("<details class=ap-it id=poz-"), 1)
         self.assertTrue(meta.startswith("1"))
         self.assertIn("2 ulaza · ulaz MC $82.0k, $100.0k", inner)
-        self.assertRegex(inner, r'1\. ulaz \d\d:\d\d na MC \$82\.0k \(<b class="pos">≈ \+22\.0 %</b>\) · 0,050\xa0SOL')
-        self.assertRegex(inner, r"2\. ulaz \d\d:\d\d na MC \$100\.0k \(<b>≈ \+0\.0 %</b>\) · 0,040\xa0SOL")
-        self.assertIn("Prosječni ulaz MC $89.1k", inner)
+        self.assertRegex(inner, r'1\. ulaz \d\d:\d\d na MC <b>\$82\.0k</b> \(<b class="pos">\+22,0\xa0%</b>\) · 0,050\xa0SOL')
+        self.assertRegex(inner, r"2\. ulaz \d\d:\d\d na MC <b>\$100\.0k</b> \(<b>0,0\xa0%</b>\) · 0,040\xa0SOL")
+        self.assertIn("Prosječni ulaz na MC <b>$89.1k</b>", inner)
+        self.assertIn('PnL <b class="pos ap-pnl-v">+12,2\xa0%</b>', inner)
         ids = ",".join(str(p) for (p,) in self.con.execute("SELECT id FROM positions ORDER BY id"))
         self.assertIn(f"name=id value={ids}>", inner)                     # sell buttons: every lot
         # the exit form changes both lots: one level from the average entry
@@ -355,6 +358,65 @@ class FollowExit(Base):
         f = copy.follows(self.lg, settings.LEAGUE_USER)[0]
         self.assertEqual((f["exit"]["tp"], f["exit"]["sl"]), ("40%", "-25%"))
         self.assertIn("promijeni TP/SL", pravitrade._follow_btn("kol", "ansem", "", {("kol", "ansem")}, True))
+
+
+class ManualDca(Base):
+    """10.11. (Jure: "DCA ide ručno, granice se postavljaju ručno"): the owner sets a level and an amount on an open
+    position; when the live MC touches the level the bot buys once into the same position."""
+
+    def _open_position(self):
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+        (t,) = store.trades(self.lg, settings.LEAGUE_USER, "open")
+        self.con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
+                         "qty_raw, qty_left) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         (t["id"], MINT, "HOPE", int(time.time()) - 60, "dry", "open", "ručno (pravi trade)", 0.05, 1000, 1000))
+        self.con.commit()
+
+    def test_order_by_mc_or_percent_buys_once_when_touched(self):
+        from ui import pravitrade
+        self._open_position()
+        self.assertIn("ok=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "-20%", "sol": "0,04"}))   # 82k -> 65.6k
+        self.assertIn("ok=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$50k", "sol": "0,03"}))
+        orders = settings.raw(self.con)["dca_orders"]
+        self.assertEqual([round(o["mc"]) for o in orders], [65_600, 50_000])
+        self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$90k", "sol": "0,04"}))   # above MC now
+        self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))   # under 30k
+        cfg = settings.merged(executor.load_config(), self.con)
+        inner, _, _ = pravitrade.positions_inner(self.con, False, True, {}, cfg)
+        self.assertIn("DCA (dokup na padu)", inner)
+        self.assertIn("Dokup na MC <b>$65.6k</b>", inner)
+        bought = []
+        buy = lambda con, tcon, form, user: bought.append(form)
+        self.assertEqual(pravitrade.dca_once(self.con, live_fn=lambda t: {MINT: {"mcap": 70_000.0}}, buy_fn=buy), [])
+        done = pravitrade.dca_once(self.con, live_fn=lambda t: {MINT: {"mcap": 65_000.0}}, buy_fn=buy)
+        self.assertEqual(len(done), 1)                                         # only the -20 % order
+        self.assertEqual((bought[0]["token"], bought[0]["sol"]), (MINT, "0.04"))
+        self.assertEqual([round(o["mc"]) for o in settings.raw(self.con)["dca_orders"]], [50_000])
+        self.assertIn("dokupljeno 0.04 SOL", settings.raw(self.con)["dca_log"][0]["text"])
+
+    def test_closed_position_drops_its_orders_and_owner_removes_one(self):
+        from ui import pravitrade
+        self._open_position()
+        self.assertIn("ok=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$60k", "sol": "0,04"}))
+        oid = settings.raw(self.con)["dca_orders"][0]["id"]
+        self.assertIn("ok=", self.post("/pravi-trade/dcadel", {"id": str(oid)}))
+        self.assertEqual(settings.raw(self.con)["dca_orders"], [])
+        self.assertIn("ok=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$60k", "sol": "0,04"}))
+        self.con.execute("UPDATE positions SET status='closed'")
+        self.con.commit()
+        done = pravitrade.dca_once(self.con, live_fn=lambda t: {}, buy_fn=lambda *a: None)
+        self.assertIn("zatvorena", done[0][1])
+        self.assertEqual(settings.raw(self.con)["dca_orders"], [])
+
+    def test_the_real_dokup_goes_through_the_manual_buy(self):
+        from ui import pravitrade, prijedlog, league as uleague
+        self._open_position()
+        self.assertIn("ok=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$70k", "sol": "0,04"}))
+        uleague.market = lambda toks: {t: (69 / 82, 1e6, None, 69_000.0) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 69 / 82, "mcap": 69_000.0} for t in toks}
+        done = pravitrade.dca_once(self.con, live_fn=lambda t: {MINT: {"mcap": 69_000.0}})
+        self.assertIn("dokupljeno", done[0][1])
+        self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 2)   # one more lot
 
 
 class Header(unittest.TestCase):
