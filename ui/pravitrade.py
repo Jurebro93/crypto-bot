@@ -142,6 +142,25 @@ color:var(--fg);font-size:15px;text-decoration:none;white-space:nowrap}.ap-fn a:
 .ap-split{margin:-6px 0 8px;font-size:13px}
 .ap-pnl{margin:4px 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .ap-pnl .ap-pnl-v{font-size:22px}.ap-pnl>div{margin:2px 0}
+/* 10.11. (Jure: "kako mjenjačnice rade na mobitelu"): green buy, red close, open orders with Otkaži, panels as tabs */
+.ap button.ap-buy{background:var(--good,#16a34a);border-color:var(--good,#16a34a);color:#fff;font-weight:600}
+.ap button.ap-wide{flex-basis:100%;min-height:48px;font-size:17px}
+.ap-sellbar{display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:8px}.ap-sellbar form{display:flex}
+.ap-sellbar button{flex:1;min-height:48px;font-weight:600}
+.ap button.ap-sellall{background:var(--bad,#dc2626);border-color:var(--bad,#dc2626);color:#fff}
+.ap-ord{margin:8px 0 10px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ap-ord-h{padding:8px 12px;font-size:13px;font-weight:600;background:var(--soft);color:var(--mut,#6b7280)}
+.ap-ord-r{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;margin:0;
+border-top:1px solid var(--line);font-size:15px}
+.ap button.ap-cancel{color:var(--bad,#dc2626);border-color:var(--bad,#dc2626);min-height:36px;padding:0 14px}
+details.ap-pan{margin:8px 0;border:1px solid var(--line);border-radius:12px}
+details.ap-pan>summary{list-style:none;cursor:pointer;padding:12px 14px;font-weight:600;display:flex;
+justify-content:space-between}details.ap-pan>summary::-webkit-details-marker{display:none}
+details.ap-pan>summary::after{content:"›";transform:rotate(90deg);color:var(--mut,#6b7280)}
+details.ap-pan[open]>summary::after{transform:rotate(-90deg)}details.ap-pan>.in{padding:0 14px 10px}
+.ap-toast{position:fixed;left:12px;right:12px;bottom:84px;z-index:60;padding:14px 40px 14px 16px;border-radius:14px;
+font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.18);color:#fff;background:var(--good,#16a34a);max-width:640px;margin:0 auto}
+.ap-toast.bad{background:var(--bad,#dc2626)}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
 .ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .ap-exit input{width:auto}
 .ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
@@ -1215,15 +1234,22 @@ def _buy_form(mint, cfg, exit_mode, owner):
                 'walleta (Jupiter) ↗</a></p>')
     opts = "".join(f'<option value={v}{" selected" if v == exit_mode else ""}>{lab}</option>'
                    for v, lab in (("smart", "Smart sell"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")))
-    tp_default = cfg.get("tp_default", 15)   # the exit target chosen at the top of the page (_tp_card)
     sl0 = _sl0(cfg)
-    return ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
+    tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure): the TP / SL used last, not always the default
+    return ('<form method=post action=/pravi-trade/buy class=ap-buyf onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             f'(ako je Autopilot uključen)?\')"><input type=hidden name=token value="{esc(mint)}">'
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
-            f'<input name=tp placeholder="TP npr. 100%" size=9{f" value={tp_default}%" if exit_mode == "tpsl" else ""}> '
-            f'<input name=sl placeholder="SL (zadano {sl0})" size=14>'
-            '<button class=ap-go>Kupi</button></form>')
+            f'<label>TP <input name=tp placeholder="npr. 100%" size=7{f" value={esc(tp_last)}" if exit_mode == "tpsl" else ""}></label> '
+            f'<label>SL <input name=sl placeholder="zadano {sl0}" size=8 value="{esc(sl_last)}"></label>'
+            '<button class=ap-buy>Kupi</button></form>')
+
+
+def _last_exit(cfg):
+    """(TP, SL) to put in a buy form: what the owner used last (settings last_exit), else the default target and an
+    empty stop (= the default stop)."""
+    le = (cfg or {}).get("last_exit") or {}
+    return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
 
 
 FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("dnevnik", "Dnevnik", False),
@@ -1248,16 +1274,20 @@ def _buy_now_card(cfg, owner):
     are the same."""
     if not owner:
         return ""
-    tp_default, sl0 = cfg.get("tp_default", 15), _sl0(cfg)
+    sl0 = _sl0(cfg)
+    tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure: "neka ostane zapamćen za sljedeću narudžbu, a ne default")
+    # 10.11. (Jure: "kako mjenjačnice rade na mobitelu"): the order ticket as on an exchange: token, amount, TP and SL
+    # in sight (prefilled with the last ones used), one wide green "Kupi"; the exit kind behind "Više"
     inner = ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
              '(ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili DexScreener link" '
              'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
              f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
-             '<button class=ap-go>Kupi</button>'
-             f'<details style="flex-basis:100%"><summary class=mut>Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {sl0})</summary>'
+             f'<label>TP <input name=tp value="{esc(tp_last)}" placeholder="npr. 30%" size=6 autocomplete=off></label>'
+             f'<label>SL <input name=sl value="{esc(sl_last)}" placeholder="zadano {sl0}" size=8 autocomplete=off></label>'
+             '<button class="ap-buy ap-wide">Kupi</button>'
+             '<details style="flex-basis:100%"><summary class=mut>Više (način izlaza)</summary>'
              '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
-             f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
-             f'<input name=sl placeholder="SL (zadano {sl0})" size=14></details></form>'
+             '<option value=manual>prodajem sam</option></select></details></form>'
              '<p class=mut>Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide samo kad je Autopilot '
              'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”.</p>')
     # 10.11. (Jure: "nema opcije za brzo kupovanje koja treba biti odmah ispod grafa jer je to glavna stvar"): an open
@@ -2250,9 +2280,12 @@ def _sell_btns(pid, pending):
     """pid: one positions id or several joined by commas (the lots of one token are sold together)."""
     if pending is not None:
         return f'<p class=mut>Prodaja {redak.pct(pending, sign=False, frac=True)} je u tijeku.</p>'
-    return ('<div class=ap-btns>' + "".join(
+    # 10.11. (Jure: "pogledaj kako mjenjačnice rade na mobitelu, istaknuti botuni"): one full-width action bar, the
+    # whole sale filled red like an exchange's "Close"
+    return ('<div class="ap-btns ap-sellbar">' + "".join(
         f'<form method=post action=/pravi-trade/sell onsubmit="return confirm(\'Prodati {lab} ove pozicije odmah?\')">'
-        f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button{" class=ap-stop" if fr == "1" else ""}>Prodaj {lab}</button></form>'
+        f'<input type=hidden name=id value={pid}><input type=hidden name=frac value={fr}><button{" class=ap-sellall" if fr == "1" else ""}'
+        f' aria-label="Prodaj {lab}">{"Prodaj sve" if fr == "1" else lab}</button></form>'
         for fr, lab in (("0.2", "20 %"), ("0.5", "50 %"), ("1", "sve"))) + '</div>')
 
 
@@ -2425,15 +2458,31 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, 
     top += "</div>"
     line = top + "".join(f"<p class=mut>{x}</p>" for x in lines)
     exits = {_exit_words(r) for lid, r, _o in rules if lid}
-    exit_html = (f"<p class=mut>Izlaz: {esc(' / '.join(sorted(x or 'nije postavljen' for x in exits)))}"
-                 + (" (od prosječnog ulaza, zatvara sve ulaze)" if len(lots) > 1 else "") + "</p>") if exits else ""
+    exit_words = (' / '.join(sorted(x or 'nije postavljen' for x in exits))
+                  + (" (od prosječnog ulaza, zatvara sve ulaze)" if len(lots) > 1 else "")) if exits else ""
     lid0, rule0, open0 = next(((lid, r, o) for lid, r, o in rules if lid and o), (None, None, False))
+    # 10.11. (Jure: "dodao sam DCA dokup, a nigdje se nije otvorio da je open order, da ga mogu zatvoriti"): like an
+    # exchange's position card: the open orders of the position (its TP/SL and every DCA order, each with "Otkaži"),
+    # then the action bar (sell), then the two panels to change them (TP / SL, DCA), closed until tapped
+    mine = [o for o in (orders or []) if o.get("token") == tok]
+    rows = []
+    if exit_words:
+        rows.append(f'<div class=ap-ord-r><span><b>TP/SL</b> · {esc(exit_words)}</span></div>')
+    for o in mine:
+        rows.append(f'<form method=post action=/pravi-trade/dcadel class=ap-ord-r onsubmit="return confirm(\'Otkazati ovaj DCA nalog?\')">'
+                    f'<input type=hidden name=id value="{esc(str(o["id"]))}"><span><b>DCA dokup</b> {esc(redak.sol(o["sol"], 3))} '
+                    f'na MC <b>{esc(_usd_short(o["mc"]))}</b></span>'
+                    + ('<button class=ap-cancel>Otkaži</button>' if owner else "") + '</form>')
+    orders_html = (f'<div class=ap-ord><div class=ap-ord-h>Otvoreni nalozi · {len(rows)}</div>{"".join(rows)}</div>'
+                   if rows else "")
+    panels = ""
     if owner and lid0 and pend is None:
-        exit_html += _dca_block(tok, sym, orders or [], dca_log or [], cfg, avg_mc, mc_now)
-        exit_html += _exit_form(pid0, rule0, cfg)
+        panels = (f'<details class=ap-pan id=pan-tp-{pid0}><summary>TP / SL</summary><div class=in>{_exit_form(pid0, rule0, cfg)}</div></details>'
+                  f'<details class=ap-pan id=pan-dca-{pid0}><summary>DCA dokup{f" · {len(mine)}" if mine else ""}</summary>'
+                  f'<div class=in>{_dca_block(tok, sym, orders or [], dca_log or [], cfg, avg_mc, mc_now)}</div></details>')
     act = _sell_btns(",".join(map(str, ids)), pend) if owner else (
         f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
-    inner = (f"{line}{exit_html}{act}"
+    inner = (f"{line}{orders_html}{act}{panels}"
              f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
     q_all, ql_all = sum(r[9] or 0 for r in lots), sum(r[10] or 0 for r in lots)
     held = f"drži {redak.pct(ql_all / q_all, sign=False, frac=True)}" if q_all else "drži –"
@@ -2478,7 +2527,7 @@ def _dca_block(tok, sym, orders, log, cfg, avg_mc, mc_now):
     hint = ('<p class=mut>Kad MC padne na tu granicu, bot dokupi taj iznos u istu poziciju (jednom po nalogu); izlaz se '
             'onda računa od novog prosjeka. Postotak je od prosječnog ulaza' + (f" ({esc(_usd_short(avg_mc))})" if avg_mc else "")
             + '.</p>')
-    return f'<h3 class=ap-sub><span>DCA (dokup na padu)</span><span>{len(mine)} aktivno</span></h3>{rows}{done}{form}{hint}'
+    return f'{form}{hint}{done}'
 
 
 def _dca_level(txt, avg_mc):
@@ -3528,7 +3577,7 @@ def _log_section(tcon, cfg):
 # too; only sections with an id are remembered; a link to a section (#limiti after saving) opens it; opening a
 # section wakes the poller, so its content is there at once. 10.11. (maketa): a link inside the page ("Dovrši 3/4"
 # in the state line, #postavljanje) opens its section too (hashchange), not only a link that loads the page.
-TOGGLE_JS = ("<script>(()=>{const Q='details.ap-sec,details.ap-it';let open={};"
+TOGGLE_JS = ("<script>(()=>{const Q='details.ap-sec,details.ap-it,details.ap-pan';let open={};"
              # 10.11. (Jure: "opet piše na vrhu: nije prošlo, već imaš otvorenu poziciju"): the answer of a form is
              # shown once; the address loses ?ok=/?err=, so a reload (or the phone reopening the tab) does not show
              # an old error again as if it were new
@@ -3663,6 +3712,16 @@ def page(qs, user):
             msg = f'<p class="ap-w bad"><b>Nije prošlo:</b> {esc(qs["err"])}</p>'
         elif qs.get("ok"):
             msg = f'<p class="ap-w ok">{esc(qs["ok"])}</p>'
+        # 10.11. (Jure: "dodao sam DCA, a nigdje se nije vidjelo"): the answer of a form also as a toast over the page,
+        # where the eye is after the tap (the line in the header is at the top of a long page); an error stays until
+        # tapped, a confirmation goes after 6 s
+        toast = ""
+        if qs.get("err") or qs.get("ok"):
+            bad = bool(qs.get("err"))
+            toast = (f'<div class="ap-toast {"bad" if bad else "ok"}" role={"alert" if bad else "status"} '
+                     f'onclick="this.remove()">{"<b>Nije prošlo:</b> " if bad else ""}{esc(qs.get("err") or qs.get("ok"))}'
+                     '<span class=ap-toast-x aria-hidden=true>×</span></div>'
+                     + ("" if bad else "<script>setTimeout(()=>{const t=document.querySelector('.ap-toast');if(t)t.remove()},6000)</script>"))
         prefill = (qs.get("ekipa") or "") if isinstance(qs, dict) else ""
         setup = {}
         if owner:   # the wallet's setup steps: inside "Wallet i uplata"; the state line says "Dovrši 3/4" until ready
@@ -3674,7 +3733,7 @@ def page(qs, user):
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, '<div class="ap ms-page">', _float_nav(owner),
+            b = [CSS, '<div class="ap ms-page">', _float_nav(owner), toast,
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
@@ -4060,7 +4119,22 @@ def _post_exit(con, tcon, form):
     sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
     rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, _cfg(tcon))
     print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({n} ulaza)", flush=True)
-    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.')}#poz-{pid}"
+    # 10.11. (Jure: "kad se postavi izlaz za određenog influencera, neka ostane zapamćen za sljedeću narudžbu, a ne da se
+    # uvijek vraća na default"): the TP / SL typed here prefill the next manual order, and a position bought on a
+    # follow's signal hands them to that follow, so its next entries get them too
+    sl_typed = (form.get("sl") or "").strip()
+    settings.put(tcon, "last_exit", {"tp": tp, "sl": sl_typed}, settings.owner())
+    note = ""
+    fids = {r[0] for r in con.execute("SELECT follow_id FROM trades WHERE user=? AND token=? AND status='open' AND "
+                                       "follow_id IS NOT NULL", (settings.LEAGUE_USER, tok))}
+    for fid in fids:
+        try:
+            ex = copy.set_exit(con, settings.LEAGUE_USER, fid, tp, sl_typed)
+            f = con.execute("SELECT label, target FROM follows WHERE id=?", (fid,)).fetchone()
+            note = f" Zapamćeno i za sljedeće ulaze od {(f[0] or f[1]) if f else 'tog praćenja'}."
+        except ValueError:   # the follow was stopped meanwhile
+            pass
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
 
 
 def _post_buy(con, tcon, form, user):
@@ -4152,6 +4226,8 @@ def _post_buy(con, tcon, form, user):
     sizes = dict(settings.raw(tcon).get("manual_size") or {})
     sizes[str(tid)] = sol
     settings.put(tcon, "manual_size", dict(list(sizes.items())[-200:]), user)
+    if prev is None and ex == "tpsl" and user:   # 10.11. (Jure): the TP / SL typed here prefill the next order
+        settings.put(tcon, "last_exit", {"tp": (form.get("tp") or "").strip(), "sl": (form.get("sl") or "").strip()}, user)
     if prev is not None and rules[0][0] == "tpsl":
         # 10.11. (Jure): the position's TP/SL from the new average entry, on every lot (the first lot's typed rule;
         # a rule already made for the position keeps its own text in "grp")

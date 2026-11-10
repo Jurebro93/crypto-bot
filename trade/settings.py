@@ -82,6 +82,7 @@ def merged(cfg, con):
     out["heartbeat"] = s.get("heartbeat") or 0
     out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
     out["sl_default"] = int(s.get("sl_default") or SL_DEFAULT)
+    out["last_exit"] = s.get("last_exit") or {}   # 10.11. (Jure): the TP / SL the owner used last, for the next order
     return out
 
 
