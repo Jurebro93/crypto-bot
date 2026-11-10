@@ -713,6 +713,7 @@ def robots():
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
             "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
             "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
+            "Allow: /autopilot$\nAllow: /en/autopilot$\n"   # 10.11. (Jure): the public Autopilot page in search
             + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
@@ -721,6 +722,7 @@ def sitemap():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     day = time.strftime("%Y-%m-%d", time.gmtime())
     urls = [("/", "/hr", "1.0"), ("/influencers", "/hr/influenceri", "0.9")]
+    urls.append(("/en/autopilot", "/autopilot", "0.8"))   # 10.11. (Jure): public Autopilot results, in search
     urls.append(("/solana-meme-coins", "/hr/solana-meme-coini", "0.9"))
     try:
         from ui import coins as K

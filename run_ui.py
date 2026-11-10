@@ -1166,6 +1166,8 @@ class Handler(BaseHTTPRequestHandler):
         user = self.user if ok else None
         lang = self.lang if ok else ("en" if path == apjavno.PATH_EN or qs.get("l") == "en" else "hr")
         self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
+        # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_EN)
         try:
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)

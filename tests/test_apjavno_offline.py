@@ -748,7 +748,7 @@ class Http(unittest.TestCase):
     def test_read_without_login_write_only_logged_in(self):
         self.start()
         ivan, jure, viewer = self.login("Ivan", "ivanpw"), self.login("Jure", "jurepw"), self.login("Claude", "gledam")
-        # a visitor reads the page and the list; no login form, no app cookies, not offered to search engines yet
+        # a visitor reads the page and the list; no login form, no app cookies; 10.11. (Jure): indexable now
         code, hdr, body = self.call("/autopilot")
         self.assertEqual(code, 200)
         self.assertIn("<h1>Autopilot</h1>", body)
@@ -757,7 +757,8 @@ class Http(unittest.TestCase):
         self.assertNotIn("<form", body)
         self.assertNotIn("<aside", body)                       # the public frame, not the app with its menu
         self.assertIsNone(hdr.get_all("Set-Cookie"))
-        self.assertIn("noindex", hdr.get("X-Robots-Tag", ""))
+        self.assertNotIn("noindex", hdr.get("X-Robots-Tag") or "")   # 10.11. (Jure: "da", u Google)
+        self.assertIn("noindex", self.call("/autopilot/chat")[1].get("X-Robots-Tag", ""))   # the fragment stays out
         self.assertEqual(self.call("/autopilot/chat")[0], 200)
         self.assertEqual(self.call("/tokens")[0], 401)          # the app itself still needs the login
         # ... and can write nothing

@@ -331,7 +331,8 @@ VISE = [
                       ("/izvori", "Telegram i KOL novčanici", "")]),
     ("Demo", [("/natjecanje", "Natjecanje", ""), ("/paper", "Demo trading", ""), ("/strategije", "Usporedba strategija", ""),
               ("/copy-trading", "Copy trading", ""), ("/kol-test", "KOL test", "")]),
-    ("Zajednica", [("/nas-token", "Naš token", ""), ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", "")]),
+    ("Zajednica", [("/autopilot", "Autopilot uživo: rezultati i chat", ""),   # 10.11. (Jure): always one tap away
+                   ("/nas-token", "Naš token", ""), ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", "")]),
     ("Pomoć", [("/pojmovnik", "Pojmovnik", ""), ("/novo", "Što je novo", "")]),
 ]
 
