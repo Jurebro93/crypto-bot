@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-10",
+  "naslov": "GitHub nas je suspendirao: previše smo se zaigrali",
+  "tekst": "toliko smo se uživili u razvoj da smo u kratkom vremenu napravili previše deploya, pa nas je GitHub označio kao bota i spammera i suspendirao račun. Nismo bot, samo ekipa koja ne zna stati. Alat i dalje radi; nove verzije stižu čim se račun vrati, a odsad promjene skupljamo u manje, veće deploye.",
+  "naslov_en": "GitHub suspended us: we got carried away",
+  "tekst_en": "we got so into building that we shipped too many deploys in a short time, and GitHub flagged us as a bot/spammer and suspended the account. We're not a bot, just a team that can't stop. The tool keeps running; new versions land once the account is back, and from now on we batch changes into fewer, bigger deploys."
+ },
+ {
+  "datum": "2026-11-10",
   "naslov": "Autopilot nudi samo tokene koji upravo trguju",
   "tekst": "token bez prometa više se ne nudi: u „Zovu sada” i „Preporučeni tokeni” ulazi samo token s barem 5 transakcija u zadnjih 5 minuta, provjereno uživo. Token koji spava vrati se na listu kad se probudi, a u pop-upu piše zašto ga nema."
  },
