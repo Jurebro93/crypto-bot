@@ -605,6 +605,16 @@ class Handler(BaseHTTPRequestHandler):
             frag = (pravitrade.token_popup(self.user, qs.get("m", "")) if path == "/pravi-trade/token"
                     else pravitrade.crew_popup(self.user, qs.get("h", "")))
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/preskok":
+            # 10.11. (Jure): the pop-up of one skipped buy (market cap at the call, +5/+10/+15 min, now), same access
+            # as the page; a failure is a 500 with no text and the pop-up says "nema svježih podataka" (POP_JS)
+            from ui import pravitrade
+            try:
+                frag = pravitrade.skip_popup(self.user, qs.get("m", ""), qs.get("t", ""))
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
             from ui import pravitrade
             fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,

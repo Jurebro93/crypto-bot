@@ -126,6 +126,10 @@ details.ap-it form,details.ap-sec form{margin:0 0 10px;display:flex;gap:6px;flex
 .ap .ms-row u{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;cursor:pointer}
 .ap-sk{margin:0 0 6px}.ap .ap-sk p.ap-sk-h{font-size:17px;margin:0 0 4px}
 .ap-sk .ms-row{min-height:0}
+.ap-skr{flex-wrap:wrap;row-gap:2px}.ap-skr>.ms-m{flex:1 1 0}
+.ap-skl{flex:1 0 100%;order:3;font-size:15px;color:var(--mut)}.ap-skl b{font-weight:400;color:var(--fg)}
+.ap-skl .ap-skx{white-space:nowrap}
+@media(max-width:560px){.ap-skl .ap-skc{display:block}.ap-skl .ap-sks{display:none}}
 .ap .in table.t{font-size:13px}
 #dnevnik>summary .ms-s,#influenceri>summary .ms-s{white-space:normal}
 /* 10.11. (Jure): sticky section menu under the app header and the open quick buy under the chart */
@@ -579,6 +583,8 @@ POP_HTML = ('<dialog id=ap-pop><div class=bar2><span class=mut id=ap-pop-age sty
 # pop-up that was closed or changed meanwhile is dropped, and a slow server is said in the header instead of silence.
 # 10.11.: the body is no longer replaced as a whole every second (PATCH_JS): a stake typed into the buy form stays
 # when the field loses focus, and a tap on "Kupi" cannot land on a form that is being replaced.
+# 10.11. (Jure: pop-up preskočenog signala): a [data-pop] inside an open pop-up (its link to the token's live check)
+# swaps the content in place; showModal() is called only on a closed dialog (on an open one older browsers throw).
 POP_TIMEOUT_MS = 8000
 POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window.__appop)return;window.__appop=1;let url='',t=null,n=0,cur=null,ctl=null;"
           "const age=document.getElementById('ap-pop-age');"
@@ -591,7 +597,7 @@ POP_JS = ("<script>(()=>{const d=document.getElementById('ap-pop');if(!d||window
           "catch(e){if(u===url)age.textContent='server je spor, pokušavam ponovno…'}"
           "finally{clearTimeout(to);if(cur===u)cur=null}}"
           "document.addEventListener('click',e=>{const el=e.target.closest('[data-pop]');if(!el||e.target.closest('a,button,input,select,form'))return;"
-          "e.preventDefault();if(ctl)ctl.abort();url=el.dataset.pop;age.textContent='';d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';d.showModal();load();"
+          "e.preventDefault();if(ctl)ctl.abort();url=el.dataset.pop;age.textContent='';d.querySelector('.body').innerHTML='<p class=mut>Učitavam…</p>';if(!d.open)d.showModal();load();"
           "clearInterval(t);t=setInterval(load,1000)});"
           "d.addEventListener('close',()=>{clearInterval(t);url='';if(ctl)ctl.abort()});d.addEventListener('click',e=>{if(e.target===d)d.close()})})()</script>")
 POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width:min(96vw,680px);width:96vw;background:var(--card);color:var(--fg)}"
@@ -608,7 +614,14 @@ POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width
            ".ap-mk .pos{color:var(--good)}.ap-mk .neg{color:var(--bad)}"
            ".ap-box{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.ap-box div{flex:1;min-width:92px;border:1px solid var(--line);"
            "border-radius:10px;padding:6px 8px;text-align:center}.ap-box small{display:block;color:var(--mut);font-size:13px}"
-           ".ap-box b{font-size:15px}</style>")
+           ".ap-box b{font-size:15px}"
+           # 10.11. (Jure: pop-up preskočenog signala): one small table, the market cap the strongest number in a row
+           "table.ap-skt{font-size:15px;margin:12px 0 10px;max-width:480px}table.ap-skt th{font-size:13px;font-weight:500}"
+           "table.ap-skt td,table.ap-skt th{padding:7px 4px}table.ap-skt td:first-child{color:var(--fg);white-space:normal;padding-left:0}"
+           "table.ap-skt td:last-child,table.ap-skt th:last-child{padding-right:0}"
+           "table.ap-skt td:nth-child(2){color:var(--mut)}table.ap-skt td:nth-child(3){font-weight:600}"
+           "table.ap-skt tr.ap-now td{border-top:1px solid var(--line2)}"
+           ".ap-skp-w{margin:0;color:var(--mut)}.ap-skp-s{color:var(--fg)}.ap-skp-v{margin:0 0 6px}</style>")
 
 
 _CHEV = '<span class="ms-chev" aria-hidden="true"></span>'
@@ -2531,7 +2544,7 @@ def dnevnik_line(tcon, now=None):
 SKIP_TTL_S = 30
 SKIP_SHOW = 15     # rows shown at once; the rest behind "Prikaži sve"
 SKIP_WHY = 110     # characters of the owner's reason in a row (the whole text is in the row's title)
-_SK = {"ts": 0.0, "key": None, "html": None}
+_SK = {"ts": 0.0, "key": None, "html": None, "rows": None}
 
 
 def _sl_pct():
@@ -2596,17 +2609,61 @@ def _skip_src(s):
 _SKIP_DOT = {"miss": "warn", "ok": "good"}   # propušteno = a warning, dobro preskočen = fine; the rest grey
 
 
-def _skip_row(e, v, owner, now):
+def _skip_why(e, owner):
+    """The reason as this viewer may read it: the owner as written (aplog scrubs it), an invited player its short
+    word only."""
+    return " ".join(str(((e.get("why") or e.get("why_short")) if owner else e.get("why_short")) or "").split())
+
+
+def _skip_url(e):
+    """10.11. (Jure: "kad se klikne na njega, otvori pop-up"): the pop-up of one skip, by token and decision time."""
+    return f'/pravi-trade/preskok?m={quote(e.get("token") or "")}&amp;t={int(e.get("ts") or 0)}'
+
+
+def _skip_line(e, p, v, now):
+    """10.11. (Jure: "na koliko market capa ga je zvao ... koliko se cijena makla u 5, 10, 15 minuta"): the row's
+    last line, e.g. "zvan na 85k $ · 5 min +14 % · 10 min +22 % · 15 min +9 %" (moves from the call). Counted from
+    the decision when the call's price is not known ("preskočen na ..."); without a supply only the moves. A row that
+    is not measured says the time of the call when it is known, else nothing (None)."""
+    from kol import preskoceni
+    mv = preskoceni.moves(p) if v["kind"] in ("miss", "ok") else None
+    if mv is None:
+        if not e.get("sig_ts"):
+            return None
+        day, _, tm = preskoceni.clock(e["sig_ts"], now).rpartition(" ")   # "jučer 18:54:35" -> zvan jučer u 18:54:35
+        return cat(f"zvan {day + ' ' if day else ''}u ", raw(f"<b>{redak.h(tm)}</b>"))
+    poziv = mv["ref"] == "poziv"
+    mc = (mv["poziv"] or (None, None))[1] if poziv else mv["odluka"][1]
+    steps = cat(*(raw(f"<span class=ap-skx>{k} min <b>{redak.h(redak.pct(100 * chg))}</b></span>")
+                  for k, _, _, _, chg in mv["steps"] if chg is not None), sep=" · ")
+    if not mc:   # no supply: "od poziva: 5 min +14 % · ..."
+        return cat("od poziva: " if poziv else "od preskoka: ", steps) if steps else None
+    # on a phone the market cap is the first line and the three moves the second (CSS .ap-skc / .ap-sks), never a
+    # line that breaks after a lone "·"
+    head = cat("zvan na " if poziv else "preskočen na ", raw(f"<b>{redak.h(redak.usd(mc))}</b>"))
+    return cat(raw(f"<span class=ap-skc>{head}</span>"),
+               raw(f"<span class=ap-sks> · </span><span class=ap-skm>{steps}</span>") if steps else None)
+
+
+def _skip_row(e, v, owner, now, p=None):
     """One skipped buy as the shared row (10.11., maketa): the token; when, whose signal and the reason under it;
-    the verdict as a word after a dot on the right and what the price did under it. The row opens the token pop-up."""
+    the verdict as a word after a dot on the right and what the price did under it; across the whole row the market
+    cap at the call and the moves 5, 10 and 15 minutes after it (_skip_line). A tap opens the pop-up of this skip
+    (/pravi-trade/preskok: the exact times, market caps and moves as a small table), which links to the token's live
+    pop-up."""
     from kol import preskoceni
     tok = e.get("token") or ""
-    full = " ".join(str(((e.get("why") or e.get("why_short")) if owner else e.get("why_short")) or "").split())
+    full = _skip_why(e, owner)
     why = _cut(full)
     meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source")),
                                   "nije prošlo (tehnički)" if e.get("kind") == "nije_proslo" else "") if x)
     r = _prow(tok, name=e.get("symbol") or short(tok), reason=cat(meta, raw("<br>") if why else None, why),
               value=dot(_SKIP_DOT.get(v["kind"], ""), v["word"]), sub=v["detail"], title=full if why != full else None)
+    if tok:
+        r = r.replace(f'data-pop="/pravi-trade/token?m={quote(tok)}"', f'data-pop="{_skip_url(e)}"', 1)
+    line = _skip_line(e, p, v, now)
+    if line:   # its own line across the row (CSS .ap-skl: flex-basis 100 %), before the closing tag of the row
+        r = r[:-len("</div>")] + f"<div class=ap-skl>{line}</div></div>"
     # the reason and the numbers may take two lines each on a phone (neither becomes a column of single words)
     return raw(r.replace('class="ms-row', 'class="ms-row ap-wrap ap-skr', 1))
 
@@ -2631,7 +2688,7 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
     if missed:   # which RULE cost the most: the reasons of the rule skips that would have paid
         b.append("<p class=mut>Propušteni po razlogu: " + esc(", ".join(
             f"{n} {w}" for w, n in sorted(missed.items(), key=lambda kv: (-kv[1], kv[0])))) + ".</p>")
-    items = [_skip_row(e, v, owner, now) for e, v in zip(rows, vs)]
+    items = [_skip_row(e, v, owner, now, (paths or {}).get(k)) for e, v, k in zip(rows, vs, keys)]
     b += items[:SKIP_SHOW]
     if len(items) > SKIP_SHOW:
         b.append(_item("Prikaži sve", None, "".join(items[SKIP_SHOW:]), value=f"još {len(items) - SKIP_SHOW}",
@@ -2668,8 +2725,131 @@ def skip_box(tcon, cfg, now=None, owner=True):
         tp_cfg = int(cfg.get("tp_default") or 15)
         html = {o: _skip_html(rows, paths, now, o, tp_cfg) for o in (True, False)}
     with _LOCK:
-        _SK.update(ts=now, key=settings.DB, html=html)
+        _SK.update(ts=now, key=settings.DB, html=html, rows=rows or [])   # rows: the pop-up of one skip reads them
     return html[bool(owner)]
+
+
+# 10.11. (Jure: "za ove preskočene tokene ... kad se klikne na njega, otvori pop-up gdje piše koliko je skočio u 5
+# minuta, kad je, na koliko ga je zvao market capa i koliko je trenutno market capa sa točnim vremenom, satom"). The
+# pop-up of one skipped buy: who called it and why it was skipped, then one small table (the call, the decision,
+# +5/+10/+15 min, the high of the hour, now) with Zagreb clock times, market caps (supply x price, kol/preskoceni.
+# moves) and the move from the call. It is re-fetched every second while open (POP_JS), so it reads only what is
+# already there: the decision from the box's rows (or one aplog read every SKIP_TTL_S), minute.db read-only by key,
+# and "Sada" from the shared live cache (_live_cached, renewed by the background thread). Nothing else on the network.
+_SKP = {"ts": 0.0, "key": None, "rows": None}
+
+
+def _skip_decision(tcon, mint, t, now):
+    """The aplog row of one skip (token, exact decision time) from the last 24 h, or None."""
+    with _LOCK:
+        if _SK["key"] == settings.DB and _SK.get("rows") is not None and 0 <= now - _SK["ts"] < SKIP_TTL_S:
+            rows = _SK["rows"]
+        elif _SKP["key"] == settings.DB and _SKP["rows"] is not None and 0 <= now - _SKP["ts"] < SKIP_TTL_S:
+            rows = _SKP["rows"]
+        else:
+            rows = None
+    if rows is None:
+        rows = _skip_rows(tcon, now)[0] or []
+        with _LOCK:
+            _SKP.update(ts=now, key=settings.DB, rows=rows)
+    return next((e for e in rows if e.get("token") == mint and int(e.get("ts") or 0) == t), None)
+
+
+def _live_quote(mint, now):
+    """(DexScreener state of one token, unix time of that quote) from the shared live cache, or (None, None)."""
+    m = _live_one(mint, now)
+    with _LOCK:
+        hit = _LIVE_CACHE.get((mint,))
+    return m, (hit[0] if hit and m else None)
+
+
+def _skp_cells(when, mc, chg, cls=""):
+    c = f'<span class="{redak.tone(chg)}">{redak.h(redak.pct(100 * chg))}</span>' if chg is not None else ""
+    return f"<td>{redak.h(when or redak.DASH)}</td><td>{redak.h(redak.usd(mc) if mc else redak.DASH)}</td><td>{c}</td>"
+
+
+def skip_popup(user, mint, t, now=None):
+    """GET /pravi-trade/preskok?m=<mint>&t=<decision ts>: the pop-up of one skipped buy (see above); None without
+    access (the same check as the page and its other fragments)."""
+    from kol import preskoceni
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        owner = settings.is_owner(user)
+        now = now or time.time()
+        try:
+            t = int(t)
+        except (TypeError, ValueError):
+            t = 0
+        # the mint is only a key into the box's own rows: anything that is not one of them is "not found", and only a
+        # found one reaches the live cache
+        mint = str(mint or "").strip()
+        if not mint or len(mint) > 64 or t <= 0:
+            return "<p class=mut>Ta odluka nije pronađena.</p>"
+        e = _skip_decision(tcon, mint, t, now)
+    finally:
+        tcon.close()
+    link = f'<p><span class=ap-lnk role=link tabindex=0 data-pop="/pravi-trade/token?m={quote(mint)}">Provjera tokena uživo</span></p>'
+    if e is None:
+        return f"<p class=mut>Ta odluka više nije među preskočenima u zadnja 24 h.</p>{link}"
+    sym = e.get("symbol") or short(mint)
+    floor = preskoceni.under_floor(e)
+    p = None if floor else (_skip_paths([(mint, preskoceni.minute_of(t))]) or {}).get((mint, preskoceni.minute_of(t)))
+    v = preskoceni.verdict(preskoceni.UNDER_FLOOR if floor else p, t, now, preskoceni.TP, _sl_pct())
+    who = " · ".join(x for x in (_skip_src(e.get("source")),
+                                 "nije prošlo (tehnički)" if e.get("kind") == "nije_proslo" else "") if x)
+    why = _skip_why(e, owner)
+    b = [f"<h3 translate=no>{esc(sym)}</h3>",
+         f"<p class=ap-skp-w><span class=ap-skp-s>{esc(who or 'izvor nepoznat')}</span>"
+         + (f"<br>{esc(why)}" if why else "") + "</p>"]
+    # "Sada" from the live cache only for a token that is analysed at all (CLAUDE.md: under $30k it is not)
+    if not floor:
+        _bg_start()   # as the token pop-up: the open pop-up's quote is renewed off the request thread
+    live, live_ts = (None, None) if floor else _live_quote(mint, now)
+    sup_live = None
+    if live and live.get("price") and live.get("mcap"):
+        sup_live = live["mcap"] / live["price"]
+    mv = preskoceni.moves(p, sup_live) if v["kind"] in ("miss", "ok") else None
+    sig = e.get("sig_ts") or (p or {}).get("sig_ts")
+    poziv = bool(mv and mv["ref"] == "poziv")
+    head = "Od poziva" if (poziv or not mv) else "Od preskoka"
+    rows = [f"<tr><th></th><th>Vrijeme</th><th>Market cap</th><th>{head}</th></tr>"]
+    rows.append("<tr><td>Poziv</td>" + _skp_cells(preskoceni.clock(sig, now) if sig else None,
+                                                    mv["poziv"][1] if poziv else None, None) + "</tr>")
+    dec = mv["odluka"] if mv else (None, None, None)
+    rows.append("<tr><td>Preskočeno</td>" + _skp_cells(preskoceni.clock(t, now), dec[1],
+                                                         dec[2] if poziv else None) + "</tr>")
+    if mv:
+        for k, at, price, mc, chg in mv["steps"]:
+            if price is not None:   # a row measured before 10.11. has no +5/+10/+15 until it is measured again
+                rows.append(f"<tr><td>+{k} min</td>" + _skp_cells(preskoceni.clock(at, now, sec=False), mc, chg) + "</tr>")
+        if mv["hi"]:
+            at, _, mc, chg = mv["hi"]
+            rows.append("<tr><td>Najviše u 60\u00a0min</td>"
+                        + _skp_cells(preskoceni.clock(at, now, sec=False) if at else None, mc, chg) + "</tr>")
+    if live_ts:
+        ref = None
+        if mv:
+            ref = mv["poziv"][0] if poziv else mv["odluka"][0]
+        chg = (live["price"] / ref - 1) if (ref and live.get("price")) else None
+        rows.append('<tr class=ap-now><td>Sada</td>' + _skp_cells(preskoceni.clock(live_ts, now), live.get("mcap"), chg)
+                    + "</tr>")
+    b.append(f'<table class="ap-mk ap-skt">{"".join(rows)}</table>')
+    d = _SKIP_DOT.get(v["kind"], "")
+    # the verdict is measured from the decision (kol/preskoceni), the table from the call: said, so "+46 %" in the
+    # table and "najviše +35 %" here do not look like two answers to one question
+    detail = f'od preskoka: {v["detail"]}' if (poziv and v["kind"] in ("miss", "ok")) else v["detail"]
+    b.append(f'<p class=ap-skp-v>{cat(dot(d, v["word"]), " · ", detail)}</p>')
+    if mv and p.get("ver") is None:
+        b.append("<p class=ms-hint>Izmjereno prije nego što se bilježio poziv; cijene od poziva i nakon 5, 10 i "
+                 "15 min stižu kad se ponovno izmjeri.</p>")
+    elif mv and not poziv:
+        b.append("<p class=ms-hint>Cijena u minuti poziva nije poznata, pa su pomaci od trenutka preskoka.</p>")
+    elif mv and not mv["supply"]:
+        b.append("<p class=ms-hint>Supply tokena nije poznat, pa su tu samo pomaci cijene.</p>")
+    b.append(link)
+    return "".join(b)
 
 
 def _dnevnik_row(e, owner=True):

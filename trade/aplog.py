@@ -185,10 +185,10 @@ def _buy_orders(tcon, pids):
     return out
 
 
-def _entry(ts, kind, token, symbol, source, why, sol, pnl_pct, mode, stage, sig, trebao, side, key):
+def _entry(ts, kind, token, symbol, source, why, sol, pnl_pct, mode, stage, sig, trebao, side, key, sig_ts=None):
     return {"ts": int(ts or 0), "kind": kind, "token": token, "symbol": symbol, "source": source, "why": scrub(why),
             "why_short": why_short(why, kind), "sol": sol, "pnl_pct": pnl_pct, "mode": mode, "stage": stage,
-            "sig": sig, "trebao": trebao, "side": side, "id": key}
+            "sig": sig, "trebao": trebao, "side": side, "id": key, "sig_ts": int(sig_ts) if sig_ts else None}
 
 
 def _buys(tcon, since, limit):
@@ -213,6 +213,7 @@ def _buys(tcon, since, limit):
             e = _entry(ts, "nije_proslo" if tech else "preskocio", token, symbol, source, reason,
                        lam / LAMPORTS if lam else None, None, mode, "pravi", None, bool(tech), "buy", f"p{pid}")
         e["_lid"] = lid if source is None else None
+        e["_sig_lid"] = lid   # 10.11. (Jure): the call time of the demo entry it mirrors (_signal_times)
         out.append(e)
     return out
 
@@ -288,7 +289,7 @@ def _demo(tcon, lcon, since, limit, now):
         # follow's "info" and "izlaz" rows (a busy wallet writes one for every sale of a coin we never copied)
         for action in ("preskočeno", "ulaz"):
             rows += [(name, *r) for r in lcon.execute(
-                "SELECT follow_id, token, side, ts, symbol, action, note, trade_id FROM copy_log WHERE follow_id=? "
+                "SELECT follow_id, token, side, ts, symbol, action, note, trade_id, ev_ts FROM copy_log WHERE follow_id=? "
                 "AND action=? AND ts >= ? ORDER BY ts DESC LIMIT ?", (fid, action, since, limit))]
     rows.sort(key=lambda r: r[4], reverse=True)
     rows = rows[:limit]
@@ -298,14 +299,16 @@ def _demo(tcon, lcon, since, limit, now):
         seen |= {x[0] for x in tcon.execute(
             f"SELECT league_id FROM positions WHERE league_id IN ({','.join('?' * len(ch))})", ch)}
     mode, out = _mode_now(tcon), []
-    for name, fid, token, side, ts, symbol, action, note, tid in rows:
+    for name, fid, token, side, ts, symbol, action, note, tid, ev_ts in rows:
         key = f"c{fid}:{token}:{side}"
+        # 10.11. (Jure: "na koliko market capa ga je zvao"): ev_ts is when the followed account posted the call or
+        # made the buy; ts is when the copy stage decided
         if action == "preskočeno":
             out.append(_entry(ts, "preskocio", token, symbol, name, note or "bez razloga", None, None, mode, "demo",
-                              None, False, side, key))
+                              None, False, side, key, ev_ts))
         elif tid not in seen and now - ts > MIRROR_GRACE_S:
             out.append(_entry(ts, "nije_proslo", token, symbol, name, MISSED, None, None, mode, "pravi", None, True,
-                              side, key))
+                              side, key, ev_ts))
     return out
 
 
@@ -322,6 +325,30 @@ def _league_sources(lcon, entries):
             e["source"] = _source(src[e["_lid"]])
 
 
+def _signal_times(lcon, entries):
+    """10.11. (Jure: "na koliko market capa ga je zvao dotični wallet ili influencer"): sig_ts of the real-money
+    rows = when the call behind the demo entry they mirror was posted (copy_log.ev_ts of that entry, as
+    run_trade._call_ts reads it). Through keys only: trades by id, copy_log by its primary key (follow_id, token,
+    side) and the entry's trade_id, so the 1-s log never walks copy_log. A league.db without trades.follow_id (very
+    old) leaves sig_ts None."""
+    want = {e["_sig_lid"] for e in entries if e.get("_sig_lid") is not None}
+    if not want or lcon is None:
+        return
+    got = {}
+    try:
+        for ch in _chunks(want):
+            got.update(lcon.execute(
+                "SELECT t.id, c.ev_ts FROM trades t JOIN copy_log c ON c.follow_id = t.follow_id AND c.token = t.token "
+                f"AND c.side = 'buy' AND c.trade_id = t.id WHERE t.id IN ({','.join('?' * len(ch))}) AND c.action = 'ulaz'",
+                ch).fetchall())
+    except sqlite3.Error as e:
+        _log_once("sig", f"vrijeme poziva nije pročitano ({type(e).__name__}: {str(e)[:80]})")
+        return
+    for e in entries:
+        if got.get(e.get("_sig_lid")):
+            e["sig_ts"] = int(got[e["_sig_lid"]])
+
+
 def _entries(tcon, lcon, limit, since, now):
     # in this order because the sort below is stable: in one second, a sale is listed above the buy it follows
     out = _stuck_sells(tcon, since) + _sells(tcon, since, limit) + _buys(tcon, since, limit)
@@ -333,6 +360,7 @@ def _entries(tcon, lcon, limit, since, now):
     if lg is not None:
         try:
             _league_sources(lg, out)
+            _signal_times(lg, out)
             out += _demo(tcon, lg, since, limit, now)
         except sqlite3.Error as e:   # no copy tables yet, or a locked file
             _log_once("demo", f"demo faza nije pročitana ({type(e).__name__}: {str(e)[:80]})")
@@ -341,13 +369,14 @@ def _entries(tcon, lcon, limit, since, now):
                 lg.close()
     for e in out:
         e.pop("_lid", None)
+        e.pop("_sig_lid", None)
     out.sort(key=lambda e: e["ts"], reverse=True)
     return out[:limit]
 
 
 def entries(tcon, lcon=None, limit=80, since=None, now=None):
     """The decision log, newest first: [{ts, kind, token, symbol, source, why, why_short, sol, pnl_pct, mode, stage,
-    sig, trebao, side, id}].
+    sig, trebao, side, id, sig_ts}].
 
     tcon: trade.db (executor.connect); lcon: league.db connection or None (opened read-only here); since: unix time
     of the oldest decision wanted (None = no bound; the queries stop at `limit` either way); now: for tests.
@@ -357,6 +386,9 @@ def entries(tcon, lcon=None, limit=80, since=None, now=None):
     stage: "demo" (decided in the demo copy stage) | "pravi" (in the real-money mirror). sig: transaction signature
     or None. trebao: True = should have gone through and did not, False = a rule said no, None = kupio / prodao.
     side: "buy" | "sell" (which half of a trade the row is about). id: a stable key of the row.
+    sig_ts: when the signal itself happened (the followed account's call or buy, copy_log.ev_ts), unix seconds; ts
+    is when the bot decided. Demo-stage rows carry their own ev_ts, real-money rows the ev_ts of the demo entry they
+    mirror; None when unknown (a manual buy, a demo-strategy trade, a sale, league.db not readable).
     [] on any error (one log line), never an exception towards the page."""
     try:
         return _entries(tcon, lcon, max(1, min(int(limit or 80), MAX_LIMIT)), int(since or 0),
