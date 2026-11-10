@@ -240,6 +240,11 @@ Prijedlog: dva broja svuda, istim imenom i istim redom.
 
 ### 4.1 Naslovnica (memesonar.app/hr)
 
+> **ODBIJENO (Jure, 10.11. ujutro): "Naslovna mi je bolja stara. Nova mi izgleda kao klasičan AI."** Naslovnica
+> ostaje kakva je; ništa iz ovog odjeljka se ne radi. Pouka za ostale ekrane: izbjegavati generički "AI" izgled
+> (veliki opći naslov, sivi paneli jedan za drugim, mreža od četiri broja bez priče); ostali ekrani iz oba kruga
+> (Autopilot, Pregled, Tokeni, Influenceri, Novčanici, izbornik) Juri se sviđaju i ostaju u planu.
+
 **Sada** (`sada-naslovna-phone.png`, `-phone-fold.png`, `-desktop.png`): 17,2 ekrana na mobitelu (računalo 14,1),
 963 riječi, 9 emojija, 20 veličina slova, 12 sekcija, 14 slika ekrana (3 u heroju, 5 u "Kako izgleda", 6 u galeriji),
 sve starog sučelja; "Zatraži pristup" 7 puta u stranici. Današnja crna traka "Tradanje pravim sredstvima je live"
