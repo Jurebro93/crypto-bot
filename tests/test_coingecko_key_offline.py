@@ -17,7 +17,8 @@ GT = "https://api.geckoterminal.com/api/v2/networks/solana/pools/P1/ohlcv/minute
 
 class Route(unittest.TestCase):
     def setUp(self):
-        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_GAP", "CG_DAILY_CALLS")}
+        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_GAP", "CG_DAILY_CALLS",
+                                                    "DATA_DIR")}
         for k in self._env:
             os.environ.pop(k, None)
         import tempfile
@@ -33,6 +34,22 @@ class Route(unittest.TestCase):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+    def test_the_day_count_survives_a_deploy_on_the_persistent_disk(self):
+        """10.11. (Jure: "postavljen je, što se ne koristi?"): the count lived in /tmp, which a deploy empties."""
+        import tempfile
+        disk = tempfile.mkdtemp()
+        os.environ["DATA_DIR"] = disk
+        os.environ["COINGECKO_API_KEY"] = "CG-test"
+        os.environ["CG_DAILY_CALLS"] = "5"
+        for _ in range(3):
+            self.assertTrue(http._cg_take())
+        http.GATE_DIR = tempfile.mkdtemp()            # a new container: /tmp is empty
+        self.assertEqual(http.cg_used()[0], 3)        # the disk still knows today's 3
+        self.assertTrue(http._cg_take())
+        self.assertTrue(http._cg_take())
+        self.assertFalse(http._cg_take())             # the cap holds across the "deploy"
+        self.assertTrue(os.path.exists(os.path.join(disk, "coingecko.day")))
 
     def test_without_key_nothing_changes(self):
         self.assertEqual(http._cg_route(GT, None), (GT, None))
