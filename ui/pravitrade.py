@@ -1266,6 +1266,34 @@ def _float_nav(owner):
     return f'<nav class=ap-fn aria-label="Dijelovi stranice">{links}</nav>' + FLOAT_JS
 
 
+def _mcp_requests(tcon, owner):
+    """10.11. (MCP server MemeSonar, Grok's execute_trade): the trade requests that wait for the owner, each with
+    Odobri / Odbij. Nothing a client asks for moves money before this tap (ui/mcpapi.py)."""
+    if not owner:
+        return ""
+    from ui import mcpapi
+    reqs = mcpapi.pending(tcon)
+    if not reqs:
+        return ""
+    rows = []
+    for r in reqs:
+        amt = float(r["amount"])   # 10.11.: no nested quotes inside an f-string (Python 3.11 on older hosts)
+        what = (f"Kupi <b>{esc(format(amt, 'g'))} SOL</b>" if r["side"] == "buy"
+                else f"Prodaj <b>{esc(format(amt * 100, 'g'))} %</b>")
+        rows.append(
+            f'<div class=ap-ord-r><span>{what} · <code>{esc(short(r["token"]))}</code>'
+            + (f'<br><span class=mut>{esc(r.get("reason") or "")}</span>' if r.get("reason") else "")
+            + f'</span><span style="display:flex;gap:6px">'
+            f'<form method=post action=/pravi-trade/mcpok style="margin:0" onsubmit="return confirm(\'Odobriti ovaj zahtjev? '
+            f'Ide pravim novcem ako je Autopilot uključen.\')"><input type=hidden name=id value="{esc(r["id"])}">'
+            '<button class=ap-buy>Odobri</button></form>'
+            f'<form method=post action=/pravi-trade/mcpno style="margin:0"><input type=hidden name=id value="{esc(r["id"])}">'
+            '<button class=ap-cancel>Odbij</button></form></span></div>')
+    return (f'<section class=ap-qb id=mcp-zahtjevi><h2 class=ap-qb-h>Zahtjevi s Groka · {len(reqs)}</h2>'
+            f'<div class=ap-ord>{"".join(rows)}</div><p class=mut>Zahtjev vrijedi 15 min. Kupnja ide kao tvoja ručna '
+            'kupnja (zadnji TP/SL), prodaja kao tvoj gumb Prodaj.</p></section>')
+
+
 def _buy_now_card(cfg, owner):
     """9.11. (Jure): buy any token right now with the amount you choose: address + SOL + Kupi.
     Exit defaults to the target chosen in "Pravila" (TP) and, with no stop typed in, the default stop
@@ -3769,6 +3797,7 @@ def page(qs, user):
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
                  _safe("kupnja", _buy_now_card, cfg, owner),
+                 _safe("mcp", _mcp_requests, tcon, owner),
                  setup.get("warn", ""),
                  _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
@@ -3922,6 +3951,11 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path == "/pravi-trade/mcpno":   # 10.11.: the owner turns down a request of the MCP server
+            from ui import mcpapi
+            if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio"):
+                raise ValueError("taj zahtjev više ne postoji")
+            return f"{BACK}?ok={qq('Zahtjev odbijen.')}"
         if path == "/pravi-trade/triggerprobe":   # 10.11. (Jure: "da, v1"): Jupiter Trigger step 1, no money
             settings.put(tcon, "trigger_probe_req", int(time.time()), user)
             return f"{BACK}?ok={qq('Proba Jupiter Triggera poslana trade procesu; rezultat je pod Pravila za nekoliko sekundi.')}#trigger"
@@ -4018,6 +4052,8 @@ def post(path, form, user):
                 return _post_buy(con, tcon, form, user)
             if path == "/pravi-trade/exit":
                 return _post_exit(con, tcon, form)
+            if path == "/pravi-trade/mcpok":
+                return _post_mcp_ok(con, tcon, form, user)
             if path == "/pravi-trade/auto":
                 from ui import autopilot
                 days, n = int(form.get("days") or 14), int(form.get("n") or 3)
@@ -4131,6 +4167,36 @@ def _group_exit(con, tcon, token, tp, sl, cfg):
         con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(rule), t["id"]))
     con.commit()
     return rule, avg_mc, len(lots)
+
+
+def _post_mcp_ok(con, tcon, form, user):
+    """The owner approves a request of the MCP server: a buy goes through the owner's manual buy (his last TP / SL),
+    a sale through the sell button's request (every lot of the token, that share)."""
+    from urllib.parse import quote as qq
+    from ui import mcpapi
+    rid = str(form.get("id") or "")
+    r = next((x for x in mcpapi.pending(tcon) if x.get("id") == rid), None)
+    if r is None:
+        raise ValueError("taj zahtjev više ne čeka (istekao je nakon 15 min ili je već riješen)")
+    if r["side"] == "buy":
+        tp, sl = _last_exit(_cfg(tcon))
+        try:
+            out = _post_buy(con, tcon, {"token": r["token"], "sol": f'{r["amount"]:g}', "exit": "tpsl", "tp": tp, "sl": sl}, user)
+        except ValueError as e:
+            mcpapi.decide(tcon, rid, "failed", str(e))
+            raise
+        mcpapi.decide(tcon, rid, "approved", "kupnja poslana")
+        return out
+    ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open'", (r["token"],))]
+    if not ids:
+        mcpapi.decide(tcon, rid, "failed", "pozicija više nije otvorena")
+        raise ValueError("ta pozicija više nije otvorena")
+    req = dict(settings.raw(tcon).get("sell_req") or {})
+    for pid in ids:
+        req[pid] = min(1.0, max(0.01, float(r["amount"])))
+    settings.put(tcon, "sell_req", req, user)
+    mcpapi.decide(tcon, rid, "approved", "prodaja poslana")
+    return f"{BACK}?ok={qq('Prodaja poslana, za nekoliko sekundi je u tablici.')}#pozicije"
 
 
 def _post_exit(con, tcon, form):

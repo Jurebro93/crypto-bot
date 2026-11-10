@@ -15,6 +15,7 @@ import base64
 import gzip
 import hashlib
 import hmac
+import json
 import os
 import re
 import sys
@@ -506,6 +507,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.wfile.write(body)
         if path.startswith("/admin/export/"):   # 7.11.: read-only database copy for offline analysis (EXPORT_KEY)
             return self._export(path[len("/admin/export/"):], qs)
+        if path.startswith("/api/mcp/"):   # 10.11.: the MemeSonar MCP server's data (Bearer MCP_API_KEY), no login
+            return self._mcp_get(path, qs)
         to = moved_to_site(self.headers.get("Host"), path, ok and AUTH)
         if to:
             return self._redirect(to + (f"?{u.query}" if u.query else ""), code=301)
@@ -770,6 +773,42 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
 
+    def _mcp_auth(self):
+        """True, or the (code, json) to answer: 404 while MCP_API_KEY is not set (the API does not exist), 401 on a
+        wrong key."""
+        from ui import mcpapi
+        ok = mcpapi.authorized(self.headers.get("Authorization"))
+        if ok is None:
+            return 404, '{"error": "not found"}'
+        if not ok:
+            return 401, '{"error": "wrong or missing Authorization: Bearer <key>"}'
+        return True
+
+    def _mcp_get(self, path, qs):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        try:
+            code, out = mcpapi.answer(path, qs)
+        except Exception as e:  # noqa: BLE001 - a broken part answers JSON, never a traceback page
+            print(f"mcp: {path}: {type(e).__name__}: {e}", flush=True)
+            code, out = 500, json.dumps({"error": f"{type(e).__name__}"})
+        return self._send(code, out.encode("utf-8"), "application/json")
+
+    def _mcp_post(self):
+        from ui import mcpapi
+        a = self._mcp_auth()
+        if a is not True:
+            return self._send(a[0], a[1].encode("utf-8"), "application/json")
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(min(n, 100_000)) or b"{}")
+        except ValueError:
+            return self._send(400, b'{"error": "body must be JSON"}', "application/json")
+        code, data = mcpapi.trade_request(body)
+        return self._send(code, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json")
+
     def _send(self, code, body, ctype="text/html", gz=None, translated=False):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
@@ -875,6 +914,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/hook/chain":
             self._chain_hook(u)
             return
+        if u.path == "/api/mcp/trade":   # 10.11.: a trade REQUEST from the MCP server; waits for the owner's tap
+            return self._mcp_post()
         if u.path == "/prijava":
             return self._login_post()
         if u.path == "/registracija":
