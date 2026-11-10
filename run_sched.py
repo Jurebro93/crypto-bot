@@ -243,6 +243,9 @@ JOBS = [
     # light too (11:00): 30 DexScreener calls + up to 120 GeckoTerminal lookups; behind the KOL round it waited 12+ min
     # and never ran all morning. GeckoTerminal 429s are a shared cross-process cooldown (event_calendar/http).
     ("tokenstatus", every, (["run_hype.py", "status"], float(os.environ.get("TOKENSTATUS_EVERY_MIN", "360")), True)),
+    # 10.11. (Grok MCP audit 6): calls that were never measured (price 1 h / 24 h empty) measured at night, capped per
+    # night by kol/backfill_calls.py itself (300 GeckoTerminal requests); heavy lock, night window only
+    ("kolfill", every, (["kol/backfill_calls.py", "--budget", "60"], 60, False, True)),
     # 10.11. (Jure: "podaci bi se trebali jednom dnevno osvježiti na cijelom webu ... zadatak u 2 po noći"): public
     # tables rebuilt from our own databases, blog data blocks counted again, one row in the site log (run_web.py)
     ("web", daily_local, (["run_web.py", "daily"], WEB_HOUR)),
