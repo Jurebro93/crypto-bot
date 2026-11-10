@@ -604,6 +604,19 @@ class Handler(BaseHTTPRequestHandler):
                   "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
             frag = fn(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/graf", "/pravi-trade/dnevnik", "/pravi-trade/preporuke"):
+            # 10.11. (Jure: graf na vrhu, dnevnik na klik, čista stranica): the header with the chart (every 45 s), the
+            # open decision log (every second) and the recommendations (once, when opened); same access as the page.
+            # A failure is a 500 with no text: the page greys the box and tries again, the trade loop never notices.
+            from ui import pravitrade
+            fn = {"/pravi-trade/graf": pravitrade.head_fragment, "/pravi-trade/dnevnik": pravitrade.dnevnik_fragment,
+                  "/pravi-trade/preporuke": pravitrade.recs_fragment}[path]
+            try:
+                frag = fn(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()   # the traceback to the log under a reference; the box only greys out
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path == "/pravi-trade":
             from ui import pravitrade
             try:

@@ -169,7 +169,7 @@ class Page(unittest.TestCase):
         # 9.11. (audit P10/P17): "moj TP/SL" without a stop typed in gets the default stop (league/copy.DEFAULT_SL)
         self.assertEqual(fl[0]["exit"], {"mode": "tpsl", "tp": "15%", "sl": copy.DEFAULT_SL, "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
         _, body = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")
-        self.assertIn("🤝", body)
+        # 10.11. (Jure: "čista, minimalistička"): the crew tag is the word "ekipa", without the 🤝 in front
         self.assertIn("ekipa</span>", body)
         self.assertIn('value="tg:x,tg:y"', body)       # prefilled from /ekipe "zaprati ekipu →"
         # "Zaprati sve" from "Zovu sada" makes ONE crew follow, not five single ones
