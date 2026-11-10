@@ -107,11 +107,12 @@ def _day_start(now, tz=None):
     return int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())
 
 
-def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None):
-    """Reason the buy is blocked, or None."""
+def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False):
+    """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
+    lot of the same position, so the duplicate check does not apply (every other limit does)."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
-    if token is not None:   # T22: an auto follow and a manual follow of the same coin = one real position
+    if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
                           (token, "live" if live else "dry")).fetchone()
         if dup:
@@ -129,8 +130,15 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None):
             return f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
                          ("live" if live else "dry",)).fetchone()[0]
-    if n_open >= cfg["max_open"]:
-        return f"{n_open} otvorenih pozicija"
+    # 10.11. (Jure: dokupnja u istu poziciju): a token bought in two lots is one position against max_open; the
+    # reserve for selling (below) still counts every lot, each is sold by its own swap
+    n_tok = con.execute("SELECT COUNT(DISTINCT COALESCE(token, '#' || id)) FROM positions WHERE status IN ('open','pending') AND mode=?",
+                        ("live" if live else "dry",)).fetchone()[0]
+    held = token is not None and con.execute(
+        "SELECT 1 FROM positions WHERE token=? AND mode=? AND status IN ('open','pending') LIMIT 1",
+        (token, "live" if live else "dry")).fetchone() is not None
+    if n_tok >= cfg["max_open"] and not held:
+        return f"{n_tok} otvorenih pozicija"
     if live:
         if balance is None:
             balance = wallet.sol_balance(wallet.address())
@@ -339,14 +347,15 @@ def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
     return None
 
 
-def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None):
+def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None,
+        add=False):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
     between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09).
     tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
-    why = gate_buy(con, cfg, size_sol, now, live, token=token)
+    why = gate_buy(con, cfg, size_sol, now, live, token=token, add=add)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct)
     # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still

@@ -43,6 +43,9 @@ class Base(unittest.TestCase):
         self.lg = store.connect(store.DB)
         copy.ensure(self.lg)
         copy._ADOPTED.clear()
+        from ui import pravitrade
+        pravitrade._LIVE_CACHE.clear()   # the live MC is shared per token set across the process
+        pravitrade._LIVE_FAIL.clear()
         os.environ["TRADE_OWNER"] = "Jure"
         uleague.market = lambda toks: {t: (1.0, 1e6, None, 82_000.0) for t in toks}
         collapse.check = lambda *a, **k: None
@@ -139,7 +142,7 @@ class Positions(Base):
         inner, meta, has_open = pravitrade.positions_inner(self.con, False, True, {}, cfg)
         self.assertTrue(has_open)
         self.assertIn("ulaz MC $82.0k", inner)                       # the closed row
-        self.assertIn("ulaz na MC $82.0k", inner)                    # inside
+        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(≈ \+0 %\)")   # inside, with the move
         self.assertIn("Izlaz: TP +15 % · SL −60 %", inner)
         self.assertIn("action=/pravi-trade/exit", inner)
         self.assertIn('name=sl value="-60%"', inner)                 # the quick TP buttons keep the stop
@@ -187,6 +190,81 @@ class Positions(Base):
         self.assertIn("err=", loc)
         self.assertIn("zatvoren", unquote(loc))
         self.assertIn("err=", self.post("/pravi-trade/exit", {"id": "999", "tp": "30%", "sl": ""}))
+
+
+class AddToPosition(Base):
+    """10.11. (Jure: "ako unesem adresu istog tokena koji je već u poziciji, pozicija se podeblja; nadopišu se dva
+    ulaza: prvi ulaz na toliko market capa (PnL), drugi ulaz ..."): a manual buy of a held token is one more lot."""
+
+    def setUp(self):
+        super().setUp()
+        from tests.test_trade_offline import FakeJup
+        from trade import jupiter
+        self.fake = FakeJup()
+        self._jup = (jupiter.order, jupiter.execute)
+        jupiter.order, jupiter.execute = self.fake.order, self.fake.execute
+
+    def tearDown(self):
+        from trade import jupiter
+        jupiter.order, jupiter.execute = self._jup
+        super().tearDown()
+
+    def mirror(self, now):
+        from tests.test_trade_offline import CFG
+        cfg = settings.merged(dict(CFG, sell_check=False), self.con)
+        run_trade.follow_league_once(self.con, cfg, since=0, now=now, quiet=True)
+
+    def test_second_buy_of_a_held_token_is_a_second_lot_with_the_same_exit(self):
+        from ui import league as uleague, prijedlog
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+        self.mirror(time.time())
+        # the price ran from $82k to $100k: the owner buys again
+        uleague.market = lambda toks: {t: (1.22, 1e6, None, 100_000.0) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 1.22, "mcap": 100_000.0} for t in toks}
+        loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "15%", "sl": ""})
+        self.assertIn("ok=", loc)
+        self.assertIn("Dokupnja", unquote(loc))
+        lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
+        self.assertEqual(len(lots), 2)
+        a = {t["entry_mcap"]: json.loads(t["auto"]) for t in lots}
+        self.assertEqual((a[100_000.0]["tp"], a[100_000.0]["sl"]), ("+30%", "-60%"))   # the position's exit, not the form's
+        self.mirror(time.time() + 2)
+        pos = self.con.execute("SELECT token, status, sol_in, league_id FROM positions ORDER BY id").fetchall()
+        self.assertEqual([(p[0], p[1]) for p in pos], [(MINT, "open"), (MINT, "open")])   # two real lots, no "već postoji"
+        self.assertAlmostEqual(sum(p[2] for p in pos), 0.09)
+        # one row: both entries with their MC and the move since (MC now $100k)
+        from ui import pravitrade
+        cfg = settings.merged(executor.load_config(), self.con)
+        inner, meta, _ = pravitrade.positions_inner(self.con, False, True, {}, cfg)
+        self.assertEqual(inner.count("<details class=ap-it id=poz-"), 1)
+        self.assertTrue(meta.startswith("1"))
+        self.assertIn("2 ulaza · ulaz MC $82.0k, $100.0k", inner)
+        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(≈ \+22 %\) · 0,050\xa0SOL")
+        self.assertRegex(inner, r"2\. ulaz \d\d:\d\d na MC \$100\.0k \(≈ \+0 %\) · 0,040\xa0SOL")
+        ids = ",".join(str(p) for (p,) in self.con.execute("SELECT id FROM positions ORDER BY id"))
+        self.assertIn(f"name=id value={ids}>", inner)                     # sell buttons: every lot
+        # the exit form changes both lots, each from its own entry
+        pid0 = int(ids.split(",")[0])
+        self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid0), "tp": "50%", "sl": "-40%"}))
+        for t in store.trades(self.lg, settings.LEAGUE_USER, "open"):
+            a = json.loads(t["auto"])
+            self.assertEqual((a["tp"], a["sl"]), ("+50%", "-40%"))
+            self.assertAlmostEqual(a["tp_px"], t["entry_px"] * 1.5)
+        # "Prodaj 50 %" asks every lot
+        self.assertIn("ok=", self.post("/pravi-trade/sell", {"id": ids, "frac": "0.5"}))
+        self.assertEqual(set(settings.raw(self.con)["sell_req"]), set(ids.split(",")))
+
+    def test_a_copy_never_doubles_a_held_token_and_max_open_counts_tokens(self):
+        from tests.test_trade_offline import CFG
+        now = time.time()
+        for i, tok in enumerate(("A" * 43, "A" * 43, "B" * 43)):
+            self.con.execute("INSERT INTO positions (token, opened_ts, mode, status, sol_in) VALUES (?,?,?,?,?)",
+                             (tok, int(now), "dry", "open", 0.01))
+        self.con.commit()
+        cfg = dict(settings.merged(dict(CFG), self.con), max_open=2, max_sol_per_day=5)
+        self.assertIn("već postoji", executor.gate_buy(self.con, cfg, 0.01, now, False, token="A" * 43))
+        self.assertIsNone(executor.gate_buy(self.con, cfg, 0.01, now, False, token="A" * 43, add=True))   # a lot
+        self.assertIn("2 otvorenih", executor.gate_buy(self.con, cfg, 0.01, now, False, token="C" * 43))  # tokens, not lots
 
 
 class Header(unittest.TestCase):

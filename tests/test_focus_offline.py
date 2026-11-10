@@ -148,5 +148,6 @@ class RealTradePage(unittest.TestCase):
     def test_sections_get_the_tap_toggle_script(self):
         from ui import pravitrade
         self.assertIn("details.ap-sec,details.ap-it", pravitrade.TOGGLE_JS)
-        self.assertIn("sessionStorage", pravitrade.TOGGLE_JS)
+        # 10.11. (Jure: "nek su sve zatvorene kartice za početak"): open rows are kept only while the page is open
+        self.assertNotIn("sessionStorage", pravitrade.TOGGLE_JS)
         self.assertTrue(pravitrade._with_toggle("<p>x</p>").endswith("</script>"))
