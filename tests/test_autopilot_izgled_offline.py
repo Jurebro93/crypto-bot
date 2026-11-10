@@ -114,7 +114,10 @@ class Page(Base):
                                       ">Kako trguje<", ">Koga prati<", ">Pravila<", ">Još<", ">Tko sada zove koji token<",
                                       ">Wallet i uplata<", ">Tko vidi stranicu<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
-        self.assertEqual(len(re.findall(r"<h2 class=ms-h2[^>]*>", body)), body.count('data-sec=""'))   # no secnav chips
+        # no secnav chips: every h2 opts out (10.11. 23:04: the cards' titles had made a chip bar again)
+        h2s = re.findall(r"<h2[^>]*>", body)
+        self.assertTrue(h2s)
+        self.assertEqual([h for h in h2s if 'data-sec=""' not in h and "nosec" not in h], [])
         self.assertIn('class="ap ms-page"', body)
 
     def test_grok_summary_is_under_jos_not_above_the_trade(self):

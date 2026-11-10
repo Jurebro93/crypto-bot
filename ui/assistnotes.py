@@ -230,6 +230,17 @@ def latest_summary(con, status=None):
     return _row(r) if r else None
 
 
+def dismiss_summaries(con, upto_id, note=""):
+    """10.11. 23:04 (Jure: "kad stisnem ukloni obavijest, ne ukloni se"): "Pročitano, makni" on the newest daily summary
+    marks it AND every older unread one read (prihvaćeno), so an older one does not take its place. Returns the count."""
+    ensure(con)
+    n = con.execute("UPDATE assistant_notes SET status='prihvaćeno', decided_ts=?, owner_note=COALESCE(owner_note, ?) "
+                    "WHERE kind='daily_summary' AND status='novo' AND id<=?",
+                    (int(time.time()), (note or "")[:1000] or None, int(upto_id))).rowcount
+    con.commit()
+    return n
+
+
 def reviewed_positions(con):
     ensure(con)
     return {r[0] for r in con.execute("SELECT DISTINCT position_id FROM assistant_notes WHERE kind='trade_review' "

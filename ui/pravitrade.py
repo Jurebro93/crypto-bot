@@ -1408,9 +1408,9 @@ def _summary_card(tcon, owner):
     n = assistnotes.latest_summary(tcon, status="novo")
     if not n:
         return ""
-    return (f'<section class="ap-qb ap-sum" id=sazetak><h2 class=ap-qb-h>{esc(n.get("title") or "Dnevni sažetak")} '
+    return (f'<section class="ap-qb ap-sum" id=sazetak><h2 class=ap-qb-h data-sec="">{esc(n.get("title") or "Dnevni sažetak")} '
             f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p>'
-            f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(n["id"])}>'
+            f'<form method=post action=/pravi-trade/sumread class=ap-exit><input type=hidden name=id value={int(n["id"])}>'
             '<button>Pročitano, makni</button></form></section>')
 
 
@@ -1450,7 +1450,7 @@ def _grok_auto_live(tcon, owner):
             f'najviše {_g(lim["grok_max_sol_per_trade"])} SOL po kupnji')
     kill = ('<form method=post action=/pravi-trade/grokoff class=ap-danger onsubmit="return confirm(\'Ugasiti Grok autotrade? '
             'Njegovi zahtjevi opet čekaju tvoje odobrenje.\')"><button class=ap-danger>Ugasi Grok autotrade</button></form>')
-    return (f'<section class="ap-qb ap-grok" id=grok-auto><h2 class=ap-qb-h>Grok auto <span class=mut>· {esc(head)}</span></h2>'
+    return (f'<section class="ap-qb ap-grok" id=grok-auto><h2 class=ap-qb-h data-sec="">Grok auto <span class=mut>· {esc(head)}</span></h2>'
             f'<p class=mut>{esc(line)}</p>{_grok_rows(grokauto.log_rows(tcon, 5))}{kill}</section>')
 
 
@@ -1481,7 +1481,7 @@ def _exit_plans_block(tcon, owner):
         btn = ('<form method=post action=/pravi-trade/exitpause class=ap-danger onsubmit="return confirm(\'Pauzirati sve '
                'exit planove? Pozicije se vraćaju na zadani TP/SL.\')"><button class=ap-danger>Pauziraj exit planove</button></form>')
         head = f"{len(rows)} aktivnih · {words}"
-    return (f'<section class="ap-qb ap-plans" id=exit-planovi><h2 class=ap-qb-h>Planovi izlaza <span class=mut>· '
+    return (f'<section class="ap-qb ap-plans" id=exit-planovi><h2 class=ap-qb-h data-sec="">Planovi izlaza <span class=mut>· '
             f'{esc(head)}</span></h2><ul class=ap-grok-log>{items}</ul>{btn}</section>')
 
 
@@ -1535,7 +1535,7 @@ def _mcp_requests(tcon, owner):
             '<button class=ap-buy>Odobri</button></form>'
             f'<form method=post action=/pravi-trade/mcpno style="margin:0"><input type=hidden name=id value="{esc(r["id"])}">'
             '<button class=ap-cancel>Odbij</button></form></span></div>')
-    return (f'<section class=ap-qb id=mcp-zahtjevi><h2 class=ap-qb-h>Zahtjevi s Groka · {len(reqs)}</h2>'
+    return (f'<section class=ap-qb id=mcp-zahtjevi><h2 class=ap-qb-h data-sec="">Zahtjevi s Groka · {len(reqs)}</h2>'
             f'<div class=ap-ord>{"".join(rows)}</div><p class=mut>Zahtjev vrijedi 15 min. Kupnja ide kao tvoja ručna '
             'kupnja (zadnji TP/SL), prodaja kao tvoj gumb Prodaj.</p></section>')
 
@@ -1571,7 +1571,7 @@ def _buy_now_card(cfg, owner):
              f'vrijedi {LIMIT_HOURS} h.</p>' + _limit_orders_html(cfg))
     # 10.11. (Jure: "nema opcije za brzo kupovanje koja treba biti odmah ispod grafa jer je to glavna stvar"): an open
     # block right under the chart, not a closed row under "Kako trguje"; the form and its confirmation are the same
-    return f'<section class=ap-qb id=kupi-odmah><h2 class=ap-qb-h>Brza kupnja</h2>{inner}</section>'
+    return f'<section class=ap-qb id=kupi-odmah><h2 class=ap-qb-h data-sec="">Brza kupnja</h2>{inner}</section>'
 
 
 TP_CHOICES = (5, 10, 15, 20, 30)
@@ -4548,6 +4548,10 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path == "/pravi-trade/sumread":   # 10.11. 23:04: the daily summary and every older unread one leave the page
+            from ui import assistnotes
+            n = assistnotes.dismiss_summaries(tcon, int(form.get("id") or 0))
+            return f"{BACK}?ok={qq(f'Sažetak maknut ({n}).' if n > 1 else 'Sažetak maknut.')}#jos"
         if path in ("/pravi-trade/asok", "/pravi-trade/asno", "/pravi-trade/asapply"):   # 10.11.: an assistant's note
             from ui import assistnotes
             nid, note = int(form.get("id") or 0), (form.get("note") or "").strip()
