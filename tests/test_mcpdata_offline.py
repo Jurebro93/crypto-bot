@@ -143,7 +143,9 @@ class Base(unittest.TestCase):
 class Tools(Base):
     def test_1_caller_leaderboard(self):
         from ui import mcpdata
-        out = mcpdata.caller_leaderboard(limit=2)
+        # 10.11. (Grok MCP audit 5): the default list needs 10 measured calls; these callers have 1-2 (min_measured=0)
+        self.assertEqual(mcpdata.caller_leaderboard()["total"], 0)
+        out = mcpdata.caller_leaderboard(limit=2, sort="score", min_measured=0)
         self.assertEqual((out["limit"], out["offset"], out["total"], out["next_offset"]), (2, 0, 3, 2))
         top = out["rows"][0]
         self.assertEqual((top["handle"], top["platform"], top["calls"], top["call_power"]), ("ansem", "x", 2, 72.0))
@@ -153,12 +155,12 @@ class Tools(Base):
         self.assertEqual(top["avg_mcap_at_call"], 65_000)
         self.assertEqual((top["first_call_ts"], top["last_call_ts"]), (NOW - 7200, NOW - 3600))
         self.assertTrue(top["big_name"])
-        murad = next(r for r in mcpdata.caller_leaderboard(limit=500)["rows"] if r["handle"] == "murad")
+        murad = next(r for r in mcpdata.caller_leaderboard(limit=500, min_measured=0)["rows"] if r["handle"] == "murad")
         self.assertTrue(murad["rising_star"] and murad["bragger"])
-        tg = mcpdata.caller_leaderboard(platform="telegram")["rows"]
+        tg = mcpdata.caller_leaderboard(platform="telegram", min_measured=0)["rows"]
         self.assertEqual([r["handle"] for r in tg], ["tg:alpha"])
-        self.assertEqual([r["handle"] for r in mcpdata.caller_leaderboard(min_calls=2)["rows"]], ["ansem"])
-        self.assertEqual(mcpdata.caller_leaderboard(sort="x2_share", limit=1)["rows"][0]["handle"], "murad")
+        self.assertEqual([r["handle"] for r in mcpdata.caller_leaderboard(min_calls=2, min_measured=0)["rows"]], ["ansem"])
+        self.assertEqual(mcpdata.caller_leaderboard(sort="x2_share", limit=1, min_measured=0)["rows"][0]["handle"], "murad")
         self.assertEqual(mcpdata.caller_leaderboard(limit=9999)["limit"], 500)
 
     def test_2_caller_history(self):
@@ -215,7 +217,7 @@ class Tools(Base):
         out = mcpdata.autopilot_trades()
         t = out["rows"][0]
         self.assertEqual((t["token"], t["status"], t["exit_reason"], t["entry_market_cap"], t["exit_market_cap"]),
-                         (TOK, "closed", "TP", 50_000, 70_000))
+                         (TOK, "closed", "tp", 50_000, 70_000))   # 10.11. (Grok MCP audit 2): exit_rule words
         self.assertAlmostEqual(t["pnl_sol"], 0.058)
         sig = t["signals"]
         self.assertEqual(sig["follow"]["target"], "ansem")

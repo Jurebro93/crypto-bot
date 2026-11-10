@@ -8,7 +8,8 @@ get_market_signals, get_token_details, get_portfolio_status, execute_trade s req
                                       "Odobri" (then it goes through the owner's manual buy / sell); never executed here
 
 Every call needs "Authorization: Bearer <MCP_API_KEY>" (Render env); without that variable the API answers 404, as
-if it did not exist. Read-only on the databases except the request queue (trade settings "mcp_requests").
+if it did not exist. Read-only on the databases except the request queue (trade settings "mcp_requests"), the
+assistant's notes (ui/assistnotes.py) and the insert-only X features (xfeat.db, ui/xfeat.py; 10.11. Grok MCP audit 10).
 Why trades wait for the owner: the client is an LLM that reads public posts; a crafted post has already made Grok
 order a transfer (May 2026). Real money moves only on the owner's tap (CLAUDE.md: pitaj prije).
 """
@@ -276,52 +277,75 @@ _PAGE = {"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 1
          "offset": {"type": "integer", "minimum": 0, "default": 0}}
 _PAGED = " Paginated: limit 1-500 (default 100), offset; the answer has total and next_offset while more rows exist. Times are unix seconds."
 TOOLS += [
+    # 10.11. (Grok MCP audit 5): ranked by the cautious 1 h EV after cost by default; hit_rate is the 24 h wick
     {"name": "get_caller_leaderboard", "annotations": _READ,
-     "description": ("Every tracked caller (X and Telegram): handle, platform, followers, first/last call ts, total calls, "
-                     "hit_rate (24 h high >= +50 %), avg and median price change 1 h / 24 h after the call (fractions), "
-                     "x2_share (24 h high >= 2x), rug_count, avg market cap at call, call_power (0-100), and flags "
-                     "big_name / rising_star / bragger (definitions in the answer). sort: score | hit_rate | calls | "
-                     "avg_r24h | x2_share | followers | last_call_ts | power_rel." + _PAGED),
+     "description": ("Every tracked caller (X and Telegram) with at least min_measured measured calls (default 10, 0 = "
+                     "all), ranked by ev_lower: per call (one per token) the 1 h result after a 2 % round-trip cost "
+                     "(minute entry close-to-close r60 when measured, else r1h), its mean, median "
+                     "(median_r1h_after_cost) and mean minus 2 standard errors (ev_lower, the cautious expected result "
+                     "per copied call); hit10_clean / hit10_wilson_low (minute check: +10 % before the -20 % stop "
+                     "within 60 min, and its Wilson lower bound) and stop_first_share. Also: followers, first/last call "
+                     "ts, calls, measured_calls, hit_rate = the 24 h WICK (the high at any moment within a day reached "
+                     "+50 %): NOT tradable, never rank by it alone; avg / median change 1 h / 24 h (fractions), "
+                     "x2_share (24 h wick >= 2x), rug_count, avg market cap at call, call_power (0-100), flags "
+                     "big_name / rising_star / bragger (definitions in the answer). sort: ev_lower (default) | "
+                     "median_r1h_after_cost | mean_r1h_after_cost | hit10_wilson_low | ev_n | score | hit_rate | calls | "
+                     "measured_calls | avg_r24h | x2_share | followers | last_call_ts | power_rel." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"platform": {"type": "string", "enum": ["x", "telegram"]},
                                                       "min_calls": {"type": "integer", "minimum": 0},
+                                                      "min_measured": {"type": "integer", "minimum": 0, "default": 10},
                                                       "sort": {"type": "string"}, **_PAGE}}},
     {"name": "get_caller_history", "annotations": _READ,
      "description": ("Every call of one caller, newest first: token, symbol, call ts, price and market cap at the call, "
                      "max/min within the first hour (minute candles), max within 24 h, price at 1 h / 24 h, rug flag, "
-                     "and how many other callers called the same token within 15 min before / after. platform: x or "
-                     "telegram (a Telegram channel may also be given as tg:<channel>)." + _PAGED),
+                     "and how many other callers called the same token within 15 min before / after. *_source says "
+                     "where a value came from; minute_status and measure_status say why one is null (under_30k, "
+                     "older_than_30d, no_pair, pending, never_measured ...). platform: x or telegram (a Telegram "
+                     "channel may also be given as tg:<channel>)." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"handle": {"type": "string"},
                                                       "platform": {"type": "string", "enum": ["x", "telegram"]},
                                                       "since_ts": {"type": "integer"}, **_PAGE},
                      "required": ["handle"]}},
     {"name": "get_token_history", "annotations": _READ,
-     "description": ("One token: every call in order (caller, platform, ts, market cap at call), its price / market cap "
-                     "series (at most 500 points), rug-check results (rug filter, RugCheck top check, rug archive) and "
-                     "every Autopilot trade on it (demo trade it follows and the real position)."),
+     "description": ("One token: every call in order (caller, platform, ts, market cap at call, followers), its price / "
+                     "market cap series (at most 500 points), rug-check results (rug filter, RugCheck top check, rug "
+                     "archive) and every Autopilot trade on it (demo trade it follows with its exit_reason, and the real "
+                     "position with block_reason when it was blocked or failed)."),
      "inputSchema": {"type": "object", "properties": {"token_address": {"type": "string"}}, "required": ["token_address"]}},
     {"name": "get_wallet_leaderboard", "annotations": _READ,
      "description": ("Tracked wallets: realized / unrealized PnL (SOL), win rate, median hold time, style, tier, scores and "
-                     "the linked influencer handle when known. kind: influencer (a known influencer's wallet) or smart "
-                     "(tier S/A/B)." + _PAGED),
+                     "the linked influencer handle when known (an influencer wallet not scored yet carries its linked "
+                     "caller's call_power, score_source linked_kol_call_power). kind: influencer (a known influencer's "
+                     "wallet) or smart (tier S/A/B)." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["influencer", "smart"]}, **_PAGE}}},
     {"name": "get_wallet_history", "annotations": _READ,
      "description": ("One wallet's buys and sells, newest first: token, ts, side, SOL size, token amount, market cap in "
-                     "SOL when the trade was seen live; plus its tier, PnL, win rate and linked handle." + _PAGED),
+                     "SOL when the trade was seen live; plus its kind, tier, score (score_source), PnL, win rate and "
+                     "linked handle." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"address": {"type": "string"}, **_PAGE}, "required": ["address"]}},
     {"name": "get_wallet_clusters", "annotations": _READ,
      "description": ("Groups of wallets that buy together (common funder, same rug cluster, same-second buys) with members "
                      "and tokens, and clusters of callers that call the same tokens together; newest analysis snapshot."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "get_autopilot_trades", "annotations": _READ,
-     "description": ("Every Autopilot trade (real money and trial), newest first; the DCA lots of a token are one trade. "
-                     "Per trade: trade_id (its first position_id), lots, entry/exit ts, entry (SOL-weighted) / exit market "
-                     "cap, sol_in, sol_back, fees_sol, cost_pct (swap cost of the buys), pnl_sol / pnl_pct, exit_reason "
-                     "(TP / SL / time / smart sell / mirror / manual) and exit_note, and the signals at the entry: the "
-                     "follow, callers of the last hour with call_power and stats, wallet buys with tier, the rug check "
-                     "(verdict, top10 / bundle / sniper %), the minute path of the triggering call and the run-up from the "
-                     "first call to the entry. status: open | closed." + _PAGED),
+     "description": ("Every Autopilot trade (mode live = real money, dry = trial with real quotes), newest first; the DCA "
+                     "lots of a token are one trade. Per trade: trade_id (its first position_id), kind (position | "
+                     "refused: a real copy that was blocked or failed, with block_reason and the demo_trade it mirrors | "
+                     "demo_only with include_demo_only), lots, entry/exit ts, entry (SOL-weighted) / exit market cap "
+                     "(*_source), sol_in, sol_back, fees_sol, cost_pct (swap cost of the buys), pnl_sol / pnl_pct, "
+                     "exit_reason = the rule that fired: tp | sl | time | smart_tp | smart_sl | smart_trail | "
+                     "smart_other | wallet_sold | manual | rug (exit_rule_source, exit_detail, exit_note), exit_policy "
+                     "(the follow's exit mode smart / tpsl / podaci / mirror and the stop that applied: a smart "
+                     "profile's own stop is not the account's sl_default), and the signals at the entry: the follow, "
+                     "score_at_entry (score_source), the followed caller's record before the entry, callers of the last "
+                     "hour with call_power and stats, wallet buys with tier / score / linked handle, the rug check, the "
+                     "minute path of the triggering call and the run-up from the first call to the entry. status: open "
+                     "| closed | blocked | failed (default all)." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
-                                                      "status": {"type": "string", "enum": ["open", "closed"]}, **_PAGE}}},
+                                                      "status": {"type": "string",
+                                                                 "enum": ["open", "closed", "blocked", "failed"]},
+                                                      "include_demo_only": {"type": "boolean", "default": False},
+                                                      **_PAGE}}},
     {"name": "get_unreviewed_trades", "annotations": _READ,
      "description": ("Closed Autopilot trades that have no trade_review yet, newest first (same fields as "
                      "get_autopilot_trades). Review each with submit_trade_review(trade_id)."),
@@ -384,7 +408,47 @@ TOOLS += [
          "type": "object", "properties": {"handle": {"type": "string"}, "platform": {"type": "string", "enum": ["x", "telegram"]},
                                           "weight": {"type": "number", "minimum": 0, "maximum": 2}, "reason": {"type": "string"}},
          "required": ["handle", "weight"]}, "maxItems": 50}}, "required": ["weights"]}},
+    # 10.11. (Grok MCP audit 10, plan 3.6): X features Grok counts (e.g. posts with a token's CA per hour), kept
+    # point in time in xfeat.db (ui/xfeat.py); insert only, accepted while the owner's flag x_features_ingest is on
+    {"name": "submit_x_features",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Store what you measured on X about one subject, point in time (insert only; nothing is "
+                     "overwritten). subject: a token mint (subject_kind token, default), an X handle (handle) or a "
+                     "wallet (wallet). features: a JSON object up to 20 kB; for the count of posts containing a token's "
+                     "CA use {\"ca_posts_1h\": <posts in the hour>, \"ca_posts_hour_ts\": <unix start of that hour>}. "
+                     "ts_asof: unix seconds of the moment the features describe (the end of the counted hour); the "
+                     "server stamps ts_observed itself. A ts_asof older than 3 h needs backfill=true (counted after the "
+                     "fact, kept apart from live rows). Refused while the owner has the X feature intake switched off; "
+                     "at most 120 rows an hour. MemeSonar's scoring does not read these yet."),
+     "inputSchema": {"type": "object", "properties": {
+         "subject": {"type": "string"},
+         "subject_kind": {"type": "string", "enum": ["token", "handle", "wallet"], "default": "token"},
+         "features": {"type": "object"},
+         "ts_asof": {"type": "integer", "description": "unix seconds the features describe"},
+         "backfill": {"type": "boolean", "default": False}}, "required": ["subject", "features", "ts_asof"]}},
+    {"name": "get_x_features", "annotations": _READ,
+     "description": ("The X feature rows stored for one subject (submit_x_features), newest ts_asof first: id, "
+                     "ts_observed (when MemeSonar received it), ts_asof, features, source, backfill. since: only rows "
+                     "with ts_asof >= since. limit 1-500 (default 100)."),
+     "inputSchema": {"type": "object", "properties": {
+         "subject": {"type": "string"},
+         "subject_kind": {"type": "string", "enum": ["token", "handle", "wallet"], "default": "token"},
+         "since": {"type": "integer"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}},
+         "required": ["subject"]}},
 ]
+
+
+def _xfeat_tool(name, a, kid):
+    """10.11. (Grok MCP audit 10): the two X feature tools (ui/xfeat.py)."""
+    from ui import xfeat
+    try:
+        if name == "submit_x_features":
+            return xfeat.submit(a.get("subject") or a.get("token"), a.get("subject_kind") or "token", a.get("features"),
+                                a.get("ts_asof"), a.get("backfill", False), kid=kid)
+        return xfeat.read(a.get("subject") or a.get("token"), a.get("subject_kind") or "token", a.get("since"),
+                          a.get("limit"))
+    except ValueError as e:
+        return {"error": str(e)}
 
 
 def _note_tool(name, a, kid):
@@ -418,10 +482,14 @@ def _tool(name, args, kid="local"):
     if name in NOTE_TOOLS:
         d = _note_tool(name, args, kid)
         return d, "error" in d
+    if name in ("submit_x_features", "get_x_features"):
+        d = _xfeat_tool(name, args, kid)
+        return d, "error" in d
     from ui import mcpdata
     data_tools = {
         "get_caller_leaderboard": lambda a: mcpdata.caller_leaderboard(a.get("platform"), a.get("min_calls"), a.get("sort"),
-                                                                       a.get("limit"), a.get("offset")),
+                                                                       a.get("limit"), a.get("offset"),
+                                                                       a.get("min_measured")),
         "get_caller_history": lambda a: mcpdata.caller_history(a.get("handle"), a.get("platform"), a.get("since_ts"),
                                                                a.get("limit"), a.get("offset")),
         "get_token_history": lambda a: mcpdata.token_history(a.get("token_address")),
@@ -429,7 +497,7 @@ def _tool(name, args, kid="local"):
         "get_wallet_history": lambda a: mcpdata.wallet_history(a.get("address"), a.get("limit"), a.get("offset")),
         "get_wallet_clusters": lambda a: mcpdata.wallet_clusters(),
         "get_autopilot_trades": lambda a: mcpdata.autopilot_trades(a.get("since_ts"), a.get("limit"), a.get("offset"),
-                                                                   a.get("status")),
+                                                                   a.get("status"), a.get("include_demo_only") is True),
         "get_unreviewed_trades": lambda a: mcpdata.unreviewed_trades(a.get("limit") or 50),
         "get_assistant_notes": lambda a: mcpdata.assistant_notes(a.get("status"), a.get("kind"), a.get("limit"),
                                                                  a.get("offset")),
