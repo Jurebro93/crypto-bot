@@ -466,7 +466,8 @@ def _verdict_cells(v, lang):
     else:
         k, n = v["key"], v["n"]
         h1 = v["h1"]
-        d24 = v["plus24"] / v["n24"] if v.get("n24") else None
+        # 10.11. (pregled): like ui/kol.py, a 24-h share from fewer than VERDICT_MIN_N calls is not shown ("100 %" of 1)
+        d24 = v["plus24"] / v["n24"] if (v.get("n24") or 0) >= KS.VERDICT_MIN_N else None
     word = KS.VERDICT_WORD_EN[k] if lang == "en" else (v["word"] if v else KS.VERDICT_WORD[k])
     few = " mut" if k == "premalo" else ""
     return (f"<td><span class='vd {KS.VERDICT_DOT[k]}'></span>{esc(word)}</td>"

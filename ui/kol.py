@@ -671,7 +671,9 @@ def board(kols, vs, last=None, live=()):
             continue
         r = {"k": k, "v": v, "s": k.get("s") or {}, "last": last.get(k["handle"]), "live": k["handle"].lower() in live}
         (few if v["key"] == "premalo" else ranked).append(r)
-    ranked.sort(key=lambda r: (-(r["v"]["h1"] or 0), -r["v"]["n1"], -(r["k"].get("score") or 0)))
+    # 10.11. (pregled): the lower end of the 1-h share, as the Autopilot and Pregled rank (5 of 5 does not beat 40 of 50)
+    from ui.autopilot import wilson_low
+    ranked.sort(key=lambda r: (-wilson_low(r["v"]["h1"] or 0, r["v"]["n1"] or 0), -r["v"]["n1"], -(r["k"].get("score") or 0)))
     few.sort(key=lambda r: (-r["v"]["n"], -(r["k"].get("score") or 0)))
     return ranked, few
 

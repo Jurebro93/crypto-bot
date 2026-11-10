@@ -93,7 +93,8 @@ class DeadTokens(unittest.TestCase):
         store.buy(self.con, "Mario", MINT, "SOL", 1000, 1.0, 1e9)   # everything in one token
         self.con.execute("UPDATE trades SET opened_ts=opened_ts-60")   # bought before the check, as in real life
         self.con.commit()
-        self.none = lambda toks: {}                                 # the token has no price anywhere
+        # Mario's token has no price, while the source answers for others (not an outage)
+        self.none = lambda toks: {"OTHER": (1.0, 1e9, None, 1e6)}
 
     def test_rug_archived_token_counts_as_zero(self):
         out = rekt.check_players(self.con, self.none, rugs=frozenset({MINT}))
@@ -116,6 +117,18 @@ class DeadTokens(unittest.TestCase):
         alive = lambda toks: {t: (1.0, 1e9, None, 1e6) for t in toks}  # noqa: E731
         self.assertEqual(rekt.check_players(self.con, alive, now=t0 + 3600, rugs=frozenset()), [])   # worth ~$1000
         self.assertEqual(rekt.check_players(self.con, self.none, now=t0 + rekt.NO_PRICE_DEAD_S + 1, rugs=frozenset()), [])
+
+    def test_a_long_outage_never_wipes_an_account(self):
+        """10.11. (pregled): the price source answering nothing for 7 h is an outage, not dead tokens."""
+        t0 = time.time()
+        down = lambda toks: {}  # noqa: E731
+        for k in range(0, 7 * 3600, 300):
+            self.assertEqual(rekt.check_players(self.con, down, now=t0 + k, rugs=frozenset()), [])
+        self.assertEqual(len(store.trades(self.con, "Mario", "open")), 1)
+
+    def test_a_rugged_token_is_dead_even_during_an_outage(self):
+        out = rekt.check_players(self.con, lambda toks: {}, rugs=frozenset({MINT}))
+        self.assertEqual([u for u, _, _ in out], ["Mario"])
 
     def test_survives_a_restart(self):
         t0 = time.time()

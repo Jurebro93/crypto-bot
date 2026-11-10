@@ -370,5 +370,39 @@ class AutoPickNeedsMinuteCheck(unittest.TestCase):
         self.assertEqual([t for k, t, _, _ in got if k == "kol"], ["ok"])
 
 
+class NoChurn(AutoFollowExit):
+    """10.11. (pregled): an auto-picked influencer is not unfollowed and followed again (a new follow id restarts its
+    demo proof) when its minute count dips under 10 or when the influencer data is briefly missing."""
+
+    def _sync(self, kol_rows, wallets=()):
+        saved = (autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets)
+        st_w = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "score": 0.3}
+        autopilot.kol_recs = lambda now=None: {14: kol_rows}
+        autopilot.wallet_recs = lambda now=None: {14: [{"wallet": w, "name": "", "why": "ok", "s": st_w} for w in wallets]}
+        autopilot.proven_wallets = lambda: []
+        try:
+            autopilot.sync_follows(self.lg, self.tcon, force=True)
+        finally:
+            autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets = saved
+        return {(f["kind"], f["target"]): f["id"] for f in copy.follows(self.lg, settings.LEAGUE_USER)}
+
+    def test_dip_under_ten_and_missing_data_keep_the_follow(self):
+        settings.put(self.tcon, "auto_pick", True, "Jure")
+        good = {"hit": 0.5, "n": 12, "score": 0.4, "mjera": "minutna"}
+        first = self._sync([{"handle": "a", "live": True, "why": "", "s": good}], wallets=("W1",))
+        fid = first[("kol", "a")]
+        dipped = {"hit": 0.5, "n": 9, "score": 0.3, "mjera": "fitilj"}          # 10 -> 9 minute calls
+        second = self._sync([{"handle": "a", "live": True, "why": "", "s": dipped}], wallets=("W1",))
+        self.assertEqual(second.get(("kol", "a")), fid)
+        third = self._sync([], wallets=("W1",))                                  # kol.db locked: no influencer rows
+        self.assertEqual(third.get(("kol", "a")), fid)
+
+    def test_measured_bad_account_does_not_fall_back_to_the_wick(self):
+        wick = {"n": 6, "hits": 3, "rugs": 0, "r24": [], "hit": 0.5, "rug": 0.0, "med24": 0.1, "score": 0.4}
+        r = autopilot.kol_rank({"bad": dict(wick), "few": dict(wick)}, {"bad": ms(8, 0.125, 0.75), "few": ms(3, 0.0, 1.0)})
+        self.assertNotIn("bad", r)            # 8 minute calls, 1 of 8, stop first 75 %: known bad
+        self.assertIn("few", r)               # 3 calls: too few to say, the wick still stands in
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ MIN_CLOSED = 3       # wallets: tokens bought and sold in the window
 # minute calls (DNEVNIK 9.11.: the wick is "too late and too optimistic for real money"). Same bar as minute.hot().
 MIN_MINUTE = 10   # 10.11. (Jure: "preporučuješ ovog influencera kao najboljeg, a ima većinu loss"): 6 calls at 6/6
                   # ranked first; 10 is the bar kol/tpsl.MIN_N already uses before money follows a measure
+OLD_MIN_MINUTE = 5   # below MIN_MINUTE the minute check cannot rank, but from here it can already say "bad"
 WILSON_Z = 1.64   # 10.11.: rank by the lower end of the +10 % share (one-sided 95 %), not by the raw share of a few calls
 HOT_HIT10 = 0.5
 HOT_MAX_SL = 0.3
@@ -166,6 +167,8 @@ def kol_rank(st, mst):
                 continue
             if m and (m.get("rug") or 0) > MAX_RUG:
                 continue   # 9.11. (review): a rug the minute check saw counts even before it has MIN_MINUTE calls
+            if m and m["n"] >= OLD_MIN_MINUTE and (m["hit10"] < HOT_HIT10 or m["sl"] > HOT_MAX_SL):
+                continue   # 10.11. (pregled): 5-9 minute calls that already failed the bar are known bad, not "too few"
             s = dict(s, minute=m, mjera="fitilj")
         out[h] = s
     return out
@@ -447,7 +450,10 @@ def auto_targets(days, n, keep=(), skip=()):
     seen = {r["wallet"] for r in proven}
     # 10.11. (Jure: da, popravi rangiranje): the auto pick takes only accounts we watch live AND that the minute check
     # vouches for (MIN_MINUTE+ calls); the 24-h wick fallback ("too optimistic for real money", 9.11.) stays a hint
-    groups = (("kol", [r for r in kol_recs().get(days) or [] if r["live"] and r["s"].get("mjera") == "minutna"]),
+    # 10.11. (pregled): an earlier pick that is still live and still recommended stays whatever the measure (a count
+    # going 10 -> 9 as old calls leave the window must not unfollow it: a new follow id restarts its demo proof)
+    groups = (("kol", [r for r in kol_recs().get(days) or [] if r["live"] and (
+                   r["s"].get("mjera") == "minutna" or ("kol", r["handle"]) in keep)]),
               ("wallet", proven + [r for r in wallet_recs().get(days) or [] if r["wallet"] not in seen]))
     for kind, rows in groups:
         key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
@@ -484,8 +490,11 @@ def sync_follows(con, tcon, now=None, force=False):
     if not want:   # no data (e.g. stats not computed yet): keep what we have rather than drop everyone
         return []
     want_keys = {(k, t) for k, t, _, _ in want}
+    want_kinds = {k for k, _, _, _ in want}
     log, changes = list(s.get("auto_log") or []), []
     for key, fid in mine.items():
+        if key[0] not in want_kinds:
+            continue   # 10.11. (pregled): no candidate of this kind at all (minute.db or kol.db locked, a quiet day): keep
         if key not in want_keys:
             copy.unfollow(con, settings.LEAGUE_USER, fid)
             auto_ids.discard(fid)

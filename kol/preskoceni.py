@@ -106,11 +106,12 @@ def due(mcon, entries, now, cap):
     """{token: [minute ts, ...]} of skips older than WAIT_S without a row (or whose retry time came), newest first,
     one per (token, minute): two follows skipping the same call in the same minute are one measurement. At most `cap`
     of them; per token only those within SPAN_S of its newest (the rest next pass)."""
-    keys = []
+    keys, seen = [], set()   # 10.11. (pregled): a set for the check, the list keeps the newest-first order
     for e in entries:
         k = (e["token"], minute_of(e["ts"]))
-        if now - e["ts"] < WAIT_S or now - e["ts"] > WINDOW_S or k in keys:
+        if now - e["ts"] < WAIT_S or now - e["ts"] > WINDOW_S or k in seen:
             continue
+        seen.add(k)
         keys.append(k)
     have = {}
     for i in range(0, len(keys), 400):
@@ -138,7 +139,9 @@ def due(mcon, entries, now, cap):
 
 def _dex_pairs(tokens):
     from dexscreener import client
-    return client.tokens("solana", list(tokens))
+    # 10.11. (pregled): the live path (5-s timeout, no retry); the scanner path retries with back-off for minutes and
+    # this runs inside the minute loop
+    return client.tokens_live("solana", list(tokens), ttl=60)
 
 
 def pools(kcon, mcon, tokens, pairs_fn=None, log=print):

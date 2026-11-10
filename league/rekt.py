@@ -90,6 +90,8 @@ def _no_price_since(con, opened, mk, now):
     without = [t["id"] for t in opened if t["token"] not in mk]
     if with_price:
         con.execute("DELETE FROM rekt_noprice WHERE trade_id IN (%s)" % ",".join("?" * len(with_price)), with_price)
+    # 10.11. (pregled): clocks of trades that are no longer open (sold, rekt) go too, so the table stays small
+    con.execute("DELETE FROM rekt_noprice WHERE trade_id NOT IN (SELECT id FROM trades WHERE status='open')")
     con.executemany("INSERT OR IGNORE INTO rekt_noprice VALUES (?, ?)", [(i, int(now)) for i in without])
     con.commit()
     if not without:
@@ -107,8 +109,12 @@ def check_players(con, market, now=None, rugs=None):
     out = []
     opened = store.trades(con, status="open")
     mk = market({t["token"] for t in opened}) if opened else {}
-    since = _no_price_since(con, opened, mk, now) if opened else {}
-    rugs = _rugs() if rugs is None else rugs
+    # 10.11. (pregled): not one open token has a price = the price source is down, not every token dead: no clock
+    # starts or runs (a 6-h outage would otherwise close every open position at $0); a rug-archived token stays dead
+    outage = bool(opened) and not mk
+    since = {} if outage or not opened else _no_price_since(con, opened, mk, now)
+    if rugs is None:
+        rugs = _rugs() if any(t["token"] not in mk for t in opened) else frozenset()   # the archive only when needed
     for u in store.users():
         acc = store.account(con, u)
         mine = [t for t in opened if t["user"] == u]
@@ -116,7 +122,7 @@ def check_players(con, market, now=None, rugs=None):
         for t in mine:
             if t["token"] in mk:
                 priced[t["id"]] = (mk[t["token"]][0], mk[t["token"]][1])
-            elif t["token"] in rugs or now - since.get(t["id"], now) >= NO_PRICE_DEAD_S:
+            elif t["token"] in rugs or (not outage and now - since.get(t["id"], now) >= NO_PRICE_DEAD_S):
                 priced[t["id"]] = (0, 0)   # dead token: worth what auto sell already took out, nothing more
             else:
                 waiting = True
