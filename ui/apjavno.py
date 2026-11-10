@@ -929,6 +929,7 @@ button.apj-plus.on:hover{background:#1f2937;border-color:#1f2937}
 @media(max-width:560px){.apj h1{font-size:26px}.apj-stats{grid-template-columns:1fr 1fr}.apj-stat b{font-size:19px}
  .apj-conv{font-size:18px}.apj-wallet code{flex-basis:100%;font-size:11.6px;letter-spacing:-.01em}.apj-list>li{padding:11px 12px;gap:10px}
  .apj-k{width:56px}.apj-by{font-size:11.5px;padding:4px 8px}}
+.apj-ownp{margin:14px 0 0}.apj-own{display:inline-block;padding:11px 18px;border-radius:999px;background:var(--fg);color:var(--bg,#fff);font-weight:650;text-decoration:none}
 </style>"""
 
 # One script for the whole page: copy the address, filter the entries and exits, sort and refresh the chat (one
@@ -1174,7 +1175,16 @@ def page(qs, user, lang="hr", logged_in=None):
     title = TITLE if s["state"]["live"] else "Autopilot (probni rad)"
     parts = dict(_parts(s, lang))
     src = LIVE_PATH + ("?l=en" if lang == "en" else "")
-    body = (CSS + f'<div class=apj data-live="{src}">' + _live_div("hero", parts["hero"]) + _wallet(s["addr"])
+    own = ""
+    try:   # 10.11. (Jure: "zašto preko mobitela ne mogu na autopilotu kupiti token?"): this page only shows; the
+        # owner gets the way to the trading page (quick buy) right under the value. Never for anybody else.
+        from trade import settings as _ts
+        if user and _ts.is_owner(user):
+            own = ('<p class=apj-ownp><a class=apj-own href="/pravi-trade#kupi-odmah">Kupi token · upravljaj '
+                   'Autopilotom →</a></p>')
+    except Exception:  # noqa: BLE001 - the public page never fails on this
+        own = ""
+    body = (CSS + f'<div class=apj data-live="{src}">' + _live_div("hero", parts["hero"]) + own + _wallet(s["addr"])
             + "".join(_live_div(n, parts[n]) for n in ("chart", "stats", "follows", "moves"))
             + _chat_box(user, qs, lang, logged_in)
             + f'<p class=apj-fine>{FINE}</p></div>' + JS)

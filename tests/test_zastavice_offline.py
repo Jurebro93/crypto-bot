@@ -72,7 +72,8 @@ class Flags(Base):
                      "holder_hard", "proof_v2", "survivor_fix", "xhook_fast", "helius_streams", "holder_snap",
                      "clusters_ext", "x_features_ingest", "junk_skip", "junk_flags", "event_flags", "grok_predictions",
                      "grok_features_fit", "regime_sizing", "time_filter", "caller_decay", "ladder_exit",
-                     "zombie_guard", "organic_volume"):
+                     "zombie_guard", "organic_volume", "early_score", "early_persist", "smart_discovery",
+                     "wallet_stream", "sender_exec", "demo_grok"):
             self.assertIn(name, settings.FLAGS)
         with self.assertRaises(KeyError):
             settings.flag("nema_je")

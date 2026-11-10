@@ -4500,6 +4500,19 @@ def _post_exit(con, tcon, form):
     return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
 
 
+def _gate_now(tcon, sol, token, now=None):
+    """The real-money gate (trade/executor.gate_buy) for an owner's buy, asked before the order is written. A manual
+    buy is always "one more lot" (add=True, as run_trade.follow_league_once books it). Without an answer from the RPC
+    for the balance, every other limit is still checked and run_trade checks the balance as before."""
+    cfg = _cfg(tcon)
+    live = executor.is_live(cfg)
+    now = now or time.time()
+    try:
+        return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True)
+    except Exception:  # noqa: BLE001 - the RPC for the balance did not answer
+        return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True)
+
+
 def _post_buy(con, tcon, form, user):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
@@ -4557,6 +4570,15 @@ def _post_buy(con, tcon, form, user):
     lim = _cfg(tcon)["max_sol_per_trade"]
     if sol > lim:
         raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
+    # 10.11. (Jure: "piše da je kupovina prošla, a nema otvorene pozicije"): the day limit, the day's loss stop, the
+    # number of positions and the wallet balance were checked only by run_trade, after the page had already said
+    # "poslana". The same gate now answers here, before anything is written, with the way out in the message.
+    why = _gate_now(tcon, sol, token)
+    if why:
+        hint = (" Povećaj „Najviše potrošeno na kupnje u danu” pod Pravila → Limiti ili pričekaj ponoć."
+                if why.startswith("dnevni limit") else
+                " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else "")
+        raise ValueError(f"kupnja nije poslana: {why}.{hint}")
     sym = _symbol(token)
     # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held
     # gets one more lot (its own demo trade and real swap, run_trade passes add=True for a manual stake) with the exit
