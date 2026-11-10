@@ -3134,6 +3134,7 @@ def dca_loop(every=DCA_EVERY_S):
     to watch), its own connection."""
     con = None
     once = False
+    b_left, b_next = True, 0.0
     while True:
         try:
             if con is None:
@@ -3142,6 +3143,10 @@ def dca_loop(every=DCA_EVERY_S):
                 from ui import assistnotes
                 assistnotes.owner_once(con)
                 once = True
+            if b_left and time.time() >= b_next:   # 10.11. ~19:40 (Jure): flags + the Hope stop, once (owner_once_b)
+                from ui import assistnotes
+                b_next = time.time() + 60
+                b_left = not assistnotes.owner_once_b(con)
             dca_once(con)
             limit_once(con)   # 10.11.: buy orders at a market cap, the same 1-s pass
             from league import followreview   # 10.11. (Jure: "isključi ih sam"): once an hour, never raises

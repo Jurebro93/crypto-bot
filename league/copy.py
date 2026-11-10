@@ -894,6 +894,62 @@ def _signal_gate(con, f, tok, now, smode, paths=None):
     return None
 
 
+_DCA = {"cap": None, "at": 0.0}
+
+
+def _dca_cap_sol(now):
+    """trade settings dca_token_cap (SOL, default settings.DCA_TOKEN_CAP), read at most once a minute."""
+    if _DCA["cap"] is None or now - _DCA["at"] > 60:
+        try:
+            from trade import settings as ts
+            tcon = ts.connect()
+            try:
+                _DCA["cap"] = float(ts.raw(tcon).get("dca_token_cap") or ts.DCA_TOKEN_CAP)
+            finally:
+                tcon.close()
+        except Exception:  # noqa: BLE001 - unreadable: the default
+            from trade import settings as ts
+            _DCA["cap"] = ts.DCA_TOKEN_CAP
+        _DCA["at"] = now
+    return _DCA["cap"]
+
+
+def _dca_gate(con, f, tok, now, dmode, sol_usd=None):
+    """10.11. ~19:40 (Jure: "dca_cap: shadow -> paper. Na autopilot-paper najviše 0.3 SOL ukupno po tokenu"): the
+    account's open stake in this token plus this entry, in SOL, at most dca_token_cap. The reason to skip when the
+    flag applies to the account (paper: autopilot-paper only; live: both Autopilot accounts), else None; shadowed
+    (shadow, and paper for the Autopilot account) it is logged in shadow_decisions. Without a SOL price nothing is
+    decided (None)."""
+    if dmode == "off" or f["kind"] in ("kol", "ekipa"):
+        return None
+    on = _flag_applies("dca_cap", f["user"], dmode)
+    if not on and not _flag_shadowing("dca_cap", f["user"], dmode):
+        return None
+    if sol_usd is None:
+        try:
+            from trade import equity
+            sol_usd = (equity.rates() or {}).get("sol_usd")
+        except Exception:  # noqa: BLE001
+            sol_usd = None
+    if not sol_usd:
+        return None
+    held = con.execute("SELECT COALESCE(SUM(size_usd), 0) FROM trades WHERE user=? AND token=? AND status='open'",
+                       (f["user"], tok)).fetchone()[0] or 0.0
+    sol = (held + (f["size_usd"] or 0)) / sol_usd
+    cap = _dca_cap_sol(now)
+    if sol <= cap + 1e-9:
+        return None
+    why = f"u tokenu bi bilo {sol:.3f} SOL, najviše {cap:g} SOL po tokenu (dca_cap)"
+    if on:
+        return why
+    try:
+        from . import flags
+        flags.shadow(con, "dca_cap", f["id"], tok, "ulaz", "preskočeno", {"gate": "dca_cap", "sol": round(sol, 4), "cap": cap})
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def _grace_at_entry(con, f, tid, liq):
     """10.11. (Grok MCP audit 4, flag stop_grace): a proven KOL / crew follow's new copy gets grace_until (opened +
     GRACE_S) and grace_liq (the pool at the entry, for the rug check) in its auto JSON. Stored while the flag applies
@@ -1117,6 +1173,7 @@ def _enter(con, auto, mk, todo, now, paths=None):
     stopped = set()   # "only the next call" follows that already entered this minute
     rmode = _flag_mode("runup_default")   # 10.11. (Grok MCP audit 3): read once per pass (cached 2 s anyway)
     smode = _flag_mode("require_signal")  # 10.11. (Jure): "bez ulaza bez signala"
+    dmode = _flag_mode("dca_cap")         # 10.11. ~19:40 (Jure): at most dca_token_cap SOL per token
     firsts = {}   # token -> first call in kol.db, read at most once per pass
     for f, tok, side, ts in todo:
         if f["id"] in stopped:
@@ -1177,6 +1234,8 @@ def _enter(con, auto, mk, todo, now, paths=None):
             why = rw   # 10.11. (Grok MCP audit 3): the old m5 / h1 rule, or the first-call rule of runup_default
         elif (sw := _signal_gate(con, f, tok, now, smode, paths)):
             why = sw   # 10.11. (Jure, flag require_signal)
+        elif (dw := _dca_gate(con, f, tok, now, dmode)):
+            why = dw   # 10.11. ~19:40 (Jure, flag dca_cap on the paper account)
         elif mcap and liq and liq < CFG["min_liq_mcap"] * mcap:   # 9.11. (audit P41): one big holder would empty the pool
             why = (f"likvidnost ${liq:,.0f} je samo {liq / mcap:.1%} MC-a (granica {CFG['min_liq_mcap']:.0%}): "
                    "najveći holder bi srušio cijenu prije stopa")

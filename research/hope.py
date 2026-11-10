@@ -78,10 +78,11 @@ def pages(addr, since_ts=0, max_pages=MAX_PAGES, post=None):
         flt["blockTime"] = {"gt": int(since_ts)}
     out, token = [], None
     for _ in range(max_pages):
-        opts = {"transactionDetails": "full", "encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
+        opts = {"transactionDetails": "full", "encoding": "jsonParsed", "maxSupportedTransactionVersion": 1,
                 "limit": 100, "sortOrder": "asc", "filters": flt}
         if token:
             opts["paginationToken"] = token
+        # 10.11. prod: version 0 is refused ("Transaction version (1) is not supported"); wallets/rpc.fetch uses 1 too
         res = post("getTransactionsForAddress", [addr, opts]) or {}
         data = res.get("data") or []
         out += [parse_tx(t) for t in data]

@@ -1430,9 +1430,11 @@ def scoring_config():
         _close(tcon)
     out["applied_suggestions"] = done   # [{ts, note_id, key, old, new}], newest first
     out["effective_values"] = eff       # {key: {value, flag?, flag_mode?}} for every key "Primijeni na bota" can change
-    out["effective_values_note"] = ("value = what the bot uses now. A rule behind a flag (flag/flag_mode) acts only "
-                                    "when flag_mode is live; shadow/paper only log what it would do "
-                                    "(shadow_decisions). Applying a suggestion never sets a flag to live.")
+    out["effective_values_note"] = ("value = what the bot uses now. A rule behind a flag (flag/flag_mode): live = it "
+                                    "acts on both Autopilot accounts; paper = it acts only on the demo account "
+                                    "autopilot-paper, the real Autopilot account only logs; shadow = only logged "
+                                    "(shadow_decisions); off = nothing. Applying a suggestion never sets a flag to "
+                                    "live. Owner-ordered changes are in applied_suggestions with note_id 0.")
     out["autopilot_settings"] = {k: m.get(k, raw.get(k)) for k in SAFE_SETTINGS}
     # 10.11. (Phase 0): every flag of the profitability plan with its mode, and the backtest verdicts (read-only)
     out["flags"] = {n: {"item": settings.FLAGS[n][0], "mode": settings._flag_value(raw.get(f"flag:{n}"))["mode"],

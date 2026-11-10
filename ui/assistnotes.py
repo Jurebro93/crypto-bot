@@ -440,6 +440,117 @@ def owner_once(con):
     return done
 
 
+
+# 10.11. ~19:40 (Jure, in the chat): "promijeni ove zastavice u trade.db settings (flag:<name>) i zapiši promjenu u
+# log s ts, starom i novom vrijednošću: x_features_ingest off -> shadow, require_signal shadow -> paper, dca_cap
+# shadow -> paper. Ništa od ovoga ne ide na live." and the discovery job "iza zastavice smart_discovery (shadow)".
+# Done ONCE (settings OWNER_ONCE_B_KEY) at the first start of the UI process after the deploy; every change is a line
+# in applied_log (note_id 0: no note behind it), which get_scoring_config shows with the flag modes.
+OWNER_ONCE_B_KEY = "owner_once_1011b"
+OWNER_FLAGS_B = (("x_features_ingest", "shadow"), ("require_signal", "paper"), ("dca_cap", "paper"),
+                 ("smart_discovery", "shadow"))
+# "otvorena Hope pozicija još ima stop na -40 %. Postavi je na novi sl_default 30 %": a stop is written into the
+# position when it opens (league/copy._enter -> auto.set_auto), so a later sl_default change only reaches new
+# positions. Here once: the open Hope positions of the Autopilot accounts and the owner with a -40 % stop get -30 %
+# from the same base (the effective entry when the stop was set from it), the rest of the exit untouched. NOT when
+# the price is already at or within 2 % of the new stop: that change would sell at once (a sale cannot be undone),
+# so it is left as it was and the reason is logged.
+HOPE_MINT = "GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump"
+HOPE_SL_OLD, HOPE_SL_NEW = -40.0, -30.0
+HOPE_KEY = "owner_once_1011b_hope"
+HOPE_TRIES = 30
+
+
+def owner_flags_b(con, now=None):
+    """The flag part of the owner's 10.11. order (OWNER_FLAGS_B), once. [text] of what was done ([] when done before)."""
+    if settings.raw(con).get(OWNER_ONCE_B_KEY):
+        return []
+    ensure(con)
+    why, done = "vlasnik u chatu 10.11.", []
+    for name, mode in OWNER_FLAGS_B:
+        if mode not in ("off", "shadow", "paper"):   # never live from here
+            continue
+        old = settings.flag_state(con)[name]["mode"]
+        if old == mode:
+            done.append(f"zastavica {name}: već {mode}")
+            continue
+        settings.set_flag(con, name, mode, "Jure (chat 10.11.)", now=now)
+        new = settings.flag_state(con)[name]["mode"]
+        record_applied(con, 0, f"flag:{name}", old, new, why)
+        done.append(f"zastavica {name}: {old} → {new}")
+    settings.put(con, OWNER_ONCE_B_KEY, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
+def hope_stop(con, lcon=None, market=None):
+    """The Hope stop part of the order: (finished, [text]). finished=False only when a price was missing (retried)."""
+    from league import copy as lcopy, store as lstore
+    users = (settings.LEAGUE_USER, settings.PAPER_USER, settings.owner())
+    own = lcon is None
+    lcon = lcon or lstore.connect()
+    try:
+        rows = lcon.execute(f"SELECT * FROM trades WHERE token=? AND status='open' AND user IN ({','.join('?' * len(users))})",
+                            (HOPE_MINT, *users)).fetchall()
+        if not rows:
+            return True, ["Hope: nema otvorene pozicije (Autopilot / vlasnik), stop nije mijenjan"]
+        mk = (market or lcopy.market)({HOPE_MINT}) or {}
+        m = mk.get(HOPE_MINT)
+        price = m[0] if m else None
+        out, finished = [], True
+        for t in rows:
+            a = json.loads(t["auto"]) if t["auto"] else None
+            if not a or a.get("mode") != "tpsl" or not a.get("sl_px"):
+                out.append(f"Hope #{t['id']} ({t['user']}): nema TP/SL stopa ({(a or {}).get('mode') or 'bez izlaza'}), nije mijenjano")
+                continue
+            base = (t["entry_eff"] or t["entry_px"]) if a.get("from_eff") else t["entry_px"]
+            cur = (a["sl_px"] / base - 1) * 100
+            if abs(cur - HOPE_SL_OLD) > 1.5:
+                out.append(f"Hope #{t['id']} ({t['user']}): stop je {cur:+.0f} %, ne −40 %; nije mijenjano")
+                continue
+            new_px = base * (1 + HOPE_SL_NEW / 100)
+            if price is None:
+                finished = False
+                out.append(f"Hope #{t['id']} ({t['user']}): nema cijene, pokušavam ponovno")
+                continue
+            if price <= new_px * 1.02:
+                out.append(f"Hope #{t['id']} ({t['user']}): cijena je {(price / base - 1) * 100:+.0f} % od ulaza, stop −30 % bi "
+                           "odmah prodao; ostaje −40 % (prodaju odluči vlasnik)")
+                continue
+            a.update(sl_px=new_px, sl=f"{HOPE_SL_NEW:+g}%", sl_in=f"{HOPE_SL_NEW:g}%")
+            lcon.execute("UPDATE trades SET auto=? WHERE id=?", (json.dumps(a), t["id"]))
+            lcon.commit()
+            record_applied(con, 0, f"sl:trade#{t['id']}", f"{cur:+.0f}%", f"{HOPE_SL_NEW:+g}%",
+                           "vlasnik u chatu 10.11.: Hope stop na novi sl_default")
+            out.append(f"Hope #{t['id']} ({t['user']}): stop {cur:+.0f} % → {HOPE_SL_NEW:+g} % "
+                       f"(cijena sada {(price / base - 1) * 100:+.0f} % od ulaza)")
+        return finished, out
+    finally:
+        if own:
+            lcon.close()
+
+
+def owner_once_b(con, lcon=None, market=None, now=None):
+    """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
+    missing. Returns True when nothing is left to do."""
+    owner_flags_b(con, now)
+    raw = settings.raw(con)
+    if raw.get(HOPE_KEY):
+        return True
+    tries = int(raw.get(HOPE_KEY + "_tries") or 0) + 1
+    try:
+        finished, out = hope_stop(con, lcon, market)
+    except Exception as e:  # noqa: BLE001 - logged, retried
+        finished, out = False, [f"Hope stop: {type(e).__name__}: {e}"]
+    for t in out:
+        print(f"pravi trade: nalog vlasnika: {t}", flush=True)
+    if finished or tries >= HOPE_TRIES:
+        settings.put(con, HOPE_KEY, {"ts": int(now or time.time()), "out": out}, "Jure")
+        return True
+    settings.put(con, HOPE_KEY + "_tries", tries, "alat")
+    return False
+
 def effective(con):
     """10.11. (Jure: Grok mora moći provjeriti): every key "Primijeni" can change with its value in force now, the
     flag it sits behind (and that flag's mode), and the caller weights."""
