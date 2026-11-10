@@ -688,6 +688,9 @@ def box(kind, now=None, rows=None, live=None, parts=None):
 
 STAKE = {"uživo": "25 $", "visoka": "25–50 $", "srednja": "20–25 $", "niska": "10 $ ili samo gledaj"}
 EXIT_LINE = "Izlaz: pola na +15\u00a0%, ostatak s pratećim stopom 15\u00a0%, stop −25\u00a0%."
+# 10.11. 19:18 (Jure: "Ne razumijem što znače ovi podatci. Piši najjednostavnije moguće: kupi zbog toga i toga ili
+# nemoj kupiti zbog toga i toga"): the box says one verb and one sentence why, in everyday words
+EXIT_PLAIN = "Kad kupiš: pola prodaj na +15\u00a0%, ostatak kad padne 15\u00a0% od vrha, sve ako padne 25\u00a0%."
 
 
 def pregled_parts(now=None, rows=None, live=None):
@@ -735,15 +738,78 @@ def _why1(p, short=False):
 
 
 def _facts(p):
-    """"pouzdanost 94 · 412k $ · 1 h +18 %" (the live list's rows may have no confidence: then where they come from)."""
+    """"vrijedi 412k $ · zadnji sat +18 %": what the token is worth and how it moved, no tool jargon (pouzdanost and
+    the live list are in the pop-up)."""
     from ui import redak as R
     lv = p.get("live") or {}
-    head = f"pouzdanost {p['conf']:.0f}" if p.get("conf") is not None else "živa lista Autopilota"
-    out = R.cat(head, " · ", R.usd(p.get("mcap0")))
+    out = R.cat("vrijedi ", R.usd(p.get("mcap0")))
     if lv.get("ch_h1") is not None:
         t = R.tone(lv["ch_h1"])
-        out = R.cat(out, " · 1 h ", R.raw(f'<span class="{t}">' if t else "<span>"), R.pct(lv["ch_h1"]), R.raw("</span>"))
+        out = R.cat(out, " · zadnji sat ", R.raw(f'<span class="{t}">' if t else "<span>"), R.pct(lv["ch_h1"]), R.raw("</span>"))
     return out
+
+
+_P_CALLERS = re.compile(r"^novi pozivatelji? u 10 min: (.+)$", re.I)
+_P_SMART10 = re.compile(r"^(\d+) pametnih novčanika kupilo u 10 min$", re.I)
+_P_MOVE = re.compile(r"^\+(\d+) % u 5 min na", re.I)
+_P_TURN = re.compile(r"^novac ulazi brzo", re.I)
+_P_SMART = re.compile(r"^(\d+) (provjeren\w* )?smart wallet\w* (je |su )?među prvim kupcima", re.I)
+
+
+def plain(reason):
+    """One measured reason in everyday words, as a clause after "Kupi jer ...":
+    "novi pozivatelji u 10 min: @a, @b" -> "@a i @b su ga upravo objavili"; "3 pametnih novčanika kupilo u 10 min" ->
+    "3 dobra novčanika su ga upravo kupila"; "+66 % u 5 min na $55,430 (850 tx)" -> "cijena brzo raste (+66 % u 5 min)";
+    "novac ulazi brzo: ..." -> "puno novca ulazi"; radar's smart wallets -> "dobri novčanici su ga kupili među prvima".
+    Anything else: the text itself, first letter small, without the full stop."""
+    r = (reason or "").strip().rstrip(".")
+    m = _P_CALLERS.match(r)
+    if m:
+        names = [x.strip() for x in m.group(1).split(",") if x.strip()]
+        if len(names) == 1:
+            return f"{names[0]} ga je upravo objavio"
+        return f"{', '.join(names[:-1])} i {names[-1]} su ga upravo objavili"
+    m = _P_SMART10.match(r) or _P_SMART.match(r)
+    if m:
+        n = int(m.group(1))
+        if not _P_SMART10.match(r):
+            from ui.pocetna import plural
+            return f"među prvim kupcima ima {n} {plural(n, 'dobar novčanik', 'dobra novčanika', 'dobrih novčanika')}"
+        when = "upravo"
+        if n % 10 == 1 and n % 100 != 11:
+            return f"{n} dobar novčanik ga je {when} kupio"
+        if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+            return f"{n} dobra novčanika su ga {when} kupila"
+        return f"{n} dobrih novčanika ga je {when} kupilo"
+    m = _P_MOVE.match(r)
+    if m:
+        return f"cijena brzo raste (+{m.group(1)}\u00a0% u 5 min)"
+    if _P_TURN.match(r):
+        return "puno novca ulazi"
+    return r[:1].lower() + r[1:] if r[:2] != r[:2].upper() else r
+
+
+def because(p, n=2):
+    """Up to n reasons in everyday words joined with " i ": the measured reasons first; with only one, the last hour's
+    rise (5 %+) as the second ("cijena mu raste (+61 % u zadnjem satu)")."""
+    out = []
+    for w in p.get("why") or []:
+        c = plain(w)
+        if c and c not in out:
+            out.append(c)
+    ch = (p.get("live") or {}).get("ch_h1")
+    if len(out) < n and ch is not None and ch >= 5 and not any(c.startswith("cijena") for c in out):
+        out.append(f"cijena mu raste (+{ch:.0f}\u00a0% u zadnjem satu)")
+    out = out[:n] or ["alat mu daje visoku ocjenu"]
+    return out[0] if len(out) == 1 else ", ".join(out[:-1]) + " i " + out[-1]
+
+
+def verdict_html(p):
+    """"<b class=pverb>Kupi</b> <span class=preason>jer ... .</span>": the live zone check (COMPACT_JS) turns it into
+    "Nemoj kupiti sada jer je već narastao ..." when the price ran away or falls."""
+    from ui import redak as R
+    return R.cat(R.raw("<b class=pverb>"), "Kupi", R.raw("</b> <span class=preason>"), "jer " + because(p) + ".",
+                 R.raw("</span>"))
 
 
 def _pdata(p, z):
@@ -839,7 +905,8 @@ DLG_JS = ("<script>(()=>{if(window.__msdlg)return;window.__msdlg=1;document.addE
           "const c=e.target.closest('dialog.ms-dlg [data-close]');if(c)c.closest('dialog').close()})})()</script>")
 
 COMPACT_CSS = ("<style>.pdj-c .pnow.warn{color:var(--warn)}.pdj-rows{margin-top:6px}.pdj-r .pnow{color:var(--warn)}"
-               ".pdj-r.out .pwhy{display:none}.pdj-c .ms-hint a{color:var(--acc);text-decoration:none;white-space:nowrap}</style>")
+               ".pdj-r.out .pwhy{display:none}.pdj-c .ms-hint a{color:var(--acc);text-decoration:none;white-space:nowrap}"
+               ".pdj-rows .ms-s{white-space:normal;overflow:visible;text-overflow:clip}.pdj-h .pverb{color:var(--pos,#0a7d33)}.pdj-h.out .pverb{color:var(--warn)}.pdj-h.out .pstake{display:none}.pdj-h .ms-panel p{font-size:17px}</style>")
 
 # the live zone check of the compact box: the same rule as the other boxes (PULL_X / DROP_X of the analysed market
 # cap), words instead of emojis; rows say something only when the token left the zone
@@ -850,13 +917,17 @@ async function reload(){if(document.hidden||b.querySelector('dialog[open]'))retu
  const t=document.createElement('div');t.innerHTML=await r.text();const nb=t.querySelector('#pdj');if(!nb)return;b.replaceWith(nb);b=nb;prices()}catch(e){}}
 setInterval(reload,60000);
 const N=' ',fmt=v=>v>=1e6?(v/1e6).toFixed(1).replace('.',',')+'M'+N+'$':v>=1e4?Math.round(v/1e3)+'k'+N+'$':v>=1e3?(v/1e3).toFixed(1).replace('.',',')+'k'+N+'$':Math.round(v)+N+'$';
-function zone(x){return x>=__PULL__?['pričekaj povlačenje, ne juri',1]:x<=__DROP__?['pada, ne ulazi dok se ne okrene',1]:['još je u zoni ulaza',0]}
+function zone(x){return x>=__PULL__?['nemoj kupiti sada: već je narastao, pričekaj da padne',1]:x<=__DROP__?['nemoj kupiti sada: pada, pričekaj da se okrene',1]:['cijena je još blizu prijedloga',0]}
 async function prices(){const items=[...b.querySelectorAll('[data-p]')];if(!items.length)return;
  try{const q=[...new Set(items.map(e=>e.dataset.p))].join(',');const r=await fetch('/api/prijedlog?t='+q,{cache:'no-store'});if(!r.ok)return;const j=await r.json();
  items.forEach(e=>{const s=e.querySelector('.pnow');if(!s)return;const m=j[e.dataset.p],z=e.dataset.z;
   if(!m||!m.mcap){if(z!=='row')s.textContent='cijena trenutno nedostupna';return}
   const x=m.mcap/(+e.dataset.m0||m.mcap),[t,out]=zone(x),d=Math.round((x-1)*100),dd=(d>0?'+':d<0?'−':'')+Math.abs(d)+N+'%';
   s.textContent=z==='full'?'sada '+fmt(m.mcap)+' ('+dd+' od analize): '+t:z==='row'?(out?t+' ('+dd+')':''):(out?t+' ('+dd+' od analize)':t);
+  if(z==='hero'){const v=e.querySelector('.pverb'),w=e.querySelector('.preason');if(v&&w){if(!w.dataset.o)w.dataset.o=w.textContent;
+   if(out){v.textContent='Nemoj kupiti sada';w.textContent=x>=1?'jer je već narastao '+dd+' otkad je predložen. Pričekaj da padne.':'jer pada ('+dd+' otkad je predložen). Pričekaj da se okrene.';s.textContent='sada vrijedi '+fmt(m.mcap)}
+   else{v.textContent='Kupi';w.textContent=w.dataset.o}}}
+  if(z==='row'&&out)s.textContent=(x>=1?'Nemoj kupiti sada: već '+dd+', pričekaj pad':'Nemoj kupiti sada: pada ('+dd+')');
   s.classList.toggle('warn',!!out);e.classList.toggle('out',!!out)})}catch(e){}}
 prices();setInterval(()=>{if(!document.hidden)prices()},60000)})()</script>""".replace("__PULL__", str(PULL_X)).replace("__DROP__", str(DROP_X))
 
@@ -872,30 +943,29 @@ def compact(p):
     if picks:
         t = picks[0]
         stake = STAKE.get(t.get("razina") or "visoka", "20–25 $")
-        foot = R.cat(R.raw("<span>"), f"Ulog u demu {stake} · ", R.raw('<span class=pnow>provjeravam cijenu</span></span>'))
+        foot = R.cat(R.raw("<span><span class=pstake>"), f"Uloži {stake} u demu · ", R.raw("</span>"),
+                     R.raw('<span class=pnow>provjeravam cijenu</span></span>'))
         out.append(f'<div class=pdj-h {_pdata(t, "hero")}>'
-                   + R.hero(t.get("symbol") or R.raw(f"<code>{esc(short_addr(t['token']))}</code>"), why=_why1(t),
+                   + R.hero(t.get("symbol") or R.raw(f"<code>{esc(short_addr(t['token']))}</code>"), why=verdict_html(t),
                             label="Najbolji ulaz sada", facts=_facts(t), href=_tok_href(t["token"]), foot=foot) + "</div>")
         lis = []
         for x in picks[1:3]:
-            reason = R.cat(R.raw("<span class=pwhy>"), _why1(x, short=True), R.raw("</span><span class=pnow></span>"))
-            conf = f"{x['conf']:.0f}" if x.get("conf") is not None else None
+            reason = R.cat(R.raw("<span class=pwhy>"), "Kupi jer " + because(x, n=1), R.raw("</span><span class=pnow></span>"))
             lis.append(f'<li class=pdj-r {_pdata(x, "row")}>'
-                       + R.row(x.get("symbol") or short_addr(x["token"]), reason=reason, value=conf or R.usd(x.get("mcap0")),
-                               sub=R.usd(x.get("mcap0")) if conf else None, href=_tok_href(x["token"]),
-                               title="pouzdanost i market cap kod analize") + "</li>")
+                       + R.row(x.get("symbol") or short_addr(x["token"]), reason=reason, value=R.usd(x.get("mcap0")),
+                               href=_tok_href(x["token"]), title="koliko vrijedi kad je predložen") + "</li>")
         if lis:
             out.append('<ul class="ms-list pdj-rows">' + "".join(lis) + "</ul>")
     else:
         note, near = p.get("note") or "", p.get("near") or []
-        why = (note[:1].upper() + note[1:] + "." if note else
-               "Nijedan token ne prolazi sve provjere (nije rug, pouzdanost barem 35, mcap barem 30k $ i živ promet u "
+        why = ("Jer " + note[:1].lower() + note[1:] + "." if note else
+               "Jer nijedan token ne prolazi sve provjere (nije prevara, vrijedi barem 30k $ i ljudi njime trguju u "
                "zadnjem satu). Bolje ništa nego najmanje loš.")
-        out.append(R.hero("Danas ništa", why=why, label="Najbolji ulaz sada"))
-        out.append(R.rows([R.row(x.get("symbol") or short_addr(x["token"]), reason=f"ne kupuj: {r}", reason_tone="warn",
+        out.append(R.hero("Nemoj kupiti ništa sada", why=why, label="Najbolji ulaz sada"))
+        out.append(R.rows([R.row(x.get("symbol") or short_addr(x["token"]), reason=f"nemoj kupiti jer {r}", reason_tone="warn",
                                  href=_tok_href(x["token"]), muted=True) for x, r in near[:2]], cls="pdj-rows"))
     link = '<a href="#pdj-full" data-dlg="pdj-full">Cijeli prijedlog za danas</a>'
-    out.append(f'<p class="ms-hint">{esc(EXIT_LINE) if picks else ""}{" " if picks else ""}{link}</p>')
+    out.append(f'<p class="ms-hint">{esc(EXIT_PLAIN) if picks else ""}{" " if picks else ""}{link}</p>')
     out.append(dialog("pdj-full", "Prijedlog za danas", full_text(p)))
     out.append("</div>" + DLG_JS + COMPACT_JS)
     return "".join(out)
