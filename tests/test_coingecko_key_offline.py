@@ -17,11 +17,17 @@ GT = "https://api.geckoterminal.com/api/v2/networks/solana/pools/P1/ohlcv/minute
 
 class Route(unittest.TestCase):
     def setUp(self):
-        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_GAP")}
+        self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_GAP", "CG_DAILY_CALLS")}
         for k in self._env:
             os.environ.pop(k, None)
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self._gate = http.GATE_DIR
+        http.GATE_DIR = self._tmp.name
 
     def tearDown(self):
+        http.GATE_DIR = self._gate
+        self._tmp.cleanup()
         for k, v in self._env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -42,6 +48,15 @@ class Route(unittest.TestCase):
         self.assertEqual(http._shared(url)[0], "coingecko.com")
         self.assertEqual(http.reserved_by_other(GT), 0.0)
         self.assertEqual(http._cg_route("https://api.dexscreener.com/x", None), ("https://api.dexscreener.com/x", None))
+
+    def test_daily_budget_then_the_free_api_until_midnight(self):
+        os.environ.update(COINGECKO_API_KEY="CG-test", CG_DAILY_CALLS="2")
+        self.assertTrue(http._cg_route(GT, None)[0].startswith("https://pro-api.coingecko.com"))
+        self.assertTrue(http._cg_route(GT, None)[0].startswith("https://pro-api.coingecko.com"))
+        self.assertEqual(http.cg_used()[0], 2)
+        self.assertEqual(http._cg_route(GT, None), (GT, None))                 # budget spent: free GeckoTerminal
+        self.assertEqual(http._shared(GT)[0], "geckoterminal.com")             # ... at the free pace
+        self.assertEqual(http.cg_used(today="2099-01-01")[0], 0)               # a new day starts at 0
 
     def test_demo_key(self):
         os.environ.update(COINGECKO_API_KEY="CG-demo", COINGECKO_DEMO="1")

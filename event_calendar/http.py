@@ -49,14 +49,73 @@ GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir()
 GT_BASE = "https://api.geckoterminal.com/api/v2"
 
 
-def cg_key():
+def _cg_key_raw():
     return (os.environ.get("COINGECKO_API_KEY") or "").strip()
+
+
+# 10.11. (CLAUDE.md: "prije svakog troška izmjeri"): a paid plan has a MONTHLY number of calls; at 240 a minute the
+# jobs that waited behind the free limit (all KOL calls, Dugoročni, trending) could use a month's calls in days.
+# CG_DAILY_CALLS (default 3000 a day, ~90k a month, under the smallest paid plan) is the day's budget for the key;
+# past it, the calls go to the free GeckoTerminal again (and its pace) until midnight UTC. Counted across processes.
+def _cg_day_file():
+    return os.path.join(GATE_DIR, "coingecko.day")
+
+
+def cg_used(today=None):
+    """(calls through the key today (UTC), the day's budget)."""
+    today = today or time.strftime("%Y-%m-%d", time.gmtime())
+    cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+    try:
+        with open(_cg_day_file()) as f:
+            day, n = f.read().split()[:2]
+        return (int(n) if day == today else 0), cap
+    except (OSError, ValueError):
+        return 0, cap
+
+
+def _cg_take():
+    """One call from today's budget: True when the key may be used for it."""
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+    try:
+        os.makedirs(GATE_DIR, exist_ok=True)
+        with open(_cg_day_file(), "a+") as f:
+            try:
+                import fcntl
+                fcntl.flock(f, fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                pass
+            f.seek(0)
+            try:
+                day, n = f.read().split()[:2]
+                n = int(n) if day == today else 0
+            except ValueError:
+                n = 0
+            if n >= cap:
+                return False
+            f.seek(0)
+            f.truncate()
+            f.write(f"{today} {n + 1}")
+            if (n + 1) % 500 == 0 or n + 1 == cap:   # for the weekly cost report (CLAUDE.md: cost per source)
+                print(f"coingecko: {n + 1} poziva danas od {cap}", flush=True)
+            return True
+    except OSError:
+        return True
+
+
+def cg_key():
+    """The CoinGecko key while today's budget lasts, else "" (the free API and its pace)."""
+    key = _cg_key_raw()
+    if not key:
+        return ""
+    used, cap = cg_used()
+    return key if used < cap else ""
 
 
 def _cg_route(url, headers):
     """(url, headers) for a GeckoTerminal URL when the CoinGecko key is set, else unchanged."""
     key = cg_key()
-    if not key or not url.startswith(GT_BASE):
+    if not key or not url.startswith(GT_BASE) or not _cg_take():
         return url, headers
     demo = os.environ.get("COINGECKO_DEMO") == "1"
     base = "https://api.coingecko.com/api/v3/onchain" if demo else "https://pro-api.coingecko.com/api/v3/onchain"
