@@ -26,7 +26,27 @@ REQUEST_TTL_S = 15 * 60   # a request the owner did not answer in 15 min is stal
 
 
 def key():
-    return (os.environ.get("MCP_API_KEY") or "").strip()
+    """The key a client must send: Render env MCP_API_KEY, else the one the owner made on the Autopilot page (trade
+    settings "mcp_key", 10.11.: Jure "napravi mcp key, ne znam raditi s pip install")."""
+    k = (os.environ.get("MCP_API_KEY") or "").strip()
+    if k:
+        return k
+    try:
+        tcon = settings.connect()
+        try:
+            return str(settings.raw(tcon).get("mcp_key") or "").strip()
+        finally:
+            tcon.close()
+    except Exception:  # noqa: BLE001 - no database: the API is off
+        return ""
+
+
+def new_key(tcon, who):
+    """Make (or replace) the owner's MCP key; the old one stops working at once."""
+    import secrets
+    k = "ms_" + secrets.token_urlsafe(32)
+    settings.put(tcon, "mcp_key", k, who)
+    return k
 
 
 def authorized(header):
@@ -208,3 +228,106 @@ def answer(path, qs):
     else:
         return 404, json.dumps({"error": "unknown endpoint"})
     return (400 if "error" in data else 200), json.dumps(data, ensure_ascii=False)
+
+
+# ---------- the MCP endpoint itself (POST /mcp), hosted in the app -----------------------------------------------
+# 10.11. (Jure: "ne znam raditi s pip install i ostalo"): the same four tools as mcp_server/, served by the app at
+# https://app.memesonar.app/mcp, so Grok needs only that address and the key: nothing to install, no ngrok. The
+# Streamable HTTP transport of MCP (spec 2025-06-18): JSON-RPC 2.0 in a POST, answered with application/json (no
+# event stream: every tool answers at once); a notification gets 202; GET answers 405 (no server-initiated stream).
+PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
+SERVER_INFO = {"name": "MemeSonar", "title": "MemeSonar", "version": "1.0"}
+INSTRUCTIONS = ("MemeSonar: Solana meme coin signals (X/Telegram calls, followed wallets) with live market data, and "
+                "the Autopilot's portfolio. execute_trade only queues a request for the owner's approval on the "
+                "MemeSonar Autopilot page; never assume it executed.")
+_READ = {"readOnlyHint": True, "openWorldHint": True}
+TOOLS = [
+    {"name": "get_market_signals", "annotations": _READ,
+     "description": ("Meme coins being called right now on Solana by the X and Telegram accounts MemeSonar tracks, and "
+                     "buys of the wallets it follows: per token the callers, first/last call time and the live market "
+                     "(price, market cap, liquidity, volume, 5m/1h/24h change, buys share of the last hour)."),
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "get_token_details", "annotations": _READ,
+     "description": ("One Solana token by its address: live market, who called it in the last hour, MemeSonar's open "
+                     "position in it. Tokens under $30k market cap are flagged (MemeSonar does not trade them)."),
+     "inputSchema": {"type": "object", "properties": {"token_address": {"type": "string",
+                                                                          "description": "Solana token mint address"}},
+                     "required": ["token_address"]}},
+    {"name": "get_portfolio_status", "annotations": _READ,
+     "description": ("The MemeSonar Autopilot: mode (live / trial / off), wallet value in SOL, limits, every open "
+                     "position (entries, average entry market cap, market cap now, PnL %, exit rule), open orders."),
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "execute_trade",
+     "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
+     "description": ("Ask MemeSonar for a trade. NOT executed here: it waits on the Autopilot page until the owner "
+                     "approves it (15 minutes). side 'buy': amount in SOL within the owner's per-trade limit; side "
+                     "'sell': amount as a share of the open position (0.25 = 25 %, 1 = all). require_approval must "
+                     "be true. reason: one line for the owner."),
+     "inputSchema": {"type": "object", "properties": {
+         "token_address": {"type": "string", "description": "Solana token mint address"},
+         "amount": {"type": "number", "description": "SOL for a buy, share 0-1 for a sell"},
+         "side": {"type": "string", "enum": ["buy", "sell"]},
+         "require_approval": {"type": "boolean", "default": True},
+         "reason": {"type": "string"}}, "required": ["token_address", "amount", "side"]}},
+]
+
+
+def _tool(name, args):
+    """(result dict, is_error) of one tool call."""
+    args = args if isinstance(args, dict) else {}
+    if name == "get_market_signals":
+        return signals(), False
+    if name == "get_token_details":
+        d = token(args.get("token_address") or args.get("address"))
+        return d, "error" in d
+    if name == "get_portfolio_status":
+        return portfolio(), False
+    if name == "execute_trade":
+        code, d = trade_request({"token": args.get("token_address") or args.get("token"), "amount": args.get("amount"),
+                                 "side": args.get("side"), "require_approval": args.get("require_approval", True),
+                                 "reason": args.get("reason") or ""})
+        return d, code >= 400
+    return {"error": f"unknown tool {name}"}, True
+
+
+def _one(msg):
+    """The JSON-RPC answer to one message, or None for a notification."""
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not isinstance(msg.get("method"), str):
+        return {"jsonrpc": "2.0", "id": (msg or {}).get("id") if isinstance(msg, dict) else None,
+                "error": {"code": -32600, "message": "Invalid Request"}}
+    mid, method, params = msg.get("id"), msg["method"], msg.get("params") or {}
+    if "id" not in msg:   # a notification (notifications/initialized, cancelled ...): nothing to answer
+        return None
+    try:
+        if method == "initialize":
+            asked = str(params.get("protocolVersion") or "")
+            result = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
+                      "capabilities": {"tools": {"listChanged": False}}, "serverInfo": SERVER_INFO,
+                      "instructions": INSTRUCTIONS}
+        elif method == "ping":
+            result = {}
+        elif method == "tools/list":
+            result = {"tools": TOOLS}
+        elif method == "tools/call":
+            data, err = _tool(params.get("name"), params.get("arguments"))
+            result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
+                      "structuredContent": data, "isError": bool(err)}
+        else:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"Method not found: {method}"}}
+    except Exception as e:  # noqa: BLE001 - a broken part answers the client, never a traceback page
+        print(f"mcp: {method}: {type(e).__name__}: {e}", flush=True)
+        return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": f"Internal error: {type(e).__name__}"}}
+    return {"jsonrpc": "2.0", "id": mid, "result": result}
+
+
+def rpc(raw_body):
+    """(HTTP status, JSON text or '') of a POST /mcp body."""
+    try:
+        msg = json.loads(raw_body or b"null")
+    except ValueError:
+        return 400, json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
+    if isinstance(msg, list):   # a batch (spec 2025-03-26)
+        out = [a for a in (_one(m) for m in msg[:50]) if a is not None]
+        return (200, json.dumps(out, ensure_ascii=False)) if out else (202, "")
+    a = _one(msg)
+    return (202, "") if a is None else (200, json.dumps(a, ensure_ascii=False))

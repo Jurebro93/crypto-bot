@@ -1,5 +1,10 @@
 # MemeSonar MCP server (za Groka)
 
+> **Najjednostavnije (ništa se ne instalira):** aplikacija sama poslužuje MCP na `https://app.memesonar.app/mcp`.
+> Na Autopilot stranici pod „Još → Grok (MCP)” tapni **Napravi MCP ključ**, pa **Kopiraj ključ**. U Groku upiši tu
+> adresu i zaglavlje `Authorization: Bearer <ključ>`. Ova mapa (`mcp_server/`) treba samo ako želiš server pokretati
+> na svom računalu.
+
 Grok (ili bilo koji MCP klijent) preko ovog servera čita podatke MemeSonara uživo i može **zatražiti** trgovinu.
 
 | Alat | Što radi |
