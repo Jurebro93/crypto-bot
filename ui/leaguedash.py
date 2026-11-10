@@ -374,7 +374,7 @@ def highlights(d):
     if bot and bot.get("rekt"):
         rk.append(("bot", bot["rekt"], bot["profit"]))
     if rk:
-        tiles.append(("💀 Rekt klub", " ".join(f'{esc(u)} 💀×{n}' for u, n, _ in rk),
+        tiles.append(("💀 Rekt klub", " · ".join(f'{esc(u)} {n + 1}. krug' for u, n, _ in rk),   # 10.11. (Jure)
                       "pali na nulu i krenuli ispočetka s novih $1,000. Comeback se broji: "
                       + (", ".join(esc(u) for u, _, pr in rk if pr > 0) + " već je u plusu 🔄"
                          if any(pr > 0 for _, _, pr in rk) else "tko će prvi u plus?"), ""))
@@ -569,7 +569,7 @@ def dashboard(con, mk, me):
             f'<h2>Ljestvica <small><span class=upd id=upd>brojke se same osvježavaju svake minute</span></small></h2>'
             "<p class=tdesc>Poredak po stanju računa: slobodan novac + ono što bi otvorene pozicije donijele da ih prodaš "
             "sada (uz naknadu i klizanje cijene). ▲▼ je promjena mjesta u zadnja 24 sata. Klikni karticu igrača za "
-            "njegove tradeove. Tko padne na nulu je rekt: dobiva novih $1,000, a uz ime mu ostaje 💀×N (koliko puta); "
+            "njegove tradeove. Tko padne na nulu je rekt: dobiva novih $1,000 i kreće sljedeći krug, a uz ime mu piše „💀 rekt · 2. krug” (koji je krug); "
             "stupac Svi krugovi zbraja sve krugove zajedno.</p>"
             + _rekt_me(d, me) + podium(d, me) + highlights(d) + _round_box(d) + _strategies() + _wins()
             + "<h2>Svi tradeovi</h2><p class=tdesc>Svi vide sve: tko je kada kupio, na kojem market capu, gdje je sada i koliko "

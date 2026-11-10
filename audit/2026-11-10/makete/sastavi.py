@@ -198,8 +198,9 @@ def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, 
     out = [f'<div class="chart"><div class="plot"><div class="pw"><svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" '
            f'aria-label="{label}">']
     for v, _t in ticks:
+        dash0 = 'stroke-dasharray="4 4" ' if v == 0 else ""   # 10.11.: no backslash inside an f-string (Python 3.10/3.11)
         out.append(f'<line x1="0" y1="{Y(v):.1f}" x2="{W}" y2="{Y(v):.1f}" stroke="{"#cfd5e1" if v == 0 else "#e8ebf2"}" '
-                   f'stroke-width="1" {"stroke-dasharray=\"4 4\" " if v == 0 else ""}vector-effect="non-scaling-stroke"/>')
+                   f'stroke-width="1" {dash0}vector-effect="non-scaling-stroke"/>')
     if vmark:
         out.append(f'<line x1="{X(vmark[0]):.1f}" y1="0" x2="{X(vmark[0]):.1f}" y2="{H}" stroke="#cfd5e1" stroke-width="1.5" '
                    'stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>')
@@ -211,8 +212,9 @@ def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, 
             out.append(f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{col}" '
                        f'stop-opacity=".14"/><stop offset="1" stop-color="{col}" stop-opacity="0"/></linearGradient></defs>'
                        f'<path d="{line} L{pts[-1][0]:.1f},{H} L0,{H} Z" fill="url(#{gid})"/>')
+        dashed = 'stroke-dasharray="6 5" ' if dash else ""   # 10.11.: no backslash inside an f-string (3.10/3.11)
         out.append(f'<path d="{line}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linejoin="round" '
-                   f'{"stroke-dasharray=\"6 5\" " if dash else ""}vector-effect="non-scaling-stroke"/>')
+                   f'{dashed}vector-effect="non-scaling-stroke"/>')
     out.append("</svg>")
     main = series[0][0]
     if end:
