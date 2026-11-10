@@ -156,8 +156,13 @@ def wait_for_night(label=None, step=60):
 
 
 def _nicer():
+    """The child goes TO nice NICE, not down BY it. 10.11.: start.sh now starts the background loops themselves at
+    nice 10 (low keep sched ...); another 10 on top would put a heavy job, which often holds a database lock that
+    others wait for, below every light job."""
     try:
-        os.nice(NICE)
+        now = os.nice(0)
+        if now < NICE:
+            os.nice(NICE - now)
     except OSError:
         pass
 

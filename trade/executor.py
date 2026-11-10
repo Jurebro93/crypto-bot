@@ -18,7 +18,7 @@ import os
 import sqlite3
 import time
 
-from trade import jupiter, pumpportal, settings, wallet
+from trade import aplog, equity, jupiter, pumpportal, settings, wallet
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
@@ -55,7 +55,24 @@ def connect(path):
         for col, typ in cols:
             if col not in have:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    _extras(con)
     return con
+
+
+_EXTRAS_FAILED = {"said": False}
+
+
+def _extras(con):
+    """10.11. (Jure: graf vrijednosti walleta, dnevnik Autopilota): the equity table (trade/equity.py) and the indexes
+    the decision log and this loop's own every-second reads walk (trade/aplog.py). A full disk or a locked file
+    here must not take the trade loop down: no swap needs either, so it is one log line and the connection stands."""
+    try:
+        equity.ensure(con)
+        aplog.ensure(con)
+    except sqlite3.Error as e:
+        if not _EXTRAS_FAILED["said"]:
+            _EXTRAS_FAILED["said"] = True
+            print(f"trade: tablica equity / indeksi dnevnika nisu pripremljeni ({type(e).__name__}: {e})", flush=True)
 
 
 def armed():

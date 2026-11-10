@@ -307,6 +307,16 @@ def token_pulse(token, hours=24, limit=400):
     return sorted(out, key=lambda r: r["ts"])
 
 
+def token_tier(mint):
+    """One token's token_tier row (or None). 10.11. (audit sekundni S2): the token pop-up (every second while open)
+    and the token page read the whole table (30.000 rows, ~146 ms) to use one row; this is one primary-key lookup."""
+    try:
+        rows = multi("hype", "SELECT * FROM token_tier WHERE token=?", (mint,), key=lambda r: r["token"])
+    except Exception:
+        return None
+    return rows[0] if rows else None
+
+
 def token_tiers():
     """token -> token_tier row (class, tier reached, T0 verdict, path shape); {} when the table does not exist yet."""
     try:

@@ -1165,6 +1165,11 @@ def cmd_run(a):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("paper")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--config", help="strategy JSON, default paper/config.json")
     sub = p.add_subparsers(dest="cmd", required=True)

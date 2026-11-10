@@ -132,6 +132,11 @@ def loop(every_min=5):
 
 
 def main():
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("report")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["build", "send", "loop", "status"])
     ap.add_argument("--no-ai", action="store_true")

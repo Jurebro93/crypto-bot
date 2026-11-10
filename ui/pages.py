@@ -373,7 +373,7 @@ def _positions(addr):
 def tier_html(mint):
     """Where the token stands in the tiered analysis: class, tier reached, T0 verdict, shape of its mcap path."""
     from ui.html import klasab, razinab
-    t = data.token_tiers().get(mint)
+    t = data.token_tier(mint)   # 10.11. (audit S2): one row by key, not the whole table
     if not t:
         return ""
     t0 = {"prolaz": badge("T0 prošao", "good"), "pad": badge("T0 pao", "bad"), "nije": badge("izvan skena")}.get(t.get("t0"), "")

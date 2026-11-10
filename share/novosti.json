@@ -1,6 +1,31 @@
 [
  {
   "datum": "2026-11-10",
+  "naslov": "Javna stranica Autopilota s prijedlozima igrača",
+  "tekst": "na /autopilot svatko vidi kako Autopilot trguje: vrijednost novčanika kroz vrijeme, koga prati i tko ga je odabrao, svaki ulaz i izlaz s kratkim razlogom te javnu adresu novčanika. Ispod je chat: prijavljeni igrači ostavljaju prijedloge i daju +1."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Autopilot: graf vrijednosti i dnevnik odluka",
+  "tekst": "na vrhu stranice Autopilota je graf vrijednosti novčanika s označenim uplatama, uz iznos u SOL-u, dolarima i eurima. Dnevnik odluka se otvara jednim dodirom: što je bot kupio, prodao, što je preskočio i zašto. Popisi „Zovu sada” i „Što kupiti sada” premješteni su na dno."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Javne tablice se osvježavaju svaku noć",
+  "tekst": "u 2 sata ujutro osvježavaju se sve javne tablice, ljestvice i brojke u blogovima. Naslovnica pokazuje što je novo tih dana, s poveznicama na blogove i stranice."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Stranica brža dok je Autopilot otvoren",
+  "tekst": "otvorena stranica Autopilota i pop-up tokena više ne čitaju cijele tablice svake sekunde, zatvorene sekcije se ne osvježavaju, a spora burza više ne zadržava kupnje i prodaje dulje od nekoliko sekundi."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Čuvar procesora i provjera dostupnosti",
+  "tekst": "kad je procesor pretrpan, pozadinski poslovi kratko pričekaju, a trgovanje i stranica nikad. Ako stranica prestane odgovarati, sama se ponovno pokrene. Greške aplikacije bilježe se na jednom mjestu da ih brže popravljamo."
+ },
+ {
+  "datum": "2026-11-10",
   "naslov": "Autopilot nudi samo tokene koji upravo trguju",
   "tekst": "token bez prometa više se ne nudi: u „Zovu sada” i „Preporučeni tokeni” ulazi samo token s barem 5 transakcija u zadnjih 5 minuta, provjereno uživo. Token koji spava vrati se na listu kad se probudi, a u pop-upu piše zašto ga nema."
  },

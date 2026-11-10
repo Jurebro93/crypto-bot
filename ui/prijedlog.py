@@ -32,8 +32,18 @@ def _band_lo_hi(b):
             "1–10M": (1e6, 1e7), "10M+": (1e7, 1e99)}[b]
 
 
+CHANCES_TTL_S = 600   # 10.11. (audit sekundni S1): max24 changes only when the KOL round measures, so 10 min is fresh
+_CHANCES = {}         # (days, kol.db path) -> (wall time, result); only non-empty results are kept
+
+
 def chances(days=14):
-    """{band: (share of calls with max24 >= TARGET, n)} from kol.db measured calls (the retro of 7.11.)."""
+    """{band: (share of calls with max24 >= TARGET, n)} from kol.db measured calls (the retro of 7.11.).
+    10.11. (audit sekundni S1): kept 10 min. It used to read every measured call of 14 days on every call: the live
+    box asked every 2 s and every open token pop-up every second (166 ms each on a production-sized copy)."""
+    key = (days, _kol_db())
+    hit = _CHANCES.get(key)
+    if hit and time.time() - hit[0] < CHANCES_TTL_S:
+        return dict(hit[1])
     out = {}
     try:
         # 9.11. (audit P81): KOL calls only, as kol/together and kol/converge count them: no alert bots (they post
@@ -48,6 +58,8 @@ def chances(days=14):
     for b, xs in by.items():
         if len(xs) >= 30:
             out[b] = (sum(1 for x in xs if x >= TARGET) / len(xs), len(xs))
+    if out:   # an empty answer (no file yet, a locked read) is asked again next time
+        _CHANCES[key] = (time.time(), dict(out))
     return out
 
 

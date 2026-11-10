@@ -658,11 +658,16 @@ def page(title, body, path="/"):
         nk, nt = novo.notice_data()
     except Exception:  # noqa: BLE001
         nk, nt = "", ""
+    try:   # 10.11. (Jure): "Autopilot je live" right under the top bar of every page while real money trades (state kept 30 s)
+        from ui import apjavno
+        ban = apjavno.banner_html(path=path)
+    except Exception:  # noqa: BLE001 - the banner must never take a page down
+        ban = ""
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
             f"<meta name=novo content=\"{esc(nk)}\" data-t=\"{esc(nt)}\" translate=no><script>{ADMIN_JS}</script>"
             f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}</style></head><body>"
-            f"{header}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
+            f"{header}{ban}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 
 

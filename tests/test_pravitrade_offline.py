@@ -422,7 +422,8 @@ class AutoPick(PraviTrade):
             self.assertEqual(autopilot.sync_follows(self.lg, self.con, force=True), [])
             _, body = pravitrade.page({}, "Jure")
             self.assertIn("Neka alat sam bira", body)
-            self.assertIn("🤖 alat", body)
+            # 10.11. (Jure: "čista, minimalistička", no row of emojis): the tag is the words "odabrao alat" now
+            self.assertIn("odabrao alat", body)
         finally:
             autopilot.kol_recs, autopilot.wallet_recs, pravitrade._live_wallets = saved
 
@@ -441,4 +442,8 @@ class LiveLog(PraviTrade):
         self.assertIsNone(pravitrade.log_fragment("Ivan"))      # not invited
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("/pravi-trade/log", body)
-        self.assertIn("Uživo: nalozi", body)
+        # 10.11. (Jure: "log na klik pri vrhu"): the order list is the "Tehnički zapis naloga" pop-up of the closed
+        # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
+        self.assertIn("Tehnički zapis naloga", body)
+        self.assertIn("data-src=/pravi-trade/dnevnik", body)
+        self.assertLess(body.index("Dnevnik Autopilota"), body.index("id=pozicije"))

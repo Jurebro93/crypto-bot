@@ -14,6 +14,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
   whatsapp run_whatsapp.py due  daily digest to the WhatsApp group at WHATSAPP_HOUR, only with WHATSAPP_* set
+  web     run_web.py daily      once a day at 02:00 Zagreb time (WEB_DAILY_HOUR): public tables fresh + site log row; light
 """
 import datetime as dt
 import json
@@ -114,6 +115,62 @@ def daily(name, args, config, due=None):
         time.sleep(300)
 
 
+def _env_hour(name, default):
+    """An hour 0-23 from the environment; a typo falls back to the default instead of stopping this whole process
+    (it holds the clock of every job above, not only the one the variable is for)."""
+    try:
+        h = int(os.environ.get(name, default))
+        return h if 0 <= h <= 23 else default
+    except ValueError:
+        return default
+
+
+WEB_TZ = "Europe/Zagreb"
+WEB_HOUR = _env_hour("WEB_DAILY_HOUR", 2)
+LOCAL_RETRY_S, LOCAL_TRIES = 1800, 3
+
+
+def local_due(hour, last_day, now=None, tz=WEB_TZ):
+    """The local date (ISO) a once-a-day job is due for right now, or None: it is `hour`:00 or later in `tz` and the
+    job has not run for that local date yet. Local time, not UTC (10.11., Jure: "zadatak u 2 po noći"): 02:00 in
+    Zagreb is 01:00 UTC in winter and 00:00 UTC in summer. The night the clocks go back, 02:00 comes twice and the
+    date keeps it to one run; the night they go forward there is no 02:00 and the job runs at 03:00."""
+    from zoneinfo import ZoneInfo
+    local = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(tz))
+    day = local.date().isoformat()
+    return day if local.hour >= hour and last_day != day else None
+
+
+def daily_local(name, args, hour, light=True):
+    """Once per Zagreb day, at `hour`:00 or at the first check after it (a restart in the morning catches up), the
+    day kept on the disk like daily(). 10.11.: the web refresh (run_web.py daily) only re-reads our own databases for
+    a few seconds, so it runs light: under the heavy lock it would queue behind the night's long jobs (KOL history,
+    the fits) and "02:00" would mean 05:00. A failed run is tried again LOCAL_RETRY_S later, LOCAL_TRIES times a day
+    at most, then the day is given up with one line."""
+    if light:
+        time.sleep(LIGHT_START_DELAY_S)   # not in the middle of start.sh's database maintenance (see every())
+    last_day, tries, tries_day = _last_day(name), 0, None
+    while True:
+        wait = 300
+        try:
+            day = local_due(hour, last_day)
+            if day:
+                if day != tries_day:   # failures count per day: two late failures must not cost the next night
+                    tries, tries_day = 0, day
+                ok = run(name, args, light=light) == 0
+                tries = 0 if ok else tries + 1
+                if ok or tries >= LOCAL_TRIES:
+                    if not ok:
+                        print(f"{name}: {LOCAL_TRIES} neuspjela pokušaja, sljedeći put sutra", file=sys.stderr, flush=True)
+                    last_day, tries = day, 0
+                    _set_last_day(name, day)
+                else:
+                    wait = LOCAL_RETRY_S
+        except Exception as e:  # noqa: BLE001 - the scheduler must not die
+            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        time.sleep(wait)
+
+
 def every_hours(name, args, config, key="every_h", night=False):
     """Every config `key` hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
     re-run it each time. night (9.11.): due or not, it waits for the night window (ops/heavy.NIGHT)."""
@@ -186,10 +243,18 @@ JOBS = [
     # light too (11:00): 30 DexScreener calls + up to 120 GeckoTerminal lookups; behind the KOL round it waited 12+ min
     # and never ran all morning. GeckoTerminal 429s are a shared cross-process cooldown (event_calendar/http).
     ("tokenstatus", every, (["run_hype.py", "status"], float(os.environ.get("TOKENSTATUS_EVERY_MIN", "360")), True)),
+    # 10.11. (Jure: "podaci bi se trebali jednom dnevno osvježiti na cijelom webu ... zadatak u 2 po noći"): public
+    # tables rebuilt from our own databases, blog data blocks counted again, one row in the site log (run_web.py)
+    ("web", daily_local, (["run_web.py", "daily"], WEB_HOUR)),
 ]
 
 
 def main():
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("sched")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     for name, fn, args in JOBS:
         threading.Thread(target=fn, args=(name, *args), name=name, daemon=True).start()
     while True:
