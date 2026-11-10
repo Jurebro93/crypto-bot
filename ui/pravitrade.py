@@ -1432,6 +1432,9 @@ def _buy_now_card(cfg, owner):
              '(ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili DexScreener link" '
              'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
              f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
+             # 10.11. (Jure: "buy order na određenom market capu i odmah TP i SL; sad je 90k, kupi ako dođe na 50k"):
+             # empty = buy now; a market cap (or -40 % from now) = a waiting buy order, its TP/SL count from that entry
+             '<label>Kupi na MC <input name=at placeholder="odmah ili $50k" size=9 autocomplete=off></label>'
              f'<label>TP <input name=tp value="{esc(tp_last)}" placeholder="npr. 30%" size=6 autocomplete=off></label>'
              f'<label>SL <input name=sl value="{esc(sl_last)}" placeholder="zadano {sl0}" size=8 autocomplete=off></label>'
              '<button class="ap-buy ap-wide">Kupi</button>'
@@ -1439,7 +1442,9 @@ def _buy_now_card(cfg, owner):
              '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
              '<option value=manual>prodajem sam</option></select></details></form>'
              '<p class=mut>Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide samo kad je Autopilot '
-             'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”.</p>')
+             'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”. „Kupi na MC” '
+             '(npr. $50k ili -40%) postavlja nalog koji kupi kad MC padne na tu razinu, s TP-om i SL-om od tog ulaza; '
+             f'vrijedi {LIMIT_HOURS} h.</p>' + _limit_orders_html(cfg))
     # 10.11. (Jure: "nema opcije za brzo kupovanje koja treba biti odmah ispod grafa jer je to glavna stvar"): an open
     # block right under the chart, not a closed row under "Kako trguje"; the form and its confirmation are the same
     return f'<section class=ap-qb id=kupi-odmah><h2 class=ap-qb-h>Brza kupnja</h2>{inner}</section>'
@@ -2939,6 +2944,166 @@ def dca_once(tcon, now=None, live_fn=None, buy_fn=None):
     return done
 
 
+# 10.11. (Jure: "da se može napraviti buy order na određenom market capu i odmah postaviti take profit i stop loss:
+# sad je token na 90k, želim ga kupiti ako dođe na 50k, i od 50k staviti TP i SL"): a waiting buy order. It is kept in
+# trade settings "buy_orders", watched every second with the DCA orders (same live MC), and when the MC is at or under
+# its level it buys through the owner's manual buy (_post_buy) with the order's TP/SL, which then count from the real
+# entry (~ the level). A DEX has no resting limit order: the bot buys at market the moment it sees the level, so:
+#   - an order valid LIMIT_HOURS, then it lapses (a forgotten order must not buy a dead token days later);
+#   - a market cap more than LIMIT_GAP below the level when first seen there (it fell straight through, the way a
+#     rug falls) is not bought; the order is dropped with the reason;
+#   - every check of the manual buy still holds at that moment (price, no rug, 30k MC, stake, wallet balance).
+LIMIT_HOURS = 24
+LIMIT_GAP = 0.25
+LIMIT_MAX = 10
+_LIMIT_LOCK = threading.Lock()
+
+
+def _limit_orders(tcon):
+    return list(settings.raw(tcon).get("buy_orders") or [])
+
+
+def _limit_note(tcon, o, text):
+    log = list(settings.raw(tcon).get("buy_log") or [])
+    log.insert(0, {"ts": int(time.time()), "token": o.get("token"), "sym": o.get("sym"), "text": text})
+    settings.put(tcon, "buy_log", log[:30], "alat")
+
+
+def _post_limit(con, tcon, form, user):
+    """The quick buy with "Kupi na MC": a buy order, or the buy itself when the market cap is already there."""
+    from urllib.parse import quote as qq
+    from league import auto
+    from ui import real
+    from ui.league import MINT, _symbol, market
+    token = (form.get("token") or "").strip()
+    if not MINT.fullmatch(token):
+        token = real.resolve(token)[0]
+    live = market({token})
+    if token not in live:
+        raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
+    price, _liq, _, mcap = live[token]
+    now_mc = (_now_mcap([token])[0] or {}).get(token) or mcap
+    lvl = _dca_level(form.get("at"), now_mc)   # "$50k" / "50k" / "50000", or "-40%" from the market cap now
+    if lvl < 30_000:
+        raise ValueError(f"razina MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
+    if now_mc and lvl >= now_mc:
+        return _post_buy(con, tcon, form, user)   # it is there already: the plain buy, now
+    sol = float((form.get("sol") or "0").replace(",", "."))
+    lab, _typ, lo, hi = settings.LIMITS["size_sol"]
+    cfg = _cfg(tcon)
+    if not lo <= sol <= min(hi, cfg["max_sol_per_trade"]):
+        raise ValueError(f"SOL mora biti između {lo:g} i {min(hi, cfg['max_sol_per_trade']):g}")
+    ex = form.get("exit") or "tpsl"
+    tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    if ex == "tpsl":   # checked now on the entry the order would get (price scaled to the level), so a typo shows here
+        px = price * lvl / mcap if price and mcap else None
+        tp_px, _ = auto.parse_level(tp, px or 1.0, lvl, "tp")
+        sl_px, _ = auto.parse_level(sl or _sl0(cfg), px or 1.0, lvl, "sl")
+        if tp_px is not None and px and tp_px <= px:
+            raise ValueError(f"TP mora biti iznad ulaza na MC ${lvl:,.0f}")
+        if sl_px is not None and px and sl_px >= px:
+            raise ValueError(f"SL mora biti ispod ulaza na MC ${lvl:,.0f}")
+    elif ex not in ("smart", "manual"):
+        raise ValueError("nepoznat način izlaza")
+    sym = _symbol(token) or token[:6]
+    now = int(time.time())
+    with _LIMIT_LOCK:
+        orders = _limit_orders(tcon)
+        if len(orders) >= LIMIT_MAX:
+            raise ValueError(f"najviše {LIMIT_MAX} naloga za kupnju odjednom")
+        orders.append({"id": int(time.time() * 1000), "token": token, "sym": sym, "mc": round(lvl, 2), "sol": sol,
+                       "exit": ex, "tp": tp, "sl": sl, "made": now, "until": now + LIMIT_HOURS * 3600,
+                       "mc_made": round(now_mc or mcap or 0, 2)})
+        settings.put(tcon, "buy_orders", orders, user)
+        if ex == "tpsl":
+            settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
+    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})",
+          flush=True)
+    words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
+    if ex == "tpsl":
+        words += f", TP {tp or 'zadani'} · SL {sl or _sl0(cfg)} od tog ulaza"
+    return f"{BACK}?ok={qq(words + f' (vrijedi {LIMIT_HOURS} h).')}#kupi-odmah"
+
+
+def _post_limitdel(tcon, form, user):
+    from urllib.parse import quote as qq
+    oid = str(form.get("id") or "")
+    with _LIMIT_LOCK:
+        orders = _limit_orders(tcon)
+        left = [o for o in orders if str(o.get("id")) != oid]
+        if len(left) == len(orders):
+            raise ValueError("taj nalog više ne postoji")
+        settings.put(tcon, "buy_orders", left, user)
+    return f"{BACK}?ok={qq('Nalog za kupnju otkazan.')}#kupi-odmah"
+
+
+def limit_once(tcon, now=None, live_fn=None, buy_fn=None):
+    """One pass over the buy orders (see LIMIT_HOURS / LIMIT_GAP above). Returns [(order, result text)]."""
+    now = now or time.time()
+    orders = _limit_orders(tcon)
+    if not orders:
+        return []
+    toks = sorted({o["token"] for o in orders})
+    if live_fn is not None:
+        live = {t: (m or {}).get("mcap") for t, m in (live_fn(toks) or {}).items()}
+    else:
+        live, _ = _now_mcap(toks)
+    done = []
+    for o in orders:
+        if now >= o.get("until", 0):
+            done.append((o, f"Nalog {o.get('sym')}: istekao nakon {LIMIT_HOURS} h, MC nije pao na ${o['mc']:,.0f}"))
+            continue
+        mc = live.get(o["token"])
+        if not mc or mc > o["mc"]:
+            continue
+        if mc < o["mc"] * (1 - LIMIT_GAP):
+            done.append((o, f"Nalog {o.get('sym')}: MC je propao ravno na ${mc:,.0f} ({mc / o['mc'] - 1:+.0%} ispod "
+                            f"razine ${o['mc']:,.0f}), kao kod ruga: nije kupljeno"))
+            continue
+        con = store.connect()
+        try:
+            copy.ensure(con)
+            (buy_fn or _post_buy)(con, tcon, {"token": o["token"], "sol": f"{o['sol']:g}", "exit": o.get("exit") or "tpsl",
+                                              "tp": o.get("tp") or "", "sl": o.get("sl") or ""}, settings.owner())
+            done.append((o, f"Nalog {o.get('sym')}: kupljeno {o['sol']:g} SOL na MC ${mc:,.0f} (razina ${o['mc']:,.0f})"))
+        except ValueError as e:
+            done.append((o, f"Nalog {o.get('sym')}: kupnja na MC ${mc:,.0f} nije prošla: {e}"))
+        finally:
+            con.close()
+    if done:
+        with _LIMIT_LOCK:
+            cur = _limit_orders(tcon)   # orders added by the page meanwhile stay
+            gone = {str(o["id"]) for o, _ in done}
+            settings.put(tcon, "buy_orders", [o for o in cur if str(o.get("id")) not in gone], "alat")
+        for o, text in done:
+            _limit_note(tcon, o, text)
+            print(f"pravi trade: {text}", flush=True)
+    return done
+
+
+def _limit_orders_html(cfg):
+    """The waiting buy orders under the quick buy: what, at which market cap, the exit, until when, "Otkaži"."""
+    import datetime as _dt
+    import zoneinfo
+    orders = (cfg or {}).get("buy_orders") or []
+    log = (cfg or {}).get("buy_log") or []
+    if not orders and not log:
+        return ""
+    tz = zoneinfo.ZoneInfo("Europe/Zagreb")
+    rows = []
+    for o in orders:
+        until = _dt.datetime.fromtimestamp(o.get("until", 0), tz).strftime("%d.%m. %H:%M")
+        ex = (f' · TP {esc(o.get("tp") or "zadani")} · SL {esc(o.get("sl") or _sl0(cfg))}'
+              if (o.get("exit") or "tpsl") == "tpsl" else f' · izlaz {esc(o.get("exit"))}')
+        rows.append(f'<div class=ap-ord-r><span><b>{esc(o.get("sym") or "")}</b> · kupi na MC <b>{esc(_usd_short(o["mc"]))}</b>'
+                    f' za {esc(redak.sol(o["sol"], 3))}{ex} · do {esc(until)}</span>'
+                    f'<form method=post action=/pravi-trade/limitdel style="margin:0"><input type=hidden name=id '
+                    f'value="{esc(str(o["id"]))}"><button class=ap-cancel>Otkaži</button></form></div>')
+    head = f'<div class=ap-ord-h>Nalozi za kupnju · {len(orders)}</div>' if orders else ""
+    last = "".join(f'<p class=mut>{esc(x["text"])}</p>' for x in log[:3])
+    return f'<div class=ap-ord id=nalozi>{head}{"".join(rows)}</div>{last}'
+
+
 def dca_loop(every=DCA_EVERY_S):
     """Background thread body for run_ui.py: dca_once every `every` seconds (one settings read when there is nothing
     to watch), its own connection."""
@@ -2948,6 +3113,7 @@ def dca_loop(every=DCA_EVERY_S):
             if con is None:
                 con = settings.connect()
             dca_once(con)
+            limit_once(con)   # 10.11.: buy orders at a market cap, the same 1-s pass
             from league import followreview   # 10.11. (Jure: "isključi ih sam"): once an hour, never raises
             followreview.maybe_review()
         except Exception as e:  # noqa: BLE001 - a failed pass is retried in `every` seconds
@@ -4266,6 +4432,8 @@ def post(path, form, user):
             return _post_dca(None, tcon, form, user)
         if path == "/pravi-trade/dcadel":
             return _post_dcadel(tcon, form, user)
+        if path == "/pravi-trade/limitdel":   # 10.11.: cancel a buy order at a market cap
+            return _post_limitdel(tcon, form, user)
         if path == "/pravi-trade/wallet":
             from ui.real import ADDR
             addr = (form.get("addr") or "").strip()
@@ -4352,6 +4520,8 @@ def post(path, form, user):
                 who = src["label"] or src["target"]
                 return f"{BACK}?ok={qq(f'Bot prati {who}.')}#pratim"
             if path == "/pravi-trade/buy":
+                if (form.get("at") or "").strip():   # 10.11.: a buy order at a market cap
+                    return _post_limit(con, tcon, form, user)
                 return _post_buy(con, tcon, form, user)
             if path == "/pravi-trade/exit":
                 return _post_exit(con, tcon, form)

@@ -201,6 +201,79 @@ def pravitrade_gate(tcon, sol):
     return pravitrade._gate_now(tcon, sol, MINT)
 
 
+class LimitBuy(Base):
+    """10.11. (Jure: "buy order na određenom market capu i odmah TP i SL: sad je 90k, kupi ako dođe na 50k, od 50k
+    TP i SL"): a waiting buy order, bought when the market cap is at its level, with the exit counted from there."""
+
+    def setUp(self):
+        super().setUp()
+        from ui import league as uleague, prijedlog
+        self.mc = {"v": 90_000.0}
+        uleague.market = lambda toks: {t: (self.mc["v"] / 82_000, 1e6, None, self.mc["v"]) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {
+            t: {**LIVE_ROW, "price": self.mc["v"] / 82_000, "mcap": self.mc["v"]} for t in toks}
+
+    def live(self, toks):
+        return {t: {"mcap": self.mc["v"]} for t in toks}
+
+    def order(self, **kw):
+        form = {"token": MINT, "sol": "0,05", "at": "$50k", "exit": "tpsl", "tp": "30%", "sl": "-20%", **kw}
+        return unquote(self.post("/pravi-trade/buy", form))
+
+    def test_an_order_waits_then_buys_at_the_level_with_tp_sl_from_there(self):
+        from ui import pravitrade
+        loc = self.order()
+        self.assertIn("ok=", loc)
+        self.assertIn("kad MC padne na $50,000", loc)
+        self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])      # nothing bought at 90k
+        self.assertEqual(len(settings.raw(self.con)["buy_orders"]), 1)
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Nalozi za kupnju · 1", body)
+        self.assertIn("action=/pravi-trade/limitdel", body)
+        self.assertEqual(pravitrade.limit_once(self.con, live_fn=self.live), [])       # still 90k: waits
+        self.mc["v"] = 49_000.0
+        done = pravitrade.limit_once(self.con, live_fn=self.live)
+        self.assertIn("kupljeno 0.05 SOL na MC $49,000", done[0][1])
+        lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
+        self.assertEqual(len(lots), 1)
+        a = json.loads(lots[0]["auto"])
+        self.assertEqual((a["tp_in"], a["sl_in"]), ("30%", "-20%"))
+        self.assertAlmostEqual(a["tp_px"] / lots[0]["entry_px"], 1.3, places=6)          # +30 % from the 49k entry
+        self.assertAlmostEqual(a["sl_px"] / lots[0]["entry_px"], 0.8, places=6)
+        self.assertEqual(settings.raw(self.con)["buy_orders"], [])                       # bought once, then gone
+
+    def test_the_level_already_reached_buys_now_and_typos_show_at_once(self):
+        self.mc["v"] = 48_000.0
+        self.assertIn("ok=", self.order())
+        self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)
+        self.mc["v"] = 90_000.0
+        self.assertIn("ispod 30k", self.order(at="$20k"))
+        self.assertIn("TP mora biti iznad", self.order(tp="$40k"))
+        self.assertIn("err=", self.order(at="bilo kad"))
+
+    def test_a_fall_straight_through_the_level_is_not_bought_and_orders_lapse(self):
+        from ui import pravitrade
+        self.order()
+        self.order(at="-40%")                                                          # 90k - 40 % = 54k
+        orders = settings.raw(self.con)["buy_orders"]
+        self.assertAlmostEqual(orders[1]["mc"], 54_000, places=0)
+        self.mc["v"] = 30_500.0                                                        # -39 % under 50k, -44 % under 54k
+        done = pravitrade.limit_once(self.con, live_fn=self.live)
+        self.assertEqual(len(done), 2)
+        self.assertTrue(all("nije kupljeno" in t for _, t in done))
+        self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])
+        self.mc["v"] = 90_000.0
+        self.order()
+        later = time.time() + pravitrade.LIMIT_HOURS * 3600 + 5
+        self.assertIn("istekao", pravitrade.limit_once(self.con, now=later, live_fn=self.live)[0][1])
+
+    def test_cancel(self):
+        self.order()
+        oid = settings.raw(self.con)["buy_orders"][0]["id"]
+        self.assertIn("otkazan", unquote(self.post("/pravi-trade/limitdel", {"id": str(oid)})))
+        self.assertEqual(settings.raw(self.con)["buy_orders"], [])
+
+
 class AddToPosition(Base):
     """10.11. (Jure: "ako unesem adresu istog tokena koji je već u poziciji, pozicija se podeblja; nadopišu se dva
     ulaza: prvi ulaz na toliko market capa (PnL), drugi ulaz ..."): a manual buy of a held token is one more lot."""
