@@ -335,7 +335,8 @@ EXIT_REASON = {"stop_loss": "stop loss", "trailing": "trailing stop", "breakeven
                "stale": "nema rasta (mirovanje)", "moonbag_trailing": "moonbag: trailing od vrha",
                "moonbag_time": "moonbag: isteklo vrijeme", "take_profit": "take profit", "manual": "ručno",
                "auto": "automatska prodaja", "kol_prodaje": "KOL novčanik prodao",
-               "zivi_dump": "živi tok: dump (prodano u sekundama)"}
+               "zivi_dump": "živi tok: dump (prodano u sekundama)",
+               "hitni_izlaz": "hitni izlaz (pool se praznio ili nagli pad)"}
 
 
 def exit_reason(k):

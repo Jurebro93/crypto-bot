@@ -310,9 +310,10 @@ def _rows(con):
 
 def page(qs):
     from learn import correlations, outcomes, weights
-    from ui import learnprogress
+    from ui import learnprogress, learnsources
     b = ["<h1>Učenje</h1>"]
-    for name, fn in (("napredak", learnprogress.progress_html), ("priča", learnprogress.story_html)):
+    for name, fn in (("napredak", learnprogress.progress_html), ("priča", learnprogress.story_html),
+                     ("izvori", learnsources.card_html)):
         try:
             b.append(fn())
         except Exception as e:  # noqa: BLE001
@@ -329,7 +330,8 @@ def page(qs):
         print(f"učenje: ishodi nisu uspjeli: {type(e).__name__}: {e}")
         return "Učenje", head
     klasa = qs.get("klasa") or ""
-    for name, fn in (("je li pametniji", smarter_html), ("liga", liga_html), ("isplativost", payoff_html)):
+    for name, fn in (("je li pametniji", smarter_html), ("izvori tablica", learnsources.details_html),
+                     ("liga", liga_html), ("isplativost", payoff_html)):
         try:
             b.append(fn())
         except Exception as e:  # noqa: BLE001

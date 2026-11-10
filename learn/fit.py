@@ -80,7 +80,9 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
         zarada = cfg.get("cilj") == "zarada"
         rk = rk_sh if use_sh else ([] if zarada else [r for r in rows if r["klasa"] == klasa])
         old = weights.load(klasa, base)
-        rec = {"klasa": klasa, "n": len(rk), "skok": (cfg.get("shadow") or {}).get("hit_ret", 0.1) if use_sh else thr.get(klasa, 0),
+        dug = (cfg.get("cilj_klasa") or {}).get(klasa)
+        sk = (dug or {}).get("ret") if dug else (cfg.get("shadow") or {}).get("hit_ret", 0.1)
+        rec = {"klasa": klasa, "n": len(rk), "skok": sk if use_sh else thr.get(klasa, 0),
                "cilj": "zarada" if use_sh else ("nedovoljno" if zarada else "vrh"), "n_shadow": len(rk_sh),
                "applied": False, "old": old, "new": None, "metric_old": None, "metric_new": None, "note": ""}
         train, val = split.by_time(rk, horizon_s=cfg.get("purge_h", cfg.get("horizon_h", 24)) * 3600)
@@ -91,6 +93,11 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
             rec["note"] = f"premalo ishoda ({len(rk)} od potrebnih {cfg['min_rows']})"
         elif len(val) < 20 or len(train) < 10:
             rec["note"] = f"premalo za odvojeno učenje i provjeru ({len(train)} za učenje, {len(val)} za provjeru)"
+        elif apply and _same_data(klasa, rk, rec):
+            # 10.11.: 3 runs a day on the same outcomes gave the same answer every time; the next one with new
+            # outcomes decides. Not logged again (the last run's row already says it).
+            report.append(rec)
+            continue
         else:
             fit = evaluate.fit_weights(train)              # learned on the older part only
             if not fit:
@@ -103,7 +110,8 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
                     rec["note"] = (f"pogađanje među 20% najbolje ocijenjenih na provjeri (noviji {len(val)} ishoda) "
                                    f"{mo} → {mn}")
                     if use_sh:
-                        rec["note"] += " (cilj: ostvariva zarada, sjenovita knjiga)"
+                        rec["note"] += (f" (cilj: cijena +{dug['ret']:.0%} u {dug['h']} h, sjenovita knjiga)" if dug
+                                        else " (cilj: ostvariva zarada, sjenovita knjiga)")
                     if apply:
                         weights.save(klasa, new, now)
                         rec["applied"] = True
@@ -112,10 +120,54 @@ def run(con, cfg=None, now=None, apply=True, base=None, shadow_path=None):
         rec["rollback"] = _maybe_rollback(con, klasa, rk, cfg, apply) if rec["applied"] is False and rec["new"] else False
         store.log_run(con, now, klasa, rec["n"], rec["skok"], rec["applied"], rec["metric_old"], rec["metric_new"],
                       old, rec["new"] or {}, rec["note"])
+        if apply and rec["new"] is not None:
+            _remember(klasa, rk)
         report.append(rec)
     store.prune_empty(con)
     con.commit()
     return report
+
+
+def _fp(rows):
+    return [len(rows), sum(1 for r in rows if r.get("hit")), max((r.get("ts") or 0) for r in rows) if rows else 0]
+
+
+def _fp_path():
+    import os
+    return os.path.join(weights.LEARNED_DIR, "fit_fp.json")
+
+
+def _fp_load():
+    import json
+    try:
+        with open(_fp_path()) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _same_data(klasa, rows, rec):
+    """True (and rec['note'] set) when this class has exactly the outcomes of its last finished fit
+    (LEARNED_DIR/fit_fp.json, written by _remember after the class is done, so a crash never skips the retry)."""
+    fp = _fp(rows)
+    if _fp_load().get(klasa) == fp:
+        rec["note"] = f"nema novih ishoda od zadnjeg učenja ({fp[0]} ishoda); preskočeno"
+        rec["skipped"] = True
+        return True
+    return False
+
+
+def _remember(klasa, rows):
+    import json
+    import os
+    st = _fp_load()
+    st[klasa] = _fp(rows)
+    try:
+        os.makedirs(weights.LEARNED_DIR, exist_ok=True)
+        with open(_fp_path(), "w") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
 
 
 def _maybe_rollback(con, klasa, rows, cfg, apply):
