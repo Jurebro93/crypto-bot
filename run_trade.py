@@ -120,6 +120,33 @@ def follow_once(con, cfg, since, now=None, quiet=False):
         p.close()
 
 
+def _trigger_probe_once(con):
+    """10.11. (Jure: "da, v1"): Jupiter Trigger step 1 when the page's button asked for it (settings
+    "trigger_probe_req" newer than the last "trigger_probe"): one createOrder request for an open real position's TP,
+    its answer recorded. Signs and sends nothing (trade/trigger.py)."""
+    raw = settings.raw(con)
+    req, done = raw.get("trigger_probe_req") or 0, (raw.get("trigger_probe") or {}).get("ts") or 0
+    if not req or req <= done:
+        return None
+    from trade import equity, trigger
+    autos = {}
+    lg = _league()
+    if lg is not None:
+        try:
+            for lid, a in lg.execute("SELECT id, auto FROM trades WHERE user=? AND status='open' AND auto IS NOT NULL",
+                                     (settings.LEAGUE_USER,)):
+                try:
+                    autos[lid] = json.loads(a)
+                except ValueError:
+                    pass
+        except sqlite3.Error:
+            pass
+        finally:
+            lg.close()
+    return trigger.probe(con, autos, wallet.address(), wallet.token_decimals,
+                         lambda: (equity.rates() or {}).get("sol_usd"))
+
+
 def _league():
     if not os.path.exists(LEAGUE_DB):
         return None
@@ -356,6 +383,7 @@ def cmd_follow(a):
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
                 beat["ts"] = time.time()
+            _trigger_probe_once(con)          # 10.11.: Jupiter Trigger step 1, only when the owner asked (no money)
             executor.reconcile_pending(con)   # buys a crash left half-booked, matched with the wallet
             sell_all_once(con, cfg)
             sell_requests_once(con, cfg)

@@ -1345,7 +1345,38 @@ def _rules(tcon, cfg, owner):
             f'stop −{int(cfg.get("sl_default") or settings.SL_DEFAULT)} % · '
             + (f'danas {redak.num(spent, 2)} od {_g(cfg["max_sol_per_day"])} SOL' if spent is not None
                else f'najviše {_g(cfg["max_sol_per_day"])} SOL dnevno'))
-    return _sec("Pravila", meta, _tp_card(cfg, owner) + _sl_card(cfg, owner) + _limits(cfg, owner), sid="pravila")
+    return _sec("Pravila", meta, _tp_card(cfg, owner) + _sl_card(cfg, owner) + _trigger_card(tcon, owner)
+                + _limits(cfg, owner), sid="pravila")
+
+
+def _trigger_card(tcon, owner):
+    """10.11. (Jure: "da, v1"): Jupiter Trigger, step 1. A button asks run_trade.py to request one TP order from
+    Jupiter for an open real position WITHOUT signing or sending it; the answer is shown here. Step 2 (orders for real)
+    comes after a probe that passed."""
+    import datetime as _dt
+    import zoneinfo
+    raw = settings.raw(tcon)
+    pr = raw.get("trigger_probe") or {}
+    asked = (raw.get("trigger_probe_req") or 0) > (pr.get("ts") or 0)
+    head = '<h3 class=ap-sub><span>TP na lancu (Jupiter Trigger)</span><span>korak 1: proba</span></h3>'
+    if pr:
+        when = _dt.datetime.fromtimestamp(pr["ts"], zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%H:%M:%S")
+        if pr.get("ok"):
+            res = (f'{dot("good", "proba prošla")} · {when} · Jupiter je vratio nalog za {esc(pr.get("symbol") or "")}: '
+                   f'prodaja za {esc(str(pr.get("taking_sol")))} SOL na TP-u')
+        else:
+            why = pr.get("why") or json.dumps(pr.get("answer") or {}, ensure_ascii=False)[:200]
+            res = f'{dot("warn", "proba nije prošla")} · {when} · {esc(why)}'
+    else:
+        res = "Proba još nije pokrenuta."
+    btn = ""
+    if owner:
+        btn = ('<p class=mut>Čekam trade proces (do nekoliko sekundi)…</p>' if asked else
+               '<form method=post action=/pravi-trade/triggerprobe style="margin:0"><button>Provjeri Jupiter Trigger '
+               '(bez novca)</button></form>')
+    return (f'<div id=trigger>{head}<p>{res}</p>{btn}<p class=mut>Proba traži od Jupitera nalog za TP otvorene prave '
+            'pozicije, ali ga ne potpisuje i ne šalje: novac se ne miče. Kad proba prođe, uključujemo prave naloge, prvi '
+            'mali dok gledaš.</p></div>')
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
@@ -3891,6 +3922,9 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path == "/pravi-trade/triggerprobe":   # 10.11. (Jure: "da, v1"): Jupiter Trigger step 1, no money
+            settings.put(tcon, "trigger_probe_req", int(time.time()), user)
+            return f"{BACK}?ok={qq('Proba Jupiter Triggera poslana trade procesu; rezultat je pod Pravila za nekoliko sekundi.')}#trigger"
         if path == "/pravi-trade/dca":   # 10.11. (Jure): DCA, dokup na padu s ručnom granicom
             return _post_dca(None, tcon, form, user)
         if path == "/pravi-trade/dcadel":
