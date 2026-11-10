@@ -148,7 +148,7 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 
 # 10.11. (Jure, Hope research, option 1): one read-only run after the deploy, ~120 Helius pages (~1.2k credits);
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it
-( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio" ) &
+( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio"; python3 -m research.hope_report || true ) &
 
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group
