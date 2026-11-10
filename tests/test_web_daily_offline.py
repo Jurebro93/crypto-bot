@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -119,6 +120,33 @@ class DailyLocalLoop(unittest.TestCase):
         self.assertEqual(sleeps.count(run_sched.LOCAL_RETRY_S), run_sched.LOCAL_TRIES - 1)
         self.assertEqual(run_sched._last_day("web"), "2026-11-10")
 
+    def test_failures_count_per_day(self):
+        # 10.11.: two failed runs late on the 10th must not leave the 11th with a single try
+        runs, days = [], iter(["2026-11-10", "2026-11-10", "2026-11-11", "2026-11-11", "2026-11-11"])
+
+        def run(name, args, light=False):
+            runs.append(1)
+            return 1
+
+        def due_now(hour, last, now=None, tz=None):
+            day = next(days)
+            return None if day == last else day
+
+        sleeps = []
+
+        def sleep(s):
+            sleeps.append(s)
+            if len(sleeps) >= 6:
+                raise KeyboardInterrupt
+
+        with mock.patch.object(run_sched, "run", side_effect=run), mock.patch("builtins.print"), \
+                mock.patch.object(run_sched.time, "sleep", side_effect=sleep), \
+                mock.patch.object(run_sched, "local_due", side_effect=due_now):
+            with self.assertRaises(KeyboardInterrupt):
+                run_sched.daily_local("web", ["run_web.py", "daily"], 2)
+        self.assertEqual(len(runs), 5)                                          # 2 on the 10th, all 3 on the 11th
+        self.assertEqual(run_sched._last_day("web"), "2026-11-11")             # the 11th given up only after its 3rd
+
     def test_job_is_declared_at_two_and_points_at_the_real_script(self):
         jobs = {name: (fn, args) for name, fn, args in run_sched.JOBS}
         fn, args = jobs["web"]
@@ -126,6 +154,9 @@ class DailyLocalLoop(unittest.TestCase):
         self.assertEqual(args, (["run_web.py", "daily"], 2))
         self.assertTrue(os.path.exists(os.path.join(run_sched.ROOT, args[0][0])))
         self.assertEqual(run_sched.WEB_TZ, "Europe/Zagreb")
+        for raw, hour in (("3", 3), ("dva", 2), ("25", 2), ("", 2)):              # a typo never stops the scheduler
+            with mock.patch.dict(os.environ, {"WEB_DAILY_HOUR": raw}):
+                self.assertEqual(run_sched._env_hour("WEB_DAILY_HOUR", 2), hour)
         from ops import heavy
         with mock.patch.object(heavy, "NIGHT", "1-6"):
             self.assertTrue(heavy.night_now(utc(2026, 11, 10, 1, 0)))           # 02:00 is inside the night window
@@ -236,6 +267,17 @@ class DailyJob(Base):
         for word in ("helius", "apify", "twitterapi", "anthropic", "urllib", "requests", "birdeye", "tgstat"):
             self.assertNotIn(word, src.lower().replace("no paid source", ""), word)
 
+    def test_priority_is_set_to_the_background_level_not_added_twice(self):
+        from ops import heavy
+        # started by a scheduler at nice 0 -> 10; at nice 10 (start.sh "low keep sched") it stays 10, not 19
+        for cur, expect in ((0, [mock.call(0), mock.call(10)]), (4, [mock.call(0), mock.call(6)]), (10, [mock.call(0)]),
+                            (19, [mock.call(0)])):
+            with mock.patch.object(run_web.os, "nice", return_value=cur) as nice, mock.patch.object(heavy, "NICE", 10):
+                run_web._lower_priority()
+            self.assertEqual(nice.call_args_list, expect, cur)
+        with mock.patch.object(run_web.os, "nice", side_effect=PermissionError("x")):
+            run_web._lower_priority()                                           # never stops the job
+
     def test_log_command_prints_the_days(self):
         sitelog.record(dt.datetime(2026, 11, 10, 1, 5, tzinfo=UTC).timestamp(), counted={"kols": 1})
         sitelog.record(dt.datetime(2026, 11, 11, 1, 5, tzinfo=UTC).timestamp(), counted={"kols": 4})
@@ -316,6 +358,51 @@ class DropCopies(Base):
                 mock.patch("builtins.print") as pr:
             landing.start()                                                      # the page lives without the watch
         self.assertEqual(pr.call_count, 1)
+
+
+class EndToEnd(Base):
+    """The real chain, not mocks: start.sh starts the scheduler, the scheduler starts run_web.py as its own process,
+    that process writes the row, and the web process (here: this one) sees the marker and drops its copies once."""
+
+    def test_the_scheduler_runs_the_real_job_and_the_web_process_refreshes_once(self):
+        self.wallets(5)
+        old = os.environ.get("PUBLIC_DB")
+        os.environ["PUBLIC_DB"] = coins.DB                                      # the child process finds public.db here
+        try:
+            self.assertFalse(sitelog.check(lambda: None))                       # the web process started: remembers
+            public.route("/hr/blog")
+            landing._STATS.update(ts=time.time(), v={"tokens": 1}, busy=False)
+            real = run_sched.subprocess.run
+            quiet = lambda cmd, **kw: real(cmd, stdout=subprocess.DEVNULL, **kw)  # noqa: E731 - the child's log line
+            with mock.patch("builtins.print"), mock.patch.object(run_sched.subprocess, "run", side_effect=quiet) as sp:
+                code = run_sched.run("web", ["run_web.py", "daily", "--no-net"], light=True)
+            self.assertEqual(code, 0)
+            self.assertTrue(sp.call_args.args[0][1].endswith("run_web.py"))     # its own process, not under the lock
+            self.assertEqual(sitelog.recent(1)[0]["counts"]["wallets"], 5)     # the row the child wrote
+            self.assertEqual(bloglive.blocks()["wallets"]["data"]["wallets"], 5)
+            with mock.patch.object(public, "warm") as warm, mock.patch.object(landing, "HERE", self.d), \
+                    mock.patch("builtins.print"):
+                self.assertTrue(sitelog.check(landing.refreshed))
+                self.assertFalse(sitelog.check(landing.refreshed))
+            self.assertEqual((len(public._cache), warm.call_count), (0, 1))
+            self.assertEqual(landing._STATS["v"]["log"][0]["counts"]["wallets"], 5)
+        finally:
+            if old is None:
+                os.environ.pop("PUBLIC_DB", None)
+            else:
+                os.environ["PUBLIC_DB"] = old
+
+    def test_the_chain_is_wired_where_production_starts_it(self):
+        root = run_sched.ROOT
+        with open(os.path.join(root, "start.sh")) as f:
+            sh = f.read()
+        self.assertRegex(sh, r"(?m)^[^#\n]*keep sched python3 run_sched\.py")  # the scheduler runs 24/7, supervised
+        with open(os.path.join(root, "run_ui.py")) as f:
+            ui = f.read()
+        main = ui[ui.index("def main("):]
+        self.assertIn("landing.start()", main)                                  # the web process starts the watch
+        with open(landing.__file__) as f:
+            self.assertIn("sitelog.watch(refreshed)", f.read())
 
 
 class SitemapDates(Base):

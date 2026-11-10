@@ -115,8 +115,18 @@ def daily(name, args, config, due=None):
         time.sleep(300)
 
 
+def _env_hour(name, default):
+    """An hour 0-23 from the environment; a typo falls back to the default instead of stopping this whole process
+    (it holds the clock of every job above, not only the one the variable is for)."""
+    try:
+        h = int(os.environ.get(name, default))
+        return h if 0 <= h <= 23 else default
+    except ValueError:
+        return default
+
+
 WEB_TZ = "Europe/Zagreb"
-WEB_HOUR = int(os.environ.get("WEB_DAILY_HOUR", "2"))
+WEB_HOUR = _env_hour("WEB_DAILY_HOUR", 2)
 LOCAL_RETRY_S, LOCAL_TRIES = 1800, 3
 
 
@@ -139,12 +149,14 @@ def daily_local(name, args, hour, light=True):
     at most, then the day is given up with one line."""
     if light:
         time.sleep(LIGHT_START_DELAY_S)   # not in the middle of start.sh's database maintenance (see every())
-    last_day, tries = _last_day(name), 0
+    last_day, tries, tries_day = _last_day(name), 0, None
     while True:
         wait = 300
         try:
             day = local_due(hour, last_day)
             if day:
+                if day != tries_day:   # failures count per day: two late failures must not cost the next night
+                    tries, tries_day = 0, day
                 ok = run(name, args, light=light) == 0
                 tries = 0 if ok else tries + 1
                 if ok or tries >= LOCAL_TRIES:

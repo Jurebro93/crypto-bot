@@ -76,12 +76,21 @@ def daily(now=None, net=True):
     return entry
 
 
-def cmd_daily(a):
+def _lower_priority():
+    """Down to ops/heavy.NICE (below the UI and the trade loop, like every background job), not by it: os.nice() adds,
+    and the scheduler that starts this job may already run at nice 10 (start.sh "low keep sched", 10.11.); adding
+    another 10 would put a job of a few seconds at 19, behind every heavy night job it was meant to run beside."""
     try:
         from ops import heavy
-        os.nice(heavy.NICE)   # below the UI and the trade loop, like every background job (ops/heavy.py)
-    except Exception:  # noqa: BLE001
+        cur = os.nice(0)
+        if cur < heavy.NICE:
+            os.nice(heavy.NICE - cur)
+    except Exception:  # noqa: BLE001 - priority is a courtesy; the job runs either way
         pass
+
+
+def cmd_daily(a):
+    _lower_priority()
     return 0 if daily(net=not a.no_net) else 1
 
 

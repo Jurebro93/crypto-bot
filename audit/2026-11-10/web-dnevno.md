@@ -22,7 +22,7 @@ prikazane s novim podacima; možda napravi zadatak u 2 po noći."
 | stranica | izvor brojki | keš | koliko stara može biti danas | nakon ove promjene |
 |---|---|---|---|---|
 | `/`, `/hr` brojke (tokeni, novčanici, influenceri, pozivi) | hype.db, wallets.db, kol.db, tg.db: jeftini COUNT / MAX(rowid) u pozadinskoj dretvi (`ui/landing.compute`) | memorija 30 min | do 30 min; omjer "3+ influencera" do 90 min (`ourtoken/advisor` 1 h) | isto, plus odbacuje se i broji odmah nakon 02:00; uz brojke se čita i dnevnik weba |
-| `/`, `/hr` ploča "meme coini upravo sada" | public.db `coins` (čita se pri otvaranju, 100 redaka) | nema | do 3 h (Jupiterova lista svaka 3 h) | u 02:00 lista nije starija od sat vremena |
+| `/`, `/hr` blok "MemeSonar je live N dana" (novo) | public.db `site_log` (redak noćnog posla), čita se uz brojke naslovnice, nikad pri otvaranju | memorija, uz brojke | do 30 min iza noćnog posla; u praksi minuta (oznaka) | n/a |
 | `/influencers`, `/hr/influenceri` | kol.db `kols.score`, `kols.stats` (KOL krug svakih ~20 min), `calls` | memorija 15 min | 15 min iza zadnjeg KOL kruga; prikazuju se samo pozivi stariji od 24 h | isto; u 02:00 kopija se odbaci i tablica se odmah složi nanovo |
 | `/influencer/<račun>`, `/hr/influencer/<račun>` | kol.db `calls` (čisti pozivi, `ui/kolstats`), medijan svih računa | 15 min; medijan računa 1 h | do 15 min, usporedba s medijanom do 1 h | isto; u 02:00 se odbace i stranica i medijan |
 | `/telegram-channels`, `/telegram/<kanal>` (+ hr) | kol.db pozivi `tg:<kanal>`, tg.db naslov i članovi | 15 min | do 15 min iza KOL kruga | isto; odbacuje se u 02:00 |
@@ -48,8 +48,22 @@ prikazane s novim podacima; možda napravi zadatak u 2 po noći."
 
 Posao ne zove nijedan plaćeni izvor. Traje nekoliko sekundi, pa ide kao "laki" posao (bez brave teških poslova):
 iza noćnih dugih poslova (KOL povijest, učenje) čekao bi satima i "02:00" bi značilo 05:00. Prioritet procesa je
-spušten (nice) kao i ostalim pozadinskim poslovima. Ako server u 02:00 ne radi, posao se odradi pri prvoj provjeri
-nakon toga istog dana; dan se pamti u `sched_state.json`, pa ga deploy ne ponavlja.
+spušten na razinu ostalih pozadinskih poslova (nice 10, postavljeno na tu razinu, ne dodano: raspored koji ga pokreće
+nakon promjene grupe "pogon" i sam radi na nice 10). Ako server u 02:00 ne radi, posao se odradi pri prvoj provjeri
+nakon toga istog dana; dan se pamti u `sched_state.json`, pa ga deploy ne ponavlja. Neuspjeh: novi pokušaj za 30 min,
+najviše 3 pokušaja po danu.
+
+Lanac (provjereno testom koji pokreće pravi proces, `tests/test_web_daily_offline.py` EndToEnd): `start.sh`
+(`keep sched python3 run_sched.py`) -> `run_sched.py` posao `web` (`daily_local`, 02:00 Zagreb, ljeti i zimi) ->
+`run_web.py daily` kao zaseban kratki proces -> redak u `site_log` -> web proces (`run_ui.py` -> `landing.start()` ->
+`sitelog.watch`) jednom u minuti pogleda oznaku i jednom odbaci kopije.
+
+Prvi put nakon deploya posao se pokreće 3 min nakon starta rasporeda (taj dan još nije odrađen), pa naslovnica ima
+prvi zapis odmah, ne tek sljedeće noći. Prvi zapis nema razliku (nema prethodnog dana): imenuje članke iz zadnjeg
+tjedna i blogove koji su prvi put dobili blok "Stanje danas".
+
+"Novi članci": članak je nov tjedan dana od svog datuma, dok ga neki redak ne imenuje (ne "datiran poslije prethodnog
+retka": članak s današnjim datumom koji stigne deployem iza 02:00 inače bi pao između dva retka).
 
 ## Što se može osvježiti samo plaćenim pozivom (nije dodano)
 

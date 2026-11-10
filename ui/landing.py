@@ -27,7 +27,9 @@ STATIC = os.path.join(HERE, "ui", "static", "landing")
 STATS_EVERY_S = int(os.environ.get("LANDING_STATS_EVERY_S", "1800"))
 MAX_PENDING = 500            # a bot filling the form cannot fill the disk
 PER_IP_HOUR = 5
-LOG_READ, LOG_SHOW = 8, 4    # site log: days read from public.db per count / days with news shown on the page
+# site log: days read from public.db per count / days with news shown. 10.11.: 3, not 4: one day is ~210 px on a phone
+# and four filled a whole screen between the numbers and the features
+LOG_READ, LOG_SHOW = 8, 3
 LOG_LINKS_MAX = 2            # blog posts named per line; the rest is "i još N", a link to the blog
 
 SCHEMA = """

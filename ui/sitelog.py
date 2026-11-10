@@ -26,12 +26,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TZ = "Europe/Zagreb"                 # the site's day is the owner's day: the job runs at 02:00 there
 WATCH_S = int(os.environ.get("SITE_WATCH_S", "60"))
 KEEP_DAYS = 400                      # older rows are dropped (the page shows the last few days)
-FIRST_POSTS_DAYS = 7                 # the very first row has no "day before": it lists the posts of the last week
+NEW_POSTS_DAYS = 7                   # a post is "new" for a week after its date, until a row has named it
 
 # The day the public site went live. Where it comes from (10.11.2026.):
 #   - share/novosti.json lists under 2026-11-01 "Naslovna stranica" (the new public page for people without an
 #     account), "Blog", "Javna ljestvica meme coina", "Javni kripto rječnik" and "Novo ime: MemeSonar";
-#   - the launch posts of the blog (ui/blogposts.py) carry date 2026-11-01.
+#   - the launch posts of the blog (ui/blogposts*.py) carry date 2026-11-01 (28 of the 33 posts; the other 5: 9.11.);
+#   - the earliest entry of share/novosti.json is 2026-10-31, and it is about the members' app (KOL test, morning
+#     report), not the public site, so it is not the public launch.
+# Not known from the repository: the day memesonar.app itself started answering (the 1.11. entry says "uskoro").
 # The git history of this repository is shallow (it starts on 4.11.), so the commit that added ui/landing.py cannot
 # confirm it. Jure's "47 dana" was an example in his message: 47 days before 10.11. is 24.9., a month before the
 # tool's first network run (README: 2026-10-30). If the site should count from another day, set SITE_LIVE_SINCE.
@@ -137,11 +140,15 @@ def diff(prev, cur):
     return {k: cur[k] - prev[k] for k in KEYS if k in cur and k in prev and cur[k] > prev[k]}
 
 
-def new_posts(after_day, day):
-    """English slugs of blog posts whose own date is after `after_day` and not after `day`, newest first."""
+def new_posts(day, listed=()):
+    """English slugs of blog posts dated in the NEW_POSTS_DAYS up to `day` that no earlier row named, newest first.
+    10.11.: "not named before", not "dated after the previous row": a post dated the 11th that reaches the server by a
+    deploy after the night's run on the 11th fell between two rows and was never named. The very first row has no
+    earlier row, so it names the posts of the last week."""
+    lo = (dt.date.fromisoformat(day) - dt.timedelta(days=NEW_POSTS_DAYS)).isoformat()
     try:
         from ui import blog
-        ps = [p for p in blog._posts() if after_day < p.get("date", "") <= day]
+        ps = [p for p in blog._posts() if lo < p.get("date", "") <= day and p["slug"] not in listed]
     except Exception as e:  # noqa: BLE001
         print(f"dnevnik weba: novi članci nisu pročitani: {type(e).__name__}: {e}", flush=True)
         return []
@@ -188,8 +195,13 @@ def record(now=None, blogs=(), counted=None, db=None):
         same = con.execute("SELECT day, ts, counts, added, blogs, posts FROM site_log WHERE day = ?", (day,)).fetchone()
         prev, same = (_row(prev) if prev else None), (_row(same) if same else None)
         added = diff(prev["counts"], cur) if prev else {}
-        since = prev["day"] if prev else (_local(ts).date() - dt.timedelta(days=FIRST_POSTS_DAYS)).isoformat()
-        posts = new_posts(since, day)
+        # posts named by the rows of the last two weeks (one a night; a post stays "new" for NEW_POSTS_DAYS)
+        named = set()
+        for r in con.execute("SELECT day, ts, counts, added, blogs, posts FROM site_log WHERE day < ? "
+                             "ORDER BY day DESC LIMIT ?", (day, 2 * NEW_POSTS_DAYS)):
+            p = _row(r)["posts"]
+            named.update(s for s in (p if isinstance(p, list) else []) if isinstance(s, str))
+        posts = new_posts(day, named)
         fresh = [s for s in dict.fromkeys(list((same or {}).get("blogs", [])) + list(blogs)) if s not in posts]
         con.execute("INSERT INTO site_log (day, ts, counts, added, blogs, posts) VALUES (?,?,?,?,?,?) "
                     "ON CONFLICT(day) DO UPDATE SET ts=excluded.ts, counts=excluded.counts, added=excluded.added, "

@@ -161,6 +161,21 @@ class Recording(Base):
         self.assertTrue(sitelog.has_news(rows[0]))
         self.assertFalse(sitelog.has_news({"added": {}, "blogs": [], "posts": []}))
 
+    def test_a_post_deployed_after_the_nights_run_is_named_the_next_night_and_only_once(self):
+        # 10.11.: with "dated after the previous row" a post dated the 11th that arrived by a deploy after the 02:00
+        # run on the 11th fell between the rows of the 11th and the 12th and was never named
+        posts = [{"slug": "old-post", "date": "2026-11-01"}]
+        with mock.patch.object(blog, "_posts", side_effect=lambda: list(posts)):
+            sitelog.record(ts(2026, 11, 10, 1, 5), counted={"kols": 1})
+            self.assertEqual(sitelog.record(ts(2026, 11, 11, 1, 5), counted={"kols": 1})["posts"], [])
+            posts.append({"slug": "late-post", "date": "2026-11-11"})          # the 14:00 deploy on the 11th
+            self.assertEqual(sitelog.record(ts(2026, 11, 12, 1, 5), counted={"kols": 1})["posts"], ["late-post"])
+            self.assertEqual(sitelog.record(ts(2026, 11, 12, 9, 0), counted={"kols": 1})["posts"], ["late-post"])  # rerun
+            self.assertEqual(sitelog.record(ts(2026, 11, 13, 1, 5), counted={"kols": 1})["posts"], [])   # named once
+            posts.append({"slug": "future-post", "date": "2026-11-20"})        # written ahead: not before its day
+            posts.append({"slug": "backdated", "date": "2026-10-01"})          # older than a week: not news
+            self.assertEqual(sitelog.record(ts(2026, 11, 14, 1, 5), counted={"kols": 1})["posts"], [])
+
     def test_reading_before_the_first_run_is_empty_not_an_error(self):
         self.assertEqual(sitelog.recent(5), [])                              # no file
         self.assertIsNone(sitelog.today())
