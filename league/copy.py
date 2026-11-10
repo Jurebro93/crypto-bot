@@ -98,6 +98,11 @@ def ensure(con):
             con.execute("ALTER TABLE trades ADD COLUMN follow_id INTEGER")
         except sqlite3.OperationalError:
             pass
+    try:   # 10.11.: the market cap a skip saw (_log mcap), read by the Autopilot's skipped-buy pop-up
+        con.execute("CREATE TABLE IF NOT EXISTS copy_mc (follow_id INTEGER, token TEXT, side TEXT, ts INTEGER, "
+                    "mcap REAL, PRIMARY KEY (follow_id, token, side))")
+    except sqlite3.OperationalError:
+        pass
     for sql in INDEXES:
         try:
             con.execute(sql)
@@ -348,9 +353,16 @@ def _logged(con, fid, token, side):
     return con.execute("SELECT 1 FROM copy_log WHERE follow_id=? AND token=? AND side=?", (fid, token, side)).fetchone()
 
 
-def _log(con, f, token, side, ev_ts, now, action, note, symbol=None, trade_id=None):
+def _log(con, f, token, side, ev_ts, now, action, note, symbol=None, trade_id=None, mcap=None):
+    """mcap (10.11., Jure: "u tablici treba biti koliko je token u tom momentu bio vrijedan"): the market cap the
+    decision saw, kept with a skip so the Autopilot's pop-up has it at once, before any candle is measured."""
     con.execute("INSERT OR IGNORE INTO copy_log VALUES (?,?,?,?,?,?,?,?,?)",
                 (f["id"], token, side, ev_ts, int(now), symbol, action, note, trade_id))
+    if mcap:   # its own small table: copy_log keeps its nine columns (older readers insert by position)
+        try:
+            con.execute("INSERT OR IGNORE INTO copy_mc VALUES (?,?,?,?,?)", (f["id"], token, side, int(now), float(mcap)))
+        except sqlite3.OperationalError:
+            pass
 
 
 def _day_start(now, tz=None):
@@ -777,7 +789,7 @@ def _enter(con, auto, mk, todo, now):
                 if dx and dx.get("ok") is False:
                     why = dx["why"]
         if why:
-            _log(con, f, tok, side, ts, now, "preskočeno", why, sym)
+            _log(con, f, tok, side, ts, now, "preskočeno", why, sym, mcap=mcap)
             continue
         src = f"copy {KIND_HR[f['kind']]} {name}"
         try:
