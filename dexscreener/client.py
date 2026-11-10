@@ -15,6 +15,7 @@ from event_calendar import http
 BASE = "https://api.dexscreener.com"
 CACHE_TTL = int(os.environ.get("DEX_CACHE_TTL", "60"))
 LIVE_TTL = max(2, int(os.environ.get("DEX_LIVE_TTL", "3")))   # 2-5 s for live callers (audit P2)
+LIVE_TIMEOUT_S = 5   # 10.11. (audit sekundni S8): a live price that takes longer is useless to a 1-3 s loop
 
 
 class _Throttle:
@@ -37,8 +38,10 @@ _SLOW = _Throttle(55)
 _FAST = _Throttle(280)
 
 
-def _get(path, params=None, fast=False, ttl=None):
+def _get(path, params=None, fast=False, ttl=None, live=False):
     (_FAST if fast else _SLOW).wait()
+    if live:   # 10.11. (audit sekundni S8): see tokens_live
+        return http.get_json(f"{BASE}{path}", params, ttl=ttl, timeout=LIVE_TIMEOUT_S, retries=0)
     return http.get_json(f"{BASE}{path}", params, ttl=CACHE_TTL if ttl is None else ttl)
 
 
@@ -211,5 +214,12 @@ def tokens(chain, addresses, ttl=None):
 
 def tokens_live(chain, addresses, ttl=None):
     """9.11. (audit P2): tokens() for the 1-second boxes and the demo TP/SL: the same request path and rate limiter,
-    but a cache of LIVE_TTL seconds (never under 2 s) instead of 60 s, so a "⟳ 1 s" header shows numbers seconds old."""
-    return tokens(chain, addresses, ttl=LIVE_TTL if ttl is None else max(2, int(ttl)))
+    but a cache of LIVE_TTL seconds (never under 2 s) instead of 60 s, so a "⟳ 1 s" header shows numbers seconds old.
+    10.11. (audit sekundni S8): and a short leash. The scanners' path waits up to 30 s per try and retries 429/5xx
+    with back-off up to 60 s, so one DexScreener hiccup could hold the copy loop and the TP/SL exits for minutes.
+    Here: LIVE_TIMEOUT_S, no retry; a failure raises and the callers already treat it as "no price this pass"."""
+    ttl = LIVE_TTL if ttl is None else max(2, int(ttl))
+    out = []
+    for i in range(0, len(addresses), 30):
+        out += _get(f"/tokens/v1/{_q(chain)}/{','.join(addresses[i:i + 30])}", fast=True, ttl=ttl, live=True) or []
+    return [sane(p) for p in out]

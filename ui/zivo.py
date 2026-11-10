@@ -39,6 +39,15 @@ def _tiers():
         return {}
 
 
+def _tier(mint):
+    """10.11. (audit sekundni S2): one row by key for the token pop-up, instead of the whole table every second."""
+    try:
+        from ui import data
+        return data.token_tier(mint) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def candidates(now=None, sources=None):
     """[{token, symbol, src, why, ts0, mcap0, conf, rank}] after the slow filters; sources: injected for tests."""
     now = now or time.time()
