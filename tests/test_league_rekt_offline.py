@@ -34,7 +34,7 @@ class Rekt(unittest.TestCase):
         market = lambda toks: {t: (price["p"], 1e9, None, 1e6) for t in toks}  # noqa: E731
         self.assertEqual(rekt.check_players(con, market), [])        # still worth ~$1000: not rekt
         price["p"] = 0.001
-        self.assertEqual(rekt.check_players(con, lambda toks: {}), [])  # no price at all: never rekt on an outage
+        self.assertEqual(rekt.check_players(con, lambda toks: {}, rugs=frozenset()), [])  # no price: not on an outage
         con.execute("UPDATE trades SET opened_ts=opened_ts-60")   # bought a minute before the rekt
         out = rekt.check_players(con, market)
         self.assertEqual([u for u, _, _ in out], ["Mario"])
@@ -46,7 +46,9 @@ class Rekt(unittest.TestCase):
         self.assertAlmostEqual(board["Mario"]["profit"], 0, places=2)
         self.assertLess(board["Mario"]["total"], -990)               # every round together
         self.assertEqual(rekt.counts(con), {"Mario": 1})
-        self.assertIn("💀×1", rekt.skulls(1))
+        # 10.11. (Jure: "uz znak rekt i da je ovo drugi krug")
+        self.assertIn("💀 rekt · 2. krug", rekt.skulls(1))
+        self.assertIn("rekt×2 · 3. krug", rekt.skulls(2))
         self.assertIn("comeback", rekt.skulls(1, 5.0))
         store.buy(con, "Mario", MINT, "SOL", 100, 1.0, 1e9)         # plays on with the new money
         self.assertAlmostEqual(store.account(con, "Mario")["cash"], 900)
@@ -77,6 +79,51 @@ class Rekt(unittest.TestCase):
         self.assertIn("Rekt klub", html)
         self.assertIsNone(rekt.check_bot(con, 500))
         self.assertEqual(rekt.check_bot(con, 3.0), 3)                 # under $10 again: round 3
+
+
+class DeadTokens(unittest.TestCase):
+    """10.11. (Jure: "dodaj igračima koji su pali na nulu novih $1000"): a rugged token without a price no longer
+    keeps a player at $0 forever; a short outage still protects the account."""
+
+    def setUp(self):
+        store.DB = os.path.join(tempfile.mkdtemp(), "league.db")
+        os.environ["UI_USERS"] = "Ivan,Mario"
+        rekt._LAST["ts"] = 0
+        self.con = store.connect()
+        store.buy(self.con, "Mario", MINT, "SOL", 1000, 1.0, 1e9)   # everything in one token
+        self.con.execute("UPDATE trades SET opened_ts=opened_ts-60")   # bought before the check, as in real life
+        self.con.commit()
+        self.none = lambda toks: {}                                 # the token has no price anywhere
+
+    def test_rug_archived_token_counts_as_zero(self):
+        out = rekt.check_players(self.con, self.none, rugs=frozenset({MINT}))
+        self.assertEqual([u for u, _, _ in out], ["Mario"])
+        self.assertAlmostEqual(store.account(self.con, "Mario")["cash"], store.START_USD)
+        closed = store.trades(self.con, "Mario", "closed")[0]
+        self.assertIn("bez cijene", closed["note"])
+        self.assertIn("2. krug", rekt.skulls(rekt.counts(self.con)["Mario"]))
+
+    def test_no_price_waits_then_counts_as_zero(self):
+        t0 = time.time()
+        self.assertEqual(rekt.check_players(self.con, self.none, now=t0, rugs=frozenset()), [])
+        self.assertEqual(rekt.check_players(self.con, self.none, now=t0 + rekt.NO_PRICE_DEAD_S - 60, rugs=frozenset()), [])
+        out = rekt.check_players(self.con, self.none, now=t0 + rekt.NO_PRICE_DEAD_S + 1, rugs=frozenset())
+        self.assertEqual([u for u, _, _ in out], ["Mario"])
+
+    def test_a_price_coming_back_restarts_the_clock(self):
+        t0 = time.time()
+        rekt.check_players(self.con, self.none, now=t0, rugs=frozenset())
+        alive = lambda toks: {t: (1.0, 1e9, None, 1e6) for t in toks}  # noqa: E731
+        self.assertEqual(rekt.check_players(self.con, alive, now=t0 + 3600, rugs=frozenset()), [])   # worth ~$1000
+        self.assertEqual(rekt.check_players(self.con, self.none, now=t0 + rekt.NO_PRICE_DEAD_S + 1, rugs=frozenset()), [])
+
+    def test_survives_a_restart(self):
+        t0 = time.time()
+        rekt.check_players(self.con, self.none, now=t0, rugs=frozenset())
+        self.con.close()
+        self.con = store.connect()                                   # a deploy: the clock is in league.db
+        out = rekt.check_players(self.con, self.none, now=t0 + rekt.NO_PRICE_DEAD_S + 1, rugs=frozenset())
+        self.assertEqual([u for u, _, _ in out], ["Mario"])
 
 
 if __name__ == "__main__":
