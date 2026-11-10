@@ -15,9 +15,9 @@ never another loop); start.sh's keep brings it back 30 s later. Not in the first
 or the dashboard process started (loading after a deploy or a restart takes time, and ending a process that is
 still starting only starts the wait again), and at most once in COOLDOWN_S (15 min). UPTIME_RESTART=0: log only.
 
-/healthz (run_ui.Handler.do_GET) answers "ok" before any page logic: no database, no login, no cache. A test holds
-it to that (tests/test_uptime_offline.py): a health check that waits behind a locked database would end a healthy
-server.
+/healthz (run_ui.Handler.do_GET) answers "ok" before any page logic: no database, no cache, and of the login only the
+cookie parsing, which finds nothing (this check sends no cookie). A test holds it to that, with every sqlite3.connect
+failing (tests/test_uptime_offline.py): a health check that waits behind a locked database would end a healthy server.
 
     python3 -m ops.uptime            the loop (start.sh: keep uptime ..., web service only)
     python3 -m ops.uptime --once     one check, printed
@@ -129,7 +129,8 @@ class Watch:
         self.fails, self.fail_since = 0, None
         if status == "deploy":
             if not self.in_deploy:   # once per deploy, not every 30 s of it
-                self.log(f"dostupnost: deploy u tijeku, port drži zamjenska stranica dok se aplikacija ne upali, {_stamp()}")
+                self.log("dostupnost: deploy u tijeku, port drži zamjenska stranica dok se aplikacija ne upali, "
+                         + _stamp())
             self.in_deploy = True
             return status
         self.in_deploy = False

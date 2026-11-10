@@ -38,8 +38,9 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # 9.11. (audit P11): a deploy's SIGTERM reaches the supervised process (run_trade.cmd_follow finishes the pass it is
 # in and exits, run_trade._on_term) instead of only the shell: the supervisor forwards TERM to its child and stops.
 # 10.11. (Jure: "CPU u svakom momentu najviše 90-95 %, aplikacija dostupna u svakom momentu"): background loops run at a
-# lower CPU priority (nice BG_NICE, default 10) than the UI, the trade loop and the listeners that bring the calls and
-# exits the money path acts on (kol, tg, live, paper): where they wait for the same core, the kernel serves those first.
+# lower CPU priority (nice BG_NICE, default 10) than the UI, the trade loop, the listeners that bring the calls the
+# money path acts on (kol, tg, live) and the demo loop (paper: its live exits react to a dump within seconds): where
+# they wait for the same core, the kernel serves those first.
 #   low keep <name> <command...>   a supervised process at low priority (its children inherit it)
 #   low <command...>               one command at low priority, inside the plain loops below
 # Jobs started through "python3 -m ops.heavy" need no "low": heavy.run already puts its child at HEAVY_NICE (10).
@@ -57,9 +58,10 @@ if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PO
 keep trade python3 run_trade.py follow       # mirrors paper entries/exits as real (or dry-run) swaps
 # 10.11. (Jure, same request): CPU guard (ops/cpuguard.py): every second the container's CPU from the cgroup; when the
 # average of a few seconds is above CPU_HIGH (90 %) it pauses the biggest background consumers for a fraction of a
-# second at a time (SIGSTOP/SIGCONT) until it is back under CPU_LOW (80 %). Never the UI, the trade loop, the listeners
-# or a supervisor (the list with the reasons: python3 -m ops.cpuguard --popis). One log line a minute. CPUGUARD=0:
-# measures and logs, pauses nothing. Started before the background loops so their start-up rush is already watched.
+# second at a time (SIGSTOP/SIGCONT) until it is back under CPU_LOW (80 %), in the order of the 10.11. audit (page
+# builds first, run_top's rug check last). Never the UI, the trade loop, the listeners or a supervisor (the list with
+# the reasons: python3 -m ops.cpuguard --popis). One log line a minute. CPUGUARD=0: measures and logs, pauses nothing.
+# Started before the background loops so their start-up rush is already watched.
 keep cpuguard python3 -m ops.cpuguard
 # availability check (ops/uptime.py), web service only: /healthz every 30 s, slow and missing answers go to the log;
 # after 150 s without an answer it ends ONLY the UI process (keep above brings it back), at most once in 15 min and

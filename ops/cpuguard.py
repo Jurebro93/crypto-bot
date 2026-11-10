@@ -9,8 +9,9 @@ it only orders processes that wait for the same core. So this loop keeps the tot
   every second          the container's CPU (cgroup v2 cpu.stat + cpu.max, else cgroup v1 cpuacct, else /proc/stat)
                         and the CPU of each of our python processes (/proc/<pid>/stat)
   average of the last CPU_WINDOW_S seconds above CPU_HIGH (90)
-                        brake harder: the biggest background consumer is paused (SIGSTOP ... SIGCONT) for a part
-                        of every half second; when one is not enough the next biggest joins
+                        brake harder: the first background job in line (the audit's order: page builds first,
+                        run_top's rug check last; the biggest consumer first within one rank) is paused (SIGSTOP ...
+                        SIGCONT) for a part of every half second; when one is not enough the next one joins
   between the two       hold
   below CPU_LOW (80)    ease off, step by step down to no pauses (a sudden stop would jump straight back to 100 %)
 
@@ -26,8 +27,8 @@ What a pause may cost, and what is done about it:
   (checked 10.11. with bash 5.2), so no supervisor restarts or doubles a paused job.
 
     python3 -m ops.cpuguard          the loop (start.sh: keep cpuguard ...)
-    python3 -m ops.cpuguard --once   one reading and our processes with their class, then exit
-    python3 -m ops.cpuguard --popis  who is never paused, and why
+    python3 -m ops.cpuguard --once   one reading and our processes with their rank, then exit
+    python3 -m ops.cpuguard --popis  who is never paused, the order of the others, and why
 
 CPUGUARD=0 turns the pausing off (it still measures and logs). CPU_HIGH, CPU_LOW, CPU_WINDOW_S, CPU_MAX_DUTY and
 CPU_CORES (when the cgroup does not say how many CPUs we have) override the defaults.
@@ -65,62 +66,105 @@ CGROUP, PROC = "/sys/fs/cgroup", "/proc"
 CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 
 # ---------------------------------------------------------------------------------------------------------------
-# Who may be paused. Decided from start.sh, process by process, by what each one does; when in doubt, protected.
+# Who may be paused, and in which order. Decided from start.sh, process by process, by what each one does, and from
+# last night's audit of the per-second jobs (audit/2026-11-10/sekundni.md §4: who is never paused, who may wait and
+# in which order); when in doubt, protected.
 #
 # The money path, never paused: a followed account posts or a followed wallet buys -> a listener writes it down
 # (X and Helius webhooks inside run_ui.py, run_tg.py, run_live.py, the KOL round's collect) -> league/copy.py in
-# run_ui.py enters the demo account -> run_trade.py mirrors it as a real (or dry-run) swap. run_paper.py feeds
-# run_trade.py too when the owner ticks "prati i demo strategiju". Supervisors are left alone as well: they use no
-# CPU, and several of them hold the heavy-job lock for their child.
+# run_ui.py enters the demo account -> run_trade.py mirrors it as a real (or dry-run) swap. Supervisors are left
+# alone as well: they use no CPU, and several of them hold the heavy-job lock for their child.
+#
+# Rank: 0 = never paused; 1..5 = may stand for a part of a second, rank 1 first (the audit's order), and within a
+# rank the biggest consumer first. A lower rank stands longer: the brake gives the first candidate the largest part.
 # ---------------------------------------------------------------------------------------------------------------
-PROTECTED, ROUND, LAST, BACKGROUND = "zaštićen", "krug", "na kraju", "pozadina"
+PROTECTED, PAGES, SCANS, ROUNDS, JOBS, LAST = 0, 1, 2, 3, 4, 5
+ROUND = -1   # only in the table below: protected until ROUND_CPU_S of its own CPU, ROUNDS after that
 ROUND_CPU_S = _env("CPUGUARD_ROUND_CPU_S", 120, 0, 86400)
 
-# (name in the log, script or "-m module", words one of which must be among its arguments (() = any), class, why)
+
+def _paper_rank():
+    """10.11. (audit sekundni.md §4): the demo loop may wait only "dok je follow_paper zaključan", i.e. while run_trade
+    does not mirror its entries ("prati i demo strategiju" locked in trade/settings.LOCKED, a code constant: no
+    database read). Lock lifted, or the module not readable: protected, the safe side."""
+    try:
+        from trade import settings
+        return SCANS if "follow_paper" in settings.LOCKED else PROTECTED
+    except Exception:  # noqa: BLE001 - any doubt protects
+        return PROTECTED
+
+
+# (name in the log, script or "-m module", words one of which must be among its arguments (() = any), rank, why)
 # The first match wins, so the special cases of a script stand above its general line.
 PROCESSES = (
-    ("ui-dijete", "run_ui.py", ("--render",), LAST,
-     "gradnja teške stranice u djetetu; posjetitelj za to vrijeme dobiva zadnju kopiju, pa smije stati na kraju reda"),
+    # 1: page builds, the biggest consumer of the day (/pregled 60-116 s and /tokeni ~60 s of CPU every ~7 min); while
+    # one is built the visitor gets the last saved copy (run_ui._last_copy), so nobody waits for it by the second
+    ("ui-dijete", "run_ui.py", ("--render",), PAGES,
+     "gradnja teške stranice u djetetu, najveći dnevni potrošač; posjetitelj za to vrijeme dobiva zadnju "
+     "spremljenu kopiju"),
     ("ui", "run_ui.py", (), PROTECTED,
-     "stranice, webhookovi (X, Helius) i demo kopiranje praćenih računa: tu lanac novca počinje"),
+     "stranice, webhookovi (X, Helius), demo kopiranje praćenih računa i auto prodaja: tu lanac novca počinje"),
     ("trade", "run_trade.py", (), PROTECTED, "pravi (ili probni) swapovi, petlja od jedne sekunde"),
     ("deploy", "deploy_wait.py", (), PROTECTED, "stranica 'deploy u tijeku' dok se aplikacija diže"),
-    ("kol", "run_kol.py", ("loop",), PROTECTED, "pokreće KOL krugove i drži im bravu teških poslova; sam ne troši CPU"),
-    ("minute", "run_kol.py", ("minute-loop", "minute"), BACKGROUND, "minutne svijeće nakon poziva: analiza, vlastita baza"),
-    ("backfill", "run_kol.py", ("backfill",), BACKGROUND, "jednokratna povijest poziva"),
+    ("kol", "run_kol.py", ("loop",), PROTECTED,
+     "nadzor KOL krugova: pokreće ih i drži im bravu teških poslova; sam ne troši CPU"),
+    ("minute", "run_kol.py", ("minute-loop", "minute"), ROUNDS,
+     "minutne svijeće nakon poziva: zaostatak mjerenja, vlastita baza"),
+    ("backfill", "run_kol.py", ("backfill",), ROUNDS, "jednokratna povijest poziva (plaćeni dohvat, noću)"),
     # 10.11.: a round (once, search-round) starts with the steps that bring calls of followed accounts into kol.db
     # (webhook spool, X watch, live sync: little CPU, mostly waiting on the network), and at night the same process
     # goes on to the scoring (40+ minutes of CPU). There is no separate process to tell them apart, so the round is
-    # protected until it has used ROUND_CPU_S of CPU itself; past that it is computing, not listening, and may be
-    # paused, after every ordinary background job. The same line catches a search round that runs away (9.11.: one
-    # query held it at 100 % for 47 minutes).
+    # protected until it has used ROUND_CPU_S of CPU itself; past that it is computing, not listening, and may wait
+    # with the KOL jobs (audit rank 3). The same line catches a search round that runs away (9.11.: one query held it
+    # at 100 % for 47 minutes).
     ("kol-krug", "run_kol.py", (), ROUND,
      f"krug donosi pozive praćenih računa u kol.db; zaštićen dok sam ne potroši {ROUND_CPU_S:.0f} s CPU-a "
-     "(dalje je to ocjenjivanje, pa smije stati na kraju reda)"),
-    ("tg", "run_tg.py", (), PROTECTED, "čita Telegram kanale svakih 30 s (i živi slušač): pozivi koje kopiranje čita"),
+     "(dalje je to ocjenjivanje, pa smije čekati s ostalim KOL poslovima)"),
+    ("tg", "run_tg.py", (), PROTECTED,
+     "čita praćene Telegram kanale svake 2-3 s (i živi slušač): pozivi koje kopiranje čita"),
     ("live", "run_live.py", (), PROTECTED,
-     "PumpPortal uživo: kupnje i prodaje praćenih walleta u sekundi, upozorenja na pad na koja demo prodaje"),
-    ("paper", "run_paper.py", (), PROTECTED,
-     "demo ulazi i izlazi; pravi trade ih zrcali kad je uključeno 'prati i demo strategiju'"),
-    ("cpuguard", "-m ops.cpuguard", (), PROTECTED, "ovaj čuvar"),
-    ("uptime", "-m ops.uptime", (), PROTECTED, "provjera dostupnosti aplikacije"),
+     "PumpPortal uživo: kupnje i prodaje praćenih walleta u sekundi; zaustavljen puni red i ruši vezu"),
+    ("paper", "run_paper.py", (), _paper_rank(),
+     "demo ulazi i izlazi i dijete hype skena; smije čekati samo dok je 'prati i demo strategiju' zaključano "
+     "(pravi trade ga tada ne zrcali), inače zaštićen"),
+    ("cpuguard", "-m ops.cpuguard", (), PROTECTED, "ovaj čuvar i njegov rezervni blizanac"),
+    ("uptime", "-m ops.uptime", (), PROTECTED, "provjera dostupnosti aplikacije svakih 30 s"),
+    # 10.11.: the audit lets the hourly upkeep wait (its rank 4); kept protected here: it holds the write lock of
+    # trade.db and league.db too (retention, WAL cut, the daily rewrite), and every second it stands is a second
+    # run_trade and the copy loop wait for that lock. The minute memory watchdog is the same module.
     ("health", "-m ops.health", (), PROTECTED,
-     "nadzor memorije i održavanje baza: drži brave nad cijelim bazama, pauza bi ih samo produžila"),
+     "nadzor memorije svake minute i održavanje baza: drži bravu pisanja i nad trade.db i league.db, "
+     "pauza bi produžila čekanje petlje novca"),
     ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
-    ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i bravu za svoje poslove; sam ne troši CPU"),
-    # background: nobody waits for these by the second; each is a batch that comes round again
-    ("top", "run_top.py", (), BACKGROUND, "provjera preporučenih tokena svake 3 minute"),
-    ("calendar", "run_calendar.py", (), BACKGROUND, "kalendar događaja svakih 6 sati"),
-    ("dex", "run_dex.py", (), BACKGROUND, "DexScreener tokeni događaja svakih 6 sati"),
-    ("watch", "run_watch.py", (), BACKGROUND, "praćenje tokena prije događaja, jednom na sat"),
-    ("hype", "run_hype.py", (), BACKGROUND, "hype sken, učenje pametnih walleta, status tokena"),
-    ("wallets", "run_wallets.py", (), BACKGROUND, "registar walleta: skupljanje, ocjenjivanje, popisi"),
-    ("rug-arhiva", "-m rugfilter.archive", (), BACKGROUND, "arhiva rugiranih tokena, jednom na sat"),
-    ("report", "run_report.py", (), BACKGROUND, "jutarnji izvještaj"),
-    ("dugo", "run_dugo.py", (), BACKGROUND, "dugoročni sloj svakih 6 sati (noću)"),
-    ("simianx", "run_simianx.py", (), BACKGROUND, "drugo mišljenje za dugoročnu listu"),
+    ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
+    # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
+    ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
+    ("hype", "run_hype.py", (), SCANS, "hype sken (dijete demo petlje svake 2 min) i noćno učenje pametnih walleta"),
+    # 4: the scheduler's jobs and the other batches; nobody waits for these by the second, each comes round again
+    ("learn", "run_learn.py", (), JOBS, "učenje, sjena, masovna sjena i AI oznake objava (raspored)"),
+    ("exits", "run_exits.py", (), JOBS, "pravila izlaza po klasi: dnevno učenje i povrat (raspored)"),
+    ("market", "run_market.py", (), JOBS, "stanje tržišta svaki sat (raspored)"),
+    ("usage", "run_usage.py", (), JOBS, "potrošnja plaćenih izvora svakih 15 min (raspored)"),
+    ("corr", "run_corr.py", (), JOBS, "korelacije skupina i faktora, noću (raspored)"),
+    ("whatsapp", "run_whatsapp.py", (), JOBS, "dnevni sažetak u WhatsApp grupu (raspored)"),
+    ("report", "run_report.py", (), JOBS, "jutarnji izvještaj e-poštom"),
+    ("simianx", "run_simianx.py", (), JOBS, "drugo mišljenje za dugoročnu listu"),
+    ("watch", "run_watch.py", (), JOBS, "praćenje tokena prije događaja, jednom na sat"),
+    ("wallets", "run_wallets.py", (), JOBS, "registar walleta: skupljanje, ocjenjivanje, popisi"),
+    ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
+    ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
+    ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
+    ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
+    # 5: last of all: its rug check feeds the entry guard (_concentration) of the copy loop
+    ("top", "run_top.py", (), LAST,
+     "provjera preporučenih tokena svake 3 min; njena provjera ruga hrani zaštitu ulaza, pa staje zadnja"),
 )
-OTHER_WHY = "nije u start.sh (posao rasporeda ili ručno pokrenut): pozadina"
+OTHER_WHY = "nije u start.sh ni u rasporedu (ručno pokrenut posao): čeka s poslovima rasporeda"
+
+
+def rank_text(rank):
+    """'zaštićen' or '3. u redu', for the log and the list."""
+    return "zaštićen" if rank == PROTECTED else "krug" if rank == ROUND else f"{rank}. u redu"
 
 
 def parse(argv):
@@ -145,19 +189,19 @@ def parse(argv):
 
 
 def classify(argv, cpu_s=0.0):
-    """(name, class, why) of a python command line, or None for anything else. cpu_s: CPU seconds the process has used
+    """(name, rank, why) of a python command line, or None for anything else. cpu_s: CPU seconds the process has used
     so far (a KOL round is protected only up to ROUND_CPU_S of them)."""
     got = parse(argv)
     if got is None:
         return None
     what, args = got
-    for name, script, words, kind, why in PROCESSES:
+    for name, script, words, rank, why in PROCESSES:
         if script == what and (not words or any(w in args for w in words)):
-            if kind == ROUND:
-                kind = PROTECTED if cpu_s <= ROUND_CPU_S else LAST
-            return name, kind, why
+            if rank == ROUND:
+                rank = PROTECTED if cpu_s <= ROUND_CPU_S else ROUNDS
+            return name, rank, why
     name = what[4:-3] if what.startswith("run_") and what.endswith(".py") else what
-    return name, BACKGROUND, OTHER_WHY
+    return name, JOBS, OTHER_WHY
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -186,7 +230,8 @@ def read_v2(root=CGROUP):
 
 
 def read_v1(root=CGROUP):
-    """cgroup v1: the same three from cpuacct.usage (nanoseconds) and cpu.cfs_quota_us / cpu.cfs_period_us (-1 = no quota)."""
+    """cgroup v1: the same three from cpuacct.usage (nanoseconds) and cpu.cfs_quota_us / cpu.cfs_period_us
+    (-1 = no quota)."""
     used = None
     for d in ("cpuacct", "cpu,cpuacct", "cpu"):
         try:
@@ -244,7 +289,7 @@ class Meter:
         self.cores = cores if cores is not None else (_env("CPU_CORES", 0, 0, 4096) or None)
         self.sources = (("cgroup v2", lambda: read_v2(root)), ("cgroup v1", lambda: read_v1(root)),
                         ("/proc/stat (cijeli stroj)", lambda: read_procstat(proc)))
-        self.source = self.cpus = self.prev = None
+        self.source = self.cpus = self.cpus_from = self.prev = None
         self.throttled = 0   # kernel throttle periods since the first reading: the thing this guard exists to prevent
 
     def _sample(self):
@@ -265,6 +310,10 @@ class Meter:
         used, cpus, thr = got
         cur = (self.clock(), used, thr)
         self.cpus = self.cores or cpus or own_cpus()
+        # said in the start line: without a quota the percentage is of every core we may run on, and a guard that
+        # counts 8 cores where Render gives us one would never act (CPU_CORES fixes that)
+        self.cpus_from = ("zadano ručno" if self.cores else "jezgre cijelog stroja" if self.source.startswith("/proc")
+                          else "kvota" if cpus else "jezgre koje vidim, kvote nema")
         prev = self.prev
         if prev is not None and cur[0] - prev[0] < MIN_INTERVAL_S:
             return None   # two readings a few ms apart say nothing (one 10 ms tick would read as 1000 %)
@@ -279,7 +328,7 @@ class Meter:
 # ---------------------------------------------------------------------------------------------------------------
 # Our processes
 # ---------------------------------------------------------------------------------------------------------------
-P = collections.namedtuple("P", "pid start name kind why pct cpu_s state")
+P = collections.namedtuple("P", "pid start name rank why pct cpu_s state")
 
 
 def proc_stat(pid, proc=PROC):
@@ -382,12 +431,12 @@ def sweep(kill=os.kill, proc=PROC):
 # The brake
 # ---------------------------------------------------------------------------------------------------------------
 def candidates(procs, ours=lambda p: True):
-    """Processes that may be paused now, in the order they would be: ordinary background jobs before page builds and
-    long KOL rounds, the biggest consumer first within each. Never a protected one, never one that uses next to
+    """Processes that may be paused now, in the order they would be: by rank (page builds first, the rug check of
+    run_top last), the biggest consumer first within a rank. Never a protected one, never one that uses next to
     nothing, never one that already stands."""
-    c = [p for p in procs if p.kind in (BACKGROUND, LAST) and p.pct >= MIN_CPU and p.state not in ("T", "t", "Z", "X")
+    c = [p for p in procs if p.rank > PROTECTED and p.pct >= MIN_CPU and p.state not in ("T", "t", "Z", "X")
          and ours(p)]
-    return sorted(c, key=lambda p: (p.kind == LAST, -p.pct))
+    return sorted(c, key=lambda p: (p.rank, -p.pct))
 
 
 def ceiling(n, max_duty=MAX_DUTY):
@@ -396,7 +445,7 @@ def ceiling(n, max_duty=MAX_DUTY):
 
 
 def next_level(level, avg, n, high=CPU_HIGH, low=CPU_LOW, max_duty=MAX_DUTY):
-    """The brake for the next second: the part of every slot the biggest background consumer stands. Up while the
+    """The brake for the next second: the part of every slot the first candidate in line stands. Up while the
     average is above `high`, down while it is below `low`, unchanged between them; 0 with nobody to pause."""
     if avg > high:
         level += STEP_UP
@@ -406,7 +455,7 @@ def next_level(level, avg, n, high=CPU_HIGH, low=CPU_LOW, max_duty=MAX_DUTY):
 
 
 def plan(level, cands, max_duty=MAX_DUTY, slot=SLOT_S):
-    """[(P, seconds to stand in every slot)]: the biggest consumer stands `level` of the slot (at most max_duty), each
+    """[(P, seconds to stand in every slot)]: the first in line stands `level` of the slot (at most max_duty), each
     next one JOIN less. All of them stand at the START of the slot, so the shortest pause is a moment when no
     background job runs at all: one CPU-bound job alone can fill the quota, and pausing only its neighbour would
     hand it the freed time and change nothing."""
@@ -508,7 +557,7 @@ class Guard:
     def _reset_stats(self):
         self.n, self.total, self.peak, self.over = 0, 0.0, 0.0, 0
         self.pauses = {}     # name -> [times, seconds]
-        self.blocked = None  # (name, pct): the biggest protected consumer while the CPU was too high and the brake at its end
+        self.blocked = None  # (name, pct): the biggest protected consumer while the CPU was high and the brake at its end
         self.thr0 = self.meter.throttled
         self.t_log = self.clock()
 
@@ -523,7 +572,7 @@ class Guard:
         self.peak = max(self.peak, pct)
         self.over += pct > self.high
         if avg > self.high and stuck:   # too high and the brake has no more to give: say who holds the CPU
-            top = max((p for p in procs if p.kind == PROTECTED), key=lambda p: p.pct, default=None)
+            top = max((p for p in procs if p.rank == PROTECTED), key=lambda p: p.pct, default=None)
             if top and top.pct >= MIN_CPU and (self.blocked is None or top.pct > self.blocked[1]):
                 self.blocked = (top.name, top.pct)
 
@@ -549,9 +598,11 @@ class Guard:
     def start_line(self):
         m = self.meter
         never = ", ".join(n for n, _, _, k, _ in PROCESSES if k == PROTECTED)
-        return (f"čuvar CPU-a: izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU, pauze iznad {self.high:.0f} % "
-                f"(prosjek {self.window.maxlen} s) dok ne padne ispod {self.low:.0f} %"
-                + ("" if self.on else ", pauziranje isključeno (samo mjerim)") + f"; nikad ne diram: {never}")
+        how = getattr(m, "cpus_from", None)
+        return (f"čuvar CPU-a: izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU" + (f" ({how})" if how else "")
+                + f", pauze iznad {self.high:.0f} % (prosjek {self.window.maxlen} s) dok ne padne ispod {self.low:.0f} %"
+                + ("" if self.on else ", pauziranje isključeno (samo mjerim)")
+                + f"; nikad ne diram: {never}; KOL krug do {ROUND_CPU_S:.0f} s CPU-a")
 
     # -- the loop -----------------------------------------------------------------------------------------------------
     def _error(self, e):
@@ -603,7 +654,8 @@ def deadman(sweep_fn=sweep, log=None):
             pass
         done = sweep_fn()
         if done:
-            (log or (lambda s: print(s, flush=True)))(f"čuvar CPU-a: čuvar je nestao; zaustavljeni procesi su nastavljeni (pid {done})")
+            (log or (lambda s: print(s, flush=True)))(
+                f"čuvar CPU-a: čuvar je nestao; zaustavljeni procesi su nastavljeni (pid {done})")
     finally:
         os._exit(0)
 
@@ -616,10 +668,13 @@ def _on_signal(signum, frame):
 
 def popis():
     """The protected list with the reasons, as text."""
-    rows = [f"  {n:<10} {s:<22} {k:<9} {w}" for n, s, _, k, w in PROCESSES]
-    return "\n".join(["čuvar CPU-a: tko nikad ne stoji (zaštićen) i tko smije kratko stati (pozadina; na kraju = staje "
-                      "zadnji i najkraće; krug = zaštićen, a kad se zaračuna na kraju)"] + rows
-                     + [f"  {'ostalo':<10} {'':<22} {BACKGROUND:<9} {OTHER_WHY}"])
+    def where(script, words):
+        return script + (" " + "|".join(words) if words else "")
+    rows = [f"  {n:<11} {where(s, w):<30} {rank_text(k):<9} {why}" for n, s, w, k, why in PROCESSES]
+    return "\n".join(["čuvar CPU-a: tko nikad ne stoji (zaštićen) i kojim redom ostali smiju kratko stati (1. u redu "
+                      "staje prvi i najdulje, unutar istog reda prvo onaj koji troši najviše; krug = zaštićen dok ne "
+                      "potroši svoje, onda 3. u redu)"] + rows
+                     + [f"  {'ostalo':<11} {'':<30} {rank_text(JOBS):<9} {OTHER_WHY}"])
 
 
 def once(sleep=time.sleep):
@@ -629,9 +684,11 @@ def once(sleep=time.sleep):
     pr.scan()
     sleep(1)
     pct = m.read()
-    print(f"izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU, sada " + ("?" if pct is None else f"{pct:.0f} %"))
+    print(f"izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU ({m.cpus_from or '?'}), sada "
+          + ("?" if pct is None else f"{pct:.0f} %"))
     for p in sorted(pr.scan(), key=lambda p: -p.pct):
-        print(f"  {p.pid:>7} {p.name:<12} {p.kind:<9} {p.pct:5.1f} %  {p.state}")
+        print(f"  {p.pid:>7} {p.name:<12} {rank_text(p.rank):<9} {p.pct:5.1f} %  {p.state}"
+              + ("" if pr.ours(p) else "  (nije naš: drugi direktorij, ne diram ga)"))
 
 
 def main(argv=None):

@@ -95,12 +95,12 @@ class FakeProcs:
         return True
 
 
-def P(pid, name, kind, pct, state="S"):
-    return g.P(pid, 1, name, kind, "", pct, 0.0, state)
+def P(pid, name, rank, pct, state="S"):
+    return g.P(pid, 1, name, rank, "", pct, 0.0, state)
 
 
 UI, TRADE, KOL = P(11, "ui", g.PROTECTED, 97.0), P(12, "trade", g.PROTECTED, 30.0), P(13, "kol", g.PROTECTED, 40.0)
-DUGO, WALLETS, PAGE = P(21, "dugo", g.BACKGROUND, 60.0), P(22, "wallets", g.BACKGROUND, 35.0), P(23, "ui-dijete", g.LAST, 80.0)
+DUGO, WALLETS, PAGE = P(21, "dugo", g.JOBS, 60.0), P(22, "wallets", g.JOBS, 35.0), P(23, "ui-dijete", g.PAGES, 80.0)
 
 
 def guard(readings, procs, on=True, fail=(), moved=(), **kw):
@@ -144,7 +144,7 @@ class ContainerCpu(unittest.TestCase):
         self.clock.sleep(1)
         self.v2(10_900_000)                              # 0.9 s of CPU in 1 s on a 1-CPU quota
         self.assertAlmostEqual(m.read(), 90.0)
-        self.assertEqual((m.source, m.cpus), ("cgroup v2", 1.0))
+        self.assertEqual((m.source, m.cpus, m.cpus_from), ("cgroup v2", 1.0, "kvota"))
         self.clock.sleep(2)
         self.v2(11_900_000)                              # 1.0 s of CPU in 2 s
         self.assertAlmostEqual(m.read(), 50.0)
@@ -169,7 +169,7 @@ class ContainerCpu(unittest.TestCase):
             self.clock.sleep(1)
             self.v2(1_000_000, "max 100000")             # one busy core of four
             self.assertAlmostEqual(m.read(), 25.0)
-            self.assertEqual(m.cpus, 4)
+            self.assertEqual((m.cpus, m.cpus_from), (4, "jezgre koje vidim, kvote nema"))   # said in the start line
         self.v2(1_000_000, quota=None)                   # no cpu.max at all reads the same way
         os.remove(os.path.join(self.root, "cpu.max"))
         self.assertEqual(g.read_v2(self.root)[1], None)
@@ -181,6 +181,7 @@ class ContainerCpu(unittest.TestCase):
         self.clock.sleep(1)
         self.v2(1_000_000, "max 100000")
         self.assertAlmostEqual(m.read(), 50.0)
+        self.assertEqual(m.cpus_from, "zadano ručno")
 
     def test_v1_cpuacct(self):
         self.v1(5_000_000_000)
@@ -210,7 +211,7 @@ class ContainerCpu(unittest.TestCase):
         self.procstat(busy=1000 + tck, idle=5000 + tck)  # one of the two CPUs busy for the second
         self.assertAlmostEqual(m.read(), 50.0)
         self.assertIn("/proc/stat", m.source)
-        self.assertEqual(m.cpus, 2)
+        self.assertEqual((m.cpus, m.cpus_from), (2, "jezgre cijelog stroja"))
 
     def test_order_v2_then_v1_then_proc(self):
         self.procstat(1, 1)
@@ -267,35 +268,67 @@ class WhoIsWho(unittest.TestCase):
         return g.classify(["python3"] + cmd.split(), cpu_s)[:2]
 
     def test_money_path_is_protected(self):
+        # audit sekundni.md §4 "Nikad ne pauzirati": run_trade, run_ui, run_live, run_tg; plus the supervisors, the
+        # deploy stand-in, the two checks and the memory watchdog (when in doubt, protected)
         for cmd, name in (("run_ui.py --host 0.0.0.0 --port 10000", "ui"), ("run_trade.py follow", "trade"),
                           ("run_kol.py loop --every 20", "kol"), ("run_tg.py loop", "tg"), ("run_tg.py telethon", "tg"),
-                          ("run_live.py loop", "live"), ("run_paper.py run --scan --hype-args --deep", "paper"),
+                          ("run_live.py loop", "live"),
                           ("deploy_wait.py --port 10000", "deploy"), ("-m ops.cpuguard", "cpuguard"),
-                          ("-m ops.uptime", "uptime"), ("-m ops.health --hourly", "health"), ("run_sched.py", "sched"),
+                          ("-m ops.uptime", "uptime"), ("-m ops.health --hourly", "health"), ("-m ops.health", "health"),
+                          ("-m ops.health --quiet", "health"), ("run_sched.py", "sched"),
                           ("/app/run_trade.py follow", "trade"), ("-u /srv/app/run_ui.py --port 1", "ui")):
             self.assertEqual(self.kind(cmd), (name, g.PROTECTED), cmd)
 
+    def test_demo_loop_waits_only_while_it_does_not_feed_the_real_trade(self):
+        """Audit §4: run_paper may wait "dok je follow_paper zaključan"; the day the lock goes, it is protected."""
+        from trade import settings
+        self.assertIn("follow_paper", settings.LOCKED)                       # today: locked
+        self.assertEqual(self.kind("run_paper.py run --scan --hype-args --deep 20"), ("paper", g.SCANS))
+        with mock.patch.dict(settings.LOCKED, clear=True):
+            self.assertEqual(g._paper_rank(), g.PROTECTED)
+        import builtins
+        real = builtins.__import__
+
+        def broken(name, *a, **kw):
+            if name.split(".")[0] == "trade":
+                raise ImportError(name)
+            return real(name, *a, **kw)
+        with mock.patch("builtins.__import__", broken):                     # unreadable: the safe side
+            self.assertEqual(g._paper_rank(), g.PROTECTED)
+
     def test_the_wrapper_is_not_the_job_it_wraps(self):
         self.assertEqual(self.kind("-m ops.heavy --night run_dugo.py once"), ("heavy", g.PROTECTED))
-        self.assertEqual(self.kind("run_dugo.py once"), ("dugo", g.BACKGROUND))
+        self.assertEqual(self.kind("run_dugo.py once"), ("dugo", g.JOBS))
         self.assertEqual(self.kind("-m ops.heavy -m ops.health --hourly"), ("heavy", g.PROTECTED))
-        self.assertEqual(self.kind("-m rugfilter.archive"), ("rug-arhiva", g.BACKGROUND))
+        self.assertEqual(self.kind("-m rugfilter.archive"), ("rug-arhiva", g.JOBS))
 
-    def test_background_and_page_builds(self):
-        for cmd, name in (("run_kol.py minute-loop", "minute"), ("run_kol.py backfill --budget 28", "backfill"),
-                          ("run_top.py once", "top"), ("run_wallets.py score --credits 6000", "wallets"),
-                          ("run_hype.py scan --top 3", "hype"), ("run_report.py loop", "report"),
-                          ("run_learn.py fit", "learn"), ("-c import time", "-c")):
-            self.assertEqual(self.kind(cmd), (name, g.BACKGROUND), cmd)
-        self.assertEqual(self.kind("run_ui.py --render /pregled"), ("ui-dijete", g.LAST))
-        self.assertEqual(g.classify(["python3", "run_learn.py", "fit"])[2], g.OTHER_WHY)
+    def test_background_ranks_follow_the_audit(self):
+        """Audit §4 "Smije čekati, ovim redom": page builds, hype scan and demo, KOL jobs, the scheduler's jobs and
+        the rest, run_top last."""
+        for cmd, name, rank in (("run_ui.py --render /pregled", "ui-dijete", g.PAGES),
+                                ("run_hype.py scan --top 3", "hype", g.SCANS), ("run_hype.py learn --auto 5", "hype", g.SCANS),
+                                ("run_kol.py minute-loop", "minute", g.ROUNDS),
+                                ("run_kol.py backfill --budget 28", "backfill", g.ROUNDS),
+                                ("run_hype.py status", "hype-status", g.JOBS),
+                                ("run_learn.py masovno", "learn", g.JOBS), ("run_exits.py rollback", "exits", g.JOBS),
+                                ("run_wallets.py score --credits 6000", "wallets", g.JOBS),
+                                ("run_report.py loop", "report", g.JOBS), ("run_simianx.py once", "simianx", g.JOBS),
+                                ("run_watch.py run", "watch", g.JOBS), ("-m rugfilter.archive", "rug-arhiva", g.JOBS),
+                                ("run_top.py once", "top", g.LAST),
+                                ("run_nesto.py x", "nesto", g.JOBS), ("-c import time", "-c", g.JOBS)):
+            self.assertEqual(self.kind(cmd), (name, rank), cmd)
+        self.assertEqual(g.classify(["python3", "run_nesto.py", "x"])[2], g.OTHER_WHY)
+        self.assertLess(g.PAGES, g.SCANS)
+        self.assertLess(g.SCANS, g.ROUNDS)
+        self.assertLess(g.ROUNDS, g.JOBS)
+        self.assertLess(g.JOBS, g.LAST)
 
     def test_kol_round_is_protected_until_it_computes(self):
         for cmd in ("run_kol.py once", "run_kol.py --verbose search-round", "-X faulthandler run_kol.py once"):
             self.assertEqual(self.kind(cmd), ("kol-krug", g.PROTECTED), cmd)
             self.assertEqual(self.kind(cmd, g.ROUND_CPU_S), ("kol-krug", g.PROTECTED), cmd)
-            self.assertEqual(self.kind(cmd, g.ROUND_CPU_S + 1), ("kol-krug", g.LAST), cmd)   # scoring, or a runaway query
-        self.assertEqual(self.kind("run_kol.py loop", 10 ** 6), ("kol", g.PROTECTED))         # the supervisor: always
+            self.assertEqual(self.kind(cmd, g.ROUND_CPU_S + 1), ("kol-krug", g.ROUNDS), cmd)   # scoring, or a runaway query
+        self.assertEqual(self.kind("run_kol.py loop", 10 ** 6), ("kol", g.PROTECTED))           # the supervisor: always
 
     def test_not_python_is_not_ours(self):
         for argv in (["bash", "start.sh"], ["sleep", "3600"], ["nice", "-n", "10", "python3", "x.py"], []):
@@ -304,23 +337,46 @@ class WhoIsWho(unittest.TestCase):
 
     def test_every_python_command_in_start_sh_is_on_the_list(self):
         """Whoever adds a loop to start.sh decides here whether it may be paused; nothing falls through by accident."""
-        sh = open(os.path.join(ROOT, "start.sh"), encoding="utf-8").read()
+        with open(os.path.join(ROOT, "start.sh"), encoding="utf-8") as f:
+            sh = f.read()
         code = "\n".join(ln.split(" #")[0] for ln in sh.splitlines() if not ln.strip().startswith("#"))
-        cmds = set(re.findall(r"python3 ((?:-m [\w.]+)|(?:\w+\.py))", code))
+        script = r"((?:-m [\w.]+)|(?:\w+\.py))"
+        # 10.11.: also what runs behind "python3 -m ops.heavy [--night] [--prio]" (calendar, dex, wallets, dugo ...)
+        cmds = set(re.findall(r"python3 " + script, code)) | set(re.findall(r"ops\.heavy(?: --\w+)* " + script, code))
         self.assertGreaterEqual(len(cmds), 20)
+        for c in ("run_calendar.py", "run_wallets.py", "run_dugo.py", "-m rugfilter.archive", "run_hype.py"):
+            self.assertIn(c, cmds)
+        self.check_listed(cmds)
+
+    def check_listed(self, cmds):
         listed = {script for _, script, _, _, _ in g.PROCESSES}
         self.assertEqual(sorted(c for c in cmds if c not in listed), [])
         for c in cmds:
             self.assertNotEqual(g.classify(["python3"] + c.split())[2], g.OTHER_WHY, c)
 
+    def test_every_job_of_the_scheduler_and_the_loops_children_is_on_the_list(self):
+        """The processes start.sh does not start itself: run_sched's jobs, the KOL round, the hype scan, page builds."""
+        found = set()
+        for path in ("run_sched.py", "run_corr.py", "ui/jobs.py"):
+            with open(os.path.join(ROOT, path), encoding="utf-8") as f:
+                found |= set(re.findall(r'"(run_\w+\.py)"', f.read()))
+        self.assertGreaterEqual(len(found), 6)
+        self.check_listed(found)
+        for argv, name in ((["run_kol.py", "once"], "kol-krug"), (["run_kol.py", "search-round"], "kol-krug"),
+                           (["run_hype.py", "scan"], "hype"), (["run_ui.py", "--render", "/tokeni"], "ui-dijete")):
+            self.assertEqual(g.classify(["python3"] + argv)[0], name)
+
     def test_every_reason_is_written_down(self):
-        for name, script, words, kind, why in g.PROCESSES:
-            self.assertIn(kind, (g.PROTECTED, g.ROUND, g.LAST, g.BACKGROUND), name)
+        for name, script, words, rank, why in g.PROCESSES:
+            self.assertIn(rank, (g.PROTECTED, g.ROUND, g.PAGES, g.SCANS, g.ROUNDS, g.JOBS, g.LAST), name)
             self.assertGreater(len(why), 15, name)
-            self.assertNotIn("—", why)
+            self.assertNotIn("\u2014", why)
         text = g.popis()
-        for name in ("ui", "trade", "kol", "tg", "live", "paper", "deploy"):
-            self.assertRegex(text, rf"\n  {name} +\S.* +{g.PROTECTED} ")
+        for name in ("ui", "trade", "kol", "tg", "live", "deploy", "health", "cpuguard"):
+            self.assertRegex(text, rf"\n  {name} +\S.* +zaštićen ", name)
+        self.assertRegex(text, r"\n  ui-dijete +run_ui.py --render +1\. u redu ")
+        self.assertRegex(text, r"\n  top +run_top.py +5\. u redu ")
+        self.assertRegex(text, r"\n  kol-krug +run_kol.py +krug ")
 
 
 class Processes(unittest.TestCase):
@@ -349,8 +405,8 @@ class Processes(unittest.TestCase):
         pr = g.Procs(proc=self.proc, clock=self.clock, window=3)
         first = {p.pid: p for p in pr.scan()}
         self.assertEqual(sorted(first), [101, 102])                    # not bash, not sleep, not this process
-        self.assertEqual((first[101].name, first[101].kind), ("ui", g.PROTECTED))
-        self.assertEqual((first[102].name, first[102].kind, first[102].start), ("dugo", g.BACKGROUND, 77))
+        self.assertEqual((first[101].name, first[101].rank), ("ui", g.PROTECTED))
+        self.assertEqual((first[102].name, first[102].rank, first[102].start), ("dugo", g.JOBS, 77))
         self.assertEqual(first[102].pct, 0.0)                          # one sample is not a rate yet
         self.clock.sleep(1)
         self.tree(p102={"ticks": 500 + g.CLK_TCK // 2})                # half a second of CPU in one second
@@ -415,15 +471,21 @@ class Victims(unittest.TestCase):
         for level in (0.1, 0.5, 5.0):
             self.assertEqual(g.plan(level, g.candidates([UI, TRADE, KOL])), [])
 
-    def test_biggest_background_first_then_page_builds(self):
-        small = P(24, "top", g.BACKGROUND, 12.0)
-        c = g.candidates([PAGE, small, UI, WALLETS, DUGO])
-        self.assertEqual([p.name for p in c], ["dugo", "wallets", "top", "ui-dijete"])   # the 80 % page build goes last
+    def test_audit_order_first_then_the_biggest_consumer(self):
+        """Audit sekundni.md §4: page builds first, run_top last; inside one rank the biggest consumer first."""
+        top = P(24, "top", g.LAST, 95.0)
+        hype = P(25, "hype", g.SCANS, 20.0)
+        minute = P(26, "minute", g.ROUNDS, 50.0)
+        c = g.candidates([top, PAGE, minute, UI, WALLETS, hype, DUGO])
+        self.assertEqual([p.name for p in c], ["ui-dijete", "hype", "minute", "dugo", "wallets", "top"])
+        pl = g.plan(g.ceiling(len(c)), c)
+        self.assertEqual([p.name for p, _ in pl], [p.name for p in c])
+        self.assertEqual([s for _, s in pl], sorted((s for _, s in pl), reverse=True))   # the first stands longest
 
     def test_idle_stopped_and_foreign_processes_are_left_alone(self):
-        idle = P(31, "report", g.BACKGROUND, g.MIN_CPU - 0.1)
-        standing = P(32, "hype", g.BACKGROUND, 50.0, state="T")
-        zombie = P(33, "hype", g.BACKGROUND, 50.0, state="Z")
+        idle = P(31, "report", g.JOBS, g.MIN_CPU - 0.1)
+        standing = P(32, "hype", g.SCANS, 50.0, state="T")
+        zombie = P(33, "hype", g.SCANS, 50.0, state="Z")
         self.assertEqual(g.candidates([idle, standing, zombie]), [])
         self.assertEqual(g.candidates([DUGO, WALLETS], ours=lambda p: p.pid != 21), [WALLETS])
 
@@ -441,15 +503,15 @@ class Victims(unittest.TestCase):
         c = g.candidates([DUGO, WALLETS, PAGE])
         self.assertEqual(g.plan(0.0, c), [])
         one = g.plan(0.1, c)
-        self.assertEqual([(p.name, round(s, 3)) for p, s in one], [("dugo", 0.05)])
+        self.assertEqual([(p.name, round(s, 3)) for p, s in one], [("ui-dijete", 0.05)])   # page builds first (audit)
         three = g.plan(0.35, c)
-        self.assertEqual([p.name for p, _ in three], ["dugo", "wallets", "ui-dijete"])
+        self.assertEqual([p.name for p, _ in three], ["ui-dijete", "dugo", "wallets"])
         self.assertEqual([round(s, 3) for _, s in three], [0.175, 0.125, 0.075])
 
     def test_duty_cycle_bounds(self):
         """Whatever the brake says: a pause is never over half a second (nor over MAX_DUTY of a slot), and the rest
         of the slot, in which the process runs, is never shorter than RUN_MIN_S."""
-        many = [P(100 + i, f"job{i}", g.BACKGROUND, 90.0 - i) for i in range(12)]
+        many = [P(100 + i, f"job{i}", g.JOBS, 90.0 - i) for i in range(12)]
         for n in (1, 2, 5, 12):
             for level in (0.01, 0.05, 0.1, 0.33, 0.5, 0.9, 2.0, 50.0):
                 pl = g.plan(level, many[:n])
@@ -488,13 +550,14 @@ class Settles(unittest.TestCase):
                 use[i] += (b - a) * d * scale
         return read, use
 
-    def run_model(self, demands, protected=8.0, secs=60):
+    def run_model(self, demands, protected=8.0, secs=60, ranks=None):
         demands = dict(enumerate(demands))
+        ranks = ranks or [g.JOBS] * len(demands)
         window, level, duty, trace, worst = collections.deque(maxlen=3), 0.0, {}, [], 0.0
         for _ in range(secs):
             read, use = self.second(demands, duty, protected)
             window.append(read)
-            c = g.candidates([P(i, f"job{i}", g.BACKGROUND, pct) for i, pct in use.items()])
+            c = g.candidates([P(i, f"job{i}", ranks[i], pct) for i, pct in use.items()])
             if len(window) == 3:
                 level = g.next_level(level, sum(window) / 3, len(c), 90, 80)
             duty = {p.pid: s / g.SLOT_S for p, s in g.plan(level, c)}
@@ -505,9 +568,19 @@ class Settles(unittest.TestCase):
     def test_one_to_five_cpu_bound_jobs_end_under_90(self):
         for demands in ([100], [100, 100], [100, 100, 100], [100] * 5, [40, 30, 20], [100, 30], [60, 50]):
             trace, worst = self.run_model(demands)
-            self.assertEqual(trace[0], 100.0, demands)
+            self.assertEqual(trace[0], min(100.0, 8.0 + sum(demands)), demands)   # the first second, before the brake
             self.assertLessEqual(max(trace[12:]), 90.0, demands)            # within 12 s, and it stays there
             self.assertGreaterEqual(min(trace[12:]), 70.0, demands)         # without starving the jobs either
+            self.assertLessEqual(worst, g.MAX_DUTY + 1e-9, demands)
+
+    def test_a_small_first_in_line_does_not_keep_a_big_one_running(self):
+        """The audit's order puts a page build first even when it uses little; the brake still reaches the big
+        CPU-bound job behind it (it joins JOIN later) and the container ends under 90 %."""
+        for demands, ranks in (([10, 100], [g.PAGES, g.JOBS]), ([6, 100, 100], [g.PAGES, g.SCANS, g.LAST]),
+                               ([100, 30], [g.LAST, g.PAGES])):
+            trace, worst = self.run_model(demands, ranks=ranks)
+            self.assertLessEqual(max(trace[15:]), 90.0, demands)
+            self.assertGreaterEqual(min(trace[15:]), 70.0, demands)
             self.assertLessEqual(worst, g.MAX_DUTY + 1e-9, demands)
 
     def test_light_jobs_are_never_paused(self):
@@ -545,11 +618,12 @@ class Pauses(unittest.TestCase):
 
     def test_biggest_consumer_is_paused_first_and_longest(self):
         gd, kills, logs, clock = guard([99] * 5, [UI, DUGO, WALLETS])
-        for _ in range(4):
+        for _ in range(3):
             gd.tick()
         self.assertEqual(set(kills.of(signal.SIGSTOP)), {21})               # the first step of the brake: dugo alone
-        gd.tick()
+        gd.tick()                                                            # the second: wallets joins, JOIN shorter
         self.assertEqual(set(kills.of(signal.SIGSTOP)), {21, 22})
+        gd.tick()
         self.assertGreater(gd.pauses["dugo"][1], gd.pauses["wallets"][1])
 
     def test_a_single_spike_is_not_a_reason(self):
@@ -568,11 +642,11 @@ class Pauses(unittest.TestCase):
 
     def test_eases_off_below_low_and_stops(self):
         gd, kills, logs, clock = guard([99] * 6 + [85] * 5 + [50] * 20, [UI, DUGO])
-        for _ in range(6):
+        for _ in range(7):                                                    # the 7th window (99, 99, 85) is still above
             gd.tick()
         top = gd.level
         self.assertGreater(top, 0.3)
-        for _ in range(5):
+        for _ in range(4):
             gd.tick()
         self.assertEqual(gd.level, top)                                       # between low and high: held
         n = len(kills.log)
@@ -819,7 +893,8 @@ class Priorities(unittest.TestCase):
     """start.sh: background loops below the UI and the trade loop, the protected listeners at normal priority."""
 
     def setUp(self):
-        self.sh = open(os.path.join(ROOT, "start.sh"), encoding="utf-8").read()
+        with open(os.path.join(ROOT, "start.sh"), encoding="utf-8") as f:
+            self.sh = f.read()
         self.code = [ln for ln in self.sh.splitlines() if not ln.strip().startswith("#")]
 
     def test_background_loops_are_low_listeners_are_not(self):
@@ -865,7 +940,8 @@ class Priorities(unittest.TestCase):
                   f"for i in $(seq 1 100); do [ \"$(wc -l < '{out}' 2>/dev/null || echo 0)\" -ge 3 ] && break; sleep 0.05; done\n"
                   "kill $(jobs -p) 2>/dev/null\n")
         subprocess.run(["bash", "-c", script], check=False, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        got = dict(ln.split() for ln in open(out).read().splitlines())
+        with open(out) as f:
+            got = dict(ln.split() for ln in f.read().splitlines())
         base = int(got["obicno"])
         want = min(19, base + 10)
         self.assertEqual((int(got["nisko"]), int(got["petlja"])), (want, want), got)
