@@ -312,6 +312,11 @@ def _error_html():
     """Generic error text for the page; the traceback goes to the server log only (audit 4.11. §4.3)."""
     ref = hashlib.sha256(f"{time.time()}{os.getpid()}".encode()).hexdigest()[:8]
     print(f"ui-greska {ref}:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+    try:   # 10.11. (Jure): the same error in Sentry, under the mark the page and the log show
+        from ops import sentry
+        sentry.capture(where=f"ui-greska {ref}")
+    except Exception:  # noqa: BLE001 - the error page must still be shown
+        pass
     return (f"<h1>Greška</h1><p>Stranica se nije mogla složiti. Pokušaj ponovno za minutu. "
             f"<span class=mut>Oznaka za log: {ref}</span></p>")
 
@@ -1190,6 +1195,11 @@ def _bind(host, port):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("ui")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8050)
