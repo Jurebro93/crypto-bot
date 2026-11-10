@@ -47,11 +47,13 @@ class Base(unittest.TestCase):
         settings.DB = os.path.join(d, "trade.db")
         store.DB = os.path.join(d, "league.db")
         mcpdata._CACHE.clear()
+        # 10.11. (Grok MCP audit 1): p0 in the same unit as the demo's entry price (1.0 at $50k): league/store.buy now
+        # stores the run-up from p0 at the entry, and the API prefers that stored figure
         calls = [  # handle, tweet, token, ts, kind, p0, mcap0, r1h, r24h, max24, rug, followers
-            ("ansem", "t1", TOK, NOW - 7200, "call", 0.001, 50_000, 0.3, 1.5, 2.0, 0, 500_000),
-            ("ansem", "t2", TOK2, NOW - 3600, "call", 0.002, 80_000, -0.2, -0.95, 0.1, 1, 500_000),
-            ("murad", "t3", TOK, NOW - 7000, "call", 0.0011, 55_000, 0.2, 1.2, 1.1, 0, 20_000),
-            ("tg:alpha", "tg:alpha/1", TOK, NOW - 6900, "call", 0.0012, 60_000, 0.1, 0.4, 0.6, 0, 3_000),
+            ("ansem", "t1", TOK, NOW - 7200, "call", 1.0, 50_000, 0.3, 1.5, 2.0, 0, 500_000),
+            ("ansem", "t2", TOK2, NOW - 3600, "call", 1.6, 80_000, -0.2, -0.95, 0.1, 1, 500_000),
+            ("murad", "t3", TOK, NOW - 7000, "call", 1.1, 55_000, 0.2, 1.2, 1.1, 0, 20_000),
+            ("tg:alpha", "tg:alpha/1", TOK, NOW - 6900, "call", 1.2, 60_000, 0.1, 0.4, 0.6, 0, 3_000),
             ("murad", "b1", TOK, NOW - 6000, "brag", None, None, None, None, None, 0, 20_000),
             ("murad", "b2", TOK2, NOW - 5000, "brag", None, None, None, None, None, 0, 20_000),
             ("murad", "b3", TOK2, NOW - 4000, "brag", None, None, None, None, None, 0, 20_000),
@@ -143,7 +145,9 @@ class Base(unittest.TestCase):
 class Tools(Base):
     def test_1_caller_leaderboard(self):
         from ui import mcpdata
-        out = mcpdata.caller_leaderboard(limit=2)
+        # 10.11. (Grok MCP audit 5): the default list needs 10 measured calls; these callers have 1-2 (min_measured=0)
+        self.assertEqual(mcpdata.caller_leaderboard()["total"], 0)
+        out = mcpdata.caller_leaderboard(limit=2, sort="score", min_measured=0)
         self.assertEqual((out["limit"], out["offset"], out["total"], out["next_offset"]), (2, 0, 3, 2))
         top = out["rows"][0]
         self.assertEqual((top["handle"], top["platform"], top["calls"], top["call_power"]), ("ansem", "x", 2, 72.0))
@@ -153,12 +157,12 @@ class Tools(Base):
         self.assertEqual(top["avg_mcap_at_call"], 65_000)
         self.assertEqual((top["first_call_ts"], top["last_call_ts"]), (NOW - 7200, NOW - 3600))
         self.assertTrue(top["big_name"])
-        murad = next(r for r in mcpdata.caller_leaderboard(limit=500)["rows"] if r["handle"] == "murad")
+        murad = next(r for r in mcpdata.caller_leaderboard(limit=500, min_measured=0)["rows"] if r["handle"] == "murad")
         self.assertTrue(murad["rising_star"] and murad["bragger"])
-        tg = mcpdata.caller_leaderboard(platform="telegram")["rows"]
+        tg = mcpdata.caller_leaderboard(platform="telegram", min_measured=0)["rows"]
         self.assertEqual([r["handle"] for r in tg], ["tg:alpha"])
-        self.assertEqual([r["handle"] for r in mcpdata.caller_leaderboard(min_calls=2)["rows"]], ["ansem"])
-        self.assertEqual(mcpdata.caller_leaderboard(sort="x2_share", limit=1)["rows"][0]["handle"], "murad")
+        self.assertEqual([r["handle"] for r in mcpdata.caller_leaderboard(min_calls=2, min_measured=0)["rows"]], ["ansem"])
+        self.assertEqual(mcpdata.caller_leaderboard(sort="x2_share", limit=1, min_measured=0)["rows"][0]["handle"], "murad")
         self.assertEqual(mcpdata.caller_leaderboard(limit=9999)["limit"], 500)
 
     def test_2_caller_history(self):
@@ -168,7 +172,7 @@ class Tools(Base):
         old = out["rows"][1]
         self.assertEqual((old["token"], old["call_ts"], old["market_cap_at_call"]), (TOK, NOW - 7200, 50_000))
         self.assertEqual((old["max_1h"], old["min_1h"], old["max_24h"]), (0.8, -0.1, 2.0))
-        self.assertAlmostEqual(old["price_1h"], 0.0013)
+        self.assertAlmostEqual(old["price_1h"], 1.3)                         # p0 1.0 x (1 + r1h 0.3)
         self.assertEqual((old["other_callers_15m_before"], old["other_callers_15m_after"]), (0, 2))
         self.assertTrue(out["rows"][0]["rug"])
         page = mcpdata.caller_history("ansem", "x", limit=1, offset=1)
@@ -215,7 +219,7 @@ class Tools(Base):
         out = mcpdata.autopilot_trades()
         t = out["rows"][0]
         self.assertEqual((t["token"], t["status"], t["exit_reason"], t["entry_market_cap"], t["exit_market_cap"]),
-                         (TOK, "closed", "TP", 50_000, 70_000))
+                         (TOK, "closed", "tp", 50_000, 70_000))   # 10.11. (Grok MCP audit 2): exit_rule words
         self.assertAlmostEqual(t["pnl_sol"], 0.058)
         sig = t["signals"]
         self.assertEqual(sig["follow"]["target"], "ansem")
