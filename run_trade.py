@@ -227,9 +227,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 # 9.11. (Jure: "samo jedan trade izvršen, zašto?"): the reason used to be only in the positions table
                 _say(f"{tag} PRESKOČENO {t['symbol'] or t['token'][:6]} ({t['source'] or 'copy'}): {why}", quiet)
                 continue
+            # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the owner's manual
+            # buy (its own stake, never a copy) may add one more lot to a token already held; a copy never doubles one
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else None,
-                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15))   # 15: the page default (ui/pravitrade)
+                             tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
+                             add=bool(size) and not is_copy)
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:

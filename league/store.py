@@ -114,7 +114,9 @@ def account(con, user):
             "since": since}
 
 
-def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, mcap=None):
+def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, mcap=None, allow_open=False):
+    """allow_open (10.11., Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the
+    Autopilot's manual buy opens one more lot of a token already held; everyone else keeps one position per token."""
     if not price or price <= 0:
         raise ValueError("nema cijene za token")
     if not liq or liq < 1000:
@@ -122,7 +124,7 @@ def buy(con, user, token, symbol, size_usd, price, liq, source="", score=None, m
     acc = account(con, user)
     if size_usd <= 0 or size_usd > acc["cash"] + 1e-9:
         raise ValueError(f"ulog mora biti između $0 i slobodnih ${acc['cash']:,.2f}")
-    if con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, token)).fetchone():
+    if not allow_open and con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (user, token)).fetchone():
         raise ValueError("već imaš otvorenu poziciju u tom tokenu")
     eff = price * (1 + FEE) / (1 - impact(size_usd, liq))
     cur = con.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px, entry_eff, qty, "

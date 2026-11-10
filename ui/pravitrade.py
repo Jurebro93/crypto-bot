@@ -166,11 +166,14 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # A box that still holds only its "učitavam…" is filled even right after the tap that opened it (that tap is what
 # asked for it); a refused swap (finger down, field in focus) returns false and the poller asks again a moment later
 # (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
-PATCH_JS = """<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0;
-addEventListener('pointerdown',()=>{down=Date.now()},true);
+PATCH_JS = """<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
+addEventListener('pointerdown',()=>{down=Date.now();held=true},true);
+addEventListener('pointerup',()=>{down=Date.now();held=false},true);addEventListener('pointercancel',()=>{held=false},true);
+addEventListener('touchstart',()=>{down=Date.now();held=true},{capture:true,passive:true});
+addEventListener('touchend',()=>{down=Date.now();held=false},{capture:true,passive:true});
 window.apSeen=box=>{for(const c of box.children)if(!SRC.has(c))SRC.set(c,c.outerHTML)};
 window.apPatch=(box,h)=>{const virgin=![...box.children].some(c=>SRC.has(c));
-if((!virgin&&Date.now()-down<400)||box.contains(document.activeElement))return false;
+if((!virgin&&(held||Date.now()-down<1200))||box.contains(document.activeElement))return false;
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
 b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o)o.replaceWith(n);else box.appendChild(n)});
@@ -799,7 +802,9 @@ def _follows(con, owner, st=None, prefill=""):
         pool_box = ""
     listed = ("".join(items) or '<p class=mut>Još nikoga. Upiši koga pratiti ili odaberi iz preporuka alata pod „Još”.</p>')
     inner = (listed + pool_box + '<h3 class=ap-sub><span>Automatski izbor</span></h3>' + _auto_box(st, owner) + anyone)
-    return _sec("Koga prati", meta, inner, open_=not fl or bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
+    # 10.11. (Jure: "nek su sve zatvorene kartice za početak, osim grafa, brze kupnje i otvorenih pozicija"): open
+    # only when a crew is being filled in from "Zovu sada" (prefill)
+    return _sec("Koga prati", meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
 
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
@@ -2208,6 +2213,7 @@ def recs_fragment(user):
 # ---------- positions -------------------------------------------------------------------------------------------
 
 def _sell_btns(pid, pending):
+    """pid: one positions id or several joined by commas (the lots of one token are sold together)."""
     if pending is not None:
         return f'<p class=mut>Prodaja {redak.pct(pending, sign=False, frac=True)} je u tijeku.</p>'
     return ('<div class=ap-btns>' + "".join(
@@ -2316,6 +2322,63 @@ def _exit_form(pid, rule, cfg):
             'Ako je cijena već iznad TP-a ili ispod SL-a, prodaja kreće u sljedećih 20 s.</p>')
 
 
+def _now_mcap(tokens):
+    """{token: market cap now} from the shared live cache (_live_cached: the background thread renews it while it is
+    asked for; a request thread fetches only a set nobody asked for yet). {} when DexScreener does not answer."""
+    try:
+        live = _live_cached(tuple(sorted(tokens)), time.time()) or {}
+    except Exception:  # noqa: BLE001 - the rows render without the move
+        return {}
+    return {t: (live.get(t) or {}).get("mcap") for t in tokens}
+
+
+def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
+    """One open position = every open lot of a token (oldest first). Closed: name, whom it copies (or "2 ulaza"), the
+    entry MC(s), the stake in total, the share still held. Open: one line per lot ("1. ulaz 11:56 na MC $60k ·
+    0,150 SOL (≈ +55 %)"), the exit, the owner's exit form and sell buttons (every lot), the live check."""
+    import datetime as _dt
+    import zoneinfo
+    z = zoneinfo.ZoneInfo("Europe/Zagreb")
+    first = lots[0]
+    pid0, sym, mode = first[0], first[2], first[4]
+    ids = [r[0] for r in lots]
+    pend = next((pending.get(str(i)) for i in ids if pending.get(str(i)) is not None), None)
+    trial = "probno" if (mixed and mode != "live") else None
+    who = _who(first[6]) if len(lots) == 1 else f"{len(lots)} ulaza"
+    lines, mcs, rules = [], [], []
+    for n, (pid, _t, _s, ts, _m, _st, why, sin, sback, q, ql, _c, _f, lid) in enumerate(lots, 1):
+        mc, rule, demo_open = demo.get(lid, (None, None, False))
+        mcs.append(mc)
+        rules.append((lid, rule, demo_open))
+        move = f" (≈ {(mc_now / mc - 1) * 100:+.0f} %)" if mc and mc_now else ""
+        bits = [f"{n}. ulaz {_dt.datetime.fromtimestamp(ts, z):%H:%M}" + (f" na MC {_usd_short(mc)}" if mc else "")
+                + move, redak.sol(sin or 0, 3)]
+        if sback:
+            bits.append(f"vraćeno {redak.sol(sback, 4)}")
+        if len(lots) > 1 or not _who(why):
+            bits.append(_who(why) or (why or ""))
+        lines.append(" · ".join(b for b in bits if b))
+    line = "".join(f"<p class=mut>{esc(x)}</p>" for x in lines)
+    line += f'<p class=mut>{"pravi novac" if mode == "live" else "probno"}' + (
+        f" · MC sada {_usd_short(mc_now)}" if mc_now else "") + "</p>"
+    exits = {_exit_words(r) for lid, r, _o in rules if lid}
+    exit_html = (f"<p class=mut>Izlaz: {esc(' / '.join(sorted(x or 'nije postavljen' for x in exits)))}"
+                 + (" (svaki ulaz od svoje cijene)" if len(lots) > 1 else "") + "</p>") if exits else ""
+    lid0, rule0, open0 = next(((lid, r, o) for lid, r, o in rules if lid and o), (None, None, False))
+    if owner and lid0 and pend is None:
+        exit_html += _exit_form(pid0, rule0, cfg)
+    act = _sell_btns(",".join(map(str, ids)), pend) if owner else (
+        f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
+    inner = (f"{line}{exit_html}{act}"
+             f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
+    q_all, ql_all = sum(r[9] or 0 for r in lots), sum(r[10] or 0 for r in lots)
+    held = f"drži {redak.pct(ql_all / q_all, sign=False, frac=True)}" if q_all else "drži –"
+    mc_words = ", ".join(_usd_short(m) for m in mcs if m)
+    reason = " · ".join(x for x in (who, f"ulaz MC {mc_words}" if mc_words else "", redak.ago(lots[-1][3]), trial) if x)
+    return _item(sym or short(tok or ""), reason, inner, value=redak.sol(sum(r[7] or 0 for r in lots), 3),
+                 sub="prodaja u tijeku" if pend is not None else held, iid=f"poz-{pid0}")
+
+
 def _positions(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     """"Otvorene pozicije 3 od 5" (maketa): one row per open position (what, whom it copies, when, the stake, how
     much of it is still held); a tap on the row opens the sell buttons 20 % / 50 % / sve (owner) and the live check;
@@ -2368,30 +2431,23 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     # 10.11. (Jure: "moram vidjeti na koliko market capa je bot kupio otvorenu poziciju"; TP 30 % za neke tokene):
     # the demo trade behind each open real position gives its entry MC and the exit it follows
     demo = _demo_sides(r[13] for r in rows if r[5] == "open")
+    # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja; nadopišu se dva ulaza:
+    # prvi ulaz na toliko market capa i u zagradama profit/loss, i drugi"): the open lots of one token are ONE row,
+    # each lot a line with its time, entry MC, stake and the move since (live MC from the shared cache, no fetch
+    # per viewer); the sell buttons and the exit form act on every lot of the token
+    groups = {}
+    for r in rows:
+        if r[5] == "open":
+            groups.setdefault(r[1], []).append(r)
+    now_mc = _now_mcap(list(groups)) if groups else {}
     open_, closed = [], []
+    for tok, lots in groups.items():
+        open_.append(_lot_group(tok, sorted(lots, key=lambda r: r[0]), demo, now_mc.get(tok), pending, owner,
+                                viewer_buy, cfg, mixed))
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees, lid) in rows:
         trial = "probno" if (mixed and mode != "live") else None
         if st == "open":
-            pend = pending.get(str(pid))
-            who = _who(why)
-            mc, rule, demo_open = demo.get(lid, (None, None, False))
-            ex = _exit_words(rule)
-            act = _sell_btns(pid, pend) if owner else (
-                f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
-            line = " · ".join(x for x in (
-                f"ulaz na MC {_usd_short(mc)}" if mc else "", f"uloženo {redak.sol(sin or 0, 3)}",
-                f"vraćeno {redak.sol(sback, 4)}" if sback else "",
-                "pravi novac" if mode == "live" else "probno", "" if who else (why or "")) if x)
-            exit_html = (f"<p class=mut>Izlaz: {esc(ex or 'nije postavljen')}</p>" if lid else "")
-            if owner and lid and demo_open and pend is None:
-                exit_html += _exit_form(pid, rule, cfg)
-            inner = (f"<p class=mut>{esc(line)}</p>{exit_html}{act}"
-                     f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
-            held = f"drži {redak.pct(ql / q, sign=False, frac=True)}" if q else "drži –"
-            open_.append(_item(sym or short(tok or ""),
-                               " · ".join(x for x in (who, f"ulaz MC {_usd_short(mc)}" if mc else "", redak.ago(ts), trial) if x),
-                               inner, value=redak.sol(sin or 0, 3), sub="prodaja u tijeku" if pend is not None else held,
-                               iid=f"poz-{pid}"))
+            continue
         else:
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
             sig = sigs.get(pid)
@@ -3017,17 +3073,21 @@ def _log_section(tcon, cfg):
 # 9.11. (Jure, mobitel): the section headers needed 5-6 taps to open, sometimes closed instead. Their <summary> is
 # display:flex, and mobile Safari/Chrome drop or double-fire taps on such summaries. The tap is handled by hand:
 # one tap = one toggle, and open sections are remembered for the page's reloads (sessionStorage).
+# 10.11. (Jure: "kad učitam stranicu, neke kartice su automatski otvorene; nek su sve zatvorene za početak"): the open
+# rows are remembered only while the page is open (the 1-s refresh keeps them open), not across loads; a link with
+# #anchor (the answer of a form) still opens its section. PATCH_JS leaves a list alone while a finger is on the
+# screen and 1.2 s after (was 0.4 s), so a row never changes under a tap on a slow phone.
 # 10.11.: handled from the document, so sections that arrive later (the recommendations, fetched when opened) get it
 # too; only sections with an id are remembered; a link to a section (#limiti after saving) opens it; opening a
 # section wakes the poller, so its content is there at once. 10.11. (maketa): a link inside the page ("Dovrši 3/4"
 # in the state line, #postavljanje) opens its section too (hashchange), not only a link that loads the page.
-TOGGLE_JS = ("<script>(()=>{const K='ap-open',Q='details.ap-sec,details.ap-it';let open={};try{open=JSON.parse(sessionStorage.getItem(K)||'{}')}catch(e){}"
+TOGGLE_JS = ("<script>(()=>{const Q='details.ap-sec,details.ap-it';let open={};"
              "window.apOpen=root=>root.querySelectorAll(Q).forEach(d=>{if(d.id&&d.id in open)d.open=!!open[d.id]});window.apOpen(document);"
              "const reveal=()=>{for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details'))t.open=true};"
              "reveal();addEventListener('hashchange',reveal);"
              "document.addEventListener('click',e=>{const s=e.target.closest('summary');if(!s||e.target.closest('a,button,input,select,.tip'))return;"
              "const d=s.parentElement;if(!d.matches(Q))return;e.preventDefault();"
-             "d.open=!d.open;if(d.id){open[d.id]=d.open;try{sessionStorage.setItem(K,JSON.stringify(open))}catch(x){}}"
+             "d.open=!d.open;if(d.id)open[d.id]=d.open;"
              "if(d.open&&window.apTick)window.apTick()});"
              "if(window.apSeen)document.querySelectorAll('[data-src]:not([data-lazy])').forEach(window.apSeen);"
              "if(window.apTick)window.apTick()})()</script>")
@@ -3308,13 +3368,17 @@ def post(path, form, user):
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/sell":
-            pid, frac = str(int(form.get("id") or 0)), float(form.get("frac") or 1)
+            # 10.11.: "id" may name every lot of one token ("12,15"): each lot is its own swap, all with this share
+            ids = [str(int(x)) for x in str(form.get("id") or "0").split(",") if x.strip()][:20]
+            frac = float(form.get("frac") or 1)
             if not 0 < frac <= 1:
                 raise ValueError("udio mora biti između 0 i 100%")
-            if not tcon.execute("SELECT 1 FROM positions WHERE id=? AND status='open'", (int(pid),)).fetchone():
+            ids = [i for i in ids if tcon.execute("SELECT 1 FROM positions WHERE id=? AND status='open'", (int(i),)).fetchone()]
+            if not ids:
                 raise ValueError("ta pozicija nije otvorena")
             req = dict(settings.raw(tcon).get("sell_req") or {})
-            req[pid] = frac
+            for pid in ids:
+                req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
         if path == "/pravi-trade/wallet":
@@ -3473,18 +3537,32 @@ def _post_exit(con, tcon, form):
     lid, sym, tok = row
     if not lid:
         raise ValueError("ova pozicija nema demo par (demo strategija ili stara pozicija): izlaz joj se ne mijenja ovdje")
-    t = con.execute("SELECT auto FROM trades WHERE id=? AND user=? AND status='open'", (lid, settings.LEAGUE_USER)).fetchone()
-    if not t:
-        raise ValueError("demo par ove pozicije je već zatvoren: prodaja je u tijeku")
-    try:
-        old = json.loads(t[0]) if t[0] else {}
-    except ValueError:
-        old = {}
+    # 10.11. (dokupnja): every open lot of the token gets the rule, each from its own entry
+    lids = [r[0] for r in tcon.execute("SELECT league_id FROM positions WHERE token=? AND status='open' AND league_id "
+                                       "IS NOT NULL ORDER BY id", (tok,))] or [lid]
     tp = (form.get("tp") or "").strip()
     sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
-    rule = auto.set_auto(con, settings.LEAGUE_USER, lid, "tpsl", tp, sl, from_eff=bool((old or {}).get("from_eff")))
-    print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)}", flush=True)
-    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.')}#poz-{pid}"
+    rule, done, errs = None, 0, []
+    for one in dict.fromkeys(lids):
+        t = con.execute("SELECT auto FROM trades WHERE id=? AND user=? AND status='open'", (one, settings.LEAGUE_USER)).fetchone()
+        if not t:
+            continue
+        try:
+            old = json.loads(t[0]) if t[0] else {}
+        except ValueError:
+            old = {}
+        try:
+            rule = auto.set_auto(con, settings.LEAGUE_USER, one, "tpsl", tp, sl, from_eff=bool((old or {}).get("from_eff")))
+            done += 1
+        except ValueError as e:
+            if len(lids) == 1:
+                raise
+            errs.append(str(e))
+    if not done:
+        raise ValueError(errs[0] if errs else "demo par ove pozicije je već zatvoren: prodaja je u tijeku")
+    print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({done} ulaza)", flush=True)
+    note = f" Nije primijenjeno na {len(errs)} ulaza: {errs[0]}." if errs else ""
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
 
 
 def _post_buy(con, tcon, form, user):
@@ -3549,18 +3627,39 @@ def _post_buy(con, tcon, form, user):
     if sol > lim:
         raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
     sym = _symbol(token)
-    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap)
-    try:
-        if ex == "smart":
-            auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
-        else:
-            auto.set_auto(con, settings.LEAGUE_USER, tid, "tpsl", tp, sl)
-    except ValueError as e:   # validated above, so this should not happen; never leave the position without an exit
+    # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held
+    # gets one more lot (its own demo trade and real swap, run_trade passes add=True for a manual stake) with the exit
+    # the position has, so the lots sell by the same rule, each from its own entry
+    prev = con.execute("SELECT id, auto FROM trades WHERE user=? AND token=? AND status='open' ORDER BY id DESC LIMIT 1",
+                       (settings.LEAGUE_USER, token)).fetchone()
+    rules = [(ex, tp, sl)]
+    if prev is not None:
+        try:
+            pa = json.loads(prev["auto"]) if prev["auto"] else None
+        except ValueError:
+            pa = None
+        if pa and pa.get("mode") == "smart":
+            rules.insert(0, ("smart", "", ""))
+        elif pa and pa.get("mode") == "tpsl":
+            rules.insert(0, ("tpsl", pa.get("tp_in") or pa.get("tp") or "", pa.get("sl_in") or pa.get("sl") or ""))
+    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap,
+                    allow_open=prev is not None)
+    for r_ex, r_tp, r_sl in rules:
+        try:
+            if r_ex == "smart":
+                auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
+            else:
+                auto.set_auto(con, settings.LEAGUE_USER, tid, "tpsl", r_tp, r_sl)
+            break
+        except ValueError as e:   # e.g. the first lot's TP "$100k" under this lot's entry: the form's rule next
+            print(f"pravi trade: ručna kupnja {sym or token[:6]}: izlaz {r_tp}/{r_sl} odbijen ({e})", flush=True)
+    else:   # never leave the position without an exit
         auto.set_auto(con, settings.LEAGUE_USER, tid, "smart")
-        print(f"pravi trade: ručna kupnja {sym or token[:6]}: TP/SL odbijen ({e}), izlaz Smart sell", flush=True)
     sizes = dict(settings.raw(tcon).get("manual_size") or {})
     sizes[str(tid)] = sol
     settings.put(tcon, "manual_size", dict(list(sizes.items())[-200:]), user)
+    if prev is not None:
+        return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
     return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"
 
 
