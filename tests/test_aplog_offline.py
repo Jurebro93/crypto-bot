@@ -244,6 +244,34 @@ class Mapping(Base):
         self.con.commit()
         self.assertEqual([e["kind"] for e in self.log()], ["prodao", "kupio"])   # the failed tries are history
 
+    def test_real_copy_pass_then_mirror_then_log(self):
+        """10.11. (review novac): the real chain on realistic rows. league/copy.run_once decides on three calls of the
+        followed KOL (one entered, one pool too thin, one under 30k), the mirror buys the entered one, and the log
+        shows each signal exactly once with the stage it was decided in."""
+        d = self.tmp.name
+        paths = {"kol": os.path.join(d, "kol.db"), "hype": os.path.join(d, "hype.db"), "tg": os.path.join(d, "tg.db")}
+        k = sqlite3.connect(paths["kol"])
+        k.execute("CREATE TABLE calls (token TEXT, handle TEXT, ts INTEGER, kind TEXT)")
+        good, thin, small = "G" * 44, "T" * 44, "S" * 44
+        k.executemany("INSERT INTO calls VALUES (?, 'ansem', ?, 'call')", [(t, NOW - 30) for t in (good, thin, small)])
+        k.commit()
+        k.close()
+        mk = {good: (1.0, 500_000, None, 2e6, "GOOD"), thin: (1.0, 2_000, None, 2e6, "THIN"),
+              small: (1.0, 15_000, None, 20_000, "SMALL")}
+        copy.run_once(self.lg, lambda toks: {t: mk[t] for t in toks if t in mk}, NOW, paths)
+        self.assertEqual(dict(self.lg.execute("SELECT token, action FROM copy_log")),
+                         {good: "ulaz", thin: "preskočeno", small: "preskočeno"})
+        self.lg.execute("UPDATE trades SET opened_ts=? WHERE user=?", (NOW, settings.LEAGUE_USER))   # store.buy: wall clock
+        self.lg.commit()
+        self.mirror(now=NOW + 1)
+        rows = self.log()
+        self.assertEqual(sorted((e["symbol"], e["kind"], e["stage"], e["why_short"], e["trebao"]) for e in rows),
+                         [("GOOD", "kupio", "pravi", "", None), ("SMALL", "preskocio", "demo", "MC ispod 30k", False),
+                          ("THIN", "preskocio", "demo", "likvidnost", False)])
+        self.assertTrue(all(e["source"] == "KOL Ansem" for e in rows))
+        s = aplog.summary(rows, now=NOW + 300)
+        self.assertEqual((s["signali"], s["kupio"], s["preskocio"], s["nije_proslo"]), (3, 1, 2, 0))
+
     def test_pending_rows_are_not_decisions_yet(self):
         self.con.execute("INSERT INTO positions (token, opened_ts, mode, status, reason, sol_in) VALUES ('P',?,'dry','pending','x',0.05)", (NOW,))
         self.con.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, status) VALUES (?,1,'P','sell','dry',5,'pending')", (NOW,))
@@ -308,7 +336,41 @@ class Reading(Base):
         have = {r[1] for t in ("positions", "orders") for r in self.con.execute(f"PRAGMA index_list({t})")}
         self.assertTrue({"positions_opened", "positions_status", "positions_league", "orders_pos", "orders_side",
                          "orders_ts"} <= have)
-        self.assertIn("copy_log_follow_ts", {r[1] for r in self.lg.execute("PRAGMA index_list(copy_log)")})
+        # 10.11. (review novac): (follow_id, action, ts) instead of (follow_id, ts), so the walk never passes the
+        # follow's "info" rows; see test_a_wallet_follows_info_rows_are_never_walked
+        self.assertIn("copy_log_follow_action", {r[1] for r in self.lg.execute("PRAGMA index_list(copy_log)")})
+
+    def test_a_wallet_follows_info_rows_are_never_walked(self):
+        """10.11. (review novac): a followed wallet writes an "info" row for every sale of a coin we never copied.
+        The log reads each follow's skips and entries through (follow_id, action, ts): thousands of those rows cost
+        nothing, where (follow_id, ts) walked past all of them until it found LIMIT skips."""
+        wid = copy.follow(self.lg, settings.LEAGUE_USER, "wallet", "W" * 44, "Whale", 25, 5, "mirror", "", "")
+        self.skip("OLD1", "premala likvidnost ($1), ne bi se moglo izaći", ts=NOW - 80000, fid=wid)
+        self.skip("OLD2", "DexScreener nema cijenu tog tokena", ts=NOW - 70000, fid=wid)
+
+        def steps():
+            n = [0]
+
+            def tick():
+                n[0] += 1
+            self.lg.set_progress_handler(tick, 100)
+            rows = self.log()
+            self.lg.set_progress_handler(None, 0)
+            return n[0], rows
+        before, rows = steps()
+        self.lg.executemany("INSERT INTO copy_log VALUES (?,?,?,?,?,?,?,?,?)",
+                            [(wid, f"I{i:05d}", "sell", NOW - 60000 + i, NOW - 60000 + i, None, "info",
+                              "prodao je token koji nismo kopirali", None) for i in range(5000)])
+        self.lg.commit()
+        after, rows2 = steps()
+        self.assertEqual([e["token"] for e in rows2], ["OLD2", "OLD1"])
+        self.assertEqual(rows, rows2)
+        self.assertLess(after, before + 20)                       # not one step per info row
+        plans = [r[3] for r in self.lg.execute(
+            "EXPLAIN QUERY PLAN SELECT follow_id, token, side, ts, symbol, action, note, trade_id FROM copy_log "
+            "WHERE follow_id=? AND action=? AND ts >= ? ORDER BY ts DESC LIMIT ?", (wid, "ulaz", 0, 80))]
+        self.assertTrue(any("copy_log_follow_action" in p for p in plans), plans)
+        self.assertFalse([p for p in plans if "TEMP B-TREE" in p], plans)
 
     def test_trade_loop_pass_reads_no_whole_table_either(self):
         """run_trade's 1-second pass over trade.db: pending rows, open positions and "is it mirrored" by index."""
@@ -427,6 +489,9 @@ class WhyShort(unittest.TestCase):
         "auto: moonbag_trailing": "Smart sell", "copy: RugDoctor je prodao": "prodao i praćeni",
         "djelomična prodaja (demo)": "djelomična prodaja", "ručna prodaja (gumb)": "ručno", "prodaj sve (gumb)": "ručno",
         "demo izlaz": "izlaz kao u demu", "auto: rug": "rug",
+        # 10.11. (review novac): paper/sim.py's other closing reasons, as league/auto.py writes them
+        "auto: time": "istek vremena", "auto: breakeven": "stop na ulazu", "auto: stale": "bez pomaka",
+        "auto: trailing": "Smart sell", "auto: smart_sell_eksplozija": "Smart sell",
     }
 
     def test_buckets(self):
@@ -475,6 +540,16 @@ class Safety(Base):
         self.assertIn("mainnet.helius-rpc.com", bad["why"])      # the owner still sees which host failed
         new = self.one("NEW")
         self.assertEqual((new["kind"], new["trebao"], new["why_short"]), ("preskocio", False, "ostalo"))
+
+    def test_scrub_hides_keys_outside_urls_too(self):
+        """10.11. (review novac): an exception text can carry a key without any URL around it."""
+        for raw in ("PumpPortal: api-key=abc123TAJNA nije prošao", "HTTP 401, token: abc123TAJNA",
+                    "Authorization: Bearer abc123TAJNA", "https://pumpportal.fun/api/trade?api-key=abc123TAJNA",
+                    "apikey=abc123TAJNA&x=1", "secret = abc123TAJNA"):
+            out = aplog.scrub(raw)
+            self.assertNotIn("abc123TAJNA", out, raw)
+            self.assertIn("…", out)
+        self.assertEqual(aplog.scrub("signal star 412 s"), "signal star 412 s")   # ordinary reasons stay as written
 
 
 if __name__ == "__main__":

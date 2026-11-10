@@ -45,9 +45,11 @@ CREATE INDEX IF NOT EXISTS copy_log_ts ON copy_log (ts);
 """
 
 # 10.11. (Jure: dnevnik Autopilota, čita se svake sekunde dok je otvoren): trade/aplog.py takes each follow's newest
-# decisions straight from (follow_id, ts) and the account's follows from (user, active), instead of walking copy_log.
+# skips and entries straight from (follow_id, action, ts), one action at a time, and the account's follows from
+# (user, active), instead of walking copy_log. With the action in the key a wallet follow's many "info" rows (every
+# sale of a coin we never copied) are never walked past. _today() counts a follow's entries through it as well.
 # Outside SCHEMA and guarded in ensure(): building an index writes, and a full disk must not stop the copy loop.
-INDEXES = ("CREATE INDEX IF NOT EXISTS copy_log_follow_ts ON copy_log (follow_id, ts)",
+INDEXES = ("CREATE INDEX IF NOT EXISTS copy_log_follow_action ON copy_log (follow_id, action, ts)",
            "CREATE INDEX IF NOT EXISTS follows_user ON follows (user, active)")
 
 KIND_HR = {"kol": "KOL", "wallet": "wallet", "ekipa": "ekipa"}

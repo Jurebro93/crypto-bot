@@ -87,12 +87,20 @@ def rpc(method, params):
     return data["result"]
 
 
+# 10.11. (review novac, pravi novac): the balances the books and the sell decision are written from are read at
+# 'confirmed'. Without it the RPC answers at 'finalized', ~13 s behind a swap Jupiter or PumpPortal just confirmed:
+# PumpPortal's before/after amounts came out 0 (an open position with no quantity, never sold), and a sale right
+# after a buy saw an empty wallet and closed the position without selling (executor.sell, close=True).
+# A confirmed block is voted by a supermajority; none has ever been rolled back.
+READ_COMMITMENT = "confirmed"
+
+
 def sol_balance(addr):
-    return rpc("getBalance", [addr])["value"] / 1e9
+    return rpc("getBalance", [addr, {"commitment": READ_COMMITMENT}])["value"] / 1e9
 
 
 def token_raw_balance(owner, mint):
-    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": READ_COMMITMENT}])
     return sum(int(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for a in res["value"])
 
 

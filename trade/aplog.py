@@ -17,7 +17,7 @@ not the orders row); a demo entry (copy_log 'ulaz') is not listed because its ou
 wrote for it; failed tries to sell an open position are one row (the newest), gone once the sale goes through.
 
 Read every second while the log is open: every query walks an index backwards and stops at LIMIT (ensure() adds the
-indexes trade.db lacked; league/copy.py adds the one on copy_log), nothing reads a whole table.
+indexes trade.db lacked; league/copy.py adds the ones on copy_log and follows), nothing reads a whole table.
 `why` is the raw reason and may carry a route's error text; anything public shows `why_short` only, which is always
 one of the fixed words below ("ostalo" for a reason nobody has named yet).
 """
@@ -83,7 +83,11 @@ REASONS = tuple((re.compile(p, re.I), short, tech) for p, short, tech in (
 ))
 # why a position was sold or reduced (orders.reason of a sale: league/auto.py notes, paper/sim.py fills, the buttons)
 EXITS = tuple((re.compile(p, re.I), short) for p, short in (
-    (r"vrijeme|moonbag_time", "istek vremena"),
+    # 10.11. (review novac): paper/sim.py also closes with "time", "breakeven" and "stale" (league/auto.py writes
+    # them as "auto: time" ...); they were "ostalo"
+    (r"vrijeme|moonbag_time|\btime\b", "istek vremena"),
+    (r"breakeven", "stop na ulazu"),
+    (r"\bstale\b", "bez pomaka"),
     (r"\btp\b|take_profit", "cilj (TP)"),
     (r"\bsl\b|stop_loss", "stop (SL)"),
     (r"je prodao", "prodao i praćeni"),
@@ -120,6 +124,9 @@ def scrub(text, n=300):
         return None
     t = re.sub(r"(https?://[^/\s?'\"]+)[^\s'\")]*", r"\1/…", str(text))
     t = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "…", t, flags=re.I)
+    # 10.11. (review novac): a key outside a URL ("api-key=…", "token: …" in an exception text)
+    t = re.sub(r"(?i)\b(api[-_]?key|apikey|key|token|secret|password|auth(?:orization)?)(\s*[=:]\s*)(?:bearer\s+)?"
+               r"[^\s,;&'\")]+", r"\1\2…", t)
     return t[:n]
 
 
@@ -275,11 +282,14 @@ def _demo(tcon, lcon, since, limit, now):
     follows = lcon.execute("SELECT id, kind, label, target FROM follows WHERE user=? AND (active=1 OR stopped >= ?)",
                            (settings.LEAGUE_USER, max(since, int(now) - lcopy.CFG["keep_log_days"] * 86400))).fetchall()
     rows = []
-    for fid, kind, label, target in follows:   # per follow: its newest rows straight from (follow_id, ts)
+    for fid, kind, label, target in follows:
         name = f"{lcopy.KIND_HR.get(kind, kind)} {label or (target or '')[:6]}"
-        rows += [(name, *r) for r in lcon.execute(
-            "SELECT follow_id, token, side, ts, symbol, action, note, trade_id FROM copy_log WHERE follow_id=? "
-            "AND ts >= ? AND action IN ('preskočeno','ulaz') ORDER BY ts DESC LIMIT ?", (fid, since, limit))]
+        # per follow and action: its newest rows straight from (follow_id, action, ts), never walking past the
+        # follow's "info" and "izlaz" rows (a busy wallet writes one for every sale of a coin we never copied)
+        for action in ("preskočeno", "ulaz"):
+            rows += [(name, *r) for r in lcon.execute(
+                "SELECT follow_id, token, side, ts, symbol, action, note, trade_id FROM copy_log WHERE follow_id=? "
+                "AND action=? AND ts >= ? ORDER BY ts DESC LIMIT ?", (fid, action, since, limit))]
     rows.sort(key=lambda r: r[4], reverse=True)
     rows = rows[:limit]
     entered = {r[8] for r in rows if r[6] == "ulaz" and r[8] is not None}

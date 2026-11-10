@@ -317,6 +317,16 @@ def _start_equity():
         print(f"equity: snimanje vrijednosti walleta nije pokrenuto ({type(e).__name__}: {e})", flush=True)
 
 
+def _stop_equity():
+    """10.11. (review novac): on the way out (SIGTERM from a deploy) the snapshot thread is told to stop and given
+    2 s to finish a write; Render's grace period is for the swap this loop may be finishing, not for the chart."""
+    try:
+        from trade import equity
+        equity.stop(timeout=2)
+    except Exception:  # noqa: BLE001 - exiting anyway
+        pass
+
+
 def cmd_follow(a):
     cfg = load(a.config)
     since = time.time() - cfg["max_signal_age_s"]
@@ -353,8 +363,10 @@ def cmd_follow(a):
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
         if a.once or STOPPING["flag"]:
-            return
+            break
         time.sleep(cfg["poll_s"])
+    if not a.once:
+        _stop_equity()
 
 
 def cmd_check(a):

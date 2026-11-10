@@ -48,6 +48,7 @@ USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 EUR_URLS = ("https://api.frankfurter.app/latest?from=USD&to=EUR",          # {"base":"USD","rates":{"EUR":0.86}}
             "https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR")  # the same service's newer address
 RECONCILED = "usklađeno s lancem"   # executor.reconcile_pending: a real buy that has a position but no orders row
+INTERRUPTED = "prekinuto usred swapa"   # executor._reconcile_pending_sells: a real sale cut off, SOL back unknown
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS equity (ts INTEGER PRIMARY KEY, sol REAL, usdc REAL, tokens_sol REAL, sol_usd REAL, "
@@ -233,9 +234,9 @@ def rates(now=None):
 # ---------- one snapshot --------------------------------------------------------------------------------------------
 
 def _sol_balance(addr):
-    """SOL in the wallet at 'confirmed': a swap Jupiter just confirmed is in it (the default 'finalized' lags ~15 s,
-    and the swap's order row would then look like money that never arrived)."""
-    return wallet.rpc("getBalance", [addr, {"commitment": "confirmed"}])["value"] / LAMPORTS
+    """SOL in the wallet at 'confirmed' (wallet.READ_COMMITMENT): a swap Jupiter just confirmed is in it (the default
+    'finalized' lags ~15 s, and the swap's order row would then look like money that never arrived)."""
+    return wallet.sol_balance(addr)
 
 
 def _usdc_balance(addr):
@@ -254,6 +255,7 @@ def _tokens_value(rows, prices, decimals):
     pool with a fantasy price cannot paint a profit. Without a price or decimals: the stake still in the position."""
     total = 0.0
     for token, sol_in, qty, left in rows:
+        left = left or 0
         share = (left / qty) if qty else 0.0
         stake = (sol_in or 0.0) * share
         p = prices.get(token)
@@ -290,28 +292,53 @@ def _delta(side, status, amount_in, amount_out, fee, signature):
     return lam / LAMPORTS
 
 
-def _mark(con):
-    """Id of the last orders row an earlier snapshot accounted for (settings 'equity_oid'), or None."""
-    r = con.execute("SELECT v FROM settings WHERE k='equity_oid'").fetchone()
+def _mark(con, key="equity_oid"):
+    """Id of the last orders row an earlier snapshot accounted for (settings 'equity_oid'), or None. 'equity_oid0'
+    is the one of the very first snapshot: backfill() rebuilds exactly the orders before it."""
+    r = con.execute("SELECT v FROM settings WHERE k=?", (key,)).fetchone()
     try:
         return int(json.loads(r[0])) if r else None
     except (TypeError, ValueError):
         return None
 
 
-def _explained(con, after_id, after_ts):
-    """SOL the bot's own real orders moved since the previous snapshot. Counted by order id, not by time: a row is
-    written when its swap finishes but carries the time the swap started, so a window by time could miss it."""
-    sql = ("SELECT side, status, amount_in, amount_out, fee_lamports, signature FROM orders WHERE {} AND mode='live' "
-           "AND status IN ('ok','failed') ORDER BY id LIMIT 5000")
-    rows = (con.execute(sql.format("id > ?"), (after_id,)) if after_id is not None
-            else con.execute(sql.format("ts > ?"), (after_ts,)))
-    total = sum(_delta(*r) for r in rows)
+def _atomic(con, write):
+    """write(con) and commit as one transaction, so a half-written snapshot is never committed by whoever commits on
+    this connection next. On a failure only a transaction opened here is rolled back (a caller's own stays theirs)."""
+    mine = not con.in_transaction
+    try:
+        write(con)
+        con.commit()
+    except Exception:
+        if mine:
+            try:
+                con.rollback()
+            except sqlite3.Error:
+                pass
+        raise
+
+
+def _explained(con, after_id, after_ts, upto_id):
+    """(SOL the bot's own real orders moved since the previous snapshot, how many real sales in that window were
+    cut off mid-swap). Counted by order id, not by time: a row is written when its swap finishes but carries the time
+    the swap started, so a window by time could miss it. upto_id: the newest order the measured balance contains (a
+    row booked after it belongs to the next snapshot, which starts counting there). No LIMIT: the id range holds only
+    the rows since the last snapshot, and a cut list would turn the missing orders into a fake deposit."""
+    sql = ("SELECT side, status, amount_in, amount_out, fee_lamports, signature, error FROM orders WHERE {} "
+           "AND id <= ? AND mode='live' AND status IN ('ok','failed') ORDER BY id")
+    rows = (con.execute(sql.format("id > ?"), (after_id, upto_id)) if after_id is not None
+            else con.execute(sql.format("ts > ?"), (after_ts, upto_id)))
+    total, cut = 0.0, 0
+    for side, status, a_in, a_out, fee, sig, err in rows:
+        total += _delta(side, status, a_in, a_out, fee, sig)
+        # 10.11. (review novac): executor._reconcile_pending_sells marks a sale the process was killed in the middle
+        # of as failed, without a signature or an amount; it may have gone through, and the SOL it brought is unknown
+        cut += side == "sell" and status == "failed" and (err or "").startswith(INTERRUPTED)
     # a buy the process died in the middle of: reconcile_pending opened the position from the wallet, but no orders
     # row was ever written for it; the stake it was sent with left the wallet all the same
     total -= con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts > ? AND mode='live' "
                          "AND status IN ('open','closed') AND reason LIKE ?", (after_ts, RECONCILED + "%")).fetchone()[0]
-    return total
+    return total, cut
 
 
 def _busy(con, now):
@@ -355,7 +382,9 @@ def snapshot(con, now=None, force=False, **inject):
     since the previous snapshot explain (buys, sales, network fees, rent of closed token accounts). USDC that
     arrived or left counts the same way, in SOL at the current price, so the owner swapping USDC for SOL by hand is
     no deposit. The first snapshot books the whole value as the opening deposit. What it cannot see: tokens sold or
-    sent by hand outside the bot look like a deposit of the SOL they brought.
+    sent by hand outside the bot look like a deposit of the SOL they brought; SOL that arrives in a window with a
+    sale cut off mid-swap (its proceeds are unknown) is taken for that sale, not for a deposit.
+    No row while the clock is behind the newest row, or while USDC moved and no SOL price was ever known.
 
     inject (tests, callers that already hold the numbers): addr, balance(addr) -> SOL, usdc(addr) -> USDC,
     market(mints) -> ({mint: (price in SOL, liquidity in SOL)}, sol_usd), rates(now) -> {"sol_usd", "usd_eur"},
@@ -371,7 +400,12 @@ def _snapshot(con, now, force, inject):
     ensure(con)
     last = con.execute("SELECT ts, sol, usdc, tokens_sol, sol_usd, usd_eur FROM equity WHERE src='live' "
                        "ORDER BY ts DESC LIMIT 1").fetchone()
-    if last and (now <= last[0] or (not force and now - last[0] < EVERY_S)):
+    if last and now < last[0]:
+        # 10.11. (review novac): the clock went back. No row until it has passed the newest one again, so the time
+        # axis never folds back on itself; said in the log because the chart stands still meanwhile
+        _log_once("clock", f"sat je {last[0] - now} s iza zadnje snimke, nova snimka kad ga stigne")
+        return None
+    if last and (now == last[0] or (not force and now - last[0] < EVERY_S)):
         return None
     addr = inject.get("addr") or wallet.addresses(con)[0]
     if not addr:
@@ -402,16 +436,28 @@ def _snapshot(con, now, force, inject):
             return None   # USDC cannot be valued in SOL yet; the opening deposit would be wrong for good
         flow = sol + tokens + (usdc / sol_usd if usdc and sol_usd else 0.0)
     else:
-        d_sol = sol - last[1] - _explained(con, _mark(con), last[0])
+        explained, cut = _explained(con, _mark(con), last[0], oid)
+        d_sol = sol - last[1] - explained
         if abs(d_sol) > FLOW_MIN_SOL and not fresh:
             usdc, fresh = _usdc(addr, now, last, inject, fresh=True)   # a hand swap USDC <-> SOL moves both
+        if abs(usdc - (last[2] or 0.0)) > 1e-6 and not sol_usd:
+            return None   # 10.11. (review novac): USDC moved and cannot be valued in SOL; booked once a price is back
+        if cut and d_sol > 0:
+            # a sale the process was killed in the middle of went through after all: what it brought is trading,
+            # not a deposit (a real deposit in the same 5 minutes is the price of not knowing)
+            _log_once("cut", f"prekinuta prodaja: {d_sol:+.4f} SOL knjiženo kao njezin utržak, ne kao uplata", 0)
+            d_sol = 0.0
         d_usdc = (usdc - (last[2] or 0.0)) / sol_usd if sol_usd else 0.0
         flow = d_sol + d_usdc
         flow = flow if abs(flow) > FLOW_MIN_SOL else 0.0
     row = (now, round(sol, 9), round(usdc, 6), round(tokens, 9), sol_usd, usd_eur, round(flow, 9), "live")
-    con.execute(f"INSERT INTO equity ({COLS}) VALUES (?,?,?,?,?,?,?,?)", row)
-    con.execute("INSERT OR REPLACE INTO settings VALUES (?,?,?,?)", ("equity_oid", json.dumps(oid), now, "bot"))
-    con.commit()
+
+    def write(c):
+        c.execute(f"INSERT INTO equity ({COLS}) VALUES (?,?,?,?,?,?,?,?)", row)
+        c.execute("INSERT OR REPLACE INTO settings VALUES (?,?,?,?)", ("equity_oid", json.dumps(oid), now, "bot"))
+        if last is None:   # the first snapshot's mark stays for good: backfill() rebuilds the orders up to it
+            c.execute("INSERT OR IGNORE INTO settings VALUES (?,?,?,?)", ("equity_oid0", json.dumps(oid), now, "bot"))
+    _atomic(con, write)
     out = dict(zip(COLS.split(", "), row))
     out["value_sol"] = round(sol + tokens + (usdc / sol_usd if usdc and sol_usd else 0.0), 9)
     return out
@@ -574,11 +620,7 @@ def backfill(con, now=None):
     Idempotent: a second call finds the recon rows (or the mark in settings) and writes nothing."""
     try:
         return _backfill(con, int(time.time() if now is None else now))
-    except Exception as e:  # noqa: BLE001
-        try:
-            con.rollback()
-        except sqlite3.Error:
-            pass
+    except Exception as e:  # noqa: BLE001 - _atomic rolled back what this call had written
         _log_once("backfill", f"rekonstrukcija povijesti nije uspjela ({_err(e)})")
         return 0
 
@@ -591,10 +633,18 @@ def _backfill(con, now):
     if not first:
         return 0
     f_ts, f_sol, f_usdc, sol_usd, usd_eur = first
+    # 10.11. (review novac): the orders the first snapshot's balance already contains are those booked before it
+    # (id <= its mark). By time alone, a buy that started a few seconds before the first snapshot (its row carries
+    # the start time) but was booked after it would be counted twice: here and by the next live snapshot.
+    oid0 = _mark(con, "equity_oid0")
+    by = ("id <= ? AND ts < ?", (oid0, f_ts)) if oid0 is not None else ("ts < ?", (f_ts,))
     cost, qty, steps = {}, {}, []   # position -> stake still in / raw quantity still held; (ts, SOL moved, cost of all)
     for ts, pid, side, status, a_in, a_out, fee, sig in con.execute(
             "SELECT ts, position_id, side, status, amount_in, amount_out, fee_lamports, signature FROM orders "
-            "WHERE ts < ? AND mode='live' AND status IN ('ok','failed') ORDER BY ts, id LIMIT 50000", (f_ts,)):
+            # only rows that moved money, and no LIMIT (one-off): a cut ledger would rebuild a wrong past; failed
+            # sells without a signature (one a second while the key is missing) can outnumber the real ones
+            f"WHERE {by[0]} AND mode='live' AND (status='ok' OR (status='failed' AND signature IS NOT NULL "
+            "AND fee_lamports > 0)) ORDER BY ts, id", by[1]):
         moved = _delta(side, status, a_in, a_out, fee, sig)
         if status == "ok" and side == "buy":
             cost[pid] = cost.get(pid, 0.0) + (a_in or 0) / LAMPORTS
@@ -606,7 +656,7 @@ def _backfill(con, now):
         elif not moved:
             continue
         steps.append((ts, moved, sum(cost.values())))
-    n = 0
+    rows, lift = {}, 0.0
     if steps:
         usdc_sol = (f_usdc / sol_usd) if f_usdc and sol_usd else 0.0
         bal = f_sol - sum(s[1] for s in steps)      # before the first order
@@ -620,15 +670,19 @@ def _backfill(con, now):
         for ts, moved, held in steps:
             bal += moved
             rows[ts] = (bal, held, 0.0)             # several orders in one second: the state after the last
-        con.executemany(f"INSERT OR IGNORE INTO equity ({COLS}) VALUES (?,?,?,?,?,?,?,'recon')",
-                        [(ts, round(s, 9), f_usdc, round(held, 9), sol_usd, usd_eur, round(flow, 9))
-                         for ts, (s, held, flow) in sorted(rows.items())])
-        # the opening deposit now sits on the first rebuilt row; the first measured one keeps only what the ledger
-        # cannot explain (a withdrawal somewhere before it), else nothing
-        con.execute("UPDATE equity SET flow_sol=? WHERE ts=?", (round(-lift, 9), f_ts))
-        n = len(rows)
-    con.execute("INSERT OR REPLACE INTO settings VALUES (?,?,?,?)", ("equity_backfill", json.dumps({"ts": now, "n": n}), now, "bot"))
-    con.commit()
+    n = len(rows)
+
+    def write(c):
+        if rows:
+            c.executemany(f"INSERT OR IGNORE INTO equity ({COLS}) VALUES (?,?,?,?,?,?,?,'recon')",
+                          [(ts, round(s, 9), f_usdc, round(held, 9), sol_usd, usd_eur, round(flow, 9))
+                           for ts, (s, held, flow) in sorted(rows.items())])
+            # the opening deposit now sits on the first rebuilt row; the first measured one keeps only what the
+            # ledger cannot explain (a withdrawal somewhere before it), else nothing
+            c.execute("UPDATE equity SET flow_sol=? WHERE ts=?", (round(-lift, 9), f_ts))
+        c.execute("INSERT OR REPLACE INTO settings VALUES (?,?,?,?)",
+                  ("equity_backfill", json.dumps({"ts": now, "n": n}), now, "bot"))
+    _atomic(con, write)
     if n:
         print(f"equity: povijest prije prve snimke rekonstruirana iz naloga ({n} točaka, označeno 'recon')", flush=True)
     return n
@@ -636,17 +690,41 @@ def _backfill(con, now):
 
 # ---------- the thread ----------------------------------------------------------------------------------------------
 
+def _moved_since(con, after_id):
+    """A real order that moved money was booked after this id (the range since the thread's previous look only)."""
+    return bool(con.execute("SELECT 1 FROM orders WHERE id > ? AND mode='live' AND (status='ok' OR (status='failed' "
+                            "AND signature IS NOT NULL)) LIMIT 1", (after_id,)).fetchone())
+
+
+def _tick(con, st, now=None):
+    """One look of the thread: a snapshot when one is due, the one-off backfill until it is done. Returns the
+    snapshot (or None). st: the thread's memory between looks {"oid", "quiet", "filled"}.
+
+    10.11. (review novac): a swap's orders row carries the time the swap STARTED; one that took a minute (quotes,
+    Jupiter landing it, the rent coming back) is older than SETTLE_S the moment it is booked, so _busy() alone would
+    let a snapshot read the balance in the same second, from an RPC node that may not show the swap yet (a fake
+    deposit, then a fake withdrawal). The thread therefore also waits SETTLE_S from the moment IT first sees a new
+    real order, whatever time the row carries."""
+    now = time.time() if now is None else now
+    top = _max_oid(con)
+    if st.get("oid") is not None and top > st["oid"] and _moved_since(con, st["oid"]):
+        st["quiet"] = now + SETTLE_S
+    st["oid"] = top
+    out = snapshot(con, now=now) if now >= st.get("quiet", 0) else None
+    if not st.get("filled"):
+        backfill(con, now=now)
+        st["filled"] = _backfilled(con)
+    return out
+
+
 def _loop(path, tick, stop):
     from trade import executor   # here, not at the top: executor.connect calls ensure() of this module
-    filled = False
+    st = {}
     while not stop.is_set():
         try:
             con = executor.connect(path)
             try:
-                snapshot(con)
-                if not filled:
-                    backfill(con)
-                    filled = _backfilled(con)
+                _tick(con, st)
             finally:
                 con.close()
         except Exception as e:  # noqa: BLE001 - never the reason the trade process stops
@@ -670,7 +748,9 @@ def start(path=None, tick=None):
 
 
 def stop(timeout=5):
-    """Stop the thread (tests; the process itself just exits, the thread is a daemon)."""
+    """Stop the thread: no new look starts, and a snapshot being written is given `timeout` seconds to commit.
+    run_trade.cmd_follow calls it on its way out (SIGTERM). A thread still waiting for the RPC then simply ends with
+    the process (it is a daemon, and it never holds a write transaction while it waits for the network)."""
     t, ev = _THREAD["t"], _THREAD["stop"]
     if ev is not None:
         ev.set()

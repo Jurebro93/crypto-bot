@@ -188,6 +188,54 @@ class Flows(Base):
         self.assertEqual(r["flow_sol"], 0.0)
         self.assertAlmostEqual(equity.summary(self.con, now=NOW + 600)["pnl_sol"], -0.002)   # the swap's cost
 
+    def test_first_snapshot_on_a_trade_db_with_years_of_orders(self):
+        """10.11. (review novac): production trade.db already holds real and dry orders; the first snapshot books the
+        whole value as the opening deposit and none of those orders is counted again later."""
+        old = self.position("OLD", status="closed", sol_in=0.1, ts=NOW - 86400)
+        self.order(NOW - 86400, "buy", a_in=int(0.1 * L), a_out=1000, fee=2_000_000, pid=old)
+        self.order(NOW - 80000, "sell", a_in=1000, a_out=int(0.3 * L), fee=5000, pid=old)
+        self.order(NOW - 70000, "buy", status="dry", mode="dry", a_in=int(0.1 * L))
+        r = self.snap(NOW, 2.0)
+        self.assertEqual((r["flow_sol"], r["value_sol"]), (2.0, 2.0))
+        self.assertEqual(equity._mark(self.con, "equity_oid0"), 3)
+        self.assertAlmostEqual(equity.summary(self.con, now=NOW)["pnl_sol"], 0.0)
+        self.assertEqual(self.snap(NOW + 300, 2.0)["flow_sol"], 0.0)   # the old sale is not money that arrived now
+
+    def test_sale_cut_off_mid_swap_is_not_a_deposit(self):
+        """10.11. (review novac): the process was killed in the middle of a real sale; executor's reconcile marks it
+        failed with no amount. The SOL that sale brought is trading, not a deposit."""
+        pid = self.position(sol_in=0.1, qty=1_000_000_000)
+        self.snap(NOW, 1.0)                                      # 1.0 SOL + the position at its stake
+        self.order(NOW + 100, "sell", status="pending", a_in=1_000_000_000, pid=pid)   # the intent, then SIGKILL
+        executor.reconcile_pending(self.con, now=NOW + 200, balance_of=lambda t: 0)    # restart: no tokens left
+        self.assertEqual(self.con.execute("SELECT status FROM positions WHERE id=?", (pid,)).fetchone()[0], "closed")
+        r = self.snap(NOW + 300, 1.13)                           # it went through: 0.13 SOL, a number nobody wrote
+        self.assertEqual((r["flow_sol"], r["tokens_sol"]), (0.0, 0.0))
+        self.assertAlmostEqual(equity.summary(self.con, now=NOW + 300)["pnl_sol"], 0.03)
+        self.assertAlmostEqual(self.snap(NOW + 600, 1.63)["flow_sol"], 0.5)   # outside that window: a deposit again
+
+    def test_usdc_that_moved_waits_for_a_price(self):
+        """10.11. (review novac): USDC that arrived while no SOL price was ever known would have been lost for good."""
+        self.snap(NOW, 1.0, usdc=0.0, sol_usd=None)               # SOL alone can open the history
+        self.assertIsNone(self.snap(NOW + 300, 1.0, usdc=30.0, sol_usd=None))
+        self.assertAlmostEqual(self.snap(NOW + 600, 1.0, usdc=30.0, sol_usd=150.0)["flow_sol"], 0.2)
+
+    def test_clock_going_back_writes_nothing_until_it_catches_up(self):
+        self.snap(NOW, 1.0)
+        self.assertIsNone(self.snap(NOW - 3600, 1.0, force=True))
+        self.assertIsNotNone(self.snap(NOW + equity.EVERY_S, 1.0))
+        self.assertEqual([r[0] for r in self.rows()], [NOW, NOW + equity.EVERY_S])
+
+    def test_thousands_of_failed_tries_between_two_snapshots(self):
+        """10.11. (review novac): a real position while the key is missing makes executor.sell log a failed try every
+        pass. The real buy booked after thousands of them still explains the balance (the window had LIMIT 5000)."""
+        self.snap(NOW, 1.0)
+        self.con.executemany("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, status, error) "
+                             "VALUES (?,1,'MINT','sell','live',5,'failed','ključ nije postavljen')",
+                             [(NOW + 1 + i // 100,) for i in range(6000)])
+        self.order(NOW + 200, "buy", a_in=int(0.1 * L))
+        self.assertEqual(self.snap(NOW + 300, 0.9)["flow_sol"], 0.0)
+
     def test_usdc_is_asked_once_an_hour_and_at_once_when_sol_jumps(self):
         calls = []
 
@@ -233,6 +281,65 @@ class Guards(Base):
         self.order(NOW + 299, "sell", status="pending", mode="dry")
         self.order(NOW + 299, "buy", status="dry", mode="dry", a_in=int(0.1 * L))
         self.assertIsNotNone(self.snap(NOW + 300, 1.0))
+
+    def test_thread_waits_after_a_real_order_booked_with_an_old_time(self):
+        """10.11. (review novac): a swap that took two minutes is booked with the time it STARTED, so _busy() sees
+        nothing recent. The thread waits SETTLE_S from the moment it first sees the new real order."""
+        os.environ["SOLANA_PUBLIC_KEY"] = "ADDR"
+        bal = {"sol": 1.0}
+        equity._sol_balance = lambda a: bal["sol"]
+        equity._usdc_balance = lambda a: 0.0
+        equity._pairs = lambda mints: [{"chainId": "solana", "baseToken": {"address": equity.WSOL},
+                                        "quoteToken": {"address": equity.USDC}, "priceUsd": "150",
+                                        "liquidity": {"usd": 1e6}}]
+        equity._usd_eur_fetch = lambda: 0.9
+        st = {}
+        self.assertIsNotNone(equity._tick(self.con, st, now=NOW))
+        self.assertTrue(st["filled"])                              # the one-off backfill had its turn
+        self.order(NOW + 290, "buy", status="dry", mode="dry", a_in=int(0.1 * L))
+        self.order(NOW + 290, "sell", status="failed", a_in=5)    # never reached the chain: moved nothing
+        self.assertIsNotNone(equity._tick(self.con, st, now=NOW + 400))   # neither holds a snapshot back
+        pid = self.position(sol_in=0.1, ts=NOW + 580)
+        self.order(NOW + 580, "buy", a_in=int(0.1 * L), pid=pid)   # started 2 min before it was booked
+        bal["sol"] = 0.9
+        t = NOW + 701
+        self.assertFalse(equity._busy(self.con, t))               # by the row's time it is old news ...
+        self.assertIsNone(equity._tick(self.con, st, now=t))      # ... the thread waits all the same
+        self.assertIsNone(equity._tick(self.con, st, now=t + equity.SETTLE_S - 1))
+        r = equity._tick(self.con, st, now=t + equity.SETTLE_S)
+        self.assertEqual((r["flow_sol"], r["tokens_sol"]), (0.0, 0.1))
+        self.assertEqual(len(self.rows()), 3)
+
+    def test_order_booked_right_after_the_check_belongs_to_the_next_snapshot(self):
+        """10.11. (review novac): the ledger is counted up to the newest order the balance was measured with; a swap
+        booked a moment later is counted once, by the next snapshot (it was counted now AND then)."""
+        self.snap(NOW, 1.0)
+        orig = equity._mark
+
+        def mark(con, key="equity_oid"):
+            if key == "equity_oid" and not self.con.execute("SELECT 1 FROM orders").fetchone():
+                self.order(NOW + 290, "buy", a_in=int(0.1 * L))   # the trade loop books a swap at that very moment
+            return orig(con, key)
+        equity._mark = mark
+        try:
+            r = self.snap(NOW + 300, 1.0)                         # the balance from before that swap
+        finally:
+            equity._mark = orig
+        self.assertEqual(r["flow_sol"], 0.0)
+        self.assertEqual(self.snap(NOW + 600, 0.9)["flow_sol"], 0.0)
+
+    def test_a_snapshot_is_written_whole_or_not_at_all(self):
+        """10.11. (review novac): the row and its ledger mark go in one transaction; a failure between them must not
+        leave the row for the next commit on the same connection (it would be counted against the old mark)."""
+        self.con.execute("CREATE TRIGGER no_mark BEFORE INSERT ON settings WHEN NEW.k='equity_oid' "
+                         "BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END")
+        self.con.commit()
+        self.assertIsNone(self.snap(NOW, 1.0))
+        self.assertFalse(self.con.in_transaction)
+        self.con.commit()                                         # whoever commits next on this connection
+        self.assertEqual(self.rows(), [])
+        self.con.execute("DROP TRIGGER no_mark")
+        self.assertIsNotNone(self.snap(NOW, 1.0))
 
     def test_order_booked_while_measuring(self):
         self.snap(NOW, 1.0)
@@ -600,6 +707,30 @@ class NeverRaisesNeverBlocks(Base):
             signal.signal(signal.SIGTERM, saved[3])
 
 
+class Shutdown(Base):
+    def test_sigterm_stops_the_snapshot_thread_with_the_loop(self):
+        """10.11. (review novac): a deploy's SIGTERM ends the trade loop after its pass; the snapshot thread it
+        started is told to stop and is gone when cmd_follow returns."""
+        saved = (run_trade.DB, run_trade.follow_league_once, signal.getsignal(signal.SIGTERM))
+        run_trade.DB = self.path
+        seen = {}
+
+        def one_pass(con, cfg, since, now=None, quiet=False):
+            seen["thread"] = equity._THREAD["t"]
+            seen["alive"] = seen["thread"] is not None and seen["thread"].is_alive()
+            run_trade._on_term(signal.SIGTERM, None)              # the deploy
+        run_trade.follow_league_once = one_pass
+        try:
+            run_trade.cmd_follow(argparse.Namespace(config=None, once=False))
+        finally:
+            run_trade.STOPPING["flag"] = False
+            run_trade.DB, run_trade.follow_league_once = saved[:2]
+            signal.signal(signal.SIGTERM, saved[2])
+        self.assertTrue(seen["alive"])
+        self.assertFalse(seen["thread"].is_alive())
+        self.assertIsNone(equity._THREAD["t"])
+
+
 class Backfill(Base):
     def ledger(self):
         """Two real trades before the first measured snapshot: one closed with a profit, one still open."""
@@ -681,6 +812,23 @@ class Backfill(Base):
         self.assertAlmostEqual(s[3]["pnl_sol"], 0.5)              # and the trade's profit stays a profit
         self.assertEqual([d["kind"] for d in equity.deposits(self.con)], ["pocetni", "isplata"])
 
+    def test_a_buy_booked_after_the_first_snapshot_is_not_rebuilt_too(self):
+        """10.11. (review novac): a buy that started seconds before the first snapshot (its row carries that time)
+        but was booked after it belongs to the next live snapshot only, not also to the rebuilt past."""
+        a = self.position("AAA", status="closed", sol_in=0.1, qty=1000, left=0, ts=NOW - 5000)
+        self.order(NOW - 5000, "buy", a_in=int(0.1 * L), a_out=1000, pid=a)
+        self.order(NOW - 4000, "sell", a_in=1000, a_out=int(0.12 * L), pid=a)
+        self.snap(NOW, 1.0)
+        b = self.position("BBB", sol_in=0.1, ts=NOW - 5)
+        self.order(NOW - 5, "buy", a_in=int(0.1 * L), a_out=1000, pid=b)
+        self.assertEqual(equity.backfill(self.con, now=NOW + 1), 3)   # the older trade only: start, buy, sale
+        self.assertNotIn(NOW - 5, [p["ts"] for p in equity.series(self.con)])
+        r = self.snap(NOW + 300, 0.9)
+        self.assertEqual((r["flow_sol"], r["tokens_sol"]), (0.0, 0.1))
+        s = equity.summary(self.con, now=NOW + 300)
+        self.assertAlmostEqual(s["net_in_sol"], 0.98)             # what the wallet held before the older trade
+        self.assertAlmostEqual(s["pnl_sol"], 0.02)                # its profit, the new buy at its stake
+
     def test_live_snapshots_after_a_backfill_keep_working(self):
         self.ledger()
         self.snap(NOW, 1.0, prices={"BBB": (0.075, None)})
@@ -740,6 +888,28 @@ class Plumbing(Base):
             self.assertEqual(wallet.addresses(self.con), ("SAVED", None, "SAVED"))   # never raises
         finally:
             wallet.can_sign, wallet.address = saved
+
+    def test_balances_are_read_at_confirmed(self):
+        """10.11. (review novac): the RPC default 'finalized' is ~13 s behind a confirmed swap. PumpPortal's amounts,
+        the "nothing left, close the record" check of a sale and the snapshot all read at 'confirmed'."""
+        calls = []
+        saved = wallet.rpc
+
+        def rpc(method, params):
+            calls.append((method, params))
+            if method == "getBalance":
+                return {"value": 2_000_000_000}
+            return {"value": [{"account": {"data": {"parsed": {"info": {"tokenAmount": {"amount": "7"}}}}}}]}
+        wallet.rpc = rpc
+        try:
+            self.assertEqual(wallet.sol_balance("A"), 2.0)
+            self.assertEqual(wallet.token_raw_balance("A", "M"), 7)
+            self.assertEqual(self._saved[3]("A"), 2.0)            # equity._sol_balance goes through the same read
+        finally:
+            wallet.rpc = saved
+        self.assertEqual([m for m, _ in calls], ["getBalance", "getTokenAccountsByOwner", "getBalance"])
+        for _, params in calls:
+            self.assertEqual(params[-1].get("commitment"), "confirmed")
 
     def test_snapshot_finds_the_wallet_by_itself(self):
         os.environ["SOLANA_PUBLIC_KEY"] = "ENV"
