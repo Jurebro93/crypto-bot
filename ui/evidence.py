@@ -211,7 +211,8 @@ def fragment(mint):
                 [(w.get("label") or "web", w.get("url")) for w in info.get("websites") or []]
         if links:
             b.append("<p>Službeni linkovi tokena: " + " · ".join(
-                f'<a href="{esc(u)}" target=_blank rel=noopener>{esc(n)}</a>' for n, u in links if u) + "</p>")
+                f'<a href="{esc(u)}" target=_blank rel=noopener>{esc(n)}</a>' for n, u in links
+                if u and str(u).lower().startswith(("https://", "http://"))) + "</p>")   # 10.11. (pregled): no javascript:
         if (pair.get("boosts") or {}).get("active"):
             b.append(f"<p class=mut>Dev je platio {pair['boosts']['active']} DexScreener boost(ova).</p>")
         b.append(_src("dex", time.time()))

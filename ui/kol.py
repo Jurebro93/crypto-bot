@@ -1478,7 +1478,7 @@ def _wallet_page(con, handle):
             f'rel=noopener>Novčanik na Solscanu ↗</a> · <a href="https://gmgn.ai/sol/address/{quote(w)}" '
             f'target=_blank rel=noopener>GMGN ↗</a></p>') if w else ""
     return (f"Novčanik {handle[2:]}",
-            f'<p><a href="/kol#kupnje">← KOL-ovi</a></p><h1>👛 {esc(handle[2:])} <span class=mut>KOL novčanik</span></h1>'
+            f'<p><a href="/kol/analize#kupnje">← KOL-ovi</a></p><h1>👛 {esc(handle[2:])} <span class=mut>KOL novčanik</span></h1>'
             + link + "<h2>Kupnje i prodaje</h2>" + tdesc(
                 "Novčanik s KOL liste (KOLscan / Solana Tracker) za koji ne znamo X račun. Link u zadnjem stupcu "
                 "otvara transakciju na Solscanu.") + trades_table(con, "handle = ?", (handle,), 500, "ktrades", show_who=False))

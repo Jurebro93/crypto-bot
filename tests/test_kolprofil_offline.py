@@ -231,11 +231,12 @@ class Public(Fixture):
             ks._VCACHE.clear()
             en = public.leaderboard("en")
             hr = public.leaderboard("hr")
-        self.assertIn("<th>Verdict</th><th class=n>1 h</th><th class=n>24 h</th>", en)
+        # 10.11. (pregled): no-break space and the nowrap class, so the columns hold on a phone
+        self.assertIn("<th class='vdc'>Verdict</th><th class='n vdc'>1\u00a0h</th><th class='n vdc'>24\u00a0h</th>", en)
         self.assertIn("holds up", en)
         self.assertIn("quick exit only", en)
         self.assertIn("drži se", hr)
-        self.assertIn("<th>Presuda</th>", hr)
+        self.assertIn("<th class='vdc'>Presuda</th>", hr)
         self.assertIn("1 h 50%", hr)                                   # thresholds from kolsummary in the explanation
 
 

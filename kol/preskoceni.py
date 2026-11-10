@@ -383,7 +383,7 @@ def verdict(row, ts, now, tp=TP, sl=SL):
         return {"kind": "ok", "word": "dobro preskočen", "detail": "sat vremena bez trgovanja"}
     bits = [f"−{sl} % za {s} min"] if s is not None else ([f"najviše {pct(hi)}"] if hi is not None else [])
     if r60 is not None:
-        bits.append(f"nakon 1 h {pct(r60)}")
+        bits.append(f"nakon 1\u00a0h {pct(r60)}")   # 10.11. (pregled): "1 h" never breaks
     if lo is not None:
         bits.append(f"najniže {pct(lo)}")
     return {"kind": "ok", "word": "dobro preskočen", "detail": " · ".join(bits)}

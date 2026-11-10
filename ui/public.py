@@ -39,7 +39,7 @@ L = {
         lb_h1="Crypto influencer leaderboard",
         lb_lead="We measure what the price did after every Solana token call an influencer posts on X: 1 hour, 24 hours, "
                 "the peak, and whether it rugged. The score shows who actually moves the market.",
-        cols=("#", "Influencer", "Verdict", "1 h", "24 h", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls",
+        cols=("#", "Influencer", "Verdict", "1 h", "24 h", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls",
               "Followers", "Calls"),
         how_h="How the score works",
         how=("1 h: share of calls that reached +10 % before a −20 % stop within the first hour, measured from the minute "
@@ -77,7 +77,7 @@ L = {
         lb_h1="Ljestvica crypto influencera",
         lb_lead="Za svaki poziv Solana tokena koji influencer objavi na X-u mjerimo što je cijena napravila: nakon sat "
                 "vremena, nakon 24 sata, najviši vrh i je li završio kao rug. Ocjena pokazuje tko stvarno pomiče tržište.",
-        cols=("#", "Influencer", "Presuda", "1 h", "24 h", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi",
+        cols=("#", "Influencer", "Presuda", "1 h", "24 h", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi",
               "Kasni pozivi", "Pratitelji", "Pozivi"),
         how_h="Kako se računa ocjena",
         how=("1 h: udio poziva koji su u prvom satu došli do +10 % prije stopa −20 %, mjereno od minute poziva (zadnjih "
@@ -192,7 +192,7 @@ ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#c
 .gbody{max-width:720px;font-size:17.5px}.gbody p{margin:0 0 14px}
 .cbr{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:4px 0}.cbr i{height:10px;background:var(--soft);border-radius:8px;overflow:hidden;display:block}.cbr em{display:block;height:100%;border-radius:8px}.cbr b{text-align:right}.lbt{margin:0 0 12px}
 .rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
-.vd{display:inline-block;width:8px;height:8px;border-radius:50%;background:#cfd5e1;margin:0 6px 1px 0;vertical-align:middle}
+.vdc{white-space:nowrap}.vd{display:inline-block;width:8px;height:8px;border-radius:50%;background:#cfd5e1;margin:0 6px 1px 0;vertical-align:middle}
 .vd.good{background:#16a34a}.vd.warn{background:#d97706}.vd.bad{background:#dc2626}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
@@ -470,8 +470,8 @@ def _verdict_cells(v, lang):
         d24 = v["plus24"] / v["n24"] if (v.get("n24") or 0) >= KS.VERDICT_MIN_N else None
     word = KS.VERDICT_WORD_EN[k] if lang == "en" else (v["word"] if v else KS.VERDICT_WORD[k])
     few = " mut" if k == "premalo" else ""
-    return (f"<td><span class='vd {KS.VERDICT_DOT[k]}'></span>{esc(word)}</td>"
-            f"<td class='n{few}'>{_pct(h1)}</td><td class='n{few}'>{_pct(d24)}</td>")
+    return (f"<td class=vdc><span class='vd {KS.VERDICT_DOT[k]}'></span>{esc(word)}</td>"
+            f"<td class='n vdc{few}'>{_pct(h1)}</td><td class='n vdc{few}'>{_pct(d24)}</td>")
 
 
 def leaderboard(lang):
@@ -481,7 +481,8 @@ def leaderboard(lang):
     star_rows = [r for r in allrows if is_star(r, stars)][:50]
     rising = [r for r in allrows if not is_star(r, stars)][:100]
     c = t["cols"]
-    head = "".join(f"<th{' class=n' if j > 2 else ''}>{h}</th>" for j, h in enumerate(c))
+    # 10.11. (pregled): the verdict and the 1 h / 24 h columns never break inside a word on a phone
+    head = "".join(f"<th class='{'n ' if j > 2 else ''}{'vdc' if j in (2, 3, 4) else ''}'>{h}</th>" for j, h in enumerate(c))
     vs = _verdicts()
 
     def table(rows):
@@ -601,7 +602,7 @@ def profile(handle, lang):
         "@context": "https://schema.org", "@type": "ProfilePage",
         "mainEntity": {"@type": "Person", "name": me["name"] or h, "alternateName": "@" + h,
                        "sameAs": [f"https://x.com/{h}"]},
-        "url": f"{base}{t['prof']}{h}"}) + "</script>" + honest["jsonld"])
+        "url": f"{base}{t['prof']}{h}"}).replace("</", "<\\/") + "</script>" + honest["jsonld"])   # 10.11. (pregled)
     lock = (f"<div class=lock><p>{P2[lang]['lock'].format(n=fresh)}</p><a class='btn sm' href={t['home']}#pristup>"
             f"{t['cta']}</a></div>")
     body = (f"<section class=ph1><div class=crumb><a href={t['lb']}>{t['back']}</a></div>"
@@ -679,7 +680,8 @@ def honest_block(handle, lang, me=None, kind="x"):
                                                                    bhit=pct(basev.get("hit15")), rug=pct(s["rug"]), rugn=rugn)}}
            for q, a in p["faq"]] if s["enough"] else []
     jsonld = ('<script type="application/ld+json">' + json.dumps({"@context": "https://schema.org", "@type": "FAQPage",
-                                                                  "mainEntity": faq}) + "</script>") if faq else ""
+                                                                  "mainEntity": faq}).replace("</", "<\\/")
+              + "</script>") if faq else ""   # 10.11. (pregled): a name or answer with </script> cannot close the tag
     title = p["title"].format(h=label)
     if s["enough"]:
         desc = p["desc"].format(h=label, n=s["n"], up=pct(s["up1h"]), hit=pct(s["hit15"]), med=pct(s["med24"], True),

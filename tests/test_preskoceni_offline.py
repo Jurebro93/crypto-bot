@@ -72,13 +72,13 @@ class Verdict(unittest.TestCase):
     def test_stop_first_or_same_minute_was_a_good_skip(self):
         v = self.v(t15=40, sl_min=3, hi60=0.2, lo60=-0.31, r60=0.05)
         self.assertEqual((v["kind"], v["word"]), ("ok", "dobro preskočen"))
-        self.assertEqual(v["detail"], "−20 % za 3 min · nakon 1 h +5 % · najniže −31 %")
+        self.assertEqual(v["detail"], "−20 % za 3 min · nakon 1\u00a0h +5 % · najniže −31 %")
         self.assertEqual(self.v(t15=5, sl_min=5)["kind"], "ok")   # the same minute: not a clean hit (kol/minute)
 
     def test_neither_within_the_hour_shows_the_result_and_the_low(self):
         v = self.v()
         self.assertEqual(v["kind"], "ok")
-        self.assertEqual(v["detail"], "najviše +9 % · nakon 1 h −8 % · najniže −14 %")
+        self.assertEqual(v["detail"], "najviše +9 % · nakon 1\u00a0h −8 % · najniže −14 %")
         self.assertEqual(self.v(hi60=None, lo60=None, r60=None)["detail"], "sat vremena bez trgovanja")
 
     def test_young_and_not_measured_yet(self):
