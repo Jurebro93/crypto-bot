@@ -573,7 +573,10 @@ TOOLS += [
                      "caller_weights): applying moves an off flag to shadow only; live is the owner's call after a backtest. "
                      "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
                      "accepted for a manual change, e.g. a name for a group from get_trader_groups: {\"group_label\": "
-                     "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label)."),
+                     "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label). "
+                     "A verdict on a wallet from get_insider_candidates: {\"insider_label\": {\"wallet\": <address>, "
+                     "\"label\": insider | team | bot | sniper | legit, \"note\": <why>}}; the owner's 'Primijeni na "
+                     "bota' stores it (bot and sniper keep the wallet out of the insider copy; nothing else changes)."),
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
          "improvement": {"type": "string", "maxLength": 4000}, "evidence": {"type": "object"},
@@ -716,6 +719,26 @@ TOOLS += [
                      "and tokens under $30k are never bought." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"}, **_PAGE}}},
 ]
+# 10.11. (flag insider_copy, kol/precall.py): pre-call insiders for Grok to clean, read-only; empty while off
+TOOLS += [
+    {"name": "get_insider_candidates", "annotations": _READ,
+     "description": ("Wallets that bought tokens BEFORE tracked callers called them (X and Telegram, first call of each "
+                     "caller, market cap at the call >= $10k), found by MemeSonar from its own trade data and Helius "
+                     "windows (the trade is the signing owner's, never a relayer's). Per wallet: status confirmed "
+                     "(selected on the older 2/3 of 30 days, confirmed on the newer 1/3) or candidate, tokens bought "
+                     "before the first call, median minutes before the next call, share of those tokens that rose "
+                     "+30 % within 1 h after the call, share it sold into the call (within 60 min), PnL in SOL, "
+                     "callers_front_run (caller, tokens, lift against chance), examples (token, buy time, first and "
+                     "next call with times, rose30, sold into the call, under_30k). Snipers, bots, relayers, dev-funded "
+                     "and same-owner bundles are already out. Your verdict: submit_suggestion with proposed_change "
+                     "{\"insider_label\": {\"wallet\": \"<address>\", \"label\": \"insider|team|bot|sniper|legit\", "
+                     "\"note\": \"<why>\"}}; it counts only after the owner's 'Primijeni na bota'. bot / sniper keep a "
+                     "wallet out of the copy. Copy is shadow / demo only until the owner's proof; tokens under $30k "
+                     "and on the bonding curve are never bought."),
+     "inputSchema": {"type": "object", "properties": {
+         "min_tokens": {"type": "integer", "minimum": 1, "default": 3},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}},
+]
 
 
 def source_stats(now=None):
@@ -795,6 +818,10 @@ def _tool(name, args, kid="local"):
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc
         d = groupdisc.mcp_tool(name, args)
+        return d, "error" in d
+    if name == "get_insider_candidates":   # 10.11. insider_copy (kol/precall.py)
+        from kol import precall
+        d = precall.mcp_tool(name, args)
         return d, "error" in d
     from ui import mcpdata
     data_tools = {

@@ -160,6 +160,9 @@ PROCESSES = (
     # 10.11. (flag group_discovery): the night pass and the 15-min pass; shadow only, nobody waits for them
     ("grupe", "-m kol.groupdisc", (), JOBS,
      "ekipe callera i skriveni popisi novčanika: noćni prolaz (Helius, strop kredita) i mali svakih 15 min, samo sjena"),
+    # 10.11. (flag insider_copy): launches from 10k, pre-call insiders; the copy itself runs in the UI's copy loop
+    ("insajderi", "-m kol.precall", (), JOBS,
+     "insajderi prije poziva i nova lansiranja od 10k: noćni prolaz (Helius, strop kredita) i mali svakih 15 min"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
