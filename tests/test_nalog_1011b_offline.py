@@ -11,6 +11,7 @@ import sys
 import time
 import unittest
 from unittest import mock
+from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -29,13 +30,15 @@ class Flags(Base):
         done = assistnotes.owner_flags_b(self.tc, now=NOW)
         modes = {n: settings.flag_state(self.tc)[n]["mode"] for n, _ in assistnotes.OWNER_FLAGS_B}
         self.assertEqual(modes, {"x_features_ingest": "shadow", "require_signal": "paper", "dca_cap": "paper",
-                                 "smart_discovery": "shadow"})
+                                 "smart_discovery": "shadow", "confluence": "shadow"})
         log = assistnotes.applied(self.tc)
         self.assertEqual({(x["key"], x["old"], x["new"]) for x in log},
                          {("flag:x_features_ingest", "off", "shadow"), ("flag:require_signal", "shadow", "paper"),
-                          ("flag:dca_cap", "shadow", "paper"), ("flag:smart_discovery", "off", "shadow")})
-        self.assertTrue(all(x["ts"] and x["note_id"] == 0 for x in log))
-        self.assertEqual(len(done), 4)
+                          ("flag:dca_cap", "shadow", "paper"), ("flag:smart_discovery", "off", "shadow"),
+                          ("flag:confluence", "off", "shadow"),
+                          ("dca_cap_owner", "samo zapis (shadow)", "tvrdi strop 0.3 SOL po tokenu")})
+        self.assertTrue(all(x["ts"] for x in log))
+        self.assertEqual(len(done), 6)
         self.assertEqual(assistnotes.owner_flags_b(self.tc, now=NOW), [])          # once
         self.assertNotIn("live", modes.values())
         # what Grok reads
@@ -71,7 +74,7 @@ class HopeStop(Base):
         a = self.auto(tid)
         self.assertAlmostEqual(a["sl_px"], 1.02 * 0.70)
         self.assertEqual((a["sl"], a["tp_px"], a["grace_until"]), ("-30%", tp0, NOW + 600))
-        self.assertIn("−40 % → -30 %".replace("−40", "-40"), out[0].replace("−", "-"))
+        self.assertIn("stop -40% → -30 % od prosječnog ulaza", out[0])
         self.assertEqual(assistnotes.applied(self.tc)[0]["key"], f"sl:trade#{tid}")
 
     def test_not_when_it_would_sell_at_once_and_not_other_stops(self):
@@ -98,6 +101,76 @@ class HopeStop(Base):
             self.assertTrue(assistnotes.owner_once_b(self.tc, self.lc))
             self.assertTrue(assistnotes.owner_once_b(self.tc, self.lc))
         self.assertEqual(hs.call_count, 1)
+
+
+class Lots(HopeStop):
+    def test_lots_get_one_level_from_the_average_entry(self):
+        a = self.trade(sl="-60%", entry=1.0, eff=1.0)
+        b = self.trade(sl="-60%", entry=0.5, eff=0.5)                              # same qty 25: average 0.75
+        done, out = assistnotes.hope_stop(self.tc, self.lc, market=lambda t: {H: (0.70, 50_000, None, 150_000)})
+        self.assertTrue(done)
+        for tid in (a, b):
+            self.assertAlmostEqual(self.auto(tid)["sl_px"], 0.75 * 0.70)
+        self.assertEqual(sum("od prosječnog ulaza" in x for x in out), 2)
+
+
+class OwnerCap(Base):
+    def test_owner_cap_refuses_his_buys_over_the_cap_whatever_the_flag(self):
+        from ui import pravitrade
+        self.tc.execute("INSERT INTO positions (token, opened_ts, mode, status, sol_in) VALUES (?,?,?,?,?)",
+                        (MINT, NOW, "dry", "open", 0.6))
+        self.tc.commit()
+        pravitrade._owner_buy_rules(self.lc, self.tc, MINT, 0.15, NOW)              # no owner cap, flag off: goes
+        assistnotes.owner_flags_b(self.tc, now=NOW)
+        with self.assertRaisesRegex(ValueError, "tvoj strop po tokenu"):
+            pravitrade._owner_buy_rules(self.lc, self.tc, MINT, 0.15, NOW)
+        pravitrade._owner_buy_rules(self.lc, self.tc, "other", 0.15, NOW)          # another token: fine
+
+    def test_grok_note_is_marked_applied_and_summaries_can_be_dismissed(self):
+        from ui import pravitrade
+        n = assistnotes.submit_suggestion(self.tc, "k", "Prihvaćeno, ali nije primijenjeno: SL je još 60 %", "i")
+        nid = n["id"] if isinstance(n, dict) else n
+        assistnotes.owner_flags_b(self.tc, now=NOW)
+        st = self.tc.execute("SELECT status FROM assistant_notes WHERE id=?", (nid,)).fetchone()[0]
+        self.assertEqual(st, "primijenjeno")
+        s = assistnotes.submit_daily_summary(self.tc, "k2", "Sažetak", "tekst", {"a": 1})
+        sid = s["id"] if isinstance(s, dict) else s
+        self.assertIn("Pročitano, makni", pravitrade._summary_card(self.tc, True))
+        assistnotes.decide(self.tc, sid, "prihvaćeno")
+        self.assertEqual(pravitrade._summary_card(self.tc, True), "")
+
+
+class CapForm(Base):
+    def test_owner_sets_and_clears_the_cap_in_pravila(self):
+        from ui import pravitrade
+        form = {k: "" for k in settings.LIMITS}
+        form.update({k: str(v) for k, v in pravitrade._cfg(self.tc).items() if k in settings.LIMITS})
+        loc = pravitrade.post("/pravi-trade/limits", dict(form, dca_token_cap="0,5", dca_cap_owner="1"), "Jure")
+        self.assertIn("Limiti spremljeni", unquote(loc))
+        raw = settings.raw(self.tc)
+        self.assertEqual((raw["dca_token_cap"], raw["dca_cap_owner"]), (0.5, True))
+        pravitrade.post("/pravi-trade/limits", dict(form, dca_token_cap="0.3"), "Jure")
+        self.assertFalse(settings.raw(self.tc)["dca_cap_owner"])
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Najviše SOL po tokenu (tvoje kupnje i DCA)", body)
+
+
+class Confluence(Base):
+    def test_two_callers_and_a_tiered_wallet(self):
+        from tests.test_primijeni_offline import Signal
+        sig = Signal("test_a_caller_or_a_tiered_wallet_is_a_signal_nothing_else_is")
+        sig.lc, sig.tc = self.lc, self.tc
+        sig.kol([("x1", MINT, "ansem", NOW - 60, "call")])
+        self.assertFalse(copy.confluence_for(MINT, NOW)[0])
+        sig.kol([("x2", MINT, "marko", NOW - 30, "call")])
+        self.assertFalse(copy.confluence_for(MINT, NOW)[0])                       # 2 callers, no wallet
+        sig.wallets([("W2", "A")], [("s1", "W2", MINT, "buy", NOW - 30, 0.5)])
+        self.assertTrue(copy.confluence_for(MINT, NOW)[0])
+        f = {"id": 1, "kind": "kol", "target": "ansem", "user": settings.LEAGUE_USER, "exit": {}}
+        self.assertIsNone(copy._confluence_gate(self.lc, f, "nope", NOW, "shadow"))
+        self.assertEqual(len(flags.shadow_rows(self.lc, "confluence")), 1)
+        self.assertIn("nema poklapanja", copy._confluence_gate(self.lc, f, "nope", NOW, "live"))
+        self.assertIsNone(copy._confluence_gate(self.lc, dict(f, user="Ivan"), "nope", NOW, "live"))
 
 
 class DcaPaper(Base):

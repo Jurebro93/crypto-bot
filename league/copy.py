@@ -873,6 +873,64 @@ def signal_for(tok, now, wallet=None, window_s=SIGNAL_WINDOW_S, paths=None):
     return False, f"nijedan caller ni novčanik s tierom ({'/'.join(SIGNAL_TIERS)}) u zadnjih {window_s // 60} min"
 
 
+CONFLUENCE_CALLERS = 2
+
+
+def confluence_for(tok, now, window_s=SIGNAL_WINDOW_S, paths=None):
+    """(ok, why): 10.11. (Grok, applied by Jure) at least CONFLUENCE_CALLERS different callers (kol.db kind 'call',
+    no 'w:' pseudo-calls) AND a buy of a tiered wallet (hype.db chain_trades, wallets.db S/A/B) in the last window_s.
+    Unknown (no database) counts as missing."""
+    p = paths or _paths()
+    callers = []
+    kc = _ro(p["kol"])
+    if kc is not None:
+        try:
+            callers = [h for (h,) in kc.execute("SELECT DISTINCT handle FROM calls WHERE token=? AND kind='call' AND "
+                                               "handle NOT LIKE 'w:%' AND ts BETWEEN ? AND ?", (tok, now - window_s, now + 60))]
+        except sqlite3.Error:
+            pass
+        finally:
+            kc.close()
+    good = []
+    hc = _ro(p["hype"])
+    if hc is not None:
+        try:
+            buyers = [w for (w,) in hc.execute("SELECT DISTINCT wallet FROM chain_trades WHERE mint=? AND side='buy' "
+                                                "AND ts BETWEEN ? AND ?", (tok, now - window_s, now + 60))]
+        except sqlite3.Error:
+            buyers = []
+        finally:
+            hc.close()
+        tiers = _wallet_tiers(buyers)
+        good = [w for w in buyers if tiers.get(w) in SIGNAL_TIERS]
+    ok = len(callers) >= CONFLUENCE_CALLERS and bool(good)
+    why = (f"{len(callers)} callera i {len(good)} novčanika s tierom u zadnjih {window_s // 60} min "
+           f"(treba {CONFLUENCE_CALLERS}+ callera i barem jedan novčanik)")
+    return ok, why
+
+
+def _confluence_gate(con, f, tok, now, cmode, paths=None):
+    """The confluence gate (flag confluence): the reason to skip when the flag applies to the account, else None;
+    shadowed, the skip it would make goes to shadow_decisions. Every kind of follow (one caller alone is not
+    enough under this rule)."""
+    if cmode == "off":
+        return None
+    on = _flag_applies("confluence", f["user"], cmode)
+    if not on and not _flag_shadowing("confluence", f["user"], cmode):
+        return None
+    ok, why = confluence_for(tok, now, paths=paths)
+    if ok:
+        return None
+    if on:
+        return f"nema poklapanja: {why}"
+    try:
+        from . import flags
+        flags.shadow(con, "confluence", f["id"], tok, "ulaz", "preskočeno", {"gate": "confluence", "why": why})
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def _signal_gate(con, f, tok, now, smode, paths=None):
     """The require_signal gate of one copy (see SIGNAL_WINDOW_S): the reason to skip when the flag applies, else
     None; in shadow / paper for the Autopilot account the skip it would make is logged in shadow_decisions."""
@@ -1174,6 +1232,7 @@ def _enter(con, auto, mk, todo, now, paths=None):
     rmode = _flag_mode("runup_default")   # 10.11. (Grok MCP audit 3): read once per pass (cached 2 s anyway)
     smode = _flag_mode("require_signal")  # 10.11. (Jure): "bez ulaza bez signala"
     dmode = _flag_mode("dca_cap")         # 10.11. ~19:40 (Jure): at most dca_token_cap SOL per token
+    cmode = _flag_mode("confluence")      # 10.11. ~21:00 (Grok/Jure): 2+ callers and a tiered wallet
     firsts = {}   # token -> first call in kol.db, read at most once per pass
     for f, tok, side, ts in todo:
         if f["id"] in stopped:
@@ -1236,6 +1295,8 @@ def _enter(con, auto, mk, todo, now, paths=None):
             why = sw   # 10.11. (Jure, flag require_signal)
         elif (dw := _dca_gate(con, f, tok, now, dmode)):
             why = dw   # 10.11. ~19:40 (Jure, flag dca_cap on the paper account)
+        elif (cw := _confluence_gate(con, f, tok, now, cmode, paths)):
+            why = cw   # 10.11. ~21:00 (flag confluence)
         elif mcap and liq and liq < CFG["min_liq_mcap"] * mcap:   # 9.11. (audit P41): one big holder would empty the pool
             why = (f"likvidnost ${liq:,.0f} je samo {liq / mcap:.1%} MC-a (granica {CFG['min_liq_mcap']:.0%}): "
                    "najveći holder bi srušio cijenu prije stopa")

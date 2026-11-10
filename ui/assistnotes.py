@@ -221,9 +221,12 @@ def latest_for(con, position_ids=(), tokens=()):
     return out
 
 
-def latest_summary(con):
+def latest_summary(con, status=None):
+    """The newest daily summary (only one with this status when given), or None."""
     ensure(con)
-    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE kind='daily_summary' ORDER BY id DESC LIMIT 1").fetchone()
+    where = "kind='daily_summary'" + (" AND status=?" if status else "")
+    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE {where} ORDER BY id DESC LIMIT 1",
+                    (status,) if status else ()).fetchone()
     return _row(r) if r else None
 
 
@@ -448,7 +451,13 @@ def owner_once(con):
 # in applied_log (note_id 0: no note behind it), which get_scoring_config shows with the flag modes.
 OWNER_ONCE_B_KEY = "owner_once_1011b"
 OWNER_FLAGS_B = (("x_features_ingest", "shadow"), ("require_signal", "paper"), ("dca_cap", "paper"),
-                 ("smart_discovery", "shadow"))
+                 ("smart_discovery", "shadow"), ("confluence", "shadow"))
+# 10.11. ~21:00 (Jure: "Primijeni ovo i makni sa autopilot screena" on Grok's "Prihvaćeno, ali nije primijenjeno: SL je
+# još 60 %, Hope DCA 0.6 SOL (cap 0.3)"): sl_default 30 was applied at 17:34 UTC (log "#41 sl_default 60 → 30"); the
+# cap becomes the owner's hard limit on his own buys (dca_cap_owner, ui/pravitrade._owner_buy_rules); Grok's rule
+# "2+ callers and a smart-wallet buy" goes in as the flag confluence (shadow); the note itself is marked applied, so
+# it leaves the page.
+GROK_NOTE_TITLE = "Prihvaćeno, ali nije primijenjeno%"
 # "otvorena Hope pozicija još ima stop na -40 %. Postavi je na novi sl_default 30 %": a stop is written into the
 # position when it opens (league/copy._enter -> auto.set_auto), so a later sl_default change only reaches new
 # positions. Here once: the open Hope positions of the Autopilot accounts and the owner with a -40 % stop get -30 %
@@ -478,6 +487,17 @@ def owner_flags_b(con, now=None):
         new = settings.flag_state(con)[name]["mode"]
         record_applied(con, 0, f"flag:{name}", old, new, why)
         done.append(f"zastavica {name}: {old} → {new}")
+    raw = settings.raw(con)
+    if not raw.get("dca_cap_owner"):
+        cap = raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP
+        _set_settings(con, "dca_cap_owner", True)
+        record_applied(con, 43, "dca_cap_owner", "samo zapis (shadow)", f"tvrdi strop {cap:g} SOL po tokenu", why)
+        done.append(f"#43 strop po tokenu za tvoje kupnje: {cap:g} SOL (tvrdo)")
+    for (nid,) in con.execute("SELECT id FROM assistant_notes WHERE title LIKE ? AND status IN ('novo', 'prihvaćeno')",
+                              (GROK_NOTE_TITLE,)).fetchall():
+        record_applied(con, nid, "grok_note", "novo", "primijenjeno: sl_default 30 (17:34 UTC), strop 0,3 SOL tvrdo, "
+                       "confluence u sjeni", why)
+        done.append(f"#{nid} Grokova bilješka označena primijenjenom")
     settings.put(con, OWNER_ONCE_B_KEY, int(now or time.time()), "Jure")
     for t in done:
         print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
@@ -485,47 +505,57 @@ def owner_flags_b(con, now=None):
 
 
 def hope_stop(con, lcon=None, market=None):
-    """The Hope stop part of the order: (finished, [text]). finished=False only when a price was missing (retried)."""
+    """The Hope stop part of the order: (finished, [text]); finished=False only when a price was missing (retried).
+    Per account, every open Hope lot with a TP/SL exit gets the stop at -30 % from the AVERAGE entry of its lots
+    (one level for the whole position, as the group exit does; one lot = its own entry), wherever it was looser
+    (-40 %, -60 % of the old default); a tighter stop stays; TP and every other part of the exit stay. Not when the
+    price is at or within 2 % of the new level: that would sell at once."""
     from league import copy as lcopy, store as lstore
     users = (settings.LEAGUE_USER, settings.PAPER_USER, settings.owner())
     own = lcon is None
     lcon = lcon or lstore.connect()
     try:
-        rows = lcon.execute(f"SELECT * FROM trades WHERE token=? AND status='open' AND user IN ({','.join('?' * len(users))})",
-                            (HOPE_MINT, *users)).fetchall()
+        rows = lcon.execute(f"SELECT * FROM trades WHERE token=? AND status='open' AND user IN ({','.join('?' * len(users))}) "
+                            "ORDER BY id", (HOPE_MINT, *users)).fetchall()
         if not rows:
             return True, ["Hope: nema otvorene pozicije (Autopilot / vlasnik), stop nije mijenjan"]
         mk = (market or lcopy.market)({HOPE_MINT}) or {}
         m = mk.get(HOPE_MINT)
         price = m[0] if m else None
-        out, finished = [], True
+        out = []
+        groups = {}
         for t in rows:
             a = json.loads(t["auto"]) if t["auto"] else None
-            if not a or a.get("mode") != "tpsl" or not a.get("sl_px"):
-                out.append(f"Hope #{t['id']} ({t['user']}): nema TP/SL stopa ({(a or {}).get('mode') or 'bez izlaza'}), nije mijenjano")
+            if not a or a.get("mode") != "tpsl":
+                out.append(f"Hope #{t['id']} ({t['user']}): izlaz {(a or {}).get('mode') or 'bez izlaza'}, stop nije mijenjan")
                 continue
-            base = (t["entry_eff"] or t["entry_px"]) if a.get("from_eff") else t["entry_px"]
-            cur = (a["sl_px"] / base - 1) * 100
-            if abs(cur - HOPE_SL_OLD) > 1.5:
-                out.append(f"Hope #{t['id']} ({t['user']}): stop je {cur:+.0f} %, ne −40 %; nije mijenjano")
-                continue
-            new_px = base * (1 + HOPE_SL_NEW / 100)
-            if price is None:
-                finished = False
-                out.append(f"Hope #{t['id']} ({t['user']}): nema cijene, pokušavam ponovno")
-                continue
+            groups.setdefault(t["user"], []).append((t, a))
+        if groups and price is None:
+            return False, out + ["Hope: nema cijene, pokušavam ponovno"]
+        for user, lots in groups.items():
+            qty = sum(t["qty"] or 0 for t, _ in lots)
+            bases = [((t["entry_eff"] or t["entry_px"]) if a.get("from_eff") else t["entry_px"], t["qty"] or 0) for t, a in lots]
+            avg = (sum(b * q for b, q in bases) / qty) if qty else bases[0][0]
+            new_px = avg * (1 + HOPE_SL_NEW / 100)
             if price <= new_px * 1.02:
-                out.append(f"Hope #{t['id']} ({t['user']}): cijena je {(price / base - 1) * 100:+.0f} % od ulaza, stop −30 % bi "
-                           "odmah prodao; ostaje −40 % (prodaju odluči vlasnik)")
+                out.append(f"Hope ({user}, {len(lots)} lot.): cijena je {(price / avg - 1) * 100:+.0f} % od prosječnog ulaza, "
+                           "stop −30 % bi odmah prodao; ostaje kakav je (prodaju odluči vlasnik)")
                 continue
-            a.update(sl_px=new_px, sl=f"{HOPE_SL_NEW:+g}%", sl_in=f"{HOPE_SL_NEW:g}%")
-            lcon.execute("UPDATE trades SET auto=? WHERE id=?", (json.dumps(a), t["id"]))
-            lcon.commit()
-            record_applied(con, 0, f"sl:trade#{t['id']}", f"{cur:+.0f}%", f"{HOPE_SL_NEW:+g}%",
-                           "vlasnik u chatu 10.11.: Hope stop na novi sl_default")
-            out.append(f"Hope #{t['id']} ({t['user']}): stop {cur:+.0f} % → {HOPE_SL_NEW:+g} % "
-                       f"(cijena sada {(price / base - 1) * 100:+.0f} % od ulaza)")
-        return finished, out
+            for t, a in lots:
+                cur = a.get("sl_px")
+                cur_pct = (cur / avg - 1) * 100 if cur else None
+                if cur and cur >= new_px * 0.999:
+                    out.append(f"Hope #{t['id']} ({user}): stop je već {cur_pct:+.0f} % od prosjeka, ostaje")
+                    continue
+                a.update(sl_px=new_px, sl=f"{HOPE_SL_NEW:+g}%", sl_in=f"{HOPE_SL_NEW:g}%")
+                lcon.execute("UPDATE trades SET auto=? WHERE id=?", (json.dumps(a), t["id"]))
+                lcon.commit()
+                old_txt = f"{cur_pct:+.0f}%" if cur_pct is not None else "bez stopa"
+                record_applied(con, 0, f"sl:trade#{t['id']}", old_txt, f"{HOPE_SL_NEW:+g}% od prosječnog ulaza",
+                               "vlasnik u chatu 10.11.: Hope stop na novi sl_default")
+                out.append(f"Hope #{t['id']} ({user}): stop {old_txt} → {HOPE_SL_NEW:+g} % od prosječnog ulaza "
+                           f"(cijena sada {(price / avg - 1) * 100:+.0f} %)")
+        return True, out
     finally:
         if own:
             lcon.close()

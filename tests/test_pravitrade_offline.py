@@ -448,5 +448,5 @@ class LiveLog(PraviTrade):
         # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
         self.assertIn("Tehnički zapis naloga", body)
         self.assertIn("data-src=/pravi-trade/dnevnik", body)
-        # 10.11. (maketa autopilot.html): the log is the row "Dnevnik odluka", still right above the positions
-        self.assertLess(body.index("Dnevnik odluka"), body.index("id=pozicije"))
+        # 10.11. 20:41 (Jure: "fokusirano na trade, sve ostalo ispod"): the row "Dnevnik odluka" right under the positions
+        self.assertGreater(body.index("Dnevnik odluka"), body.index("id=pozicije"))

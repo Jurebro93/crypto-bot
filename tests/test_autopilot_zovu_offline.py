@@ -167,7 +167,8 @@ class Page(unittest.TestCase):
         # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): log, positions, then "Kako trguje" (follows, Pravila
         # = exit target + limits, manual buy), and only then, closed under "Još", the two live lists and the picks
         # 10.11. (Jure): the quick buy moved right under the chart, before the log
-        order = [body.index(x) for x in ("id=kupi-odmah", "id=dnevnik", "id=pozicije", "id=pratim", "id=cilj", "id=limiti",
+        # 10.11. 20:41 (Jure: "fokusirano na trade"): positions before the decision log
+        order = [body.index(x) for x in ("id=kupi-odmah", "id=pozicije", "id=dnevnik", "id=pratim", "id=cilj", "id=limiti",
                                          "id=zovu", "id=ideje", "id=preporuke")]
         self.assertEqual(order, sorted(order))
         for sid in ("dnevnik", "preporuke", "zovu", "ideje", "pravila"):   # closed until tapped

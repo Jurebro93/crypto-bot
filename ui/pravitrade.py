@@ -1399,15 +1399,18 @@ def _suggest_section(tcon, owner):
 
 
 def _summary_card(tcon, owner):
-    """10.11.: the assistant's newest daily summary, at the top of the page (owner only)."""
+    """10.11.: the assistant's newest daily summary (owner only), under "Još" since 20:41; only while it waits
+    (status novo), with "Pročitano, makni" (10.11. ~21:00, Jure: "makni sa autopilot screena")."""
     if not owner:
         return ""
     from ui import assistnotes
-    n = assistnotes.latest_summary(tcon)
+    n = assistnotes.latest_summary(tcon, status="novo")
     if not n:
         return ""
     return (f'<section class="ap-qb ap-sum" id=sazetak><h2 class=ap-qb-h>{esc(n.get("title") or "Dnevni sažetak")} '
-            f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p></section>')
+            f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p>'
+            f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(n["id"])}>'
+            '<button>Pročitano, makni</button></form></section>')
 
 
 def _mcp_requests(tcon, owner):
@@ -4130,6 +4133,11 @@ def _limits(cfg, owner):
                    t=f"ako Jupiter ne prođe, probaj preko PumpPortala (naknada {_g(pumpportal.FEE_PCT)} %)")
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
+    # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
+    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=dca_token_cap '
+               f'value="{_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
+    extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
+                 t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
              '<p class=mut>Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja, nove automatske kupnje '
              'staju do ponoći (po zagrebačkom vremenu); tvoje ručne kupnje (brza kupnja, dokup, DCA) idu dalje. Kad se '
@@ -4399,6 +4407,12 @@ def post(path, form, user):
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
+            if "dca_token_cap" in form:   # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL)
+                cap = float(str(form.get("dca_token_cap")).replace(",", ".") or settings.DCA_TOKEN_CAP)
+                if not 0.01 <= cap <= 5:
+                    raise ValueError("strop po tokenu mora biti 0,01-5 SOL")
+                settings.put(tcon, "dca_token_cap", round(cap, 4), user)
+                settings.put(tcon, "dca_cap_owner", form.get("dca_cap_owner") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/sell":
             # 10.11.: "id" may name every lot of one token ("12,15"): each lot is its own swap, all with this share
@@ -4772,12 +4786,19 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     now = now or time.time()
     U = settings.LEAGUE_USER
     m = lflags.mode("dca_cap")
-    if m != "off":
-        cap = float(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+    raw = settings.raw(tcon)
+    # 10.11. ~21:00 (Grok "Prihvaćeno, ali nije primijenjeno: Hope DCA 0.6 SOL (cap 0.3)", Jure: "Primijeni ovo"):
+    # the owner's own limit on his buys (manual, DCA orders, buy orders at a market cap), like the stake limits; it
+    # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
+    owner_cap = bool(raw.get("dca_cap_owner"))
+    if m != "off" or owner_cap:
+        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
         held = tcon.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE token=? AND status IN ('open','pending')",
                             (token,)).fetchone()[0] or 0.0
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
+            if owner_cap:
+                raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
                 raise ValueError(f"kupnja nije poslana: {why} (Pravila → Zastavice plana: dca_cap)")
             if lflags.shadowing("dca_cap", U, m):
