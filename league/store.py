@@ -158,6 +158,8 @@ def _migrate(con):
             try:
                 con.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e):
+                    continue   # 10.11. (deploy #99): another process added it in the same second: it is there
                 print(f"league: stupac {col} nije dodan ({e})", flush=True)
                 return
     _backfill_exit_rule(con)
