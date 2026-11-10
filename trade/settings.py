@@ -67,7 +67,12 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "demo_grok": ("3e.5", "Demo strategije MemeSonar, Grok i oboje zajedno"),
     # 10.11. (Grok MCP audit 4): a proven caller's copy is not stopped out in the first minutes (league/auto.grace)
     "stop_grace": ("G4", "Prve 3 min bez stopa za dokazane callere (osim kod ruga)"),
+    # 10.11. (Jure: "Primijeni" na Grokov prijedlog mijenja ove postavke, svaku iza zastavice, prvo sjena)
+    "caller_weights": ("G6", "Težine callera iz prijedloga u automatskom izboru influencera"),
+    "dca_cap": ("G7", "Najviše SOL-a ukupno po tokenu (zadano 0,3)"),
+    "require_signal": ("G8", "Bez ulaza bez signala: barem jedan caller ili kupnja novčanika s tierom"),
 }
+DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})
 _FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})

@@ -1345,12 +1345,25 @@ def assistant_notes(status=None, kind=None, limit=None, offset=None):
             try:
                 tc.execute("SELECT 1 FROM assistant_notes LIMIT 1")
                 rows, total = assistnotes.notes(_RoCon(tc), status, kind, limit, offset)
+                # 10.11. (Jure): an applied note carries when and what it changed (settings applied_log)
+                log = {}
+                for a in reversed(assistnotes.applied(tc, 200)):
+                    log[a.get("note_id")] = a
+                for r in rows:
+                    a = log.get(r.get("id"))
+                    if a:
+                        r.update(applied_ts=a.get("ts"), applied_key=a.get("key"), old_value=a.get("old"),
+                                 new_value=a.get("new"))
+                    else:
+                        r.update(applied_ts=None, applied_key=None, old_value=None, new_value=None)
             except sqlite3.Error:
                 rows, total = [], 0
     finally:
         _close(tc)
     return _paged(rows, limit, offset, total=total,
-                  notes="status: novo (waits), prihvaćeno, odbijeno, primijenjeno; owner_note = the owner's reason")
+                  notes="status: novo (waits), prihvaćeno (owner agreed, NOTHING changed), odbijeno, primijenjeno "
+                        "(applied to the bot: applied_ts, applied_key, old_value -> new_value); owner_note = the "
+                        "owner's reason")
 
 
 class _RoCon:
@@ -1400,13 +1413,26 @@ def scoring_config():
     except Exception:  # noqa: BLE001
         out["real_money_proof_gate"] = None
     tcon = _ro("trade")   # read-only: this tool never creates or writes trade.db
+    eff, done = {}, []
     try:
         m = settings.merged(executor.load_config(), tcon) if tcon is not None else executor.load_config()
         raw = settings.raw(tcon) if tcon is not None else {}
+        if tcon is not None:   # 10.11. (Jure: "da Grok može provjeriti"): what "Primijeni na bota" changed, and now
+            from ui import assistnotes
+            try:
+                eff = assistnotes.effective(tcon)
+            except Exception:  # noqa: BLE001 - a missing table or flag: the rest of the config still answers
+                eff = {}
+            done = assistnotes.applied(tcon)
     except sqlite3.Error:
         m, raw = executor.load_config(), {}
     finally:
         _close(tcon)
+    out["applied_suggestions"] = done   # [{ts, note_id, key, old, new}], newest first
+    out["effective_values"] = eff       # {key: {value, flag?, flag_mode?}} for every key "Primijeni na bota" can change
+    out["effective_values_note"] = ("value = what the bot uses now. A rule behind a flag (flag/flag_mode) acts only "
+                                    "when flag_mode is live; shadow/paper only log what it would do "
+                                    "(shadow_decisions). Applying a suggestion never sets a flag to live.")
     out["autopilot_settings"] = {k: m.get(k, raw.get(k)) for k in SAFE_SETTINGS}
     # 10.11. (Phase 0): every flag of the profitability plan with its mode, and the backtest verdicts (read-only)
     out["flags"] = {n: {"item": settings.FLAGS[n][0], "mode": settings._flag_value(raw.get(f"flag:{n}"))["mode"],

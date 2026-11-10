@@ -383,11 +383,16 @@ TOOLS += [
          "evidence": {"type": "object"}}, "required": ["token", "verdict", "interpretation"]}},
     {"name": "submit_suggestion", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
      "description": ("Suggest an improvement for the owner: title, interpretation, improvement, evidence, and optionally "
-                     "proposed_change. The owner can Prihvati / Odbij / Primijeni on the Autopilot page; only these keys are "
-                     "applied by his click: {\"key\": tp_default | sl_default | size_sol | max_open | auto_skip | "
-                     "copy.max_delay_min | copy.min_liq | copy.max_mcap | copy.min_mcap | copy.min_liq_mcap | "
-                     "copy.crew_window_min | copy.max_per_day, \"from\": current, \"to\": new} or {\"caller\": handle, "
-                     "\"platform\": x|telegram, \"weight\": 0-2}. Anything else is accepted for a manual change."),
+                     "proposed_change. The owner taps 'Označi prihvaćenim (bez promjene)' (agrees, NOTHING changes), Odbij, "
+                     "or 'Primijeni na bota' (applies it); only these keys are applied by that tap: {\"key\": tp_default | "
+                     "sl_default | size_sol | max_open | auto_skip | copy.max_delay_min | copy.min_liq | copy.max_mcap | "
+                     "copy.min_mcap | copy.min_liq_mcap | copy.crew_window_min | copy.max_per_day | dca_token_cap (SOL per "
+                     "token, 0.01-5) | require_signal (true/false) | runup_max (fraction 0.02-2), \"from\": current, "
+                     "\"to\": new} or {\"caller\": handle, \"platform\": x|telegram, \"weight\": 0-2}. dca_token_cap, "
+                     "require_signal, runup_max and caller weights sit behind flags (dca_cap, require_signal, runup_default, "
+                     "caller_weights): applying moves an off flag to shadow only; live is the owner's call after a backtest. "
+                     "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
+                     "accepted for a manual change."),
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
          "improvement": {"type": "string", "maxLength": 4000}, "evidence": {"type": "object"},
