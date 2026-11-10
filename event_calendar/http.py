@@ -41,8 +41,32 @@ SHARED_403_PAUSE = float(os.environ.get("GECKO_403_PAUSE_S", "300"))   # 9.11. (
 GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir(), "crypto-bot-gate")
 
 
+# 10.11. (Jure kupio CoinGecko plaćeni API): GeckoTerminal's data through CoinGecko's paid on-chain API, the same
+# paths and the same JSON under https://pro-api.coingecko.com/api/v3/onchain with the key in a header. With the key
+# (Render env COINGECKO_API_KEY; COINGECKO_DEMO=1 for a free demo key) every GeckoTerminal URL the jobs build is sent
+# there, paced at CG_GAP seconds (default 0.25 s = 240 calls a minute, under the smallest paid plan's 250) instead of
+# 3.5 s, and no job reserves the host for itself any more. Without the key nothing changes. The key is never logged.
+GT_BASE = "https://api.geckoterminal.com/api/v2"
+
+
+def cg_key():
+    return (os.environ.get("COINGECKO_API_KEY") or "").strip()
+
+
+def _cg_route(url, headers):
+    """(url, headers) for a GeckoTerminal URL when the CoinGecko key is set, else unchanged."""
+    key = cg_key()
+    if not key or not url.startswith(GT_BASE):
+        return url, headers
+    demo = os.environ.get("COINGECKO_DEMO") == "1"
+    base = "https://api.coingecko.com/api/v3/onchain" if demo else "https://pro-api.coingecko.com/api/v3/onchain"
+    return base + url[len(GT_BASE):], {**(headers or {}), ("x-cg-demo-api-key" if demo else "x-cg-pro-api-key"): key}
+
+
 def _shared(url):
     host = urllib.parse.urlsplit(url).hostname or ""
+    if cg_key() and (host.endswith("geckoterminal.com") or host.endswith("coingecko.com")):
+        return "coingecko.com", float(os.environ.get("CG_GAP", "0.25"))
     for suffix, gap in SHARED_GAP.items():
         if host.endswith(suffix):
             return suffix, gap
@@ -106,7 +130,7 @@ def release(url):
 def reserved_by_other(url):
     """Seconds another process still holds this shared host for (0 = free, or ours)."""
     suffix, _ = _shared(url)
-    if not suffix:
+    if not suffix or (cg_key() and suffix == "coingecko.com"):   # paid capacity: nobody needs it to themselves
         return 0.0
     try:
         with open(_reserve_path(suffix)) as f:
@@ -302,6 +326,7 @@ def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=
             return json.load(f)
     if reserved_by_other(url):   # another job holds this shared host: no call, the caller retries next round
         return None
+    url, headers = _cg_route(url, headers)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})})
     data = _fetch(req, timeout, retries)
     _write(path, json.dumps(data))
