@@ -1303,6 +1303,27 @@ def _mcp_section(tcon, owner):
     return _sec("Grok (MCP)", meta, inner, sid="mcp")
 
 
+def _suggest_section(tcon, owner):
+    """10.11.: the caller weights an outside assistant suggested through MCP (submit_caller_weights), for the owner to
+    approve or reject. Approving only marks the suggestion; no live scoring reads them yet."""
+    if not owner:
+        return ""
+    from ui import mcpdata
+    rows = mcpdata.suggestions(tcon, "pending", 50)
+    if not rows:
+        return ""
+    items = "".join(
+        f'<div class=ap-ord-r><span><b>{esc(r["handle"])}</b> ({esc(r["platform"])}) · težina <b>{r["weight"]:g}</b>'
+        + (f'<br><span class=mut>{esc(r["reason"])}</span>' if r.get("reason") else "")
+        + f'</span><span style="display:flex;gap:6px"><form method=post action=/pravi-trade/sugok style="margin:0">'
+        f'<input type=hidden name=id value={int(r["id"])}><button class=ap-buy>Odobri</button></form>'
+        f'<form method=post action=/pravi-trade/sugno style="margin:0"><input type=hidden name=id value={int(r["id"])}>'
+        '<button class=ap-cancel>Odbij</button></form></span></div>' for r in rows)
+    inner = (f'<div class=ap-ord>{items}</div><p class=mut>Težina 1 = neutralno, 0 = ignoriraj callera, 2 = dvostruko. '
+             'Odobrenje samo bilježi tvoju odluku; na izbor Autopilota ne utječe dok ne dogovorimo kako ulazi u bodovanje.</p>')
+    return _sec("Prijedlozi asistenta", f"{len(rows)} čeka", inner, sid="prijedlozi")
+
+
 def _mcp_requests(tcon, owner):
     """10.11. (MCP server MemeSonar, Grok's execute_trade): the trade requests that wait for the owner, each with
     Odobri / Odbij. Nothing a client asks for moves money before this tap (ui/mcpapi.py)."""
@@ -3844,7 +3865,8 @@ def page(qs, user):
         finally:
             con.close()
         b += [_h2("Još", sid="jos"),
-              _group(_safe("grok", _mcp_section, tcon, owner), _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
+              _group(_safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
+                     _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
                      _safe("pozivnice", _invites, tcon) if owner else "", _safety()),
               '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]
@@ -3988,6 +4010,12 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path in ("/pravi-trade/sugok", "/pravi-trade/sugno"):   # 10.11.: an assistant's caller weight
+            from ui import mcpdata
+            ok = path.endswith("ok")
+            if not mcpdata.decide_suggestion(tcon, int(form.get("id") or 0), "approved" if ok else "rejected"):
+                raise ValueError("taj prijedlog više ne čeka")
+            return f"{BACK}?ok={qq('Prijedlog odobren.' if ok else 'Prijedlog odbijen.')}#prijedlozi"
         if path == "/pravi-trade/mcpkey":   # 10.11. (Jure: "napravi mcp key"): a new key, the old one stops
             from ui import mcpapi
             mcpapi.new_key(tcon, user)
