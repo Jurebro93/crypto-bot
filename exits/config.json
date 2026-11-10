@@ -20,6 +20,12 @@
  "rollback_every_h": 3,
  "rollback_hold_days": 3,
  "grid": {
+  "panic_liq": [
+   null,
+   0.2,
+   0.3,
+   0.5
+  ],
   "sl": [
    -0.1,
    -0.15,

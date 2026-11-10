@@ -54,8 +54,19 @@ def shadow_rows(cfg=None, now=None, path=None):
     since = now - cfg["skok_window_d"] * 86400
     from learn import champion
     hl = (cfg.get("model") or {}).get("half_life_d", champion.DEFAULT["half_life_d"])
-    return [{**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)}
-            for r in shadow.rows(path, since=since) if r["features"] and not champion.in_holdout(r["ts"])]
+    longs = shadow.long_targets(cfg)
+    out = []
+    for r in shadow.rows(path, since=since):
+        if not r["features"] or champion.in_holdout(r["ts"]):
+            continue
+        w = 0.5 ** (max(0.0, now - r["ts"]) / 86400 / hl)
+        if (r.get("klasa") or "default") in longs:   # 9.11.: long target (+30% in 72 h), see shadow.long_targets
+            if r.get("hit_dug") not in (0, 1):
+                continue   # not labelled yet, or no prices for the window: no verdict
+            out.append({**r, "hit": bool(r["hit_dug"]), "max_ret": r["max_dug"], "w": w, "cilj_dug": True})
+        else:
+            out.append({**r, "hit": bool(r["hit"]), "max_ret": r["max2_ret"], "w": w})
+    return out
 
 
 def event_rows(con, point="B100000", cfg=None, now=None):

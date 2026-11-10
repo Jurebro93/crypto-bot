@@ -14,7 +14,8 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 # 3: execution slippage on every fill (cfg slip) and, in replays of coarse historical paths, a stop that fills near
 #    the stop level like the bot's minute checks do (cfg coarse, see coarse_fill()).
 # 4: smart sell "eksplozija" (cfg boom): a token that multiplies within minutes sells part of it on the spot.
-SIM_VERSION = 4
+# 5: emergency exit "hitni_izlaz" (cfg panic), see panic().
+SIM_VERSION = 5
 
 
 def load_config(path=None, learned=True):
@@ -138,6 +139,7 @@ def step(pos, price, liq, ts, cfg):
     finally:
         if price > 0 and pos.get("entry_px"):
             pos["prev_ts"], pos["prev_ret"] = ts, price / pos["entry_px"] - 1
+            pos["prev_px"], pos["prev_liq"] = price, liq
 
 
 def boom(pos, price, liq, ts, ret, bag, cfg):
@@ -162,6 +164,35 @@ def boom(pos, price, liq, ts, ret, bag, cfg):
             pos["boom_px"] = price  # the rest is now protected like after a take profit (after_tp_stop)
 
 
+def panic(pos, price, liq, ts, cfg):
+    """Emergency exit "hitni_izlaz" (cfg panic = {"liq_drop": 0.3, "gap_s": 120}, null = off), checked BEFORE the
+    stop loss (6.11.: FRIES, STARBUCKS, SpaceX closed at -52..-56% with the stop set). Sell everything when, against
+    the previous tick:
+      - the pool's liquidity fell by liq_drop or more (money leaving the pool comes before the price collapse), or
+      - the price fell by |sl| or more within that one tick and the ticks were more than gap_s apart (the check
+        loop was late: the next tick could be much lower still).
+    It also fires while the stop is not armed yet (sl_delay_min) and after a take profit. Returns the reason or None.
+    exits/ learns liq_drop (grid panic_liq, null included), so whether it helps is decided on the paths."""
+    pc = cfg.get("panic") or {}
+    drop = pc.get("liq_drop")
+    if not drop or pos.get("prev_px") is None:
+        return None
+    pliq = pos.get("prev_liq")
+    if liq and pliq and pliq > 0 and liq <= pliq * (1 - drop):
+        return "hitni_izlaz"
+    gap = ts - (pos.get("prev_ts") or ts)
+    if gap > pc.get("gap_s", 120) and price <= pos["prev_px"] * (1 - abs(cfg["sl"])):
+        # the regular stop (armed, hit) or the stop after a take profit sells at this same tick anyway: let it,
+        # so the exit keeps its own name; the emergency exit is for when neither would
+        ret = price / pos["entry_px"] - 1
+        armed = pos["tp_done"] == 0 and ret <= cfg["sl"] and ts - pos["opened_ts"] >= (cfg.get("sl_delay_min") or 0) * 60
+        atp = after_tp_stop(pos, cfg)
+        if armed or (atp is not None and ret <= atp):
+            return None
+        return "hitni_izlaz"
+    return None
+
+
 def _step(pos, price, liq, ts, cfg):
     # rug: liquidity pulled, or the price dumped so far (rug_drop, default 70% below entry) that it is a rug, not a dip
     if price <= 0:
@@ -175,6 +206,10 @@ def _step(pos, price, liq, ts, cfg):
     ret = price / pos["entry_px"] - 1
     pos["peak"], pos["low"] = max(pos["peak"], ret), min(pos["low"], ret)
     age = ts - pos["opened_ts"]
+    if panic(pos, price, liq, ts, cfg):
+        fill = coarse_fill(pos, price, ts, cfg) if pos["tp_done"] == 0 else price
+        sell(pos, 1.0, fill, liq, ts, "hitni_izlaz", cfg)
+        return pos
     if pos.get("bag"):
         if (1 + ret) <= (1 + pos["peak"]) * (1 - cfg.get("moon_trail", 0.6)):
             sell(pos, 1.0, price, liq, ts, "moonbag_trailing", cfg)
