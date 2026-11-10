@@ -47,27 +47,27 @@ class KolRank(unittest.TestCase):
     def test_minute_check_is_primary_and_known_bad_never_falls_back(self):   # P12/P15/P16
         wick = {"n": 6, "hits": 5, "rugs": 0, "r24": [], "hit": 0.83, "rug": 0.0, "med24": 0.3, "score": 0.6}
         st = {"good_min": dict(wick), "bad_min": dict(wick), "fresh": dict(wick), "weak": {**wick, "n": 2}}
-        mst = {"good_min": ms(7, 0.57, 0.14), "bad_min": ms(9, 0.22, 0.56), "fresh": ms(2, 1.0, 0.0),
-               "only_min": ms(6, 0.67, 0.17)}
+        mst = {"good_min": ms(12, 0.57, 0.14), "bad_min": ms(12, 0.22, 0.56), "fresh": ms(2, 1.0, 0.0),
+               "only_min": ms(10, 0.67, 0.17)}   # 10.11.: 10+ minute calls before the minute check ranks
         r = autopilot.kol_rank(st, mst)
         self.assertEqual(set(r), {"good_min", "fresh", "only_min"})
         self.assertEqual(r["good_min"]["mjera"], "minutna")               # 5+ minute calls: the minute check decides
-        self.assertAlmostEqual(r["good_min"]["score"], 0.57 - 0.14)
+        self.assertAlmostEqual(r["good_min"]["score"], autopilot.wilson_low(0.57, 12) - 0.14)   # 10.11.: lower bound
         self.assertNotIn("bad_min", r)                                     # hit10 22 % / stop first 56 %: out, whatever the wick says
         self.assertEqual(r["fresh"]["mjera"], "fitilj")                    # 2 minute calls: the old wick stands in, marked
         self.assertEqual(r["only_min"]["n"], 0)                            # no wick calls at all, still ranked by the minute check
         self.assertNotIn("weak", r)                                        # the wick fallback keeps its own MIN_CALLS bar
         why = autopilot._kol_why("good_min", r["good_min"], 14, True)
-        self.assertIn("minutna provjera (14 d): 7 poziva, +10 % prije stopa u 57%", why)
+        self.assertIn("minutna provjera (14 d): 12 poziva, +10 % prije stopa u 57%", why)
         why2 = autopilot._kol_why("fresh", r["fresh"], 14, True)
         self.assertIn("stara mjera (fitilj +50 % u 24 h)", why2)
         self.assertIn("ima 2", why2)
-        self.assertEqual((autopilot.MIN_MINUTE, autopilot.HOT_HIT10, autopilot.HOT_MAX_SL), (5, 0.5, 0.3))   # kol/minute.hot bar
+        self.assertEqual((autopilot.MIN_MINUTE, autopilot.HOT_HIT10, autopilot.HOT_MAX_SL), (10, 0.5, 0.3))   # 10.11.: 10 calls
 
     def test_known_rug_excludes_even_with_a_good_minute_check(self):   # review of P12/P16: the rug filter stays
         wick = {"n": 6, "hits": 5, "rugs": 0, "r24": [], "hit": 0.83, "rug": 0.0, "med24": 0.3, "score": 0.6}
         st = {"wick_rug": {**wick, "rugs": 3, "rug": 0.4}, "min_rug": dict(wick), "clean": dict(wick), "fresh_rug": dict(wick)}
-        mst = {"wick_rug": ms(7, 0.71, 0.14), "min_rug": {**ms(7, 0.71, 0.14), "rug": 0.43}, "clean": ms(7, 0.71, 0.14),
+        mst = {"wick_rug": ms(12, 0.71, 0.14), "min_rug": {**ms(12, 0.71, 0.14), "rug": 0.43}, "clean": ms(12, 0.71, 0.14),
                "fresh_rug": {**ms(2, 1.0, 0.0), "rug": 0.5}}
         r = autopilot.kol_rank(st, mst)
         self.assertEqual(set(r), {"clean"})
@@ -150,7 +150,7 @@ class AutoFollowExit(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_auto_kol_follow_gets_tp_default_and_default_stop_wallet_mirrors(self):   # P68
-        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "score": 0.3}
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "score": 0.3, "mjera": "minutna"}   # 10.11.: minute-vouched
         saved = (autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets)
         autopilot.kol_recs = lambda now=None: {14: [{"handle": "a", "live": True, "why": "ok", "s": st}]}
         autopilot.wallet_recs = lambda now=None: {14: [{"wallet": "W1", "name": "", "why": "ok", "s": st}]}
@@ -335,6 +335,39 @@ class LiveCache(unittest.TestCase):
             prijedlog.chances()
         self.assertIn("kind = 'call' AND bad IS NULL", sql[0])
         self.assertNotIn("'bot'", sql[0])
+
+
+class RankLowerBound(unittest.TestCase):
+    """10.11. (Jure: "preporučuješ ovog influencera kao najboljeg, a ima većinu loss"): 6 lucky calls no longer rank."""
+
+    def test_six_of_six_does_not_rank_and_a_long_record_wins(self):
+        wick = {"n": 6, "hits": 1, "rugs": 0, "r24": [], "hit": 0.1, "rug": 0.0, "med24": -0.73, "score": 0.1}
+        st = {"lucky": dict(wick), "steady": dict(wick)}
+        mst = {"lucky": ms(6, 1.0, 0.0), "steady": ms(40, 0.75, 0.1)}
+        r = autopilot.kol_rank(st, mst)
+        self.assertEqual(r["lucky"]["mjera"], "fitilj")       # 6 minute calls: not ranked by the minute check
+        self.assertEqual(r["steady"]["mjera"], "minutna")
+        self.assertLess(autopilot.wilson_low(1.0, 6), 0.75)
+        self.assertGreater(autopilot.wilson_low(0.75, 40), 0.6)
+
+
+class AutoPickNeedsMinuteCheck(unittest.TestCase):
+    """10.11. (Jure: da, popravi rangiranje): a live account judged only by the 24-h wick is not followed automatically."""
+
+    def test_wick_only_account_is_not_picked(self):
+        wick = {"hit": 0.5, "n": 6, "score": 0.3, "mjera": "fitilj"}
+        good = {"hit": 0.5, "n": 12, "score": 0.4, "mjera": "minutna"}
+        saved = (autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets)
+        autopilot.kol_recs = lambda now=None: {14: [{"handle": "wick", "live": True, "why": "", "s": wick},
+                                                    {"handle": "slow", "live": False, "why": "", "s": good},
+                                                    {"handle": "ok", "live": True, "why": "", "s": good}]}
+        autopilot.wallet_recs = lambda now=None: {14: []}
+        autopilot.proven_wallets = lambda: []
+        try:
+            got = autopilot.auto_targets(14, 3)
+        finally:
+            autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets = saved
+        self.assertEqual([t for k, t, _, _ in got if k == "kol"], ["ok"])
 
 
 if __name__ == "__main__":

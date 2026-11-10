@@ -383,7 +383,7 @@ class AutoPick(PraviTrade):
     def test_tool_picks_and_rotates_but_leaves_manual_and_stopped_alone(self):
         from ui import autopilot, pravitrade
         os.environ["TRADE_OWNER"] = "Jure"
-        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6}
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "mjera": "minutna"}   # 10.11.: the auto pick wants the minute check
         recs = {"kol": [{"handle": h, "live": live, "why": "dobar", "s": st} for h, live in
                         (("a", True), ("slow", False), ("b", True), ("c", True), ("d", True))],
                 "wal": [{"wallet": "W1", "name": "jedan", "why": "dobar", "s": st},
