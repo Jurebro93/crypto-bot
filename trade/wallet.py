@@ -31,6 +31,29 @@ def can_sign():
     return bool(os.environ.get("SOLANA_PRIVATE_KEY", "").strip())
 
 
+def addresses(con=None):
+    """10.11. (Jure: graf vrijednosti walleta): (address to show and measure, address of the key or None, address the
+    owner saved on /pravi-trade or the env one, or None). The key comes first when it can sign, then what the owner
+    saved on the page (settings wallet_pub), then SOLANA_PUBLIC_KEY: the same order ui/pravitrade._addr has, kept
+    here so the trade process (trade/equity.py) can find the wallet without importing the whole ui package.
+    con: a trade.db connection (None = only the key and the env are looked at). Never raises."""
+    key = None
+    if can_sign():
+        try:
+            key = address()
+        except Exception:  # noqa: BLE001 - a key that cannot be parsed signs nothing: fall back to the saved address
+            key = None
+    saved = None
+    if con is not None:
+        try:
+            row = con.execute("SELECT v FROM settings WHERE k='wallet_pub'").fetchone()
+            saved = (json.loads(row[0]) if row and row[0] else None) or None
+        except Exception:  # noqa: BLE001 - no settings table yet
+            saved = None
+    env = os.environ.get("SOLANA_PUBLIC_KEY") or None
+    return key or saved or env, key, saved or env
+
+
 def sign(tx_b64, keypair=None):
     """Sign a base64 VersionedTransaction from Jupiter as its fee payer; returns base64."""
     from solders.transaction import VersionedTransaction
@@ -71,6 +94,12 @@ def sol_balance(addr):
 def token_raw_balance(owner, mint):
     res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
     return sum(int(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for a in res["value"])
+
+
+def token_decimals(mint):
+    """Decimals of a mint (getTokenSupply, one standard RPC call); trade/equity.py asks once per mint per process to
+    turn a raw quantity into whole tokens for the price."""
+    return int(rpc("getTokenSupply", [mint])["value"]["decimals"])
 
 
 TOKEN_PROGRAMS = {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PQnx5ujeXu69C1"}
