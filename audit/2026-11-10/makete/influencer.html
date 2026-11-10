@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Influencer @Humanevolvd · maketa</title>
+<!-- Drugi krug (10.11.2026.): profil influencera /kol/<ime> (ui/kol.py kol_page). Statična, bez vanjskih datoteka.
+     Presuda na vrhu jednom rečenicom, pa ključni brojevi ISTOM mjerom za sve stranice: nakon 60 min (cilj +10 % prije
+     stopa −20 %, kol/minute.py, ono po čemu ga Autopilot rangira), nakon 24 h (calls.r24h, stupci "Kako su mu prolazili
+     pozivi"), 10 $ u svaki poziv na oba načina i stižemo li ga pratiti (hot lista, uživo). Detalji ispod.
+     Brojke 24 h (2 u plusu, 28 u minusu, −185 $) su s Jureove snimke 10.11.; ostalo je primjer iz lokalne kopije. -->
+<style>
+/*OSNOVA*/
+/* Boje: iste varijable kao ui/html.py (:root). Novo su samo veličine, razmaci i ritam. */
+:root{--bg:#fff;--soft:#f6f7fb;--card:#fff;--fg:#0b1220;--mut:#5b6474;--line:#e8ebf2;--line2:#cfd5e1;--acc:#4f46e5;
+ --good:#16a34a;--warn:#d97706;--bad:#dc2626;--goodbg:#ecfdf5;--warnbg:#fffbeb;--badbg:#fef2f2;
+ --pad:20px;--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Inter,Roboto,sans-serif}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:17px/1.4 var(--font);-webkit-font-smoothing:antialiased;
+ font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+a{color:inherit;text-decoration:none}.acc{color:var(--acc)}.mut{color:var(--mut)}.pos{color:var(--good)}.neg{color:var(--bad)}
+.nw{white-space:nowrap}
+main{display:block;max-width:760px;margin:0 auto;padding:0 var(--pad) 120px}
+/* naslov: velik, jedan po ekranu; desno najviše jedna ikona */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:52px 0 0}
+h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em;margin:0}
+.sub{font-size:15px;color:var(--mut);margin:6px 0 0}
+.ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.ico svg{width:19px;height:19px;fill:none;stroke:var(--fg);stroke-width:2;stroke-linecap:round}
+/* glavni odgovor ekrana */
+.hero{margin:24px 0 0}
+.hero .lbl{font-size:15px;color:var(--mut);margin:0 0 2px}
+.big{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-.035em}
+.big small{font-size:22px;font-weight:600;color:var(--mut);letter-spacing:-.01em;margin-left:6px}
+.hero .line{font-size:15px;color:var(--mut);margin:8px 0 0}
+.panel{display:block;background:var(--soft);border-radius:18px;padding:18px 18px 16px;margin:20px 0 0}
+.panel .name{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15;display:flex;align-items:center;justify-content:space-between}
+.panel .facts{font-size:15px;color:var(--mut);margin:4px 0 10px}
+.panel p{margin:0;font-size:17px;line-height:1.4}
+/* sekcije: razmak umjesto okvira */
+h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+h2 a{font-size:15px;font-weight:500;color:var(--acc);letter-spacing:0}
+.hint{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.4}
+/* redak popisa: ime + jedan redak objašnjenja lijevo, jedan broj desno */
+.list{margin:0;padding:0;list-style:none}
+.row{display:flex;align-items:center;gap:12px;min-height:64px;padding:11px 0;border-bottom:1px solid var(--line)}
+.list>.row:last-child,.list>li:last-child>.row{border-bottom:0}
+.row .m{flex:1;min-width:0}
+.row .t{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.row .e{flex:none;text-align:right}
+.row .v{font-size:17px;font-weight:600;white-space:nowrap}
+.row .e .s{margin-top:1px}
+.chev{flex:none;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg);margin:0 2px 0 0}
+.rk{flex:none;width:24px;font-size:15px;color:var(--mut)}
+.colhead{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 6px 1px 0;vertical-align:middle}
+.dot.good{background:var(--good)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.warn{color:var(--warn)}.danger{color:var(--bad)}
+/* segmentirani izbor (jedan po ekranu) */
+.seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;margin:22px 0 0}
+.seg a{flex:1;text-align:center;font-size:15px;padding:7px 0;border-radius:9px;white-space:nowrap}
+.seg a.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+.fld{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:11px;padding:9px 12px;color:var(--mut);font-size:17px;margin:14px 0 0}
+.fld svg{width:17px;height:17px;fill:none;stroke:var(--mut);stroke-width:2;stroke-linecap:round;flex:none}
+/* prekidač */
+.sw{flex:none;width:51px;height:31px;border-radius:999px;background:var(--good);position:relative}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+/* donja traka (mobitel): 5 mjesta, linijske ikone, jedna boja za aktivno */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;background:rgba(255,255,255,.94);
+ -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:7px 2px 24px}
+.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:0}
+.tabs a.on{color:var(--acc)}
+.tabs svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.tabs .badge{position:relative;display:block;height:25px}.tabs .badge::after{content:"";position:absolute;top:1px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+/* bočni izbornik (računalo): isto što i donja traka + Više, ništa više */
+.side{display:none}
+.side .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.02em;padding:4px 10px 18px}
+.side .brand svg{width:26px;height:26px}
+.side .fld{margin:0 0 14px;font-size:15px;padding:8px 10px}
+.side nav a{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px;font-size:15px;font-weight:500;color:var(--fg)}
+.side nav a svg{width:20px;height:20px;fill:none;stroke:var(--mut);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.side nav a.on{background:var(--soft);color:var(--acc);font-weight:600}.side nav a.on svg{stroke:var(--acc)}
+.side .foot{margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--line)}
+.side .foot a{display:block;padding:8px 10px;font-size:15px;color:var(--mut)}
+@media(min-width:900px){
+ body{display:grid;grid-template-columns:252px minmax(0,1fr)}
+ .side{display:block;min-height:100vh;border-right:1px solid var(--line);padding:22px 12px;background:#fff}
+ .tabs{display:none}
+ main{width:100%;padding:0 48px 80px}
+ .top{padding-top:40px}
+ .wide{max-width:980px}
+ .top .ico{display:none}
+}
+/*OSNOVA-KRAJ*/
+.back{display:inline-flex;align-items:center;gap:7px;color:var(--acc);font-size:17px;padding:16px 0 0}
+.back::before{content:"";width:9px;height:9px;border-left:2px solid var(--acc);border-bottom:2px solid var(--acc);transform:rotate(45deg);margin-left:3px}
+.dh{padding:12px 0 0}.dh h1{font-size:34px}
+.dh .s{font-size:15px;color:var(--mut);margin-top:4px}.dh .s a{color:var(--acc)}
+.panel .lbl{font-size:15px;color:var(--mut)}
+.panel .name{margin:2px 0 0}
+.panel .facts{margin:4px 0 10px}
+/* ključni brojevi: redak = mjera lijevo, rezultat desno */
+.key .row{min-height:62px}
+.key .v.big2{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.key .e .s{white-space:nowrap}
+.sw-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);margin:8px 0 0}
+.sw-row .t{font-size:17px;font-weight:600}.sw-row .s{font-size:15px;color:var(--mut)}
+/* graf: isti kao Autopilot */
+.chart{margin:14px 0 0}
+.chart .plot{position:relative;padding-right:44px}.chart .pw{position:relative}
+.chart svg{display:block;width:100%;height:170px;overflow:visible}
+.chart .end{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 3px #fff}
+.chart .yl{position:absolute;right:0;transform:translateY(-50%);font-size:13px;color:var(--mut)}
+.chart .ax{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:8px 44px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:15px;color:var(--mut);margin:12px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px}
+.legend b{font-weight:600}
+/* traka poziva: jedan kvadrat po pozivu, zeleno plus, crveno minus */
+.strip{display:flex;align-items:center;gap:10px;margin:12px 0 0}
+.strip .sl{flex:none;width:36px;font-size:13px;color:var(--mut)}
+.strip .sq{flex:1;display:grid;grid-template-columns:repeat(30,1fr);gap:2px}
+.strip i{display:block;height:16px;border-radius:3px;background:var(--good)}.strip i.n{background:var(--bad)}
+.strip-k{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin:8px 0 0 46px}
+.row .e .s.pos,.row .e .s.neg{font-weight:500}.row .e .s.pos{color:var(--good)}.row .e .s.neg{color:var(--bad)}
+@media(min-width:900px){
+ .g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:44px;align-items:start}
+ .g2>div>h2:first-child{margin-top:28px}
+ .chart svg{height:200px}
+}
+</style>
+</head>
+<body>
+<!--BOCNO a=influenceri--><aside class="side"><div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lgm" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgm)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2" opacity=".55"/><circle cx="16" cy="16" r="4.5" fill="none" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="1.6" fill="#fff"/></svg>MemeSonar</div><div class="fld"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Traži</div><nav><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a class=on href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/></svg>Novčanici</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/></svg>Autopilot</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg>Više</a></nav><div class="foot"><a href="#">Postavke</a></div></aside><!--/BOCNO-->
+<main class="wide">
+  <a class="back" href="#">Influenceri</a>
+  <div class="dh"><h1>@Humanevolvd</h1><div class="s">Doji · 34 tis. pratitelja · <a href="#">profil na X-u</a></div></div>
+
+  <div class="g2">
+    <div>
+      <div class="panel">
+        <div class="lbl">Presuda za zadnjih 14 dana</div>
+        <div class="name">Samo za brzi izlaz</div>
+        <div class="facts"><span class="dot warn"></span>samo brzo · 30 poziva · ocjena 58</div>
+        <p>U prvom satu 21 od 30 poziva dođe do +10&nbsp;%. Ako držiš dan, 28 od 30 završi u minusu.</p>
+      </div>
+
+      <ul class="list key" style="margin-top:6px">
+        <li><div class="row"><div class="m"><div class="t">Nakon 60 min</div><div class="s">do +10&nbsp;% prije stopa −20&nbsp;%</div></div>
+          <div class="e"><div class="v big2">21 od 30</div><div class="s">70&nbsp;%</div></div></div></li>
+        <li><div class="row"><div class="m"><div class="t">Nakon 24 h</div><div class="s">u plusu dan kasnije</div></div>
+          <div class="e"><div class="v big2">2 od 30</div><div class="s neg">28 u minusu</div></div></div></li>
+        <li><div class="row"><div class="m"><div class="t">10 $ u svaki poziv</div><div class="s">brzi izlaz · drži 24 h</div></div>
+          <div class="e"><div class="v big2"><span class="pos">+3 $</span> · <span class="neg">−185 $</span></div><div class="s">prije naknada</div></div></div></li>
+        <li><div class="row"><div class="m"><div class="t">Stižemo li ga</div><div class="s">pratimo ga uživo, 1–2 s</div></div>
+          <div class="e"><div class="v big2">Da</div><div class="s">+10&nbsp;% za 6 min</div></div></div></li>
+      </ul>
+      <div class="sw-row"><div><div class="t">Autopilot ga prati</div><div class="s">0,1 SOL nakon poziva, izlaz po pravilima</div></div><span class="sw" role="switch" aria-checked="true"></span></div>
+    </div>
+
+    <div>
+      <h2>10 $ u svaki poziv</h2>
+      <!--CRTEZ k=kol--><div class="chart"><div class="plot"><div class="pw"><svg viewBox="0 0 1000 200" preserveAspectRatio="none" aria-label="Deset dolara u svaki poziv"><line x1="0" y1="22.2" x2="1000" y2="22.2" stroke="#cfd5e1" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/><line x1="0" y1="111.1" x2="1000" y2="111.1" stroke="#e8ebf2" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" y1="200.0" x2="1000" y2="200.0" stroke="#e8ebf2" stroke-width="1" vector-effect="non-scaling-stroke"/><path d="M0.0,22.2 L33.1,21.3 L66.1,20.4 L99.2,19.6 L132.3,18.7 L165.3,17.8 L198.4,19.6 L231.5,18.7 L264.5,20.4 L297.6,19.6 L330.7,18.7 L363.7,20.4 L396.8,22.2 L429.9,21.3 L462.9,23.1 L496.0,22.2 L529.1,21.3 L562.1,20.4 L595.2,19.6 L628.3,21.3 L661.3,20.4 L694.4,19.6 L727.5,18.7 L760.5,20.4 L793.6,19.6 L826.7,18.7 L859.7,17.8 L892.8,16.9 L925.9,18.7 L958.9,17.8 L992.0,19.6" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><path d="M0.0,22.2 L33.1,30.5 L66.1,39.0 L99.2,45.8 L132.3,51.8 L165.3,55.3 L198.4,58.5 L231.5,66.1 L264.5,72.9 L297.6,80.3 L330.7,86.5 L363.7,93.4 L396.8,100.0 L429.9,108.2 L462.9,111.8 L496.0,117.7 L529.1,122.5 L562.1,130.2 L595.2,138.2 L628.3,142.7 L661.3,146.2 L694.4,150.6 L727.5,155.5 L760.5,162.9 L793.6,160.2 L826.7,165.6 L859.7,172.9 L892.8,171.8 L925.9,176.6 L958.9,182.6 L992.0,186.7" fill="none" stroke="#5b6474" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg><span class="end" style="left:99.20%;top:9.78%"></span></div><span class="yl" style="top:11.1%">0 $</span><span class="yl" style="top:55.6%">−100</span><span class="yl" style="top:100.0%">−200</span></div><div class="ax"><span>27.10.</span><span>31.10.</span><span>3.11.</span><span>7.11.</span><span>10.11.</span></div></div><!--/CRTEZ-->
+      <div class="legend"><span><i style="background:var(--acc)"></i>brzi izlaz <b class="pos">+3 $</b></span><span><i style="background:var(--mut)"></i>drži 24 h <b class="neg">−185 $</b></span></div>
+
+      <h2>Svaki poziv, redom</h2>
+      <!--CRTEZ k=kol-traka--><div class="strip"><span class="sl">1 h</span><span class="sq"><i class="p"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="p"></i><i class="n"></i><i class="n"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="p"></i><i class="n"></i><i class="p"></i><i class="n"></i></span></div><div class="strip"><span class="sl">24 h</span><span class="sq"><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="p"></i><i class="n"></i><i class="n"></i><i class="p"></i><i class="n"></i><i class="n"></i><i class="n"></i></span></div><!--/CRTEZ-->
+      <div class="strip-k"><span>27.10.</span><span>zeleno plus · crveno minus</span><span>10.11.</span></div>
+    </div>
+  </div>
+
+  <h2>Zadnji pozivi <a href="#">Svih 76</a></h2>
+  <ul class="list">
+    <li><a class="row" href="#"><div class="m"><div class="t">GIGAFROG</div><div class="s">prije 43 min · na 365k $</div></div>
+      <div class="e"><div class="v pos">+13&nbsp;%</div><div class="s">1 h još traje</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">Mil</div><div class="s">danas 05:27 · na 45k $</div></div>
+      <div class="e"><div class="v neg">stop −20&nbsp;%</div><div class="s">24 h još traje</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">BLOOP</div><div class="s">9.11. 22:14 · na 121k $</div></div>
+      <div class="e"><div class="v pos">+10&nbsp;% u 4 min</div><div class="s neg">24 h −62&nbsp;%</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">WOJAK</div><div class="s">8.11. 16:40 · na 96k $</div></div>
+      <div class="e"><div class="v pos">+10&nbsp;% u 2 min</div><div class="s neg">24 h −71&nbsp;%</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">BURN</div><div class="s">9.11. 16:06 · na 12,7k $</div></div>
+      <div class="e"><div class="v mut" style="font-weight:400">ne broji se</div><div class="s">ispod 30k $</div></div><span class="chev"></span></a></li>
+  </ul>
+
+  <h2>Više o njemu</h2>
+  <ul class="list">
+    <li><a class="row" href="#"><div class="m"><div class="t">Kako je dobio ocjenu 58</div><div class="s">bodovi za pogodak, rast, volumen, rugove i kasne pozive</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">Koliko ga tržište sluša</div><div class="s">volumen se udvostruči nakon 76&nbsp;% objava</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">Zove zajedno s</div><div class="s">@TortillasTown, @0xMarko77</div></div><span class="chev"></span></a></li>
+    <li><a class="row" href="#"><div class="m"><div class="t">Njegov novčanik</div><div class="s">kupnje i prodaje oko njegovih poziva</div></div><span class="chev"></span></a></li>
+  </ul>
+  <p class="hint">Nakon 60 min: od zatvaranja minute poziva, cilj +10&nbsp;% prije stopa −20&nbsp;%, iz 1-min svijeća. Nakon 24 h: cijena dan poslije posta. Pozivi na tokene ispod 30k $ se ne broje. <a class="acc" href="#">Pojmovnik</a></p>
+</main>
+<!--TRAKA a=influenceri--><nav class="tabs" aria-label="Glavni izbornik"><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a class="on" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/></svg>Autopilot</a><a href="#"><span class="badge"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></span>Više</a></nav><!--/TRAKA-->
+</body>
+</html>

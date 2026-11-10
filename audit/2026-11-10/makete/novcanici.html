@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Novčanici · maketa</title>
+<!-- Drugi krug (10.11.2026.): stranica /wallets (ui/pages.py). Statična, bez vanjskih datoteka.
+     Redak umjesto kartice s 11 polja: novčanik, "dokazan dvaput" i koliko drži lijevo, zarada i udio dobitnih desno.
+     Traka na dnu je inačica za ostale korisnike (Novčanici umjesto Autopilota). Brojke iz lokalne kopije (seed_app.py). -->
+<style>
+/*OSNOVA*/
+/* Boje: iste varijable kao ui/html.py (:root). Novo su samo veličine, razmaci i ritam. */
+:root{--bg:#fff;--soft:#f6f7fb;--card:#fff;--fg:#0b1220;--mut:#5b6474;--line:#e8ebf2;--line2:#cfd5e1;--acc:#4f46e5;
+ --good:#16a34a;--warn:#d97706;--bad:#dc2626;--goodbg:#ecfdf5;--warnbg:#fffbeb;--badbg:#fef2f2;
+ --pad:20px;--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Inter,Roboto,sans-serif}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:17px/1.4 var(--font);-webkit-font-smoothing:antialiased;
+ font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+a{color:inherit;text-decoration:none}.acc{color:var(--acc)}.mut{color:var(--mut)}.pos{color:var(--good)}.neg{color:var(--bad)}
+.nw{white-space:nowrap}
+main{display:block;max-width:760px;margin:0 auto;padding:0 var(--pad) 120px}
+/* naslov: velik, jedan po ekranu; desno najviše jedna ikona */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:52px 0 0}
+h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em;margin:0}
+.sub{font-size:15px;color:var(--mut);margin:6px 0 0}
+.ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.ico svg{width:19px;height:19px;fill:none;stroke:var(--fg);stroke-width:2;stroke-linecap:round}
+/* glavni odgovor ekrana */
+.hero{margin:24px 0 0}
+.hero .lbl{font-size:15px;color:var(--mut);margin:0 0 2px}
+.big{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-.035em}
+.big small{font-size:22px;font-weight:600;color:var(--mut);letter-spacing:-.01em;margin-left:6px}
+.hero .line{font-size:15px;color:var(--mut);margin:8px 0 0}
+.panel{display:block;background:var(--soft);border-radius:18px;padding:18px 18px 16px;margin:20px 0 0}
+.panel .name{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15;display:flex;align-items:center;justify-content:space-between}
+.panel .facts{font-size:15px;color:var(--mut);margin:4px 0 10px}
+.panel p{margin:0;font-size:17px;line-height:1.4}
+/* sekcije: razmak umjesto okvira */
+h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+h2 a{font-size:15px;font-weight:500;color:var(--acc);letter-spacing:0}
+.hint{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.4}
+/* redak popisa: ime + jedan redak objašnjenja lijevo, jedan broj desno */
+.list{margin:0;padding:0;list-style:none}
+.row{display:flex;align-items:center;gap:12px;min-height:64px;padding:11px 0;border-bottom:1px solid var(--line)}
+.list>.row:last-child,.list>li:last-child>.row{border-bottom:0}
+.row .m{flex:1;min-width:0}
+.row .t{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.row .e{flex:none;text-align:right}
+.row .v{font-size:17px;font-weight:600;white-space:nowrap}
+.row .e .s{margin-top:1px}
+.chev{flex:none;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg);margin:0 2px 0 0}
+.rk{flex:none;width:24px;font-size:15px;color:var(--mut)}
+.colhead{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 6px 1px 0;vertical-align:middle}
+.dot.good{background:var(--good)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.warn{color:var(--warn)}.danger{color:var(--bad)}
+/* segmentirani izbor (jedan po ekranu) */
+.seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;margin:22px 0 0}
+.seg a{flex:1;text-align:center;font-size:15px;padding:7px 0;border-radius:9px;white-space:nowrap}
+.seg a.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+.fld{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:11px;padding:9px 12px;color:var(--mut);font-size:17px;margin:14px 0 0}
+.fld svg{width:17px;height:17px;fill:none;stroke:var(--mut);stroke-width:2;stroke-linecap:round;flex:none}
+/* prekidač */
+.sw{flex:none;width:51px;height:31px;border-radius:999px;background:var(--good);position:relative}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+/* donja traka (mobitel): 5 mjesta, linijske ikone, jedna boja za aktivno */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;background:rgba(255,255,255,.94);
+ -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:7px 2px 24px}
+.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:0}
+.tabs a.on{color:var(--acc)}
+.tabs svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.tabs .badge{position:relative;display:block;height:25px}.tabs .badge::after{content:"";position:absolute;top:1px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+/* bočni izbornik (računalo): isto što i donja traka + Više, ništa više */
+.side{display:none}
+.side .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.02em;padding:4px 10px 18px}
+.side .brand svg{width:26px;height:26px}
+.side .fld{margin:0 0 14px;font-size:15px;padding:8px 10px}
+.side nav a{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px;font-size:15px;font-weight:500;color:var(--fg)}
+.side nav a svg{width:20px;height:20px;fill:none;stroke:var(--mut);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.side nav a.on{background:var(--soft);color:var(--acc);font-weight:600}.side nav a.on svg{stroke:var(--acc)}
+.side .foot{margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--line)}
+.side .foot a{display:block;padding:8px 10px;font-size:15px;color:var(--mut)}
+@media(min-width:900px){
+ body{display:grid;grid-template-columns:252px minmax(0,1fr)}
+ .side{display:block;min-height:100vh;border-right:1px solid var(--line);padding:22px 12px;background:#fff}
+ .tabs{display:none}
+ main{width:100%;padding:0 48px 80px}
+ .top{padding-top:40px}
+ .wide{max-width:980px}
+ .top .ico{display:none}
+}
+/*OSNOVA-KRAJ*/
+.panel .go{margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--line2);font-size:15px;color:var(--mut)}
+.panel .go b{color:var(--fg);font-weight:600}
+.wr,.th{display:grid;grid-template-columns:minmax(0,1fr) auto 12px;column-gap:12px;align-items:center}
+.wr{grid-template-areas:"tk v chev" "why w chev";padding:11px 0;border-bottom:1px solid var(--line);min-height:64px}
+.wr .tk{grid-area:tk;font-size:17px;font-weight:600}
+.wr .why{grid-area:why;font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wr .v{grid-area:v;text-align:right;font-size:17px;font-weight:600;white-space:nowrap}
+.wr .w{grid-area:w;text-align:right;font-size:15px;color:var(--mut);white-space:nowrap}
+.wr .chev{grid-area:chev}.wr .x{display:none}
+.th{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;color:var(--mut);padding:18px 0 8px;border-bottom:1px solid var(--line)}
+.th .so{color:var(--acc);font-weight:500}.th .so::after{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--acc);border-bottom:1.5px solid var(--acc);transform:rotate(45deg);margin:0 0 3px 7px}
+.th .d{display:none}
+.foot-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-top:1px solid var(--line);margin:18px 0 0;font-size:15px;color:var(--mut)}
+.foot-row .acc{font-weight:500}
+.states{display:grid;grid-template-columns:1fr;gap:26px;margin:14px 0 0}
+.st{margin:0;min-width:0}.st figcaption{font-size:13px;color:var(--mut);margin:0 0 8px}
+.fr{border:1px solid var(--line);border-radius:18px;padding:4px 16px 8px;background:#fff;overflow:hidden}
+.fr .row{min-height:58px}
+.empty{text-align:center;padding:24px 6px 16px}.empty b{display:block;font-size:17px;font-weight:600}
+.empty p{font-size:15px;color:var(--mut);margin:6px 0 12px;line-height:1.4}.empty a{font-size:15px;color:var(--acc);font-weight:500}
+@media(min-width:900px){
+ .wr,.th.grid{display:grid;grid-template-columns:minmax(0,1fr) 64px 104px 92px 56px 72px 76px 92px 14px;column-gap:14px}
+ .wr{grid-template-areas:"tk cs v w hd dk ap last chev" "why cs v w hd dk ap last chev"}
+ .wr .x{display:block;text-align:right;font-size:15px;grid-row:1/3}
+ .wr .v,.wr .w{grid-row:1/3}.wr .w{font-size:17px;color:var(--fg)}
+ .wr .cs{grid-area:cs;font-size:17px;font-weight:600}.wr .hd{grid-area:hd}.wr .dk{grid-area:dk}.wr .ap{grid-area:ap}.wr .last{grid-area:last;color:var(--mut)}
+ .th.grid{font-size:13px}.th.grid span{text-align:right}.th.grid span:first-child{text-align:left}
+ .th .p{display:none}.th .d{display:inline}
+ .states{grid-template-columns:1fr 1fr 1fr;column-gap:24px}
+}
+</style>
+</head>
+<body>
+<!--BOCNO a=novcanici--><aside class="side"><div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lgm" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lgm)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2" opacity=".55"/><circle cx="16" cy="16" r="4.5" fill="none" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="1.6" fill="#fff"/></svg>MemeSonar</div><div class="fld"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Traži</div><nav><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a class=on href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/></svg>Novčanici</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/></svg>Autopilot</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg>Više</a></nav><div class="foot"><a href="#">Postavke</a></div></aside><!--/BOCNO-->
+<main class="wide">
+  <div class="top"><h1>Novčanici</h1></div>
+  <p class="sub">24 ocijenjena · 7 dokazanih dvaput</p>
+
+  <a class="panel" href="#">
+    <div class="mut" style="font-size:15px">Koga kopirati</div>
+    <div class="name">Vfdn…At74 <span class="chev"></span></div>
+    <div class="facts"><span class="dot good"></span>dokazan dvaput · kopirljiv · copy ocjena 80</div>
+    <p>Najviše dokaza: +11,9 SOL na 31 zatvorenoj, 68&nbsp;% u plusu, prije i poslije reza. Drži oko 4 h.</p>
+    <div class="go">Zadnja kupnja: <b>GIGAFROG</b> prije 10 h, još drži</div>
+  </a>
+
+  <div class="seg"><a class="on" href="#">Za kopiranje</a><a href="#">Svi</a><a href="#">Aktivnost</a></div>
+  <div class="fld"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>Adresa ili oznaka</div>
+
+  <div class="th grid"><span><span class="so">Poredano po copy ocjeni</span></span><span class="d">Copy</span><span class="d">Zarada</span><span class="d">U plusu</span><span class="d">Drži</span><span class="d">Dokazan</span><span class="d">Autopilot</span><span class="d">Zadnji trade</span><span class="p">zarada · u plusu</span><span></span></div>
+  <a class="wr" href="#"><span class="tk">yfGJ…QNg7</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 5 h</span><span class="v pos">+24,1 SOL</span><span class="w">80&nbsp;% od 20</span><span class="x cs">85</span><span class="x hd">5 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 2 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">Vfdn…At74</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 4 h</span><span class="v pos">+11,9 SOL</span><span class="w">68&nbsp;% od 31</span><span class="x cs">80</span><span class="x hd">4 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 10 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">NSk8…9HaT</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 5 h</span><span class="v pos">+13,4 SOL</span><span class="w">68&nbsp;% od 25</span><span class="x cs">79</span><span class="x hd">5 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 9 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">DwrH…837X</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 5 h</span><span class="v pos">+20,6 SOL</span><span class="w">59&nbsp;% od 29</span><span class="x cs">79</span><span class="x hd">5 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 4 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">HxPc…6Jpw</span><span class="why">drži 5 h · prati Autopilot</span><span class="v pos">+4,4 SOL</span><span class="w">70&nbsp;% od 10</span><span class="x cs">77</span><span class="x hd">5 h</span><span class="x dk">–</span><span class="x ap">da</span><span class="x last">prije 14 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">PsAE…V46b</span><span class="why">drži 4 h</span><span class="v pos">+13,2 SOL</span><span class="w">53&nbsp;% od 32</span><span class="x cs">76</span><span class="x hd">4 h</span><span class="x dk">–</span><span class="x ap">–</span><span class="x last">prije 29 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">9FQ7…6Nu1</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 4 h</span><span class="v pos">+9,0 SOL</span><span class="w">62&nbsp;% od 29</span><span class="x cs">74</span><span class="x hd">4 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 3 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">HAZb…dTxx</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 5 h</span><span class="v pos">+16,2 SOL</span><span class="w">56&nbsp;% od 16</span><span class="x cs">74</span><span class="x hd">5 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 1 d</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">8nxW…hRGy</span><span class="why">drži 6 h</span><span class="v pos">+13,0 SOL</span><span class="w">48&nbsp;% od 29</span><span class="x cs">68</span><span class="x hd">6 h</span><span class="x dk">–</span><span class="x ap">–</span><span class="x last">prije 6 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">R9GT…WBgM</span><span class="why"><span class="dot good"></span>dokazan dvaput · drži 5 h</span><span class="v pos">+13,9 SOL</span><span class="w">48&nbsp;% od 21</span><span class="x cs">67</span><span class="x hd">5 h</span><span class="x dk">da</span><span class="x ap">da</span><span class="x last">prije 2 d</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">j5jA…Bw3x</span><span class="why">drži 5 h</span><span class="v pos">+26,3 SOL</span><span class="w">41&nbsp;% od 34</span><span class="x cs">63</span><span class="x hd">5 h</span><span class="x dk">–</span><span class="x ap">–</span><span class="x last">prije 5 h</span><span class="chev"></span></a>
+  <a class="wr" href="#"><span class="tk">FHjh…qDpk</span><span class="why">drži 4 h</span><span class="v pos">+7,3 SOL</span><span class="w">38&nbsp;% od 21</span><span class="x cs">50</span><span class="x hd">4 h</span><span class="x dk">–</span><span class="x ap">–</span><span class="x last">prije 3 d</span><span class="chev"></span></a>
+  <a class="foot-row" href="#"><span>Ocijenjeno prije 2 h, sljedeće za 4 h</span><span class="acc">Ocijeni sada</span></a>
+  <p class="hint" style="margin-top:4px">Dokazan dvaput: u plusu na 5+ zatvorenih i prije i poslije reza od 5 dana. Kopirljiv: drži 10+ min, do 50 tradeova dnevno, nije bot ni sniper. Zarada je njegova, na lancu, ne naša kopija.</p>
+
+  <h2>Druga stanja istog ekrana</h2>
+  <div class="states">
+    <figure class="st"><figcaption>1. Aktivnost (zadnja 24 h)</figcaption>
+      <div class="fr"><ul class="list">
+        <li><a class="row" href="#"><div class="m"><div class="t">GIGAFROG</div><div class="s">kupio Vfdn…At74 · prije 10 h</div></div><div class="e"><div class="v">0,56 SOL</div><div class="s">kupnja</div></div></a></li>
+        <li><a class="row" href="#"><div class="m"><div class="t">GIGAFROG</div><div class="s">prodao yfGJ…QNg7 · prije 3 h</div></div><div class="e"><div class="v">0,83 SOL</div><div class="s">pola</div></div></a></li>
+        <li><a class="row" href="#"><div class="m"><div class="t">ARIA</div><div class="s">kupio @VELORA_GEMS (novčanik) · prije 2 h</div></div><div class="e"><div class="v">1,07 SOL</div><div class="s">kupnja</div></div></a></li>
+      </ul></div>
+    </figure>
+    <figure class="st"><figcaption>2. Svi: botovi i snajperi ostaju, ali označeni</figcaption>
+      <div class="fr"><ul class="list">
+        <li><a class="row" href="#"><div class="m"><div class="t">kmqG…CAnL</div><div class="s"><span class="warn">sniper</span> · drži 5 min · 11 dnevno</div></div><div class="e"><div class="v neg">−6,3 SOL</div><div class="s">23&nbsp;% od 106</div></div></a></li>
+        <li><a class="row" href="#"><div class="m"><div class="t">qSWS…PGu2</div><div class="s"><span class="warn">bot</span> · drži 5 min · 11 dnevno</div></div><div class="e"><div class="v neg">−6,4 SOL</div><div class="s">22&nbsp;% od 102</div></div></a></li>
+      </ul></div>
+    </figure>
+    <figure class="st"><figcaption>3. Prazno: nitko nije prošao uvjete</figcaption>
+      <div class="fr"><div class="empty"><b>Trenutno nema koga kopirati</b>
+        <p>Nijedan novčanik nije dokazan dvaput. Lista se računa svaka 3 sata iz spremljenih tradeova.</p><a href="#">Pogledaj sve</a></div></div>
+    </figure>
+  </div>
+</main>
+<!--TRAKA a=novcanici--><nav class="tabs" aria-label="Glavni izbornik"><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>Pregled</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Tokeni</a><a href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg>Influenceri</a><a class="on" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h2"/></svg>Novčanici</a><a href="#"><span class="badge"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></span>Više</a></nav><!--/TRAKA-->
+</body>
+</html>

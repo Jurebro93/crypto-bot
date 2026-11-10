@@ -3,6 +3,8 @@
 Odgovor ukratko: svaki ekran neka počne jednim odgovorom (jedan veliki broj ili jedno ime), ispod toga kratki reci
 "ime + jedan razlog + jedan broj", a sve ostalo jedan dodir dalje. Isti blok ne ponavljati na četiri stranice, maknuti
 emojije, ⓘ uz svaki broj i stalne trake, i staviti Autopilot u donju traku. Makete pet zaslona su gotove i snimljene.
+Drugi krug (odjeljak 4): isti jezik na naslovnici, tokenima, influencerima i novčanicima, sa stranicama detalja; profil
+influencera počinje iskrenom presudom (rezultat nakon 1 h i nakon 24 h), ista presuda je na ljestvici i u Autopilotu.
 
 Kako gledati:
 - makete (otvaraju se izravno u pregledniku, sve je u jednoj datoteci): `audit/2026-11-10/makete/pregled.html`,
@@ -13,6 +15,8 @@ Kako gledati:
 - ponovno snimanje: `python3 audit/2026-11-10/makete/sastavi.py && node audit/2026-11-10/makete/snimi.js`
   (sastavi.py upisuje zajednički CSS, traku i bočni izbornik u svih pet maketa; snimi.js snima i mjeri isto kao
   `shots.js` za "sada", pa su brojke usporedive)
+- drugi krug (odjeljak 4): `naslovna.html`, `tokeni-popis.html`, `token.html`, `influenceri-ljestvica.html`,
+  `influencer.html`, `novcanici.html`, `novcanik.html`; snimke i usporedbe istog imena
 
 ## 1. U jednoj minuti
 
@@ -196,33 +200,295 @@ starih linkova); Naslovna stranica i HR/EN → Postavke; osam stavki Sustava →
 "Više"), `ui/novo.py` (traka → točka), `ui/admstrip.py` (razlika administrator/ostali u traci), `run_ui.py`
 (ruta `/vise` ili preimenovanje `/mapa`).
 
-## 4. Preporučeni redoslijed
+## 4. Drugi krug, 10.11.: naslovnica, tokeni, influenceri, novčanici
 
-1. **Jedna večer (oko 3 do 4 sata), najveći vidljivi dobitak:**
+Odgovor ukratko: isti jezik i na ostalim zaslonima. Svaka stranica detalja počinje presudom u jednoj rečenici i s
+četiri broja koji je nose, a ista presuda (ista mjera, ista riječ) stoji na popisu, na profilu i u Autopilotu.
+Najveća promjena je profil influencera: danas na vrhu piše "moć poziva 58 · pogodak 71 %", a rezultat nakon 24 h
+(na Jureovoj snimci 2 u plusu, 28 u minusu, −185 $) dolazi tek na šestom ekranu. U maketi je to prva rečenica.
+
+Kako gledati:
+- makete: `naslovna.html`, `tokeni-popis.html` i `token.html`, `influenceri-ljestvica.html` i `influencer.html`,
+  `novcanici.html` i `novcanik.html` (sve u `audit/2026-11-10/makete/`, svaka jedna datoteka)
+- snimke u istoj mapi kao prvi krug: `novo-<ime>-phone.png` (cijela stranica), `-phone-fold.png` (prvi ekran),
+  `-desktop.png`; za stranice detalja i `novo-<ime>-phone-cijela.png`; usporedbe `usporedba-<ime>.png`
+- "sada" je snimljen na DANAŠNJEM kodu (f4dc160, s trakom "Tradanje pravim sredstvima je live" na naslovnoj i crnom
+  trakom "Autopilot je live" na svakoj stranici aplikacije), na lokalnoj kopiji s istim podacima (`seed_app.py`);
+  Autopilot je "live" samo u tom procesu (`sada_drugi_krug.py`). Zato su brojke "sada" za Tokene drukčije nego u
+  prvom krugu (6,8 ekrana umjesto 7,8: današnji kod je skratio prijedlog). Novi zaslon u `shots.js`: `novcanik`.
+- ponovno: `node audit/2026-11-10/makete/snimi.js --only tokeni-popis,token,influenceri-ljestvica,influencer,novcanici,novcanik`,
+  pa `python3 audit/2026-11-10/makete/sastavi.py` (naslovna uzima slike novih ekrana iz tih snimki), pa
+  `node audit/2026-11-10/makete/snimi.js --only naslovna`
+- brojke "do stanja" ispod su duljina stranice bez dodanog bloka "Druga stanja istog ekrana" (taj blok je samo za
+  izradu: učitavanje, prazno, traženje, filtri)
+
+### 4.0 Jedna presuda za influencera (ljestvica, profil, Autopilot, Pregled)
+
+Danas isti račun ima tri različite ocjene. Autopilot ga rangira po minutnoj mjeri ("+10 % prije stopa −20 % u 60 min",
+`kol/minute.py`, "najbolji 14 d"). Ljestvica i prijedlog ga zovu "dokazan" po "pogotku" (vrh +50 % u 24 h,
+`calls.max24`). Stupci na profilu pokazuju cijenu 24 h nakon poziva (`calls.r24h`). Vrh od +50 % rijetko tko uhvati,
+pa "71 % pogodaka" i "2 od 30 u plusu" mogu biti istina za isti račun, a Autopilot trguje pravim novcem po prvoj mjeri.
+
+Prijedlog: dva broja svuda, istim imenom i istim redom.
+- **1 h**: udio poziva koji su došli do +10 % prije stopa −20 %, od minute poziva (po tome Autopilot bira koga prati).
+- **24 h**: udio poziva u plusu dan kasnije.
+- **Presuda** iz ta dva broja, jedna funkcija za sve stranice (npr. `kolsummary.verdict`): **drži se** (1 h ≥ 50 % i
+  24 h ≥ 40 %), **samo brzo** (1 h ≥ 50 %, 24 h ispod 40 %), **ne isplati se** (1 h ispod 50 %), **premalo poziva**
+  (manje od 5 u 14 dana). Pragovi su prijedlog; konačni izbor je Jurin.
+- "Pogodak" (vrh +50 %) i "dokazan" se više ne pokazuju kao presuda; vrh 24 h ostaje u bodovima ocjene i kao stupac
+  na računalu. Ocjena 0 do 100 ostaje.
+
+### 4.1 Naslovnica (memesonar.app/hr)
+
+**Sada** (`sada-naslovna-phone.png`, `-phone-fold.png`, `-desktop.png`): 17,2 ekrana na mobitelu (računalo 14,1),
+963 riječi, 9 emojija, 20 veličina slova, 12 sekcija, 14 slika ekrana (3 u heroju, 5 u "Kako izgleda", 6 u galeriji),
+sve starog sučelja; "Zatraži pristup" 7 puta u stranici. Današnja crna traka "Tradanje pravim sredstvima je live"
+stoji iznad naslova i zauzima gotovo pola prvog ekrana: naslov "Pametniji ulaz u Solana tokene" počinje na 70 % visine,
+gumb "Zatraži pristup" je odrezan na dnu. Brojke uživo su na drugom ekranu, dnevnik "MemeSonar je live 9 dana" na
+trećem. Iste javne poveznice su tri puta (izbornik, blok "Javni podaci" s 26 poveznica, podnožje s 30). Blok
+"1,1× veća šansa kad zove 3+ influencera" je tamni s velikim brojem, a razlika je 36 % naspram 33 %.
+
+**Novo** (`novo-naslovna-phone.png`, `-desktop.png`, `usporedba-naslovna.png`): 5,1 ekran (računalo 3,4), 370 riječi,
+0 emojija, 5 veličina slova, 3 slike.
+- Prvi ekran: naslov, jedna rečenica, crni gumb "Zatraži pristup" preko cijele širine, pa traka Autopilota kao
+  istaknuti panel: zelena točka "Uživo · pravi novac", naslov, jedna rečenica, tri broja (2,000 SOL u novčaniku,
+  8 zatvorenih, −0,042 SOL rezultat, crveno jer je minus) i "Pogledaj uživo" na /autopilot. Na računalu su naslov i
+  traka jedno do drugog.
+- Četiri broja iz baze (2 × 2) i "Uživo iz baze · osvježeno prije 12 min".
+- "Što dobiješ": četiri retka umjesto osam kartica s emojijima, jedan redak "Još: event tokeni, dugoročni tokeni, demo
+  bot i copy trading", pa tri prave slike NOVIH ekrana (Tokeni, profil influencera, novčanik), vodoravno.
+- "MemeSonar je live 9 dana": po noći jedan redak brojki (+4 influencera · +212 poziva · +96 tokena, svaki broj vodi na
+  svoju stranicu) i jedan redak članaka s poveznicama.
+- "Provjeri sam, bez prijave": prva tri retka javne ljestvice istim stupcima kao u aplikaciji (1 h, 24 h, presuda iz
+  4.0), "Cijela ljestvica, 358 računa", pa Top 100 meme coina, Provjera ruga, Blog.
+- Obrazac i Pitanja (5) jedno do drugog na računalu; podnožje kao danas (svih 30 poveznica) plus "Autopilot uživo".
+
+**Uklonjeno, spojeno, preimenovano i gdje ostaje:**
+- Pilula "Za sada besplatno" i kartica "Cijena 0 €" → jedan redak iznad naslova i rečenica ispod obrasca ("Bez kartice
+  i plaćanja. Nikad ne tražimo seed frazu ni privatni ključ.").
+- Tri slike u heroju, "Kako izgleda" (5) i galerija (6) → tri slike novih ekrana; mijenjaju se kad nove stranice budu
+  gotove (do tada ostaju današnje, samo tri).
+- Osam kartica funkcija → četiri retka i redak "Još".
+- "1,1× veća šansa" → s naslovne van; ostaje u članku "Grupiranje influencera".
+- Blok "Ljestvica influencera" s gumbom → tri retka ljestvice i poveznica.
+- "Javni podaci MemeSonara" (26 poveznica) i ploča coina → tri retka; svih 26 ostaje u izborniku i podnožju, pa nijedna
+  javna stranica ne gubi unutarnju poveznicu (SEO). Članci iz dnevnika ostaju poveznice kao danas.
+- "Zatraži pristup" 7 → 3 (gumb u heroju, obrazac, gumb u traci na računalu); ljepljivi gumb na mobitelu ostaje.
+  "Prijava" jednom (gore desno).
+- Gradijent na "Solana tokene." → crni naslov; EN gore → "English" u podnožju (hreflang u zaglavlju ostaje).
+
+**Trud: M.** `ui/landing.py` (`page_html`: redoslijed, CSS, `T`: funkcije 8 → 4, bez bloka "moć" i galerije,
+`log_html`: jedan redak brojki po danu), `ui/apjavno.py` (`landing_strip` i `STRIP_CSS`: svijetli panel, hrvatski zapis
+brojeva "2,000 SOL", "−0,042 SOL"), `ui/public.py` (`explore` se ne zove na naslovnoj, `_foot_links` dobiva "Autopilot
+uživo"), nove slike u `ui/static/landing/` kad nove stranice budu gotove (S).
+
+### 4.2 Tokeni: cijeli popis (/tokens)
+
+**Sada** (`sada-tokeni-phone.png`, današnji kod): 6,8 ekrana, 580 riječi, 17 emojija, 75 ⓘ, 26 bedževa, 154 poveznice.
+Iznad naslova dvije trake (crna "Autopilot je live" i siva "Novo"), pa ponovljeni "Prijedlog za danas". Za prazno
+stanje, učitavanje i "nema rezultata" nema nacrta.
+
+**Novo** (`novo-tokeni-popis-phone.png`, `-desktop.png`, `usporedba-tokeni-popis.png`): prvi ekran isti kao u prvom
+krugu (`tokeni.html`); cijela stranica 1,8 ekrana do stanja (3,8 s njima), 0 emojija, 0 ⓘ, 5 veličina slova.
+- Kraj popisa: redak "Odbačeni · 6 (rug ili pao na provjeri)" i jedna rečenica "Osvježeno prije 1 min, sljedeće za
+  2 min. Povuci prema dolje za odmah." s "Što znači pouzdanost".
+- Četiri stanja istog ekrana: (1) prvo učitavanje: sive linije umjesto redaka i "Učitavam tokene iz zadnja 24 h"; kad
+  postoji spremljen popis, odmah se pokaže uz "Osvježavam, popis od 07:10"; (2) prazno "Novi": jedna rečenica zašto i
+  "Pogledaj Jake"; (3) traženje bez rezultata: što je traženo i da zalijepljena adresa otvara bilo koji token;
+  (4) dodir na "Poredano po pouzdanosti" otvara list odozdo: Poredaj po (Pouzdanost, Šansa za skok, Zadnji signal, Mcap,
+  Rast 1 h) i dva prekidača (Rug: oprez, Samo sa smart walletima).
+- Jaki i Dugoročni koriste isti redak.
+
+**Uklonjeno, spojeno:** kao u prvom krugu (3.2). Novo su redak odbačenih i četiri stanja; "Sortiraj", "Tablica" i
+"Stupci" na mobitelu → jedan list "Poredaj i filtriraj".
+
+**Trud: S** povrh prvog kruga. `ui/tokens.py` (prazno stanje, redak odbačenih), `ui/cols.py` (list umjesto tri
+kontrole na mobitelu), `ui/pagecache.py` (stari popis dok se gradi novi, kao za /kol).
+
+### 4.3 Jedan token (/token/<adresa>)
+
+**Sada** (`sada-token-phone.png`, `-phone-fold.png`, `-desktop.png`): 3,4 ekrana, 400 riječi, 6 emojija, 11 veličina
+slova, 6 ⓘ, 7 sklopljenih slojeva. Na vrhu velikim "Šansa 87", a popis pokazuje pouzdanost 94 (ovdje "Confidence 94"
+u tekstu). Za i Protiv su dva uska stupca (jedna do tri riječi u retku, 15 redaka za 4 razloga). Nema grafa ni
+tržišta na jednom mjestu: cijena, promjene i kupnje/prodaje su u "Svježoj provjeri", holderi u sloju "Puls",
+likvidnosti nema. Tko ga je zvao i smart walleti su sklopljeni slojevi. Osam ikona vanjskih stranica bez natpisa.
+Kupnja (Natjecanje) je zadnja, s tri gumba i poljem iznosa.
+
+**Novo** (`novo-token-phone.png`, `-phone-cijela.png`, `-desktop.png`, `usporedba-token.png`): 3,2 ekrana (računalo
+2,1 umjesto 2,6), 330 riječi, 0 emojija, 6 veličina slova. Stranica nije puno kraća, ali sad na njoj ima i ono čega
+danas nema (graf, tržište, tko je zvao) bez ijednog sklopljenog sloja.
+- Vrh kao Apple Dionice: ime i kratka adresa (dodir kopira) lijevo, mcap i 24 h desno.
+- Graf mcap-a (1 h | 6 h | 24 h | 7 d), iste linije kao graf Autopilota; točke su pozivi influencera.
+- Presuda u panelu: "Pouzdanost 94 · šansa za skok 87", velikim "U zoni ulaza", jedna rečenica, pa jedan redak
+  "Za: ... Protiv: ...".
+- Dva gumba: "Kupi" (list: Autopilot 0,1 SOL, demo 50 $ na Natjecanju, DCA) i "Kopiraj adresu"; vanjske stranice
+  kao riječi (DexScreener, Birdeye, GMGN, Solscan, X).
+- "Tržište" kao na DexScreeneru: 5 min, 1 h, 6 h, 24 h u jednoj traci, pa cijena, likvidnost, volumen 1 h,
+  kupnje/prodaje, holderi, top 10, starost, bondan.
+- "Tko ga je zvao": redak po računu s presudom iz 4.0, mcap kod poziva i rast od tada; "Svih 24".
+- "Smart walleti" (koliko je uložio, drži li još) i "Provjera ruga" (šest provjera kao reci, vrijeme zadnje).
+- "Kako je dobio ocjenu": cijelo tumačenje, slojevi analize (6 od 7), puls uživo.
+
+**Uklonjeno, spojeno, preimenovano:** "Šansa" kao glavni broj → pouzdanost (isti broj kao na popisu), šansa u istom
+retku; "Confidence" → pouzdanost; stupci Za/Protiv → jedan redak (sve u "Cijelo tumačenje"); "Brojke" (6 kartica) →
+panel i Tržište; sedam slojeva → redak "Slojevi analize 6 od 7" (isti sadržaj); blok Natjecanje → list "Kupi"; osam
+ikona → pet riječi; "Svježa provjera" → Tržište i Provjera ruga.
+
+**Trud: M.** `ui/pages.py` (`token()`: redoslijed i zaglavlje), `ui/narrative.py` (jedna rečenica), `ui/topcheckui.py`
+i `live/pulse.py` (reci Tržišta i provjere ruga), `ui/quickbuy.py` (list "Kupi"), `ui/charts.py` (linija s točkama;
+mcap iz snimki cijene u hype.db, pozivi iz kol.db).
+
+### 4.4 Influenceri: cijela ljestvica (/kol)
+
+**Sada** (`sada-influenceri-ljestvica-phone.png`, današnji kod): 19,5 ekrana, 1525 riječi, 29 emojija, 376 ⓘ, tablica
+s 21 stupcem, 16 sklopljenih sekcija. Prijedlog na vrhu zove @Humanevolvd "dokazan, pogodak 71 %" i sam piše "još bez
+minutne provjere: brojke su po staroj mjeri".
+
+**Novo** (`novo-influenceri-ljestvica-phone.png`, `-desktop.png`, `usporedba-influenceri-ljestvica.png`): 2,6 ekrana
+do stanja (3,6 s njima), 0 emojija, 0 ⓘ, 6 veličina slova.
+- Hero "Najbolji za brzi ulaz i izlaz": @Humanevolvd, "● samo brzo · 30 poziva · Autopilot ga prati" i jedna rečenica
+  s oba broja; ispod "Drže se i 24 h: @ddddddd8a · @bitecong".
+- Segment Ljestvica | Upravo zvali; "Manje poznati računi · 238" i razdoblje "14 dana".
+- Redak: mjesto, @ime, presuda i broj poziva (ili narančasto "rug 32 %" kad je rugova 30 % i više); desno dva broja,
+  1 h i 24 h. Poredano po 1 h.
+- Računi s manje od 5 poziva u skupini "Premalo poziva" (sivi brojevi), da 100 % na 2 poziva ne bude prvo.
+- Računalo: 1 h, 24 h, Poziva, Ocjena, Rugovi, Uživo, Zadnji poziv.
+- Stanja: Upravo zvali (token, tko, prije koliko, promjena), osvježavanje ("Osvježavam. Dotad ljestvica od 06:12",
+  stara ljestvica odmah umjesto poruke "gradi se"), prazno za velike račune.
+
+**Mijenja prvi krug:** hero "Koga danas slušati" i stanja "dokazan / prosječan" iz `influenceri.html` zamjenjuje
+presuda iz 4.0; segment, filtar, Analize i stupci ostaju kako su u prvom krugu. U `pregled.html` redak "Vrijedi
+pratiti: @Humanevolvd · 71 % pogodaka" postaje "samo brzo · 70 % u 1 h".
+
+**Trud: L** (zajedno s prvim krugom). `ui/kol.py`, `ui/kolsummary.py` (`verdict`), `kol/minute.py` (`handle_stats`
+već daje hit10; udio u plusu nakon 24 h iz kol.db), `ui/pravitrade.py` (`_kol_section`: ista riječ uz "najbolji
+14 d"), `ui/public.py` (javna ljestvica, isti stupci).
+
+### 4.5 Jedan influencer (/kol/<ime>)
+
+**Sada** (`sada-influencer-phone.png`, `-phone-fold.png`, `-desktop.png`): 18,7 ekrana, 1466 riječi, 55 emojija,
+360 ⓘ, 282 poveznice, 30 bedževa. Na vrhu šest kartica (moć poziva 58, moć po pratitelju 7,08×, pratitelja,
+17 izmjerenih poziva, pogodak 71 %, hvalisanja 0) i red čipova; "Kako je dobio ocjenu" 9 kartica bodova; stupci
+"Kako su mu prolazili pozivi" (lokalno 0 u plusu i 31 u minusu, na Jureovoj snimci 2 i 28) i "Da si uložio $10"
+(−185 $) tek na šestom ekranu; "Koliko ga tržište sluša" 8 kartica; "Svi pozivi" 25 kartica po 12 polja (od 76).
+Minutne mjere, po kojoj ga Autopilot zove "najbolji 14 d", na profilu nema.
+
+**Novo** (`novo-influencer-phone.png`, `-phone-cijela.png`, `-desktop.png`, `usporedba-influencer.png`): 2,6 ekrana,
+308 riječi, 0 emojija, 6 veličina slova.
+- Presuda na vrhu: "Samo za brzi izlaz", "● samo brzo · 30 poziva · ocjena 58" i jedna rečenica: "U prvom satu 21 od
+  30 poziva dođe do +10 %. Ako držiš dan, 28 od 30 završi u minusu."
+- Četiri broja: nakon 60 min 21 od 30 (70 %); nakon 24 h 2 od 30 (28 u minusu); 10 $ u svaki poziv +3 $ s brzim
+  izlazom i −185 $ ako držiš 24 h (prije naknada); stižemo li ga: da, pratimo ga uživo, +10 % dođe za medijan 6 min.
+- Prekidač "Autopilot ga prati" s pravilom izlaza.
+- Graf "10 $ u svaki poziv": dvije linije na jednoj osi (brzi izlaz i drži 24 h), vrijednosti u legendi.
+- "Svaki poziv, redom": dva reda kvadratića (1 h i 24 h), zeleno plus, crveno minus. Razlika se vidi bez čitanja.
+- "Zadnji pozivi" (5): token, kad, mcap kod poziva; desno ishod u prvom satu ("+10 % u 4 min", "stop −20 %") i
+  24 h; pozivi ispod 30k $ pišu "ne broji se".
+- "Više o njemu": kako je dobio ocjenu, koliko ga tržište sluša, zove zajedno s, njegov novčanik.
+
+**Uklonjeno, spojeno, preimenovano:** šest kartica → presuda i četiri retka (pratitelji u podnaslovu, moć po
+pratitelju i hvalisanje u "Kako je dobio ocjenu"); "moć poziva" → ocjena; "pogodak" → 1 h i 24 h (vrh +50 % ostaje
+u bodovima); graf stupaca → dva reda kvadratića (broj na dodir); 25 kartica poziva → 5 redaka i "Svih 76" (podstranica
+s današnjom tablicom); "Koliko ga tržište sluša" → redak, podstranica.
+
+**Trud: M.** `ui/kol.py` (`kol_page` redoslijed, `_charts` → dvije linije i trake, "Svi pozivi" → podstranica),
+`kol/minute.py` (`handle_stats` za jedan račun: hit10, sl, med_t10, `lag_s`), `ui/charts.py` (druga linija, traka),
+`ui/kolsummary.py` (`verdict`), prekidač iz postojećeg praćenja Autopilota.
+
+### 4.6 Novčanici (/wallets)
+
+**Sada** (`sada-novcanici-phone.png`, `-phone-fold.png`, `-desktop.png`): 5,5 ekrana, 444 riječi, 72 ⓘ, 24 bedža;
+svaki novčanik je kartica s 9 polja (Dokazani dvaput DA/ne, Prati Autopilot DA/ne, Autopilot 14 d "–" kod svih,
+Copy s trakom, PnL, Win, Zatv., Medijan držanja, Neaktivan d). Na vrhu opet "Prijedlog za danas" (isti tekst kao na
+Pregledu), iznad popisa legenda od 70 riječi.
+
+**Novo** (`novo-novcanici-phone.png`, `-desktop.png`, `usporedba-novcanici.png`): 1,8 ekrana do stanja (2,8 s
+njima), 0 ⓘ, 6 veličina slova. Donja traka je inačica za ostale korisnike (Novčanici umjesto Autopilota).
+- Hero "Koga kopirati": Vfdn…At74, "● dokazan dvaput · kopirljiv · copy ocjena 80", jedna rečenica, zadnja kupnja.
+- Segment Za kopiranje | Svi | Aktivnost, polje "Adresa ili oznaka", "Poredano po copy ocjeni".
+- Redak: adresa, "● dokazan dvaput · drži 5 h" (ili "prati Autopilot"); desno zarada u SOL-u i "80 % od 20".
+- Računalo: Copy, Zarada, U plusu, Drži, Dokazan, Autopilot, Zadnji trade.
+- Na dnu "Ocijenjeno prije 2 h, sljedeće za 4 h · Ocijeni sada" i jedna rečenica što znače "dokazan dvaput" i
+  "kopirljiv".
+- Stanja: Aktivnost (tko je što kupio ili prodao), Svi (botovi i snajperi označeni narančasto), prazno.
+
+**Uklonjeno, spojeno:** "Prijedlog za danas" → Pregled (prvi krug) i hero; legenda → rečenica na dnu i Pojmovnik;
+"Autopilot 14 d" (prazno kod svih) → stupac na računalu kad ima broj; "Neaktivan d" → "Zadnji trade"; traka Copy →
+broj; gumb "Ocijeni novčanike sada" → tekst u retku na dnu.
+
+**Trud: M.** `ui/pages.py` (popis novčanika: kartice → reci, hero), `ui/cols.py`, `ui/prijedlog.py` (`box` van, prvi
+krug).
+
+### 4.7 Jedan novčanik (/wallet/<adresa>)
+
+**Sada** (`sada-novcanik-phone.png`, `-phone-fold.png`, `-desktop.png`): 13,7 ekrana, 913 riječi, 29 emojija, 176 ⓘ,
+260 poveznica. Šest kartica na vrhu (tier A, copy ocjena 80.0, ocjena profitabilnosti 80.0, NA COPY LISTI,
++11.86 SOL, 68 % (31)), od kojih su dvije isti broj; "Raspis ocjene" 8 kartica, "Raspis copy ocjene", "Statistika"
+tablica s 25 redaka, 25 pozicija kao kartice s 10 polja, a graf zarade, stupci i povijest ocjena tek od desetog
+ekrana. "Dokazan dvaput" (plus prije i poslije reza), glavni razlog zašto ga Autopilot kopira, na stranici se ne vidi.
+
+**Novo** (`novo-novcanik-phone.png`, `-phone-cijela.png`, `-desktop.png`, `usporedba-novcanik.png`): 2,6 ekrana,
+283 riječi, 0 emojija, 6 veličina slova.
+- Presuda: "Vrijedi kopirati", "● dokazan dvaput · kopirljiv · copy ocjena 80", rečenica s brojkama prije i poslije
+  reza.
+- Četiri broja: zarada na zatvorenima +11,86 SOL (+68 % na uloženo), u plusu 21 od 31, drži 4 h 24 min (3,3 tradea
+  dnevno), najveći trade 10 % zarade ("nije jedna sretna oklada").
+- Prekidač "Autopilot ga kopira".
+- Graf "Kako je zarađivao" s crtkanom crtom reza 5.11. i ispod "prije reza +7,40 SOL · 14/20, poslije +4,46 SOL · 7/11".
+- Traka svih 31 zatvorenih pozicija (21 u plusu, 10 u minusu).
+- "Zadnji tradeovi" (5, otvorena prva) i "Sve 31".
+- "Više o njemu": kako je dobio ocjenu 80, sve brojke, povijest ocjena, zašto je u registru.
+
+**Uklonjeno, spojeno:** šest kartica → presuda i četiri retka; "ocjena profitabilnosti 80.0" i "copy ocjena 80.0" →
+jedan broj (razlika, kad postoji, u "Kako je dobio ocjenu"); tier → "Kako je dobio ocjenu"; dva raspisa → jedna
+podstranica; "Statistika" (25 redaka) → "Sve brojke"; kartice pozicija → 5 redaka i "Sve 31"; stupci povrata → traka;
+"Zašto je odabran / izdvojen" → redak.
+
+**Trud: M.** `ui/pages.py` (`wallet()`: redoslijed, kartice → reci, raspisi na podstranicu), `wallets/dokazani.py`
+(brojke prije i poslije reza za jedan novčanik; `realized_before/after` već postoje), `ui/charts.py` (okomita crta
+reza, traka).
+
+## 5. Preporučeni redoslijed (svi zasloni, prvi i drugi krug)
+
+1. **Jedna večer (oko 3 do 4 sata), najveći vidljivi dobitak, sve S:**
    - `prijedlog.box` ostaje samo na Pregledu (makni ga iz `ui/tokens.py`, `ui/kol.py` i `ui/pages.py` za
-     Novčanike). Tokeni i Influenceri odmah počinju svojim popisom; tri stranice kraće za oko 1,3 do 1,5 ekrana. (S)
-   - Traka "Novo" postaje točka na "Više"; ☰ se skriva na mobitelu. (S)
-   - Autopilot u donju traku za administratora (popis BOTTOM u `ui/html.py`). (S)
-   - Zajednički CSS: pet veličina slova, redak, segment, točka stanja (`ui/html.py`). Odmah smiruje sve stranice. (S)
-2. **Autopilot:** pravila iz točke 2 predati grupi apui sada, dok gradi graf i dnevnik; ostatak (reci pozicija,
-   prekidač, "Još") ista ili sljedeća večer. (M)
-3. **"Više" kao stranica** umjesto ladice. (M)
-4. **Tokeni u recima.** (M)
-5. **Pregled** s herojem i tri kratke sekcije. (M)
-6. **Influenceri** (najveći posao, ali i najveća razlika: 20,1 → 2,2 ekrana). (L)
+     Novčanike). Tokeni, Influenceri i Novčanici odmah počinju svojim popisom.
+   - Traka "Novo" postaje točka na "Više"; ☰ se skriva na mobitelu.
+   - Autopilot u donju traku za administratora (popis BOTTOM u `ui/html.py`).
+   - Zajednički CSS: pet veličina slova, redak, segment, točka stanja, panel presude (`ui/html.py`).
+   - **Pitanje za Juru:** crna traka "Autopilot je live" (danas na vrhu svake stranice aplikacije, iznad trake "Novo")
+     neka bude jedan redak na Pregledu i točka uz Autopilot u traci, a ostaje velika samo na naslovnici. Tražio ju je
+     danas, pa bez njegovog da ne dirati.
+2. **Jedna presuda za influencera (4.0), M:** `kolsummary.verdict` iz 1 h i 24 h; na profilu presuda i četiri broja
+   na vrh (4.5, bez grafa i traka u prvom koraku), ista riječ u Autopilotu ("najbolji 14 d · samo brzo"), na Pregledu
+   i stupci 1 h i 24 h na ljestvici. Ide rano jer nije samo izgled: Autopilot trguje pravim novcem po mjeri koju
+   profil danas ne pokazuje, a ljestvica isti račun zove "dokazan".
+3. **Autopilot (3.4), M:** pravila iz `dizajn.md` grupi apui, reci pozicija, prekidač, "Još".
+4. **Naslovnica (4.1), M:** naslov i "Zatraži pristup" na prvo mjesto, traka Autopilota kao svijetli panel ispod,
+   12 sekcija na 7. Slike novih ekrana tek u koraku 9. Javna je i prvi dojam, a danas joj traka gura objašnjenje na
+   dno prvog ekrana.
+5. **"Više" kao stranica (3.5), M.**
+6. **Tokeni (3.2 i 4.2) i jedan token (4.3), M + M:** reci, stanja, list "Poredaj i filtriraj"; token s presudom,
+   grafom i tržištem.
+7. **Novčanici (4.6) i jedan novčanik (4.7), M + M.**
+8. **Pregled (3.1), M.**
+9. **Ostatak influencera (3.3, 4.4, 4.5), L:** cijela ljestvica (hero, "Premalo poziva", Analize kao podstranica),
+   graf i trake na profilu, "Svi pozivi" kao podstranica; pa nove slike na naslovnici (S).
 
-Deploy po pravilu: sve skupiti u jedan merge, izvan 01 do 06 CET.
+Ukupno oko 3 do 4 večeri za korake 1 do 4 i još oko tjedan dana večeri za 5 do 9 (procjena). Deploy po pravilu:
+svaki korak je jedan merge sa svim svojim promjenama, izvan 01 do 06 CET.
 
-## 5. Što namjerno ne mijenjamo
+## 6. Što namjerno ne mijenjamo
 
 - Boje (sve varijable iz `ui/html.py`), svijetlu temu, crne gumbe, logo i font.
 - Adrese i tri glavne funkcije (Tokeni, Influenceri, Novčanici). Nijedna stranica se ne briše, samo se seli
   jedan dodir dalje.
 - Podatke, izračune i pravila trgovanja: pragovi (30k $ mcap, samo bondani), "dry" način, provjere i potvrde
-  prije prodaje.
-- Stranice detalja (token, influencer, wallet) i tablice sa svim stupcima na računalu, za kad treba sve brojke.
+  prije prodaje. Presuda iz 4.0 samo pokazuje mjere koje već postoje (`kol/minute.py`, `calls.r24h`).
+- Tablice sa svim stupcima na računalu i sve brojke detalja: u drugom krugu stranice detalja dobivaju presudu na
+  vrhu, a raspisi, statistika i svi pozivi ostaju jedan dodir dalje.
 - Natjecanje (39,9 ekrana) i Copy trading (25,9 ekrana) u ovom krugu; to su sljedeći kandidati za ista pravila.
-- Javnu naslovnu i prijavu.
+- Prijavu. (Javna naslovnica je u drugom krugu, 4.1.)
 
 ## Provjereno i pretpostavke
 
@@ -234,3 +500,19 @@ su isto mjerenje (`novo-metrics.json`); vodoravni preljev Autopilota vidi se na 
 promjene trake); brojke grafa i sažetak dnevnika u maketi Autopilota su primjer (tablice equity i aplog nisu u ovom
 worktreeju); tečaj SOL 162 $ i 1 $ = 0,86 € samo za maketu; da je mobilni redoslijed Tokena po Šansi koja se ne
 prikazuje; procjene truda.
+
+**Provjereno (drugi krug):** "sada" je snimljen na kopiji današnjeg koda (f4dc160, `git archive` u scratchpad) s
+podacima iz `seed_app.py`; za Tokene, token, ljestvicu, influencera, Novčanike i naslovnicu `sada-metrics.json` je
+prepisan tim snimanjem (brojke "sada" u odjeljku 3 su s koda prije današnjih promjena). Makete su renderirane na
+390×844 i 1280×800, pregledane, i nijedna nema vodoravni preljev. Mjere su iz koda: `kol/minute.py` (+10 % prije
+stopa −20 % u 60 min, hot lista koja se čita svake 1 do 2 s), `ui/kol.py` `_charts` (cijena 24 h poslije, 10 $ po
+pozivu), `ui/pravitrade.py` ("najbolji 14 d" po minutnoj mjeri), `ui/sitelog.py` (live od 1.11., dakle 9 dana).
+
+**Pretpostavke (drugi krug):** brojke 24 h na profilu (2 u plusu, 28 u minusu, −185 $) su s Jureove snimke, a račun
+na njoj nije imenovan: u maketi je @Humanevolvd jer lokalna kopija za njega pokazuje isti obrazac (0 u plusu,
+31 u minusu, oko −190 $). Brojke prvog sata (21 od 30, +10 % za 6 min, +3 $ s brzim izlazom) i postotci 1 h i
+24 h na ljestvici su primjer (lokalna kopija nema minute.db). Pragovi presude su prijedlog. Brojke trake Autopilota
+na naslovnici (2,000 SOL, 8, −0,042 SOL) su izmišljene, a "live" je samo u lokalnom procesu. Oblik grafova tokena i
+novčanika je primjer (zbrojevi su točni: +7,40 i +4,46 SOL, +3 i −185 $). Da hype.db ima dovoljno gustih snimki cijene
+za graf od 1 h; da je broj odbačenih tokena dostupan iz rug filtra; tokeni BLOOP i WOJAK su izmišljeni; procjene truda
+i vremena.

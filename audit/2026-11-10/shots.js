@@ -29,6 +29,8 @@ const SCREENS = [
   { key: 'izbornik', path: '/pregled', title: 'Izbornik "Više" (ladica)', menu: true },
   { key: 'mapa', path: '/mapa', title: 'Sve stranice' },
   { key: 'postavke', path: '/postavke', title: 'Postavke' },
+  // drugi krug (10.11.): jedan novčanik (Vfdn…At74 iz seed_app.py, isti kao u prijedlogu na Pregledu)
+  { key: 'novcanik', path: '/wallet/VfdnxFG33CM2rVeYegb6ooV5xEPLuhKYGhBPa5aWAt74', title: 'Jedan novčanik' },
   { key: 'naslovna', path: '/hr', title: 'Javna naslovna stranica', anon: true },
   { key: 'prijava', path: '/prijava', title: 'Prijava', anon: true },
 ];
