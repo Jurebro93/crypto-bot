@@ -207,6 +207,37 @@ def _no_proof(lg, follow_id):
     return None
 
 
+RUNUP_LIMIT = 0.10   # 10.11. (Grok MCP audit 3) = league/copy.RUNUP_DEFAULT: the real buy pays at most the call + 10 %
+
+
+def _call_limit(lg, t):
+    """10.11. (Grok MCP audit 3, flag runup_default, live only): (why, limit) of a KOL / crew copy's real buy.
+    The demo entry already skipped a token more than 10 % above its first call (league/copy._runup_gate); the real
+    swap is quoted a moment later and may pay more, so the order itself is held to the same line: limit
+    {"max_px", "call_px"} in USD per token for trade/executor (the call's price = the demo entry / (1 + its run-up)).
+    A run-up the demo trade does not know is a skip. (None, None) when the flag does not apply: the old behaviour.
+    In shadow / paper nothing is logged here: the demo gate logs the same decision (and run_trade never writes
+    league.db, whose only writer is the dashboard process)."""
+    src = t["source"] or ""
+    if not (src.startswith("copy KOL ") or src.startswith("copy ekipa ")):
+        return None, None
+    try:
+        from league import flags
+        m = flags.mode("runup_default")
+        if m == "off" or not flags.applies("runup_default", settings.LEAGUE_USER, m):
+            return None, None
+    except Exception:  # noqa: BLE001 - an unreadable flag is off
+        return None, None
+    try:
+        r = lg.execute("SELECT entry_px, runup FROM trades WHERE id=?", (t["id"],)).fetchone()
+    except sqlite3.OperationalError:   # league.db without the 10.11. columns
+        r = None
+    if not r or r[1] is None or not r[0] or r[1] <= -1:
+        return "limit cijene poziva: run-up od prvog poziva nepoznat, bez njega se ne kupuje", None
+    call_px = r[0] / (1 + r[1])
+    return None, {"max_px": call_px * (1 + RUNUP_LIMIT), "call_px": call_px}
+
+
 def _mirrored(con, league_id):
     """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
     positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
@@ -266,6 +297,9 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
             elif live and not size and (t["follow_id"] is not None or is_copy):   # a copy never passes as "manual"
                 why = _no_proof(lg, t["follow_id"])
+            limit = None
+            if not why and is_copy:   # 10.11. (Grok MCP audit 3): flag runup_default, live: limit at the call + 10 %
+                why, limit = _call_limit(lg, t)
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
@@ -275,11 +309,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                 continue
             # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): the owner's manual
             # buy (its own stake, never a copy) may add one more lot to a token already held; a copy never doubles one
+            kw = {"limit": limit} if limit is not None else {}
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else None,
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
                              add=bool(size) and not is_copy,
-                             manual=bool(size) and not is_copy)   # 10.11. (Jure: "makni limit"): no day spend limit
+                             manual=bool(size) and not is_copy, **kw)   # 10.11. (Jure: "makni limit"): no day spend limit
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:

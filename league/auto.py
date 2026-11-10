@@ -218,6 +218,79 @@ def _tpsl_hit(a, price, liq, now):
             else None)   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
 
 
+def tpsl_rule(hit, price=None):
+    """10.11. (Grok MCP audit 1): the exit_rule of a TP/SL close (league/store.EXIT_RULES) from _tpsl_hit's text;
+    a close at no price is a rug. A group exit (several lots on one average, ui/pravitrade) is the same TP / SL."""
+    if price is not None and price <= 0:
+        return "rug"
+    return "tp" if hit.startswith("TP") else "sl" if hit.startswith("SL") else "time"
+
+
+# 10.11. (Grok MCP audit 4, flag stop_grace): a proven KOL / crew copy's stop sleeps for league/copy.GRACE_S after the
+# entry (0xMarko77's Hope copy was stopped at -10.7 % after 104 s). These rug flags wake it at once.
+GRACE_RUG_PX = 0.5    # the price at or under half of the entry
+GRACE_RUG_LIQ = 0.2   # the pool under a fifth of what it was at the entry (paper/config rug_liq, Smart sell's own rug)
+GRACE_RUG_CACHE_S = 10   # rugfilter/collapse reads hype.db: once per token this often, not every second of the grace
+_RUG_SEEN = {}
+
+
+def _collapsed(token, mcap, liq, now):
+    hit = _RUG_SEEN.get(token)
+    if hit is None or now - hit[0] >= GRACE_RUG_CACHE_S:
+        try:
+            from . import copy
+            col = copy._rugged(token, mcap, liq)   # rugfilter/collapse.check: the peak of the last day vs now
+        except Exception:  # noqa: BLE001 - the check is a guard: unknown is no rug flag
+            col = None
+        hit = (now, col)
+        _RUG_SEEN[token] = hit
+        if len(_RUG_SEEN) > 500:
+            _RUG_SEEN.clear()
+    return hit[1]
+
+
+def _grace_rug(t, a, price, liq, mcap, now):
+    """The rug flag that ends the grace (Croatian text), or None: the price at or under GRACE_RUG_PX of the entry,
+    the pool under GRACE_RUG_LIQ of the entry's, or rugfilter/collapse calling the token collapsed."""
+    entry = t["entry_px"]
+    if not price or price <= 0:
+        return "cijena 0"
+    if entry and price <= GRACE_RUG_PX * entry:
+        return f"cijena {price / entry - 1:+.0%} od ulaza"
+    liq0 = a.get("grace_liq")
+    if liq0 and (liq or 0) < GRACE_RUG_LIQ * liq0:
+        return f"likvidnost pala s ${liq0:,.0f} na ${liq or 0:,.0f}"
+    col = _collapsed(t["token"], mcap, liq, now)
+    return f"rug: {col['text']}" if col else None
+
+
+def grace(con, t, a, price, liq, mcap, now, what="SL"):
+    """A stop of trade t (a dict of its row) is about to fire inside its grace window (auto JSON grace_until,
+    league/copy._grace_at_entry). Returns "hold" when stop_grace applies to the account now (the stop waits), "rug"
+    when a rug flag ends the grace (the stop fires, exit_rule "rug"), None otherwise (the old behaviour: the stop
+    fires). While the flag only shadows the account, the stop fires and the decision the grace would have taken is
+    logged. Off = None after one cached flag read."""
+    until = a.get("grace_until")
+    if not until or now >= until:
+        return None
+    from . import flags
+    m = flags.mode("stop_grace")
+    if m == "off":
+        return None
+    on = flags.applies("stop_grace", t["user"], m)
+    if not on and not flags.shadowing("stop_grace", t["user"], m):
+        return None
+    rug = _grace_rug(t, a, price, liq, mcap, now)
+    if on:
+        return "rug" if rug else "hold"
+    if not rug:
+        entry = t["entry_px"] or 0
+        flags.shadow(con, "stop_grace", t.get("follow_id"), t["token"], "stop", "drži (grace)",
+                     {"trade_id": t["id"], "stop": what, "ret": round(price / entry - 1, 4) if entry else None,
+                      "age_s": int(now - (t["opened_ts"] or now)), "grace_until": until}, now)
+    return None
+
+
 # 10.11. (Jure: "TP je bio +40 % od ulaza 84k, graf je dotakao 117k i malo preko, a automatska prodaja se nije
 # napravila"): run_once below checks every player's positions once per loop pass (EVERY_S = 20 s, after the copy
 # pass, the auto pick, SimianX, DCA and rekt), so a wick of a few seconds over the target was never seen. The
@@ -261,10 +334,17 @@ def fast_once(con, market, user, now=None):
         price, liq, _, mcap = mk[t["token"]]
         if not price or price <= 0:
             continue
-        hit = _tpsl_hit(json.loads(t["auto"]), price, liq, now)
+        a = json.loads(t["auto"])
+        hit = _tpsl_hit(a, price, liq, now)
         if hit:
+            rule = tpsl_rule(hit, price)
+            if rule == "sl" and a.get("grace_until"):   # 10.11. (Grok MCP audit 4): flag stop_grace
+                g = grace(con, t, a, price, liq, mcap, now, hit)
+                if g == "hold":
+                    continue
+                rule = "rug" if g == "rug" else rule
             try:
-                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
             except ValueError:   # the main loop closed it in the same second
                 continue
             done.append((t["user"], t["symbol"] or t["token"][:6], f"auto {hit}: {pnl:+.2f} $"))
@@ -321,7 +401,13 @@ def run_once(con, market, now=None):
         if a["mode"] == "tpsl":
             hit = _tpsl_hit(a, price, liq, now)
             if hit:
-                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
+                rule = tpsl_rule(hit, price)
+                if rule == "sl" and a.get("grace_until"):   # 10.11. (Grok MCP audit 4): flag stop_grace
+                    g = grace(con, t, a, price, liq, mcap, now, hit)
+                    if g == "hold":
+                        continue
+                    rule = "rug" if g == "rug" else rule
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap, exit_rule=rule)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
             continue
         st = json.loads(t["auto_state"]) if t["auto_state"] else None
@@ -331,10 +417,21 @@ def run_once(con, market, now=None):
             st = {"cfg": cfg, "pos": pos}
         cfg, pos = st["cfg"], st["pos"]
         before_left, n_fills = pos["left"], len(pos["fills"])
+        snap = json.dumps(st) if a.get("grace_until") and now < a["grace_until"] else None
         sim.step(pos, price, liq, now, cfg)
-        for f in pos["fills"][n_fills:]:
+        new = pos["fills"][n_fills:]
+        grace_rug = False
+        if snap and new and not pos["open"] and new[-1]["reason"] == "stop_loss":
+            # 10.11. (Grok MCP audit 4): the profile's own stop inside the grace of a proven copy (flag stop_grace)
+            g = grace(con, t, a, price, liq, mcap, now, "stop_loss")
+            if g == "hold":   # the stop did not happen: the state stays as it was before this price
+                con.execute("UPDATE trades SET auto_state=? WHERE id=?", (snap, t["id"]))
+                continue
+            grace_rug = g == "rug"
+        for f in new:
             if not pos["open"] and f is pos["fills"][-1]:
-                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto: {f['reason']}", mcap=mcap)
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto: {f['reason']}", mcap=mcap,
+                                 exit_rule="rug" if grace_rug else store.smart_rule(f["reason"]))
                 done.append((t["user"], name, f"auto {f['reason']}: zatvoreno {pnl:+.2f} $"))
             else:
                 share = f["frac"] / before_left if before_left > 0 else 0

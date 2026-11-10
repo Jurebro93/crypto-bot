@@ -67,6 +67,14 @@ DATA_HOLD_S = 3600   # a data exit is known for the measured hour after the call
 # a "podaci" follow enters only this soon after the call and only while the price has not already moved this much.
 DATA_MAX_LATE_S = 120
 DATA_MAX_RUNUP = 0.10
+# 10.11. (Grok MCP audit 3, plan 2.3, flag runup_default): the run-up cap every KOL / crew follow of the Autopilot
+# accounts gets when the flag applies, measured from the token's FIRST call overall (kol.db calls.p0), not from
+# DexScreener's 5-min change; a run-up that cannot be measured is a skip
+RUNUP_DEFAULT = 0.10
+# 10.11. (Grok MCP audit 4, flag stop_grace): a proven follow's copy keeps its stop asleep this long after the entry
+# (league/auto: TP and the rug flags still fire); "proven" is run_trade.PROOF on the follow's own closed demo trades
+GRACE_S = 180
+PROOF = {"closed": 10, "win_rate": 0.4}   # = run_trade.PROOF (tests/test_grok_audit_offline keeps them equal)
 
 
 WAKE = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".copy_wake")
@@ -186,6 +194,9 @@ def follow(con, user, kind, target, label="", size_usd=25, per_day=10, exit_mode
             ex["min_callers"] = max(1, min(int(min_callers or 1), len(members_of(target))))
         if exit_mode == "podaci" and "max_runup" not in ex:
             ex["max_runup"] = DATA_MAX_RUNUP
+        if "max_runup" not in ex and _flag_applies("runup_default", user):
+            # 10.11. (Grok MCP audit 3): marked as the flag's, so it holds only while the flag applies (_runup_gate)
+            ex.update(max_runup=RUNUP_DEFAULT, runup_src="flag")
     if exit_mode == "tpsl":
         # checked now on a made-up entry so a typo shows here and not silently on the first copied trade
         tp_px, _ = auto.parse_level(tp, 1.0, 1e6, "tp")
@@ -260,7 +271,9 @@ def describe_exit(ex, sl0=None):
         cond.append(f"ulaz kad zovu {ex['min_callers']}+ iz ekipe")
     if ex.get("max_mcap"):
         cond.append(f"samo do MC ${ex['max_mcap'] / 1e6:g}M" if ex["max_mcap"] >= 1e6 else f"samo do MC ${ex['max_mcap'] / 1e3:g}k")
-    if ex.get("max_runup") is not None:
+    if ex.get("max_runup") is not None and ex.get("runup_src") == "flag":
+        cond.append(f"ne ako je već +{ex['max_runup']:.0%} od prvog poziva (zastavica)")
+    elif ex.get("max_runup") is not None:
         cond.append(f"ne ako je već +{ex['max_runup']:.0%} od poziva")
     return " · ".join([x for x in [base] if x] + cond)
 
@@ -578,6 +591,260 @@ def _runup_window(age_s):
     return "zadnjih 5 min" if age_s <= 300 else "zadnjih 60 min"
 
 
+# ---------- 10.11. (Grok MCP audit): flags and the data every demo trade carries ------------------------------------
+#
+# Price sources (Grok MCP audit 3: SPSC bought 1 s after the call at MC $181k, "call MC" $161k, +12.5 %):
+#   call MC  kol.db calls.p0 / mcap0, written by the KOL round minutes to an hour AFTER the post, never at the post:
+#            kol/measure.outcome takes p0 from GeckoTerminal 5-min candles = the close of the last candle that started
+#            at or before ts - 300 s, i.e. the price at the last 5-minute boundary at or before the post (0-5 min
+#            BEFORE the call); kol/snap fills it from the first DexScreener snapshot within 25 min after the post when
+#            GeckoTerminal has not measured it. mcap0 = p0 x kol.db tokens.supply (DexScreener marketCap / priceUsd
+#            when the token was resolved). The MCP API's "market_cap_at_call" is this mcap0.
+#   entry MC market(): DexScreener /tokens through the 3-s live cache (dexscreener/client.tokens_live): priceUsd and
+#            marketCap (fdv when missing) of the deepest pair at the moment of the copy pass; Jupiter's price only for
+#            a token DexScreener has no quote for.
+# So the two are different clocks and sources: the pre-call price of a 5-min candle vs the live post-call price one
+# second after the post, after the first wave of buyers reacted to it. The +12.5 % is mostly that wave, not a delay
+# of ours. _runup (DexScreener m5 / h1) cannot see it; runup_from_first measures from the first call's p0.
+
+def _flag_mode(name):
+    try:
+        from . import flags
+        return flags.mode(name)
+    except Exception:  # noqa: BLE001 - a flag that cannot be read is off
+        return "off"
+
+
+def _flag_applies(name, user, m=None):
+    try:
+        from . import flags
+        m = m or flags.mode(name)
+        return m != "off" and flags.applies(name, user, m)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _flag_shadowing(name, user, m=None):
+    try:
+        from . import flags
+        m = m or flags.mode(name)
+        return m != "off" and flags.shadowing(name, user, m)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def first_call(token, paths=None, before=None):
+    """{"ts", "p0", "mcap0", "handle"} of the token's FIRST call overall in kol.db (the call kol/score marks
+    first_overall; MIN(ts) here, so a call newer than the last KOL round counts too), or None. p0 / mcap0 are None
+    until the KOL round measured that call (see the price sources above). before: only calls up to this time."""
+    kc = _ro((paths or _paths())["kol"])
+    if kc is None:
+        return None
+    try:
+        sql = "FROM calls WHERE token = ? AND kind = 'call'" + (" AND ts <= ?" if before else "") + " ORDER BY ts LIMIT 1"
+        args = (token, int(before)) if before else (token,)
+        rows = _q(kc, f"SELECT ts, p0, mcap0, handle {sql}", args) or _q(kc, f"SELECT ts, NULL, NULL, handle {sql}", args)
+    except sqlite3.Error:   # a damaged or locked file: unknown, never the reason a copy pass stops
+        rows = []
+    finally:
+        kc.close()
+    if not rows:
+        return None
+    ts, p0, mcap0, h = rows[0]
+    return {"ts": ts, "p0": p0 if p0 and p0 > 0 else None, "mcap0": mcap0 if mcap0 and mcap0 > 0 else None, "handle": h}
+
+
+def runup_from_first(token, price, paths=None, first=None):
+    """price / p0 of the token's first call - 1 (fraction), None when either is unknown."""
+    fc = first if first is not None else first_call(token, paths)
+    if not fc or not fc.get("p0") or not price or price <= 0:
+        return None
+    return price / fc["p0"] - 1
+
+
+def _signal_handles(f):
+    return members_of(f["target"]) if f["kind"] == "ekipa" else [f["target"]] if f["kind"] == "kol" else []
+
+
+def _signal_call(token, handles, ev_ts, paths=None):
+    """(handle, mcap0) of the followed account's call the entry was based on (kol.db calls of `handles` on the token
+    nearest ev_ts, within 10 min), or (None, None). mcap0 None until the KOL round measured it."""
+    if not handles or not ev_ts:
+        return None, None
+    kc = _ro((paths or _paths())["kol"])
+    if kc is None:
+        return None, None
+    try:
+        lows = sorted({h.lower() for h in handles})
+        q = ",".join("?" * len(lows))
+        rows = _q(kc, f"SELECT handle, ts FROM calls WHERE token = ? AND kind = 'call' AND LOWER(handle) IN ({q}) "
+                      "AND ts BETWEEN ? AND ? ORDER BY ABS(ts - ?) LIMIT 1", (token, *lows, ev_ts - 600, ev_ts + 600, ev_ts))
+        if not rows:
+            return None, None
+        h, ts = rows[0]
+        mc = _q(kc, "SELECT mcap0 FROM calls WHERE token = ? AND handle = ? AND ts = ? AND kind = 'call'", (token, h, ts))
+        return h, (mc[0][0] if mc and mc[0][0] and mc[0][0] > 0 else None)
+    finally:
+        kc.close()
+
+
+def _caller_score(f, handle, paths=None):
+    """The caller's score at entry (10.11. (Grok MCP audit 1)): kol.db kols.score (call power 0-100) of the account
+    whose call was copied (a crew: the member found in kol.db; a KOL: the followed account), wallets.db wallets.score
+    of a copied wallet; None unknown. Before 10.11. every copy wrote None: _enter passed score=None to store.buy."""
+    if f["kind"] == "wallet":
+        path = os.environ.get("WALLET_DB") or os.path.join(ROOT, "wallets.db")
+        wc = _ro(path)
+        if wc is None:
+            return None
+        try:
+            r = _q(wc, "SELECT score FROM wallets WHERE wallet = ?", (f["target"],))
+        finally:
+            wc.close()
+        return r[0][0] if r and r[0][0] is not None else None
+    h = handle or (f["target"] if f["kind"] == "kol" else None)
+    if not h:
+        return None
+    kc = _ro((paths or _paths())["kol"])
+    if kc is None:
+        return None
+    try:
+        r = _q(kc, "SELECT score FROM kols WHERE handle = ? COLLATE NOCASE", (h,))
+    finally:
+        kc.close()
+    return r[0][0] if r and r[0][0] is not None else None
+
+
+def entry_data(f, token, ev_ts, price, paths=None, first=None):
+    """{"score", "runup", "call_mcap"} written on a copy's demo trade at the entry (store.buy). Data only: never
+    raises, never decides anything."""
+    out = {"score": None, "runup": None, "call_mcap": None}
+    try:
+        h, mc = _signal_call(token, _signal_handles(f), ev_ts, paths)
+        out["call_mcap"] = mc
+        out["score"] = _caller_score(f, h, paths)
+        out["runup"] = runup_from_first(token, price, paths, first)
+    except Exception as e:  # noqa: BLE001
+        print(f"copy: podaci ulaza nisu pročitani ({type(e).__name__}: {e})", flush=True)
+    return out
+
+
+def close_data(con, t, paths=None):
+    """(runup, call_mcap) of a closing trade whose entry did not know them yet (store._close_data): the first call's
+    p0 and the copied call's mcap0 as kol.db has them now. Each None when still unknown."""
+    runup = runup_from_first(t["token"], t["entry_px"], paths, first_call(t["token"], paths, before=t["opened_ts"]))
+    call_mcap = None
+    fid = t["follow_id"] if "follow_id" in t.keys() else None
+    if fid:
+        f = con.execute("SELECT kind, target FROM follows WHERE id = ?", (fid,)).fetchone()
+        ev = con.execute("SELECT ev_ts FROM copy_log WHERE trade_id = ? AND side = 'buy' AND action = 'ulaz'",
+                         (t["id"],)).fetchone()
+        if f and ev and ev[0]:
+            _, call_mcap = _signal_call(t["token"], _signal_handles({"kind": f[0], "target": f[1]}), ev[0], paths)
+    return runup, call_mcap
+
+
+def proven(con, follow_id, user=None):
+    """10.11. (Grok MCP audit 4): True when the follow has the demo proof run_trade asks before real money (PROOF:
+    10+ closed demo trades, PnL above zero, 40 %+ of them winners; run_trade._no_proof). The paper account's follow
+    is judged on the Autopilot follow it copies (league/flags.paper_map), the same evidence live would use."""
+    if follow_id is None:
+        return False
+    fid = follow_id
+    try:
+        from trade import settings as ts
+        if user == ts.PAPER_USER:
+            r = con.execute("SELECT src FROM paper_map WHERE paper = ?", (follow_id,)).fetchone()
+            fid = r[0] if r else follow_id
+    except Exception:  # noqa: BLE001 - no paper map yet: its own trades
+        pass
+    n, wins, pnl = con.execute("SELECT COUNT(*), COALESCE(SUM(pnl_usd > 0), 0), COALESCE(SUM(pnl_usd), 0) FROM trades "
+                               "WHERE follow_id = ? AND status = 'closed'", (fid,)).fetchone()
+    return n >= PROOF["closed"] and pnl > 0 and wins / n >= PROOF["win_rate"]
+
+
+def _first(cache, tok, paths):
+    if tok not in cache:
+        cache[tok] = first_call(tok, paths)
+    return cache[tok]
+
+
+def _runup_gate(con, f, m, tok, age_s, price, rmode, first):
+    """The run-up gate of one candidate: the reason to skip, or None.
+    Flag off (or a player): exactly the old rule, the follow's max_runup against DexScreener's m5 / h1 change; a cap
+    the flag wrote (runup_src "flag") is not the owner's and is ignored then.
+    runup_default applies (paper: the paper account, live: both Autopilot accounts) and the follow is a KOL / crew:
+    the cap (the follow's own, else RUNUP_DEFAULT) against the run-up from the token's first call, unknown = skip.
+    Shadow (the Autopilot account while the flag is in shadow / paper): the old rule decides, the new one is logged
+    in shadow_decisions when it would decide otherwise. first(): the first call, read at most once per candidate."""
+    ex = f["exit"]
+    own_cap = ex.get("max_runup") if ex.get("runup_src") != "flag" else None
+    old_why = None
+    if own_cap is not None and (_runup(m, age_s) or 0) > own_cap:
+        # 9.11. (audit P59/P60): say what was measured (DexScreener m5/h1), not "od poziva"
+        old_why = (f"cijena je već +{_runup(m, age_s):.0%} u {_runup_window(age_s)} "
+                   f"(tvoj prag +{own_cap:.0%} od poziva)")
+    if rmode == "off" or f["kind"] not in ("kol", "ekipa"):
+        return old_why
+    on = _flag_applies("runup_default", f["user"], rmode)
+    if not on and not _flag_shadowing("runup_default", f["user"], rmode):
+        return old_why
+    cap = ex["max_runup"] if ex.get("max_runup") is not None else RUNUP_DEFAULT
+    fc = first()
+    r = runup_from_first(tok, price, first=fc or {})
+    if r is None:
+        new_why = ("run-up od prvog poziva nepoznat (cijena prvog poziva još nije izmjerena), a bez njega se ne "
+                   "kupuje" if fc else "run-up od prvog poziva nepoznat (poziv još nije u bazi poziva), a bez njega se "
+                   "ne kupuje")
+    elif r > cap:
+        new_why = (f"cijena je već +{r:.0%} iznad prvog poziva ({fc['handle']}, MC "
+                   f"${fc['mcap0'] or 0:,.0f}), prag +{cap:.0%}")
+    else:
+        new_why = None
+    if on:
+        return new_why
+    try:
+        from . import flags
+        flags.shadow(con, "runup_default", f["id"], tok, "preskočeno" if old_why else "ulaz",
+                     "preskočeno" if new_why else "ulaz",
+                     {"gate": "runup", "runup": None if r is None else round(r, 4), "cap": cap,
+                      "first_ts": (fc or {}).get("ts"), "first_p0": (fc or {}).get("p0"), "price": price,
+                      "old": old_why, "new": new_why})
+    except Exception:  # noqa: BLE001 - a lost shadow line never stops the copy
+        pass
+    return old_why
+
+
+def _grace_at_entry(con, f, tid, liq):
+    """10.11. (Grok MCP audit 4, flag stop_grace): a proven KOL / crew follow's new copy gets grace_until (opened +
+    GRACE_S) and grace_liq (the pool at the entry, for the rug check) in its auto JSON. Stored while the flag applies
+    to the account or shadows it; league/auto decides at the stop whether it holds the stop (applies) or only logs
+    it (shadow), so a flag switched off later changes nothing. Returns "on" / "shadow" when it was stored, else None."""
+    if f["kind"] not in ("kol", "ekipa"):
+        return None
+    m = _flag_mode("stop_grace")
+    if m == "off":
+        return None
+    how = "on" if _flag_applies("stop_grace", f["user"], m) else "shadow" if _flag_shadowing("stop_grace", f["user"], m) \
+        else None
+    if how is None:
+        return None
+    try:
+        if not proven(con, f["id"], f["user"]):
+            return None
+        r = con.execute("SELECT auto, opened_ts FROM trades WHERE id = ?", (tid,)).fetchone()
+        a = json.loads(r[0]) if r and r[0] else None
+        if not a or a.get("mode") not in ("tpsl", "smart"):
+            return None
+        a.update(grace_until=int(r[1] or time.time()) + GRACE_S, grace_liq=liq)
+        con.execute("UPDATE trades SET auto = ? WHERE id = ?", (json.dumps(a), tid))
+        con.commit()   # at once: the 1-second exit loop (its own connection) must see the grace from the first second
+        return how
+    except (sqlite3.Error, ValueError, TypeError) as e:
+        print(f"copy: stop_grace nije zapisan ({type(e).__name__}: {e})", flush=True)
+        return None
+
+
 def followed_handles(user=None, path=None):
     """X handles and tg:channels of every active KOL and crew follow (of `user`, or everyone): the accounts the bot
     must hear from within seconds (tg/poll.py reads them every 2 s, kol/xhook.py puts them in the X webhook)."""
@@ -751,7 +1018,7 @@ def run_once(con, market_fn=None, now=None, paths=None):
     global _CONC_CACHE
     _CONC_CACHE = {}   # 9.11. (review novac): topcheck / rug tables read once for this pass (see _concentration)
     try:
-        done = _enter(con, auto, mk, todo, now)
+        done = _enter(con, auto, mk, todo, now, paths)
     finally:
         _CONC_CACHE = None
     con.execute("DELETE FROM copy_log WHERE ts < ?", (now - CFG["keep_log_days"] * 86400,))
@@ -761,10 +1028,12 @@ def run_once(con, market_fn=None, now=None, paths=None):
     return done
 
 
-def _enter(con, auto, mk, todo, now):
+def _enter(con, auto, mk, todo, now, paths=None):
     """The second half of run_once: sells and gated buys for the candidates in todo. Returns [(user, text)]."""
     done = []
     stopped = set()   # "only the next call" follows that already entered this minute
+    rmode = _flag_mode("runup_default")   # 10.11. (Grok MCP audit 3): read once per pass (cached 2 s anyway)
+    firsts = {}   # token -> first call in kol.db, read at most once per pass
     for f, tok, side, ts in todo:
         if f["id"] in stopped:
             continue
@@ -785,7 +1054,8 @@ def _enter(con, auto, mk, todo, now):
                     _log(con, f, tok, side, ts, now, "preskočeno", "nema cijene za prodaju; prodaj ručno")
                 continue   # retried next minute
             for t in opened:
-                pnl = store.sell(con, f["user"], t["id"], m[0], m[1], f"copy: {name} je prodao", mcap=m[3])
+                pnl = store.sell(con, f["user"], t["id"], m[0], m[1], f"copy: {name} je prodao", mcap=m[3],
+                                 exit_rule="wallet_sold")
                 _log(con, f, tok, side, ts, now, "izlaz", f"{name} je prodao, i mi: {pnl:+.2f} $", t["symbol"], t["id"])
                 done.append((f["user"], f"copy {name}: prodano {t['symbol'] or tok[:6]} {pnl:+.2f} $"))
             continue
@@ -819,10 +1089,8 @@ def _enter(con, auto, mk, todo, now):
             why = "već imaš otvorenu poziciju u tom tokenu"
         elif f["exit"].get("max_mcap") and mcap and mcap > f["exit"]["max_mcap"]:
             why = f"token je već na MC ${mcap:,.0f} (tvoj strop ${f['exit']['max_mcap']:,.0f})"
-        elif f["exit"].get("max_runup") is not None and (_runup(m, age_s) or 0) > f["exit"]["max_runup"]:
-            # 9.11. (audit P59/P60): say what was measured (DexScreener m5/h1), not "od poziva"
-            why = (f"cijena je već +{_runup(m, age_s):.0%} u {_runup_window(age_s)} "
-                   f"(tvoj prag +{f['exit']['max_runup']:.0%} od poziva)")
+        elif (rw := _runup_gate(con, f, m, tok, age_s, price, rmode, lambda: _first(firsts, tok, paths))):
+            why = rw   # 10.11. (Grok MCP audit 3): the old m5 / h1 rule, or the first-call rule of runup_default
         elif mcap and liq and liq < CFG["min_liq_mcap"] * mcap:   # 9.11. (audit P41): one big holder would empty the pool
             why = (f"likvidnost ${liq:,.0f} je samo {liq / mcap:.1%} MC-a (granica {CFG['min_liq_mcap']:.0%}): "
                    "najveći holder bi srušio cijenu prije stopa")
@@ -847,8 +1115,11 @@ def _enter(con, auto, mk, todo, now):
             _log(con, f, tok, side, ts, now, "preskočeno", why, sym, mcap=mcap)
             continue
         src = f"copy {KIND_HR[f['kind']]} {name}"
+        # the entry's data is written below, after the buy (no read in front of it); a run-up the gate already
+        # measured (runup_default) goes in with the row, so run_trade's limit has it from the first moment
+        pre = runup_from_first(tok, price, first=firsts[tok] or {}) if tok in firsts else None
         try:
-            tid = store.buy(con, f["user"], tok, sym, f["size_usd"], price, liq, src, None, mcap)
+            tid = store.buy(con, f["user"], tok, sym, f["size_usd"], price, liq, src, None, mcap, runup=pre)
         except ValueError as e:
             _log(con, f, tok, side, ts, now, "preskočeno", str(e), sym)
             continue
@@ -878,6 +1149,12 @@ def _enter(con, auto, mk, todo, now):
                 exit_note = f"; izlaz: Smart sell (TP/SL nije primjenjiv: {e})"
             except ValueError as e2:
                 exit_note = f"; BEZ automatskog izlaza ({e2})"
+        if _grace_at_entry(con, f, tid, liq) == "on":   # 10.11. (Grok MCP audit 4): flag stop_grace, proven only
+            exit_note += f"; stop miruje prvih {GRACE_S // 60} min (osim kod ruga)"
+        # 10.11. (Grok MCP audit 1): score, run-up and the call's MC go on the trade at the entry (data only). Written
+        # before the "ulaz" row, so run_trade (which waits for that row) sees them when it mirrors the copy.
+        ed = entry_data(f, tok, ts, price, paths, _first(firsts, tok, paths))
+        store.set_data(con, tid, score=ed["score"], runup=ed["runup"], call_mcap=ed["call_mcap"])
         late = max(0, now - ts)
         _log(con, f, tok, side, ts, now, "ulaz", f"kupljeno za ${f['size_usd']:,.0f} na MC ${mcap or 0:,.0f}, "
              f"{late // 60} min {late % 60} s nakon {'poziva' if f['kind'] in ('kol', 'ekipa') else 'njegove kupnje'}"

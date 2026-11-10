@@ -65,6 +65,8 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "wallet_stream": ("3e.4", "Novčanici u stvarnom vremenu (Helius WebSocket)"),
     "sender_exec": ("3e.4", "Slanje swapa preko Helius Sendera (napojnica)"),
     "demo_grok": ("3e.5", "Demo strategije MemeSonar, Grok i oboje zajedno"),
+    # 10.11. (Grok MCP audit 4): a proven caller's copy is not stopped out in the first minutes (league/auto.grace)
+    "stop_grace": ("G4", "Prve 3 min bez stopa za dokazane callere (osim kod ruga)"),
 }
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})

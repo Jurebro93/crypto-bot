@@ -174,7 +174,7 @@ def reserve_sol(cfg, n_positions):
     return max(cfg.get("min_sol_reserve", 0), RESERVE_FLOOR_SOL, n_positions * SELL_COST_SOL)
 
 
-def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct):
+def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit=None):
     try:
         o = jupiter.order(input_mint, output_mint, amount_raw, taker=wallet.address(), route=route)
     except Exception as e:
@@ -188,6 +188,10 @@ def _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct):
         return {**res, "status": "failed", "retry": True, "error": o.get("error") or "nema rute"}
     if max_cost_pct is not None and res["cost_pct"] is not None and res["cost_pct"] > max_cost_pct:
         return {**res, "status": "blocked", "error": f"trošak {res['cost_pct']}% > {max_cost_pct}%"}
+    if limit is not None:   # 10.11. (Grok MCP audit 3): the price this very order pays, before anything is signed
+        why = _over_limit(limit, output_mint, o, res)
+        if why:
+            return {**res, "status": "blocked", "error": why}
     if not live:
         return {**res, "status": "dry"}
     if not o.get("transaction"):
@@ -254,7 +258,7 @@ def _pump(input_mint, output_mint, amount_raw, live):
             "fee_lamports": 0, "cost_pct": None, "error": None}
 
 
-def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=ROUTES):
+def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=ROUTES, limit=None):
     """One swap (live) or one quote (dry), route by route until one works. Returns {status, route, amount_in,
     amount_out, cost_pct, fee_lamports, error, tried, attempts, fee_total, ...}.
     attempts = every route's own result (its signature and the fee it was charged), fee_total = the sum of the fees
@@ -262,7 +266,8 @@ def swap(input_mint, output_mint, amount_raw, live, max_cost_pct=None, routes=RO
     tried, res, attempts = [], None, []
     for route in routes:
         res = (_pump(input_mint, output_mint, amount_raw, live) if route == "pump" else
-               _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct))
+               _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct, limit) if limit is not None
+               else _jup(route, input_mint, output_mint, amount_raw, live, max_cost_pct))
         res["route"] = route
         attempts.append(dict(res))
         tried.append(f"{ROUTE_HR[route]}: {res.get('error') or res['status']}")
@@ -358,8 +363,38 @@ def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
     return None
 
 
+def swap_px_usd(token, o, res):
+    """10.11. (Grok MCP audit 3): USD per whole token a SOL -> token order pays: its input in USD (Jupiter's
+    inUsdValue, else the SOL in at trade/equity's SOL price) over the tokens it gives (outAmount / 10^decimals; a
+    pump.fun mint has 6, any other is read once per process from the RPC). None when any part is unknown."""
+    usd = float(o.get("inUsdValue") or 0)
+    if usd <= 0:
+        sol_usd = (equity.rates() or {}).get("sol_usd")
+        usd = (res.get("amount_in") or 0) / LAMPORTS * sol_usd if sol_usd else 0
+    try:
+        dec = 6 if token.endswith("pump") else equity._decimals(token)
+    except Exception:  # noqa: BLE001 - RPC down: unknown
+        return None
+    tokens = (res.get("amount_out") or 0) / 10 ** int(dec)
+    return usd / tokens if usd > 0 and tokens > 0 else None
+
+
+def _over_limit(limit, token, o, res):
+    """The reason the order pays more than limit["max_px"] USD per token (or its price cannot be told), else None.
+    limit = {"max_px": USD, "call_px": the call's price, "px": optional price function (tests)}."""
+    px = (limit.get("px") or swap_px_usd)(token, o, res)
+    if px is None:
+        return "limit cijene poziva: cijena ovog swapa ne može se izračunati (nema cijene SOL-a ili decimala tokena)"
+    if px > limit["max_px"]:
+        call = limit.get("call_px")
+        over = f" (+{px / call - 1:.0%} iznad prvog poziva)" if call else ""
+        return (f"limit cijene poziva: swap bi platio ${px:.4g} po tokenu{over}, najviše ${limit['max_px']:.4g} "
+                "(poziv + 10 %)")
+    return None
+
+
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None,
-        add=False, manual=False):
+        add=False, manual=False, limit=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
     between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09).
@@ -379,6 +414,9 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     con.commit()
     if why:
         res = {"status": "blocked", "error": why, "amount_in": int(size_sol * LAMPORTS)}
+    elif limit is not None:   # 10.11. (Grok MCP audit 3): only routes that quote first (PumpPortal swaps blind)
+        res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"],
+                   tuple(r for r in routes_for(cfg) if r != "pump"), limit=limit)
     else:
         res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"], routes_for(cfg))
     ok = res["status"] in ("ok", "dry")
