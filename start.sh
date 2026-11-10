@@ -37,13 +37,34 @@ python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
 # "wait -n; exit 1" taking the whole worker down (two full restarts on 5.11. because run_live hit a locked database)
 # 9.11. (audit P11): a deploy's SIGTERM reaches the supervised process (run_trade.cmd_follow finishes the pass it is
 # in and exits, run_trade._on_term) instead of only the shell: the supervisor forwards TERM to its child and stops.
-keep() { local name="$1"; shift; ( pid=; trap 'kill -TERM $pid 2>/dev/null; wait $pid 2>/dev/null; exit 0' TERM; while true; do "$@" & pid=$!; wait $pid; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30 & wait $!; done ) & }
+# 10.11. (Jure: "CPU u svakom momentu najviše 90-95 %, aplikacija dostupna u svakom momentu"): background loops run at a
+# lower CPU priority (nice BG_NICE, default 10) than the UI, the trade loop and the listeners that bring the calls and
+# exits the money path acts on (kol, tg, live, paper): where they wait for the same core, the kernel serves those first.
+#   low keep <name> <command...>   a supervised process at low priority (its children inherit it)
+#   low <command...>               one command at low priority, inside the plain loops below
+# Jobs started through "python3 -m ops.heavy" need no "low": heavy.run already puts its child at HEAVY_NICE (10).
+# The memory watchdog loop below stays at normal priority too: it is a safety check of a few ms a minute.
+# Priority alone does not keep the container under its CPU quota (the kernel then stops everything, the UI included);
+# that is the CPU guard's job, started right after the trade loop below.
+BG_NICE="${BG_NICE:-10}"
+low() { if [ "$1" = keep ]; then BG_LOW=1 "$@"; else nice -n "$BG_NICE" "$@"; fi; }
+keep() { local name="$1"; shift; ( pid=; trap 'kill -TERM $pid 2>/dev/null; wait $pid 2>/dev/null; exit 0' TERM; while true; do ${BG_LOW:+nice -n "$BG_NICE"} "$@" & pid=$!; wait $pid; code=$?; echo "nadzor: $name završio (izlaz $code), ponovno za 30 s"; sleep 30 & wait $!; done ) & }
 trap 'kill -TERM $(jobs -p) 2>/dev/null; wait' TERM
 if [ -n "${PORT:-}" ]; then keep ui python3 run_ui.py --host 0.0.0.0 --port "$PORT"; fi
 # 9.11. (audit P9): the real-money follower right after the UI (every loop below is backgrounded, so this only moves it
 # ahead of ~20 python start-ups fighting for 0.5 CPU; the real gain is the short --startup above, so a paper entry
 # from the deploy window is mirrored before max_signal_age_s runs out; it only reads paper.db/league.db/trade.db)
 keep trade python3 run_trade.py follow       # mirrors paper entries/exits as real (or dry-run) swaps
+# 10.11. (Jure, same request): CPU guard (ops/cpuguard.py): every second the container's CPU from the cgroup; when the
+# average of a few seconds is above CPU_HIGH (90 %) it pauses the biggest background consumers for a fraction of a
+# second at a time (SIGSTOP/SIGCONT) until it is back under CPU_LOW (80 %). Never the UI, the trade loop, the listeners
+# or a supervisor (the list with the reasons: python3 -m ops.cpuguard --popis). One log line a minute. CPUGUARD=0:
+# measures and logs, pauses nothing. Started before the background loops so their start-up rush is already watched.
+keep cpuguard python3 -m ops.cpuguard
+# availability check (ops/uptime.py), web service only: /healthz every 30 s, slow and missing answers go to the log;
+# after 150 s without an answer it ends ONLY the UI process (keep above brings it back), at most once in 15 min and
+# not in the first 5 min after a start. UPTIME_RESTART=0: logs only.
+if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 
 # every hour: HTTP cache trim, raw-data retention, freed pages back to the disk, WAL files cut back (ops/health.py);
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
@@ -62,7 +83,7 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 # market state (pumpa / pad uz oporavak / pada / stabilno) and the mandatory rug check (RugCheck + Jupiter sell test,
 # free; full Helius rug filter at most every 12 h per token, 30 a day). A short process per pass: RugCheck reports can
 # be 2 MB of JSON, and a process that ends gives that memory back.
-( sleep 150; while true; do python3 run_top.py once || echo "topcheck nije uspio"; sleep "${TOP_EVERY_S:-180}"; done ) &
+( sleep 150; while true; do low python3 run_top.py once || echo "topcheck nije uspio"; sleep "${TOP_EVERY_S:-180}"; done ) &
 
 # calendar + DexScreener event tokens every CALENDAR_EVERY_H hours (paper reads the newest dex-*.json)
 # 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): --night = waits for the night window (ops/heavy.NIGHT, 01-06
@@ -80,7 +101,7 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 # every 6 h (~10 credits per token, capped by --credits), correlation with the event approaching -> watch.db
 (
   sleep 900   # first calendar + dex scan must exist
-  python3 run_watch.py run --every-min "${WATCH_EVERY_MIN:-60}" --credits "${WATCH_RUN_CREDITS:-3000}" >/dev/null
+  low python3 run_watch.py run --every-min "${WATCH_EVERY_MIN:-60}" --credits "${WATCH_RUN_CREDITS:-3000}" >/dev/null
 ) &
 
 # Helius Developer plan: new smart wallets once a day (early buyers of recent winners, scored by PnL)
@@ -124,7 +145,7 @@ keep trade python3 run_trade.py follow       # mirrors paper entries/exits as re
 keep kol python3 run_kol.py loop --every "${KOL_EVERY_MIN:-20}"
 # 9.11. (Jure: "napuni podatke za ekipe i drži ih svježima"): minute candles after every call, own process and own
 # minute.db (kol/minute.py); backlog first (crews before single callers), then every new call as soon as it is 70 min old
-keep minute python3 run_kol.py minute-loop
+low keep minute python3 run_kol.py minute-loop
 
 # one-off KOL history (5.11.): KOL_BACKFILL_USD=28 runs run_kol.py backfill with that Apify budget once (kol.db kv
 # backfill_done remembers the budget value, so later deploys do not pay again). Token list comes from kol.db itself.
@@ -155,9 +176,9 @@ if [ -n "${TG_SESSION:-}" ] && [ -n "${TG_API_ID:-}" ]; then python3 run_tg.py t
 #   spend on Helius/Apify every 15 min (warnings on /usage and a banner on every page), correlations every
 #   CORR_EVERY_MIN (KOL groups, wallet groups, pump factors, a Claude reading once a day if ANTHROPIC_API_KEY is set),
 #   once a day re-fit of hype weights and of exit rules per class (guarded, rollback), market volume every hour
-keep sched python3 run_sched.py
+low keep sched python3 run_sched.py
 # morning report e-mail at REPORT_HOUR (Zagreb): reads the DBs only, one Claude call a day -> output/report-*.html
-keep report python3 run_report.py loop
+low keep report python3 run_report.py loop
 
 # safer layer: older survivors (Fartcoin/Useless style) and waking-up older tokens, free sources, every 6 h,
 # guarded weekly learning on the stored daily candles -> dugo.db, page Tokeni -> Dugoročni.
@@ -167,7 +188,7 @@ keep report python3 run_report.py loop
 
 # SimianX second opinion on the long-term list + demo test of its long signals (simianx/, needs SIMIANX_API_KEY;
 # without it the pass ends at once). Light: waits on their API, so no ops.heavy slot. Real money only via /pravi-trade.
-( sleep 600; while true; do python3 run_simianx.py once || echo "simianx nije uspio"; sleep $(( ${SIMIANX_EVERY_MIN:-180} * 60 )); done ) &
+( sleep 600; while true; do low python3 run_simianx.py once || echo "simianx nije uspio"; sleep $(( ${SIMIANX_EVERY_MIN:-180} * 60 )); done ) &
 
 keep paper python3 run_paper.py run --scan --hype-args "--deep 20"   # hype scan, demo entries/exits, daily review
 # 5.11.: live buys/sells from PumpPortal (free WebSocket): tokens we watch, wallets we follow, new launches

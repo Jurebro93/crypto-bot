@@ -1,0 +1,657 @@
+"""CPU guard: keeps the container under about 90 % of its CPU, so the pages and the money path never wait.
+
+10.11. (Jure: "CPU treba u svakom momentu biti maksimalno 90-95 %, napravi skriptu koja to provjerava; aplikacija
+mora biti dostupna u svakom momentu"). On 9.11. background jobs held the single CPU at 100 % for 30-47 minutes of
+every hour and the web app stopped answering. When a container has used up its CPU quota the kernel stops EVERY
+process in it until the next 100 ms period, the web server and the trade loop included; "nice" does not help there,
+it only orders processes that wait for the same core. So this loop keeps the total under the quota instead:
+
+  every second          the container's CPU (cgroup v2 cpu.stat + cpu.max, else cgroup v1 cpuacct, else /proc/stat)
+                        and the CPU of each of our python processes (/proc/<pid>/stat)
+  average of the last CPU_WINDOW_S seconds above CPU_HIGH (90)
+                        brake harder: the biggest background consumer is paused (SIGSTOP ... SIGCONT) for a part
+                        of every half second; when one is not enough the next biggest joins
+  between the two       hold
+  below CPU_LOW (80)    ease off, step by step down to no pauses (a sudden stop would jump straight back to 100 %)
+
+What a pause may cost, and what is done about it:
+- a paused process may be in the middle of a SQLite write and hold the lock: a pause is a part of a half second
+  (0.25 s at the default CPU_MAX_DUTY, never more than SLOT_S), and after every pause the process runs for at least
+  RUN_MIN_S before the next one, so a writer waiting behind it (busy timeouts here are 10-60 s) waits a little longer
+  and nothing more;
+- a process left stopped is the worst outcome: everything stopped is continued within the same half second
+  (try/finally), on SIGTERM/SIGINT/SIGHUP, on any exception, at start (a sweep over /proc for stopped python
+  processes, in case an earlier guard was killed), and by a forked twin that outlives a SIGKILL of the guard (deadman);
+- bash's `wait` in start.sh's keep and Python's subprocess.run do not return when their child is merely stopped
+  (checked 10.11. with bash 5.2), so no supervisor restarts or doubles a paused job.
+
+    python3 -m ops.cpuguard          the loop (start.sh: keep cpuguard ...)
+    python3 -m ops.cpuguard --once   one reading and our processes with their class, then exit
+    python3 -m ops.cpuguard --popis  who is never paused, and why
+
+CPUGUARD=0 turns the pausing off (it still measures and logs). CPU_HIGH, CPU_LOW, CPU_WINDOW_S, CPU_MAX_DUTY and
+CPU_CORES (when the cgroup does not say how many CPUs we have) override the defaults.
+"""
+import collections
+import os
+import signal
+import sys
+import time
+
+
+def _env(name, default, lo, hi):
+    """A number from the environment, kept inside [lo, hi]; a typo there must not stop the guard."""
+    try:
+        return min(hi, max(lo, float(os.environ.get(name) or default)))
+    except ValueError:
+        return float(default)
+
+
+ON = os.environ.get("CPUGUARD", "1") != "0"
+CPU_HIGH = _env("CPU_HIGH", 90, 20, 100)
+CPU_LOW = min(_env("CPU_LOW", 80, 10, 100), CPU_HIGH)
+WINDOW_S = int(_env("CPU_WINDOW_S", 3, 1, 30))   # "the average over a few seconds": one spike is not a reason to pause
+TICK_S = 1.0
+SLOT_S = 0.5        # a second is two slots; in each a paused process stands for a part and runs for the rest
+RUN_MIN_S = 0.2     # ... and it always runs at least this long between two pauses
+MAX_DUTY = _env("CPU_MAX_DUTY", 0.5, 0.1, 1 - RUN_MIN_S / SLOT_S)   # the largest part of a slot one process may stand
+MIN_PAUSE_S = 0.02  # shorter than this is not worth two signals
+STEP_UP, STEP_DOWN = 0.1, 0.05   # how fast the brake goes on and comes off: parts of a slot per second
+JOIN = 0.1          # the next biggest consumer joins when the one before it already stands this much of a slot
+MIN_CPU = 5.0       # a process under 5 % of a core is not what holds the CPU; pausing it gains nothing
+LOG_EVERY_S = 60
+MIN_INTERVAL_S = 0.2   # the shortest stretch a CPU percentage is computed over
+CGROUP, PROC = "/sys/fs/cgroup", "/proc"
+CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+
+# ---------------------------------------------------------------------------------------------------------------
+# Who may be paused. Decided from start.sh, process by process, by what each one does; when in doubt, protected.
+#
+# The money path, never paused: a followed account posts or a followed wallet buys -> a listener writes it down
+# (X and Helius webhooks inside run_ui.py, run_tg.py, run_live.py, the KOL round's collect) -> league/copy.py in
+# run_ui.py enters the demo account -> run_trade.py mirrors it as a real (or dry-run) swap. run_paper.py feeds
+# run_trade.py too when the owner ticks "prati i demo strategiju". Supervisors are left alone as well: they use no
+# CPU, and several of them hold the heavy-job lock for their child.
+# ---------------------------------------------------------------------------------------------------------------
+PROTECTED, ROUND, LAST, BACKGROUND = "zaštićen", "krug", "na kraju", "pozadina"
+ROUND_CPU_S = _env("CPUGUARD_ROUND_CPU_S", 120, 0, 86400)
+
+# (name in the log, script or "-m module", words one of which must be among its arguments (() = any), class, why)
+# The first match wins, so the special cases of a script stand above its general line.
+PROCESSES = (
+    ("ui-dijete", "run_ui.py", ("--render",), LAST,
+     "gradnja teške stranice u djetetu; posjetitelj za to vrijeme dobiva zadnju kopiju, pa smije stati na kraju reda"),
+    ("ui", "run_ui.py", (), PROTECTED,
+     "stranice, webhookovi (X, Helius) i demo kopiranje praćenih računa: tu lanac novca počinje"),
+    ("trade", "run_trade.py", (), PROTECTED, "pravi (ili probni) swapovi, petlja od jedne sekunde"),
+    ("deploy", "deploy_wait.py", (), PROTECTED, "stranica 'deploy u tijeku' dok se aplikacija diže"),
+    ("kol", "run_kol.py", ("loop",), PROTECTED, "pokreće KOL krugove i drži im bravu teških poslova; sam ne troši CPU"),
+    ("minute", "run_kol.py", ("minute-loop", "minute"), BACKGROUND, "minutne svijeće nakon poziva: analiza, vlastita baza"),
+    ("backfill", "run_kol.py", ("backfill",), BACKGROUND, "jednokratna povijest poziva"),
+    # 10.11.: a round (once, search-round) starts with the steps that bring calls of followed accounts into kol.db
+    # (webhook spool, X watch, live sync: little CPU, mostly waiting on the network), and at night the same process
+    # goes on to the scoring (40+ minutes of CPU). There is no separate process to tell them apart, so the round is
+    # protected until it has used ROUND_CPU_S of CPU itself; past that it is computing, not listening, and may be
+    # paused, after every ordinary background job. The same line catches a search round that runs away (9.11.: one
+    # query held it at 100 % for 47 minutes).
+    ("kol-krug", "run_kol.py", (), ROUND,
+     f"krug donosi pozive praćenih računa u kol.db; zaštićen dok sam ne potroši {ROUND_CPU_S:.0f} s CPU-a "
+     "(dalje je to ocjenjivanje, pa smije stati na kraju reda)"),
+    ("tg", "run_tg.py", (), PROTECTED, "čita Telegram kanale svakih 30 s (i živi slušač): pozivi koje kopiranje čita"),
+    ("live", "run_live.py", (), PROTECTED,
+     "PumpPortal uživo: kupnje i prodaje praćenih walleta u sekundi, upozorenja na pad na koja demo prodaje"),
+    ("paper", "run_paper.py", (), PROTECTED,
+     "demo ulazi i izlazi; pravi trade ih zrcali kad je uključeno 'prati i demo strategiju'"),
+    ("cpuguard", "-m ops.cpuguard", (), PROTECTED, "ovaj čuvar"),
+    ("uptime", "-m ops.uptime", (), PROTECTED, "provjera dostupnosti aplikacije"),
+    ("health", "-m ops.health", (), PROTECTED,
+     "nadzor memorije i održavanje baza: drži brave nad cijelim bazama, pauza bi ih samo produžila"),
+    ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
+    ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i bravu za svoje poslove; sam ne troši CPU"),
+    # background: nobody waits for these by the second; each is a batch that comes round again
+    ("top", "run_top.py", (), BACKGROUND, "provjera preporučenih tokena svake 3 minute"),
+    ("calendar", "run_calendar.py", (), BACKGROUND, "kalendar događaja svakih 6 sati"),
+    ("dex", "run_dex.py", (), BACKGROUND, "DexScreener tokeni događaja svakih 6 sati"),
+    ("watch", "run_watch.py", (), BACKGROUND, "praćenje tokena prije događaja, jednom na sat"),
+    ("hype", "run_hype.py", (), BACKGROUND, "hype sken, učenje pametnih walleta, status tokena"),
+    ("wallets", "run_wallets.py", (), BACKGROUND, "registar walleta: skupljanje, ocjenjivanje, popisi"),
+    ("rug-arhiva", "-m rugfilter.archive", (), BACKGROUND, "arhiva rugiranih tokena, jednom na sat"),
+    ("report", "run_report.py", (), BACKGROUND, "jutarnji izvještaj"),
+    ("dugo", "run_dugo.py", (), BACKGROUND, "dugoročni sloj svakih 6 sati (noću)"),
+    ("simianx", "run_simianx.py", (), BACKGROUND, "drugo mišljenje za dugoročnu listu"),
+)
+OTHER_WHY = "nije u start.sh (posao rasporeda ili ručno pokrenut): pozadina"
+
+
+def parse(argv):
+    """("run_kol.py" or "-m ops.heavy", the arguments after it) of a python command line; None when it is not python.
+    The module of "-m" is looked at first: "python3 -m ops.heavy --night run_dugo.py once" is the wrapper, not run_dugo."""
+    if not argv or "python" not in os.path.basename(argv[0]):
+        return None
+    rest = [a for a in argv[1:] if a]
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a == "-m" and i + 1 < len(rest):
+            return "-m " + rest[i + 1], rest[i + 2:]
+        if a == "-c":
+            return "-c", rest[i + 2:]
+        if a.endswith(".py"):
+            return os.path.basename(a), rest[i + 1:]
+        if not a.startswith("-"):
+            break
+        i += 2 if a in ("-X", "-W") else 1   # these two interpreter options carry a value of their own
+    return "python", rest
+
+
+def classify(argv, cpu_s=0.0):
+    """(name, class, why) of a python command line, or None for anything else. cpu_s: CPU seconds the process has used
+    so far (a KOL round is protected only up to ROUND_CPU_S of them)."""
+    got = parse(argv)
+    if got is None:
+        return None
+    what, args = got
+    for name, script, words, kind, why in PROCESSES:
+        if script == what and (not words or any(w in args for w in words)):
+            if kind == ROUND:
+                kind = PROTECTED if cpu_s <= ROUND_CPU_S else LAST
+            return name, kind, why
+    name = what[4:-3] if what.startswith("run_") and what.endswith(".py") else what
+    return name, BACKGROUND, OTHER_WHY
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The container's CPU
+# ---------------------------------------------------------------------------------------------------------------
+def _read(path):
+    with open(path) as f:
+        return f.read()
+
+
+def _kv(text):
+    """{"usage_usec": "123", ...} from the "name value" lines of a cgroup stat file."""
+    return dict(ln.split()[:2] for ln in text.splitlines() if len(ln.split()) >= 2)
+
+
+def read_v2(root=CGROUP):
+    """cgroup v2: (CPU seconds used so far, CPUs the quota allows or None for "max", times the kernel throttled us)."""
+    stat = _kv(_read(os.path.join(root, "cpu.stat")))
+    used = int(stat["usage_usec"]) / 1e6
+    try:
+        quota, period = (_read(os.path.join(root, "cpu.max")).split() + ["100000"])[:2]
+        cpus = None if quota == "max" else int(quota) / int(period)
+    except OSError:   # no cpu.max: the CPU controller is not switched on for us, so there is no quota either
+        cpus = None
+    return used, cpus, int(stat["nr_throttled"]) if "nr_throttled" in stat else None
+
+
+def read_v1(root=CGROUP):
+    """cgroup v1: the same three from cpuacct.usage (nanoseconds) and cpu.cfs_quota_us / cpu.cfs_period_us (-1 = no quota)."""
+    used = None
+    for d in ("cpuacct", "cpu,cpuacct", "cpu"):
+        try:
+            used = int(_read(os.path.join(root, d, "cpuacct.usage"))) / 1e9
+            break
+        except OSError:
+            pass
+    if used is None:
+        raise OSError("cpuacct.usage")
+    cpus = throttled = None
+    for d in ("cpu", "cpu,cpuacct"):
+        try:
+            quota = int(_read(os.path.join(root, d, "cpu.cfs_quota_us")))
+            period = int(_read(os.path.join(root, d, "cpu.cfs_period_us")))
+            cpus = quota / period if quota > 0 and period > 0 else None
+            stat = _kv(_read(os.path.join(root, d, "cpu.stat")))
+            throttled = int(stat["nr_throttled"]) if "nr_throttled" in stat else None
+            break
+        except (OSError, ValueError):
+            pass
+    return used, cpus, throttled
+
+
+def read_procstat(proc=PROC):
+    """/proc/stat, the last resort: busy seconds of the whole machine and its CPUs. Inside a container this is usually
+    the host, so the percentage is then the host's; the start line says which source is in use."""
+    lines = _read(os.path.join(proc, "stat")).splitlines()
+    f = [int(x) for x in lines[0].split()[1:9]]   # user nice system idle iowait irq softirq steal (guest is in user)
+    cpus = sum(1 for ln in lines if ln.startswith("cpu") and ln[3:4].isdigit())
+    return (sum(f) - f[3] - (f[4] if len(f) > 4 else 0)) / CLK_TCK, cpus or 1, None
+
+
+def own_cpus():
+    """CPUs this process may run on (the cpuset), for a container without a quota; never the host's whole count
+    when the container was given fewer."""
+    try:
+        return len(os.sched_getaffinity(0)) or 1
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+def percent(prev, cur, cpus):
+    """CPU in percent of what `cpus` CPUs can give, between two readings (seconds on the clock, CPU seconds used)."""
+    dt = cur[0] - prev[0]
+    if dt <= 0 or not cpus:
+        return None
+    return max(0.0, (cur[1] - prev[1]) / (dt * cpus) * 100)
+
+
+class Meter:
+    """The container's CPU in percent of what it may use, from one reading to the next."""
+
+    def __init__(self, root=CGROUP, proc=PROC, cores=None, clock=time.monotonic):
+        self.clock = clock
+        self.cores = cores if cores is not None else (_env("CPU_CORES", 0, 0, 4096) or None)
+        self.sources = (("cgroup v2", lambda: read_v2(root)), ("cgroup v1", lambda: read_v1(root)),
+                        ("/proc/stat (cijeli stroj)", lambda: read_procstat(proc)))
+        self.source = self.cpus = self.prev = None
+        self.throttled = 0   # kernel throttle periods since the first reading: the thing this guard exists to prevent
+
+    def _sample(self):
+        for name, fn in self.sources if self.source is None else [s for s in self.sources if s[0] == self.source]:
+            try:
+                used, cpus, thr = fn()
+            except (OSError, ValueError, KeyError, IndexError):
+                continue
+            self.source = name
+            return used, cpus, thr
+        return None
+
+    def read(self):
+        """Percent since the previous call; None on the first call and when no source can be read."""
+        got = self._sample()
+        if got is None:
+            return None
+        used, cpus, thr = got
+        cur = (self.clock(), used, thr)
+        self.cpus = self.cores or cpus or own_cpus()
+        prev = self.prev
+        if prev is not None and cur[0] - prev[0] < MIN_INTERVAL_S:
+            return None   # two readings a few ms apart say nothing (one 10 ms tick would read as 1000 %)
+        self.prev = cur
+        if prev is None:
+            return None
+        if thr is not None and prev[2] is not None:
+            self.throttled += max(0, thr - prev[2])
+        return percent(prev, cur, self.cpus)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Our processes
+# ---------------------------------------------------------------------------------------------------------------
+P = collections.namedtuple("P", "pid start name kind why pct cpu_s state")
+
+
+def proc_stat(pid, proc=PROC):
+    """(name, state, CPU ticks used, start time in ticks since boot) from /proc/<pid>/stat. The name stands in
+    brackets and may itself hold spaces and brackets, so the fields are counted from the last one."""
+    s = _read(os.path.join(proc, str(pid), "stat"))
+    i, j = s.index("("), s.rindex(")")
+    f = s[j + 2:].split()
+    return s[i + 1:j], f[0], int(f[11]) + int(f[12]), int(f[19])
+
+
+def cmdline(pid, proc=PROC):
+    with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
+        return [a.decode(errors="replace") for a in f.read().split(b"\0") if a]
+
+
+class Procs:
+    """Our python processes and how much CPU each used over the last WINDOW_S seconds."""
+
+    def __init__(self, proc=PROC, clock=time.monotonic, window=WINDOW_S):
+        self.proc, self.clock, self.window = proc, clock, window
+        self.hist = {}   # (pid, start) -> deque of (clock, ticks), newest last
+
+    def scan(self):
+        """[P] of every python process but this one. pct: percent of one core over the window (0 at first sight)."""
+        now, out, alive = self.clock(), [], set()
+        for pid in os.listdir(self.proc):
+            if not pid.isdigit() or int(pid) == os.getpid():
+                continue
+            try:
+                comm, state, ticks, start = proc_stat(pid, self.proc)
+                if not comm.startswith("python"):
+                    continue
+                # read every time, not remembered: between fork and exec a child still shows its parent's command line
+                got = classify(cmdline(pid, self.proc), ticks / CLK_TCK)
+            except (OSError, ValueError, IndexError):
+                continue   # ended while we looked
+            if got is None:
+                continue
+            key = (int(pid), start)
+            alive.add(key)
+            h = self.hist.setdefault(key, collections.deque(maxlen=self.window + 1))
+            h.append((now, ticks))
+            dt = h[-1][0] - h[0][0]
+            pct = (h[-1][1] - h[0][1]) / CLK_TCK / dt * 100 if dt > 0 else 0.0
+            out.append(P(int(pid), start, *got, pct, ticks / CLK_TCK, state))
+        for key in set(self.hist) - alive:
+            del self.hist[key]
+        return out
+
+    def same(self, p):
+        """True while pid p.pid is still the process we measured (a pid can be handed to a new process)."""
+        try:
+            return proc_stat(p.pid, self.proc)[3] == p.start
+        except (OSError, ValueError, IndexError):
+            return False
+
+    def ours(self, p):
+        return ours(p.pid, self.proc)
+
+
+def ours(pid, proc=PROC):
+    """True when the process runs from the same directory as this guard (start.sh starts everything from the app's
+    folder): a python process of anything else on the machine is not ours to stop or to continue."""
+    try:
+        return os.readlink(os.path.join(proc, str(pid), "cwd")) == os.getcwd()
+    except OSError:
+        return False
+
+
+def stopped_pids(proc=PROC):
+    """Pids of our python processes that stand stopped (state T) right now."""
+    out = []
+    for pid in os.listdir(proc):
+        if not pid.isdigit() or int(pid) == os.getpid():
+            continue
+        try:
+            comm, state, _, _ = proc_stat(pid, proc)
+        except (OSError, ValueError, IndexError):
+            continue
+        if state == "T" and comm.startswith("python") and ours(pid, proc):
+            out.append(int(pid))
+    return out
+
+
+def sweep(kill=os.kill, proc=PROC):
+    """SIGCONT to every stopped python process of ours; the pids continued. Nothing here stops a process on purpose
+    for longer than half a second, so one found standing was left behind by a guard that died."""
+    done = []
+    for pid in stopped_pids(proc):
+        try:
+            kill(pid, signal.SIGCONT)
+            done.append(pid)
+        except OSError:
+            pass
+    return done
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The brake
+# ---------------------------------------------------------------------------------------------------------------
+def candidates(procs, ours=lambda p: True):
+    """Processes that may be paused now, in the order they would be: ordinary background jobs before page builds and
+    long KOL rounds, the biggest consumer first within each. Never a protected one, never one that uses next to
+    nothing, never one that already stands."""
+    c = [p for p in procs if p.kind in (BACKGROUND, LAST) and p.pct >= MIN_CPU and p.state not in ("T", "t", "Z", "X")
+         and ours(p)]
+    return sorted(c, key=lambda p: (p.kind == LAST, -p.pct))
+
+
+def ceiling(n, max_duty=MAX_DUTY):
+    """The level at which all n candidates stand as long as they may; pushing the brake further changes nothing."""
+    return max_duty + (n - 1) * JOIN if n else 0.0
+
+
+def next_level(level, avg, n, high=CPU_HIGH, low=CPU_LOW, max_duty=MAX_DUTY):
+    """The brake for the next second: the part of every slot the biggest background consumer stands. Up while the
+    average is above `high`, down while it is below `low`, unchanged between them; 0 with nobody to pause."""
+    if avg > high:
+        level += STEP_UP
+    elif avg < low:
+        level -= STEP_DOWN
+    return max(0.0, min(level, ceiling(n, max_duty)))
+
+
+def plan(level, cands, max_duty=MAX_DUTY, slot=SLOT_S):
+    """[(P, seconds to stand in every slot)]: the biggest consumer stands `level` of the slot (at most max_duty), each
+    next one JOIN less. All of them stand at the START of the slot, so the shortest pause is a moment when no
+    background job runs at all: one CPU-bound job alone can fill the quota, and pausing only its neighbour would
+    hand it the freed time and change nothing."""
+    out = []
+    for i, p in enumerate(cands):
+        part = min(max_duty, level - i * JOIN)
+        if part * slot < MIN_PAUSE_S:
+            break
+        out.append((p, part * slot))
+    return out
+
+
+class Guard:
+    def __init__(self, meter=None, procs=None, kill=os.kill, sleep=time.sleep, clock=time.monotonic, log=None, on=ON,
+                 high=CPU_HIGH, low=CPU_LOW, window=WINDOW_S):
+        self.meter = meter or Meter(clock=clock)
+        self.procs = procs or Procs(clock=clock, window=window)
+        self.kill, self.sleep, self.clock, self.on = kill, sleep, clock, on
+        self.log = log or (lambda s: print(s, flush=True))
+        self.high, self.low = high, low
+        self.window = collections.deque(maxlen=window)
+        self.level = 0.0
+        self.stopped = set()    # pids standing because of us right now
+        self.resumed = {}       # pid -> clock of its last SIGCONT (it must run RUN_MIN_S before the next pause)
+        self._errors = {}       # error text -> clock of its last log line
+        self._reset_stats()
+
+    # -- signals ------------------------------------------------------------------------------------------------
+    def _stop(self, p):
+        """SIGSTOP, unless the process has not yet had its run since the last pause or is no longer the one measured."""
+        if self.clock() - self.resumed.get(p.pid, -1e9) < RUN_MIN_S or not self.procs.same(p):
+            return False
+        try:
+            self.stopped.add(p.pid)   # written down first: if the signal lands and anything after it fails, it is continued
+            self.kill(p.pid, signal.SIGSTOP)
+            return True
+        except OSError:               # ended in the meantime
+            self.stopped.discard(p.pid)
+            return False
+
+    def _cont(self, pid):
+        try:
+            self.kill(pid, signal.SIGCONT)
+        except OSError:
+            pass
+        self.stopped.discard(pid)
+        self.resumed[pid] = self.clock()
+
+    def resume_all(self):
+        """SIGCONT to everything we stopped; called on every way out of a slot, a tick and the loop."""
+        for pid in list(self.stopped):
+            self._cont(pid)
+
+    # -- one second -----------------------------------------------------------------------------------------------
+    def _slot(self, victims):
+        """Half a second: the victims stand for their part of it, then run for the rest."""
+        t0 = self.clock()
+        try:
+            standing = [(p, s) for p, s in victims if self._stop(p)]
+            for p, s in sorted(standing, key=lambda v: v[1]):
+                self._wait(t0 + s)
+                self._cont(p.pid)
+                self._count(p.name, self.clock() - t0)
+        finally:
+            self.resume_all()
+        self._wait(t0 + SLOT_S)
+
+    def _wait(self, until):
+        left = until - self.clock()
+        if left > 0:
+            self.sleep(left)
+
+    def tick(self):
+        """One second: read, decide, brake. Returns the percentage read (None when there was nothing to read)."""
+        t0 = self.clock()
+        pct = self.meter.read()
+        victims = []
+        if pct is not None:
+            self.window.append(pct)
+            avg = sum(self.window) / len(self.window)
+            procs = self.procs.scan()
+            cands = candidates(procs, self.procs.ours)
+            if len(self.window) == self.window.maxlen:
+                self.level = next_level(self.level, avg, len(cands), self.high, self.low)
+            victims = plan(self.level, cands)
+            self._note(pct, avg, procs, stuck=self.level >= ceiling(len(cands)) - 1e-9)
+        if victims and self.on:
+            for _ in range(int(TICK_S / SLOT_S)):
+                self._slot(victims)
+        else:
+            for p, s in victims:   # CPUGUARD=0: what it would have done, for the log line
+                self._count(p.name, s * TICK_S / SLOT_S)
+        self._wait(t0 + TICK_S)
+        for pid in [pid for pid, t in self.resumed.items() if self.clock() - t > 60]:
+            del self.resumed[pid]
+        return pct
+
+    # -- the log line -----------------------------------------------------------------------------------------------
+    def _reset_stats(self):
+        self.n, self.total, self.peak, self.over = 0, 0.0, 0.0, 0
+        self.pauses = {}     # name -> [times, seconds]
+        self.blocked = None  # (name, pct): the biggest protected consumer while the CPU was too high and the brake at its end
+        self.thr0 = self.meter.throttled
+        self.t_log = self.clock()
+
+    def _count(self, name, seconds):
+        c = self.pauses.setdefault(name, [0, 0.0])
+        c[0] += 1
+        c[1] += seconds
+
+    def _note(self, pct, avg, procs, stuck=False):
+        self.n += 1
+        self.total += pct
+        self.peak = max(self.peak, pct)
+        self.over += pct > self.high
+        if avg > self.high and stuck:   # too high and the brake has no more to give: say who holds the CPU
+            top = max((p for p in procs if p.kind == PROTECTED), key=lambda p: p.pct, default=None)
+            if top and top.pct >= MIN_CPU and (self.blocked is None or top.pct > self.blocked[1]):
+                self.blocked = (top.name, top.pct)
+
+    def line(self):
+        """The minute's line: average, peak, how many pauses and of whom."""
+        if not self.n:
+            return "čuvar CPU-a: nema mjerenja (cgroup i /proc/stat se ne daju pročitati)"
+        who = ", ".join(f"{n} {c} puta {s:.1f} s" for n, (c, s) in sorted(self.pauses.items(), key=lambda kv: -kv[1][1]))
+        count = sum(c for c, _ in self.pauses.values())
+        s = (f"čuvar CPU-a: prosjek {self.total / self.n:.0f} %, vrh {self.peak:.0f} %, "
+             f"iznad {self.high:.0f} % {self.over} s od {self.n}, ")
+        if self.on:
+            s += f"pauza {count}" + (f" ({who})" if who else "")
+        else:
+            s += "pauziranje isključeno" + (f" (pauzirao bih: {who})" if who else "")
+        thr = self.meter.throttled - self.thr0
+        if thr:
+            s += f", jezgra nas je kočila {thr} puta"
+        if self.blocked:
+            s += f"; najviše troši {self.blocked[0]} {self.blocked[1]:.0f} % (zaštićen, ne diram ga)"
+        return s
+
+    def start_line(self):
+        m = self.meter
+        never = ", ".join(n for n, _, _, k, _ in PROCESSES if k == PROTECTED)
+        return (f"čuvar CPU-a: izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU, pauze iznad {self.high:.0f} % "
+                f"(prosjek {self.window.maxlen} s) dok ne padne ispod {self.low:.0f} %"
+                + ("" if self.on else ", pauziranje isključeno (samo mjerim)") + f"; nikad ne diram: {never}")
+
+    # -- the loop -----------------------------------------------------------------------------------------------------
+    def _error(self, e):
+        """One line per kind of error per minute; the guard carries on."""
+        text = f"{type(e).__name__}: {e}"
+        if self.clock() - self._errors.get(text, -1e9) >= LOG_EVERY_S:
+            self._errors[text] = self.clock()
+            self.log(f"čuvar CPU-a: greška, nastavljam ({text})")
+
+    def run(self, ticks=None):
+        """The loop. Whatever ends it (a signal, an exception, the end of `ticks`), nothing stays stopped."""
+        try:
+            left = sweep(self.kill, self.procs.proc)
+            if left:
+                self.log(f"čuvar CPU-a: pri startu su nastavljeni zaustavljeni procesi (pid {left})")
+            self.meter.read()
+            self.log(self.start_line())
+            self._reset_stats()
+            while ticks is None or ticks > 0:
+                try:
+                    self.tick()
+                except Exception as e:  # noqa: BLE001 - a bad reading must not end the guard, nor leave anything stopped
+                    self.resume_all()
+                    self._error(e)
+                    self.sleep(TICK_S)
+                if self.clock() - self.t_log >= LOG_EVERY_S:
+                    self.log(self.line())
+                    self._reset_stats()
+                ticks = None if ticks is None else ticks - 1
+        finally:
+            self.resume_all()
+            sweep(self.kill, self.procs.proc)
+
+
+def deadman(sweep_fn=sweep, log=None):
+    """A forked twin that waits for this process to end and then continues whatever still stands stopped.
+    try/finally and the signal handlers cover every end Python gets to see; a SIGKILL they do not, and keep would
+    bring the guard (and its start sweep) back only 30 s later, with a background job frozen in the middle of a
+    database write until then. Returns the pipe end the guard must keep open for as long as it lives."""
+    r, w = os.pipe()
+    if os.fork():
+        os.close(r)
+        return w
+    try:   # the twin: no cleanup of the parent's, no way out but os._exit
+        os.close(w)
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)   # a deploy's TERM reaches both; the twin must be the one that ends last
+        while os.read(r, 1):
+            pass
+        done = sweep_fn()
+        if done:
+            (log or (lambda s: print(s, flush=True)))(f"čuvar CPU-a: čuvar je nestao; zaustavljeni procesi su nastavljeni (pid {done})")
+    finally:
+        os._exit(0)
+
+
+def _on_signal(signum, frame):
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, signal.SIG_IGN)   # the way out (Guard.run's finally) must not be cut short by a second one
+    raise SystemExit(0)
+
+
+def popis():
+    """The protected list with the reasons, as text."""
+    rows = [f"  {n:<10} {s:<22} {k:<9} {w}" for n, s, _, k, w in PROCESSES]
+    return "\n".join(["čuvar CPU-a: tko nikad ne stoji (zaštićen) i tko smije kratko stati (pozadina; na kraju = staje "
+                      "zadnji i najkraće; krug = zaštićen, a kad se zaračuna na kraju)"] + rows
+                     + [f"  {'ostalo':<10} {'':<22} {BACKGROUND:<9} {OTHER_WHY}"])
+
+
+def once(sleep=time.sleep):
+    """One reading over a second and the table of our processes, for a look from the shell."""
+    m, pr = Meter(), Procs()
+    m.read()
+    pr.scan()
+    sleep(1)
+    pct = m.read()
+    print(f"izvor {m.source or 'nema'}, {m.cpus or 0:.2f} CPU, sada " + ("?" if pct is None else f"{pct:.0f} %"))
+    for p in sorted(pr.scan(), key=lambda p: -p.pct):
+        print(f"  {p.pid:>7} {p.name:<12} {p.kind:<9} {p.pct:5.1f} %  {p.state}")
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--popis" in argv:
+        print(popis())
+        return 0
+    if "--once" in argv:
+        once()
+        return 0
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, _on_signal)
+    guard = Guard()
+    try:
+        keep_open = deadman()   # noqa: F841 - closed by the kernel when this process ends, which is the signal
+    except OSError as e:
+        print(f"čuvar CPU-a: rezervni nadzor nije pokrenut ({e}), radim bez njega", flush=True)
+    guard.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
