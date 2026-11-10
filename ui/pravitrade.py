@@ -2111,8 +2111,10 @@ def _signala(n):
 def dnevnik_summary(summ):
     """'Zadnja 24 h: 12 signala · 2 kupljeno · 9 preskočeno (5 bez dokaza u demu, 3 signal star) · 1 nije prošlo'."""
     g = lambda k: int(summ.get(k) or 0)   # noqa: E731
+    # 10.11. (pregled): when trade.aplog read only its first DAY_LIMIT decisions of a busy day, say so
+    head = f"Zadnjih {g('capped')} odluka" if g("capped") else "Zadnja 24 h"
     if not any(g(k) for k in ("signali", "kupio", "prodao", "preskocio", "nije_proslo")):
-        return "Zadnja 24 h: nijedan signal"
+        return f"{head}: nijedan signal"
     why = ", ".join(f"{int(n)} {w}" for w, n in (summ.get("razlozi") or [])[:2])   # two, as dizajn.md shows it
     parts = [_signala(g("signali")), f'{g("kupio")} kupljeno',
              f'{g("preskocio")} preskočeno' + (f" ({why})" if why and g("preskocio") else "")]
@@ -2120,7 +2122,7 @@ def dnevnik_summary(summ):
         parts.append(f'{g("nije_proslo")} nije prošlo')
     if g("prodao"):
         parts.append(f'{g("prodao")} prodano')
-    return "Zadnja 24 h: " + " · ".join(parts)
+    return f"{head}: " + " · ".join(parts)
 
 
 def dnevnik_line(tcon, now=None):

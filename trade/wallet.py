@@ -115,7 +115,10 @@ TOKEN_PROGRAMS = {"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP
 
 def token_accounts(owner, mint):
     """[(account address, raw amount, decimals, token program)] of this wallet for one mint."""
-    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed"}])
+    # 10.11. (pregled): 'confirmed' like the balances above; at 'finalized' the account still showed the sold amount
+    # right after a full sale, so the rent (~0.002 SOL per token) was never reclaimed. Closing an account that still
+    # holds tokens fails on-chain, so the fresher read cannot close a wrong one.
+    res = rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": READ_COMMITMENT}])
     out = []
     for a in res["value"]:
         ta = a["account"]["data"]["parsed"]["info"]["tokenAmount"]

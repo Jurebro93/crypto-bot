@@ -706,7 +706,7 @@ def _day(summ):
     frequent that say something: "ostalo" (a reason trade.aplog has no word for yet) and an unfit text are left out."""
     if not isinstance(summ, dict):
         return None
-    out = {k: int(_num(summ.get(k)) or 0) for k in ("signali", "kupio", "prodao", "preskocio", "nije_proslo")}
+    out = {k: int(_num(summ.get(k)) or 0) for k in ("signali", "kupio", "prodao", "preskocio", "nije_proslo", "capped")}
     out["razlozi"] = []
     for item in list(summ.get("razlozi") or [])[:20]:
         try:
@@ -1089,7 +1089,8 @@ def _moves_html(rows, day, mode):
         parts += [f'{n} {word}' for n, word in ((day["prodao"], "prodano"),) if n]
         parts += [f'{day["preskocio"]} preskočeno{f" ({why})" if why else ""}'] if day["preskocio"] else []
         parts += [f'{day["nije_proslo"]} nije prošlo'] if day["nije_proslo"] else []
-        line = f'<p class=apj-day>Zadnja 24 h: {" · ".join(parts)}</p>'
+        lbl = f"Zadnjih {day['capped']} odluka" if day.get("capped") else "Zadnja 24 h"   # 10.11. (pregled)
+        line = f'<p class=apj-day>{lbl}: {" · ".join(parts)}</p>'
     if not rows:
         return head + '<p class=apj-wait>Još nema nijednog ulaza. Čim bot nešto kupi ili proda, pojavi se ovdje.</p>' + line
     items = []

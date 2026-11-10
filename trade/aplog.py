@@ -407,7 +407,12 @@ def summary_24h(tcon, lcon=None, now=None, ttl=5):
     hit = _DAY.get(key)
     if hit and 0 <= now - hit[0] < ttl:
         return dict(hit[1])
-    val = summary(entries(tcon, lcon, limit=DAY_LIMIT, since=int(now) - 86400, now=now), now)
+    rows = entries(tcon, lcon, limit=DAY_LIMIT, since=int(now) - 86400, now=now)
+    val = summary(rows, now)
+    if len(rows) >= DAY_LIMIT:
+        # 10.11. (pregled): a busy day has more decisions than are read here; the line then says what it counts
+        # ("zadnjih 1000 odluka") instead of "zadnja 24 h" about a few hours
+        val["capped"] = len(rows)
     if len(_DAY) > 16:
         _DAY.clear()
     _DAY[key] = (now, val)
