@@ -1,7 +1,8 @@
 // Snimke maketa ("novo") i usporedbe sada/novo za prijedlog dizajna, 10.11.2026.
 //   python3 audit/2026-11-10/makete/sastavi.py && node audit/2026-11-10/makete/snimi.js [--only pregled,tokeni] [--out <dir>]
 // Za svaku maketu: novo-<k>-phone.png (cijela stranica, 390x844 @2x), novo-<k>-phone-fold.png (prvi ekran),
-// novo-<k>-desktop.png (cijela stranica, 1280x800 @2x), redak u novo-metrics.json (ista mjerenja kao shots.js)
+// novo-<k>-desktop.png (cijela stranica, 1280x800 @2x), redak u novo-metrics.json (ista mjerenja kao shots.js),
+// za stranice detalja (drugi krug) još novo-<k>-phone-cijela.png (cijela stranica mobitela)
 // i usporedba-<k>.png: prvi ekran mobitela, lijevo sada (sada-<k>-phone-fold.png), desno novo.
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -16,6 +17,14 @@ const SCREENS = [
   { key: 'influenceri', title: 'Influenceri (ljestvica)', sada: 'sada-influenceri-phone-fold.png', m: 'influenceri-ljestvica' },
   { key: 'autopilot', title: 'Autopilot', sada: 'sada-autopilot-phone-fold.png', m: 'autopilot' },
   { key: 'izbornik', title: 'Navigacija i izbornik Više', sada: 'sada-izbornik-phone.png', m: 'izbornik' },
+  // drugi krug (10.11.): "sada" snimljen na kodu f4dc160 (s trakom "Autopilot je live"), detail = i -phone-cijela.png
+  { key: 'naslovna', title: 'Naslovna (memesonar.app/hr)', sada: 'sada-naslovna-phone-fold.png', m: 'naslovna', round: 2 },
+  { key: 'tokeni-popis', title: 'Tokeni: cijeli popis', sada: 'sada-tokeni-phone-fold.png', m: 'tokeni', round: 2 },
+  { key: 'token', title: 'Jedan token', sada: 'sada-token-phone-fold.png', m: 'token', round: 2, detail: true },
+  { key: 'influenceri-ljestvica', title: 'Influenceri: cijela ljestvica', sada: 'sada-influenceri-ljestvica-phone-fold.png', m: 'influenceri-ljestvica', round: 2 },
+  { key: 'influencer', title: 'Jedan influencer', sada: 'sada-influencer-phone-fold.png', m: 'influencer', round: 2, detail: true },
+  { key: 'novcanici', title: 'Novčanici', sada: 'sada-novcanici-phone-fold.png', m: 'novcanici', round: 2 },
+  { key: 'novcanik', title: 'Jedan novčanik', sada: 'sada-novcanik-phone-fold.png', m: 'novcanik', round: 2, detail: true },
 ].filter(s => !ONLY.length || ONLY.includes(s.key));
 
 // isto brojanje kao audit/2026-11-10/shots.js (METRICS), da su brojke sada/novo usporedive
@@ -51,7 +60,8 @@ function caption(m, key) {
   if (key === 'izbornik') return m.menuLinks != null && m.menuGroups != null
     ? `${m.menuLinks} poveznica u ${m.menuGroups} skupina · ladica ${hr(m.menuScreens)} ekrana · hamburger i Više otvaraju isto`
     : `${m.menuLinks} redaka u 4 skupine + Sustav · ${hr(m.screens)} ekrana`;
-  return `${hr(m.screens)} ekrana · ${m.words} riječi · ${m.emoji} emojija · ${m.fontSizes} veličina slova`;
+  const extra = m.tips ? ` · ${m.tips} ⓘ` : '';
+  return `${hr(m.screens)} ekrana · ${m.words} riječi · ${m.emoji} emojija · ${m.fontSizes} veličina slova${extra}`;
 }
 
 (async () => {
@@ -75,6 +85,7 @@ function caption(m, key) {
       // donja traka je position:fixed; na snimci cijele stranice ide na dno (kao u shots.js za sada-*)
       if (name === 'phone' && !s.fixed) await page.addStyleTag({ content: '.tabs{position:static!important}main{padding-bottom:28px!important}' });
       await page.screenshot({ path: path.join(OUT, `novo-${s.key}-${name}.png`), fullPage: true });
+      if (name === 'phone' && s.detail) fs.copyFileSync(path.join(OUT, `novo-${s.key}-phone.png`), path.join(OUT, `novo-${s.key}-phone-cijela.png`));
       console.log(name, s.key, JSON.stringify(metrics[s.key][name]));
     }
     await ctx.close();
