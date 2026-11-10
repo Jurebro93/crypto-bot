@@ -120,7 +120,9 @@ class PraviTrade(unittest.TestCase):
 
         _, body = pravitrade.page({}, "jure")
         self.assertIn("Uključi Autopilot", body)
-        self.assertIn("ISKLJUČEN", body)
+        # 10.11. (prijedlog dizajna, maketa autopilot.html): the state is a word after a dot, no capitals
+        self.assertIn("<span>Isključen</span>", body)
+        self.assertIn("Samo probno, bez novca", body)
         self.assertIn("Postavljanje walleta", body)
         self.assertNotIn("Svi nalozi", body)          # 4.11.: no order log, no demo tables
         self.assertNotIn("Demo praćenja", body)
@@ -138,7 +140,7 @@ class PraviTrade(unittest.TestCase):
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
             _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Koga bot prati", body)
+            self.assertIn("Koga prati", body)   # 10.11. (maketa): the row's name under "Kako trguje"
             self.assertNotIn("Spremi limite", body)
             self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
@@ -446,4 +448,5 @@ class LiveLog(PraviTrade):
         # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
         self.assertIn("Tehnički zapis naloga", body)
         self.assertIn("data-src=/pravi-trade/dnevnik", body)
-        self.assertLess(body.index("Dnevnik Autopilota"), body.index("id=pozicije"))
+        # 10.11. (maketa autopilot.html): the log is the row "Dnevnik odluka", still right above the positions
+        self.assertLess(body.index("Dnevnik odluka"), body.index("id=pozicije"))

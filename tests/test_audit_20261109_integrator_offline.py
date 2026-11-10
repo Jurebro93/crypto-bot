@@ -88,8 +88,19 @@ class KolCardsMinuteMeasure(unittest.TestCase):
                 mock.patch.object(pravitrade, "followed_targets", lambda con: set()):
             html = pravitrade._kol_section(lg, True)
         lg.close()
-        self.assertIn("57% +10 % prije stopa · 7 poziva", html)
-        self.assertIn("50% pogodaka · 4 callova (stara mjera)", html)
+        # 10.11. (prijedlog dizajna 4.0, Jure: the ranking made honest): the minute check's share is the row's number
+        # with the shared verdict word; an account the minute check has not measured often enough says so instead
+        # of a percentage (the old wick is only a detail inside), and one we do not watch live is a quiet group of
+        # its own without the follow button
+        self.assertIn('<div class="ms-v">57\u00a0%</div><div class="ms-s">u 1 h</div>', html)
+        self.assertIn("7 poziva", html)
+        self.assertIn("premalo minutnih poziva", html)
+        self.assertIn("Stara mjera: 50\u00a0% pogodaka u 4 poziva", html)
+        self.assertIn("Dobri, ali prespori za nas (ne pratimo ih uživo)", html)
+        self.assertLess(html.index("@fast"), html.index("Dobri, ali prespori"))
+        self.assertLess(html.index("Dobri, ali prespori"), html.index("@old"))
+        self.assertEqual(html.count("Prati pravim novcem"), 1)                  # only the live one
+        self.assertIn("najbolji 14 d: @fast", html)
         self.assertIn("Minutna provjera = +10 % prije stopa", html)
         self.assertNotIn("Pogodak = cijena je u 24 h", html)
 
@@ -204,7 +215,7 @@ class IdeasFragmentBackground(unittest.TestCase):
                  "live": {"mcap": 60_000, "ch_m5": None, "ch_h1": None}}]
         with mock.patch.object(zivo, "rows", lambda now=None, **k: rows):
             html = self.pt.ideas_inner({}, True, now=NOW, force=True)
-        self.assertIn("MC $50k", html)
+        self.assertIn('<div class="ms-v">50k\u00a0$</div>', html)   # 10.11.: the shared row, "50k $" (pravilo 8)
         self.assertEqual(self.pt._IDEAS_CACHE[True][0], NOW)        # compute time: the TTL
         self.assertEqual(self.pt._IDEAS_CACHE[True][2], NOW - 7)    # data time: the oldest row shown
 
