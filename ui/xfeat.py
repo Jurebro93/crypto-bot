@@ -14,6 +14,11 @@ kol/minute.db_path rule), table x_features. Insert only: no tool updates or dele
     source        "mcp:<key fingerprint>"      backfill   1 = the client counted a past hour after the fact
 Writes are accepted only while the trade setting flag x_features_ingest is not "off" (the owner switches it on the
 Autopilot page) and at most RATE_PER_HOUR per key an hour (as ui/assistnotes).
+
+10.11. (market scanner, scan/xmom.py): the scanner's OWN X counts go to the sibling table x_momentum in the same file
+(posts / unique authors in 15 / 60 min, bot share, x_momentum_score, x_early; source "scan"), insert only as well. It
+is written while the flag market_scan is on; x_features_ingest keeps governing only this MCP intake, and Grok's rows
+here (source mcp:*) take precedence over the scanner's count for the same token (scan/xmom.latest).
 """
 import json
 import os

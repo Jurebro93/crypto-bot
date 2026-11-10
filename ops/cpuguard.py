@@ -140,6 +140,8 @@ PROCESSES = (
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
     ("hype", "run_hype.py", (), SCANS, "hype sken (dijete demo petlje svake 2 min) i noćno učenje pametnih walleta"),
+    # 10.11.: the market scanner measures in shadow only (flag market_scan); nobody waits for it by the second
+    ("skener", "run_scan.py", (), SCANS, "skener tržišta bez callera svake 2,5 min, samo mjeri u sjeni, ne kupuje"),
     # 4: the scheduler's jobs and the other batches; nobody waits for these by the second, each comes round again
     ("learn", "run_learn.py", (), JOBS, "učenje, sjena, masovna sjena i AI oznake objava (raspored)"),
     ("exits", "run_exits.py", (), JOBS, "pravila izlaza po klasi: dnevno učenje i povrat (raspored)"),

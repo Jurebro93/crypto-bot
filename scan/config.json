@@ -1,0 +1,11 @@
+{
+  "_": "Skener tržišta (scan/store.DEFAULT ima sve ključeve i opise). Ovdje samo ono što vlasnik mijenja: dnevni stropovi troška i pragovi faza.",
+  "helius_credits_day": 5000,
+  "gt_calls_day": 150,
+  "x_usd_day": 0.30,
+  "final_stretch_min_mcap": 10000,
+  "trade_min_mcap": 30000,
+  "migrated_min_vol_h1": 30000,
+  "beta_min": 0.6,
+  "paper_min_outcomes": 30
+}

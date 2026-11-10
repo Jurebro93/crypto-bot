@@ -274,8 +274,25 @@ def collect(now=None):
     data = {"ts": now, "kol_hit_definition": f"+{hit_x:.0%} u 24 h nakon poziva", "weights": weight_changes(now), "exits": exit_changes(now), "sessions": acc,
             "kols": kols(now), "today": today_tokens(now, acc), "pulse": pulse(now), "paper": paper(now),
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
-            "strategije": strategije(now), "spend": spend(now)}
+            "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
     return data
+
+
+def skener(now):
+    """The market scanner in shadow (scan/shadow.report_data): per source found / outcomes / +20 % within 1 h and 4 h
+    / -30 % first / EV, the paper gate, lead time, today's spend per paid source. None before scan.db exists."""
+    try:
+        from scan import shadow, store
+        path = db_path("scan.db") if os.environ.get("REPORT_DB_DIR") else store.db_path()
+        con = store.ro(path)
+        if con is None:
+            return None
+        try:
+            return shadow.report_data(now, con=con)
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def spend(now):
