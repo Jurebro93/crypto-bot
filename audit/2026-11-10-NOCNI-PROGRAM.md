@@ -84,15 +84,19 @@ run_ui.py dijele "pogon" (zaglavlje/HEAVY), "javno" (rute) → rute dodaje "javn
 | faza | stanje | bilješka |
 |---|---|---|
 | 0 | GOTOVO | PR #76 spojen 00:44 CET (47723d9); grana vraćena na main; deploy provjeren u 00:5x |
-| 1 | U TIJEKU od 01:10 | tri workflowa: audit koda (7 mapa + skeptik + praznine), web izvori i cijene, savjeti tradera (10 kutova) |
+| 1 | DJELOMIČNO | u 01:42 potrošen limit modela: gotovo sekundni.md, baze.md, osluskivaci.md, svijece.md, hosting.md, 4 od 10 kutova tradera; sinteze rade agenti od 07:35 |
 | 2 | čeka fazu 1 | |
 | 3 | GOTOVO 01:00 | `audit/2026-11-10/dizajn.md`: ugovor između grupa (imena modula, funkcija, ključeva) |
-| 4 | U TIJEKU od 01:11 | po jedan workflow po grupi u worktreeju `/home/user/wt/<grupa>` (grana `noc/<grupa>`): novac, apui, javno, pogon, web, sentry; svaki: implementacija → neovisni pregled → dorada |
+| 4 | U TIJEKU od 07:30 | agenti u 01:42 stali usred posla; WIP commitan u noc/*; šest agenata (Opus 5.5) dovršava grupe |
 | 5 | čeka fazu 4 | |
-| 6 | čeka | prezentacija, prijedlog profitabilnosti, audit podataka, UI prijedlozi |
-| 7 | čeka 06:00 | jedan PR, merge iza 06:00 (odobreno unaprijed) |
+| 6 | DJELOMIČNO | prezentacija gotova i poslana mailom 07:50 (https://claude.ai/artifact/5226XC8hXGJxhad7iUNAx1); prijedlozi sučelja i profitabilnosti u izradi |
+| 7 | čeka | jedan PR nakon spajanja grupa i završnog pregleda |
 
 ## Dnevnik noći (kratko, novije gore)
+
+- 07:50 Prezentacija (16 slajdova, činjenice iz koda) objavljena i poslana na msjure321@gmail.com.
+- 07:30 Jutarnja provjera produkcije: noć mirna. CPU 13–17 % po satu od 01 do 07, 502/503 samo u satu deploya #76, bez Tracebacka. Noćni poslovi rade: dokazani 46 od 349, KOL search 60–402 s, measure 75–166 s; dugo je držao bravu 01:03–01:26.
+- 07:20 Nastavak na modelu Opus 5.5. Noću (01:42) potrošen limit modela: svih 11 workflowa stalo, ništa nije spojeno ni deployano. Djelomičan kod sačuvan kao WIP commit u svakoj noc/* grani.
 
 - 01:12 Pokrenuto 11 workflowa: audit koda, web izvori, savjeti tradera, 6 grupa implementacije (worktreeji `/home/user/wt/*`, grane `noc/*`), sadržaj prezentacije, prijedlozi sučelja. Popis ID-eva: scratchpad `NOC-STANJE.md`. Popravljen test topchecka koji je pao zbog datuma (fiksni 2.11.).
 - 01:05 Sentry projekt `memesonar` stvoren (org serprise, de.sentry.io); DSN ide u env SENTRY_DSN na Renderu tik uz jutarnji merge.
