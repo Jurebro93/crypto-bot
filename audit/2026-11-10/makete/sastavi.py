@@ -188,6 +188,10 @@ def _hr(v, d=0):
     return ("−" if v < 0 else "") + t
 
 
+# 10.11.: kept outside the f-strings (a backslash inside an f-string expression needs Python 3.12; the suite checks 3.10/3.11)
+DASH44, DASH65 = 'stroke-dasharray="4 4" ', 'stroke-dasharray="6 5" '
+
+
 def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, end=True, H=200):
     """series: [(vals, boja, debljina, crtkano)], prva je glavna (ploha i točka na kraju). ticks: [(vrijednost, tekst)].
     dots: [(indeks u prvoj seriji, naslov)] oznake na liniji (npr. pozivi). vmark: (indeks, tekst) okomita crtkana crta."""
@@ -199,7 +203,7 @@ def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, 
            f'aria-label="{label}">']
     for v, _t in ticks:
         out.append(f'<line x1="0" y1="{Y(v):.1f}" x2="{W}" y2="{Y(v):.1f}" stroke="{"#cfd5e1" if v == 0 else "#e8ebf2"}" '
-                   f'stroke-width="1" {"stroke-dasharray=\"4 4\" " if v == 0 else ""}vector-effect="non-scaling-stroke"/>')
+                   f'stroke-width="1" {DASH44 if v == 0 else ""}vector-effect="non-scaling-stroke"/>')
     if vmark:
         out.append(f'<line x1="{X(vmark[0]):.1f}" y1="0" x2="{X(vmark[0]):.1f}" y2="{H}" stroke="#cfd5e1" stroke-width="1.5" '
                    'stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>')
@@ -212,7 +216,7 @@ def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, 
                        f'stop-opacity=".14"/><stop offset="1" stop-color="{col}" stop-opacity="0"/></linearGradient></defs>'
                        f'<path d="{line} L{pts[-1][0]:.1f},{H} L0,{H} Z" fill="url(#{gid})"/>')
         out.append(f'<path d="{line}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linejoin="round" '
-                   f'{"stroke-dasharray=\"6 5\" " if dash else ""}vector-effect="non-scaling-stroke"/>')
+                   f'{DASH65 if dash else ""}vector-effect="non-scaling-stroke"/>')
     out.append("</svg>")
     main = series[0][0]
     if end:

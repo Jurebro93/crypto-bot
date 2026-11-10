@@ -387,3 +387,167 @@ def tg_history_html():
                       ("Poziva u 6 mj.", "n"), ("Najviše", "n"), ("Mcap u pozivu", "n"), "Stanje", "Zadnji poziv"],
                      data, tid="ktghist"))
     return "".join(out)
+
+
+# ---------- jedna presuda za influencera (10.11., Jure, prijedlog 4.0) ---------------------------------------------
+# Isti račun je imao tri ocjene: Autopilot ga bira po minutnoj mjeri (kol/minute.py, +10 % prije stopa −20 % u
+# 60 min), ljestvica ga zove "dokazan" po vrhu +50 % u 24 h, a profil pokazuje cijenu 24 h poslije (calls.r24h).
+# Odsad svuda dva broja istim imenom i redom, 1 h i 24 h, i jedna presuda iz njih. Pragovi su prijedlog; Jure bira.
+VERDICT_H1 = 0.50        # udio poziva do +10 % prije stopa u prvom satu
+VERDICT_D24 = 0.40       # udio poziva u plusu dan kasnije
+VERDICT_MIN_N = 5        # manje izmjerenih poziva u razdoblju = "premalo poziva"
+VERDICT_WINDOWS = (7, 14, 30)
+VERDICT_TTL = 300        # s: jedna priručna kopija po razdoblju, svima ista (podaci se mijenjaju svakih ~20 min)
+VERDICT_WORD = {"drzi_se": "drži se", "samo_brzo": "samo brzo", "ne_isplati_se": "ne isplati se",
+                "premalo": "premalo poziva"}
+# naslov presude na vrhu profila (maketa influencer.html: "Samo za brzi izlaz")
+VERDICT_TITLE = {"drzi_se": "Drži se i dan kasnije", "samo_brzo": "Samo za brzi izlaz", "ne_isplati_se": "Ne isplati se",
+                 "premalo": "Premalo poziva za presudu"}
+# boja točke stanja (ui/redak.dot): zeleno drži se, narančasto samo brzo, crveno ne isplati se, sivo premalo
+VERDICT_DOT = {"drzi_se": "good", "samo_brzo": "warn", "ne_isplati_se": "bad", "premalo": ""}
+_HIT = "do +10 % prije stopa −20 %"
+
+
+def verdict(h1, d24, n):
+    """Presuda za influencera iz dva broja: (key, word, sentence).
+
+    h1:  udio izmjerenih poziva koji su u prvom satu došli do +10 % prije stopa −20 % (0..1; kol/minute.py
+         handle_stats "hit10"), None kad još nije izmjereno.
+    d24: udio poziva u plusu dan kasnije (0..1; kol.db calls.r24h > 0), None kad se još ne zna.
+    n:   broj poziva iza h1 u razdoblju (izmjerenih minutnom provjerom).
+    key: "drzi_se" (1 h >= 50 % i 24 h >= 40 %), "samo_brzo" (1 h >= 50 %, 24 h ispod 40 % ili još nepoznat: tada je
+         brzi izlaz jedini savjet koji brojke podupiru), "ne_isplati_se" (1 h ispod 50 %), "premalo" (manje od 5
+         poziva, ili 1 h još nije izmjeren).
+    word: VERDICT_WORD[key] ("drži se", "samo brzo", "ne isplati se", "premalo poziva"); kad poziva ima dovoljno, a
+         1 h još nije izmjeren, word je "premalo podataka".
+    sentence: jedna rečenica s oba broja, za hero ili profil."""
+    from ui.redak import pct
+    n = int(n or 0)
+    if n < VERDICT_MIN_N:
+        cnt = ("Nema izmjerenih poziva" if n <= 0 else "Samo 1 izmjeren poziv" if n == 1
+               else f"Samo {n} izmjerena poziva")
+        return ("premalo", VERDICT_WORD["premalo"], f"{cnt} u razdoblju; za presudu treba barem {VERDICT_MIN_N}.")
+    if h1 is None:
+        return ("premalo", "premalo podataka", "Pozivi još nisu izmjereni od minute poziva, pa presude još nema.")
+    p1 = pct(h1, sign=False, frac=True)
+    p24 = pct(d24, sign=False, frac=True) if d24 is not None else None
+    if h1 < VERDICT_H1:
+        tail = f", a dan kasnije u plusu je {p24}." if p24 else "."
+        return ("ne_isplati_se", VERDICT_WORD["ne_isplati_se"],
+                f"Samo {p1} poziva dođe {_HIT} u prvom satu{tail}")
+    head = f"U prvom satu {p1} poziva dođe {_HIT}"
+    if d24 is None:
+        return ("samo_brzo", VERDICT_WORD["samo_brzo"], head + "; kako stoje dan kasnije, još se ne zna.")
+    if d24 >= VERDICT_D24:
+        return ("drzi_se", VERDICT_WORD["drzi_se"], f"{head}, a dan kasnije {p24} je u plusu.")
+    return ("samo_brzo", VERDICT_WORD["samo_brzo"], f"{head}, ali dan kasnije u plusu je samo {p24}: izađi brzo.")
+
+
+_VCACHE = {}             # (days, kol_db, minute_db) -> (ts, {handle: stats}, {lower-case handle: stats})
+_VLOCK = __import__("threading").Lock()
+
+
+def _day24(kol_db, since, now):
+    """{handle: (n, n24, plus24)} from kol.db: one call per account and token (the first, as kol/minute and the
+    profile count), posts only (no buys/sells), not marked bad, mcap at the call 30k $ or more (or unknown).
+    One indexed range read (calls_ts), no per-handle queries."""
+    from kol import store
+    con = store.ro(kol_db)
+    if con is None:
+        return {}
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(calls)")}
+        bad = " AND bad IS NULL" if "bad" in cols else ""
+        rows = con.execute("SELECT handle, token, ts, r24h, mcap0 FROM calls WHERE ts >= ? AND ts <= ? "
+                           f"AND kind NOT IN ('buy', 'sell'){bad} ORDER BY ts", (since, now)).fetchall()
+    finally:
+        con.close()
+    from kol.minute import MIN_MCAP
+    seen, out = set(), {}
+    for hnd, tok, _ts, r24, mc in rows:
+        if (hnd, tok) in seen:
+            continue
+        seen.add((hnd, tok))
+        if mc is not None and mc < MIN_MCAP:
+            continue
+        n, n24, plus = out.get(hnd, (0, 0, 0))
+        out[hnd] = (n + 1, n24 + (r24 is not None), plus + (r24 is not None and r24 > 0))
+    return out
+
+
+def _hour1(minute_db, days, now):
+    """{handle: kol/minute.handle_stats row} (n, hit10, ...); {} without minute.db."""
+    try:
+        from kol import minute
+        mcon = minute.ro(minute_db)
+        if mcon is None:
+            return {}
+        try:
+            return dict(minute.handle_stats(mcon, days, now, min_n=1))
+        finally:
+            mcon.close()
+    except Exception as e:  # noqa: BLE001 - the pages work without the minute layer
+        print(f"kolsummary: minutna provjera: {type(e).__name__}: {e}", flush=True)
+        return {}
+
+
+def verdict_stats(days=14, now=None, kol_db=None, minute_db=None):
+    return _stats(days, now, kol_db, minute_db)[0]
+
+
+def _stats(days=14, now=None, kol_db=None, minute_db=None):
+    """{handle: stats} for every account with a call in the last `days` (7, 14 or 30), cached VERDICT_TTL s:
+        n      pozivi u razdoblju (prvi po tokenu, 30k $ i više)
+        n1     izmjereni minutnom provjerom; h1 udio do +10 % prije stopa (0..1 ili None); hits1 koliko ih je
+        n24    s poznatom cijenom dan kasnije; plus24 koliko u plusu; d24 udio (0..1 ili None)
+        key, word, sentence, dot   presuda (verdict(h1, d24, n1)) i boja točke (VERDICT_DOT)
+    Handles are as stored (X without @, Telegram "tg:<kanal>"). One kol.db range read and one minute.db pass per
+    window and TTL, shared by every page (ljestvica, profil, Pregled, Autopilot)."""
+    days = int(days)
+    key = (days, kol_db, minute_db)
+    t = time.time()
+    hit = _VCACHE.get(key)
+    if hit and now is None and t - hit[0] < VERDICT_TTL:
+        return hit[1:]
+    with _VLOCK:
+        hit = _VCACHE.get(key)
+        if hit and now is None and t - hit[0] < VERDICT_TTL:
+            return hit[1:]
+        end = int(now or t)
+        try:
+            d24 = _day24(kol_db, end - days * 86400, end)
+        except Exception as e:  # noqa: BLE001
+            print(f"kolsummary: 24 h: {type(e).__name__}: {e}", flush=True)
+            d24 = {}
+        m = _hour1(minute_db, days, end)
+        out = {}
+        for hnd in set(d24) | set(m):
+            n, n24, plus = d24.get(hnd, (0, 0, 0))
+            ms = m.get(hnd) or {}
+            n1 = int(ms.get("n") or 0)
+            h1 = ms.get("hit10") if n1 else None
+            dd = plus / n24 if n24 >= VERDICT_MIN_N else None
+            k, w, s = verdict(h1, dd, n1)
+            out[hnd] = {"n": max(n, n1), "n1": n1, "h1": h1, "hits1": round((h1 or 0) * n1), "n24": n24,
+                        "plus24": plus, "d24": dd, "key": k, "word": w, "sentence": s, "dot": VERDICT_DOT[k]}
+        low = {k.lower(): v for k, v in out.items()}
+        if now is None:
+            _VCACHE[key] = (t, out, low)
+        return out, low
+
+
+verdict_stats.__doc__ = _stats.__doc__
+
+
+def kol_verdict(handle, days=14, now=None, kol_db=None, minute_db=None):
+    """verdict_stats(...) row for one account (exact handle, then case-insensitive, "@" ignored); an account with no
+    call in the window gets the "premalo" row with zeros. Same cache as verdict_stats, so a page that calls it for
+    every row costs one build per window and TTL."""
+    st, low = _stats(days, now, kol_db, minute_db)
+    hnd = (handle or "").lstrip("@")
+    r = st.get(hnd) or low.get(hnd.lower())
+    if r is None:
+        k, w, s = verdict(None, None, 0)
+        r = {"n": 0, "n1": 0, "h1": None, "hits1": 0, "n24": 0, "plus24": 0, "d24": None, "key": k, "word": w,
+             "sentence": s, "dot": VERDICT_DOT[k]}
+    return r

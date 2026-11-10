@@ -76,4 +76,5 @@ class Pregled(unittest.TestCase):
         import run_ui  # noqa: F401
         title, body = pages.wallets({})
         self.assertLess(body.find("Za kopiranje"), body.find("Aktivnost"))   # copy list first, activity last
-        self.assertIn("Prijedlog za danas", body)
+        # 10.11. (Jure, prijedlog 5.1): the box lives only on Pregled now; Novčanici start with their own list
+        self.assertNotIn("Prijedlog za danas", body)

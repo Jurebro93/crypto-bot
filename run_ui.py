@@ -296,6 +296,9 @@ def route(path, qs):
     if path == "/mapa":
         from ui.html import map_page
         return map_page(qs)
+    if path in ("/vise", "/vise/sustav"):   # 10.11. (Jure, prijedlog 3.5): "Više" is a page now, not the ☰ drawer
+        from ui.html import vise_page
+        return vise_page(qs, "sustav" if path == "/vise/sustav" else None)
     if path == "/trazi":
         from ui import search
         return search.page(qs)
