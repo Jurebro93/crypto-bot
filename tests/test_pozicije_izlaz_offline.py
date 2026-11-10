@@ -142,7 +142,7 @@ class Positions(Base):
         inner, meta, has_open = pravitrade.positions_inner(self.con, False, True, {}, cfg)
         self.assertTrue(has_open)
         self.assertIn("ulaz MC $82.0k", inner)                       # the closed row
-        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(≈ \+0 %\)")   # inside, with the move
+        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(<b>≈ \+0\.0 %</b>\)")   # inside, with the move
         self.assertIn("Izlaz: TP +15 % · SL −60 %", inner)
         self.assertIn("action=/pravi-trade/exit", inner)
         self.assertIn('name=sl value="-60%"', inner)                 # the quick TP buttons keep the stop
@@ -188,7 +188,7 @@ class Positions(Base):
         self.lg.commit()
         loc = self.post("/pravi-trade/exit", {"id": str(pid), "tp": "30%", "sl": ""})
         self.assertIn("err=", loc)
-        self.assertIn("zatvoren", unquote(loc))
+        self.assertIn("nije otvorena", unquote(loc))
         self.assertIn("err=", self.post("/pravi-trade/exit", {"id": "999", "tp": "30%", "sl": ""}))
 
 
@@ -219,15 +219,24 @@ class AddToPosition(Base):
         self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
         self.mirror(time.time())
         # the price ran from $82k to $100k: the owner buys again
-        uleague.market = lambda toks: {t: (1.22, 1e6, None, 100_000.0) for t in toks}
-        prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 1.22, "mcap": 100_000.0} for t in toks}
+        uleague.market = lambda toks: {t: (100 / 82, 1e6, None, 100_000.0) for t in toks}
+        prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 100 / 82, "mcap": 100_000.0} for t in toks}
         loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "15%", "sl": ""})
         self.assertIn("ok=", loc)
         self.assertIn("Dokupnja", unquote(loc))
         lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
         self.assertEqual(len(lots), 2)
         a = {t["entry_mcap"]: json.loads(t["auto"]) for t in lots}
-        self.assertEqual((a[100_000.0]["tp"], a[100_000.0]["sl"]), ("+30%", "-60%"))   # the position's exit, not the form's
+        # 10.11. (Jure: "prosječan ulaz, na to take profit, zatvori cijelu poziciju"): the position's +30 % (not the
+        # form's 15 %) from the average entry weighted by SOL (0,05 at $82k + 0,04 at $100k = $89.1k), the same level
+        # on both lots, so both close at once
+        avg_mc = 0.09 / (0.05 / 82_000 + 0.04 / 100_000)
+        for r in a.values():
+            self.assertEqual((r["tp_in"], r["sl_in"]), ("30%", "-60%"))
+            self.assertAlmostEqual(r["grp"]["avg_mc"], avg_mc, places=3)
+            self.assertIn("od prosjeka", r["tp"])
+        self.assertAlmostEqual(a[82_000.0]["tp_px"], a[100_000.0]["tp_px"])
+        self.assertAlmostEqual(a[82_000.0]["tp_px"] * 82_000.0 / 1.0, avg_mc * 1.3, places=3)   # entry_px 1.0 at $82k
         self.mirror(time.time() + 2)
         pos = self.con.execute("SELECT token, status, sol_in, league_id FROM positions ORDER BY id").fetchall()
         self.assertEqual([(p[0], p[1]) for p in pos], [(MINT, "open"), (MINT, "open")])   # two real lots, no "već postoji"
@@ -239,17 +248,21 @@ class AddToPosition(Base):
         self.assertEqual(inner.count("<details class=ap-it id=poz-"), 1)
         self.assertTrue(meta.startswith("1"))
         self.assertIn("2 ulaza · ulaz MC $82.0k, $100.0k", inner)
-        self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC \$82\.0k \(≈ \+22 %\) · 0,050\xa0SOL")
-        self.assertRegex(inner, r"2\. ulaz \d\d:\d\d na MC \$100\.0k \(≈ \+0 %\) · 0,040\xa0SOL")
+        self.assertRegex(inner, r'1\. ulaz \d\d:\d\d na MC \$82\.0k \(<b class="pos">≈ \+22\.0 %</b>\) · 0,050\xa0SOL')
+        self.assertRegex(inner, r"2\. ulaz \d\d:\d\d na MC \$100\.0k \(<b>≈ \+0\.0 %</b>\) · 0,040\xa0SOL")
+        self.assertIn("Prosječni ulaz MC $89.1k", inner)
         ids = ",".join(str(p) for (p,) in self.con.execute("SELECT id FROM positions ORDER BY id"))
         self.assertIn(f"name=id value={ids}>", inner)                     # sell buttons: every lot
-        # the exit form changes both lots, each from its own entry
+        # the exit form changes both lots: one level from the average entry
         pid0 = int(ids.split(",")[0])
         self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid0), "tp": "50%", "sl": "-40%"}))
+        pxs = set()
         for t in store.trades(self.lg, settings.LEAGUE_USER, "open"):
             a = json.loads(t["auto"])
-            self.assertEqual((a["tp"], a["sl"]), ("+50%", "-40%"))
-            self.assertAlmostEqual(a["tp_px"], t["entry_px"] * 1.5)
+            self.assertEqual((a["tp_in"], a["sl_in"]), ("50%", "-40%"))
+            pxs.add(round(a["tp_px"], 9))
+            self.assertAlmostEqual(a["tp_px"] * 82_000.0, avg_mc * 1.5, places=3)
+        self.assertEqual(len(pxs), 1)
         # "Prodaj 50 %" asks every lot
         self.assertIn("ok=", self.post("/pravi-trade/sell", {"id": ids, "frac": "0.5"}))
         self.assertEqual(set(settings.raw(self.con)["sell_req"]), set(ids.split(",")))
@@ -265,6 +278,40 @@ class AddToPosition(Base):
         self.assertIn("već postoji", executor.gate_buy(self.con, cfg, 0.01, now, False, token="A" * 43))
         self.assertIsNone(executor.gate_buy(self.con, cfg, 0.01, now, False, token="A" * 43, add=True))   # a lot
         self.assertIn("2 otvorenih", executor.gate_buy(self.con, cfg, 0.01, now, False, token="C" * 43))  # tokens, not lots
+
+
+class FastExit(Base):
+    """10.11. (Jure: "TP +40 % od ulaza 84k, graf dotakao 117k i malo preko, prodaja se nije dogodila"): the
+    Autopilot's TP/SL are checked every second by league/auto.fast_once, apart from the 20-s pass over all players."""
+
+    def test_tp_touch_sells_at_once_and_only_the_autopilot_account(self):
+        from league import auto
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "40%", "sl": ""}))
+        player = store.buy(self.lg, "igrac", MINT, "HOPE", 25, 1.0, 1e6, "ručno", None, 82_000.0)
+        auto.set_auto(self.lg, "igrac", player, "tpsl", "40%", "-60%")
+        under = lambda toks: {t: (1.39, 1e6, None, 82_000.0 * 1.39) for t in toks}
+        self.assertEqual(auto.fast_once(self.lg, under, settings.LEAGUE_USER), [])
+        self.assertEqual(auto.fast_once.last, (1, 1))
+        touch = lambda toks: {t: (1.401, 1e6, None, 82_000.0 * 1.401) for t in toks}
+        done = auto.fast_once(self.lg, touch, settings.LEAGUE_USER)
+        self.assertEqual(len(done), 1)
+        self.assertIn("auto TP +40%", done[0][2])
+        self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])
+        self.assertEqual(len(store.trades(self.lg, "igrac", "open")), 1)       # players stay on the 20-s pass
+        self.assertEqual(auto.fast_once(self.lg, touch, settings.LEAGUE_USER), [])   # nothing twice
+
+    def test_no_dexscreener_price_falls_back_to_jupiter(self):
+        from league import auto
+        from ui import paper
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "40%", "sl": ""}))
+        saved = paper.jup_prices
+        paper.jup_prices = lambda mints: {m: (0.39, 5e4) for m in mints}     # -61 %: under the -60 % stop
+        try:
+            done = auto.fast_once(self.lg, lambda toks: {}, settings.LEAGUE_USER)
+        finally:
+            paper.jup_prices = saved
+        self.assertEqual(len(done), 1)
+        self.assertIn("auto SL -60%", done[0][2])
 
 
 class Header(unittest.TestCase):

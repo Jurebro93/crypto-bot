@@ -1319,6 +1319,9 @@ def main(argv=None):
         from league import auto
         from ui.paper import market
         threading.Thread(target=auto.loop, args=(market,), daemon=True, name="auto-sell").start()
+        # 10.11. (Jure: TP +40 % dotaknut, a prodaja se nije dogodila): the Autopilot's TP/SL every second, apart
+        # from the 20-s pass over every player's positions
+        threading.Thread(target=auto.fast_loop, args=(market,), daemon=True, name="autopilot-izlazi").start()
     # heaviest pages rendered in the background right away and every 5 min, so a visit never waits for them
     from ui import landing
     landing.start()   # live numbers of the public page, counted in the background
