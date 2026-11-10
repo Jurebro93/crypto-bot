@@ -60,7 +60,9 @@ def get_portfolio_status() -> dict:
 def execute_trade(token_address: str, amount: float, side: str, require_approval: bool = True, reason: str = "") -> dict:
     """Ask MemeSonar for a trade. It is NOT executed here: it waits on the Autopilot page until the owner approves
     it (15 minutes). side: "buy" (amount in SOL, within the owner's per-trade limit) or "sell" (amount as a share
-    of the open position, 0.25 = 25 %, 1 = all). require_approval must stay true. reason: one line for the owner."""
+    of the open position, 0.25 = 25 %, 1 = all). require_approval must stay true. reason: one line for the owner.
+    (10.11.: Grok's autotrade, require_approval=false while the owner has grok_autotrade on, exists only on the
+    hosted endpoint https://app.memesonar.app/mcp; this local server always asks for approval.)"""
     if require_approval is not True:
         return {"error": "MemeSonar executes no trade without the owner's approval; call again with require_approval=true"}
     return _post("/api/mcp/trade", {"token": token_address, "amount": amount, "side": side,

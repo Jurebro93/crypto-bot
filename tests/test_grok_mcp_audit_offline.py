@@ -566,9 +566,9 @@ class XFeatures(Audit):
         self.assertEqual(names["submit_x_features"]["inputSchema"]["required"], ["subject", "features", "ts_asof"])
         out, err = self.call("execute_trade", {"token_address": TOK, "amount": 0.05, "side": "buy",
                                                "require_approval": False})
-        self.assertTrue(err)                                                     # never without the owner
+        self.assertTrue(err)                                   # never without the owner while grok_autotrade is off
         self.assertEqual(mcpapi.trade_request({"token": TOK, "side": "buy", "amount": 0.05,
-                                               "require_approval": False})[0], 400)
+                                               "require_approval": False})[0], 403)
 
 
 if __name__ == "__main__":

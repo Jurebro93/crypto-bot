@@ -322,6 +322,14 @@ def fast_once(con, market, user, now=None):
         "SELECT * FROM trades WHERE status='open' AND user IN (%s) AND auto IS NOT NULL" % ",".join("?" * len(users)),
         users)]
     rows = [r for r in rows if (json.loads(r["auto"]) or {}).get("mode") == "tpsl"]
+    # 10.11. (league/exitplan): a lot whose token has an exit plan in force for its account leaves the default TP/SL
+    # to the plan's executor (paused plans or flag off: the default is back)
+    try:
+        from . import exitplan
+        planned = {u: exitplan.in_force_tokens(con, u) for u in users}
+        rows = [r for r in rows if r["token"] not in planned.get(r["user"], set())]
+    except Exception:  # noqa: BLE001 - plans unreadable: the default TP/SL holds
+        pass
     fast_once.last = (len(rows), 0)
     if not rows:
         return []
@@ -366,6 +374,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                 con = store.connect()
             for u, name, what in fast_once(con, market, user):
                 print(f"natjecanje {u} {name}: {what}", flush=True)
+            try:   # 10.11. (Jure): the MCP client's exit plans, the same 1-s pass (league/exitplan.py)
+                from . import exitplan
+                for u, _tok, _trig, text in exitplan.run_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"planovi izlaza: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             if time.time() - beat >= FAST_BEAT_S:
                 beat = time.time()
                 n, priced = fast_once.last

@@ -71,6 +71,11 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "caller_weights": ("G6", "Težine callera iz prijedloga u automatskom izboru influencera"),
     "dca_cap": ("G7", "Najviše SOL-a ukupno po tokenu (zadano 0,3)"),
     "require_signal": ("G8", "Bez ulaza bez signala: barem jedan caller ili kupnja novčanika s tierom"),
+    # 10.11. ~21:00 (Grok, "Prihvaćeno, ali nije primijenjeno", Jure: "Primijeni ovo"): TP +10 % / stop -20 % pays only
+    # at ~73 % hits and the best callers have 50-60 %, so an entry needs 2+ callers AND a tiered wallet's buy
+    "confluence": ("G9", "Ulaz tek kad se poklope 2+ callera i kupnja novčanika s tierom"),
+    # 10.11. ~21:45 (Jure): the MCP client's exit plan per position, executed by the server (league/exitplan.py)
+    "exit_plans": ("G10", "Planovi izlaza s MCP-a (set_exit_plan): TP-ovi, trailing, stop, time stop"),
 }
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
@@ -135,6 +140,8 @@ def merged(cfg, con):
     out["follow_paper"] = bool(s.get("follow_paper", False)) and "follow_paper" not in LOCKED
     out["use_pump"] = bool(s.get("use_pump", True))
     out["simianx"] = bool(s.get("simianx", False)) and "simianx" not in LOCKED
+    out["dca_cap_owner"] = bool(s.get("dca_cap_owner", False))     # 10.11. ~21:00: the owner's per-token SOL cap
+    out["dca_token_cap"] = s.get("dca_token_cap", DCA_TOKEN_CAP)
     out.setdefault("day_tz", "Europe/Zagreb")
     out["sell_all"] = s.get("sell_all") or 0
     out["sell_req"] = s.get("sell_req") or {}

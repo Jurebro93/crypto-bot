@@ -49,6 +49,8 @@ WEAK_HIT15, WEAK_MIN_N = 0.3, 5
 # title row, sections that open on a tap and look like the shared row, the chart's range under the plot, the sell
 # buttons and forms inside an opened row. Values are copied from the mock-up.
 CSS = """<style>
+.ap-grok-log{margin:6px 0 10px;padding-left:18px;font-size:15px}.ap-grok-log li{margin:4px 0}
+
 .ap{font-size:17px;line-height:1.4;font-variant-numeric:tabular-nums}
 .ap p{margin:0 0 10px}
 .ap .mut,.ap small{font-size:15px}.ap code{font-size:13px}
@@ -1257,8 +1259,8 @@ def _last_exit(cfg):
     return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
 
 
-FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("dnevnik", "Dnevnik", False),
-             ("pozicije", "Pozicije", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
+FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("pozicije", "Pozicije", False),
+             ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
 FLOAT_JS = ("<script>(()=>{document.querySelectorAll('.ap-fn a').forEach(a=>a.addEventListener('click',()=>{"
             "const t=document.getElementById(a.getAttribute('href').slice(1));"
             "if(t&&t.tagName==='DETAILS')t.open=true}))})()</script>")
@@ -1399,15 +1401,113 @@ def _suggest_section(tcon, owner):
 
 
 def _summary_card(tcon, owner):
-    """10.11.: the assistant's newest daily summary, at the top of the page (owner only)."""
+    """10.11.: the assistant's newest daily summary (owner only), under "Još" since 20:41; only while it waits
+    (status novo), with "Pročitano, makni" (10.11. ~21:00, Jure: "makni sa autopilot screena")."""
     if not owner:
         return ""
     from ui import assistnotes
-    n = assistnotes.latest_summary(tcon)
+    n = assistnotes.latest_summary(tcon, status="novo")
     if not n:
         return ""
     return (f'<section class="ap-qb ap-sum" id=sazetak><h2 class=ap-qb-h>{esc(n.get("title") or "Dnevni sažetak")} '
-            f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p></section>')
+            f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p>'
+            f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(n["id"])}>'
+            '<button>Pročitano, makni</button></form></section>')
+
+
+def _grok_rows(rows):
+    """The last autotrades as short lines: "21:40 kupnja AbCd… 0,1 SOL · izvršeno · razlog"."""
+    out = []
+    for r in rows:
+        when = time.strftime("%H:%M", time.localtime(r.get("ts") or 0))
+        if r.get("side") == "switch":
+            words = {"on": "uključen", "off": "ugašen", "paused": "stao do ponoći"}.get(r.get("status"), r.get("status"))
+            out.append(f'<li><span class=mut>{esc(when)}</span> {esc(words)} · {esc(r.get("reason") or "")}</li>')
+            continue
+        amt = (f'{_g(r.get("amount"))} SOL' if r.get("side") == "buy" else f'{float(r.get("amount") or 0):.0%}')
+        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why") or ""}'
+        tok = r.get("token") or ""
+        out.append(f'<li><span class=mut>{esc(when)}</span> <span class=ap-tag>Grok auto</span> '
+                   f'{"kupnja" if r.get("side") == "buy" else "prodaja"} <a href="/token/{esc(tok)}">{esc(short(tok))}</a> '
+                   f'{esc(amt)} · {esc(st)}' + (f' <span class=mut>· {esc(r.get("reason"))}</span>' if r.get("reason") else "")
+                   + "</li>")
+    return "<ul class=ap-grok-log>" + "".join(out) + "</ul>" if out else ""
+
+
+def _grok_auto_live(tcon, owner):
+    """10.11. (Jure: Grok autotrade): while the owner has it on, one compact block right under the positions: the
+    state, what is left today, the last autotrades labelled "Grok auto" and the red "Ugasi Grok autotrade"."""
+    if not owner:
+        return ""
+    from ui import grokauto
+    st = grokauto.state(tcon)
+    if not st["on"]:
+        return ""
+    lim, left = grokauto.limits(tcon), grokauto.remaining(tcon)
+    u = left["used"]
+    head = ("uključen" if st["active"] else f'stoji do ponoći ({st["pause_reason"]})')
+    line = (f'danas {_g(u["spent_sol"])} od {_g(lim["grok_max_sol_per_day"])} SOL · otvoreno {u["open"]} od '
+            f'{lim["grok_max_open"]} · rezultat {u["pnl_sol"]:+.3f} SOL (granica −{_g(lim["grok_max_loss_day"])}) · '
+            f'najviše {_g(lim["grok_max_sol_per_trade"])} SOL po kupnji')
+    kill = ('<form method=post action=/pravi-trade/grokoff class=ap-danger onsubmit="return confirm(\'Ugasiti Grok autotrade? '
+            'Njegovi zahtjevi opet čekaju tvoje odobrenje.\')"><button class=ap-danger>Ugasi Grok autotrade</button></form>')
+    return (f'<section class="ap-qb ap-grok" id=grok-auto><h2 class=ap-qb-h>Grok auto <span class=mut>· {esc(head)}</span></h2>'
+            f'<p class=mut>{esc(line)}</p>{_grok_rows(grokauto.log_rows(tcon, 5))}{kill}</section>')
+
+
+def _exit_plans_block(tcon, owner):
+    """10.11. (Jure: exit plans, "Kill switch na Autopilot stranici: Pauziraj exit planove"): only while plans exist
+    or are paused: how many are active, the flag's mode, and the switch (paused: every position's default TP/SL)."""
+    if not owner:
+        return ""
+    from league import exitplan, store as lstore
+    paused = bool(settings.raw(tcon).get("exit_plans_paused"))
+    lcon = lstore.connect()
+    try:
+        exitplan.ensure(lcon)
+        rows = lcon.execute("SELECT id, token, reason FROM exit_plans WHERE status='active' ORDER BY id DESC").fetchall()
+    finally:
+        lcon.close()
+    if not rows and not paused:
+        return ""
+    mode = settings.flag("exit_plans", con=tcon)
+    words = {"off": "zastavica isključena: ne rade", "shadow": "sjena: samo zapisuju", "paper": "rade na demo računu, "
+             "za pravi samo zapisuju", "live": "rade i na pravom novcu"}.get(mode, mode)
+    items = "".join(f'<li><a href="/token/{esc(t)}">{esc(short(t))}</a> · plan #{pid}'
+                    + (f' <span class=mut>· {esc(r)}</span>' if r else "") + "</li>" for pid, t, r in rows[:6])
+    if paused:
+        btn = ('<form method=post action=/pravi-trade/exitresume style="margin:0"><button>Nastavi exit planove</button></form>')
+        head = "pauzirani: vrijedi zadani TP/SL"
+    else:
+        btn = ('<form method=post action=/pravi-trade/exitpause class=ap-danger onsubmit="return confirm(\'Pauzirati sve '
+               'exit planove? Pozicije se vraćaju na zadani TP/SL.\')"><button class=ap-danger>Pauziraj exit planove</button></form>')
+        head = f"{len(rows)} aktivnih · {words}"
+    return (f'<section class="ap-qb ap-plans" id=exit-planovi><h2 class=ap-qb-h>Planovi izlaza <span class=mut>· '
+            f'{esc(head)}</span></h2><ul class=ap-grok-log>{items}</ul>{btn}</section>')
+
+
+def _grok_auto_setup(tcon, owner):
+    """Under "Kako trguje": the switch (when off) and Grok's own limits."""
+    if not owner:
+        return ""
+    from ui import grokauto
+    st, lim = grokauto.state(tcon), grokauto.limits(tcon)
+    fields = "".join(f'<label>{esc(lab)} <input name={k} value="{_g(lim[k])}" inputmode=decimal></label>'
+                     for k, (_d, lab, _lo, _hi) in grokauto.LIMITS.items())
+    form = (f'<form method=post action=/pravi-trade/groklimits class=ap-lim style="display:block">{fields}'
+            '<button>Spremi Grokove limite</button></form>')
+    if st["on"]:
+        switch = '<p class=mut>Uključen je; gasiš ga crvenim gumbom ispod pozicija.</p>'
+    else:
+        switch = ('<form method=post action=/pravi-trade/grokon onsubmit="return confirm(\'Uključiti Grok autotrade? Grok će '
+                  'kupovati i prodavati bez tvog odobrenja, unutar ovih limita.\')"><button class=ap-buy>Uključi Grok '
+                  'autotrade</button></form>')
+    words = ('<p class=mut>Kad je uključen, Grokov zahtjev s require_approval=false izvrši se odmah, bez tvog odobrenja: '
+             'kupnja samo unutar ovih limita i nakon ponovne provjere ruga i likvidnosti (iste kao kod Autopilota: samo '
+             'bondani, MC 30k+), prodaja bilo koje otvorene pozicije. Ide istim putem kao tvoja ručna kupnja, pa vrijede '
+             'i tvoj strop po tokenu i dnevni stop gubitka; pravi novac samo kad je Autopilot uživo. Kad Grokov rezultat '
+             'u danu dođe do granice gubitka, sam stane do ponoći. Grok ga ne može uključiti ni mijenjati limite.</p>')
+    return _sec("Grok autotrade", "uključen" if st["on"] else "isključen", words + switch + form, sid="grok-postavke")
 
 
 def _mcp_requests(tcon, owner):
@@ -2641,6 +2741,8 @@ def _who(reason):
         return t[7:]
     if t.startswith("ručno"):
         return "ručno"
+    if t.startswith("Grok auto"):   # 10.11. (ui/grokauto): Grok's autotrade
+        return "Grok auto"
     if t.startswith("paper"):
         return "demo strategija"
     return None
@@ -3134,6 +3236,8 @@ def dca_loop(every=DCA_EVERY_S):
     to watch), its own connection."""
     con = None
     once = False
+    b_left, b_next = True, 0.0
+    g_next = 0.0
     while True:
         try:
             if con is None:
@@ -3142,6 +3246,14 @@ def dca_loop(every=DCA_EVERY_S):
                 from ui import assistnotes
                 assistnotes.owner_once(con)
                 once = True
+            if time.time() >= g_next:   # 10.11. (Grok autotrade): the day-loss pause even without a new Grok buy
+                from ui import grokauto
+                g_next = time.time() + 60
+                grokauto.maybe_pause(con)
+            if b_left and time.time() >= b_next:   # 10.11. ~19:40 (Jure): flags + the Hope stop, once (owner_once_b)
+                from ui import assistnotes
+                b_next = time.time() + 60
+                b_left = not assistnotes.owner_once_b(con)
             dca_once(con)
             limit_once(con)   # 10.11.: buy orders at a market cap, the same 1-s pass
             from league import followreview   # 10.11. (Jure: "isključi ih sam"): once an hour, never raises
@@ -4125,6 +4237,11 @@ def _limits(cfg, owner):
                    t=f"ako Jupiter ne prođe, probaj preko PumpPortala (naknada {_g(pumpportal.FEE_PCT)} %)")
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
+    # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
+    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=dca_token_cap '
+               f'value="{_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
+    extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
+                 t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
              '<p class=mut>Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja, nove automatske kupnje '
              'staju do ponoći (po zagrebačkom vremenu); tvoje ručne kupnje (brza kupnja, dokup, DCA) idu dalje. Kad se '
@@ -4202,9 +4319,10 @@ def _with_toggle(html_body):
 
 def page(qs, user):
     """10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4 and the mock-up audit/2026-11-10/makete/autopilot.html, in
-    the order of audit/2026-11-10/dizajn.md section 2): the header (title with the owner's switch, one state line,
-    the wallet's value as one big number) with the chart; "Dnevnik odluka" as one row; "Otvorene pozicije" as rows
-    with "Zatvorene" and the red "Prodaj sve i isključi" under them; "Kako trguje" (Koga prati, Pravila, Kupi ručno);
+    the order of audit/2026-11-10/dizajn.md section 2; 10.11. 20:41 the trade first): the header (title with the
+    owner's switch, one state line, the wallet's value as one big number) with the chart; Grok's trade requests that
+    wait for approval; "Brza kupnja"; "Otvorene pozicije" as rows with "Zatvorene" and the red "Prodaj sve i
+    isključi" under them; "Dnevnik odluka" as one row; Grok's daily summary moved to "Još"; "Kako trguje" (Koga prati, Pravila, Kupi ručno);
     "Još" at the bottom for the rarely used parts (who calls what now, what to buy now, the tool's recommendations,
     Wallet i uplata with the setup steps, who sees the page, how it is protected). One column (ms-page); a closed row
     fetches nothing until it is opened; every part is built behind its own try (_safe), so one broken statistic
@@ -4246,20 +4364,26 @@ def page(qs, user):
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
-                 _safe("sazetak", _summary_card, tcon, owner),
-                 _safe("kupnja", _buy_now_card, cfg, owner),
-                 _safe("mcp", _mcp_requests, tcon, owner),
+                 # 10.11. 20:41 (Jure: "Ekran treba biti čist i uredan i fokusiran na trade. Sve ostalo ispod"):
+                 # the trade first (what waits for approval, buy, open positions, the decision log), then how it
+                 # trades; Grok's summary and everything else under "Još"
                  setup.get("warn", ""),
-                 _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
+                 _safe("mcp", _mcp_requests, tcon, owner),
+                 _safe("kupnja", _buy_now_card, cfg, owner),
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
+                 _safe("grok-auto", _grok_auto_live, tcon, owner),   # 10.11.: only while the owner has it on
+                 _safe("exit-planovi", _exit_plans_block, tcon, owner),   # 10.11.: only while plans exist
+                 _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
                         _safe("pravila", _rules, tcon, cfg, owner),
                         _safe("pregled", _review_section, tcon, owner),
+                        _safe("grok-postavke", _grok_auto_setup, tcon, owner),
                         _safe("zastavice", _flags_section, tcon, con, owner))]
         finally:
             con.close()
         b += [_h2("Još", sid="jos"),
+              _safe("sazetak", _summary_card, tcon, owner),
               _group(_safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
@@ -4379,6 +4503,19 @@ def post(path, form, user):
                 return f"{BACK}?err={qq('zadani stop: ' + ', '.join(f'−{x}' for x in settings.SL_CHOICES) + ' %')}#stop"
             settings.put(tcon, "sl_default", v, user)
             return f"{BACK}?ok={qq(f'Zadani stop za nove ulaze: −{v} %.')}#stop"
+        if path in ("/pravi-trade/exitpause", "/pravi-trade/exitresume"):   # 10.11. league/exitplan kill switch
+            pause = path.endswith("pause")
+            settings.put(tcon, "exit_plans_paused", pause, user)
+            print(f"pravi trade: {user} je {'PAUZIRAO' if pause else 'nastavio'} exit planove", flush=True)
+            return f"{BACK}?ok={qq('Exit planovi su pauzirani: pozicije imaju zadani TP/SL.' if pause else 'Exit planovi opet rade.')}#exit-planovi"
+        if path in ("/pravi-trade/grokon", "/pravi-trade/grokoff", "/pravi-trade/groklimits"):   # 10.11. ui/grokauto
+            from ui import grokauto
+            if path == "/pravi-trade/groklimits":
+                grokauto.set_limits(tcon, form, user)
+                return f"{BACK}?ok={qq('Grokovi limiti spremljeni.')}#grok-auto"
+            on = path.endswith("on")
+            grokauto.set_on(tcon, on, user)
+            return f"{BACK}?ok={qq('Grok autotrade je uključen: Grok kupuje i prodaje sam, unutar svojih limita.' if on else 'Grok autotrade je ugašen: zahtjevi opet čekaju tvoje odobrenje.')}#grok-auto"
         if path == "/pravi-trade/sellall":
             settings.put(tcon, "on", False, user)
             settings.put(tcon, "sell_all", int(time.time()), user)
@@ -4390,6 +4527,12 @@ def post(path, form, user):
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
+            if "dca_token_cap" in form:   # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL)
+                cap = float(str(form.get("dca_token_cap")).replace(",", ".") or settings.DCA_TOKEN_CAP)
+                if not 0.01 <= cap <= 5:
+                    raise ValueError("strop po tokenu mora biti 0,01-5 SOL")
+                settings.put(tcon, "dca_token_cap", round(cap, 4), user)
+                settings.put(tcon, "dca_cap_owner", form.get("dca_cap_owner") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/sell":
             # 10.11.: "id" may name every lot of one token ("12,15"): each lot is its own swap, all with this share
@@ -4763,12 +4906,19 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     now = now or time.time()
     U = settings.LEAGUE_USER
     m = lflags.mode("dca_cap")
-    if m != "off":
-        cap = float(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+    raw = settings.raw(tcon)
+    # 10.11. ~21:00 (Grok "Prihvaćeno, ali nije primijenjeno: Hope DCA 0.6 SOL (cap 0.3)", Jure: "Primijeni ovo"):
+    # the owner's own limit on his buys (manual, DCA orders, buy orders at a market cap), like the stake limits; it
+    # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
+    owner_cap = bool(raw.get("dca_cap_owner"))
+    if m != "off" or owner_cap:
+        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
         held = tcon.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE token=? AND status IN ('open','pending')",
                             (token,)).fetchone()[0] or 0.0
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
+            if owner_cap:
+                raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
                 raise ValueError(f"kupnja nije poslana: {why} (Pravila → Zastavice plana: dca_cap)")
             if lflags.shadowing("dca_cap", U, m):
@@ -4780,7 +4930,7 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
                           now)
 
 
-def _post_buy(con, tcon, form, user):
+def _post_buy(con, tcon, form, user, src=None):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
     real swap within the limits."""
@@ -4861,7 +5011,8 @@ def _post_buy(con, tcon, form, user):
             rules.insert(0, ("smart", "", ""))
         elif pa and pa.get("mode") == "tpsl":
             rules.insert(0, ("tpsl", pa.get("tp_in") or pa.get("tp") or "", pa.get("sl_in") or pa.get("sl") or ""))
-    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, "ručno (pravi trade)", None, mcap,
+    # src (10.11., ui/grokauto): "Grok auto (MCP)" for Grok's autotrades, so the position says whose it is
+    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, src or "ručno (pravi trade)", None, mcap,
                     allow_open=prev is not None)
     for r_ex, r_tp, r_sl in rules:
         try:
