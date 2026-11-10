@@ -2839,6 +2839,196 @@ def _skp_cells(when, mc, chg, cls=""):
     return f"<td>{redak.h(when or redak.DASH)}</td><td>{redak.h(redak.usd(mc) if mc else redak.DASH)}</td><td>{c}</td>"
 
 
+# 10.11. (Jure: "u tablici treba biti koliko je taj token u tom momentu bio vrijedan; to treba dobiti prioritet,
+# real-time podaci"; "iz pop-up prozora fali link na objavu gdje je korisnik zvao"): the pop-up no longer waits for the
+# candle measurement (GeckoTerminal's free limit answers 429 most minutes) for its numbers. It shows at once:
+#  - the MC the decision itself saw (league copy_mc for the copy stage, the demo entry for the real-money stage),
+#  - the MC at the post when the X collector measured it (kol.db calls.mcap0) and the link to the post (X, Telegram)
+#    or to the wallet's buy (Solscan),
+#  - +5/+10/+15 min from our own live samples (skip_live in trade.db, DexScreener, sample_skips below), until the
+#    candles are measured; then the candle numbers, as before.
+SKIP_LIVE_SCHEMA = ("CREATE TABLE IF NOT EXISTS skip_live (token TEXT, t INTEGER, k INTEGER, ts INTEGER, price REAL, "
+                    "mcap REAL, PRIMARY KEY (token, t, k))")
+SAMPLE_KS = (0, 5, 10, 15)    # minutes after the call (0 = the decision itself, when it saw no MC)
+SAMPLE_LATE_S = 180           # a sample taken later than this after its minute is not that minute any more
+SAMPLE_WINDOW_S = 20 * 60     # skips younger than this are sampled
+SAMPLE_EVERY_S = 5
+
+
+def _skip_ctx(tcon, e, mint, t):
+    """{kind, target, mc_seen, mc_ts, ev_ts} of one skip: who gave the signal (the follow) and the MC the decision saw.
+    Copy stage: aplog id "c<follow>:<token>:<side>" and league copy_mc; real-money stage: the blocked positions row,
+    its demo trade (entry MC) and that trade's follow. {} when league.db is not there."""
+    out = {}
+    lg = _league_ro()
+    if lg is None:
+        return out
+    try:
+        fid, lid = None, None
+        key = str(e.get("id") or "")
+        if key.startswith("c") and ":" in key:
+            try:
+                fid = int(key[1:].split(":")[0])
+            except ValueError:
+                fid = None
+            try:
+                r = lg.execute("SELECT mcap, ts FROM copy_mc WHERE follow_id=? AND token=? ORDER BY ts DESC LIMIT 1",
+                               (fid, mint)).fetchone()
+                if r and r[0]:
+                    out.update(mc_seen=r[0], mc_ts=r[1])
+            except sqlite3.Error:
+                pass
+        else:
+            r = tcon.execute("SELECT league_id FROM positions WHERE token=? AND opened_ts BETWEEN ? AND ? AND league_id "
+                             "IS NOT NULL ORDER BY ABS(opened_ts - ?) LIMIT 1", (mint, t - 5, t + 5, t)).fetchone()
+            lid = r[0] if r else None
+            if lid:
+                tr = lg.execute("SELECT entry_mcap, opened_ts, follow_id FROM trades WHERE id=?", (lid,)).fetchone()
+                if tr:
+                    if tr[0]:
+                        out.update(mc_seen=tr[0], mc_ts=tr[1])
+                    fid = tr[2]
+                ev = lg.execute("SELECT ev_ts FROM copy_log WHERE trade_id=? AND action='ulaz' LIMIT 1", (lid,)).fetchone()
+                if ev and ev[0]:
+                    out["ev_ts"] = ev[0]
+        if fid is not None:
+            f = lg.execute("SELECT kind, target FROM follows WHERE id=?", (fid,)).fetchone()
+            if f:
+                out.update(kind=f[0], target=f[1])
+    except sqlite3.Error:
+        pass
+    finally:
+        lg.close()
+    return out
+
+
+def _call_post(kind, target, mint, sig_ts):
+    """(link, its words, MC at the post or None) of the signal itself: the X post (kol.db calls.url, its mcap0), the
+    Telegram post (t.me/<channel>/<post>) or the wallet's buy on Solscan; (None, None, None) when it is not found."""
+    if not kind or not target or not sig_ts:
+        return None, None, None
+    p = copy._paths()
+    win = (int(sig_ts) - 900, int(sig_ts) + 900)
+    if kind == "wallet":
+        hc = copy._ro(p["hype"])
+        try:
+            r = copy._q(hc, "SELECT sig FROM chain_trades WHERE wallet=? AND mint=? AND side='buy' AND ts BETWEEN ? AND ? "
+                            "ORDER BY ABS(ts - ?) LIMIT 1", (target, mint, *win, int(sig_ts)))
+        finally:
+            if hc is not None:
+                hc.close()
+        return ((f"https://solscan.io/tx/{quote(r[0][0])}", "Kupnja walleta na Solscanu", None) if r and r[0][0]
+                else (f"https://solscan.io/account/{quote(target)}", "Wallet na Solscanu", None))
+    handles = copy.members_of(target) if kind == "ekipa" else [target.lstrip("@")]
+    best = None   # (distance, link, words, mcap)
+    kc, tc = copy._ro(p["kol"]), copy._ro(p["tg"])
+    try:
+        for h in handles:
+            if h.startswith("tg:"):
+                for ch, post, ts in copy._q(tc, "SELECT channel, post, ts FROM posts WHERE channel=? AND ts BETWEEN ? AND ? "
+                                                "AND cas LIKE ? ORDER BY ABS(ts - ?) LIMIT 1", (h[3:], *win, f"%{mint}%", int(sig_ts))):
+                    d = abs(ts - sig_ts)
+                    if best is None or d < best[0]:
+                        best = (d, f"https://t.me/{quote(ch)}/{int(post)}", f"Objava na Telegramu ({ch})", None)
+            else:
+                for url, ts, mc in copy._q(kc, "SELECT url, ts, mcap0 FROM calls WHERE handle=? COLLATE NOCASE AND token=? "
+                                               "AND ts BETWEEN ? AND ? ORDER BY ABS(ts - ?) LIMIT 1", (h, mint, *win, int(sig_ts))):
+                    d = abs(ts - sig_ts)
+                    if url and (best is None or d < best[0]):
+                        best = (d, url, f"Objava @{h} na X-u", mc)
+    finally:
+        for c in (kc, tc):
+            if c is not None:
+                c.close()
+    if best:
+        return best[1], best[2], best[3]
+    h = next((x for x in handles if not x.startswith("tg:")), None)
+    if h:   # the call came through another collector (hype.db): at least the account
+        return f"https://x.com/{quote(h)}", f"Profil @{h} na X-u (objava nije spremljena)", None
+    ch = handles[0][3:] if handles and handles[0].startswith("tg:") else None
+    return (f"https://t.me/{quote(ch)}", f"Kanal {ch} na Telegramu", None) if ch else (None, None, None)
+
+
+def _skip_samples(tcon, mint, t):
+    """{k: (ts, mcap, price)} of our own live samples of one skip (sample_skips)."""
+    try:
+        return {k: (ts, mc, px) for k, ts, mc, px in tcon.execute(
+            "SELECT k, ts, mcap, price FROM skip_live WHERE token=? AND t=?", (mint, int(t)))}
+    except sqlite3.Error:
+        return {}
+
+
+def _recent_skips(tcon, now):
+    """[(token, decision ts, base ts for +5/+10/+15)] of the skips of the last SAMPLE_WINDOW_S: the copy stage from
+    league copy_log, the real-money stage from trade.db positions (blocked / failed rows of a demo trade). Under
+    $30k is never sampled (CLAUDE.md)."""
+    since = int(now - SAMPLE_WINDOW_S)
+    out = []
+    lg = _league_ro()
+    if lg is not None:
+        try:
+            for tok, ts, ev, note in lg.execute(
+                    "SELECT c.token, c.ts, c.ev_ts, c.note FROM copy_log c JOIN follows f ON f.id = c.follow_id "
+                    "WHERE c.ts >= ? AND c.action='preskočeno' AND c.side='buy' AND f.user=?", (since, settings.LEAGUE_USER)):
+                if "ispod 30k" not in (note or ""):
+                    out.append((tok, int(ts), int(ev or ts)))
+        except sqlite3.Error:
+            pass
+        finally:
+            lg.close()
+    for tok, ts, why in tcon.execute("SELECT token, opened_ts, reason FROM positions WHERE opened_ts >= ? AND status IN "
+                                     "('blocked','failed') AND league_id IS NOT NULL", (since,)):
+        if "ispod 30k" not in (why or ""):
+            out.append((tok, int(ts), int(ts)))
+    return out
+
+
+def sample_skips(tcon, now=None, live_fn=None):
+    """One pass: every recent skip whose minute has come (0 = the decision, 5/10/15 after the call) gets the live MC
+    from ONE DexScreener request for all of them (prijedlog.live_market). Returns the number of samples written."""
+    now = now or time.time()
+    tcon.execute(SKIP_LIVE_SCHEMA)
+    due = []
+    for tok, t, base in _recent_skips(tcon, now):
+        have = {k for (k,) in tcon.execute("SELECT k FROM skip_live WHERE token=? AND t=?", (tok, t))}
+        for k in SAMPLE_KS:
+            at = t if k == 0 else base + k * 60
+            if k not in have and 0 <= now - at <= SAMPLE_LATE_S:
+                due.append((tok, t, k))
+    if not due:
+        return 0
+    from ui import prijedlog
+    live = (live_fn or prijedlog.live_market)(sorted({d[0] for d in due})) or {}
+    n = 0
+    for tok, t, k in due:
+        m = live.get(tok)
+        if m and m.get("price"):
+            tcon.execute("INSERT OR IGNORE INTO skip_live VALUES (?,?,?,?,?,?)",
+                         (tok, t, k, int(now), m.get("price"), m.get("mcap")))
+            n += 1
+    tcon.execute("DELETE FROM skip_live WHERE ts < ?", (int(now - 3 * 86400),))
+    tcon.commit()
+    return n
+
+
+def skip_sampler_loop(every=SAMPLE_EVERY_S):
+    """Background thread body for run_ui.py: sample_skips every `every` seconds, its own connection."""
+    con = None
+    while True:
+        try:
+            if con is None:
+                con = settings.connect()
+            sample_skips(con)
+        except Exception as e:  # noqa: BLE001 - a failed pass is retried in `every` seconds
+            print(f"preskočeni uživo: {type(e).__name__}: {e}", flush=True)
+            try:
+                con.close()
+            except Exception:  # noqa: BLE001
+                pass
+            con = None
+        time.sleep(every)
+
+
 def skip_popup(user, mint, t, now=None):
     """GET /pravi-trade/preskok?m=<mint>&t=<decision ts>: the pop-up of one skipped buy (see above); None without
     access (the same check as the page and its other fragments)."""
@@ -2859,6 +3049,8 @@ def skip_popup(user, mint, t, now=None):
         if not mint or len(mint) > 64 or t <= 0:
             return "<p class=mut>Ta odluka nije pronađena.</p>"
         e = _skip_decision(tcon, mint, t, now)
+        ctx = _skip_ctx(tcon, e, mint, t) if e is not None else {}
+        samples = _skip_samples(tcon, mint, t) if e is not None else {}
     finally:
         tcon.close()
     link = f'<p><span class=ap-lnk role=link tabindex=0 data-pop="/pravi-trade/token?m={quote(mint)}">Provjera tokena uživo</span></p>'
@@ -2882,15 +3074,25 @@ def skip_popup(user, mint, t, now=None):
     if live and live.get("price") and live.get("mcap"):
         sup_live = live["mcap"] / live["price"]
     mv = preskoceni.moves(p, sup_live) if v["kind"] in ("miss", "ok") else None
-    sig = e.get("sig_ts") or (p or {}).get("sig_ts")
+    sig = e.get("sig_ts") or (p or {}).get("sig_ts") or ctx.get("ev_ts")
+    post_url, post_words, post_mc = _call_post(ctx.get("kind"), ctx.get("target"), mint, sig)
     poziv = bool(mv and mv["ref"] == "poziv")
     head = "Od poziva" if (poziv or not mv) else "Od preskoka"
     rows = [f"<tr><th></th><th>Vrijeme</th><th>Market cap</th><th>{head}</th></tr>"]
-    rows.append("<tr><td>Poziv</td>" + _skp_cells(preskoceni.clock(sig, now) if sig else None,
-                                                    mv["poziv"][1] if poziv else None, None) + "</tr>")
+    seen_mc = ctx.get("mc_seen") or (samples.get(0) or (None, None))[1]
+    call_mc = (mv["poziv"][1] if poziv else None) or post_mc
+    rows.append("<tr><td>Poziv</td>" + _skp_cells(preskoceni.clock(sig, now) if sig else None, call_mc, None) + "</tr>")
     dec = mv["odluka"] if mv else (None, None, None)
-    rows.append("<tr><td>Preskočeno</td>" + _skp_cells(preskoceni.clock(t, now), dec[1],
-                                                         dec[2] if poziv else None) + "</tr>")
+    ref_mc = call_mc or seen_mc   # 10.11.: without candles the moves are from the call's MC, else from the decision's
+    rows.append("<tr><td>Preskočeno</td>" + _skp_cells(
+        preskoceni.clock(t, now), dec[1] or seen_mc,
+        dec[2] if poziv else ((seen_mc / call_mc - 1) if (not mv and call_mc and seen_mc) else None)) + "</tr>")
+    if not mv:   # our own live samples (sample_skips) until the candles are measured
+        for k in SAMPLE_KS[1:]:
+            got = samples.get(k)
+            if got and got[1]:
+                rows.append(f"<tr><td>+{k} min</td>" + _skp_cells(preskoceni.clock(got[0], now), got[1],
+                                                                  (got[1] / ref_mc - 1) if ref_mc else None) + "</tr>")
     if mv:
         for k, at, price, mc, chg in mv["steps"]:
             if price is not None:   # a row measured before 10.11. has no +5/+10/+15 until it is measured again
@@ -2904,6 +3106,8 @@ def skip_popup(user, mint, t, now=None):
         if mv:
             ref = mv["poziv"][0] if poziv else mv["odluka"][0]
         chg = (live["price"] / ref - 1) if (ref and live.get("price")) else None
+        if chg is None and ref_mc and live.get("mcap"):
+            chg = live["mcap"] / ref_mc - 1
         rows.append('<tr class=ap-now><td>Sada</td>' + _skp_cells(preskoceni.clock(live_ts, now), live.get("mcap"), chg)
                     + "</tr>")
     b.append(f'<table class="ap-mk ap-skt">{"".join(rows)}</table>')
@@ -2919,6 +3123,11 @@ def skip_popup(user, mint, t, now=None):
         b.append("<p class=ms-hint>Cijena u minuti poziva nije poznata, pa su pomaci od trenutka preskoka.</p>")
     elif mv and not mv["supply"]:
         b.append("<p class=ms-hint>Supply tokena nije poznat, pa su tu samo pomaci cijene.</p>")
+    elif not mv and (seen_mc or samples):
+        b.append("<p class=ms-hint>Market cap iz trenutka odluke i naših živih uzoraka (DexScreener); točne svijeće "
+                 "po minutama dolaze kad se izmjere.</p>")
+    if post_url and owner:
+        b.append(f'<p><a href="{esc(post_url)}" target=_blank rel=noopener>{esc(post_words)} ↗</a></p>')
     b.append(link)
     return "".join(b)
 
