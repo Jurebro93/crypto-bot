@@ -149,15 +149,21 @@ class Pipeline(unittest.TestCase):
         old = store.DB
         store.DB = self.path
         try:
-            title, body = ukol.page({})
+            # 10.11. (Jure, prijedlog 3.3 i 4.5): the old sections, the calls table with post links and the 21-column
+            # table moved from /kol to /kol/analize; the profile's old charts and calls table to /kol/<ime>/pozivi
+            title, body = ukol.analize_page({})
             self.assertIn("@alpha", body)
             self.assertIn("https://x.com/alpha/status/10", body)
             self.assertIn("Svi grupni pozivi", body)
+            self.assertEqual(ukol.page({})[0], "Influenceri")
             self.assertIn("ICOIN", ukol.token_section(CA))
             self.assertIn("Kako je dobio ocjenu", ukol.kol_page("alpha", {})[1])
-            body = ukol.kol_page("alpha", {})[1]
+            self.assertIn("Kako je dobio ocjenu", ukol.kol_page("alpha/vise", {})[1])
+            body = ukol.kol_page("alpha/pozivi", {})[1]
             self.assertIn("Kako su mu prolazili pozivi", body)  # 2 measured calls: bar + running-result chart
             self.assertIn("Da si uložio $10", body)
+            self.assertIn("https://x.com/alpha/status/10", body)
+            self.assertIsNone(ukol.kol_page("alpha/nepoznato", {}))
         finally:
             store.DB = old
 
@@ -181,7 +187,8 @@ class Pipeline(unittest.TestCase):
             self.assertNotIn("solscan.io/tx", head)  # posts table has no wallet rows
             self.assertIn("0.05", rest)
             self.assertIn("Kupnje i prodaje", ukol._wallet_page(self.con, "w:F6GTuH")[1])
-            self.assertIn("<details class=uc-sec id=kupnje><summary>Kupnje i prodaje</summary>", ukol.page({})[1])
+            # 10.11.: Kupnje i prodaje is one of the Analize on /kol/analize (still a section that opens on tap)
+            self.assertIn("<details class=uc-sec id=kupnje><summary>Kupnje i prodaje</summary>", ukol.analize_page({})[1])
         finally:
             store.DB = old
 

@@ -9,6 +9,7 @@ import os
 from urllib.parse import quote
 
 from kol import score as kscore, store
+from ui import kolchart
 from ui.html import ago, badge, breakdown, esc, filt, lead, num, signed, table, tdesc, tip, tlink, ts, usd, wlink
 
 CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kol", "config.json")
@@ -424,6 +425,8 @@ def tname(mint, sym=None):
 LEADS = {  # one visible line per section of /kol: what the table shows, in plain words
     "ljestvica": "Ocjena 0-100 govori koliko tokeni rastu nakon poziva tog influencera. Od {good} naviše je dobar, "
                  "a s malo poziva ocjena je još nesigurna.",
+    "tablica": "Ocjena 0-100 govori koliko tokeni rastu nakon poziva tog influencera. Od {good} naviše je dobar, "
+               "a s malo poziva ocjena je još nesigurna. Presuda iz 1 h i 24 h je na ljestvici Influenceri.",
     "zajedno": "Kako prođe token kad ga zove jedan račun, a kako kad ga zove više njih u istih 30 min.",
     "shilleri": "Računi koje si plaćao za promociju: mjerimo im pozive, ali ne ulaze u signale dok se ne dokažu.",
     "tgpovijest": "Za svaki Telegram kanal: koliko je od njegovih zadnjih 50 poziva otišlo barem 2× i 5×.",
@@ -564,11 +567,630 @@ def _corr(con):
     return table(["Svojstvo poziva", ("Korelacija s max 24 h", "n"), ("Poziva", "n"), ("Pitanje", "wrap")], rows)
 
 
+# ---------- Influenceri: mirna ljestvica (10.11., Jure: "Ostalo mi se sviđa", prijedlog 3.3 i 4.4) -----------------
+# Maketa audit/2026-11-10/makete/influenceri-ljestvica.html: jedan odgovor na vrhu (hero), segment Ljestvica | Upravo
+# zvali, redak = mjesto, ime, presuda i dva broja (1 h, 24 h), poredano po prvom satu; računi s manje od 5 izmjerenih
+# poziva u skupini "Premalo poziva". Presuda je SAMO ui/kolsummary.verdict_stats (ista riječ na profilu, u Autopilotu i na
+# Pregledu). Sve ostalo što je stranica imala (21 stupac, Zovu zajedno, shilleri, 9 sekcija za znatiželjne) je na
+# /kol/analize, jedan dodir dalje. Ništa ne mijenja kako Autopilot bira račune.
+BOARD_DAYS = (7, 14, 30)
+BOARD_DEFAULT = 14
+BOARD_SHOW, FEW_SHOW = 10, 5          # redaka prije "Prikaži još"
+RUG_WARN = 0.30                       # od ovoliko rugova naviše redak to kaže narančasto (umjesto broja poziva)
+RECENT_N = 20                         # "Upravo zvali": zadnjih ovoliko prvih poziva po tokenu
+CURIOUS = ("provjera", "sesije", "uzivo", "grupe", "parovi", "kopiraju", "devovi", "korelacije", "brojke")
+ANALIZE = (("zajedno", "Zovu zajedno", "grupe koje zovu isti token"),
+           ("shilleri", "Plaćeni shilleri", "računi s tvoje liste"),
+           ("tgpovijest", "Telegram calleri", "zadnjih 50 poziva"),
+           ("kupnje", "Kupnje i prodaje", "što rade novčanici influencera"),
+           ("tablica", "Sve brojke ljestvice", "ocjena, pogodak, vrh 24 h i ostali stupci"),
+           ("znatizeljne", "Za znatiželjne", f"točnost ocjene, sesije, parovi i još {len(CURIOUS) - 3}"))
+# stari linkovi /kol#<sekcija> (Pojmovnik, Pregled, Telegram stranice) vode na istu sekciju na /kol/analize
+OLD_IDS = tuple(a[0] for a in ANALIZE) + CURIOUS + ("telegram",)
+
+
+def _back(href, text):
+    """Povratak na roditeljsku stranicu (maketa influencer.html: "‹ Influenceri")."""
+    return f'<a class="kl-back" href="{esc(href)}">{esc(text)}</a>'
+
+
+def _poziva(n):
+    return "poziv" if n % 10 == 1 and n % 100 != 11 else "poziva"
+
+
+def kname(hnd):
+    """Ime računa bez emojija (pravilo 5): "@ime" za X, ime kanala za Telegram, ime novčanika za "w:"."""
+    if hnd.startswith("tg:"):
+        return hnd[3:]
+    if hnd.startswith("w:"):
+        return hnd[2:]
+    return "@" + hnd
+
+
+def _kname_html(hnd):
+    from ui import redak as R
+    if hnd.startswith("tg:"):
+        return R.cat(kname(hnd), R.raw(" <span class=kl-tg>Telegram</span>"))
+    return R.h(kname(hnd))
+
+
+def live_handles(con, hot=None):
+    """Mala slova imena računa čije objave čitamo u sekundama: pravila X webhooka (kv xhook), xquik monitor i vruća
+    lista minutne provjere (X i Telegram, čita se svake 1-2 s). Za stupac "Uživo" i "Stižemo li ga"."""
+    out = set(hook_handles(con))
+    try:
+        out |= {h.lower() for h, in con.execute("SELECT handle FROM monitor")}
+    except sqlite3.Error:
+        pass
+    if hot is None:
+        try:
+            from kol import minute
+            hl = minute.hot_list()
+            hot = set(hl.get("x") or []) | {"tg:" + x for x in hl.get("tg") or []}
+        except Exception:  # noqa: BLE001 - bez minute.db nema vruće liste
+            hot = set()
+    return out | {h.lower() for h in hot}
+
+
+def ap_follows():
+    """{ime malim slovima: 'kol' | 'ekipa'} koje Autopilot (račun pravog novca, league follows) prati; {} bez baze.
+    Samo za prikaz (hero i prekidač na profilu, adm-only); tko se prati mijenja se na stranici Autopilot."""
+    try:
+        from league import copy, store as lstore
+        from trade import settings
+        lc = copy._ro(lstore.DB)
+        if lc is None:
+            return {}
+        try:
+            rows = lc.execute("SELECT kind, target FROM follows WHERE user = ? AND active = 1",
+                              (settings.LEAGUE_USER,)).fetchall()
+        finally:
+            lc.close()
+    except Exception:  # noqa: BLE001 - nema league.db ili tablice follows
+        return {}
+    out = {}
+    for kind, target in rows:
+        if kind == "kol":
+            out[(target or "").lstrip("@").lower()] = "kol"
+        elif kind == "ekipa":
+            for m in copy.members_of(target):
+                out.setdefault(m.lower(), "ekipa")
+    return out
+
+
+def board(kols, vs, last=None, live=()):
+    """(rangirani, premalo) za jedno razdoblje. kols: [dict(handle, score, followers, stats)]; vs: verdict_stats(days).
+    Računi bez ijednog poziva u razdoblju nisu na popisu. Rangirani (presuda nije "premalo") po 1 h, pa po broju
+    izmjerenih poziva; premalo po broju poziva."""
+    low = {k.lower(): v for k, v in vs.items()}
+    last = last or {}
+    ranked, few = [], []
+    for k in kols:
+        v = vs.get(k["handle"]) or low.get(k["handle"].lower())
+        if not v or not v.get("n"):
+            continue
+        r = {"k": k, "v": v, "s": k.get("s") or {}, "last": last.get(k["handle"]), "live": k["handle"].lower() in live}
+        (few if v["key"] == "premalo" else ranked).append(r)
+    ranked.sort(key=lambda r: (-(r["v"]["h1"] or 0), -r["v"]["n1"], -(r["k"].get("score") or 0)))
+    few.sort(key=lambda r: (-r["v"]["n"], -(r["k"].get("score") or 0)))
+    return ranked, few
+
+
+def _d24_share(v):
+    return v["plus24"] / v["n24"] if v.get("n24") else None
+
+
+def board_row(r, rank=None, now=None):
+    """Jedan redak ljestvice (Html): mjesto, ime, presuda i broj poziva (ili narančasto "rug 32 %"), desno 1 h i 24 h;
+    na računalu još Poziva, Ocjena, Rugovi, Uživo, Zadnji poziv. data-* za poredak bez novog upita."""
+    from urllib.parse import quote
+    from ui import redak as R
+    from ui.kolsummary import VERDICT_MIN_N
+    k, v, s = r["k"], r["v"], r["s"]
+    n, few = v["n"], v["key"] == "premalo"
+    rug = s.get("rug_rate")
+    rugw = rug is not None and rug >= RUG_WARN
+    rugtxt = R.raw(f'<span class=warn>rug {esc(R.pct(rug, sign=False, frac=True))}</span>') if rugw else None
+    if few:
+        why = rugtxt or (f"{n} {_poziva(n)} · premalo" if n < VERDICT_MIN_N else f"{n} {_poziva(n)} · izmjereno {v['n1']}")
+    else:
+        why = R.cat(R.dot(v["dot"], v["word"]), " · ", rugtxt or f"{n} {_poziva(n)}")
+    d24 = _d24_share(v)
+    c1 = R.pct(v["h1"], sign=False, frac=True) if v["h1"] is not None else "–"
+    c2 = R.pct(d24, sign=False, frac=True) if d24 is not None else "–"
+    m1 = " mut" if few or v["h1"] is None else ""
+    m2 = " mut" if few or (v.get("n24") or 0) < VERDICT_MIN_N else ""
+    sc = k.get("score")
+    data = (f' data-h1="{-1 if v["h1"] is None else round(v["h1"], 4)}" data-d24="{-1 if d24 is None else round(d24, 4)}"'
+            f' data-sc="{-1 if sc is None else round(sc, 1)}" data-n="{n}"')
+    t24 = (f"{v['plus24']} od {v['n24']} u plusu dan kasnije" if v.get("n24") else "cijena dan kasnije još nije poznata")
+    title = f"1 h: {v['hits1']} od {v['n1']} do +10 % prije stopa · 24 h: {t24}"
+    return R.Html(
+        f'<a class="kl-kr" href="/kol/{quote(k["handle"])}" title="{esc(title)}"{data}>'
+        f'<span class=rk>{"" if rank is None else rank}</span><span class=tk>{_kname_html(k["handle"])}</span>'
+        f'<span class=why>{R.h(why)}</span><span class="c1{m1}">{c1}</span><span class="c2{m2}">{c2}</span>'
+        f'<span class="x n">{n}</span><span class="x sc">{"–" if sc is None else f"{sc:.0f}"}</span>'
+        f'<span class="x rug{" warn" if rugw else ""}">{R.pct(rug, sign=False, frac=True) if rug is not None else "–"}</span>'
+        f'<span class="x lv">{"uživo" if r["live"] else "–"}</span>'
+        f'<span class="x last">{R.ago(r["last"], now) if r["last"] else "–"}</span><span class=chev></span></a>')
+
+
+def _set(ranked, few, g, d, on, n_group, now):
+    """Popis jednog izbora (skupina računa × razdoblje); vidljiv je samo izabrani (JS ispod, bez novog upita)."""
+    out = [f'<div class=kl-set data-g={g} data-d={d}{"" if on else " hidden"}>']
+    if not ranked and not few:
+        who = "nijedan od velikih računa" if g == "stars" else "nijedan manje poznati račun"
+        more = ' <a href="#" data-d30>Pogledaj 30 dana</a>' if d < 30 else ""
+        out.append(f'<div class=kl-empty><b>Nitko nije zvao</b><p>U zadnjih {d} dana {who} ({n_group}) nema izmjeren '
+                   f'poziv iznad 30k $.</p>{more}</div></div>')
+        return "".join(out)
+    if ranked:
+        out.append('<div class="kl-list kl-top">' + "".join(board_row(r, i, now) for i, r in enumerate(ranked, 1))
+                   + "</div>")
+        if len(ranked) > BOARD_SHOW:
+            out.append(f"<button type=button class=kl-more>Prikaži još {len(ranked) - BOARD_SHOW}</button>")
+    else:
+        out.append(f"<p class=ms-hint>U zadnjih {d} dana još nitko nema 5 poziva izmjerenih od minute poziva.</p>")
+    if few:
+        out.append("<div class=kl-sec><b>Premalo poziva</b> · ispod 5, ne rangiraju se</div>"
+                   '<div class="kl-list kl-few">' + "".join(board_row(r, None, now) for r in few) + "</div>")
+        if len(few) > FEW_SHOW:
+            out.append(f"<button type=button class=kl-more>Prikaži svih {len(few)}</button>")
+    return "".join(out) + "</div>"
+
+
+def _recent_html(con, vs, now):
+    """"Upravo zvali": zadnji prvi pozivi po tokenu (calls_ts), tko je zvao s točkom njegove presude, promjena od
+    poziva (zadnja izmjerena: 24 h, 6 h ili 1 h) i mcap kod poziva."""
+    from urllib.parse import quote
+    from ui import redak as R
+    from kol.minute import MIN_MCAP
+    low = {k.lower(): v for k, v in vs.items()}
+    try:
+        rows = con.execute("SELECT c.token, c.handle, c.ts, c.mcap0, c.r1h, c.r6h, c.r24h, COALESCE(t.symbol, c.symbol), "
+                           "c.text FROM calls c LEFT JOIN tokens t ON t.token = c.token WHERE c.kind = 'call' "
+                           "AND c.first_by_kol = 1 ORDER BY c.ts DESC LIMIT ?", (RECENT_N,)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    items = []
+    for tok, hnd, t, mc, r1, r6, r24, sym, text in rows:
+        v = low.get(hnd.lower()) or {}
+        ch, lab = next(((x, l) for x, l in ((r24, "24 h"), (r6, "6 h"), (r1, "1 h")) if x is not None), (None, None))
+        small = mc is not None and mc < MIN_MCAP
+        if ch is not None:     # promjena od poziva (zadnja izmjerena), ispod koliko je bilo i mcap kod poziva
+            val, vt, sub = R.pct(ch, frac=True), R.tone(ch), (f"{lab} · {R.usd(mc)}" if mc else lab)
+        else:                  # svjež poziv: mcap kod poziva, prvi sat još traje (bez cijene uživo u kol.db)
+            val, vt, sub = (R.usd(mc) if mc else "–"), None, "1 h još traje"
+        items.append(R.row(sym or _ticker(text) or tok[:6], R.cat(R.dot(v.get("dot", "")), kname(hnd), " · ", R.ago(t, now)),
+                           val, "ispod 30k $" if small else sub, href=f"/token/{quote(tok)}", value_tone=vt,
+                           sub_tone="warn" if small else "mut"))
+    return (R.rows(items, empty="Još nema poziva. Bot ih skuplja sam iz X pretraga i Telegram kanala.")
+            + R.raw('<p class=ms-hint><a class=ms-acc href="/kol/analize#pozivi">Svi pozivi s objavom i brojkama</a></p>'))
+
+
+def _hero(ranked14, follows):
+    """Jedan odgovor ekrana: račun s najboljim prvim satom (presuda drži se ili samo brzo) i do dva koji se drže i dan
+    kasnije. Bez izmjerenih poziva: iskreno "još nema presude"."""
+    from urllib.parse import quote
+    from ui import redak as R
+    from ui.kolsummary import verdict_counts
+    if not ranked14:
+        return R.hero("Još nema presude", "Minutna provjera još nije izmjerila 5 poziva nijednog računa u zadnjih "
+                      f"{BOARD_DEFAULT} dana; dotad su svi u skupini Premalo poziva.", label="Najbolji za brzi ulaz i izlaz")
+    best = next((r for r in ranked14 if r["v"]["key"] in ("samo_brzo", "drzi_se")), None)
+    if best is None:
+        return R.hero("Nitko se ne isplati", f"U zadnjih {BOARD_DEFAULT} dana nijedan račun ne dođe do +10 % prije stopa "
+                      "−20 % u barem pola poziva.", label="Najbolji za brzi ulaz i izlaz")
+    v, hnd = best["v"], best["k"]["handle"]
+    fol = R.raw("<span class=adm-only> · Autopilot ga prati</span>") if hnd.lower() in follows else None
+    facts = R.cat(R.dot(v["dot"], v["word"]), f" · {v['n']} {_poziva(v['n'])}", fol)
+    hold = [r for r in ranked14 if r["v"]["key"] == "drzi_se" and r is not best][:2]
+    foot = (R.raw("<span>Drže se i 24 h: " + " · ".join(f"<b>{esc(kname(r['k']['handle']))}</b>" for r in hold) + "</span>")
+            if hold else None)
+    label = "Najbolji za brzi ulaz i izlaz" if v["key"] == "samo_brzo" else "Najbolji u prvom satu, drži se i dan kasnije"
+    return R.hero(kname(hnd), verdict_counts(v), label=label, facts=facts, href=f"/kol/{quote(hnd)}", foot=foot)
+
+
 def page(qs):
+    """/kol: Influenceri. Hero, segment Ljestvica | Upravo zvali, ljestvica po 1 h (7/14/30 dana, manje poznati ili
+    veliki računi; sve se bira na stranici bez novog upita), Analize. Gradi se u djetetu i čuva kao snimka (run_ui
+    HEAVY/SNAPSHOT_ONLY): verdict_stats tri puta (jedno čitanje kol.db po razdoblju), kols, zadnji poziv iz 30 dana."""
+    from ui import kolsummary, redak as R
+    from ui.public import is_star, star_handles
     con = store.ro()
-    b = ["<h1>Influenceri</h1>"]
+    top = R.top("Influenceri")   # bez ikone povećala: tražilica je u zaglavlju svake stranice
     if con is None:
-        return "Influenceri", "".join(b) + "<p class=mut>Još nema podataka.</p>"
+        return "Influenceri", f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}<p class=ms-hint>Još nema podataka.</p></div>'
+    now = time.time()
+    try:
+        kols = []
+        for k in _rows(con, "SELECT handle, name, followers, score, stats FROM kols WHERE score IS NOT NULL"):
+            k["s"] = json.loads(k["stats"] or "{}")
+            kols.append(k)
+        last = {}
+        try:   # range read on calls_ts (a GROUP BY here walks the whole calls_handle index and looks up every row)
+            for hnd, t in con.execute("SELECT handle, ts FROM calls WHERE ts >= ? AND kind NOT IN ('buy', 'sell')",
+                                      (int(now) - max(BOARD_DAYS) * 86400,)):
+                if t > last.get(hnd, 0):
+                    last[hnd] = t
+        except sqlite3.Error:
+            pass
+        live = live_handles(con)
+        stars = star_handles()
+        star_of = {k["handle"]: is_star(k, stars) for k in kols}
+        vss = {d: kolsummary.verdict_stats(d) for d in BOARD_DAYS}
+        recent = _recent_html(con, vss[BOARD_DEFAULT], now)
+        n_all = con.execute("SELECT COUNT(*) FROM kols").fetchone()[0]
+    finally:
+        con.close()
+    follows = ap_follows()
+    groups = {"rising": [k for k in kols if not star_of[k["handle"]]], "stars": [k for k in kols if star_of[k["handle"]]]}
+    sets = []
+    for g, ks in groups.items():
+        for d in BOARD_DAYS:
+            ranked, few = board(ks, vss[d], last, live)
+            sets.append(_set(ranked, few, g, d, g == "rising" and d == BOARD_DEFAULT, len(ks), now))
+    ranked14, _ = board(kols, vss[BOARD_DEFAULT], last, live)
+    # izbor je pravi <select> (na mobitelu otvara sustavni popis), nevidljiv preko teksta izabranog: tako je širok koliko
+    # izabrani natpis, a ne najduži, i izgleda kao poveznica iz makete
+    sel = lambda name, opts, cur: (
+        f'<label class=kl-sel><span>{esc(next(t for v, t, _ in opts if v == cur))}</span>'
+        f'<select id={name} aria-label="{esc(opts[0][2])}">' + "".join(
+            f'<option value="{v}"{" selected" if v == cur else ""}>{esc(t)}</option>' for v, t, _ in opts) + "</select></label>")
+    ctl = ('<div class=kl-ctl>'
+           + sel("kl-g", [("rising", f"Manje poznati računi · {len(groups['rising'])}", "Računi"),
+                          ("stars", f"Veliki računi · {len(groups['stars'])}", "")], "rising")
+           + sel("kl-d", [(str(d), f"{d} dana", "Razdoblje") for d in BOARD_DAYS], str(BOARD_DEFAULT)) + "</div>")
+    th = ('<div class=kl-th><span class=so>'
+          + sel("kl-so", [("h1", "Poredano po prvom satu", "Poredak"), ("d24", "Poredano po 24 h", ""),
+                          ("sc", "Poredano po ocjeni", ""), ("n", "Poredano po broju poziva", "")], "h1")
+          + '</span><span>1 h</span><span>24 h</span><span class=d>Poziva</span><span class=d>Ocjena</span>'
+            '<span class=d>Rugovi</span><span class=d>Uživo</span><span class=d>Zadnji poziv</span><span></span></div>')
+    built = kolchart._local(now)
+    hint = R.hint(f"1 h: koliko poziva dođe do +10 % prije stopa −20 %, od minute poziva (po tome bira Autopilot). "
+                  f"24 h: koliko ih je u plusu dan kasnije. Ocjena 0–100 ostaje na profilu i u stupcima na računalu. "
+                  f"Ljestvica od {built:%H:%M}.")
+    analize = R.rows([R.row(t, s, value=str(len(CURIOUS)) if sid == "znatizeljne" else None, value_tone="mut",
+                            href=f"/kol/analize#{sid}") for sid, t, s in ANALIZE])
+    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
+            f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
+            + _hero(ranked14, follows)
+            + R.seg([("#ljestvica", "Ljestvica"), ("#pozivi", "Upravo zvali")], "#ljestvica")
+            + f'<div class=kl-pane data-pane=ljestvica id=ljestvica>{ctl}{th}{"".join(sets)}{hint}</div>'
+            + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{recent}</div>'
+            + R.section("Analize", sid="analize") + analize + "</div>" + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
+    return "Influenceri", _calm(body)
+
+
+KL_JS = """<script>(()=>{const qa=s=>[...document.querySelectorAll(s)],q=s=>document.querySelector(s);
+const hs=decodeURIComponent(location.hash.slice(1));if(__OLD__.includes(hs)){location.replace('/kol/analize#'+hs);return}
+const pane=p=>{qa('.kl-pane').forEach(e=>e.hidden=e.dataset.pane!==p);qa('.kl .ms-seg a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+p))};
+qa('.kl .ms-seg a').forEach(a=>a.onclick=e=>{e.preventDefault();const p=a.getAttribute('href').slice(1);pane(p);history.replaceState(null,'','#'+p)});
+const g=q('#kl-g'),d=q('#kl-d'),so=q('#kl-so');if(!g)return;
+const show=()=>qa('.kl-set').forEach(e=>e.hidden=!(e.dataset.g===g.value&&e.dataset.d===d.value));
+qa('.kl-sel select').forEach(x=>x.addEventListener('change',()=>{x.previousElementSibling.textContent=x.selectedOptions[0].text}));
+g.addEventListener('change',show);d.addEventListener('change',show);qa('[data-d30]').forEach(a=>a.onclick=e=>{e.preventDefault();d.value='30';d.dispatchEvent(new Event('change'))});
+so.addEventListener('change',()=>{const k=so.value;qa('.kl-top').forEach(l=>{const rs=[...l.children];rs.sort((a,b)=>(+b.dataset[k])-(+a.dataset[k]));
+rs.forEach((r,i)=>{l.appendChild(r);const n=r.querySelector('.rk');if(n)n.textContent=i+1})})});
+qa('.kl-more').forEach(b=>b.onclick=()=>{b.previousElementSibling.classList.add('open');b.remove()});
+if(hs==='pozivi')pane('pozivi');if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
+
+# Vrijednosti iz maketa influenceri-ljestvica.html i influencer.html (prefiks kl-, uz ui/html.MS_CSS i ui/kolchart.CSS).
+# Stupci za računalo idu po širini stranice (container query), ne prozora: s bočnim izbornikom (1001 px+) sadržaj je
+# uži od 900 px, pa bi prozor od 1050 px stisnuo ime na 20 px.
+KL_CSS = """
+.kl{container-type:inline-size}
+.kl-tg{font-size:13px;font-weight:400;color:var(--mut);margin-left:4px}
+.kl-ctl{display:flex;justify-content:space-between;gap:12px;font-size:15px;margin:16px 0 0}
+.kl-sel{position:relative;display:inline-flex;align-items:center;color:var(--acc);font-weight:500;font-size:15px}
+.kl-sel select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font:inherit;border:0;margin:0}
+.kl-sel::after{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--acc);border-bottom:1.5px solid var(--acc);transform:rotate(45deg);margin:0 2px 3px 7px;pointer-events:none}
+.kl-sel:focus-within{outline:2px solid color-mix(in srgb,var(--acc) 35%,transparent);outline-offset:2px;border-radius:4px}
+.kl-kr,.kl-th{display:grid;grid-template-columns:24px minmax(0,1fr) 50px 50px 12px;column-gap:10px;align-items:center}
+.kl-kr{grid-template-areas:"rk tk c1 c2 chev" "rk why c1 c2 chev";padding:11px 0;border-bottom:1px solid var(--line);min-height:64px;color:var(--fg);text-decoration:none}
+a.kl-kr:hover .tk{color:var(--acc)}
+.kl-kr .rk{grid-area:rk;font-size:15px;color:var(--mut)}
+.kl-kr .tk{grid-area:tk;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kl-kr .why{grid-area:why;font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kl-kr .why .warn,.kl-kr .rug.warn{color:var(--warn)}
+.kl-kr .c1,.kl-kr .c2{text-align:right;font-size:17px;font-weight:600;white-space:nowrap}
+.kl-kr .c1{grid-area:c1}.kl-kr .c2{grid-area:c2}
+.kl-kr .c1.mut,.kl-kr .c2.mut{font-weight:400;color:var(--mut)}
+.kl-kr .chev{grid-area:chev;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg)}
+.kl-kr .x{display:none}
+.kl-th{font-size:13px;color:var(--mut);padding:16px 0 8px;border-bottom:1px solid var(--line)}
+.kl-th span{text-align:right}.kl-th .so{grid-column:1/3;text-align:left}.kl-th .d{display:none}
+.kl-sec{font-size:15px;font-weight:600;color:var(--mut);margin:26px 0 0;padding:0 0 6px;border-bottom:1px solid var(--line)}
+.kl-sec b{color:var(--fg)}
+.kl-top:not(.open)>.kl-kr:nth-child(n+11),.kl-few:not(.open)>.kl-kr:nth-child(n+6){display:none}
+.kl-more{display:block;width:100%;text-align:center;font:inherit;font-size:15px;color:var(--acc);padding:16px 0 0;border:0;background:none;cursor:pointer}
+.kl-empty{text-align:center;padding:24px 6px 16px}.kl-empty b{display:block;font-size:17px;font-weight:600}
+.kl-empty p{font-size:15px;color:var(--mut);margin:6px 0 12px;line-height:1.4}.kl-empty a{font-size:15px;color:var(--acc);font-weight:500}
+.kl .ms-v.mut{font-weight:400;color:var(--mut)}
+.kl a.ms-acc,.kl .ms-hint a{color:var(--acc);text-decoration:none}
+.kl-back{display:inline-flex;align-items:center;gap:7px;color:var(--acc);font-size:17px;padding:8px 0 0;text-decoration:none}
+.kl-back::before{content:"";width:9px;height:9px;border-left:2px solid var(--acc);border-bottom:2px solid var(--acc);transform:rotate(45deg);margin-left:3px}
+.kl-dh{padding:12px 0 0}.kl-dh .ms-h1{overflow-wrap:anywhere}
+.kl-dh .s{font-size:15px;color:var(--mut);margin-top:4px}.kl-dh .s a{color:var(--acc);text-decoration:none}
+.kl-key{margin-top:6px}.kl-key .ms-row{min-height:62px}.kl-key .ms-e{max-width:60%}
+.kl-key .ms-v{font-size:22px;font-weight:700;letter-spacing:-.02em}.kl-key .ms-e .ms-s{white-space:nowrap}
+.kl-sw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);margin:8px 0 0;color:var(--fg);text-decoration:none}
+.kl-sw .t{font-size:17px;font-weight:600}.kl-sw .s{font-size:15px;color:var(--mut)}
+.kl-swi{flex:none;width:51px;height:31px;border-radius:999px;background:var(--line2);position:relative}
+.kl-swi::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+.kl-swi.on{background:var(--good)}.kl-swi.on::after{left:auto;right:2px}
+.kl-warn{font-size:15px;color:var(--warn);margin:10px 0 0;line-height:1.4}
+.kl-old h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 8px}
+@container (min-width:820px){
+ .kl-kr,.kl-th{grid-template-columns:28px minmax(0,1fr) 70px 70px 70px 64px 70px 64px 104px 14px;column-gap:14px}
+ .kl-kr{grid-template-areas:"rk tk c1 c2 n sc rug lv last chev" "rk why c1 c2 n sc rug lv last chev"}
+ .kl-kr .x{display:block;text-align:right;font-size:15px;grid-row:1/3}
+ .kl-kr .n{grid-area:n}.kl-kr .sc{grid-area:sc}.kl-kr .rug{grid-area:rug}.kl-kr .lv{grid-area:lv;color:var(--mut)}.kl-kr .last{grid-area:last;color:var(--mut)}
+ .kl-th .d{display:block}
+}
+@container (min-width:760px){
+ .kl-g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:44px;align-items:start}
+ .kl-g2>div>.ms-h2:first-child{margin-top:28px}
+}
+"""
+
+
+def _foll(n):
+    """Pratitelji kratko: "850", "4,0 tis.", "34 tis.", "1,2 mil."."""
+    from ui import redak as R
+    if not n:
+        return None
+    if n < 1000:
+        return R.num(n)
+    if n < 1e6:
+        return f"{R.num(n / 1000, 0 if n >= 10000 else 1)} tis."
+    return f"{R.num(n / 1e6, 1)} mil."
+
+
+def _ap_row(handle):
+    """Redak "Autopilot ga prati" s prekidačem (samo administrator: adm-only). Stanje iz league follows; mijenja se na
+    stranici Autopilot (prekidač vodi tamo), jer je to pravi novac i ide kroz postojeću potvrdu."""
+    kind = ap_follows().get(handle.lower())
+    if kind == "kol":
+        t, s = "Autopilot ga prati", "kupuje na njegove pozive, izlaz po pravilima Autopilota"
+    elif kind == "ekipa":
+        t, s = "Autopilot ga prati", "kao dio ekipe, izlaz po pravilima Autopilota"
+    else:
+        t, s = "Autopilot ga ne prati", "praćenje se uključuje na stranici Autopilot"
+    on = " on" if kind else ""
+    # div nosi adm-only: za administratora ui/html vraća "display:revert", što bi <a> pretvorilo u inline
+    return (f'<div class=adm-only><a class=kl-sw href="/pravi-trade#influenceri"><div><div class=t>{t}</div>'
+            f'<div class=s>{s}</div></div><span class="kl-swi{on}" role=switch aria-checked="{"true" if kind else "false"}">'
+            '</span></a></div>')
+
+
+def _first_hour(mrow, call, now):
+    """(vrijednost, ton, sporedno) ishoda prvog sata jednog poziva za "Zadnji pozivi"."""
+    from ui import redak as R
+    from kol.minute import MIN_MCAP, clean_hit
+    t, mc, r1, r24 = call["ts"], call["mcap0"], call["r1h"], call["r24h"]
+    day = (f"24 h {R.pct(r24, frac=True)}", R.tone(r24)) if r24 is not None else (
+        ("24 h još traje" if now - t < 86400 else "24 h –"), None)
+    if mc is not None and mc < MIN_MCAP:
+        return "ne broji se", "mut", ("ispod 30k $", None)
+    if mrow:
+        if clean_hit(mrow, 10):
+            return f"+10 % u {mrow['t10']} min", "pos", day
+        if mrow["sl_min"] is not None:
+            return "stop −20 %", "neg", day
+        return f"{R.pct(mrow['r60'] or 0, frac=True)} u 1 h", R.tone(mrow["r60"]) or "mut", day
+    if now - t < 70 * 60:
+        return "1 h još traje", "mut", day
+    if r1 is not None:
+        return f"{R.pct(r1, frac=True)} u 1 h", R.tone(r1) or "mut", day
+    return "nije izmjereno", "mut", day
+
+
+def _last_calls(con, handle, now, n=5):
+    """Zadnjih n poziva (kind call/bot) s ishodom prvog sata iz minute.db (po ključu) i rezultatom nakon 24 h."""
+    from urllib.parse import quote
+    from ui import redak as R
+    from kol import minute
+    rows = _rows(con, "SELECT c.tweet_id, c.token, c.ts, c.mcap0, c.r1h, c.r24h, c.text, COALESCE(t.symbol, c.symbol) sym "
+                      "FROM calls c LEFT JOIN tokens t ON t.token = c.token WHERE c.handle = ? AND c.kind IN ('call', 'bot') "
+                      "ORDER BY c.ts DESC LIMIT ?", (handle, n))
+    mrows = {}
+    mcon = minute.ro()
+    if mcon is not None and rows:
+        try:
+            for c in rows:
+                got = minute._rows(mcon, "tweet_id = ? AND token = ?", (c["tweet_id"], c["token"]))
+                if got:
+                    mrows[(c["tweet_id"], c["token"])] = got[0]
+        except sqlite3.Error:
+            pass
+        finally:
+            mcon.close()
+    items = []
+    for c in rows:
+        val, vt, (sub, st) = _first_hour(mrows.get((c["tweet_id"], c["token"])), c, now)
+        mc = f" · na {R.usd(c['mcap0'])}" if c["mcap0"] else ""
+        items.append(R.row(c["sym"] or _ticker(c["text"]) or c["token"][:6], f"{kolchart.when(c['ts'], now)}{mc}",
+                           val, sub, href=f"/token/{quote(c['token'])}", value_tone=vt, sub_tone=st or "mut"))
+    return R.rows(items, empty="Još nema njegovih poziva s adresom tokena.")
+
+
+def profile(con, k, handle, now=None):
+    """/kol/<ime> (10.11., Jure, prijedlog 4.5, maketa influencer.html): presuda za 14 dana i četiri broja koja je nose
+    (nakon 60 min, nakon 24 h, 10 $ u svaki poziv, stižemo li ga), prekidač Autopilota (administrator), graf i dva reda
+    kvadratića, zadnjih 5 poziva, "Više o njemu". Sve stare brojke su na /kol/<ime>/vise i /kol/<ime>/pozivi."""
+    from urllib.parse import quote
+    from ui import kolsummary as KS, redak as R
+    now = now or time.time()
+    s = json.loads(k["stats"] or "{}")
+    v = KS.kol_verdict(handle)
+    sr = kolchart.series(handle, 14, now)
+    sc = k["score"] if k["score"] is not None else s.get("bot_score")
+    q = quote(handle)
+    # zaglavlje: ime, tko je, pratitelji, profil
+    u = profile_url(handle)
+    who = [k["name"]] if k.get("name") and k["name"].lower() not in (handle.lower(), kname(handle).lower()) else []
+    if not handle.startswith("tg:") and _foll(k.get("followers")):
+        who.append(f"{_foll(k['followers'])} pratitelja")
+    link = (f' · <a href="{esc(u)}" target=_blank rel=noopener>{"kanal na Telegramu" if handle.startswith("tg:") else "profil na X-u"}</a>'
+            if u else "")
+    head = (_back("/kol", "Influenceri") + f'<div class=kl-dh><h1 class=ms-h1>{esc(kname(handle))}</h1>'
+            f'<div class=s>{esc(" · ".join(who))}{link if who else link[3:]}</div></div>')
+    warn = ""
+    if k.get("bot"):
+        warn = ('<p class=kl-warn>Bot, spam, promo ili dev račun: njegove objave se ne broje kao pozivi. Ne otvaraj linkove '
+                'iz njegovih objava.</p>')
+    # presuda i četiri broja
+    rug = s.get("rug_rate")
+    rugw = R.raw(f' · <span class=warn>rug {esc(R.pct(rug, sign=False, frac=True))}</span>') if (rug or 0) >= RUG_WARN else None
+    facts = R.cat(f"{v['word']} · {v['n']} {_poziva(v['n'])}", f" · ocjena {sc:.0f}" if sc is not None else None, rugw)
+    title = ("Još bez presude" if v["word"] == "premalo podataka" else KS.VERDICT_TITLE[v["key"]])
+    panel = R.verdict(title, KS.verdict_counts(v), label=f"Presuda za zadnjih {sr['days']} dana", facts=facts, kind=v["dot"])
+    n1, n24 = v["n1"], v["n24"]
+    fast, hold = sr["fast_usd"], sr["hold_usd"]
+    money = R.raw(" · ".join(f'<span class={kolchart._tone(x) or "mut"}>{esc(kolchart.money(x))}</span>' for x in (fast, hold)))
+    con_live = handle.lower() in live_handles(con)
+    med = sr["med_t10"]
+    key = R.rows([
+        R.row("Nakon 60 min", "do +10 % prije stopa −20 %", R.share(v["hits1"], n1) if n1 else "–",
+              R.pct(v["h1"], sign=False, frac=True) if v["h1"] is not None else "još nije izmjereno", sub_tone="mut"),
+        R.row("Nakon 24 h", "u plusu dan kasnije", R.share(v["plus24"], n24) if n24 else "–",
+              f"{n24 - v['plus24']} u minusu" if n24 else "još se ne zna", sub_tone="neg" if n24 > v["plus24"] else "mut"),
+        R.row("10 $ u svaki poziv", "brzi izlaz · drži 24 h", money, "prije naknada", sub_tone="mut"),
+        R.row("Stižemo li ga", "pratimo ga uživo, 1–2 s" if con_live else "vidimo ga tek pri pretrazi, sporije",
+              "Da" if con_live else "Sporije",
+              (f"+10 % za {R.num(med, 0)} min" if med else "+10 % u prvoj minuti") if med is not None else "–", sub_tone="mut"),
+    ], cls="kl-key")
+    left = f"<div>{panel}{key}{_ap_row(handle)}</div>"
+    ch = kolchart.chart(sr)
+    right = ("<div>" + R.section("10 $ u svaki poziv")
+             + (ch or R.hint(f"Još nema izmjerenih poziva u zadnjih {sr['days']} dana."))
+             + (R.section("Svaki poziv, redom") + kolchart.strips(sr) if (sr["h1"] or sr["d24"]) else "") + "</div>")
+    n_posts = con.execute(f"SELECT COUNT(*) FROM calls WHERE handle = ? AND {POSTS}", (handle,)).fetchone()[0]
+    recent = (R.section("Zadnji pozivi", f"Svih {n_posts}" if n_posts else None, f"/kol/{q}/pozivi")
+              + _last_calls(con, handle, now))
+    lifts = [x for x, in con.execute("SELECT vol_lift FROM calls WHERE handle = ? AND kind IN ('call', 'bot') AND "
+                                     "first_by_kol = 1 AND p0 IS NOT NULL AND bad IS NULL AND vol_lift IS NOT NULL", (handle,))]
+    has_tr = con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone()
+    more = [R.row(f"Kako je dobio ocjenu {sc:.0f}" if sc is not None else "Kako je dobio ocjenu",
+                  "bodovi za pogodak, rast, volumen, rugove i kasne pozive", href=f"/kol/{q}/vise#ocjena"),
+            R.row("Koliko ga tržište sluša",
+                  (f"volumen se udvostruči nakon {R.pct(sum(1 for x in lifts if x >= 2) / len(lifts), sign=False, frac=True)} objava"
+                   if lifts else "volumen i cijena sat nakon objave"), href=f"/kol/{q}/vise#trziste"),
+            R.row("Zove zajedno s", "tko pojačava njegove pozive i čije pozive on pojačava", href=f"/kol/{q}/vise#ekipa")]
+    if has_tr:
+        more.append(R.row("Njegov novčanik", "kupnje i prodaje oko njegovih poziva", href=f"/kol/{q}/vise#novcanik"))
+    foot = ('<p class=ms-hint>Nakon 60 min: od zatvaranja minute poziva, cilj +10 % prije stopa −20 %, iz 1-min svijeća. '
+            'Nakon 24 h: cijena dan poslije objave. Brzi izlaz: prodaja na +10 %, na stopu ili nakon 60 min. Pozivi na tokene '
+            'ispod 30k $ se ne broje. <a class=ms-acc href="/pojmovnik">Pojmovnik</a></p>')
+    body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}{kolchart.CSS}</style>{head}{warn}'
+            f'<div class=kl-g2>{left}{right}</div>{recent}' + R.section("Više o njemu") + R.rows(more) + foot + "</div>")
+    return kname(handle), _calm(body)
+
+
+def _calm(html):
+    """Naslovi sekcija mirnih stranica bez reda čipova (ui/secnav ga gradi od 3+ <h2>; makete ga nemaju)."""
+    return html.replace('<h2 class="ms-h2"', '<h2 class="ms-h2 nosec"')
+
+
+def _sub_shell(handle, title, inner):
+    from urllib.parse import quote
+    return (f'<div class="ms-page ms-wide kl kl-old"><style>{KL_CSS}</style>{_back("/kol/" + quote(handle), kname(handle))}'
+            f'<div class=kl-dh><h1 class=ms-h1>{esc(title)}</h1></div>{inner}</div>')
+
+
+def calls_page(con, handle):
+    """/kol/<ime>/pozivi: današnja tablica svih objava s adresom (500), stari grafovi za cijelo razdoblje."""
+    n = con.execute(f"SELECT COUNT(*) FROM calls WHERE handle = ? AND {POSTS}", (handle,)).fetchone()[0]
+    inner = (f"<p class=ms-sub>{n} objava s adresom tokena, najnovije prve. Postoci su od trenutka objave; stupci 1 h, "
+             "6 h i 24 h se pune kad to vrijeme prođe.</p>"
+             + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False) + _charts(con, handle))
+    return f"Pozivi {kname(handle)}", _sub_shell(handle, f"Pozivi {kname(handle)}", inner)
+
+
+def more_page(con, k, handle, cfg):
+    """/kol/<ime>/vise: "Više o njemu" (kako je dobio ocjenu, koliko ga tržište sluša, ekipa, novčanik): sve brojke i
+    oznake koje je profil imao prije 10.11., sadržaj isti."""
+    from ui import redak as R
+    s = json.loads(k["stats"] or "{}")
+    b = ["<h2 id=ocjena>Kako je dobio ocjenu</h2>"]
+    sc = k["score"] if k["score"] is not None else s.get("bot_score")
+    rel = k["power_rel"] if k["power_rel"] is not None else s.get("bot_rel")
+    b.append(R.rows([
+        R.row("Ocjena" if not k.get("bot") else "Moć objava (bot)", "0–100, koliko tokeni rastu nakon poziva",
+              f"{sc:.0f}" if sc is not None else "–"),
+        R.row("Moć po pratitelju", "ocjena naspram veličine računa", f"{R.num(rel, 2)}×" if rel is not None else "–"),
+        R.row("Pratitelja", None, R.num(k["followers"] or 0)),
+        R.row("Izmjerenih poziva", "prvi poziv po tokenu, cijena izmjerena", R.num(s.get("measured", 0))),
+        R.row("Pogodak (stara mjera)", f"vrh +{cfg['hit_x']:.0%} u 24 h; ulazi u bodove",
+              R.pct(s["hit_rate"], sign=False, frac=True) if "hit_rate" in s else "–"),
+        R.row("Hvalisanja", "objave nakon skoka", R.num(s.get("brags", 0))),
+    ]))
+    if k.get("bot"):
+        b.append('<p class=kl-warn>Bot, spam, promo ili dev račun. Razlog: ' + esc(k.get("bot_why") or "") + '. Njegove '
+                 'objave se ne broje kao pozivi: ne ulaze u grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, '
+                 'konvergenciju, demo ulaze ni statistiku X objava.</p>')
+    if s.get("trial") and not k.get("bot"):
+        b.append(f'<p class=kl-warn>Na probi: još ga ne pratimo uživo, ne ulazi u copy trading ni kao "dobar KOL" u '
+                 f'grupni signal. {esc(s.get("trial_why") or "")}</p>')
+    if s.get("rugger") and not k.get("bot"):
+        b.append(f'<p class=kl-warn>Puno rugova: {esc(s.get("rug_why") or "")}. Ostaje na listi, ali njegove objave čitamo '
+                 'rjeđe (svaka 3 dana).</p>')
+    if s.get("bought"):
+        b.append(f'<p class=ms-hint>Njegov novčanik je kupio {s["bought"]} od tokena koje je zvao: stavlja novac iza '
+                 'objave.</p>')
+    b.append(_audit_line(con, handle))
+    if s.get("parts"):
+        w, p = cfg["weights"], s["parts"]
+        expl = {"hit": f"{s['hit_rate']:.0%} poziva s barem +{cfg['hit_x']:.0%} u 24 h",
+                "max24": f"medijan najvećeg rasta u 24 h {s['med_max24']:+.0%} (+200% = puni bodovi)",
+                "r1h": f"medijan nakon 1 h {(s.get('med_r1h') or 0):+.0%} (+50% = puni)",
+                "vol_lift": f"medijan volumena sat poslije / sat prije {(s.get('med_lift') or 0):.1f}× (8× = puni)",
+                "first": f"{s['first_rate']:.0%} poziva u kojima je prvi autor",
+                "no_rug": f"{s['rug_rate']:.0%} poziva palo 90%+",
+                "prepump": f"{s['prepump_rate']:.0%} poziva nakon što je cijena već udvostručena u 2 h",
+                "deletes": (f"obrisao {s.get('deleted', 0)} objava, od toga {s.get('deleted_losers', 0)} gubitnika; "
+                            "obrisani pozivi i dalje se broje, a brisanje gubitnika oduzima bodove")}
+        names = {"hit": "Pogodak", "max24": "Rast 24 h", "r1h": "Rast 1 h", "vol_lift": "Volumen", "first": "Prvi",
+                 "no_rug": "Bez ruga", "prepump": "Kasni pozivi", "deletes": "Briše gubitnike"}
+        b.append("<p class=ms-hint>" + esc(
+            (f"Doseg: {s['doseg'].get('followers', 0):,} pratitelja, prate ga {s['doseg'].get('followed_by', 0)} naših "
+             f"dokazanih KOL-ova, pa početnih {s['doseg'].get('prior', cfg['prior_score'])} bodova. " if s.get("doseg") else "")
+            + f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
+            f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.") + "</p>"
+                 + breakdown([(names[x], p.get(x, 0), abs(w[x]), expl[x]) for x in w if x in names], "Izmjereno"))
+    inf = _influence(con, handle, cfg)
+    b.append(inf.replace("<h2>Koliko ga tržište sluša</h2>", "<h2 id=trziste>Koliko ga tržište sluša</h2>", 1) if inf
+             else "<h2 id=trziste>Koliko ga tržište sluša</h2><p class=ms-hint>Još nema izmjerenih objava.</p>")
+    crew = ""
+    try:   # 5.11.: transfers around the account (kol/traces.py) and the crew (kol/crew.py)
+        from kol import crew as _cr, traces as _tr
+        crew = _tr.html(con, handle) + _cr.html(con, handle)
+    except Exception:  # noqa: BLE001
+        pass
+    b.append("<h2 id=ekipa>Zove zajedno s</h2>" + (crew or "<p class=ms-hint>Još nema podataka tko pojačava njegove "
+                                                          "pozive.</p>"))
+    if con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone():
+        b.append("<h2 id=novcanik>Njegov novčanik</h2><p class=ms-hint>Što je njegov novčanik kupio i prodao, najnovije "
+                 "prvo. Link otvara transakciju na Solscanu.</p>"
+                 + trades_table(con, "handle = ?", (handle,), 500, "ktrades", show_who=False))
+    return f"Više o {kname(handle)}", _sub_shell(handle, f"Više o {kname(handle)}", "".join(b))
+
+
+def _analize_head():
+    return (f'<div class=kl><style>{KL_CSS}</style>{_back("/kol", "Influenceri")}<div class=kl-dh>'
+            '<h1 class=ms-h1>Analize influencera</h1></div><p class=ms-sub>Sve što je bilo ispod ljestvice, sklopljeno: '
+            'otvori dodirom.</p></div>')
+
+
+def analize_page(qs):
+    """/kol/analize: everything the old /kol page had below the leaderboard, unchanged and still folded (10.11., Jure,
+    prijedlog 3.3: "10 sekcija za znatiželjne -> jedna podstranica"), plus the old 21-column table as "Sve brojke
+    ljestvice". Heavy (together.build, pairs, correlations): run_ui builds it in a child and keeps a snapshot, like /kol."""
+    con = store.ro()
+    b = [_analize_head()]
+    if con is None:
+        return "Analize influencera", "".join(b) + "<p class=mut>Još nema podataka.</p>"
     try:
         cfg = _cfg()
         b = []
@@ -594,7 +1216,7 @@ def page(qs):
                 print(f"influenceri: {name}: {type(e).__name__}: {e}")
         head = "".join(b)
         b = []
-        b.append("<h2 id=ljestvica>Najbolji influenceri</h2>")
+        b.append("<h2 id=tablica>Sve brojke ljestvice</h2>")
         try:
             b.append(kolsummary.leaders_html(con, cfg))
         except Exception as e:  # noqa: BLE001
@@ -618,7 +1240,7 @@ def page(qs):
                 b.append(fn())
             except Exception as e:  # noqa: BLE001
                 print(f"influenceri: {name}: {type(e).__name__}: {e}")
-        b.append(f"<h2 id=pozivi>Upravo zvali</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
+        b.append(f"<h2 id=pozivi>Svi pozivi s objavom</h2>{filt('calls', 'Filtriraj pozive…')}" + tdesc(
             "Svaki post s CA tokena. Postoci su promjena cijene od trenutka posta; Volumen × = volumen sat nakon "
             "posta naspram sata prije. Prodaja u poziv: insajderi (kupili sat prije, prodali 30 min poslije) i SOL "
             "prodano/kupljeno u 30 min nakon posta.") + calls_table(con, limit=60))
@@ -671,16 +1293,16 @@ def page(qs):
             "+0.3 i više = jasna veza, oko 0 = nema veze, minus = obrnuto. Mijenja se kako se skupljaju podaci.")
                  + _corr(con))
         b.append("<h2 id=brojke>Brojke</h2>" + "".join(grid))
-        # 10.11. (Jure, prijedlog 3.3 i 5.1): "Prijedlog za danas" (prijedlog.box) lives only on Pregled; the page
-        # starts with its own list. The long intro still folds under "pročitaj više".
+        # 10.11. (Jure, prijedlog 3.3 i 5.1): "Prijedlog za danas" (prijedlog.box) lives only on Pregled; the long
+        # intro still folds under "pročitaj više"; "za znatiželjne" keeps its id for the row on /kol (Analize)
         head = ("<details class=more><summary>Pročitaj više: kako mjerimo influencere</summary>" + head + "</details>"
                       if head else "")
         body = (head + learnprogress.fold(_leads(main, cfg))
-                + "<p class=uc-more>Detalji za znatiželjne (otvori dodirom):</p>"
+                + "<p class=uc-more id=znatizeljne>Detalji za znatiželjne (otvori dodirom):</p>"
                 + learnprogress.fold(_leads("".join(b), cfg)))
     finally:
         con.close()
-    return "Influenceri", "<h1>Influenceri</h1>" + body
+    return "Analize influencera", _analize_head() + body
 
 
 def _influence(con, handle, cfg):
@@ -779,6 +1401,12 @@ def _audit_line(con, handle):
 
 
 def kol_page(handle, qs):
+    """/kol/<ime> (profil), /kol/<ime>/pozivi (sve objave) i /kol/<ime>/vise (više o njemu). 10.11. (Jure, prijedlog
+    4.5): profil počinje presudom i četirima brojevima; stare brojke su jedan dodir dalje na podstranicama. Kanal samo
+    iz povijesti Telegrama (tg:) i novčanik bez X računa (w:) imaju svoje stranice kao i prije."""
+    handle, _, sub = handle.partition("/")
+    if sub not in ("", "pozivi", "vise"):
+        return None
     con = store.ro()
     if con is None:
         return None
@@ -791,75 +1419,16 @@ def kol_page(handle, qs):
             if hist:
                 return hist
         if not k:
-            return "KOL", f"<h1>@{esc(handle)}</h1><p>Nema poziva od ovog računa.</p>"
-        s = json.loads(k["stats"] or "{}")
-        cfg = _cfg()
-        b = [f'<p><a href="/kol">← KOL-ovi</a></p><h1>{esc("✈ " + handle[3:] if handle.startswith("tg:") else "@" + handle)} <span class=mut>{esc(k["name"] or "")}</span></h1>'
-             + (f'<p><a href="{profile_url(handle)}" target=_blank rel=noopener>'
-                f'{"Kanal na Telegramu" if handle.startswith("tg:") else "Profil na X-u"} ↗</a></p>' if profile_url(handle) else "")
-             + '<div class=grid>']
-        sc = k["score"] if k["score"] is not None else s.get("bot_score")
-        rel = k["power_rel"] if k["power_rel"] is not None else s.get("bot_rel")
-        for v, l in [(f"{sc:.0f}" if sc is not None else "–", "moć objava (bot)" if k.get("bot") else "moć poziva"),
-                     (f"{rel:.2f}×" if rel is not None else "–", "moć po pratitelju"),
-                     (f"{k['followers'] or 0:,}", "pratitelja"), (s.get("measured", 0), "izmjerenih poziva"),
-                     (f"{s['hit_rate']:.0%}" if "hit_rate" in s else "–", "pogodak"), (s.get("brags", 0), "hvalisanja")]:
-            b.append(f"<div class=stat><div class=v>{esc(v)}</div><div class=l>{l}</div></div>")
-        b.append("</div>")
-        if k.get("bot"):
-            b.append('<p><span class="b warn">nije KOL</span> <b>Bot, spam, promo ili dev račun.</b> Razlog: '
-                     f'{esc(k.get("bot_why") or "")}. Njegove objave se ne broje kao pozivi: ne ulaze u '
-                     'grupe KOL-ova, ljestvicu, praćenje uživo, copy trading, konvergenciju, demo ulaze ni statistiku '
-                     'X objava. Ne otvaraj linkove iz njegovih objava. Brojke niže samo pokazuju što su njegove objave '
-                     'napravile s cijenom.</p>')
-        if s.get("trial") and not k.get("bot"):
-            b.append(f'<p><span class="b warn">na probi</span>{tip("", "na-probi")} Još ga ne pratimo uživo, ne '
-                     f'ulazi u copy trading ni kao „dobar KOL“ u grupni signal: {esc(s.get("trial_why") or "")}.</p>')
-        if s.get("rugger") and not k.get("bot"):
-            b.append(f'<p><span class="b bad">puno rugova</span>{RUG_TIP} {esc(s.get("rug_why") or "")}. Ostaje na '
-                     'listi, ali njegove objave čitamo rjeđe (svaka 3 dana). Pazi kod kupnje njegovih poziva.</p>')
-        if s.get("bought"):
-            b.append(f'<p><span class="b good">kupio</span> Njegov novčanik je kupio {s["bought"]} od tokena koje je '
-                     'zvao: stavlja novac iza objave.</p>')
-        b.append(_audit_line(con, handle))
-        if s.get("parts"):
-            w, p = cfg["weights"], s["parts"]
-            expl = {"hit": f"{s['hit_rate']:.0%} poziva s barem +{cfg['hit_x']:.0%} u 24 h",
-                    "max24": f"medijan najvećeg rasta u 24 h {s['med_max24']:+.0%} (+200% = puni bodovi)",
-                    "r1h": f"medijan nakon 1 h {(s.get('med_r1h') or 0):+.0%} (+50% = puni)",
-                    "vol_lift": f"medijan volumena sat poslije / sat prije {(s.get('med_lift') or 0):.1f}× (8× = puni)",
-                    "first": f"{s['first_rate']:.0%} poziva u kojima je prvi autor",
-                    "no_rug": f"{s['rug_rate']:.0%} poziva palo 90%+",
-                    "prepump": f"{s['prepump_rate']:.0%} poziva nakon što je cijena već udvostručena u 2 h",
-                    "deletes": (f"obrisao {s.get('deleted', 0)} objava, od toga {s.get('deleted_losers', 0)} gubitnika; "
-                                "obrisani pozivi i dalje se broje, a brisanje gubitnika oduzima bodove")}
-            names = {"hit": "Pogodak", "max24": "Rast 24 h", "r1h": "Rast 1 h", "vol_lift": "Volumen", "first": "Prvi",
-                     "no_rug": "Bez ruga", "prepump": "Kasni pozivi", "deletes": "Briše gubitnike"}
-            b.append("<h2>Kako je dobio ocjenu</h2>" + tdesc(
-                (f"Doseg: {s['doseg'].get('followers', 0):,} pratitelja, prate ga {s['doseg'].get('followed_by', 0)} naših dokazanih "
-                 f"KOL-ova → početnih {s['doseg'].get('prior', cfg['prior_score'])} bodova. " if s.get("doseg") else "")
-                + f"Izmjereni dio daje {s.get('raw', 0):.1f}; s {s.get('measured', 0)} poziva vjerujemo mu "
-                f"{s.get('confidence', 0):.0%}, ostatak je početnih {s.get('prior', cfg['prior_score'])} bodova.")
-                     + breakdown([(names[x], p.get(x, 0), abs(w[x]), expl[x]) for x in w if x in names], "Izmjereno"))
-        b.append(_charts(con, handle))
-        b.append(_influence(con, handle, cfg))
-        try:   # 5.11.: transfers around the account (kol/traces.py) and the crew (kol/crew.py)
-            from kol import crew as _cr, traces as _tr
-            b.append(_tr.html(con, handle))
-            b.append(_cr.html(con, handle))
-        except Exception:  # noqa: BLE001
-            pass
-        b.append("<h2>Svi pozivi</h2>" + tdesc("Svaki njegov post s CA tokena, najnoviji prvi. Postoci su od trenutka posta. Cijena i volumen: iz "
-                 "5-min svijeća (GeckoTerminal) kad su dostupne, inače iz snimki DexScreenera svakih 20 min (tada je "
-                 "Max 24 h približan). Stupci 1 h / 6 h / 24 h se pune kad to vrijeme prođe.")
-                 + calls_table(con, "handle = ?", (handle,), 500, "kcalls", show_kol=False))
-        if con.execute(f"SELECT 1 FROM calls WHERE handle = ? AND {TRADES} LIMIT 1", (handle,)).fetchone():
-            b.append("<h2>Kupnje i prodaje s njegovog novčanika</h2>" + tdesc(
-                "Što je njegov novčanik kupio i prodao, najnovije prvo. Link otvara transakciju na Solscanu.")
-                     + trades_table(con, "handle = ?", (handle,), 500, "ktrades", show_who=False))
+            return "KOL", (f'<div class="ms-page kl"><style>{KL_CSS}</style>{_back("/kol", "Influenceri")}'
+                           f'<div class=kl-dh><h1 class=ms-h1>{esc(kname(handle))}</h1></div>'
+                           "<p class=ms-hint>Nema poziva od ovog računa.</p></div>")
+        if sub == "pozivi":
+            return calls_page(con, handle)
+        if sub == "vise":
+            return more_page(con, k, handle, _cfg())
+        return profile(con, k, handle)
     finally:
         con.close()
-    return f"@{handle}", "".join(b)
 
 
 def _tg_history_page(con, handle):

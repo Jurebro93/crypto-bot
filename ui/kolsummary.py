@@ -538,6 +538,28 @@ def _stats(days=14, now=None, kol_db=None, minute_db=None):
 
 verdict_stats.__doc__ = _stats.__doc__
 
+# 10.11. (Jure, prijedlog 4.4 i 4.5): javna ljestvica je i na engleskom; ista presuda (isti ključ), samo riječ prevedena
+VERDICT_WORD_EN = {"drzi_se": "holds up", "samo_brzo": "quick exit only", "ne_isplati_se": "not worth it",
+                   "premalo": "too few calls"}
+
+
+def verdict_counts(r):
+    """Ista presuda kao r["sentence"], ali prebrojana ("21 od 30" umjesto "70 %"), za hero ljestvice i vrh profila
+    (makete influenceri-ljestvica.html i influencer.html). r: redak iz verdict_stats / kol_verdict. Brojke su iste
+    (hits1/n1, plus24/n24); kad presude nema (premalo), vraća r["sentence"]."""
+    k, n1, hits, n24, plus = r["key"], r.get("n1") or 0, r.get("hits1") or 0, r.get("n24") or 0, r.get("plus24") or 0
+    if k == "premalo":
+        return r["sentence"]
+    day = None
+    if n24 >= VERDICT_MIN_N:
+        day = (f"Dan kasnije {plus} od {n24} je u plusu." if k == "drzi_se"
+               else f"Ako držiš dan, {n24 - plus} od {n24} završi u minusu." if k == "samo_brzo"
+               else f"Dan kasnije u plusu je {plus} od {n24}.")
+    if k == "ne_isplati_se":
+        return f"Samo {hits} od {n1} poziva dođe do +10\u00a0% u prvom satu, prije stopa −20\u00a0%." + (" " + day if day else "")
+    return (f"U prvom satu {hits} od {n1} poziva dođe do +10\u00a0%. "
+            + (day or "Kako stoje dan kasnije, još se ne zna."))
+
 
 def kol_verdict(handle, days=14, now=None, kol_db=None, minute_db=None):
     """verdict_stats(...) row for one account (exact handle, then case-insensitive, "@" ignored); an account with no
