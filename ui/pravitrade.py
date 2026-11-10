@@ -128,6 +128,16 @@ details.ap-it form,details.ap-sec form{margin:0 0 10px;display:flex;gap:6px;flex
 .ap-sk .ms-row{min-height:0}
 .ap .in table.t{font-size:13px}
 #dnevnik>summary .ms-s,#influenceri>summary .ms-s{white-space:normal}
+/* 10.11. (Jure): sticky section menu under the app header and the open quick buy under the chart */
+.ap-fn{position:sticky;top:60px;z-index:20;display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin:0 0 4px;
+background:var(--bg);scrollbar-width:none}.ap-fn::-webkit-scrollbar{display:none}
+.ap-fn a{flex:none;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);
+color:var(--fg);font-size:15px;text-decoration:none;white-space:nowrap}.ap-fn a:active{background:var(--line)}
+.ap [id]{scroll-margin-top:120px}
+.ap-qb{margin:16px 0 6px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
+.ap-qb form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ap-qb form input[name=token]{flex:1;min-width:200px}
+.ap-qb p.mut{font-size:13px;margin:8px 0 0}
 </style>"""
 
 # 10.11. (Jure: "stranica mora biti čista"): the 7/14/30-day switch and the Phantom button are handled from the
@@ -1141,6 +1151,20 @@ def _buy_form(mint, cfg, exit_mode, owner):
             '<button class=ap-go>Kupi</button></form>')
 
 
+FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("dnevnik", "Dnevnik", False),
+             ("pozicije", "Pozicije", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
+FLOAT_JS = ("<script>(()=>{document.querySelectorAll('.ap-fn a').forEach(a=>a.addEventListener('click',()=>{"
+            "const t=document.getElementById(a.getAttribute('href').slice(1));"
+            "if(t&&t.tagName==='DETAILS')t.open=true}))})()</script>")
+
+
+def _float_nav(owner):
+    """10.11. (Jure: "dodaj gore floating izbornik da lakše dođem do pojedinih stavki na autopilot stranici"): a
+    sticky row of links under the app header; a link to a closed section also opens it."""
+    links = "".join(f'<a href="#{sid}">{esc(word)}</a>' for sid, word, own in FLOAT_NAV if owner or not own)
+    return f'<nav class=ap-fn aria-label="Dijelovi stranice">{links}</nav>' + FLOAT_JS
+
+
 def _buy_now_card(cfg, owner):
     """9.11. (Jure): buy any token right now with the amount you choose: address + SOL + Kupi.
     Exit defaults to the target chosen in "Pravila" (TP) and, with no stop typed in, the default stop
@@ -1161,7 +1185,9 @@ def _buy_now_card(cfg, owner):
              f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14></details></form>'
              '<p class=mut>Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide samo kad je Autopilot '
              'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”.</p>')
-    return _sec("Kupi ručno", "bilo koji token, iznos po želji", inner, sid="kupi-odmah")
+    # 10.11. (Jure: "nema opcije za brzo kupovanje koja treba biti odmah ispod grafa jer je to glavna stvar"): an open
+    # block right under the chart, not a closed row under "Kako trguje"; the form and its confirmation are the same
+    return f'<section class=ap-qb id=kupi-odmah><h2 class=ap-qb-h>Brza kupnja</h2>{inner}</section>'
 
 
 TP_CHOICES = (5, 10, 15, 20, 30)
@@ -2838,20 +2864,20 @@ def page(qs, user):
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, '<div class="ap ms-page">',
+            b = [CSS, '<div class="ap ms-page">', _float_nav(owner),
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
+                 _safe("kupnja", _buy_now_card, cfg, owner),
                  setup.get("warn", ""),
                  _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
-                        _safe("pravila", _rules, tcon, cfg, owner),
-                        _safe("kupnja", _buy_now_card, cfg, owner))]
+                        _safe("pravila", _rules, tcon, cfg, owner))]
         finally:
             con.close()
-        b += [_h2("Još"),
+        b += [_h2("Još", sid="jos"),
               _group(_callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
                      _safe("pozivnice", _invites, tcon) if owner else "", _safety()),
