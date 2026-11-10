@@ -323,7 +323,7 @@ class Pipeline(Base):
         self.position("SKIPA", "AAA", NOW - 3 * H, "blocked", "signal star 4 min: kupnja samo dok je poziv svjež (do 180 s)")
         self.position("FAIL", "FFF", NOW - 2 * H, "failed", "transakcija nije stigla u blok (Jupiter, Ultra)")
         self.position("BOUGHT", "BBB", NOW - 4 * H, "open", None)
-        self.demo_skip("SKIPB", "SKB", NOW - 5 * H, "MC 21k ispod 30k")
+        self.demo_skip("SKIPB", "SKB", NOW - 5 * H, "likvidnost 3k premala")
         self.demo_skip("YOUNG", "YNG", NOW - 10 * 60, "praćenje bez dokaza u demu (zatvorenih 3 od 10)")
         return {"PCALL": candles(NOW - 3 * H, {5: (1.0, 1.2, 1.0, 1.1)}, after=80),
                 "PA": candles(NOW - 3 * H, {6: (1.0, 1.3, 1.0, 1.2)}),
@@ -451,7 +451,7 @@ class Box(Pipeline):
         self.assertNotIn("kupnja samo dok je poziv svjež", guest)
         self.assertNotIn("Jupiter, Ultra", guest)
         self.assertIn("signal star", guest)
-        self.assertIn("MC ispod 30k", guest)
+        self.assertIn("likvidnost", guest)
         frag = self.pt.dnevnik_fragment("Ivan")
         self.assertIn("id=ap-sk", frag)
         self.assertNotIn("kupnja samo dok je poziv svjež", frag)
@@ -486,7 +486,7 @@ class Box(Pipeline):
         self.position("BOUGHT", "BBB", NOW - 4 * H, "open", None)
         self.assertIn("U zadnja 24 h nijedan signal nije preskočen.", self.box())
         self._reset()
-        self.demo_skip("SKIPB", "SKB", NOW - 5 * H, "MC 21k ispod 30k")
+        self.demo_skip("SKIPB", "SKB", NOW - 5 * H, "likvidnost 3k premala")
         os.remove(self.mp)                                                    # minute.db not there yet
         html = self.box()
         self.assertIn("Od 1 preskočenog: 1 se još mjeri.", html)
@@ -506,6 +506,23 @@ class Box(Pipeline):
         html = self.box()
         self.assertIn("Od 3 preskočena: 1 bi dosegao +15 % prije −20 %", html)   # still the +15 % he asked for
         self.assertIn("Autopilot sada izlazi na +20 %: 2 od 3 izmjerenih bi ga dosegla prije −20 %.", html)
+
+
+class UnderFloor(unittest.TestCase):
+    """10.11. (CLAUDE.md: tokeni ispod 30k $ se ne analiziraju): a skip because of the $30k rule is listed with its
+    own word and never measured (no candle request)."""
+
+    def test_verdict_and_sentence(self):
+        v = preskoceni.verdict(preskoceni.UNDER_FLOOR, 1000, 100_000)
+        self.assertEqual((v["kind"], v["word"]), ("floor", "ispod 30k"))
+        miss = {"kind": "miss"}
+        line = preskoceni.sentence([v, miss], [])
+        self.assertIn("1 ispod 30k (ne mjeri se)", line)
+
+    def test_not_among_the_decisions_to_measure(self):
+        rows = [{"kind": "preskocio", "side": "buy", "token": "A", "why_short": "MC ispod 30k", "ts": 1},
+                {"kind": "preskocio", "side": "buy", "token": "B", "why_short": "bez dokaza u demu", "ts": 1}]
+        self.assertEqual([e["token"] for e in preskoceni.skipped(rows) if not preskoceni.under_floor(e)], ["B"])
 
 
 if __name__ == "__main__":

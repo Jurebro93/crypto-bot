@@ -10,8 +10,8 @@ Who runs it: only kol/minute.loop, after its own pass (the call measurements alw
 GeckoTerminal, never waits on it: a pass stops the moment the host is cooling after a 429 or another job holds it
 (minutes() answers None), at most PER_RUN skips and BUDGET_S seconds a pass. trade.db and league.db are read through
 read-only connections; nothing here can change a trade (it is a measurement of a decision already made). Tokens
-under $30k market cap are measured too: the reason text already says why they were skipped, and the owner asked
-whether skipping them was right.
+under $30k market cap are NOT measured (CLAUDE.md: tokens under $30k are not analysed): a skip whose short reason is
+"MC ispod 30k" is listed with the verdict "ispod 30k" and costs no request.
 
 Pool: kol.db tokens.pair when the token was called, else the deepest DexScreener pair (the scanner's 60-s cache,
 30 tokens a request), else a 'pool' failure. Failures retry: no candle / unknown pool once a day, a network error
@@ -75,6 +75,14 @@ def skipped(rows):
     return [e for e in rows or () if e.get("kind") in KINDS and e.get("side") != "sell" and e.get("token")]
 
 
+UNDER_FLOOR = "MC ispod 30k"   # trade/aplog.why_short of the $30k rule
+
+
+def under_floor(e):
+    """10.11. (CLAUDE.md, Jure: tokeni ispod 30k $ se ne analiziraju): a skip because of the $30k floor is not measured."""
+    return (e.get("why_short") or "") == UNDER_FLOOR
+
+
 def decisions(now, trade_db=None, league_db=None):
     """[aplog entry] of the buy-side skips of the last WINDOW_S, newest first, read through read-only connections
     (trade.db: settings.DB, league.db: league.store.DB). [] when trade.db is not there."""
@@ -91,7 +99,7 @@ def decisions(now, trade_db=None, league_db=None):
         tcon.close()
         if lcon is not None:
             lcon.close()
-    return skipped(rows)
+    return [e for e in skipped(rows) if not under_floor(e)]   # the $30k rule: nothing to measure
 
 
 def due(mcon, entries, now, cap):
@@ -353,6 +361,8 @@ def verdict(row, ts, now, tp=TP, sl=SL):
     """{"kind", "word", "detail"} of one skip. kind: "miss" (propušteno: +tp % before -sl % within the hour),
     "ok" (dobro preskočen: the stop first, or no +tp % within the hour), "wait" (mjeri se: younger than WAIT_S,
     not measured yet, or a network error to be retried), "none" (nema podataka: no pool, no candle)."""
+    if row == UNDER_FLOOR:
+        return {"kind": "floor", "word": "ispod 30k", "detail": "po pravilu se ne kupuje ni ne mjeri"}
     if now - ts < WAIT_S:
         return {"kind": "wait", "word": "mjeri se", "detail": f"rezultat oko {hm(ts + WAIT_S, now)}"}
     if not row or row.get("bad") == "greska":
@@ -385,7 +395,7 @@ def _few(n):
 
 
 def counts(verdicts):
-    out = {"miss": 0, "ok": 0, "wait": 0, "none": 0}
+    out = {"miss": 0, "ok": 0, "wait": 0, "none": 0, "floor": 0}
     for v in verdicts:
         out[v["kind"]] = out.get(v["kind"], 0) + 1
     return out
@@ -403,6 +413,8 @@ def _parts(c, tp, sl):
         parts.append(f"{c['wait']} se još {'mjeri' if _one(c['wait']) else 'mjere'}")
     if c["none"]:
         parts.append(f"{c['none']} bez podataka")
+    if c.get("floor"):
+        parts.append(f"{c['floor']} ispod 30k (ne mjeri se)")
     return ", ".join(parts)
 
 

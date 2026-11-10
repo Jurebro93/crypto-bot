@@ -121,7 +121,7 @@ details.ap-it form,.ap-blk form{margin:0 0 10px;display:flex;gap:6px;flex-wrap:w
 .ap .ap-skr .w{grid-area:w;color:var(--mut);font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
 .ap-skr .v{grid-area:v;text-align:right;font-weight:600;white-space:nowrap}
 .ap-skr .d{grid-area:d;text-align:right;font-size:13px;white-space:nowrap}
-.ap-skr .v.miss{color:var(--warn)}.ap-skr .v.ok{color:var(--good)}.ap-skr .v.wait,.ap-skr .v.none{color:var(--mut);font-weight:500}
+.ap-skr .v.miss{color:var(--warn)}.ap-skr .v.ok{color:var(--good)}.ap-skr .v.wait,.ap-skr .v.none,.ap-skr .v.floor{color:var(--mut);font-weight:500}
 .ap-skr .d.wait,.ap-skr .d.none{color:var(--mut)}
 .ap-sk details.ap-it>summary{padding:9px 0;font-size:13px;color:var(--mut)}
 .ap-lg>span:first-child{min-width:0;overflow-wrap:anywhere}
@@ -2250,7 +2250,9 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
     from kol import preskoceni
     tp, sl = preskoceni.TP, _sl_pct()
     keys = [(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows]
-    vs = [preskoceni.verdict((paths or {}).get(k), e.get("ts") or 0, now, tp, sl) for e, k in zip(rows, keys)]
+    # 10.11. (CLAUDE.md): a skip because of the $30k floor is listed but never measured
+    vs = [preskoceni.verdict(preskoceni.UNDER_FLOOR if preskoceni.under_floor(e) else (paths or {}).get(k),
+                             e.get("ts") or 0, now, tp, sl) for e, k in zip(rows, keys)]
     head = preskoceni.sentence([v for e, v in zip(rows, vs) if e["kind"] == "preskocio"],
                                [v for e, v in zip(rows, vs) if e["kind"] == "nije_proslo"], tp, sl)
     b = [f"<p class=h>{esc(head)}</p>"]
