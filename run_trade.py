@@ -214,6 +214,25 @@ def _mirrored(con, league_id):
     return con.execute("SELECT 1 FROM positions WHERE league_id=? LIMIT 1", (league_id,)).fetchone() is not None
 
 
+def _exit_recon_once(con, now=None):
+    """Plan 1.5: the real exit next to the demo's for positions closed in the last 15 min (executor.exit_reconcile).
+    One getTokenSupply per newly closed token and the SOL price trade/equity already keeps; never raises."""
+    lg = None
+    try:
+        lg = _league()
+        if lg is None:
+            return 0
+        from trade import equity
+        return executor.exit_reconcile(con, lg, equity._decimals, lambda: (equity.rates() or {}).get("sol_usd"),
+                                       now=now)
+    except Exception as e:  # noqa: BLE001 - a statistic never stops the trade loop
+        print(f"trade: usporedba izlaza: {type(e).__name__}: {e}", flush=True)
+        return 0
+    finally:
+        if lg is not None:
+            lg.close()
+
+
 def follow_league_once(con, cfg, since, now=None, quiet=False):
     """Mirror the competition account "pravi-trade": its new open trades -> buys, its (partial) exits -> sells.
     The share still held in the demo trade (qty / bought qty) is the share kept of the real position."""
@@ -390,6 +409,7 @@ def cmd_follow(a):
             if cfg.get("follow_paper"):
                 follow_once(con, cfg, since)
             follow_league_once(con, cfg, since)
+            _exit_recon_once(con)             # 10.11. (plan 1.5): demo vs real exit price of positions just closed
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)

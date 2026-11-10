@@ -244,8 +244,10 @@ def fast_once(con, market, user, now=None):
     """The TP/SL of one account's open positions at the current price: [(user, symbol, what happened)], plus the
     number watched and priced as the last item's stats via fast_once.last."""
     now = now or time.time()
-    rows = [dict(r) for r in con.execute("SELECT * FROM trades WHERE status='open' AND user=? AND auto IS NOT NULL",
-                                         (user,))]
+    users = (user,) if isinstance(user, str) else tuple(user)   # 10.11.: the Autopilot and its paper account
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM trades WHERE status='open' AND user IN (%s) AND auto IS NOT NULL" % ",".join("?" * len(users)),
+        users)]
     rows = [r for r in rows if (json.loads(r["auto"]) or {}).get("mode") == "tpsl"]
     fast_once.last = (len(rows), 0)
     if not rows:
@@ -274,9 +276,9 @@ fast_once.last = (0, 0)
 
 def fast_loop(market, user=None, every=FAST_EVERY_S):
     """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds."""
-    if user is None:
+    if user is None:   # 10.11. (Phase 0): the paper account gets the same 1-second exits, or paper would lag live
         from trade import settings as tsettings
-        user = tsettings.LEAGUE_USER
+        user = (tsettings.LEAGUE_USER, tsettings.PAPER_USER)
     con, beat = None, 0.0
     while True:
         try:

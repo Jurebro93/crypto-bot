@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS orders (
     amount_in INTEGER, amount_out INTEGER, cost_pct REAL, status TEXT, reason TEXT, error TEXT, signature TEXT,
     request_id TEXT, route TEXT, code INTEGER, fee_lamports INTEGER, prio_lamports INTEGER);
 """
-NEW_COLS = {"positions": [("league_id", "INTEGER"), ("fees_sol", "REAL DEFAULT 0")],
+NEW_COLS = {"positions": [("league_id", "INTEGER"), ("fees_sol", "REAL DEFAULT 0"),
+                          # 10.11. (plan 1.5): the demo's exit price next to the real one, and how far apart
+                          ("demo_exit_px", "REAL"), ("real_exit_px", "REAL"), ("exit_slip_pct", "REAL")],
             "orders": [("route", "TEXT"), ("code", "INTEGER"), ("fee_lamports", "INTEGER"), ("prio_lamports", "INTEGER")]}
 ROUTES = ("v2", "ultra", "pump")
 ROUTE_HR = {"v2": "Jupiter", "ultra": "Jupiter Ultra", "pump": "PumpPortal"}
@@ -498,6 +500,55 @@ def sell(con, cfg, position_id, frac=1.0, close=False, now=None, reason=""):
     _log(con, now, position_id, token, "sell", mode, res, reason)
     con.commit()
     return res
+
+
+RECON_WINDOW_S = 900   # positions closed this recently get their exit compared (the SOL price is still the same)
+
+
+def exit_reconcile(con, lg, decimals_fn, sol_usd_fn, now=None, window_s=RECON_WINDOW_S):
+    """10.11. (plan 1.5, "demo vs real exit"): for each real position closed in the last window_s seconds that
+    mirrors a demo trade (league_id) and has no real_exit_px yet:
+        demo_exit_px   the demo trade's exit price (league.db trades.exit_px, USD per token)
+        real_exit_px   what the real sells paid, USD per token: SOL out of the sell orders x SOL/USD now, over the
+                       tokens sold (raw / 10^decimals)
+        exit_slip_pct  real / demo - 1, in percent (negative = the real exit was worse than the demo's)
+    The demo trade still open (the owner sold the real one by hand): only real_exit_px. Returns how many were filled.
+    Older positions stay empty: today's SOL price would make their USD exit wrong."""
+    now = int(now or time.time())
+    try:
+        sol_usd = sol_usd_fn()
+    except Exception:  # noqa: BLE001
+        sol_usd = None
+    if not sol_usd:
+        return 0
+    done = 0
+    for pid, token, lid in con.execute(
+            "SELECT id, token, league_id FROM positions WHERE status='closed' AND league_id IS NOT NULL "
+            "AND real_exit_px IS NULL AND closed_ts >= ?", (now - window_s,)).fetchall():
+        sold_raw, out_lam = con.execute(
+            "SELECT COALESCE(SUM(amount_in),0), COALESCE(SUM(amount_out),0) FROM orders WHERE position_id=? "
+            "AND side='sell' AND status IN ('ok','dry')", (pid,)).fetchone()
+        if not sold_raw or not out_lam:
+            continue
+        try:
+            dec = int(decimals_fn(token))
+        except Exception:  # noqa: BLE001 - no decimals: the next tick tries again
+            continue
+        real_px = (out_lam / LAMPORTS) * sol_usd / (sold_raw / 10 ** dec)
+        demo_px = None
+        try:
+            r = lg.execute("SELECT status, exit_px FROM trades WHERE id=?", (lid,)).fetchone()
+            if r and r[0] == "closed" and r[1]:
+                demo_px = float(r[1])
+        except Exception:  # noqa: BLE001
+            demo_px = None
+        slip = (real_px / demo_px - 1) * 100 if demo_px else None
+        con.execute("UPDATE positions SET demo_exit_px=?, real_exit_px=?, exit_slip_pct=? WHERE id=?",
+                    (demo_px, real_px, slip, pid))
+        done += 1
+    if done:
+        con.commit()
+    return done
 
 
 def _reclaim_rent(con, now, position_id, token):
