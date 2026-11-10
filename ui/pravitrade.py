@@ -1529,6 +1529,33 @@ def _trigger_card(tcon, owner):
             'mali dok gledaš.</p></div>')
 
 
+def _review_section(tcon, owner):
+    """10.11. (Jure: "isključi influencere koje sam ja stavio ako nema smisla da ih se prati" -> "Isključi ih sam"):
+    what league/followreview paused and why, with "Vrati" for the owner; the last hourly pass in the header."""
+    import datetime as _dt
+    import zoneinfo
+    raw = settings.raw(tcon)
+    last = raw.get("review_last") or {}
+    log = [x for x in (raw.get("review_log") or []) if not x.get("back")]
+    tz = zoneinfo.ZoneInfo("Europe/Zagreb")
+    when = (_dt.datetime.fromtimestamp(last["ts"], tz).strftime("%d.%m. %H:%M") if last.get("ts") else None)
+    meta = (f"isključeno {len(log)} · zadnji pregled {when}, pregledano {last.get('judged', 0)}" if when
+            else "prvi pregled u roku od sat vremena")
+    rows = []
+    for x in log:
+        t = _dt.datetime.fromtimestamp(x["ts"], tz).strftime("%d.%m. %H:%M")
+        btn = (f'<form method=post action=/pravi-trade/reviewback style="margin:0"><input type=hidden name=id '
+               f'value={int(x["fid"])}><button>Vrati</button></form>' if owner else "")
+        rows.append(_item(x.get("label") or x["target"], f'isključen {t}', f'<p>{esc(x["why"])}.</p>{btn}',
+                          value=str(x.get("n") or ""), sub="poziva", iid=f"rv-{int(x['fid'])}", value_tone="mut"))
+    intro = ('<p class=mut>Svaki sat alat pregleda influencere i ekipe koje si ti dodao. Isključi onoga kod kojeg se na '
+             f'najmanje {10} izmjerenih poziva njegov izlaz ne isplati nakon troška, nijedan drugi TP/SL par ga ne spašava '
+             'i nije u plusu u demu. S premalo podataka nitko se ne isključuje. Otvorene pozicije zadržavaju svoj izlaz. '
+             '„Vrati” ga ponovno uključuje i pregled ga više ne dira.</p>')
+    body = intro + ("".join(rows) if rows else '<p class=mut>Trenutno nitko nije isključen.</p>')
+    return _sec("Pregled influencera", meta, body, sid="pregled-inf")
+
+
 FLAG_WORDS = {"off": "isključeno", "shadow": "sjena (samo bilježi)", "paper": "paper račun", "live": "uživo"}
 FLAG_TONE = {"off": "mut", "shadow": "warn", "paper": "warn", "live": "good"}
 
@@ -2921,6 +2948,8 @@ def dca_loop(every=DCA_EVERY_S):
             if con is None:
                 con = settings.connect()
             dca_once(con)
+            from league import followreview   # 10.11. (Jure: "isključi ih sam"): once an hour, never raises
+            followreview.maybe_review()
         except Exception as e:  # noqa: BLE001 - a failed pass is retried in `every` seconds
             print(f"DCA: {type(e).__name__}: {e}", flush=True)
             try:
@@ -4030,6 +4059,7 @@ def page(qs, user):
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
                         _safe("pravila", _rules, tcon, cfg, owner),
+                        _safe("pregled", _review_section, tcon, owner),
                         _safe("zastavice", _flags_section, tcon, con, owner))]
         finally:
             con.close()
@@ -4206,6 +4236,15 @@ def post(path, form, user):
             if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio"):
                 raise ValueError("taj zahtjev više ne postoji")
             return f"{BACK}?ok={qq('Zahtjev odbijen.')}"
+        if path == "/pravi-trade/reviewback":   # 10.11.: "Vrati" a follow the hourly review paused
+            from league import followreview
+            lcon = store.connect()
+            try:
+                row = followreview.restore(lcon, tcon, int(form.get("id") or 0), user)
+            finally:
+                lcon.close()
+            print(f"pravi trade: {user} je vratio praćenje {row.get('label')}", flush=True)
+            return f"{BACK}?ok={qq('Praćenje ' + str(row.get('label') or '') + ' je ponovno uključeno.')}#pregled-inf"
         if path == "/pravi-trade/flag":   # 10.11. (Phase 0): a flag of the profitability plan, owner only
             from league import flags as lflags
             name, mode = str(form.get("name") or ""), str(form.get("mode") or "")
