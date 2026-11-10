@@ -377,7 +377,8 @@ class NoDuplicatesAndLiveTokens(PageBase):
             pravitrade.gather_callers = saved
         self.assertNotIn("ONE", html)                       # only ansem called it, and the bot follows him already
         self.assertIn("TWO", html)                          # murad is not followed: the row stays
-        self.assertIn("već pratiš ✓ @ansem", html)          # ... with the followed one in green
+        self.assertIn("već pratiš @ansem", html)            # ... with the followed one after a green dot
+        self.assertNotIn("✓", html)                         # 10.11. (prijedlog dizajna, pravilo 5): no ticks
         self.assertIn("5 min +7 % · 9 tx", html)            # and how awake the token is (transactions in 5 min)
         self.assertIn("ap-mine", html)
 

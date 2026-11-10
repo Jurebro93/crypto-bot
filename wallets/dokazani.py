@@ -159,6 +159,75 @@ def latest(path=None, passed_only=True):
     return rows
 
 
+def for_wallet(wallet, path=None):
+    """10.11. (Jure, prijedlog 4.7): one wallet's row of the LATEST run, passed or not, for its page ("dokazan dvaput"
+    with the numbers before and after the cut). Adds cut (as_of - cut_days, the line the run split the trades at).
+    None when the wallet was not judged in that run (not copyable, or no closed trades on both sides of the cut) or
+    without the table. Read-only, two indexed reads (dokazani_asof, then the primary key); judges nothing itself."""
+    path = path or wstore.DB
+    if not wallet or not path or not os.path.exists(path):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        con.row_factory = sqlite3.Row
+        last = con.execute("SELECT MAX(as_of) FROM dokazani").fetchone()[0]
+        if not last:
+            return None
+        r = con.execute("SELECT * FROM dokazani WHERE wallet=? AND as_of=?", (wallet, last)).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    if r is None:
+        return None
+    out = dict(r)
+    out["cut"] = out["as_of"] - RULE["cut_days"] * 86400
+    return out
+
+
+def misses(row, rule=None):
+    """10.11. (Jure, prijedlog 4.7): which conditions of evaluate()'s `passed` a stored row does not meet, in that
+    order, as (key, have, need); [] when it meets them all. Only for saying WHY on the wallet page: the verdict
+    itself stays the stored `passed` (a test checks both agree on evaluate()'s own rows)."""
+    r = rule or RULE
+    nb, na = row.get("closed_before") or 0, row.get("closed_after") or 0
+    rb, ra, wb = row.get("realized_before") or 0, row.get("realized_after") or 0, row.get("win_before") or 0
+    out = []
+    if nb < r["min_closed"]:
+        out.append(("closed_before", nb, r["min_closed"]))
+    if rb <= 0:
+        out.append(("realized_before", rb, 0))
+    if wb < r["min_win"]:
+        out.append(("win_before", wb, r["min_win"]))
+    if na < r["min_after"]:
+        out.append(("closed_after", na, r["min_after"]))
+    if ra <= 0:
+        out.append(("realized_after", ra, 0))
+    return out
+
+
+def not_copyable(stats, labels, rule=None):
+    """10.11. (Jure, prijedlog 4.7): why copyable() says no, in its order, as (key, have, need); [] when it says yes.
+    Read-only mirror for the wallet page's sentence; copyable() stays the one that decides."""
+    r = rule or RULE
+    s = stats or {}
+    out = []
+    if (s.get("median_hold_min") or 0) < r["min_hold_min"]:
+        out.append(("hold", s.get("median_hold_min") or 0, r["min_hold_min"]))
+    if (s.get("trades_per_day") or 0) > r["max_tpd"]:
+        out.append(("tpd", s.get("trades_per_day") or 0, r["max_tpd"]))
+    cap = r.get("max_bag_share", RULE["max_bag_share"])
+    if (s.get("bag_share") or 0) >= cap:
+        out.append(("bags", s.get("bag_share") or 0, cap))
+    bad = sorted(set(labels or ()) & BAD)
+    if bad:
+        out.append(("labels", bad, None))
+    return out
+
+
 def wallet_buy(hype_db, wallet, mint, near_ts):
     """The wallet's own fill from the live feed (hype.db live_trades): {mcap_sol, price_sol, ts} or None."""
     if not hype_db or not os.path.exists(hype_db):

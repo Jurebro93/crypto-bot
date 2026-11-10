@@ -232,7 +232,8 @@ class P33HeavyPagesNeverHang(unittest.TestCase):
     def test_ekipe_and_kol_are_heavy_and_kept_on_disk(self):
         self.assertIn("/ekipe", self.run_ui.HEAVY)
         self.assertIn("/kol", self.run_ui.HEAVY)
-        self.assertEqual(set(self.run_ui.SNAPSHOT_ONLY), {"/ekipe", "/kol"})
+        # 10.11. (prijedlog 3.3): /kol/analize holds the heavy sections that were folded under /kol, same treatment
+        self.assertEqual(set(self.run_ui.SNAPSHOT_ONLY), {"/ekipe", "/kol", "/kol/analize"})
         with mock.patch.object(self.pagecache, "_snap_paths", set()):
             self.pagecache.snapshot(self.run_ui.SNAPSHOT_ONLY)
             self.assertIn("/ekipe", self.pagecache._snap_paths)
@@ -418,8 +419,11 @@ class AutopilotMenuForAdmins(unittest.TestCase):
         menu = html.side_menu("/pregled")
         self.assertIn('class="sec-ap adm-only"', menu)
         self.assertIn('href="/pravi-trade" class="ap"', menu)
-        others = [i for i in (menu.find('<div class="sec"'), menu.find('<div class="sec ')) if i >= 0]
-        self.assertLess(menu.index("sec-ap"), min(others))                        # before every other group
+        # 10.11. (Jure, prijedlog 3.5): the side menu is the core items, the Autopilot and Više; the other groups moved
+        # to the /vise page, so "before every other group" became "right after Novčanici, before Više"
+        self.assertLess(menu.index('href="/wallets"'), menu.index("sec-ap"))
+        self.assertLess(menu.index("sec-ap"), menu.index('href="/vise"'))
+        self.assertNotIn("linear-gradient", html.ADMIN_CSS[html.ADMIN_CSS.find(".side .sec-ap"):][:200])   # no orange block
         self.assertEqual(menu.count("/pravi-trade"), 1)                           # no second, plain entry below
         self.assertNotIn("<h4>Autopilot</h4>", menu)
         self.assertIn('class="ap on"', html.side_menu("/pravi-trade"))

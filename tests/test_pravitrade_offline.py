@@ -120,7 +120,9 @@ class PraviTrade(unittest.TestCase):
 
         _, body = pravitrade.page({}, "jure")
         self.assertIn("Uključi Autopilot", body)
-        self.assertIn("ISKLJUČEN", body)
+        # 10.11. (prijedlog dizajna, maketa autopilot.html): the state is a word after a dot, no capitals
+        self.assertIn("<span>Isključen</span>", body)
+        self.assertIn("Samo probno, bez novca", body)
         self.assertIn("Postavljanje walleta", body)
         self.assertNotIn("Svi nalozi", body)          # 4.11.: no order log, no demo tables
         self.assertNotIn("Demo praćenja", body)
@@ -138,7 +140,7 @@ class PraviTrade(unittest.TestCase):
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
             _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Koga bot prati", body)
+            self.assertIn("Koga prati", body)   # 10.11. (maketa): the row's name under "Kako trguje"
             self.assertNotIn("Spremi limite", body)
             self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
@@ -383,7 +385,7 @@ class AutoPick(PraviTrade):
     def test_tool_picks_and_rotates_but_leaves_manual_and_stopped_alone(self):
         from ui import autopilot, pravitrade
         os.environ["TRADE_OWNER"] = "Jure"
-        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6}
+        st = {"hit": 0.5, "n": 4, "roi": 0.3, "win": 0.6, "mjera": "minutna"}   # 10.11.: the auto pick wants the minute check
         recs = {"kol": [{"handle": h, "live": live, "why": "dobar", "s": st} for h, live in
                         (("a", True), ("slow", False), ("b", True), ("c", True), ("d", True))],
                 "wal": [{"wallet": "W1", "name": "jedan", "why": "dobar", "s": st},
@@ -446,4 +448,5 @@ class LiveLog(PraviTrade):
         # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
         self.assertIn("Tehnički zapis naloga", body)
         self.assertIn("data-src=/pravi-trade/dnevnik", body)
-        self.assertLess(body.index("Dnevnik Autopilota"), body.index("id=pozicije"))
+        # 10.11. (maketa autopilot.html): the log is the row "Dnevnik odluka", still right above the positions
+        self.assertLess(body.index("Dnevnik odluka"), body.index("id=pozicije"))

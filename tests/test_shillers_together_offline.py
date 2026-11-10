@@ -153,12 +153,12 @@ class Page(unittest.TestCase):
         store.DB = path
         try:
             from ui import kol
-            title, body = kol.page({})
+            title, body = kol.analize_page({})   # 10.11. (prijedlog 3.3): these sections live on /kol/analize now
         finally:
             store.DB = old
-        self.assertEqual(title, "Influenceri")
+        self.assertEqual(title, "Analize influencera")
         self.assertIn("uc-top", body)
-        for sid in ("ljestvica", "zajedno", "shilleri", "pozivi", "parovi", "brojke"):
+        for sid in ("tablica", "zajedno", "shilleri", "pozivi", "parovi", "brojke"):   # the old table: id tablica
             self.assertIn(f"<details class=uc-sec id={sid}>", body)
         self.assertNotIn("<h2 id=analiza>", body)  # the old closed "Analiza" box that hid 8 sections is gone
         self.assertIn("Zovu zajedno", body)

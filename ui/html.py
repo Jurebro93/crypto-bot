@@ -262,6 +262,109 @@ def bottom_item(path):
     return None
 
 
+# 10.11. (Jure, prijedlog 3.5): the Autopilot gets the fourth place of the phone bar for the administrators (the
+# people the menu shows it to today, adm-only); everybody else keeps Novčanici there (they do not see the Autopilot).
+AP_ICON = _SVG.format('<path d="M3.5 16a8.5 8.5 0 0 1 17 0"/><path d="M12 16l4.2-4.6"/><circle cx="12" cy="16" r="1.2"/>')
+
+
+def bottom_bar(path, cur=None):
+    """Phone bar: Pregled, Tokeni, Influenceri, Autopilot (admins; class adm-only, stripped server-side for the
+    others) or Novčanici (everybody else; class nadm, hidden for admins), Više (/vise, a page now, not the drawer).
+    The dot on Više (class nd) shows while "Što je novo" has an entry the user has not opened (ADMIN_JS, html.novo)."""
+    bcur = "/pravi-trade" if path.startswith("/pravi-trade") else bottom_item(path)
+    if bcur is None and _more_cur(path, cur if cur is not None else nav_item(path)):
+        bcur = "/vise"
+    out = []
+    for h, i, t in BOTTOM:
+        on = "on" if h == bcur else ""
+        if h == "/wallets":
+            out.append(f'<a href="/pravi-trade" class="adm-only{" on" if bcur == "/pravi-trade" else ""}">'
+                       f'<span class=bi>{AP_ICON}</span>Autopilot</a>')
+            out.append(f'<a href="{h}" class="nadm {on}"><span class=bi>{i}</span>{t}</a>')
+        else:
+            out.append(f'<a href="{h}" class="{on}"><span class=bi>{i}</span>{t}</a>')
+    out.append(f'<a href="/vise" class="vise{" on" if bcur == "/vise" else ""}"><span class="bi nd">{MORE_ICON}</span>Više</a>')
+    return "<nav class=bbar aria-label='Brzi izbornik'>" + "".join(out) + "</nav>"
+
+
+BAR_CSS = """
+/* 10.11. (Jure, prijedlog 3.5): no ☰ (the bottom bar and /vise do its job); Autopilot or Novčanici in the bar */
+.menu-btn{display:none!important}
+.bbar .on{color:var(--acc)}
+.side .sec-c+a.set{border-top:0;margin-top:8px}
+html.adm .nadm{display:none!important}
+html.adm .bbar a.adm-only{display:flex!important}
+.bbar .bi.nd{position:relative}
+html.novo .bbar .bi.nd::after{content:"";position:absolute;top:1px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+.side .sec-c .vd{position:relative}
+html.novo .side .sec-c .vd::after{content:"";position:absolute;top:2px;right:-11px;width:8px;height:8px;border-radius:50%;background:var(--acc)}
+/* the "Više" page: groups of rows on a soft page, like iOS settings (makete/izbornik.html) */
+body:has(.ms-vise){background:var(--soft)}
+.ms-vise .ms-gt{font-size:15px;font-weight:600;color:var(--mut);margin:26px 4px 8px}
+.ms-grp{background:#fff;border-radius:14px;overflow:hidden}
+.ms-grp a{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:0 16px;font-size:17px;color:var(--fg);text-decoration:none}
+html.adm .ms-grp a.adm-only{display:flex!important}
+.ms-grp a+a{border-top:1px solid var(--line)}
+.ms-grp a:hover{background:#fafbfd}
+.ms-grp .r{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:15px}
+.ms-grp .new{color:var(--acc);font-weight:500;display:none}html.novo .ms-grp .new{display:inline}
+.ms-grp .out{color:var(--bad)}
+.ms-vise .ms-cols{display:block}
+.ms-vise .ms-note{font-size:13px;color:var(--mut);margin:22px 4px 0;line-height:1.45}.ms-vise .ms-note a{color:var(--acc)}
+@media(min-width:1001px){.ms-vise .ms-cols{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;align-items:start}
+ .ms-grp a.m-only,html.adm .ms-grp a.m-only{display:none!important}.ms-grp a.m-only:first-child+a{border-top:0}}
+"""
+
+
+def _vrow(href, label, right="", cls=""):
+    """One row of the "Više" page: name left, optional note and a chevron right."""
+    c = (cls + _role_cls(href)).strip()
+    ca = f' class="{c}"' if c else ""
+    return f'<a href="{href}"{ca}>{esc(label)}<span class=r>{right}<span class=ms-chev></span></span></a>'
+
+
+# The "Više" page (10.11., Jure, prijedlog 3.5): 17 rows in four groups instead of the 37-link drawer. Every page that
+# left the menu stays one tap away: Dugoročni is the third tab on Tokeni, Izlazi is linked from Demo trading, the
+# eight Sustav pages are one sub-page (/vise/sustav), and "Sve stranice" (/mapa, kept for old links) lists all of them.
+VISE = [
+    ("Istraživanje", [("/wallets", "Novčanici", "m-only adm-only"), ("/events", "Eventi", ""), ("/radar", "Zadnji sken", ""),
+                      ("/izvori", "Telegram i KOL novčanici", "")]),
+    ("Demo", [("/natjecanje", "Natjecanje", ""), ("/paper", "Demo trading", ""), ("/strategije", "Usporedba strategija", ""),
+              ("/copy-trading", "Copy trading", ""), ("/kol-test", "KOL test", "")]),
+    ("Zajednica", [("/autopilot", "Autopilot uživo: rezultati i chat", ""),   # 10.11. (Jure): always one tap away
+                   ("/nas-token", "Naš token", ""), ("/whatsapp", "Za WhatsApp", ""), ("/prijedlozi", "Ideje za alat", "")]),
+    ("Pomoć", [("/pojmovnik", "Pojmovnik", ""), ("/novo", "Što je novo", "")]),
+]
+
+
+def vise_page(qs=None, sub=None):
+    """/vise (and /vise/sustav): the "Više" page. Rows the role cannot open carry r-pri / r-adm like the old menu;
+    Sustav is adm-only (stripped from the copy a non-admin gets). Same for everyone, so it is cached like /mapa."""
+    sustav = next(items for s, items in SECTIONS if s == "Sustav")
+    if sub == "sustav":
+        rows = "".join(_vrow(p["href"], p["name"]) for p in sustav)
+        body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Sustav</h1></div>'
+                '<p class=ms-sub><a href="/vise">Više</a></p>'
+                f'<nav class="ms-grp adm-only" style="margin-top:22px">{rows}</nav>'
+                '<p class="ms-note nadm">Ove stranice vide samo administratori.</p></div>')
+        return "Sustav", body
+    groups = []
+    for title, items in VISE:
+        rows = "".join(_vrow(h, t, '<span class=new data-novo>novo</span>' if h == "/novo" else "", c) for h, t, c in items)
+        groups.append(f'<div class=ms-gt>{esc(title)}</div><nav class=ms-grp>{rows}</nav>')
+    last = ('<div class=ms-gt>&nbsp;</div><nav class=ms-grp>'
+            + _vrow("/vise/sustav", "Sustav", str(len(sustav)), "adm-only")
+            + _vrow("/postavke", "Postavke", "", "m-only")
+            + '<a href="/odjava"><span class=out>Odjava</span></a></nav>')
+    half = 2
+    body = ('<div class=ms-vise><div class=ms-top><h1 class=ms-h1>Više</h1></div><div class=ms-cols>'
+            f'<div>{"".join(groups[:half])}</div><div>{"".join(groups[half:])}{last}</div></div>'
+            '<p class=ms-note>Svaka stranica alata, i one kojih ovdje nema (Dugoročni, Korelacije, Izlazi, Jutarnji '
+            f'izvještaj), je na popisu <a href="/mapa">Sve stranice</a>; javna stranica: '
+            f'<a href="{_home_link()}" target=_blank rel=noopener>Naslovna</a>.</p></div>')
+    return "Više", body
+
+
 CSS = """
 button.sm{padding:2px 7px;font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
 button.sm:hover{border-color:var(--acc);color:var(--acc)}.nw{white-space:nowrap}
@@ -534,29 +637,34 @@ def _role_cls(href):
 
 
 def autopilot_link(cur):
-    """9.11. (Jure: "istakni Autopilot da ga administratori lakše nađu, ostalima sakriven"): one highlighted button
-    right under the core items, class adm-only (admins see it, non-admins get the page without it)."""
+    """9.11. (Jure: "istakni Autopilot da ga administratori lakše nađu, ostalima sakriven"): right under the core
+    items, class adm-only (admins see it, non-admins get the page without it). 10.11. (Jure, prijedlog 3.5): a plain
+    row like the core items, without the orange block and the emoji ("bez narančastog bloka")."""
     return (f'<div class="sec-ap adm-only"><a href="/pravi-trade" class="ap{" on" if cur == "/pravi-trade" else ""}">'
-            f'<span class=mi>💰</span><b>Autopilot</b><small>pravi novac · admin</small></a></div>')
+            'Autopilot</a></div>')
 
 
-def side_menu(cur):
-    """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
-    The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
+def _more_cur(path, cur):
+    """True when the page lives under "Više" (not one of the core items, not the Autopilot, not the start page)."""
+    if path in ("/", "") or cur == "/pravi-trade" or path.startswith("/pravi-trade"):
+        return False
+    return cur not in [p["href"] for p in SECTIONS[0][1]]
+
+
+def side_menu(cur, path=None):
+    """Left menu (laptop). 10.11. (Jure, prijedlog 3.5): the same items as the phone bar plus Novčanici: Pregled,
+    Tokeni, Influenceri, Novčanici, Autopilot (admins, adm-only), Više; every other page is on the "Više" page (/vise)
+    and in the search. Postavke, Naslovna, Odjava and HR/EN stay at the bottom as before. On the phone the bottom bar
+    and /vise replace it (the ☰ drawer is gone)."""
     svg, name = logo(26)
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/pregled">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
-    for sec, items in SECTIONS:
-        if sec == "Autopilot":   # 9.11.: rendered as the highlighted admin button under the core items (autopilot_link)
-            continue
-        links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
-                        f'{esc(p["name"])}</a>' for p in items)
-        if sec in CORE:
-            b.append(f'<div class=sec-c>{links}</div>')
-            b.append(autopilot_link(cur))
-        else:
-            extra = " adm-only" if sec in ADMIN else " pt-only" if sec in PRIVATE else ""
-            b.append(f'<div class="sec{extra}"><h4>{esc(sec)}</h4>{links}</div>')
+    core = SECTIONS[0][1]
+    links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
+                    f'{esc(p["name"])}</a>' for p in core)
+    more_on = path is not None and _more_cur(path, cur) or cur == "/vise"
+    b.append(f'<div class=sec-c>{links}{autopilot_link(cur)}'
+             f'<a href="/vise" class="vise{" on" if more_on else ""}"><span class=vd>Više</span></a></div>')
     from ui.i18n import lang
     en = lang() == "en"
     b.append(f'<a href="/postavke" class="set{" on" if cur == "/postavke" else ""}">Postavke</a>'
@@ -573,11 +681,9 @@ def side_menu(cur):
 # the pages themselves stay reachable by link.
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
              ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
-             # 9.11.: the Autopilot button in the menu (admins only): one highlighted row under the core items
-             ".side .sec-ap{margin:8px 0 2px}.side .sec-ap a.ap{display:flex;align-items:center;gap:8px;padding:9px 12px;"
-             "border-radius:12px;background:linear-gradient(135deg,#f59f00,#e8590c);color:#fff;font-weight:700;text-decoration:none}"
-             ".side .sec-ap a.ap small{margin-left:auto;font-size:11px;font-weight:500;opacity:.85}"
-             ".side .sec-ap a.ap.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.55)}.side .sec-ap a.ap .mi{font-size:16px}"
+             # 9.11.: the Autopilot in the menu (admins only), right under the core items; 10.11. (Jure, prijedlog
+             # 3.5): a plain row like them, without the orange gradient
+             ".side .sec-ap{margin:0}.side .sec-ap a.ap{display:flex;align-items:center;gap:8px}"
              "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
              ".novo-bar{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;padding:7px 12px;"
              "margin:0 0 12px;border-radius:10px;background:var(--soft);color:var(--fg);text-decoration:none}"
@@ -594,14 +700,14 @@ ADMIN_JS = (# 4.11. audit: every POST form carries the login-bound token from co
             "if(/(^|; )cb_pt=1/.test(document.cookie))document.documentElement.classList.add('pt');"
             "var _r=/(^|; )cb_r=(\\w+)/.exec(document.cookie);"
             "document.documentElement.classList.add('r-'+(_r?_r[2]:'osnovni'));"
-            # 4.11.: one quiet line about the newest change until the user opens /novo
-            "document.addEventListener('DOMContentLoaded',function(){var h=document.documentElement,"
-            "q=document.querySelector('meta[name=novo]'),k=q&&q.content;"
+            # 4.11.: news the user has not opened yet. 10.11. (Jure, prijedlog 3.5): no strip on top of every page
+            # any more, only a dot on "Više" (bar and side menu) and "N novo" next to "Što je novo" (class novo on
+            # <html>); the key is the number of entries, so N = entries added since the user last opened /novo
+            "(function(){var h=document.documentElement,q=document.querySelector('meta[name=novo]'),k=q&&q.content;"
             "if(!k||location.pathname==='/novo')return;var c=/(^|; )cb_novo=([^;]*)/.exec(document.cookie);"
-            "if(c&&c[2]===k)return;var m=document.querySelector('main');if(!m)return;var en=h.lang==='en',"
-            "a=document.createElement('a');a.className='novo-bar';a.href='/novo';a.innerHTML='✨ <span>'+"
-            "(en?'New':'Novo')+': <b></b></span><u>'+(en?'See what is new':'Pogledaj što je novo')+' →</u>';"
-            "a.querySelector('b').textContent=q.dataset.t||'';m.insertBefore(a,m.firstChild)});"
+            "if(c&&c[2]===k)return;h.classList.add('novo');var n=c?parseInt(k,10)-parseInt(c[2],10):0;"
+            "document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('[data-novo]')"
+            ".forEach(function(e){e.textContent=(n>0&&n<100?n+' ':'')+(h.lang==='en'?'new':'novo')})})})();"
             # players without an e-mail (3.11.): a box on top of every page until they add one in Postavke
             "if(/(^|; )cb_nm=1/.test(document.cookie)&&location.pathname!=='/postavke')"
             "document.addEventListener('DOMContentLoaded',function(){var m=document.querySelector('main');if(!m)return;"
@@ -634,6 +740,58 @@ h1{font-size:26px;letter-spacing:-.02em;margin:10px 0 12px}
 """
 
 
+# 10.11. (Jure: "Ostalo mi se sviđa"): the calm visual language of the proposal (audit/2026-11-10/ui-prijedlozi.md,
+# section 2), values copied from the mock-ups (audit/2026-11-10/makete/sastavi.py CSS). Every class has the prefix ms-
+# so nothing of the old pages changes until a page uses ui/redak.py. Five type sizes: 34 title, 22 section, 17 text and
+# names, 15 secondary, 13 axis and column heads (48 only for the wallet value); weights 700 / 600 / 400.
+MS_CSS = """
+.ms-f34{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em}.ms-f22{font-size:22px;font-weight:700;letter-spacing:-.025em}
+.ms-f17{font-size:17px;line-height:1.4}.ms-f15{font-size:15px;line-height:1.4}.ms-f13{font-size:13px}
+.ms-num,.ms-big,.ms-v,.ms-panel,.ms-list,.ms-hero{font-variant-numeric:tabular-nums}
+.ms-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 0}
+.ms-h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.03em;margin:0}
+.ms-sub{font-size:15px;color:var(--mut);margin:6px 0 0}
+.ms-ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.ms-ico svg{width:19px;height:19px;fill:none;stroke:var(--fg);stroke-width:2;stroke-linecap:round}
+.ms-hero{margin:24px 0 0}.ms-hero .ms-lbl{font-size:15px;color:var(--mut);margin:0 0 2px}
+.ms-big{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-.035em}
+.ms-big small{font-size:22px;font-weight:600;color:var(--mut);letter-spacing:-.01em;margin-left:6px}
+.ms-hero .ms-line{font-size:15px;color:var(--mut);margin:8px 0 0}
+.ms-panel{display:block;background:var(--soft);border-radius:18px;padding:18px 18px 16px;margin:20px 0 0;color:var(--fg);text-decoration:none}
+.ms-panel .ms-lbl{font-size:15px;color:var(--mut)}
+.ms-panel .ms-name{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15;display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 0}
+.ms-panel .ms-name>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ms-panel .ms-facts{font-size:15px;color:var(--mut);margin:4px 0 10px}
+.ms-panel p{margin:0;font-size:17px;line-height:1.4}
+.ms-panel .ms-go{display:flex;align-items:center;justify-content:space-between;margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--line2);font-size:15px;color:var(--mut)}
+.ms-h2{font-size:22px;font-weight:700;letter-spacing:-.025em;margin:40px 0 2px;padding:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.ms-h2 a{font-size:15px;font-weight:500;color:var(--acc);letter-spacing:0;text-decoration:none}
+.ms-hint{font-size:15px;color:var(--mut);margin:12px 0 0;line-height:1.4}
+.ms-list{margin:0;padding:0;list-style:none}
+.ms-row{display:flex;align-items:center;gap:12px;min-height:64px;padding:11px 0;border-bottom:1px solid var(--line);color:var(--fg);text-decoration:none}
+.ms-list>li:last-child>.ms-row{border-bottom:0}
+.ms-tap{cursor:pointer}a.ms-row:hover .ms-t,.ms-tap:hover .ms-t{color:var(--acc)}
+.ms-row .ms-m{flex:1;min-width:0}
+.ms-row .ms-t{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ms-row .ms-s{font-size:15px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ms-row .ms-e{flex:none;text-align:right;max-width:52%}
+.ms-row .ms-v{font-size:17px;font-weight:600;white-space:nowrap}
+.ms-row .ms-s.pos{color:var(--good)}.ms-row .ms-s.neg{color:var(--bad)}.ms-row .ms-s.pos,.ms-row .ms-s.neg{font-weight:500}
+.ms-row.ms-mut .ms-v{color:var(--mut);font-weight:400}
+.ms-chev{flex:none;width:8px;height:8px;border-right:2px solid var(--line2);border-top:2px solid var(--line2);transform:rotate(45deg);margin:0 2px 0 0}
+.ms-rk{flex:none;width:24px;font-size:15px;color:var(--mut)}
+.ms-colhead{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.ms-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line2);margin:0 6px 1px 0;vertical-align:middle}
+.ms-dot.good{background:var(--good)}.ms-dot.warn{background:var(--warn)}.ms-dot.bad{background:var(--bad)}.ms-dot.acc{background:var(--acc)}
+.ms-row .warn,.ms-panel .warn,.ms-warn{color:var(--warn)}.ms-row .mut{color:var(--mut)}.ms-row .acc,.ms-acc{color:var(--acc)}
+.ms-seg{display:flex;background:var(--soft);border-radius:11px;padding:3px;margin:22px 0 0}
+.ms-seg a{flex:1;text-align:center;font-size:15px;padding:7px 0;border-radius:9px;white-space:nowrap;color:var(--fg);text-decoration:none}
+.ms-seg a.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(11,18,32,.12)}
+.ms-page{max-width:760px}.ms-page.ms-wide{max-width:980px}
+@media(min-width:1001px){.ms-top .ms-ico{display:none}}
+"""
+
+
 def seg(items, cur):
     """Segmented control: [(href, label)], the one whose href == cur is lit. Plain links, so it works cached."""
     return "<nav class=seg>" + "".join(f'<a href="{h}" class="{"on" if h == cur else ""}">{esc(t)}</a>' for h, t in items) + "</nav>"
@@ -643,15 +801,13 @@ def page(title, body, path="/"):
     from ui.charts import CSS as CH_CSS, JS as CH_JS
     cur = nav_item(path)
     svg, name = logo(30)
-    header = (f'<header class=top><button class=menu-btn data-nav aria-label="Otvori izbornik">☰</button>'
+    # 10.11. (Jure, prijedlog 3.5): no ☰ any more; it opened the same 37-link drawer as "Više", which is now a page
+    header = (f'<header class=top>'
               f'<a class=brand href="/pregled" title="Pregled">{svg}<span>{esc(name)}</span></a>'
               '<form class=srch action="/trazi" role=search autocomplete=off><span class=si>🔍</span>'
               '<input id=q name=q placeholder="Traži token, adresu ili KOL" aria-label="Traži" enterkeyhint=search>'
               '<kbd>/</kbd><div class=sdrop id=sdrop hidden></div></form></header>')
-    bcur = bottom_item(path)
-    bbar = ("<nav class=bbar aria-label='Brzi izbornik'>" + "".join(
-        f'<a href="{h}" class="{"on" if h == bcur else ""}"><span class=bi>{i}</span>{t}</a>'
-        for h, i, t in BOTTOM) + f"<button data-nav><span class=bi>{MORE_ICON}</span>Više</button></nav>")
+    bbar = bottom_bar(path, cur)
     from ui import deploypage, i18n, secnav
     try:
         from ui import novo
@@ -666,8 +822,8 @@ def page(title, body, path="/"):
     return (f"<!doctype html><html lang={i18n.lang()}><head><meta charset=utf-8><meta name=viewport content='width=device-width,"
             f"initial-scale=1'><meta name=color-scheme content=light><title>{esc(title)} · {esc(name)}</title>{_fav.HEAD}"
             f"<meta name=novo content=\"{esc(nk)}\" data-t=\"{esc(nt)}\" translate=no><script>{ADMIN_JS}</script>"
-            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}</style></head><body>"
-            f"{header}{ban}<div class=shell>{side_menu(cur)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
+            f"<style>{CSS}{COLS_CSS}{NAV_CSS}{CH_CSS}{secnav.CSS}{LIGHT_CSS}{SIMPLE_CSS}{ADMIN_CSS}{BAR_CSS}{MS_CSS}</style></head><body>"
+            f"{header}{ban}<div class=shell>{side_menu(cur, path)}<div class=scrim data-nav></div><main>{secnav.markup()}{annotate(body)}</main></div>"
             f"{bbar}<script>{(JS + GL_JS + CH_JS + COLS_JS + NAV_JS).replace('__PAGES__', _pages_json())}{secnav.JS}</script>{deploypage.register_tag()}</body></html>")
 
 

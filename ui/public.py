@@ -39,9 +39,15 @@ L = {
         lb_h1="Crypto influencer leaderboard",
         lb_lead="We measure what the price did after every Solana token call an influencer posts on X: 1 hour, 24 hours, "
                 "the peak, and whether it rugged. The score shows who actually moves the market.",
-        cols=("#", "Influencer", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls", "Followers", "Calls"),
+        cols=("#", "Influencer", "Verdict", "1 h", "24 h", "Score", "Hit rate", "Median 24h peak", "Rugs", "Late calls",
+              "Followers", "Calls"),
         how_h="How the score works",
-        how=("Hit rate: share of calls that gained at least 50% within 24 hours.",
+        how=("1 h: share of calls that reached +10 % before a −20 % stop within the first hour, measured from the minute "
+             "of the call (last 14 days).",
+             "24 h: share of calls still in profit a day later.",
+             "Verdict, from those two numbers: holds up (1 h {h1} or more and 24 h {d24} or more), quick exit only (1 h "
+             "{h1} or more, 24 h lower), not worth it (1 h under {h1}), too few calls (under {n} measured in 14 days).",
+             "Hit rate: share of calls that gained at least 50% within 24 hours.",
              "Median 24h peak: the typical highest point within 24 hours after the call.",
              "Rugs: share of called tokens that dropped 90% or more.",
              "Late calls: calls made after the price had already doubled in the 2 hours before.",
@@ -71,10 +77,15 @@ L = {
         lb_h1="Ljestvica crypto influencera",
         lb_lead="Za svaki poziv Solana tokena koji influencer objavi na X-u mjerimo što je cijena napravila: nakon sat "
                 "vremena, nakon 24 sata, najviši vrh i je li završio kao rug. Ocjena pokazuje tko stvarno pomiče tržište.",
-        cols=("#", "Influencer", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi", "Kasni pozivi", "Pratitelji",
-              "Pozivi"),
+        cols=("#", "Influencer", "Presuda", "1 h", "24 h", "Ocjena", "Pogodak", "Medijan vrha 24 h", "Rugovi",
+              "Kasni pozivi", "Pratitelji", "Pozivi"),
         how_h="Kako se računa ocjena",
-        how=("Pogodak: udio poziva koji su narasli barem 50% u 24 sata.",
+        how=("1 h: udio poziva koji su u prvom satu došli do +10 % prije stopa −20 %, mjereno od minute poziva (zadnjih "
+             "14 dana).",
+             "24 h: udio poziva koji su dan kasnije u plusu.",
+             "Presuda iz ta dva broja: drži se (1 h {h1} ili više i 24 h {d24} ili više), samo brzo (1 h {h1} ili više, "
+             "24 h manje), ne isplati se (1 h ispod {h1}), premalo poziva (manje od {n} izmjerenih u 14 dana).",
+             "Pogodak: udio poziva koji su narasli barem 50% u 24 sata.",
              "Medijan vrha 24 h: tipičan najviši rast u 24 sata nakon poziva.",
              "Rugovi: udio pozvanih tokena koji su pali 90% ili više.",
              "Kasni pozivi: pozivi nakon što se cijena već udvostručila u 2 sata prije.",
@@ -181,6 +192,8 @@ ul.lk{list-style:none;padding:0;margin:12px 0 16px;display:grid;gap:8px;color:#c
 .gbody{max-width:720px;font-size:17.5px}.gbody p{margin:0 0 14px}
 .cbr{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:14px;margin:4px 0}.cbr i{height:10px;background:var(--soft);border-radius:8px;overflow:hidden;display:block}.cbr em{display:block;height:100%;border-radius:8px}.cbr b{text-align:right}.lbt{margin:0 0 12px}
 .rng{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:4px}
+.vdc{white-space:nowrap}.vd{display:inline-block;width:8px;height:8px;border-radius:50%;background:#cfd5e1;margin:0 6px 1px 0;vertical-align:middle}
+.vd.good{background:#16a34a}.vd.warn{background:#d97706}.vd.bad{background:#dc2626}
 .chips{display:flex;flex-wrap:wrap;gap:8px}.chips a{border:1px solid var(--line);border-radius:999px;padding:6px 14px;
 font-size:14px;background:#fff}
 """
@@ -429,6 +442,38 @@ def _rng(s):
     return f" <span class=mut>({lo:.0f}–{hi:.0f})</span>" if lo is not None and hi is not None else ""
 
 
+def _verdicts():
+    """{handle malim slovima: redak presude} iz ui/kolsummary.verdict_stats(14): ista presuda (1 h i 24 h) kao ljestvica
+    u aplikaciji, profil i Autopilot (10.11., Jure, prijedlog 4.0 i 4.4). Brojke su zbirne (postotak), pa ne otkrivaju
+    svježe pozive koji su samo za članove. {} kad se ne može izračunati: stranica radi i bez stupaca."""
+    try:
+        from kol import store
+        from ui import kolsummary
+        kdb = _kol_db()
+        st = kolsummary.verdict_stats(14, kol_db=None if kdb == store.DB else kdb)
+    except Exception as e:  # noqa: BLE001 - javna stranica mora raditi i bez minutne provjere
+        print(f"public: presuda: {type(e).__name__}: {e}", flush=True)
+        return {}
+    return {k.lower(): v for k, v in st.items()}
+
+
+def _verdict_cells(v, lang):
+    """Tri ćelije: presuda (točka + riječ), 1 h, 24 h. Bez poziva u 14 dana: "premalo poziva" i crtice."""
+    from ui import kolsummary as KS
+    if not v:
+        k, n = "premalo", 0
+        h1 = d24 = None
+    else:
+        k, n = v["key"], v["n"]
+        h1 = v["h1"]
+        # 10.11. (pregled): like ui/kol.py, a 24-h share from fewer than VERDICT_MIN_N calls is not shown ("100 %" of 1)
+        d24 = v["plus24"] / v["n24"] if (v.get("n24") or 0) >= KS.VERDICT_MIN_N else None
+    word = KS.VERDICT_WORD_EN[k] if lang == "en" else (v["word"] if v else KS.VERDICT_WORD[k])
+    few = " mut" if k == "premalo" else ""
+    return (f"<td class=vdc><span class='vd {KS.VERDICT_DOT[k]}'></span>{esc(word)}</td>"
+            f"<td class='n vdc{few}'>{_pct(h1)}</td><td class='n vdc{few}'>{_pct(d24)}</td>")
+
+
 def leaderboard(lang):
     t, x = L[lang], LB_T[lang]
     allrows = influencers()
@@ -436,14 +481,17 @@ def leaderboard(lang):
     star_rows = [r for r in allrows if is_star(r, stars)][:50]
     rising = [r for r in allrows if not is_star(r, stars)][:100]
     c = t["cols"]
-    head = "".join(f"<th{' class=n' if j > 1 else ''}>{h}</th>" for j, h in enumerate(c))
+    # 10.11. (pregled): the verdict and the 1 h / 24 h columns never break inside a word on a phone
+    head = "".join(f"<th class='{'n ' if j > 2 else ''}{'vdc' if j in (2, 3, 4) else ''}'>{h}</th>" for j, h in enumerate(c))
+    vs = _verdicts()
 
     def table(rows):
         trs = []
         for i, r in enumerate(rows, 1):
             s = r["s"]
             trs.append(f"<tr><td class=mut>{i}</td><td><a href=\"{t['prof']}{r['handle']}\">@{esc(r['handle'])}</a></td>"
-                       f"<td class=n><b>{r['score']:.0f}</b>{_rng(s)}</td><td class=n>{_pct(s.get('hit_rate'))}</td>"
+                       + _verdict_cells(vs.get(r["handle"].lower()), lang)
+                       + f"<td class=n><b>{r['score']:.0f}</b>{_rng(s)}</td><td class=n>{_pct(s.get('hit_rate'))}</td>"
                        f"<td class='n {_cls(s.get('med_max24'))}'>{_pct(s.get('med_max24'), True)}</td>"
                        f"<td class=n>{_pct(s.get('rug_rate'))}</td><td class=n>{_pct(s.get('prepump_rate'))}</td>"
                        f"<td class=n>{_int(r['followers'], lang)}</td><td class=n>{s.get('measured', 0)}</td></tr>")
@@ -481,7 +529,9 @@ def leaderboard(lang):
           ".forEach(b=>b.classList.toggle('on',b===t));document.querySelectorAll('.bp[data-p]').forEach(p=>p.hidden="
           "p.dataset.p!==t.dataset.t);history.replaceState(null,'','#'+t.dataset.t)});"
           "if(location.hash==='#stars')document.querySelector('.lbt button[data-t=stars]').click()</script>")
-    how = "".join(f"<li>{h}</li>" for h in t["how"])
+    from ui import kolsummary as KS
+    how = "".join(f"<li>{h}</li>" for h in t["how"]).format(h1=_pct(KS.VERDICT_H1), d24=_pct(KS.VERDICT_D24),
+                                                             n=KS.VERDICT_MIN_N)
     body = (f"<section class=ph1><div class=eyebrow>MemeSonar</div><h1>{t['lb_h1']}</h1><p class=lead>{t['lb_lead']}</p>"
             f"</section>{tabs}<h2 class=s>{x['why_h']}</h2><ul class=how>{why}</ul>{cmp}"
             f"<h2 class=s>{t['how_h']}</h2><ul class=how>{how}</ul>"
@@ -552,7 +602,7 @@ def profile(handle, lang):
         "@context": "https://schema.org", "@type": "ProfilePage",
         "mainEntity": {"@type": "Person", "name": me["name"] or h, "alternateName": "@" + h,
                        "sameAs": [f"https://x.com/{h}"]},
-        "url": f"{base}{t['prof']}{h}"}) + "</script>" + honest["jsonld"])
+        "url": f"{base}{t['prof']}{h}"}).replace("</", "<\\/") + "</script>" + honest["jsonld"])   # 10.11. (pregled)
     lock = (f"<div class=lock><p>{P2[lang]['lock'].format(n=fresh)}</p><a class='btn sm' href={t['home']}#pristup>"
             f"{t['cta']}</a></div>")
     body = (f"<section class=ph1><div class=crumb><a href={t['lb']}>{t['back']}</a></div>"
@@ -630,7 +680,8 @@ def honest_block(handle, lang, me=None, kind="x"):
                                                                    bhit=pct(basev.get("hit15")), rug=pct(s["rug"]), rugn=rugn)}}
            for q, a in p["faq"]] if s["enough"] else []
     jsonld = ('<script type="application/ld+json">' + json.dumps({"@context": "https://schema.org", "@type": "FAQPage",
-                                                                  "mainEntity": faq}) + "</script>") if faq else ""
+                                                                  "mainEntity": faq}).replace("</", "<\\/")
+              + "</script>") if faq else ""   # 10.11. (pregled): a name or answer with </script> cannot close the tag
     title = p["title"].format(h=label)
     if s["enough"]:
         desc = p["desc"].format(h=label, n=s["n"], up=pct(s["up1h"]), hit=pct(s["hit15"]), med=pct(s["med24"], True),
@@ -713,6 +764,7 @@ def robots():
             "Allow: /hr/influencer/\nAllow: /solana-meme-coins\nAllow: /hr/solana-meme-coini\nAllow: /coin/\n"
             "Allow: /hr/coin/\nAllow: /glossary\nAllow: /hr/rjecnik\nAllow: /blog\nAllow: /hr/blog\nAllow: /best-crypto-tools\nAllow: /hr/najbolji-kripto-alati\n"
             "Allow: /telegram-channels\nAllow: /telegram/\nAllow: /hr/telegram-kanali\nAllow: /hr/telegram/\n"
+            "Allow: /autopilot$\nAllow: /en/autopilot$\n"   # 10.11. (Jure): the public Autopilot page in search
             + "".join(f"Allow: {p}\n" for p in _seo_robots()) + "Allow: /static/landing/\nDisallow: /\n\n"
             f"Sitemap: {base}/sitemap.xml\n")
 
@@ -721,6 +773,7 @@ def sitemap():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     day = time.strftime("%Y-%m-%d", time.gmtime())
     urls = [("/", "/hr", "1.0"), ("/influencers", "/hr/influenceri", "0.9")]
+    urls.append(("/en/autopilot", "/autopilot", "0.8"))   # 10.11. (Jure): public Autopilot results, in search
     urls.append(("/solana-meme-coins", "/hr/solana-meme-coini", "0.9"))
     try:
         from ui import coins as K

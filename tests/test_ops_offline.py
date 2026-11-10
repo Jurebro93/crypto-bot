@@ -298,7 +298,8 @@ class UiChildRenderTest(unittest.TestCase):
         self.assertIn('pagecache.warm(list(WARM), warm_build', src)   # 9.11.: warm_build skips a fresh page, else build_in_child
         import run_ui
         # 9.11. 19:32: /ekipe (180 s) and /kol (30 s) joined, built in this process they took it to 818 MB (watchdog)
-        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol"))
+        # 10.11. (prijedlog 3.3): /kol/analize (pairs, correlations, together; was folded under /kol) joined them
+        self.assertEqual(run_ui.HEAVY, ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize"))
         self.assertTrue(set(run_ui.WARM) <= set(run_ui.HEAVY))
         self.assertTrue(set(run_ui.SNAPSHOT_ONLY) <= set(run_ui.HEAVY))
         self.assertIn("build_in_child(path)) if heavy_page", src)

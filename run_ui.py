@@ -245,6 +245,8 @@ def route(path, qs):
     if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
         from ui import ekipe
         return ekipe.page(qs)
+    if path == "/kol/analize":   # 10.11. (Jure, prijedlog 3.3): the analyses that were folded under /kol, one tap away
+        return kol.analize_page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -296,6 +298,9 @@ def route(path, qs):
     if path == "/mapa":
         from ui.html import map_page
         return map_page(qs)
+    if path in ("/vise", "/vise/sustav"):   # 10.11. (Jure, prijedlog 3.5): "Više" is a page now, not the ☰ drawer
+        from ui.html import vise_page
+        return vise_page(qs, "sustav" if path == "/vise/sustav" else None)
     if path == "/trazi":
         from ui import search
         return search.page(qs)
@@ -360,9 +365,10 @@ def build(path, qs, lang="hr"):
 # pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
 # never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
 # memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol")
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
-SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but their last good build is kept on disk
+SNAPSHOT_ONLY = ("/ekipe", "/kol", "/kol/analize")   # not warmed (180 s / 30 s of CPU), their last good build is kept on disk
+# 10.11.: /kol/analize holds what /kol built before (pairs, correlations, together): same child build and snapshot
 BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
 WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
 CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
@@ -1163,6 +1169,8 @@ class Handler(BaseHTTPRequestHandler):
         user = self.user if ok else None
         lang = self.lang if ok else ("en" if path == apjavno.PATH_EN or qs.get("l") == "en" else "hr")
         self._public = not ok   # a visitor gets no app cookies; a player's copy carries the form token cookie
+        # 10.11. (Jure: "da", u Google): the visitor's copy of the page is indexable; the chat fragment and the in-app copy are not
+        self._index = not ok and path in (apjavno.PATH, apjavno.PATH_EN)
         try:
             if path == apjavno.CHAT_PATH:
                 html = apjavno.chat_fragment(user, qs)

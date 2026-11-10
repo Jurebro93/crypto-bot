@@ -149,7 +149,9 @@ class Chart(unittest.TestCase):
             self.assertIn(unit, html)
         self.assertIn("rekonstruirano iz naloga", html)
         self.assertIn("uplata ili isplata", html)
-        self.assertIn("Vrijednost 1.815 SOL · PnL +0.065 SOL", html)   # the summary, before the script draws
+        # the summary, before the script draws; 10.11. (prijedlog dizajna, pravilo 8): decimal comma in Croatian
+        self.assertIn("Vrijednost 1,815 SOL · PnL +0,065 SOL", html)
+        self.assertIn("Value 1.815 SOL · PnL +0.065 SOL", apchart.chart_html(s, SUMMARY, lang="en"))   # English keeps the point
         self.assertNotIn('"now"', html)   # the browser's clock ends the range: same points = same HTML (45-s refresh)
         self.assertEqual(html, apchart.chart_html(s, SUMMARY, [{"ts": s[0]["ts"], "sol": 1.0},
                                                                {"ts": s[20]["ts"], "sol": 0.5}]))
@@ -243,17 +245,23 @@ class Header(Base):
                          rates={"sol_usd": 171.24, "usd_eur": 0.8623, "ts": NOW})
         self.mods(eq, None)
         html = pravitrade.head_fragment("Jure")
-        self.assertIn("<b>1.815 SOL</b>", html)
-        self.assertIn("311 $ · 268 €", html)                 # 1.815 x 171.24 = 310.8 $; x 0.8623 = 268.0 €, live rate
-        self.assertIn("1 SOL = 171 $ · 148 €", html)
-        self.assertIn("uplaćeno 1.750 SOL", html)
-        self.assertIn("+0.029 SOL", html)                    # last 24 h
-        self.assertIn("+0.065 SOL · +3.7 %", html)           # in total, against the money put in
+        # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): one big number in SOL with a decimal comma, under it
+        # one line: dollars and euros, the last 24 h and the result in total; the rate of 1 SOL and the money put in
+        # moved one tap away, into "Wallet i uplata" (checked on the page below)
+        self.assertIn('<div class="ms-big">1,815<small>SOL</small></div>', html)
+        self.assertIn("≈ 311 $ · 268 €", html)               # 1.815 x 171.24 = 310.8 $; x 0.8623 = 268.0 €, live rate
+        self.assertIn('24 h <span class="pos">+0,029\u00a0SOL</span>', html)                # last 24 h
+        self.assertIn('ukupno <span class="pos">+3,7\u00a0%</span>', html)   # in total, against the money put in
+        self.assertNotIn("1 SOL =", html)
+        _, page = pravitrade.page({}, "Jure")
+        self.assertIn("1 SOL = 171 $ · 148 €", page)
+        self.assertIn("Uplaćeno 1,750\u00a0SOL, rezultat", page)
+        self.assertIn('<span class="pos">+0,065\u00a0SOL</span> (+3,7\u00a0%)', page)
         self.assertIn('id="apc-ap"', html)
         self.assertIn("Uključi Autopilot", html)             # the owner's switch
         self.assertIn('data-meta="#ap-dn-sum"', html)        # the closed log's line rides along
         guest = pravitrade.head_fragment("Ivan")             # invited: looks only
-        self.assertIn("1.815 SOL", guest)
+        self.assertIn("1,815<small>SOL</small>", guest)
         self.assertNotIn("/pravi-trade/switch", guest)
         self.assertNotIn("/pravi-trade/sellall", guest)
         self.assertIsNone(pravitrade.head_fragment("Nepoznat"))
@@ -261,7 +269,9 @@ class Header(Base):
     def test_the_rate_of_the_snapshot_until_a_live_one_comes(self):
         self.mods(fake_equity(history(), SUMMARY, rates={"sol_usd": None, "usd_eur": None, "ts": 0}), None)
         html = pravitrade.head_fragment("Jure")
-        self.assertIn("1 SOL = 170 $ · 146 €", html)         # summary's sol_usd 170, usd_eur 0.86
+        self.assertIn("≈ 309 $ · 265 €", html)               # 1.815 x the summary's sol_usd 170 and usd_eur 0.86
+        _, page = pravitrade.page({}, "Jure")                 # 10.11.: the rate itself is in "Wallet i uplata"
+        self.assertIn("1 SOL = 170 $ · 146 €", page)
 
     def test_one_read_per_ttl_for_every_viewer(self):
         eq = fake_equity(history(), SUMMARY)
@@ -276,10 +286,11 @@ class Header(Base):
     def test_without_trade_equity_the_plain_balance_and_no_promise_of_a_chart(self):
         self.mods(None, None)
         html = pravitrade.head_fragment("Jure")
-        self.assertIn("– SOL", html)                          # no wallet address in this test: no balance either
+        self.assertIn("–<small>SOL</small>", html)            # no wallet address in this test: no balance either
         self.assertNotIn("apc-", html)
         self.assertNotIn("Graf kreće", html)
-        self.assertIn("ISKLJUČEN", html)
+        self.assertIn("<span>Isključen</span>", html)         # 10.11. (maketa): the word in the title row ...
+        self.assertIn("Samo probno, bez novca", html)         # ... and the state after a dot, no capitals
 
     def test_a_failing_history_never_takes_the_header_down(self):
         self.mods(fake_equity(boom=True), fake_aplog(boom=True))
@@ -303,14 +314,16 @@ class Log(Base):
         ap = fake_aplog()
         self.mods(None, ap)
         html = pravitrade.dnevnik_fragment("Jure")
-        for word in ("NIJE PROŠLO", "PRESKOČIO", "PRODAO", "KUPIO"):
-            self.assertIn(word, html)
+        # 10.11. (prijedlog dizajna, pravilo 5): the decision is a word after a dot, no capitals
+        for word in ("nije prošlo", "preskočio", "prodao", "kupio"):
+            self.assertIn(f'aria-hidden="true"></span>{word}', html)
+        self.assertNotIn("PRESKOČIO", html)
         self.assertLess(html.index("AAA"), html.index("BBB"))     # newest first, as aplog gives them
         self.assertIn("<b>Trebao je kupiti: da.</b> Sva pravila su prošla, ali nalog nije.", html)
         self.assertIn("Trebao je kupiti: ne, pravilo je reklo ne.", html)
         self.assertIn("Trebao je prodati: da. Prodaja nije prošla, bot pokušava ponovno.", html)   # a sell, not a buy
         self.assertEqual(html.count("Trebao je kupiti"), 2)
-        self.assertIn('class="pos">+42.4 %', html)
+        self.assertIn('class="ms-v pos">+42,4\u00a0%', html)   # a sale's result is the row's number
         self.assertIn("https://solscan.io/tx/SIG5", html)
         self.assertIn('data-pop="/pravi-trade/token?m=TOKA"', html)   # every token row opens the token pop-up
         self.assertIn("signal star 4 min", html)                       # the owner reads the reason as written
@@ -374,8 +387,12 @@ class Page(Base):
                 mock.patch.object(autopilot, "token_recs", boom), mock.patch.object(zivo, "rows", boom), \
                 mock.patch.object(pravitrade, "gather_callers", boom), mock.patch.object(pravitrade, "dnevnik_data", boom):
             _, body = pravitrade.page({}, "Jure")
-        keys = ("<h1>Autopilot</h1>", "id=ap-head", 'id="apc-ap"', "id=dnevnik", "id=pozicije", "id=pratim",
-                "id=kupi-odmah", "id=cilj", "id=preporuke", "id=zovu", "id=ideje", "id=limiti", "id=pozivnice")
+        # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): the title with the switch is inside the 45-s header;
+        # "Kako trguje" = Koga prati, Pravila (cilj + limiti), Kupi ručno; "Još" = the two live lists, the
+        # recommendations, Wallet i uplata (setup steps), who sees the page, safety
+        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=dnevnik", "id=pozicije", "id=pratim",
+                "id=pravila", "id=cilj", "id=limiti", "id=kupi-odmah", "id=zovu", "id=ideje", "id=preporuke",
+                "id=postavljanje", "id=pozivnice", "id=zastita")
         at = [body.index(k) for k in keys]
         self.assertEqual(at, sorted(at))
         for sid, src in (("dnevnik", "/pravi-trade/dnevnik"), ("preporuke", "/pravi-trade/preporuke"),
@@ -394,10 +411,10 @@ class Page(Base):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
         _, body = pravitrade.page({}, "Ivan")
         for owner_only in ("/pravi-trade/switch", "/pravi-trade/sellall", "Spremi limite", "id=kupi-odmah",
-                           "id=pozivnice", "Postavljanje walleta", "Prodaj 20%"):
+                           "id=pozivnice", "Postavljanje walleta", "Prodaj 20 %", "Dovrši"):
             self.assertNotIn(owner_only, body)
-        self.assertIn("1.815 SOL", body)
-        self.assertIn("Dnevnik Autopilota", body)
+        self.assertIn("1,815<small>SOL</small>", body)       # 10.11.: decimal comma (pravilo 8)
+        self.assertIn("Dnevnik odluka", body)                 # 10.11.: the row's name in the mock-up
 
     def test_one_broken_part_never_costs_the_switch(self):
         self.mods(None, None)
@@ -507,7 +524,7 @@ class Routes(Base):
         self.assertIn(b"apc-ap", body)
         code, body = self._get("/pravi-trade/dnevnik")
         self.assertEqual(code, 200)
-        self.assertIn("PRESKOČIO".encode(), body)
+        self.assertIn("preskočio".encode(), body)
         self.assertEqual(self._get("/pravi-trade/dnevnik", "Nepoznat")[0], 403)
         self.assertEqual(self._get("/pravi-trade/graf", "Nepoznat")[0], 403)
         with mock.patch.object(pravitrade, "recs_fragment", side_effect=RuntimeError("x")), \

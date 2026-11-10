@@ -85,14 +85,17 @@ run_ui.py dijele "pogon" (zaglavlje/HEAVY), "javno" (rute) → rute dodaje "javn
 |---|---|---|
 | 0 | GOTOVO | PR #76 spojen 00:44 CET (47723d9); grana vraćena na main; deploy provjeren u 00:5x |
 | 1 | DJELOMIČNO | u 01:42 potrošen limit modela: gotovo sekundni.md, baze.md, osluskivaci.md, svijece.md, hosting.md, 4 od 10 kutova tradera; sinteze rade agenti od 07:35 |
-| 2 | čeka fazu 1 | |
+| 2 | GOTOVO | odgovori u troskovi-i-izvori.md (listener, 2 CPU-a, minutne svijeće) |
 | 3 | GOTOVO 01:00 | `audit/2026-11-10/dizajn.md`: ugovor između grupa (imena modula, funkcija, ključeva) |
-| 4 | U TIJEKU od 07:30 | agenti u 01:42 stali usred posla; WIP commitan u noc/*; šest agenata (Opus 5.5) dovršava grupe |
-| 5 | čeka fazu 4 | |
-| 6 | DJELOMIČNO | prezentacija gotova i poslana mailom 07:50 (https://claude.ai/artifact/5226XC8hXGJxhad7iUNAx1); prijedlozi sučelja i profitabilnosti u izradi |
-| 7 | čeka | jedan PR nakon spajanja grupa i završnog pregleda |
+| 4 | GOTOVO 08:00 | šest grupa dovršeno i spojeno; dva neovisna pregleda cijelog diffa, 6 sitnih nalaza popravljeno |
+| 5 | GOTOVO 08:15 | puni suite 1455 OK, spojena aplikacija lokalno bez JS grešaka (390/1280 px) |
+| 6 | GOTOVO | prezentacija poslana mailom; troskovi-i-izvori.md, profitabilnost.md, ui-prijedlozi.md sa slikama; drugi krug maketa u izradi |
+| 7 | GOTOVO 08:21 | PR #77 spojen (23e358e), deploy živ 08:22:47, SENTRY_DSN postavljen |
 
 ## Dnevnik noći (kratko, novije gore)
+
+- 08:26 Provjera deploya #77: CPU čuvar "cgroup v2, 1.00 CPU (kvota)"; trade LIVE (brava PROOF i dalje blokira prave kupnje); equity rekonstruirao 3 točke; 502/503 samo 07:22–07:24 UTC (zamjenska stranica 50 s), od 07:25 nula; bez Tracebacka.
+- 08:21 PR #77 spojen, SENTRY_DSN postavljen na Renderu.
 
 - 07:50 Prezentacija (16 slajdova, činjenice iz koda) objavljena i poslana na msjure321@gmail.com.
 - 07:30 Jutarnja provjera produkcije: noć mirna. CPU 13–17 % po satu od 01 do 07, 502/503 samo u satu deploya #76, bez Tracebacka. Noćni poslovi rade: dokazani 46 od 349, KOL search 60–402 s, measure 75–166 s; dugo je držao bravu 01:03–01:26.

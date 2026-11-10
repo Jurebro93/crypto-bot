@@ -48,6 +48,41 @@ main{padding:10px}h1{font-size:18px}.intro{font-size:13px;padding:8px 10px}.grid
 .tw td.wrap{min-width:150px;max-width:62vw}.flt input[data-f]{width:100%}.colpan{width:min(300px,calc(100vw - 20px))}dialog#ev .body{padding:0 10px 12px}}
 """
 
+def grid_chooser(root_id, cols, fixed_left="minmax(0,1fr)", fixed_right="14px"):
+    """10.11. (Jure, prijedlog 3.2: "Stupci" ostaje samo na računalu): the column chooser for rows drawn as a CSS grid
+    instead of a <table> (the token list). cols: [(key, label, width)] of the columns that may be hidden; their cells
+    carry data-col="<key>". The choice is kept in this browser (localStorage, per root_id) and applied by setting
+    --gc-cols (the grid template) and gc-hide-<key> classes on the element with id root_id. Hidden on phones.
+    fixed_left / fixed_right: the grid columns that always stay. Returns HTML (button, panel, style, script)."""
+    from ui.html import esc
+    boxes = "".join(f'<label><input type=checkbox value="{esc(k)}" checked> {esc(lab)}</label>' for k, lab, _ in cols)
+    widths = "{" + ",".join(f'"{esc(k)}":"{esc(w)}"' for k, _, w in cols) + "}"
+    hide = "".join(f'#{esc(root_id)}.gc-hide-{esc(k)} [data-col="{esc(k)}"]{{display:none!important}}' for k, _, _ in cols)
+    return (f'<style>.gc{{display:none;position:relative;justify-content:flex-end;margin:10px 0 -8px}}'
+            '@media(min-width:900px){.gc{display:flex}}'
+            '.gc>button{all:unset;cursor:pointer;font-size:13px;color:var(--mut)}.gc>button:hover{color:var(--fg)}'
+            '.gc-pan{position:absolute;right:0;top:100%;z-index:20;background:#fff;border:1px solid var(--line);'
+            'border-radius:12px;box-shadow:0 12px 30px -12px rgba(11,18,32,.25);padding:6px 12px;min-width:170px}'
+            '.gc-pan label{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:15px;cursor:pointer}'
+            f'{hide}</style><div class="gc" data-gc="{esc(root_id)}"><button type=button aria-haspopup=true>Stupci</button>'
+            f'<div class="gc-pan" hidden>{boxes}</div></div>'
+            "<script>(()=>{const g=document.currentScript.previousElementSibling,id=g.dataset.gc,K='cols:grid:'+id,"
+            f"W={widths},L={_js_str(fixed_left)},R={_js_str(fixed_right)},b=g.querySelector('button'),p=g.querySelector('.gc-pan');"
+            "const get=()=>{try{return (localStorage.getItem(K)||'').split(',').filter(Boolean)}catch(e){return []}};"
+            "const ap=()=>{const r=document.getElementById(id),h=get();if(!r)return;Object.keys(W).forEach(k=>r.classList.toggle('gc-hide-'+k,h.includes(k)));"
+            "r.style.setProperty('--gc-cols',[L,...Object.keys(W).filter(k=>!h.includes(k)).map(k=>W[k]),R].join(' '));"
+            "p.querySelectorAll('input').forEach(i=>i.checked=!h.includes(i.value))};"
+            "b.addEventListener('click',e=>{e.stopPropagation();p.hidden=!p.hidden});p.addEventListener('click',e=>e.stopPropagation());"
+            "document.addEventListener('click',()=>p.hidden=true);"
+            "p.addEventListener('change',()=>{try{localStorage.setItem(K,[...p.querySelectorAll('input')].filter(i=>!i.checked).map(i=>i.value).join(','))}catch(e){}ap()});"
+            "document.readyState==='loading'?document.addEventListener('DOMContentLoaded',ap):ap()})()</script>")
+
+
+def _js_str(s):
+    import json
+    return json.dumps(str(s)).replace("<", "\\u003c")
+
+
 JS = r"""
 (()=>{
 const P='cols:'+location.pathname+':';

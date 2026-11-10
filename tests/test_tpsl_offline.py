@@ -618,7 +618,7 @@ class Page(unittest.TestCase):
         html = self.pt._pool_line()
         self.assertIn("Koji TP/SL se isplati", html)
         self.assertIn("TP +20 % / SL −40 %", html)                               # the pair Jure asked about
-        self.assertIn("<td class=n>70%</td>", html)                              # ... needs 70 % for zero
+        self.assertIn("<td class=n>70\u00a0%</td>", html)                       # ... needs 70 % for zero (10.11.: "70 %")
         self.assertIn("(najbolji)", html)
         self.assertIn("Širi stop traži VIŠE pogodaka", html)
 

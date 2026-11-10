@@ -7,6 +7,10 @@ zamijeni blokove između oznaka, pa se jedna promjena stila prenese na svih pet:
     <!--BOCNO a=kljuc--> ... <!--/BOCNO-->   bočni izbornik (računalo)
     <!--TRAKA a=kljuc--> ... <!--/TRAKA-->   donja traka (mobitel)
     <!--GRAF--> ... <!--/GRAF-->         graf vrijednosti walleta (Autopilot)
+    <!--CRTEZ k=ime--> ... <!--/CRTEZ-->  drugi krug: grafovi i trake detalja (token, influencer, novčanik)
+    <!--SLIKA k=ime--> ... <!--/SLIKA-->  drugi krug: slika nove makete na naslovnoj (iz snimke novo-<ime>-phone-fold.png)
+Drugi krug (10.11.): naslovna, tokeni-popis, token, influenceri-ljestvica, influencer, novcanici, novcanik.
+Naslovna je javna stranica: dobiva samo OSNOVA (bez trake i bočnog izbornika).
 Pokretanje:  python3 audit/2026-11-10/makete/sastavi.py
 """
 import math
@@ -15,7 +19,8 @@ import random
 import re
 
 HERE = pathlib.Path(__file__).resolve().parent
-SCREENS = ("pregled", "tokeni", "influenceri", "autopilot", "izbornik")
+SCREENS = ("pregled", "tokeni", "influenceri", "autopilot", "izbornik",
+           "naslovna", "tokeni-popis", "token", "influenceri-ljestvica", "influencer", "novcanici", "novcanik")
 
 CSS = r"""
 /* Boje: iste varijable kao ui/html.py (:root). Novo su samo veličine, razmaci i ritam. */
@@ -118,13 +123,15 @@ LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="l
         '<circle cx="16" cy="16" r="1.6" fill="#fff"/></svg>')
 # administrator (Jure): Autopilot umjesto Novčanika u traci; ostali korisnici zadržavaju Novčanike (Autopilot ne vide)
 TABS = [("pregled", "Pregled"), ("tokeni", "Tokeni"), ("influenceri", "Influenceri"), ("autopilot", "Autopilot"), ("vise", "Više")]
+# drugi krug: Novčanici se snimaju s trakom ostalih korisnika (Novčanici na mjestu Autopilota), da se vidi i ta inačica
+TABS_OSTALI = [("pregled", "Pregled"), ("tokeni", "Tokeni"), ("influenceri", "Influenceri"), ("novcanici", "Novčanici"), ("vise", "Više")]
 SIDE = [("pregled", "Pregled"), ("tokeni", "Tokeni"), ("influenceri", "Influenceri"), ("novcanici", "Novčanici"),
         ("autopilot", "Autopilot"), ("vise", "Više")]
 
 
 def tabs(active):
     out = []
-    for k, label in TABS:
+    for k, label in (TABS_OSTALI if active == "novcanici" else TABS):
         cls = ' class="on"' if k == active else ""
         icon = ICONS[k] if k != "vise" else f'<span class="badge">{ICONS[k]}</span>'
         out.append(f'<a{cls} href="#">{icon}{label}</a>')
@@ -172,6 +179,172 @@ def graf():
         '</div><div class="ax"><span>3.11.</span><span>5.11.</span><span>7.11.</span><span>9.11.</span><span>sada</span></div></div>')
 
 
+# ---------- drugi krug (10.11.): grafovi i trake detalja ---------------------------------------------------------
+# Isti izgled kao graf() Autopilota: jedna os, linija 2 px, recesivna mreža, oznake osi 13 px desno, os x ispod.
+# Brojke su PRIMJER (influencer: brojke s Jureove snimke; novčanik i token: lokalna kopija iz seed_app.py).
+
+def _hr(v, d=0):
+    t = f"{abs(v):,.{d}f}".replace(",", " ").replace(".", ",")
+    return ("−" if v < 0 else "") + t
+
+
+def _crt(series, lo, hi, ticks, xlabels, label, dots=(), vmark=None, area=True, end=True, H=200):
+    """series: [(vals, boja, debljina, crtkano)], prva je glavna (ploha i točka na kraju). ticks: [(vrijednost, tekst)].
+    dots: [(indeks u prvoj seriji, naslov)] oznake na liniji (npr. pozivi). vmark: (indeks, tekst) okomita crtkana crta."""
+    W = 1000
+    n = max(len(v) for v, *_ in series) - 1
+    X = lambda i: i * (W - 8) / n
+    Y = lambda v: H - (v - lo) / (hi - lo) * H
+    out = [f'<div class="chart"><div class="plot"><div class="pw"><svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" '
+           f'aria-label="{label}">']
+    for v, _t in ticks:
+        dash0 = 'stroke-dasharray="4 4" ' if v == 0 else ""   # 10.11.: no backslash inside an f-string (Python 3.10/3.11)
+        out.append(f'<line x1="0" y1="{Y(v):.1f}" x2="{W}" y2="{Y(v):.1f}" stroke="{"#cfd5e1" if v == 0 else "#e8ebf2"}" '
+                   f'stroke-width="1" {dash0}vector-effect="non-scaling-stroke"/>')
+    if vmark:
+        out.append(f'<line x1="{X(vmark[0]):.1f}" y1="0" x2="{X(vmark[0]):.1f}" y2="{H}" stroke="#cfd5e1" stroke-width="1.5" '
+                   'stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>')
+    for k, (vals, col, w, dash) in enumerate(series):
+        pts = [(X(i), Y(v)) for i, v in enumerate(vals)]
+        line = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        if k == 0 and area:
+            gid = "g" + label[:3].lower().replace(" ", "")
+            out.append(f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{col}" '
+                       f'stop-opacity=".14"/><stop offset="1" stop-color="{col}" stop-opacity="0"/></linearGradient></defs>'
+                       f'<path d="{line} L{pts[-1][0]:.1f},{H} L0,{H} Z" fill="url(#{gid})"/>')
+        dashed = 'stroke-dasharray="6 5" ' if dash else ""   # 10.11.: no backslash inside an f-string (3.10/3.11)
+        out.append(f'<path d="{line}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linejoin="round" '
+                   f'{dashed}vector-effect="non-scaling-stroke"/>')
+    out.append("</svg>")
+    main = series[0][0]
+    if end:
+        out.append(f'<span class="end" style="left:{X(n) / 10:.2f}%;top:{Y(main[-1]) / H * 100:.2f}%"></span>')
+    for i, t in dots:
+        out.append(f'<span class="mk" title="{t}" style="left:{X(i) / 10:.2f}%;top:{Y(main[i]) / H * 100:.2f}%"></span>')
+    if vmark:
+        out.append(f'<span class="dep" style="left:{X(vmark[0]) / 10:.1f}%">{vmark[1]}</span>')
+    out.append("</div>")
+    out += [f'<span class="yl" style="top:{Y(v) / H * 100:.1f}%">{t}</span>' for v, t in ticks]
+    out.append('</div><div class="ax">' + "".join(f"<span>{x}</span>" for x in xlabels) + "</div></div>")
+    return "".join(out)
+
+
+def _walk(anchors, n, rnd, noise):
+    """Glatka nasumična putanja kroz zadane točke [(indeks, vrijednost)]."""
+    vals = []
+    for (i0, v0), (i1, v1) in zip(anchors, anchors[1:]):
+        for i in range(i0, i1):
+            f = (i - i0) / (i1 - i0)
+            vals.append(v0 + (v1 - v0) * f)
+    vals.append(anchors[-1][1])
+    out, drift = [], 0.0
+    for i, v in enumerate(vals):
+        drift = drift * 0.7 + rnd.uniform(-noise, noise)
+        pin = min(1.0, min(abs(i - a) for a, _ in anchors) / 3)
+        out.append(v * (1 + drift * pin))
+    return out[:n + 1]
+
+
+def graf_token():
+    """GIGAFROG, mcap zadnja 24 h (točka svakih 15 min): 170k prije 24 h, 259k prije 6 h, 349k prije 1 h, 412k sada
+    (24 h +142 %, 6 h +59 %, 1 h +18 % kao na snimci tokena). Točke = pozivi influencera."""
+    rnd = random.Random(94)
+    v = _walk([(0, 170e3), (24, 151e3), (44, 205e3), (60, 214e3), (72, 259e3), (92, 349e3), (96, 412e3)], 96, rnd, 0.035)
+    v[-1] = 412e3
+    return _crt([(v, "#4f46e5", 2.2, False)], 100e3, 450e3, [(200e3, "200k"), (400e3, "400k")],
+                ["8:00", "14:00", "20:00", "2:00", "sada"], "Mcap GIGAFROG, 24 h",
+                dots=[(52, "@bitecong, prvi poziv"), (64, "@PumpWatch1"), (88, "@TortillasTown"), (93, "@Humanevolvd")])
+
+
+def _kol_calls():
+    """30 poziva u 14 dana: 21 do +10 % u prvom satu (+1 $ na 10 $), 8 stopova (−2 $), 1 prodan nakon 60 min (−2 $)
+    = +3 $. Nakon 24 h: 2 u plusu (+30 %, +12 %), 28 u minusu, zbroj −185 $ (Jureova snimka 10.11.)."""
+    rnd = random.Random(30)
+    hits = set(rnd.sample(range(30), 21))
+    quick = [1.0 if i in hits else -2.0 for i in range(30)]
+    plus = sorted(rnd.sample(sorted(hits), 2))
+    w = [rnd.uniform(0.35, 1.0) for _ in range(28)]
+    tot = -185.0 - (3.0 + 1.2)
+    neg = [max(-10.0, tot * x / sum(w)) for x in w]
+    neg[-1] += tot - sum(neg)
+    day, it = [], iter(neg)
+    for i in range(30):
+        day.append(3.0 if i == plus[0] else 1.2 if i == plus[1] else next(it))
+    return quick, day
+
+
+def graf_kol():
+    quick, day = _kol_calls()
+    a, b = [0.0], [0.0]
+    for q, d in zip(quick, day):
+        a.append(a[-1] + q)
+        b.append(b[-1] + d)
+    return _crt([(a, "#4f46e5", 2.2, False), (b, "#5b6474", 2, False)], -200, 25,
+                [(0, "0 $"), (-100, "−100"), (-200, "−200")], ["27.10.", "31.10.", "3.11.", "7.11.", "10.11."],
+                "Deset dolara u svaki poziv", area=False)
+
+
+def _traka(vals, naslov):
+    cells = "".join(f'<i class="{"p" if x > 0 else "n"}"></i>' for x in vals)
+    return f'<div class="strip"><span class="sl">{naslov}</span><span class="sq">{cells}</span></div>'
+
+
+def traka_kol():
+    quick, day = _kol_calls()
+    return (_traka(quick, "1 h") + _traka(day, "24 h"))
+
+
+def _novcanik_trades():
+    """31 zatvorena pozicija Vfdn…At74: 20 prije reza (5.11.) = +7,40 SOL, 11 poslije = +4,46 SOL; 21 u plusu."""
+    rnd = random.Random(31)
+    def grp(n, n_plus, total):
+        idx = set(rnd.sample(range(n), n_plus))
+        v = [rnd.uniform(0.12, 1.3) if i in idx else -rnd.uniform(0.05, 0.45) for i in range(n)]
+        k = max(idx)
+        v[k] += total - sum(v)
+        return v
+    return grp(20, 14, 7.40) + grp(11, 7, 4.46)
+
+
+def graf_novcanik():
+    t = _novcanik_trades()
+    c = [0.0]
+    for x in t:
+        c.append(c[-1] + x)
+    return _crt([(c, "#4f46e5", 2.2, False)], -1, 13.5, [(0, "0"), (5, "5"), (10, "10")],
+                ["22.10.", "27.10.", "1.11.", "5.11.", "10.11."], "Zarada na zatvorenima, SOL", vmark=(20, "rez 5.11."))
+
+
+def traka_novcanik():
+    return _traka(_novcanik_trades(), "")
+
+
+# naslovna: prave slike novih ekrana (prvi ekran mobitela iz snimi.js), umetnute kao JPEG, da maketa ostane jedna datoteka.
+# Redoslijed: snimi.js za ostale makete, pa sastavi.py, pa snimi.js --only naslovna.
+SHOTS = pathlib.Path(__import__("os").environ.get(
+    "UIPROP_SHOTS", "/tmp/claude-0/-home-user/4912361d-d525-5b3e-b714-652a838e02b7/scratchpad/shots/ui"))
+SLIKE = {"tokeni": "Tokeni", "influencer": "Profil influencera", "novcanik": "Novčanik"}
+
+
+def slika(k):
+    src = SHOTS / f"novo-{k}-phone-fold.png"
+    if not src.exists():
+        return f'<div class="ph-missing">{SLIKE[k]}</div>'
+    import base64
+    import io
+    from PIL import Image
+    im = Image.open(src).convert("RGB")
+    im = im.resize((360, round(im.size[1] * 360 / im.size[0])), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=74, optimize=True, progressive=True)
+    return (f'<img alt="{SLIKE[k]}, nova maketa" width="180" height="390" loading="lazy" '
+            f'src="data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}">')
+
+
+CRTEZI = {"token": graf_token, "kol": graf_kol, "kol-traka": traka_kol, "novcanik": graf_novcanik,
+          "novcanik-traka": traka_novcanik}
+
+
 def fill(text, key):
     text = re.sub(r"/\*OSNOVA\*/.*?/\*OSNOVA-KRAJ\*/", lambda m: "/*OSNOVA*/" + CSS + "/*OSNOVA-KRAJ*/", text, flags=re.S)
     text = re.sub(r"<!--BOCNO a=(\w+)-->.*?<!--/BOCNO-->",
@@ -179,6 +352,10 @@ def fill(text, key):
     text = re.sub(r"<!--TRAKA a=(\w+)-->.*?<!--/TRAKA-->",
                   lambda m: f"<!--TRAKA a={m.group(1)}-->{tabs(m.group(1))}<!--/TRAKA-->", text, flags=re.S)
     text = re.sub(r"<!--GRAF-->.*?<!--/GRAF-->", lambda m: "<!--GRAF-->" + graf() + "<!--/GRAF-->", text, flags=re.S)
+    text = re.sub(r"<!--CRTEZ k=([\w-]+)-->.*?<!--/CRTEZ-->",
+                  lambda m: f"<!--CRTEZ k={m.group(1)}-->{CRTEZI[m.group(1)]()}<!--/CRTEZ-->", text, flags=re.S)
+    text = re.sub(r"<!--SLIKA k=([\w-]+)-->.*?<!--/SLIKA-->",
+                  lambda m: f"<!--SLIKA k={m.group(1)}-->{slika(m.group(1))}<!--/SLIKA-->", text, flags=re.S)
     return text
 
 
