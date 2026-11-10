@@ -161,8 +161,10 @@ class DryTrade(Audit):
         self.assertEqual(mcpdata.autopilot_trades()["account_sl_default_pct"], -60)   # not the -35 % that applied
 
     def test_2_exit_rule_column_and_stored_runup_win_when_present(self):
+        have = {r[1] for r in self.lg.execute("PRAGMA table_info(trades)")}   # league/store may have added them
         for col, typ in (("runup", "REAL"), ("call_mcap", "REAL"), ("exit_rule", "TEXT")):
-            self.lg.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
+            if col not in have:
+                self.lg.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
         self.lg.execute("UPDATE trades SET exit_rule='smart_trail', runup=0.12, call_mcap=75000, score=64, "
                         "entry_mcap=84000, exit_mcap=70000 WHERE id=?", (self.tid,))
         self.lg.commit()

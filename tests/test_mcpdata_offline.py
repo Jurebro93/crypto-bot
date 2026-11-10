@@ -47,11 +47,13 @@ class Base(unittest.TestCase):
         settings.DB = os.path.join(d, "trade.db")
         store.DB = os.path.join(d, "league.db")
         mcpdata._CACHE.clear()
+        # 10.11. (Grok MCP audit 1): p0 in the same unit as the demo's entry price (1.0 at $50k): league/store.buy now
+        # stores the run-up from p0 at the entry, and the API prefers that stored figure
         calls = [  # handle, tweet, token, ts, kind, p0, mcap0, r1h, r24h, max24, rug, followers
-            ("ansem", "t1", TOK, NOW - 7200, "call", 0.001, 50_000, 0.3, 1.5, 2.0, 0, 500_000),
-            ("ansem", "t2", TOK2, NOW - 3600, "call", 0.002, 80_000, -0.2, -0.95, 0.1, 1, 500_000),
-            ("murad", "t3", TOK, NOW - 7000, "call", 0.0011, 55_000, 0.2, 1.2, 1.1, 0, 20_000),
-            ("tg:alpha", "tg:alpha/1", TOK, NOW - 6900, "call", 0.0012, 60_000, 0.1, 0.4, 0.6, 0, 3_000),
+            ("ansem", "t1", TOK, NOW - 7200, "call", 1.0, 50_000, 0.3, 1.5, 2.0, 0, 500_000),
+            ("ansem", "t2", TOK2, NOW - 3600, "call", 1.6, 80_000, -0.2, -0.95, 0.1, 1, 500_000),
+            ("murad", "t3", TOK, NOW - 7000, "call", 1.1, 55_000, 0.2, 1.2, 1.1, 0, 20_000),
+            ("tg:alpha", "tg:alpha/1", TOK, NOW - 6900, "call", 1.2, 60_000, 0.1, 0.4, 0.6, 0, 3_000),
             ("murad", "b1", TOK, NOW - 6000, "brag", None, None, None, None, None, 0, 20_000),
             ("murad", "b2", TOK2, NOW - 5000, "brag", None, None, None, None, None, 0, 20_000),
             ("murad", "b3", TOK2, NOW - 4000, "brag", None, None, None, None, None, 0, 20_000),
@@ -170,7 +172,7 @@ class Tools(Base):
         old = out["rows"][1]
         self.assertEqual((old["token"], old["call_ts"], old["market_cap_at_call"]), (TOK, NOW - 7200, 50_000))
         self.assertEqual((old["max_1h"], old["min_1h"], old["max_24h"]), (0.8, -0.1, 2.0))
-        self.assertAlmostEqual(old["price_1h"], 0.0013)
+        self.assertAlmostEqual(old["price_1h"], 1.3)                         # p0 1.0 x (1 + r1h 0.3)
         self.assertEqual((old["other_callers_15m_before"], old["other_callers_15m_after"]), (0, 2))
         self.assertTrue(out["rows"][0]["rug"])
         page = mcpdata.caller_history("ansem", "x", limit=1, offset=1)
