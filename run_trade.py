@@ -333,6 +333,11 @@ def cmd_follow(a):
             con.close()
         except Exception as e:
             print(f"greška: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 10.11. (Jure): the same error with its stack, in Sentry (the log line has only the text)
+                from ops import sentry
+                sentry.capture(e, where="run_trade.cmd_follow")
+            except Exception:  # noqa: BLE001 - the reporter must never stop the trade loop
+                pass
         if a.once or STOPPING["flag"]:
             return
         time.sleep(cfg["poll_s"])
@@ -391,6 +396,11 @@ def cmd_status(a):
 
 
 def main(argv=None):
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("trade")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     p = argparse.ArgumentParser()
     p.add_argument("--config", help="default trade/config.json")
     sub = p.add_subparsers(dest="cmd", required=True)

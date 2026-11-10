@@ -190,6 +190,11 @@ JOBS = [
 
 
 def main():
+    try:   # 10.11. (Jure): errors go to Sentry (ops/sentry.py); a no-op without SENTRY_DSN, never stops the start
+        from ops import sentry
+        sentry.init("sched")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentry: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
     for name, fn, args in JOBS:
         threading.Thread(target=fn, args=(name, *args), name=name, daemon=True).start()
     while True:

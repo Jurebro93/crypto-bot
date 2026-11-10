@@ -75,6 +75,17 @@ def candidates(now=None, sources=None):
     return out
 
 
+def _source_failed(name):
+    """10.11. (Jure, Sentry): a source that fails goes to Sentry with its stack instead of dropping out in silence.
+    Audit 9.11. N42: the 'prijedlog' source called a function that never existed, the error was swallowed here and
+    the source was dead for days while the diary said it worked. Called inside `except`; a no-op without Sentry."""
+    try:
+        from ops import sentry
+        sentry.capture(where=f"zivo izvor {name}")
+    except Exception:  # noqa: BLE001 - the other sources still give their rows
+        pass
+
+
 def _sources(now):
     """The raw candidate rows from the bases (each already carries a reason)."""
     out = []
@@ -88,7 +99,7 @@ def _sources(now):
                 out.append({"token": tok, "symbol": r.get("symbol"), "src": "alat", "ts0": r.get("ts"), "mcap0": r.get("mcap"),
                             "liq": r.get("liq"), "rank": r.get("rank"), "why": [f"#{r.get('rank')} alata, rug check prošao"]})
     except Exception:  # noqa: BLE001
-        pass
+        _source_failed("alat")
     try:   # the suggestion box's own picks (ui/prijedlog_log, already live-gated when logged)
         # 9.11. (audit P53/P54): latest_picks lives in ui/pravitrade (ui/prijedlog never had it, so this source was
         # dead and silent). Only the box's own grades count: the live rows it logs as 'uživo' are this list (no loop).
@@ -100,6 +111,7 @@ def _sources(now):
                             "conf": conf, "why": ["prijedlog Pregleda" + (f", pouzdanost {conf:.0f}" if conf is not None else "")]})
     except Exception as e:  # noqa: BLE001
         print(f"zivo: izvor prijedlog: {type(e).__name__}: {e}", flush=True)
+        _source_failed("prijedlog")
     try:   # several sources on one token within 30 min (kol/converge, stored by the KOL round)
         from kol import store as kstore
         from league import copy
@@ -113,7 +125,7 @@ def _sources(now):
             finally:
                 kc.close()
     except Exception:  # noqa: BLE001
-        pass
+        _source_failed("konvergencija")
     try:   # who is calling right now (already live-checked)
         from ui import pravitrade
         for tok, callers, first, _last, sym, m in pravitrade.gather_callers(now, limit=12):
@@ -121,7 +133,7 @@ def _sources(now):
             out.append({"token": tok, "symbol": sym, "src": "zovu", "ts0": first, "mcap0": m.get("mcap"), "liq": m.get("liq"),
                         "why": [f"zovu: {who}"]})
     except Exception:  # noqa: BLE001
-        pass
+        _source_failed("zovu")
     return out
 
 
