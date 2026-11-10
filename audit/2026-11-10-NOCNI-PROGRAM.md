@@ -94,6 +94,7 @@ run_ui.py dijele "pogon" (zaglavlje/HEAVY), "javno" (rute) → rute dodaje "javn
 
 ## Dnevnik noći (kratko, novije gore)
 
+- 01:12 Pokrenuto 11 workflowa: audit koda, web izvori, savjeti tradera, 6 grupa implementacije (worktreeji `/home/user/wt/*`, grane `noc/*`), sadržaj prezentacije, prijedlozi sučelja. Popis ID-eva: scratchpad `NOC-STANJE.md`. Popravljen test topchecka koji je pao zbog datuma (fiksni 2.11.).
 - 01:05 Sentry projekt `memesonar` stvoren (org serprise, de.sentry.io); DSN ide u env SENTRY_DSN na Renderu tik uz jutarnji merge.
 - 01:03 Deploy #76 provjeren: minutna petlja radi s novim kodom ("minute: 30 tokena, 56 poziva… još 4591 tokena čeka"), bez Tracebacka, CPU vrh 27 %.
 - 01:00 Worktreeji po grupama otvoreni; skripte workflowa u scratchpadu `wf/` (audit_koda, web_izvori, trgovci, impl, ui_prijedlozi).
