@@ -595,9 +595,8 @@ def _today(tcon, cfg, result=True, now=None):
     now = now or time.time()
     live = executor.is_live(cfg)
     mode = "live" if live else "dry"
-    start = executor._day_start(now, cfg.get("day_tz"))
-    spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
-                         "('open','closed','pending')", (mode, start)).fetchone()[0]
+    # 10.11.: "spent" is what the daily limit counts: the automatic buys (executor.auto_spent)
+    spent = executor.auto_spent(tcon, now, mode, cfg.get("day_tz"))
     pnl = executor.day_pnl(tcon, now, mode, cfg.get("day_tz")) if result else 0
     return {"spent": float(spent or 0), "pnl": float(pnl or 0), "live": live}
 
@@ -1623,7 +1622,7 @@ def _rules(tcon, cfg, owner):
         spent = None
     meta = (f'ulog {_g(cfg["size_sol"])} SOL · cilj +{int(cfg.get("tp_default") or 15)} % · '
             f'stop −{int(cfg.get("sl_default") or settings.SL_DEFAULT)} % · '
-            + (f'danas {redak.num(spent, 2)} od {_g(cfg["max_sol_per_day"])} SOL' if spent is not None
+            + (f'automatski danas {redak.num(spent, 2)} od {_g(cfg["max_sol_per_day"])} SOL' if spent is not None
                else f'najviše {_g(cfg["max_sol_per_day"])} SOL dnevno'))
     return _sec("Pravila", meta, _tp_card(cfg, owner) + _sl_card(cfg, owner) + _trigger_card(tcon, owner)
                 + _limits(cfg, owner), sid="pravila")
@@ -4436,10 +4435,11 @@ def _warnings(tcon, cfg, con):
                                   "kupovati, prodaje rade."))
     mode = "live" if executor.is_live(cfg) else "dry"
     start = executor._day_start(now, cfg.get("day_tz"))
-    spent = tcon.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE mode=? AND opened_ts>=? AND status IN "
-                         "('open','closed','pending')", (mode, start)).fetchone()[0]
+    spent = executor.auto_spent(tcon, now, mode, cfg.get("day_tz"))   # 10.11.: automatic buys only
     if spent >= cfg["max_sol_per_day"] - 1e-9:
-        w.append(("warn", f"Dnevni limit potrošnje je dosegnut ({redak.sol(spent, 3)}): nove kupnje tek nakon ponoći (Zagreb)."))
+        w.append(("warn", f"Dnevni limit automatskih kupnji je dosegnut ({redak.sol(spent, 3)} od {_g(cfg['max_sol_per_day'])} "
+                          "SOL): Autopilot nove kopije kupuje tek nakon ponoći (Zagreb). Tvoje ručne kupnje i Grokove idu "
+                          "dalje."))
     if executor.day_pnl(tcon, now, mode, cfg.get("day_tz")) <= -cfg["max_loss_day"]:
         w.append(("bad", f"Dnevni gubitak je dosegnuo −{_g(cfg['max_loss_day'])} SOL: nove kupnje stoje do ponoći (Zagreb). Uključene su i naknade neuspjelih pokušaja."))
     recent = tcon.execute("SELECT code, error, prio_lamports, status FROM orders WHERE ts>=? ORDER BY id DESC LIMIT 30",

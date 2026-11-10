@@ -306,7 +306,8 @@ class AddToPosition(Base):
             self.mirror(time.time())
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0], 2)
         cfg = settings.merged(dict(CFG), self.con)
-        self.assertIn("dnevni limit", executor.gate_buy(self.con, cfg, 0.05, time.time(), False, token="X"))
+        # 10.11. (Jure: "Dnevni limit ... Ovo nema smisla"): his buys do not use up the copies' limit either
+        self.assertIsNone(executor.gate_buy(self.con, cfg, 0.05, time.time(), False, token="X"))
         self.assertIsNone(executor.gate_buy(self.con, cfg, 0.05, time.time(), False, token="X", manual=True))
         self.assertIsNone(pravitrade_gate(self.con, 0.05))
 
