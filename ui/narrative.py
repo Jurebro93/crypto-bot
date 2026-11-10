@@ -181,7 +181,7 @@ def interpret(mint):
         head = (f"Alat vidi <b>umjerenu šansu</b> za rast {esc(sym)}: postoje pravi signali, ali nisu svi potvrđeni.")
     else:
         head = (f"Alat zasad <b>ne vidi dovoljno dokaza</b> da će {esc(sym)} rasti: signala je malo ili su slabi.")
-    head += f" Confidence {conf}/100 ({level})."
+    head += f" Pouzdanost {conf}/100 ({level})."   # 10.11. (prijedlog 4.3): "Confidence" → "pouzdanost" svugdje
 
     out = []
     if facts:
@@ -203,6 +203,90 @@ def interpret(mint):
     out.append("<p class=mut style='font-size:12px'>Ovo je čitanje izmjerenih podataka, ne savjet. Koliko je takva procjena "
                "dosad bila točna vidi se u tablici „Je li confidence točan?“ na stranici Demo trading.</p>")
     return head, out
+
+
+# ---------- 10.11.: one verdict for the token page (prijedlog 4.3, maketa token.html) --------------------------------
+# The page starts with a panel: "Pouzdanost 94 · šansa za skok 87", one verdict in big letters ("U zoni ulaza"), one
+# sentence, and one line "Za: ... Protiv: ...". Every word comes from a stored number or check; the full reading
+# (interpret) stays one tap away under "Cijelo tumačenje".
+
+# short names of the confidence parts (ui/confidence.parts_keyed keys) for the "Za / Protiv" line
+SHORT = {"hype": "hype ocjena", "x_buzz": "spominju ga na X-u", "smart_money": "smart walleti", "kol": "KOL-ovi",
+         "telegram": "Telegram pozivi", "x_trend": "trending na X-u", "event": "pravi token eventa",
+         "holders_ok": "zdravi holderi", "holders_conc": "koncentrirani holderi", "ekipa_insajder": "insajderski ulaz ekipe",
+         "primio_supply": "plaćena promocija", "ozbiljan": "ozbiljan projekt", "sumnjivi": "sumnjivi socijali",
+         "rug_ok": "rug prolazi", "rug_oprez": "rug: oprez", "rug_rizik": "rug: visok rizik", "liq_low": "mala likvidnost",
+         "mcap_big": "već velik mcap", "mcap_small": "premali mcap", "top_chase": "kupnja vrha",
+         "snaga_volumen": "drži volumen", "rast_holdera": "holderi rastu", "organski": "organski promet",
+         "odbacen": "rug filter ga je odbacio"}
+NOT_IN_LINE = ("hype",)
+ZONE_LO, ZONE_HI = 0.80, 1.25   # = ui/prijedlog PULL_X / DROP_X: the entry zone of a suggested token
+
+
+def za_protiv(keyed, scored=None, n=4):
+    """(za, protiv): short names of the parts that added and took points, biggest first.
+    keyed: confidence.parts_keyed(...) [(key, points, text)]; scored: confidence.score(...)[1] [(points, text)] when a
+    learned model re-weighed them (its points win, matched by text). Parts worth 0 are left out."""
+    pts = {t: p for p, t in (scored or [])}
+    # the hype score is the base every token has, not a confirmation: it stays in the full reading, not in "Za"
+    rows = [(k, pts.get(t, p)) for k, p, t in keyed or () if k not in NOT_IN_LINE]
+    za = [SHORT.get(k, k) for k, p in sorted(rows, key=lambda r: -r[1]) if p > 0][:n]
+    protiv = [SHORT.get(k, k) for k, p in sorted(rows, key=lambda r: r[1]) if p < 0][:n]
+    return za, protiv
+
+
+def za_protiv_line(za, protiv):
+    """"Za: ozbiljan projekt, smart walleti, rug prolazi. Protiv: ništa zabilježeno." as (za_text, protiv_text)."""
+    return ((", ".join(za) + ".") if za else "ništa izmjereno.", (", ".join(protiv) + ".") if protiv else "ništa zabilježeno.")
+
+
+def zone_sentence(x):
+    """Where the price is against the analysis (x = mcap now / mcap at the suggestion)."""
+    if x is None:
+        return ""
+    d = (x - 1) * 100
+    if abs(d) < 3:
+        return "Cijena je ista kao kod analize."
+    from ui.redak import pct
+    return f"Cijena je {pct(abs(d), sign=False)} {'iznad' if d > 0 else 'ispod'} analize."
+
+
+def token_verdict(conf, mcap=None, rug_verdict=None, locked=None, top_verdict=None, h1=None, zone_x=None):
+    """(word, kind) of the token page panel. kind is a ui/redak dot colour ("good", "warn", "bad", "").
+    The order is the order of what stops a buy: rugged / rejected / failed the check first, then a crash in the last
+    hour, then today's suggestion and its entry zone (same rule as Pregled), then the confidence level."""
+    if locked:
+        return "Rugan, ne ulazi", "bad"
+    rv = (rug_verdict or "").upper()
+    if rv == "ODBAČEN":
+        return "Ne ulazi: rug", "bad"
+    if (top_verdict or "") == "pao":
+        return "Pao na provjeri ruga", "bad"
+    if rv == "VISOK RIZIK":
+        return "Visok rizik", "bad"
+    if h1 is not None and h1 <= -50:
+        return "Pada, ne ulazi sada", "bad"
+    if mcap and mcap < 30_000:
+        return "Ispod 30k $", ""
+    if zone_x is not None:
+        if zone_x >= ZONE_HI:
+            return "Pričekaj povlačenje", "warn"
+        if zone_x <= ZONE_LO:
+            return "Pada, ne juri", "warn"
+        return "U zoni ulaza", "good"
+    lvl, _ = confidence.level(conf or 0)
+    return {"visoka": ("Dobra šansa", "good"), "srednja": ("Umjerena šansa", "warn")}.get(lvl, ("Premalo dokaza", ""))
+
+
+def token_sentence(reasons, word, zone_x=None, why_bad=None, h1=None):
+    """One sentence under the verdict: what stops the buy when something does, else the strongest measured reason,
+    plus where the price is against today's suggestion."""
+    if why_bad:
+        return why_bad.rstrip(".") + "."
+    if h1 is not None and h1 <= -50:
+        return f"Cijena je pala {-h1:.0f} % u zadnjem satu: rani kupci ili dev su izašli."
+    first = (reasons or [""])[0].strip()
+    return " ".join(x for x in (first, zone_sentence(zone_x)) if x) or "Signala je malo; čeka se smart wallet, influencer ili rug provjera."
 
 
 def html(mint):
