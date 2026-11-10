@@ -18,6 +18,51 @@ LEAGUE_USER = "pravi-trade"   # the competition account whose follows (KOL/walle
 SL_DEFAULT = 60
 SL_CHOICES = (20, 30, 40, 50, 60, 70)
 
+# 10.11. (Jure, "Specifikacija za Claudea", Phase 0): every new rule of the profitability plan ships behind a flag.
+#   off     the rule does nothing (default; behaviour exactly as before)
+#   shadow  the new decision is computed and logged (league.db shadow_decisions), nothing changes
+#   paper   the new rule runs on the demo account PAPER_USER, which copies LEAGUE_USER's follows; run_trade.py never
+#           mirrors PAPER_USER, so no real money moves
+#   live    the rule runs on LEAGUE_USER (real money through run_trade). Allowed only with a passed backtest
+#           (settings "backtest:<flag>" = {"pass": true, ...} from run_backtest.py) after PAPER_DAYS in paper with
+#           the paper account in the plus (live_refusal)
+# Data flags (DATA_FLAGS) only switch a collector or an MCP inbox on: any mode but off means "on".
+PAPER_USER = "autopilot-paper"
+FLAG_MODES = ("off", "shadow", "paper", "live")
+PAPER_DAYS = 7
+FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
+    "auto_exit_data": ("1.1", "Auto praćenja influencera izlaze po podacima (kol/tpsl), rok 60 min"),
+    "sl_default_v2": ("1.2", "Zadani stop −25 % i izlaz nakon 1 h"),
+    "dca_guard": ("1.4", "DCA dokup samo bez dumpa i prodaje insajdera; stop ostaje na prvom ulazu"),
+    "caller_ev_rank": ("2.1", "Calleri po donjoj granici EV-a, samo iz poziva prije signala"),
+    "latency_entry": ("2.2", "Mjerenje ulaza s pravim kašnjenjem"),
+    "runup_default": ("2.3", "Preskok kad je cijena više od 10 % iznad prvog poziva"),
+    "holder_hard": ("2.4", "Bez podataka o holderima nema auto kupnje; blok na prodaju deva i insajdera"),
+    "proof_v2": ("2.5", "Pravi novac tek nakon 25 zatvorenih i donje granice EV-a iznad nule"),
+    "survivor_fix": ("2.6", "Poziv bez para ili svijeće broji se kao gubitak, ne ispada"),
+    "zombie_guard": ("2.7", "Zombie token (više od 7 dana na krivulji prije migracije): manji ulog ili preskok, "
+                            "bez kasnog ulaza i DCA-a"),
+    "organic_volume": ("2.8", "Volumen bez weba, socijala i praćenog callera nije organski: jedinstveni kupci i "
+                              "udio sitnih tradeova"),
+    "xhook_fast": ("3.1", "Brži X webhook za 15 najboljih callera (plaćeno)"),
+    "helius_streams": ("3.2", "Helius streamovi za walletove i devove (plaćeno)"),
+    "holder_snap": ("3.3", "Snimka holdera u trenutku signala"),
+    "clusters_ext": ("3.4", "Klasteri holdera i povlačenje likvidnosti"),
+    "x_features_ingest": ("3.6", "X značajke od Groka (MCP upis)"),
+    "junk_skip": ("3b.1", "Meko preskakanje smeća (računi, kanali, walleti, tokeni)"),
+    "junk_flags": ("3b.2", "Oznake smeća od Groka na pregled"),
+    "event_flags": ("3c", "Rane oznake događaja i Polymarketa od Groka"),
+    "grok_predictions": ("3d", "Grok predviđanja (nepromjenjiva) za usporedbu s MemeSonarom"),
+    "grok_features_fit": ("3d.4", "Grok značajke kao kandidati u učenju"),
+    "regime_sizing": ("4.1", "Ulog i broj ulaza prema režimu tržišta"),
+    "time_filter": ("4.2", "Bez ulaza u satima s negativnim EV-om"),
+    "caller_decay": ("4.3", "Novija forma callera vrijedi više (poluživot 14 dana)"),
+    "ladder_exit": ("4.4", "Izlaz u koracima: pola na +30 %, stop na ulaz, trailing 25 %"),
+}
+DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions"})
+_FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})
+FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds within this
+
 # key -> (label, type, min, max); the owner edits these on the page
 LIMITS = {
     "size_sol": ("Ulog po kupnji (SOL)", float, 0.005, 5.0),
@@ -105,6 +150,116 @@ def sl_default(path=None):
     except (sqlite3.Error, ValueError, TypeError):
         v = SL_DEFAULT
     return sl_text(v if v in SL_CHOICES else SL_DEFAULT)
+
+
+def _flag_value(v):
+    """Stored flag value -> {"mode", "since", "who"} (a bare string from a hand edit counts too)."""
+    if isinstance(v, str):
+        v = {"mode": v}
+    v = v if isinstance(v, dict) else {}
+    mode = v.get("mode") if v.get("mode") in FLAG_MODES else "off"
+    return {"mode": mode, "since": int(v.get("since") or 0), "who": v.get("who") or ""}
+
+
+def flag_state(con):
+    """{name: {"mode", "since", "who"}} of every flag in FLAGS ("off" when never set)."""
+    s = raw(con)
+    return {n: _flag_value(s.get(f"flag:{n}")) for n in FLAGS}
+
+
+def _flags_ro(path):
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = con.execute("SELECT k, v FROM settings WHERE k LIKE 'flag:%'").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return {}
+    out = {}
+    for k, v in rows:
+        try:
+            out[k[5:]] = _flag_value(json.loads(v))["mode"]
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def flag(name, con=None, path=None):
+    """The mode of one flag: "off" | "shadow" | "paper" | "live". With con: read now; without: read-only from
+    trade.db, cached FLAG_CACHE_S per process (the copy and exit loops ask every pass). Never raises: a flag that
+    cannot be read is "off", i.e. the old behaviour."""
+    if name not in FLAGS:
+        raise KeyError(f"nepoznata zastavica {name}")
+    if con is not None:
+        try:
+            return _flag_value(raw(con).get(f"flag:{name}"))["mode"]
+        except (sqlite3.Error, ValueError, TypeError):
+            return "off"
+    path = path or DB
+    now = time.monotonic()
+    hit = _FLAG_CACHE.get(path)
+    if hit is None or now - hit[0] > FLAG_CACHE_S:
+        hit = (now, _flags_ro(path))
+        _FLAG_CACHE[path] = hit
+    return hit[1].get(name, "off")
+
+
+def flag_on(name, con=None, path=None):
+    """A data flag (DATA_FLAGS) collects or accepts input in every mode but off."""
+    return flag(name, con, path) != "off"
+
+
+def any_paper(con=None, path=None):
+    """True while at least one flag is in paper mode (only then the paper account follows anybody)."""
+    if con is not None:
+        return any(v["mode"] == "paper" for v in flag_state(con).values())
+    return any(flag(n, path=path) == "paper" for n in FLAGS)
+
+
+def live_refusal(con, name, paper=None, now=None):
+    """None when `name` may go live, else the reason in Croatian. paper: {"n": closed trades, "pnl": USD} of the
+    paper account since the flag went to paper (league/flags.paper_result); None = not known."""
+    now = int(now or time.time())
+    if name in DATA_FLAGS:
+        return None
+    bt = raw(con).get(f"backtest:{name}") or {}
+    if not (isinstance(bt, dict) and bt.get("pass") is True):
+        return f"nema prolaza backtesta (python3 run_backtest.py --flag {name})"
+    st = flag_state(con)[name]
+    if st["mode"] == "live":
+        return None
+    if st["mode"] != "paper" or not st["since"]:
+        return f"prvo najmanje {PAPER_DAYS} dana u paper modu"
+    days = (now - st["since"]) / 86400
+    if days < PAPER_DAYS:
+        return f"u paper modu tek {days:.1f} od {PAPER_DAYS} dana"
+    if not paper or not paper.get("n"):
+        return "paper račun još nema nijedan zatvoren trade"
+    if (paper.get("pnl") or 0) <= 0:
+        return f"paper račun je u minusu ({paper['pnl']:+.2f} $ na {paper['n']} tradeova)"
+    return None
+
+
+def set_flag(con, name, mode, who="", paper=None, now=None):
+    """Owner's change of one flag (the page checks is_owner). Raises ValueError with the reason when refused.
+    Going down (to off, shadow or paper) is always allowed; "since" restarts on every change of mode."""
+    if name not in FLAGS:
+        raise ValueError("nepoznata zastavica")
+    if mode not in FLAG_MODES:
+        raise ValueError("nepoznat mod (off, shadow, paper, live)")
+    now = int(now or time.time())
+    cur = flag_state(con)[name]
+    if mode == cur["mode"]:
+        return cur
+    if mode == "live":
+        why = live_refusal(con, name, paper, now)
+        if why:
+            raise ValueError(f"{name} ne može u live: {why}")
+    val = {"mode": mode, "since": now, "who": who}
+    put(con, f"flag:{name}", val, who)
+    _FLAG_CACHE.clear()
+    return val
 
 
 def parse_limits(form):

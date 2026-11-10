@@ -47,15 +47,27 @@ SPAN_S = 16 * 3600   # 1000 one-minute candles per request
 RUG_LO = -0.80       # the low within the hour at or under this: the call rugged on the copier
 # 9.11. (Jure: "TP 20 / SL -40? alat neka sam odluči"): the first minute each level above and below the entry was
 # touched, so kol/tpsl.py can answer "target before stop?" for ANY take profit / stop pair, not only +5..+30 / -20
-UPS = (5, 10, 15, 20, 30, 40, 50, 75, 100)
-DOWNS = (10, 15, 20, 25, 30, 40, 50)
+UPS = (5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200)
+DOWNS = (10, 15, 20, 25, 30, 40, 50, 60, 70)
+# 10.11. (plan 1.3: "SL −60 % se u podacima ne može izmjeriti"): DOWNS 60/70 and UPS 150/200 added. Rows measured
+# with the old levels (LV_VERSION missing in call_lv.lv) do not know them; kol/tpsl.py takes them against us and
+# relevel_due() measures them again from the same free candles.
+LV_VERSION = 2
+OLD_UPS = (5, 10, 15, 20, 30, 40, 50, 75, 100)
+OLD_DOWNS = (10, 15, 20, 25, 30, 40, 50)
 
 DEFAULT = {"budget_s": 150, "per_run": 60, "days": 30, "min_age_min": 70, "hot_min_n": 5, "hot_min_hit": 0.5,
            "hot_tp": 10, "hot_max_sl": 0.3, "hot_days": 14, "wick_x": 3.0, "loop_budget_s": 540, "loop_sleep_s": 20,
            "idle_sleep_s": 120,
            # calls measured before the levels were stored are measured again (no new source, the same free candles),
            # but only when fewer than this many tokens with NEW calls are waiting, at most this many tokens a pass
-           "relevel_per_run": 40}
+           "relevel_per_run": 40,
+           # 10.11. (plan 4.4): tokens a pass whose candles after the call (CANDLE_MIN) are still missing
+           "candles_per_run": 10,
+           # 10.11. (CLAUDE.md: heavy jobs 01-06 CET): the second measurement of rows that only miss the new wide
+           # levels and the candle top-ups run in these Zagreb hours [from, to), at most night_requests a night (the
+           # paid CoinGecko day starts at 00 UTC: the night must not eat it)
+           "extra_hours": [1, 6], "night_requests": 600}
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS call_path (
     tweet_id TEXT, token TEXT, handle TEXT, ts INTEGER, entry REAL, lag_s INTEGER, mcap_e REAL,
@@ -66,8 +78,18 @@ CREATE INDEX IF NOT EXISTS call_path_handle ON call_path (handle, ts);
 CREATE INDEX IF NOT EXISTS call_path_token ON call_path (token, ts);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS call_lv (tweet_id TEXT, token TEXT, ts INTEGER, lv TEXT, PRIMARY KEY (tweet_id, token));
-CREATE INDEX IF NOT EXISTS call_lv_ts ON call_lv (ts)"""
+CREATE INDEX IF NOT EXISTS call_lv_ts ON call_lv (ts);
+CREATE TABLE IF NOT EXISTS call_candles (token TEXT PRIMARY KEY, first_ts INTEGER, last_ts INTEGER, n INTEGER,
+    data BLOB, full INTEGER DEFAULT 0, updated INTEGER)"""
 LV_FAILED = "x"   # call_lv.lv of a call whose second measurement found no candle: the old row stays, not asked again
+# 10.11. (plan 4.4, "call_candles"): the 1-minute candles themselves, CANDLE_MIN minutes after every call, for the
+# backtest of exits that need the whole path (a ladder, a trailing stop) and not only the first touch of a level.
+# One row per TOKEN (calls of one token share the candles), zlib-compressed JSON [[ts, o, h, l, c, v], ...] with 6
+# significant digits: about 4 KB per call instead of ~250 rows. Filled from the request the measurement makes anyway;
+# a call measured at ~70 min gets the rest later by candles_due() (one more request per token, only when the
+# queue of new calls is short; full=1 then, also when the token stopped trading).
+CANDLE_MIN = 240
+CANDLE_LIMIT = 998   # minutes one request may span (GeckoTerminal: 1000 candles)
 
 
 def db_path():
@@ -164,7 +186,7 @@ def path(candles, ts, horizon_min=HORIZON_MIN, wick=3.0):
         for d in DOWNS:
             if d not in dn and c[3] <= entry * (1 - d / 100):
                 dn[d] = int(k)
-    o["lv"] = {"u": {str(u): m for u, m in up.items()}, "d": {str(d): m for d, m in dn.items()}}
+    o["lv"] = {"u": {str(u): m for u, m in up.items()}, "d": {str(d): m for d, m in dn.items()}, "v": LV_VERSION}
     for w in hi:
         o[f"hi{w}"] = (hi[w] / entry - 1) if hi[w] is not None else None
     o["lo60"] = (lo / entry - 1) if lo is not None else None
@@ -176,6 +198,83 @@ def clean_hit(row, tp):
     """Target reached before the stop (row: sqlite row or dict with t<tp> and sl_min)."""
     t, sl = row[f"t{tp}"], row["sl_min"]
     return t is not None and (sl is None or t < sl)
+
+
+def _pack(rows):
+    import zlib
+    txt = json.dumps([[int(r[0])] + [float(f"{x:.6g}") for x in r[1:6]] for r in rows], separators=(",", ":"))
+    return zlib.compress(txt.encode(), 6)
+
+
+def _unpack(blob):
+    import zlib
+    if not blob:
+        return []
+    return [tuple(r) for r in json.loads(zlib.decompress(blob).decode())]
+
+
+def keep_candles(mcon, tok, candles, calls, end, now):
+    """Merge the candles of one fetch into call_candles: only [first call - 10 min, last call + CANDLE_MIN], the
+    rest of the 16-hour request is not kept. full = the stored candles reach CANDLE_MIN after the newest call."""
+    if not candles or not calls:
+        return 0
+    lo = min(ts for _, _, ts in calls) - 10 * MIN
+    hi = max(ts for _, _, ts in calls) + CANDLE_MIN * MIN
+    keep = {c[0]: c for c in candles if lo <= c[0] <= hi}
+    old = mcon.execute("SELECT data, first_ts FROM call_candles WHERE token = ?", (tok,)).fetchone()
+    if old:
+        for c in _unpack(old[0]):
+            keep.setdefault(c[0], c)
+    if not keep:
+        return 0
+    rows = [keep[k] for k in sorted(keep)]
+    full = int(end >= hi)
+    mcon.execute("INSERT OR REPLACE INTO call_candles VALUES (?,?,?,?,?,?,?)",
+                 (tok, rows[0][0], rows[-1][0], len(rows), _pack(rows), full, int(now)))
+    return len(rows)
+
+
+def candles_for(mcon, tok, start, end):
+    """[(ts, o, h, l, c, v)] stored for one token between start and end (unix s), oldest first."""
+    r = mcon.execute("SELECT data FROM call_candles WHERE token = ?", (tok,)).fetchone()
+    return [c for c in _unpack(r[0]) if start <= c[0] <= end] if r else []
+
+
+def call_candles(mcon, tok, ts, minutes=CANDLE_MIN):
+    """{k: (o, h, l, c, v)}: the candles k minutes after the call's minute (k = 0 is the call's own minute)."""
+    m0 = ts - ts % MIN
+    return {(c[0] - m0) // MIN: c[1:] for c in candles_for(mcon, tok, m0, m0 + minutes * MIN)}
+
+
+def candles_due(mcon, c, now, skip=(), cap=10):
+    """{token: [(tweet_id, handle, ts)]}: measured calls at least CANDLE_MIN + 5 minutes old whose token's stored
+    candles do not reach CANDLE_MIN after them yet (not full), newest first, at most cap tokens."""
+    if cap <= 0:
+        return {}
+    skip = set(skip) | {t for t, u in _retry(mcon).items() if u > now}
+    out = {}
+    for tid, tok, h, ts in mcon.execute(
+            "SELECT p.tweet_id, p.token, p.handle, p.ts FROM call_path p LEFT JOIN call_candles k ON k.token = p.token "
+            "WHERE p.entry IS NOT NULL AND p.bad IS NULL AND p.ts BETWEEN ? AND ? AND COALESCE(k.full, 0) = 0 "
+            "ORDER BY p.ts DESC", (now - c["days"] * 86400, now - (CANDLE_MIN + 5) * MIN)):
+        if tok in skip:
+            continue
+        if tok not in out and len(out) >= cap:
+            continue
+        out.setdefault(tok, []).append((tid, h, ts))
+    for tok, calls in out.items():
+        newest = max(ts for _, _, ts in calls)
+        out[tok] = [x for x in calls if newest - x[2] <= SPAN_S - 2 * 3600 - CANDLE_MIN * MIN]
+    return out
+
+
+def _fetch_end(calls, start, now):
+    """End of the one request for these calls: the measured hour as before, and up to CANDLE_MIN after the newest
+    call as far as one request (CANDLE_LIMIT minutes from `start`) reaches, never past now."""
+    last = max(ts for _, _, ts in calls)
+    need = last + (HORIZON_MIN + 5) * MIN
+    want = min(last + (CANDLE_MIN + 5) * MIN, start + CANDLE_LIMIT * MIN)
+    return min(now, max(need, want))
 
 
 def _done(mcon):
@@ -234,7 +333,48 @@ def due(kcon, mcon, c, now, per_run=None):
     return out
 
 
-def relevel_due(mcon, c, now, skip=(), cap=None):
+def _give_up_lv(mcon, tok, rows):
+    """A second measurement that cannot be done (pool gone, no candle any more): a call without levels gets
+    LV_FAILED, a call that has the OLD levels keeps them with "stuck" so it is not asked for again (10.11.: they
+    used to be replaced by LV_FAILED, which would throw away the levels it had)."""
+    for tid, _h, ts in rows:
+        old = mcon.execute("SELECT lv FROM call_lv WHERE tweet_id = ? AND token = ?", (tid, tok)).fetchone()
+        lv = LV_FAILED
+        if old and old[0] and old[0] != LV_FAILED:
+            try:
+                d = json.loads(old[0])
+                d["stuck"] = LV_VERSION
+                lv = json.dumps(d, separators=(",", ":"))
+            except ValueError:
+                pass
+        mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)", (tid, tok, ts, lv))
+
+
+def _extra_window(c, now):
+    """True inside extra_hours (Europe/Zagreb)."""
+    import datetime as _dt
+    import zoneinfo
+    lo, hi = (c.get("extra_hours") or [1, 6])[:2]
+    h = _dt.datetime.fromtimestamp(now, zoneinfo.ZoneInfo("Europe/Zagreb")).hour
+    return lo <= h < hi
+
+
+def _night_key(now):
+    import datetime as _dt
+    import zoneinfo
+    return "minute_night:" + _dt.datetime.fromtimestamp(now, zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%Y-%m-%d")
+
+
+def _night_used(mcon, now):
+    r = mcon.execute("SELECT value FROM kv WHERE key = ?", (_night_key(now),)).fetchone()
+    return int(r[0]) if r else 0
+
+
+def _night_spend(mcon, now, n=1):
+    mcon.execute("INSERT OR REPLACE INTO kv VALUES (?, ?)", (_night_key(now), str(_night_used(mcon, now) + n)))
+
+
+def relevel_due(mcon, c, now, skip=(), cap=None, upgrade=True):
     """{token: [(tweet_id, handle, ts)]} of calls measured before call_lv existed (a path, no levels), newest first,
     at most `cap` tokens and per token only the calls within the span of its newest one. They are measured again
     with the same candles so every stop level gets its exact minute; kol/tpsl.py is cautious with them until then."""
@@ -243,10 +383,15 @@ def relevel_due(mcon, c, now, skip=(), cap=None):
         return {}
     wait = {t for t, u in _retry(mcon).items() if u > now}
     out = {}
+    # 10.11. (plan 1.3): also the rows measured with the old levels (no "v":LV_VERSION in the JSON), oldest
+    # version last: calls without any levels first, then the ones that only miss the new wide levels
     for tid, tok, h, ts in mcon.execute(
             "SELECT p.tweet_id, p.token, p.handle, p.ts FROM call_path p LEFT JOIN call_lv l "
-            "ON l.tweet_id = p.tweet_id AND l.token = p.token WHERE l.tweet_id IS NULL AND p.entry IS NOT NULL "
-            "AND p.bad IS NULL AND p.ts >= ? ORDER BY p.ts DESC", (now - c["days"] * 86400,)):
+            "ON l.tweet_id = p.tweet_id AND l.token = p.token WHERE (l.tweet_id IS NULL OR "
+            "(? AND l.lv != ? AND l.lv NOT LIKE ? AND l.lv NOT LIKE ?)) AND p.entry IS NOT NULL "
+            "AND p.bad IS NULL AND p.ts >= ? ORDER BY (l.tweet_id IS NULL) DESC, p.ts DESC",
+            (int(bool(upgrade)), LV_FAILED, f'%"v":{LV_VERSION}%', f'%"stuck":{LV_VERSION}%',
+             now - c["days"] * 86400)):
         if tok in skip or tok in wait:
             continue
         if tok not in out and len(out) >= cap:
@@ -273,13 +418,20 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
     fetch = fetch or minutes
     budget = budget_s or c["budget_s"]
     todo = due(kcon, mcon, c, now, per_run)
+    # 10.11.: the extra work (old rows -> the new wide levels, candles after the first hour) only at night, within
+    # its own request budget; rows with no levels at all are measured again any time, as before
+    night = _extra_window(c, now) and _night_used(mcon, now) < c["night_requests"]
     relevel = {}
     if len(todo) < c["relevel_per_run"]:   # the backlog of new calls is (nearly) done: old rows get their levels
-        relevel = relevel_due(mcon, c, now, skip=todo, cap=c["relevel_per_run"] - len(todo))
-    if not todo and not relevel:
+        relevel = relevel_due(mcon, c, now, skip=todo, cap=c["relevel_per_run"] - len(todo), upgrade=night)
+    topup = {}
+    if night and len(todo) + len(relevel) < c["relevel_per_run"]:   # 10.11.: candles after old calls, last in line
+        topup = candles_due(mcon, c, now, skip=set(todo) | set(relevel), cap=c["candles_per_run"])
+    if not todo and not relevel and not topup:
         return 0, 0, 0
     n_new = len(todo)
-    todo = {**todo, **relevel}   # new calls first (dict order), the second measurements after them
+    n_top = 0
+    todo = {**todo, **relevel, **topup}   # new calls first (dict order), then second measurements, then candles
     # 10.11. (review): only NEW calls are worth holding GeckoTerminal for; a pass of second measurements alone
     # runs unreserved (40 tokens x 3.5 s every few minutes would keep the KOL round and the shadow book off the
     # host for hours) and stops the moment anybody else needs it
@@ -298,28 +450,44 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
             if fetch is minutes:   # after a 429 every process pauses (http.limited): wait it out inside the budget
                 cool = http.cooling(measure.GECKO)
                 if cool > 0:
-                    if tok in relevel or time.monotonic() + cool > stop_at:
+                    if tok in relevel or tok in topup or time.monotonic() + cool > stop_at:
                         break   # second measurements never wait on the host: next pass
                     time.sleep(min(cool + 1, 180))
+            if tok in topup and not pairs.get(tok):   # the pool is gone: no more candles to ask for
+                mcon.execute("INSERT OR IGNORE INTO call_candles (token, n, full, updated) VALUES (?,0,1,?)", (tok, now))
+                mcon.execute("UPDATE call_candles SET full = 1 WHERE token = ?", (tok,))
+                mcon.commit()
+                continue
             if tok in relevel and not pairs.get(tok):
                 # kol.db dropped the token (retention) or its pool since the first measurement: the path stays as it
                 # is, and the token must not come back every pass and hold a place in the short relevel queue
-                mcon.executemany("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
-                                 [(tid, tok, ts, LV_FAILED) for tid, _h, ts in calls])
+                _give_up_lv(mcon, tok, calls)
                 mcon.commit()
                 continue
             first = min(ts for _, _, ts in calls)
-            start, end = first - 10 * MIN, min(now, max(ts for _, _, ts in calls) + (HORIZON_MIN + 5) * MIN)
+            start = first - 10 * MIN
+            end = _fetch_end(calls, start, now)
+            if night and (tok in relevel or tok in topup):
+                if _night_used(mcon, now) >= c["night_requests"]:
+                    continue   # tonight's budget is spent: the rest waits for tomorrow night
+                _night_spend(mcon, now)
             try:
                 candles = fetch(pairs[tok], start, end)
             except Exception as e:  # noqa: BLE001
                 log(f"  minute {tok[:8]}: {type(e).__name__}: {e}")
                 # 9.11. (audit P24): 404 = GeckoTerminal does not know the pool: the calls are recorded as bad 'pool'
                 # so the token leaves the queue; anything else (403, timeout) waits RETRY_S instead of heading every pass
-                if getattr(e, "code", None) == 404 and tok in relevel:
+                if tok in topup:
+                    # only the candles were asked for: the measured paths are never touched. Gone pool: given up
+                    if getattr(e, "code", None) == 404:
+                        mcon.execute("INSERT OR IGNORE INTO call_candles (token, n, full, updated) VALUES (?,0,1,?)",
+                                     (tok, now))
+                        mcon.execute("UPDATE call_candles SET full = 1 WHERE token = ?", (tok,))
+                    else:
+                        _set_retry(mcon, tok, now + RETRY_S, now)
+                elif getattr(e, "code", None) == 404 and tok in relevel:
                     # measured once already: the path stays, only the levels are given up on
-                    mcon.executemany("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
-                                     [(tid, tok, ts, LV_FAILED) for tid, _h, ts in calls])
+                    _give_up_lv(mcon, tok, calls)
                 elif getattr(e, "code", None) == 404:
                     mcon.executemany("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
                                      "VALUES (?,?,?,?,'pool',?)", [(tid, tok, h, ts, now) for tid, h, ts in calls])
@@ -330,10 +498,21 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                 continue
             if candles is None:    # another job holds the GeckoTerminal budget (http.reserve): next round
                 break
+            if tok in topup:   # only the candles after the call were missing: the paths stay as they are
+                if candles:
+                    keep_candles(mcon, tok, candles, calls, end, now)
+                mcon.execute("UPDATE call_candles SET full = 1 WHERE token = ?", (tok,))
+                mcon.commit()
+                n_top += 1
+                continue
             if tok in relevel and not candles:
                 _set_retry(mcon, tok, now + RELEVEL_RETRY_S, now)   # nothing came back: ask again tomorrow
                 mcon.commit()
                 continue
+            try:
+                keep_candles(mcon, tok, candles, calls, end, now)
+            except sqlite3.Error as e:   # a full disk loses the candles, never the measurement
+                log(f"  minute {tok[:8]}: svijeće nisu spremljene ({type(e).__name__}: {e})")
             n_tok += 1
             if tok not in relevel:
                 left -= 1
@@ -345,9 +524,12 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
                     # a second measurement only ADDS the levels: the stored path (entry, t5..t30, sl_min, first_caller,
                     # which the leaderboard and the crews read) is never rewritten, and a call whose candle is gone
                     # since then is marked so it is not asked for again
-                    mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
-                                 (tid, tok, ts, json.dumps(o["lv"], separators=(",", ":")) if o else LV_FAILED))
-                    n_calls += 1 if o else 0
+                    if o:
+                        mcon.execute("INSERT OR REPLACE INTO call_lv VALUES (?,?,?,?)",
+                                     (tid, tok, ts, json.dumps(o["lv"], separators=(",", ":"))))
+                        n_calls += 1
+                    else:
+                        _give_up_lv(mcon, tok, [(tid, h, ts)])
                     continue
                 if not o:
                     mcon.execute("INSERT OR REPLACE INTO call_path (tweet_id, token, handle, ts, bad, measured_ts) "
@@ -368,8 +550,10 @@ def run(kcon, mcon, cfg, now=None, fetch=None, log=print, budget_s=None, per_run
             http.release(measure.GECKO)
     mcon.execute("DELETE FROM call_path WHERE ts < ?", (now - KEEP_DAYS * 86400,))
     mcon.execute("DELETE FROM call_lv WHERE ts < ?", (now - KEEP_DAYS * 86400,))
+    mcon.execute("DELETE FROM call_candles WHERE COALESCE(last_ts, updated) < ?", (now - KEEP_DAYS * 86400,))
     mcon.execute("INSERT OR REPLACE INTO kv VALUES ('minute_stats', ?)",
-                 (json.dumps({"ts": now, "tokens": n_tok, "calls": n_calls, "waiting": waiting(kcon, mcon, c, now)}),))
+                 (json.dumps({"ts": now, "tokens": n_tok, "calls": n_calls, "candles": n_top,
+                              "waiting": waiting(kcon, mcon, c, now)}),))
     mcon.commit()
     return n_tok, n_calls, left
 

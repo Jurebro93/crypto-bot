@@ -624,7 +624,8 @@ def default_sl(user):
     """The stop of a TP/SL entry that has none of its own: the Autopilot account's setting (trade.settings, "-60%"
     unless the owner changed it on the page), DEFAULT_SL for every player."""
     au, ts = _autopilot_user()
-    if au is None or user != au:
+    # 10.11. (Phase 0): the paper account copies the Autopilot account's follows, so it takes the same default stop
+    if au is None or user not in (au, getattr(ts, "PAPER_USER", au)):
         return DEFAULT_SL
     try:
         return ts.sl_default()
@@ -704,6 +705,11 @@ def run_once(con, market_fn=None, now=None, paths=None):
     adopt_default_sl(con)
     apply_cfg_overrides()
     now = int(now or time.time())
+    try:   # 10.11. (Phase 0): the paper account follows what the Autopilot follows while a flag is in paper mode
+        from . import flags
+        flags.sync_paper(con, now)
+    except Exception as e:  # noqa: BLE001 - never stops the copy pass
+        print(f"copy: paper račun nije usklađen ({type(e).__name__}: {e})", flush=True)
     fl = follows(con)
     if not fl:
         return []
@@ -749,6 +755,8 @@ def run_once(con, market_fn=None, now=None, paths=None):
     finally:
         _CONC_CACHE = None
     con.execute("DELETE FROM copy_log WHERE ts < ?", (now - CFG["keep_log_days"] * 86400,))
+    from . import flags
+    flags.prune(con, now)
     con.commit()
     return done
 

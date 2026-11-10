@@ -40,8 +40,14 @@ import os
 import sqlite3
 import time
 
-TPS = (10, 15, 20, 30, 50)
-SLS = (10, 15, 20, 30, 40)
+# 10.11. (plan 1.3): the grid also measures the wide pairs the Autopilot actually trades (SL 50/60, TP 75/100),
+# so "is -60 % better than -25 %?" has an answer from data. decide() still chooses only among CHOICE_TPS x
+# CHOICE_SLS: the data exit of live follows does not change until a flag says so.
+TPS = (10, 15, 20, 30, 50, 75, 100)
+SLS = (10, 15, 20, 30, 40, 50, 60)
+CHOICE_TPS = (10, 15, 20, 30, 50)
+CHOICE_SLS = (10, 15, 20, 30, 40)
+OLD_DOWNS = (10, 15, 20, 25, 30, 40, 50)   # the stop levels a row measured before LV_VERSION 2 has (kol/minute)
 COST = 2.0        # % of the stake per round trip: league/store.FEE is 1 % a side (pool impact comes on top)
 MIN_N = 10        # measured calls (one per token) before the tool decides by itself
 MIN_EV = 1.0      # % per trade the cautious estimate must reach
@@ -70,6 +76,7 @@ def _levels(row):
             d = json.loads(lv) if isinstance(lv, str) else lv
             got = ({int(k): v for k, v in (d.get("u") or {}).items()},
                    {int(k): v for k, v in (d.get("d") or {}).items()}, True)
+            row["_lv_v"] = int(d.get("v") or 1)
         else:
             up = {tp: row[f"t{tp}"] for tp in LEGACY_UP if row.get(f"t{tp}") is not None}
             got = (up, {20: row["sl_min"]} if row.get("sl_min") is not None else {}, False)
@@ -81,6 +88,14 @@ def outcome(row, tp, sl):
     """('tp' | 'sl' | 'time', gross % of the stake) of one measured call under take profit +tp % / stop -sl %."""
     up, dn, exact = _levels(row)
     a, b = up.get(tp), dn.get(sl)
+    if exact and b is None and row.get("_lv_v", 2) < 2 and sl > max(OLD_DOWNS):
+        # 10.11.: a row measured before -60/-70 were stored. When its low went that deep, the stop is taken at the
+        # minute the deepest stored level was touched: no later than that is possible, so it is against us. A wide
+        # target such a row never stored (+150/+200) stays "not reached" below (a win is never guessed).
+        lo = row.get("lo60")
+        deepest = max(OLD_DOWNS)
+        if lo is not None and lo <= -sl / 100 and dn.get(deepest) is not None:
+            b = dn[deepest]
     if not exact:
         lo = row.get("lo60")
         if b is None and sl != 20 and lo is not None and lo <= -sl / 100:
@@ -143,7 +158,8 @@ def decide(rows, pool=None, cost=COST, min_n=MIN_N, min_ev=MIN_EV, prior_n=PRIOR
         return {"ok": None, "n": n, "why": f"premalo izmjerenih poziva ({n} od {min_n})"}
     k_new = max(3, n // 3)
     older, newer = rows[:n - k_new], rows[n - k_new:]
-    g_old, g_new, g_all = grid(older, cost), grid(newer, cost), grid(rows, cost)
+    g_old, g_new, g_all = (grid(older, cost, CHOICE_TPS, CHOICE_SLS), grid(newer, cost, CHOICE_TPS, CHOICE_SLS),
+                           grid(rows, cost, CHOICE_TPS, CHOICE_SLS))
 
     def prior(pair):
         # "no edge" loses the cost. Everybody's result for this pair replaces it only when it is WORSE and stands

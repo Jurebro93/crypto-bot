@@ -349,7 +349,8 @@ class MinuteLoopStoresLevels(unittest.TestCase):
         minute.run(self.kc, self.mc, CFG, NOW + 3600, fetch=fetch)
         self.assertEqual(got, [])                                             # waits a day
         self.data["PAIR2"] = candles(T0 - 3600 - 600, 90, 1.0, {12: (1.0, 1.12, 1.0, 1.1)})
-        minute.run(self.kc, self.mc, CFG, NOW + minute.RELEVEL_RETRY_S + 60, fetch=fetch)
+        day = dict(CFG, minute=dict(CFG.get("minute") or {}, extra_hours=[0, 0]))   # 10.11.: no night extras here
+        minute.run(self.kc, self.mc, day, NOW + minute.RELEVEL_RETRY_S + 60, fetch=fetch)
         self.assertEqual(got, ["PAIR2"])
         self.assertEqual(json.loads(self._old_row()[1])["u"]["10"], 2)
 
@@ -391,7 +392,7 @@ class MinuteLoopStoresLevels(unittest.TestCase):
         import inspect
         src = inspect.getsource(minute.run)
         self.assertIn("hold = fetch is minutes and n_new > 0", src)
-        self.assertIn("if tok in relevel or time.monotonic() + cool > stop_at:", src)
+        self.assertIn("if tok in relevel or tok in topup or time.monotonic() + cool > stop_at:", src)
 
 
 class TimeLimit(unittest.TestCase):

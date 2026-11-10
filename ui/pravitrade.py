@@ -859,7 +859,8 @@ def _follows(con, owner, st=None, prefill=""):
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
 DATA_EXIT_TTL_S = 60
-POOL_SHOW = ((15, 20), (20, 40), (20, 20), (30, 15))   # the pairs Jure asked about, plus two with the target >= the stop
+POOL_SHOW = ((15, 20), (20, 40), (20, 20), (30, 15), (15, 60), (30, 60))   # the pairs Jure asked about, two with the
+# target >= the stop, and (10.11., plan 1.3) the Autopilot's own default TP 15 / SL 60 next to TP 30 / SL 60
 
 
 def _data_exit_line(f, now=None):
@@ -923,7 +924,8 @@ def _pool_line():
              f'<p class=mut>Račun: treba = (SL + trošak) / (TP + SL), trošak {_g(p.get("cost", 2))} % '
              'po krugu. Širi stop traži VIŠE pogodaka, ne manje; isplati se samo ako dovoljno zaustavljenih tradeova pretvori '
              'u dobitne. Mjereno 60 min nakon poziva; što ne dotakne ni cilj ni stop, izlazi po cijeni nakon 60 min. '
-             'Stariji pozivi (prije 10.11.) imaju točnu minutu samo za stop −20 %, ostali stopovi se za njih računaju oprezno.</p>')
+             'Stariji pozivi (prije 10.11.) imaju točnu minutu samo za stop −20 %, ostali stopovi se za njih računaju oprezno; '
+             'stop −60 % se mjeri od 10.11. navečer, stari pozivi se premjeravaju po noći.</p>')
     return _item("Koji TP/SL se isplati", f"svi izmjereni pozivi, 30 d", inner, value=redak.num(p["n"]), sub="poziva",
                  value_tone="mut")
 
@@ -1525,6 +1527,90 @@ def _trigger_card(tcon, owner):
     return (f'<div id=trigger>{head}<p>{res}</p>{btn}<p class=mut>Proba traži od Jupitera nalog za TP otvorene prave '
             'pozicije, ali ga ne potpisuje i ne šalje: novac se ne miče. Kad proba prođe, uključujemo prave naloge, prvi '
             'mali dok gledaš.</p></div>')
+
+
+FLAG_WORDS = {"off": "isključeno", "shadow": "sjena (samo bilježi)", "paper": "paper račun", "live": "uživo"}
+FLAG_TONE = {"off": "mut", "shadow": "warn", "paper": "warn", "live": "good"}
+
+
+def _slip_item(tcon, n=20):
+    """10.11. (plan 1.5): how far the real exits were from the demo's (trade/executor.exit_reconcile): the average
+    and the worst of the last n closed positions, and one row each. Negative = the real sale got less."""
+    try:
+        rows = tcon.execute("SELECT symbol, token, closed_ts, demo_exit_px, real_exit_px, exit_slip_pct FROM positions "
+                            "WHERE status='closed' AND exit_slip_pct IS NOT NULL ORDER BY closed_ts DESC LIMIT ?",
+                            (n,)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    if not rows:
+        return _item("Demo naspram pravog izlaza", "još nema zatvorene pozicije s usporedbom (puni se od 10.11.)",
+                     '<p class=mut>Za svaku zatvorenu pravu poziciju bilježi se cijena izlaza u demu i stvarna cijena '
+                     'prodaje; razlika pokazuje koliko demo rezultat precjenjuje pravi.</p>', iid="fl-slip")
+    sl = [r[5] for r in rows]
+    avg, worst = sum(sl) / len(sl), min(sl)
+    cells = "".join(f'<tr><td>{esc(r[0] or short(r[1]))}</td><td class=n>{redak.ago(r[2])}</td>'
+                    f'<td class="n {"pos" if r[5] >= 0 else "neg"}">{redak.pct(r[5], 1)}</td></tr>' for r in rows[:10])
+    inner = (f'<table class=t><tr><th>token</th><th class=n>zatvoreno</th><th class=n>pravi naspram dema</th></tr>{cells}'
+             '</table><p class=mut>Minus znači da je prava prodaja dobila manje od izlazne cijene u demu (slippage, '
+             'kašnjenje swapa, naknade). Prosjek se oduzima od demo rezultata kad se procjenjuje pravi novac.</p>')
+    return _item("Demo naspram pravog izlaza", f"zadnjih {len(rows)}, najgori {redak.pct(worst, 1)}", inner,
+                 value=redak.pct(avg, 1), value_tone=redak.tone(avg), iid="fl-slip")
+
+
+def _flags_section(tcon, con, owner):
+    """10.11. (Jure, "Specifikacija za Claudea", Phase 0): every rule of the profitability plan behind its own flag.
+    The owner moves a flag off -> sjena -> paper -> uživo; uživo only with a passed backtest and 7 days of paper in
+    the plus (trade/settings.live_refusal says why not). Others see the modes only."""
+    import datetime as _dt
+    import zoneinfo
+    from league import flags as lflags
+    st = settings.flag_state(tcon)
+    raw_ = settings.raw(tcon)
+    now = int(time.time())
+    week = lflags.shadow_summary(con, now - 7 * 86400)
+    on = [n for n, v in st.items() if v["mode"] != "off"]
+    paper_since = min((v["since"] for v in st.values() if v["mode"] == "paper" and v["since"]), default=None)
+    pr = lflags.paper_result(con, paper_since) if paper_since else None
+    meta = (f"{len(on)} od {len(st)} uključeno" if on else "sve isključeno: bot radi kao prije")
+    if pr:
+        meta += f" · paper: {pr['n']} zatvorenih, {pr['pnl']:+.2f} $"
+    tz = zoneinfo.ZoneInfo("Europe/Zagreb")
+    rows = []
+    for name, (item, words) in settings.FLAGS.items():
+        v = st[name]
+        m = v["mode"]
+        since = (_dt.datetime.fromtimestamp(v["since"], tz).strftime("%d.%m. %H:%M") if v["since"] else "")
+        bt = raw_.get(f"backtest:{name}") or {}
+        bits = [f'<p>{esc(words)}.</p>',
+                f'<p class=mut>Stanje: {dot(FLAG_TONE[m], FLAG_WORDS[m])}'
+                + (f" od {esc(since)}" if since and m != "off" else "") + "</p>"]
+        if name in settings.DATA_FLAGS:
+            bits.append('<p class=mut>Podatkovna zastavica: bilo koji mod osim „isključeno” uključuje skupljanje '
+                        'ili upis; na trgovanje ne utječe.</p>')
+        else:
+            sh = week.get(name)
+            bits.append(f'<p class=mut>Sjena, zadnjih 7 dana: '
+                        + (f'{sh["n"]} odluka bi bilo drugačije' if sh else "nijedna odluka nije drugačija") + "</p>")
+            if isinstance(bt, dict) and bt:
+                bits.append(f'<p class=mut>Backtest: {dot("good" if bt.get("pass") else "bad", "prošao" if bt.get("pass") else "nije prošao")}'
+                            f' · n {esc(str(bt.get("n", "?")))} · donja granica EV-a {esc(str(bt.get("ev_lo", "?")))} %</p>')
+            else:
+                bits.append('<p class=mut>Backtest: još nije pokrenut (uživo nije moguće bez njega).</p>')
+        if owner:
+            opts = "".join(f'<option value={mm}{" selected" if mm == m else ""}>{FLAG_WORDS[mm]}</option>'
+                           for mm in settings.FLAG_MODES)
+            bits.append(f'<form method=post action=/pravi-trade/flag class=ap-btns style="margin:0 0 10px">'
+                        f'<input type=hidden name=name value={esc(name)}><select name=mode>{opts}</select>'
+                        f'<button>Spremi</button></form>')
+        rows.append(_item(f"{item} {name}", words, "".join(bits), value=FLAG_WORDS[m].split(" ")[0],
+                          iid=f"fl-{name}", value_tone=FLAG_TONE[m]))
+    rows.insert(0, _slip_item(tcon))
+    intro = ('<p class=mut>Svako novo pravilo iz plana ima svoju zastavicu. Isključeno: bot radi kao prije. Sjena: '
+             'novo pravilo samo zapisuje što bi napravilo drugačije. Paper: pravilo radi na zasebnom demo računu '
+             f'„{esc(settings.PAPER_USER)}”, koji prati iste influencere i novčanike kao Autopilot; taj račun nikad ne '
+             f'kupuje pravim novcem. Uživo: tek nakon prolaza backtesta i najmanje {settings.PAPER_DAYS} dana u paper '
+             'modu s paper računom u plusu; stranica inače odbije.</p>')
+    return _sec("Zastavice plana", meta, intro + "".join(rows), sid="zastavice")
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
@@ -3942,7 +4028,8 @@ def page(qs, user):
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
-                        _safe("pravila", _rules, tcon, cfg, owner))]
+                        _safe("pravila", _rules, tcon, cfg, owner),
+                        _safe("zastavice", _flags_section, tcon, con, owner))]
         finally:
             con.close()
         b += [_h2("Još", sid="jos"),
@@ -4118,6 +4205,20 @@ def post(path, form, user):
             if not mcpapi.decide(tcon, str(form.get("id") or ""), "rejected", "vlasnik odbio"):
                 raise ValueError("taj zahtjev više ne postoji")
             return f"{BACK}?ok={qq('Zahtjev odbijen.')}"
+        if path == "/pravi-trade/flag":   # 10.11. (Phase 0): a flag of the profitability plan, owner only
+            from league import flags as lflags
+            name, mode = str(form.get("name") or ""), str(form.get("mode") or "")
+            if name not in settings.FLAGS:
+                raise ValueError("nepoznata zastavica")
+            st = settings.flag_state(tcon)[name]
+            lcon = store.connect()
+            try:
+                paper = lflags.paper_result(lcon, st["since"]) if st["mode"] == "paper" else None
+            finally:
+                lcon.close()
+            settings.set_flag(tcon, name, mode, user, paper=paper)
+            print(f"pravi trade: {user} je zastavicu {name} postavio na {mode}", flush=True)
+            return f"{BACK}?ok={qq(f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.')}#fl-{name}"
         if path == "/pravi-trade/triggerprobe":   # 10.11. (Jure: "da, v1"): Jupiter Trigger step 1, no money
             settings.put(tcon, "trigger_probe_req", int(time.time()), user)
             return f"{BACK}?ok={qq('Proba Jupiter Triggera poslana trade procesu; rezultat je pod Pravila za nekoliko sekundi.')}#trigger"

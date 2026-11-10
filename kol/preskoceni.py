@@ -469,8 +469,12 @@ def _first(row, key, level, std, col):
     if int(level) not in (minute.UPS if key == "u" else minute.DOWNS):
         return None, False
     try:
-        return (json.loads(row.get("lv") or "{}").get(key) or {}).get(str(int(level))), True
-    except (ValueError, AttributeError):
+        d = json.loads(row.get("lv") or "{}")
+        if int(d.get("v") or 1) < minute.LV_VERSION and int(level) not in (minute.OLD_UPS if key == "u"
+                                                                             else minute.OLD_DOWNS):
+            return None, False   # 10.11.: measured before -60/-70 and +150/+200 were stored: not known
+        return (d.get(key) or {}).get(str(int(level))), True
+    except (ValueError, AttributeError, TypeError):
         return None, False
 
 

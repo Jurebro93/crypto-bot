@@ -566,10 +566,18 @@ def _detail(g, tc, lc, kc, wc, hc, rc, mc):
                 path = dict(zip(("entry_price", "entry_market_cap", "hi15", "hi60", "lo60", "r60", "min_to_10pct",
                                  "min_to_15pct", "min_to_stop"), pr[0]))
     pnl = sback - sin - fees if g["status"] == "closed" else None
+    # 10.11. (plan 1.5): the demo's exit price next to the real one, per lot (trade/executor.exit_reconcile)
+    slip = {r[0]: r[1:] for r in _q(tc, f"SELECT id, demo_exit_px, real_exit_px, exit_slip_pct FROM positions WHERE id IN "
+                                       f"({','.join('?' * len(ids))})", ids)}
+    slips = [v[2] for v in slip.values() if v[2] is not None]
     return {"trade_id": g["id"], "token": tok, "symbol": lots[0][2], "status": g["status"], "mode": lots[0][5],
             "entry_ts": _i(entry), "exit_ts": _i(max(l[4] or 0 for l in lots)) if g["status"] == "closed" else None,
             "lots": [{"position_id": l[0], "opened_ts": _i(l[3]), "closed_ts": _i(l[4]), "status": l[6], "sol_in": _f(l[8], 4),
-                      "sol_back": _f(l[9], 4), "entry_market_cap": _f(demo.get(l[0], (None,))[0], 0)} for l in lots],
+                      "sol_back": _f(l[9], 4), "entry_market_cap": _f(demo.get(l[0], (None,))[0], 0),
+                      "demo_exit_px": _f((slip.get(l[0]) or (None,))[0], 10),
+                      "real_exit_px": _f((slip.get(l[0]) or (None, None))[1], 10),
+                      "exit_slip_pct": _f((slip.get(l[0]) or (None, None, None))[2], 2)} for l in lots],
+            "exit_slip_pct": _f(sum(slips) / len(slips), 2) if slips else None,
             "entry_market_cap": _f(entry_mc, 0), "exit_market_cap": _f(exit_mc, 0),
             "sol_in": _f(sin, 4), "sol_back": _f(sback, 4), "fees_sol": _f(fees, 5),
             "cost_pct": _f(cost[0][0], 2) if cost and cost[0][0] is not None else None,
@@ -708,6 +716,9 @@ def scoring_config():
     finally:
         _close(tcon)
     out["autopilot_settings"] = {k: m.get(k, raw.get(k)) for k in SAFE_SETTINGS}
+    # 10.11. (Phase 0): every flag of the profitability plan with its mode, and the backtest verdicts (read-only)
+    out["flags"] = {n: {"item": settings.FLAGS[n][0], "mode": settings._flag_value(raw.get(f"flag:{n}"))["mode"],
+                        "backtest": raw.get(f"backtest:{n}")} for n in settings.FLAGS}
     try:
         from rugfilter import score as rscore
         out["rug_filter_thresholds"] = dict(getattr(rscore, "T", {}))
