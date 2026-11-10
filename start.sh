@@ -141,6 +141,10 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done
 ) &
+# 10.11. (Grok MCP audit 9): sale amounts missing in hype.db chain_trades (sol NULL) read from the transaction itself
+# (wallets/solfill.py, one Helius getTransaction each): night window only (--night, 01-06 Zagreb), at most
+# SOLFILL_MAX_NIGHT (200) calls a night, counted by the job itself, so the hourly tries after the first find it spent
+( sleep 1500; while true; do python3 -m ops.heavy --night -m wallets.solfill || echo "solfill nije uspio"; sleep 3600; done ) &
 
 # KOL calls on X: copy tweets the bot already paid for, measure price/volume after each call (GeckoTerminal, free),
 # Helius flows around the strongest calls (kol/config.json flows_per_day), call power per KOL -> /kol and kol_group

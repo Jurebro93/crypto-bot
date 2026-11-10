@@ -6,6 +6,7 @@ one boots (~30-40 s, see start.sh). This page covers that gap in two ways:
   2. a tiny service worker (/sw.js) keeps a copy in the browser of everyone who opened the site once and shows it
      whenever a page comes back 502/503/504 or the server cannot be reached (the seconds before start.sh runs).
 The page checks every 3 s whether the real site is back and reloads by itself.
+Machine clients of the MCP endpoint (/mcp, /api/mcp/*) get a JSON 503 with Retry-After instead (api_answer, 10.11.).
 
 Light landing style (rule 34), mobile first, Croatian + English in one file; Croatian only for now
 (Nicholas, 1.11.), DEPLOY_LANG=auto picks from the cb_lang cookie, then the browser language. DEPLOY_SW=0 turns the service worker off everywhere (kill switch).
@@ -242,3 +243,53 @@ def register_tag():
                 ".getRegistrations().then(function(r){r.forEach(function(x){x.unregister()})}).catch(function(){})</script>")
     return ("<script>if('serviceWorker'in navigator&&location.protocol==='https:')window.addEventListener('load',function()"
             "{navigator.serviceWorker.register('/sw.js').catch(function(){})})</script>")
+
+
+# ---------- machine clients during a deploy (MCP) --------------------------------------------------------------------
+# 10.11. (Grok MCP audit 11): during a deploy the MCP endpoint answered with the HTML page above and an HTTP error, so an
+# MCP client (Grok) got a page it cannot read instead of "try again". The hosted MCP endpoint (POST /mcp, JSON-RPC 2.0)
+# and its REST data (/api/mcp/*) now get a 503 in JSON with Retry-After from deploy_wait.py; browsers keep the page.
+API_RETRY_S = 30
+RPC_DEPLOY_CODE = -32001   # JSON-RPC server-error range (-32000..-32099): implementation-defined, here "retry later"
+RPC_DEPLOY_MSG = "MemeSonar deploy in progress, retry later"
+API_BODY_MAX = 200_000     # read at most this much of a request body (run_ui._mcp_rpc reads the same)
+
+
+def is_api(path):
+    """True for the addresses machine clients use, routed the same way as run_ui: /mcp exactly, and /api/mcp/..."""
+    path = (path or "").split("?", 1)[0]
+    return path == "/mcp" or path.startswith("/api/mcp/")
+
+
+def _rpc_id(msg):
+    """The id of one JSON-RPC request when it is a valid id (string or number, never a bool), else None."""
+    if isinstance(msg, dict):
+        mid = msg.get("id")
+        if isinstance(mid, (str, int, float)) and not isinstance(mid, bool):
+            return mid
+    return None
+
+
+def _rpc_error(mid):
+    return {"jsonrpc": "2.0", "id": mid, "error": {"code": RPC_DEPLOY_CODE, "message": RPC_DEPLOY_MSG,
+                                                    "data": {"retry_after": API_RETRY_S}}}
+
+
+def api_answer(path, body=b""):
+    """(503, headers, JSON bytes) for an MCP request while the app is starting; None for every other address (those
+    keep the HTML page). /mcp: a JSON-RPC 2.0 error with the request's id (null when the body is not JSON or carries
+    no usable id; a batch gets one error per request that has an id). /api/mcp/*: {"error", "retry_after"}."""
+    if not is_api(path):
+        return None
+    if path.split("?", 1)[0] == "/mcp":
+        try:
+            msg = json.loads(body or b"null")
+        except (ValueError, TypeError):   # not JSON (UnicodeDecodeError is a ValueError too)
+            msg = None
+        if isinstance(msg, list):
+            out = [_rpc_error(_rpc_id(m)) for m in msg[:50] if isinstance(m, dict) and "id" in m] or _rpc_error(None)
+        else:
+            out = _rpc_error(_rpc_id(msg))
+    else:
+        out = {"error": "deploy in progress", "retry_after": API_RETRY_S}
+    return 503, {"Content-Type": "application/json", "Retry-After": str(API_RETRY_S)}, json.dumps(out).encode("utf-8")

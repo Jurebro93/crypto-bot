@@ -203,9 +203,53 @@ def sync(con, cfg, now=None, api=None, log=print):
     return True
 
 
+SELL_DUST_SOL = 0.001   # a smaller SOL inflow is a fee refund or rent, not the price of a sale (wallets/rpc.DUST_SOL)
+
+
+def net_sol(tx, w):
+    """10.11. (Grok MCP audit 9): the net SOL change of wallet `w` in one enhanced transaction, from its accountData:
+    the wallet's own lamports (nativeBalanceChange) plus its wSOL token balance change, the same figure
+    wallets/solfill.py reads from pre/post balances over RPC. None when the payload carries no accountData for `w`."""
+    data = tx.get("accountData")
+    if not isinstance(data, list):
+        return None
+    seen, net = False, 0.0
+    for a in data:
+        if not isinstance(a, dict):
+            continue
+        if a.get("account") == w:
+            seen = True
+            net += float(a.get("nativeBalanceChange") or 0) / 1e9
+        for b in a.get("tokenBalanceChanges") or []:
+            if isinstance(b, dict) and b.get("userAccount") == w and b.get("mint") == SOL:
+                raw = b.get("rawTokenAmount") or {}
+                try:
+                    net += int(raw.get("tokenAmount") or 0) / 10 ** int(raw.get("decimals") or 9)
+                    seen = True
+                except (TypeError, ValueError):
+                    pass
+    return net if seen else None
+
+
+def sol_received(tx, w):
+    """10.11. (Grok MCP audit 9): SOL the wallet got for a sale, or None when the payload does not show it. First the
+    net change from accountData (after fees and tips: what the wallet really got); without accountData the wSOL
+    transfers to it, else its native transfers in (Helius lists a closed wSOL account or a bonding curve paying out
+    directly in neither, hence accountData first)."""
+    net = net_sol(tx, w)
+    if net is None:
+        net = sum(float(t.get("tokenAmount") or 0) for t in tx.get("tokenTransfers") or []
+                  if t.get("mint") == SOL and t.get("toUserAccount") == w and t.get("fromUserAccount") != w)
+        if not net:
+            net = sum(float(n.get("amount") or 0) / 1e9 for n in tx.get("nativeTransfers") or []
+                      if n.get("toUserAccount") == w and n.get("fromUserAccount") != w)
+    return net if net > SELL_DUST_SOL else None
+
+
 def parse(events, wallets=None):
     """Enhanced webhook payload -> [(sig, wallet, mint, side, ts, sol)]: what the signing wallet got (buy) or gave
-    (sell) other than SOL/stables; SOL amount from its native and wSOL transfers."""
+    (sell) other than SOL/stables; SOL amount from its native and wSOL transfers (buy: SOL out; sell: SOL in, a
+    positive number like a buy's, split evenly when one transaction sells several tokens)."""
     out = []
     for tx in events if isinstance(events, list) else [events]:
         w, sig, ts = tx.get("feePayer"), tx.get("signature"), tx.get("timestamp")
@@ -227,9 +271,16 @@ def parse(events, wallets=None):
                    if n.get("fromUserAccount") == w) if not sol else 0
         for mint in got:
             out.append((sig, w, mint, "buy", ts, round(sol, 4)))
-        for mint in gave:
-            if mint not in got:
-                out.append((sig, w, mint, "sell", ts, None))
+        # 10.11. (Grok MCP audit 9): sells were always written with sol None (only the SOL the wallet SPENT was
+        # summed), so get_wallet_history and the Autopilot's wallet returns had no sale amount. Now the SOL it got;
+        # a token-for-token swap (it also got a token here) keeps None: no SOL price for that sale.
+        sells = [m for m in gave if m not in got]
+        try:   # an odd field must never cost the swap rows themselves (the webhook would answer 400 for all of them)
+            rec = sol_received(tx, w) if sells and not got else None
+        except (TypeError, ValueError, AttributeError):
+            rec = None
+        for mint in sells:
+            out.append((sig, w, mint, "sell", ts, round(rec / len(sells), 4) if rec else None))
     return out
 
 
