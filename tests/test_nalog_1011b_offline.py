@@ -149,10 +149,15 @@ class OwnerCap(Base):
         assistnotes.owner_flags_b(self.tc, now=NOW)
         st = self.tc.execute("SELECT status FROM assistant_notes WHERE id=?", (nid,)).fetchone()[0]
         self.assertEqual(st, "primijenjeno")
+        old = assistnotes.submit_daily_summary(self.tc, "k1", "Stari sažetak", "tekst", {"a": 1})
         s = assistnotes.submit_daily_summary(self.tc, "k2", "Sažetak", "tekst", {"a": 1})
         sid = s["id"] if isinstance(s, dict) else s
-        self.assertIn("Pročitano, makni", pravitrade._summary_card(self.tc, True))
-        assistnotes.decide(self.tc, sid, "prihvaćeno")
+        card = pravitrade._summary_card(self.tc, True)
+        self.assertIn("Pročitano, makni", card)
+        self.assertIn('data-sec=""', card)                                         # no chip bar from its title
+        # 10.11. 23:04 (Jure: "ne ukloni se"): the older unread one must not take its place
+        loc = pravitrade.post("/pravi-trade/sumread", {"id": str(sid)}, "Jure")
+        self.assertIn("ok=", loc)
         self.assertEqual(pravitrade._summary_card(self.tc, True), "")
 
 
