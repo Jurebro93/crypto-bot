@@ -143,6 +143,8 @@ class PageBase(unittest.TestCase):
         zivo._smart_buys = lambda now, toks: {}
         zivo._minute_stats = lambda now: dict(self.mstats)
         zivo._tiers = lambda: {}
+        self._tier = zivo._tier
+        zivo._tier = lambda mint: {}
         zivo._chances = lambda: {}
         tstore.read_all = lambda path=None, max_age_h=24: dict(self.top)
         archive.blocked = lambda path=None, ttl=300: frozenset()
@@ -161,6 +163,7 @@ class PageBase(unittest.TestCase):
          zivo._minute_stats, zivo._tiers, zivo._chances, tstore.read_all, archive.blocked, holders.pumpfun_shape,
          pravitrade.BG_REFRESH, bg) = self._saved
         pravitrade._BG.update(bg)
+        zivo._tier = self._tier
         if owner is None:
             os.environ.pop("TRADE_OWNER", None)
         else:

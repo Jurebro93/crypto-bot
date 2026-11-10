@@ -104,5 +104,28 @@ class LivePricesShortLeash(unittest.TestCase):
             self.assertEqual(paper.market({"A"}), {})
 
 
+class FollowedWalletsCount(unittest.TestCase):
+    """10.11. (audit sekundni S10): the wallets the real-money account follows count as "zovu" signals."""
+
+    def test_followed_wallets_are_read_from_league_db(self):
+        from league import copy, store
+        from trade import settings
+        from ui import pravitrade
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "league.db")
+            con = store.connect(p)
+            copy.ensure(con)
+            for i, w in enumerate(("W1", "W2", "W3")):
+                con.execute("INSERT INTO follows (user, kind, target, active) VALUES (?,?,?,?)",
+                            (settings.LEAGUE_USER, "wallet", w, 0 if i == 2 else 1))
+            con.execute("INSERT INTO follows (user, kind, target, active) VALUES (?,?,?,1)", (settings.LEAGUE_USER, "kol", "x"))
+            con.execute("INSERT INTO follows (user, kind, target, active) VALUES (?,?,?,1)", ("netko", "wallet", "W9"))
+            con.commit()
+            con.close()
+            with mock.patch.object(store, "DB", p), mock.patch("wallets.dokazani.current", lambda: ["D1"]):
+                got = pravitrade.followed_wallets()
+        self.assertEqual(got, {"W1", "W2", "D1"})
+
+
 if __name__ == "__main__":
     unittest.main()

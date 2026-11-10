@@ -1191,7 +1191,10 @@ def followed_wallets():
         con = copy._ro(lstore.DB)
         if con is not None:
             try:
-                out |= {f["target"] for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "wallet"}
+                # 10.11. (audit sekundni S10): plain SQL. copy.follows() does dict(row) and this read-only connection
+                # has no Row factory, so the TypeError was swallowed and the followed wallets never counted as "zovu"
+                out |= {r[0] for r in con.execute("SELECT target FROM follows WHERE user=? AND active=1 AND kind='wallet'",
+                                                  (settings.LEAGUE_USER,))}
             finally:
                 con.close()
     except Exception:  # noqa: BLE001
@@ -1654,7 +1657,7 @@ def token_popup(user, mint, now=None):
         top = tstore.read_all(max_age_h=1).get(mint) or {}
     except Exception:  # noqa: BLE001
         pass
-    tier = (zivo._tiers() or {}).get(mint) or {}
+    tier = zivo._tier(mint)   # 10.11. (audit sekundni S2): one row by key, not the whole token_tier every second
     archived = False
     try:
         from rugfilter import archive
