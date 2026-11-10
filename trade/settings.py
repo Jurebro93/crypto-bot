@@ -58,8 +58,16 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "time_filter": ("4.2", "Bez ulaza u satima s negativnim EV-om"),
     "caller_decay": ("4.3", "Novija forma callera vrijedi više (poluživot 14 dana)"),
     "ladder_exit": ("4.4", "Izlaz u koracima: pola na +30 %, stop na ulaz, trailing 25 %"),
+    # 10.11. (addendum, Phase 3e)
+    "early_score": ("3e.1", "Rana ocjena tokena iz PumpPortal streama (0-100)"),
+    "early_persist": ("3e.2", "Rani tokovi tradeova spremljeni dulje od 48 h"),
+    "smart_discovery": ("3e.3", "Otkrivanje novčanika koji rano ulaze u pobjednike"),
+    "wallet_stream": ("3e.4", "Novčanici u stvarnom vremenu (Helius WebSocket)"),
+    "sender_exec": ("3e.4", "Slanje swapa preko Helius Sendera (napojnica)"),
+    "demo_grok": ("3e.5", "Demo strategije MemeSonar, Grok i oboje zajedno"),
 }
-DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions"})
+DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
+                        "early_persist"})
 _FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})
 FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds within this
 

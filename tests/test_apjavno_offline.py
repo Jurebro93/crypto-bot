@@ -615,6 +615,14 @@ class Page(Base):
         self.assertIn("1.500 <small>SOL</small>", body)
         self.assertTrue(apjavno._RW["need"])
 
+    def test_only_the_owner_gets_the_way_to_the_trading_page(self):
+        """10.11. (Jure: "zašto preko mobitela ne mogu na autopilotu kupiti token?"): the page itself never trades."""
+        self.trade(on=False).close()
+        os.environ["TRADE_OWNER"] = "Jure"
+        self.assertIn('href="/pravi-trade#kupi-odmah"', apjavno.page({}, "Jure")[1])
+        self.assertNotIn("/pravi-trade", apjavno.page({}, "Ivan")[1])
+        self.assertNotIn("/pravi-trade", apjavno.guest_html({}))
+
     def test_the_page_refreshes_its_live_parts_by_itself(self):
         """10.11. (Jure: "korisnici u bilo kojem momentu trebaju vidjeti što bot radi"): every live part carries a
         version; /autopilot/zivo answers the same parts, so the page script swaps only what changed."""
