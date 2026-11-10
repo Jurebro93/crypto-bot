@@ -285,7 +285,13 @@ class Sources:
             rows = fn(now)
             rows = rows.get("candidates", []) if isinstance(rows, dict) else rows
             return [r for r in rows or [] if isinstance(r, dict) and r.get("token")]
-        good = sorted(insiders.good_set())
+        good = set(insiders.good_set())
+        try:   # 10.11. (kol/precall.py, merged the same night): the confirmed pre-call insiders count too
+            from kol import precall
+            good |= {w for w, _s in precall.copy_set()}
+        except Exception:  # noqa: BLE001 - no precall data yet
+            pass
+        good = sorted(good)
         if not good:
             return []
         hc = _ro(_hype_db())
