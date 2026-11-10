@@ -632,6 +632,33 @@ def default_sl(user):
         return ts.sl_text(ts.SL_DEFAULT)
 
 
+_BASE_CFG = dict(CFG)
+
+
+def apply_cfg_overrides():
+    """10.11.: CFG values the owner moved into trade settings ("copy_cfg", set only by his "Primijeni" on an
+    assistant's suggestion, ui/assistnotes.APPLY) hold from the next pass; min_mcap never under 30k (CLAUDE.md)."""
+    au, ts = _autopilot_user()
+    over = {}
+    if ts is not None:
+        try:
+            con = sqlite3.connect(f"file:{ts.DB}?mode=ro", uri=True, timeout=5)
+            try:
+                row = con.execute("SELECT v FROM settings WHERE k='copy_cfg'").fetchone()
+            finally:
+                con.close()
+            over = json.loads(row[0]) if row else {}
+        except (sqlite3.Error, ValueError, TypeError):
+            over = {}
+    CFG.clear()
+    CFG.update(_BASE_CFG)
+    for k, v in (over or {}).items():
+        if k in _BASE_CFG and isinstance(v, (int, float)):
+            CFG[k] = type(_BASE_CFG[k])(v) if isinstance(_BASE_CFG[k], int) and float(v).is_integer() else v
+    CFG["min_mcap"] = max(30_000, CFG.get("min_mcap") or 30_000)
+    return CFG
+
+
 _ADOPTED = set()
 
 
@@ -675,6 +702,7 @@ def run_once(con, market_fn=None, now=None, paths=None):
     from . import auto
     ensure(con)
     adopt_default_sl(con)
+    apply_cfg_overrides()
     now = int(now or time.time())
     fl = follows(con)
     if not fl:

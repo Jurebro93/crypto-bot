@@ -313,31 +313,111 @@ TOOLS += [
                      "and tokens, and clusters of callers that call the same tokens together; newest analysis snapshot."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "get_autopilot_trades", "annotations": _READ,
-     "description": ("Every open and closed Autopilot position (real money and trial): token, entry/exit ts, entry/exit "
-                     "market cap, SOL in/out, fees, PnL, exit reason (TP / SL / time / smart sell / mirror / manual), "
-                     "whether it was a DCA lot, its exit rule, and the signal that opened it (follow, signal ts, "
-                     "entry note, score)." + _PAGED),
-     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"}, **_PAGE}}},
+     "description": ("Every Autopilot trade (real money and trial), newest first; the DCA lots of a token are one trade. "
+                     "Per trade: trade_id (its first position_id), lots, entry/exit ts, entry (SOL-weighted) / exit market "
+                     "cap, sol_in, sol_back, fees_sol, cost_pct (swap cost of the buys), pnl_sol / pnl_pct, exit_reason "
+                     "(TP / SL / time / smart sell / mirror / manual) and exit_note, and the signals at the entry: the "
+                     "follow, callers of the last hour with call_power and stats, wallet buys with tier, the rug check "
+                     "(verdict, top10 / bundle / sniper %), the minute path of the triggering call and the run-up from the "
+                     "first call to the entry. status: open | closed." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
+                                                      "status": {"type": "string", "enum": ["open", "closed"]}, **_PAGE}}},
+    {"name": "get_unreviewed_trades", "annotations": _READ,
+     "description": ("Closed Autopilot trades that have no trade_review yet, newest first (same fields as "
+                     "get_autopilot_trades). Review each with submit_trade_review(trade_id)."),
+     "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}}}},
+    {"name": "get_assistant_notes", "annotations": _READ,
+     "description": ("The notes written through this API and what the owner did with them: kind (trade_review, "
+                     "signal_opinion, suggestion, daily_summary), status (novo = waits, prihvaćeno, odbijeno, primijenjeno), "
+                     "owner_note (the owner's reason), decided_ts. Use it to learn what was accepted or rejected." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {
+         "status": {"type": "string", "enum": ["novo", "prihvaćeno", "odbijeno", "primijenjeno"]},
+         "kind": {"type": "string", "enum": ["trade_review", "signal_opinion", "suggestion", "daily_summary"]}, **_PAGE}}},
     {"name": "get_scoring_config", "annotations": _READ,
      "description": ("The weights, thresholds, TP/SL defaults and filters the Autopilot uses: caller score weights, caller "
                      "verdict thresholds, the Autopilot's pick rules, copy filters, the real-money proof gate, Autopilot "
                      "limits, rug filter thresholds and hype weights. Read-only."),
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "submit_trade_review", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Write a review of one Autopilot trade for the owner: verdict dobar | loš | neutralan, confidence 0-1, "
+                     "interpretation (what happened and why), improvement (what to do differently), evidence (JSON of the "
+                     "numbers / links used). Shown on the trade's card; changes nothing in trading. Text up to 4000 "
+                     "characters; at most 60 notes an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "position_id": {"type": "integer", "description": "trade_id from get_autopilot_trades"},
+         "verdict": {"type": "string", "enum": ["dobar", "loš", "neutralan"]},
+         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+         "interpretation": {"type": "string", "maxLength": 4000}, "improvement": {"type": "string", "maxLength": 4000},
+         "evidence": {"type": "object"}}, "required": ["position_id", "verdict", "interpretation"]}},
+    {"name": "submit_signal_opinion", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Write an opinion on a token the Autopilot holds or is asked to buy (an open position or a request "
+                     "waiting for approval): verdict kupi | preskoči | dobar | loš | neutralan, confidence 0-1, "
+                     "interpretation, evidence. Shown next to the position or the waiting request; buys nothing."),
+     "inputSchema": {"type": "object", "properties": {
+         "token": {"type": "string"}, "verdict": {"type": "string", "enum": ["kupi", "preskoči", "dobar", "loš", "neutralan"]},
+         "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "interpretation": {"type": "string", "maxLength": 4000},
+         "evidence": {"type": "object"}}, "required": ["token", "verdict", "interpretation"]}},
+    {"name": "submit_suggestion", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Suggest an improvement for the owner: title, interpretation, improvement, evidence, and optionally "
+                     "proposed_change. The owner can Prihvati / Odbij / Primijeni on the Autopilot page; only these keys are "
+                     "applied by his click: {\"key\": tp_default | sl_default | size_sol | max_open | auto_skip | "
+                     "copy.max_delay_min | copy.min_liq | copy.max_mcap | copy.min_mcap | copy.min_liq_mcap | "
+                     "copy.crew_window_min | copy.max_per_day, \"from\": current, \"to\": new} or {\"caller\": handle, "
+                     "\"platform\": x|telegram, \"weight\": 0-2}. Anything else is accepted for a manual change."),
+     "inputSchema": {"type": "object", "properties": {
+         "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
+         "improvement": {"type": "string", "maxLength": 4000}, "evidence": {"type": "object"},
+         "proposed_change": {"type": "object"}}, "required": ["title", "interpretation"]}},
+    {"name": "submit_daily_summary", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Write the day's summary for the owner (title, interpretation, evidence); the newest one is shown at "
+                     "the top of the Autopilot page."),
+     "inputSchema": {"type": "object", "properties": {
+         "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
+         "evidence": {"type": "object"}}, "required": ["title", "interpretation"]}},
     {"name": "submit_caller_weights",
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-     "description": ("Suggest per-caller weights (0-2, 1 = neutral) with a reason. Stored as PENDING suggestions for the "
-                     "owner's review on the MemeSonar dashboard; live scoring does NOT change until the owner approves. "
-                     "Does not trade. At most 200 per call."),
+     "description": ("Suggest per-caller weights (0-2, 1 = neutral) with a reason: one suggestion note each (kind "
+                     "suggestion, proposed_change {caller, platform, weight}) for the owner's Prihvati / Odbij / Primijeni "
+                     "on the Autopilot page; live scoring does NOT change until he applies it. Does not trade. At most 50 "
+                     "per call, 60 notes an hour."),
      "inputSchema": {"type": "object", "properties": {"weights": {"type": "array", "maxItems": 200, "items": {
          "type": "object", "properties": {"handle": {"type": "string"}, "platform": {"type": "string", "enum": ["x", "telegram"]},
                                           "weight": {"type": "number", "minimum": 0, "maximum": 2}, "reason": {"type": "string"}},
-         "required": ["handle", "weight"]}}}, "required": ["weights"]}},
+         "required": ["handle", "weight"]}, "maxItems": 50}}, "required": ["weights"]}},
 ]
 
 
-def _tool(name, args):
+def _note_tool(name, a, kid):
+    """The four note tools: insert into trade.db assistant_notes only (ui/assistnotes.py)."""
+    from ui import assistnotes
+    tcon = settings.connect()
+    try:
+        if name == "submit_trade_review":
+            return assistnotes.submit_trade_review(tcon, kid, a.get("position_id") or a.get("trade_id"), a.get("verdict"),
+                                                   a.get("confidence"), a.get("interpretation"), a.get("improvement"),
+                                                   a.get("evidence"))
+        if name == "submit_signal_opinion":
+            return assistnotes.submit_signal_opinion(tcon, kid, a.get("token"), a.get("verdict"), a.get("confidence"),
+                                                     a.get("interpretation"), a.get("evidence"))
+        if name == "submit_suggestion":
+            return assistnotes.submit_suggestion(tcon, kid, a.get("title"), a.get("interpretation"), a.get("improvement"),
+                                                 a.get("evidence"), a.get("proposed_change"))
+        return assistnotes.submit_daily_summary(tcon, kid, a.get("title"), a.get("interpretation"), a.get("evidence"))
+    except ValueError as e:
+        return {"error": str(e)}
+    finally:
+        tcon.close()
+
+
+NOTE_TOOLS = ("submit_trade_review", "submit_signal_opinion", "submit_suggestion", "submit_daily_summary")
+
+
+def _tool(name, args, kid="local"):
     """(result dict, is_error) of one tool call."""
     args = args if isinstance(args, dict) else {}
+    if name in NOTE_TOOLS:
+        d = _note_tool(name, args, kid)
+        return d, "error" in d
     from ui import mcpdata
     data_tools = {
         "get_caller_leaderboard": lambda a: mcpdata.caller_leaderboard(a.get("platform"), a.get("min_calls"), a.get("sort"),
@@ -348,9 +428,13 @@ def _tool(name, args):
         "get_wallet_leaderboard": lambda a: mcpdata.wallet_leaderboard(a.get("kind"), a.get("limit"), a.get("offset")),
         "get_wallet_history": lambda a: mcpdata.wallet_history(a.get("address"), a.get("limit"), a.get("offset")),
         "get_wallet_clusters": lambda a: mcpdata.wallet_clusters(),
-        "get_autopilot_trades": lambda a: mcpdata.autopilot_trades(a.get("since_ts"), a.get("limit"), a.get("offset")),
+        "get_autopilot_trades": lambda a: mcpdata.autopilot_trades(a.get("since_ts"), a.get("limit"), a.get("offset"),
+                                                                   a.get("status")),
+        "get_unreviewed_trades": lambda a: mcpdata.unreviewed_trades(a.get("limit") or 50),
+        "get_assistant_notes": lambda a: mcpdata.assistant_notes(a.get("status"), a.get("kind"), a.get("limit"),
+                                                                 a.get("offset")),
         "get_scoring_config": lambda a: mcpdata.scoring_config(),
-        "submit_caller_weights": lambda a: mcpdata.submit_caller_weights(a.get("weights")),
+        "submit_caller_weights": lambda a: mcpdata.submit_caller_weights(a.get("weights"), kid=kid),
     }
     if name in data_tools:
         d = data_tools[name](args)
@@ -370,7 +454,7 @@ def _tool(name, args):
     return {"error": f"unknown tool {name}"}, True
 
 
-def _one(msg):
+def _one(msg, kid="local"):
     """The JSON-RPC answer to one message, or None for a notification."""
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not isinstance(msg.get("method"), str):
         return {"jsonrpc": "2.0", "id": (msg or {}).get("id") if isinstance(msg, dict) else None,
@@ -389,7 +473,7 @@ def _one(msg):
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":
-            data, err = _tool(params.get("name"), params.get("arguments"))
+            data, err = _tool(params.get("name"), params.get("arguments"), kid)
             result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}],
                       "structuredContent": data, "isError": bool(err)}
         else:
@@ -400,14 +484,17 @@ def _one(msg):
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def rpc(raw_body):
-    """(HTTP status, JSON text or '') of a POST /mcp body."""
+def rpc(raw_body, key=None):
+    """(HTTP status, JSON text or '') of a POST /mcp body. key: the client's bearer key (only its fingerprint is
+    kept, for the notes' hourly limit)."""
+    from ui import assistnotes
+    kid = assistnotes.key_id(key)
     try:
         msg = json.loads(raw_body or b"null")
     except ValueError:
         return 400, json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
     if isinstance(msg, list):   # a batch (spec 2025-03-26)
-        out = [a for a in (_one(m) for m in msg[:50]) if a is not None]
+        out = [a for a in (_one(m, kid) for m in msg[:50]) if a is not None]
         return (200, json.dumps(out, ensure_ascii=False)) if out else (202, "")
-    a = _one(msg)
+    a = _one(msg, kid)
     return (202, "") if a is None else (200, json.dumps(a, ensure_ascii=False))

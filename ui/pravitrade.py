@@ -160,7 +160,10 @@ details.ap-pan>summary::after{content:"›";transform:rotate(90deg);color:var(--
 details.ap-pan[open]>summary::after{transform:rotate(-90deg)}details.ap-pan>.in{padding:0 14px 10px}
 .ap-toast{position:fixed;left:12px;right:12px;bottom:84px;z-index:60;padding:14px 40px 14px 16px;border-radius:14px;
 font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.18);color:#fff;background:var(--good,#16a34a);max-width:640px;margin:0 auto}
-.ap-toast.bad{background:var(--bad,#dc2626)}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
+.ap-toast.bad{background:var(--bad,#dc2626)}
+.ap-grok{margin:8px 0;padding:10px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}.ap-grok p{margin:4px 0 0}.ap-grok-h{display:flex;gap:8px;align-items:center;font-weight:600}
+.ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
+.ap-sum p{margin:0}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
 .ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .ap-exit input{width:auto}
 .ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
@@ -1303,25 +1306,81 @@ def _mcp_section(tcon, owner):
     return _sec("Grok (MCP)", meta, inner, sid="mcp")
 
 
+VERDICT_TONE = {"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
+
+
+def _grok_box(note, compact=False):
+    """10.11.: the assistant's newest trade_review / signal_opinion of a position or a token: verdict, confidence,
+    interpretation, improvement. Advice only; nothing in trading reads it."""
+    if not note:
+        return ""
+    v = note.get("verdict") or "bilješka"
+    conf = f' · sigurnost {note["confidence"] * 100:.0f} %' if note.get("confidence") is not None else ""
+    head = (f'<div class=ap-grok-h>{dot(VERDICT_TONE.get(v, ""), "Grok: " + v)}<span class=mut>{conf} · '
+            f'{esc(redak.ago(note.get("ts")))}</span></div>')
+    body = f'<p>{esc(note.get("interpretation") or "")}</p>'
+    if note.get("improvement") and not compact:
+        body += f'<p><b>Poboljšanje:</b> {esc(note["improvement"])}</p>'
+    return f'<div class=ap-grok>{head}{body}</div>'
+
+
+def _change_words(pc):
+    """A proposed_change as one readable line ("sl_default: 60 → 40", "težina callera @x → 0.5")."""
+    if not isinstance(pc, dict):
+        return ""
+    if "caller" in pc:
+        return f'težina callera {pc.get("caller")} ({pc.get("platform") or "x"}) → {pc.get("weight")}'
+    if "key" in pc:
+        return f'{pc.get("key")}: {pc.get("from", "?")} → {pc.get("to", "?")}' + (f' ({pc["file"]})' if pc.get("file") else "")
+    return json.dumps(pc, ensure_ascii=False)[:300]
+
+
 def _suggest_section(tcon, owner):
-    """10.11.: the caller weights an outside assistant suggested through MCP (submit_caller_weights), for the owner to
-    approve or reject. Approving only marks the suggestion; no live scoring reads them yet."""
+    """10.11.: "Prijedlozi asistenta": the assistant's suggestions (kind suggestion, status novo), newest first, with
+    the evidence and the proposed change as a readable line, and Prihvati / Odbij / Primijeni with an optional note.
+    Primijeni applies only the allow-listed keys (ui/assistnotes.APPLY) and logs old -> new."""
     if not owner:
         return ""
-    from ui import mcpdata
-    rows = mcpdata.suggestions(tcon, "pending", 50)
+    from ui import assistnotes
+    rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0)
     if not rows:
         return ""
-    items = "".join(
-        f'<div class=ap-ord-r><span><b>{esc(r["handle"])}</b> ({esc(r["platform"])}) · težina <b>{r["weight"]:g}</b>'
-        + (f'<br><span class=mut>{esc(r["reason"])}</span>' if r.get("reason") else "")
-        + f'</span><span style="display:flex;gap:6px"><form method=post action=/pravi-trade/sugok style="margin:0">'
-        f'<input type=hidden name=id value={int(r["id"])}><button class=ap-buy>Odobri</button></form>'
-        f'<form method=post action=/pravi-trade/sugno style="margin:0"><input type=hidden name=id value={int(r["id"])}>'
-        '<button class=ap-cancel>Odbij</button></form></span></div>' for r in rows)
-    inner = (f'<div class=ap-ord>{items}</div><p class=mut>Težina 1 = neutralno, 0 = ignoriraj callera, 2 = dvostruko. '
-             'Odobrenje samo bilježi tvoju odluku; na izbor Autopilota ne utječe dok ne dogovorimo kako ulazi u bodovanje.</p>')
-    return _sec("Prijedlozi asistenta", f"{len(rows)} čeka", inner, sid="prijedlozi")
+    items = []
+    for r in rows:
+        pc = r.get("proposed_change")
+        auto = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY)
+        ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
+              if r.get("evidence") else "")
+        diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code>'
+                + ("" if auto else ' <span class=mut>(ne primjenjuje se sama: Primijeni je samo označi za ručnu izmjenu)</span>')
+                + "</p>") if pc else ""
+        items.append(
+            f'<div class=ap-sug id=as-{r["id"]}><p><b>{esc(r.get("title") or "")}</b> <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
+            f'<p>{esc(r.get("interpretation") or "")}</p>'
+            + (f'<p><b>Poboljšanje:</b> {esc(r["improvement"])}</p>' if r.get("improvement") else "")
+            + diff + ev
+            + f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
+            '<input name=note placeholder="tvoja bilješka (nije obavezno)" maxlength=1000 style="flex:1;min-width:160px" autocomplete=off>'
+            '<button>Prihvati</button>'
+            '<button formaction=/pravi-trade/asno class=ap-cancel>Odbij</button>'
+            '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu?\')">Primijeni</button>'
+            '</form></div>')
+    inner = ("".join(items) + '<p class=mut>Prijedloge piše asistent preko MCP-a; ništa se ne mijenja dok ne tapneš. '
+             'Primijeni mijenja samo dopuštene postavke (TP, stop, ulog, broj pozicija, preskočeni, filtri kopiranja, '
+             'težina callera) i zapisuje staru i novu vrijednost.</p>')
+    return _sec("Prijedlozi asistenta", f"{total} čeka", inner, sid="prijedlozi")
+
+
+def _summary_card(tcon, owner):
+    """10.11.: the assistant's newest daily summary, at the top of the page (owner only)."""
+    if not owner:
+        return ""
+    from ui import assistnotes
+    n = assistnotes.latest_summary(tcon)
+    if not n:
+        return ""
+    return (f'<section class="ap-qb ap-sum" id=sazetak><h2 class=ap-qb-h>{esc(n.get("title") or "Dnevni sažetak")} '
+            f'<span class=mut>· Grok · {esc(redak.ago(n["ts"]))}</span></h2><p>{esc(n.get("interpretation") or "")}</p></section>')
 
 
 def _mcp_requests(tcon, owner):
@@ -1333,6 +1392,8 @@ def _mcp_requests(tcon, owner):
     reqs = mcpapi.pending(tcon)
     if not reqs:
         return ""
+    from ui import assistnotes
+    ops = assistnotes.latest_for(tcon, tokens=[r["token"] for r in reqs])
     rows = []
     for r in reqs:
         amt = float(r["amount"])   # 10.11.: no nested quotes inside an f-string (Python 3.11 on older hosts)
@@ -1341,6 +1402,7 @@ def _mcp_requests(tcon, owner):
         rows.append(
             f'<div class=ap-ord-r><span>{what} · <code>{esc(short(r["token"]))}</code>'
             + (f'<br><span class=mut>{esc(r.get("reason") or "")}</span>' if r.get("reason") else "")
+            + _grok_box(ops.get(("t", r["token"])), compact=True)
             + f'</span><span style="display:flex;gap:6px">'
             f'<form method=post action=/pravi-trade/mcpok style="margin:0" onsubmit="return confirm(\'Odobriti ovaj zahtjev? '
             f'Ide pravim novcem ako je Autopilot uključen.\')"><input type=hidden name=id value="{esc(r["id"])}">'
@@ -2531,7 +2593,8 @@ def _pct_html(pct, big=False):
     return f'<b class="{cls}">{esc(redak.pct(pct, 1))}</b>' if cls else f"<b>{esc(redak.pct(pct, 1))}</b>"
 
 
-def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, mc_ts=None, orders=None, dca_log=None):
+def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, mc_ts=None, orders=None, dca_log=None,
+               note=None):
     """One open position = every open lot of a token (oldest first). Closed: name, whom it copies (or "2 ulaza"), the
     entry MC(s), the move (green / red) and the stake. Open (10.11., Jure: "ništa lijepo istaknuto; boldano MC na
     kojem smo ušli, PnL zelenim/crvenim uz sat kad se točno osvježio, non stop"): one block with the move from the
@@ -2599,7 +2662,7 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, 
                   f'<div class=in>{_dca_block(tok, sym, orders or [], dca_log or [], cfg, avg_mc, mc_now)}</div></details>')
     act = _sell_btns(",".join(map(str, ids)), pend) if owner else (
         f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
-    inner = (f"{line}{orders_html}{act}{panels}"
+    inner = (f"{line}{_grok_box(note)}{orders_html}{act}{panels}"
              f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
     q_all, ql_all = sum(r[9] or 0 for r in lots), sum(r[10] or 0 for r in lots)
     held = f"drži {redak.pct(ql_all / q_all, sign=False, frac=True)}" if q_all else "drži –"
@@ -2844,10 +2907,20 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
             groups.setdefault(r[1], []).append(r)
     now_mc, mc_ts = _now_mcap(list(groups)) if groups else ({}, None)
     st = settings.raw(tcon) if (owner and groups) else {}
+    try:   # 10.11.: the assistant's newest review / opinion per position and per token (advice only)
+        from ui import assistnotes
+        notes = assistnotes.latest_for(tcon, [r[0] for r in rows], {r[1] for r in rows})
+    except Exception:  # noqa: BLE001 - the list renders without the notes
+        notes = {}
+
+    def note_of(ids, tok):
+        return next((notes[("p", i)] for i in ids if ("p", i) in notes), None) or notes.get(("t", tok))
     open_, closed = [], []
     for tok, lots in groups.items():
-        open_.append(_lot_group(tok, sorted(lots, key=lambda r: r[0]), demo, now_mc.get(tok), pending, owner,
-                                viewer_buy, cfg, mixed, mc_ts, st.get("dca_orders") or [], st.get("dca_log") or []))
+        lots = sorted(lots, key=lambda r: r[0])
+        open_.append(_lot_group(tok, lots, demo, now_mc.get(tok), pending, owner,
+                                viewer_buy, cfg, mixed, mc_ts, st.get("dca_orders") or [], st.get("dca_log") or [],
+                                note_of([r[0] for r in lots], tok)))
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees, lid) in rows:
         trial = "probno" if (mixed and mode != "live") else None
         if st == "open":
@@ -2856,9 +2929,16 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
             sig = sigs.get(pid)
             link = (f'<a href="https://solscan.io/tx/{esc(sig)}" target=_blank rel=noopener>Solscan ↗</a>' if sig else None)
-            closed.append(_prow(tok, name=sym or short(tok or ""),
-                                reason=cat(redak.ago(cts or ts), trial, raw(link) if link else None, sep=" · "),
-                                value=redak.sol(pnl, 4, sign=True), value_tone=redak.tone(pnl)))
+            nt = notes.get(("p", pid))
+            if nt:   # 10.11.: a reviewed closed trade opens its review
+                closed.append(_item(sym or short(tok or ""),
+                                    cat(redak.ago(cts or ts), trial, f'Grok: {nt.get("verdict") or "bilješka"}', sep=" · "),
+                                    _grok_box(nt) + (f"<p>{link}</p>" if link else ""), value=redak.sol(pnl, 4, sign=True),
+                                    iid=f"zat-{pid}", value_tone=redak.tone(pnl)))
+            else:
+                closed.append(_prow(tok, name=sym or short(tok or ""),
+                                    reason=cat(redak.ago(cts or ts), trial, raw(link) if link else None, sep=" · "),
+                                    value=redak.sol(pnl, 4, sign=True), value_tone=redak.tone(pnl)))
     inner = "".join(open_) or '<p class=ms-hint style="margin:4px 0 12px">Ništa otvoreno.</p>'
     if closed:
         inner += _item("Zatvorene", "rezultat nakon svih naknada", "".join(closed)
@@ -3854,6 +3934,7 @@ def page(qs, user):
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
+                 _safe("sazetak", _summary_card, tcon, owner),
                  _safe("kupnja", _buy_now_card, cfg, owner),
                  _safe("mcp", _mcp_requests, tcon, owner),
                  setup.get("warn", ""),
@@ -4010,6 +4091,14 @@ def post(path, form, user):
                 req[pid] = frac
             settings.put(tcon, "sell_req", req, user)
             return f"{BACK}?ok={qq(f'Prodaja {frac:.0%} poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        if path in ("/pravi-trade/asok", "/pravi-trade/asno", "/pravi-trade/asapply"):   # 10.11.: an assistant's note
+            from ui import assistnotes
+            nid, note = int(form.get("id") or 0), (form.get("note") or "").strip()
+            if path.endswith("asapply"):
+                st, words = assistnotes.apply(tcon, nid, note)
+                return f"{BACK}?ok={qq(words)}#prijedlozi"
+            assistnotes.decide(tcon, nid, "prihvaćeno" if path.endswith("asok") else "odbijeno", note)
+            return f"{BACK}?ok={qq('Prijedlog prihvaćen.' if path.endswith('asok') else 'Prijedlog odbijen.')}#prijedlozi"
         if path in ("/pravi-trade/sugok", "/pravi-trade/sugno"):   # 10.11.: an assistant's caller weight
             from ui import mcpdata
             ok = path.endswith("ok")

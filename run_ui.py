@@ -808,7 +808,8 @@ class Handler(BaseHTTPRequestHandler):
         if a is not True:
             return self._send(a[0], a[1].encode("utf-8"), "application/json")
         n = int(self.headers.get("Content-Length") or 0)
-        code, out = mcpapi.rpc(self.rfile.read(min(n, 200_000)))
+        got = (self.headers.get("Authorization") or "").strip()
+        code, out = mcpapi.rpc(self.rfile.read(min(n, 200_000)), got[7:].strip() if got.lower().startswith("bearer ") else got)
         return self._send(code, out.encode("utf-8"), "application/json")
 
     def _mcp_post(self):
