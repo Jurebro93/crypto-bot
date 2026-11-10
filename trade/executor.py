@@ -115,9 +115,12 @@ def _day_start(now, tz=None):
     return int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())
 
 
-def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False):
+def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
     """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
-    lot of the same position, so the duplicate check does not apply (every other limit does)."""
+    lot of the same position, so the duplicate check does not apply (every other limit does).
+    manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
+    he approved) is not held by the day's spending limit max_sol_per_day; the Autopilot's copies still are. The
+    stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
@@ -130,7 +133,7 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False)
     tz = cfg.get("day_tz")
     spent = con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode=? "
                         "AND status IN ('open','closed','pending')", (_day_start(now, tz), "live" if live else "dry")).fetchone()[0]
-    if spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
+    if not manual and spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
         return f"dnevni limit: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
         lost = day_pnl(con, now, "live" if live else "dry", tz)
@@ -356,14 +359,14 @@ def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
 
 
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None,
-        add=False):
+        add=False, manual=False):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
     between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09).
     tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
-    why = gate_buy(con, cfg, size_sol, now, live, token=token, add=add)
+    why = gate_buy(con, cfg, size_sol, now, live, token=token, add=add, manual=manual)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct)
     # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still

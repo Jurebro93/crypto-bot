@@ -3901,9 +3901,10 @@ def _limits(cfg, owner):
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
-             '<p class=mut>Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja ili dnevni gubitak, nove kupnje '
-             'staju do ponoći (po zagrebačkom vremenu); prodaje idu dalje. Dnevni gubitak uključuje i naknade neuspjelih '
-             'pokušaja.</p><button>Spremi limite</button></form>')
+             '<p class=mut>Ulog vrijedi za svako praćenje. Kad se dosegne dnevna potrošnja, nove automatske kupnje '
+             'staju do ponoći (po zagrebačkom vremenu); tvoje ručne kupnje (brza kupnja, dokup, DCA) idu dalje. Kad se '
+             'dosegne dnevni gubitak, staju sve kupnje do ponoći. Prodaje idu uvijek. Dnevni gubitak uključuje i naknade '
+             'neuspjelih pokušaja.</p><button>Spremi limite</button></form>')
     return f"<div id=limiti>{head}{inner}</div>"
 
 
@@ -4508,9 +4509,9 @@ def _gate_now(tcon, sol, token, now=None):
     live = executor.is_live(cfg)
     now = now or time.time()
     try:
-        return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True)
+        return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True, manual=True)
     except Exception:  # noqa: BLE001 - the RPC for the balance did not answer
-        return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True)
+        return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
 def _post_buy(con, tcon, form, user):
@@ -4575,9 +4576,7 @@ def _post_buy(con, tcon, form, user):
     # "poslana". The same gate now answers here, before anything is written, with the way out in the message.
     why = _gate_now(tcon, sol, token)
     if why:
-        hint = (" Povećaj „Najviše potrošeno na kupnje u danu” pod Pravila → Limiti ili pričekaj ponoć."
-                if why.startswith("dnevni limit") else
-                " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else "")
+        hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
         raise ValueError(f"kupnja nije poslana: {why}.{hint}")
     sym = _symbol(token)
     # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held

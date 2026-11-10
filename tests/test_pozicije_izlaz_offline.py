@@ -223,18 +223,29 @@ class AddToPosition(Base):
         cfg = settings.merged(dict(CFG, sell_check=False), self.con)
         run_trade.follow_league_once(self.con, cfg, since=0, now=now, quiet=True)
 
-    def test_a_buy_over_the_day_limit_is_refused_on_the_page_not_after_it_said_sent(self):
-        """10.11. (Jure: "piše da je kupovina prošla, a ne piše otvorena pozicija"): run_trade refused it for the day
-        limit after the page had said "poslana". The page asks the same gate first and writes nothing."""
+    def test_the_owners_buy_is_not_held_by_the_day_spend_limit_the_copies_are(self):
+        """10.11. (Jure: "piše da je kupovina prošla, a nema pozicije" -> "makni limit"): the owner's own buys pass
+        the day's spending limit (on the page and in run_trade); the Autopilot's copies keep it."""
+        from tests.test_trade_offline import CFG
         settings.put(self.con, "max_sol_per_day", 0.08, "Jure")
+        for _ in range(2):
+            self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+            self.mirror(time.time())
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0], 2)
+        cfg = settings.merged(dict(CFG), self.con)
+        self.assertIn("dnevni limit", executor.gate_buy(self.con, cfg, 0.05, time.time(), False, token="X"))
+        self.assertIsNone(executor.gate_buy(self.con, cfg, 0.05, time.time(), False, token="X", manual=True))
+        self.assertIsNone(pravitrade_gate(self.con, 0.05))
+
+    def test_a_limit_that_still_holds_is_said_on_the_page_before_anything_is_written(self):
+        settings.put(self.con, "max_open", 1, "Jure")
         self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
         self.mirror(time.time())
-        loc = unquote(self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
+        other = MINT[:-4] + "abcd"
+        loc = unquote(self.post("/pravi-trade/buy", {"token": other, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
         self.assertIn("err=", loc)
-        self.assertIn("dnevni limit", loc)
-        self.assertIn("Pravila", loc)
+        self.assertIn("kupnja nije poslana", loc)
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)   # no demo lot without a real one
-        self.assertIsNone(pravitrade_gate(self.con, 0.03))                               # under the limit: passes
 
     def test_second_buy_of_a_held_token_is_a_second_lot_with_the_same_exit(self):
         from ui import league as uleague, prijedlog
