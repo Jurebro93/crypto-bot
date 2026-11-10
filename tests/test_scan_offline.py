@@ -269,7 +269,7 @@ class Pass(Base):
 
     def test_credit_cap_stops_the_checks_cleanly(self):
         con = store.connect()
-        store.add_spent(con, "helius", 5000, NOW)
+        store.add_spent(con, "helius", store.config()["helius_credits_day"], NOW)
         con.commit()
         con.close()
         with mock.patch("scan.market.log") as lg:
