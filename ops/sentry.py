@@ -112,6 +112,10 @@ _URL_USER = re.compile(r"(\b[a-z][a-z0-9+.-]{0,15}://)[^/\s@'\"]{1,200}@", re.I)
 _URL_QUERY = re.compile(r"(\b[a-z][a-z0-9+.-]{0,15}://[^\s?#'\"<>]{0,400})\?[^\s'\"<>]*", re.I)
 _HEADER = re.compile(r"\b((?:proxy-)?authorization|(?:set-)?cookie|x-[\w-]{0,30}?(?:key|token|auth)[\w-]{0,30}|api[-_]?key|"
                      r"(?:private|secret)[-_ ]?key|password|lozinka)(['\"]?\s*:\s*['\"]?)[^\r\n'\"]+", re.I)
+# 10.11.: a dict or JSON printed into the text ({'token': 'x'}, {"access_token": "..."}): short values too, which the
+# long-run rule below never sees; only a quoted name followed by a quoted value, so "token: BONK" stays readable
+_QUOTED = re.compile(r"""(['"][\w-]{0,30}?(?:key|token|secret|passw|pwd|lozink|auth|cookie|session)[\w-]{0,30}['"]"""
+                     r"""\s*:\s*['"])[^'"\r\n]{1,400}""", re.I)
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.I)
 _KEY_VALUE = re.compile(r"((?:key|token|secret|passw|pwd|lozink|auth|cookie|session|signature)[\w-]{0,40}\s*=\s*)"
                         r"(?!\[Filtered\])[^\s&;,'\")\]}>]+", re.I)
@@ -175,6 +179,7 @@ def scrub(text, limit=MAX_TEXT):
     s = _URL_USER.sub(rf"\1{HIDDEN}@", s)
     s = _URL_QUERY.sub(rf"\1?{HIDDEN}", s)
     s = _HEADER.sub(rf"\1\2{HIDDEN}", s)
+    s = _QUOTED.sub(rf"\1{HIDDEN}", s)
     s = _BEARER.sub(rf"\1 {HIDDEN}", s)
     s = _KEY_VALUE.sub(rf"\1{HIDDEN}", s)
     s = _OUR_COOKIE.sub(rf"\1{HIDDEN}", s)

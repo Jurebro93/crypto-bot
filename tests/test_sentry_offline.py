@@ -55,7 +55,8 @@ def fake(n, alphabet=B58, seed=7):
 
 HELIUS = "-".join(fake(n, HEX, seed=n) for n in (8, 4, 4, 4, 12))            # the shape of a Helius API key (UUID)
 WALLET = fake(44, seed=3)                                                      # the shape of a Solana address
-KEY_BYTES = [random.Random(2).randrange(256) for _ in range(64)]               # a Solana keypair as 64 bytes
+_RND = random.Random(2)   # one generator: a new Random(2) per byte gave 64 equal bytes, a "key" that was no key at all
+KEY_BYTES = [_RND.randrange(256) for _ in range(64)]                            # a Solana keypair as 64 bytes
 PRIVATE_KEY = fake(88, seed=5)                                                 # ... and as Phantom exports it (base58)
 JWT = "eyJ" + fake(17, URLSAFE, 1) + "." + "eyJ" + fake(40, URLSAFE, 2) + "." + fake(43, URLSAFE, 3)
 TG_BOT = "bot" + "123456789" + ":" + fake(35, URLSAFE, 4)                      # Telegram bot token in an API URL
@@ -289,8 +290,15 @@ class Scrub(unittest.TestCase):
                              ("{'password': 'tajna123'}", "tajna123"), ("Authorization: Basic dTpw", "dTpw"),
                              ("api-key=abc123, pokušaj 2", "abc123"), ("lozinka: mojatajna", "mojatajna"),
                              ("secret=s3kr3t kraj", "s3kr3t"), ("X-Hook-Key: h00k", "h00k"), ("?key=k1&limit=5", "k1"),
-                             ("poslano s Bearer kratki-token-1", "kratki-token-1")):
+                             ("poslano s Bearer kratki-token-1", "kratki-token-1"),
+                             # 10.11.: a dict or a JSON answer printed into the text, with short values
+                             ("{'token': 'abc123short', 'mint': 'x'}", "abc123short"),
+                             ('odgovor {"access_token": "ya29.kratki", "expires_in": 3599}', "ya29.kratki"),
+                             ("{'client_secret': 'tajna', 'n': 2}", "tajna"), ('{"session_id": "s-77"}', "s-77")):
             self.assertIn("[Filtered]", self.gone(text, secret))
+        # ... and only there: the same words as plain text are not values to hide
+        for text in ("token: BONK nije prošao", "KeyError: 'token'", "{'mint': 'x', 'n': 2}"):
+            self.assertEqual(sentry.scrub(text), text)
 
     def test_wallet_address_in_a_url_keeps_the_call_readable(self):
         out = self.gone(f"HTTPError: https://api.helius.xyz/v0/addresses/{WALLET}/transactions?api-key={HELIUS}&limit=100",
@@ -722,8 +730,11 @@ def _parents(tree):
 class EntryPoints(unittest.TestCase):
     def test_every_loop_start_sh_keeps_alive_reports(self):
         with open(os.path.join(ROOT, "start.sh")) as f:
-            kept = set(re.findall(r"^\s*(?:if .*?; then )?keep \w+ .*?\b(run_\w+\.py)", f.read(), re.M))
-        self.assertTrue(kept)
+            code = "\n".join(ln for ln in f.read().splitlines() if not ln.lstrip().startswith("#"))
+        # 10.11.: any "keep <name> ... run_x.py" outside a comment, also behind a prefix ("low keep ..." of the CPU
+        # priority change in start.sh, "if ...; then keep ..."), so a new form of the line cannot hide a new loop
+        kept = set(re.findall(r"\bkeep [\w-]+ [^\n#]*?\b(run_\w+\.py)", code))
+        self.assertTrue({"run_ui.py", "run_trade.py", "run_kol.py", "run_sched.py"} <= kept, kept)
         self.assertFalse(kept - set(ENTRY), "novi stalni proces u start.sh: dodaj mu blok sentry.init(...) na početak "
                                             "main() i ime u ENTRY ovog testa")
 
