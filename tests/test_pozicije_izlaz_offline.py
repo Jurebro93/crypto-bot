@@ -145,7 +145,9 @@ class Positions(Base):
         self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC <b>\$82\.0k</b> \(<b>0,0\xa0%</b>\)")   # inside, bold entry MC
         self.assertRegex(inner, r"MC sada <b>\$82\.0k</b> · osvježeno <b>\d\d:\d\d:\d\d</b>")   # the quote's clock time
         self.assertIn("Ulaz na MC <b>$82.0k</b>", inner)
-        self.assertIn("Izlaz: TP +15 % · SL −60 %", inner)
+        self.assertIn("<b>TP/SL</b> · TP +15 % · SL −60 %", inner)          # 10.11.: under "Otvoreni nalozi"
+        self.assertIn("Otvoreni nalozi · 1", inner)
+        self.assertIn("<button class=ap-sellall aria-label=\"Prodaj sve\">Prodaj sve</button>", inner)
         self.assertIn("action=/pravi-trade/exit", inner)
         self.assertIn('name=sl value="-60%"', inner)                 # the quick TP buttons keep the stop
         self.assertIn("TP +30 %", inner)
@@ -383,8 +385,10 @@ class ManualDca(Base):
         self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))   # under 30k
         cfg = settings.merged(executor.load_config(), self.con)
         inner, _, _ = pravitrade.positions_inner(self.con, False, True, {}, cfg)
-        self.assertIn("DCA (dokup na padu)", inner)
-        self.assertIn("Dokup na MC <b>$65.6k</b>", inner)
+        self.assertIn("<summary>DCA dokup · 2</summary>", inner)
+        self.assertIn("Otvoreni nalozi · 3", inner)                              # TP/SL + two DCA orders
+        self.assertIn("<b>DCA dokup</b> 0,040\xa0SOL na MC <b>$65.6k</b>", inner)
+        self.assertIn("<button class=ap-cancel>Otkaži</button>", inner)
         bought = []
         buy = lambda con, tcon, form, user: bought.append(form)
         self.assertEqual(pravitrade.dca_once(self.con, live_fn=lambda t: {MINT: {"mcap": 70_000.0}}, buy_fn=buy), [])
@@ -417,6 +421,45 @@ class ManualDca(Base):
         done = pravitrade.dca_once(self.con, live_fn=lambda t: {MINT: {"mcap": 69_000.0}})
         self.assertIn("dokupljeno", done[0][1])
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 2)   # one more lot
+
+
+class RememberedExit(Base):
+    """10.11. (Jure: "kad se postavi izlaz, neka ostane zapamćen za sljedeću narudžbu, a ne da se uvijek vraća na
+    default"): the last TP / SL used prefill the buy forms; a position bought on a follow's signal hands a changed
+    exit to that follow."""
+
+    def test_last_manual_exit_prefills_the_next_order(self):
+        from ui import pravitrade
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "60%", "sl": "-50%"}))
+        cfg = settings.merged(executor.load_config(), self.con)
+        self.assertEqual(pravitrade._last_exit(cfg), ("60%", "-50%"))
+        card = pravitrade._buy_now_card(cfg, True)
+        self.assertIn('name=tp value="60%"', card)
+        self.assertIn('name=sl value="-50%"', card)
+        self.assertIn('class="ap-buy ap-wide">Kupi', card)
+        self.assertIn("value=60%", pravitrade._buy_form(MINT, cfg, "tpsl", True))
+
+    def test_exit_changed_on_a_copied_position_is_kept_for_that_follow(self):
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "ansem", 25, 5, "tpsl", "15%", "")
+        tid = store.buy(self.lg, settings.LEAGUE_USER, MINT, "HOPE", 25, 1.0, 1e6, "copy KOL ansem", None, 82_000.0)
+        self.lg.execute("UPDATE trades SET follow_id=? WHERE id=?", (fid, tid))
+        self.lg.commit()
+        cur = self.con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, sol_in) "
+                               "VALUES (?,?,?,?,?,?,?)", (tid, MINT, "HOPE", int(time.time()), "dry", "open", 0.05))
+        self.con.commit()
+        loc = self.post("/pravi-trade/exit", {"id": str(cur.lastrowid), "tp": "60%", "sl": "-60%"})
+        self.assertIn("Zapamćeno i za sljedeće ulaze od ansem", unquote(loc))
+        f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["id"] == fid)
+        self.assertEqual((f["exit"]["tp"], f["exit"]["sl"]), ("60%", "-60%"))
+        self.assertEqual(settings.raw(self.con)["last_exit"], {"tp": "60%", "sl": "-60%"})
+
+    def test_toast_shows_the_forms_answer(self):
+        from ui import pravitrade
+        _, body = pravitrade.page({"err": "granica nije ispod sadašnjeg MC-a"}, "Jure")
+        self.assertIn('class="ap-toast bad" role=alert', body)
+        self.assertIn("granica nije ispod sadašnjeg MC-a", body)
+        _, body = pravitrade.page({"ok": "DCA: dokup postavljen"}, "Jure")
+        self.assertIn('class="ap-toast ok" role=status', body)
 
 
 class Header(unittest.TestCase):
