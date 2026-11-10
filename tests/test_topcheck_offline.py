@@ -216,8 +216,11 @@ class Store(unittest.TestCase):
                             "state_json": '{"state": "pumpa"}', "safety_json": '{"fails": ["x"]}'})
             store.put(con, {"token": "B", "rank": 2, "ts": int(time.time())})
             store.unrank(con, ["A"])
-            self.assertTrue(store.budget_take(con, "2026-11-02", 1))
-            self.assertFalse(store.budget_take(con, "2026-11-02", 1))
+            # 10.11.: today's day, not a fixed date: budget_take drops rows older than 7 days, so the fixed
+            # "2026-11-02" started failing the moment the calendar passed 9.11. (the row was deleted at once)
+            day = time.strftime("%Y-%m-%d", time.gmtime())
+            self.assertTrue(store.budget_take(con, day, 1))
+            self.assertFalse(store.budget_take(con, day, 1))
             con.commit()
             con.close()
             got = store.read_all(p)
