@@ -12,6 +12,11 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.environ.get("TRADE_DB", os.path.join(HERE, "trade.db"))
 LEAGUE_USER = "pravi-trade"   # the competition account whose follows (KOL/wallet) drive the real trades
+# 10.11. (Jure: "default stop loss treba biti na minus 60 %, a to moram na stranici Autopilota moći promijeniti"): the
+# stop of every Autopilot entry with "moj TP/SL" and no stop of its own (copies, auto picks, crews, manual buys), in
+# percent below the entry; the owner picks one of SL_CHOICES under "Pravila". Players keep league/copy.DEFAULT_SL.
+SL_DEFAULT = 60
+SL_CHOICES = (20, 30, 40, 50, 60, 70)
 
 # key -> (label, type, min, max); the owner edits these on the page
 LIMITS = {
@@ -76,7 +81,29 @@ def merged(cfg, con):
     out["manual_size"] = s.get("manual_size") or {}
     out["heartbeat"] = s.get("heartbeat") or 0
     out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
+    out["sl_default"] = int(s.get("sl_default") or SL_DEFAULT)
     return out
+
+
+def sl_text(pct):
+    """60 -> "-60%": the stop as a level league/auto.parse_level reads."""
+    return f"-{int(pct)}%"
+
+
+def sl_default(path=None):
+    """The Autopilot's default stop as a level ("-60%"), read-only from trade.db (league/copy asks it at every
+    entry, in another process than the page). SL_DEFAULT when the database or the key is not there."""
+    path = path or DB
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            row = con.execute("SELECT v FROM settings WHERE k='sl_default'").fetchone()
+        finally:
+            con.close()
+        v = int(json.loads(row[0])) if row else SL_DEFAULT
+    except (sqlite3.Error, ValueError, TypeError):
+        v = SL_DEFAULT
+    return sl_text(v if v in SL_CHOICES else SL_DEFAULT)
 
 
 def parse_limits(form):

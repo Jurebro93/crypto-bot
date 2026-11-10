@@ -166,8 +166,9 @@ class Page(unittest.TestCase):
         self.assertIn("ekipu", loc)
         fl = copy.follows(self.lg, settings.LEAGUE_USER)
         self.assertEqual([(f["kind"], f["target"]) for f in fl], [("ekipa", ",".join(CREW))])
-        # 9.11. (audit P10/P17): "moj TP/SL" without a stop typed in gets the default stop (league/copy.DEFAULT_SL)
-        self.assertEqual(fl[0]["exit"], {"mode": "tpsl", "tp": "15%", "sl": copy.DEFAULT_SL, "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
+        # 9.11. (audit P10/P17): "moj TP/SL" without a stop typed in gets the default stop; 10.11.: stored as "" and
+        # put on each entry from the owner's setting (league/copy.default_sl)
+        self.assertEqual(fl[0]["exit"], {"mode": "tpsl", "tp": "15%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
         _, body = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")
         # 10.11. (Jure: "čista, minimalistička"): the crew tag is the word "ekipa", without the 🤝 in front;
         # 10.11. (prijedlog dizajna, maketa autopilot.html): the follow is a shared row, the word starts its line

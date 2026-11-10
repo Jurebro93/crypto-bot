@@ -135,6 +135,9 @@ background:var(--bg);scrollbar-width:none}.ap-fn::-webkit-scrollbar{display:none
 color:var(--fg);font-size:15px;text-decoration:none;white-space:nowrap}.ap-fn a:active{background:var(--line)}
 .ap [id]{scroll-margin-top:120px}
 .ap-qb{margin:16px 0 6px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.ap-split{margin:-6px 0 8px;font-size:13px}
+.ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+.ap-exit input{width:auto}
 .ap-qb .ap-qb-h{font-size:17px;font-weight:600;margin:0 0 10px}
 .ap-qb form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ap-qb form input[name=token]{flex:1;min-width:200px}
 .ap-qb p.mut{font-size:13px;margin:8px 0 0}
@@ -426,6 +429,21 @@ def _value_html(s, r):
     return redak.hero(redak.num(val, 3), why=cat(*bits, sep=" · ") if bits else None, big=True, unit="SOL")
 
 
+def _split_html(s):
+    """10.11. (Jure: "glavni kredit se nije pomakao nakon kupovine"): the big number is the wallet's whole value, SOL
+    plus open positions at the market price, so a buy only moves SOL into a position and the number stays (minus the
+    fees). This line says where the value is: free SOL, the part in positions, and the clock time of the snapshot it
+    comes from (trade/equity, one every 5 min, none in the 45 s after a swap)."""
+    import datetime as _dt
+    import zoneinfo
+    sol, tok, ts = s.get("sol"), s.get("tokens_sol") or 0.0, s.get("last_ts")
+    if sol is None:
+        return ""
+    when = (_dt.datetime.fromtimestamp(ts, zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%H:%M") if ts else "")
+    bits = [f"slobodno {redak.num(sol, 3)} SOL", f"u pozicijama {redak.num(tok, 3)} SOL"] + ([f"stanje u {when}"] if when else [])
+    return f'<p class="mut ap-split">{esc(" · ".join(bits))}</p>'
+
+
 def _switch_html(on, n_open=0):
     """The owner's switch in the title row (maketa: "Uključen" and a switch; it replaces the button "Isključi
     Autopilot (nove kupnje staju)"). Same form and the same confirmation as the buttons before it. "Prodaj sve i
@@ -491,6 +509,8 @@ def _head_inner(tcon, cfg, con, owner, now=None, msg=""):
         if not all(oks[:3]):
             link = f'<a href="#postavljanje">Dovrši {sum(oks)}/{len(oks)}</a>'
     b = [_title(owner, on, n_open), f"<div class=ap-state><span>{dot(d, words)}</span>{link}</div>", hero]
+    if has_eq:
+        b.append(_split_html(s))
     alerts = msg + ('<p class="ap-w bad">Prodaja svega je u tijeku…</p>' if cfg.get("sell_all") else "")
     try:
         alerts += _warnings(tcon, cfg, con)
@@ -728,9 +748,10 @@ def _follows(con, owner, st=None, prefill=""):
             dline = _data_exit_line(f)
         except Exception:  # noqa: BLE001 - the list renders without the statistic
             dline = ""
+        ex_words = copy.describe_exit(f["exit"], copy.default_sl(f["user"]))
         reason = " · ".join(x for x in (_KIND_WORD.get(f["kind"], f["kind"]), "odabrao alat" if by else "",
-                                         esc(copy.describe_exit(f["exit"]) or "zadani izlaz")) if x)
-        inner = (f'<p>{who}</p><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(copy.describe_exit(f["exit"]) or "zadano")}'
+                                         esc(ex_words or "zadani izlaz")) if x)
+        inner = (f'<p>{who}</p><p>Najviše {f["per_day"]} ulaza na dan · izlaz: {esc(ex_words or "zadano")}'
                  f' · prati od {esc(redak.ago(f["created"]))}{" · dodao ga je alat" if by else ""}</p>'
                  f'<p class=mut>{last24}</p>'
                  + (f'<p class=mut>{dline}</p>' if dline else '')
@@ -791,7 +812,8 @@ def _data_exit_line(f, now=None):
         return ""
     own = f["exit"].get("mode") == "podaci"
     if d.get("ok") is None:
-        tail = (f" Do tada vrijedi zadani izlaz TP +{copy.DATA_TP.rstrip('%')} % / SL {copy.DEFAULT_SL.rstrip('%')} %." if own else "")
+        tail = (f" Do tada vrijedi zadani izlaz TP +{copy.DATA_TP.rstrip('%')} % / SL {copy.default_sl(f['user']).rstrip('%')} %."
+                if own else "")
         return f"Po podacima: {esc(d['why'])}.{tail}"
     if d["ok"]:
         return (f"Po podacima alat bi uzeo {esc(d['base'])}; na novijih {d['n_new']} poziva {d['ev_new']:+.1f} %."
@@ -1142,12 +1164,13 @@ def _buy_form(mint, cfg, exit_mode, owner):
     opts = "".join(f'<option value={v}{" selected" if v == exit_mode else ""}>{lab}</option>'
                    for v, lab in (("smart", "Smart sell"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")))
     tp_default = cfg.get("tp_default", 15)   # the exit target chosen at the top of the page (_tp_card)
+    sl0 = _sl0(cfg)
     return ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             f'(ako je Autopilot uključen)?\')"><input type=hidden name=token value="{esc(mint)}">'
             f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
             f'<select name=exit aria-label="Kako prodati">{opts}</select>'
             f'<input name=tp placeholder="TP npr. 100%" size=9{f" value={tp_default}%" if exit_mode == "tpsl" else ""}> '
-            f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14>'
+            f'<input name=sl placeholder="SL (zadano {sl0})" size=14>'
             '<button class=ap-go>Kupi</button></form>')
 
 
@@ -1173,16 +1196,16 @@ def _buy_now_card(cfg, owner):
     are the same."""
     if not owner:
         return ""
-    tp_default = cfg.get("tp_default", 15)
+    tp_default, sl0 = cfg.get("tp_default", 15), _sl0(cfg)
     inner = ('<form method=post action=/pravi-trade/buy onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
              '(ako je Autopilot uključen)?\')"><input name=token placeholder="adresa tokena ili DexScreener link" '
              'required style="flex:1;min-width:200px" autocomplete=off spellcheck=false>'
              f'<label>SOL <input name=sol value="{cfg["size_sol"]:g}" inputmode=decimal style="width:64px"></label>'
              '<button class=ap-go>Kupi</button>'
-             f'<details style="flex-basis:100%"><summary class=mut>Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {copy.DEFAULT_SL})</summary>'
+             f'<details style="flex-basis:100%"><summary class=mut>Više (izlaz: moj TP/SL, cilj +{tp_default} %, stop {sl0})</summary>'
              '<select name=exit aria-label="Kako prodati"><option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option>'
              f'<option value=manual>prodajem sam</option></select> <input name=tp placeholder="TP" value="{tp_default}%" size=6> '
-             f'<input name=sl placeholder="SL (zadano {copy.DEFAULT_SL})" size=14></details></form>'
+             f'<input name=sl placeholder="SL (zadano {sl0})" size=14></details></form>'
              '<p class=mut>Prolazi iste provjere i limite kao automatske kupnje. Pravi novac ide samo kad je Autopilot '
              'uključen; inače je ovo probna kupnja. Prodaja: dodirni poziciju pod „Otvorene pozicije”.</p>')
     # 10.11. (Jure: "nema opcije za brzo kupovanje koja treba biti odmah ispod grafa jer je to glavna stvar"): an open
@@ -1204,9 +1227,28 @@ def _tp_card(cfg, owner):
     btns = "".join(f'<form method=post action=/pravi-trade/tp style="margin:0"><input type=hidden name=tp value={v}>'
                    f'<button{" class=ap-go" if v == cur else ""}>+{v} %</button></form>' for v in TP_CHOICES)
     return (f'<div id=cilj>{head}<div class=ap-btns style="margin:0 0 10px">{btns}</div><p class=mut>Vrijedi za svako novo '
-            'praćenje i kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj. Stop: kako je '
-            f'upisan, inače zadani {esc(copy.DEFAULT_SL)} (isti prag kao minutna provjera). Praćenja s izlazom "zadano" '
-            '(Smart sell) imaju svoj stop.</p></div>')
+            'praćenje i kupnju s izlazom "moj TP/SL" bez upisanog TP-a; postojeće pozicije zadržavaju svoj (mijenja se '
+            'na samoj poziciji pod „Otvorene pozicije”). Praćenja s izlazom "zadano" (Smart sell) imaju svoj stop.</p></div>')
+
+
+def _sl0(cfg):
+    """The Autopilot's default stop as a level ("-60%"): the owner's choice under "Pravila"."""
+    return settings.sl_text((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
+
+
+def _sl_card(cfg, owner):
+    """10.11. (Jure: "default stop loss treba biti na minus 60 %, a to moram negdje na stranici Autopilota kao
+    administrator moći promijeniti"): the stop of every new entry with "moj TP/SL" and no stop typed in (copies,
+    the auto pick, crews, manual buys). Open positions keep theirs (changed on the position itself)."""
+    cur = int((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
+    head = f'<h3 class=ap-sub><span>Zadani stop</span><span>sada −{cur} %</span></h3>'
+    if not owner:
+        return f'<div id=stop>{head}</div>'
+    btns = "".join(f'<form method=post action=/pravi-trade/sl style="margin:0"><input type=hidden name=sl value={v}>'
+                   f'<button{" class=ap-go" if v == cur else ""}>−{v} %</button></form>' for v in settings.SL_CHOICES)
+    return (f'<div id=stop>{head}<div class=ap-btns style="margin:0 0 10px">{btns}</div><p class=mut>Pozicija se prodaje '
+            'kad padne toliko ispod ulaza. Vrijedi za svaki novi ulaz s izlazom "moj TP/SL" bez upisanog stopa: kopije, '
+            'automatski odabir, ekipe i ručnu kupnju. Otvorene pozicije zadržavaju svoj stop (mijenja se na poziciji).</p></div>')
 
 
 def _rules(tcon, cfg, owner):
@@ -1218,9 +1260,10 @@ def _rules(tcon, cfg, owner):
     except Exception:  # noqa: BLE001
         spent = None
     meta = (f'ulog {_g(cfg["size_sol"])} SOL · cilj +{int(cfg.get("tp_default") or 15)} % · '
+            f'stop −{int(cfg.get("sl_default") or settings.SL_DEFAULT)} % · '
             + (f'danas {redak.num(spent, 2)} od {_g(cfg["max_sol_per_day"])} SOL' if spent is not None
                else f'najviše {_g(cfg["max_sol_per_day"])} SOL dnevno'))
-    return _sec("Pravila", meta, _tp_card(cfg, owner) + _limits(cfg, owner), sid="pravila")
+    return _sec("Pravila", meta, _tp_card(cfg, owner) + _sl_card(cfg, owner) + _limits(cfg, owner), sid="pravila")
 
 
 IDEAS_EVERY_S = 60   # the suggestion log (latest_picks) cadence; the live box below is LIVE_IDEAS_S
@@ -2195,6 +2238,71 @@ def _who(reason):
     return None
 
 
+EXIT_TP_QUICK = (15, 30, 50, 100)   # 10.11. (Jure: "za neke tokene bi stavio take profit 30 %, a ne samo 15 %")
+
+
+def _demo_sides(lids):
+    """{league trade id: (entry MC, auto rule dict or None, open)} of the demo trades behind the listed open real
+    positions (run_trade mirrors a demo trade on LEAGUE_USER; the demo's entry MC is where the bot bought, its auto
+    rule is the exit the real position follows). One read by primary key, read-only; {} when league.db is missing."""
+    lids = [int(x) for x in lids if x]
+    if not lids:
+        return {}
+    lg = _league_ro()
+    if lg is None:
+        return {}
+    try:
+        rows = lg.execute(f"SELECT id, entry_mcap, auto, status FROM trades WHERE id IN ({','.join('?' * len(lids))}) "
+                          "AND user=?", (*lids, settings.LEAGUE_USER)).fetchall()
+    except sqlite3.Error:
+        return {}
+    finally:
+        lg.close()
+    out = {}
+    for lid, mc, a, st in rows:
+        try:
+            rule = json.loads(a) if a else None
+        except ValueError:
+            rule = None
+        out[lid] = (mc, rule, st == "open")
+    return out
+
+
+def _exit_words(rule):
+    """'TP +15 % · SL −60 %' of a demo trade's auto rule; 'Smart sell'; '' without one."""
+    if not rule:
+        return ""
+    if rule.get("mode") == "smart":
+        return "Smart sell"
+    bits = []
+    if rule.get("tp"):
+        bits.append(f"TP {rule['tp'].replace('%', ' %')}")
+    if rule.get("sl"):
+        bits.append(f"SL {rule['sl'].replace('-', '−').replace('%', ' %')}")
+    return " · ".join(bits)
+
+
+def _exit_form(pid, rule, cfg):
+    """The owner's exit of one open position: quick TP buttons (+15/+30/+50/+100 %, the stop stays) and a TP/SL pair
+    to type (percent from the entry or MC, e.g. "$200k"). POST /pravi-trade/exit."""
+    rule = rule or {}
+    sl_now = (rule.get("sl_in") or rule.get("sl") or "") if rule.get("mode") == "tpsl" else ""
+    tp_now = (rule.get("tp_in") or rule.get("tp") or "") if rule.get("mode") == "tpsl" else ""
+    keep = esc(sl_now or _sl0(cfg))
+    quick = "".join(
+        f'<form method=post action=/pravi-trade/exit style="margin:0"><input type=hidden name=id value={pid}>'
+        f'<input type=hidden name=tp value="{v}%"><input type=hidden name=sl value="{keep}">'
+        f'<button{" class=ap-go" if tp_now.lstrip("+") in (f"{v}%", f"{v}") else ""}>TP +{v} %</button></form>'
+        for v in EXIT_TP_QUICK)
+    return (f'<div class=ap-btns>{quick}</div>'
+            f'<form method=post action=/pravi-trade/exit class=ap-exit><input type=hidden name=id value={pid}>'
+            f'<label>TP <input name=tp value="{esc(tp_now)}" placeholder="npr. 30%" size=7 autocomplete=off></label> '
+            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(_sl0(cfg))}" size=9 autocomplete=off></label> '
+            '<button>Spremi izlaz</button></form>'
+            '<p class=mut>Postotak od ulaza ili MC (npr. $200k). Prazan TP = bez cilja, samo stop; prazan SL = zadani stop. '
+            'Ako je cijena već iznad TP-a ili ispod SL-a, prodaja kreće u sljedećih 20 s.</p>')
+
+
 def _positions(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     """"Otvorene pozicije 3 od 5" (maketa): one row per open position (what, whom it copies, when, the stake, how
     much of it is still held); a tap on the row opens the sell buttons 20 % / 50 % / sve (owner) and the live check;
@@ -2229,7 +2337,7 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     # 10.11.: +status keeps the planner on the key, newest first, stopping at 60; with the (status, opened_ts) index
     # trade/aplog.py adds it would collect every open and closed position ever and sort them, once a second
     rows = tcon.execute("SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, "
-                        "closed_ts, COALESCE(fees_sol,0) FROM positions WHERE +status IN ('open','closed') "
+                        "closed_ts, COALESCE(fees_sol,0), league_id FROM positions WHERE +status IN ('open','closed') "
                         "ORDER BY id DESC LIMIT 60").fetchall()
     sell_all = SELL_ALL if (owner and cfg and cfg.get("on")) else ""
     cap = f' od {cfg["max_open"]}' if cfg and cfg.get("max_open") else " otvoreno"
@@ -2244,22 +2352,32 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None, cfg=None):
     # the trial word only where it tells something: when real and trial positions are listed together (the state
     # line under the title already says which mode the bot is in; prijedlog 3.4: "probno" was on every position)
     mixed = len({r[4] for r in rows}) > 1
+    # 10.11. (Jure: "moram vidjeti na koliko market capa je bot kupio otvorenu poziciju"; TP 30 % za neke tokene):
+    # the demo trade behind each open real position gives its entry MC and the exit it follows
+    demo = _demo_sides(r[13] for r in rows if r[5] == "open")
     open_, closed = [], []
-    for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees) in rows:
+    for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees, lid) in rows:
         trial = "probno" if (mixed and mode != "live") else None
         if st == "open":
             pend = pending.get(str(pid))
             who = _who(why)
+            mc, rule, demo_open = demo.get(lid, (None, None, False))
+            ex = _exit_words(rule)
             act = _sell_btns(pid, pend) if owner else (
                 f'<p><a href="https://jup.ag/swap/SOL-{quote(tok)}" target=_blank rel=noopener>Kupi i ti ↗</a></p>' if viewer_buy else "")
             line = " · ".join(x for x in (
-                f"uloženo {redak.sol(sin or 0, 3)}", f"vraćeno {redak.sol(sback, 4)}" if sback else "",
+                f"ulaz na MC {_usd_short(mc)}" if mc else "", f"uloženo {redak.sol(sin or 0, 3)}",
+                f"vraćeno {redak.sol(sback, 4)}" if sback else "",
                 "pravi novac" if mode == "live" else "probno", "" if who else (why or "")) if x)
-            inner = (f"<p class=mut>{esc(line)}</p>{act}"
+            exit_html = (f"<p class=mut>Izlaz: {esc(ex or 'nije postavljen')}</p>" if lid else "")
+            if owner and lid and demo_open and pend is None:
+                exit_html += _exit_form(pid, rule, cfg)
+            inner = (f"<p class=mut>{esc(line)}</p>{exit_html}{act}"
                      f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
             held = f"drži {redak.pct(ql / q, sign=False, frac=True)}" if q else "drži –"
-            open_.append(_item(sym or short(tok or ""), " · ".join(x for x in (who, redak.ago(ts), trial) if x), inner,
-                               value=redak.sol(sin or 0, 3), sub="prodaja u tijeku" if pend is not None else held,
+            open_.append(_item(sym or short(tok or ""),
+                               " · ".join(x for x in (who, f"ulaz MC {_usd_short(mc)}" if mc else "", redak.ago(ts), trial) if x),
+                               inner, value=redak.sol(sin or 0, 3), sub="prodaja u tijeku" if pend is not None else held,
                                iid=f"poz-{pid}"))
         else:
             pnl = (sback or 0) - (sin or 0) - (fees or 0)
@@ -2417,7 +2535,8 @@ _SK = {"ts": 0.0, "key": None, "html": None}
 
 
 def _sl_pct():
-    """The Autopilot's default stop as a positive whole percent (league/copy.DEFAULT_SL "-20%" -> 20)."""
+    """The stop the skipped-signal box measures against, as a positive whole percent (league/copy.DEFAULT_SL "-20%"
+    -> 20, the minute check's stop; 10.11.: the Autopilot's own default stop is the owner's setting, settings.sl_default)."""
     try:
         return abs(int(float(str(copy.DEFAULT_SL).strip().rstrip("%"))))
     except ValueError:
@@ -2990,6 +3109,12 @@ def post(path, form, user):
                 return f"{BACK}?err={qq('cilj izlaza: 5, 10, 15, 20 ili 30 %')}"
             settings.put(tcon, "tp_default", v, user)
             return f"{BACK}?ok={qq(f'Cilj izlaza za nove kopije: +{v} %.')}#cilj"
+        if path == "/pravi-trade/sl":   # 10.11. (Jure): the default stop for new entries (owner only)
+            v = int(float(form.get("sl") or 0))
+            if v not in settings.SL_CHOICES:
+                return f"{BACK}?err={qq('zadani stop: ' + ', '.join(f'−{x}' for x in settings.SL_CHOICES) + ' %')}#stop"
+            settings.put(tcon, "sl_default", v, user)
+            return f"{BACK}?ok={qq(f'Zadani stop za nove ulaze: −{v} %.')}#stop"
         if path == "/pravi-trade/sellall":
             settings.put(tcon, "on", False, user)
             settings.put(tcon, "sell_all", int(time.time()), user)
@@ -3051,9 +3176,10 @@ def post(path, form, user):
                 ex_mode = form.get("exit", "")
                 if kind in ("ekipa", "kol") and ex_mode == "mirror":   # 9.11. (audit P74): "prodaj kad on proda" has no
                     ex_mode = ""                                         # meaning for a call; the default (Smart sell) instead
-                # 9.11. (audit P10/P17/P19): "moj TP/SL" without a stop typed in gets the default stop, stored on the
-                # follow so the list shows it (league/copy.run_once would apply the same DEFAULT_SL anyway)
-                sl = (form.get("sl") or "").strip() or (copy.DEFAULT_SL if ex_mode == "tpsl" else "")
+                # 9.11. (audit P10/P17/P19): "moj TP/SL" without a stop typed in gets the default stop. 10.11. (Jure:
+                # zadani stop se mijenja na stranici): stored empty, league/copy.run_once puts the owner's default
+                # stop (copy.default_sl) on each entry, so a change under "Pravila" holds for this follow too
+                sl = (form.get("sl") or "").strip()
                 min_callers = int(form.get("min_callers") or 1)
                 copy.follow(con, settings.LEAGUE_USER, kind, target, form.get("label", ""), 25,
                             form.get("per_day") or 5, ex_mode, tp, sl,
@@ -3081,10 +3207,10 @@ def post(path, form, user):
                 if any(f["target"] == target for f in copy.follows(con, settings.LEAGUE_USER) if f["kind"] == "ekipa"):
                     return f"{BACK}?ok={qq('Tu ekipu već pratiš.')}#pratim"
                 tp = f"{_cfg(tcon).get('tp_default', 15)}%"
-                copy.follow(con, settings.LEAGUE_USER, "ekipa", target, "", 25, 5, "tpsl", tp, copy.DEFAULT_SL,   # P10/P19: the default stop
+                copy.follow(con, settings.LEAGUE_USER, "ekipa", target, "", 25, 5, "tpsl", tp, "",   # the default stop at entry
                             max_mcap=EKIPA_MAX_MCAP, max_runup=EKIPA_MAX_RUNUP, min_callers=1)
                 con.commit()
-                return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC $1M, ne ako je već +25 %, stop {copy.DEFAULT_SL}.')}#pratim"
+                return f"{BACK}?ok={qq(f'Bot prati ekipu ({len(mem)} računa): ulaz čim prvi od njih objavi, do MC $1M, ne ako je već +25 %, stop {_sl0(_cfg(tcon))}.')}#pratim"
             if path == "/pravi-trade/copyfollow":
                 src = next((f for f in copy.follows(con, active=None) if f["id"] == int(form.get("id") or 0)), None)
                 if not src:
@@ -3098,6 +3224,8 @@ def post(path, form, user):
                 return f"{BACK}?ok={qq(f'Bot prati {who}.')}#pratim"
             if path == "/pravi-trade/buy":
                 return _post_buy(con, tcon, form, user)
+            if path == "/pravi-trade/exit":
+                return _post_exit(con, tcon, form)
             if path == "/pravi-trade/auto":
                 from ui import autopilot
                 days, n = int(form.get("days") or 14), int(form.get("n") or 3)
@@ -3150,6 +3278,35 @@ def _buy_callers_veto(token, now=None):
         return None
 
 
+def _post_exit(con, tcon, form):
+    """10.11. (Jure: "za neke tokene bi stavio take profit 30 %, a ne samo 15 %"): the owner's exit of one open
+    position. The real position follows its demo trade (run_trade sells when the demo closes), so the TP/SL is
+    written on the demo trade (league/auto.set_auto) from the same base as before (copies: the effective entry with
+    fee and impact). Empty TP = only the stop; empty SL = the default stop. A data exit's one-hour limit is dropped:
+    the owner's own rule holds from now on."""
+    from urllib.parse import quote as qq
+    from league import auto
+    pid = int(form.get("id") or 0)
+    row = tcon.execute("SELECT league_id, symbol, token FROM positions WHERE id=? AND status='open'", (pid,)).fetchone()
+    if not row:
+        raise ValueError("ta pozicija nije otvorena")
+    lid, sym, tok = row
+    if not lid:
+        raise ValueError("ova pozicija nema demo par (demo strategija ili stara pozicija): izlaz joj se ne mijenja ovdje")
+    t = con.execute("SELECT auto FROM trades WHERE id=? AND user=? AND status='open'", (lid, settings.LEAGUE_USER)).fetchone()
+    if not t:
+        raise ValueError("demo par ove pozicije je već zatvoren: prodaja je u tijeku")
+    try:
+        old = json.loads(t[0]) if t[0] else {}
+    except ValueError:
+        old = {}
+    tp = (form.get("tp") or "").strip()
+    sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
+    rule = auto.set_auto(con, settings.LEAGUE_USER, lid, "tpsl", tp, sl, from_eff=bool((old or {}).get("from_eff")))
+    print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)}", flush=True)
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.')}#poz-{pid}"
+
+
 def _post_buy(con, tcon, form, user):
     """Manual buy: a demo trade on the real-trade account (the lists' live gate without their liquidity floor:
     trading now, MC 30k+, not falling, not collapsed, callers' minute check not weak), its own SOL stake for the mirror, and its exit rule;
@@ -3199,7 +3356,7 @@ def _post_buy(con, tcon, form, user):
     tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
     if ex == "tpsl":
         if not sl:
-            sl = copy.DEFAULT_SL   # owner rule 9.11.: no explicit stop -> the default one, same as for copies
+            sl = _sl0(_cfg(tcon))   # owner rule 9.11.: no explicit stop -> the default one (10.11.: set under "Pravila")
         tp_px, _ = auto.parse_level(tp, price, mcap, "tp")   # raises on a typo or an MC level without entry MC
         sl_px, _ = auto.parse_level(sl, price, mcap, "sl")
         if tp_px is None and sl_px is None:

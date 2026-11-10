@@ -195,7 +195,7 @@ class CopyGates(unittest.TestCase):
         self.assertEqual(n["Tok3" + "x" * 40][0], "ulaz")
         self.assertIn("koncentracija: nepoznato", n["Tok3" + "x" * 40][1])   # no data is shown, never "prolazi"
 
-    def test_tpsl_default_stop_from_effective_entry_and_fallback(self):   # default SL -20 %, P28, P38
+    def test_tpsl_default_stop_from_effective_entry_and_fallback(self):   # default SL (10.11.: -60 %), P28, P38
         self.follow(tp="$500k", sl="")                              # TP in market cap, no stop
         self.call("ansem", TOK, NOW - 30)
         self.call("ansem", TOK2, NOW - 30)
@@ -203,8 +203,8 @@ class CopyGates(unittest.TestCase):
         self.assertEqual(len(out), 2)
         t = {r["token"]: r for r in store.trades(self.lg, "pravi-trade", "open")}
         a = json.loads(t[TOK]["auto"])
-        self.assertEqual((a["mode"], a["sl"]), ("tpsl", "-20%"))
-        self.assertAlmostEqual(a["sl_px"], t[TOK]["entry_eff"] * 0.8)   # from what was really paid
+        self.assertEqual((a["mode"], a["sl"]), ("tpsl", "-60%"))      # the Autopilot's default stop (trade.settings)
+        self.assertAlmostEqual(a["sl_px"], t[TOK]["entry_eff"] * 0.4)   # from what was really paid
         self.assertAlmostEqual(a["tp_px"], t[TOK]["entry_px"] * 500_000 / 400_000)
         self.assertTrue(a.get("from_eff"))
         b = json.loads(t[TOK2]["auto"])                              # TP $500k under the $600k entry: Smart sell instead
