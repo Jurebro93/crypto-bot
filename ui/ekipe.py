@@ -138,7 +138,13 @@ def page(qs, now=None):
             archived = archive.blocked()
         except Exception:  # noqa: BLE001
             archived = frozenset()
-        details = [minute.crew_detail(mcon, kcon, c[0], days, now, archived=archived) for c in cs["crews"][:TOP_CREWS]]
+        top = cs["crews"][:TOP_CREWS]
+        # 9.11. 20:20: the groups and minute rows once for all crews (12 crews x 2 full reads took the page to 60 s)
+        since = now - days * 86400
+        all_groups = minute._groups(kcon, since, max_size=max([4] + [len(c[0]) for c in top]))
+        paths = {(r["token"], r["ts"]): r for r in minute._rows(mcon, "ts >= ?", (since,))}
+        details = [minute.crew_detail(mcon, kcon, c[0], days, now, archived=archived, all_groups=all_groups, paths=paths)
+                   for c in top]
     finally:
         kcon.close()
         mcon.close()

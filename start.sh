@@ -159,6 +159,9 @@ low keep minute python3 run_kol.py minute-loop
 # container and with it the backfill, so it is best started when nobody deploys. Without it: 25 min after start.
 if [ -n "${KOL_BACKFILL_USD:-}" ]; then
   (
+    # 10.11. (spojeno iz grane "veliki poslovi od ponoći", uz CLAUDE.md 01-06): without KOL_BACKFILL_AT it waits for
+    # 00:05 UTC (01:05 Zagreb in winter), the start of the night window, not 25 min after a deploy in the day
+    KOL_BACKFILL_AT="${KOL_BACKFILL_AT:-00:05}"
     if [ -n "${KOL_BACKFILL_AT:-}" ]; then
       python3 -c "import time, datetime as d; h, m = map(int, '${KOL_BACKFILL_AT}'.split(':')); n = d.datetime.now(d.timezone.utc); t = n.replace(hour=h, minute=m, second=0, microsecond=0); t = t if t > n else t + d.timedelta(days=1); print(f'kol backfill: čekam do {t:%Y-%m-%d %H:%M} UTC', flush=True); time.sleep((t - n).total_seconds())"
     else
