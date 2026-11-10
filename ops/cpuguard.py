@@ -155,6 +155,9 @@ PROCESSES = (
     # 10.11. (Grok MCP audit 9): night only, at most 200 getTransaction calls a night; waits on the network, not the CPU
     ("solfill", "-m wallets.solfill", (), JOBS, "noću upisuje iznose prodaja praćenih walleta iz transakcija (Helius)"),
     ("research", "-m research.hope", (), JOBS, "jednokratno istraživanje tokena (samo čitanje, Helius)"),
+    # 10.11. (flag group_discovery): the night pass and the 15-min pass; shadow only, nobody waits for them
+    ("grupe", "-m kol.groupdisc", (), JOBS,
+     "ekipe callera i skriveni popisi novčanika: noćni prolaz (Helius, strop kredita) i mali svakih 15 min, samo sjena"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),

@@ -76,7 +76,13 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "confluence": ("G9", "Ulaz tek kad se poklope 2+ callera i kupnja novčanika s tierom"),
     # 10.11. ~21:45 (Jure): the MCP client's exit plan per position, executed by the server (league/exitplan.py)
     "exit_plans": ("G10", "Planovi izlaza s MCP-a (set_exit_plan): TP-ovi, trailing, stop, time stop"),
+    # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
+    "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
+                               "ekipa izlazne likvidnosti negativno"),
 }
+# 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
+# or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
+PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})
@@ -265,6 +271,19 @@ def live_refusal(con, name, paper=None, now=None):
     return None
 
 
+def paper_refusal(con, name, now=None):
+    """None when `name` may go from off / shadow to paper, else the reason (PAPER_GATES; other flags: always None)."""
+    spec = PAPER_GATES.get(name)
+    if not spec:
+        return None
+    try:
+        import importlib
+        mod, fn = spec.split(":")
+        return getattr(importlib.import_module(mod), fn)(con, now=now)
+    except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+        return f"dokaz se ne može pročitati ({type(e).__name__})"
+
+
 def set_flag(con, name, mode, who="", paper=None, now=None):
     """Owner's change of one flag (the page checks is_owner). Raises ValueError with the reason when refused.
     Going down (to off, shadow or paper) is always allowed; "since" restarts on every change of mode."""
@@ -280,6 +299,10 @@ def set_flag(con, name, mode, who="", paper=None, now=None):
         why = live_refusal(con, name, paper, now)
         if why:
             raise ValueError(f"{name} ne može u live: {why}")
+    if mode == "paper" and cur["mode"] in ("off", "shadow"):
+        why = paper_refusal(con, name, now)
+        if why:
+            raise ValueError(f"{name} ne može u paper: {why}")
     val = {"mode": mode, "since": now, "who": who}
     put(con, f"flag:{name}", val, who)
     _FLAG_CACHE.clear()

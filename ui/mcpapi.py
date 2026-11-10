@@ -96,7 +96,18 @@ def signals(now=None):
         out.append({"token": tok, "symbol": sym, "callers": [{"who": w, "platform": p, "ts": int(ts)} for w, p, ts in callers],
                     "n_callers": len(callers), "first_call_ts": int(first_ts), "last_call_ts": int(last_ts),
                     "market": _market_row(live), "under_30k": bool(live and (live.get("mcap") or 0) < 30_000)})
+    out += _group_signals(now)   # 10.11. source hidden_group (kol/groupdisc.py); nothing while group_discovery is off
     return {"ts": int(now), "source": "MemeSonar (X, Telegram, followed wallets; DexScreener live)", "signals": out}
+
+
+def _group_signals(now):
+    """Hidden wallet-list signals of group_discovery; a broken extra source never hides the calls above."""
+    try:
+        from kol import groupdisc
+        return groupdisc.mcp_signals(now)
+    except Exception as e:  # noqa: BLE001
+        print(f"mcp: hidden_group: {type(e).__name__}: {e}", flush=True)
+        return []
 
 
 def token(address, now=None):
@@ -474,7 +485,8 @@ TOOLS += [
                      "require_signal, runup_max and caller weights sit behind flags (dca_cap, require_signal, runup_default, "
                      "caller_weights): applying moves an off flag to shadow only; live is the owner's call after a backtest. "
                      "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
-                     "accepted for a manual change."),
+                     "accepted for a manual change, e.g. a name for a group from get_trader_groups: {\"group_label\": "
+                     "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label)."),
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
          "improvement": {"type": "string", "maxLength": 4000}, "evidence": {"type": "object"},
@@ -569,6 +581,38 @@ TOOLS += [
          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
          "offset": {"type": "integer", "minimum": 0, "default": 0}}}},
 ]
+# 10.11. (flag group_discovery, kol/groupdisc.py): caller crews and hidden wallet lists, read-only; empty while off
+TOOLS += [
+    {"name": "get_trader_groups", "annotations": _READ,
+     "description": ("Groups MemeSonar found (shadow mode: they change no trading). kind caller: X/Telegram accounts whose "
+                     "first calls of the same tokens come within 120 s / 10 min of each other far more often than chance "
+                     "(pairs with 3+ shared tokens and lift >= 5, connected). kind wallet: wallets that bought the same "
+                     "3+ tokens within 5 slots in the tokens' first 30 min under $100k (bots, relayer-paid trades, "
+                     "dev-funded and one-owner bundles removed), 4+ members. Per group: members (callers in their "
+                     "usual order), metrics (events/tokens, who is first, market cap at the first call or entry, result "
+                     "1 h / 4 h / 24 h after the first call, rug share, delay of the public calls behind the group, "
+                     "PnL per wallet, entry minutes before the first public call, the pairs with their lift), grade "
+                     "quality | exit_liquidity (the public calls fall after the group) | bad | insufficient_data and "
+                     "its weight in the shadow scoring (one group within 10 min = one signal; exit_liquidity counts "
+                     "-1). min_quality: only grades at or above it in the order exit_liquidity < bad < "
+                     "insufficient_data < quality. label: the owner-accepted name. To propose a name use "
+                     "submit_suggestion with proposed_change {\"group_label\": {\"group_id\": \"<group_id>\", "
+                     "\"label\": \"<short name>\", \"note\": \"<why>\"}}; the owner accepts or rejects it." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["caller", "wallet"], "default": "caller"},
+         "min_quality": {"type": "string", "enum": ["exit_liquidity", "bad", "insufficient_data", "quality"]},
+         **_PAGE}}},
+    {"name": "get_group_activity", "annotations": _READ,
+     "description": ("Fresh calls (caller groups) and buys (wallet groups) of group members since since_ts (unix s, "
+                     "default 24 h), newest first: group_id, group kind, grade, token, who, market cap, under_30k, "
+                     "whether a public call exists; plus the group signals of that time: hidden_group (3+ wallets of "
+                     "one quality wallet group bought within 10 min with no public call; also listed in "
+                     "get_market_signals as source hidden_group) and caller_group_first (a quality caller group "
+                     "called first), with their measured result (+20 % before -30 % within 1 h / 4 h, EV after "
+                     "cost) and how many minutes later the public callers came. Shadow only: nothing is bought, "
+                     "and tokens under $30k are never bought." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"}, **_PAGE}}},
+]
 
 
 def _xfeat_tool(name, a, kid):
@@ -617,6 +661,10 @@ def _tool(name, args, kid="local"):
         return d, "error" in d
     if name in ("submit_x_features", "get_x_features"):
         d = _xfeat_tool(name, args, kid)
+        return d, "error" in d
+    if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
+        from kol import groupdisc
+        d = groupdisc.mcp_tool(name, args)
         return d, "error" in d
     from ui import mcpdata
     data_tools = {
