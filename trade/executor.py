@@ -115,6 +115,20 @@ def _day_start(now, tz=None):
     return int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())
 
 
+# 10.11. (Jure: "Dnevni limit potrošnje je dosegnut (2,850 SOL) ... Ovo nema smisla."): the day's spending limit is for
+# the Autopilot's AUTOMATIC buys; the owner's own buys (reason "ručno ...": quick buy, DCA, buy orders, approved Grok
+# requests) and Grok's autotrades ("Grok auto ...", which have their own limits, ui/grokauto) are not held by it, so
+# they must not use it up either (they did: his Hope lots stopped every copy for the day).
+OWN_REASONS = ("ručno%", "Grok auto%")
+
+
+def auto_spent(con, now, mode, tz=None):
+    """SOL put into automatic buys today (since midnight in tz) in this mode: what max_sol_per_day limits."""
+    return con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode=? "
+                       "AND status IN ('open','closed','pending') AND COALESCE(reason, '') NOT LIKE ? "
+                       "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0.0
+
+
 def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
     """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
     lot of the same position, so the duplicate check does not apply (every other limit does).
@@ -131,10 +145,9 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     if size_sol <= 0 or size_sol > cfg["max_sol_per_trade"]:
         return f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
     tz = cfg.get("day_tz")
-    spent = con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode=? "
-                        "AND status IN ('open','closed','pending')", (_day_start(now, tz), "live" if live else "dry")).fetchone()[0]
+    spent = auto_spent(con, now, "live" if live else "dry", tz)
     if not manual and spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
-        return f"dnevni limit: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
+        return f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
         lost = day_pnl(con, now, "live" if live else "dry", tz)
         if lost <= -cfg["max_loss_day"]:

@@ -189,7 +189,7 @@ class Page(Base):
         cfg = settings.merged({"size_sol": 0.05, "max_sol_per_day": 1.0, "max_open": 5, "min_sol_reserve": 0.05,
                                "max_cost_pct": 6, "max_loss_day": 0.3}, self.con)
         html = pravitrade._rules(self.con, cfg, True)
-        self.assertIn(f"ulog 0,05 SOL · cilj +15 % · stop −60 % · danas 0,00 od 1 SOL", html)
+        self.assertIn(f"ulog 0,05 SOL · cilj +15 % · stop −60 % · automatski danas 0,00 od 1 SOL", html)
         self.assertLess(html.index("id=cilj"), html.index("id=limiti"))
         self.assertIn("Spremi limite", html)
         self.assertNotIn("Spremi limite", pravitrade._rules(self.con, cfg, False))
