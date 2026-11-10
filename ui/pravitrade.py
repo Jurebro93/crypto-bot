@@ -728,6 +728,30 @@ def _follow_name(f):
     return lab if lab and len(lab) < 30 else short(f["target"])
 
 
+def _follow_exit_form(f, st):
+    """10.11. (Jure: "za svakog influencera mogu odabrati poseban take profit ili stop loss"): this follow's own TP /
+    SL for every new entry: quick TP buttons (the stop stays) and both to type; optionally also on its open positions.
+    POST /pravi-trade/followexit."""
+    ex = f["exit"] or {}
+    tp_now = ex.get("tp", "") if ex.get("mode") == "tpsl" else ""
+    sl_now = ex.get("sl", "") if ex.get("mode") == "tpsl" else ""
+    sl0 = settings.sl_text((st or {}).get("sl_default") or settings.SL_DEFAULT)
+    quick = "".join(
+        f'<form method=post action=/pravi-trade/followexit style="margin:0"><input type=hidden name=id value={f["id"]}>'
+        f'<input type=hidden name=tp value="{v}%"><input type=hidden name=sl value="{esc(sl_now)}">'
+        f'<button{" class=ap-go" if tp_now.lstrip("+") in (f"{v}%", str(v)) else ""}>TP +{v} %</button></form>'
+        for v in EXIT_TP_QUICK)
+    return (f'<h3 class=ap-sub><span>Izlaz za ovo praćenje</span><span>{esc(copy.describe_exit(ex, copy.default_sl(f["user"])) or "zadano")}</span></h3>'
+            f'<div class=ap-btns>{quick}</div>'
+            f'<form method=post action=/pravi-trade/followexit class=ap-exit><input type=hidden name=id value={f["id"]}>'
+            f'<label>TP <input name=tp value="{esc(tp_now)}" placeholder="npr. 30%" size=7 autocomplete=off></label> '
+            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(sl0)}" size=9 autocomplete=off></label> '
+            '<label class=ap-chk><input type=checkbox name=open value=1> i na njegove otvorene pozicije</label> '
+            '<button>Spremi izlaz</button></form>'
+            '<p class=mut>Vrijedi za svaki novi ulaz na njegov signal. Postotak od ulaza ili MC (npr. $200k); prazan SL = '
+            'zadani stop iz „Pravila”.</p>')
+
+
 def _follows(con, owner, st=None, prefill=""):
     """"Koga prati" under "Kako trguje" (maketa): one row with the names and how many; opened, the tool's own
     choice, the form to follow anybody (owner), and one row per follow (who, what kind, entries) that opens its
@@ -759,6 +783,8 @@ def _follows(con, owner, st=None, prefill=""):
                    else wlink(f["target"]) + (f" {esc(f['label'])}" if f["label"] else ""))
         stop = (f'<form method=post action=/pravi-trade/stop><input type=hidden name=id value={f["id"]}>'
                 '<button>Prestani pratiti</button></form>') if owner else ""
+        if owner and f["exit"].get("mode") != "podaci":
+            stop = _follow_exit_form(f, st) + stop
         by = f["id"] in auto_ids
         try:
             dline = _data_exit_line(f)
@@ -999,14 +1025,20 @@ def _canonical(handle, kol_db=None):
 
 def _follow_btn(kind, target, label, have, owner):
     if (kind, target) in have:
-        return f"<p>{dot('good', 'već pratiš')}</p>"
+        return (f"<p>{dot('good', 'već pratiš')}" + (' · <a href="/pravi-trade#pratim">promijeni TP/SL</a>' if owner else "")
+                + "</p>")
     if not owner:
         return ""
     return ('<form method=post action=/pravi-trade/follow onsubmit="return confirm(\'Bot će kupovati pravim novcem na '
             'svaki njegov ' + ("call" if kind == "kol" else "kup") + ' (kad je Autopilot uključen), dok ga ne prestaneš '
             f'pratiti. Pratiti?\')"><input type=hidden name=kind value={kind}><input type=hidden name=target '
             f'value="{esc(target)}"><input type=hidden name=label value="{esc(label or "")}">'
-            '<input type=hidden name=per_day value=5><button>Prati pravim novcem</button></form>')
+            # 10.11. (Jure: "za svakog influencera poseban TP ili SL, to isto može biti u pop-upu"): his own TP / SL
+            # right on the button; empty = the targets set under "Pravila"
+            '<input type=hidden name=per_day value=5><input type=hidden name=exit value=tpsl>'
+            '<input name=tp placeholder="TP zadano" size=8 autocomplete=off aria-label="Take profit"> '
+            '<input name=sl placeholder="SL zadano" size=8 autocomplete=off aria-label="Stop loss"> '
+            '<button>Prati pravim novcem</button></form>')
 
 
 def _kol_verdict(r, days):
@@ -3713,6 +3745,23 @@ def post(path, form, user):
                 _league_account(con)
                 ch = autopilot.sync_follows(con, tcon, force=True)
                 return f"{BACK}?ok={qq(f'Alat sada sam bira koga prati ({len(ch)} promjena).')}#pratim"
+            if path == "/pravi-trade/followexit":   # 10.11. (Jure): this follow's own TP / SL
+                fid = int(form.get("id") or 0)
+                ex = copy.set_exit(con, settings.LEAGUE_USER, fid, form.get("tp", ""), form.get("sl", ""))
+                n = 0
+                if form.get("open") == "1":   # also on the follow's open positions (one level per token, _group_exit)
+                    cfg = _cfg(tcon)
+                    toks = [r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND follow_id=? "
+                                                      "AND status='open'", (settings.LEAGUE_USER, fid))]
+                    for tok in toks:
+                        try:
+                            _group_exit(con, tcon, tok, ex.get("tp", ""), ex.get("sl") or _sl0(cfg), cfg)
+                            n += 1
+                        except ValueError as e:
+                            print(f"pravi trade: izlaz praćenja na otvorenoj poziciji nije postavljen ({e})", flush=True)
+                words = copy.describe_exit(ex, copy.default_sl(settings.LEAGUE_USER))
+                tail = f" Primijenjeno i na {n} otvorenih pozicija." if n else ""
+                return f"{BACK}?ok={qq(f'Izlaz praćenja: {words}.{tail}')}#prati-{fid}"
             if path == "/pravi-trade/stop":
                 fid = int(form.get("id") or 0)
                 raw = settings.raw(tcon)

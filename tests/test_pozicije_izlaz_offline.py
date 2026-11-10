@@ -314,6 +314,49 @@ class FastExit(Base):
         self.assertIn("auto SL -60%", done[0][2])
 
 
+class FollowExit(Base):
+    """10.11. (Jure: "za svakog influencera mogu odabrati poseban take profit ili stop loss; to isto može biti u
+    pop-upu"): a follow's own TP / SL for its new entries (and, ticked, its open positions)."""
+
+    def test_owner_sets_a_follows_tp_and_sl_and_entries_use_it(self):
+        from ui import pravitrade
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "smart", "", "",
+                          max_mcap=800_000)
+        loc = self.post("/pravi-trade/followexit", {"id": str(fid), "tp": "30%", "sl": ""})
+        self.assertIn("ok=", loc)
+        self.assertIn(f"#prati-{fid}", loc)
+        f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["id"] == fid)
+        self.assertEqual((f["exit"]["mode"], f["exit"]["tp"], f["exit"]["sl"], f["exit"]["max_mcap"]),
+                         ("tpsl", "30%", "", 800_000))                     # entry conditions stay
+        self.assertIn("err=", self.post("/pravi-trade/followexit", {"id": str(fid), "tp": "abc", "sl": ""}))
+        html = pravitrade._follows(self.lg, True, settings.raw(self.con))
+        self.assertIn("action=/pravi-trade/followexit", html)
+        self.assertIn("Izlaz za ovo praćenje", html)
+        self.assertIn("<button class=ap-go>TP +30 %</button>", html)
+        self.assertNotIn("followexit", pravitrade._follows(self.lg, False, settings.raw(self.con)))   # owner only
+
+    def test_ticked_box_also_moves_the_follows_open_positions(self):
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "")
+        tid = store.buy(self.lg, settings.LEAGUE_USER, MINT, "HOPE", 25, 1.0, 1e6, "copy KOL ansem", None, 82_000.0)
+        self.lg.execute("UPDATE trades SET follow_id=? WHERE id=?", (fid, tid))
+        self.lg.commit()
+        self.assertIn("ok=", self.post("/pravi-trade/followexit", {"id": str(fid), "tp": "50%", "sl": "-30%", "open": "1"}))
+        a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (tid,)).fetchone()[0])
+        self.assertEqual((a["tp"], a["sl"]), ("+50%", "-30%"))
+
+    def test_follow_button_carries_tp_and_sl(self):
+        from ui import pravitrade
+        btn = pravitrade._follow_btn("kol", "ansem", "", set(), True)
+        self.assertIn("name=exit value=tpsl", btn)
+        self.assertIn('name=tp placeholder="TP zadano"', btn)
+        loc = self.post("/pravi-trade/follow", {"kind": "kol", "target": "ansem", "per_day": "5", "exit": "tpsl",
+                                                "tp": "40%", "sl": "-25%"})
+        self.assertIn("ok=", loc)
+        f = copy.follows(self.lg, settings.LEAGUE_USER)[0]
+        self.assertEqual((f["exit"]["tp"], f["exit"]["sl"]), ("40%", "-25%"))
+        self.assertIn("promijeni TP/SL", pravitrade._follow_btn("kol", "ansem", "", {("kol", "ansem")}, True))
+
+
 class Header(unittest.TestCase):
     def test_split_line_says_free_sol_positions_and_the_snapshot_time(self):
         from ui import pravitrade
