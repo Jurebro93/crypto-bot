@@ -67,18 +67,18 @@ class Verdict(unittest.TestCase):
     def test_target_first_is_a_miss_with_the_minute_and_the_high(self):
         v = self.v(t15=6, sl_min=31, hi60=0.42)
         self.assertEqual((v["kind"], v["word"]), ("miss", "propušteno"))
-        self.assertEqual(v["detail"], "+15 % za 6 min · najviše +42 %")
+        self.assertEqual(v["detail"], "+15\u00a0% za 6 min · najviše +42\u00a0%")
 
     def test_stop_first_or_same_minute_was_a_good_skip(self):
         v = self.v(t15=40, sl_min=3, hi60=0.2, lo60=-0.31, r60=0.05)
         self.assertEqual((v["kind"], v["word"]), ("ok", "dobro preskočen"))
-        self.assertEqual(v["detail"], "−20 % za 3 min · nakon 1\u00a0h +5 % · najniže −31 %")
+        self.assertEqual(v["detail"], "−20\u00a0% za 3 min · nakon 1\u00a0h +5\u00a0% · najniže −31\u00a0%")
         self.assertEqual(self.v(t15=5, sl_min=5)["kind"], "ok")   # the same minute: not a clean hit (kol/minute)
 
     def test_neither_within_the_hour_shows_the_result_and_the_low(self):
         v = self.v()
         self.assertEqual(v["kind"], "ok")
-        self.assertEqual(v["detail"], "najviše +9 % · nakon 1\u00a0h −8 % · najniže −14 %")
+        self.assertEqual(v["detail"], "najviše +9\u00a0% · nakon 1\u00a0h −8\u00a0% · najniže −14\u00a0%")
         self.assertEqual(self.v(hi60=None, lo60=None, r60=None)["detail"], "sat vremena bez trgovanja")
 
     def test_young_and_not_measured_yet(self):
@@ -434,11 +434,13 @@ class Box(Pipeline):
         self.assertIn('<span class="ms-dot warn" aria-hidden="true"></span>propušteno<', html)
         self.assertIn('<span class="ms-dot good" aria-hidden="true"></span>dobro preskočen<', html)
         self.assertIn('<span class="ms-dot" aria-hidden="true"></span>mjeri se<', html)
-        self.assertIn("+15 % za 6 min · najviše +30 %", html)
-        self.assertIn("−20 % za 3 min", html)
+        self.assertIn("+15\u00a0% za 6 min · najviše +30\u00a0%", html)
+        self.assertIn("−20\u00a0% za 3 min", html)
         self.assertIn("nije prošlo (tehnički)", html)
         self.assertEqual(html.count("nije prošlo (tehnički)"), 1)
-        self.assertIn('data-pop="/pravi-trade/token?m=SKIPA"', html)          # the token pop-up
+        # 10.11. (Jure): a tap opens the pop-up of this skip (times, market caps, +5/10/15 min), which links to the
+        # token's live pop-up
+        self.assertIn(f'data-pop="/pravi-trade/preskok?m=SKIPA&amp;t={NOW - 3 * H}"', html)
         self.assertIn("KOL ansem", html)
         self.assertIn("Propušteni po razlogu: 1 signal star.", html)
         self.assertIn(preskoceni.hm(NOW - 3 * H, NOW + 30), html)            # Zagreb time
