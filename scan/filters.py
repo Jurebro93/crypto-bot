@@ -13,6 +13,8 @@ Two rules are kept apart because the sources differ:
   why_sig  the rule for a caller / wallet signal (the baseline the scanner is compared with): the same filters
            without the scanner's volume rule (the Autopilot copies a call on its own gates, not on volume)
 """
+import json
+
 from league import copy as lcopy
 
 VOLUME_RULE = "stage_volume"
@@ -138,16 +140,82 @@ def fees_filter(m, trades, cfg, sol_usd):
     return out
 
 
+def rug_tables():
+    """(topcheck rows, rug.db newest reports) by token: the scanner pass's cache (league/copy._CONC_CACHE) when a pass
+    runs, else one fresh read."""
+    cache = lcopy._CONC_CACHE
+    if cache is not None:
+        if "tc" not in cache:
+            cache["tc"], cache["rug"] = lcopy._conc_tables()
+        return cache["tc"], cache["rug"]
+    return lcopy._conc_tables()
+
+
+# 10.11. (Grok's note, BOXCAT): the scanner listed "rug provjera prolazi" while the bot's own rug filter (rug.db,
+# run_rug.py / rugfilter/score.py) rated the token VISOK RIZIK. rug_check read only the concentration NUMBERS of that
+# report (league/copy._concentration: top 10, cluster, bundle, insiders, dev), never its verdict, so a high-risk score
+# from snipers, a serial dev, wash volume or dev selling passed. The verdict is a reason of its own now.
+RUG_RISK_PREFIXES = ("rug filter: ", "koncentriran supply", "rug check: pao")
+
+
+def is_rug_risk(why):
+    """True when a scanner reason is a rug RISK rating (the rug filter's verdict, supply concentration, topcheck
+    'pao'), not a collapse, a missing pool or a mint / freeze authority: ui/kandidati may override only these."""
+    return bool(why) and str(why).startswith(RUG_RISK_PREFIXES)
+
+
+def rug_filter_why(token, rug=None):
+    """The rug filter's newest verdict as a reason (or None): ODBAČEN (a hard fail) and VISOK RIZIK (score under 50)
+    fail; OPREZ, PROLAZI and no report pass. A hard fail that is only "likvidnost samo $x" is left to the live
+    liquidity gates (entry_gates): the report may be from the bonding curve, before the token had a pool, and then
+    its verdict is unknown (no score), not a reason."""
+    if rug is None:
+        rug = rug_tables()[1]
+    r = (rug or {}).get(token)
+    if not r:
+        return None
+    data = r.get("data") or {}
+    if isinstance(data, str):
+        try:
+            data = json.loads(data) or {}
+        except ValueError:
+            data = {}
+    v = r.get("verdict")
+    hard = [str(h) for h in data.get("hard_fails") or [] if h and not str(h).startswith("likvidnost samo")]
+    flags = [str(f) for f in data.get("flags") or [] if f]
+    if v == "ODBAČEN" and hard:
+        return f"rug filter: odbačen ({hard[0]})"
+    if v == "VISOK RIZIK":
+        sc = r.get("score")
+        return ("rug filter: visok rizik" + (f", ocjena {float(sc):.0f}/100" if sc is not None else "")
+                + (f" ({flags[0]})" if flags else ""))
+    return None
+
+
+def rug_filter_word(token, rug=None):
+    """The rug filter's verdict in a word for the pass reason ("oprez", "prolazi", "nema izvještaja")."""
+    if rug is None:
+        rug = rug_tables()[1]
+    r = (rug or {}).get(token) or {}
+    v = r.get("verdict")
+    if v == "ODBAČEN" and rug_filter_why(token, rug) is None:   # only a curve-time "likvidnost samo": see above
+        return "bez ocjene (stari izvještaj s krivulje, likvidnost se provjerava sada)"
+    return (v or "nema izvještaja").lower()
+
+
 def rug_check(token, facts, cfg, missing_why=None):
     """The rug check of a candidate that passed the cheap filters: the bot's own rug tables first (topcheck.db
     RugCheck summary and rug.db full report through league/copy._concentration: verdict 'pao', top 10 / cluster /
-    bundle / insiders / dev over the hard lines), then the facts (Helius or free tables): mint or freeze authority
-    still set, top 10 wallets over max_top10_pct, fewer holders than min_holders. facts None = not checked yet (the
-    day's Helius credits are spent, no key, or the call failed: missing_why says which): that is a reason too, the
-    token waits. Returns (why or None, top10 text)."""
+    bundle / insiders / dev over the hard lines; and the rug filter's own verdict, rug_filter_why), then the facts
+    (Helius or free tables): mint or freeze authority still set, top 10 wallets over max_top10_pct, fewer holders
+    than min_holders. facts None = not checked yet (the day's Helius credits are spent, no key, or the call failed:
+    missing_why says which): that is a reason too, the token waits. Returns (why or None, top10 text)."""
     why, shown = lcopy._concentration(token)
     if why:
         return why, shown
+    rf = rug_filter_why(token)
+    if rf:
+        return rf, shown
     if facts is None:
         return missing_why or "čeka provjeru holdera", shown
     if facts.get("mint_auth"):

@@ -11,6 +11,8 @@ Every SCAN_EVERY_S (150 s) one short pass (run_scan.py once, started from start.
   xmom.py     X early momentum for passers and beta candidates (twitterapi.io, own daily USD cap; Grok's rows win)
   shadow.py   a shadow entry per source (caller, wallet, scan, beta) for every candidate that passes all filters,
               its price path, +20 % / -30 % outcomes, the EV of a TP/SL shadow trade, and the paper gate
+  kandidati   every 5 min the combined list of ui/kandidati.py (one row per token over every source): its top
+              tradeable rows as shadow source kandidati, Grok's overrides of a rug risk rating as grok_override
 Storage: scan.db (store.py). The scanner never buys, in any mode: only get_market_signals, the MCP read tool
 get_source_stats and the daily report read it.
 """

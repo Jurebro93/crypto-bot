@@ -364,7 +364,8 @@ def render(data, ai, source):
 
 
 SOURCE_HR = {"caller": "Calleri (X, Telegram)", "wallet": "Praćeni novčanici", "scan": "Skener (bez callera)",
-             "beta": "Beta mete"}
+             "beta": "Beta mete", "kandidati": "Kandidati (spoj izvora)",
+             "grok_override": "Grok nadjačao rug ocjenu"}
 
 
 def skener_body(sk):
@@ -372,7 +373,7 @@ def skener_body(sk):
     gate = {r["source"]: r for r in sk.get("gate_window") or []}
     day = {r["source"]: r for r in sk.get("day") or []}
     rows = []
-    for s in ("caller", "wallet", "scan", "beta"):
+    for s in ("caller", "wallet", "scan", "beta", "kandidati", "grok_override"):
         d, g = day.get(s) or {}, gate.get(s) or {}
         if not d and not g:
             continue
@@ -386,6 +387,17 @@ def skener_body(sk):
     body += table(["Izvor", "Prošlo 24 h", "+20 % u 1 h", "+20 % u 4 h", "−30 % prvo", "EV 24 h",
                    f"Ishoda {sk.get('gate_days', 30)} d", "Paper"], rows) if rows else para("Još nema ulaza u sjeni.")
     items = []
+    # 10.11. (ui/kandidati.py): does the combined list beat the best single source, and do Grok's overrides pay?
+    cb = sk.get("combined") or {}
+    kd, go, best = cb.get("kandidati") or {}, cb.get("grok_override") or {}, cb.get("best_single")
+    if kd.get("n") or go.get("n"):
+        line = (f"Kandidati (spoj izvora, {sk.get('gate_days', 30)} d): {kd.get('n') or 0} ishoda, EV "
+                f"{pct(kd.get('ev'), True)}")
+        if best:
+            line += f"; najbolji pojedinačni izvor {SOURCE_HR.get(best['source'], best['source'])} EV {pct(best['ev'], True)}"
+        if go.get("n"):
+            line += f"; Grok nadjačao rug ocjenu: {go['n']} ishoda, EV {pct(go.get('ev'), True)}"
+        items.append(line + ".")
     lt = sk.get("lead_time") or {}
     if lt.get("n"):
         items.append(f"Prednost pred callerima (7 dana): medijan {lt['median_min']:+.0f} min na {lt['n']} tokena, "

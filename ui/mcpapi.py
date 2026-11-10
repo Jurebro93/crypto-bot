@@ -100,7 +100,9 @@ def _scan_fields(r, xm, first_call_ts=None):
             "stage": r.get("stage"), "tradeable": bool(r.get("tradeable")),
             "pass_reasons": r.get("reasons") or [], "fees_paid_sol": r.get("fees_paid_sol"),
             "buy_share": r.get("buy_share"), "holders": r.get("holders"), "top10_pct": r.get("top10_pct"),
-            "scan_found_ts": r.get("first_pass_ts") or r.get("checked_ts"), "scan_via": r.get("via")}
+            "scan_found_ts": r.get("first_pass_ts") or r.get("checked_ts"), "scan_via": r.get("via"),
+            # 10.11. (BOXCAT): what the NEWEST check says, so a shadow row of an earlier pass is not read as "passes"
+            "scan_passed_now": bool(r.get("passed")), "scan_why_now": r.get("why")}
 
 
 def signals(now=None, source=None):
@@ -555,8 +557,10 @@ TOOLS += [
          "evidence": {"type": "object"}}, "required": ["position_id", "verdict", "interpretation"]}},
     {"name": "submit_signal_opinion", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
      "description": ("Write an opinion on a token the Autopilot holds or is asked to buy (an open position or a request "
-                     "waiting for approval): verdict kupi | preskoči | dobar | loš | neutralan, confidence 0-1, "
-                     "interpretation, evidence. Shown next to the position or the waiting request; buys nothing."),
+                     "waiting for approval), or a get_trade_candidates / get_grok_tasks token: verdict kupi | "
+                     "preskoči | dobar | loš | neutralan, confidence 0-1, interpretation, evidence. Shown next to the "
+                     "position or the waiting request; buys nothing. A kupi / dobar of the last 30 min can lift a rug "
+                     "risk rating (grok_override, half size); a newer preskoči / loš takes it back."),
      "inputSchema": {"type": "object", "properties": {
          "token": {"type": "string"}, "verdict": {"type": "string", "enum": ["kupi", "preskoči", "dobar", "loš", "neutralan"]},
          "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "interpretation": {"type": "string", "maxLength": 4000},
@@ -608,7 +612,11 @@ TOOLS += [
                      "ts_asof: unix seconds of the moment the features describe (the end of the counted hour); the "
                      "server stamps ts_observed itself. A ts_asof older than 3 h needs backfill=true (counted after the "
                      "fact, kept apart from live rows). Refused while the owner has the X feature intake switched off; "
-                     "at most 120 rows an hour. MemeSonar's scoring does not read these yet."),
+                     "at most 120 rows an hour. get_trade_candidates and the market scanner read your token rows "
+                     "of the last 2 h first (they replace MemeSonar's paid X lookup); a fresh row (30 min) naming "
+                     "known callers / large accounts or growing organic authors can lift a rug risk rating "
+                     "(get_grok_tasks x_check lists the keys: posts_15m, posts_60m, unique_authors_15m, "
+                     "unique_authors_60m, known_callers, large_accounts, bot_share, note)."),
      "inputSchema": {"type": "object", "properties": {
          "subject": {"type": "string"},
          "subject_kind": {"type": "string", "enum": ["token", "handle", "wallet"], "default": "token"},
@@ -684,7 +692,11 @@ TOOLS += [
                      "first touched wins, else out at 4 h, minus 2 % round-trip cost), median; paper_gate per source "
                      "('prolazi' or the reason: >= 30 outcomes and EV > 0 are needed, never applied automatically); "
                      "measured_only_day (curve / under-30k tokens); lead_time over callers; beta results by the "
-                     "parent meta's state (raste / pada); today's spend per paid source and the caps. Read-only."),
+                     "parent meta's state (raste / pada); today's spend per paid source and the caps. Also the "
+                     "combined sources: kandidati (a top tradeable row of get_trade_candidates, entered when it first "
+                     "ranks in the top 5) and grok_override (a row your fresh evidence lifted over a rug risk "
+                     "rating), and combined = both next to the best single source: does confluence pay, does "
+                     "overriding the rug rating pay. Read-only."),
      "inputSchema": {"type": "object", "properties": {}}},
 ]
 # 10.11. (flag group_discovery, kol/groupdisc.py): caller crews and hidden wallet lists, read-only; empty while off
@@ -768,6 +780,40 @@ TOOLS.append(
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7}}}})
 
 
+# 10.11. (Jure: "najvažnije je naći tokene kojima treba trgovati"; ui/kandidati.py): one ranked row per token over
+# every source, and the work queue where Grok's free X / web judgement adds most. Read-only.
+TOOLS += [
+    {"name": "get_trade_candidates", "annotations": _READ,
+     "description": ("ONE row per token over every source MemeSonar has right now (callers with each account's measured "
+                     "record and verdict, followed and tier S/A wallets, the market scanner and betas, hidden wallet "
+                     "lists, caller crews, range candidates, the tool's own top list, pre-call insiders), ranked: "
+                     "tradeable first, then score (the formula is in the answer's ranking). Per row: evidence per "
+                     "source with that source's measured shadow record (n, hit1h / hit4h = +20 % within 1 h / 4 h, "
+                     "sl_first = -30 % first, ev after cost), confluence (independent signals; a caller crew within "
+                     "10 min counts once), the market now, runup (market cap now / at the first signal; 4x or more is "
+                     "not tradeable), rug (hard = a collapse, mint / freeze, honeypot: never tradeable; risk = a "
+                     "rating), x (your fresh X row first), tradeable and why_not, grok_override (your fresh evidence "
+                     "lifted a rug RISK rating: warning shown, half suggested_size_sol, tight exit_plan), "
+                     "suggested_size_sol and exit_plan in set_exit_plan's format. Buys nothing. min_sources: at "
+                     "least this confluence (default 1); limit 1-100 (default 30)."),
+     "inputSchema": {"type": "object", "properties": {
+         "min_sources": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30}}}},
+    {"name": "get_grok_tasks", "annotations": _READ,
+     "description": ("Your work queue, most useful first, with how_to_work: x_check (search X for a top candidate's CA "
+                     "and ticker; answer with submit_x_features: it can lift a rug risk rating and saves MemeSonar's "
+                     "paid X lookup), resolve_conflict (sources disagree, e.g. good callers but falling X momentum; "
+                     "answer with submit_signal_opinion), label_group / label_insiders (name a hidden wallet list, a "
+                     "caller crew or pre-call insiders; answer with submit_suggestion group_label / insider_label). "
+                     "Each task carries the exact tool and arguments; a task disappears once your answer is stored. "
+                     "limit 1-100 (default 20). Read-only; never trade outside grok_autotrade limits."),
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}}}},
+]
+INSTRUCTIONS += (" Start with get_grok_tasks and get_trade_candidates: the candidates are ranked over every source, "
+                 "and your fresh X rows (submit_x_features) feed the ranking and the scanner.")
+
+
 def _xfeat_tool(name, a, kid):
     """10.11. (Grok MCP audit 10): the two X feature tools (ui/xfeat.py)."""
     from ui import xfeat
@@ -814,6 +860,11 @@ def _tool(name, args, kid="local"):
         return d, "error" in d
     if name in ("submit_x_features", "get_x_features"):
         d = _xfeat_tool(name, args, kid)
+        return d, "error" in d
+    if name in ("get_trade_candidates", "get_grok_tasks"):   # 10.11. ui/kandidati.py, read-only
+        from ui import kandidati
+        d = (kandidati.candidates(args.get("min_sources"), args.get("limit")) if name == "get_trade_candidates"
+             else kandidati.tasks(args.get("limit")))
         return d, "error" in d
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc

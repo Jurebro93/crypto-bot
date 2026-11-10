@@ -111,12 +111,28 @@ def momentum(posts, now, known=frozenset(), bots=frozenset(), called=False, min_
             "x_momentum_score": score, "x_early": bool(grows and not caller_called)}
 
 
-GROK_KEYS = ("x_momentum_score", "x_early", "ca_posts_1h", "unique_authors_15m", "unique_authors_60m")
+# 10.11. (ui/kandidati.py get_grok_tasks): the keys the X check task asks Grok for (posts_15m / posts_60m, unique
+# authors, known_callers, large_accounts) count as a momentum row too, so a fresh answer to a task saves the paid search
+GROK_KEYS = ("x_momentum_score", "x_early", "ca_posts_1h", "unique_authors_15m", "unique_authors_60m", "posts_15m",
+             "posts_60m", "known_callers", "large_accounts")
+
+
+def _names(x):
+    """A list of handles (strings or {"handle": ...}) -> lower-case handles without @."""
+    out = []
+    for v in x if isinstance(x, list) else []:
+        h = v.get("handle") if isinstance(v, dict) else v
+        if isinstance(h, str) and h.strip().lstrip("@"):
+            out.append(h.strip().lstrip("@").lower())
+    return out
 
 
 def _grok(ts_asof, features):
-    """A Grok x_features row -> {"source": "grok", "ts", "x_momentum_score", "x_early", "posts60"}, or None when it
-    carries none of the momentum keys."""
+    """A Grok x_features row -> {"source": "grok", "ts", "x_momentum_score", "x_early", "posts60", "authors15",
+    "known_callers", "large_accounts"}, or None when it carries none of the momentum keys. Without its own
+    x_momentum_score the score comes from unique_authors_15m / unique_authors_60m like the scanner's: log2((a15 + 1) /
+    ((a60 - a15) / 3 + 1)), the last 15 minutes against the 45 before them per 15 minutes; x_early then = growing,
+    2+ authors in 15 min and no known caller named."""
     try:
         f = json.loads(features)
     except (TypeError, ValueError):
@@ -128,9 +144,18 @@ def _grok(ts_asof, features):
         sc = round(float(sc), 3) if sc is not None else None
     except (TypeError, ValueError):
         sc = None
+    a15, a60 = _int(f.get("unique_authors_15m")), _int(f.get("unique_authors_60m"))
+    known = _names(f.get("known_callers"))
     early = f.get("x_early")
-    return {"source": "grok", "ts": ts_asof, "x_momentum_score": sc,
-            "x_early": bool(early) if isinstance(early, (bool, int)) else None, "posts60": _int(f.get("ca_posts_1h"))}
+    early = bool(early) if isinstance(early, (bool, int)) else None
+    if sc is None and a15 is not None and a60 is not None and a60 >= a15 >= 0:
+        sc = round(math.log2((a15 + 1) / ((a60 - a15) / 3 + 1)), 3)
+        if early is None:
+            early = bool(sc > 0 and a15 >= 2 and not known)
+    posts = _int(f.get("ca_posts_1h"))
+    return {"source": "grok", "ts": ts_asof, "x_momentum_score": sc, "x_early": early,
+            "posts60": posts if posts is not None else _int(f.get("posts_60m")), "authors15": a15,
+            "known_callers": known, "large_accounts": _names(f.get("large_accounts"))}
 
 
 def _grok_rows(con, tokens, now):
