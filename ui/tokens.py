@@ -249,10 +249,16 @@ def rejected_reason(r):
 HEAD = ('<div class="tk-head"><button type="button" class="tk-sort" data-sheet aria-haspopup="dialog">'
         '<span id="tk-sortlbl">Poredano po pouzdanosti</span></button>'
         '<span class="tk-p">pouzdanost · mcap</span>'
-        '<button type="button" class="tk-h tk-hc" data-k="cf">Pouzdanost</button>'
-        '<button type="button" class="tk-h tk-hm" data-k="mc">Mcap</button>'
-        '<span class="tk-h tk-hl" data-col="l">Likv.</span><span class="tk-h tk-hg" data-col="g">Rug</span>'
-        '<button type="button" class="tk-h tk-ht" data-k="ts" data-col="t">Zadnji signal</button><span></span></div>')
+        # 10.11. (prijedlog 3.2: "na računalu tooltip na zaglavlju stupca"): one sentence per column instead of an ⓘ
+        '<button type="button" class="tk-h tk-hc" data-k="cf" title="Pouzdanost 0 do 100: koliko se neovisni izvori '
+        'slažu (hype, smart walleti, KOL-ovi, X, rug). Dodir poreda po njoj.">Pouzdanost</button>'
+        '<button type="button" class="tk-h tk-hm" data-k="mc" title="Tržišna vrijednost sada (DexScreener ili zadnji '
+        'signal). Ispod 30k $ se ne analizira ni ne kupuje.">Mcap</button>'
+        '<span class="tk-h tk-hl" data-col="l" title="Likvidnost para: koliko se može kupiti i prodati bez velikog '
+        'pomaka cijene.">Likv.</span><span class="tk-h tk-hg" data-col="g" title="Rug filter i svježa provjera '
+        'preporučenih tokena: prolazi ili oprez.">Rug</span>'
+        '<button type="button" class="tk-h tk-ht" data-k="ts" data-col="t" title="Zadnji signal, rug provjera ili '
+        'kandidat za demo.">Zadnji signal</button><span></span></div>')
 
 SEARCH = ('<form class="tk-fld" action="/trazi" role="search" autocomplete="off" id="tk-f">'
           '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>'
@@ -299,7 +305,7 @@ CSS = """<style>
 .tk-fld input::placeholder{color:var(--mut)}
 .tk-head{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;color:var(--mut);padding:18px 0 8px;border-bottom:1px solid var(--line)}
 .tk-head button{all:unset;cursor:pointer}
-.tk-sort{color:var(--acc);font-weight:500}.tk-sort::after{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--acc);border-bottom:1.5px solid var(--acc);transform:rotate(45deg);margin:0 0 3px 7px}
+.tk-head .tk-sort{color:var(--acc);font-weight:500;text-align:left}.tk-sort::after{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--acc);border-bottom:1.5px solid var(--acc);transform:rotate(45deg);margin:0 0 3px 7px}
 .tk-head .tk-h,.tk-h{display:none}
 .tk-sec{font-size:15px;font-weight:600;color:var(--mut);margin:26px 0 0;padding:0 0 6px;border-bottom:1px solid var(--line)}
 .tk-sec b{color:var(--fg)}
@@ -425,7 +431,7 @@ def _strong(n=5):
 
 def _page_jaki():
     strong = _strong(n=50)
-    body = (R.top("Tokeni", "Stariji tokeni sa stalnim volumenom i rastom holdera, jednom dnevno") + switch("/tokens/jaki")
+    body = (R.top("Tokeni", "Stariji tokeni sa stalnim volumenom, jednom dnevno") + switch("/tokens/jaki")
             + (R.colhead("Token", "ocjena · mcap") + strong if strong else
                '<div class="tk-empty"><b>Popis jakih tokena još se slaže</b><p>Slaže se jednom dnevno iz dnevnih cijena.</p>'
                '<a href="/tokens">Pogledaj Nove</a></div>'))
