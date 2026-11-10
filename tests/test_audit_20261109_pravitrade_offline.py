@@ -95,8 +95,8 @@ class ManualBuy(unittest.TestCase):
         (t,) = self._open()
         a = json.loads(t["auto"])
         self.assertEqual(a["mode"], "tpsl")
-        self.assertEqual(a["sl"], copy.DEFAULT_SL)                # "-20%", the same stop copies get
-        self.assertAlmostEqual(a["sl_px"], 0.8)
+        self.assertEqual(a["sl"], "-60%")                         # 10.11.: the owner's default stop, same as copies get
+        self.assertAlmostEqual(a["sl_px"], 0.4)
         self.assertAlmostEqual(a["tp_px"], 2.0)
 
     def test_owner_buy_has_no_liquidity_floor_but_the_lists_keep_it(self):
@@ -492,24 +492,28 @@ class FollowForms(PageBase):
         self.assertIn("TP/SL po podacima", html)
 
     def test_tpsl_follow_without_stop_stores_the_default_and_the_card_says_so(self):
-        """P10/P17/P19: no 'zadani' stop that does not exist: /follow, 'Zaprati sve' and the cards agree on DEFAULT_SL."""
+        """P10/P17/P19: no 'zadani' stop that does not exist: /follow, 'Zaprati sve' and the cards agree on the default
+        stop. 10.11. (Jure): it is the owner's setting (-60 % unless changed); a follow stores no stop and gets it at
+        each entry (league/copy.default_sl), so a change under "Pravila" holds for existing follows too."""
         from ui import pravitrade
         loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "@ansem", "exit": "tpsl", "per_day": "3"}, "Jure")
         self.assertIn("ok=", loc)
         f = copy.follows(self.lg, settings.LEAGUE_USER)[0]
-        self.assertEqual((f["exit"]["mode"], f["exit"]["tp"], f["exit"]["sl"]), ("tpsl", "15%", copy.DEFAULT_SL))
+        self.assertEqual((f["exit"]["mode"], f["exit"]["tp"], f["exit"]["sl"]), ("tpsl", "15%", ""))
+        self.assertEqual(copy.default_sl(settings.LEAGUE_USER), "-60%")
+        self.assertEqual(copy.default_sl("nekiigrac"), copy.DEFAULT_SL)          # players keep -20 %
         loc = pravitrade.post("/pravi-trade/follow", {"kind": "auto", "target": "@murad", "exit": "tpsl", "sl": "-35%", "per_day": "3"}, "Jure")
         self.assertIn("ok=", loc)
         f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["target"] == "murad")
         self.assertEqual(f["exit"]["sl"], "-35%")                                # a typed stop wins
         cfg = settings.merged(executor.load_config(), self.con)
-        card = pravitrade._tp_card(cfg, True)
+        card = pravitrade._sl_card(cfg, True)
         self.assertNotIn("ili zadani", card)
-        self.assertIn(copy.DEFAULT_SL, card)
-        self.assertIn(copy.DEFAULT_SL, pravitrade._buy_now_card(cfg, True))
-        self.assertIn(copy.DEFAULT_SL, pravitrade._buy_form(MINT2, cfg, "tpsl", True))
+        self.assertIn("sada −60 %", card)
+        self.assertIn("-60%", pravitrade._buy_now_card(cfg, True))
+        self.assertIn("-60%", pravitrade._buy_form(MINT2, cfg, "tpsl", True))
         loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Jure")
-        self.assertIn("stop%20-20%25", loc)
+        self.assertIn("stop%20-60%25", loc)
 
     def test_kol_with_mirror_exit_takes_the_default_instead_of_an_error(self):
         """P74: the form offers 'prodaj kad on proda' for any target; for a call it means the default exit."""
@@ -532,7 +536,7 @@ class FollowForms(PageBase):
         self.assertIn("ok=", loc)
         cp = copy.follows(self.lg, settings.LEAGUE_USER)[0]
         self.assertEqual({k: cp["exit"][k] for k in ("min_callers", "max_mcap", "max_runup", "sl")},
-                         {"min_callers": 2, "max_mcap": 800_000.0, "max_runup": 0.25, "sl": copy.DEFAULT_SL})
+                         {"min_callers": 2, "max_mcap": 800_000.0, "max_runup": 0.25, "sl": ""})   # "" = the default stop
 
     def test_wallets_are_not_crew_members(self):
         """P73: a crew of followed wallets ('w:…') would never fire; 'Zaprati sve' drops them, a wallet-only crew

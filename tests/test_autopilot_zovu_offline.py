@@ -185,9 +185,9 @@ class Page(unittest.TestCase):
         self.assertEqual(fl["ansem"]["exit"]["tp"], "100%")   # the existing single follow keeps its own exit
         crew = fl["ansem,murad,tg:alpha"]
         self.assertEqual(crew["kind"], "ekipa")
-        # 9.11. (audit P10/P19): "Zaprati sve" stores the default stop (league/copy.DEFAULT_SL), no position without one
-        self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": copy.DEFAULT_SL, "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
-        self.assertIn("SL -20%", copy.describe_exit(crew["exit"]))
+        # 9.11. (audit P10/P19): no position without a stop; 10.11.: "" = the owner's default stop at each entry
+        self.assertEqual(crew["exit"], {"mode": "tpsl", "tp": "20%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
+        self.assertIn("SL -60% zadani", copy.describe_exit(crew["exit"], copy.default_sl(settings.LEAGUE_USER)))
         self.assertIn("ve%C4%87%20prati", pravitrade.post("/pravi-trade/followall", {"handles": "murad, ansem, tg:alpha"}, "Jure"))
 
     def test_live_log_hides_stale_trial_orders(self):

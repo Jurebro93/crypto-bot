@@ -161,7 +161,8 @@ class AutoFollowExit(unittest.TestCase):
             autopilot.sync_follows(self.lg, self.tcon, force=True)
             fs = {(f["kind"], f["target"]): f for f in copy.follows(self.lg, settings.LEAGUE_USER)}
             self.assertEqual(set(fs), {("kol", "a"), ("wallet", "W1")})
-            self.assertEqual(fs[("kol", "a")]["exit"], {"mode": "tpsl", "tp": "20%", "sl": copy.DEFAULT_SL})
+            # 10.11.: no stop stored = the owner's default stop at each entry (league/copy.default_sl)
+            self.assertEqual(fs[("kol", "a")]["exit"], {"mode": "tpsl", "tp": "20%", "sl": ""})
             self.assertEqual(fs[("wallet", "W1")]["exit"]["mode"], "mirror")
         finally:
             autopilot.kol_recs, autopilot.wallet_recs, autopilot.proven_wallets = saved

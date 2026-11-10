@@ -31,6 +31,8 @@ CFG = {"max_delay_min": 10,      # call/buy older than this when we see it: not 
        # market cap cannot absorb one big holder selling, so the -20 % stop would never fill (P1/P5/P7, P41)
        "min_mcap": 30_000, "min_liq_mcap": 0.03}
 DEFAULT_SL = "-20%"   # 9.11. (audit): every TP/SL copy without an explicit stop gets this one (kol/minute.py SL)
+# 10.11. (Jure: zadani stop Autopilota −60 %, mijenja se na stranici): the Autopilot account's follows keep their stop
+# empty when none was typed and get trade.settings.sl_default() at the entry (default_sl); the players keep DEFAULT_SL
 DAY_TZ = "Europe/Zagreb"   # 9.11. (audit P58/P62): the per_day counter uses the same day as trade/executor.DAY_TZ
 
 SCHEMA = """
@@ -226,8 +228,9 @@ def follows(con, user=None, active=True):
     return out
 
 
-def describe_exit(ex):
-    base = _describe_exit(ex)
+def describe_exit(ex, sl0=None):
+    """sl0: the default stop to name when the follow has none of its own (the Autopilot page passes default_sl)."""
+    base = _describe_exit(ex, sl0)
     cond = []
     if ex.get("min_callers", 1) > 1:
         cond.append(f"ulaz kad zovu {ex['min_callers']}+ iz ekipe")
@@ -238,11 +241,12 @@ def describe_exit(ex):
     return " · ".join([x for x in [base] if x] + cond)
 
 
-def _describe_exit(ex):
+def _describe_exit(ex, sl0=None):
     s = ("samo sljedeći call, " if ex.get("once") else "") + EXIT_HR.get(ex.get("mode"), "")
-    if ex.get("mode") == "tpsl":
+    if ex.get("mode") == "tpsl":   # no stop typed: the default one at the entry (default_sl)
         s += " (" + ", ".join(p for p in (f"TP {ex.get('tp')}" if ex.get("tp") else "",
-                                          f"SL {ex.get('sl')}" if ex.get("sl") else "") if p) + ")"
+                                          f"SL {ex.get('sl')}" if ex.get("sl") else
+                                          f"SL {sl0} zadani" if sl0 else "SL zadani") if p) + ")"
     return s
 
 
@@ -577,11 +581,69 @@ def data_exit(f, now=None):
         return None
 
 
+def _autopilot_user():
+    try:
+        from trade import settings as ts
+        return ts.LEAGUE_USER, ts
+    except Exception:  # noqa: BLE001 - league/ without trade/ (tests, a copy of the module): players only
+        return None, None
+
+
+def default_sl(user):
+    """The stop of a TP/SL entry that has none of its own: the Autopilot account's setting (trade.settings, "-60%"
+    unless the owner changed it on the page), DEFAULT_SL for every player."""
+    au, ts = _autopilot_user()
+    if au is None or user != au:
+        return DEFAULT_SL
+    try:
+        return ts.sl_default()
+    except Exception:  # noqa: BLE001
+        return ts.sl_text(ts.SL_DEFAULT)
+
+
+_ADOPTED = set()
+
+
+def adopt_default_sl(con):
+    """Once per database: the Autopilot account's active TP/SL follows whose stop is the old stored default
+    (DEFAULT_SL, written by the page's forms since 9.11. when no stop was typed) get an empty stop, i.e. the
+    owner's default from now on (10.11., Jure: "default stop loss treba biti −60 %"). A stop typed as anything else
+    stays. Marked in copy_meta, so a stop the owner types as "-20%" later is never touched again."""
+    au, _ts = _autopilot_user()
+    key = (au, _db_file(con))
+    if au is None or key in _ADOPTED:
+        return 0
+    n = 0
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS copy_meta (k TEXT PRIMARY KEY, v TEXT)")
+        if con.execute("SELECT 1 FROM copy_meta WHERE k='sl_default_1011'").fetchone() is None:
+            for fid, ex in con.execute("SELECT id, exit FROM follows WHERE user=? AND active=1", (au,)).fetchall():
+                d = json.loads(ex or "{}")
+                if d.get("mode") == "tpsl" and (d.get("sl") or "").strip() == DEFAULT_SL:
+                    d["sl"] = ""
+                    con.execute("UPDATE follows SET exit=? WHERE id=?", (json.dumps(d), fid))
+                    n += 1
+            con.execute("INSERT OR REPLACE INTO copy_meta VALUES ('sl_default_1011', ?)", (str(int(time.time())),))
+            con.commit()
+        _ADOPTED.add(key)
+    except (sqlite3.Error, ValueError) as e:   # locked or full: tried again on the next pass
+        print(f"copy: zadani stop nije prenesen na praćenja ({type(e).__name__}: {e})", flush=True)
+    return n
+
+
+def _db_file(con):
+    try:
+        return con.execute("PRAGMA database_list").fetchone()[2]
+    except sqlite3.Error:
+        return ""
+
+
 def run_once(con, market_fn=None, now=None, paths=None):
     """One pass: enter new calls/buys of followed KOLs and wallets, sell when a followed wallet sells.
     Returns [(user, text)] for the log."""
     from . import auto
     ensure(con)
+    adopt_default_sl(con)
     now = int(now or time.time())
     fl = follows(con)
     if not fl:
@@ -731,17 +793,18 @@ def _enter(con, auto, mk, todo, now):
                 auto.set_auto(con, f["user"], tid, "smart")
             elif mode == "tpsl":
                 # 9.11. (audit): no explicit stop -> DEFAULT_SL; levels from the effective entry (fee + impact)
-                auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""), f["exit"].get("sl") or DEFAULT_SL,
-                              from_eff=True)
+                auto.set_auto(con, f["user"], tid, "tpsl", f["exit"].get("tp", ""),
+                              f["exit"].get("sl") or default_sl(f["user"]), from_eff=True)
             elif mode == "podaci" and dx and dx.get("ok"):
                 # the pair was measured over the hour after the call: the position is closed at the end of that hour
                 auto.set_auto(con, f["user"], tid, "tpsl", f"{dx['tp']}%", f"-{dx['sl']}%", from_eff=True,
                               hold_s=DATA_HOLD_S)
                 exit_note = "; " + dx["why"]
             elif mode == "podaci":   # too few measured calls (or minute.db unreadable): the default pair until then
-                auto.set_auto(con, f["user"], tid, "tpsl", DATA_TP, DEFAULT_SL, from_eff=True)
+                sl0 = default_sl(f["user"])
+                auto.set_auto(con, f["user"], tid, "tpsl", DATA_TP, sl0, from_eff=True)
                 exit_note = (f"; {(dx or {}).get('why') or 'minutna provjera nije dostupna'}: zadani izlaz "
-                             f"TP +{DATA_TP.rstrip('%')} % / SL {DEFAULT_SL.rstrip('%')} %")
+                             f"TP +{DATA_TP.rstrip('%')} % / SL {sl0.rstrip('%')} %")
         except ValueError as e:   # 9.11. (audit P28): e.g. TP "$500k" on a token already at $600k: never leave the
             try:                  # position (mirrored into real money) without an exit; fall back to Smart sell
                 auto.set_auto(con, f["user"], tid, "smart")

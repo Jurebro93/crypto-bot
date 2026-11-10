@@ -13,6 +13,9 @@ What is seeded: trade.db with the equity history of 10 days (3 rebuilt from orde
 every 5 min; the opening deposit and two more), open, closed, blocked and failed positions with their orders;
 league.db with three follows of the real-trade account and copy_log skips of the demo stage; minute.db with what
 the price did after the skips (kol/preskoceni.py skip_path: every verdict of the box under the log's summary line).
+10.11. (Jure: pop-up preskočenog signala): the calls behind the skips carry their time (copy_log.ev_ts, also for
+the real-money skips through a demo trade and its 'ulaz' row), skip_path the call's price, +5/+10/+15 min and the
+supply, and the live quote ("Sada") is faked from the same numbers: /pravi-trade/preskok shows a full table.
 --moduli DIR: load trade/equity.py and trade/aplog.py from DIR (read only, no bytecode written) when this checkout
 does not have them yet; without them the page shows its fallback (plain balance, the order list). --prazno: no
 equity rows (the chart's empty state). Everything that would reach the network or a key is replaced in this
@@ -20,6 +23,7 @@ process only: the wallet balance, the SOL/EUR rate, the "armed" check.
 """
 import argparse
 import importlib.util
+import json
 import math
 import os
 import random
@@ -141,6 +145,7 @@ def seed(d, now=None, empty=False, on=True):
     tcon.execute("DELETE FROM positions")
     tcon.execute("DELETE FROM orders")
     toks = {}   # symbol -> (mint, decision ts): the skip_path rows below are keyed by them
+    pids = {}   # symbol -> positions.id (the real-money skips get the demo trade they mirror below)
     for sym, ago_s, status, reason, sin, sback, src in pos:
         tok, ts = _mint(rng), now - ago_s
         toks[sym] = (tok, ts)
@@ -152,6 +157,7 @@ def seed(d, now=None, empty=False, on=True):
                            (tok, sym, ts, "live", status, reason, sin if status in ("open", "closed") else None, q, left,
                             sback, closed_ts, 0.0021 if status in ("open", "closed") else 0))
         pid = cur.lastrowid
+        pids[sym] = pid
         ost = {"open": "ok", "closed": "ok", "blocked": "blocked", "failed": "failed"}[status]
         tcon.execute("INSERT INTO orders (ts, position_id, token, side, mode, amount_in, amount_out, status, reason, error, "
                      "signature, route, fee_lamports) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -174,7 +180,34 @@ def seed(d, now=None, empty=False, on=True):
     f3 = copy.follow(lg, settings.LEAGUE_USER, "ekipa", "murad,tg:alpha_calls", "", 25, 5, "tpsl", "15%", "-20%",
                      max_mcap=1e6, max_runup=0.25)
     lg.execute("DELETE FROM copy_log")
+    lg.execute("DELETE FROM trades")
+    # the real-money skips mirror a demo entry: its trade and 'ulaz' row carry the time of the call (aplog sig_ts)
+    sigs = {}
+    tcon = executor.connect(os.environ["TRADE_DB"])
+    for sym, fid, before in (("LATE", f1, 4 * 60 + 12), ("NOPROOF", f1, 41), ("TINY", f3, 55), ("STUCK", f2, 18)):
+        tok, ts = toks[sym]
+        tid = lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, source, follow_id) "
+                         "VALUES (?,?,?,?,?,?,?,?)", (settings.LEAGUE_USER, tok, sym, ts - 2, "open", 25, "copy", fid)).lastrowid
+        lg.execute("INSERT INTO copy_log (follow_id, token, side, ev_ts, ts, symbol, action, note, trade_id) "
+                   "VALUES (?,?,?,?,?,?,?,?,?)", (fid, tok, "buy", ts - before, ts - 2, sym, "ulaz", "kupljeno", tid))
+        tcon.execute("UPDATE positions SET league_id=? WHERE id=?", (tid, pids[sym]))
+        sigs[sym] = ts - before
+    # 10.11. (Jure: ulazni MC i TP/SL otvorene pozicije): the open real positions follow a demo trade with an entry MC
+    # and an exit rule (PNUT2: TP +15 % / SL -60 % from the effective entry; GIGA: Smart sell)
+    for sym, fid, mc, rule in (("PNUT2", f1, 82_000.0, {"mode": "tpsl", "tp": "+15%", "sl": "-60%", "tp_px": 1.15,
+                                                       "sl_px": 0.4, "tp_in": "15%", "sl_in": "-60%", "from_eff": True}),
+                               ("GIGA", f2, 410_000.0, {"mode": "smart"})):
+        tok, ts = toks[sym]
+        tid = lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, source, follow_id, "
+                         "entry_px, entry_eff, entry_mcap, qty, auto) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (settings.LEAGUE_USER, tok, sym, ts - 2, "open", 25, "copy", fid, 1.0, 1.0, mc, 25.0,
+                          json.dumps(rule))).lastrowid
+        tcon.execute("UPDATE positions SET league_id=? WHERE id=?", (tid, pids[sym]))
+    tcon.commit()
+    tcon.close()
     for ago_s, sym, note, fid in ((12 * 60, "BONK9", "signal star 11 min (vidjeli smo ga tek sada)", f1),
+                                  (2 * 3600 + 25 * 60, "HOTBOT", "signal star 4 min: kupnja samo dok je poziv svjež "
+                                   "(do 180 s)", f1),
                                   (80 * 60, "PEPE4", "MC nepoznat: bez cijene na DexScreeneru", f1),
                                   (4 * 3600, "SLOP", "likvidnost $6k je samo 1.1% MC-a", f1),
                                   (9 * 3600, "RUGME", "rug filter: lažni pool", f1),
@@ -191,11 +224,13 @@ def seed(d, now=None, empty=False, on=True):
                                   (23 * 3600, "SIGMA", "limit: 5 otvorenih pozicija", f1)):
         tok = _mint(rng)
         toks[sym] = (tok, now - ago_s)
+        before = {"HOTBOT": 4 * 60 + 7, "BONK9": 11 * 60 + 3, "FROGE": 6 * 60 + 20}.get(sym, 30 + len(sym))
+        sigs[sym] = now - ago_s - before
         lg.execute("INSERT INTO copy_log (follow_id, token, side, ev_ts, ts, symbol, action, note, trade_id) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)", (fid, tok, "buy", now - ago_s - 30, now - ago_s, sym, "preskočeno", note, None))
+                   "VALUES (?,?,?,?,?,?,?,?,?)", (fid, tok, "buy", sigs[sym], now - ago_s, sym, "preskočeno", note, None))
     lg.commit()
     lg.close()
-    _skip_paths(toks, now)
+    _skip_paths(toks, now, sigs)
     return {"sol": sol_last}
 
 
@@ -203,7 +238,7 @@ def seed(d, now=None, empty=False, on=True):
 # hi60 / lo60 / r60 = the highest, the lowest and the close after 60 min. LATE and BONK9 are younger than 65 min
 # ("mjeri se"), KITTY has no row yet ("čeka mjerenje"), PEPE4 / BRETT3 have no pool / no candle ("nema podataka").
 SKIP_PATHS = {   # symbol: (t15, sl_min, hi60, lo60, r60, peak minute) or the bad word
-    "PEPE4": "pool", "BRETT3": "svijeca",
+    "PEPE4": "pool", "BRETT3": "svijeca", "HOTBOT": (6, None, 0.35, -0.04, 0.12, 27),
     "NOPROOF": (6, None, 0.42, -0.05, 0.18, 23), "MOCHI": (14, 31, 0.23, -0.27, -0.22, 17),
     "SLOP": (None, None, 0.09, -0.14, -0.08, 4), "ZEUS": (None, 7, 0.04, -0.48, -0.35, 2),
     "TINY": (40, 3, 0.20, -0.31, 0.05, 41), "STUCK": (9, None, 0.61, -0.03, 0.33, 38),
@@ -214,8 +249,25 @@ SKIP_PATHS = {   # symbol: (t15, sl_min, hi60, lo60, r60, peak minute) or the ba
 }
 
 
-def _skip_paths(toks, now):
+# 10.11. (Jure: "na koliko market capa ga je zvao ... koliko se cijena makla u 5, 10, 15 minuta"): the market cap at the
+# call (k $) and the moves from the call at the decision and at +5 / +10 / +15 min. SLOP: no trade within 5 min of
+# the call (the moves then count from the decision); FROGE: measured before 10.11. (no call price, no supply yet).
+SIG_MOVES = {   # symbol: (market cap at the call in k $, decision, +5, +10, +15) as fractions of the call's price
+    "HOTBOT": (85, 0.08, 0.14, 0.22, 0.09), "NOPROOF": (61, 0.02, 0.19, 0.31, 0.37),
+    "MOCHI": (140, 0.05, 0.11, 0.17, 0.04), "SLOP": (212, None, 0.03, -0.04, -0.07),
+    "ZEUS": (24, 0.01, -0.12, -0.31, -0.40), "TINY": (21, 0.02, -0.09, -0.22, -0.18),
+    "STUCK": (330, 0.0, 0.12, 0.28, 0.41), "RUGME": (96, 0.03, -0.55, -0.80, -0.83),
+    "NEIRO2": (47, 0.06, 0.02, 0.09, 0.15), "DOGEAI": (1250, 0.31, 0.29, 0.22, 0.18),
+    "POPCAT2": (680, 0.01, 0.06, 0.08, 0.11), "TRUMPX": (18, 0.02, 0.41, 0.66, 0.85),
+    "SIGMA": (390, 0.0, -0.03, -0.09, -0.15),
+}
+SUPPLY = 1_000_000_000
+LIVE = {}   # mint -> the faked DexScreener state for "Sada" (in the pop-up), built with the paths
+
+
+def _skip_paths(toks, now, sigs=None):
     from kol import minute, preskoceni
+    sigs = sigs or {}
     mcon = minute.connect()
     try:
         preskoceni.ensure(mcon)
@@ -228,9 +280,20 @@ def _skip_paths(toks, now):
                              (tok, m, v, now + 86400, now))
                 continue
             t15, sl, hi, lo, r60, peak = v
+            mv = SIG_MOVES.get(sym)
+            if mv:
+                p_sig = mv[0] * 1000 / SUPPLY
+                entry = p_sig * (1 + mv[1]) if mv[1] is not None else p_sig * 1.05
+                ref = p_sig if mv[1] is not None else entry
+                extra = (sigs.get(sym), p_sig if mv[1] is not None else None, *(ref * (1 + x) for x in mv[2:]),
+                         SUPPLY, preskoceni.VER)
+            else:
+                entry, extra = 0.0001, (None,) * 7
             mcon.execute("INSERT INTO skip_path (token, ts, pool, entry, lag_s, t15, sl_min, hi60, lo60, r60, max_min, lv, "
-                         "done_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (tok, m, "POOL" + sym, 0.0001, 30, t15, sl, hi, lo, r60, peak, "{}", now))
+                         "done_ts, sig_ts, p_sig, p5, p10, p15, supply, ver) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (tok, m, "POOL" + sym, entry, 30, t15, sl, hi, lo, r60, peak, "{}", now, *extra))
+            price = entry * (1 + r60) * 0.93   # "now": a little under the close of the hour
+            LIVE[tok] = {"price": price, "mcap": price * SUPPLY, "liq": price * SUPPLY * 0.12, "symbol": sym}
         mcon.commit()
     finally:
         mcon.close()
@@ -249,6 +312,8 @@ def _fakes(sol):
         equity.rates = lambda now=None: {"sol_usd": 171.24, "usd_eur": 0.8623, "ts": int(time.time())}
     except Exception:  # noqa: BLE001
         pass
+    from ui import prijedlog   # "Sada" in the pop-up of a skip: the live cache's fetch, from the seeded numbers
+    prijedlog.live_market = lambda tokens, fetch=None: {t: dict(LIVE[t]) for t in tokens if t in LIVE}
 
 
 def _chart_page(dark):
@@ -296,6 +361,9 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, html.page(*pravitrade.page(qs, user), "/pravi-trade"))
             if u.path in frags:
                 frag = frags[u.path](user)
+                return self._send(200 if frag is not None else 403, frag or "")
+            if u.path == "/pravi-trade/preskok":
+                frag = pravitrade.skip_popup(user, qs.get("m", ""), qs.get("t", ""))
                 return self._send(200 if frag is not None else 403, frag or "")
             if u.path == "/pravi-trade/token":
                 return self._send(200, "<p class=mut>Lokalni pregled: provjera tokena uživo ide na DexScreener, ovdje je nema.</p>")

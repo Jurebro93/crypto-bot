@@ -506,7 +506,8 @@ def sync_follows(con, tcon, now=None, force=False):
         if kind == "wallet":   # a wallet copy sells when he sells (mirror): the intended default
             fid = copy.follow(con, settings.LEAGUE_USER, kind, target, label, 25, 5)
         else:
-            fid = copy.follow(con, settings.LEAGUE_USER, kind, target, label, 25, 5, "tpsl", tp, copy.DEFAULT_SL)
+            # 10.11.: no stop stored = the owner's default stop at each entry (copy.default_sl, "Pravila")
+            fid = copy.follow(con, settings.LEAGUE_USER, kind, target, label, 25, 5, "tpsl", tp, "")
         auto_ids.add(fid)
         changes.append(("+", kind, target, why))
     settings.put(tcon, "auto_follows", sorted(auto_ids), "alat")
