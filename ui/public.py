@@ -403,8 +403,10 @@ def _median(xs):
 
 def _call_stats(handles):
     """Median 24 h peak and 1 h change of the measured calls of these influencers (calls older than 24 h)."""
+    if not handles:     # 10.11.: asked before opening, an empty list used to leave the connection open
+        return None
     con = _con()
-    if con is None or not handles:
+    if con is None:
         return None
     try:
         q = ",".join("?" * len(handles))
@@ -769,11 +771,14 @@ def sitemap():
                        f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
                        f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/></url>')
     from ui import blog
-    for en, hr, pr in blog.urls():   # posts without a Croatian version get no alternates
+    # 10.11.: a post's lastmod is the day it really changed (its own date, or the night its daily numbers changed,
+    # ui/bloglive.py); the data pages above are rebuilt from the databases all day, so today is true for them
+    for en, hr, pr, mod in blog.urls(with_lastmod=True):   # posts without a Croatian version get no alternates
         for loc in (en, hr) if hr else (en,):
             alt = (f'<xhtml:link rel="alternate" hreflang="en" href="{base}{en}"/>'
                    f'<xhtml:link rel="alternate" hreflang="hr" href="{base}{hr}"/>') if hr else ""
-            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{day}</lastmod><priority>{pr}</priority>{alt}</url>")
+            out.append(f"<url><loc>{base}{loc}</loc><lastmod>{min(mod or day, day)}</lastmod><priority>{pr}</priority>"
+                       f"{alt}</url>")
     out.append("</urlset>")
     return "\n".join(out)
 
@@ -863,6 +868,61 @@ def route(path):
             _cache.clear()
         _cache[path] = (now, code, raw)
     return code, raw, ctype
+
+
+# ---------- the daily refresh (02:00, run_web.py daily) --------------------------------------------------------------
+
+def drop_caches():
+    """Every in-memory copy of public data in this process is dropped, so the next view of each public page is built
+    from the databases as they are after the night's refresh. Called once per refresh by the marker watch
+    (ui/sitelog.watch -> ui/landing.refreshed), never from a request. Returns how many rendered pages were dropped.
+    The copies: rendered public pages (CACHE_S), the market snapshot (ui/marketpub, 30 min), the median account
+    (ui/kolstats, 1 h) and the group-call numbers of the landing page (ourtoken/advisor, 1 h)."""
+    with _lock:
+        n = len(_cache)
+        _cache.clear()
+    for what, drop in (("tržište", _drop_market), ("medijan računa", _drop_baseline), ("grupni pozivi", _drop_advisor)):
+        try:
+            drop()
+        except Exception as e:  # noqa: BLE001 - that copy then simply lives out its own cache time
+            print(f"javne stranice: kopija '{what}' nije odbačena: {type(e).__name__}: {e}", flush=True)
+    return n
+
+
+def _drop_market():
+    from ui import marketpub
+    with marketpub._lock:
+        marketpub._cache["t"] = 0.0     # the numbers stay as the fallback if the rebuild fails (marketpub.snapshot)
+
+
+def _drop_baseline():
+    from ui import kolstats
+    kolstats._BASE.clear()
+
+
+def _drop_advisor():
+    from ourtoken import advisor
+    advisor._CACHE.clear()
+
+
+def hub_paths():
+    """The public tables people land on (both languages) and the sitemap: what warm() rebuilds after the refresh."""
+    return [row[0] for lang in ("en", "hr") for row in SECTIONS[lang]] + ["/sitemap.xml"]
+
+
+def warm(paths=None, pause_s=1.0):
+    """Build the main public tables once after the night's refresh, one after another with a pause, so the first
+    visitor of the morning does not wait for them. Runs in the marker watch's thread. Returns how many were built."""
+    n = 0
+    for p in hub_paths() if paths is None else paths:
+        try:
+            if route(p):
+                n += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"javne stranice: {p} nije pripremljena: {type(e).__name__}: {e}", flush=True)
+        if pause_s:
+            time.sleep(pause_s)
+    return n
 
 
 # ---------- top Solana meme coins ----------------------------------------------------------------------------------
