@@ -74,7 +74,7 @@ FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds with
 # key -> (label, type, min, max); the owner edits these on the page
 LIMITS = {
     "size_sol": ("Ulog po kupnji (SOL)", float, 0.005, 5.0),
-    "max_sol_per_day": ("Najviše potrošeno na kupnje u danu (SOL)", float, 0.01, 50.0),
+    "max_sol_per_day": ("Najviše potrošeno na automatske kupnje u danu (SOL)", float, 0.01, 50.0),
     "max_loss_day": ("Najveći gubitak u danu, onda stop (SOL)", float, 0.01, 50.0),
     "max_open": ("Najviše otvorenih pozicija", int, 1, 50),
     "min_sol_reserve": ("Uvijek ostavi u walletu (SOL)", float, 0.01, 10.0),

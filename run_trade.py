@@ -278,7 +278,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
                              league_id=t["id"], size_sol=float(size) if size else None,
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
-                             add=bool(size) and not is_copy)
+                             add=bool(size) and not is_copy,
+                             manual=bool(size) and not is_copy)   # 10.11. (Jure: "makni limit"): no day spend limit
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
             else:
