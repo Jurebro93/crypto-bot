@@ -152,7 +152,11 @@ class Page(unittest.TestCase):
         self.assertIn('name=sol value="0.1"', card)
         self.assertEqual(pravitrade._buy_now_card({"size_sol": 0.1}, False), "")
         src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
-        self.assertLess(src.index("_buy_now_card(cfg, owner),"), src.index("_kol_section(con, owner),"))
+        # 10.11. (Jure: "čista stranica", audit/2026-11-10/dizajn.md): the manual buy in the main column, the tool's
+        # picks (influencers, wallets, tokens) in one closed section at the bottom, filled by /pravi-trade/preporuke
+        page_src = src[src.index("def page(qs, user):"):]
+        self.assertLess(page_src.index("_buy_now_card, cfg, owner"), page_src.index("_recs_section()"))
+        self.assertIn("_kol_section, con, owner", src[src.index("def recs_fragment(user):"):])
 
 
 class RealTradePageRework(unittest.TestCase):
@@ -168,7 +172,8 @@ class RealTradePageRework(unittest.TestCase):
         self.assertEqual(pravitrade._detect_kind("9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"), ("wallet", "9pQQc1xyZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"))
         src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
         body = src[src.index("def page(qs, user):"):]
-        self.assertLess(body.index("_positions(tcon, not owner"), body.index("_follows(con, owner"))
+        # 10.11.: every part of the page is built behind _safe(name, fn, *args), the order is the same
+        self.assertLess(body.index("_positions, tcon, not owner"), body.index("_follows, con, owner"))
         self.assertIn("/pravi-trade/pozicije", open(os.path.join(ROOT, "run_ui.py")).read())
         import sqlite3 as _s
         from trade import executor

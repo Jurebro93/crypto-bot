@@ -23,7 +23,6 @@ pokraj 1 SOL živa pretvorba u dolare i eure, profit and loss kroz vrijeme u ist
   nothing but the numbers it was given leaves this module.
 """
 import json
-import time
 
 from ui.html import esc
 
@@ -98,10 +97,12 @@ color:var(--apc-mut);text-decoration:underline;text-underline-offset:3px;cursor:
 </style>"""
 
 # One script for every chart on the page. It draws at DOMContentLoaded (or at once when the page is already loaded),
-# so a page that swaps a fresh copy of the chart in (the Autopilot header, every 45 s) calls window.apcInit() again
-# and the new copy is drawn with the range and the unit the viewer chose (kept in localStorage per chart id).
+# so a page that swaps a fresh copy of the chart in (the Autopilot header, when a new snapshot changed the points)
+# calls window.apcInit() again and the new copy is drawn with the range and the unit the viewer chose (kept in
+# localStorage per chart id); the size watcher of a copy that left the page is let go then (a phone tab left open
+# for a day must not keep 288 old charts alive).
 JS = r"""<script>(()=>{if(window.apcInit){window.apcInit();return}
-const NS='http://www.w3.org/2000/svg',DAY=86400,UN={sol:' SOL',usd:' $',eur:' €'};
+const NS='http://www.w3.org/2000/svg',DAY=86400,UN={sol:' SOL',usd:' $',eur:' €'},RO=[];
 function S(n,a,p,t){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;if(p)p.appendChild(e);return e}
 function nice(lo,hi,n){const raw=(hi-lo)/n||1,m=Math.pow(10,Math.floor(Math.log10(raw))),st=[1,2,2.5,5,10].map(x=>x*m).find(x=>x>=raw*.999),o=[];
 for(let v=Math.ceil(lo/st-1e-9)*st;v<=hi+st*1e-6;v+=st)o.push(Math.abs(v)<st*1e-6?0:v);return o}
@@ -131,7 +132,7 @@ const p=G[j],c=ch.children;ch.setAttribute('visibility','visible');c[0].setAttri
 c[1].setAttribute('cx',p[0]);c[1].setAttribute('cy',p[1]);c[2].setAttribute('cx',p[0]);c[2].setAttribute('cy',p[2]);
 c[2].setAttribute('class','apc-dot '+(D.p[P[j]]<0?'apc-dn':'apc-up'));say(j)}
 function draw(){const W=Math.max(240,w0),c=f.classList.contains('apc-compact'),g=46,pt=36,hv=c?110:W>700?230:170,gap=30,hp=c?56:W>700?104:84,
-H=pt+hv+gap+hp+24,pw=W-g,end=Math.max(D.now,D.t[n-1]),from=st.r?end-st.r*DAY:-1;
+H=pt+hv+gap+hp+24,pw=W-g,end=Math.max(Date.now()/1000,D.t[n-1]),from=st.r?end-st.r*DAY:-1;
 P=[];for(let i=0;i<n;i++)if(D.t[i]>=from)P.push(i);
 svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('height',H);svg.replaceChildren();cur=-1;G=null;
 msg.hidden=P.length>0;svg.style.display=P.length?'':'none';if(!P.length){msg.textContent=L.none;say();return}
@@ -139,7 +140,7 @@ const t0=D.t[P[0]],t1=D.t[P[P.length-1]],x=t=>t1>t0?(t-t0)/(t1-t0)*pw:pw/2,V=P.m
 let vlo=Math.min(...V),vhi=Math.max(...V);const vp=(vhi-vlo)*.1||Math.abs(vhi)*.02||1;vlo-=vp;vhi+=vp;
 let qlo=Math.min(0,...Q),qhi=Math.max(0,...Q);const qs=qhi-qlo||1;qlo-=qlo<0?qs*.12:qs*.18;qhi+=qhi>0?qs*.12:qs*.18;
 const yv=v=>pt+hv-(v-vlo)/(vhi-vlo)*hv,y0=pt+hv+gap,yq=v=>y0+hp-(v-qlo)/(qhi-qlo)*hp,yz=yq(0),ax=S('g',{class:'apc-ax'},svg);
-nice(vlo,vhi,3).forEach(v=>{const y=yv(v);S('line',{x1:0,x2:pw,y1:y,y2:y},ax);S('text',{x:pw+6,y:y+4},ax,tick(v))});
+nice(vlo,vhi,hv>150?4:3).forEach(v=>{const y=yv(v);S('line',{x1:0,x2:pw,y1:y,y2:y},ax);S('text',{x:pw+6,y:y+4},ax,tick(v))});
 nice(qlo,qhi,3).forEach(v=>{if(!v)return;const y=yq(v);if(Math.abs(y-yz)<13)return;S('line',{x1:0,x2:pw,y1:y,y2:y},ax);S('text',{x:pw+6,y:y+4},ax,tick(v))});
 S('line',{x1:0,x2:pw,y1:yz,y2:yz,class:'apc-zero'},ax);S('text',{x:pw+6,y:yz+4},ax,'0');
 const mx=Math.max(2,Math.min(9,Math.floor(pw/70))),sx=[1,2,3,6,12,24,48,72,96,120,168,336,720,2160].map(h=>h*3600).find(s=>(t1-t0)/s<=mx)||8760*3600,
@@ -176,8 +177,9 @@ svg.addEventListener('pointerleave',()=>point(-1));svg.addEventListener('pointer
 svg.addEventListener('keydown',e=>{const d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(e.key==='Escape')point(-1);if(!d||!G)return;e.preventDefault();
 point(Math.max(0,Math.min(G.length-1,(cur<0?G.length-1:cur)+d)))});
 const go=()=>{const w=Math.round(f.getBoundingClientRect().width);if(w&&w!==w0){w0=w;draw();table()}};
-sync();go();if(window.ResizeObserver)new ResizeObserver(go).observe(f);else addEventListener('resize',go)}
-window.apcInit=()=>document.querySelectorAll('figure.apc[data-n]:not([data-on])').forEach(f=>{try{init(f)}catch(e){console.error('apchart',e)}});
+sync();go();if(window.ResizeObserver){const ro=new ResizeObserver(go);ro.observe(f);RO.push([f,ro])}else addEventListener('resize',go)}
+window.apcInit=()=>{for(let i=RO.length-1;i>=0;i--)if(!RO[i][0].isConnected){RO[i][1].disconnect();RO.splice(i,1)}
+document.querySelectorAll('figure.apc[data-n]:not([data-on])').forEach(f=>{try{init(f)}catch(e){console.error('apchart',e)}})};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',window.apcInit);else window.apcInit()})()</script>"""
 
 
@@ -250,7 +252,9 @@ def chart_html(series, summary, deposits=(), ident="ap", compact=False, lang="hr
         return CSS + _figure(f'<p class=apc-empty>{esc(L["empty"])}</p>', ident, compact)
     summary = summary or {}
     span = data["t"][-1] - data["t"][0]
-    data.update(now=int(time.time()), loc=L["loc"], **{"def": 30 if span > 30 * 86400 else 0},
+    # 10.11.: no "now" in the data (the browser's clock ends the range): the same points give the same HTML, so the
+    # Autopilot header's 45-s refresh leaves a drawn chart alone until a new snapshot (5 min) really changes it
+    data.update(loc=L["loc"], **{"def": 30 if span > 30 * 86400 else 0},
                 L={"val": L["val"], "pnl": L["pnl"], "res": L["res"], "none": L["none"], "one": L["one"], "dep": L["dep"],
                    "wd": L["wd"], "rc": L["rc"], "th": list(L["th"]), "pw": L["pnl_word"]})
     if data.get("u") and not data.get("e"):

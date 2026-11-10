@@ -564,8 +564,12 @@ class PopupNeverPilesUp(unittest.TestCase):
             frag = pravitrade._log_section(t, {})
         finally:
             pravitrade.log_html, pravitrade._sec = saved
-        self.assertIn("if(run||document.visibilityState!=='visible')return", frag)
-        self.assertIn("finally{run=false}", frag)
+        # 10.11. (apui): the page's one poller (POLL_JS) moved from the log section to the end of the page, so a
+        # log section that fails to build no longer takes every live box down with it
+        # (tests/test_apui_offline.py checks the page carries it exactly once)
+        self.assertNotIn("window.apTick", frag)
+        self.assertIn("if(run||document.visibilityState!=='visible')return", pravitrade.POLL_JS)
+        self.assertIn("finally{run=false}", pravitrade.POLL_JS)
         for mod in (paper, leaguedash):
             with open(mod.__file__, encoding="utf-8") as f:
                 src = f.read()

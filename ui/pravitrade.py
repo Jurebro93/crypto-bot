@@ -75,7 +75,8 @@ details.ap-sec>summary,.ap-blk>.h{list-style:none;padding:16px 0;display:flex;ju
 .ap-blk>.h{cursor:default;padding-bottom:10px}.ap-blk{padding-bottom:18px}
 details.ap-sec>summary::-webkit-details-marker{display:none}
 details.ap-sec>summary small{display:block;font-weight:400;color:var(--mut);margin-top:2px}
-details.ap-sec>summary .m,.ap-blk>.h .m{font-weight:400;color:var(--mut);font-size:13px;text-align:right;margin-left:auto}
+details.ap-sec>summary .m,.ap-blk>.h .m{font-weight:400;color:var(--mut);font-size:13px;text-align:right;margin-left:auto;max-width:55%}
+details.ap-sec>summary>.t,.ap-blk>.h>span:first-child,details.ap-it>summary>span:first-child{flex:1 1 auto;min-width:9em}
 details.ap-sec>summary::after{content:'';flex:none;width:7px;height:7px;border-right:1.5px solid var(--mut);
   border-bottom:1.5px solid var(--mut);transform:rotate(45deg);margin:-4px 3px 0 2px}
 details.ap-sec[open]>summary::after{transform:rotate(-135deg);margin-top:4px}
@@ -130,10 +131,14 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # vanish. apPatch swaps only the top-level parts whose HTML really changed (compared with what the server sent last
 # time, not with the live DOM), never while a finger is down or a field inside has focus; an empty answer shows the
 # box's own sentence (data-empty); a part with data-meta copies its text where it says (a section's one-line summary).
+# A box that still holds only its "učitavam…" is filled even right after the tap that opened it (that tap is what
+# asked for it); a refused swap (finger down, field in focus) returns false and the poller asks again a moment later
+# (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
 PATCH_JS = """<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0;
 addEventListener('pointerdown',()=>{down=Date.now()},true);
 window.apSeen=box=>{for(const c of box.children)if(!SRC.has(c))SRC.set(c,c.outerHTML)};
-window.apPatch=(box,h)=>{if(Date.now()-down<400||box.contains(document.activeElement))return false;
+window.apPatch=(box,h)=>{const virgin=![...box.children].some(c=>SRC.has(c));
+if((!virgin&&Date.now()-down<400)||box.contains(document.activeElement))return false;
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
 b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o)o.replaceWith(n);else box.appendChild(n)});
@@ -202,8 +207,10 @@ def _need_sol(cfg, n_open):
 
 
 def _setup(tcon, cfg, addr, key_addr, saved, sol, usdc, n_open):
-    """The four steps to a working wallet, ticked from what we can see: {'html', 'warn', 'done', 'total'}. The page
-    shows the section open right under the header while anything is missing, closed at the bottom once all is done."""
+    """The four steps to a working wallet, ticked from what we can see: {'html', 'warn', 'done', 'total', 'ready'}.
+    10.11. (Jure: "čista stranica"): open right under the header only while the WALLET is not ready (address, SOL,
+    key: 'ready' False); the last step is the switch, which the header already offers, so a wallet that is only
+    switched off does not push a to-do list above the chart. Otherwise closed at the bottom."""
     need = _need_sol(cfg, n_open)
     steps = [
         (bool(addr), "<b>Napravi zaseban račun u Phantomu.</b> U Phantomu dodirni ikonu računa gore lijevo → "
@@ -235,9 +242,10 @@ def _setup(tcon, cfg, addr, key_addr, saved, sol, usdc, n_open):
         warn = (f'<p class="ap-w bad">Ključ u Renderu pripada drugom walletu (<code>{esc(short(key_addr))}</code>) '
                 f'nego spremljena adresa (<code>{esc(short(saved))}</code>). Bot trguje s walletom ključa.</p>')
     items = "".join(f'<li class="{"ok" if ok else ""}">{txt}</li>' for ok, txt in steps)
+    ready = all(ok for ok, _ in steps[:3])
     html = _sec("Postavljanje walleta", f"{done}/{len(steps)} gotovo", f"<ol class=ap-steps>{items}</ol>",
-                open_=done < len(steps), sid="postavljanje")
-    return {"html": html, "warn": warn, "done": done, "total": len(steps)}
+                open_=not ready, sid="postavljanje")
+    return {"html": html, "warn": warn, "done": done, "total": len(steps), "ready": ready}
 
 
 # ---------- money over time: trade/equity.py (another group's module, so always behind try/except) --------------
@@ -310,7 +318,11 @@ def _rates(summary, now=None):
         if due:
             _RATES["busy"] = True
     if due and BG_REFRESH:
-        threading.Thread(target=_rates_fetch, args=(eq,), daemon=True, name="autopilot-tecaj").start()
+        try:
+            threading.Thread(target=_rates_fetch, args=(eq,), daemon=True, name="autopilot-tecaj").start()
+        except RuntimeError:   # 10.11. (Jure): no thread to spare must not leave "busy" set for ever (no rate again)
+            with _LOCK:
+                _RATES.update(ts=time.time(), busy=False)
     elif due:
         _rates_fetch(eq)
     with _LOCK:
@@ -349,24 +361,26 @@ def _sign_cls(x):
 
 
 def _value_html(s, r):
-    """The big number: the wallet's whole value in SOL, beside it the same in dollars and euros at the live rate,
-    under it what 1 SOL is worth and what the value is made of, then PnL of the last 24 h, in total, and the money in."""
+    """The big number: the wallet's whole value in SOL, beside it the same in dollars and euros at the live rate;
+    then PnL of the last 24 h and in total; under it, small, what 1 SOL is worth, the money put in and the part in
+    open positions. 10.11. (screenshots at 390 px): two PnL cells, not three, and one small line, so the chart
+    starts on the first screen of a phone."""
     val, usd, eur = float(s["value_sol"]), r.get("sol_usd"), r.get("usd_eur")
     fiat = (f"{_fiat(val * usd)} $" + (f" · {_fiat(val * usd * eur)} €" if eur else "")) if usd else ""
     note = [f"1 SOL = {_fiat(usd)} $" + (f" · {_fiat(usd * eur)} €" if eur else "")] if usd else []
-    made = [f"{float(s[k]):{fmt}} {lab}" for k, fmt, lab in (("sol", ".3f", "SOL slobodno"), ("tokens_sol", ".3f", "SOL u pozicijama"),
-                                                           ("usdc", ".2f", "USDC")) if s.get(k)]
-    if made:
-        note.append(", ".join(made))
     pnl, p24, net = s.get("pnl_sol"), s.get("pnl_24h_sol"), s.get("net_in_sol")
+    if net is not None:
+        note.append(f"uplaćeno {float(net):.3f} SOL")
+    if s.get("tokens_sol"):
+        note.append(f"{float(s['tokens_sol']):.3f} SOL u pozicijama")
+    if s.get("usdc"):
+        note.append(f"{float(s['usdc']):.2f} USDC")
     cells = []
     if p24 is not None:
         cells.append(f'<span><small>Zadnja 24 h</small><span class="{_sign_cls(p24)}">{p24:+.3f} SOL</span></span>')
     if pnl is not None:   # the share is counted here from the two SOL amounts, so it never depends on another unit
         pct = f" · {100.0 * pnl / net:+.1f} %" if net and net > 0 else ""
         cells.append(f'<span><small>Ukupno</small><span class="{_sign_cls(pnl)}">{pnl:+.3f} SOL{pct}</span></span>')
-    if net is not None:
-        cells.append(f'<span><small>Uplaćeno</small><span>{net:.3f} SOL</span></span>')
     return (f'<div class=ap-val><b>{val:.3f} SOL</b>' + (f"<span>{fiat}</span>" if fiat else "") + "</div>"
             + (f'<p class=ap-note>{" · ".join(note)}</p>' if note else "")
             + (f'<div class=ap-pnl>{"".join(cells)}</div>' if cells else ""))
@@ -378,7 +392,7 @@ def _switch_html(on, n_open):
     if on:
         b.append('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Isključiti Autopilot? Nove '
                  'kupnje staju odmah, otvorene pozicije se i dalje prodaju po pravilima.\')"><input type=hidden name=on '
-                 'value=0><button>Isključi Autopilot (nove kupnje staju)</button></form>')
+                 'value=0><button>Isključi Autopilot</button></form>')
     else:
         b.append('<form method=post action=/pravi-trade/switch onsubmit="return confirm(\'Uključiti Autopilot? Bot će '
                  'SAM kupovati pravim SOL-om iz walleta, i preko noći, unutar Limita, dok ne dodirneš Isključi.\')">'
@@ -407,21 +421,31 @@ def _head_inner(tcon, cfg, con, owner, now=None):
     b = [f'<div class=ap-state><span><i class="ap-dot {dot}"></i><b>{words}</b></span>{_addr_html(addr)}</div>']
     if has_eq:
         b.append(_value_html(s, _rates(s, now)))
-    else:
+    else:   # no history yet (or no trade.equity): the plain balance, with the live rate when there is one
         sol, usdc = _balance(addr), _usdc(addr)
+        r = _rates({}, now) if sol is not None else {}
+        usd, eur = r.get("sol_usd"), r.get("usd_eur")
+        fiat = (f"{_fiat(sol * usd)} $" + (f" · {_fiat(sol * usd * eur)} €" if eur else "")) if usd else ""
+        note = ([f"1 SOL = {_fiat(usd)} $" + (f" · {_fiat(usd * eur)} €" if eur else "")] if usd else []) + (
+            [f"{usdc:.2f} USDC"] if usdc else [])
         b.append(f'<div class=ap-val><b>{"–" if sol is None else f"{sol:.3f}"} SOL</b>'
-                 + (f"<span>{usdc:.2f} USDC</span>" if usdc else "") + "</div>")
+                 + (f"<span>{fiat}</span>" if fiat else "") + "</div>"
+                 + (f'<p class=ap-note>{" · ".join(note)}</p>' if note else ""))
     if owner:
         b.append(_switch_html(on, n_open))
-    alerts = ('<p class="ap-w bad">Prodaja svega je u tijeku…</p>' if cfg.get("sell_all") else "") + _warnings(tcon, cfg, con) \
-        + _today(tcon, cfg, result=not has_eq)
-    b.append(f"<div class=ap-alerts>{alerts}</div>")
+    alerts = '<p class="ap-w bad">Prodaja svega je u tijeku…</p>' if cfg.get("sell_all") else ""
     try:
-        from ui import apchart
-        chart = apchart.chart_html(eq["series"], s, eq["deposits"], ident="ap")
-    except Exception as e:  # noqa: BLE001 - the header stays without the chart
-        print(f"autopilot: graf nije nacrtan: {type(e).__name__}: {e}", flush=True)
-        chart = ""
+        alerts += _warnings(tcon, cfg, con) + _today(tcon, cfg, result=not has_eq)
+    except Exception as e:  # noqa: BLE001 - a broken check must not cost the owner the switch above it
+        print(f"autopilot: upozorenja nisu složena: {type(e).__name__}: {e}", flush=True)
+    b.append(f"<div class=ap-alerts>{alerts}</div>")
+    chart = ""
+    if _equity_mod() is not None:   # without trade.equity no snapshot will ever come: no promise of a chart either
+        try:
+            from ui import apchart
+            chart = apchart.chart_html(eq["series"], s, eq["deposits"], ident="ap")
+        except Exception as e:  # noqa: BLE001 - the header stays without the chart
+            print(f"autopilot: graf nije nacrtan: {type(e).__name__}: {e}", flush=True)
     b.append(f"<div class=ap-chart>{chart}</div>")
     try:   # the closed log's one-line summary rides along, so it is never older than the header
         b.append(f'<span hidden data-meta="#ap-dn-sum">{esc(dnevnik_line(tcon, now))}</span>')
@@ -511,8 +535,10 @@ POP_CSS = ("<style>dialog#ap-pop{border:0;border-radius:18px;padding:0;max-width
 
 
 def _sec(title, meta, inner, open_=False, sid="", hidden=False):
-    return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}{" hidden" if hidden else ""}><summary>{title}'
-            f'<span class=m>{meta}</span></summary><div class=in>{inner}</div></details>')
+    # 10.11. (screenshots at 390 px): the title in its own box, so a long one-line summary on the right wraps
+    # instead of squeezing the title into a column of single words
+    return (f'<details class=ap-sec{f" id={sid}" if sid else ""}{" open" if open_ else ""}{" hidden" if hidden else ""}>'
+            f'<summary><span class=t>{title}</span><span class=m>{meta}</span></summary><div class=in>{inner}</div></details>')
 
 
 # ---------- who the bot follows ----------------------------------------------------------------------------------
@@ -587,9 +613,12 @@ def _follows(con, owner, st=None, prefill=""):
                      f'<p class=mut>{last24}</p>'
                      + (f'<p class=mut>{dline}</p>' if dline else '')
                      + f'<p class=mut>{proof}</p>{stop}</details>')
-    names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else (f["label"] or short(f["target"])) for f in fl[:3])
+    # 10.11. (screenshots): the closed header names two at most, a wallet by its short address (the label of a wallet
+    # follow can be the whole address, which pushed the title into a column of single words)
+    names = ", ".join(("@" + f["target"]) if f["kind"] == "kol" else short(f["target"]) if f["kind"] == "wallet"
+                      else (f["label"] or "ekipa") for f in fl[:2])
     pre = esc(prefill or "")
-    meta = ((f"{len(fl)}: {esc(names)}{'…' if len(fl) > 3 else ''}" if fl else "još nikoga")
+    meta = ((f"{len(fl)}: {esc(names)}{f' +{len(fl) - 2}' if len(fl) > 2 else ''}" if fl else "još nikoga")
             + (" · alat bira sam" if st.get("auto_pick") else ""))
     anyone = ""
     if owner:   # 9.11. (Jure): follow any wallet or influencer from the whole database, not only the recommended ones
@@ -1600,6 +1629,9 @@ def token_popup(user, mint, now=None):
         cfg, owner = _cfg(tcon), settings.is_owner(user)
     finally:
         tcon.close()
+    # 10.11.: "Zovu sada" and "Što kupiti sada" are closed now, so their 1-s polls no longer start the refresher on
+    # every page view; an open pop-up starts it itself, so its DexScreener state is renewed off this request thread
+    _bg_start()
     now = now or time.time()
     if not is_solana_mint(mint):
         return "<p class=ap-protiv>To nije Solana adresa tokena.</p>"
@@ -1743,6 +1775,7 @@ def crew_popup(user, handles, now=None):
         cfg, owner = _cfg(tcon), settings.is_owner(user)
     finally:
         tcon.close()
+    _bg_start()   # as in token_popup: the crew's token set is kept fresh by the refresher, not by this request
     now = now or time.time()
     hs = [h.strip().lstrip("@") for h in (handles or "").split(",") if h.strip()]
     if not hs:
@@ -1856,6 +1889,45 @@ def _token_section(cfg, owner):
     return _sec("Preporučeni tokeni", meta, inner, sid="tokeni")
 
 
+def _safe(name, fn, *args, fallback=""):
+    """One part of the page: an error in it is logged and the part left out (or replaced by `fallback`), so a broken
+    statistic never costs the owner the switch, the positions or the sell buttons."""
+    try:
+        return fn(*args)
+    except Exception as e:  # noqa: BLE001
+        print(f"autopilot: dio stranice '{name}' nije složen: {type(e).__name__}: {e}", flush=True)
+        return fallback
+
+
+def _recs_section():
+    """10.11. (Jure: "čista, minimalistička"): the tool's picks of influencers, wallets and tokens in ONE closed
+    section at the bottom. Nothing is computed for it until it is opened (the token picks are checked live on
+    DexScreener, which a page view should not wait for); then /pravi-trade/preporuke fills it once."""
+    return _sec("Preporuke alata", "koga pratiti i koje tokene",
+                '<p class=mut>Influenceri, walleti i tokeni koje alat iz izmjerenih rezultata predlaže za praćenje i kupnju. '
+                'Dodirni redak za detalje.</p>'
+                f'<div id=ap-recs data-src=/pravi-trade/preporuke data-every=0 data-lazy '
+                f'data-empty="Alat trenutno nema prijedloga koji prolaze provjere.">{LOADING}</div>', sid="preporuke")
+
+
+def recs_fragment(user):
+    """GET /pravi-trade/preporuke: the three recommendation lists (closed sub-sections), same access as the page."""
+    tcon = _tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        cfg, owner = _cfg(tcon), settings.is_owner(user)
+    finally:
+        tcon.close()
+    con = store.connect()
+    try:
+        copy.ensure(con)
+        return (_safe("influenceri", _kol_section, con, owner) + _safe("walleti", _wallet_section, con, owner)
+                + _safe("tokeni", _token_section, cfg, owner))
+    finally:
+        con.close()
+
+
 # ---------- positions -------------------------------------------------------------------------------------------
 
 def _sell_btns(pid, pending):
@@ -1908,12 +1980,18 @@ def positions_fragment(user):
 def positions_inner(tcon, viewer_buy, owner=False, pending=None):
     """(inner html, meta text, has open) of the positions section."""
     pending = pending or {}
+    # 10.11.: +status keeps the planner on the key, newest first, stopping at 60; with the (status, opened_ts) index
+    # trade/aplog.py adds it would collect every open and closed position ever and sort them, once a second
     rows = tcon.execute("SELECT id, token, symbol, opened_ts, mode, status, reason, sol_in, sol_back, qty_raw, qty_left, "
-                        "closed_ts, COALESCE(fees_sol,0) FROM positions WHERE status IN ('open','closed') "
+                        "closed_ts, COALESCE(fees_sol,0) FROM positions WHERE +status IN ('open','closed') "
                         "ORDER BY id DESC LIMIT 60").fetchall()
     if not rows:
         return '<p class=mut style="margin:0">Još nema pozicija. Kupi odmah ispod ili zaprati nekoga.</p>', "0 otvoreno", False
-    sigs = dict(tcon.execute("SELECT position_id, signature FROM orders WHERE signature IS NOT NULL ORDER BY id"))
+    # 10.11. (Jure: "sekundni poslovi ne čitaju cijelu bazu"): this runs every second while the section is open; it read
+    # the signature of every order ever made, now only those of the closed positions listed (orders_pos index)
+    shut = [r[0] for r in rows if r[5] == "closed"]
+    sigs = dict(tcon.execute(f"SELECT position_id, signature FROM orders WHERE position_id IN ({','.join('?' * len(shut))}) "
+                             "AND signature IS NOT NULL ORDER BY id", shut)) if shut else {}
     open_, closed, tot = [], [], 0.0
     for (pid, tok, sym, ts, mode, st, why, sin, sback, q, ql, cts, fees) in rows:
         if st == "open":
@@ -1934,8 +2012,8 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None):
                           f'<div class=mut>{esc(ago(cts or ts)[0])}{link}</div></div>')
     inner = "".join(open_) or '<p class=mut style="margin:0 0 12px">Ništa otvoreno.</p>'
     if closed:
-        inner += (f'<details class=ap-it id=zatvorene><summary><span>Zatvorene ({len(closed)})</span><span class=k>zarada = vraćeno − '
-                  f'uloženo − mrežne naknade {tip("Jupiterova naknada (0,05–0,1%) je već u iznosima. Mrežne naknade su potpis, prioritet i depozit za novi token račun (~0,002 SOL), koji se vrati kad se pozicija proda do kraja.")}'
+        inner += (f'<details class=ap-it id=zatvorene><summary><span>Zatvorene ({len(closed)})</span><span class=k>zarada nakon naknada '
+                  f'{tip("Zarada = vraćeno − uloženo − mrežne naknade. Jupiterova naknada (0,05–0,1%) je već u iznosima. Mrežne naknade su potpis, prioritet i depozit za novi token račun (~0,002 SOL), koji se vrati kad se pozicija proda do kraja.")}'
                   f'</span></summary>{"".join(closed)}</details>')
     meta = f"{len(open_)} otvoreno" + (f" · {len(closed)} zatvoreno" if closed else "")
     return inner, meta, bool(open_)
@@ -1950,11 +2028,14 @@ def positions_inner(tcon, viewer_buy, owner=False, pending=None):
 LOG_N = 15
 LOG_ROWS = 80     # decisions listed when the log is open (trade.aplog.entries limit)
 LOG_EVERY_S = 1   # 9.11. (Jure): every second is money; the open log and the positions are re-fetched every second
+LINE_TTL_S = 15   # the closed log's one-line summary of the last 24 h: on every page view and every header refresh
+DAY_ROWS = 1000   # decisions read for that line when trade.aplog has no summary_24h of its own (aplog.DAY_LIMIT)
 SIDE = {"buy": "kupnja", "sell": "prodaja", "rent": "depozit natrag"}
 STATUS = {"ok": ("prošlo", "good"), "dry": ("probno", ""), "failed": ("greška", "bad"), "blocked": ("preskočeno", "warn")}
 KIND_HR = {"kupio": ("KUPIO", "good"), "prodao": ("PRODAO", "acc"), "preskocio": ("PRESKOČIO", ""),
            "nije_proslo": ("NIJE PROŠLO", "warn")}
-_DN = {"ts": 0.0, "key": None, "rows": None, "summ": None}
+_DN = {"ts": 0.0, "key": None, "rows": None}
+_DN_LINE = {"ts": 0.0, "key": None, "line": None}
 
 
 def _aplog_mod():
@@ -1965,31 +2046,59 @@ def _aplog_mod():
         return None
 
 
+def _league_ro():
+    """league.db read-only for the demo side's skips (copy_log); None when the file is not there."""
+    try:
+        return copy._ro(store.DB)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def dnevnik_data(tcon, now=None):
-    """(rows newest first, summary of the last 24 h) from trade.aplog, or (None, None) when the module is missing or
-    fails (then the old order list is shown). One read per LOG_EVERY_S second per database, shared by the open log
-    of every viewer, the page and the 45-s header."""
+    """The newest LOG_ROWS decisions from trade.aplog.entries, newest first, or None when the module is missing or
+    fails (then the old order list is shown). One read per LOG_EVERY_S per database, shared by every viewer who has
+    the log open (it is asked only while it is open)."""
     now = now or time.time()
     with _LOCK:
-        if _DN["key"] == settings.DB and now - _DN["ts"] < LOG_EVERY_S and _DN["ts"]:
-            return _DN["rows"], _DN["summ"]
+        if _DN["ts"] and _DN["key"] == settings.DB and 0 <= now - _DN["ts"] < LOG_EVERY_S:
+            return _DN["rows"]
     ap = _aplog_mod()
-    rows = summ = None
+    rows = None
     if ap is not None:
-        lcon = None
+        lcon = _league_ro()
         try:
-            lcon = copy._ro(store.DB)   # the demo side's skips (league.db copy_log); None when the file is not there
             rows = list(ap.entries(tcon, lcon, limit=LOG_ROWS) or [])
-            summ = dict(ap.summary(rows, now) or {})
         except Exception as e:  # noqa: BLE001 - the log falls back to the order list, the page renders
             print(f"autopilot: dnevnik odluka nije dostupan: {type(e).__name__}: {e}", flush=True)
-            rows = summ = None
+            rows = None
         finally:
             if lcon is not None:
                 lcon.close()
     with _LOCK:
-        _DN.update(ts=now, key=settings.DB, rows=rows, summ=summ)
-    return rows, summ
+        _DN.update(ts=now, key=settings.DB, rows=rows)
+    return rows
+
+
+def dnevnik_summ(tcon, now=None):
+    """trade.aplog's summary of the whole last 24 h ({signali, kupio, prodao, preskocio, nije_proslo, razlozi}), or
+    None without the module. 10.11.: never summary() over the 80 listed rows: on a busy day those are a few hours,
+    and the line would say "zadnja 24 h" about less. summary_24h when the module has it (its own 5-s cache), else
+    summary() over the day's entries."""
+    now = now or time.time()
+    ap = _aplog_mod()
+    if ap is None:
+        return None
+    lcon = _league_ro()
+    try:
+        if hasattr(ap, "summary_24h"):
+            return dict(ap.summary_24h(tcon, lcon, now=now) or {})
+        return dict(ap.summary(ap.entries(tcon, lcon, limit=DAY_ROWS, since=int(now - 86400)) or [], now) or {})
+    except Exception as e:  # noqa: BLE001
+        print(f"autopilot: sažetak dnevnika nije dostupan: {type(e).__name__}: {e}", flush=True)
+        return None
+    finally:
+        if lcon is not None:
+            lcon.close()
 
 
 def _signala(n):
@@ -2001,7 +2110,7 @@ def dnevnik_summary(summ):
     g = lambda k: int(summ.get(k) or 0)   # noqa: E731
     if not any(g(k) for k in ("signali", "kupio", "prodao", "preskocio", "nije_proslo")):
         return "Zadnja 24 h: nijedan signal"
-    why = ", ".join(f"{int(n)} {w}" for w, n in (summ.get("razlozi") or [])[:3])
+    why = ", ".join(f"{int(n)} {w}" for w, n in (summ.get("razlozi") or [])[:2])   # two, as dizajn.md shows it
     parts = [_signala(g("signali")), f'{g("kupio")} kupljeno',
              f'{g("preskocio")} preskočeno' + (f" ({why})" if why and g("preskocio") else "")]
     if g("nije_proslo"):
@@ -2013,22 +2122,33 @@ def dnevnik_summary(summ):
 
 def dnevnik_line(tcon, now=None):
     """The one line in the closed log's header: the decisions of the last 24 h, or, without trade.aplog, how many
-    orders there were."""
+    orders there were. Kept LINE_TTL_S: the page, the 45-s header and the open log all show it."""
     now = now or time.time()
-    _rows, summ = dnevnik_data(tcon, now)
+    with _LOCK:
+        if _DN_LINE["ts"] and _DN_LINE["key"] == settings.DB and 0 <= now - _DN_LINE["ts"] < LINE_TTL_S:
+            return _DN_LINE["line"]
+    summ = dnevnik_summ(tcon, now)
     if summ is not None:
-        return dnevnik_summary(summ)
-    n = tcon.execute("SELECT COUNT(*) FROM orders WHERE ts >= ?", (int(now - 86400),)).fetchone()[0]
-    return f"Zadnja 24 h: {n} naloga" if n else "Zadnja 24 h: nijedan nalog"
+        line = dnevnik_summary(summ)
+    else:   # the newest orders only (a bounded read on the key), never a count over the whole table
+        n = tcon.execute("SELECT COUNT(*) FROM (SELECT ts FROM orders ORDER BY id DESC LIMIT 500) WHERE ts >= ?",
+                         (int(now - 86400),)).fetchone()[0]
+        line = f"Zadnja 24 h: {n} naloga" if n else "Zadnja 24 h: nijedan nalog"
+    with _LOCK:
+        _DN_LINE.update(ts=now, key=settings.DB, line=line)
+    return line
 
 
-def _dnevnik_row(e):
+def _dnevnik_row(e, owner=True):
     """One decision: what (KUPIO / PRODAO / PRESKOČIO / NIJE PROŠLO), which token, how much, on whose signal, why,
     and for a decision without a buy whether it should have bought (aplog 'trebao': True = every rule passed and the
-    order failed; False = a rule said no, which is the correct behaviour). The row opens the token pop-up."""
+    order failed; False = a rule said no, which is the correct behaviour). The row opens the token pop-up. The
+    owner reads the reason as written (aplog scrubs addresses and keys from it); an invited viewer gets its short
+    word only (aplog: "anything public shows why_short"), never a route's raw error text."""
     kind = e.get("kind")
     word, dot = KIND_HR.get(kind, (str(kind or "?").upper(), ""))
     tok = e.get("token") or ""
+    sell = e.get("side") == "sell"
     bits = []
     if e.get("sol"):
         bits.append(f'{float(e["sol"]):.3f} SOL')
@@ -2036,26 +2156,30 @@ def _dnevnik_row(e):
         bits.append(f'<span class="{_sign_cls(e["pnl_pct"])}">{float(e["pnl_pct"]):+.1f} %</span>')
     if e.get("source"):
         bits.append(f'signal: {esc(e["source"])}')
-    why = e.get("why") or e.get("why_short")
+    why = (e.get("why") or e.get("why_short")) if owner else e.get("why_short")
     if why:
         bits.append(esc(str(why)[:180]))
     should = ""
     if kind in ("preskocio", "nije_proslo") and e.get("trebao") is not None:
-        should = ("<small>Trebao je kupiti: da. Sva pravila su prošla, ali nalog nije.</small>" if e["trebao"] else
-                  "<small>Trebao je kupiti: ne. Pravilo je reklo ne, tako i treba.</small>")
+        if sell:   # a sale that keeps failing: the bot tries again, nothing for the owner to decide
+            should = "<small>Trebao je prodati: da. Prodaja nije prošla, bot pokušava ponovno.</small>" if e["trebao"] else ""
+        else:
+            should = ("<small><b>Trebao je kupiti: da.</b> Sva pravila su prošla, ali nalog nije.</small>" if e["trebao"] else
+                      "<small>Trebao je kupiti: ne, pravilo je reklo ne.</small>")
     tag = "demo" if e.get("stage") == "demo" else ("pravi novac" if e.get("mode") == "live" else "probno")
-    link = (f'<br><a href="https://solscan.io/tx/{esc(e["sig"])}" target=_blank rel=noopener>Solscan ↗</a>' if e.get("sig") else "")
+    link = (f'<br><a href="https://solscan.io/tx/{quote(str(e["sig"]))}" target=_blank rel=noopener>Solscan ↗</a>'
+            if e.get("sig") else "")
     ts = e.get("ts") or 0
     return (f'<div class=ap-lg{_pop(tok)}><span><i class="ap-dot {dot}"></i><b>{word}</b> {_tok(tok, e.get("symbol")) if tok else ""}'
             f'<span class=ap-tag>{tag}</span>' + (f'<small>{" · ".join(bits)}</small>' if bits else "") + should + '</span>'
             f'<span class=k title="{time.strftime("%d.%m. %H:%M:%S", time.gmtime(ts))} UTC">{esc(ago(ts)[0])}{link}</span></div>')
 
 
-def dnevnik_inner(tcon, cfg, now=None):
+def dnevnik_inner(tcon, cfg, now=None, owner=True):
     """The open log: when the trade process last reported, then one row per decision, newest first. Without
     trade.aplog: the order list (log_html)."""
     now = now or time.time()
-    rows, _summ = dnevnik_data(tcon, now)
+    rows = dnevnik_data(tcon, now)
     if rows is None:
         return log_html(tcon, cfg)
     beat = cfg.get("heartbeat") or 0
@@ -2063,7 +2187,7 @@ def dnevnik_inner(tcon, cfg, now=None):
     head = f'<p class=mut>{esc(alive)}. Svaki redak je jedna odluka: što je vidio, što je napravio i zašto.</p>'
     if not rows:
         return head + '<p class=mut style="margin:0">Još nema nijedne odluke. Čim Autopilot vidi prvi signal, pojavi se ovdje.</p>'
-    return head + "".join(_dnevnik_row(e) for e in rows[:LOG_ROWS])
+    return head + "".join(_dnevnik_row(e, owner) for e in rows[:LOG_ROWS])
 
 
 def dnevnik_fragment(user):
@@ -2072,8 +2196,13 @@ def dnevnik_fragment(user):
     try:
         if not settings.can_view(tcon, user):
             return None
-        return (dnevnik_inner(tcon, _cfg(tcon))
-                + f'<span hidden data-meta="#ap-dn-sum">{esc(dnevnik_line(tcon))}</span>')
+        try:
+            inner = dnevnik_inner(tcon, _cfg(tcon), owner=settings.is_owner(user))
+            line = dnevnik_line(tcon)
+        except Exception as e:  # noqa: BLE001 - the box keeps its last rows and greys out (POLL_JS) instead of a 500
+            print(f"autopilot: dnevnik nije složen: {type(e).__name__}: {e}", flush=True)
+            return '<p class=mut>Dnevnik se trenutno ne može učitati. Pokušavam ponovno.</p>'
+        return inner + f'<span hidden data-meta="#ap-dn-sum">{esc(line)}</span>'
     finally:
         tcon.close()
 
@@ -2141,7 +2270,7 @@ POLL_JS = ("<script>(()=>{if(window.apTick)return;const st=new WeakMap();"
            "async function one(box,now){const s={t:now,ok:false};st.set(box,s);"
            "const c=new AbortController(),to=setTimeout(()=>c.abort()," + str(POP_TIMEOUT_MS) + ");"
            "try{const r=await fetch(box.dataset.src,{cache:'no-store',signal:c.signal});if(!r.ok){stale(box,true);return}const h=await r.text();stale(box,false);"
-           "s.ok=true;window.apPatch(box,h)}catch(e){stale(box,true)}finally{clearTimeout(to)}}"
+           "s.ok=true;if(window.apPatch(box,h)===false){s.ok=false;s.t=now-2500}}catch(e){stale(box,true)}finally{clearTimeout(to)}}"
            "let run=false;async function f(){if(run||document.visibilityState!=='visible')return;run=true;"
            "try{const now=Date.now();for(const box of document.querySelectorAll('[data-src]'))if(due(box,now))await one(box,now)}finally{run=false}}"
            f"window.apTick=f;setInterval(f,{LOG_EVERY_S * 1000});document.addEventListener('visibilitychange',f)}})()</script>")
@@ -2149,7 +2278,7 @@ POLL_JS = ("<script>(()=>{if(window.apTick)return;const st=new WeakMap();"
 
 def _log_section(tcon, cfg):
     """"Dnevnik Autopilota": closed, with the one-line summary under its title; the rows are fetched when it is
-    opened and every LOG_EVERY_S seconds while it stays open. The page's poller lives here."""
+    opened and every LOG_EVERY_S seconds while it stays open."""
     try:
         line = dnevnik_line(tcon)
     except Exception:  # noqa: BLE001 - a missing table must not cost the page its log section
@@ -2157,7 +2286,7 @@ def _log_section(tcon, cfg):
     box = (f'<div id=ap-dnevnik data-src=/pravi-trade/dnevnik data-every={LOG_EVERY_S} data-lazy>{LOADING}</div>'
            '<p class=mut style="margin:12px 0 0"><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
            '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p>')
-    return _sec(f'<span>Dnevnik Autopilota<small id=ap-dn-sum>{esc(line)}</small></span>', "", box + POLL_JS, sid="dnevnik")
+    return _sec(f'<span>Dnevnik Autopilota<small id=ap-dn-sum>{esc(line)}</small></span>', "", box, sid="dnevnik")
 
 
 # 9.11. (Jure, mobitel): the section headers needed 5-6 taps to open, sometimes closed instead. Their <summary> is
@@ -2239,6 +2368,12 @@ def _with_toggle(html_body):
 
 
 def page(qs, user):
+    """10.11. (Jure: "stranica autopilot mora biti čista, minimalistička, jednostavna, pregledna"), the order of
+    audit/2026-11-10/dizajn.md section 2: (1) the header (state, the value in SOL · $ · €, PnL, the owner's switch)
+    with (2) the chart; (3) the decision log, closed; (4) positions; (5) whom the bot follows + the add form;
+    (6) the manual buy (and the exit target it uses); (7) at the bottom, closed: the tool's recommendations, "who
+    calls what now", "what to buy now", limits, invites, safety. One column; a closed section fetches nothing until
+    it is opened; every part is built behind its own try (_safe), so one broken statistic never costs the switch."""
     tcon = _tcon()
     try:
         if not settings.can_view(tcon, user):
@@ -2250,23 +2385,39 @@ def page(qs, user):
         if qs.get("err"):
             msg = f'<p class="ap-w bad"><b>Nije prošlo:</b> {esc(qs["err"])}</p>'
         elif qs.get("ok"):
-            msg = f'<p class=ap-w style="background:var(--goodbg)">✓ {esc(qs["ok"])}</p>'
+            msg = f'<p class="ap-w ok">✓ {esc(qs["ok"])}</p>'
+        prefill = (qs.get("ekipa") or "") if isinstance(qs, dict) else ""
+        setup = {}
+        if owner:   # the wallet's setup steps: under the header while the wallet is not ready, else at the bottom
+            def _mk_setup():
+                addr, key_addr, saved = _addr(tcon)
+                n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0]
+                return _setup(tcon, cfg, addr, key_addr, saved, _balance(addr), _usdc(addr), n_open)
+            setup = _safe("postavljanje", _mk_setup, fallback={})
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, f'<h1>{TITLE}</h1><p class=ap-sub>Bot trguje pravim novcem iz tvog zasebnog walleta, samo po '
-                 'influencerima i walletima koje odabereš, unutar tvojih limita.</p>', msg,
-                 _wallet_card(tcon, cfg, con, owner), _positions(tcon, not owner, owner, cfg.get("sell_req")),
-                 _buy_now_card(cfg, owner), _tp_card(cfg, owner), _callers_section(cfg, owner),
-                 _ideas_section(cfg, owner), _log_section(tcon, cfg),
-                 _follows(con, owner, settings.raw(tcon), prefill=(qs.get("ekipa") or "") if isinstance(qs, dict) else ""), _kol_section(con, owner),
-                 _wallet_section(con, owner), _token_section(cfg, owner), _limits(cfg, owner)]
+            b = [CSS, '<div class=ap>', f'<h1>{TITLE}</h1>', msg,
+                 _safe("zaglavlje", _head, tcon, cfg, con, owner,
+                       fallback='<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
+                 setup.get("warn", "")]
+            if setup and not setup.get("ready"):
+                b.append(setup["html"])
+            b += [_safe("dnevnik", _log_section, tcon, cfg),
+                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req")),
+                  _safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
+                  _safe("kupnja", _buy_now_card, cfg, owner),
+                  _safe("cilj", _tp_card, cfg, owner),
+                  '<p class=ap-cap>Alati i postavke</p>',
+                  _recs_section(), _callers_section(cfg, owner), _ideas_section(cfg, owner),
+                  _safe("limiti", _limits, cfg, owner)]
         finally:
             con.close()
-        b.append(POP_CSS + POP_HTML + POP_JS)
         if owner:
-            b.append(_invites(tcon))
-        b += [_safety(), JS]
+            b.append(_safe("pozivnice", _invites, tcon))
+            if setup.get("ready"):
+                b.append(setup["html"])
+        b += [_safety(), '</div>', POP_CSS, POP_HTML, PATCH_JS, POP_JS, POLL_JS, JS]
         return TITLE, _with_toggle("".join(b))
     finally:
         tcon.close()
@@ -2350,8 +2501,9 @@ def _warnings(tcon, cfg, con):
                           "depozit se vrati) su velik dio uloga."))
     if not copy.follows(con, settings.LEAGUE_USER) and not cfg.get("follow_paper") and not cfg.get("simianx"):
         w.append(("warn", "Bot nikoga ne prati: neće ništa kupiti dok ne dodaš influencera ili wallet."))
-    # nothing to say = nothing shown (the page stays clean); otherwise one short line per problem
-    return "".join(f'<p class="ap-w {lv}">{"⛔" if lv == "bad" else "⚠️"} {esc(t)}</p>' for lv, t in w)
+    # nothing to say = nothing shown (the page stays clean); otherwise one short line per problem. 10.11. (Jure: "čista,
+    # minimalistička"): the line's colour says how bad it is, no emoji in front
+    return "".join(f'<p class="ap-w {lv}">{esc(t)}</p>' for lv, t in w)
 
 
 

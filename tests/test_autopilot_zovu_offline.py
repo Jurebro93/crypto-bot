@@ -132,8 +132,13 @@ class Page(unittest.TestCase):
         for k in ("TRADE_LIVE", "SOLANA_PRIVATE_KEY"):
             os.environ.pop(k, None)
         os.environ["TRADE_OWNER"] = "Jure"
+        # 10.11.: a pop-up starts the refresher thread itself now (the live lists are closed sections); never a real
+        # one in the test process
+        self._bg = pravitrade.BG_REFRESH
+        pravitrade.BG_REFRESH = False
 
     def tearDown(self):
+        pravitrade.BG_REFRESH = self._bg
         (jupiter.order, jupiter.execute, run_trade.LEAGUE_DB, run_trade.DB, settings.DB, store.DB) = self._saved
         self.con.close()
         self.lg.close()
@@ -150,17 +155,22 @@ class Page(unittest.TestCase):
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("Cilj izlaza za nove kopije", body)
         self.assertIn("sada +10 %", body)
-        self.assertIn("Zovu sada", body)
-        self.assertIn("tvoji i dokazani novčanici", body)
-        self.assertIn("Što kupiti sada", body)
+        # 10.11. (Jure: "nije mi jasno Zovu sada i Što kupiti sada, makni na dno"): both lists are closed sections at
+        # the bottom, each with a title that says what it is and one sentence about it
+        self.assertIn("Tko sada zove koji token", body)
+        self.assertIn("pratiš i dokazani walleti", body)
+        self.assertIn("Što alat sada predlaže za kupnju", body)
         self.assertIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "tpsl", True))   # TP/SL forms take it
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))
         self.assertIn("/pravi-trade/zovu", body)  # polled every LOG_EVERY_S seconds
         self.assertIn("/pravi-trade/ideje", body)
-        # the top order: positions and the exit target before the log and the recommendations
-        self.assertLess(body.index("id=cilj"), body.index("Zovu sada"))
-        self.assertLess(body.index("Zovu sada"), body.index("Što kupiti sada"))
-        self.assertLess(body.index("Što kupiti sada"), body.index("Koga bot prati"))
+        # 10.11.: the order of audit/2026-11-10/dizajn.md section 2: log, positions, follows, manual buy (+ its exit
+        # target), and only then, closed at the bottom, the recommendations and the two live lists, then the limits
+        order = [body.index(x) for x in ("id=dnevnik", "id=pozicije", "id=pratim", "id=kupi-odmah", "id=cilj",
+                                         "id=preporuke", "id=zovu", "id=ideje", "id=limiti")]
+        self.assertEqual(order, sorted(order))
+        for sid in ("dnevnik", "preporuke", "zovu", "ideje", "limiti"):   # closed until tapped
+            self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)
 
     def test_follow_all_callers_makes_one_crew_follow(self):
         pravitrade.post("/pravi-trade/tp", {"tp": "20"}, "Jure")
@@ -238,7 +248,8 @@ class Page(unittest.TestCase):
             zivo._ROWS["ts"] = ts0
             pravitrade._IDEAS_CACHE.clear()
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("['ap-ideje','/pravi-trade/ideje']", body)        # polled with the 2-s loop
+        # 10.11.: polled by the page's one poller, and only while its section is open (data-lazy: not before)
+        self.assertIn("<div id=ap-ideje data-src=/pravi-trade/ideje data-every=1 data-lazy", body)
 
     def test_crew_rows_and_popups(self):
         m = {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30, "buys_h1": 20,
