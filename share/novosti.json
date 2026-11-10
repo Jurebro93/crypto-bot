@@ -1,6 +1,31 @@
 [
  {
   "datum": "2026-11-10",
+  "naslov": "Novi, mirniji izgled aplikacije",
+  "tekst": "Pregled, Tokeni, Influenceri, Novčanici i Autopilot počinju jednim jasnim odgovorom, a ispod su reci umjesto kartica. Detalji su jedan dodir dalje. Donja traka ima Autopilot, a sve ostale stranice su na stranici Više."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Jedna iskrena presuda za influencera",
+  "tekst": "svaki influencer ima dva broja: koliko poziva dođe do +10 % u prvom satu i koliko ih je u plusu dan kasnije, te presudu iz njih (drži se, samo brzo, ne isplati se, premalo poziva). Ista presuda stoji na ljestvici, profilu, Pregledu i Autopilotu."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Autopilot pošteno bira koga prati",
+  "tekst": "influencer mora imati barem 10 izmjerenih poziva, poredak ide po donjoj granici pouzdanosti, a račun koji ne pratimo uživo nije među najboljima jer njegove pozive vidimo prekasno."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Zašto je Autopilot preskočio token",
+  "tekst": "ispod dnevnika Autopilota svaki preskočeni signal ima razlog i ishod: je li token u sljedećem satu dosegao +15 % prije −20 % (propušteno) ili ne (dobro preskočen)."
+ },
+ {
+  "datum": "2026-11-10",
+  "naslov": "Natjecanje: novi krug za igrače na nuli",
+  "tekst": "igrač čiji je račun pao na nulu, i kad drži token koji više nema cijenu, dobiva novih 1.000 $, a uz ime mu piše rekt i koji je krug."
+ },
+ {
+  "datum": "2026-11-10",
   "naslov": "Javna stranica Autopilota s prijedlozima igrača",
   "tekst": "na /autopilot svatko vidi kako Autopilot trguje: vrijednost novčanika kroz vrijeme, koga prati i tko ga je odabrao, svaki ulaz i izlaz s kratkim razlogom te javnu adresu novčanika. Ispod je chat: prijavljeni igrači ostavljaju prijedloge i daju +1."
  },
