@@ -180,6 +180,13 @@ def _no_proof(lg, follow_id):
     return None
 
 
+def _mirrored(con, league_id):
+    """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
+    positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
+    loop used to read every league_id in the table on every 1-second pass to answer the same question."""
+    return con.execute("SELECT 1 FROM positions WHERE league_id=? LIMIT 1", (league_id,)).fetchone() is not None
+
+
 def follow_league_once(con, cfg, since, now=None, quiet=False):
     """Mirror the competition account "pravi-trade": its new open trades -> buys, its (partial) exits -> sells.
     The share still held in the demo trade (qty / bought qty) is the share kept of the real position."""
@@ -193,11 +200,10 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             fresh = _league_fresh(lg, since)
         except sqlite3.OperationalError:
             return   # no competition tables yet
-        have = {lid for (lid,) in con.execute("SELECT league_id FROM positions WHERE league_id IS NOT NULL")}
         live = executor.is_live(cfg)
         tag = "LIVE" if live else "DRY"
         for t in fresh:
-            if t["id"] in have:
+            if _mirrored(con, t["id"]):
                 continue
             size = (cfg.get("manual_size") or {}).get(str(t["id"]))   # "Kupi ručno" on the page sets its own stake
             is_copy = (t["source"] or "").startswith("copy ")   # league/copy.py: "copy KOL x" / "copy wallet x" / "copy ekipa x"
@@ -300,6 +306,27 @@ def _on_term(signum, frame):
     print("pravi trade: SIGTERM, završavam tekući prolaz pa izlazim", flush=True)
 
 
+def _start_equity():
+    """10.11. (Jure: graf vrijednosti walleta kroz vrijeme): the wallet is measured every 5 min by trade/equity.py in
+    its own daemon thread with its own connection, so this loop never waits for the RPC, a price or the exchange
+    rate. Whatever goes wrong there is one log line; the trading goes on without the chart."""
+    try:
+        from trade import equity
+        equity.start(DB)
+    except Exception as e:  # noqa: BLE001
+        print(f"equity: snimanje vrijednosti walleta nije pokrenuto ({type(e).__name__}: {e})", flush=True)
+
+
+def _stop_equity():
+    """10.11. (review novac): on the way out (SIGTERM from a deploy) the snapshot thread is told to stop and given
+    2 s to finish a write; Render's grace period is for the swap this loop may be finishing, not for the chart."""
+    try:
+        from trade import equity
+        equity.stop(timeout=2)
+    except Exception:  # noqa: BLE001 - exiting anyway
+        pass
+
+
 def cmd_follow(a):
     cfg = load(a.config)
     since = time.time() - cfg["max_signal_age_s"]
@@ -309,6 +336,8 @@ def cmd_follow(a):
         signal.signal(signal.SIGTERM, _on_term)
     except (ValueError, OSError):   # not the main thread (tests): no handler, the loop still works
         pass
+    if not a.once:   # one pass (cron, a check by hand) measures nothing: the snapshots belong to the loop that stays
+        _start_equity()
     beat = {"ts": 0, "live": None}
     while not STOPPING["flag"]:
         try:
@@ -339,8 +368,10 @@ def cmd_follow(a):
             except Exception:  # noqa: BLE001 - the reporter must never stop the trade loop
                 pass
         if a.once or STOPPING["flag"]:
-            return
+            break
         time.sleep(cfg["poll_s"])
+    if not a.once:
+        _stop_equity()
 
 
 def cmd_check(a):

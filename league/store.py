@@ -80,6 +80,12 @@ def _migrate(con):
             except sqlite3.OperationalError as e:
                 print(f"league: stupac {col} nije dodan ({e})", flush=True)
                 return
+    try:
+        # 10.11. (Jure: sekundni poslovi ne čitaju cijelu tablicu): run_trade asks every second for the new open
+        # demo trades of the real-trade account; through this index it reads those few rows, not every player's trades
+        con.execute("CREATE INDEX IF NOT EXISTS trades_user_status ON trades (user, status, opened_ts)")
+    except sqlite3.OperationalError as e:   # full disk: the query still works, only slower
+        print(f"league: indeks trades_user_status nije dodan ({e})", flush=True)
     _MIGRATED.add(key)
     from league import fixes   # one-time corrections (2.11. pairless sale at a fake DexScreener price)
     fixes.apply(con)
