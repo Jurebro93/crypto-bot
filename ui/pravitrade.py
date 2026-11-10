@@ -2346,21 +2346,31 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
     trial = "probno" if (mixed and mode != "live") else None
     who = _who(first[6]) if len(lots) == 1 else f"{len(lots)} ulaza"
     lines, mcs, rules = [], [], []
+    def move_html(pct):   # 10.11. (Jure: "profit and loss zelenim ili crvenim slovima, osvježava se svake sekunde")
+        t = redak.tone(pct)
+        txt = esc(f"≈ {pct:+.1f} %")
+        return f'<b class="{t}">{txt}</b>' if t else f"<b>{txt}</b>"
     for n, (pid, _t, _s, ts, _m, _st, why, sin, sback, q, ql, _c, _f, lid) in enumerate(lots, 1):
         mc, rule, demo_open = demo.get(lid, (None, None, False))
-        mcs.append(mc)
+        mcs.append((mc, sin or 0))
         rules.append((lid, rule, demo_open))
-        move = f" (≈ {(mc_now / mc - 1) * 100:+.0f} %)" if mc and mc_now else ""
-        bits = [f"{n}. ulaz {_dt.datetime.fromtimestamp(ts, z):%H:%M}" + (f" na MC {_usd_short(mc)}" if mc else "")
-                + move, redak.sol(sin or 0, 3)]
+        head = esc(f"{n}. ulaz {_dt.datetime.fromtimestamp(ts, z):%H:%M}" + (f" na MC {_usd_short(mc)}" if mc else ""))
+        move = f" ({move_html((mc_now / mc - 1) * 100)})" if mc and mc_now else ""
+        tail = [redak.sol(sin or 0, 3)]
         if sback:
-            bits.append(f"vraćeno {redak.sol(sback, 4)}")
+            tail.append(f"vraćeno {redak.sol(sback, 4)}")
         if len(lots) > 1 or not _who(why):
-            bits.append(_who(why) or (why or ""))
-        lines.append(" · ".join(b for b in bits if b))
-    line = "".join(f"<p class=mut>{esc(x)}</p>" for x in lines)
+            tail.append(_who(why) or (why or ""))
+        lines.append(f"{head}{move} · {esc(' · '.join(x for x in tail if x))}")
+    # the position as a whole: the average entry weighted by the SOL put in each lot, and the move from it
+    wsum = sum(w for m, w in mcs if m and w)
+    avg_mc = wsum / sum(w / m for m, w in mcs if m and w) if wsum else None
+    pnl_all = (mc_now / avg_mc - 1) * 100 if avg_mc and mc_now else None
+    line = "".join(f"<p class=mut>{x}</p>" for x in lines)
+    if len(lots) > 1 and avg_mc:
+        line += f"<p class=mut>Prosječni ulaz MC {esc(_usd_short(avg_mc))}" + (f" ({move_html(pnl_all)})" if pnl_all is not None else "") + "</p>"
     line += f'<p class=mut>{"pravi novac" if mode == "live" else "probno"}' + (
-        f" · MC sada {_usd_short(mc_now)}" if mc_now else "") + "</p>"
+        f" · MC sada {esc(_usd_short(mc_now))}" if mc_now else "") + "</p>"
     exits = {_exit_words(r) for lid, r, _o in rules if lid}
     exit_html = (f"<p class=mut>Izlaz: {esc(' / '.join(sorted(x or 'nije postavljen' for x in exits)))}"
                  + (" (svaki ulaz od svoje cijene)" if len(lots) > 1 else "") + "</p>") if exits else ""
@@ -2373,9 +2383,14 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed):
              f'<p><span class=ap-lnk role=button tabindex=0{_pop(tok)}>Provjeri token uživo</span></p>')
     q_all, ql_all = sum(r[9] or 0 for r in lots), sum(r[10] or 0 for r in lots)
     held = f"drži {redak.pct(ql_all / q_all, sign=False, frac=True)}" if q_all else "drži –"
-    mc_words = ", ".join(_usd_short(m) for m in mcs if m)
+    mc_words = ", ".join(_usd_short(m) for m, _w in mcs if m)
     reason = " · ".join(x for x in (who, f"ulaz MC {mc_words}" if mc_words else "", redak.ago(lots[-1][3]), trial) if x)
-    return _item(sym or short(tok or ""), reason, inner, value=redak.sol(sum(r[7] or 0 for r in lots), 3),
+    stake = redak.sol(sum(r[7] or 0 for r in lots), 3)
+    if pnl_all is not None:   # the move first, coloured, the stake under it (refreshed with the list every second)
+        return _item(sym or short(tok or ""), reason, inner, value=f"≈ {pnl_all:+.1f} %",
+                     sub="prodaja u tijeku" if pend is not None else f"{stake} · {held}", iid=f"poz-{pid0}",
+                     value_tone=redak.tone(pnl_all))
+    return _item(sym or short(tok or ""), reason, inner, value=stake,
                  sub="prodaja u tijeku" if pend is not None else held, iid=f"poz-{pid0}")
 
 
@@ -3082,6 +3097,10 @@ def _log_section(tcon, cfg):
 # section wakes the poller, so its content is there at once. 10.11. (maketa): a link inside the page ("Dovrši 3/4"
 # in the state line, #postavljanje) opens its section too (hashchange), not only a link that loads the page.
 TOGGLE_JS = ("<script>(()=>{const Q='details.ap-sec,details.ap-it';let open={};"
+             # 10.11. (Jure: "opet piše na vrhu: nije prošlo, već imaš otvorenu poziciju"): the answer of a form is
+             # shown once; the address loses ?ok=/?err=, so a reload (or the phone reopening the tab) does not show
+             # an old error again as if it were new
+             "if(/[?&](ok|err)=/.test(location.search))try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}"
              "window.apOpen=root=>root.querySelectorAll(Q).forEach(d=>{if(d.id&&d.id in open)d.open=!!open[d.id]});window.apOpen(document);"
              "const reveal=()=>{for(let t=location.hash.length>1&&document.getElementById(location.hash.slice(1));t;t=t.parentElement)if(t.matches&&t.matches('details'))t.open=true};"
              "reveal();addEventListener('hashchange',reveal);"
@@ -3522,6 +3541,52 @@ def _buy_callers_veto(token, now=None):
         return None
 
 
+def _lot_weights(tcon, lots, cfg):
+    """{demo trade id: SOL put in} of a token's lots: the real position's stake, else the manual stake asked for on
+    the page (settings manual_size, the real buy may still be on its way), else the default stake."""
+    ids = [t["id"] for t in lots]
+    real = dict(tcon.execute(f"SELECT league_id, SUM(sol_in) FROM positions WHERE league_id IN ({','.join('?' * len(ids))}) "
+                             "AND status IN ('open','pending') GROUP BY league_id", ids).fetchall()) if ids else {}
+    asked = settings.raw(tcon).get("manual_size") or {}
+    return {i: float(real.get(i) or asked.get(str(i)) or cfg.get("size_sol") or 0.1) for i in ids}
+
+
+def _group_exit(con, tcon, token, tp, sl, cfg):
+    """10.11. (Jure: "ako ima više ulaza, nek izračuna prosječan ulaz, na to doda take profit i onda na cijelu
+    poziciju zatvori"): one TP and one SL for every open lot of a token, measured from the average entry (price per
+    token over all lots, weighted by the SOL put in each), written as the same price level on every lot, so they all
+    close in the same second (league/auto). tp/sl: percent ("40%", "-60%") or MC ("$120k"). Returns
+    (rule of the first lot, average entry MC or None, number of lots); one lot = its own entry, as before."""
+    from league import auto
+    lots = con.execute("SELECT id, entry_px, entry_mcap, auto FROM trades WHERE user=? AND token=? AND status='open' "
+                       "ORDER BY id", (settings.LEAGUE_USER, token)).fetchall()
+    if not lots:
+        raise ValueError("ta pozicija više nije otvorena")
+    if len(lots) == 1:
+        try:
+            old = json.loads(lots[0]["auto"]) if lots[0]["auto"] else {}
+        except ValueError:
+            old = {}
+        rule = auto.set_auto(con, settings.LEAGUE_USER, lots[0]["id"], "tpsl", tp, sl, from_eff=bool((old or {}).get("from_eff")))
+        return rule, lots[0]["entry_mcap"], 1
+    w = _lot_weights(tcon, lots, cfg)
+    avg_px = sum(w.values()) / sum(w[t["id"]] / t["entry_px"] for t in lots)
+    k = next((t["entry_mcap"] / t["entry_px"] for t in lots if t["entry_mcap"] and t["entry_px"]), None)
+    avg_mc = avg_px * k if k else None
+    tp_px, tp_l = auto.parse_level(tp, avg_px, avg_mc, "tp")
+    sl_px, sl_l = auto.parse_level(sl, avg_px, avg_mc, "sl")
+    if tp_px is None and sl_px is None:
+        raise ValueError("upiši barem TP ili SL")
+    lab = lambda l, px: (f"{l} od prosjeka" + (f" (MC {_usd_short(px * k)})" if k else "")) if l and l.endswith("%") else l
+    rule = {"mode": "tpsl", "tp_px": tp_px, "sl_px": sl_px, "tp": lab(tp_l, tp_px) if tp_px else None,
+            "sl": lab(sl_l, sl_px) if sl_px else None, "tp_in": tp or "", "sl_in": sl or "",
+            "grp": {"tp": tp or "", "sl": sl or "", "avg_px": avg_px, "avg_mc": avg_mc, "n": len(lots)}}
+    for t in lots:
+        con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(rule), t["id"]))
+    con.commit()
+    return rule, avg_mc, len(lots)
+
+
 def _post_exit(con, tcon, form):
     """10.11. (Jure: "za neke tokene bi stavio take profit 30 %, a ne samo 15 %"): the owner's exit of one open
     position. The real position follows its demo trade (run_trade sells when the demo closes), so the TP/SL is
@@ -3537,32 +3602,12 @@ def _post_exit(con, tcon, form):
     lid, sym, tok = row
     if not lid:
         raise ValueError("ova pozicija nema demo par (demo strategija ili stara pozicija): izlaz joj se ne mijenja ovdje")
-    # 10.11. (dokupnja): every open lot of the token gets the rule, each from its own entry
-    lids = [r[0] for r in tcon.execute("SELECT league_id FROM positions WHERE token=? AND status='open' AND league_id "
-                                       "IS NOT NULL ORDER BY id", (tok,))] or [lid]
+    # 10.11. (Jure: više ulaza = prosječan ulaz, TP/SL na prosjek, zatvara cijelu poziciju): _group_exit
     tp = (form.get("tp") or "").strip()
     sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
-    rule, done, errs = None, 0, []
-    for one in dict.fromkeys(lids):
-        t = con.execute("SELECT auto FROM trades WHERE id=? AND user=? AND status='open'", (one, settings.LEAGUE_USER)).fetchone()
-        if not t:
-            continue
-        try:
-            old = json.loads(t[0]) if t[0] else {}
-        except ValueError:
-            old = {}
-        try:
-            rule = auto.set_auto(con, settings.LEAGUE_USER, one, "tpsl", tp, sl, from_eff=bool((old or {}).get("from_eff")))
-            done += 1
-        except ValueError as e:
-            if len(lids) == 1:
-                raise
-            errs.append(str(e))
-    if not done:
-        raise ValueError(errs[0] if errs else "demo par ove pozicije je već zatvoren: prodaja je u tijeku")
-    print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({done} ulaza)", flush=True)
-    note = f" Nije primijenjeno na {len(errs)} ulaza: {errs[0]}." if errs else ""
-    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
+    rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, _cfg(tcon))
+    print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({n} ulaza)", flush=True)
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.')}#poz-{pid}"
 
 
 def _post_buy(con, tcon, form, user):
@@ -3632,7 +3677,7 @@ def _post_buy(con, tcon, form, user):
     # the position has, so the lots sell by the same rule, each from its own entry
     prev = con.execute("SELECT id, auto FROM trades WHERE user=? AND token=? AND status='open' ORDER BY id DESC LIMIT 1",
                        (settings.LEAGUE_USER, token)).fetchone()
-    rules = [(ex, tp, sl)]
+    rules, pa = [(ex, tp, sl)], None
     if prev is not None:
         try:
             pa = json.loads(prev["auto"]) if prev["auto"] else None
@@ -3658,6 +3703,14 @@ def _post_buy(con, tcon, form, user):
     sizes = dict(settings.raw(tcon).get("manual_size") or {})
     sizes[str(tid)] = sol
     settings.put(tcon, "manual_size", dict(list(sizes.items())[-200:]), user)
+    if prev is not None and rules[0][0] == "tpsl":
+        # 10.11. (Jure): the position's TP/SL from the new average entry, on every lot (the first lot's typed rule;
+        # a rule already made for the position keeps its own text in "grp")
+        g = (pa or {}).get("grp") or {}
+        try:
+            _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), _cfg(tcon))
+        except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
+            print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
     if prev is not None:
         return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
     return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"

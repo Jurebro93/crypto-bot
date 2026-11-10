@@ -210,6 +210,94 @@ def _klasa(tokens):
         return {}
 
 
+def _tpsl_hit(a, price, liq, now):
+    """What closes a TP/SL position at this price, or None."""
+    return (("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else
+            ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else
+            "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] and (liq or 0) > 0
+            else None)   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
+
+
+# 10.11. (Jure: "TP je bio +40 % od ulaza 84k, graf je dotakao 117k i malo preko, a automatska prodaja se nije
+# napravila"): run_once below checks every player's positions once per loop pass (EVERY_S = 20 s, after the copy
+# pass, the auto pick, SimianX, DCA and rekt), so a wick of a few seconds over the target was never seen. The
+# Autopilot's real money follows its demo trades, so their TP/SL are checked here on their own, every FAST_EVERY_S,
+# from the short live price cache (DexScreener 3 s, Jupiter's price when DexScreener has none).
+FAST_EVERY_S = 1.0
+FAST_BEAT_S = 600   # one line in the log this often: how many TP/SL positions are watched and whether prices come
+
+
+def _fast_market(market, tokens):
+    mk = dict(market(tokens) or {})
+    missing = [t for t in tokens if t not in mk]
+    if missing:
+        try:
+            from ui.paper import jup_prices
+            for m, (px, liq) in jup_prices(missing).items():
+                mk[m] = (px, liq, None, None)
+        except Exception:  # noqa: BLE001 - no price: no sale this second
+            pass
+    return mk
+
+
+def fast_once(con, market, user, now=None):
+    """The TP/SL of one account's open positions at the current price: [(user, symbol, what happened)], plus the
+    number watched and priced as the last item's stats via fast_once.last."""
+    now = now or time.time()
+    rows = [dict(r) for r in con.execute("SELECT * FROM trades WHERE status='open' AND user=? AND auto IS NOT NULL",
+                                         (user,))]
+    rows = [r for r in rows if (json.loads(r["auto"]) or {}).get("mode") == "tpsl"]
+    fast_once.last = (len(rows), 0)
+    if not rows:
+        return []
+    mk = _fast_market(market, sorted({r["token"] for r in rows}))
+    fast_once.last = (len(rows), sum(1 for r in rows if r["token"] in mk))
+    done = []
+    for t in rows:
+        if t["token"] not in mk:
+            continue
+        price, liq, _, mcap = mk[t["token"]]
+        if not price or price <= 0:
+            continue
+        hit = _tpsl_hit(json.loads(t["auto"]), price, liq, now)
+        if hit:
+            try:
+                pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
+            except ValueError:   # the main loop closed it in the same second
+                continue
+            done.append((t["user"], t["symbol"] or t["token"][:6], f"auto {hit}: {pnl:+.2f} $"))
+    return done
+
+
+fast_once.last = (0, 0)
+
+
+def fast_loop(market, user=None, every=FAST_EVERY_S):
+    """Background thread body for run_ui.py: the Autopilot account's TP/SL every `every` seconds."""
+    if user is None:
+        from trade import settings as tsettings
+        user = tsettings.LEAGUE_USER
+    con, beat = None, 0.0
+    while True:
+        try:
+            if con is None:
+                con = store.connect()
+            for u, name, what in fast_once(con, market, user):
+                print(f"natjecanje {u} {name}: {what}", flush=True)
+            if time.time() - beat >= FAST_BEAT_S:
+                beat = time.time()
+                n, priced = fast_once.last
+                print(f"autopilot izlazi: prati {n} TP/SL pozicija, cijena za {priced}", flush=True)
+        except Exception as e:  # noqa: BLE001 - a bad second never stops the watch
+            print(f"autopilot izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:
+                con.close()
+            except Exception:  # noqa: BLE001
+                pass
+            con = None
+        time.sleep(every)
+
+
 def run_once(con, market, now=None):
     """Check every open position with auto sell on; returns [(user, symbol, what happened)]."""
     from exits import profiles
@@ -229,10 +317,7 @@ def run_once(con, market, now=None):
         a = json.loads(t["auto"])
         name = t["symbol"] or t["token"][:6]
         if a["mode"] == "tpsl":
-            hit = ("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else \
-                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else \
-                  "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] and (liq or 0) > 0 \
-                  else None   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
+            hit = _tpsl_hit(a, price, liq, now)
             if hit:
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
