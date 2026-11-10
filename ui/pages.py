@@ -82,12 +82,9 @@ def wallets(qs):
     v = qs.get("v") or ("svi" if qs.get("all") == "1" else "lista")
     sw = seg([("/wallets", "Za kopiranje"), ("/wallets?v=svi", "Svi"), ("/wallets?v=aktivnost", "Aktivnost")],
              "/wallets" + (f"?v={v}" if v != "lista" else ""))
-    try:   # 7.11. (Jure): the verdict and today's picks first on every view
-        from ui import prijedlog
-        top = prijedlog.box("novcanici")
-    except Exception as e:  # noqa: BLE001
-        print(f"novčanici: prijedlog: {type(e).__name__}: {e}")
-        top = ""
+    # 10.11. (Jure, prijedlog 4.6 i 5.1): "Prijedlog za danas" (prijedlog.box) lives only on Pregled; Novčanici
+    # start with their own list
+    top = ""
     if v == "aktivnost":
         from ui import core
         try:
