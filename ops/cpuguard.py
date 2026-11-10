@@ -150,6 +150,7 @@ PROCESSES = (
     ("report", "run_report.py", (), JOBS, "jutarnji izvještaj e-poštom"),
     ("simianx", "run_simianx.py", (), JOBS, "drugo mišljenje za dugoročnu listu"),
     ("watch", "run_watch.py", (), JOBS, "praćenje tokena prije događaja, jednom na sat"),
+    ("web", "run_web.py", (), JOBS, "dnevno osvježavanje javnih stranica u 02:00, čita samo naše baze"),
     ("wallets", "run_wallets.py", (), JOBS, "registar walleta: skupljanje, ocjenjivanje, popisi"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
