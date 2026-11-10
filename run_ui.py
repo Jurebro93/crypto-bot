@@ -245,6 +245,8 @@ def route(path, qs):
     if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
         from ui import ekipe
         return ekipe.page(qs)
+    if path == "/kol/analize":   # 10.11. (Jure, prijedlog 3.3): the analyses that were folded under /kol, one tap away
+        return kol.analize_page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -363,9 +365,10 @@ def build(path, qs, lang="hr"):
 # pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
 # never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
 # memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol")
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol", "/kol/analize")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
-SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but their last good build is kept on disk
+SNAPSHOT_ONLY = ("/ekipe", "/kol", "/kol/analize")   # not warmed (180 s / 30 s of CPU), their last good build is kept on disk
+# 10.11.: /kol/analize holds what /kol built before (pairs, correlations, together): same child build and snapshot
 BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
 WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
 CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs

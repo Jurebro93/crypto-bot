@@ -232,7 +232,8 @@ class P33HeavyPagesNeverHang(unittest.TestCase):
     def test_ekipe_and_kol_are_heavy_and_kept_on_disk(self):
         self.assertIn("/ekipe", self.run_ui.HEAVY)
         self.assertIn("/kol", self.run_ui.HEAVY)
-        self.assertEqual(set(self.run_ui.SNAPSHOT_ONLY), {"/ekipe", "/kol"})
+        # 10.11. (prijedlog 3.3): /kol/analize holds the heavy sections that were folded under /kol, same treatment
+        self.assertEqual(set(self.run_ui.SNAPSHOT_ONLY), {"/ekipe", "/kol", "/kol/analize"})
         with mock.patch.object(self.pagecache, "_snap_paths", set()):
             self.pagecache.snapshot(self.run_ui.SNAPSHOT_ONLY)
             self.assertIn("/ekipe", self.pagecache._snap_paths)
