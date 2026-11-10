@@ -4064,9 +4064,9 @@ def _post_exit(con, tcon, form):
 
 
 def _post_buy(con, tcon, form, user):
-    """Manual buy: a demo trade on the real-trade account (the lists' live gate without their liquidity floor:
-    trading now, MC 30k+, not falling, not collapsed, callers' minute check not weak), its own SOL stake for the mirror, and its exit rule;
-    run_trade.py turns it into the real swap within the limits."""
+    """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
+    and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
+    real swap within the limits."""
     from urllib.parse import quote as qq
     from league import auto
     from rugfilter import collapse
@@ -4086,24 +4086,20 @@ def _post_buy(con, tcon, form, user):
     col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
     if col:
         raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
-    # 9.11. (Jure, JENSEN 127k -> 14k): the same live gate as the lists, at the moment of the tap
-    from ui import prijedlog
-    lv = prijedlog.live_market([token])
-    if lv is None:
-        raise ValueError("provjera uživo (DexScreener) nije uspjela; kupnja odbijena")
-    # 10.11. (Jure: "likvidnost 16.000, a traži 20.000; ako sam ja ručno, treba kupiti bez obzira. Makni limit za
-    # likvidnost"): the owner's own buy has no liquidity floor; the swap's cost cap (trade/config max_cost_pct, the
-    # quote's real slippage and fees) still refuses a pool too thin for the stake, and the 30k MC rule stays
-    why_not = prijedlog.alive(lv.get(token), min_liq=0)
-    if why_not:
-        raise ValueError(f"kupnja odbijena: {why_not}")
-    if (lv[token].get("mcap") or 0) < 30_000:
-        raise ValueError(f"kupnja odbijena: MC ${lv[token]['mcap']:,.0f}, ispod 30k")
-    # 9.11. (audit P47): the callers' measured outcome is the one fact about copying such a call; when it exists and
-    # is weak the buy is refused (same rule as the pop-up verdict). No measurement = no veto; a failing read = no veto.
-    veto = _buy_callers_veto(token)
-    if veto:
-        raise ValueError(f"kupnja odbijena: {veto}")
+    # 10.11. (Jure: "ručno sam išao dodati treći ulaz: kupnja odbijena, pada 23 % u zadnjem satu. Kad se ručno dodaje,
+    # onda mora proći; program automatski možda ne treba, ali ručno mora proći"): the owner's own buy (and his DCA
+    # orders) no longer pass the lists' live gate (activity, volume, the 1-h drop) nor the callers' veto; those stay
+    # for the lists and the copies. What stays: a price exists, the pool is not rugged (above), the 30k MC rule
+    # (CLAUDE.md), and the limits the real swap keeps (stake, day, cost cap).
+    mc_now = mcap
+    try:
+        from ui import prijedlog
+        lv = prijedlog.live_market([token]) or {}
+        mc_now = (lv.get(token) or {}).get("mcap") or mcap
+    except Exception:  # noqa: BLE001 - DexScreener down: the market() reading above decides
+        pass
+    if mc_now and mc_now < 30_000:
+        raise ValueError(f"kupnja odbijena: MC ${mc_now:,.0f}, ispod 30k")
     # 9.11. (audit N4/N10): everything is checked BEFORE the demo trade is written. A ValueError used to come after
     # store.buy, so the page showed the error while the position already existed, without an exit rule, and
     # run_trade mirrored it (for real in LIVE); a stake above max_sol_per_trade was accepted here and silently
