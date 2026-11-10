@@ -138,6 +138,8 @@ def merged(cfg, con):
     out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
     out["sl_default"] = int(s.get("sl_default") or SL_DEFAULT)
     out["last_exit"] = s.get("last_exit") or {}   # 10.11. (Jure): the TP / SL the owner used last, for the next order
+    out["buy_orders"] = s.get("buy_orders") or []   # 10.11. (Jure): buy orders at a market cap (ui/pravitrade.limit_once)
+    out["buy_log"] = s.get("buy_log") or []
     return out
 
 
