@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS calls (
     PRIMARY KEY (tweet_id, token));
 CREATE INDEX IF NOT EXISTS calls_token ON calls (token, ts);
 CREATE INDEX IF NOT EXISTS calls_handle ON calls (handle, ts);
+CREATE INDEX IF NOT EXISTS calls_ts ON calls (ts);
 CREATE TABLE IF NOT EXISTS kols (
     handle TEXT PRIMARY KEY, name TEXT, followers INTEGER, verified INTEGER, first_seen INTEGER, last_seen INTEGER,
     score REAL, power_rel REAL, stats TEXT, updated INTEGER);

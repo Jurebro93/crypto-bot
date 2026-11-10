@@ -84,6 +84,71 @@ def strategies(now=None):
             "rank": sorted(summ, key=lambda s: -s["value"])}
 
 
+def _real(s, bankroll):
+    """What a real $1,000 account would hold: the no-borrowing replay of the closed trades (strat/robust.portfolio).
+    The research ledger keeps buying below $0 so a strategy collects trades to learn from (config cash_limit false);
+    that number can read "-377 %" of a $1,000 account, which no real account can do (9.11., Jure: be self-critical)."""
+    pf = s.get("portfolio") or {}
+    v = pf.get("value")
+    if v is None:
+        return s["value"], s["ret"]
+    return v, v / bankroll - 1
+
+
+def _strategy_info(st, best, winners, hidden, control):
+    """The pop-up behind "Vidi više": what is measured, how to read it, and the conclusion for the leader."""
+    cfg = st["cfg"]
+    rb = best.get("robust") or {}
+    pf = best.get("portfolio") or {}
+    stt = best.get("status") or ()
+    n_all = len(st["rank"])
+    hit = f"{best['hit']:.0%}" if best.get("hit") is not None else "–"
+    p15 = f"{best['p15']:.0%}" if best.get("p15") is not None else "–"
+    ctrl = (f"Nasumični ulaz (kontrola) iz istog skenera stoji na {_pct(control['ret'])} nakon {control['closed']} "
+            f"zatvorenih: toliko gubi tržište samo po sebi u ovom razdoblju." if control else
+            "Nasumična kontrola još nema zatvorenih tradeova.")
+    conc = ""
+    if rb:
+        if rb.get("concentrated"):
+            conc = (f"Ukupno zatvoreno {rb['total']:+,.0f} $, ali najbolji trade nosi {rb['best']:+,.0f} $; bez njega "
+                    f"{rb['no_best']:+,.0f} $, bez 5 najboljih {rb['no_top5']:+,.0f} $. <b>Rezultat ovisi o jednom tradeu</b>, "
+                    "to nije dokaz da pravilo radi.")
+        else:
+            conc = (f"Ukupno zatvoreno {rb['total']:+,.0f} $; bez najboljeg tradea {rb['no_best']:+,.0f} $, bez 5 najboljih "
+                    f"{rb['no_top5']:+,.0f} $.")
+    skipped = (f" ({pf['skipped']} ulaza preskočeno jer na računu nije bilo novca)" if pf.get("skipped") else "")
+    verdict = f"<b>{esc(stt[1])}</b> · {esc(stt[2])}" if len(stt) >= 3 else "–"
+    body = (
+        f"<h3>Što se mjeri</h3>"
+        f"<p>{n_all} odvojenih demo računa po ${cfg['bankroll_usd']:,.0f}, od {st['days']:.0f} dana. Svaki kupuje po jednom "
+        f"pravilu (izvoru signala), s ulogom ${cfg.get('size_usd', 50)} po ulazu, a svi izlaze po istim pravilima: za tokene "
+        f"ispod 1 M $ pola se proda na +15 %, ostatak prati stop 15 % ispod vrha, stop −25 %; za tokene iznad 1 M $ stop −20 % "
+        f"i ljestvica +15 % / +30 %. Cijene su demo cijene s DexScreenera i GeckoTerminala, s troškom 1 % po strani. "
+        f"Nikad pravi novac.</p>"
+        f"<h3>Kako čitati brojke</h3>"
+        f"<ul><li><b>S pravih ${cfg['bankroll_usd']:,.0f}</b>: isti zatvoreni tradeovi ponovljeni s fiksnim računom bez "
+        f"posuđivanja; ulaz za koji nema gotovine se preskače. To je broj na ovoj kartici.</li>"
+        f"<li><b>Istraživačka knjiga</b>: račun koji kupuje i kad potroši novac, da strategija skupi dovoljno tradeova za "
+        f"učenje; zato na stranici Usporedba strategija može pasti ispod nule. Nije rezultat koji bi pravi račun imao.</li>"
+        f"<li><b>Tradeova u plusu</b>: udio zatvorenih tradeova s dobiti. <b>≥ +15 %</b>: udio koji je dosegao +15 %.</li>"
+        f"<li><b>Presuda</b>: <i>uči</i> dok nema 100 zatvorenih; <i>kandidat</i> tek kad po tradeu pobjeđuje nasumični ulaz, "
+        f"u obje polovice razdoblja i bez 5 najboljih tradeova; inače <i>ne diraj pravi novac</i>. Kandidat znači daljnje "
+        f"testiranje, ne pravi novac.</li>"
+        f"<li>Ovdje su samo strategije u plusu; {hidden} ih je u minusu ili bez tradeova i vide se na punoj stranici.</li></ul>"
+        f"<h3>Zaključak za {esc(best['icon'])} {esc(best['name'])}</h3>"
+        f"<p>S pravih ${cfg['bankroll_usd']:,.0f}: <b>${pf.get('value', best['value']):,.0f}</b>{skipped}. "
+        f"{best['closed']} zatvorenih, {hit} u plusu, {p15} doseglo +15 %. {conc}</p>"
+        f"<p>{ctrl}</p><p>Presuda: {verdict}.</p>"
+        f"<h3>Što još nije pouzdano</h3>"
+        f"<p>Otvorene pozicije vrijede po zadnjoj viđenoj cijeni, a za mrtve tokene ta cijena može biti stara. Demo ne "
+        f"plaća pravi slippage pri ulazu u tanke tokene. Razdoblje je kratko ({st['days']:.0f} dana) i jedno tržišno "
+        f"stanje; presuda se mijenja kad kontrola i strategije skupe više tradeova.</p>")
+    return ("<dialog id=strat-info><div class=bar2><button onclick=\"this.closest('dialog').close()\">Zatvori ✕</button></div>"
+            f"<div class=body>{body}</div></dialog>"
+            "<script>(function(){var d=document.getElementById('strat-info');if(d)d.addEventListener('click',function(e){"
+            "if(e.target===d)d.close()})})()</script>")
+
+
 def strategy_html(now=None):
     try:
         st = strategies(now)
@@ -93,30 +158,56 @@ def strategy_html(now=None):
         return ("<div class=ov-hero><div class=k>Najprofitabilnija strategija</div><div class=s>Pet demo računa po $1000 "
                 "još nema nijedan trade. Prvi ulazi dolaze unutar par minuta nakon pokretanja.</div>"
                 "<div class=s><a href=/strategije>Usporedba strategija →</a></div></div>")
-    cfg, rank = st["cfg"], st["rank"]
+    cfg = st["cfg"]
+    bankroll = cfg["bankroll_usd"]
+    # 9.11. (Jure: be self-critical): the card ranks by what a real $1,000 would hold (no borrowing), not by the
+    # research ledger, which keeps buying below $0 and showed "-377 %" accounts; see _real() and the pop-up
+    rows = []
+    for s in st["rank"]:
+        v, r = _real(s, bankroll)
+        rows.append({**s, "real_value": v, "real_ret": r})
+    control = next((s for s in rows if s["key"] == "kontrola"), None)
+    rank = sorted((s for s in rows if s["key"] != "kontrola"), key=lambda s: -s["real_value"]) or rows
     best = rank[0]
     total = sum(s["closed"] for s in rank)
-    profit = best["value"] - cfg["bankroll_usd"]
+    profit = best["real_value"] - bankroll
     hit = f"{best['hit']:.0%}" if best["hit"] is not None else "–"
     early = (f"<div class=s>⏳ Još je rano: zatvoreno {total} tradeova. Pouzdan pobjednik treba ~20 zatvorenih po "
              "strategiji.</div>" if total < 20 * len(rank) else "")
-    lead = "vodi" if best["ret"] > 0 else "najmanje gubi"
+    lead = "vodi" if best["real_ret"] > 0 else "najmanje gubi"
     # the same verdict as on /strategije (strat/robust.py): "uči" until 100 closed trades, "kandidat" only when it
     # beats the random control; without it "+342 %" on 33 trades read as a proven winner (4.11.)
     stt = best.get("status") or ()
     verdict = (f'<div class=s>Presuda: <b>{esc(stt[1])}</b> · {esc(stt[2])}</div>' if len(stt) >= 3 else "")
+    rb = best.get("robust") or {}
+    conc = (f'<div class=s>⚠ Bez najboljeg tradea: <b>{rb["no_best"]:+,.0f} $</b>. Plus nosi jedan trade.</div>'
+            if rb.get("concentrated") else "")
     d7 = (f" · zadnjih 7 dana {_pct(best['d7'])}" if best.get("d7") is not None else "")
     d24 = (f" · zadnja 24 h {_pct(best['d24'])}" if best.get("d24") is not None else "")
-    others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["ret"])} · '
-                     f'${s["value"]:,.0f}</span></li>' for i, s in enumerate(rank[1:], 2))
-    return (f'<div class=ov-hero><div class=k>Najprofitabilnija strategija · {lead}</div>'
+    # 9.11. (audit P69): d24/d7 come from the equity snapshots of the research ledger (open positions at mark, buys
+    # below $0), not from the "s pravih $1000" replay the card ranks by; say so instead of mixing the two books
+    if d24 or d7:
+        d7 += (' <span class=mut title="Promjena istraživačke knjige (equity snimke: otvorene pozicije po zadnjoj cijeni, '
+               'kupnje i kad nema gotovine), ne replaya s pravih $1000; dok račun ne ostane bez gotovine brojke se poklapaju">'
+               '(istraživačka knjiga)</span>')
+    # 9.11. (Jure): only strategies in profit are listed here; the losers are a count and a link, the full table is
+    # on /strategije. A reader deciding what to follow does not need twelve red rows.
+    winners = [s for s in rank[1:] if s["real_ret"] > 0 and s["closed"]]
+    hidden = len(rank) - 1 - len(winners)
+    others = "".join(f'<li><span>{i}. {esc(s["icon"])} {esc(s["name"])}</span><span>{_pct(s["real_ret"])} · '
+                     f'${s["real_value"]:,.0f}</span></li>' for i, s in enumerate(winners, 2))
+    rest = (f'<div class=s>Još {hidden} strategija je u minusu ili bez tradeova; ovdje se ne prikazuju.</div>' if hidden else "")
+    return (f'<div class=ov-hero><div class=k>Najprofitabilnija strategija · {lead} · s pravih ${bankroll:,.0f}</div>'
             f'<div class=n>{esc(best["icon"])} {esc(best["name"])}</div>'
-            f'<div class="r {"pos" if best["ret"] > 0 else "neg" if best["ret"] < 0 else ""}">{best["ret"]:+.1%}</div>'
-            f'<div class=s>${cfg["bankroll_usd"]:,.0f} → <b>${best["value"]:,.0f}</b> ({profit:+,.0f} $) za '
+            f'<div class="r {"pos" if best["real_ret"] > 0 else "neg" if best["real_ret"] < 0 else ""}">{best["real_ret"]:+.1%}</div>'
+            f'<div class=s>${bankroll:,.0f} → <b>${best["real_value"]:,.0f}</b> ({profit:+,.0f} $) za '
             f'{st["days"]:.1f} dana{d24}{d7}</div>'
-            f'<div class=s>{best["closed"]} zatvorenih tradeova, u plusu {hit} · {esc(best.get("opis") or "")}</div>'
-            f'{verdict}{early}<ul class=ov-rank>{others}</ul>'
-            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a></div></div>')
+            f'<div class=s>{best["closed"]} zatvorenih tradeova, {hit} tradeova u plusu · {esc(best.get("opis") or "")}</div>'
+            f'{verdict}{conc}{early}' + (f'<ul class=ov-rank>{others}</ul>' if others else "") + rest +
+            '<div class=s style="margin-top:10px"><a href=/strategije>Sve strategije, graf i tradeovi →</a> · '
+            '<a href="#" onclick="document.getElementById(\'strat-info\').showModal();return false">'
+            'Vidi više: što se mjerilo, kako i zaključak</a></div></div>'
+            + _strategy_info(st, best, winners, hidden, control))
 
 
 # ---------- 2. how much data, and growth against last week ----------
@@ -176,7 +267,8 @@ def metrics(now=None):
     for icon, label, href, path, table, col, where in (
             ("📣", "Influenceri (X)", "/kol", kol_store.DB, "kols", "first_seen", not_x),
             ("🗣", "Pozivi influencera (X + Telegram)", "/kol", kol_store.DB, "calls", "ts", "kind = 'call'"),
-            ("👛", "Kupnje i prodaje praćenih novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
+            # 9.11. (audit P70): calls buy/sell come from every Helius-webhook wallet (leaderboard), not only followed ones
+            ("👛", "Kupnje i prodaje svih webhook novčanika", "/kol", kol_store.DB, "calls", "ts", "kind IN ('buy', 'sell')"),
             ("⚡", "Kupnje i prodaje u živom toku (PumpPortal, zadnjih 48 h)", "/izvori", hype_db_path(), "live_trades", "ts", "1=1"),
             ("🎓", "Tokeni koji su bondali (živi tok)", "/izvori", hype_db_path(), "live_launches", "ts", "pool = 'migration'"),
             # 5.11.: the same number /izvori shows as "aktivnih Telegram kanala" (status 'active'); the page counted
@@ -309,16 +401,25 @@ def _hl_kol():
     if con is None:
         return None
     try:
-        k = core.top_kols(con, n=1)
+        ks = core.top_kols(con, n=5)
     finally:
         con.close()
-    if not k:
+    if not ks:
         return None
-    k = k[0]
+    # 9.11. (audit P43): among the top accounts by call power, the one with the best +15 % before the stop on the
+    # minute measure (kol/minute, the measure the real-money follows are chosen by); the 24-h fuse is the old measure
+    from ui.kol import minute_stats
+    ms, hot = minute_stats()
+    k = max(ks, key=lambda x: ((ms.get(x["handle"]) or {}).get("hit15", -1), x["score"] or 0))
     s = k["s"]
+    m = ms.get(k["handle"])
+    minute = (f' Minutna provjera: +15 % prije stopa {m["hit15"]:.0%}, stop prvi {m["sl"]:.0%} na {m["n"]} poziva'
+              + (" · 🔥 vruća lista" if k["handle"] in hot else "") + "." if m else
+              " Minutna provjera još nema njegovih poziva.")
     return _hl("📣", "Najbolji influencer",
                f'{klink(k["handle"])}: od {s.get("measured", 0)} izmjerenih poziva {(s.get("hit_rate") or 0):.0%} '
-               f'naraste, medijan vrha u 24 h {_pct(s.get("med_max24"), 0)}.', "/kol", "Svi influenceri")
+               f'naraste +50 % u 24 h (stara mjera), medijan vrha u 24 h {_pct(s.get("med_max24"), 0)}.{minute}',
+               "/kol", "Svi influenceri")
 
 
 def _hl_converge(now):
@@ -328,24 +429,36 @@ def _hl_converge(now):
     if con is None:
         return None
     skip = converge.majors()   # WBTC & co. are not "called"; they are what wallets trade through
+    try:   # 9.11. (audit P71): rugged-and-archived tokens are out, like on every other page
+        from rugfilter import archive
+        gone = archive.blocked()
+    except Exception:  # noqa: BLE001
+        gone = frozenset()
     try:
+        # 9.11. (audit P71): the same symbol rule as the Autopilot (kol/converge.not_a_memecoin: wrapped assets,
+        # xStocks), so a COINx cannot be the page's hot token while the Autopilot refuses it; the 24-h window stays
+        # (the page is pre-rendered for everyone and a 30-min window would mostly be empty)
         r = next((row for row in con.execute(
             "SELECT c.token, t.symbol, c.n_x, c.n_tg, c.n_chain, c.ts FROM converge c "
             "LEFT JOIN tokens t ON t.token = c.token WHERE c.ts >= ? "
             "ORDER BY (COALESCE(c.n_x,0) + COALESCE(c.n_tg,0) + COALESCE(c.n_chain,0)) DESC, c.score DESC LIMIT 20",
-            (now - 86400,)) if row[0] not in skip), None)
+            (now - 86400,)) if row[0] not in skip and row[0] not in gone
+            and not converge.not_a_memecoin(row[0], row[1])), None)
     except sqlite3.Error:
         return None
     finally:
         con.close()
     if not r:
         return None
-    tok, sym, nx, ntg, nch, _ = r
-    parts = [f"{n} {w}" for n, w in ((nx, "na X-u"), (ntg, "na Telegramu"), (nch, "novčanika")) if n]
+    tok, sym, nx, ntg, nch, cts = r
+    # n_chain counts every webhook wallet (kol/converge), not only the followed ones: say so
+    parts = [f"{n} {w}" for n, w in ((nx, "na X-u"), (ntg, "na Telegramu"), (nch, "webhook novčanika")) if n]
     if not parts:
         return None
+    from ui.html import ago
+    when = f' <span class=mut>(zadnji poziv {ago(cts)[0]})</span>' if cts else ""
     return _hl("🔥", "Najviše izvora zove isti token (24 h)",
-               f'{tlink(tok, sym)}: {", ".join(parts)}.', f"/token/{tok}", "Analiza tokena")
+               f'{tlink(tok, sym)}: {", ".join(parts)}.{when}', f"/token/{tok}", "Analiza tokena")
 
 
 def _hl_wallets(now):
@@ -362,8 +475,36 @@ def _hl_wallets(now):
         con.close()
     if not b and not s:
         return None
-    return _hl("👛", "Praćeni novčanici u zadnja 24 h",
-               f"<b class=pos>{b:,}</b> kupnji i <b class=neg>{s:,}</b> prodaja.", "/wallets", "Tko je kupio")
+    # 9.11. (audit P70): kol.db calls buy/sell are the swaps of ALL ~100 webhook wallets (data for the leaderboards);
+    # the Autopilot's "praćeni" are only the wallets the real-money account follows plus the proven-twice list
+    # (ui/pravitrade.followed_wallets), so the two populations get two names and two numbers
+    extra = _followed_buys(now)
+    return _hl("👛", "Svi webhook novčanici u zadnja 24 h",
+               f"<b class=pos>{b:,}</b> kupnji i <b class=neg>{s:,}</b> prodaja (svih praćenih leaderboard novčanika)."
+               + (f' Praćeni + dokazani (Autopilot): <b>{extra:,}</b> kupnji · <a href="/pravi-trade#zovu">Zovu sada</a>.'
+                  if extra is not None else ""), "/wallets", "Tko je kupio")
+
+
+def _followed_buys(now):
+    """Buys in the last 24 h of the wallets the Autopilot counts as calls (follows + proven twice), from hype.db
+    chain_trades like pravitrade.gather_callers; None when nothing is followed or the sources are missing."""
+    try:
+        from ui import pravitrade
+        from league import copy
+        followed = sorted(pravitrade.followed_wallets())
+        if not followed:
+            return None
+        con = _ro(copy._paths()["hype"])
+        if con is None:
+            return None
+        try:
+            q = ",".join("?" * len(followed))
+            return con.execute(f"SELECT COUNT(*) FROM chain_trades WHERE side = 'buy' AND ts >= ? AND wallet IN ({q})",
+                               (int(now) - 86400, *followed)).fetchone()[0]
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - the highlight works without the Autopilot number
+        return None
 
 
 def _hl_strategy_trade(now):

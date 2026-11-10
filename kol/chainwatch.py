@@ -149,6 +149,15 @@ def wanted(con, cfg, wallet_db=None):
         if w not in seen:
             seen.add(w)
             out.append(w)
+    try:   # 9.11.: the proven-twice copyable wallets (wallets/dokazani.py) come before every leaderboard group
+        from wallets import dokazani as _dok
+        proven = sorted(_dok.current(wallet_db))
+    except Exception:  # noqa: BLE001
+        proven = []
+    for w in proven[:max(1, cap // 2)]:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
     busy = too_busy(set(ids) | set(copy) | set(signal) | set(ins), wallet_db) - set(followed)
     groups = [([w for w in ws if w not in busy], sh) for ws, sh in
               ((ids, share["ids"]), (copy, share["copy"]), (signal, share["signal"]), (ins, share.get("insajderi", 0)))]
@@ -251,19 +260,124 @@ def parse_transfers(events, wallets=None):
     return out
 
 
-def ingest(payload, hype_db=None):
-    """Called by the dashboard for each POST to /hook/chain."""
-    rows = parse(payload)
-    transfers = parse_transfers(payload)
-    con = sqlite3.connect(hype_db or HYPE_DB, timeout=60)
+PRUNE_EVERY_S = 3600   # 9.11. (audit P21): retention DELETEs at most hourly, not in every webhook handler
+_PRUNED = {"ts": 0.0}
+
+
+def spool_dir(hype_db=None):
+    """9.11. (audit P21): payloads that could not be written (hype.db locked: VACUUM, slim, other writers) wait here,
+    next to the real hype.db file (realpath: start.sh symlinks it into $DATA_DIR); drain() copies them in."""
+    return os.path.join(os.path.dirname(os.path.realpath(hype_db or HYPE_DB)), "chain_spool")
+
+
+def spool(payload, hype_db=None, now=None, log=print):
+    try:
+        d = spool_dir(hype_db)
+        os.makedirs(d, exist_ok=True)
+        # pid + random tail: two dashboard threads in the same millisecond must not overwrite each other (review izvori)
+        path = os.path.join(d, f"{int((now or time.time()) * 1000)}-{os.getpid()}-{os.urandom(4).hex()}.json")
+        with open(path, "w") as f:
+            json.dump(payload, f)
+        log(f"chain: hype.db zauzet, event čeka u spoolu ({os.path.basename(path)})", flush=True)
+        return path
+    except OSError as e:
+        log(f"chain: spool nije uspio: {e}", flush=True)
+        return None
+
+
+def drain(hype_db=None, log=print, max_files=200, timeout=None):
+    """Spooled webhook payloads -> hype.db (the next successful ingest and run_kol collect). Returns rows written;
+    a file stays when hype.db is still locked. `timeout`: sqlite busy wait (the webhook handler passes a short one)."""
+    d = spool_dir(hype_db)
+    try:
+        names = sorted(os.listdir(d))[:max_files]
+    except OSError:
+        return 0
+    n = 0
+    for name in names:
+        path = os.path.join(d, name)
+        try:
+            with open(path) as f:
+                payload = json.load(f)
+        except (OSError, ValueError):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        try:
+            n += ingest(payload, hype_db, _spool=False, timeout=timeout)
+        except sqlite3.OperationalError:
+            break
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if n:
+        log(f"chain: {n} redaka iz spoola", flush=True)
+    return n
+
+
+_ENSURED = set()   # 9.11. (review izvori): hype.db paths whose chain tables this process has created
+
+
+def _create(con):
     con.execute("""CREATE TABLE IF NOT EXISTS chain_trades (sig TEXT, wallet TEXT, mint TEXT, side TEXT, ts INTEGER,
                    sol REAL, PRIMARY KEY (sig, mint))""")
     con.execute("""CREATE TABLE IF NOT EXISTS chain_transfers (sig TEXT, src TEXT, dst TEXT, mint TEXT, amount REAL,
                    ts INTEGER, PRIMARY KEY (sig, src, dst, mint))""")
-    con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
-    con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
-    con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))
-    con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(time.time()) - KEEP_DAYS * 86400,))
-    con.commit()
-    con.close()
+    con.execute("CREATE INDEX IF NOT EXISTS chain_trades_ts ON chain_trades (ts)")   # 9.11.: the live callers box reads by time
+
+
+def ensure_tables(hype_db=None):
+    """Create chain_trades/chain_transfers once per process (the early return for payloads without swaps skipped it,
+    so a fresh install had no tables until the first real swap). A locked hype.db is not waited for."""
+    path = hype_db or HYPE_DB
+    if path in _ENSURED:
+        return
+    try:
+        con = sqlite3.connect(path, timeout=1)
+        _create(con)
+        con.commit()
+        con.close()
+        _ENSURED.add(path)
+    except sqlite3.OperationalError:
+        pass
+
+
+def ingest(payload, hype_db=None, _spool=True, timeout=None):
+    """Called by the dashboard for each POST to /hook/chain. 9.11. (audit P21): on 'database is locked' the payload
+    goes to the spool and the count comes back, so the dashboard answers 200 and the event is written later."""
+    rows = parse(payload)
+    transfers = parse_transfers(payload)
+    if not rows and not transfers:
+        ensure_tables(hype_db)   # 9.11. (review izvori): a fresh install gets the tables before the first real swap
+        return 0
+    try:
+        con = sqlite3.connect(hype_db or HYPE_DB, timeout=timeout or (60 if not _spool else 10))
+        _create(con)
+        con.executemany("INSERT OR IGNORE INTO chain_trades VALUES (?,?,?,?,?,?)", rows)
+        con.executemany("INSERT OR IGNORE INTO chain_transfers VALUES (?,?,?,?,?,?)", transfers)
+        now = time.time()
+        if now - _PRUNED["ts"] >= PRUNE_EVERY_S:
+            con.execute("DELETE FROM chain_trades WHERE ts < ?", (int(now) - KEEP_DAYS * 86400,))
+            con.execute("DELETE FROM chain_transfers WHERE ts < ?", (int(now) - KEEP_DAYS * 86400,))
+            _PRUNED["ts"] = now
+        con.commit()
+        con.close()
+    except sqlite3.OperationalError:
+        if _spool and spool(payload, hype_db) is not None:
+            return len(rows) + len(transfers)
+        raise
+    if _spool:
+        try:   # the file is free now: earlier spooled events go in too (short wait: this is the webhook thread)
+            drain(hype_db, timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+    if rows:
+        try:
+            from league import copy as _copy   # 9.11.: the copy loop runs now, not at its next tick
+            _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
     return len(rows) + len(transfers)

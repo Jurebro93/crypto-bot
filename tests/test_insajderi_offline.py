@@ -105,7 +105,8 @@ class Signal(unittest.TestCase):
     def test_strategy_enters_and_exits_with_the_insiders(self):
         from strat import run, store
         cfg = run.load_config()
-        cfg = {**cfg, "strategies": [s for s in cfg["strategies"] if s["key"] in ("insajderi", "kontrola")]}
+        # 9.11.: the strategy is frozen in the shipped config (−45,7 %); the signal path is tested unfrozen
+        cfg = {**cfg, "strategies": [{**s, "frozen": False} for s in cfg["strategies"] if s["key"] in ("insajderi", "kontrola")]}
         path = os.path.join(self.tmp, "strat.db")
 
         class Src:

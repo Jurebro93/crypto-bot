@@ -8,8 +8,8 @@ process that ends and gives its memory back; this process only keeps the clock. 
   learn6  run_learn.py fit --samo-tezine  hype weights every learn/config.json every_h hours (default 6)
   exits   run_exits.py fit      once a day after exits/config.json run_at_utc (UTC), checked every 5 min
   exits_rb run_exits.py rollback every exits/config.json rollback_every_h hours: a losing exit profile goes back fast
-  market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60)
-  usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15)
+  market  run_market.py collect every MARKET_EVERY_MIN minutes (default 60); light (no heavy lock, 9.11.)
+  usage   run_usage.py tick     every USAGE_EVERY_MIN minutes (default 15); light (no heavy lock, 9.11.)
   corr    run_corr.py run       every CORR_EVERY_MIN minutes (default 60)
   postai  run_learn.py postai   every POSTAI_EVERY_MIN minutes (default 30): AI labels of KOL/TG posts (learn/postai.py)
   shadow  run_learn.py shadow   every SHADOW_EVERY_MIN minutes (default 60): shadow book points + labels (learn/shadow.py)
@@ -41,15 +41,26 @@ def run(name, args, light=False):
 LIGHT_START_DELAY_S = float(os.environ.get("SCHED_LIGHT_DELAY_S", "180"))
 
 
-def every(name, args, minutes, light=False):
+def night_ok(night):
+    """9.11. (Jure: heavy jobs after midnight only): a job marked night runs only inside ops/heavy.NIGHT (Zagreb)."""
+    if not night:
+        return True
+    from ops import heavy
+    return heavy.night_now()
+
+
+def every(name, args, minutes, light=False, night=False):
     # 7.11. 16:13: a light job starts the moment the scheduler does, i.e. in the middle of start.sh's database
     # maintenance (WAL, pruning: 67 s with hype.db write-locked); the token status died on "database is locked".
     # Light jobs now wait LIGHT_START_DELAY_S first.
     if light:
         time.sleep(LIGHT_START_DELAY_S)
     while True:
-        run(name, args, light=light)
-        time.sleep(minutes * 60)
+        if night_ok(night):
+            run(name, args, light=light)
+            time.sleep(minutes * 60)
+        else:
+            time.sleep(300)   # outside the night window: look again in 5 min
 
 
 STATE = os.path.join(os.environ.get("DATA_DIR") or ROOT, "sched_state.json")
@@ -103,15 +114,15 @@ def daily(name, args, config, due=None):
         time.sleep(300)
 
 
-def every_hours(name, args, config, key="every_h"):
+def every_hours(name, args, config, key="every_h", night=False):
     """Every config `key` hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
-    re-run it each time."""
+    re-run it each time. night (9.11.): due or not, it waits for the night window (ops/heavy.NIGHT)."""
     while True:
         try:
             with open(os.path.join(ROOT, config)) as f:
                 hours = float(json.load(f).get(key) or 0)
             last = _last_day(name)
-            if hours and (not isinstance(last, (int, float)) or time.time() - last >= hours * 3600):
+            if hours and night_ok(night) and (not isinstance(last, (int, float)) or time.time() - last >= hours * 3600):
                 run(name, args)
                 _set_last_day(name, time.time())
         except Exception as e:  # noqa: BLE001
@@ -151,19 +162,26 @@ def whatsapp(name, args, minutes):
         time.sleep(minutes * 60)
 
 
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): everything that recomputes or learns (learn6, exits rollback,
+# shadow, corr) runs only in the night window (ops/heavy.NIGHT, 01-06 Zagreb); the daily fits moved into it
+# (learn/config.json run_at_utc 02:30, exits/config.json 03:30). By day only the light, fresh jobs run: market,
+# usage, masovno (light, night-aware itself), postai (API-bound, light since 9.11.), token status.
 JOBS = [
     ("learn", daily, (["run_learn.py", "fit"], "learn/config.json")),
-    ("learn6", every_hours, (["run_learn.py", "fit", "--samo-tezine"], "learn/config.json")),
+    ("learn6", every_hours, (["run_learn.py", "fit", "--samo-tezine"], "learn/config.json", "every_h", True)),
     ("exits", daily, (["run_exits.py", "fit"], "exits/config.json", exits_refit)),
-    ("exits_rb", every_hours, (["run_exits.py", "rollback"], "exits/config.json", "rollback_every_h")),
-    ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")))),
-    ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")))),
+    ("exits_rb", every_hours, (["run_exits.py", "rollback"], "exits/config.json", "rollback_every_h", True)),
+    # 9.11. (audit P63): market and usage are small HTTP reads (tens of MB) and were queued behind the KOL round for up
+    # to 42 min, so the macro gate (market/makro.py, 3 h window) and the spend warnings aged by an hour: light, no lock
+    ("market", every, (["run_market.py", "collect"], float(os.environ.get("MARKET_EVERY_MIN", "60")), True)),
+    ("usage", every, (["run_usage.py", "tick"], float(os.environ.get("USAGE_EVERY_MIN", "15")), True)),
     ("whatsapp", whatsapp, (["run_whatsapp.py", "due"], 10)),
-    ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")))),
+    ("shadow", every, (["run_learn.py", "shadow"], float(os.environ.get("SHADOW_EVERY_MIN", "60")), False, True)),
     # 5.11.: mass shadow book (learn/masovno.py): thousands of invisible trades a day; history at night 01-06 Zagreb
     ("masovno", every, (["run_learn.py", "masovno"], float(os.environ.get("MASOVNO_EVERY_MIN", "30")), True)),
-    ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")))),
-    ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")))),
+    # 9.11.: AI labels wait on the Haiku API (little CPU, little memory) and were queued behind the KOL round: light
+    ("postai", every, (["run_learn.py", "postai"], float(os.environ.get("POSTAI_EVERY_MIN", "30")), True)),
+    ("corr", every, (["run_corr.py", "run"], float(os.environ.get("CORR_EVERY_MIN", "60")), False, True)),
     # 7.11.: token status (DexScreener pair still there? exact pair page, fresh mcap, GeckoTerminal fallback)
     # light too (11:00): 30 DexScreener calls + up to 120 GeckoTerminal lookups; behind the KOL round it waited 12+ min
     # and never ran all morning. GeckoTerminal 429s are a shared cross-process cooldown (event_calendar/http).

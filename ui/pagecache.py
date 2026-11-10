@@ -20,7 +20,8 @@ FRESH_S = int(os.environ.get("UI_CACHE_FRESH_S", "45"))
 STALE_S = int(os.environ.get("UI_CACHE_STALE_S", "900"))
 MAX_ENTRIES = 60
 MAX_MB = float(os.environ.get("UI_CACHE_MAX_MB", "25"))   # gzipped bytes kept in all entries together
-BUILDS = int(os.environ.get("UI_BUILDS", "2"))            # pages built at the same time (each holds its rows in RAM)
+BUILDS = int(os.environ.get("UI_BUILDS", "1"))            # pages built at the same time (each holds its rows in RAM);
+                                                          # 9.11.: one at a time, two children + corr + ui came near 2 GiB
 SLOW_S = 2.0
 _data = os.environ.get("DATA_DIR")
 SNAP_DIR = os.environ.get("UI_SNAP_DIR") or (os.path.join(_data, "pagecache") if _data else "")
@@ -72,11 +73,25 @@ def _snap_file(key):
     return os.path.join(SNAP_DIR, (key[0].strip("/").replace("/", "_") or "index") + ".html.gz")
 
 
+def _same_snapshot(f, gz):
+    """True when the file already holds this page (gzip bytes differ per call because of the header time, so the
+    contents are compared). run_ui._last_copy serves the old snapshot as a 200 and _build would save it again with
+    a new mtime, so the copy would never count as older than SNAP_MAX_S while the heavy lock stays busy (9.11.)."""
+    try:
+        with open(f, "rb") as fh:
+            old = fh.read()
+        return gzip.decompress(old) == gzip.decompress(gz)
+    except (OSError, EOFError, gzip.BadGzipFile, ValueError):
+        return False
+
+
 def _save_snap(key, gz):
     f = _snap_file(key)
     if not f:
         return
     try:
+        if _same_snapshot(f, gz):   # 9.11. (audit P33 review): a served-again old copy keeps its age
+            return
         os.makedirs(SNAP_DIR, exist_ok=True)
         tmp = f + ".tmp"
         with open(tmp, "wb") as fh:
@@ -86,12 +101,15 @@ def _save_snap(key, gz):
         pass
 
 
-def _load_snap(key):
-    """(ts, 200, None, gz) from disk, dated so it counts as stale (a refresh starts), or None."""
+def _load_snap(key, stale_ok=False):
+    """(ts, 200, None, gz) from disk, dated so it counts as stale (a refresh starts), or None.
+    stale_ok: also a copy saved before the last clear() (a POST changed data since). 9.11. 18:08: a follow click
+    cleared the cache while the KOL round held the heavy lock, so Pregled was a 503 for 20 min instead of the copy
+    from 18:01 - the page shows its own build time, an older copy beats "try again in a minute"."""
     f = _snap_file(key)
     try:
         mt = os.path.getmtime(f) if f else 0
-        if not f or time.time() - mt > SNAP_MAX_S or mt < _cleared_at:   # a POST changed data since
+        if not f or time.time() - mt > SNAP_MAX_S or (mt < _cleared_at and not stale_ok):
             return None
         with open(f, "rb") as fh:
             gz = fh.read()
@@ -138,8 +156,8 @@ def get(key, build):
     now = time.time()
     with _lock:
         hit = _store.get(key)
-    if hit is None:   # right after a deploy: the copy saved on disk, refreshed in the background below
-        snap = _load_snap(key)
+    if hit is None:   # right after a deploy (or a POST's clear): the copy saved on disk, refreshed in the background
+        snap = _load_snap(key, stale_ok=True)   # 9.11. 19:05: waiting for a fresh build took 60 s+ behind the heavy lock
         if snap:
             with _lock:
                 hit = _store.setdefault(key, snap)
@@ -159,6 +177,38 @@ def get(key, build):
     return _render(key, build)[1:]   # older than STALE_S: rebuilt now, so a broken build shows its error, not old data
 
 
+def get_bg(key, build, placeholder):
+    """Like get(), but a page that is in neither memory nor on disk is rendered in the background and placeholder()
+    -> (code, raw bytes) is returned at once; a copy older than STALE_S is served while it is refreshed instead of
+    rebuilt while the visitor waits. For the HEAVY pages (run_ui): 9.11. 19:32 a visitor waited 60-180 s for the
+    child, Cloudflare gave up at 100 s, and the UI process was meanwhile pushed past the memory watchdog."""
+    with _lock:
+        hit = _store.get(key)
+    if hit is None:
+        snap = _load_snap(key, stale_ok=True)
+        if snap:
+            with _lock:
+                hit = _store.setdefault(key, snap)
+    now = time.time()
+    with _lock:
+        hit = _store.get(key)
+        age = now - hit[0] if hit else None
+        start_bg = (hit is None or age >= FRESH_S) and key not in _busy
+        if start_bg:
+            _busy.add(key)
+    if start_bg:
+        threading.Thread(target=_refresh, args=(key, build), daemon=True, name="page-refresh").start()
+    if hit:
+        return hit[1:]
+    code, raw = placeholder()
+    return code, raw, None
+
+
+def snapshot(paths):
+    """Keep the plain view of `paths` on disk like warm() does, without rendering them now (9.11.: /ekipe, /kol)."""
+    _snap_paths.update(paths)
+
+
 def clear():
     global _cleared_at
     _cleared_at = time.time()
@@ -166,15 +216,24 @@ def clear():
         _store.clear()
 
 
-def warm(paths, build_for, every_s=None):
+def warm(paths, build_for, every_s=None, skip_fresh_s=0):
     """Render `paths` in the background now (and every `every_s` seconds if given), one after another.
-    Their plain views are also kept on disk (see SNAP_DIR)."""
+    Their plain views are also kept on disk (see SNAP_DIR). skip_fresh_s: a page whose stored copy is younger than
+    this is not rendered at all in that pass. 9.11. (audit): run_ui.warm_build returned the stored bytes for such a
+    page, but _build packed them again with ts=now, so the copy's age restarted on every pass (served as fresh up to
+    FRESH_S + skip_fresh_s) and with every_s below the threshold the page was never rebuilt; skipping here keeps the
+    real age."""
     _snap_paths.update(paths)
     def run():
         while True:
             for p in paths:
+                key = (p, "", None)
+                with _lock:
+                    hit = _store.get(key)
+                if skip_fresh_s and hit and time.time() - hit[0] < skip_fresh_s:
+                    continue
                 try:
-                    _render((p, "", None), lambda p=p: build_for(p))
+                    _render(key, lambda p=p: build_for(p))
                 except Exception:
                     pass
             if not every_s:

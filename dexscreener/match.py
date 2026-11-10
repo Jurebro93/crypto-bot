@@ -104,11 +104,14 @@ def organic_score(row, cto=False):
     age_d = max(0, row["age_h"] or 0) / 24
     age = min(15, 15 * math.log10(1 + age_d) / math.log10(31))          # 30+ days = max
     liq = min(15, 15 * math.log10(1 + row["liquidity"]) / 6)             # $1M = max
-    vol = min(25, 25 * math.log10(1 + row["vol_24h"]) / 6)               # $1M/day = max
+    # 9.11. (Jure, RIPTRUMP): $2k/day used to earn 14 of 25 points and 21 tx/day a "healthy buy ratio" 10/10, so a
+    # dead old token outscored live ones. Volume counts from $1k/day ($1M = max), transactions from 10/day (10k =
+    # max), and the buy/sell balance means nothing under 50 transactions a day.
+    vol = 25 * min(1.0, max(0.0, math.log10(max(row["vol_24h"], 1) / 1e3) / 3))
     txs = row["buys_24h"] + row["sells_24h"]
-    activity = min(15, 15 * math.log10(1 + txs) / 4)                     # 10k tx/day = max
+    activity = 15 * min(1.0, max(0.0, math.log10(max(txs, 1) / 10) / 3))
     buy_share = row["buys_24h"] / txs if txs else 0
-    balance = 10 if 0.4 <= buy_share <= 0.7 else 4 if 0.3 <= buy_share <= 0.8 else 0
+    balance = (10 if 0.4 <= buy_share <= 0.7 else 4 if 0.3 <= buy_share <= 0.8 else 0) if txs >= 50 else 0
     turnover = row["vol_24h"] / row["liquidity"] if row["liquidity"] else 0
     wash = -15 if turnover > 30 else 0                                   # volume far beyond pool depth
     social = min(10, 4 * row["socials"] + (3 if row["website"] else 0))

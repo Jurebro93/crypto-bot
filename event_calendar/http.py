@@ -33,8 +33,11 @@ _writes = 0
 # the KOL measurements, the Dugoročni candles and holder counts together). One file per host under /tmp holds
 # "next call allowed at" and "paused until" so the processes queue behind each other instead of each pacing alone
 # and all of them hitting 429 together. After a 429 everyone pauses SHARED_COOLDOWN seconds.
-SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "2.5"))}
+# 9.11. 14:18: 2.5 s (24/min) across our processes still drew 429s from the free API (30/min, shared egress);
+# 3.5 s (~17/min) leaves room for the odd retry and whoever shares the IP
+SHARED_GAP = {"geckoterminal.com": float(os.environ.get("GECKO_SHARED_GAP", "3.5"))}
 SHARED_COOLDOWN = float(os.environ.get("GECKO_COOLDOWN_S", "60"))
+SHARED_403_PAUSE = float(os.environ.get("GECKO_403_PAUSE_S", "300"))   # 9.11. (audit P24)
 GATE_DIR = os.environ.get("HTTP_GATE_DIR") or os.path.join(tempfile.gettempdir(), "crypto-bot-gate")
 
 
@@ -57,19 +60,67 @@ def _gate(suffix, fn):
             pass
         f.seek(0)
         try:
-            state = [float(x) for x in f.read().split()[:2]]
+            state = [float(x) for x in f.read().split()[:3]]
         except ValueError:
             state = []
-        state = (state + [0.0, 0.0])[:2]
+        state = (state + [0.0, 0.0, 0.0])[:3]   # [next_ok, paused_until, gap learned from 429s (0 = default)]
         new = fn(state)
         f.seek(0)
         f.truncate()
-        f.write(f"{new[0]} {new[1]}")
+        f.write(f"{new[0]} {new[1]} {new[2] if len(new) > 2 else 0.0}")
         return new
 
 
+def _reserve_path(suffix):
+    return os.path.join(GATE_DIR, suffix + ".reserved")
+
+
+def reserve(url, seconds):
+    """9.11.: hold a shared-limit host for this process for `seconds`: other processes' calls there return None at
+    once (and cooling() tells them how long), so the job that matters most (the KOL call measurement, 0 tokens all
+    morning behind masovno/status/dugo/sessions) gets the whole free limit for its budget. Reserving again extends."""
+    suffix, _ = _shared(url)
+    if not suffix:
+        return
+    try:
+        os.makedirs(GATE_DIR, exist_ok=True)
+        with open(_reserve_path(suffix), "w") as f:
+            f.write(f"{time.time() + seconds} {os.getpid()}")
+    except OSError:
+        pass
+
+
+def release(url):
+    suffix, _ = _shared(url)
+    if not suffix:
+        return
+    try:
+        with open(_reserve_path(suffix)) as f:
+            _, pid = f.read().split()[:2]
+        if int(pid) == os.getpid():
+            os.remove(_reserve_path(suffix))
+    except (OSError, ValueError, IndexError):
+        pass
+
+
+def reserved_by_other(url):
+    """Seconds another process still holds this shared host for (0 = free, or ours)."""
+    suffix, _ = _shared(url)
+    if not suffix:
+        return 0.0
+    try:
+        with open(_reserve_path(suffix)) as f:
+            until, pid = f.read().split()[:2]
+    except (OSError, ValueError, IndexError):
+        return 0.0
+    if int(pid) == os.getpid():
+        return 0.0
+    return max(0.0, float(until) - time.time())
+
+
 def cooling(url):
-    """Seconds until a shared-limit host may be called again after a 429 (0 = go)."""
+    """Seconds until a shared-limit host may be called again: after a 429, or while another process holds it
+    (reserve()). 0 = go."""
     suffix, _ = _shared(url)
     if not suffix:
         return 0.0
@@ -77,18 +128,44 @@ def cooling(url):
         st = _gate(suffix, lambda s: s)
     except OSError:
         return 0.0
-    return max(0.0, st[1] - time.time())
+    return max(0.0, st[1] - time.time(), reserved_by_other(url))
+
+
+GAP_GROW, GAP_SHRINK, GAP_MAX = 1.5, 0.97, 20.0   # 9.11.: the limit we really get on Render's shared egress is
+                                                   # below the documented 30/min; the gap learns it (AIMD)
 
 
 def limited(url, retry_after=0):
-    """Note a 429 from a shared-limit host: every process pauses before its next call there."""
-    suffix, _ = _shared(url)
+    """Note a 429 from a shared-limit host: every process pauses before its next call there, and the shared gap
+    between calls grows by GAP_GROW (up to GAP_MAX s) so the pause does not just repeat."""
+    suffix, gap = _shared(url)
     if suffix:
         until = time.time() + max(SHARED_COOLDOWN, retry_after or 0)
         try:
-            _gate(suffix, lambda s: [max(s[0], until), max(s[1], until)])
+            _gate(suffix, lambda s: [max(s[0], until), max(s[1], until), min(GAP_MAX, max(s[2] or gap, gap) * GAP_GROW)])
         except OSError:
             pass
+
+
+def eased(url):
+    """A successful call: the learned gap shrinks back slowly towards the default."""
+    suffix, gap = _shared(url)
+    if suffix:
+        try:
+            _gate(suffix, lambda s: [s[0], s[1], (max(gap, s[2] * GAP_SHRINK) if s[2] else 0.0)])
+        except OSError:
+            pass
+
+
+def current_gap(url):
+    suffix, gap = _shared(url)
+    if not suffix:
+        return 0.0
+    try:
+        st = _gate(suffix, lambda s: s)
+    except OSError:
+        return gap
+    return max(gap, st[2] or 0.0)
 
 
 def _pace_shared(url):
@@ -99,12 +176,13 @@ def _pace_shared(url):
     def take(s):
         now = time.time()
         start = max(now, s[0], s[1])
-        return [start + gap, s[1], start]   # the third value is only for us: when this call may go (not stored)
+        g = max(gap, s[2] or 0.0)
+        return [start + g, s[1], s[2], start]   # the fourth value is only for us: when this call may go (not stored)
     try:
         st = _gate(suffix, take)
     except OSError:
         return
-    wait = st[2] - time.time() if len(st) > 2 else 0
+    wait = st[3] - time.time() if len(st) > 3 else 0
     if wait > 0:
         time.sleep(min(wait, 180))
 
@@ -130,6 +208,7 @@ def _fetch(req, timeout, retries=None):
                 data = json.load(resp)
             if meter:
                 meter.helius(req.full_url, req.data, data)
+            eased(req.full_url)
             return data
         except urllib.error.HTTPError as e:
             if meter:
@@ -140,6 +219,8 @@ def _fetch(req, timeout, retries=None):
                 delay = 0
             if e.code == 429:
                 limited(req.full_url, delay)
+            elif e.code == 403 and _shared(req.full_url)[0]:   # 9.11. (audit P24): GeckoTerminal's 403 burst is a
+                limited(req.full_url, SHARED_403_PAUSE)        # block too: every process pauses, not just this call
             if attempt == retries or not (e.code == 429 or e.code >= 500):
                 raise
             time.sleep(min(60, max(delay, 2 ** attempt)))
@@ -219,6 +300,8 @@ def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=
     if ttl and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
         with open(path) as f:
             return json.load(f)
+    if reserved_by_other(url):   # another job holds this shared host: no call, the caller retries next round
+        return None
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})})
     data = _fetch(req, timeout, retries)
     _write(path, json.dumps(data))

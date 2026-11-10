@@ -34,6 +34,14 @@ def config():
 def cmd_collect(a, con=None, cfg=None):
     con = con or store.connect()
     n = collect.from_hype_cache(con) + collect.from_webhook(con)
+    con.commit()   # 9.11. (review izvori): xhook.drain opens its own connection; the kols upsert above left this one
+    #                holding the write lock, so the drain waited 60 s and left the spool untouched every round
+    try:   # 9.11. (audit P3/P21): webhook payloads spooled while the databases were locked
+        from kol import chainwatch, xhook
+        n += xhook.drain()
+        chainwatch.drain()
+    except Exception as e:  # noqa: BLE001
+        print(f"collect spool: {type(e).__name__}: {e}", file=sys.stderr)
     for name, fn in (("telegram", collect.from_telegram), ("chain", collect.from_chain)):
         try:
             k = fn(con)
@@ -110,6 +118,20 @@ def cmd_measure(a, con=None, cfg=None):
     b = sessions.backfill(con, cfg, measure.ohlcv)
     if b:
         print(f"sesije: satni volumen za {b} starijih tokena")
+
+
+def cmd_minute(a, con=None, cfg=None):
+    """9.11. (Jure): 1-minute candles right after each call -> +5/10/15/20/30 % before the stop, per account and crew.
+    One pass (the loop below is the normal way); writes minute.db, reads kol.db."""
+    from kol import minute
+    minute.loop(cfg or config(), once=True)
+
+
+def cmd_minute_loop(a, con=None, cfg=None):
+    """start.sh: keep minute python3 run_kol.py minute-loop. The only writer of minute.db: fills the history as fast
+    as the free GeckoTerminal budget allows (crews first), then keeps up with new calls."""
+    from kol import minute
+    minute.loop(cfg or config())
 
 
 def cmd_flows(a, con=None, cfg=None):
@@ -233,26 +255,69 @@ def cmd_converge(a, con=None, cfg=None):
     print(f"konvergencija: {len(conv)} tokena" + "".join(f"\n  {t} {r['score']:.0f} {'+'.join(r['platforms'])}" for t, r in best))
 
 
+# 9.11. 21:40 (Jure: "brave zakaži za iza ponoć"): by day a round does only the cheap, freshness-critical steps
+# (webhook spool, chain list, X watch, live KOLs, snapshots, convergence, crews: seconds to a few minutes); the
+# scoring (40+ min of CPU), traces, the GeckoTerminal measure, Helius flows and the deleted-posts check run only in
+# the night window (ops/heavy.NIGHT). KOL_FULL_ROUND=1 forces the full round at any hour.
+DAY_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_crew")
+NIGHT_STEPS = ("cmd_collect", "cmd_chain", "cmd_xhook", "cmd_live", "cmd_snap", "cmd_converge", "cmd_score", "cmd_traces",
+               "cmd_measure", "cmd_flows", "cmd_deleted", "cmd_crew")
+
+
+def round_steps(full=None):
+    """Names of the steps of one round: the full set at night (or when forced), the light set by day."""
+    if full is None:
+        from ops import heavy
+        full = os.environ.get("KOL_FULL_ROUND") == "1" or heavy.night_now()
+    return NIGHT_STEPS if full else DAY_STEPS
+
+
 def cycle(a):
     # 8.11. 21:00: two rounds without bot detection still died at 60 min with no scoring part finished; nothing in
     # the log said where. Every 10 min the main thread's stack goes to stderr, so the next kill shows the exact line.
     import faulthandler
     faulthandler.dump_traceback_later(600, repeat=True)
     con, cfg = store.connect(), config()
+    names = round_steps()
+    if names is DAY_STEPS:
+        print("krug: dnevni (lagani) krug; ocjenjivanje, mjerenje i tokovi idu u noćnom prozoru", flush=True)
     # the quick steps first: the slow GeckoTerminal measure used to come before scoring, and with several deploys an
     # hour the process restarted inside it, so bot flags, groups and the watchlist were rarely recomputed (1.11.)
     # 8.11.: scoring ran 30+ min and the round was killed at 60 min every time for 2+ days, so the webhook list
     # (cmd_chain), the X watch (cmd_xhook), convergence and measuring never ran; the cheap steps go first now
     # 8.11. 18:00: cmd_search (twitterapi.io timelines of ~300 accounts) took 20-31 min of network waiting while
     # holding the heavy-job lock, so the round still died before scoring finished; it goes last now
-    for step in (cmd_collect, cmd_chain, cmd_xhook, cmd_live, cmd_snap, cmd_converge, cmd_score, cmd_traces, cmd_measure,
-                 cmd_flows, cmd_deleted, cmd_crew, cmd_search, cmd_collect):
+    # 9.11. 13:30: cmd_measure's session backfill held the round 10+ min and the minute check behind it never ran;
+    # the minute check is its own process now (run_kol.py minute-loop, minute.db), not a step of the round
+    # 9.11. 18:20: cmd_search (twitterapi.io timelines, GeckoTerminal trending) took 45 min at 16:41 and 20+ min at
+    # 18:05 while holding the heavy-job lock: no page build, no exits rollback, no learn, no archive could run and
+    # Pregled/Tokeni fell to the last copy or a 503 ("aplikacija puca"). It is network waiting, not memory, so it
+    # runs after the round in its own child WITHOUT the lock (cmd_search_round); the collect after it goes with it.
+    for name in names:
+        step = globals()[name]
         t = time.time()
         try:
             step(a, con, cfg)
         except Exception as e:
             print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
         if time.time() - t >= 60:   # 8.11.: the round was killed at 60 min for days and nobody could tell which step
+            print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
+    con.close()
+
+
+def cmd_search_round(a):
+    """The network-bound part of the round (cmd_search, then collect of what it found), in its own process and
+    outside the heavy-job lock: it waits on twitterapi.io/GeckoTerminal for 20-45 min and holds little memory."""
+    import faulthandler
+    faulthandler.dump_traceback_later(600, repeat=True)
+    con, cfg = store.connect(), config()
+    for step in (cmd_search, cmd_collect):
+        t = time.time()
+        try:
+            step(a, con, cfg)
+        except Exception as e:
+            print(f"{step.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
+        if time.time() - t >= 60:
             print(f"krug: {step.__name__} trajao {time.time() - t:.0f} s", flush=True)
     con.close()
 
@@ -273,12 +338,17 @@ def cmd_loop(a):
         # each round in its own short process (1.11.: this loop sat at ~85 MB between rounds on the 512 MB server,
         # trim could not hand it back); the round's memory goes back to the system when it ends
         import subprocess
-        args = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else []) + ["once"]
+        base = [sys.executable, os.path.abspath(__file__)] + (["--verbose"] if a.verbose else [])
+        timeout = max(600, a.every * 60 * 3)
         try:
             from ops import heavy   # one heavy job at a time on the 512 MB server (2.11.)
-            heavy.run(args, timeout=max(600, a.every * 60 * 3))
+            heavy.run(base + ["once"], timeout=timeout)
         except subprocess.TimeoutExpired:
             print("krug: predugo, prekinut", file=sys.stderr)
+        try:   # 9.11. 18:20: the network-bound search without the lock, so pages and other jobs are not held behind it
+            subprocess.run(base + ["search-round"], timeout=timeout, preexec_fn=heavy._nicer)
+        except subprocess.TimeoutExpired:
+            print("krug: search-round predugo, prekinut", file=sys.stderr)
         time.sleep(a.every * 60)
 
 
@@ -286,7 +356,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("collect", "search", "snap", "measure", "flows", "score", "once", "live", "chain", "converge"):
+    for name in ("collect", "search", "search-round", "snap", "measure", "minute", "minute-loop", "flows", "score", "once",
+                 "live", "chain", "converge"):
         sub.add_parser(name)
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=int, default=20, help="minuta između krugova")
@@ -305,7 +376,8 @@ def main(argv=None):
     a = p.parse_args(argv)
     {"collect": cmd_collect, "search": cmd_search, "snap": cmd_snap, "measure": cmd_measure, "flows": cmd_flows, "score": cmd_score,
      "top": cmd_top, "live": cmd_live, "loop": cmd_loop, "once": cycle, "backfill": cmd_backfill,
-     "chain": cmd_chain, "converge": cmd_converge}[a.cmd](a)
+     "chain": cmd_chain, "converge": cmd_converge, "minute": cmd_minute, "minute-loop": cmd_minute_loop,
+     "search-round": cmd_search_round}[a.cmd](a)
 
 
 if __name__ == "__main__":

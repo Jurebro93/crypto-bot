@@ -21,7 +21,9 @@ def _day(ts):
 
 
 def log(path, picks, kind, now=None):
-    """One row per token per UTC day (the first grade it was shown with). Silent on a locked or missing DB."""
+    """One row per token per UTC day (the first grade it was shown with). Silent on a locked or missing DB.
+    9.11. (audit P50/P51): the Pregled box passes kind='zivo' and razina='uživo' for the Autopilot's live rows, so
+    summary()/sentence() never add them to the old pipeline's 'visoka' record."""
     if not picks:
         return 0
     now = int(now or time.time())
@@ -114,7 +116,7 @@ def summary(path, days=7, now=None):
 def sentence(summ, min_n=3):
     """One Croatian line of the box's own record, or '' before there is enough."""
     parts = []
-    for raz in ("visoka", "srednja", "niska"):
+    for raz in ("uživo", "visoka", "srednja", "niska"):   # 9.11. (audit P50): the live list's rows are their own grade
         s = summ.get(raz)
         if s and s["labelled"] >= min_n:
             parts.append(f"{raz} {s['hit']} od {s['labelled']} dalo +{TP * 100:.0f} % prije stopa (stop prvi {s['stop_first']}, "

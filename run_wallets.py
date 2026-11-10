@@ -277,6 +277,14 @@ def cmd_label(a):
     print(sorted(wstore.labels(con, a.address)))
 
 
+def cmd_dokazani(a):
+    """Re-evaluate which copyable wallets are proven twice (wallets/dokazani.py); no API calls."""
+    from wallets import dokazani
+    con = wstore.connect()
+    dokazani.run(con)
+    con.close()
+
+
 def cmd_credits(a):
     con = wstore.connect()
     ms = _month_start()
@@ -316,6 +324,7 @@ def main(argv=None):
     t.add_argument("--by", choices=("copy", "score"), default="copy")
     t.add_argument("--style", choices=("bot", "sniper", "scalper", "swing"))
     t.add_argument("--signals", action="store_true", help="tier S: profitable bots/snipers, signal not copy")
+    sub.add_parser("dokazani")
     c = sub.add_parser("copy")
     c.add_argument("--n", type=int, default=5)
     c.add_argument("--min-score", type=float, default=50)
@@ -333,7 +342,7 @@ def main(argv=None):
     sub.add_parser("credits")
     a = p.parse_args(argv)
     {"harvest": cmd_harvest, "score": cmd_score, "top": cmd_top, "copy": cmd_copy, "wallet": cmd_wallet,
-     "history": cmd_history, "label": cmd_label, "credits": cmd_credits}[a.cmd](a)
+     "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -86,7 +86,9 @@ SECTIONS = [
 CORE = ("Glavno",)
 BONUS = "Bonus"
 # menu groups only an admin sees (UI_ADMINS); everyone else still reaches the pages by link or search
-ADMIN = ("Sustav",)
+# 9.11. (Jure): Autopilot is for the administrators only: shown to them at the top of the menu, highlighted (see
+# autopilot_link); everybody else gets a copy without it (ui/admstrip strips adm-only elements server-side)
+ADMIN = ("Autopilot", "Sustav")
 # only the trade owner and the players they invite (cookie cb_pt, see run_ui._trade_cookie)
 PRIVATE = ("Autopilot",)
 # detail pages light up the menu item they belong to
@@ -294,9 +296,9 @@ pre{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);bor
 details summary{cursor:pointer;color:var(--acc)}
 .xl{display:inline-flex;gap:5px;vertical-align:middle;margin-left:2px;flex-wrap:wrap}.xl a{display:inline-flex;align-items:center;gap:3px;opacity:.75;text-decoration:none}.xl a:hover{opacity:1}.xl img{width:14px;height:14px;border-radius:3px;display:block}td .xl{display:flex;margin:4px 0 0;min-width:150px}.xlb{gap:10px}.xlb a{opacity:1}
 .cand{text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%}.cand:hover{border-color:var(--acc)}
-dialog#ev{max-width:980px;width:calc(100% - 32px);max-height:88vh;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);padding:0}
-dialog#ev::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2{position:sticky;top:0;display:flex;justify-content:flex-end;padding:8px;background:var(--bg)}
-dialog#ev .body{padding:0 18px 18px}tr.clk{cursor:pointer}
+dialog#ev,dialog#strat-info{max-width:980px;width:calc(100% - 32px);max-height:88vh;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);padding:0}dialog#strat-info{max-width:720px}
+dialog#ev::backdrop,dialog#strat-info::backdrop{background:rgba(0,0,0,.45)}dialog#ev .bar2,dialog#strat-info .bar2{position:sticky;top:0;display:flex;justify-content:flex-end;padding:8px;background:var(--bg)}
+dialog#ev .body,dialog#strat-info .body{padding:0 18px 18px}dialog#strat-info h3{margin:14px 0 6px;font-size:15px}dialog#strat-info p,dialog#strat-info li{line-height:1.45}tr.clk{cursor:pointer}
 .tip{color:var(--acc);cursor:help;font-weight:400;font-size:12px}
 #tipbox{position:fixed;z-index:50;max-width:300px;background:var(--fg);color:var(--bg);padding:7px 10px;border-radius:6px;font:12px/1.4 system-ui,sans-serif;white-space:normal;pointer-events:none;display:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}.empty{color:var(--mut);padding:14px}
 
@@ -531,6 +533,13 @@ def _role_cls(href):
     return " r-pri" if need == "prijatelj" else " r-adm" if need == "admin" else ""
 
 
+def autopilot_link(cur):
+    """9.11. (Jure: "istakni Autopilot da ga administratori lakše nađu, ostalima sakriven"): one highlighted button
+    right under the core items, class adm-only (admins see it, non-admins get the page without it)."""
+    return (f'<div class="sec-ap adm-only"><a href="/pravi-trade" class="ap{" on" if cur == "/pravi-trade" else ""}">'
+            f'<span class=mi>💰</span><b>Autopilot</b><small>pravi novac · admin</small></a></div>')
+
+
 def side_menu(cur):
     """Left menu (laptop) / drawer (phone): the three core features on top, everything else in small groups below.
     The Sustav group carries class adm-only and shows only for admins (see ADMIN_JS)."""
@@ -538,10 +547,13 @@ def side_menu(cur):
     b = [f'<aside class=side id=side aria-label="Izbornik"><div class=side-head><a class=brand href="/pregled">{svg}<span>{esc(name)}</span></a>'
          '<button data-nav aria-label="Zatvori izbornik">✕</button></div>']
     for sec, items in SECTIONS:
+        if sec == "Autopilot":   # 9.11.: rendered as the highlighted admin button under the core items (autopilot_link)
+            continue
         links = "".join(f'<a href="{p["href"]}" class="{"on" if p["href"] == cur else ""}{_role_cls(p["href"])}">'
                         f'{esc(p["name"])}</a>' for p in items)
         if sec in CORE:
             b.append(f'<div class=sec-c>{links}</div>')
+            b.append(autopilot_link(cur))
         else:
             extra = " adm-only" if sec in ADMIN else " pt-only" if sec in PRIVATE else ""
             b.append(f'<div class="sec{extra}"><h4>{esc(sec)}</h4>{links}</div>')
@@ -561,6 +573,11 @@ def side_menu(cur):
 # the pages themselves stay reachable by link.
 ADMIN_CSS = (".adm-only{display:none!important}html.adm .adm-only{display:revert!important}"
              ".pt-only{display:none!important}html.pt .pt-only{display:revert!important}"
+             # 9.11.: the Autopilot button in the menu (admins only): one highlighted row under the core items
+             ".side .sec-ap{margin:8px 0 2px}.side .sec-ap a.ap{display:flex;align-items:center;gap:8px;padding:9px 12px;"
+             "border-radius:12px;background:linear-gradient(135deg,#f59f00,#e8590c);color:#fff;font-weight:700;text-decoration:none}"
+             ".side .sec-ap a.ap small{margin-left:auto;font-size:11px;font-weight:500;opacity:.85}"
+             ".side .sec-ap a.ap.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.55)}.side .sec-ap a.ap .mi{font-size:16px}"
              "html.r-osnovni .r-pri,html.r-osnovni .r-adm,html.r-prijatelj .r-adm{display:none!important}"
              ".novo-bar{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;padding:7px 12px;"
              "margin:0 0 12px;border-radius:10px;background:var(--soft);color:var(--fg);text-decoration:none}"

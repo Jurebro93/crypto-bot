@@ -195,6 +195,16 @@ def run(con, cfg, now=None, fetch=ohlcv, verbose=False):
     now = now or int(time.time())
     stop_at = time.monotonic() + cfg.get("measure_budget_s", 480)
     toks = due(con, now, cfg["measure_tokens_per_run"])
+    if fetch is ohlcv and toks:   # 9.11.: the free GeckoTerminal limit is ours for this budget (event_calendar/http.reserve)
+        http.reserve(GECKO, cfg.get("measure_budget_s", 480))
+    try:
+        return _run(con, cfg, now, fetch, verbose, stop_at, toks)
+    finally:
+        if fetch is ohlcv:
+            http.release(GECKO)
+
+
+def _run(con, cfg, now, fetch, verbose, stop_at, toks):
     known = {r[0]: r[1:] for r in con.execute("SELECT token, pair, supply, tries FROM tokens")}
     unresolved = [t for t in toks if t not in known or (not known[t][0] and known[t][2] < 3)]
     if unresolved:

@@ -66,8 +66,8 @@ def page(qs):
     b.append("<h3>Organska ocjena (0-100)</h3>")
     b.append(_parts_table([
         ("Starost", 15, "log, 30+ dana = max"), ("Likvidnost", 15, "log, $1M = max"),
-        ("Volumen 24h", 25, "log, $1M/dan = max"), ("Broj transakcija", 15, "log, 10k tx/dan = max"),
-        ("Omjer kupnji", 10, "10 ako 40-70% kupnji, 4 ako 30-80%, inače 0"),
+        ("Volumen 24h", 25, "log od $1k/dan, $1M/dan = max"), ("Broj transakcija", 15, "log od 10 tx/dan, 10k = max"),
+        ("Omjer kupnji", 10, "10 ako 40-70% kupnji, 4 ako 30-80%, inače 0; tek od 50 tx/dan"),
         ("Wash kazna", -15, "-15 ako je volumen više od 30x likvidnost"),
         ("Društvene mreže", 10, "4 po mreži + 3 za web"), ("Community takeover", 15, "CTO na DexScreeneru"),
         ("Točan simbol", 10, "simbol točno jednak pojmu"),

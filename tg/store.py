@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS posts (
     channel TEXT, post INTEGER, ts INTEGER, seen_ts INTEGER, text TEXT, cas TEXT, tickers TEXT, views INTEGER,
     fwd_from TEXT, source TEXT, PRIMARY KEY (channel, post));
 CREATE INDEX IF NOT EXISTS posts_seen ON posts (seen_ts);
+CREATE INDEX IF NOT EXISTS posts_ts ON posts (ts);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -83,6 +84,13 @@ def save_posts(con, channel, posts, source="web", now=None, hype_db=None):
                     (top["post"], top["ts"], ca_ts, len(new), len(with_ca), channel))
     if with_ca:
         mention(channel, with_ca, hype_db)
+        try:   # 9.11. (audit P25): a CA from a followed channel (2-second set) wakes the copy loop at once
+            from tg import poll as _poll
+            if channel in _poll.followed_channels():
+                from league import copy as _copy
+                _copy.wake()
+        except Exception:  # noqa: BLE001
+            pass
     return with_ca
 
 

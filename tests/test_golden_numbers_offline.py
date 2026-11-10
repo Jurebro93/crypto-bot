@@ -142,7 +142,7 @@ class Golden(unittest.TestCase):
         by = {label: c for _, label, _, c in pocetna.metrics(NOW)}
         self.assertEqual(by["Influenceri (X)"][0], TRUTH["x_accounts"])
         self.assertEqual(by["Pozivi influencera (X + Telegram)"][0], TRUTH["calls_all_kinds"])
-        self.assertEqual(by["Kupnje i prodaje praćenih novčanika"][0], TRUTH["wallet_swaps"])
+        self.assertEqual(by["Kupnje i prodaje svih webhook novčanika"][0], TRUTH["wallet_swaps"])   # 9.11. (audit P70)
         self.assertEqual(by["Aktivni Telegram kanali"][0], TRUTH["tg_channels"])
         # the same number on /izvori ("aktivnih Telegram kanala"): one truth, two pages
         import sqlite3

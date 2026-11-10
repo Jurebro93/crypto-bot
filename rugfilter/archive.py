@@ -33,6 +33,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HYPE_DB = os.path.join(ROOT, "hype.db")
 MIN_AGE_H = float(os.environ.get("RUG_ARCHIVE_MIN_AGE_H", "26"))  # learning horizon is 24 h; outcome must be complete
 BATCH = int(os.environ.get("RUG_ARCHIVE_BATCH", "2000"))           # tokens per hourly run, keeps the run short
+# 9.11. (Jure, token Alice): archived as "srušen" at -84%, back at 42% of its peak a day later while the story
+# behind it was trending; the archive had no way back. Now a real collapse must still be there CONFIRM_H later
+# before the token is archived, and an archived token whose market cap (hype/tokenstatus, 6-hourly, free) climbs
+# back to RECOVER_SHARE of its peak within RECOVER_DAYS comes back into tracking and leaves the rug profile's data.
+CONFIRM_H = float(os.environ.get("RUG_ARCHIVE_CONFIRM_H", "6"))
+RECOVER_SHARE = float(os.environ.get("RUG_RECOVER_SHARE", "0.4"))
+RECOVER_DAYS = float(os.environ.get("RUG_RECOVER_DAYS", "14"))
+RECOVER_MIN_MCAP = 30000
 KINDS_REAL = ("srusen", "likvidnost")   # rugs that actually happened (the labels the rug profile learns from)
 
 SCHEMA = """
@@ -41,6 +49,10 @@ CREATE TABLE IF NOT EXISTS rug_archive (
     kind TEXT, reason TEXT, peak_mcap REAL, last_mcap REAL, peak_liq REAL, last_liq REAL, pad REAL,
     entry TEXT, removed TEXT);
 CREATE INDEX IF NOT EXISTS rug_archive_ts ON rug_archive (archived_ts);
+CREATE TABLE IF NOT EXISTS rug_watch (token TEXT PRIMARY KEY, first_ts INTEGER, kind TEXT, reason TEXT);
+CREATE TABLE IF NOT EXISTS rug_recovered (
+    token TEXT PRIMARY KEY, symbol TEXT, archived_ts INTEGER, recovered_ts INTEGER, peak_mcap REAL, mcap REAL,
+    kind TEXT, reason TEXT);
 """
 
 _cache = {"ts": 0, "path": None, "set": frozenset()}
@@ -248,6 +260,55 @@ def archive(con, cands, now=None):
     return n, rows
 
 
+def confirm(con, cands, now):
+    """Real collapses (srusen / likvidnost) are archived only when still collapsed CONFIRM_H after first seen so;
+    a token that bounces back in between leaves the watch list. Rug mechanics are archived at once."""
+    now = int(now)
+    seen = dict(con.execute("SELECT token, first_ts FROM rug_watch"))
+    out, current = [], set()
+    for c in cands:
+        t, kind = c[0], c[1]
+        if kind not in KINDS_REAL:
+            out.append(c)
+            continue
+        current.add(t)
+        if t not in seen:
+            con.execute("INSERT OR REPLACE INTO rug_watch VALUES (?,?,?,?)", (t, now, kind, c[2]))
+        elif now - seen[t] >= CONFIRM_H * 3600:
+            out.append(c)
+    gone = [t for t in seen if t not in current] + [c[0] for c in out]
+    for t in gone:
+        con.execute("DELETE FROM rug_watch WHERE token=?", (t,))
+    con.commit()
+    return out
+
+
+def recover(con, now=None):
+    """Archived collapses whose market cap is back at RECOVER_SHARE of the peak (token_status, written by the
+    6-hourly status job for every token with a signal in the last 14 days) return to tracking. Returns [(token, symbol,
+    share of peak)]."""
+    now = int(now or time.time())
+    try:
+        status = {t: (m, ts) for t, m, ts in con.execute("SELECT token, mcap, checked_ts FROM token_status")}
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for t, sym, ats, peak, kind, reason in con.execute(
+            "SELECT token, symbol, archived_ts, peak_mcap, kind, reason FROM rug_archive WHERE archived_ts >= ? AND kind IN (?, ?)",
+            (now - RECOVER_DAYS * 86400, *KINDS_REAL)).fetchall():
+        mcap, checked = status.get(t, (None, None))
+        if not peak or not mcap or (checked or 0) < (ats or 0):
+            continue
+        if mcap >= RECOVER_MIN_MCAP and mcap >= RECOVER_SHARE * peak:
+            con.execute("INSERT OR REPLACE INTO rug_recovered VALUES (?,?,?,?,?,?,?,?)", (t, sym, ats, now, peak, mcap, kind, reason))
+            con.execute("DELETE FROM rug_archive WHERE token=?", (t,))
+            con.execute("DELETE FROM rug_watch WHERE token=?", (t,))
+            out.append((t, sym, mcap / peak))
+    if out:
+        con.commit()
+    return out
+
+
 def run(path=None, now=None, limit=BATCH, log=print):
     """One hourly pass. Returns (tokens archived, rows deleted)."""
     path = path or HYPE_DB
@@ -261,7 +322,9 @@ def run(path=None, now=None, limit=BATCH, log=print):
             if "no such table" in str(e):
                 return 0, 0
             raise
+        c = confirm(con, c, now or time.time())
         n, rows = archive(con, c, now)
+        back = recover(con, now)
     finally:
         con.close()
     forget_cache()
@@ -271,6 +334,8 @@ def run(path=None, now=None, limit=BATCH, log=print):
             kinds[k] = kinds.get(k, 0) + 1
         log(f"rugovi: arhivirano {n} tokena ({', '.join(f'{k} {v}' for k, v in kinds.items())}), obrisano {rows} "
             "redaka; više se ne prate")
+    if back and log:
+        log("rugovi: vraćeno u praćenje " + ", ".join(f"{s or t[:6]} ({sh:.0%} vrha)" for t, s, sh in back))
     return n, rows
 
 
@@ -302,6 +367,23 @@ def summary(path=None, now=None):
     finally:
         con.close()
     return out
+
+
+def recovered(token, path=None):
+    """The rug_recovered row of one mint (it was archived and came back), or None."""
+    path = path or HYPE_DB
+    if not os.path.exists(path):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        con.row_factory = sqlite3.Row
+        try:
+            r = con.execute("SELECT * FROM rug_recovered WHERE token=?", (token,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return dict(r) if r else None
 
 
 def get(token, path=None):

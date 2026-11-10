@@ -22,9 +22,11 @@ from . import store
 EVERY_S = int(os.environ.get("LEAGUE_AUTO_EVERY_S", "20"))
 
 
-def parse_level(text, entry_px, entry_mcap, kind):
+def parse_level(text, entry_px, entry_mcap, kind, pct_base=None):
     """'+100%', '100', '-30%', '30' (percent) or '$500k', '1.2M mc' (market cap) -> (price, label).
-    kind 'sl': a bare positive percent means a drop (SL 30 = -30%)."""
+    kind 'sl': a bare positive percent means a drop (SL 30 = -30%).
+    pct_base (9.11., audit P38): the price a percent level is measured from when it is not entry_px, e.g. the
+    effective entry after fee and impact; a market-cap level always maps through entry_px / entry_mcap."""
     s = (text or "").strip().lower().replace(",", ".").replace(" ", "")
     if not s:
         return None, None
@@ -46,10 +48,16 @@ def parse_level(text, entry_px, entry_mcap, kind):
         raise ValueError("TP mora biti iznad ulazne cijene")
     if kind == "sl" and pct <= -100:
         raise ValueError("SL mora biti iznad -100%")
-    return entry_px * (1 + pct / 100), f"{pct:+g}%"
+    return (pct_base or entry_px) * (1 + pct / 100), f"{pct:+g}%"
 
 
-def set_auto(con, user, trade_id, mode, tp="", sl=""):
+def set_auto(con, user, trade_id, mode, tp="", sl="", from_eff=False, hold_s=None, until=None):
+    """from_eff (9.11., audit P38): percent TP/SL measured from the effective entry (entry_eff: fee + impact) instead
+    of the raw entry price, so "+15 %" means +15 % on what was really paid. Copy trading (real money) uses it; the
+    players' own rules keep the raw entry (their tests and pages count on it).
+    hold_s (9.11., kol/tpsl.py): a TP/SL chosen from the measured hour after a call is only known for that hour, so
+    the position is sold at the market hold_s seconds after it was opened if neither level was touched (stored as
+    the unix time `until`; a DCA buy passes the stored `until` back so the limit does not restart)."""
     t = con.execute("SELECT * FROM trades WHERE id=? AND user=? AND status='open'", (trade_id, user)).fetchone()
     if not t:
         raise ValueError("nema te otvorene pozicije")
@@ -58,8 +66,9 @@ def set_auto(con, user, trade_id, mode, tp="", sl=""):
     elif mode == "smart":
         auto = {"mode": "smart"}
     elif mode == "tpsl":
-        tp_px, tp_l = parse_level(tp, t["entry_px"], t["entry_mcap"], "tp")
-        sl_px, sl_l = parse_level(sl, t["entry_px"], t["entry_mcap"], "sl")
+        base = (t["entry_eff"] or None) if from_eff else None
+        tp_px, tp_l = parse_level(tp, t["entry_px"], t["entry_mcap"], "tp", base)
+        sl_px, sl_l = parse_level(sl, t["entry_px"], t["entry_mcap"], "sl", base)
         if tp_px is None and sl_px is None:
             raise ValueError("upiši barem TP ili SL")
         if tp_px is not None and tp_px <= t["entry_px"]:
@@ -68,6 +77,10 @@ def set_auto(con, user, trade_id, mode, tp="", sl=""):
             pass  # a stop above entry locks in a profit: allowed
         auto = {"mode": "tpsl", "tp_px": tp_px, "sl_px": sl_px, "tp": tp_l, "sl": sl_l,
                 "tp_in": tp or "", "sl_in": sl or ""}   # typed text: a DCA buy re-reads a percent from the new average
+        if from_eff:
+            auto["from_eff"] = True
+        if until or hold_s:
+            auto["until"] = int(until or (t["opened_ts"] or time.time()) + hold_s)
     else:
         raise ValueError("nepoznat način")
     con.execute("UPDATE trades SET auto=?, auto_state=NULL WHERE id=?", (json.dumps(auto) if auto else None, trade_id))
@@ -174,6 +187,10 @@ def describe(auto_json):
     if a["mode"] == "smart":
         return "auto: Smart sell"
     parts = ([f"TP {a['tp']}"] if a.get("tp") else []) + ([f"SL {a['sl']}"] if a.get("sl") else [])
+    if a.get("until"):   # 9.11.: a data exit (kol/tpsl.py) is closed at the end of the measured hour
+        import datetime as _dt
+        import zoneinfo
+        parts.append("najdulje do " + _dt.datetime.fromtimestamp(a["until"], zoneinfo.ZoneInfo("Europe/Zagreb")).strftime("%H:%M"))
     return "auto: " + ", ".join(parts)
 
 
@@ -213,7 +230,9 @@ def run_once(con, market, now=None):
         name = t["symbol"] or t["token"][:6]
         if a["mode"] == "tpsl":
             hit = ("TP " + a["tp"]) if a.get("tp_px") and price >= a["tp_px"] else \
-                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else None
+                  ("SL " + a["sl"]) if a.get("sl_px") and price <= a["sl_px"] else \
+                  "vrijeme (ni TP ni SL u izmjerenom roku)" if a.get("until") and now >= a["until"] and (liq or 0) > 0 \
+                  else None   # 10.11. (review): a liquidity read of 0 at the deadline would book -100 %: wait a pass
             if hit:
                 pnl = store.sell(con, t["user"], t["id"], price, liq, f"auto {hit}", mcap=mcap)
                 done.append((t["user"], name, f"auto {hit}: {pnl:+.2f} $"))
@@ -246,14 +265,19 @@ def loop(market, every=EVERY_S):
     while True:
         try:
             con = store.connect()
-            for user, name, what in run_once(con, market):
-                print(f"natjecanje {user} {name}: {what}", flush=True)
+            # 9.11. (audit P27): copy trading goes FIRST (the wake-up from a webhook is for it: every second of a fresh
+            # call is money) and auto sell has its own try, so a DexScreener hiccup in one never skips the other
             try:   # copy trading: followed KOLs' calls and wallets' buys/sells (league/copy.py)
                 from . import copy
                 for user, what in copy.run_once(con):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            try:
+                for user, name, what in run_once(con, market):
+                    print(f"natjecanje {user} {name}: {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops the copies
+                print(f"auto sell: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # Autopilot: the tool picks whom the real-money account follows, hourly, only if the owner said so
                 from ui import autopilot
                 for what in autopilot.maybe_sync(con):
@@ -284,4 +308,15 @@ def loop(market, every=EVERY_S):
             con.close()
         except Exception as e:
             print(f"auto sell: {type(e).__name__}: {e}", file=sys.stderr)
-        time.sleep(every)
+        _nap(every)
+
+
+def _nap(every):
+    """Sleep up to `every` seconds, but wake within a second when a followed wallet or KOL just acted
+    (league/copy.wake): the real-money copy must not wait for the next tick (9.11.)."""
+    from . import copy
+    t0 = time.time()
+    while time.time() - t0 < every:
+        time.sleep(1)
+        if copy.woke_since(t0):
+            return

@@ -34,6 +34,47 @@ def _sym_map():
 
 # ---------------- wallets ----------------
 
+def autopilot_marks(now=None):
+    """9.11. (audit P44): what the bot copies by, next to the page's copy_score: the proven-twice list
+    (wallets/dokazani.latest: wallet -> row with as_of, bags), the wallets the real-money account follows
+    (ui/pravitrade.followed_wallets) and the Autopilot's 14-day wallet stats (ui/autopilot.wallet_recs). Read-only;
+    every source may be missing (empty until the first run after a deploy), the page then shows "ne" / dashes."""
+    proven, followed, recs, as_of = {}, set(), {}, None
+    try:
+        from wallets import dokazani
+        for r in dokazani.latest():
+            proven[r["wallet"]] = r
+            as_of = max(as_of or 0, r.get("as_of") or 0) or as_of
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from ui import pravitrade
+        followed = set(pravitrade.followed_wallets())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from ui import autopilot
+        recs = {r["wallet"]: r["s"] for r in (autopilot.wallet_recs(now) or {}).get(14) or []}
+    except Exception:  # noqa: BLE001
+        pass
+    return {"proven": proven, "followed": followed, "recs": recs, "as_of": as_of}
+
+
+def _mark_cells(w, marks):
+    """Three cells: Dokazani dvaput · Prati Autopilot · Autopilot 14 d (ROI, win, closed of its chain buys)."""
+    pr = marks["proven"].get(w)
+    bags = f' <span class=mut title="otvorenih gubitnika koje nije zatvorio">{pr["bags"]} bagova</span>' if pr and pr.get("bags") else ""
+    yes_p = (badge("DA", "good") + bags, 1, "n") if pr else (badge("ne"), 0, "n")
+    yes_f = (badge("DA", "good"), 1, "n") if w in marks["followed"] else (badge("ne"), 0, "n")
+    r = marks["recs"].get(w)
+    rec = ((f'{signed(r["roi"], "{:+.0%}")[0]} · win {r["win"]:.0%} · {r["closed"]} zatv.', r["roi"], "n") if r
+           else ("–", -1e18, "n mut"))
+    return [yes_p, yes_f, rec]
+
+
+MARK_HEAD = [("Dokazani dvaput", "n"), ("Prati Autopilot", "n"), ("Autopilot 14 d", "n")]
+
+
 def wallets(qs):
     """Novčanici: Aktivnost (who just bought or sold) · Za kopiranje (the copy list) · Svi (every scored wallet)."""
     from ui.html import seg
@@ -64,6 +105,11 @@ def wallets(qs):
     min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
     min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
+    marks = autopilot_marks()   # 9.11. (audit P44): the bot's own lists next to the page's copy_score
+    # 9.11. (audit P44): "Za kopiranje" puts the wallets the Autopilot actually copies by (proven twice, followed) on
+    # top of the copy_score order, so the hand pick and the bot's pick are the same list; the other views keep theirs
+    if v == "lista":
+        ws = sorted(ws, key=lambda w: (w["wallet"] in marks["proven"], w["wallet"] in marks["followed"]), reverse=True)
     rows = []
     for w in ws:
         s = w["stats"]
@@ -71,11 +117,11 @@ def wallets(qs):
         if v == "lista" and not ok:
             continue
         if v == "lista":
-            rows.append([wlink(w["wallet"]), scorecell(w["copy_score"]), signed(s.get("closed_pnl_sol")),
+            rows.append([wlink(w["wallet"]), *_mark_cells(w["wallet"], marks), scorecell(w["copy_score"]), signed(s.get("closed_pnl_sol")),
                          num(s.get("win_rate"), "{:.0%}"), num(s.get("closed")), mins(s.get("median_hold_min")),
                          num(s.get("last_trade_days"), "{:.0f}")])
             continue
-        rows.append([wlink(w["wallet"]), tierb(w["tier"]),
+        rows.append([wlink(w["wallet"]), tierb(w["tier"]), *_mark_cells(w["wallet"], marks),
                      badge("DA", "good") if ok else badge("ne"),
                      scorecell(w["copy_score"]), scorecell(w["score"]),
                      signed(s.get("closed_pnl_sol")), signed(s.get("roi_on_cost"), "{:+.0%}"),
@@ -88,10 +134,10 @@ def wallets(qs):
                      (esc("; ".join(why + (s.get("copy_notes") or []))) or "–", "", "wrap")])
     form = f'<div class=flt>{filt("wt", "Filtriraj adresu, oznaku…")}</div>'
     if v == "lista":
-        head = ["Novčanik", ("Copy", "n"), ("PnL SOL", "n"), ("Win", "n"), ("Zatv.", "n"), ("Medijan držanja", "n"),
+        head = ["Novčanik", *MARK_HEAD, ("Copy", "n"), ("PnL SOL", "n"), ("Win", "n"), ("Zatv.", "n"), ("Medijan držanja", "n"),
                 ("Neaktivan d", "n")]
     else:
-        head = ["Wallet", "Tier", "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
+        head = ["Wallet", "Tier", *MARK_HEAD, "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
                 ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Medijan držanja", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
                 ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
     since, last, tail = jobs.status("wallets")
@@ -104,7 +150,14 @@ def wallets(qs):
     run = (f'<form id=run method=post action=/run/wallets class="flt adm-only"><button {"disabled" if since else ""}>'
            f'Ocijeni novčanike sada</button> <span class=mut>{esc(state)}</span></form>'
            + (f"<details class=adm-only><summary>Zadnji ispis</summary><pre>{esc(tail)}</pre></details>" if tail else ""))
-    return "Novčanici", ("<h1>Novčanici</h1>" + top + sw + box + form
+    # data time, not render time: when the proven list was computed (wallets/dokazani, 3-h cycle) and what the marks mean
+    n_pf = sum(1 for w in ws if w["wallet"] in marks["proven"] or w["wallet"] in marks["followed"])
+    legend = ('<p class=mut style="font-size:13px"><b>Dokazani dvaput</b> = prošao wallets/dokazani (prije i poslije reza'
+              + (f"; lista iz {ago(marks['as_of'])[0]}" if marks["as_of"] else "; lista još nije izračunata") + "), "
+              "<b>Prati Autopilot</b> = račun pravog novca ga prati ili je dokazan (to su novčanici čije kupnje bot broji kao "
+              "poziv), <b>Autopilot 14 d</b> = ROI/win/zatvoreno na njegovim kupnjama u 14 dana (Autopilot preporuke). "
+              f"Copy ocjena je zasebno bodovanje ove stranice; u ovom pogledu {n_pf} novčanika ima oznaku bota.</p>")
+    return "Novčanici", ("<h1>Novčanici</h1>" + top + sw + box + form + legend
                          + table(head, rows, "wt", "Još nema novčanika. Bot ih skuplja sam svakih 6 h.") + run)
 
 
@@ -373,6 +426,13 @@ def token(mint, qs):
                      f'{esc(arch["reason"])} ({esc(archive.KIND_HR.get(arch["kind"], arch["kind"]))}). '
                      f'Izbačen {_t.strftime("%d.%m. %H:%M", _t.gmtime(arch["archived_ts"]))} UTC: bot ga više ne prati i ne troši '
                      'API kredite na njega, a čuva samo podatke s ulaza da iz njih uči kako izgleda rug. Kupnja je zaključana.</div>')
+        rec = None if arch else archive.recovered(mint, data.HYPE_DB)
+        if rec:
+            import time as _t
+            b.append(f'<div class=card><b>↩ Vraćen u praćenje</b> {_t.strftime("%d.%m. %H:%M", _t.gmtime(rec["recovered_ts"]))} UTC: '
+                     f'bio je izbačen kao rug {_t.strftime("%d.%m.", _t.gmtime(rec["archived_ts"]))} ({esc(rec["reason"] or "")}), '
+                     f'a zatim se oporavio na {rec["mcap"] / rec["peak_mcap"]:.0%} vrha (${rec["mcap"] / 1000:,.0f}k od '
+                     f'${rec["peak_mcap"] / 1000:,.0f}k). Rug profil ga više ne broji kao rug; bot ga opet prati.</div>')
         if col:
             b.append(f'<div class=card style="border-color:var(--bad)"><b class=neg>💀 Rugan:</b> {esc(col["text"])}. '
                      'Maknut je s prijedloga i kupnja u natjecanju je zaključana.</div>')

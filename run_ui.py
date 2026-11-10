@@ -237,6 +237,9 @@ def route(path, qs):
     if path == "/izvori":
         from ui import izvori
         return izvori.page(qs)
+    if path == "/ekipe":   # 9.11.: crews and the minute check (kol/minute.py)
+        from ui import ekipe
+        return ekipe.page(qs)
     if path.startswith("/kol/"):
         return kol.kol_page(path[len("/kol/"):], qs)
     if path == "/wallets":
@@ -344,8 +347,68 @@ def build(path, qs, lang="hr"):
     return code, i18n.translate(html).encode("utf-8")
 
 
-HEAVY = ("/tokens", "/tokens/jaki", "/pregled")   # pages that read every hype signal: built by build_in_child, never in this process
+# pages that read every hype signal (or, /ekipe and /kol, every minute candle / every call): built by build_in_child,
+# never in this process. 9.11. 19:32: /ekipe (180 s) and /kol (30 s) built here took the UI process to 818 MB, the
+# memory watchdog stopped it and every visitor saw Cloudflare's 502 and then the deploy page for a minute.
+HEAVY = ("/tokens", "/tokens/jaki", "/pregled", "/ekipe", "/kol")
 WARM = ("/pregled", "/tokens")   # pre-rendered every few minutes; the others are built on the first visit
+SNAPSHOT_ONLY = ("/ekipe", "/kol")   # not warmed (180 s / 30 s of CPU), but their last good build is kept on disk
+BUILDING_REFRESH_S = int(os.environ.get("UI_BUILDING_REFRESH_S", "20"))
+WARM_SKIP_FRESH_S = int(os.environ.get("UI_WARM_SKIP_FRESH_S", "240"))   # the warmer leaves a page younger than this alone
+CHILD_NICE = int(os.environ.get("UI_CHILD_NICE", "5"))   # page builds below the request threads, above the heavy jobs
+# 9.11. 22:00: the stdlib server keeps only 5 connections waiting to be accepted; with the CPU at 100 % (KOL search
+# round) the 1-2 s fragment polls of a few open Autopilot tabs overflowed it, the kernel refused the rest and Render
+# showed 502 (59 of them at 21:15 UTC) although the UI process was alive. A deeper backlog queues them instead.
+ThreadingHTTPServer.request_queue_size = int(os.environ.get("UI_BACKLOG", "128"))
+
+
+def _nice_child():
+    """Page builds run at nice CHILD_NICE: below the request threads (nice 0) and above the heavy jobs (ops/heavy
+    NICE). 9.11. 20:10: 1 CPU at 100 % (run_dugo + KOL round + a 45-s /pregled build) and every visitor's request,
+    every 1-s Autopilot fragment, waited for CPU behind the page build."""
+    try:
+        os.nice(CHILD_NICE)
+    except (OSError, AttributeError):
+        pass
+
+
+def warm_build(path):
+    """build_in_child for the warmer: when the page was built less than WARM_SKIP_FRESH_S ago (a visitor's refresh or
+    the previous pass) the cached copy is kept, instead of another 22-45 s child build next to the heavy jobs every
+    UI_WARM_EVERY_S whether anyone looked or not (9.11. 20:10, 1 CPU at 100 %). 9.11. (audit): pagecache.warm now
+    skips such a page before calling this (skip_fresh_s), so the stored copy is not re-packed with a new time; this
+    check stays as the guard for a visitor's build that landed in between."""
+    with pagecache._lock:
+        hit = pagecache._store.get((path, "", None))
+    if hit and time.time() - hit[0] < WARM_SKIP_FRESH_S:
+        return 200, gzip.decompress(hit[3])
+    return build_in_child(path)
+
+
+def _building_html(path):
+    """The 503 "being built" page: refreshes itself (meta refresh + Retry-After in _send) and offers the pages that
+    never wait (Autopilot, Natjecanje), so it is a short wait, not a dead end (9.11. 18:08-18:17: Pregled was this
+    page for 10 min and the only way on was to keep clicking)."""
+    body = (f"<h1>Stranica se trenutno slaže</h1><p>Poslužitelj je zauzet drugim poslom; stranica se gradi u pozadini "
+            f"i ova se sama osvježava za {BUILDING_REFRESH_S} s. Pokušaj ponovno za minutu ako se ne pojavi.</p>"
+            f"<p><a href=/pravi-trade>Autopilot</a> · <a href=/natjecanje>Natjecanje</a> · <a href=/>Na pregled</a></p>")
+    html = page("Stranica nije dostupna", body, path)
+    meta = f'<meta http-equiv="refresh" content="{BUILDING_REFRESH_S}">'
+    html = html.replace("<head>", "<head>" + meta, 1) if "<head>" in html else meta + html
+    return 503, i18n.translate(html).encode("utf-8")
+
+
+def _last_copy(path, why):
+    """(code, html bytes) when the child could not render `path`: the last snapshot pagecache saved on disk (served as
+    a 200 so the visitor sees data; its age shows in the page), or the self-refreshing 503 (_building_html). 9.11.
+    (audit P33): never build(path) here instead; the HEAVY pages hold ~200 MB of rows and this process also runs the
+    copy/auto-sell loop and the webhooks, so an OOM or a watchdog SIGTERM here stops real-money copies for 30 s+."""
+    snap = pagecache._load_snap((path, "", None), stale_ok=True)
+    if snap:
+        print(f"ui: {why}, služim zadnju spremljenu kopiju {path}", flush=True)
+        return 200, gzip.decompress(snap[3])
+    print(f"ui: {why}, nema spremljene kopije {path}", flush=True)
+    return _building_html(path)
 
 
 def build_in_child(path):
@@ -353,24 +416,34 @@ def build_in_child(path):
 
     The overview and the token list read every hype signal; built inside this long-lived server that memory stayed
     with it (~200 MB) and the 512 MB server ran out of memory every few minutes (1.11.). A child gives it all back
-    when it ends. Falls back to building here if the child fails."""
+    when it ends. 9.11. (audit P33): when the heavy lock stays busy for 60 s, or the child fails or times out, the
+    last saved copy (or a 503) is served instead of building here (_last_copy); this process never builds HEAVY pages."""
     import subprocess
-    from ops import heavy
+    from ops import health, heavy
     try:
-        # waits up to 60 s for another heavy job to finish (2.11.: overlaps ran the server out of memory), then goes
-        with heavy.slot(wait=60, label="gradnja stranice"):
+        # 9.11. 19:05: used to wait up to 60 s for the lock; with run_dugo (29 min) and wallets score holding it one
+        # after another, every visit to Pregled after a click waited the full minute and the browser showed the deploy
+        # page. Now: lock free -> build under it; busy but RAM for a child (UI_BUILD_FREE_MB) -> build next to the
+        # heavy job (the lock guards memory, 2.11. was a 512 MB server); busy and tight -> last copy at once.
+        with heavy.slot(wait=0, label="gradnja stranice") as got:
+            if not got:
+                free = health.container_free_mb()
+                if free is not None and free < float(os.environ.get("UI_BUILD_FREE_MB", "600")):
+                    return _last_copy(path, f"brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno {free:.0f} MB, "
+                                            f"dijete za {path} ne krećem")
+                print(f"ui: brava zauzeta ({heavy.holder() or 'nepoznat posao'}), slobodno "
+                      f"{free if free is None else round(free)} MB: gradim {path} bez brave", flush=True)
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--render", path], capture_output=True,
-                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")))
+                               timeout=int(os.environ.get("UI_CHILD_TIMEOUT_S", "300")), preexec_fn=_nice_child)
         for ln in r.stderr.decode(errors="replace").splitlines():
             if ln.startswith("ui-tijek:"):   # where a slow build spent its time
                 print(ln, flush=True)
         if r.returncode == 0 and r.stdout:
             return 200, r.stdout
-        print(f"ui: dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}",
-              flush=True)
+        why = f"dijete za {path} nije uspjelo ({r.returncode}): {r.stderr.decode(errors='replace')[-300:]}"
     except subprocess.TimeoutExpired:
-        print(f"ui: dijete za {path} predugo, gradim ovdje", flush=True)
-    return build(path, {})
+        why = f"dijete za {path} predugo"
+    return _last_copy(path, why)
 
 
 def english(raw, gz, lang):
@@ -509,6 +582,17 @@ class Handler(BaseHTTPRequestHandler):
             from ui import pravitrade
             frag = pravitrade.log_fragment(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/token", "/pravi-trade/ekipa"):   # 9.11.: pop-ups, re-fetched every second while open
+            from ui import pravitrade
+            frag = (pravitrade.token_popup(self.user, qs.get("m", "")) if path == "/pravi-trade/token"
+                    else pravitrade.crew_popup(self.user, qs.get("h", "")))
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path in ("/pravi-trade/pozicije", "/pravi-trade/zovu", "/pravi-trade/ideje"):   # 9.11.: live fragments
+            from ui import pravitrade
+            fn = {"/pravi-trade/pozicije": pravitrade.positions_fragment, "/pravi-trade/zovu": pravitrade.callers_fragment,
+                  "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
+            frag = fn(self.user)
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
@@ -579,11 +663,16 @@ class Handler(BaseHTTPRequestHandler):
         key = (path, u.query, None)    # route() pages are the same for every user
         # the heaviest pages always in a child process, also when a visitor comes before the warm-up finished
         # (right after a deploy: built here they pushed this process to ~200 MB, 1.11.)
-        mk = (lambda: build_in_child(path)) if path in HEAVY and not u.query else (lambda: build(path, qs))
+        heavy_page = path in HEAVY and not u.query
+        mk = (lambda: build_in_child(path)) if heavy_page else (lambda: build(path, qs))
+        # 9.11. 19:32: a heavy page that is in neither memory nor on disk is built in the background and the visitor
+        # gets the self-refreshing "being built" page at once, instead of a request that hangs 60-180 s (Cloudflare
+        # gives up at 100 s) while the child renders
+        fetch = (lambda k, b: pagecache.get_bg(k, b, lambda: _building_html(path))) if heavy_page else pagecache.get
         if self.lang == "hr":
-            code, raw, gz = pagecache.get(key, mk)
+            code, raw, gz = fetch(key, mk)
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
-            code, raw, gz = pagecache.get(key, mk)   # cached Croatian page, then translated
+            code, raw, gz = fetch(key, mk)   # cached Croatian page, then translated
             if code == 200:
                 code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
@@ -659,6 +748,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
         self.send_header("Cache-Control", "no-store")
+        if code == 503:   # 9.11. (audit P33, review): _last_copy's "try again in a minute" says so to the browser too
+            self.send_header("Retry-After", "60")
         self.send_header("Vary", "Accept-Encoding")
         if not getattr(self, "_index", False):
             self.send_header("X-Robots-Tag", "noindex, nofollow")
@@ -668,7 +759,10 @@ class Handler(BaseHTTPRequestHandler):
             self._admin_cookie()
             self._trade_cookie()
         self.end_headers()
-        self.wfile.write(out)
+        try:
+            self.wfile.write(out)
+        except (BrokenPipeError, ConnectionResetError):   # 9.11.: the 1-s pollers abort old requests; not an error
+            return
 
     def _admin_cookie(self):
         """cb_adm=1 for admins, so cached pages show the adm-only bits (Sustav menu, spend warnings) only to them."""
@@ -1135,7 +1229,9 @@ def main(argv=None):
         ga4.start()   # GA4 Data API, same key, only with GA4_PROPERTY_ID
     except Exception as e:  # noqa: BLE001
         print(f"gsc: {e}", flush=True)
-    pagecache.warm(list(WARM), build_in_child, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")))
+    pagecache.warm(list(WARM), warm_build, every_s=int(os.environ.get("UI_WARM_EVERY_S", "300")),
+                   skip_fresh_s=WARM_SKIP_FRESH_S)   # 9.11. (audit): the skip lives in warm(), so a kept page keeps its age
+    pagecache.snapshot(SNAPSHOT_ONLY)   # 9.11.: /ekipe and /kol keep their last good build on disk (served while rebuilt)
     if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("I18N_OFF"):
         import threading
         # English version: every known text of the app is translated in the background a few minutes after start

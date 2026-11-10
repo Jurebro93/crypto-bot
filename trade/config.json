@@ -7,9 +7,11 @@
  "min_sol_reserve": 0.05,
  "max_cost_pct": 6,
  "max_signal_age_s": 180,
- "poll_s": 5,
+ "poll_s": 1,
  "max_loss_day": 0.4,
  "day_tz": "Europe/Zagreb",
  "sell_check": true,
- "_nicholas_5_11": "15 $ po tradeu (0,1 SOL), najvi\u0161e 5 otvorenih, dnevni stop na -0,4 SOL (~60 $); mode ostaje dry dok strategija ne doka\u017ee prednost u demu"
+ "_nicholas_5_11": "15 $ po tradeu (0,1 SOL), najviše 5 otvorenih, dnevni stop na -0,4 SOL (~60 $); mode ostaje dry dok strategija ne dokaže prednost u demu",
+ "_mode": "9.11. (audit P37): polje mode je samo napomena, kod ga ne čita; pravi swap traži sve troje: prekidač na /pravi-trade (settings on), env TRADE_LIVE=1 i ključ u Renderu (trade/executor.is_live). Uz to run_trade pušta pravi novac samo praćenju s dokazom u demu (run_trade.PROOF).",
+ "_poll_s": "9.11. (Jure): svaka sekunda je novac; petlja čita trade.db/league.db svake sekunde (bez mrežnih poziva dok nema promjene)"
 }

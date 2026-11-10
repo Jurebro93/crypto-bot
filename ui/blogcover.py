@@ -24,6 +24,16 @@ DEFAULT = COLORS["guides"]
 
 # One big number per post (EN slug): (EN number, EN caption, HR number, HR caption). Same figures as in the posts.
 COVER = {
+    "best-crypto-telegram-channels": ("5%", "of 40,772 Telegram calls had a measured outcome",
+                                      "5%", "od 40.772 Telegram poziva imalo je izmjeren ishod"),
+    "top-crypto-twitter-accounts-by-call-accuracy": ("29%", "of influencer calls were up one hour later",
+                                                     "29%", "poziva influencera bilo je u plusu sat kasnije"),
+    "memecoin-telegram-groups-explained": ("47%", "of Telegram call posts came from alert bots",
+                                           "47%", "Telegram objava poziva došlo je od alert botova"),
+    "how-to-spot-a-pump-fun-runner": ("0 of 129", "fresh pump.fun launches matched the 'runner' rule",
+                                      "0 od 129", "svježih pump.fun lansiranja prošlo je 'runner' pravilo"),
+    "how-to-check-a-kol-track-record": ("5,192 of 6,995", "crypto accounts have no measured call",
+                                        "5.192 od 6.995", "kripto računa nema nijedan izmjeren poziv"),
     "what-is-wallet-tracking": ("2 of 469", "tracked 'smart money' wallets were worth copying",
                                 "2 od 469", "'smart money' novčanika vrijedilo je kopirati"),
     "what-is-copy-trading": ("22%", "of active Solana wallets were in profit",

@@ -49,6 +49,22 @@ def tweet_ts(s):
 _HEX = re.compile(r"x?[0-9a-fA-F]+")
 
 
+def is_solana_mint(c):
+    """True only for a string that base58-decodes to exactly 32 bytes (a Solana public key). 9.11. (Jure): Telegram
+    channels post EVM addresses; their tail "x47c…a396" matched the base58 pattern and reached the Autopilot as a
+    token with a DexScreener link that opened nothing."""
+    if not c or not (32 <= len(c) <= 44) or _HEX.fullmatch(c) or not any(ch.isdigit() for ch in c):
+        return False
+    try:
+        import base58
+    except ImportError:   # 9.11. (audit P57): without the package only the shape check (the old line was always False)
+        return bool(_CA.fullmatch(c))
+    try:
+        return len(base58.b58decode(c)) == 32
+    except Exception:  # noqa: BLE001  (invalid characters)
+        return False
+
+
 def cas_in(text):
     """Solana addresses in a post. An EVM address "0x<40 hex>" is not one: the base58 pattern used to pick up its
     tail "x<hex>" (the leading 0 is not base58) as a fake Solana token."""
@@ -56,7 +72,7 @@ def cas_in(text):
     out = set()
     for m in _CA.finditer(text):
         c = m.group(0)
-        if not any(ch.isdigit() for ch in c) or _HEX.fullmatch(c):
+        if not is_solana_mint(c):
             continue
         if m.start() > 0 and text[m.start() - 1] == "0" and c[:1] in "xX":
             continue
@@ -353,8 +369,20 @@ def timeline_handles(con, cfg, now=None):
                     key=lambda r: -_lower(r[2], r[1]))
     core = [r[0] for r in scored[:max(0, core_n - len(watch))]]
     taken = set(watch) | set(core)
-    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >=
-           (t.get("rug_refresh_d", 3) if r[0] in rug else t["refresh_d"]) * 86400]
+    # 9.11. (Jure: API calls only where a winner can be): an account with fewer than min_measured measured calls
+    # after its first read is read every low_refresh_d days, not every round; half the 300 accounts a round had
+    # under 5 measured calls and the round spent 20-30 min on them
+    def refresh_d(r):
+        if r[0] in rug:
+            return t.get("rug_refresh_d", 3)
+        try:
+            measured = json.loads(r[2] or "{}").get("measured", 0)
+        except (ValueError, TypeError):
+            measured = 0
+        if r[0] in last and measured < t.get("min_measured", 10):
+            return t.get("low_refresh_d", 7)
+        return t["refresh_d"]
+    due = [r[0] for r in rows if r[0] not in taken and now - (last.get(r[0]) or 0) >= refresh_d(r) * 86400]
     # accounts the proven KOLs follow (kol/discover.py graph), read once each: if they call tokens, their calls
     # make them regular candidates; if not, they are not asked again
     cand = [h for h in discover.graph_candidates(con, cfg) if h not in taken and h not in last]

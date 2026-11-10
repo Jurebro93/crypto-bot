@@ -27,7 +27,11 @@ def _num(x):
 
 
 def tokens_to_watch(con, now):
-    return [t for (t,) in con.execute("SELECT DISTINCT token FROM calls WHERE ts >= ? AND kind != 'warn'",
+    """Tokens with a real call (X/Telegram post or a known KOL wallet's buy) in the last 25 h. 9.11.: 17,161 of the
+    20,411 tokens snapshotted in a week had only scanner-bot posts or anonymous swaps behind them; nothing scores
+    those, so their snapshots (190k rows a week, 60-80 s of DexScreener reads a round) bought nothing."""
+    return [t for (t,) in con.execute("""SELECT DISTINCT token FROM calls WHERE ts >= ? AND kind IN ('call', 'buy')
+        AND handle NOT LIKE 'w:%' AND handle NOT IN (SELECT handle FROM kols WHERE COALESCE(bot, 0) = 1)""",
                                       (now - 25 * H,))]
 
 

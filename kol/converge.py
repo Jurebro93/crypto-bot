@@ -13,6 +13,7 @@ Score 0-100 (kol/config.json converge):
   a paid-promo pattern (promo_channels Telegram posts inside promo_secs and the first caller is not good).
 """
 import json
+import re
 import os
 import sqlite3
 import time
@@ -124,6 +125,28 @@ def majors():
         return {"So11111111111111111111111111111111111111112", "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"}
 
 
+STOCKLIKE = re.compile(r"^[A-Z0-9]{1,6}x$")   # xStocks: COINx, TSLAx, SPYx, AAPLx, MCDx (tokenised shares)
+WRAPPED = {"WBTC", "CBBTC", "WETH", "WSOL", "SOL", "USDC", "USDT", "USD1", "USDS", "MSOL", "JITOSOL", "JUPSOL", "BSOL",
+           "STSOL", "PYUSD", "EURC", "WBNB", "WAVAX", "WMATIC", "TBTC", "ZBTC", "JLP"}
+
+
+def not_a_memecoin(token, symbol=None, liq=None, max_liq=None):
+    """Why this token can never be a call worth money on the Autopilot, or None. 9.11. (Jure): WBTC ($290M, 41
+    "wallets buying") and COINx (a tokenised Coinbase share) topped "Zovu sada"; tracked wallets route through them,
+    nobody calls them. Majors/stables/LSTs (paper/aktivni.SKIP), wrapped assets and xStocks by symbol, and anything
+    with more liquidity than a memecoin ever has (MAX_LIQ) are not calls."""
+    if token in majors():
+        return "major (SOL/stablecoin/LST), kroz njega se samo rutira"
+    sym = (symbol or "").strip()
+    if sym.upper() in WRAPPED:
+        return f"{sym}: zamotana imovina / stablecoin, ne memecoin"
+    if STOCKLIKE.match(sym):
+        return f"{sym}: tokenizirana dionica (xStock), ne memecoin"
+    if liq is not None and liq > (max_liq or MAX_LIQ):
+        return f"likvidnost ${liq / 1e6:.1f}M, to nije memecoin poziv"
+    return None
+
+
 MAX_LIQ = 1_500_000   # 5.11.: BTC and TRUMP topped the list (17 and 9 "wallets"): big liquid tokens are what wallets
                       # trade through, not a call; a memecoin call almost never has $1.5M+ of liquidity
 
@@ -166,12 +189,14 @@ def compute(now=None, cfg=None, good=50, **paths):
 
 
 def save(con, conv, now=None):
-    """kol.db converge: newest state per token (kept 7 days)."""
+    """kol.db converge: newest state per token (kept 7 days). 9.11. (audit P22): score and n_* are the CURRENT
+    values (what score_token counted in the window), not the historical maximum: the pages read the row as the state
+    now, and a stale peak with a fresh ts ranked tokens whose crowd had left."""
     now = now or int(time.time())
     for tok, r in conv.items():
         con.execute("""INSERT INTO converge VALUES (?,?,?,?,?,?,?,?,?,?,NULL,0,?,?) ON CONFLICT (token) DO UPDATE SET
-            ts=excluded.ts, score=MAX(score, excluded.score), n_x=MAX(n_x, excluded.n_x), n_tg=MAX(n_tg, excluded.n_tg),
-            n_chain=MAX(n_chain, excluded.n_chain), n_other=MAX(n_other, excluded.n_other), platforms=excluded.platforms,
+            ts=excluded.ts, score=excluded.score, n_x=excluded.n_x, n_tg=excluded.n_tg,
+            n_chain=excluded.n_chain, n_other=excluded.n_other, platforms=excluded.platforms,
             handles=excluded.handles, kol_selling=excluded.kol_selling, updated=excluded.updated""",
                     (tok, r["last_ts"], r["first_ts"], r["score"], r["n_x"], r["n_tg"], r["n_chain"], r["n_other"],
                      json.dumps(r["platforms"]), json.dumps(r["handles"]), r["kol_selling"], now))

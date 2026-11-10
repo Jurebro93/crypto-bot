@@ -113,6 +113,28 @@ def api():
     return body
 
 
+SUGGEST_TTL_S = 120
+_ROWS = {}   # hours -> (ts, rows)
+
+
+def _rows_cached(overview, hours):
+    """token_rows(since=hours) at most once per SUGGEST_TTL_S per window. 9.11. 17:58: every /natjecanje view built
+    the rows in this (long-lived) UI process; the 1-s pollers and a rebuild on each error took it to 883 MB and the
+    memory watchdog killed it. Building them is what costs (every hype signal is read)."""
+    hit = _ROWS.get(hours)
+    if hit and time.time() - hit[0] < SUGGEST_TTL_S:
+        return hit[1]
+    rows = overview.token_rows(since=time.time() - hours * 3600)
+    _ROWS.clear()
+    _ROWS[hours] = (time.time(), rows)
+    try:
+        from ui import pagecache
+        pagecache.trim()
+    except Exception:  # noqa: BLE001
+        pass
+    return rows
+
+
 def _suggestions(qs):
     """The same tokens and ranking as the Pregled page's standout candidates (every module's verdicts combined into
     confidence), filtered by the search form."""
@@ -122,7 +144,7 @@ def _suggestions(qs):
         min_conf = float(qs.get("min") or 0)
     except ValueError:
         hours, min_conf = SUGGEST_H, 0
-    rows = overview.token_rows(since=time.time() - hours * 3600)
+    rows = _rows_cached(overview, hours)
     q = (qs.get("q") or "").strip().lower()
     if q:
         rows = [r for r in rows if q in (r["symbol"] or "").lower() or q in r["token"].lower()]

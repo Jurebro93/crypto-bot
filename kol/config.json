@@ -22,11 +22,12 @@
   "lookback_h": 2,
   "min_age_min": 20,
   "per_run": 12,
-  "daily_usd": 0.8,
+  "daily_usd": 0,
   "caller_min_followers": 10000,
   "big_followers": 20000,
   "window_min": 30,
-  "before_h": 24
+  "before_h": 24,
+  "_9_11": "0 = isključeno (Jure 9.11.): strategija Ekipa nije dala nijedan ulaz u 4 dana; ekipe se mjere iz zajedničkih poziva (kol/minute.py, /ekipe) bez troška."
  },
  "traces": {
   "supply_pct": 2.0,
@@ -215,5 +216,22 @@
   "reserve_usd": 0.5,
   "burst_usd": 0.03,
   "max_query_chars": 300
+ },
+ "minute": {
+  "budget_s": 150,
+  "per_run": 60,
+  "days": 30,
+  "min_age_min": 70,
+  "hot_min_n": 5,
+  "hot_min_hit": 0.5,
+  "hot_tp": 10,
+  "hot_max_sl": 0.3,
+  "hot_days": 14,
+  "wick_x": 3.0,
+  "_9_11": "Minutna provjera (kol/minute.py): 1-min svijeće GeckoTerminala nakon svakog poziva; ulaz = zatvaranje minute objave; hit = +tp % prije stopa -20 % unutar 60 min. Vruća lista: n>=hot_min_n poziva u hot_days dana, hit hot_tp >= hot_min_hit, stop prvi <= hot_max_sl.",
+  "loop_budget_s": 540,
+  "loop_sleep_s": 20,
+  "idle_sleep_s": 120,
+  "_9_11b": "Vlastiti proces (run_kol.py minute-loop) i vlastita baza minute.db: prolazi po loop_budget_s dok ima zaostatka (ekipe prve), 30 dana povijesti; KOL krug i stranice samo čitaju."
  }
 }

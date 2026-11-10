@@ -7,6 +7,25 @@ from ui import overview
 from ui.html import tdesc, ago, badge, esc, filt, modal, rugcell, scorecell, seg, table, tlink, usd  # noqa: F401
 
 ACTIVE_H = 24
+STALE_MARKET_S = 900      # 9.11. (audit P83): a market check older than this shows its age in the cell
+RULE_MCAP = 30_000        # CLAUDE.md: tokens under $30k are not analysed (and never bought)
+
+
+def market(status, mcap, now=None):
+    """9.11. (audit P83/P84): hype/tokenstatus.market_cell plus what the number cannot say by itself: the age of the
+    market check when it is older than STALE_MARKET_S (the status job runs every 6 h, so the cell looked live while
+    the Autopilot had the token live), and 'ispod 30k' when the KNOWN mcap is under the rule (the row stays, with its
+    number, so the drop is visible; nothing is bought from this page). An unknown mcap gets no mark."""
+    from hype.tokenstatus import market_cell
+    now = now or time.time()
+    txt, val, cls = market_cell(status, mcap, now)
+    st = status or {}
+    if st.get("has_pair") and st.get("checked_ts") and now - st["checked_ts"] > STALE_MARKET_S:
+        txt += (f' <small class=mut title="Tržišna provjera (hype/tokenstatus, svakih 6 h) {ago(st["checked_ts"])[0]}; '
+                f'Autopilot isti token gleda uživo">{esc(ago(st["checked_ts"])[0])}</small>')
+    if val is not None and 0 < val < RULE_MCAP:
+        txt += ' <span class="b warn" title="Ispod $30k: pravilo ga ne analizira ni ne kupuje">ispod 30k</span>'
+    return txt, val, cls
 
 
 def _why(r):
@@ -34,13 +53,15 @@ def _status():
         return {}
 
 
-def _main_table(rows, tid, empty, st=None):
+def _main_table(rows, tid, empty, st=None, now=None):
     from ui import confidence
-    from hype.tokenstatus import market_cell
     st = st if st is not None else _status()
-    return table(["Token", ("Confidence", "n"), ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), "Rug", "Zadnje"],
+    now = now or time.time()
+    # 9.11. (audit P83/P84): "Zadnji signal" is the newest signal / rug check / candidate, not the market check;
+    # the market check's age sits in the Mcap cell when it is older than 15 min
+    return table(["Token", ("Confidence", "n"), ("Mcap", "n"), ("Likv.", "n"), ("Zašto", "wrap"), "Rug", "Zadnji signal"],
                  [[tlink(r["token"], r["symbol"], st.get(r["token"])), (confidence.badge_html(r["conf"]), r["conf"], "n"),
-                   market_cell(st.get(r["token"]), r["mcap"]),
+                   market(st.get(r["token"]), r["mcap"], now),
                    usd((st.get(r["token"]) or {}).get("liq") if (st.get(r["token"]) or {}).get("has_pair") else r["liq"]),
                    (_why(r), "", "wrap"), rugcell(r), ago(r["last_seen"])] for r in rows], tid, empty,
                  mints=[r["token"] for r in rows])
@@ -119,9 +140,8 @@ def page(qs, view="novi"):
         print(f"tokeni: prijedlog: {type(e).__name__}: {e}")
         top = ""
     b = ["<h1>Tokeni</h1>", top, HELLO, switch("/tokens"), f"<div class=flt>{filt('tt', 'Filtriraj simbol…')}</div>",
-         _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.", st)]
+         _main_table(active, "tt", f"U zadnja {ACTIVE_H} h nema dovoljno dobrih tokena.", st, now)]
 
-    from hype.tokenstatus import market_cell
     erows = []
     for r in event:
         for e in r["events"]:
@@ -129,7 +149,7 @@ def page(qs, view="novi"):
             erows.append([tlink(r["token"], r["symbol"], s_), (f"{esc(e['event'])}", e["event"], "wrap"), esc(e["event_date"]),
                           badge("pravi", "good") if e["role"] == "canonical" else badge("kopija"),
                           scorecell(e["score"]), (overview.confidence.badge_html(r["conf"]), r["conf"], "n"),
-                          rugcell(r), market_cell(s_, e["mcap"]),
+                          rugcell(r), market(s_, e["mcap"], now),
                           usd(s_["liq"] if s_ and s_.get("has_pair") else e["liquidity"])])
     if erows:
         b.append(f"<details style='margin-top:18px'><summary>Uz evente ({len(erows)})</summary>"
@@ -138,6 +158,6 @@ def page(qs, view="novi"):
                          mints=[r["token"] for r in event for _ in r["events"]]) + "</details>")
     if older:
         b.append(f"<details style='margin-top:10px'><summary>Stariji, nisu viđeni u zadnja {ACTIVE_H} h ({len(older)})"
-                 f"</summary>{_main_table(older, 'to', 'Nema.', st)}</details>")
+                 f"</summary>{_main_table(older, 'to', 'Nema.', st, now)}</details>")
     b.append(modal())
     return "Tokeni", "".join(b)
