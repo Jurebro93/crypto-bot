@@ -376,6 +376,70 @@ def _current(con, key):
     return raw.get(key, None)
 
 
+def record_applied(con, nid, key, old, new, note=""):
+    """An owner-ordered change that is already done: one line in applied_log for note `nid` (with the time) and the
+    note marked primijenjeno, so get_assistant_notes / get_scoring_config show it. A note that is missing or was
+    rejected only gets the log line."""
+    ensure(con)
+    now = int(time.time())
+    log = list(settings.raw(con).get("applied_log") or [])
+    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new})
+    _set_settings(con, "applied_log", log[:200])
+    con.execute("UPDATE assistant_notes SET status='primijenjeno', decided_ts=?, owner_note=COALESCE(owner_note, ?) "
+                "WHERE id=? AND status IN ('novo', 'prihvaćeno')", (now, (note or "")[:1000] or None, int(nid)))
+    con.commit()
+
+
+# 10.11. (Jure, in the chat: "Grok bilješke sa statusom prihvaćeno nisu ništa promijenile ... primijeni #41 odmah;
+# uvezi sve prihvaćene težine #45-#62; #40 #42 #43 #44 ugradi iza zastavice, prvo shadow; kad primijeniš, status
+# primijenjeno s applied_ts"): done ONCE, at the first start of the UI process after the deploy (owner_once), then
+# never again (settings OWNER_ONCE_KEY). The values are the owner's own list, not read from the notes' text.
+OWNER_ONCE_KEY = "owner_once_1011"
+OWNER_SL = (41, 30)
+OWNER_WEIGHTS = ((45, "0xMarko77", 1.4), (46, "ddddddd8a", 0.5), (47, "GoatGems", 0.6),
+                 (48, "tg:what_yteiiiidbdksndjdb", 0.3), (56, "EarlyChad_", 0.3), (57, "CipherEdgeCalls", 0.5),
+                 (58, "DegenFlow_", 0.3), (59, "itsmeflow18", 0.3), (60, "plsea", 0.4), (61, "AlphaBullishups", 0.4),
+                 (62, "Strong69106", 0.5))
+OWNER_RULES = ((40, "require_signal", None), (42, "runup_default", ("runup_max", 0.10)),
+               (43, "dca_cap", ("dca_token_cap", 0.3)), (44, "caller_ev_rank", None))
+
+
+def owner_once(con):
+    """Apply the owner's list above once. Returns [text] of what was done ([] when it ran before)."""
+    if settings.raw(con).get(OWNER_ONCE_KEY):
+        return []
+    ensure(con)
+    done, why = [], "vlasnik u chatu 10.11."
+    nid, sl = OWNER_SL
+    if sl in settings.SL_CHOICES:
+        old = settings.merged({"size_sol": 0.1, "max_sol_per_trade": 0.1}, con).get("sl_default")
+        _set_settings(con, "sl_default", sl)
+        record_applied(con, nid, "sl_default", old, sl, why)
+        done.append(f"#{nid} sl_default {old} → {sl}")
+    cur = dict(settings.raw(con).get("caller_weights") or {})
+    for nid, h, w in OWNER_WEIGHTS:
+        old = cur.get(h)
+        cur[h] = w
+        _set_settings(con, "caller_weights", cur)
+        record_applied(con, nid, f"caller_weights.{h}", old, w, why)
+        done.append(f"#{nid} {h} {old} → {w}")
+    done.append("caller_weights" + _to_shadow(con, "caller_weights"))
+    for nid, flag, val in OWNER_RULES:
+        if val is not None:
+            key, v = val
+            old = _current(con, key)
+            _set_settings(con, key, v)
+            record_applied(con, nid, key, old, v, why)
+        old_mode = settings.flag(flag, con=con)
+        _to_shadow(con, flag)
+        record_applied(con, nid, f"flag:{flag}", old_mode, settings.flag(flag, con=con), why)
+        done.append(f"#{nid} zastavica {flag}: {old_mode} → {settings.flag(flag, con=con)}")
+    settings.put(con, OWNER_ONCE_KEY, int(time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
 def effective(con):
     """10.11. (Jure: Grok mora moći provjeriti): every key "Primijeni" can change with its value in force now, the
     flag it sits behind (and that flag's mode), and the caller weights."""
@@ -416,9 +480,12 @@ def apply(con, nid, owner_note=""):
     """The owner's "Primijeni": apply the note's proposed_change when its key is in APPLY (or a caller weight) and
     log old -> new; otherwise mark it 'prihvaćeno' for a manual change. Returns (status, words)."""
     ensure(con)
-    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE id=? AND status='novo'", (int(nid),)).fetchone()
+    # 10.11. (Jure: "omogući Primijeni na bota i za bilješke koje su već prihvaćeno"): an accepted note can still be
+    # applied; a rejected or an applied one cannot
+    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE id=? AND status IN ('novo', 'prihvaćeno')",
+                    (int(nid),)).fetchone()
     if r is None:
-        raise ValueError("ta bilješka više ne čeka odluku")
+        raise ValueError("ta bilješka više ne čeka primjenu (odbijena je ili već primijenjena)")
     d = _row(r)
     pc = d.get("proposed_change") if isinstance(d.get("proposed_change"), dict) else None
     note = (owner_note or "")[:1000] or None

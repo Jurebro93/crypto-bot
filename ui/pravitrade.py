@@ -1345,7 +1345,8 @@ def _suggest_section(tcon, owner):
         return ""
     from ui import assistnotes
     rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0)
-    if not rows:
+    acc, n_acc = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    if not rows and not acc:
         return ""
     items = []
     for r in rows:
@@ -1370,13 +1371,31 @@ def _suggest_section(tcon, owner):
             '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">'
             'Primijeni na bota</button>'
             '</form></div>')
+    # 10.11. (Jure: "prihvaćene bilješke nisu ništa promijenile; omogući Primijeni na bota i za njih"): the accepted
+    # ones, each still with "Primijeni na bota" (assistnotes.apply takes novo and prihvaćeno)
+    acc_rows = []
+    for r in acc:
+        pc = r.get("proposed_change")
+        can = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY)
+        acc_rows.append(
+            f'<div class=ap-sug id=as-{r["id"]}><p><b>#{r["id"]} {esc(r.get("title") or "")}</b> <span class=mut>· prihvaćeno '
+            f'{esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
+            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code></p>' if pc else "")
+            + (f'<form method=post action=/pravi-trade/asapply class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
+               '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>'
+               if can else '<p class=mut>Bot ovu promjenu ne zna primijeniti sam: ostaje za ručnu izmjenu.</p>')
+            + '</div>')
+    if acc_rows:
+        items.append(f'<h3 class=ap-sub><span>Prihvaćeni, još nisu primijenjeni</span><span>{n_acc}</span></h3>'
+                     + "".join(acc_rows))
     inner = ("".join(items) + '<p class=mut>Prijedloge piše asistent preko MCP-a; ništa se ne mijenja dok ne tapneš. '
              '„Označi prihvaćenim” samo zapiše da se slažeš, bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
              'stop, ulog, broj pozicija, preskočeni, filtri kopiranja, strop SOL-a po tokenu, prag rasta od prvog poziva, '
              'pravilo bez signala i težina callera; staru i novu vrijednost zapisuje. Pravila iza zastavice (težina '
              'callera, strop po tokenu, prag rasta, bez signala) tako idu u sjenu: zapisuju što bi napravila, a uživo '
              'ih uključuješ ti pod „Zastavice plana”, nakon backtesta.</p>')
-    return _sec("Prijedlozi asistenta", f"{total} čeka", inner, sid="prijedlozi")
+    return _sec("Prijedlozi asistenta", f"{total} čeka" + (f" · {n_acc} prihvaćeno bez promjene" if n_acc else ""), inner,
+                sid="prijedlozi")
 
 
 def _summary_card(tcon, owner):
@@ -3114,10 +3133,15 @@ def dca_loop(every=DCA_EVERY_S):
     """Background thread body for run_ui.py: dca_once every `every` seconds (one settings read when there is nothing
     to watch), its own connection."""
     con = None
+    once = False
     while True:
         try:
             if con is None:
                 con = settings.connect()
+            if not once:   # 10.11. (Jure, chat): his list of Grok's notes, applied once (ui/assistnotes.owner_once)
+                from ui import assistnotes
+                assistnotes.owner_once(con)
+                once = True
             dca_once(con)
             limit_once(con)   # 10.11.: buy orders at a market cap, the same 1-s pass
             from league import followreview   # 10.11. (Jure: "isključi ih sam"): once an hour, never raises
