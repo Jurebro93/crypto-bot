@@ -165,6 +165,8 @@ PROCESSES = (
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
     ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
+    # 10.11. (flag range_dca): the entries and exits run in run_ui (protected); this only collects and computes
+    ("range", "run_range.py", (), JOBS, "raspon + DCA: snimke kandidata svake minute, rasponi svakih 5 min, noćni backtest"),
     # 5: last of all: its rug check feeds the entry guard (_concentration) of the copy loop
     ("top", "run_top.py", (), LAST,
      "provjera preporučenih tokena svake 3 min; njena provjera ruga hrani zaštitu ulaza, pa staje zadnja"),

@@ -238,6 +238,31 @@ def _call_limit(lg, t):
     return None, {"max_px": call_px * (1 + RUNUP_LIMIT), "call_px": call_px}
 
 
+def _range_lot(con, lg, t, cfg):
+    """10.11. (Jure, flag range_dca): (why, size_sol, add) of a range lot's real buy. The stake is the demo lot's (its
+    USD at today's SOL price, never above size_sol: lot 2 may be smaller under the dca cap); lot 2 is one more lot of
+    lot 1's real position (add) and only while that one is open, else it is skipped (a lot 2 must never land on a
+    position the strategy does not own, e.g. the owner's own lots). Every other limit holds (manual stays False)."""
+    try:
+        size_usd = lg.execute("SELECT size_usd FROM trades WHERE id=?", (t["id"],)).fetchone()[0]
+        from trade import equity
+        sol_usd = (equity.rates() or {}).get("sol_usd")
+        sol = min(float(cfg["size_sol"]), size_usd / sol_usd) if size_usd and sol_usd else None
+    except Exception:  # noqa: BLE001 - unknown: the default stake
+        sol = None
+    if not (t["source"] or "").startswith("range lot 2"):
+        return None, sol, False
+    try:
+        r = lg.execute("SELECT lot1_id FROM range_rounds WHERE lot2_id=?", (t["id"],)).fetchone()
+    except sqlite3.OperationalError:
+        r = None
+    lot1 = con.execute("SELECT 1 FROM positions WHERE league_id=? AND status IN ('open','pending')",
+                       (r[0],)).fetchone() if r else None
+    if not lot1:
+        return "range lot 2 bez pravog lota 1 (nije kupljen ili je već prodan)", None, False
+    return None, sol, True
+
+
 def _mirrored(con, league_id):
     """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
     positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
@@ -300,6 +325,9 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             limit = None
             if not why and is_copy:   # 10.11. (Grok MCP audit 3): flag runup_default, live: limit at the call + 10 %
                 why, limit = _call_limit(lg, t)
+            rng_sol, rng_add = None, False
+            if not why and (t["source"] or "").startswith("range lot "):   # 10.11. (Jure, flag range_dca)
+                why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
@@ -311,9 +339,9 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             # buy (its own stake, never a copy) may add one more lot to a token already held; a copy never doubles one
             kw = {"limit": limit} if limit is not None else {}
             r = executor.buy(con, cfg, t["token"], t["symbol"], now=now, reason=t["source"] or "copy",
-                             league_id=t["id"], size_sol=float(size) if size else None,
+                             league_id=t["id"], size_sol=float(size) if size else rng_sol,
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
-                             add=bool(size) and not is_copy,
+                             add=(bool(size) and not is_copy) or rng_add,
                              manual=bool(size) and not is_copy, **kw)   # 10.11. (Jure: "makni limit"): no day spend limit
             if r["status"] == "open":
                 _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
