@@ -84,15 +84,18 @@ run_ui.py dijele "pogon" (zaglavlje/HEAVY), "javno" (rute) → rute dodaje "javn
 | faza | stanje | bilješka |
 |---|---|---|
 | 0 | GOTOVO | PR #76 spojen 00:44 CET (47723d9); grana vraćena na main; deploy provjeren u 00:5x |
-| 1 | čeka 01:10 | tri workflowa: audit koda, web izvori i cijene, savjeti tradera |
+| 1 | U TIJEKU od 01:10 | tri workflowa: audit koda (7 mapa + skeptik + praznine), web izvori i cijene, savjeti tradera (10 kutova) |
 | 2 | čeka fazu 1 | |
-| 3 | čeka fazu 1 | |
-| 4 | čeka fazu 3 | |
+| 3 | GOTOVO 01:00 | `audit/2026-11-10/dizajn.md`: ugovor između grupa (imena modula, funkcija, ključeva) |
+| 4 | U TIJEKU od 01:11 | po jedan workflow po grupi u worktreeju `/home/user/wt/<grupa>` (grana `noc/<grupa>`): novac, apui, javno, pogon, web, sentry; svaki: implementacija → neovisni pregled → dorada |
 | 5 | čeka fazu 4 | |
 | 6 | čeka | prezentacija, prijedlog profitabilnosti, audit podataka, UI prijedlozi |
 | 7 | čeka 06:00 | jedan PR, merge iza 06:00 (odobreno unaprijed) |
 
 ## Dnevnik noći (kratko, novije gore)
 
+- 01:05 Sentry projekt `memesonar` stvoren (org serprise, de.sentry.io); DSN ide u env SENTRY_DSN na Renderu tik uz jutarnji merge.
+- 01:03 Deploy #76 provjeren: minutna petlja radi s novim kodom ("minute: 30 tokena, 56 poziva… još 4591 tokena čeka"), bez Tracebacka, CPU vrh 27 %.
+- 01:00 Worktreeji po grupama otvoreni; skripte workflowa u scratchpadu `wf/` (audit_koda, web_izvori, trgovci, impl, ui_prijedlozi).
 - 00:44 PR #76 spojen. Sentry: org `serprise` (de.sentry.io) bez projekata i grešaka.
 - 00:36 Zakazani osigurači: 01:12 i 03:30 (nastavi ako je stalo), 06:40 (jutarnja provjera).
