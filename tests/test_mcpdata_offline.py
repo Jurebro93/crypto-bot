@@ -71,8 +71,10 @@ class Base(unittest.TestCase):
                ("INSERT INTO kol_ids VALUES (?,?,?,?,?,?,?)", (W1, "Ansem", "ansem", None, 12.5, 30, 10)),
                ("INSERT INTO snaps VALUES (?,?,?,?,?,?)", (TOK, NOW - 7100, 0.0011, 1000, 20_000, 55_000))])
         _db(p["minute"], """CREATE TABLE call_path (tweet_id TEXT, token TEXT, handle TEXT, ts INTEGER, entry REAL,
-              hi60 REAL, lo60 REAL, r60 REAL);""",
-            [("INSERT INTO call_path VALUES (?,?,?,?,?,?,?,?)", ("t1", TOK, "ansem", NOW - 7200, 0.001, 0.8, -0.1, 0.3))])
+              lag_s INTEGER, mcap_e REAL, hi15 REAL, hi30 REAL, hi60 REAL, lo60 REAL, r60 REAL, t5 INTEGER, t10 INTEGER,
+              t15 INTEGER, t20 INTEGER, t30 INTEGER, sl_min INTEGER);""",
+            [("INSERT INTO call_path (tweet_id, token, handle, ts, entry, mcap_e, hi15, hi60, lo60, r60, t10, t15, sl_min) "
+              "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", ("t1", TOK, "ansem", NOW - 7200, 0.001, 50_000, 0.4, 0.8, -0.1, 0.3, 4, 6, None))])
         _db(p["wallets"], """CREATE TABLE wallets (wallet TEXT PRIMARY KEY, tier TEXT, score REAL, copy_score REAL,
               stats TEXT, labels TEXT, last_tx_ts INTEGER);
             CREATE TABLE wallet_trades (wallet TEXT, sig TEXT, ts INTEGER, mint TEXT, tokens REAL, sol REAL, kind TEXT);""",
@@ -215,10 +217,18 @@ class Tools(Base):
         self.assertEqual((t["token"], t["status"], t["exit_reason"], t["entry_market_cap"], t["exit_market_cap"]),
                          (TOK, "closed", "TP", 50_000, 70_000))
         self.assertAlmostEqual(t["pnl_sol"], 0.058)
-        self.assertEqual(t["signal"]["follow"]["target"], "ansem")
-        self.assertEqual(t["signal"]["signal_ts"], NOW - 7200)
-        self.assertEqual(t["signal"]["score_at_entry"], 61.0)
+        sig = t["signals"]
+        self.assertEqual(sig["follow"]["target"], "ansem")
+        self.assertEqual(sig["signal_ts"], NOW - 7200)
+        self.assertEqual(sig["score_at_entry"], 61.0)
+        self.assertEqual([c["handle"] for c in sig["callers_last_hour"]], ["ansem"])   # murad and alpha came after the entry
+        self.assertEqual(sig["callers_last_hour"][0]["call_power"], 72.0)
+        self.assertEqual(sig["rug_check"]["verdict"], "PROLAZI")
+        self.assertEqual(sig["call_path"]["hi60"], 0.8)                        # the triggering call's minute path
+        self.assertEqual(sig["runup_from_first_call"], 0.0)                   # entered at the first call's 50k
+        self.assertEqual(sig["wallet_buys_last_hour"][0]["tier"], "B")
         self.assertEqual(mcpdata.autopilot_trades(since_ts=NOW)["total"], 0)
+        self.assertEqual(mcpdata.autopilot_trades(status="open")["total"], 0)
 
     def test_7_scoring_config(self):
         from ui import mcpdata
@@ -233,19 +243,23 @@ class Tools(Base):
 
     def test_8_submit_caller_weights_waits_for_the_owner(self):
         from ui import mcpdata, pravitrade
+        from ui import assistnotes
         out = mcpdata.submit_caller_weights([{"handle": "@ansem", "platform": "x", "weight": 1.5, "reason": "x2 rate"},
                                              {"handle": "alpha", "platform": "telegram", "weight": 0}])
-        self.assertEqual((out["stored"], out["status"]), (2, "pending"))
-        rows = mcpdata.suggestions(self.con)
-        self.assertEqual({(r["handle"], r["weight"]) for r in rows}, {("ansem", 1.5), ("tg:alpha", 0.0)})
+        self.assertEqual((out["stored"], out["status"]), (2, "novo"))
+        rows, total = assistnotes.notes(self.con, "novo", "suggestion")
+        self.assertEqual({(r["proposed_change"]["caller"], r["proposed_change"]["weight"]) for r in rows},
+                         {("ansem", 1.5), ("tg:alpha", 0.0)})
         self.assertIn("error", mcpdata.submit_caller_weights([{"handle": "x", "weight": 3}]))
         self.assertIn("error", mcpdata.submit_caller_weights([]))
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("Prijedlozi asistenta", body)
-        loc = pravitrade.post("/pravi-trade/sugok", {"id": str(rows[0]["id"])}, "Jure")
+        self.assertIn("težina callera ansem (x) → 1.5", body)
+        loc = pravitrade.post("/pravi-trade/asapply", {"id": str(next(r["id"] for r in rows
+                                                                       if r["proposed_change"]["caller"] == "ansem"))}, "Jure")
         self.assertIn("ok=", loc)
-        self.assertEqual(len(mcpdata.suggestions(self.con)), 1)
-        self.assertEqual(len(mcpdata.suggestions(self.con, "approved")), 1)
+        self.assertEqual(settings.raw(self.con)["caller_weights"], {"ansem": 1.5})
+        self.assertEqual(assistnotes.notes(self.con, "novo", "suggestion")[1], 1)
 
     def test_tools_are_listed_and_read_only_ones_are_marked(self):
         from ui import mcpapi
@@ -265,3 +279,140 @@ class Tools(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AssistantNotes(Base):
+    """10.11.: the assistant writes notes (trade_review, signal_opinion, suggestion, daily_summary) that only the
+    owner turns into a change; Primijeni applies only the allow-listed keys and logs old -> new."""
+
+    def call(self, name, args, key="k1"):
+        from ui import mcpapi
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})
+        res = json.loads(mcpapi.rpc(body.encode(), key)[1])["result"]
+        return res["structuredContent"], res["isError"]
+
+    def pid(self):
+        return self.con.execute("SELECT id FROM positions ORDER BY id LIMIT 1").fetchone()[0]
+
+    def test_write_tools_insert_notes_only_and_validate(self):
+        from ui import assistnotes
+        out, err = self.call("submit_trade_review", {"position_id": self.pid(), "verdict": "dobar", "confidence": 0.8,
+                                                     "interpretation": "TP pogođen u 50 min", "improvement": "isti TP",
+                                                     "evidence": {"pnl_sol": 0.058}})
+        self.assertFalse(err)
+        self.assertEqual(out["status"], "novo")
+        out, err = self.call("submit_signal_opinion", {"token": TOK, "verdict": "preskoči", "confidence": 0.6,
+                                                       "interpretation": "top10 drži 40 %"})
+        self.assertFalse(err)
+        self.assertFalse(self.call("submit_suggestion", {"title": "Stop -40", "interpretation": "stopovi -60 prekasni",
+                                                         "proposed_change": {"key": "sl_default", "from": 60, "to": 40}})[1])
+        self.assertFalse(self.call("submit_daily_summary", {"title": "Utorak", "interpretation": "2 trejda, +0,06 SOL"})[1])
+        rows, total = assistnotes.notes(self.con)
+        self.assertEqual(total, 4)
+        self.assertEqual(rows[-1]["evidence"], {"pnl_sol": 0.058})
+        # validation: wrong verdict, confidence, unknown position, too long text, not-JSON evidence
+        for args in ({"position_id": self.pid(), "verdict": "super", "interpretation": "x"},
+                     {"position_id": self.pid(), "verdict": "dobar", "confidence": 2, "interpretation": "x"},
+                     {"position_id": 99999, "verdict": "dobar", "interpretation": "x"},
+                     {"position_id": self.pid(), "verdict": "dobar", "interpretation": "x" * 4001},
+                     {"position_id": self.pid(), "verdict": "dobar"}):
+            out, err = self.call("submit_trade_review", args)
+            self.assertTrue(err, args)
+        self.assertTrue(self.call("submit_suggestion", {"title": "x", "interpretation": "y", "evidence": "nije json"})[1])
+        self.assertEqual(assistnotes.notes(self.con)[1], 4)                # nothing stored by a refused call
+        # nothing else changed
+        self.assertNotIn("sl_default", settings.raw(self.con))
+
+    def test_rate_limit_per_key(self):
+        from ui import assistnotes
+        saved = assistnotes.RATE_PER_HOUR
+        assistnotes.RATE_PER_HOUR = 3
+        try:
+            for _ in range(3):
+                self.assertFalse(self.call("submit_daily_summary", {"title": "t", "interpretation": "i"})[1])
+            out, err = self.call("submit_daily_summary", {"title": "t", "interpretation": "i"})
+            self.assertTrue(err)
+            self.assertIn("rate limit", out["error"])
+            self.assertFalse(self.call("submit_daily_summary", {"title": "t", "interpretation": "i"}, key="k2")[1])
+        finally:
+            assistnotes.RATE_PER_HOUR = saved
+
+    def test_unreviewed_trades_and_notes_listing(self):
+        out, _ = self.call("get_unreviewed_trades", {})
+        self.assertEqual([r["trade_id"] for r in out["rows"]], [self.pid()])
+        self.call("submit_trade_review", {"position_id": self.pid(), "verdict": "loš", "interpretation": "kasni ulaz"})
+        self.assertEqual(self.call("get_unreviewed_trades", {})[0]["rows"], [])
+        notes, _ = self.call("get_assistant_notes", {"kind": "trade_review"})
+        self.assertEqual((notes["total"], notes["rows"][0]["verdict"]), (1, "loš"))
+
+    def test_apply_allowlist_logs_and_refuses_the_rest(self):
+        from ui import assistnotes
+        con = self.con
+
+        def sug(pc):
+            return self.call("submit_suggestion", {"title": "t", "interpretation": "i", "proposed_change": pc})[0]["id"]
+        st, words = assistnotes.apply(con, sug({"key": "sl_default", "from": 60, "to": 40}))
+        self.assertEqual((st, settings.merged(executor.load_config(), con)["sl_default"]), ("primijenjeno", 40))
+        self.assertEqual(settings.raw(con)["applied_log"][0], {**settings.raw(con)["applied_log"][0],
+                                                               "key": "sl_default", "old": 60, "new": 40})
+        self.assertEqual(assistnotes.apply(con, sug({"key": "tp_default", "to": 30}))[0], "primijenjeno")
+        self.assertEqual(assistnotes.apply(con, sug({"key": "size_sol", "to": 0.05}))[0], "primijenjeno")
+        self.assertEqual(assistnotes.apply(con, sug({"key": "max_open", "to": 7}))[0], "primijenjeno")
+        assistnotes.apply(con, sug({"key": "auto_skip", "to": [["kol", "spammer"]]}))
+        self.assertIn(["kol", "spammer"], settings.raw(con)["auto_skip"])
+        assistnotes.apply(con, sug({"key": "copy.max_delay_min", "to": 5}))
+        self.assertEqual(settings.raw(con)["copy_cfg"], {"max_delay_min": 5.0})
+        self.assertEqual(copy.apply_cfg_overrides()["max_delay_min"], 5)
+        copy.CFG.clear()
+        copy.CFG.update(copy._BASE_CFG)
+        # refused: under the 30k rule, an SL that is not a choice, a stale "from"
+        for pc in ({"key": "copy.min_mcap", "to": 10_000}, {"key": "sl_default", "to": 33},
+                   {"key": "tp_default", "from": 15, "to": 50}):
+            with self.assertRaises(ValueError):
+                assistnotes.apply(con, sug(pc))
+        # not on the list: only marked accepted, nothing changed
+        before = dict(settings.raw(con))
+        st, words = assistnotes.apply(con, sug({"key": "max_sol_per_day", "to": 50}))
+        self.assertEqual(st, "prihvaćeno")
+        self.assertEqual(settings.raw(con).get("max_sol_per_day"), before.get("max_sol_per_day"))
+        st, _ = assistnotes.apply(con, sug({"file": "ui/autopilot.py", "key": "WILSON_Z", "to": 2.0}))
+        self.assertEqual(st, "prihvaćeno")
+
+    def test_routes_and_page(self):
+        from ui import assistnotes, mcpapi, pravitrade
+        self.call("submit_trade_review", {"position_id": self.pid(), "verdict": "dobar", "confidence": 0.9,
+                                          "interpretation": "Lijep TP", "improvement": "isto"})
+        self.call("submit_daily_summary", {"title": "Sažetak utorka", "interpretation": "Dobar dan."})
+        n1 = self.call("submit_suggestion", {"title": "TP 30", "interpretation": "više", "evidence": {"n": 12},
+                                             "proposed_change": {"key": "tp_default", "from": 15, "to": 30}})[0]["id"]
+        n2 = self.call("submit_suggestion", {"title": "Drugo", "interpretation": "x"})[0]["id"]
+        n3 = self.call("submit_suggestion", {"title": "Treće", "interpretation": "y"})[0]["id"]
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn("Sažetak utorka", body)                                   # the newest summary at the top
+        self.assertIn("Prijedlozi asistenta", body)
+        self.assertIn("tp_default: 15 → 30", body)
+        self.assertIn("formaction=/pravi-trade/asapply", body)
+        self.assertIn("Grok: dobar", body)                                      # the closed trade's review
+        self.assertIn("Lijep TP", body)
+        settings.put(self.con, "invited", ["gost"], "Jure")
+        guest = pravitrade.page({}, "gost")[1]
+        self.assertNotIn("Prijedlozi asistenta", guest)
+        self.assertNotIn("Sažetak utorka", guest)
+        self.assertIn("ok=", pravitrade.post("/pravi-trade/asapply", {"id": str(n1), "note": "ok"}, "Jure"))
+        self.assertEqual(settings.merged(executor.load_config(), self.con)["tp_default"], 30)
+        self.assertIn("ok=", pravitrade.post("/pravi-trade/asok", {"id": str(n2), "note": "ručno"}, "Jure"))
+        self.assertIn("ok=", pravitrade.post("/pravi-trade/asno", {"id": str(n3), "note": "ne"}, "Jure"))
+        st = {r["id"]: (r["status"], r["owner_note"]) for r in assistnotes.notes(self.con)[0]}
+        self.assertEqual(st[n1], ("primijenjeno", "ok"))
+        self.assertEqual(st[n2], ("prihvaćeno", "ručno"))
+        self.assertEqual(st[n3], ("odbijeno", "ne"))
+        self.assertIn("err=", pravitrade.post("/pravi-trade/asno", {"id": str(n3)}, "Jure"))   # decided already
+        self.assertIn("err=", pravitrade.post("/pravi-trade/asok", {"id": str(n2)}, "gost"))   # owner only
+        # an opinion appears on a request that waits for approval
+        os.environ["MCP_API_KEY"] = "k"
+        try:
+            mcpapi.trade_request({"token": TOK, "side": "buy", "amount": 0.05})
+            self.call("submit_signal_opinion", {"token": TOK, "verdict": "preskoči", "interpretation": "Kasno."})
+            self.assertIn("Grok: preskoči", pravitrade.page({}, "Jure")[1])
+        finally:
+            os.environ.pop("MCP_API_KEY", None)

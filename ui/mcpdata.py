@@ -472,45 +472,200 @@ def _exit_kind(note):
     return "manual" if n else None
 
 
-def autopilot_trades(since_ts=None, limit=None, offset=None):
+def _groups(tc, since=0):
+    """Open and closed positions as trades: the lots of one token whose lives overlap are one trade (DCA)."""
+    rows = _q(tc, "SELECT id, token, symbol, opened_ts, closed_ts, mode, status, reason, sol_in, sol_back, fees_sol, league_id "
+                  "FROM positions WHERE status IN ('open','closed') AND opened_ts>=? ORDER BY opened_ts, id", (since,))
+    groups, cur = [], {}
+    for r in rows:
+        tok, o, c, st = r[1], r[3] or 0, r[4], r[6]
+        g = cur.get(tok)
+        if g is not None and (g["end"] is None or o <= g["end"]):
+            g["lots"].append(r)
+            g["end"] = None if (g["end"] is None or st == "open") else max(g["end"], c or 0)
+        else:
+            g = {"token": tok, "lots": [r], "end": None if st == "open" else (c or o)}
+            groups.append(g)
+            cur[tok] = g
+    for g in groups:
+        g["status"] = "open" if any(l[6] == "open" for l in g["lots"]) else "closed"
+        g["id"] = g["lots"][0][0]
+        g["entry_ts"] = min(l[3] or 0 for l in g["lots"])
+    return groups
+
+
+def _detail(g, tc, lc, kc, wc, hc, rc, mc):
     from trade import settings
-    limit, offset = _page(limit, offset)
-    since = int(since_ts or 0)
-    tc, lc = _ro("trade"), _ro("league")
-    try:
-        total = (_q(tc, "SELECT COUNT(*) FROM positions WHERE status IN ('open','closed') AND opened_ts>=?", (since,))
-                 or [(0,)])[0][0]
-        pos = _q(tc, "SELECT id, token, symbol, opened_ts, closed_ts, mode, status, reason, sol_in, sol_back, fees_sol, league_id "
-                     "FROM positions WHERE status IN ('open','closed') AND opened_ts>=? ORDER BY id DESC LIMIT ? OFFSET ?",
-                 (since, limit, offset))
-        rows = []
-        for pid, tok, sym, o, c, mode, st, reason, sin, sback, fees, lid in pos:
-            lt = _q(lc, "SELECT entry_mcap, exit_mcap, note, source, score, follow_id, auto FROM trades WHERE id=?", (lid,)) if lid else []
-            emc, xmc, note, src, score, fid, auto = lt[0] if lt else (None, None, None, None, None, None, None)
-            fol = _q(lc, "SELECT kind, target, label FROM follows WHERE id=?", (fid,)) if fid else []
-            sig = _q(lc, "SELECT ev_ts, note FROM copy_log WHERE trade_id=? AND action='ulaz' LIMIT 1", (lid,)) if lid else []
-            lots = (_q(tc, "SELECT COUNT(*) FROM positions WHERE token=? AND status IN ('open','closed') AND id<=? AND opened_ts>=?",
-                       (tok, pid, (o or 0) - 86400)) or [(1,)])[0][0]
+    lots = g["lots"]
+    tok = g["token"]
+    lid0 = lots[0][11]
+    demo = {}
+    for l in lots:
+        if l[11]:
+            r = _q(lc, "SELECT entry_mcap, exit_mcap, note, source, score, follow_id, auto FROM trades WHERE id=?", (l[11],))
+            if r:
+                demo[l[0]] = r[0]
+    w = [(demo.get(l[0], (None,))[0], l[8] or 0) for l in lots]
+    wsum = sum(x for m, x in w if m and x)
+    entry_mc = wsum / sum(x / m for m, x in w if m and x) if wsum else None
+    last = max(lots, key=lambda l: l[4] or 0)
+    exit_mc, note = (demo.get(last[0], (None, None, None))[1:3]) if g["status"] == "closed" else (None, None)
+    sin = sum(l[8] or 0 for l in lots)
+    sback = sum(l[9] or 0 for l in lots)
+    fees = sum(l[10] or 0 for l in lots)
+    ids = [l[0] for l in lots]
+    cost = _q(tc, f"SELECT AVG(cost_pct) FROM orders WHERE side='buy' AND cost_pct IS NOT NULL AND position_id IN "
+                  f"({','.join('?' * len(ids))})", ids)
+    entry = g["entry_ts"]
+    d0 = demo.get(lots[0][0])
+    follow, sig_ts, entry_note, score = None, None, None, None
+    if d0:
+        score = d0[4]
+        if d0[5]:
+            f = _q(lc, "SELECT kind, target, label FROM follows WHERE id=?", (d0[5],))
+            follow = {"kind": f[0][0], "target": f[0][1], "label": f[0][2]} if f else None
+        if lid0:
+            s = _q(lc, "SELECT ev_ts, note FROM copy_log WHERE trade_id=? AND action='ulaz' LIMIT 1", (lid0,))
+            if s:
+                sig_ts, entry_note = s[0]
+    callers = []
+    first_call = None
+    for h, ts, mcap0, tid in _q(kc, "SELECT handle, ts, mcap0, tweet_id FROM calls WHERE token=? AND kind='call' AND ts<=? "
+                                    "ORDER BY ts", (tok, entry + 60)):
+        if first_call is None:
+            first_call = (ts, mcap0)
+        if ts < entry - 3600:
+            continue
+        k = _q(kc, "SELECT score, stats, followers FROM kols WHERE handle=?", (h,))
+        st = {}
+        if k:
             try:
-                rule = json.loads(auto) if auto else None
+                st = json.loads(k[0][1] or "{}") or {}
             except ValueError:
-                rule = None
-            pnl = (sback or 0) - (sin or 0) - (fees or 0) if st == "closed" else None
-            rows.append({"position_id": pid, "token": tok, "symbol": sym, "mode": mode, "status": st,
-                         "entry_ts": _i(o), "exit_ts": _i(c), "entry_market_cap": _f(emc, 0), "exit_market_cap": _f(xmc, 0),
-                         "sol_in": _f(sin, 4), "sol_out": _f(sback, 4), "fees_sol": _f(fees, 5), "pnl_sol": _f(pnl, 4),
-                         "pnl_pct": _f(100 * pnl / sin, 2) if pnl is not None and sin else None,
-                         "exit_reason": _exit_kind(note) if st == "closed" else None, "exit_note": note if st == "closed" else None,
-                         "dca_lot": lots > 1, "exit_rule": {k: rule.get(k) for k in ("mode", "tp", "sl")} if rule else None,
-                         "signal": {"source": (src or reason), "follow": ({"kind": fol[0][0], "target": fol[0][1], "label": fol[0][2]}
-                                                                         if fol else None),
-                                    "signal_ts": _i(sig[0][0]) if sig else None, "entry_note": sig[0][1] if sig else None,
-                                    "score_at_entry": _f(score, 2)}})
+                st = {}
+        callers.append({"handle": h, "platform": platform_of(h), "call_ts": _i(ts), "market_cap_at_call": _f(mcap0, 0),
+                        "call_power": _f(k[0][0], 2) if k else None, "followers": _i(k[0][2]) if k else None,
+                        "stats": {x: st.get(x) for x in ("calls", "measured", "hit_rate", "med_max24", "med_r1h", "rug_rate")
+                                  if x in st}})
+    wallets = []
+    for wal, ts, sol in _q(hc, "SELECT wallet, ts, sol FROM chain_trades WHERE mint=? AND side='buy' AND ts BETWEEN ? AND ? "
+                               "ORDER BY ts", (tok, entry - 3600, entry + 60))[:50]:
+        t = _q(wc, "SELECT tier, score FROM wallets WHERE wallet=?", (wal,))
+        wallets.append({"wallet": wal, "buy_ts": _i(ts), "sol": _f(sol, 4), "tier": t[0][0] if t else None,
+                        "score": _f(t[0][1], 2) if t else None})
+    rug = _q(rc, "SELECT checked_at, verdict, score, top10_pct, bundle_pct, sniper_pct FROM rug_reports WHERE mint=? "
+                 "AND checked_at<=? ORDER BY checked_at DESC LIMIT 1", (tok, entry + 300))
+    path = None
+    if follow and follow["kind"] == "kol" and sig_ts:
+        c = _q(kc, "SELECT tweet_id FROM calls WHERE token=? AND handle=? COLLATE NOCASE AND ts BETWEEN ? AND ? "
+                   "ORDER BY ABS(ts-?) LIMIT 1", (tok, follow["target"], sig_ts - 300, sig_ts + 300, sig_ts))
+        if c:
+            pr = _q(mc, "SELECT entry, mcap_e, hi15, hi60, lo60, r60, t10, t15, sl_min FROM call_path WHERE tweet_id=? AND token=?",
+                    (c[0][0], tok))
+            if pr:
+                path = dict(zip(("entry_price", "entry_market_cap", "hi15", "hi60", "lo60", "r60", "min_to_10pct",
+                                 "min_to_15pct", "min_to_stop"), pr[0]))
+    pnl = sback - sin - fees if g["status"] == "closed" else None
+    return {"trade_id": g["id"], "token": tok, "symbol": lots[0][2], "status": g["status"], "mode": lots[0][5],
+            "entry_ts": _i(entry), "exit_ts": _i(max(l[4] or 0 for l in lots)) if g["status"] == "closed" else None,
+            "lots": [{"position_id": l[0], "opened_ts": _i(l[3]), "closed_ts": _i(l[4]), "status": l[6], "sol_in": _f(l[8], 4),
+                      "sol_back": _f(l[9], 4), "entry_market_cap": _f(demo.get(l[0], (None,))[0], 0)} for l in lots],
+            "entry_market_cap": _f(entry_mc, 0), "exit_market_cap": _f(exit_mc, 0),
+            "sol_in": _f(sin, 4), "sol_back": _f(sback, 4), "fees_sol": _f(fees, 5),
+            "cost_pct": _f(cost[0][0], 2) if cost and cost[0][0] is not None else None,
+            "pnl_sol": _f(pnl, 4), "pnl_pct": _f(100 * pnl / sin, 2) if pnl is not None and sin else None,
+            "exit_reason": _exit_kind(note) if g["status"] == "closed" else None, "exit_note": note,
+            "signals": {"follow": follow, "signal_ts": _i(sig_ts), "entry_note": entry_note, "score_at_entry": _f(score, 2),
+                        "callers_last_hour": callers, "wallet_buys_last_hour": wallets,
+                        "rug_check": (dict(zip(("checked_ts", "verdict", "score", "top10_pct", "bundle_pct", "sniper_pct"), rug[0]))
+                                      if rug else None),
+                        "call_path": path,
+                        "first_call_ts": _i(first_call[0]) if first_call else None,
+                        "runup_from_first_call": (_f(entry_mc / first_call[1] - 1, 4)
+                                                  if first_call and first_call[1] and entry_mc else None)},
+            "account": settings.LEAGUE_USER}
+
+
+def _trades(since_ts=None, status=None, only=None):
+    tc = _ro("trade")
+    try:
+        groups = _groups(tc, int(since_ts or 0))
     finally:
-        _close(tc, lc)
-    return _paged(rows, limit, offset, total=total, account=settings.LEAGUE_USER,
-                  notes="real-money (mode live) and trial (dry) positions of the Autopilot; market caps from the demo "
-                        "trade it mirrors; pnl_sol = sol_out - sol_in - fees for closed positions")
+        _close(tc)
+    if status in ("open", "closed"):
+        groups = [g for g in groups if g["status"] == status]
+    if only is not None:
+        groups = [g for g in groups if only(g)]
+    groups.sort(key=lambda g: -(g["entry_ts"] or 0))
+    return groups
+
+
+def _details(groups):
+    cons = [_ro(n) for n in ("trade", "league", "kol", "wallets", "hype", "rug", "minute")]
+    try:
+        return [_detail(g, *cons) for g in groups]
+    finally:
+        _close(*cons)
+
+
+def autopilot_trades(since_ts=None, limit=None, offset=None, status=None):
+    limit, offset = _page(limit, offset)
+    groups = _trades(since_ts, status)
+    return _paged(_details(groups[offset:offset + limit]), limit, offset, total=len(groups),
+                  notes=("one row per trade: the lots of a token bought while it was held (DCA) are one trade; "
+                         "trade_id = its first position_id (use it for submit_trade_review); pnl_sol = sol_back - sol_in "
+                         "- fees for closed trades; signals = what the Autopilot saw at the entry"))
+
+
+def unreviewed_trades(limit=None):
+    from ui import assistnotes
+    limit, _ = _page(limit, 0)
+    tc = _ro("trade")
+    try:
+        try:
+            done = {r[0] for r in tc.execute("SELECT DISTINCT position_id FROM assistant_notes WHERE kind='trade_review'")} \
+                if tc is not None else set()
+        except sqlite3.Error:
+            done = set()
+    finally:
+        _close(tc)
+    groups = _trades(status="closed", only=lambda g: not ({l[0] for l in g["lots"]} & done))
+    return _paged(_details(groups[:limit]), limit, 0, total=len(groups),
+                  notes="closed trades without a trade_review yet, newest first; review with submit_trade_review(trade_id)")
+
+
+def assistant_notes(status=None, kind=None, limit=None, offset=None):
+    from ui import assistnotes
+    limit, offset = _page(limit, offset)
+    tc = _ro("trade")
+    try:
+        if tc is None:
+            rows, total = [], 0
+        else:
+            try:
+                tc.execute("SELECT 1 FROM assistant_notes LIMIT 1")
+                rows, total = assistnotes.notes(_RoCon(tc), status, kind, limit, offset)
+            except sqlite3.Error:
+                rows, total = [], 0
+    finally:
+        _close(tc)
+    return _paged(rows, limit, offset, total=total,
+                  notes="status: novo (waits), prihvaćeno, odbijeno, primijenjeno; owner_note = the owner's reason")
+
+
+class _RoCon:
+    """A read-only connection for assistnotes.notes (its ensure() would write)."""
+    def __init__(self, con):
+        self.con = con
+
+    def execute(self, *a):
+        sql = a[0].lstrip().upper()
+        if sql.startswith(("CREATE", "ALTER")):
+            return self.con.execute("SELECT 1")
+        return self.con.execute(*a)
+
+    def commit(self):
+        pass
 
 
 # ---------- 7. scoring config ------------------------------------------------------------------------------------
@@ -574,13 +729,15 @@ SUGG_SCHEMA = ("CREATE TABLE IF NOT EXISTS assistant_suggestions (id INTEGER PRI
                "decided_ts INTEGER, source TEXT)")
 
 
-def submit_caller_weights(weights, source="mcp"):
-    """Store suggested per-caller weights (0-2) for the owner's review; changes no live scoring."""
+def submit_caller_weights(weights, source="mcp", kid="local"):
+    """Suggested per-caller weights (0-2): one assistant_notes suggestion each (proposed_change {caller, platform,
+    weight}), status 'novo'. Changes no live scoring; the owner applies or rejects each on the Autopilot page."""
     from trade import settings
+    from ui import assistnotes
     if not isinstance(weights, list) or not weights:
         return {"error": "weights must be a non-empty list of {handle, platform, weight, reason}"}
-    if len(weights) > 200:
-        return {"error": "at most 200 suggestions per call"}
+    if len(weights) > 50:
+        return {"error": "at most 50 suggestions per call"}
     clean = []
     for i, w in enumerate(weights):
         if not isinstance(w, dict):
@@ -595,19 +752,19 @@ def submit_caller_weights(weights, source="mcp"):
             return {"error": f"item {i}: weight must be a number 0-2"}
         if not h or not 0 <= wt <= 2:
             return {"error": f"item {i}: handle required and weight must be between 0 and 2"}
-        clean.append((h, plat, round(wt, 3), str(w.get("reason") or "")[:300]))
-    now = int(time.time())
+        clean.append((h, plat, round(wt, 3), str(w.get("reason") or "")[:assistnotes.TEXT_MAX]))
     con = settings.connect()
+    ids = []
     try:
-        con.execute(SUGG_SCHEMA)
-        ids = [con.execute("INSERT INTO assistant_suggestions (ts, kind, handle, platform, weight, reason, source) "
-                           "VALUES (?,?,?,?,?,?,?)", (now, "caller_weight", h, p, wt, r, source)).lastrowid
-               for h, p, wt, r in clean]
-        con.commit()
+        for h, plat, wt, why in clean:
+            out = assistnotes.submit_suggestion(con, kid, f"Težina callera {h}: {wt:g}", why or "prijedlog težine",
+                                                proposed_change={"caller": h, "platform": plat, "weight": wt})
+            ids.append(out["id"])
+    except ValueError as e:
+        return {"error": str(e), "stored": len(ids), "ids": ids}
     finally:
         con.close()
-    print(f"mcp: {len(ids)} prijedloga težina čeka pregled vlasnika", flush=True)
-    return {"ts": now, "stored": len(ids), "ids": ids, "status": "pending",
+    return {"ts": int(time.time()), "stored": len(ids), "ids": ids, "status": "novo",
             "message": "Stored for the owner's review on the MemeSonar Autopilot page; live scoring is unchanged."}
 
 
