@@ -107,8 +107,10 @@ class Page(Base):
     def test_order_of_the_mock_up_and_no_chip_bar(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
         _, body = pravitrade.page({}, "Jure")
-        at = [body.index(k) for k in ('id="apc-ap"', ">Dnevnik odluka<", ">Otvorene pozicije<", ">Kako trguje<",
-                                      ">Koga prati<", ">Pravila<", ">Kupi ručno<", ">Još<", ">Tko sada zove koji token<",
+        # 10.11. (Jure): the floating menu first, "Brza kupnja" right under the chart, not under "Kako trguje"
+        nav_end = body.index("</nav>", body.index("class=ap-fn"))   # the menu's own words ("Pravila", "Još") come first
+        at = [body.index(k, nav_end) for k in ('id="apc-ap"', ">Brza kupnja<", ">Dnevnik odluka<", ">Otvorene pozicije<",
+                                      ">Kako trguje<", ">Koga prati<", ">Pravila<", ">Još<", ">Tko sada zove koji token<",
                                       ">Wallet i uplata<", ">Tko vidi stranicu<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         self.assertEqual(len(re.findall(r"<h2 class=ms-h2[^>]*>", body)), body.count('data-sec=""'))   # no secnav chips
@@ -216,6 +218,35 @@ class KolRecommendations(unittest.TestCase):
         self.assertNotIn("najbolji 14 d", html)
         self.assertIn("premalo minutnih poziva", html)
         self.assertNotIn('<div class="ms-v">', html.split("@wick")[1].split("</summary>")[0])   # no percentage
+
+
+class QuickBuyAndMenu(Base):
+    """10.11. (Jure): quick buy right under the chart, and a floating menu to the parts of the page."""
+
+    def test_owner_sees_quick_buy_under_the_chart_and_the_menu(self):
+        self.mods(fake_equity(history(), SUMMARY), fake_aplog())
+        _, body = pravitrade.page({}, "Jure")
+        self.assertLess(body.index('id="apc-ap"'), body.index("id=kupi-odmah"))
+        self.assertLess(body.index("id=kupi-odmah"), body.index(">Dnevnik odluka<"))
+        nav = body[body.index("class=ap-fn"):body.index("</nav>", body.index("class=ap-fn"))]
+        for sid in ("#ap-head", "#kupi-odmah", "#dnevnik", "#pozicije", "#pratim", "#pravila", "#jos"):
+            self.assertIn(f'href="{sid}"', nav)
+            self.assertIn(f"id={sid[1:]}", body)                   # every link has its target on the page
+        self.assertEqual(body.count("action=/pravi-trade/buy"), 1)   # one buy form, not two
+
+    def test_viewer_gets_the_menu_without_buy(self):
+        self.mods(fake_equity(history(), SUMMARY), fake_aplog())
+        settings_mod = pravitrade.settings
+        con = pravitrade._tcon()
+        try:
+            settings_mod.put(con, "viewers", ["Ivan"], "Jure")
+        finally:
+            con.close()
+        _, body = pravitrade.page({}, "Ivan")
+        if "class=ap-fn" in body:
+            nav = body[body.index("class=ap-fn"):body.index("</nav>", body.index("class=ap-fn"))]
+            self.assertNotIn("#kupi-odmah", nav)
+        self.assertNotIn("action=/pravi-trade/buy", body)
 
 
 if __name__ == "__main__":

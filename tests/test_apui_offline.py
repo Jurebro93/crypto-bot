@@ -390,8 +390,9 @@ class Page(Base):
         # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): the title with the switch is inside the 45-s header;
         # "Kako trguje" = Koga prati, Pravila (cilj + limiti), Kupi ručno; "Još" = the two live lists, the
         # recommendations, Wallet i uplata (setup steps), who sees the page, safety
-        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=dnevnik", "id=pozicije", "id=pratim",
-                "id=pravila", "id=cilj", "id=limiti", "id=kupi-odmah", "id=zovu", "id=ideje", "id=preporuke",
+        # 10.11. (Jure): "Brza kupnja" (id=kupi-odmah) right under the chart, before the log
+        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=kupi-odmah", "id=dnevnik", "id=pozicije",
+                "id=pratim", "id=pravila", "id=cilj", "id=limiti", "id=zovu", "id=ideje", "id=preporuke",
                 "id=postavljanje", "id=pozivnice", "id=zastita")
         at = [body.index(k) for k in keys]
         self.assertEqual(at, sorted(at))

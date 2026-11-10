@@ -148,7 +148,7 @@ class Page(unittest.TestCase):
         self.assertIn("@proven", html)
         self.assertIn("Poslije reza", html)
         card = pravitrade._buy_now_card({"size_sol": 0.1}, True)
-        self.assertIn("Kupi ručno", card)   # 10.11. (maketa autopilot.html): the row's name under "Kako trguje"
+        self.assertIn("Brza kupnja", card)   # 10.11. (Jure): an open block right under the chart
         self.assertIn('name=sol value="0.1"', card)
         self.assertEqual(pravitrade._buy_now_card({"size_sol": 0.1}, False), "")
         src = open(os.path.join(ROOT, "ui", "pravitrade.py")).read()
