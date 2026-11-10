@@ -391,7 +391,8 @@ class Page(Base):
         # "Kako trguje" = Koga prati, Pravila (cilj + limiti), Kupi ručno; "Još" = the two live lists, the
         # recommendations, Wallet i uplata (setup steps), who sees the page, safety
         # 10.11. (Jure): "Brza kupnja" (id=kupi-odmah) right under the chart, before the log
-        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=kupi-odmah", "id=dnevnik", "id=pozicije",
+        # 10.11. 20:41 (Jure: "fokusirano na trade"): open positions before the decision log
+        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=kupi-odmah", "id=pozicije", "id=dnevnik",
                 "id=pratim", "id=pravila", "id=cilj", "id=limiti", "id=zovu", "id=ideje", "id=preporuke",
                 "id=postavljanje", "id=pozivnice", "id=zastita")
         at = [body.index(k) for k in keys]

@@ -109,12 +109,26 @@ class Page(Base):
         _, body = pravitrade.page({}, "Jure")
         # 10.11. (Jure): the floating menu first, "Brza kupnja" right under the chart, not under "Kako trguje"
         nav_end = body.index("</nav>", body.index("class=ap-fn"))   # the menu's own words ("Pravila", "Još") come first
-        at = [body.index(k, nav_end) for k in ('id="apc-ap"', ">Brza kupnja<", ">Dnevnik odluka<", ">Otvorene pozicije<",
+        # 10.11. 20:41 (Jure: "fokusirano na trade, sve ostalo ispod"): positions before the decision log
+        at = [body.index(k, nav_end) for k in ('id="apc-ap"', ">Brza kupnja<", ">Otvorene pozicije<", ">Dnevnik odluka<",
                                       ">Kako trguje<", ">Koga prati<", ">Pravila<", ">Još<", ">Tko sada zove koji token<",
                                       ">Wallet i uplata<", ">Tko vidi stranicu<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         self.assertEqual(len(re.findall(r"<h2 class=ms-h2[^>]*>", body)), body.count('data-sec=""'))   # no secnav chips
         self.assertIn('class="ap ms-page"', body)
+
+    def test_grok_summary_is_under_jos_not_above_the_trade(self):
+        # 10.11. 20:41 (Jure: "Ekran treba biti čist i uredan i fokusiran na trade. Sve ostalo ispod")
+        from ui import assistnotes
+        self.mods(fake_equity(history(), SUMMARY), fake_aplog())
+        tc = pravitrade._tcon()
+        assistnotes.ensure(tc)
+        assistnotes.submit_daily_summary(tc, "k1", "Sažetak dana", "Dugi tekst asistenta.", {"x": 1})
+        tc.close()
+        _, body = pravitrade.page({}, "Jure")
+        self.assertLess(body.index("id=kupi-odmah"), body.index("id=pozicije"))
+        self.assertLess(body.index("id=pozicije"), body.index("id=dnevnik"))
+        self.assertGreater(body.index("id=sazetak"), body.index(">Još<"))
 
     def test_no_emoji_and_no_capital_shouting_on_the_page(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())

@@ -1257,8 +1257,8 @@ def _last_exit(cfg):
     return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
 
 
-FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("dnevnik", "Dnevnik", False),
-             ("pozicije", "Pozicije", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
+FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("pozicije", "Pozicije", False),
+             ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
 FLOAT_JS = ("<script>(()=>{document.querySelectorAll('.ap-fn a').forEach(a=>a.addEventListener('click',()=>{"
             "const t=document.getElementById(a.getAttribute('href').slice(1));"
             "if(t&&t.tagName==='DETAILS')t.open=true}))})()</script>")
@@ -4207,9 +4207,10 @@ def _with_toggle(html_body):
 
 def page(qs, user):
     """10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4 and the mock-up audit/2026-11-10/makete/autopilot.html, in
-    the order of audit/2026-11-10/dizajn.md section 2): the header (title with the owner's switch, one state line,
-    the wallet's value as one big number) with the chart; "Dnevnik odluka" as one row; "Otvorene pozicije" as rows
-    with "Zatvorene" and the red "Prodaj sve i isključi" under them; "Kako trguje" (Koga prati, Pravila, Kupi ručno);
+    the order of audit/2026-11-10/dizajn.md section 2; 10.11. 20:41 the trade first): the header (title with the
+    owner's switch, one state line, the wallet's value as one big number) with the chart; Grok's trade requests that
+    wait for approval; "Brza kupnja"; "Otvorene pozicije" as rows with "Zatvorene" and the red "Prodaj sve i
+    isključi" under them; "Dnevnik odluka" as one row; Grok's daily summary moved to "Još"; "Kako trguje" (Koga prati, Pravila, Kupi ručno);
     "Još" at the bottom for the rarely used parts (who calls what now, what to buy now, the tool's recommendations,
     Wallet i uplata with the setup steps, who sees the page, how it is protected). One column (ms-page); a closed row
     fetches nothing until it is opened; every part is built behind its own try (_safe), so one broken statistic
@@ -4251,12 +4252,14 @@ def page(qs, user):
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
-                 _safe("sazetak", _summary_card, tcon, owner),
-                 _safe("kupnja", _buy_now_card, cfg, owner),
-                 _safe("mcp", _mcp_requests, tcon, owner),
+                 # 10.11. 20:41 (Jure: "Ekran treba biti čist i uredan i fokusiran na trade. Sve ostalo ispod"):
+                 # the trade first (what waits for approval, buy, open positions, the decision log), then how it
+                 # trades; Grok's summary and everything else under "Još"
                  setup.get("warn", ""),
-                 _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
+                 _safe("mcp", _mcp_requests, tcon, owner),
+                 _safe("kupnja", _buy_now_card, cfg, owner),
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
+                 _group(_safe("dnevnik", _log_section, tcon, cfg), first=True),
                  _h2("Kako trguje"),
                  _group(_safe("praćenja", _follows, con, owner, settings.raw(tcon), prefill),
                         _safe("pravila", _rules, tcon, cfg, owner),
@@ -4265,6 +4268,7 @@ def page(qs, user):
         finally:
             con.close()
         b += [_h2("Još", sid="jos"),
+              _safe("sazetak", _summary_card, tcon, owner),
               _group(_safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
