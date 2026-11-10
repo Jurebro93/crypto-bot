@@ -23,6 +23,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 FLAG = "market_scan"
 SOURCES = ("caller", "wallet", "scan", "beta")
+# 10.11. (ui/kandidati.py): the combined list as sources of their own, logged in the same shadow table by the pass:
+# kandidati = a top-ranked tradeable candidate when it first ranks in the top kandidati_top_n; grok_override = a
+# candidate our rug RISK rating would block, made tradeable by fresh Grok evidence (never a confirmed collapse)
+COMBINED = ("kandidati", "grok_override")
 
 # Every value here can be overridden in scan/config.json (the owner's file). Costs first (CLAUDE.md: before every new
 # cost, measure what is used; the cheapest source first): DexScreener is free and does the pricing, GeckoTerminal goes
@@ -77,6 +81,10 @@ DEFAULT = {
     "tp": 0.20, "sl": 0.30, "horizon_h": 4, "cost": 0.02, "max_gap_min": 30,
     "paper_min_outcomes": 30, "gate_days": 30,
     "show_min": 60,                  # get_market_signals: passers of the last hour
+    # ui/kandidati.py: the combined candidate list is built and logged in shadow every kandidati_every_min (DexScreener
+    # is free; no paid call), its top kandidati_top_n tradeable rows as source kandidati
+    "kandidati_every_min": 5,
+    "kandidati_top_n": 5,
 }
 
 

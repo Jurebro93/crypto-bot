@@ -1,0 +1,1257 @@
+"""Trade candidates over every signal source, and the Grok work queue (10.11., Jure: "kombiniraj Grok kad god je
+korisno; najvažnije je naći tokene kojima treba trgovati"). MCP tools get_trade_candidates and get_grok_tasks.
+Read-only on every database; nothing here buys. The scanner pass (scan/market.pass_once) logs the top of the list in
+scan.db shadow as its own sources (kandidati, grok_override), so the daily report and get_source_stats can tell
+whether confluence beats a single source and whether listening to Grok over the rug rating pays.
+
+ONE row per token. The sources (a loader that fails is named in sources_failed, never hides the others):
+  caller        X / Telegram calls of the last hour (ui/pravitrade.gather_callers: live-checked, 30k+, awake), each
+                caller with its own measured record (one call per token, the 1 h result after a 2 % cost: minute.db
+                r60 when measured, else kol.db r1h, as get_caller_leaderboard; +10 % before -20 % within 60 min; the
+                Influenceri verdict). Calls of one caller CREW (kol/groupdisc caller group) within 10 min are ONE
+                signal; a crew graded exit_liquidity counts 0 (its calls come before the dump)
+  wallet        buys in the last hour of the wallets the Autopilot follows (+ wallets/dokazani) and of tier S/A wallets
+                (wallets.db), from hype.db chain_trades
+  scan / beta   the market scanner's passers of the last hour and its beta candidates (scan.db), plus scanner rows
+                that passed every filter but a rug RISK rating (shown; tradeable only through a Grok override)
+  hidden_group  group_signals of the last hour: 3+ wallets of one quality wallet group bought, no public call; a
+                quality caller crew that called first (caller_group_first) is evidence on the caller signal instead
+  range         active ranges (range_score >= 0.7, computed in the last 15 min; rangedca)
+  tool          the tool's own fresh top list (topcheck: rug check 'prolazi', not pumping or falling) and the Pregled
+                box's 'visoka' picks: the live list's independent sources (ui/zivo; its 'zovu' and 'konvergencija'
+                are the callers and wallets above)
+  insider       2+ pre-call insider wallets (kol/insiders, snipers out) bought it in the last hour and nobody called it
+                yet; kol.insiders.mcp_candidates(now) is used instead when that module has it
+Confluence = the independent signals: every caller signal after the crew rule, plus one for each other source kind.
+
+Tradeable = bonded (a pool with liquidity, not the pump.fun curve), market cap >= 30k (CLAUDE.md), the copy loop's
+pool gates (liquidity >= copy.CFG min_liq, under $50M, pool not bigger than the market cap, pool >= 3 % of it), no
+confirmed rug, trading now (10+ transactions and $1,000+ volume in the hour, not down 20 %: ui/prijedlog.LIVE_MIN),
+run-up from the first signal under RUNUP_MAX_X, and no rug RISK rating unless Grok overrides it.
+Rug, two kinds (10.11., Jure: "ako je BOXCAT označen kao rug, ipak slušaj Groka, jer Grok ima najnovije pozive"):
+  hard   NEVER overridden: a collapse that already happened (rugfilter/collapse via league/copy._rugged: price 70 %+
+         under the peak or the pool pulled), the rug archive, mint / freeze authority still set, RugCheck "rugged",
+         a failed sell test (honeypot)
+  risk   a rating of what may happen: the rug filter's verdict ODBAČEN / VISOK RIZIK (scan/filters.rug_filter_why),
+         supply concentration (league/copy._concentration), topcheck 'pao' on anything but the mechanics above
+A risk row stays tradeable=false, unless Grok sent FRESH evidence for the token in the last GROK_FRESH_S (30 min): an
+X features row (submit_x_features) that names known callers / large accounts or shows growing organic momentum, or a
+submit_signal_opinion with verdict kupi / dobar, and its newest piece of evidence is not against it (preskoči / loš,
+or a falling X count). Then grok_override is set: the rug warning stays on the row, the suggested size is half of
+Grok's own per-trade limit, the exit plan is tight (EXIT_TIGHT), and the row is logged as shadow source grok_override.
+execute_trade with require_approval=false applies the same rule (ui/grokauto.py: a risk rating without fresh Grok
+evidence is refused; with it the buy may be at most half of grok_max_sol_per_trade).
+
+The score (SCORE_TEXT; tradeable rows first, then the score, highest first):
+    score = 1.0 * log2(1 + confluence)
+          + 3.0 * sum over source kinds of clamp(ev * n / (n + 20), -0.10, +0.10)
+          + 0.5 * freshness                    1 when the newest signal is <= 10 min old, falling to 0 at 60 min
+          + 0.4 * clamp(x_momentum_score, -1, 1)   only a fresh X row: Grok's (2 h, it wins) or the scanner's (1 h)
+          - 1.5 * chase                        run-up: max(log2(run_x) / 2, (log2(24 h multiple) - 2) / 3) in 0..1
+          - rug penalty                        0 ok or unknown, 0.3 oprez, 1.5 risk (also when overridden), 3 hard
+  ev, n: the source's measured shadow record (scan.db shadow, tradeable rows, the gate window; group_signals for
+  hidden_group; the range paper rounds), for callers the mean of the calling accounts' own records. A source with no
+  measured outcome adds 0: confluence alone never makes a row look proven.
+"""
+import json
+import math
+import os
+import sqlite3
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WINDOW_S = 3600            # signals of the last hour
+CREW_S = 600               # one caller crew within 10 min = one signal
+GROK_FRESH_S = 1800        # Grok evidence counts this long (override, x_check task done)
+CONFLICT_DONE_S = 3600     # a submit_signal_opinion on the token this recent answers a conflict task
+MIN_MCAP = 30_000          # CLAUDE.md: never bought under 30k
+MEASURE_MIN_MCAP = 10_000  # 10.11. (owner): may be measured (shown, never tradeable) from 10k
+RUNUP_MAX_X = 4.0          # 4x or more since the first signal: too late, not tradeable (the scanner offered 6-39x)
+CACHE_S = 60
+MAX_TOKENS = 60            # tokens priced in one build (two DexScreener requests, free)
+SHRINK_N = 20              # a source's EV is pulled toward 0 by this many pseudo-outcomes
+EV_CAP = 0.10
+W = {"confluence": 1.0, "ev": 3.0, "fresh": 0.5, "x": 0.4, "chase": 1.5}
+RUG_PEN = {"ok": 0.0, "unknown": 0.0, "oprez": 0.3, "risk": 1.5, "hard": 3.0}
+POSITIVE = ("kupi", "dobar")
+NEGATIVE = ("preskoči", "loš")
+OVERRIDE_SIZE = 0.5
+EXIT_TIGHT = {"take_profits": [{"at_pct": 15, "sell_share": 0.5}], "trailing": {"activate_pct": 15, "trail_pct": 10},
+              "stop": {"at_pct": -12}, "time_stop": {"after_min": 30, "if_pnl_below_pct": 5},
+              "reason": "Grok je nadjačao rug ocjenu: pola uloga, stop -12 %, pola van na +15 %, trailing 10 %"}
+HARD_MECHANICS = ("mint authority", "freeze authority", "RugCheck ga je označio kao rugan")
+SCORE_TEXT = ("tradeable first, then score = 1.0*log2(1+confluence) + 3.0*sum_k clamp(ev_k*n_k/(n_k+20), -0.10, "
+              "0.10) + 0.5*freshness(1 at <=10 min, 0 at 60 min) + 0.4*clamp(x_momentum_score,-1,1) (fresh X only, "
+              "Grok first) - 1.5*chase(run-up from the first signal; 24 h pump) - rug penalty (0 ok, 0.3 oprez, 1.5 "
+              "risk even when overridden, 3 hard)")
+_CACHE = {"ts": 0.0, "rows": None, "meta": None}
+
+
+def _f(x):
+    try:
+        return float(x) if x is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ro(path):
+    if not path or not os.path.exists(path) or not os.path.getsize(path):
+        return None
+    try:
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    except sqlite3.Error:
+        return None
+
+
+def _q(con, sql, args=()):
+    if con is None:
+        return []
+    try:
+        return con.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return []
+
+
+def _in(xs):
+    return ",".join("?" * len(xs))
+
+
+def _hype_db():
+    return os.environ.get("HYPE_DB") or os.path.join(ROOT, "hype.db")
+
+
+def _names(x):
+    from scan import xmom
+    return xmom._names(x)
+
+
+# ---------- the data seams (the offline tests replace each method) -------------------------------------------------
+
+class Sources:
+    """Every read of build(); each returns plain data. trade_db: trade.db (assistant notes, Grok's limits)."""
+
+    def __init__(self, trade_db=None):
+        self.trade_db = trade_db
+
+    def callers(self, now):
+        """[(token, [(who, platform, ts)], first_ts, last_ts, symbol, live market)]."""
+        from ui import pravitrade
+        return pravitrade.gather_callers(now, limit=20)
+
+    def wallet_buys(self, now):
+        """[(wallet, mint, first buy ts, tier or 'prati')]: followed wallets and tier S/A wallets, last hour."""
+        from ui import pravitrade
+        from wallets import store as wstore
+        tiers = {}
+        wc = _ro(wstore.DB)
+        try:
+            tiers = {w: t for w, t in _q(wc, "SELECT wallet, tier FROM wallets WHERE tier IN ('S', 'A')")}
+        finally:
+            if wc is not None:
+                wc.close()
+        followed = pravitrade.followed_wallets()
+        ws = sorted(set(tiers) | set(followed))
+        if not ws:
+            return []
+        hc = _ro(_hype_db())
+        out = []
+        try:
+            for i in range(0, len(ws), 900):
+                part = ws[i:i + 900]
+                for w, m, ts in _q(hc, f"SELECT wallet, mint, MIN(ts) FROM chain_trades WHERE ts >= ? AND side='buy' "
+                                       f"AND wallet IN ({_in(part)}) GROUP BY wallet, mint",
+                                   (int(now) - WINDOW_S, *part)):
+                    out.append((w, m, int(ts), tiers.get(w) or "prati"))
+        finally:
+            if hc is not None:
+                hc.close()
+        return out
+
+    def scan_rows(self, now):
+        """{token: scanner row} of the last hour: passers, tokens with a shadow entry, and rows that failed only on a
+        rug risk rating (scan/filters.is_rug_risk)."""
+        from scan import filters, store
+        con = store.ro()
+        if con is None:
+            return {}
+        since = int(now) - WINDOW_S
+        out = {}
+        try:
+            con.row_factory = sqlite3.Row
+            pre = " OR ".join("why LIKE ?" for _ in filters.RUG_RISK_PREFIXES)
+            for r in con.execute(
+                    f"SELECT * FROM cand WHERE checked_ts >= ? AND (passed=1 OR token IN (SELECT token FROM shadow WHERE "
+                    f"found_ts >= ?) OR {pre}) ORDER BY checked_ts DESC LIMIT 100",
+                    (since, since, *(p + "%" for p in filters.RUG_RISK_PREFIXES))):
+                d = dict(r)
+                try:
+                    d["reasons"] = json.loads(d.get("reasons") or "[]")
+                except ValueError:
+                    d["reasons"] = []
+                d["sources"] = sorted({s for (s,) in con.execute(
+                    "SELECT source FROM shadow WHERE token=? AND found_ts >= ?", (d["token"], since))})
+                out[d["token"]] = d
+        except sqlite3.Error:
+            return out
+        finally:
+            con.close()
+        return out
+
+    def scan_first(self, tokens):
+        """{token: (ts, mcap)} of the token's first shadow entry with a market cap (any source)."""
+        from scan import store
+        con = store.ro()
+        if con is None or not tokens:
+            return {}
+        try:
+            return {t: (ts, mc) for t, ts, mc in _q(con, f"SELECT token, MIN(found_ts), mcap0 FROM shadow WHERE token IN "
+                                                       f"({_in(tokens)}) AND mcap0 > 0 GROUP BY token", list(tokens))}
+        finally:
+            con.close()
+
+    def group_signals(self, now, since=None):
+        """[(ts, source, gid, token, who, mcap_usd)] of group_discovery (empty while the flag is off)."""
+        from kol import groupdisc
+        if groupdisc.mode() == "off":
+            return []
+        ec = _ro(groupdisc.db_path())
+        try:
+            return _q(ec, "SELECT ts, source, gid, token, who, mcap_usd FROM group_signals WHERE ts >= ? ORDER BY ts",
+                      (int(since if since is not None else now - WINDOW_S),))
+        finally:
+            if ec is not None:
+                ec.close()
+
+    def groups(self):
+        """({caller handle: gid}, {gid: (kind, grade, members, metrics)}) of group_discovery ({} while off)."""
+        from kol import groupdisc
+        if groupdisc.mode() == "off":
+            return {}, {}
+        ec = _ro(groupdisc.db_path())
+        try:
+            member = {m: g for m, g in _q(ec, "SELECT member, gid FROM group_member WHERE kind='caller'")}
+            gl = {}
+            for gid, kind, grade, members, metrics in _q(ec, "SELECT id, kind, grade, members, metrics FROM group_list"):
+                try:
+                    gl[gid] = (kind, grade, json.loads(members or "[]"), json.loads(metrics or "{}"))
+                except ValueError:
+                    gl[gid] = (kind, grade, [], {})
+            return member, gl
+        finally:
+            if ec is not None:
+                ec.close()
+
+    def group_activity(self, now):
+        """[(ts, kind, gid, token, who)] of the last 24 h (for the label tasks)."""
+        from kol import groupdisc
+        if groupdisc.mode() == "off":
+            return []
+        ec = _ro(groupdisc.db_path())
+        try:
+            return _q(ec, "SELECT ts, kind, gid, token, who FROM group_activity WHERE ts >= ? ORDER BY ts DESC LIMIT 500",
+                      (int(now) - 86400,))
+        finally:
+            if ec is not None:
+                ec.close()
+
+    def ranges(self, now):
+        from rangedca import data, rules, trade
+        ms = rules.RULES["score_min"]
+        return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S).items()
+                if r.get("active") and (r.get("score") or 0) >= ms - 1e-9}
+
+    def tool_rows(self, now):
+        """The live list's own sources (ui/zivo._sources 'alat' and 'prijedlog')."""
+        out = []
+        from topcheck import store as tstore
+        for tok, r in tstore.read_all(max_age_h=1).items():
+            st = (r.get("state") or {}).get("state")
+            if r.get("rank") is not None and r.get("verdict") == "prolazi" and st not in ("pumpa", "pada"):
+                out.append({"token": tok, "symbol": r.get("symbol"), "src": "alat", "ts0": r.get("ts"),
+                            "mcap0": r.get("mcap"), "rank": r.get("rank")})
+        from ui import pravitrade
+        for p in pravitrade.latest_picks(now, limit=10):
+            if p.get("razina") == "visoka" and now - (p.get("ts") or 0) <= 6 * 3600:
+                out.append({"token": p["token"], "symbol": None, "src": "prijedlog", "ts0": p.get("ts"),
+                            "mcap0": p.get("mcap0"), "conf": p.get("conf")})
+        return out
+
+    def insider_rows(self, now):
+        """[{"token", "ts", "wallets", "mcap_usd"}]: kol.insiders.mcp_candidates(now) when the module has it (the
+        insiders work, merged later), else 2+ insider wallets (snipers out) bought within the hour, no call yet."""
+        from kol import insiders, store as kstore
+        fn = getattr(insiders, "mcp_candidates", None)
+        if callable(fn):
+            rows = fn(now)
+            rows = rows.get("candidates", []) if isinstance(rows, dict) else rows
+            return [r for r in rows or [] if isinstance(r, dict) and r.get("token")]
+        good = sorted(insiders.good_set())
+        if not good:
+            return []
+        hc = _ro(_hype_db())
+        by = {}
+        try:
+            for w, m, ts in _q(hc, f"SELECT wallet, mint, MIN(ts) FROM chain_trades WHERE side='buy' AND ts >= ? AND "
+                                   f"wallet IN ({_in(good)}) GROUP BY wallet, mint", (int(now) - WINDOW_S, *good)):
+                by.setdefault(m, {})[w] = int(ts)
+        finally:
+            if hc is not None:
+                hc.close()
+        by = {m: ws for m, ws in by.items() if len(ws) >= 2}
+        if not by:
+            return []
+        kc = kstore.ro()
+        try:
+            called = {t for (t,) in _q(kc, f"SELECT DISTINCT token FROM calls WHERE kind='call' AND token IN ({_in(by)})",
+                                        list(by))}
+        finally:
+            if kc is not None:
+                kc.close()
+        return [{"token": m, "ts": sorted(ws.values())[1], "wallets": sorted(ws, key=ws.get)} for m, ws in by.items()
+                if m not in called]
+
+    def live(self, tokens):
+        from ui import prijedlog
+        return prijedlog.live_market(list(tokens)[:MAX_TOKENS]) or {}
+
+    def x_latest(self, tokens, now):
+        from scan import xmom
+        return xmom.latest(list(tokens), since=now - 6 * 3600, now=now)
+
+    def grok_rows(self, tokens, now):
+        """{token: [{"ts_observed", "ts_asof", "features", "source"}]} of Grok's live X rows received in the last
+        GROK_FRESH_S (any features: they answer an x_check task even when they carry no momentum key)."""
+        from ui import xfeat
+        con = xfeat.ro()
+        out = {}
+        if con is None or not tokens:
+            return out
+        try:
+            for subj, obs, asof, f, src in _q(con, f"SELECT subject, ts_observed, ts_asof, features, source FROM x_features "
+                                                    f"WHERE subject_kind='token' AND subject IN ({_in(tokens)}) AND "
+                                                    f"source LIKE 'mcp:%' AND backfill=0 AND ts_observed >= ? "
+                                                    f"ORDER BY ts_observed, id", (*tokens, int(now) - GROK_FRESH_S)):
+                try:
+                    feats = json.loads(f)
+                except ValueError:
+                    feats = {}
+                out.setdefault(subj, []).append({"ts_observed": obs, "ts_asof": asof, "features": feats, "source": src})
+        finally:
+            con.close()
+        return out
+
+    def _tcon(self):
+        from trade import settings
+        return _ro(self.trade_db or settings.DB)
+
+    def opinions(self, tokens, now, since_s=GROK_FRESH_S):
+        """{token: [{"ts", "verdict", "confidence", "interpretation"}]} of submit_signal_opinion notes, oldest first."""
+        tc = self._tcon()
+        out = {}
+        if tc is None or not tokens:
+            return out
+        try:
+            for tok, ts, v, c, txt in _q(tc, f"SELECT token, ts, verdict, confidence, interpretation FROM assistant_notes "
+                                             f"WHERE kind='signal_opinion' AND token IN ({_in(tokens)}) AND ts >= ? "
+                                             f"ORDER BY ts, id", (*tokens, int(now) - since_s)):
+                out.setdefault(tok, []).append({"ts": ts, "verdict": v, "confidence": c,
+                                                "interpretation": (txt or "")[:300]})
+        finally:
+            tc.close()
+        return out
+
+    def labels(self):
+        """(group ids with a group_label note, tokens / wallets with an insider_label note), any status."""
+        tc = self._tcon()
+        gids, ins = set(), set()
+        try:
+            for (pc,) in _q(tc, "SELECT proposed_change FROM assistant_notes WHERE kind='suggestion' AND "
+                                "(proposed_change LIKE '%group_label%' OR proposed_change LIKE '%insider_label%')"):
+                try:
+                    d = json.loads(pc) or {}
+                except ValueError:
+                    continue
+                gl, il = d.get("group_label"), d.get("insider_label")
+                if isinstance(gl, dict) and gl.get("group_id"):
+                    gids.add(str(gl["group_id"]))
+                if isinstance(il, dict):
+                    for k in ("token", "wallet"):
+                        if il.get(k):
+                            ins.add(str(il[k]))
+                    ins |= {str(w) for w in il.get("wallets") or [] if w}
+        finally:
+            if tc is not None:
+                tc.close()
+        return gids, ins
+
+    def limits(self):
+        """{"grok_max_sol_per_trade", "sl_default"} from trade settings (defaults when unreadable)."""
+        from ui import grokauto
+        tc = self._tcon()
+        try:
+            if tc is None:
+                return {"grok_max_sol_per_trade": grokauto.LIMITS["grok_max_sol_per_trade"][0], "sl_default": 30.0}
+            lim = grokauto.limits(tc)
+            from trade import settings
+            sl = _f(settings.raw(tc).get("sl_default"))
+            return {"grok_max_sol_per_trade": lim["grok_max_sol_per_trade"], "sl_default": sl or 30.0}
+        finally:
+            if tc is not None:
+                tc.close()
+
+    def known_handles(self):
+        """Scored callers of kol.db (lower case, no bots): a handle Grok names is checked against these."""
+        from kol import store as kstore
+        kc = kstore.ro()
+        try:
+            return {h.lower() for (h,) in _q(kc, "SELECT handle FROM kols WHERE COALESCE(score, 0) > 0 AND "
+                                                 "COALESCE(bot, 0) = 0")}
+        finally:
+            if kc is not None:
+                kc.close()
+
+    def first_calls(self, tokens, now):
+        """{token: (ts, mcap0)} of the token's first call of the last 24 h (kol.db)."""
+        from kol import store as kstore
+        kc = kstore.ro()
+        try:
+            return {t: (ts, mc) for t, ts, mc in _q(kc, f"SELECT token, MIN(ts), mcap0 FROM calls WHERE token IN "
+                                                       f"({_in(tokens)}) AND kind='call' AND ts >= ? GROUP BY token",
+                                                   (*tokens, int(now) - 86400))} if tokens else {}
+        finally:
+            if kc is not None:
+                kc.close()
+
+    def caller_records(self, handles, now):
+        return caller_records(handles, now)
+
+    def records(self, now):
+        return source_records(now)
+
+    def rug_tables(self):
+        from scan import filters
+        return filters.rug_tables()
+
+    def archived(self):
+        from rugfilter import archive
+        return archive.blocked()
+
+    def collapse(self, token, mcap, liq):
+        from league import copy as lcopy
+        return lcopy._rugged(token, mcap, liq)
+
+    def concentration(self, token):
+        from league import copy as lcopy
+        return lcopy._concentration(token)
+
+    def tpsl(self, handles):
+        from kol import tpsl
+        return tpsl.for_handles(handles)
+
+
+# ---------- measured records ----------------------------------------------------------------------------------------
+
+def caller_records(handles, now, days=30, kol_db=None, minute_db=None):
+    """{handle: record} of each account, the get_caller_leaderboard rule on the account's own rows (indexed by handle):
+    one call per token (its first, last `days`), the 1 h result after the 2 % cost (minute.db r60 when the minute check
+    measured it, else kol.db r1h; under-30k calls without a minute row out), n / mean / ev_lower (mean - 2 standard
+    errors); hit10 = +10 % before -20 % within 60 min and stop_first from the minute check; the Influenceri verdict
+    (ui/kolsummary.verdict) from its last 14 days."""
+    from kol import minute, store as kstore
+    from ui import kolsummary
+    hs = sorted({h for h in handles if h})
+    out = {}
+    if not hs:
+        return out
+    since, since14 = int(now) - days * 86400, int(now) - 14 * 86400
+    kc, mc = kstore.ro(kol_db), minute.ro(minute_db)
+    try:
+        bad = ""
+        if mc is not None and "bad" in {r[1] for r in _q(mc, "PRAGMA table_info(call_path)")}:
+            bad = " AND bad IS NULL"
+        for h in hs:
+            calls = _q(kc, "SELECT token, MIN(ts), r1h, r24h, mcap0 FROM calls WHERE handle=? AND kind='call' AND ts >= ? "
+                           "GROUP BY token", (h, since))
+            mins = {t: (ts, r60, t10, sl) for t, ts, r60, t10, sl in _q(
+                mc, f"SELECT token, MIN(ts), r60, t10, sl_min FROM call_path WHERE handle=? AND ts >= ? AND entry IS NOT "
+                    f"NULL{bad} GROUP BY token", (h, since))}
+            ev = []
+            for tok, _ts, r1h, _r24, mcap0 in calls:
+                m = mins.get(tok)
+                if m is None and mcap0 is not None and mcap0 < MIN_MCAP:
+                    continue
+                r = m[1] if m and m[1] is not None else r1h
+                if r is not None:
+                    ev.append(r - 0.02)
+            n = len(ev)
+            mean = sum(ev) / n if n else None
+            lo = None
+            if n >= 2:
+                sd = math.sqrt(sum((x - mean) ** 2 for x in ev) / (n - 1))
+                lo = mean - 2 * sd / math.sqrt(n)
+            mm = list(mins.values())
+            hits = [m for m in mm if m[2] is not None and (m[3] is None or m[2] < m[3])]
+            stops = [m for m in mm if m[3] is not None and m not in hits]
+            m14 = [m for m in mm if m[0] >= since14]
+            h14 = sum(1 for m in m14 if m[2] is not None and (m[3] is None or m[2] < m[3]))
+            c14 = [c for c in calls if c[1] >= since14 and (c[4] is None or c[4] >= MIN_MCAP)]
+            n24 = [c for c in c14 if c[3] is not None]
+            d24 = (sum(1 for c in n24 if c[3] > 0) / len(n24)) if len(n24) >= kolsummary.VERDICT_MIN_N else None
+            key, word, _s = kolsummary.verdict(h14 / len(m14) if m14 else None, d24, len(m14))
+            out[h] = {"ev_n": n, "ev_mean": round(mean, 4) if mean is not None else None,
+                      "ev_lower": round(lo, 4) if lo is not None else None, "minute_n": len(mm),
+                      "hit10": round(len(hits) / len(mm), 3) if mm else None,
+                      "stop_first": round(len(stops) / len(mm), 3) if mm else None, "verdict": key, "verdict_hr": word}
+    finally:
+        for c in (kc, mc):
+            if c is not None:
+                c.close()
+    return out
+
+
+def source_records(now, scan_con=None):
+    """{kind: {"n", "hit1h", "hit4h", "sl_first", "ev", "window_days", "from"}} measured so far: scan.db shadow
+    (tradeable rows, the gate window) for caller / wallet / scan / beta / kandidati / grok_override; group_signals
+    (30 days, measured) for hidden_group and caller_group_first (sl_first: the stop came first, ev = -30 % - cost);
+    the range paper rounds; None for a kind nothing measures yet (tool, insider)."""
+    out = {k: None for k in ("caller", "wallet", "scan", "beta", "hidden_group", "caller_group_first", "range", "tool",
+                             "insider", "kandidati", "grok_override")}
+    try:
+        from scan import shadow, store
+        cfg = store.config()
+        con = scan_con or store.ro()
+        if con is not None:
+            try:
+                for r in shadow.stats(con, cfg, int(now) - int(cfg["gate_days"]) * 86400, now):
+                    if r["source"] in out:
+                        out[r["source"]] = {"n": r["n"], "hit1h": r["hit1h"], "hit4h": r["hit4h"],
+                                            "sl_first": r["sl_first"], "ev": r["ev"], "window_days": cfg["gate_days"],
+                                            "from": "scan.db shadow (+20 % / -30 %, 4 h, 2 % cost)"}
+            finally:
+                if scan_con is None:
+                    con.close()
+    except Exception:  # noqa: BLE001 - a record that cannot be read is unknown, never a guess
+        pass
+    try:
+        from kol import groupdisc
+        c = groupdisc.config()
+        ec = _ro(groupdisc.db_path())
+        try:
+            by = {}
+            for src, h1, h4, ev in _q(ec, "SELECT source, hit1h, hit4h, ev FROM group_signals WHERE ts >= ? AND "
+                                          "measured_ts IS NOT NULL AND ev IS NOT NULL", (int(now) - 30 * 86400,)):
+                by.setdefault(src, []).append((h1 or 0, h4 or 0, ev))
+        finally:
+            if ec is not None:
+                ec.close()
+        stop = c["sl"] - c["cost"] + 1e-6
+        for src, xs in by.items():
+            if src in out:
+                n = len(xs)
+                out[src] = {"n": n, "hit1h": round(sum(x[0] for x in xs) / n, 3), "hit4h": round(sum(x[1] for x in xs) / n, 3),
+                            "sl_first": round(sum(1 for x in xs if x[2] <= stop) / n, 3),
+                            "ev": round(sum(x[2] for x in xs) / n, 4), "window_days": 30,
+                            "from": "early.db group_signals (+20 % before -30 %, 4 h, cost)"}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from rangedca import gate
+        p = gate.proof()
+        out["range"] = {"n": p["n"], "hit1h": None, "hit4h": None, "sl_first": None,
+                        "ev": round(p["ev_pct"] / 100, 4) if p.get("ev_pct") is not None else None,
+                        "wins": p["wins"], "from": "range.db closed paper rounds (EV per round)"}
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _ev_part(rec):
+    """A record's EV pulled toward 0 by SHRINK_N pseudo-outcomes and capped at +-EV_CAP (0 without one)."""
+    if not rec or rec.get("ev") is None or not rec.get("n"):
+        return 0.0
+    n = rec["n"]
+    return max(-EV_CAP, min(EV_CAP, rec["ev"] * n / (n + SHRINK_N)))
+
+
+# ---------- rug, Grok evidence, run-up --------------------------------------------------------------------------------
+
+def rug_view(token, mcap, liq, src, tables, archived=frozenset(), scan_row=None):
+    """{"level": ok | unknown | oprez | risk | hard, "hard": [...], "risk": [...], "warn": [...], "rug_filter",
+    "topcheck"}: hard = never overridden (collapse, archive, mint / freeze, RugCheck rugged, honeypot), risk = a
+    rating (see the module text)."""
+    from scan import filters
+    tc, rug = tables
+    hard, risk, warn = [], [], []
+    if token in archived:
+        hard.append("token je u arhivi rugova (srušen, izvučena likvidnost ili rug mehanika)")
+    try:
+        col = src.collapse(token, mcap, liq)
+    except Exception:  # noqa: BLE001
+        col = None
+    if col:
+        hard.append(f"rugan: {col.get('text') or 'kolaps'}")
+    t = (tc or {}).get(token) or {}
+    checks = ((t.get("safety") or {}).get("checks") or {}) if isinstance(t.get("safety"), dict) else {}
+    for k in ("rugcheck", "mint", "freeze", "honeypot"):
+        st = checks.get(k)
+        if isinstance(st, (list, tuple)) and len(st) >= 2 and st[0] == "fail":
+            hard.append(str(st[1]))
+    r = (rug or {}).get(token) or {}
+    data = r.get("data") or {}
+    if isinstance(data, str):
+        try:
+            data = json.loads(data) or {}
+        except ValueError:
+            data = {}
+    for h in data.get("hard_fails") or []:
+        if any(str(h).startswith(m) for m in HARD_MECHANICS):
+            hard.append(f"rug filter: {h}")
+    sw = (scan_row or {}).get("why") or ""
+    if sw.startswith(("mint ovlast", "freeze ovlast")):
+        hard.append(sw)
+    try:
+        why_c, _shown = src.concentration(token)
+    except Exception:  # noqa: BLE001
+        why_c = None
+    if why_c:
+        risk.append(why_c)
+    rf = filters.rug_filter_why(token, rug)
+    if rf:
+        risk.append(rf)
+    if filters.is_rug_risk(sw):
+        risk.append(sw)
+    if r.get("verdict") == "OPREZ":
+        flags = data.get("flags") or []
+        warn.append("rug filter: oprez" + (f" ({flags[0]})" if flags else ""))
+    if t.get("verdict") == "oprez":
+        warn.append("topcheck: oprez")
+    risk = [x for i, x in enumerate(risk) if x not in risk[:i] and x not in hard]
+    level = "hard" if hard else "risk" if risk else "oprez" if warn else "ok" if (r or t) else "unknown"
+    return {"level": level, "hard": hard, "risk": risk, "warn": warn, "rug_filter": r.get("verdict"),
+            "rug_filter_score": r.get("score"), "topcheck": t.get("verdict")}
+
+
+def grok_evidence(rows, opinions, known, now):
+    """Grok's fresh evidence on one token -> {"for": [...], "against": [...], "strength", "newest"} or None when
+    there is none. x rows: for = names known callers or large accounts, or growing organic momentum (score > 0 or
+    x_early); against = momentum <= 0 with nobody named. Opinions: kupi / dobar for, preskoči / loš against."""
+    from scan import xmom
+    pro, con = [], []
+    for row in rows or []:
+        f = row.get("features") or {}
+        g = xmom._grok(row.get("ts_asof"), json.dumps(f)) or {}
+        named = _names(f.get("known_callers"))
+        verified = [h for h in named if h in known]
+        large = _names(f.get("large_accounts"))
+        sc, early = g.get("x_momentum_score"), g.get("x_early")
+        e = {"kind": "x", "ts": row.get("ts_observed"), "age_min": round((now - (row.get("ts_observed") or now)) / 60, 1),
+             "known_callers": named[:10], "verified_known_callers": verified[:10], "large_accounts": large[:10],
+             "x_momentum_score": sc, "x_early": early, "posts_60m": g.get("posts60"),
+             "unique_authors_15m": g.get("authors15"), "note": str(f.get("note") or "")[:200] or None}
+        if named or large or (sc is not None and sc > 0) or early is True:
+            pro.append(e)
+        elif sc is not None or early is False:
+            con.append(e)
+    for o in opinions or []:
+        e = {"kind": "opinion", "ts": o.get("ts"), "age_min": round((now - (o.get("ts") or now)) / 60, 1),
+             "verdict": o.get("verdict"), "confidence": o.get("confidence"), "note": o.get("interpretation")}
+        if o.get("verdict") in POSITIVE:
+            pro.append(e)
+        elif o.get("verdict") in NEGATIVE:
+            con.append(e)
+    if not pro and not con:
+        return None
+    newest = max(pro + con, key=lambda e: e.get("ts") or 0)
+    strong = any(e.get("verified_known_callers") or e.get("large_accounts") for e in pro) or \
+        any(e["kind"] == "opinion" and (e.get("confidence") or 0) >= 0.7 for e in pro)
+    return {"for": pro, "against": con, "strength": "jak" if strong else "slab",
+            "newest": "for" if newest in pro else "against"}
+
+
+def override_of(ev, rug):
+    """The grok_override of a row whose only blocker is a rug RISK rating, or None (no evidence, the newest piece is
+    against, or a hard rug)."""
+    if rug["level"] != "risk" or not ev or not ev["for"] or ev["newest"] != "for":
+        return None
+    first = ev["for"][-1]
+    named = first.get("verified_known_callers") or first.get("known_callers") or first.get("large_accounts") or []
+    how = ("Grokov X: " + ", ".join("@" + h for h in named[:3]) if named else
+           f"Grokovo mišljenje: {first.get('verdict')}" if first["kind"] == "opinion" else
+           f"Grokov X: zamah {first.get('x_momentum_score')}")
+    return {"active": True, "rug_warning": "; ".join(rug["risk"]), "strength": ev["strength"],
+            "reason": (f"rug ocjena kaže rizik ({rug['risk'][0]}), ali Grok ima svjež dokaz ({how}, prije "
+                       f"{first.get('age_min')} min): kupuje se samo pola uloga, uski stop; kolaps se nikad ne nadjačava"),
+            "evidence": ev["for"][-3:], "against": ev["against"][-2:]}
+
+
+def override_now(token, now=None, src=None):
+    """Grok's fresh evidence FOR the token right now (grok_evidence with "for" newest), or None: what execute_trade
+    (ui/grokauto.execute) asks before it lets a rug risk rating pass at half size."""
+    S = src or Sources()
+    now = int(now or time.time())
+    try:
+        known = S.known_handles()
+    except Exception:  # noqa: BLE001
+        known = set()
+    ge = grok_evidence(S.grok_rows([token], now).get(token), S.opinions([token], now).get(token), known, now)
+    return ge if ge and ge["for"] and ge["newest"] == "for" else None
+
+
+def runup(m, first_mcap):
+    """{"x", "from", "mcap_at_first_signal", "change_24h_pct", "chase"}: market cap now over the first signal's
+    (else 1 + the 1 h change), and chase in 0..1 (see the module text)."""
+    mc = _f((m or {}).get("mcap"))
+    ch1, ch24 = _f((m or {}).get("ch_h1")), _f((m or {}).get("ch_h24"))
+    if mc and first_mcap and first_mcap > 0:
+        x, how = mc / first_mcap, "MC prvog signala"
+    elif ch1 is not None:
+        x, how = 1 + ch1 / 100, "promjena 1 h (MC prvog signala nepoznat)"
+    else:
+        x, how = None, "nepoznato"
+    chase = max(0.0, min(1.0, math.log2(x) / 2)) if x and x > 0 else 0.0
+    if ch24 is not None and ch24 > -100:
+        p24 = 1 + ch24 / 100
+        chase = max(chase, max(0.0, min(1.0, (math.log2(p24) - 2) / 3)))
+    return {"x": round(x, 2) if x else None, "from": how, "mcap_at_first_signal": round(first_mcap) if first_mcap else None,
+            "change_24h_pct": ch24, "chase": round(chase, 3)}
+
+
+# ---------- the build ----------------------------------------------------------------------------------------------------
+
+def _market(m, ts=None, how="dexscreener"):
+    from ui import mcpapi
+    row = mcpapi._market_row(m) if m else None
+    if row is not None:
+        row["source"] = how
+        if ts:
+            row["ts"] = int(ts)
+    return row
+
+
+def build(now=None, src=None, details=True):
+    """(rows ranked, meta). details=False skips the per-row caller records' exit plans (the scanner's shadow log
+    needs only the ranking)."""
+    now = int(now or time.time())
+    S = src or Sources()
+    failed = []
+
+    def safe(name, fn, default):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 - one broken source never hides the others
+            failed.append(f"{name}: {type(e).__name__}")
+            return default
+
+    rows = {}
+
+    def row(tok, sym=None):
+        r = rows.setdefault(tok, {"token": tok, "symbol": None, "sources": {}, "sig": [], "count": {}, "live": None,
+                                  "scan_row": None})
+        if sym and not r["symbol"]:
+            r["symbol"] = sym
+        return r
+
+    member, glist = safe("groups", S.groups, ({}, {}))
+    gsig = safe("group_signals", lambda: S.group_signals(now), [])
+    crew_first = {}
+    for ts, s, gid, tok, who, mc in gsig:
+        if s == "caller_group_first":
+            crew_first.setdefault(tok, (ts, gid, who, mc))
+    # callers
+    handles, lives = set(), {}
+    for tok, callers, first, last, sym, live in safe("caller", lambda: S.callers(now), []):
+        calls = [(int(ts), w) for w, p, ts in callers if p in ("x", "tg")]
+        if live:
+            lives[tok] = live   # a followed wallet's buy is the wallet source below; its live check is reused
+        if not calls:
+            continue
+        r = row(tok, sym)
+        from kol import groupdisc
+        sigs = groupdisc.dedupe(calls, member, CREW_S)
+        crews, n = [], 0
+        for s in sigs:
+            if s["gid"]:
+                kind, grade, _m, _x = glist.get(s["gid"], ("caller", None, [], {}))
+                crews.append({"group_id": s["gid"], "handles": s["handles"], "grade": grade})
+                n += 0 if grade == "exit_liquidity" else 1
+            else:
+                n += 1
+        handles |= {w for _ts, w in calls}
+        ev = {"n_callers": len({w for _t, w in calls}), "signals": len(sigs), "crews": crews,
+              "first_ts": min(t for t, _w in calls), "last_ts": max(t for t, _w in calls),
+              "callers": [{"who": w, "platform": p, "ts": int(ts)} for w, p, ts in callers if p in ("x", "tg")][:8]}
+        if tok in crew_first:
+            ts, gid, who, mc = crew_first[tok]
+            ev["crew_first"] = {"group_id": gid, "ts": int(ts), "who": who, "mcap_usd": mc}
+        r["sources"]["caller"] = ev
+        r["count"]["caller"] = n
+        r["sig"].append((ev["first_ts"], None, "caller"))
+    # followed and tiered wallets
+    wb = {}
+    for w, m, ts, tier in safe("wallet", lambda: S.wallet_buys(now), []):
+        wb.setdefault(m, []).append((ts, w, tier))
+    for tok, xs in wb.items():
+        xs.sort()
+        r = row(tok)
+        r["sources"]["wallet"] = {"n_wallets": len({w for _t, w, _x in xs}), "first_ts": xs[0][0],
+                                  "wallets": [{"wallet": w, "tier": t, "ts": ts} for ts, w, t in xs[:6]]}
+        r["count"]["wallet"] = 1
+        r["sig"].append((xs[0][0], None, "wallet"))
+    # scanner
+    from scan import filters
+    for tok, sr in safe("scan", lambda: S.scan_rows(now), {}).items():
+        passed = bool(sr.get("passed"))
+        rug_only = not passed and filters.is_rug_risk(sr.get("why"))
+        in_shadow = "scan" in (sr.get("sources") or [])
+        beta = "beta" in (sr.get("sources") or []) and (sr.get("beta_score") or 0) >= 0.6
+        if not (passed or rug_only or in_shadow or beta or tok in rows):
+            continue   # a caller / wallet signal the scanner only checked: its numbers ride along, it is no source
+        r = row(tok, sr.get("symbol"))
+        r["scan_row"] = sr
+        if passed or rug_only or in_shadow:
+            r["sources"]["scan"] = {"passed": passed, "why_now": sr.get("why"), "stage": sr.get("stage"),
+                                    "pass_reasons": (sr.get("reasons") or [])[:6], "fees_paid_sol": sr.get("fees_paid_sol"),
+                                    "holders": sr.get("holders"), "top10_pct": sr.get("top10_pct"),
+                                    "lead_time_min": sr.get("lead_time_min"),
+                                    "first_pass_ts": sr.get("first_pass_ts"), "checked_ts": sr.get("checked_ts")}
+            r["count"]["scan"] = 1
+            r["sig"].append((sr.get("first_pass_ts") or sr.get("checked_ts"), None, "scan"))
+        if beta:
+            r["sources"]["beta"] = {"beta_score": sr.get("beta_score"), "beta_parent": sr.get("beta_parent")}
+            r["count"]["beta"] = 1
+            r["sig"].append((sr.get("checked_ts"), None, "beta"))
+    # hidden wallet lists
+    for ts, s, gid, tok, who, mc in gsig:
+        if s != "hidden_group":
+            continue
+        kind, grade, _m, _x = glist.get(gid, ("wallet", None, [], {}))
+        r = row(tok)
+        r["sources"]["hidden_group"] = {"group_id": gid, "grade": grade, "ts": int(ts), "mcap_usd": mc,
+                                        "wallets": (who or "").split(",")[:8]}
+        r["count"]["hidden_group"] = 1
+        r["sig"].append((int(ts), mc, "hidden_group"))
+    # ranges
+    for tok, rg in safe("range", lambda: S.ranges(now), {}).items():
+        r = row(tok, rg.get("symbol"))
+        z = rg.get("zones") or {}
+        r["sources"]["range"] = {"range_score": rg.get("score"), "position_in_range_pct": rg.get("pos_pct"),
+                                 "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts")}
+        r["range"] = z
+        r["count"]["range"] = 1
+    # the live list's own sources
+    for t in safe("tool", lambda: S.tool_rows(now), []):
+        r = row(t["token"], t.get("symbol"))
+        ev = r["sources"].setdefault("tool", {"from": []})
+        ev["from"].append({k: t.get(k) for k in ("src", "rank", "conf", "ts0", "mcap0") if t.get(k) is not None})
+        r["count"]["tool"] = 1
+        if t.get("ts0"):
+            r["sig"].append((int(t["ts0"]), t.get("mcap0"), "tool"))
+    # insiders
+    for t in safe("insider", lambda: S.insider_rows(now), []):
+        r = row(t["token"])
+        r["sources"]["insider"] = {"wallets": list(t.get("wallets") or [])[:8], "ts": t.get("ts"),
+                                   "mcap_usd": t.get("mcap_usd")}
+        r["count"]["insider"] = 1
+        if t.get("ts"):
+            r["sig"].append((int(t["ts"]), t.get("mcap_usd"), "insider"))
+    if not rows:
+        return [], {"sources_failed": failed, "records": {}}
+    # market now: the callers' live check first, then one DexScreener read for the rest, else the scanner's numbers
+    toks = list(rows)
+    need = [t for t in toks if not rows[t]["live"] and t not in lives]
+    lv = safe("market", lambda: S.live(need), {}) if need else {}
+    for t in toks:
+        r = rows[t]
+        r["live"] = r["live"] or lives.get(t)
+        if r["live"]:
+            r["market"], r["m"] = _market(r["live"]), r["live"]
+        elif lv.get(t):
+            r["market"], r["m"] = _market(lv[t]), lv[t]
+        elif r["scan_row"]:
+            sr = r["scan_row"]
+            m = {k: sr.get(k) for k in ("price", "mcap", "liq", "vol_h1", "ch_h1", "ch_h24")}
+            r["market"], r["m"] = _market(m, sr.get("checked_ts"), "scan.db (do 10 min staro)"), m
+        else:
+            r["market"], r["m"] = None, None
+    # drop what may not even be measured (under 10k) before the per-token reads
+    rows = {t: r for t, r in rows.items() if not r["m"] or (_f(r["m"].get("mcap")) or 0) >= MEASURE_MIN_MCAP}
+    toks = list(rows)
+    records = safe("records", lambda: S.records(now), {}) or {}
+    crec = safe("caller_records", lambda: S.caller_records(handles, now), {}) if handles else {}
+    xm = safe("x", lambda: S.x_latest(toks, now), {})
+    grows = safe("grok_x", lambda: S.grok_rows(toks, now), {})
+    ops = safe("opinions", lambda: S.opinions(toks, now), {})
+    known = safe("known", S.known_handles, set())
+    firsts = safe("first_calls", lambda: S.first_calls(toks, now), {})
+    sfirst = safe("scan_first", lambda: S.scan_first(toks), {})
+    archived = safe("archive", S.archived, frozenset())
+    lim = safe("limits", S.limits, {"grok_max_sol_per_trade": 0.1, "sl_default": 30.0})
+    from league import copy as lcopy
+    tables = safe("rug", S.rug_tables, ({}, {}))
+    mine = None
+    if lcopy._CONC_CACHE is None:   # league/copy._concentration reads the same two tables once for the whole build
+        mine = lcopy._CONC_CACHE = {"tc": tables[0], "rug": tables[1]}
+    try:
+        out = [_finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details)
+               for r in rows.values()]
+    finally:
+        # the dashboard's copy loop (league/auto -> copy.run_once) sets and clears the same cache in its own thread:
+        # only our own dict is taken back, never one a running pass put there
+        if mine is not None and lcopy._CONC_CACHE is mine:
+            lcopy._CONC_CACHE = None
+    out.sort(key=lambda r: (not r["tradeable"], -r["score"], r["token"]))
+    for i, r in enumerate(out, 1):
+        r["rank"] = i
+    return out, {"sources_failed": failed, "records": records}
+
+
+def prijedlog_live_min():
+    """The live lists' activity floor (ui/prijedlog.LIVE_MIN: 10+ transactions and $1,000+ volume in the hour, not
+    down 20 % in it)."""
+    try:
+        from ui import prijedlog
+        return prijedlog.LIVE_MIN
+    except Exception:  # noqa: BLE001
+        return {"txns_h1": 10, "vol_h1": 1000.0, "max_drop_h1": -20.0}
+
+
+def _record_of(kind, records):
+    rec = records.get(kind)
+    if not rec:
+        return None
+    return {k: rec.get(k) for k in ("n", "hit1h", "hit4h", "sl_first", "ev")}
+
+
+def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details):
+    tok, m = r["token"], r["m"] or {}
+    from league import copy as lcopy
+    srcs = r["sources"]
+    # each source's measured record; the callers' own records on the caller signal
+    ev_parts = {}
+    for k, ev in srcs.items():
+        if k == "caller":
+            recs = []
+            for c in ev["callers"]:
+                cr = crec.get(c["who"])
+                if cr:
+                    c["record"] = cr
+                    if cr.get("ev_n"):
+                        recs.append({"n": cr["ev_n"], "ev": cr["ev_mean"]})
+            ev["record"] = _record_of("caller", records)
+            ev["own_records"] = len(recs)
+            ev_parts[k] = (sum(_ev_part(x) for x in recs) / len(recs)) if recs else _ev_part(records.get("caller"))
+            if ev.get("crew_first"):
+                ev["crew_first"]["record"] = _record_of("caller_group_first", records)
+        else:
+            ev["record"] = _record_of(k, records)
+            ev_parts[k] = _ev_part(records.get(k))
+    confluence = sum(r["count"].values())
+    sigs = [s for s in r["sig"] if s[0]]
+    first_ts = min((s[0] for s in sigs), default=None)
+    last_ts = max((s[0] for s in sigs), default=None)
+    # the first signal's market cap: the earliest of the first call (kol.db), the first shadow entry, a group signal
+    cands = [(ts, mc) for ts, mc, _k in sigs if mc]
+    if tok in firsts and firsts[tok][1]:
+        cands.append(firsts[tok])
+    if tok in sfirst and sfirst[tok][1]:
+        cands.append(sfirst[tok])
+    first_mc = min(cands)[1] if cands else None
+    ru = runup(m, first_mc)
+    mcap, liq = _f(m.get("mcap")) or 0, _f(m.get("liq"))
+    sr = r["scan_row"] or {}
+    curve = sr.get("stage") in ("final_stretch", "curve") or (r["m"] is not None and not liq)
+    rug = rug_view(tok, mcap or None, liq, S, tables, archived, sr)
+    why_not = []
+    if not r["m"] or not _f(m.get("price")):
+        why_not.append("nema živog tržišta (DexScreener)")
+    if mcap < MIN_MCAP:
+        why_not.append(f"MC ${mcap:,.0f} ispod 30k: samo mjerenje, ne kupuje se")
+    if curve:
+        why_not.append("još na krivulji ili bez poola: uzimaju se samo bondani")
+    else:
+        c = lcopy.CFG
+        if liq < c["min_liq"]:
+            why_not.append(f"premala likvidnost (${liq:,.0f})")
+        elif mcap and mcap > c["max_mcap"]:
+            why_not.append("velik token (preko $50M)")
+        elif mcap and liq > mcap:
+            why_not.append("lažni pool (likvidnost veća od market capa)")
+        elif mcap and liq < c["min_liq_mcap"] * mcap:
+            why_not.append(f"likvidnost je samo {liq / mcap:.1%} MC-a (granica {c['min_liq_mcap']:.0%})")
+    if r["m"]:   # it must trade NOW (ui/prijedlog.alive's activity lines; liquidity is the pool gate above)
+        tx, vol, ch1 = m.get("txns_h1"), _f(m.get("vol_h1")) or 0, _f(m.get("ch_h1"))
+        lv = prijedlog_live_min()
+        if (tx is not None and tx < lv["txns_h1"]) or vol < lv["vol_h1"]:
+            why_not.append(f"ne trguje se sada (volumen 1 h ${vol:,.0f}" + (f", {tx} transakcija" if tx is not None else "")
+                           + ")")
+        elif ch1 is not None and ch1 <= lv["max_drop_h1"]:
+            why_not.append(f"pada: {ch1:+.0f} % u zadnjem satu")
+    why_not += [f"rug (nikad se ne nadjačava): {h}" for h in rug["hard"]]
+    if ru["x"] and ru["x"] >= RUNUP_MAX_X:
+        why_not.append(f"kasno: već {ru['x']:.1f}× od prvog signala (granica {RUNUP_MAX_X:g}×)")
+    ge = grok_evidence(grows.get(tok), ops.get(tok), known, now)
+    ov = override_of(ge, rug) if not why_not else None
+    if rug["level"] == "risk" and not ov:
+        why_not.append(f"rug ocjena: {rug['risk'][0]} (svjež Grokov dokaz s X-a može je nadjačati: get_grok_tasks)")
+    tradeable = not why_not
+    # X: Grok's row first (2 h), the scanner's own (1 h)
+    x = xm.get(tok) or {}
+    x_fresh = bool(x) and ((x.get("source") == "grok" and now - (x.get("ts") or 0) <= 2 * 3600)
+                           or now - (x.get("ts") or 0) <= 3600)
+    xs = _f(x.get("x_momentum_score")) if x_fresh else None
+    fresh = 0.0
+    if last_ts:
+        age = (now - last_ts) / 60
+        fresh = 1.0 if age <= 10 else max(0.0, 1 - (age - 10) / 50)
+    parts = {"confluence": round(W["confluence"] * math.log2(1 + confluence), 3),
+             "ev": round(W["ev"] * sum(ev_parts.values()), 3), "fresh": round(W["fresh"] * fresh, 3),
+             "x": round(W["x"] * max(-1.0, min(1.0, xs)), 3) if xs is not None else 0.0,
+             "chase": round(-W["chase"] * ru["chase"], 3), "rug": -RUG_PEN[rug["level"]]}
+    size = lim.get("grok_max_sol_per_trade") or 0.1
+    out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": why_not,
+           "flags": ["grok_override"] if ov else [], "score": round(sum(parts.values()), 3), "score_parts": parts,
+           "confluence": confluence, "source_kinds": sorted(srcs), "sources": srcs,
+           "first_signal_ts": first_ts, "last_signal_ts": last_ts,
+           "age_min": round((now - first_ts) / 60, 1) if first_ts else None,
+           "market": r["market"], "bonded": not curve, "under_30k": mcap < MIN_MCAP, "runup": ru, "rug": rug,
+           "x": ({"source": x.get("source"), "age_min": round((now - (x.get("ts") or now)) / 60, 1),
+                  "x_momentum_score": x.get("x_momentum_score"), "x_early": x.get("x_early"),
+                  "posts60": x.get("posts60"), "fresh": x_fresh} if x else None),
+           "warning": (f"RUG RIZIK, nadjačano Grokovim dokazom: {ov['rug_warning']}" if ov else None),
+           "grok_evidence": ge, "grok_override": ov,
+           "suggested_size_sol": round(size * (OVERRIDE_SIZE if ov else 1.0), 4) if tradeable else None}
+    if details and tradeable:
+        out["exit_plan"] = exit_plan(r, ov, lim, S)
+    return out
+
+
+def exit_plan(r, ov, lim, S):
+    """A plan in set_exit_plan's format: tight for a Grok override; the range's own zones (in market cap) for a range
+    candidate; the calling accounts' measured TP / SL (kol/tpsl, when it says ok) for callers; else the shadow rule
+    every source is measured with (+20 % / -30 % within 4 h), the stop never looser than sl_default."""
+    if ov:
+        return dict(EXIT_TIGHT)
+    z = r.get("range") or {}
+    mc = z.get("mc") or {}
+    if mc.get("range_high_low") and mc.get("range_high_top") and mc.get("range_low_low"):
+        return {"take_profits": [{"at_mc_usd": mc["range_high_low"], "sell_share": 0.5},
+                                 {"at_mc_usd": mc["range_high_top"], "sell_share": 0.5}],
+                "stop": {"at_mc_usd": round(mc["range_low_low"] * 0.85)},
+                "reason": "raspon: pola van na range_high_low, ostatak na range_high_top, stop range_low_low × 0,85"}
+    sl_cap = min(30.0, float(lim.get("sl_default") or 30.0))
+    cal = (r["sources"].get("caller") or {}).get("callers") or []
+    if cal:
+        best = sorted(cal, key=lambda c: -((c.get("record") or {}).get("ev_lower") or -9))[0]["who"]
+        try:
+            d = S.tpsl([best])
+        except Exception:  # noqa: BLE001
+            d = None
+        if d and d.get("ok"):
+            sl = min(float(d["sl"]), sl_cap)
+            return {"take_profits": [{"at_pct": float(d["tp"]), "sell_share": 1.0}], "stop": {"at_pct": -sl},
+                    "time_stop": {"after_min": 60, "if_pnl_below_pct": float(d["tp"])},
+                    "reason": f"izmjereni TP/SL za @{best} (kol/tpsl, {d.get('n')} poziva): +{d['tp']} % / -{sl:g} %"}
+    return {"take_profits": [{"at_pct": 20, "sell_share": 0.5}], "trailing": {"activate_pct": 20, "trail_pct": 15},
+            "stop": {"at_pct": -sl_cap}, "time_stop": {"after_min": 240, "if_pnl_below_pct": 0},
+            "reason": f"pravilo sjene izvora: pola van na +20 %, trailing 15 %, stop -{sl_cap:g} %, van nakon 4 h"}
+
+
+# ---------- the MCP tools ---------------------------------------------------------------------------------------------
+
+def _cached(now=None, src=None):
+    t = time.time()
+    if src is None and now is None and _CACHE["rows"] is not None and t - _CACHE["ts"] < CACHE_S:
+        return _CACHE["rows"], _CACHE["meta"]
+    rows, meta = build(now, src)
+    if src is None and now is None:
+        _CACHE.update(ts=t, rows=rows, meta=meta)
+    return rows, meta
+
+
+def _int(x, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(x)))
+    except (TypeError, ValueError):
+        return default
+
+
+def candidates(min_sources=1, limit=30, now=None, src=None):
+    """get_trade_candidates."""
+    ms, lim = _int(min_sources, 1, 1, 10), _int(limit, 30, 1, 100)
+    rows, meta = _cached(now, src)
+    keep = [r for r in rows if r["confluence"] >= ms]
+    return {"ts": int(now or time.time()), "min_sources": ms, "total": len(keep),
+            "tradeable": sum(1 for r in keep if r["tradeable"]), "candidates": keep[:lim],
+            "ranking": SCORE_TEXT, "source_records": meta.get("records"), "sources_failed": meta.get("sources_failed"),
+            "rules": {"min_mcap_usd": MIN_MCAP, "measured_from_mcap_usd": MEASURE_MIN_MCAP,
+                      "runup_max_x": RUNUP_MAX_X, "crew_window_min": CREW_S // 60,
+                      "grok_fresh_min": GROK_FRESH_S // 60, "override_size_share": OVERRIDE_SIZE},
+            "notes": ("Read-only: nothing is bought here. tradeable = bonded, 30k+, the copy loop's pool gates, no "
+                      "confirmed rug, trading now, run-up under 4x, and no rug risk rating unless grok_override "
+                      "(fresh Grok evidence; half size, tight exit_plan; a collapse is never overridden). Buy only through "
+                      "execute_trade within grok_autotrade limits at suggested_size_sol, then set_exit_plan with "
+                      "exit_plan. Shadow: the top rows are measured as source kandidati, overrides as grok_override "
+                      "(get_source_stats).")}
+
+
+HOW_TO_WORK = [
+    "Your X and web searches cost MemeSonar nothing; its own X API does (about $6 a day at full speed). Every fresh "
+    "row you send with submit_x_features replaces a paid lookup of that token for 2 hours.",
+    "Work the tasks in order (priority 1 first). Each task says which tool answers it and with which arguments; a "
+    "task disappears once your answer is stored (X rows: 30 min; opinions: 60 min; labels: once).",
+    "Be critical, also of yourself: report what you find against a token too (falling post counts, only bots, paid "
+    "shills, a caller deleting the post). A row of yours with x_momentum_score <= 0 and nobody named counts against.",
+    "Your fresh X evidence (known callers / large accounts naming the CA, growing organic authors) or a kupi / dobar "
+    "opinion can override MemeSonar's rug RISK rating (never a collapse that already happened); such a buy is half "
+    "size with a tight exit plan, and it is measured as source grok_override so the owner sees whether it pays.",
+    "Never trade outside the grok_autotrade limits (get_portfolio_status); buy only a tradeable row of "
+    "get_trade_candidates at its suggested_size_sol, then set_exit_plan with its exit_plan.",
+]
+X_FEATURES = {"posts_15m": "<posts with the CA or $TICKER in the last 15 min>", "posts_60m": "<... last 60 min>",
+              "unique_authors_15m": "<unique organic authors, 15 min>", "unique_authors_60m": "<... 60 min>",
+              "known_callers": ["<handle of a known caller who posted it>"],
+              "large_accounts": [{"handle": "<handle>", "followers": "<n>"}], "bot_share": "<0-1>",
+              "note": "<one line: what you saw>"}
+
+
+def tasks(limit=20, now=None, src=None):
+    """get_grok_tasks: the queue (see HOW_TO_WORK), most useful first."""
+    now_i = int(now or time.time())
+    lim = _int(limit, 20, 1, 100)
+    S = src or Sources()
+
+    def safe(fn, default):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - a part that cannot be read gives no tasks, never an error
+            return default
+    rows, _meta = _cached(now, src)
+    out = []
+    toks = [r["token"] for r in rows[:40]]
+    grows = safe(lambda: S.grok_rows(toks, now_i), {}) if toks else {}
+    ops = safe(lambda: S.opinions(toks, now_i, CONFLICT_DONE_S), {}) if toks else {}
+    # (a) X checks: rows Grok can decide (tradeable, or blocked only by the rug risk rating) without a fresh X row
+    for r in rows[:25]:
+        risk_only = r["rug"]["level"] == "risk" and len(r["why_not"]) == 1 and r["why_not"][0].startswith("rug ocjena")
+        if not (r["tradeable"] or risk_only) or grows.get(r["token"]):
+            continue
+        sym = r.get("symbol") or r["token"][:6]
+        out.append({"id": f"x:{r['token']}", "kind": "x_check", "priority": 1 if risk_only else 2,
+                    "token": r["token"], "symbol": sym, "rank": r["rank"],
+                    "why": ("blocked only by the rug risk rating: your fresh X evidence decides it" if risk_only else
+                            f"rank {r['rank']} tradeable candidate without your X check in the last 30 min"),
+                    "instruction": (f"Search X for the CA {r['token']} and ${sym}: posts in the last 15 and 60 min, unique "
+                                    "organic authors in both windows (no bots, no alert bots), which known callers and "
+                                    "large accounts (>= 50k followers) posted it and when. Send it even when it is "
+                                    "nothing (zeros are evidence)."),
+                    "answer_with": {"tool": "submit_x_features",
+                                    "arguments": {"subject": r["token"], "subject_kind": "token", "ts_asof": "<now>",
+                                                  "features": X_FEATURES}}})
+    # (c) sources disagree
+    for r in rows[:25]:
+        if ops.get(r["token"]):
+            continue
+        srcs, x = r["sources"], r.get("x") or {}
+        conflicts = []
+        sc = srcs.get("scan") or {}
+        if sc.get("passed") and r["rug"]["level"] in ("risk", "hard"):
+            conflicts.append("the scanner passed it, but the rug check rates it " + r["rug"]["level"])
+        cal = srcs.get("caller") or {}
+        good = [c for c in cal.get("callers") or [] if (c.get("record") or {}).get("verdict") in ("drzi_se", "samo_brzo")
+                or ((c.get("record") or {}).get("ev_mean") or 0) > 0]
+        if good and x.get("fresh") and (x.get("x_momentum_score") or 0) < 0:
+            conflicts.append(f"{len(good)} caller(s) with a good record call it, but X momentum is "
+                             f"{x.get('x_momentum_score')} (falling)")
+        ge = r.get("grok_evidence") or {}
+        if ge.get("for") and ge.get("against"):
+            conflicts.append("your own fresh evidence points both ways")
+        if (srcs.get("hidden_group") or srcs.get("insider")) and r["rug"]["level"] in ("risk", "hard"):
+            conflicts.append("wallet groups / insiders buy it while the rug check rates it " + r["rug"]["level"])
+        if not conflicts:
+            continue
+        out.append({"id": f"op:{r['token']}", "kind": "resolve_conflict", "priority": 3, "token": r["token"],
+                    "symbol": r.get("symbol"), "rank": r["rank"], "why": "; ".join(conflicts),
+                    "instruction": ("Check who is right (X, the callers' posts, the chart, holders) and give one verdict: "
+                                    "kupi or preskoči, with your confidence and the numbers you used."),
+                    "answer_with": {"tool": "submit_signal_opinion",
+                                    "arguments": {"token": r["token"], "verdict": "kupi | preskoči",
+                                                  "confidence": "<0-1>", "interpretation": "<why>",
+                                                  "evidence": {"conflict": conflicts}}}})
+    # (b) labels: hidden lists, caller crews, insiders
+    gids, ins = safe(S.labels, (set(), set()))
+    _member, glist = safe(S.groups, ({}, {}))
+    seen = set()
+    for ts, s, gid, tok, who, mc in safe(lambda: S.group_signals(now_i, since=now_i - 86400), [])[::-1]:
+        if gid in gids or gid in seen:
+            continue
+        seen.add(gid)
+        kind, grade, members, _met = glist.get(gid, ("wallet" if s == "hidden_group" else "caller", None, [], {}))
+        out.append(_label_task(gid, kind, grade, members, s, tok))
+    for ts, k, gid, tok, who in safe(lambda: S.group_activity(now_i), []):
+        if gid in gids or gid in seen or k != "call":
+            continue
+        seen.add(gid)
+        kind, grade, members, _met = glist.get(gid, ("caller", None, [], {}))
+        out.append(_label_task(gid, kind, grade, members, "caller_crew_activity", tok))
+    for t in safe(lambda: S.insider_rows(now_i), []):
+        ws = list(t.get("wallets") or [])
+        if t["token"] in ins or (ws and all(w in ins for w in ws)):
+            continue
+        out.append({"id": f"ins:{t['token']}", "kind": "label_insiders", "priority": 4, "token": t["token"],
+                    "wallets": ws[:8], "why": "2+ wallets that bought before earlier calls bought it, nobody called yet",
+                    "instruction": ("Look the wallets up (get_wallet_history, X, Solscan): the team, a paid list, snipers "
+                                    "or real early buyers? Name them in one short label."),
+                    "answer_with": {"tool": "submit_suggestion",
+                                    "arguments": {"title": "Insider label", "interpretation": "<what you found>",
+                                                  "proposed_change": {"insider_label": {"token": t["token"], "wallets": ws[:8],
+                                                                                        "label": "<short name>",
+                                                                                        "note": "<why>"}}}}})
+    out.sort(key=lambda t: (t["priority"], t.get("rank") or 999))
+
+    def intake():
+        from trade import settings
+        tc = S._tcon()
+        try:
+            return settings.flag("x_features_ingest", con=tc) if tc is not None else "off"
+        finally:
+            if tc is not None:
+                tc.close()
+    on = safe(intake, "off") != "off"
+    return {"ts": now_i, "how_to_work": HOW_TO_WORK, "total": len(out), "tasks": out[:lim],
+            "x_features_intake": "on" if on else "off",
+            "note": None if on else ("the owner has the X feature intake (flag x_features_ingest) switched off: "
+                                     "submit_x_features is refused until he switches it on; answer x_check tasks "
+                                     "with submit_signal_opinion meanwhile")}
+
+
+def _label_task(gid, kind, grade, members, why, token):
+    return {"id": f"grp:{gid}", "kind": "label_group", "priority": 4, "group_id": gid, "group_kind": kind,
+            "grade": grade, "members": list(members)[:12], "token": token,
+            "why": ("a hidden wallet list bought without a public call" if why == "hidden_group" else
+                    "a caller crew called first" if why == "caller_group_first" else "a caller crew is active"),
+            "instruction": ("Who is this group (get_trader_groups / get_group_activity, X)? A paid alpha group, a KOL's "
+                            "friends, a bot farm? Give a short name and why."),
+            "answer_with": {"tool": "submit_suggestion",
+                            "arguments": {"title": "Group label", "interpretation": "<what you found>",
+                                          "proposed_change": {"group_label": {"group_id": gid, "label": "<short name>",
+                                                                              "note": "<why>"}}}}}
+
+
+# ---------- shadow log (the scanner pass, scan/market.pass_once: the only writer of scan.db) --------------------------
+
+def log_shadow(con, rows, now, top_n=5):
+    """Shadow entries for the combined list: source kandidati for each tradeable row the first time it ranks in the top
+    `top_n`, source grok_override for every tradeable row with a Grok override; the entry is the row's live price.
+    Returns {"kandidati": n, "grok_override": n} of NEW entries (scan/shadow.enter keeps the first per token)."""
+    from scan import shadow
+    out = {"kandidati": 0, "grok_override": 0}
+    for r in rows:
+        if not r.get("tradeable"):
+            continue
+        m = r.get("market") or {}
+        price, mcap = m.get("price_usd"), m.get("market_cap_usd")
+        srcs = (["kandidati"] if (r.get("rank") or 999) <= top_n else []) + (["grok_override"] if r.get("grok_override") else [])
+        for s in srcs:
+            if shadow.enter(con, r["token"], s, "migrated", True, now, price, mcap, r.get("symbol")):
+                out[s] += 1
+    return out

@@ -98,6 +98,12 @@ class Net:
 
     x_get = None   # kol/twapi._get (the tests pass their own)
 
+    def kandidati(self, now):
+        """10.11.: the combined candidate list, ranked (ui/kandidati.build); a test net without this method skips the
+        combined shadow log."""
+        from ui import kandidati
+        return kandidati.build(now, details=False)[0]
+
 
 # ---------- discovery -------------------------------------------------------------------------------------------
 
@@ -427,8 +433,10 @@ def check(m, cfg, ctx, has_signal):
     if why:
         out["why"] = out["why_sig"] = why
         return out
+    # 10.11. (BOXCAT): the label says what was checked, the rug filter's verdict included (a truthful "prolazi")
     out["reasons"].append(f"rug provjera prolazi ({shown}, holdera {facts.get('holders')}"
-                          + ("+" if facts.get("holders_capped") else "") + f", izvor {facts.get('src')})")
+                          + ("+" if facts.get("holders_capped") else "") + f", izvor {facts.get('src')}, "
+                          f"rug filter: {filters.rug_filter_word(tok)})")
     if vol_fail:
         out["why"] = filters.volume_rule_text(m, cfg)
     return out
@@ -568,6 +576,9 @@ def pass_once(now=None, net=None, cfg=None, p=None, settings_path=None):
         # X momentum, lead time, the shadow paths
         out["x_usd"] = x_momentum(con, cfg, now, p, net)
         update_lead_times(con, now, p)
+        con.commit()
+        for src, n in log_kandidati(con, net, cfg, now).items():
+            out["passed"][src] = out["passed"].get(src, 0) + n
         if ok_prices:
             prices = {t: r["price"] for t, r in mk.items() if r.get("price")}
             out["finished"] = shadow.track(con, prices, now, cfg)
@@ -701,6 +712,29 @@ def x_momentum(con, cfg, now, p, net):
     finally:
         kcon.close()
     return round(usd, 5)
+
+
+def log_kandidati(con, net, cfg, now):
+    """10.11. (ui/kandidati.py): every kandidati_every_min the combined candidate list (net.kandidati) and its shadow
+    entries: source kandidati for a tradeable row the first time it ranks in the top kandidati_top_n, source
+    grok_override for every tradeable row Grok's fresh evidence lifted over a rug risk rating. Free (DexScreener and
+    the bot's own databases); a failure is logged and never stops the pass. Returns {source: new entries}."""
+    fn = getattr(net, "kandidati", None)
+    if fn is None:
+        return {}
+    last = _f(store.kv_get(con, "last_kand_ts")) or 0
+    if now - last < float(cfg["kandidati_every_min"]) * 60:
+        return {}
+    store.kv_set(con, "last_kand_ts", int(now))
+    try:
+        rows = fn(now)
+        from ui import kandidati
+        out = kandidati.log_shadow(con, rows, now, int(cfg["kandidati_top_n"]))
+    except Exception as e:  # noqa: BLE001 - the combined list is extra; the scanner's own pass goes on
+        log(f"kandidati: {type(e).__name__}: {str(e)[:80]}")
+        return {}
+    con.commit()
+    return out
 
 
 def update_lead_times(con, now, p):
