@@ -111,17 +111,17 @@ class ManualBuy(unittest.TestCase):
         self.assertEqual(len(self._open()), 1)
         self.assertIn("likvidnost $16,000 (treba $20,000+)", prijedlog.alive(thin))     # lists: unchanged
         self.assertIsNone(prijedlog.alive(thin, min_liq=0))
-        dead = {**thin, "txns_h1": 0, "vol_h1": 0.0}
+        # 10.11. (Jure: "kad se ručno dodaje, onda mora proći"): no activity / 1-h drop gate on the owner's own buy
+        dead = {**thin, "txns_h1": 0, "vol_h1": 0.0, "ch_h1": -23.0}
         prijedlog.live_market = lambda toks, fetch=None: {t: dict(dead) for t in toks}
         loc = self._buy(tp="", exit="smart")
-        self.assertIn("err=", loc)
-        self.assertIn("transakcija", unquote(loc))
+        self.assertIn("ok=", loc)
         small = {**thin, "mcap": 25_000.0}
         prijedlog.live_market = lambda toks, fetch=None: {t: dict(small) for t in toks}
         loc = self._buy(tp="", exit="smart")
         self.assertIn("err=", loc)
         self.assertIn("ispod 30k", unquote(loc))
-        self.assertEqual(len(self._open()), 1)
+        self.assertEqual(len(self._open()), 2)   # the dead-looking one went through, the one under 30k did not
 
     def test_good_buy_still_goes_through_with_its_stake(self):
         loc = self._buy()
@@ -294,13 +294,10 @@ class PopupVerdict(PageBase):
         uleague._symbol = lambda t: "MAN"
         prijedlog.live_market = lambda toks, fetch=None: {t: dict(LIVE_ROW) for t in toks}
         try:
-            loc = pravitrade.post("/pravi-trade/buy", {"token": MINT2, "sol": "0,02", "exit": "tpsl", "tp": "100%"}, "Jure")
-            self.assertIn("err=", loc)
-            self.assertIn("pozivatelji", loc)
-            self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])
-            self.mstats = {"weakguy": {"hit10": 0.6, "hit15": 0.5, "sl": 0.3, "n": 12}}
+            # 10.11. (Jure: "ručno mora proći"): the pop-up still says NE KUPUJ, but the owner's own buy goes through
             loc = pravitrade.post("/pravi-trade/buy", {"token": MINT2, "sol": "0,02", "exit": "tpsl", "tp": "100%"}, "Jure")
             self.assertIn("ok=", loc)
+            self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)
         finally:
             uleague.market, collapse.check, uleague._symbol, prijedlog.live_market = saved
 
