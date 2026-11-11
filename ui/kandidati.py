@@ -24,6 +24,10 @@ ONE row per token. The sources (a loader that fails is named in sources_failed, 
                 are the callers and wallets above)
   insider       2+ pre-call insider wallets (kol/insiders, snipers out) bought it in the last hour and nobody called it
                 yet; kol.insiders.mcp_candidates(now) is used instead when that module has it
+  pre_shill     11.11. (kol/preshill.py, flag pre_shill on): 2+ wallets that buy before the paid shill network (or
+                one of their clusters) bought in the last hour, no public call. A call of the shill network itself
+                counts 0 in the confluence and -1 in the score (exit liquidity: flag shill_network_call); on a token
+                held through a pre_shill signal of the last 24 h it is the exit (flag exit_signal, "sell_into_calls")
 Confluence = the independent signals: every caller signal after the crew rule, plus one for each other source kind.
 
 Tradeable = bonded (a pool with liquidity, not the pump.fun curve), market cap >= 30k (CLAUDE.md), the copy loop's
@@ -51,6 +55,7 @@ The score (SCORE_TEXT; tradeable rows first, then the score, highest first):
           + 0.4 * clamp(x_momentum_score, -1, 1)   only a fresh X row: Grok's (2 h, it wins) or the scanner's (1 h)
           - 1.5 * chase                        run-up: max(log2(run_x) / 2, (log2(24 h multiple) - 2) / 3) in 0..1
           - rug penalty                        0 ok or unknown, 0.3 oprez, 1.5 risk (also when overridden), 3 hard
+          - 1.0 * shill-network call signals   flag pre_shill on (kol/preshill.py): exit liquidity
   ev, n: the source's measured shadow record (scan.db shadow, tradeable rows, the gate window; group_signals for
   hidden_group; the range paper rounds), for callers the mean of the calling accounts' own records. A source with no
   measured outcome adds 0: confluence alone never makes a row look proven.
@@ -73,7 +78,7 @@ CACHE_S = 60
 MAX_TOKENS = 60            # tokens priced in one build (two DexScreener requests, free)
 SHRINK_N = 20              # a source's EV is pulled toward 0 by this many pseudo-outcomes
 EV_CAP = 0.10
-W = {"confluence": 1.0, "ev": 3.0, "fresh": 0.5, "x": 0.4, "chase": 1.5}
+W = {"confluence": 1.0, "ev": 3.0, "fresh": 0.5, "x": 0.4, "chase": 1.5, "shill": 1.0}
 RUG_PEN = {"ok": 0.0, "unknown": 0.0, "oprez": 0.3, "risk": 1.5, "hard": 3.0}
 POSITIVE = ("kupi", "dobar")
 NEGATIVE = ("preskoči", "loš")
@@ -85,7 +90,7 @@ HARD_MECHANICS = ("mint authority", "freeze authority", "RugCheck ga je označio
 SCORE_TEXT = ("tradeable first, then score = 1.0*log2(1+confluence) + 3.0*sum_k clamp(ev_k*n_k/(n_k+20), -0.10, "
               "0.10) + 0.5*freshness(1 at <=10 min, 0 at 60 min) + 0.4*clamp(x_momentum_score,-1,1) (fresh X only, "
               "Grok first) - 1.5*chase(run-up from the first signal; 24 h pump) - rug penalty (0 ok, 0.3 oprez, 1.5 "
-              "risk even when overridden, 3 hard)")
+              "risk even when overridden, 3 hard) - 1.0*shill-network call signals (flag pre_shill: exit liquidity)")
 _CACHE = {"ts": 0.0, "rows": None, "meta": None}
 
 
@@ -235,7 +240,9 @@ class Sources:
             gl = {}
             for gid, kind, grade, members, metrics in _q(ec, "SELECT id, kind, grade, members, metrics FROM group_list"):
                 try:
-                    gl[gid] = (kind, grade, json.loads(members or "[]"), json.loads(metrics or "{}"))
+                    met = json.loads(metrics or "{}")
+                    # 11.11.: the grade by today's rule (quality needs 8+ measured events and 4 h / 24 h results)
+                    gl[gid] = (kind, groupdisc.grade_of(kind, grade, met), json.loads(members or "[]"), met)
                 except ValueError:
                     gl[gid] = (kind, grade, [], {})
             return member, gl
@@ -282,6 +289,12 @@ class Sources:
                 out.append({"token": p["token"], "symbol": None, "src": "prijedlog", "ts0": p.get("ts"),
                             "mcap0": p.get("mcap0"), "conf": p.get("conf")})
         return out
+
+    def pre_shill(self, now):
+        """kol/preshill.kandidati_view: the shill networks' members, the pre-shill signals of the last hour and the
+        tokens held through one (24 h); empty while the flag pre_shill is off."""
+        from kol import preshill
+        return preshill.kandidati_view(now)
 
     def insider_rows(self, now):
         """[{"token", "ts", "wallets", "mcap_usd"}]: kol.insiders.mcp_candidates(now) when the module has it (the
@@ -772,6 +785,10 @@ def build(now=None, src=None, details=True):
 
     member, glist = safe("groups", S.groups, ({}, {}))
     gsig = safe("group_signals", lambda: S.group_signals(now), [])
+    # 11.11. (kol/preshill.py, flag pre_shill): a shill-network call is exit liquidity (-1); a token held through a
+    # pre_shill signal gets the network's call as its exit; the pre_shill signals of the hour are a source
+    ps = safe("pre_shill", lambda: getattr(S, "pre_shill", lambda _n: {})(now), {}) or {}
+    shill_of, held = ps.get("members") or {}, ps.get("held") or {}
     crew_first = {}
     for ts, s, gid, tok, who, mc in gsig:
         if s == "caller_group_first":
@@ -787,11 +804,20 @@ def build(now=None, src=None, details=True):
         r = row(tok, sym)
         from kol import groupdisc
         sigs = groupdisc.dedupe(calls, member, CREW_S)
-        crews, n = [], 0
+        crews, n, shill = [], 0, []
         for s in sigs:
-            if s["gid"]:
-                kind, grade, _m, _x = glist.get(s["gid"], ("caller", None, [], {}))
-                crews.append({"group_id": s["gid"], "handles": s["handles"], "grade": grade})
+            sh = [h for h in s["handles"] if h in shill_of]
+            if sh:   # the paid shill network: its call is the exit liquidity of the ones who bought before it
+                shill += sh
+                r["shill_n"] = r.get("shill_n", 0) + 1   # counts 0 in the confluence and -1 in the score
+                if s["gid"]:
+                    kind, grade, _m, met = glist.get(s["gid"], ("caller", None, [], {}))
+                    crews.append({"group_id": s["gid"], "handles": s["handles"], "grade": grade,
+                                  "n_measured": groupdisc.n_measured_of(kind, met), "shill_network": True})
+            elif s["gid"]:
+                kind, grade, _m, met = glist.get(s["gid"], ("caller", None, [], {}))
+                crews.append({"group_id": s["gid"], "handles": s["handles"], "grade": grade,
+                              "n_measured": groupdisc.n_measured_of(kind, met)})
                 n += 0 if grade == "exit_liquidity" else 1
             else:
                 n += 1
@@ -802,6 +828,12 @@ def build(now=None, src=None, details=True):
         if tok in crew_first:
             ts, gid, who, mc = crew_first[tok]
             ev["crew_first"] = {"group_id": gid, "ts": int(ts), "who": who, "mcap_usd": mc}
+        if shill:
+            ev["shill_network"] = {"handles": sorted(set(shill))[:8], "weight": -1,
+                                   "note": "plaćena shill mreža: njen poziv je izlazna likvidnost (sjena)"}
+            if tok in held:
+                ev["exit_signal"] = {"action": "sell_into_calls", "pre_shill_signal_ts": int(held[tok]),
+                                     "note": "drži se preko signala kupaca prije shill mreže: prodaj u val callova (sjena)"}
         r["sources"]["caller"] = ev
         r["count"]["caller"] = n
         r["sig"].append((ev["first_ts"], None, "caller"))
@@ -843,12 +875,21 @@ def build(now=None, src=None, details=True):
     for ts, s, gid, tok, who, mc in gsig:
         if s != "hidden_group":
             continue
-        kind, grade, _m, _x = glist.get(gid, ("wallet", None, [], {}))
+        kind, grade, _m, met = glist.get(gid, ("wallet", None, [], {}))
         r = row(tok)
-        r["sources"]["hidden_group"] = {"group_id": gid, "grade": grade, "ts": int(ts), "mcap_usd": mc,
+        from kol import groupdisc
+        r["sources"]["hidden_group"] = {"group_id": gid, "grade": grade, "n_measured": groupdisc.n_measured_of(kind, met),
+                                        "ts": int(ts), "mcap_usd": mc,
                                         "wallets": (who or "").split(",")[:8]}
         r["count"]["hidden_group"] = 1
         r["sig"].append((int(ts), mc, "hidden_group"))
+    # 11.11. (kol/preshill.py, flag pre_shill): 2+ wallets that buy before the paid shill network bought, no call yet
+    for ts, tok, wallets, mc in ps.get("signals") or []:
+        r = row(tok)
+        r["sources"]["pre_shill"] = {"ts": int(ts), "wallets": list(wallets)[:8], "mcap_usd": mc,
+                                     "note": "kupci prije shill mreže (sjena); poziv mreže je znak za izlaz"}
+        r["count"]["pre_shill"] = 1
+        r["sig"].append((int(ts), mc, "pre_shill"))
     # ranges
     for tok, rg in safe("range", lambda: S.ranges(now), {}).items():
         r = row(tok, rg.get("symbol"))
@@ -1032,10 +1073,14 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     parts = {"confluence": round(W["confluence"] * math.log2(1 + confluence), 3),
              "ev": round(W["ev"] * sum(ev_parts.values()), 3), "fresh": round(W["fresh"] * fresh, 3),
              "x": round(W["x"] * max(-1.0, min(1.0, xs)), 3) if xs is not None else 0.0,
-             "chase": round(-W["chase"] * ru["chase"], 3), "rug": -RUG_PEN[rug["level"]]}
+             "chase": round(-W["chase"] * ru["chase"], 3), "rug": -RUG_PEN[rug["level"]],
+             # 11.11. (flag pre_shill): every call signal of the paid shill network -1 (exit liquidity)
+             "shill": -W["shill"] * r["shill_n"] if r.get("shill_n") else 0.0}
     size = lim.get("grok_max_sol_per_trade") or 0.1
+    flags = (["grok_override"] if ov else []) + (["shill_network_call"] if r.get("shill_n") else []) \
+        + (["exit_signal"] if (srcs.get("caller") or {}).get("exit_signal") else [])
     out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": why_not,
-           "flags": ["grok_override"] if ov else [], "score": round(sum(parts.values()), 3), "score_parts": parts,
+           "flags": flags, "score": round(sum(parts.values()), 3), "score_parts": parts,
            "confluence": confluence, "source_kinds": sorted(srcs), "sources": srcs,
            "first_signal_ts": first_ts, "last_signal_ts": last_ts,
            "age_min": round((now - first_ts) / 60, 1) if first_ts else None,
@@ -1215,14 +1260,14 @@ def tasks(limit=20, now=None, src=None):
         if gid in gids or gid in seen:
             continue
         seen.add(gid)
-        kind, grade, members, _met = glist.get(gid, ("wallet" if s == "hidden_group" else "caller", None, [], {}))
-        out.append(_label_task(gid, kind, grade, members, s, tok))
+        kind, grade, members, met = glist.get(gid, ("wallet" if s == "hidden_group" else "caller", None, [], {}))
+        out.append(_label_task(gid, kind, grade, members, s, tok, met))
     for ts, k, gid, tok, who in safe(lambda: S.group_activity(now_i), []):
         if gid in gids or gid in seen or k != "call":
             continue
         seen.add(gid)
-        kind, grade, members, _met = glist.get(gid, ("caller", None, [], {}))
-        out.append(_label_task(gid, kind, grade, members, "caller_crew_activity", tok))
+        kind, grade, members, met = glist.get(gid, ("caller", None, [], {}))
+        out.append(_label_task(gid, kind, grade, members, "caller_crew_activity", tok, met))
     for t in safe(lambda: S.insider_rows(now_i), []):
         ws = list(t.get("wallets") or [])
         if t["token"] in ins or (ws and all(w in ins for w in ws)):
@@ -1254,9 +1299,11 @@ def tasks(limit=20, now=None, src=None):
                                      "with submit_signal_opinion meanwhile")}
 
 
-def _label_task(gid, kind, grade, members, why, token):
+def _label_task(gid, kind, grade, members, why, token, met=None):
+    from kol import groupdisc
     return {"id": f"grp:{gid}", "kind": "label_group", "priority": 4, "group_id": gid, "group_kind": kind,
-            "grade": grade, "members": list(members)[:12], "token": token,
+            "grade": grade, "n_measured": groupdisc.n_measured_of(kind, met), "members": list(members)[:12],
+            "token": token,
             "why": ("a hidden wallet list bought without a public call" if why == "hidden_group" else
                     "a caller crew called first" if why == "caller_group_first" else "a caller crew is active"),
             "instruction": ("Who is this group (get_trader_groups / get_group_activity, X)? A paid alpha group, a KOL's "

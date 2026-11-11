@@ -87,6 +87,9 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
     # live_refusal + LIVE_GATES
     "insider_copy": ("G14", "Insajderi prije poziva: novčanici koji kupuju prije poziva callera, kopiranje u demo"),
+    # 11.11. (Jure, kol/preshill.py): wallets that buy before the paid shill network calls; shadow only, never buys
+    "pre_shill": ("G15", "Kupci prije shill mreže: novčanici koji kupe prije plaćene mreže callera, poziv mreže je "
+                         "znak za izlaz"),
     # 11.11. (Jure, momentum/): the +20-30 % jumps without callers; paper on the demo account, live only past
     # LIVE_GATES (>= 50 paper trades, EV > 0, hit rate >= 45 %)
     "momentum_scalp": ("G16", "Momentum scalp: ulaz na početku skoka (+5 do +15 % u 5 min, volumen 3x, kupci rastu), "
@@ -98,6 +101,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
+PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of shadow, >= 30 measured signals, EV > 0
 # 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
 LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
               "momentum_scalp": "momentum.gate:live_refusal"}   # 11.11.: >= 50 paper trades, EV > 0, hit >= 45 %

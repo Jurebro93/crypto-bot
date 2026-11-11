@@ -163,6 +163,9 @@ PROCESSES = (
     # 10.11. (flag insider_copy): launches from 10k, pre-call insiders; the copy itself runs in the UI's copy loop
     ("insajderi", "-m kol.precall", (), JOBS,
      "insajderi prije poziva i nova lansiranja od 10k: noćni prolaz (Helius, strop kredita) i mali svakih 15 min"),
+    # 11.11. (flag pre_shill): wallets that buy before the paid shill network; shadow only, nobody waits for it
+    ("shill-mreza", "-m kol.preshill", (), JOBS,
+     "kupci prije shill mreže: noćni prolaz (Helius, strop kredita) i mali svakih 30 min, samo sjena"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),

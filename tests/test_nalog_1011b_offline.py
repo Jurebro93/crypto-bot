@@ -58,7 +58,7 @@ class LaterOrders(Base):
         done = assistnotes.owner_flag_orders(self.tc, now=NOW)
         self.assertEqual(done, ["zastavica market_scan: off → shadow", "zastavica group_discovery: off → shadow",
                                 "zastavica range_dca: off → paper", "zastavica insider_copy: off → shadow",
-                                "zastavica momentum_scalp: off → paper", "zastavica grok_ev_gate: off → shadow"])
+                                "zastavica momentum_scalp: off → paper", "zastavica grok_ev_gate: off → shadow", "zastavica pre_shill: off → shadow"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

@@ -833,7 +833,9 @@ TOOLS += [
                      "usual order), metrics (events/tokens, who is first, market cap at the first call or entry, result "
                      "1 h / 4 h / 24 h after the first call, rug share, delay of the public calls behind the group, "
                      "PnL per wallet, entry minutes before the first public call, the pairs with their lift), grade "
-                     "quality | exit_liquidity (the public calls fall after the group) | bad | insufficient_data and "
+                     "quality (8+ events measured at 1 h / 4 h / 24 h, median 4 h > 0, median 24 h > -30 %, EV > 0 at "
+                     "1 h and 4 h) | exit_liquidity (the public calls fall after the group) | bad | insufficient_data, "
+                     "n_measured and grade_text next to it, link density, shill_network / shill_parts (flag pre_shill) and "
                      "its weight in the shadow scoring (one group within 10 min = one signal; exit_liquidity counts "
                      "-1). min_quality: only grades at or above it in the order exit_liquidity < bad < "
                      "insufficient_data < quality. label: the owner-accepted name. To propose a name use "
@@ -873,6 +875,34 @@ TOOLS += [
      "inputSchema": {"type": "object", "properties": {
          "min_tokens": {"type": "integer", "minimum": 1, "default": 3},
          "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}},
+]
+# 11.11. (flag pre_shill, kol/preshill.py): wallets that buy before the paid shill network, read-only; empty while off
+TOOLS += [
+    {"name": "get_pre_shill_wallets", "annotations": _READ,
+     "description": ("The paid shill network(s) (\"plaćena shill mreža\": a caller group graded bad with 20+ accounts, "
+                     "after a chain check: a component joined only through chains of pairs is split by link density, "
+                     "4-truss and a higher lift, and a chained part is never a network; chain_checks shows the "
+                     "measurement of every big group) and the wallets that bought the network's tokens in the 6 h "
+                     "BEFORE its first call (T0). Per wallet: status confirmed (selected on the older 2/3 of 14 days, "
+                     "confirmed on the newer 1/3) or candidate (>= 3 tokens, on average 5-120 min before T0, PnL > 0), "
+                     "cluster (same funder or same slot: likely the network's owners), tokens bought before T0, median "
+                     "/ average minutes before T0, entry market cap, PnL in SOL, hit rate, median hold, share sold into "
+                     "the wave of shill calls, shared funders, a Croatian sentence, and per token the timeline: buy, "
+                     "first shill call, peak, sell. Dev-funded wallets, bundlers (3+ wallets in one slot), bots (> 200 "
+                     "trades a day), relayers, LP and CEX are out; the trade is the signing owner's, never a fee "
+                     "payer's. Shadow only: a shill-network call is exit liquidity, nothing is bought. status: "
+                     "candidate | confirmed | watch | excluded | all (default candidate + confirmed)." + _PAGED),
+     "inputSchema": {"type": "object", "properties": {
+         "status": {"type": "string", "enum": ["candidate", "confirmed", "watch", "excluded", "all"]}, **_PAGE}}},
+    {"name": "get_pre_shill_signals", "annotations": _READ,
+     "description": ("Shadow signals since since_ts (unix s, default 7 days): 2+ pre-shill wallets (or one wallet of "
+                     "a cluster) bought a token before any public call. Per signal: detection time (up to 30 min after "
+                     "the buy), wallets, clusters, market cap (under_30k), the measured result from the detection "
+                     "(+20 % before -30 % within 1 h / 4 h, EV after cost), minutes until the shill network started "
+                     "calling and until the first public call, and the result of selling into the network's first "
+                     "call (the exit rule). Summary: EV and the sell-into-calls result. Nothing is bought."),
+     "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
+                                                      "limit": {"type": "integer", "minimum": 1, "maximum": 500}}}},
 ]
 
 
@@ -1030,6 +1060,10 @@ def _tool(name, args, kid="local"):
     if name == "get_insider_candidates":   # 10.11. insider_copy (kol/precall.py)
         from kol import precall
         d = precall.mcp_tool(name, args)
+        return d, "error" in d
+    if name in ("get_pre_shill_wallets", "get_pre_shill_signals"):   # 11.11. pre_shill (kol/preshill.py)
+        from kol import preshill
+        d = preshill.mcp_tool(name, args)
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief

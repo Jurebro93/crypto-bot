@@ -916,7 +916,7 @@ class Priorities(unittest.TestCase):
             if m:
                 name, kind, _ = g.classify(["python3", m.group(1)] + m.group(2).split())
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
-                                     "momentum"), ln)
+                                     "momentum", "shill-mreza"), ln)   # 11.11.: momentum/, kol/preshill.py
                 self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
 
     def test_guard_starts_right_after_ui_and_trade_before_the_background(self):
