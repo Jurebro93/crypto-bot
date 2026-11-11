@@ -145,3 +145,18 @@ class Order(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SlChips(unittest.TestCase):
+    def test_no_chip_looser_than_the_default(self):
+        from ui import apterm
+        self.assertEqual(apterm.sl_chips("-30%"), (20, 30))
+        self.assertEqual(apterm.sl_chips(60), (20, 40, 60))
+        self.assertEqual(apterm.sl_chips("-45%"), (20, 40, 45))
+        self.assertEqual(apterm.sl_chips("x"), apterm.SL_CHIPS)
+
+    def test_a_looser_last_sl_is_not_prefilled(self):
+        from ui import apterm
+        self.assertTrue(apterm._sl_looser("-40%", "-30%"))
+        self.assertFalse(apterm._sl_looser("-25%", "-30%"))
+        self.assertFalse(apterm._sl_looser("$50k", "-30%"))

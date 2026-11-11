@@ -1452,9 +1452,30 @@ def _pos_row(p, owner, cfg, rule):
             f'<span class=apx-act>{act}</span>{edit}</div>')
 
 
+def _sl_looser(sl, floor):
+    """True when a percent stop ("-40%") is looser than the default ("-30%"); an MC level or anything unreadable: False."""
+    try:
+        a = abs(float(str(sl).strip().replace("%", "").replace(",", ".")))
+        b = abs(float(str(floor).strip().replace("%", "").replace(",", ".")))
+    except (TypeError, ValueError):
+        return False
+    return "%" in str(sl) and a > b + 1e-9
+
+
+def sl_chips(floor):
+    """The SL chips a stop may take: 11.11. (owner: "Stop nikad ne smije biti širi od sl_default"; a -40 % chip under a
+    -30 % default was only refused after the tap): the chips not looser than the default, and the default itself."""
+    try:
+        f = abs(float(str(floor).replace("%", "").replace(",", ".")))
+    except (TypeError, ValueError):
+        return SL_CHIPS
+    out = sorted({v for v in SL_CHIPS if v <= f} | ({int(f)} if f == int(f) else set()))
+    return tuple(out) or SL_CHIPS
+
+
 def plan_sl0(cfg):
     """The default stop of a buy with exit fields and of Uredi SL-TP as a level ("-30%"): league/exitplan.sl_floor,
-    the stricter of the owner's sl_default and the live plans' limit."""
+    the owner's sl_default (Pravila → Zadani stop)."""
     try:
         from league import exitplan
         return f"-{exitplan.sl_floor(cfg):g}%"
@@ -1472,7 +1493,7 @@ def sltp_html(p, cfg):
     (league/exitplan.sl_floor) and a looser SL is refused."""
     sl0 = plan_sl0(cfg)
     tpc = "".join(f'<button type=button class="apx-chip up" data-etp="{v}%">+{v} %</button>' for v in pt.EXIT_TP_QUICK)
-    slc = "".join(f'<button type=button class="apx-chip dn" data-esl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
+    slc = "".join(f'<button type=button class="apx-chip dn" data-esl="-{v}%">−{v} %</button>' for v in sl_chips(sl0))
     now = "Smart sell (alat sam bira izlaz)" if p.get("smart") else (p.get("exit") or "bez TP/SL-a")
     return (f'<form method=post action=/pravi-trade/exit class="apx-f apx-sltp" data-sltp data-base="{p.get("avg_mc") or ""}" '
             f'aria-label="SL i TP pozicije {esc(p["sym"])}"><input type=hidden name=id value={int(p["pid"])}>'
@@ -1602,9 +1623,14 @@ def panel_html(d, sel_pos):
     quick = "".join(f'<button type=button class=apx-chip data-sol="{v:g}">{pt._g(v)}</button>' for v in QUICK_SOL)
     quick += '<button type=button class=apx-chip data-sol="">vlastito</button>'
     tpc = "".join(f'<button type=button class="apx-chip up" data-tp="{v}%">+{v} %</button>' for v in TP_CHIPS)
-    slc = "".join(f'<button type=button class="apx-chip dn" data-sl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
+    slc = "".join(f'<button type=button class="apx-chip dn" data-sl="-{v}%">−{v} %</button>'
+                  for v in sl_chips(pn.get("sl_default") or 60))
     sol0 = pn.get("size_sol") or 0.1
     tp_last, sl_last = pn.get("tp_last") or "", pn.get("sl_last") or ""
+    # 11.11. (owner: "Stop nikad ne smije biti širi od sl_default"): a last SL looser than the default is not offered
+    # again (the buy would only be refused); empty = the default stop
+    if _sl_looser(sl_last, pn.get("sl_default")):
+        sl_last = ""
     tr_last = tm_last = ""
     # 11.11. (Jure upisao TP 60 / SL 85k ovdje za otvorenu poziciju i našao samo "Kupi 0,15 SOL"): these TP / SL are a
     # new buy's; the open position's are edited in "Tvoja pozicija" above (or the row's Uredi SL-TP)
