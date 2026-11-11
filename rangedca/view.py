@@ -8,11 +8,15 @@ event token is traded only on the demo account); watched_by_source and the watch
 flip_candidate | flipped | paused | resumed, the break, the flip zone or the resistance, the retests, ATR, stop_kind,
 the stop of today's rules and of the new ones, the range after the break, why the new rules take no entry) and
 entry_ready_new_rules; the answer lists every token not in state normal under range_flip (a paused token is often not
-active under today's rules, so it would not be in the candidates at all)."""
+active under today's rules, so it would not be in the candidates at all).
+11.11. (Jure: HAOBIBI, rangedca/owner.py): owner_labels (the owner's learning labels, counterfactual: the booked round
+never changes), the owner's pins (pinned true on the row, always listed whatever the score, pin_ready / pin_entry: the
+pin's rule, lower zone + volume holds), similar_to per row (the most similar labelled win, 0-1) and meta similar (top
+10)."""
 import sqlite3
 import time
 
-from . import data, detect, gate, market, rules, trade
+from . import data, detect, gate, market, owner, rules, trade
 
 ZONE_KEYS = ("range_low_low", "range_low_top", "range_high_low", "range_high_top")
 SOURCES = ("signal", "event", "market")   # priority order of the watchlist source
@@ -55,21 +59,46 @@ def is_breakout(r):
     return p is not None and p > 100
 
 
-def one(tok, r, now=None):
+def _pin_part(r, p, now):
+    """The owner's pin on a row (rangedca/owner.pin_check): pinned, pin {...}, pin_ready, pin_entry."""
+    if p is None:
+        return {"pinned": False}
+    ready, why, det = owner.pin_check(r, p, now)
+    return {"pinned": True, "pin_ready": ready,
+            "pin_entry": why or "preporuka po pinu bi prošla (uz tvrde blokade pravila B)",
+            "pin": {"since": p.get("ts"), "who": p.get("who"), "note": p.get("note"), "ready": ready, "why_not": why,
+                    "zones_from": det.get("zones_from"), "zones_market_cap_usd": det.get("zones_mc"),
+                    "position_in_range_pct": det.get("position_in_range_pct"), "volume": det.get("volume"),
+                    "notes": det.get("notes") or [], "rule": owner.PIN_RULE}}
+
+
+def one(tok, r, now=None, pin=None, ws=None):
     """One range as the MCP API shows it. entry_ready: an entry would pass now (no breakout, entry_now passes);
-    status "breakout" when the price is above 100 % of the range."""
+    status "breakout" when the price is above 100 % of the range. pin: the owner's pin of the token (pinned, pin,
+    pin_ready, pin_entry); ws: the labelled wins (similar_to; the row's features under "_features" for the ranking,
+    the caller pops them)."""
     now = now or time.time()
     m = r.get("metrics") or {}
     st = r.get("state") or {}
     brk = is_breakout(r)
     why = None if brk else trade.entry_view(r, m.get("price"), now)
     src, srcs = source_of(r.get("sources") or [r.get("source") or "signal"])
-    return {"token": tok, "symbol": r.get("symbol"), "source": src, "sources": srcs,
+    pp = _pin_part(r, pin, now)
+    zones = _zones(r)
+    if pp.get("pinned") and pp["pin"]["zones_from"] == "pin":   # no pair of zones now: the pinned ones (in MC)
+        zones = {"price": None, "market_cap_usd": pp["pin"]["zones_market_cap_usd"], "from": "pin"}
+    sim = {}
+    if ws is not None:
+        f = owner.features(r)
+        s = owner.similar_to(tok, f, ws)
+        sim = {"similar_to": {"token": s["token"], "symbol": s["symbol"], "score": s["score"]} if s else None,
+               "_features": f}
+    return {"token": tok, "symbol": r.get("symbol"), "source": src, "sources": srcs, **pp, **sim,
             "status": BREAKOUT if brk else r.get("status"),
             "range_status": r.get("status"), "entry_ready": not brk and why is None, "active": bool(r.get("active")),
             "why": r.get("why") or None, "computed_ts": r.get("ts"), "numbers_ts": r.get("mts"),
             "range_score": r.get("score"), "range_high_to_low": r.get("ratio"),
-            "position_in_range_pct": r.get("pos_pct"), "zones": _zones(r), "touches": _touches(r, m.get("supply")),
+            "position_in_range_pct": r.get("pos_pct"), "zones": zones, "touches": _touches(r, m.get("supply")),
             "recoveries": r.get("recoveries"),
             "components": {k: {kk: _round(vv) for kk, vv in v.items()} for k, v in (r.get("components") or {}).items()},
             "now": {"price_usd": m.get("price"), "market_cap_usd": m.get("mcap"), "liquidity_usd": m.get("liq"),
@@ -215,12 +244,27 @@ def candidates(min_score=None, now=None, limit=50, source=None):
         return {"error": f"source must be one of {', '.join(SOURCES)}"}
     since = now - trade.RANGE_FRESH_S
     rs = data.read_ranges(since=since, active_only=True)
-    rows = [one(t, r, now) for t, r in rs.items() if r.get("active") and (r.get("score") or 0) >= ms - 1e-9]
+    pins = owner.pins()
+    labels = owner.labels()
+    ws = owner.wins(lbs=labels)
+    rows = [one(t, r, now, pins.get(t), ws) for t, r in rs.items()
+            if r.get("active") and (r.get("score") or 0) >= ms - 1e-9]
     if src:
         rows = [x for x in rows if src in x["sources"]]
-    rows.sort(key=lambda x: (not x["entry_ready"], -(x["range_score"] or 0)))
+    # 11.11. (owner's pins): a pinned token is always listed, whatever its score or status (it is a signal-pass token)
+    have = {x["token"] for x in rows}
+    rest = [t for t in pins if t not in have] if src in (None, "signal") else []
+    if rest:
+        pr = data.read_ranges(since=now - 3 * 3600, tokens=rest)
+        for t in rest:
+            r = pr.get(t)
+            rows.append(one(t, r, now, pins[t], ws) if r else _pin_only(t, pins[t], now))
+    rows.sort(key=lambda x: (not (x["entry_ready"] or x.get("pin_ready")), not x.get("pinned"),
+                             -(x.get("range_score") or 0)))
     brk = [x for x in rows if x["status"] == BREAKOUT]   # 11.11.: above the range: shown apart, never a range entry
     rows = [x for x in rows if x["status"] != BREAKOUT]
+    feats = [{"token": x["token"], "symbol": x.get("symbol"), "features": x.pop("_features")}
+             for x in rows + brk if "_features" in x]
     total, by = _watched(since)
     mcounts, cost = market.info(now=now)
     from league import flags
@@ -229,6 +273,20 @@ def candidates(min_score=None, now=None, limit=50, source=None):
     return {"ts": int(now), "flag_mode": flags.mode(trade.FLAG), "min_score": ms, "source": src,
             "candidates": rows[:limit], "entry_ready": sum(1 for x in rows if x["entry_ready"]),
             "breakouts": brk[:limit], "range_flip": flip,
+            "owner_labels": [owner.label_view(lb) for lb in labels],
+            "pins": [{"token": t, "symbol": p.get("symbol"), "since": p.get("ts"), "who": p.get("who"),
+                      "note": p.get("note"), "zones_market_cap_usd": p.get("zones_mc"),
+                      "pin_ready": bool(next((x.get("pin_ready") for x in rows + brk if x["token"] == t), False))}
+                     for t, p in pins.items()],
+            "pin_rule": owner.PIN_RULE,
+            "pin_remove": "only the owner: POST /pravi-trade/rangepin with token=<mint> and action=remove (or add)",
+            "similar": owner.ranking(feats, ws),
+            "similar_rule": ("features at entry time (ratio, range_score, position in range, volume 1 h / liquidity, "
+                             "liquidity, market cap, age up to 24 h, bottom touches, buys share 5 min, holders / top 10 "
+                             "when known), each scaled by a fixed typical spread (log10 for sizes and touches); similarity = "
+                             "exp(-mean(z^2) / 2), 0-1, against the owner's labelled wins (never the token itself); "
+                             f">= {owner.SIM_BONUS_MIN}: a P bonus of +{owner.SIM_P_BONUS} for range proposals ONLY IN "
+                             "SHADOW (recorded as similar_shadow, P and EV unchanged)"),
             "watched": total, "watched_by_source": {s: by.get(s, 0) for s in SOURCES},
             "watchlist": {"range_market_flag": flags.mode("range_market"), "event_tokens_flag": flags.mode("event_tokens"),
                           "market_max": market.MARKET_MAX, "signal_max": data.MAX_TOKENS,
@@ -250,13 +308,25 @@ def candidates(min_score=None, now=None, limit=50, source=None):
                       "without the top zone out at break-even; 20 min cooldown")}
 
 
+def _pin_only(tok, p, now):
+    """The row of a pinned token without a computed range (not polled yet, cold or stale)."""
+    pp = _pin_part(None, p, now)
+    return {"token": tok, "symbol": p.get("symbol"), "source": "signal", "sources": ["signal"],
+            "status": "nema svježeg raspona", "range_status": None, "entry_ready": False, "active": False,
+            "why": "run_range ga prati od sljedećeg prolaza (ili je ispod 30k / još na krivulji)", "range_score": None,
+            "position_in_range_pct": None, "zones": {"price": None, "market_cap_usd": p.get("zones_mc"), "from": "pin"},
+            "now": {}, "entry_now": pp.get("pin_entry"), "paper_only": False, **pp}
+
+
 def token(address, now=None):
     """The "range" part of get_token_details (None when the token is not watched)."""
     rs = data.read_ranges(tokens=[address])
     r = rs.get(address)
     if not r:
         return None
-    out = one(address, r, now)
+    out = one(address, r, now, owner.pins().get(address), owner.wins())
+    out.pop("_features", None)
     out["positions"] = positions([address])
+    out["owner_labels"] = [owner.label_view(lb) for lb in owner.labels(token=address)]
     return out
 

@@ -1,7 +1,8 @@
 """11.11. (Jure: "rangedca flip / pauza / stop", flag range_flip G26): the flip / pause state of a range
 (rangedca/detect.flip_step), the volatility stop, the new rules (rules.new_range) on the demo account only, the shadow
 rows, the live gate on the nightly backtest (new max drawdown <= today's), the job, the MCP view and the backtest of
-today's rules vs the new ones on the stored GeckoTerminal candles (HOPE + WEALTH, PIRATE, timmy, Leonida). No network.
+today's rules vs the new ones on the stored GeckoTerminal candles (HOPE + WEALTH, PIRATE, timmy, Leonida; 11.11.
+HAOBIBI added on the owner's order). No network.
 
     python3 -m unittest tests.test_range_flip_offline
 """
@@ -24,7 +25,8 @@ from tests.test_range_dca_offline import S, T0, TradeBase, path, tri  # noqa: E4
 LU, PU = settings.LEAGUE_USER, settings.PAPER_USER
 FX = os.path.join(ROOT, "tests", "fixtures")
 FIXTURES = ("range_hope_20261111.json.gz", "range_wealth_20261111.json.gz", "range_pirate_20261111.json.gz",
-            "range_timmy_20261111.json.gz", "range_leonida_20261111.json.gz")
+            "range_timmy_20261111.json.gz", "range_leonida_20261111.json.gz",
+            "range_haobibi_20261111.json.gz")   # 11.11. (owner: HAOBIBI into the range_flip backtest set)
 HV = {m: 5000.0 for m in range(0, 40)}   # 5 x the range's volume per minute in the first 40 minutes of a move
 
 
@@ -393,7 +395,9 @@ class JobAndView(TradeBase):
 # ---------------------------------------------------------------------------------------------------------------
 class BacktestOldVsNew(unittest.TestCase):
     """The comparison on the stored candles (GeckoTerminal, 1 request per 1000 minutes): HOPE 10.-11.11. and four
-    other bonded range tokens (WEALTH, PIRATE, timmy, Leonida, 7.-11.11.). These are the numbers in the report."""
+    other bonded range tokens (WEALTH, PIRATE, timmy, Leonida, 7.-11.11.) and HAOBIBI 11.11. (the owner's labelled win,
+    rangedca/owner.py). These are the numbers in the report. Without HAOBIBI (the 5 tokens before): old 10 rounds
+    +0.118 SOL, new 8 rounds +0.047 SOL, both DD 0.025 SOL, 1 false entry each."""
 
     @classmethod
     def setUpClass(cls):
@@ -401,37 +405,40 @@ class BacktestOldVsNew(unittest.TestCase):
         cls.rep = backtest.run_tokens(cls.series)
 
     def test_the_fixtures(self):
-        self.assertEqual(len(self.series), 5)
+        self.assertEqual(len(self.series), 6)
         self.assertIn("GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump", self.series)   # HOPE
         fr = self.rep["flip"]
-        self.assertEqual(fr["data"]["tokens"], 5)
-        self.assertAlmostEqual(fr["data"]["days_total"], 12.12, delta=0.02)
+        self.assertEqual(fr["data"]["tokens"], 6)
+        self.assertAlmostEqual(fr["data"]["days_total"], 12.47, delta=0.02)
         self.assertEqual(fr["data"]["tokens_24h_plus"], 4)
 
     def test_old_vs_new_numbers(self):
         v = self.rep["flip"]["variants"]
         got = {k: (v[k]["rounds"], round(v[k]["pnl_sol"], 3), round(v[k]["max_dd_sol"], 3), v[k]["false_entries"])
                for k in v}
-        self.assertEqual(got["old"], (10, 0.118, 0.025, 1))   # 11.11.: after rules B (no 20k / 10k hard blocks)
-        self.assertEqual(got["new"], (8, 0.047, 0.025, 1))
+        self.assertEqual(got["old"], (12, 0.113, 0.025, 1))   # 11.11.: after rules B (no 20k / 10k hard blocks)
+        self.assertEqual(got["new"], (10, 0.041, 0.025, 1))
         self.assertEqual(got["atr_only"], got["old"])                       # the volatility stop changed no round here
         self.assertEqual(got["flip_only"], got["new"])
         self.assertTrue(self.rep["flip"]["dd_ok"])
         # today's variants are the same with the flip state in the timeline (today's rules never read it)
-        self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 10)
+        self.assertEqual(self.rep["variants"]["0.7"]["rounds"], 12)
         t = self.rep["flip"]["tokens"]
         timmy = next(p for p in t.values() if p["symbol"] == "timmy")
         self.assertEqual((timmy["old"]["rounds"], timmy["new"]["rounds"]), (3, 2))
         self.assertGreater(timmy["states"].get("paused", 0), 0)
         hope = t["GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump"]
         self.assertEqual((hope["old"]["rounds"], hope["new"]["rounds"], hope["breaks_up"]), (0, 0, 1))
+        hao = t["8tbfkL8LZYUN3ygzWMKfffqVd7tLRpWkuh2fowsepump"]   # 11.11.: a win, then the give-up on the second break down
+        self.assertEqual([r["reason"] for r in hao["rounds_old"]], ["trailing", "odustajanje"])
+        self.assertEqual(hao["new"]["rounds"], 2)
 
     def test_report_text_and_log_line(self):
         text = backtest.md(self.rep)
         self.assertIn("## range_flip: stara pravila vs nova", text)
         self.assertIn("| UKUPNO |", text)
         line = backtest.flip_line(self.rep["flip"])
-        self.assertTrue(line.startswith("range flip backtest: 5 tokena, 12.1"))
+        self.assertTrue(line.startswith("range flip backtest: 6 tokena, 12.47"))
         self.assertIn("DD novo <= staro: da", line)
 
     def test_cost_is_the_owners_round_trip(self):
