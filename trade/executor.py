@@ -129,14 +129,38 @@ def auto_spent(con, now, mode, tz=None):
                        "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0.0
 
 
+# 11.11. (owner's rule C): real money is never above the grok_autotrade limits (ui/grokauto.LIMITS' defaults), whatever
+# the trade settings say: 0.1 SOL a buy, 0.3 SOL of buys a Zagreb day (every live buy, the owner's own included), 3 open
+# positions, and a day loss of 0.15 SOL stops buying until midnight. Every real buy goes through buy() -> gate_buy(),
+# so this is the one place. Dry keeps the settings' own numbers (it only collects quotes).
+LIVE_CAPS = {"max_sol_per_trade": 0.1, "max_sol_per_day": 0.3, "max_open": 3, "max_loss_day": 0.15}
+
+
+def live_capped(cfg):
+    """The settings with the live caps applied (each the smaller of the two)."""
+    out = dict(cfg)
+    for k, v in LIVE_CAPS.items():
+        out[k] = min(type(v)(cfg[k]), v) if cfg.get(k) is not None else v
+    return out
+
+
+def live_spent(con, now, tz=None):
+    """SOL put into EVERY live buy today (the owner's own included): what LIVE_CAPS max_sol_per_day limits."""
+    return con.execute("SELECT COALESCE(SUM(sol_in),0) FROM positions WHERE opened_ts>=? AND mode='live' "
+                       "AND status IN ('open','closed','pending')", (_day_start(now, tz),)).fetchone()[0] or 0.0
+
+
 def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
     """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
     lot of the same position, so the duplicate check does not apply (every other limit does).
     manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
     he approved) is not held by the day's spending limit max_sol_per_day; the Autopilot's copies still are. The
-    stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy."""
+    stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy.
+    live (11.11., owner's rule C): LIVE_CAPS on top, and their day limit counts every live buy, manual included."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
+    if live:
+        cfg = live_capped(cfg)
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
                           (token, "live" if live else "dry")).fetchone()
@@ -148,6 +172,9 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     spent = auto_spent(con, now, "live" if live else "dry", tz)
     if not manual and spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
         return f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
+    if live and live_spent(con, now, tz) + size_sol > LIVE_CAPS["max_sol_per_day"] + 1e-9:
+        return (f"dnevni limit pravog novca: potrošeno {live_spent(con, now, tz):.3f} od "
+                f"{LIVE_CAPS['max_sol_per_day']} SOL (granica Grok autotradea vrijedi za svaki pravi trade)")
     if "max_loss_day" in cfg:
         lost = day_pnl(con, now, "live" if live else "dry", tz)
         if lost <= -cfg["max_loss_day"]:
@@ -414,6 +441,8 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
     tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
+    if live and not manual:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it; the
+        size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # owner's own amount is refused by gate_buy instead
     why = gate_buy(con, cfg, size_sol, now, live, token=token, add=add, manual=manual)
     if not why and cfg.get("sell_check", True):
         why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct)

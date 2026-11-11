@@ -235,7 +235,7 @@ def scan_candidates(now, limit=40):
     except Exception:  # noqa: BLE001
         con = None
     rows = _q(con, "SELECT token FROM cand WHERE checked_ts >= ? AND COALESCE(stage,'') = 'migrated' AND "
-                   "COALESCE(mcap, 0) >= ? AND COALESCE(liq, 0) >= 20000 ORDER BY COALESCE(vol_h1, 0) DESC LIMIT ?",
+                   "COALESCE(mcap, 0) >= ? AND COALESCE(liq, 0) >= 15000 ORDER BY COALESCE(vol_h1, 0) DESC LIMIT ?",
               (int(now - 1800), MIN_MCAP, limit))
     if con is not None:
         con.close()
@@ -243,14 +243,14 @@ def scan_candidates(now, limit=40):
 
 
 def live_list(now, path=None, limit=40):
-    """The live list: hype.db token_pulse tokens of the last 30 min at MC >= 30k and liquidity >= 20k, busiest first,
+    """The live list: hype.db token_pulse tokens of the last 30 min at MC >= 30k and liquidity >= 15k, busiest first,
     and the tokens PumpPortal saw bond (migration) in the last 6 h."""
     con = _ro_file(path or hype_path())
     if con is None:
         return []
     try:
         pulse = [r[0] for r in _q(con, "SELECT token, MAX(ts), mcap, liquidity, vol_h1 FROM token_pulse WHERE ts >= ? "
-                                       "GROUP BY token HAVING COALESCE(mcap,0) >= ? AND COALESCE(liquidity,0) >= 20000 "
+                                       "GROUP BY token HAVING COALESCE(mcap,0) >= ? AND COALESCE(liquidity,0) >= 15000 "
                                        "ORDER BY COALESCE(vol_h1,0) DESC LIMIT ?", (int(now - 1800), MIN_MCAP, limit))]
         mig = [r[0] for r in _q(con, "SELECT mint FROM live_launches WHERE pool='migration' AND ts >= ? ORDER BY ts DESC "
                                      "LIMIT ?", (int(now - 6 * 3600), limit))]

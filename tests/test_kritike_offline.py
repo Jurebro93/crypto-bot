@@ -144,18 +144,19 @@ class ScannerRunupCap(unittest.TestCase):
         self.assertTrue(market.anchor_first(self.con, X, self.m(400_000), "migrated", NOW + 2 * D, self.cfg))
 
     @mock.patch("league.copy._rugged", return_value=None)
-    def test_4x_over_the_first_sighting_fails_before_the_paid_checks(self, _r):
+    def test_4x_over_the_first_sighting_is_a_tag_not_a_fail(self, _r):
+        # 11.11. (owner's rule B): the scanner marks a 4x+ run-up, the decision applies P x 0.7 / size x 0.5
         market.anchor_first(self.con, X, self.m(70_000), "migrated", NOW - 3 * H, self.cfg)
         ctx = market.Ctx(self.con, None, self.cfg, NOW, {})
-        ctx.trades = mock.Mock(side_effect=AssertionError("no fee read"))
-        ctx.facts = mock.Mock(side_effect=AssertionError("no Helius"))
-        res = market.check(self.m(300_000), self.cfg, ctx, has_signal=True)
-        self.assertIn("kasno: već 4.3× od prvog viđenja skenera", res["why"])
-        self.assertEqual(res["why"], res["why_sig"])                           # a caller signal is not a pass either
         ctx.trades = mock.Mock(return_value=[])
         ctx.facts = mock.Mock(return_value=None)
-        res = market.check(self.m(250_000), self.cfg, ctx, has_signal=True)    # 3.6x: the run-up cap passes
+        res = market.check(self.m(300_000), self.cfg, ctx, has_signal=True)
         self.assertNotIn("kasno", res["why"] or "")
+        self.assertNotIn("kasno", res["why_sig"] or "")                       # a caller signal is not refused either
+        self.assertIn("runup", res.get("tags") or [])
+        self.assertTrue(any("kasno: već 4.3× od prvog viđenja skenera" in r for r in res["reasons"]))
+        res = market.check(self.m(250_000), self.cfg, ctx, has_signal=True)    # 3.6x: no mark
+        self.assertNotIn("runup", res.get("tags") or [])
         off = dict(self.cfg, runup_max_x=0)
         self.assertIsNone(market.runup_why(self.m(900_000), "migrated", off, ctx))
 
@@ -349,7 +350,7 @@ class ZivoRunup(unittest.TestCase):
     def setUp(self):
         zivo._FIRST.clear()
 
-    def test_4x_over_the_first_call_is_not_a_pick(self):
+    def test_4x_over_the_first_call_is_a_tagged_pick(self):
         cands = [{"token": X, "symbol": "LATE", "src": "zovu", "ts0": NOW - 120, "mcap0": 240_000, "why": ["zovu"]},
                  {"token": Y, "symbol": "OK", "src": "zovu", "ts0": NOW - 600, "mcap0": 90_000, "why": ["zovu"]}]
         lv = {X: live(240_000), Y: live(90_000)}
@@ -357,9 +358,11 @@ class ZivoRunup(unittest.TestCase):
                        chances={}, firsts={X: (NOW - 3 * H, 50_000.0), Y: (NOW - H, 60_000.0)})
         self.assertEqual([r["token"] for r in rs], [Y, X])                    # the late one goes last, however hot
         late, ok = rs[1], rs[0]
-        self.assertFalse(late["pick"])
+        self.assertTrue(late["pick"])                                         # 11.11. (rule B): a tag, not a block
+        self.assertEqual(late["tags"], ["kasno"])
         self.assertEqual(late["runup"]["x"], 4.8)
-        self.assertIn("kasno: već 4.8× od prvog poziva", late["why_not"])
+        self.assertIn("kasno: već 4.8× od prvog poziva", late["tag"])
+        self.assertIsNone(late["why_not"])
         self.assertTrue(ok["pick"])
         self.assertEqual(ok["runup"]["x"], 1.5)
         plain = zivo.rows(NOW, cands=cands[1:], live=lv, callers={Y: ["kolb"]}, smart={}, mstats={}, chances={})

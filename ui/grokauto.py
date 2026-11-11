@@ -8,7 +8,8 @@ an MCP execute_trade with require_approval=false is executed at once instead of 
         get_portfolio_status show them read-only): grok_max_sol_per_trade 0.1, grok_max_sol_per_day 0.3,
         grok_max_open 3 (open Grok positions), grok_max_loss_day 0.15 SOL. Before every buy the rug check and the
         liquidity checks of the Autopilot's copies run again (league/copy: price, bonded only, liquidity, 30k MC,
-        fake pool, pool vs MC, rug, supply concentration); a failed check rejects the buy with the reason. Then it goes
+        fake pool, pool vs MC, rug, supply concentration; 11.11.: liquidity at least $15k, trade/cost.LIQ_HARD_MIN,
+        and never an event token of an active topic, trade/settings.NEVER_LIVE); a failed check rejects the buy. Then it goes
         through the owner's manual buy path (ui/pravitrade._post_buy): the same day-loss stop, wallet balance, the
         owner's per-token cap (dca_cap_owner) and the real swap by run_trade.py in the mode the Autopilot is in
         (dry / trial / live; CLAUDE.md: real money only when the Autopilot is live).
@@ -17,8 +18,9 @@ an MCP execute_trade with require_approval=false is executed at once instead of 
 
 11.11. (flag grok_ev_gate, momentum/evgate.py): a buy may carry p_tp (Grok's probability that TP comes before SL) and
 strategy (momentum_scalp | range_dca | other). The gate prices EV = p_tp x TP - (1 - p_tp) x SL - cost with the
-strategy's TP / SL; shadow logs what it would refuse, paper / live refuse EV <= 0 (and a buy without p_tp) with the
-reason, and then the buy gets that strategy's TP / SL as its exit. Every request with p_tp is recorded for calibration.
+strategy's TP / SL; shadow logs what it would refuse, paper / live refuse (11.11., owner's rule D) an EV under +3 % or
+a strategy without Grok's measured proof (n >= 10, the 90 % interval above 0), and a buy without p_tp, with the reason;
+then the buy gets that strategy's TP / SL as its exit. Every request with p_tp is recorded for calibration.
 
 When Grok's realized result today (Zagreb day, its positions closed today, fees included) reaches -grok_max_loss_day,
 autotrade pauses itself until midnight Zagreb ("paused_until"); the owner's "Ugasi Grok autotrade" turns it off until
@@ -201,8 +203,10 @@ def safety_ex(token, market=None):
     c = copy.CFG
     if copy._bonding_curve(m):
         return "token je još na pump.fun krivulji; uzimaju se samo bondani", []
-    if (liq or 0) < c["min_liq"]:
-        return f"premala likvidnost (${liq or 0:,.0f}, treba ${c['min_liq']:,.0f})", []
+    from trade import cost as tcost
+    floor = max(c["min_liq"], tcost.LIQ_HARD_MIN)   # 11.11. (owner's rule B): never under $15k
+    if (liq or 0) < floor:
+        return f"premala likvidnost (${liq or 0:,.0f}, treba ${floor:,.0f})", []
     if (mcap or 0) < c["min_mcap"]:
         return f"MC ${mcap or 0:,.0f} ispod 30k", []
     if mcap > c["max_mcap"]:
@@ -214,6 +218,10 @@ def safety_ex(token, market=None):
     col = copy._rugged(token, mcap, liq)
     if col:
         return f"token je rugan ({col['text']})", []
+    ev_topic = event_topic(token)
+    if ev_topic:   # 11.11. (trade/settings.NEVER_LIVE): event tokens are measured, at most paper, never real money
+        return (f"event token (tema „{ev_topic}”): event tokeni nikad ne trguju pravim novcem (NEVER_LIVE), najviše "
+                "paper na demo računu"), []
     from scan import filters
     from ui import kandidati
     src = kandidati.Sources()
@@ -225,6 +233,25 @@ def safety_ex(token, market=None):
     if rv["hard"]:
         return f"rug: {rv['hard'][0]}", []
     return None, rv["risk"]
+
+
+def event_topic(token):
+    """The name of an active event topic (topics.db, upcoming / live) the token belongs to, or None."""
+    try:
+        from topics import store as tstore
+        con = tstore.ro()
+    except Exception:  # noqa: BLE001 - no topics module / database: not an event token as far as we know
+        return None
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT t.name FROM topic_tokens tt JOIN event_topics t ON t.id = tt.topic_id WHERE tt.token = ? "
+                        "AND t.status IN ('upcoming', 'live') LIMIT 1", (token,)).fetchone()
+    except Exception:  # noqa: BLE001
+        r = None
+    finally:
+        con.close()
+    return r[0] if r else None
 
 
 def notify(text):

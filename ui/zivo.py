@@ -19,9 +19,9 @@ Two layers, so the page can be fast and still strict:
 - 11.11. (Grok's note #92): run-up from the FIRST CALL. A source's own mcap0 is not the call's (the 'zovu' row carries
   the live market cap of the moment, 'alat' the fresh check's), so a token the callers took 4x+ was offered as if it
   had just been called. Each row now carries runup (live market cap over the market cap of the token's first measured
-  call in the last 24 h, kol.db calls.mcap0); at RUNUP_MAX_X or more it is marked like ui/kandidati marks it:
-  pick=False with why_not "kasno: ...", sorted after the picks; the Pregled box and the Autopilot list never offer it
-  as a pick. league/copy's runup_default gate already measures from the first call (copy.first_call: the earliest
+  call in the last 24 h, kol.db calls.mcap0); at RUNUP_MAX_X or more it is marked like ui/kandidati marks it
+  (11.11., owner's rule B: a tag, not a block): pick stays True, tags ["kasno"] and tag "kasno: ..." (P x 0.7 and half
+  the size where the trade is decided, trade/edge), sorted after the untagged rows. league/copy's runup_default gate already measures from the first call (copy.first_call: the earliest
   call overall, its price p0), so the copy entries need no change.
 """
 import threading
@@ -263,17 +263,17 @@ def first_calls(now, tokens, kol_db=None):
 
 
 def runup_mark(r, first):
-    """Set r["runup"] (x over the first call, its market cap and time) and r["pick"] / r["why_not"]: a row at
-    RUNUP_MAX_X or more is shown but is not a pick (ui/kandidati: "kasno")."""
+    """Set r["runup"] (x over the first call, its market cap and time) and r["tags"] / r["tag"]: a row at
+    RUNUP_MAX_X or more is tagged "kasno" (11.11., owner's rule B: still a pick, the modifier is the decision's)."""
     m = r.get("live") or {}
-    r["pick"], r["why_not"], r["runup"] = True, None, None
+    r["pick"], r["why_not"], r["runup"], r["tags"], r["tag"] = True, None, None, [], None
     if not first or not first[1] or not m.get("mcap"):
         return r
     x = float(m["mcap"]) / first[1]
     r["runup"] = {"x": round(x, 2), "first_call_mcap": round(first[1]), "first_call_ts": first[0]}
     if x >= RUNUP_MAX_X:
-        r["pick"] = False
-        r["why_not"] = f"kasno: već {x:.1f}× od prvog poziva (granica {RUNUP_MAX_X:g}×), nije prijedlog"
+        r["tags"] = ["kasno"]
+        r["tag"] = f"kasno: već {x:.1f}× od prvog poziva (oznaka: P × 0,7, pola uloga)"
     return r
 
 
@@ -359,7 +359,7 @@ def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, 
         r["heat"] = (3 * len(r["callers10"]) + 4 * r["smart10"] + (m.get("ch_m5") or 0) / 10 + min(3.0, turn))
         runup_mark(r, firsts.get(t))   # 11.11. (Grok #92): 4x+ over the first call = shown, not a pick
         out.append(r)
-    out.sort(key=lambda r: (not r["pick"], -r["heat"], r["age_s"]))
+    out.sort(key=lambda r: (not r["pick"], bool(r.get("tags")), -r["heat"], r["age_s"]))
     return out
 
 

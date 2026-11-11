@@ -213,9 +213,20 @@ class Build(unittest.TestCase):
         self.assertGreater(got[B]["runup"]["chase"], 0.7)
         self.assertLess(got[B]["score"], got[A]["score"])                       # chasing costs score
         self.assertTrue(got[B]["tradeable"])
-        self.assertFalse(got[C]["tradeable"])                                   # 5x since the first signal: too late
-        self.assertTrue(any("kasno" in w for w in got[C]["why_not"]))
+        # 11.11. (owner's rule B): 5x since the first signal is a tag and a modifier (P x 0.7, size x 0.5), not a block
+        self.assertFalse(any("kasno" in w for w in got[C]["why_not"]))
+        self.assertTrue(all(w.startswith("negativan EV") for w in got[C]["why_not"]), got[C]["why_not"])   # only EV
+        self.assertIn("runup_4x", got[C]["flags"])
+        self.assertIn("runup", [t["key"] for t in got[C]["tags"]])
+        self.assertEqual(got[C]["modifiers"], {"p_mult": 0.7, "size_mult": 0.5})
+        self.assertLess(got[C]["ev_pct"], got[B]["ev_pct"])
         self.assertEqual([r["token"] for r in rows], [A, B, C])
+        # X bursting (x_momentum_score >= 1) and buys >= 60 % of 5 min: no reduction
+        S.xm = {C: {"source": "grok", "ts": NOW - 60, "x_momentum_score": 1.2}}
+        S.c[2] = (C, [("ansem", "x", NOW - 600)], NOW - 600, NOW - 600, "T",
+                  dict(live(mcap=500_000, ch_h24=10.0), w={"m5": {"buys": 70, "sells": 30}}))
+        got, _r, _m = self.build()
+        self.assertEqual(got[C]["modifiers"], {"p_mult": 1.0, "size_mult": 1.0})
         # a 39x 24 h pump with no known first market cap is penalised too
         S.c, S.firsts = [(D, [("ansem", "x", NOW - 60)], NOW - 60, NOW - 60, "D", live(ch_h1=2.0, ch_h24=3800.0))], {}
         got, _r, _m = self.build()
@@ -397,7 +408,7 @@ class EvGate(unittest.TestCase):
         self.assertEqual(got[C]["n_samples"], 6)
         self.assertEqual(got[C]["ev_confidence"], "low")                        # under 10 samples
 
-    def test_unmeasured_ev_and_shill_driven_are_not_tradeable(self):
+    def test_unmeasured_ev_is_not_tradeable_and_shill_driven_is_a_modifier(self):
         S = self.S
         S.recs = {}
         S.c = [(A, [("nobody", "x", NOW - 600)], NOW - 600, NOW - 600, "A", live()),
@@ -409,12 +420,23 @@ class EvGate(unittest.TestCase):
         self.assertIsNone(got[A]["ev_pct"])
         self.assertEqual((got[A]["n_samples"], got[A]["ev_confidence"]), (0, "low"))
         self.assertTrue(any("EV nije izmjeren" in w for w in got[A]["why_not"]))
-        self.assertFalse(got[B]["tradeable"])                                   # a good EV, but only paid shills call it
-        self.assertTrue(any(w.startswith("vođeno shillanjem") for w in got[B]["why_not"]))
+        # 11.11. (owner's rule B): only paid shills call it: a tag and P x 0.5 (on the signal exit), never a block
+        self.assertIn("shill_driven", got[B]["flags"])
+        self.assertTrue(any(t["text"].startswith("vođeno shillanjem") for t in got[B]["tags"]))
+        self.assertEqual(got[B]["modifiers"]["p_mult"], 0.5)
+        pooled = 50 * 0.2 / (50 + kandidati.SHRINK_N)
+        self.assertLess(got[B]["ev_pct"], pooled * 100)
+        self.assertEqual(got[B]["tradeable"], got[B]["ev_pct"] > 0)
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.03}}                       # a modest record: P x 0.5 sinks it
+        got, _rows = self.build()
+        self.assertFalse(got[B]["tradeable"])
+        self.assertTrue(any(w.startswith("negativan EV") for w in got[B]["why_not"]))
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.2}}
         S.w = [("W1", B, NOW - 300, "S")]                                       # a tiered wallet buys too: not shill-only
         S.recs = {"wallet": {"n": 40, "ev": 0.05}}
         got, _rows = self.build()
         self.assertTrue(got[B]["tradeable"], got[B]["why_not"])
+        self.assertNotIn("shill_driven", got[B]["flags"])
 
     def test_description_names_the_rule(self):
         from ui import mcpapi

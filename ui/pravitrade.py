@@ -933,16 +933,18 @@ def _pool_line():
 
 def _proof_line(r):
     """9.11. (audit P39): what run_trade.follow_league_once needs before a follow's copies go into real money
-    (run_trade.PROOF: closed demo copies, PnL > 0, share of winners), shown per follow so a LIVE buy "blocked:
-    praćenje bez dokaza u demu" is no surprise. Same thresholds, read from run_trade, never a second copy."""
+    (run_trade.PROOF, 11.11. owner's rule D: n closed demo copies, their EV net of cost and its 90 % interval), shown
+    per follow so a LIVE buy "blocked: praćenje bez dokaza u demu" is no surprise. Same thresholds, read from run_trade,
+    never a second copy."""
+    from trade import edge
     try:
         from run_trade import PROOF
     except Exception:  # noqa: BLE001 - the page must render without the trade process module
-        PROOF = {"closed": 10, "win_rate": 0.4}
-    closed, wins, pnl = r.get("closed", 0), r.get("wins", 0), r.get("pnl", 0.0)
-    have = f"zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $"
-    need = f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih"
-    proven = closed >= PROOF["closed"] and pnl > 0 and wins / closed >= PROOF["win_rate"]
+        from league.copy import PROOF
+    closed, pnl = r.get("closed", 0), r.get("pnl", 0.0)
+    proven, _why, s = edge.live_proof(r.get("rets") or [], n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
+    have = f"zatvorenih {closed}, PnL {pnl:+.0f} $" + (f", {edge.proof_text(s)}" if s.get("n") else "")
+    need = f"treba {PROOF['closed']}+ zatvorenih, EV >= {PROOF['ev_min']:+.0%} i donja granica 90 % intervala > 0"
     return (f"Dokaz u demu: {esc(have)} · pravi novac: <b>{'da' if proven else 'još ne'}</b> ({esc(need)})"
             + ("" if proven else "; do tada se njegove kopije kupuju samo probno"))
 
@@ -1950,7 +1952,7 @@ def ideas_inner(cfg, owner, now=None, force=False):
             m = r["live"]
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-            why = r.get("why_not") or (r.get("reasons") or [""])[0]   # 11.11. (Grok #92): "kasno ..." = not a pick
+            why = r.get("why_not") or r.get("tag") or (r.get("reasons") or [""])[0]   # 11.11.: "kasno ..." is a tag
             # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
             # as the one number and the price moves under it; a tap opens the live pop-up as before
             out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],

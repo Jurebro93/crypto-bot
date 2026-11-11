@@ -97,8 +97,12 @@ class Detection(unittest.TestCase):
         small = tri(T0, lo=20, hi=40)                                     # MC $20-40k: never analysed further
         self.assertEqual(detect.analyze(small, small[-1][0], snap_for(small))["status"], "ispod 30k")
         cs = tri(T0)
-        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, liq=15_000))["status"], "mala likvidnost")
-        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, vol_h1=8_000))["status"], "slab volumen")
+        # 11.11. (owner's rule B): only liquidity under $15k and 1 h volume under $3k (the hard floor) refuse a range;
+        # $3k-$10k of volume only shrinks the lot (rangedca/trade._sized)
+        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, liq=14_000))["status"], "mala likvidnost")
+        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, vol_h1=2_000))["status"], "slab volumen")
+        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, liq=15_000))["status"], detect.ACTIVE)
+        self.assertEqual(detect.analyze(cs, cs[-1][0], snap_for(cs, vol_h1=8_000))["status"], detect.ACTIVE)
         broke = cs + path(cs[-1][0] + 60, [(0, cs[-1][4]), (20, 45 * S), (21, 45 * S)])
         r = detect.analyze(broke, broke[-1][0], snap_for(broke))
         self.assertEqual(r["status"], "probijen dolje")
@@ -582,7 +586,7 @@ class LiveGate(TradeBase):
         self.rounds(3, -0.5)                                                 # 22 rounds, EV negative
         with self.assertRaisesRegex(ValueError, "EV"):
             settings.set_flag(self.con, "range_dca", "live", "Jure", paper=paper, now=self.now)
-        self.rounds(20, 0.10)
+        self.rounds(40, 0.10)                                                # 11.11.: EV +5.6 %, interval above 0
         self.assertIsNone(gate.refusal())
         self.assertEqual(settings.set_flag(self.con, "range_dca", "live", "Jure", paper=paper, now=self.now)["mode"], "live")
         self.assertIsNone(settings.live_refusal(self.con, "dca_guard", paper, self.now) and None)

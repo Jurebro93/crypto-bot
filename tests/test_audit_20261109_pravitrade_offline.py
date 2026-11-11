@@ -567,11 +567,14 @@ class FollowForms(PageBase):
             self.lg.execute("UPDATE trades SET follow_id=?, status='closed', pnl_usd=? WHERE id=?", (fid, pnl, tid))
         self.lg.commit()
         html = pravitrade._follows(self.lg, True)
-        self.assertIn("Dokaz u demu: zatvorenih 2, dobitnih 1, PnL +3 $", html)
+        # 11.11. (owner's rule D): the proof is n, EV net of cost and its 90 % interval, no share of winners
+        self.assertIn("Dokaz u demu: zatvorenih 2, PnL +3 $, n=2, EV +6,0 %", html)
         self.assertIn("pravi novac: <b>još ne</b>", html)
-        self.assertIn(f"treba {run_trade.PROOF['closed']}+ zatvorenih", html)
-        line = pravitrade._proof_line({"closed": 12, "wins": 6, "pnl": 40.0})
+        self.assertIn(f"treba {run_trade.PROOF['closed']}+ zatvorenih, EV &gt;= +3%", html)
+        line = pravitrade._proof_line({"closed": 12, "wins": 6, "pnl": 40.0, "rets": [0.05, 0.06] * 6})
         self.assertIn("pravi novac: <b>da</b>", line)
+        line = pravitrade._proof_line({"closed": 12, "wins": 5, "pnl": 1.0, "rets": [0.15] * 5 + [-0.10] * 7})
+        self.assertIn("pravi novac: <b>još ne</b>", line)          # 42 % winners, EV +0.4 %: not enough
 
     def test_proven_wallets_show_their_bags(self):
         """P55 (handoff izvori): open losers the wallet never closed, next to its realized result."""

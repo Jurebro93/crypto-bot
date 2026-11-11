@@ -239,7 +239,7 @@ class Tools(Base):
         out = mcpdata.scoring_config()
         self.assertIn("weights", out["caller_score"])
         self.assertEqual(out["autopilot_settings"]["sl_default"], 60)
-        self.assertEqual(out["real_money_proof_gate"], {"closed": 10, "win_rate": 0.4})
+        self.assertEqual(out["real_money_proof_gate"], {"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0})   # 11.11.
         self.assertEqual(out["copy_filters"]["min_mcap"], 30_000)
         text = json.dumps(out)
         for secret in ("mcp_key", "wallet_pub", "PRIVATE"):

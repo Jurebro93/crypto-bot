@@ -17,7 +17,7 @@ Universe (table mkt), cheapest first:
                a day out of the SHARED CoinGecko budget (3000 a day; scan 150, range seeds 60, events 600 a night,
                momentum 100); their numbers admit a pool without another request
   birdeye      Birdeye's token list by 24 h volume, ONLY with BIRDEYE_API_KEY, every BIRD_EVERY_S, at most BIRDEYE_DAY
-Market filter (a market token): bonded, MC $50k-$5M, liquidity >= $20k, volume 1 h >= $10k, at least 6 h old. An
+Market filter (a market token): bonded, MC $50k-$5M, liquidity >= $15k, volume 1 h >= $10k, at least 6 h old. An
 event token only needs what every analysed token needs: bonded and MC >= $30k (CLAUDE.md). A token that fails waits
 (next_ts) by its reason: under 30k a day, on the curve 6 h, otherwise 1-2 h; too young until it is 6 h old.
 
@@ -49,7 +49,7 @@ from . import data
 MARKET_MAX = int(os.environ.get("RANGE_MARKET_MAX", "400"))
 MIN_MCAP = float(os.environ.get("RANGE_MKT_MIN_MCAP", "50000"))
 MAX_MCAP = float(os.environ.get("RANGE_MKT_MAX_MCAP", "5000000"))
-MIN_LIQ = float(os.environ.get("RANGE_MKT_MIN_LIQ", "20000"))
+MIN_LIQ = float(os.environ.get("RANGE_MKT_MIN_LIQ", "15000"))   # 11.11. owner rule B: = trade/cost.LIQ_HARD_MIN
 MIN_VOL_H1 = float(os.environ.get("RANGE_MKT_MIN_VOL_H1", "10000"))
 MIN_AGE_H = float(os.environ.get("RANGE_MKT_MIN_AGE_H", "6"))
 HOT_N = int(os.environ.get("RANGE_MKT_HOT_N", "100"))

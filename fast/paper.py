@@ -66,34 +66,43 @@ def mode():
 
 # ---------- the live gate --------------------------------------------------------------------------------------------
 
-def proof(lcon=None):
-    """{"n", "wins", "pnl_usd", "ev_pct"} of the demo account's closed fast-path trades (zeros when none)."""
+def proof(lcon=None, with_rets=False):
+    """{"n", "wins", "pnl_usd", "ev_pct", "ci90_lo_pct"} (+ "rets") of the demo account's closed fast-path trades
+    (zeros when none); the results net of the calibrated cost (trade/cost.demo_adjust)."""
     from league import store as lstore
-    from trade import settings
+    from trade import cost, edge, settings
     own = lcon is None
     try:
         if own:
             lcon = sqlite3.connect(f"file:{lstore.DB}?mode=ro", uri=True, timeout=5)
-        n, w, pnl, ev = lcon.execute("SELECT COUNT(*), COALESCE(SUM(pnl_usd > 0), 0), COALESCE(SUM(pnl_usd), 0), "
-                                     "AVG(ret) FROM fast_trades WHERE user=? AND status='closed'",
-                                     (settings.PAPER_USER,)).fetchone()
+        rows = lcon.execute("SELECT pnl_usd, ret FROM fast_trades WHERE user=? AND status='closed'",
+                            (settings.PAPER_USER,)).fetchall()
     except sqlite3.Error:
-        n, w, pnl, ev = 0, 0, 0.0, None
+        rows = []
     finally:
         if own and lcon is not None:
             lcon.close()
-    return {"n": int(n or 0), "wins": int(w or 0), "pnl_usd": round(float(pnl or 0), 2),
-            "ev_pct": round(ev * 100, 2) if ev is not None else None}
+    adj = cost.demo_adjust()
+    rets = [r + adj for _p, r in rows if r is not None]
+    s = edge.ev_stats(rets)
+    return {"n": len(rows), "wins": sum(1 for p, _r in rows if (p or 0) > 0),
+            "pnl_usd": round(float(sum(p or 0 for p, _r in rows)), 2),
+            "ev_pct": round(s["ev"] * 100, 2) if s["ev"] is not None else None,
+            "ci90_lo_pct": round(s["lo90"] * 100, 2) if s["lo90"] is not None else None,
+            **({"rets": rets} if with_rets else {})}
 
 
 def live_refusal(con=None, now=None):
     """trade/settings.LIVE_GATES: None when fast_path may go live (on top of the backtest and the 7 paper days in the
-    plus), else why not: >= MIN_CLOSED closed fast-path paper trades on the demo account with EV > 0."""
-    p = proof()
+    plus), else why not: >= MIN_CLOSED closed fast-path paper trades on the demo account passing trade/edge.live_proof
+    (11.11. owner's rule D: EV >= +3 %, the 90 % interval's lower bound > 0; MIN_CLOSED 30 >= its n 10)."""
+    from trade import edge
+    p = proof(with_rets=True)
     if p["n"] < MIN_CLOSED:
         return f"fast_path: tek {p['n']} zatvorenih paper tradeova, treba {MIN_CLOSED}"
-    if p["ev_pct"] is None or p["ev_pct"] <= 0:
-        return f"fast_path: EV paper tradeova {p['ev_pct'] or 0:+.2f} % po tradeu, mora biti iznad nule"
+    ok, why, _s = edge.live_proof(p["rets"])
+    if not ok:
+        return f"fast_path: dokaz paper tradeova nije prošao: {why}"
     return None
 
 

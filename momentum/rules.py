@@ -1,19 +1,17 @@
-"""Entry, exit, base-rate and cost rules of momentum_scalp (pure: no I/O). The data job (momentum/job.py), the paper
+"""Entry, exit, base-rate and cost rules of momentum_scalp (pure: no I/O except the round-trip cost, which
+reads trade/cost's cached fee calibration). The data job (momentum/job.py), the paper
 trader (momentum/trade.py) and the backtest (momentum/backtest.py) call the same functions, so a backtest or a base
 rate number is the rule that would trade.
 
 Entry (every condition must be KNOWN and pass; an unknown input is a reason, never a guess in our favour):
   bonded           a pool with liquidity, not the pump.fun curve (CLAUDE.md: new pump.fun tokens are not taken)
   mcap             30k .. 3M (CLAUDE.md: never under 30k)
-  liquidity        >= $20k
+  liquidity        >= $15k (trade/cost.LIQ_HARD_MIN: the owner's only liquidity block, 11.11. rule B)
   change 5 min     +5 % .. +15 % (a jump that is under way, not one that already ran)
   buy share 5 min  buys / (buys + sells) transactions of the last 5 minutes >= 0.6
   volume spike     volume of the last 5 min >= 3x the average 5-min volume of the hour before it:
                    vol_m5 / ((vol_h1 - vol_m5) / 11); no baseline (nothing traded in the hour before) = unknown
-  fees / volume    the pool's fee rate (scan/filters.fee_rate) >= 0.2 %. NOTE: this is a property of the POOL, not of
-                   the traders: PumpSwap alone takes ~0.25-0.3 % of every swap, so it passes almost every bonded pair
-                   and catches no wash trading. It only refuses near-zero-fee pools, where washing is cheap. The real
-                   anti-wash check is the next one.
+  (fees / volume >= 0.2 % was removed 11.11., owner's rule B: a property of the pool that never caught anything)
   turnover         volume 1 h / liquidity <= 25x (scan config max_turnover_h1: volume that spins the pool many times)
   anti-wash        (the real check, wash_check) unique traders against transactions and volume, like scan/filters'
                    max_wash: from the token's PumpPortal trades (exact wallets, free) the rug filter's wash score
@@ -34,26 +32,27 @@ still held; time stop: everything out 45 minutes after the entry. A stale price 
 Base rate: for EVERY signal (traded or not) whether +15 % came before -10 % within 45 min (the honest hit rate of
 the entry), and the result of the exit rules above on the same path after the round-trip cost.
 
-Round-trip cost (documented assumption, used for EV everywhere): the demo account's fee, 1 % each side
-(league/store.FEE: the swap route, priority fee and a margin), plus the measured AMM impact of a LOT_USD lot on the
-pool both ways (league/store.impact: usd / (liquidity / 2 + usd)). At $15 in a $40k pool that is 2 % + 2 x 0.07 % =
-~2.15 %; a real swap's own cost is in trade.db orders.cost_pct. With TP +15 / SL -10 and 2-3 % round trip the
+Round-trip cost: trade/cost.round_trip, the ONE model (11.11., owner's rule A): 2 x fee_side + 2 x the AMM impact
+of the stake (usd / (liquidity / 2 + usd)); fee_side = league/store.FEE (1 % a side) until trade.db orders.cost_pct
+calibrates it. At $15 in a $40k pool that is 2 % + 2 x 0.07 % = ~2.15 %. With TP +15 / SL -10 and 2-3 % round trip the
 break-even hit rate is (10 + c) / 25 = ~49-52 %, i.e. ~50 %, NOT 45 % (break_even_p).
 """
 
+from trade import cost as _cost
+
 RULES = {
-    "mcap_min": 30_000, "mcap_max": 3_000_000, "liq_min": 20_000,
+    "mcap_min": 30_000, "mcap_max": 3_000_000, "liq_min": _cost.LIQ_HARD_MIN,
     "ch5_min": 0.05, "ch5_max": 0.15, "buy_share_min": 0.6, "vol_x_min": 3.0,
-    "fee_vol_min": 0.002, "turnover_max": 25.0,
+    "turnover_max": 25.0,
     "buyers_min_5m": 8, "buyers_x_exact": 1.2, "buyers_x_hour": 1.5,
     "wash_max": 50.0, "tx_per_trader_max": 4.0, "usd_per_trader_min_cap": 1500.0, "usd_per_trader_liq": 0.02,
     "traders_min_h1": 20, "top10_max": 35.0,
     "tp1": 0.15, "tp1_share": 0.5, "trail": 0.08, "stop": 0.10, "time_s": 45 * 60,
     "cooldown_s": 45 * 60, "chase_max": 0.05,
 }
-FEE_SIDE = 0.01          # league/store.FEE: the demo account's fee per side
-LOT_USD = 15.0           # ~0.1 SOL, the Autopilot's size_sol
-DEFAULT_LIQ = 40_000.0   # pool depth for the impact when the liquidity is not known
+FEE_SIDE = _cost.FEE_DEMO     # league/store.FEE: the demo account's fee per side (its booking in simulate / _net)
+LOT_USD = _cost.DEFAULT_USD   # ~0.1 SOL, the Autopilot's size_sol
+DEFAULT_LIQ = _cost.DEFAULT_LIQ   # pool depth for the impact when the liquidity is not known
 
 
 def _r(cfg):
@@ -69,13 +68,13 @@ def _f(x):
 
 # ---------- cost and EV -------------------------------------------------------------------------------------------
 def impact(usd, liq):
-    side = (liq or DEFAULT_LIQ) / 2
-    return usd / (side + usd) if side > 0 else 1.0
+    return _cost.impact(usd, liq)
 
 
-def round_trip_cost(usd=LOT_USD, liq=None, fee_side=FEE_SIDE):
-    """Fraction of the stake lost to one buy and one sell: fee both sides + the pool impact both ways."""
-    return 2 * fee_side + 2 * impact(usd, liq)
+def round_trip_cost(usd=LOT_USD, liq=None, fee_side=None):
+    """Fraction of the stake lost to one buy and one sell: trade/cost.round_trip (fee both sides, calibrated when
+    trade.db has measured swaps, + the pool impact both ways). fee_side given: that fee instead."""
+    return _cost.round_trip(usd, liq, fee_side)
 
 
 def ev(p, tp, sl, cost):
@@ -140,9 +139,6 @@ def cheap_check(m, cfg=None):
         return "nema osnovice volumena (sat prije bez trgovanja)"
     if vx < c["vol_x_min"] - 1e-9:
         return f"volumen 5 min je {vx:.1f}x prosjeka sata (treba {c['vol_x_min']:g}x)"
-    fr = _f(m.get("fee_rate"))
-    if fr is None or fr < c["fee_vol_min"] - 1e-12:
-        return "naknade / volumen ispod 0,2 % (pool bez naknade: lažni volumen je jeftin)"
     vol_h1 = _f(m.get("vol_h1")) or 0
     if liq > 0 and vol_h1 / liq > c["turnover_max"]:
         return f"promet {vol_h1 / liq:.0f}x likvidnosti u satu (granica {c['turnover_max']:g}x): volumen se vrti"

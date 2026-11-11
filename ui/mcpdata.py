@@ -233,7 +233,8 @@ def wilson_low(k, n, z=WILSON_Z):
 
 
 def _cost():
-    """The round-trip cost as a fraction of the stake (kol/tpsl.COST = 2 %: league/store.FEE 1 % a side)."""
+    """The round-trip cost as a fraction of the stake (kol/tpsl.COST = trade/cost.FEE_ROUND_TRIP: 2 x league/store.FEE,
+    the fee part of the ONE cost model the measured records are net of)."""
     try:
         from kol import tpsl
         return float(tpsl.COST) / 100
