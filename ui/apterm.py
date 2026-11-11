@@ -1452,25 +1452,14 @@ def _pos_row(p, owner, cfg, rule):
             f'<span class=apx-act>{act}</span>{edit}</div>')
 
 
-def _sl_looser(sl, floor):
-    """True when a percent stop ("-40%") is looser than the default ("-30%"); an MC level or anything unreadable: False."""
-    try:
-        a = abs(float(str(sl).strip().replace("%", "").replace(",", ".")))
-        b = abs(float(str(floor).strip().replace("%", "").replace(",", ".")))
-    except (TypeError, ValueError):
-        return False
-    return "%" in str(sl) and a > b + 1e-9
-
-
 def sl_chips(floor):
-    """The SL chips a stop may take: 11.11. (owner: "Stop nikad ne smije biti širi od sl_default"; a -40 % chip under a
-    -30 % default was only refused after the tap): the chips not looser than the default, and the default itself."""
+    """The SL chips: the usual ones and the default itself. 11.11. (owner: "ručno uvijek nadjačava ono što je zapisano
+    programski"): a chip looser than the default is the owner's own choice for that buy and is accepted."""
     try:
         f = abs(float(str(floor).replace("%", "").replace(",", ".")))
     except (TypeError, ValueError):
         return SL_CHIPS
-    out = sorted({v for v in SL_CHIPS if v <= f} | ({int(f)} if f == int(f) else set()))
-    return tuple(out) or SL_CHIPS
+    return tuple(sorted(set(SL_CHIPS) | ({int(f)} if f == int(f) else set())))
 
 
 def plan_sl0(cfg):
@@ -1627,10 +1616,6 @@ def panel_html(d, sel_pos):
                   for v in sl_chips(pn.get("sl_default") or 60))
     sol0 = pn.get("size_sol") or 0.1
     tp_last, sl_last = pn.get("tp_last") or "", pn.get("sl_last") or ""
-    # 11.11. (owner: "Stop nikad ne smije biti širi od sl_default"): a last SL looser than the default is not offered
-    # again (the buy would only be refused); empty = the default stop
-    if _sl_looser(sl_last, pn.get("sl_default")):
-        sl_last = ""
     tr_last = tm_last = ""
     # 11.11. (Jure upisao TP 60 / SL 85k ovdje za otvorenu poziciju i našao samo "Kupi 0,15 SOL"): these TP / SL are a
     # new buy's; the open position's are edited in "Tvoja pozicija" above (or the row's Uredi SL-TP)

@@ -339,6 +339,17 @@ PANEL_SRC = "panel:"
 DEFAULT_PLAN_SL = 30.0   # the stop of Grok's default plans (ensure_live_plans), as they ran before 11.11.
 
 
+# 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss nego što je zadan … ručno uvijek
+# nadjačava ono što je zapisano programski"): a stop the owner typed himself is checked against this only (a sane
+# ceiling), never against sl_default; sl_default stays the default of an empty field and the limit of Grok's stops
+OWNER_SL_MAX = 99.0
+
+
+def owner_floor(typed_sl, floor):
+    """The floor a stop is validated with: OWNER_SL_MAX when the owner typed the stop himself, else `floor`."""
+    return OWNER_SL_MAX if (typed_sl or "").strip() else floor
+
+
 def sl_floor(cfg=None):
     """Percent below the average entry a panel / live plan's stop may be at most: the owner's sl_default (trade
     settings "sl_default", the Autopilot's default stop under Pravila, SL_DEFAULT 60 unless changed; cfg = trade

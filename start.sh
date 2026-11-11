@@ -83,7 +83,11 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): right after it, the disk report (ops/diskreport.py, its own
 # low-priority process so the CPU guard may pause it; the upkeep above is protected): read-only, at the first pass after
 # a deploy and once a day from 06:30 Zagreb, never 01-06; otherwise it ends at once. One "disk izvještaj" block in the log.
-( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; low python3 -m ops.diskreport --auto || echo "disk izvještaj nije uspio"; sleep 3600; done ) &
+# 11.11. (Jure: "ništa se stvarno ne briše bez moje potvrde nakon što vidim brojke"): then the retention of live_trades
+# and the Telegram text (ops/retencija.py, low priority): the hourly aggregate of live_trades every pass, the measurement
+# ("što BI obrisao i koliko MB") at the first pass after a deploy and daily from 06:30; it deletes only behind the
+# owner switches live_trades_retention / tg_text_retention, inside 01-06 Zagreb, under the heavy-job lock.
+( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; low python3 -m ops.diskreport --auto || echo "disk izvještaj nije uspio"; low python3 -m ops.retencija --auto || echo "retencija nije uspjela"; sleep 3600; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 # 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
 # by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)

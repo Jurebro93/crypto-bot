@@ -1862,9 +1862,10 @@ def _flags_section(tcon, con, owner):
         if name in settings.DATA_FLAGS:
             bits.append('<p class=mut>Podatkovna zastavica: bilo koji mod osim „isključeno” uključuje skupljanje '
                         'ili upis; na trgovanje ne utječe.</p>')
-        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live
-            bits.append('<p class=mut>Tvoj prekidač: „uživo” ga uključuje (bez backtesta, samo prodaja); svaki drugi '
-                        'mod ostavlja sve kako je bilo.</p>')
+        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live, rug_labels_v2_ok, the data retention
+            note = settings.OWNER_SWITCH_NOTES.get(name) or ("Tvoj prekidač: „uživo” ga uključuje (bez backtesta, "
+                                                             "samo prodaja); svaki drugi mod ostavlja sve kako je bilo.")
+            bits.append(f'<p class=mut>{esc(note)}</p>')
         else:
             sh = week.get(name)
             bits.append(f'<p class=mut>Sjena, zadnjih 7 dana: '
@@ -3327,19 +3328,14 @@ def _post_limit(con, tcon, form, user):
     tmin = exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)
     if ex == "tpsl":   # checked now on the entry the order would get (price scaled to the level), so a typo shows here
         px = price * lvl / mcap if price and mcap else None
-        floor = exitplan.sl_floor(cfg)
         tp_px, _ = auto.parse_level(tp, px or 1.0, lvl, "tp")
         sl_px, _ = auto.parse_level(sl or _sl0(cfg), px or 1.0, lvl, "sl")
         if tp_px is not None and px and tp_px <= px:
             raise ValueError(f"TP mora biti iznad ulaza na MC ${lvl:,.0f}")
         if sl_px is not None and px and sl_px >= px:
             raise ValueError(f"SL mora biti ispod ulaza na MC ${lvl:,.0f}")
-        lv = exitplan.level_of(sl, "sl")   # the owner's rule: never looser than the default (from the order's entry)
-        pct = (lv[1] if lv[0] == "pct" else (lv[1] / lvl - 1) * 100) if lv else None
-        if pct is not None and pct < -floor - 1e-9:
-            words = exitplan.pct_words(pct) if lv[0] == "pct" else (f"MC {exitplan.mc_words(lv[1])} "
-                                                                     f"({exitplan.pct_words(round(pct, 1))} od ulaza)")
-            raise ValueError(f"SL {words} je širi od zadanog −{floor:g} %; najviše −{floor:g} %")
+        # 11.11. (owner: "ručno uvijek nadjačava ono što je zapisano programski"): a stop typed on the order is the
+        # owner's for that buy, whatever the default; an empty one takes the default when the order buys (_post_buy)
     elif ex not in ("smart", "manual"):
         raise ValueError("nepoznat način izlaza")
     if ex != "tpsl" and (trail or tmin):
@@ -5150,8 +5146,10 @@ def _post_exit(con, tcon, form):
     # TP / SL are the position's panel plan (live on the real account under exit_plan_live), its trailing and time
     # stop kept; a stop looser than the default is refused before anything is written; empty SL = the plan's default
     from league import exitplan
-    floor = exitplan.sl_floor(cfg)
-    sl = (form.get("sl") or "").strip() or f"-{floor:g}%"
+    # 11.11. (owner: "ručno uvijek nadjačava ono što je zapisano programski"): a typed SL is the owner's, only an empty
+    # one takes the default
+    floor = exitplan.owner_floor(form.get("sl"), exitplan.sl_floor(cfg))
+    sl = (form.get("sl") or "").strip() or f"-{exitplan.sl_floor(cfg):g}%"
     plan = _edit_plan(con, tok, tp, sl, floor)
     rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, cfg)
     print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({n} ulaza)", flush=True)
@@ -5214,6 +5212,14 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, token=token, add=True, manual=True)
     except Exception:  # noqa: BLE001 - the RPC for the balance did not answer
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
+
+
+def _sl_looser_pct(sl, floor):
+    """True when a percent stop ("-40%") is looser than -floor %; an MC level or anything unreadable: False."""
+    try:
+        return "%" in str(sl) and abs(float(str(sl).strip().replace("%", "").replace(",", "."))) > float(floor) + 1e-9
+    except (TypeError, ValueError):
+        return False
 
 
 def _grok_srcs():
@@ -5466,6 +5472,14 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
     if ex != "tpsl" and (trail or tmin):
         raise ValueError("trailing i time stop idu uz izlaz „moj TP/SL”")
     floor = exitplan.sl_floor(cfg)
+    if _is_grok(src) and sl and _sl_looser_pct(sl, floor):
+        # 11.11.: Grok's buy takes the owner's last exit; a stop looser than the default is the program's, not the
+        # owner's choice for this buy: the default instead (never a refusal of Grok's buy for it)
+        print(f"pravi trade: Grokova kupnja {token[:6]}: SL {sl} širi od zadanog −{floor:g} %, uzet zadani", flush=True)
+        sl = ""
+    # 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss nego što je zadan, onda znači da to
+    # želim napraviti samo za tu kupovinu. I tada ručno uvijek nadjačava ono što je zapisano programski"): below, a
+    # typed SL of the owner's own buy is checked against OWNER_SL_MAX only
     fields = {"tp": tp, "sl": sl, "trail": trail, "time": tmin}
     has_exit = ex == "tpsl" and bool(tp or sl or trail or tmin or plan)
     if ex == "tpsl":
@@ -5479,6 +5493,14 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
             raise ValueError("TP mora biti iznad ulaznog MC-a")
     elif ex != "smart":
         raise ValueError("nepoznat način izlaza")
+    # the floor stops are validated with (vfloor): the default's for Grok and for a new plan with an empty SL (filled
+    # with the default above); the owner's own typed SL, or his panel plan a DCA without exit fields keeps, only for
+    # sanity (exitplan.OWNER_SL_MAX: "ručno uvijek nadjačava ono što je zapisano programski")
+    vfloor = floor
+    if not _is_grok(src):
+        act = exitplan.active(con, token)
+        if fields["sl"] or (act and exitplan.is_panel(act) and not any(fields.values())):
+            vfloor = exitplan.OWNER_SL_MAX
     lim = cfg["max_sol_per_trade"]
     if sol > lim:
         raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
@@ -5506,7 +5528,7 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
     # 11.11.: the exit plan of this buy, checked on the position as it will be (this lot included), before any write
     plan_new, plan_keep, was_live = (None, None, False)
     if ex == "tpsl":
-        plan_new, plan_keep, was_live = _buy_plan(con, token, pa, src, plan, fields, has_exit, price, liq, mcap, floor)
+        plan_new, plan_keep, was_live = _buy_plan(con, token, pa, src, plan, fields, has_exit, price, liq, mcap, vfloor)
     if prev is not None and not plan_new:
         # the position's own exit first (new exit fields: the new rule for every lot, _group_exit below)
         if pa and pa.get("mode") == "smart":
@@ -5540,7 +5562,7 @@ def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
             _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), cfg)
         except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
             print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
-    note = _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, floor, cfg, plan_client)
+    note = _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, vfloor, cfg, plan_client)
     if chart:
         print(f"pravi trade: kupnja {sym or token[:6]} ({token}) uz potvrđenu razliku od grafa {chart}", flush=True)
     if prev is not None:
