@@ -713,6 +713,7 @@ OWNER_FLAG_ORDERS = (
     ("event_tokens", "shadow", "vlasnik u chatu 11.11.: event tokeni s Grokom, prvo shadow"),
     ("range_market", "paper", "vlasnik u chatu 11.11.: range watchlist cijelog tržišta, prvo paper (samo demo račun)"),
     ("proposals", "paper", "vlasnik u chatu 11.11.: Prijedlozi svih strategija, prvo paper (demo račun; pravi samo na tvoj dodir)"),
+    ("fast_path", "shadow", "vlasnik u chatu 11.11.: faza 1 fast_check, prvo shadow (mjeri odluke i latenciju)"),
     ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
 )
 

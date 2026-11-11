@@ -29,6 +29,9 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
   prijedlozi   proposals (11.11., proposals/report.py): per strategy the day's proposals, bought, hit rate (TP before SL
            within 4 h) and the measured EV vs the expected EV (baseline), the demo account's paper proof, and in the log
            and proposals.db reports the day's biggest risers we did not propose (seen / near miss / never saw).
+  fast     fast_path (11.11., fast/report.py): the BUY decisions' measured outcome (+15 % before -10 % within 45 min)
+           and per check its rejections, how many of them did >= +20 % within 60 min (false rejects) and how many saved
+           a loss; the cost line per source in the log.
 Max drawdown: the deepest fall of the running sum of results, in percentage points, in time order.
 A promotion proposal (shadow -> paper -> live) only with n >= MIN_N outcomes and EV > 0, and only as text: the owner
 switches flags by hand on the Autopilot page (trade/settings.set_flag); nothing here changes a flag.
@@ -347,6 +350,9 @@ def build(now=None, econ=None, log=print):
                 elif name == "proposals":   # 11.11. (proposals/report.py): per strategy, the day's missed risers
                     from proposals import report as preport
                     out += preport.ev_rows(now, st["mode"], log=log)
+                elif name == "fast_path":   # 11.11. (fast/report.py): BUY outcomes, false rejects per check, cost
+                    from fast import report as freport
+                    out += freport.ev_rows(now, st["mode"], log=log)
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")

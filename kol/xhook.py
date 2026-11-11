@@ -250,6 +250,11 @@ def ingest(payload, kol_db=None, now=None, log=print, _spool=True):
                 _copy.wake()
             except Exception:  # noqa: BLE001
                 pass
+            try:   # 11.11. (Jure, flag fast_path G24): a followed influencer's call -> a fast_check (fast/enqueue)
+                from fast import enqueue as _fast
+                _fast.from_calls(calls)
+            except Exception:  # noqa: BLE001 - never fails the webhook
+                pass
         return n
     finally:
         con.close()

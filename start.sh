@@ -228,6 +228,14 @@ low keep zonewatch python3 run_zonewatch.py loop
 ( sleep 330; while true; do low python3 run_proposals.py once || echo "prijedlozi nisu uspjeli"; sleep "${PROPOSALS_EVERY_S:-150}"; done ) &
 ( sleep 1110; while true; do python3 -m ops.heavy --night run_proposals.py night || echo "prijedlozi (noć) nisu uspjeli"; sleep 3600; done ) &
 
+# 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
+# every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
+# source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and
+# woken by the webhooks), never under ops.heavy --night; low priority, paused last by the CPU guard. Free sources first
+# (DexScreener, RugCheck), Helius only when RugCheck fails, FAST_HELIUS_DAY (20000) credits a day at most. Flag off: it
+# reads the flag every 15 s and holds no thread pool. The demo trades run in run_ui (league/auto.loop).
+low keep fast python3 run_fast.py loop
+
 # 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
 # outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,
 # channels and wallets, groupdisc's night pass (skipped when its own loop above already ran), the range backtest

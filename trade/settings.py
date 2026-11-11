@@ -120,6 +120,12 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # is set). It never trades.
     "zonewatch": ("G25", "Zonski alarmi Grok Botu: ulaz cijene u zonu (dno, DCA, vrh, stop) raspona i ručno postavljenih "
                          "zona, POST na webhook u stvarnom vremenu"),
+    # 11.11. (Jure, fast/): every signal of a followed wallet / influencer gets five checks at once (rug, holders,
+    # flow, price vs the wallet's entry, source) and a decision with its number; shadow = decide and log, paper = the
+    # demo account trades BUY_PAPER and BUY_LIVE with the fast exit plan; live only past LIVE_GATES (G22, G23 reserved)
+    "fast_path": ("G24", "Brzi put: svaki signal praćenog novčanika ili influencera odmah dobije rug, holdere, tok, "
+                         "cijenu prema ulazu novčanika i zapis izvora (< 10 s); paper = demo račun kupuje, pola van na "
+                         "+15 %, trailing 8 %, stop -10 %, 45 min, izlaz kad izvor proda"),
 }
 # 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
 NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
@@ -135,6 +141,7 @@ PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of sh
 LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
               "momentum_scalp": "momentum.gate:live_refusal"}   # 11.11.: >= 50 paper trades, EV > 0, hit >= 45 %
 LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
+LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # 11.11.: >= 30 closed fast-path paper trades with EV > 0
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist", "zonewatch"})
