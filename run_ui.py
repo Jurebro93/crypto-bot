@@ -1312,7 +1312,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _apterm(self, path, qs):
-        """GET /pravi-trade/api/{first,tick,candles,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
+        """GET /pravi-trade/api/{first,tick,candles,pnl-days,portfelj,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
         (ui/apterm.py). Same access as the page (403 for anybody else); nothing here writes or trades."""
         from ui import apterm
         user = getattr(self, "user", None)
@@ -1349,6 +1349,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/pravi-trade/api/candles":
                 d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
                 body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"
+            elif path in ("/pravi-trade/api/pnl-days", "/pravi-trade/api/portfelj"):   # 11.11.: read-only, cached
+                fn = apterm.pnl_days if path.endswith("pnl-days") else apterm.portfelj
+                d = fn(user, qs.get("m", "live"), qs.get("d", "30"))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False, separators=(",", ":"))), "application/json"
             elif path.startswith("/pravi-trade/l/"):
                 body, ctype = apterm.lazy(path[len("/pravi-trade/l/"):], user, qs), "text/html"
                 if body == "":

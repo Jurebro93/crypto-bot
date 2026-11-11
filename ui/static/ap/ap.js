@@ -41,8 +41,8 @@
       if (!ts) continue;
       const a = Math.max(0, Math.floor(now - ts));
       const w = a < 60 ? a + ' s' : a < 3600 ? Math.floor(a / 60) + ' min' : Math.floor(a / 3600) + ' h';
-      el.textContent = 'ažurirano prije ' + w;
-      el.classList.toggle('old', a > 60);
+      el.textContent = (el.dataset.short && innerWidth < 480 ? 'prije ' : 'ažurirano prije ') + w;   // one row on a phone
+      el.classList.toggle('old', a > (+el.dataset.stale || 60));   // data-stale: a source with its own cadence
     }
   }
   setInterval(age, 1000);
@@ -50,9 +50,38 @@
   // ---- parts that load when they come into view (or when their tab / accordion opens) ----
   const shown = el => !el.closest('[hidden]') && !el.closest('details:not([open])');
   const inView = el => { const r = el.getBoundingClientRect(); return r.bottom > -300 && r.top < innerHeight + 300; };
+  // 11.11. (Jure: "kartice se ne otvaraju iz prvoga, kao da je lag"): a part used to load only 300 px before it came
+  // into view, so scrolling down to "Postavke i dijagnostika" made "Što kupiti" and "Koga pratimo" above it grow by
+  // hundreds of px in the moment of the tap, and the tap landed on something else. Now they load well ahead
+  // (1200 px, and all of them once the page is idle after the first paint), and a closed box with lazy content is
+  // fetched when it comes near the screen or a finger / the mouse is on its title, so it opens with its content.
   const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => {
     for (const e of es) if (e.isIntersecting) { io.unobserve(e.target); startLazy(e.target); }
-  }, { rootMargin: '300px' }) : null;
+  }, { rootMargin: '1200px' }) : null;
+  const prefetchBox = d => { if (d && !d._pf) { d._pf = 1; for (const c of $$('[data-x-src]', d)) startLazy(c); } };
+  const ioBox = 'IntersectionObserver' in window ? new IntersectionObserver(es => {
+    for (const e of es) if (e.isIntersecting) { ioBox.unobserve(e.target); prefetchBox(e.target.parentElement); }
+  }, { rootMargin: '800px' }) : null;
+  function warmBoxes() {   // closed <details> with a lazy part: near the screen, or a finger / pointer on the summary
+    for (const d of $$('details')) {
+      const s = d.querySelector(':scope>summary');
+      if (!s || s._warm || !d.querySelector('[data-x-src]')) continue;
+      s._warm = 1;
+      const pf = () => prefetchBox(d);
+      s.addEventListener('pointerenter', pf, { passive: true });
+      s.addEventListener('touchstart', pf, { passive: true });
+      s.addEventListener('focus', pf);
+      if (ioBox) ioBox.observe(s);
+    }
+  }
+  // what the user opened stays open when a block is rebuilt from the server (Uredi SL-TP, a <details>)
+  function keepOpen(el, swap) {
+    const ed = $$('.apx-edit:not([hidden])', el).map(x => x.id), dd = $$('details', el).map(d => [d.id, d.open]);
+    swap();
+    for (const id of ed) { const x = id && document.getElementById(id); if (x) x.hidden = false; }
+    const now = $$('details', el);
+    dd.forEach(([id, o], i) => { const d = id ? document.getElementById(id) : now[i]; if (d && d.open !== o) d.open = o; });
+  }
   function watch(el) { if (!el || el._w) return; el._w = 1; if (io) io.observe(el); else startLazy(el); }
   function startLazy(el) {
     if (!el || el._on) return;
@@ -146,10 +175,106 @@
     else if (OSTALO.test(h) || h) { const o = $('#apx-ostalo'); if (o) { o.open = true; for (const c of $$('[data-x-src]', o)) startLazy(c); } }
   }
 
+  // ---- colours from the site's tokens (ui/html.py :root + ap.css), so the charts are in the brand's palette ----
+  const T = {};
+  function tokens() {
+    let cs = null;
+    try { cs = getComputedStyle(document.documentElement); } catch (e) { /* very old browser */ }
+    const g = (n, d) => ((cs && cs.getPropertyValue(n)) || '').trim() || d;
+    Object.assign(T, { fg: g('--fg', '#0b1220'), mut: g('--mut', '#5b6474'), line: g('--line', '#e8ebf2'), line2: g('--line2', '#cfd5e1'),
+      acc: g('--acc', '#4f46e5'), cyan: g('--ap-cyan', '#0891b2'), up: g('--good', '#16a34a'), dn: g('--bad', '#dc2626'),
+      warn: g('--warn', '#d97706'), font: (document.body && getComputedStyle(document.body).fontFamily) || 'Inter, system-ui, sans-serif' });
+    // lines: my entry in the accent, DCA / limit orders in the logo's cyan, SL red, TP green; zones the same, translucent
+    Object.assign(LINE, { entry: T.acc, dca: T.cyan, limit: T.cyan, sl: T.dn, tp: T.up });
+    Object.assign(BAND, { bottom: rgba(T.acc, 0.08), dca: rgba(T.cyan, 0.11), top: rgba(T.warn, 0.09) });
+    return T;
+  }
+  function rgba(c, a) {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c || '');
+    if (!m) return `rgba(79,70,229,${a})`;
+    let h = m[1];
+    if (h.length === 3) h = h.split('').map(x => x + x).join('');
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fUsd = (x, sign = false) => {
+    if (x == null || !isFinite(x)) return '–';
+    const a = Math.abs(x), s = x < 0 && a >= 0.005 ? MI : sign && a >= 0.005 ? '+' : '';
+    return s + (a >= 1e6 ? fNum(a / 1e6, 2) + ' M $' : a >= 1e4 ? fNum(a / 1e3, 1) + 'k $' : fNum(a, 2) + ' $');
+  };
+  const tkey = t => (t && typeof t === 'object') ? `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}` : String(t);
+
+  // ---- the tooltip beside the cursor / finger, shared by both charts: mirrors at the chart's edges, a tap pins it,
+  //      the arrow keys move it point by point (Shift: 10), Home / End, Escape hides it ----
+  function placeTip(tip, box, x, y) {
+    tip.hidden = false;
+    const W = box.clientWidth, H = box.clientHeight, w = tip.offsetWidth, h = tip.offsetHeight, gap = 14;
+    let left = x + gap, top = y + gap;
+    if (left + w > W - 4) left = x - gap - w;
+    if (left < 4) left = Math.max(4, Math.min(W - w - 4, x - w / 2));
+    if (top + h > H - 4) top = y - gap - h;
+    if (top < 4) top = Math.max(4, Math.min(H - h - 4, 4));
+    tip.style.transform = `translate(${Math.round(left)}px,${Math.round(top)}px)`;
+  }
+  function interact(o) {   // o: box, chart, series(), n(), index(time), time(i), value(i), html(i), say(i)
+    const tip = document.createElement('div');
+    tip.className = 'apx-tip'; tip.hidden = true;
+    o.box.appendChild(tip);
+    let sr = o.box.nextElementSibling;
+    if (!sr || !sr.classList.contains('apx-sr')) { sr = document.createElement('p'); sr.className = 'apx-sr'; sr.setAttribute('aria-live', 'polite'); o.box.after(sr); }
+    const st = { k: -1, pin: false };
+    const show = (i, x, y) => { tip.innerHTML = o.html(i); placeTip(tip, o.box, x, y); };
+    const hide = () => { tip.hidden = true; };
+    const at = (p, tap) => {
+      const i = p && p.point && p.time != null ? o.index(p.time) : null;
+      if (i == null) { if (!st.pin) hide(); return; }
+      if (tap) st.pin = true;
+      st.k = i; show(i, p.point.x, p.point.y);
+    };
+    o.chart.subscribeCrosshairMove(p => at(p, false));
+    o.chart.subscribeClick(p => {   // a tap on a phone: the tooltip and the crosshair stay on that point
+      at(p, true);
+      const i = p && p.time != null ? o.index(p.time) : null;
+      if (i != null) { try { o.chart.setCrosshairPosition(o.value(i), o.time(i), o.series()); } catch (e) { /* older library */ } }
+    });
+    const on = (ev, fn) => { o.box.addEventListener(ev, fn); offs.push(() => o.box.removeEventListener(ev, fn)); };
+    const offs = [];
+    on('pointermove', e => { if (e.pointerType === 'mouse') st.pin = false; });
+    on('mouseleave', () => { if (!st.pin) hide(); });
+    const go = i => {
+      const ts = o.chart.timeScale(), r = ts.getVisibleLogicalRange();
+      if (r && (i < r.from + 0.5 || i > r.to - 0.5)) { const w = r.to - r.from; ts.setVisibleLogicalRange({ from: i - w / 2, to: i + w / 2 }); }
+      requestAnimationFrame(() => {
+        const x = ts.timeToCoordinate(o.time(i)), y = o.series().priceToCoordinate(o.value(i));
+        if (x == null || y == null) return;
+        st.pin = true; st.k = i;
+        try { o.chart.setCrosshairPosition(o.value(i), o.time(i), o.series()); } catch (e) { /* older library */ }
+        show(i, x, y);
+        sr.textContent = o.say(i);
+      });
+    };
+    on('keydown', e => {
+      const n = o.n();
+      if (!n) return;
+      let i = st.k < 0 ? n - 1 : st.k;
+      if (e.key === 'ArrowLeft') i -= e.shiftKey ? 10 : (st.k < 0 ? 0 : 1);
+      else if (e.key === 'ArrowRight') i += e.shiftKey ? 10 : (st.k < 0 ? 0 : 1);
+      else if (e.key === 'Home') i = 0;
+      else if (e.key === 'End') i = n - 1;
+      else if (e.key === 'Escape') { st.pin = false; st.k = -1; hide(); try { o.chart.clearCrosshairPosition(); } catch (x) { /* older */ } return; }
+      else return;
+      e.preventDefault();
+      go(Math.max(0, Math.min(n - 1, i)));
+    });
+    on('blur', () => { if (st.pin) { st.pin = false; hide(); try { o.chart.clearCrosshairPosition(); } catch (x) { /* older */ } } });
+    return { hide, reset: () => { st.k = -1; st.pin = false; hide(); }, destroy: () => { for (const f of offs) f(); tip.remove(); } };
+  }
+
   // ---- the chart (TradingView Lightweight Charts, self-hosted, loaded after the first paint) ----
   let lib = null, chart = null, series = null, bands = null, plines = [], lastBar = null, cUnit = null, cBusy = false;
-  const LINE = { entry: '#6d8cff', dca: '#b48cff', limit: '#b48cff', sl: '#ea3943', tp: '#16c784' };
-  const BAND = { bottom: 'rgba(109,140,255,.13)', dca: 'rgba(180,140,255,.13)', top: 'rgba(240,185,11,.10)' };
+  let cData = [], cVol = [], cIdx = new Map(), cLv = {}, cTip = null;
+  const LINE = {}, BAND = {};
   function loadLib() {
     if (lib) return lib;
     lib = new Promise((ok, no) => {
@@ -176,15 +301,21 @@
       if (!s || !this.b.length) return;
       target.useBitmapCoordinateSpace(sc => {
         const c = sc.context, w = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
+        const H = sc.mediaSize ? sc.mediaSize.height : sc.bitmapSize.height / r;
+        c.font = `600 ${Math.round(11 * r)}px ${T.font || 'system-ui,sans-serif'}`;
         for (const b of this.b) {
           const y1 = s.priceToCoordinate(b.hi), y2 = s.priceToCoordinate(b.lo);
           if (y1 == null || y2 == null) continue;
-          const top = Math.round(Math.min(y1, y2) * r), h = Math.max(1, Math.round(Math.abs(y2 - y1) * r));
-          c.fillStyle = BAND[b.kind] || 'rgba(109,140,255,.12)';
-          c.fillRect(0, top, w, h);
-          c.fillStyle = 'rgba(231,234,240,.55)';
-          c.font = `${Math.round(10 * r)}px system-ui,sans-serif`;
-          c.fillText(b.label || '', Math.round(6 * hr), top + Math.round(12 * r));
+          const t = Math.min(y1, y2), bt = Math.max(y1, y2);
+          c.fillStyle = BAND[b.kind] || BAND.bottom;
+          c.fillRect(0, Math.round(t * r), w, Math.max(1, Math.round((bt - t) * r)));
+          // the name inside the band's visible part, top left. 11.11.: never under the TradingView logo, which the
+          // library puts 10 px from the pane's bottom-left corner (35 x 19 px): a label that low starts right of it
+          const vt = Math.max(0, t), vb = Math.min(H, bt);
+          if (!b.label || vb - vt < 6) continue;
+          const y = Math.min(vt + 13, vb - 2), x = y > H - 42 ? 54 : 8;
+          c.fillStyle = T.mut || '#5b6474';
+          c.fillText(b.label, Math.round(x * hr), Math.round(y * r));
         }
       });
     }
@@ -196,22 +327,51 @@
     try { LW = await loadLib(); } catch (e) { box.innerHTML = '<p class=apx-empty>Graf se nije učitao (mreža).</p>'; return; }
     if (!chart) {
       box.innerHTML = '';
+      tokens();
       const hm = d => d.toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' });
       chart = LW.createChart(box, {
         autoSize: true,
-        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8a93a6', fontSize: 11, attributionLogo: true },
-        grid: { vertLines: { color: '#151b26' }, horzLines: { color: '#151b26' } },
-        rightPriceScale: { borderColor: '#1d2431' },
-        timeScale: { borderColor: '#1d2431', timeVisible: true, secondsVisible: false,
+        layout: { background: { type: 'solid', color: 'transparent' }, textColor: T.mut, fontSize: 12, fontFamily: T.font, attributionLogo: true },
+        grid: { vertLines: { color: T.line }, horzLines: { color: T.line } },
+        rightPriceScale: { borderColor: T.line },
+        timeScale: { borderColor: T.line, timeVisible: true, secondsVisible: false,
           tickMarkFormatter: (t, k) => { const d = new Date(t * 1000); return k < 3 ? d.toLocaleDateString('hr-HR', { day: '2-digit', month: '2-digit' }) : hm(d); } },
-        crosshair: { mode: 0 },
+        crosshair: { mode: 0, vertLine: { color: rgba(T.mut, 0.45), labelBackgroundColor: T.fg }, horzLine: { color: rgba(T.mut, 0.45), labelBackgroundColor: T.fg } },
         localization: { locale: 'hr-HR', timeFormatter: t => new Date(t * 1000).toLocaleString('hr-HR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) },
       });
-      series = chart.addCandlestickSeries({ upColor: '#16c784', downColor: '#ea3943', borderVisible: false, wickUpColor: '#16c784', wickDownColor: '#ea3943', priceLineColor: '#8a93a6' });
+      series = chart.addCandlestickSeries({ upColor: T.up, downColor: T.dn, borderVisible: false, wickUpColor: T.up, wickDownColor: T.dn, priceLineColor: T.mut });
       bands = new Bands();
       series.attachPrimitive(bands);
+      cTip = interact({ box, chart, series: () => series, n: () => cData.length, index: t => cIdx.get(tkey(t)),
+        time: i => cData[i].time, value: i => cData[i].close, html: candleTip, say: candleSay });
     }
     await loadCandles();
+  }
+  // the candle's tooltip: time, open / high / low / close (MC or price, as the switch), the candle's change, its
+  // volume when we have one, and how far its close is from my average entry, my SL and my TP
+  function candleTip(i) {
+    const b = cData[i];
+    if (!b) return '';
+    const f = cUnit === 'mc' ? fMc : fPx, ch = b.open ? (b.close / b.open - 1) * 100 : null;
+    const row = (k, v, cls) => `<div class=r><span>${k}</span><span${cls ? ' class=' + cls : ''}>${v}</span></div>`;
+    const when = new Date(b.time * 1000).toLocaleString('hr-HR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    let h = `<b>${esc(when)} · svijeća ${esc(S.tf)}${cUnit === 'mc' ? ' · MC' : ' · cijena'}</b><div class=g>` +
+      row('Otvaranje', f(b.open)) + row('Najviše', f(b.high)) + row('Najniže', f(b.low)) + row('Zatvaranje', f(b.close)) +
+      '</div>' + row('Promjena', fPct(ch, 2), tone(ch));
+    const v = cVol[i];
+    if (v != null) h += row('Volumen', v > 0 ? fMc(v) : '$0');
+    let ex = '';
+    if (cLv.entry) { const p = (b.close / cLv.entry - 1) * 100; ex += row('Od mog ulaza', fPct(p), tone(p)); }
+    if (cLv.sl) ex += row('Do SL-a', fPct((cLv.sl / b.close - 1) * 100), 'dn');
+    if (cLv.tp) ex += row('Do TP-a', fPct((cLv.tp / b.close - 1) * 100), 'up');
+    return h + (ex ? '<hr>' + ex : '');
+  }
+  function candleSay(i) {
+    const b = cData[i];
+    if (!b) return '';
+    const f = cUnit === 'mc' ? fMc : fPx;
+    return `${new Date(b.time * 1000).toLocaleString('hr-HR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}: ` +
+      `otvaranje ${f(b.open)}, najviše ${f(b.high)}, najniže ${f(b.low)}, zatvaranje ${f(b.close)}, ${fPct(b.open ? (b.close / b.open - 1) * 100 : null, 2)}`;
   }
   async function loadCandles() {
     if (!series || !S.m || cBusy) return;
@@ -226,15 +386,19 @@
       series.applyOptions({ priceFormat: { type: 'custom', minMove: c.unit === 'mc' ? 1 : 1e-12, formatter: c.unit === 'mc' ? fMc : fPx } });
       const data = c.candles || [];
       series.setData(data);
+      cData = data.slice(); cVol = (c.vol || []).slice(); cIdx = new Map(data.map((b, i) => [String(b.time), i]));
+      cLv = {};   // my lines for the tooltip: the first of each kind (live positions come first)
+      for (const l of c.lines || []) if (['entry', 'sl', 'tp'].includes(l.kind) && cLv[l.kind] == null) cLv[l.kind] = l.value;
+      if (cTip) cTip.reset();
       lastBar = data.length ? { ...data[data.length - 1] } : null;
       for (const l of plines) series.removePriceLine(l);
-      plines = (c.lines || []).map(l => series.createPriceLine({ price: l.value, color: LINE[l.kind] || '#8a93a6', lineWidth: l.kind === 'entry' ? 2 : 1, lineStyle: l.kind === 'entry' ? 0 : 2, axisLabelVisible: true, title: l.label }));
+      plines = (c.lines || []).map(l => series.createPriceLine({ price: l.value, color: LINE[l.kind] || T.mut, lineWidth: l.kind === 'entry' ? 2 : 1, lineStyle: l.kind === 'entry' ? 0 : 2, axisLabelVisible: true, title: l.label }));
       bands.set(c.zones ? c.zones.bands : []);
       const zi = $('#apx-zinfo');
       if (zi) {
         const z = c.zones;
-        zi.textContent = z ? `Zone raspona (rangedca, ${z.status || ''}) izračunate ${new Date(z.computed_ts * 1000).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })}` +
-          (data.length ? '' : '') : (data.length ? '' : 'Za ovaj token još nemamo svijeće: snimke se skupljaju dok ga bot prati.');
+        zi.textContent = z ? `Zone raspona (rangedca, ${z.status || ''}) izračunate ${new Date(z.computed_ts * 1000).toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })}`
+          : (data.length ? '' : 'Za ovaj token još nemamo svijeće: snimke se skupljaju dok ga bot prati.');
       }
       zoneSelects(c.zones_mc);
       if (S.fit) { chart.timeScale().fitContent(); S.fit = false; }
@@ -252,7 +416,10 @@
     if (t === lastBar.time) { lastBar.high = Math.max(lastBar.high, v); lastBar.low = Math.min(lastBar.low, v); lastBar.close = v; }
     else if (t > lastBar.time) lastBar = { time: t, open: lastBar.close, high: Math.max(lastBar.close, v), low: Math.min(lastBar.close, v), close: v };
     else return;
-    try { series.update({ ...lastBar }); } catch (e) { /* out of order */ }
+    try { series.update({ ...lastBar }); } catch (e) { return; /* out of order */ }
+    const n = cData.length;   // the tooltip reads the same candle the chart shows
+    if (n && cData[n - 1].time === lastBar.time) cData[n - 1] = { ...lastBar };
+    else { cData.push({ ...lastBar }); cVol.push(null); cIdx.set(String(lastBar.time), cData.length - 1); }
   }
   function zoneSelects(z) {   // DCA levels: a rangedca zone fills the level as a market cap
     const opts = ['<option value="">zona…</option>'];
@@ -261,6 +428,230 @@
       if (b.kind === 'dca') opts.push(`<option value="$${Math.round(b.lo)}">DCA zona ${fMc(b.lo)}</option>`);
     }
     for (const s of $$('[data-zone]')) { const v = s.value; s.innerHTML = opts.join(''); s.value = v; s.disabled = opts.length < 2; }
+  }
+
+  // ---- "Portfelj" (the card under the token's chart): the numbers (ukupno, slobodno, u pozicijama, danas, ukupni PnL)
+  //      and one chart: "Vrijednost" = the wallet's value over time (live) or the running sum of the demo account's
+  //      closed trades (paper), "PnL po danima" = bars of each day's closed trades (green profit, red loss) and the
+  //      line of their running sum. Uživo / Paper, SOL / $, 7 / 30 / 90 days. GET /pravi-trade/api/portfelj and
+  //      /pravi-trade/api/pnl-days, fetched after the first paint and every minute while the card is on screen ----
+  const PN = { m: 'live', u: 'sol', d: 30, v: 'val', kind: '', chart: null, s1: null, s2: null, j: null, p: null,
+    idx: new Map(), busy: false, tip: null, LW: null };
+  try {
+    PN.m = localStorage.getItem('apx.pm') === 'paper' ? 'paper' : 'live';
+    PN.u = localStorage.getItem('apx.pu') === 'usd' ? 'usd' : 'sol';
+    PN.d = [7, 30, 90].includes(+localStorage.getItem('apx.pd')) ? +localStorage.getItem('apx.pd') : 30;
+    PN.v = localStorage.getItem('apx.pv') === 'days' ? 'days' : 'val';
+  } catch (e) { /* private mode */ }
+  function pnlSave() {
+    try { localStorage.setItem('apx.pm', PN.m); localStorage.setItem('apx.pu', PN.u); localStorage.setItem('apx.pd', PN.d); localStorage.setItem('apx.pv', PN.v); } catch (e) { /* no storage */ }
+  }
+  function pnlMark() {
+    for (const b of $$('[data-pm]')) b.classList.toggle('on', b.dataset.pm === PN.m);
+    for (const b of $$('[data-pu]')) b.classList.toggle('on', b.dataset.pu === PN.u);
+    for (const b of $$('[data-pd]')) b.classList.toggle('on', +b.dataset.pd === PN.d);
+    for (const b of $$('[data-pv]')) b.classList.toggle('on', b.dataset.pv === PN.v);
+  }
+  const pv = r => PN.u === 'usd' ? r.pnl_usd : r.pnl_sol;
+  const pcum = r => PN.u === 'usd' ? r.cum_usd : r.cum_sol;
+  const pfmt = (x, sign = true) => PN.u === 'usd' ? fUsd(x, sign) : fSol(x, 3, sign);
+  const getJ = async u => { const r = await fetch(u, { cache: 'no-store', credentials: 'same-origin' }); if (!r.ok) throw new Error(String(r.status)); return r.json(); };
+  async function pnlLoad() {
+    const box = $('#apx-pchart');
+    if (!box || PN.busy || !URLS.lwc) return;
+    PN.busy = true;
+    pnlMark();
+    try {
+      const q = `m=${PN.m}&d=${PN.d}`;
+      const [LW, p, j] = await Promise.all([loadLib(), getJ('/pravi-trade/api/portfelj?' + q),
+        PN.v === 'days' ? getJ('/pravi-trade/api/pnl-days?' + q) : Promise.resolve(null)]);
+      PN.LW = LW; PN.p = p; if (j) PN.j = j;
+      kpiDraw(); pnlDraw();
+    } catch (e) {
+      pnlChart('');
+      box.innerHTML = '<p class=apx-empty>Portfelj se nije učitao. Pokušat ću ponovno za minutu.</p>';
+    } finally { PN.busy = false; }
+  }
+  // the numbers above the chart: the same words as the server's first HTML (ui/apterm._kpi_cells)
+  function kpiDraw() {
+    const el = $('#apx-kpi'), p = PN.p;
+    if (!el || !p) return;
+    const k = p.kpi || {}, s = (x, d = 3, sg = false) => x == null ? '–' : fSol(x, d, sg), u = (x, sg = false) => x == null ? '' : fUsd(x, sg);
+    const cells = [];
+    if (p.mode === 'live') {
+      cells.push(['Ukupno', s(k.value_sol), k.value_usd != null ? '≈ ' + u(k.value_usd) : '', '']);
+      cells.push(['Slobodno', s(k.free_sol), 'SOL u walletu', '']);
+      cells.push(['U pozicijama', s(k.pos_sol), `${k.pos_n || 0} otvorenih`, '']);
+    } else {
+      cells.push(['U pozicijama', s(k.pos_sol), `${k.pos_n || 0} otvorenih · ${u(k.pos_usd)}`, '']);
+      cells.push(['Otvoreno (nerealizirano)', u(k.unreal_usd, true) || '–', 'po živoj cijeni', tone(k.unreal_usd)]);
+    }
+    cells.push(['Danas', s(k.today_sol, 4, true), (u(k.today_usd, true) + ' · zatvoreno danas').replace(/^ · /, ''), tone(k.today_sol != null ? k.today_sol : k.today_usd)]);
+    cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
+    el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
+    const a = $('#apx-port-age');
+    if (a) { a.dataset.ts = k.at || p.ts || 0; age(); }
+  }
+  // one chart in the box at a time: made anew when the view changes (its series differ)
+  function pnlChart(kind) {
+    if (PN.kind === kind && PN.chart) return;
+    if (PN.tip) { PN.tip.destroy(); PN.tip = null; }
+    if (PN.chart) { PN.chart.remove(); PN.chart = null; }
+    PN.kind = kind;
+    const box = $('#apx-pchart');
+    if (!kind || !box) return;
+    box.innerHTML = '';
+    tokens();
+    const days = kind === 'days', hm = d => d.toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' });
+    const dd = s => { const [, m, d] = s.split('-'); return `${d}.${m}.`; };
+    PN.chart = PN.LW.createChart(box, {
+      autoSize: true,
+      // the TradingView logo is off here: the attribution is the text line under the chart (as under the candles)
+      layout: { background: { type: 'solid', color: 'transparent' }, textColor: T.mut, fontSize: 12, fontFamily: T.font, attributionLogo: false },
+      grid: { vertLines: { visible: false }, horzLines: { color: T.line } },
+      rightPriceScale: { borderColor: T.line, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      timeScale: days ? { borderColor: T.line, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true, tickMarkFormatter: tm => dd(tkey(tm)) }
+        : { borderColor: T.line, fixLeftEdge: true, fixRightEdge: true, timeVisible: true, secondsVisible: false,
+          tickMarkFormatter: (t, k) => { const d = new Date(t * 1000); return k < 3 ? d.toLocaleDateString('hr-HR', { day: '2-digit', month: '2-digit' }) : hm(d); } },
+      crosshair: { mode: 0, vertLine: { color: rgba(T.mut, 0.45), labelBackgroundColor: T.fg }, horzLine: { color: rgba(T.mut, 0.45), labelBackgroundColor: T.fg } },
+      handleScroll: false, handleScale: false,   // a fixed span: the page scrolls under a finger, a tap shows the point
+      localization: { locale: 'hr-HR', timeFormatter: days ? (tm => { const [y, m, d] = tkey(tm).split('-'); return `${d}.${m}.${y}.`; })
+        : (t => new Date(t * 1000).toLocaleString('hr-HR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) },
+    });
+    if (days) {
+      PN.s1 = PN.chart.addHistogramSeries({ base: 0, priceLineVisible: false, lastValueVisible: false });
+      PN.s2 = PN.chart.addLineSeries({ color: T.acc, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4 });
+      PN.tip = interact({ box, chart: PN.chart, series: () => PN.s2, n: () => (PN.j ? PN.j.rows.length : 0),
+        index: tm => PN.idx.get(tkey(tm)), time: i => PN.j.rows[i].day, value: i => pcum(PN.j.rows[i]) || 0, html: pnlTip, say: pnlSay });
+    } else {
+      PN.s1 = PN.chart.addAreaSeries({ lineColor: T.acc, lineWidth: 2, topColor: rgba(T.acc, 0.16), bottomColor: rgba(T.acc, 0.01),
+        priceLineVisible: false, lastValueVisible: true, crosshairMarkerRadius: 4 });
+      PN.s2 = null;
+      PN.tip = interact({ box, chart: PN.chart, series: () => PN.s1, n: () => valRows().length,
+        index: tm => PN.idx.get(tkey(tm)), time: i => valRows()[i].t, value: i => valOf(valRows()[i]) || 0, html: valTip, say: valSay });
+    }
+  }
+  const valRows = () => ((PN.p && PN.p.series) || []).filter(r => valOf(r) != null);
+  const valOf = r => PN.u === 'usd' ? r.u : r.v;
+  function pnlDraw() {
+    if (!PN.LW) return;
+    pnlMark();
+    if (PN.v === 'days') daysDraw(); else valDraw();
+  }
+  function pnlEmpty(msg) {
+    pnlChart('');
+    const box = $('#apx-pchart');
+    if (box) box.innerHTML = `<p class=apx-empty>${esc(msg)}</p>`;
+  }
+  function valDraw() {
+    const p = PN.p, sum = $('#apx-psum'), note = $('#apx-pnote');
+    if (!p) return;
+    let rows = valRows();
+    if (!rows.length && (p.series || []).length) { PN.u = PN.u === 'usd' ? 'sol' : 'usd'; pnlMark(); rows = valRows(); }   // no rate
+    const live = p.mode === 'live';
+    if (note) note.textContent = p.note || '';
+    if (sum) {
+      const a = rows[0], z = rows[rows.length - 1], ch = a && z ? valOf(z) - valOf(a) : null;
+      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d</span>` : '';
+    }
+    if (rows.length < 2) {
+      pnlEmpty(live ? 'Još nema dovoljno snimki vrijednosti walleta za graf (jedna svakih 5 min).' : `Demo račun nema zatvorenih tradeova u zadnjih ${p.days} dana.`);
+      return;
+    }
+    pnlChart('val');
+    const usd = PN.u === 'usd';
+    PN.s1.applyOptions({ priceFormat: { type: 'custom', minMove: usd ? 0.01 : 0.0001, formatter: x => usd ? fUsd(x) : fNum(x, Math.abs(x) >= 10 ? 1 : 3) } });
+    PN.idx = new Map(rows.map((r, i) => [String(r.t), i]));
+    PN.s1.setData(rows.map(r => ({ time: r.t, value: valOf(r) })));
+    // deposits and withdrawals on the live line (a marker, not a profit)
+    try {
+      PN.s1.setMarkers(live ? rows.filter(r => r.flow).map(r => ({ time: r.t, position: 'belowBar', color: T.acc, shape: r.flow > 0 ? 'arrowUp' : 'arrowDown',
+        text: r.t === rows[0].t ? '' : r.flow > 0 ? 'uplata' : 'isplata' })) : []);   // the first point's word would be cut at the edge
+    } catch (e) { /* older library */ }
+    PN.tip.reset();
+    PN.chart.timeScale().fitContent();
+  }
+  // a point of the value line: time, the value in SOL and $, PnL against the money put in, change since the span's
+  // first point; paper: the running sum and the trade that closed there
+  function valTip(i) {
+    const rows = valRows(), r = rows[i], p = PN.p;
+    if (!r) return '';
+    const row = (k, v, cls) => `<div class=r><span>${k}</span><span${cls ? ' class=' + cls : ''}>${v}</span></div>`;
+    const when = new Date(r.t * 1000).toLocaleString('hr-HR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const ch = valOf(r) - valOf(rows[0]);
+    let h = `<b>${esc(when)}</b>`;
+    if (p.mode === 'live') {
+      h += row('Vrijednost', fSol(r.v, 3)) + (r.u != null ? row('u $', fUsd(r.u)) : '') +
+        row('PnL prema uplatama', fSol(r.pnl, 3, true), tone(r.pnl)) + (r.flow ? row(r.flow > 0 ? 'Uplata' : 'Isplata', fSol(Math.abs(r.flow), 3)) : '');
+    } else {
+      h += row('Zbroj zatvorenih', pfmt(valOf(r)), tone(valOf(r))) + row('Zatvoren', `${esc(r.sym)} ${fPct(r.pct)}`, tone(r.pct)) +
+        row('PnL tradea', fUsd(r.pnl, true), tone(r.pnl));
+    }
+    return h + '<hr>' + row(`Od ${new Date(rows[0].t * 1000).toLocaleDateString('hr-HR', { day: '2-digit', month: '2-digit' })}`, pfmt(ch), tone(ch));
+  }
+  function valSay(i) {
+    const r = valRows()[i];
+    return r ? `${new Date(r.t * 1000).toLocaleString('hr-HR')}: ${pfmt(valOf(r), false)}` : '';
+  }
+  function daysDraw() {
+    const j = PN.j, sum = $('#apx-psum'), note = $('#apx-pnote');
+    if (!j) { pnlLoad(); return; }
+    const t = j.total || {};
+    let noRate = false;
+    if (t.n && (PN.u === 'usd' ? t.pnl_usd : t.pnl_sol) == null) { PN.u = PN.u === 'usd' ? 'sol' : 'usd'; noRate = true; pnlMark(); }   // no SOL rate
+    const tot = PN.u === 'usd' ? t.pnl_usd : t.pnl_sol, who = j.mode === 'live' ? 'uživo' : 'paper';
+    if (sum) {
+      sum.innerHTML = t.n ? `<span><b class=${tone(tot)}>${pfmt(tot)}</b>${j.days} d ${who}</span>` +
+        `<span><b>${t.n}</b>zatvorenih</span><span><b>${t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate</span>` +
+        `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu</span>` +
+        (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade</span>` : '') +
+        (noRate ? '<span>tečaj SOL-a nije poznat: prikaz u drugoj jedinici</span>' : '') : '';
+    }
+    if (note) note.textContent = j.note || '';
+    if (!t.n) { pnlEmpty(`Nema zatvorenih tradeova (${who}) u zadnjih ${j.days} dana.`); return; }
+    pnlChart('days');
+    const usd = PN.u === 'usd';
+    const pf = { type: 'custom', minMove: usd ? 0.01 : 0.0001, formatter: x => usd ? fUsd(x) : fNum(x, Math.abs(x) >= 10 ? 1 : 3) };
+    PN.s1.applyOptions({ priceFormat: pf });
+    PN.s2.applyOptions({ priceFormat: pf, color: T.acc });
+    PN.idx = new Map(j.rows.map((r, i) => [r.day, i]));
+    PN.s1.setData(j.rows.map(r => {
+      const v = pv(r);
+      return r.n && v != null ? { time: r.day, value: v, color: v > 0 ? T.up : v < 0 ? T.dn : T.mut } : { time: r.day };
+    }));
+    PN.s2.setData(j.rows.map(r => ({ time: r.day, value: pcum(r) || 0 })));
+    PN.tip.reset();
+    PN.chart.timeScale().fitContent();
+  }
+  function pnlDay(r) {
+    const [y, m, d] = r.day.split('-');
+    return new Date(+y, +m - 1, +d).toLocaleDateString('hr-HR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+  // the day's tooltip: date, PnL in SOL and $, closed trades, win rate, best and worst trade, fees (when known)
+  function pnlTip(i) {
+    const r = PN.j && PN.j.rows[i];
+    if (!r) return '';
+    const row = (k, v, cls) => `<div class=r><span>${k}</span><span${cls ? ' class=' + cls : ''}>${v}</span></div>`;
+    let h = `<b>${esc(pnlDay(r))}</b>`;
+    if (!r.n) h += '<div class=w>Taj dan nije zatvoren nijedan trade.</div>';
+    else {
+      h += '<div class=g>' + row('PnL', fSol(r.pnl_sol, 4, true), tone(r.pnl_sol)) + row('PnL u $', fUsd(r.pnl_usd, true), tone(r.pnl_usd)) +
+        row('Zatvoreno', String(r.n)) + row('Win rate', `${fNum(r.win_rate, 0)}${NB}% (${r.wins}/${r.n})`) + '</div>';
+      if (r.best) h += row('Najbolji', `${esc(r.best.sym)} ${fPct(r.best.pct)}`, tone(r.best.pct));
+      if (r.worst && r.n > 1) h += row('Najgori', `${esc(r.worst.sym)} ${fPct(r.worst.pct)}`, tone(r.worst.pct));
+      if (PN.j.fees_known) h += row('Naknade', fSol(r.fees_sol, 4) + (r.fees_usd != null ? ' · ' + fUsd(r.fees_usd) : ''));
+      else h += '<div class=w>Naknada i klizanje su već u PnL-u (simulacija).</div>';
+    }
+    const c = pcum(r);
+    h += '<hr>' + row(`Zbroj od ${esc(PN.j.rows[0].day.split('-').reverse().slice(0, 2).join('.'))}.`, pfmt(c), tone(c));
+    if (r.n && r.rate_now) h += '<div class=w>$ ↔ SOL po današnjem tečaju (taj dan bez snimke walleta).</div>';
+    return h;
+  }
+  function pnlSay(i) {
+    const r = PN.j && PN.j.rows[i];
+    if (!r) return '';
+    return r.n ? `${pnlDay(r)}: ${fSol(r.pnl_sol, 4, true)}, ${fUsd(r.pnl_usd, true)}, ${r.n} zatvorenih, win rate ${fNum(r.win_rate, 0)} %`
+      : `${pnlDay(r)}: bez zatvorenih tradeova`;
   }
 
   // ---- the live tick: header, positions' MC / PnL, the last candle; a changed set of positions reloads the tables ----
@@ -348,8 +739,9 @@
       const j = await getFirst(S.m, true);
       j.urls = URLS; F = j;
       const pos = $('#pozicije'), ord = $('#nalozi');
-      if (pos && !pos.contains(document.activeElement)) pos.innerHTML = j.html.pos;
-      if (ord && !ord.contains(document.activeElement)) ord.innerHTML = j.html.ord;
+      if (pos && !pos.contains(document.activeElement)) keepOpen(pos, () => { pos.innerHTML = j.html.pos; });
+      // only the orders' table: the exit plans' kill switch under it (server-rendered, not in html.ord) stays
+      if (ord && !ord.contains(document.activeElement)) keepOpen(ord, () => { const t = $('.apx-tbl', ord); if (t) t.outerHTML = j.html.ord; else ord.insertAdjacentHTML('afterbegin', j.html.ord); });
       const np = $('#apx-npos'), no = $('#apx-nord');
       if (np) np.textContent = (j.positions || []).length;
       if (no) no.textContent = (j.orders || []).length;
@@ -510,7 +902,11 @@
       else t.hidden = !t.hidden;
       return;
     }
-    if ((b = g('[data-page]'))) { const box = $('#povijest'); if (box) loadBox(box, b.dataset.page); return; }
+    if ((b = g('[data-page]'))) { const box = $('#apx-hist'); if (box) loadBox(box, b.dataset.page); return; }
+    if ((b = g('[data-pm]'))) { PN.m = b.dataset.pm; pnlSave(); pnlLoad(); return; }
+    if ((b = g('[data-pd]'))) { PN.d = +b.dataset.pd; pnlSave(); pnlLoad(); return; }
+    if ((b = g('[data-pu]'))) { PN.u = b.dataset.pu; pnlSave(); pnlDraw(); return; }
+    if ((b = g('[data-pv]'))) { PN.v = b.dataset.pv; pnlSave(); pnlLoad(); return; }
     if ((b = g('[data-tf]'))) {
       S.tf = b.dataset.tf; S.fit = true;
       for (const x of $$('[data-tf]')) x.classList.toggle('on', x === b);
@@ -555,6 +951,13 @@
   scrollHash();
   window.addEventListener('hashchange', () => { S.hashDone = null; S.hashTried = null; scrollHash(); });
   const later = fn => ('requestIdleCallback' in window) ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300);
-  const go = () => { later(chartInit); setTimeout(startLive, 400); };
+  const go = () => {
+    later(chartInit); setTimeout(startLive, 400);
+    later(pnlLoad);   // "Portfelj": the numbers come with the page, its chart after the first paint
+    setInterval(() => { const c = $('#apx-port'); if (document.visibilityState === 'visible' && c && inView(c)) pnlLoad(); }, 60000);
+    // the parts under the tables, once the page is idle: loaded before the finger gets there (no jump under a tap)
+    setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el)) startLazy(el); warmBoxes(); }), 900);
+  };
+  warmBoxes();
   if (document.readyState === 'complete') go(); else addEventListener('load', go);
 })();
