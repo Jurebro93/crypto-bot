@@ -30,20 +30,9 @@ def day_bounds(now):
     return d.date().isoformat(), int(start.timestamp())
 
 
-def _void():
-    """11.11. evening (Jure: "Rug poništava i counterfactual 'pobjeda'"): tokens whose wins do not count (rugfilter/labels:
-    a rug by any label until the owner's switch rug_labels_v2_ok, then by sol_v2); empty when unreadable."""
-    try:
-        from rugfilter import labels
-        return labels.void_set()
-    except Exception:  # noqa: BLE001
-        return frozenset()
-
-
 def _summ(ps):
     meas = [p for p in ps if ((p.get("after") or {}).get("4h") or {}).get("status") == "ok"]
-    void = _void()   # 11.11.: a proposal of a rugged token is never a hit (rugfilter/labels)
-    hits = sum(1 for p in meas if p["after"]["4h"]["first"] == "tp" and p.get("token") not in void)
+    hits = sum(1 for p in meas if p["after"]["4h"]["first"] == "tp")
     rets = [p["after"]["4h"]["ret_pct"] for p in meas]
     return {"proposals": len(ps), "bought": sum(1 for p in ps if p["status"] == "kupljeno"),
             "rejected": sum(1 for p in ps if p["status"] == "odbijeno"),

@@ -12,11 +12,11 @@ Three label versions exist for a token (rugfilter/collapse, rugfilter/archive, r
 The owner switch rug_labels_v2_ok (trade/settings, G28; live = on, default off):
   off  blocking: a rug if ANY version says rug (effective()); statistics: the OLD label (for_stats())
   on   sol_v2 decides both
-A rug voids a counterfactual win in every statistic (void_set(), void_win()), by the label statistics may use (owner
-11.11.: "Statistike ... računaj sa starim oznakama. Nove oznake nemoj koristiti dok ne prođe korak 3"): the OLD label
-(usd) and the owner's own "rug" labels while the switch is off, sol_v2 once it is on:
-callers' hit rate (kol/score), the early wallets' wins and the scores' hits (events/outcomes), the fast path's source
-hit rates (fast/outcomes), the proposals' hit rate (proposals/report) and the owner's win labels (rangedca/owner).
+A rug voids ONLY the owner's counterfactual "win" labels (rangedca/owner; void_set(), void_win()), by the label
+statistics may use: the OLD one (usd) and the owner's own "rug" labels while the switch is off, sol_v2 once on.
+11.11. (owner: "Rug poništava samo counterfactual 'pobjeda' … hit rate i EV idu samo po booked rezultatu"): the
+measured statistics (callers' hit rate kol/score, events/outcomes, fast/outcomes, proposals/report) are not
+changed by the rug labels.
 """
 import os
 import sqlite3
