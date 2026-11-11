@@ -66,6 +66,38 @@ def _cg_day_file():
     return os.path.join(base, "coingecko.day")
 
 
+# 11.11. (Jure: the 3000 were gone by 02:38 UTC to the night jobs): from the UTC day's start until CG_NIGHT_END_H
+# (06:00 Zagreb, the end of the heavy night window, CLAUDE.md 01-06) the key serves at most CG_NIGHT_SHARE (40 %) of
+# the day; past it the night's calls go to the free GeckoTerminal at its pace, and the rest of the day's calls is kept
+# for the range list and the day's rounds.
+CG_NIGHT_END_H = 6
+
+
+def cg_night(now=None):
+    """True from the UTC day's start until 06:00 Zagreb (the evening hour(s) before midnight UTC are not night here:
+    they belong to the previous paid day)."""
+    now = time.time() if now is None else now
+    try:
+        import datetime as _dt
+        from zoneinfo import ZoneInfo
+        z = _dt.datetime.fromtimestamp(now, ZoneInfo("Europe/Zagreb"))
+    except Exception:  # noqa: BLE001 - no tz data: no night cap
+        return False
+    return z.hour < CG_NIGHT_END_H and time.gmtime(now).tm_hour < 12
+
+
+def cg_night_cap(cap=None):
+    """The calls the key may serve before 06:00 Zagreb: CG_NIGHT_SHARE (0.4) of the day's budget."""
+    cap = cap if cap is not None else int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+    return int(cap * float(os.environ.get("CG_NIGHT_SHARE", "0.4")))
+
+
+def cg_limit(cap=None, now=None):
+    """The key's limit right now: the night cap at night, else the day's budget."""
+    cap = cap if cap is not None else int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+    return cg_night_cap(cap) if cg_night(now) else cap
+
+
 def cg_used(today=None):
     """(calls through the key today (UTC), the day's budget)."""
     today = today or time.strftime("%Y-%m-%d", time.gmtime())
@@ -128,13 +160,17 @@ def _cg_take(url=None):
                 n = int(n) if day == today else 0
             except ValueError:
                 n = 0
-            if n >= cap:
+            if n >= cg_limit(cap):
                 return False
             f.seek(0)
             f.truncate()
             f.write(f"{today} {n + 1}")
         if meter is not None:
             meter.record(CG_TALLY, _cg_kind(url))
+        night = cg_night()
+        if night and n + 1 == cg_night_cap(cap):
+            print(f"coingecko: noćni strop {n + 1}/{cap} ({(n + 1) / cap:.0%} dana) dosegnut u "
+                  f"{time.strftime('%H:%M', time.gmtime())} UTC: do 06:00 (Zagreb) besplatni GT, ostatak za dan", flush=True)
         if (n + 1) % 500 == 0 or n + 1 == cap:   # for the weekly cost report (CLAUDE.md: cost per source)
             by = ", ".join(f"{s} {c}" for s, c in cg_by_script()[:6])
             print(f"coingecko: {n + 1} poziva danas od {cap}" + (f" (po skripti: {by})" if by else "")
@@ -151,7 +187,7 @@ def cg_key():
     if not key:
         return ""
     used, cap = cg_used()
-    return key if used < cap else ""
+    return key if used < cg_limit(cap) else ""   # 11.11.: at night only up to the night cap (then the free API's pace)
 
 
 def _cg_route(url, headers):

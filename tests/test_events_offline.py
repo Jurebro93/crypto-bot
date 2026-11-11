@@ -609,9 +609,10 @@ class Remeasure(Env):
         self.assertEqual(row["measure_source"], "gt_minute")
         self.assertIsNotNone(row["max_1h"])
 
-    def test_cap_leaves_half_of_the_coingecko_day(self):
+    def test_cap_leaves_the_coingecko_day_beyond_the_night_share(self):
+        """11.11.: at most 40 % of the paid day at night (event_calendar/http.cg_night_cap); was half."""
         from event_calendar import http
-        with mock.patch.object(http, "cg_key", lambda: "k"), mock.patch.object(http, "cg_used", lambda today=None: (1400, 3000)), \
+        with mock.patch.object(http, "cg_key", lambda: "k"), mock.patch.object(http, "cg_used", lambda today=None: (1100, 3000)), \
                 mock.patch.dict(os.environ, {"CG_DAILY_CALLS": "3000"}):
             self.assertEqual(remeasure.cap_left(self.econ, NOW, 600), 100)
 

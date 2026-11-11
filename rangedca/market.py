@@ -386,7 +386,10 @@ def cg_day_text(con, now):
         if not http._cg_key_raw():
             return f"CoinGecko bez ključa (besplatni GT), {own}"
         used, cap = http.cg_used()
-        return f"CoinGecko ključ danas {used}/{cap}" + (" (potrošen: ostatak dana besplatni GT)" if used >= cap else "") + f", {own}"
+        lim = http.cg_limit(cap)
+        note = (" (potrošen: ostatak dana besplatni GT)" if used >= cap else
+                f" (noćni strop {lim} dosegnut: do 06:00 besplatni GT)" if used >= lim else "")
+        return f"CoinGecko ključ danas {used}/{cap}{note}, {own}"
     except Exception:  # noqa: BLE001
         return own
 

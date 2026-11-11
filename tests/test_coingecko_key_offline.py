@@ -18,9 +18,10 @@ GT = "https://api.geckoterminal.com/api/v2/networks/solana/pools/P1/ohlcv/minute
 class Route(unittest.TestCase):
     def setUp(self):
         self._env = {k: os.environ.get(k) for k in ("COINGECKO_API_KEY", "COINGECKO_DEMO", "CG_GAP", "CG_DAILY_CALLS",
-                                                    "DATA_DIR")}
+                                                    "DATA_DIR", "CG_NIGHT_SHARE")}
         for k in self._env:
             os.environ.pop(k, None)
+        os.environ["CG_NIGHT_SHARE"] = "1"   # the night cap has its own test; the others must not depend on the clock
         import tempfile
         self._tmp = tempfile.TemporaryDirectory()
         self._gate = http.GATE_DIR
@@ -111,6 +112,32 @@ class Route(unittest.TestCase):
         self.assertEqual(con.execute("SELECT method, calls FROM usage WHERE service=?", (http.CG_TALLY,)).fetchall(),
                          [("ohlcv", 3)])
         con.close()
+
+    def test_night_jobs_get_at_most_40_percent_of_the_day(self):
+        """11.11. (Jure: "3000 poziva potrošeno do 02:38 UTC noćnim poslovima -> noćni batch najviše 40 % dnevnog
+        budžeta, ostatak za range listu i dnevne runde")."""
+        import calendar
+        from unittest import mock
+        utc = lambda *a: calendar.timegm((2026, 11, 11, *a, 0, 0, 0))   # noqa: E731
+        self.assertTrue(http.cg_night(utc(1, 30)))       # 02:30 Zagreb
+        self.assertTrue(http.cg_night(utc(4, 59)))       # 05:59 Zagreb
+        self.assertFalse(http.cg_night(utc(5, 0)))       # 06:00 Zagreb: the day
+        self.assertFalse(http.cg_night(utc(23, 30)))     # 00:30 Zagreb, still the previous paid day
+        os.environ.update(COINGECKO_API_KEY="CG-test", CG_DAILY_CALLS="10", CG_NIGHT_SHARE="0.4")
+        self.assertEqual(http.cg_night_cap(), 4)
+        with mock.patch.object(http, "cg_night", lambda now=None: True):
+            self.assertEqual(http.cg_limit(), 4)
+            for _ in range(4):
+                self.assertTrue(http._cg_route(GT, None)[0].startswith("https://pro-api.coingecko.com"))
+            self.assertEqual(http._cg_route(GT, None), (GT, None))            # the night share is spent: free GT
+            self.assertEqual(http.cg_key(), "")
+            self.assertEqual(http._shared(GT)[0], "geckoterminal.com")         # ... at the free pace
+        with mock.patch.object(http, "cg_night", lambda now=None: False):
+            self.assertEqual(http.cg_key(), "CG-test")                         # the day: the other 60 %
+            for _ in range(6):
+                self.assertTrue(http._cg_route(GT, None)[0].startswith("https://pro-api.coingecko.com"))
+            self.assertEqual(http._cg_route(GT, None), (GT, None))
+        self.assertEqual(http.cg_used()[0], 10)
 
 
 if __name__ == "__main__":
