@@ -10,6 +10,15 @@
   let F = {};
   try { F = JSON.parse($('#apx-first').textContent); } catch (e) { F = {}; }
   const URLS = F.urls || {};
+  // 11.11. (Jure: "mali info button na svim stupcima"): the info buttons of the numbers written here, the words of the tables
+  // (ui/apterm.COL_HELP); .tip is the site's own tooltip (ui/html.JS: hover, tap, keyboard focus)
+  const HELP = F.help || {};
+  const tipI = (k, label) => {
+    const t = HELP[k];
+    if (!t) return '';
+    const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    return `<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: ${e(label || k)}" data-tip="${e(t)}">i</span>`;
+  };
   const S = { m: F.m || '', tf: '5m', unit: 'mc', side: 'buy', live: {}, tsig: null, fit: true };
   try { S.tf = localStorage.getItem('apx.tf') || '5m'; S.unit = localStorage.getItem('apx.unit') || 'mc'; } catch (e) { /* private mode */ }
   if (!['1m', '5m', '15m', '1h'].includes(S.tf)) S.tf = '5m';
@@ -124,7 +133,8 @@
       }
       const first = !el._filled || url;
       if (!first && window.apPatch) {
-        window.apPatch(el, h);
+        // refused (a finger on it, a field in focus): again in a moment, not a whole interval later
+        if (window.apPatch(el, h) === false) setTimeout(() => loadBox(el), 3000);
       } else {
         el.innerHTML = h || (el.dataset.empty ? '<p class=apx-empty></p>' : '');
         if (!h && el.dataset.empty) el.firstChild.textContent = el.dataset.empty;
@@ -135,11 +145,22 @@
       el.classList.remove('stale');
       after(el);
     } catch (e) {
+      // 11.11. (Jure: "Koga pratimo / Tokeni: ažurirano prije 38 min"): the badge says why it is old, and the part
+      // is asked again in 10 s instead of a whole interval later
       el.classList.add('stale');
       const a = $('.apx-age', el);
-      if (a) a.classList.add('old');
+      if (a) { a.classList.add('old'); a.title = 'Osvježavanje nije uspjelo (mreža ili poslužitelj); pokušavam ponovno.'; }
+      if (!el._retry) el._retry = setTimeout(() => { el._retry = 0; loadBox(el); }, 10000);
     } finally { el._busy = 0; }
   }
+  // back to the tab / the phone unlocked: every part already on the page is asked at once (the timers of a hidden tab
+  // are frozen; a card showed "ažurirano prije 38 min" until its next minute came round)
+  function wake() {
+    if (document.visibilityState !== 'visible') return;
+    for (const el of $$('[data-x-src]')) if (el._on && (hides(el) || (shown(el) && inView(el)))) loadBox(el);
+  }
+  document.addEventListener('visibilitychange', wake);
+  addEventListener('pageshow', e => { if (e.persisted) wake(); });
   function after(el) {
     for (const c of $$('[data-x-src]', el)) if (shown(c)) watch(c); else if (hides(c)) startLazy(c);
     if (window.apOpen) window.apOpen(el);
@@ -508,7 +529,7 @@
     cells.push(['Danas', s(k.today_sol, 4, true), (u(k.today_usd, true) + ' · zatvoreno danas').replace(/^ · /, ''), tone(k.today_sol != null ? k.today_sol : k.today_usd)]);
     if (p.mode === 'paper' && (k.n_closed || 0) < 10) cells.push(['Ukupni PnL', s(k.total_sol, 3, true), `u procjeni: ${k.n_closed || 0} zatvorenih (n < 10)`, '']);
     else cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
-    el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
+    el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}${tipI(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
     const a = $('#apx-port-age');
     if (a) { a.dataset.ts = k.at || p.ts || 0; age(); }
   }
@@ -572,7 +593,7 @@
     if (note) note.textContent = p.note || '';
     if (sum) {
       const a = rows[0], z = rows[rows.length - 1], ch = a && z ? valOf(z) - valOf(a) : null;
-      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d</span>` : '';
+      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d${tipI('promjena')}</span>` : '';
     }
     if (rows.length < 2) {
       pnlEmpty(live ? 'Još nema dovoljno snimki vrijednosti walleta za graf (jedna svakih 5 min).' : `Demo račun nema zatvorenih tradeova u zadnjih ${p.days} dana.`);
@@ -623,9 +644,9 @@
     if (sum) {
       sum.innerHTML = t.n ? `<span><b class=${tone(tot)}>${pfmt(tot)}</b>${j.days} d ${who}</span>` +
         // fewer than 10 closed trades: a win rate is no conclusion yet (11.11., Jure)
-        `<span><b>${t.n}</b>zatvorenih</span><span><b>${t.n < 10 ? 'u procjeni' : t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate${t.n < 10 ? ' (n &lt; 10)' : ''}</span>` +
-        `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu</span>` +
-        (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade</span>` : '') +
+        `<span><b>${t.n}</b>zatvorenih${tipI('zatvorenih')}</span><span><b>${t.n < 10 ? 'u procjeni' : t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate${t.n < 10 ? ' (n &lt; 10)' : ''}${tipI('win rate')}</span>` +
+        `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu${tipI('dana u plusu / minusu')}</span>` +
+        (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade${tipI('naknade')}</span>` : '') +
         (noRate ? '<span>tečaj SOL-a nije poznat: prikaz u drugoj jedinici</span>' : '') : '';
     }
     if (note) note.textContent = j.note || '';

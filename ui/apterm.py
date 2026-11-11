@@ -64,6 +64,90 @@ HIST_PAGE = 20
 # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): a hit rate / PnL / EV from fewer closed trades
 # (outcomes) than this is no conclusion: such rows wait in one closed "U procjeni" row, never in the main view
 N_MIN = 10
+# 11.11. (Jure: "na sve stupce dodati mali info button s objašnjenjem što koji stupac predstavlja"): one dictionary for
+# every table, the Portfelj numbers and PnL by day (ap.js gets it in the first JSON), so a column says the same
+# everywhere. Key = the column's label (or a label · table key where one word means two things).
+COL_HELP = {
+    "Token": "Token i oznaka: UŽIVO je pravi novac, PAPER probno bez novca. Dodir na ime prikaže token na grafu.",
+    "Veličina": "Koliko je SOL-a uloženo u poziciju (svi ulazi zajedno) i koliko je još drži nakon djelomične prodaje.",
+    "Ulaz (MC)": "Prosječni tržišni kapital (MC) pri kupnji, ponderiran uloženim SOL-om.",
+    "Sada (MC)": "Tržišni kapital tokena sada (živo).",
+    "PnL": "Dobit ili gubitak pozicije: postotak prema ulazu i procjena u SOL-u po cijeni sada (naknade dolaze pri prodaji).",
+    "SL": "Stop loss: postotak ispod ulaza i MC na kojem se pozicija prodaje da se ograniči gubitak.",
+    "TP": "Take profit: postotak iznad ulaza i MC na kojem se prodaje s dobiti (trailing ako ga plan ima).",
+    "Izvor": "Što je otvorilo poziciju: ručno, prijedlog, copy influencera ili walleta, Grok.",
+    "Vrsta": "Vrsta naloga: DCA dokup, kupnja na MC (limit), TP, SL, trailing ili prodaja u tijeku.",
+    "Razina": "MC (ili postotak od ulaza) na kojem se nalog izvršava.",
+    "Iznos": "Koliko SOL-a nalog troši pri kupnji.",
+    "Status": "Stanje naloga: čeka razinu, u tijeku, rok.",
+    "Zatvoreno": "Kada je pozicija zatvorena (zadnja prodaja).",
+    "Uloženo": "Koliko je SOL-a uloženo u poziciju.",
+    "Vraćeno": "Koliko je SOL-a vraćeno prodajom.",
+    "PnL · povijest": "Vraćeno − uloženo − mrežne naknade, u SOL-u i postotku.",
+    "Token · strategija i izvori": "Token, stanje ulaza (čeka ulaz / u zoni), strategija koja ga predlaže i izvori signala.",
+    "EV": "Očekivana zarada po tradeu nakon troška (naknade i klizanje), iz povijesti strategije; ispod je EV po minuti "
+          "držanja.",
+    "p_tp (n)": "Vjerojatnost da token dođe do TP-a prije SL-a, izmjerena na n ishoda; ispod 10 ishoda nije zaključak.",
+    "Ulaz · prijedlog": "Raspon MC-a u kojem prijedlog vrijedi za ulaz.",
+    "Istječe": "Za koliko prijedlog istječe.",
+    "Tko": "Wallet, influencer ili ekipa koju bot kopira; ispod je pravilo izlaza.",
+    "Pogodak": "Udio zatvorenih tradeova u plusu; tek od 10 zatvorenih, prije toga „u procjeni”.",
+    "n": "Koliko je tradeova praćenje otvorilo; ispod: koliko ih je zatvoreno.",
+    "PnL · praćenje": "Zbroj dobiti i gubitka zatvorenih tradeova ovog praćenja (demo račun, u $).",
+    "Zadnje": "Kad je praćenje zadnji put nešto napravilo (signal, ulaz ili preskok).",
+    "Ocjena": "Ocjena raspona 0–1: koliko pouzdano cijena živi u rasponu (dodiri dna i vrha, oporavci, volumen). Range "
+              "trguje od 0,7.",
+    "MC": "Tržišni kapital sada.",
+    "U rasponu": "Gdje je cijena u rasponu: 0 % dno, 100 % vrh. Range kupuje samo pri dnu (donja zona, ~0–15 % / bottom "
+                 "zona), a prodaje u gornjoj zoni.",
+    "Ulaz · raspon": "Može li se ući sada: „spreman” (u zoni ulaza, pravila prolaze, svježi podaci), „čeka dno (−X %)” "
+                     "koliko cijena još mora pasti do zone ulaza, „ne” kod vrha, probijanja gore (breakout) ili isključenja.",
+    "Izračunato": "Kad je raspon zadnji put izračunat; trguje se samo raspon svjež do 15 min.",
+    "Ukupno": "Vrijednost walleta: slobodni SOL + otvorene pozicije po tržišnoj cijeni (+ USDC), zadnja snimka (svakih "
+              "5 min).",
+    "Slobodno": "SOL u walletu koji nije u pozicijama.",
+    "U pozicijama": "Vrijednost otvorenih pozicija po tržišnoj cijeni.",
+    "Danas": "Rezultat pozicija zatvorenih danas (od ponoći po Zagrebu), sa svim mrežnim naknadama.",
+    "Ukupni PnL": "Vrijednost walleta minus uplate (plus isplate): koliko je ukupno zarađeno ili izgubljeno. U paperu: "
+                  "zbroj zatvorenih i otvorenih demo tradeova.",
+    "Otvoreno (nerealizirano)": "Dobit ili gubitak otvorenih demo pozicija po živoj cijeni, dok nisu prodane.",
+    "zatvorenih": "Koliko je tradeova zatvoreno u odabranom rasponu dana.",
+    "win rate": "Udio zatvorenih tradeova u plusu; s manje od 10 zatvorenih nije zaključak („u procjeni”).",
+    "dana u plusu / minusu": "Koliko je dana završilo u plusu, a koliko u minusu (dani bez tradea se ne broje).",
+    "naknade": "Mrežne naknade svih zatvorenih pozicija u rasponu (samo uživo; u paperu su već u PnL-u).",
+    "promjena": "Promjena vrijednosti walleta (uživo) ili zbroja zatvorenih tradeova (paper) od prvog dana raspona.",
+}
+
+
+def _i(key, label=None):
+    """The small info button of a column: a focusable .tip (the site's tooltip, ui/html.JS: hover, tap or keyboard focus)."""
+    text = COL_HELP.get(key)
+    if not text:
+        return ""
+    # a letter in a small CSS circle, not the ⓘ character (the page's rule since 10.11.: no emoji or symbols)
+    return (f'<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: {esc(label or key.split(" · ")[0])}" '
+            f'data-tip="{esc(text)}">i</span>')
+
+
+def _th(label, key=None, cls=""):
+    """A column's title with its info button."""
+    c = f" class={cls}" if cls else ""
+    return f'<span{c}>{label}{_i(key or label, label)}</span>'
+
+
+def _xl(tok):
+    """DexScreener and Solscan of a token, small icons opening a new tab (the site's ext_icons, two of them)."""
+    if not tok:
+        return ""
+    from ui import html as H
+    m = quote(tok)
+    out = "".join(f'<a href="{esc(mk(m))}" target=_blank rel=noopener title="Otvori na: {esc(name)}">'
+                  f'<img src="https://www.google.com/s2/favicons?domain={dom}&sz=32" alt="{esc(name)}" loading=lazy '
+                  'width=14 height=14></a>'
+                  for name, dom, mk in H.EXT_SITES if dom in ("dexscreener.com", "solscan.io"))
+    return f'<span class="xl apx-xl">{out}</span>'
+
+
 QUICK_SOL = (0.05, 0.1, 0.15)
 SELL_FRACS = ((0.25, "25 %"), (0.5, "50 %"), (1.0, "100 %"))
 TP_CHIPS = (15, 30, 50, 100)
@@ -180,7 +264,14 @@ def empty_meta(html):
     diagnostic or data card is not rendered at all (ostalo_html, card_html); a setting keeps its row."""
     m = re.search(r'<div class="ms-s">(.*?)</div>', html or "", re.S)
     meta = re.sub(r"<[^>]+>", "", m.group(1)).strip().lower() if m else ""
-    return bool(re.match(r"^(0\b|0 |nema\b|još nema|isključen|ništa|ugašen)", meta))
+    # "isključen" alone, not "isključeno 1 · …" (one follow paused by the review: data, 11.11.)
+    return bool(re.match(r"^(0\b|0 |nema\b|još nema|isključen\b|ništa|ugašen)", meta))
+
+
+def _acts(html):
+    """True when a part carries something to do (a form or a button): such a part is shown even with an empty
+    summary (11.11., Jure: "prikazuj samo ono što ima zaključak ili nešto radi")."""
+    return "<form" in (html or "") or "<button" in (html or "")
 
 
 # ---------- reads ---------------------------------------------------------------------------------------------------
@@ -1118,7 +1209,7 @@ def _kpi_cells(k, mode):
 
 
 def _kpi_html(k, mode):
-    return "".join(f'<div><span>{esc(lab)}</span><b class="{tone}">{val}</b><small>{esc(sm)}</small></div>'
+    return "".join(f'<div><span>{esc(lab)}{_i(lab)}</span><b class="{tone}">{val}</b><small>{esc(sm)}</small></div>'
                    for lab, val, sm, tone in _kpi_cells(k, mode))
 
 
@@ -1178,9 +1269,9 @@ def positions_html(d):
     owner, cfg = d["owner"], d.get("_cfg") or {}
     rows = d["positions"]
     rules = d.get("_rules") or {}
-    head = ('<div class="apx-tr apx-th" aria-hidden=true><span>Token</span><span class=n>Veličina</span>'
-            '<span class=n>Ulaz (MC)</span><span class=n>Sada (MC)</span><span class=n>PnL</span><span class=n>SL</span>'
-            '<span class=n>TP</span><span>Izvor</span></div>')
+    head = ('<div class="apx-tr apx-th">' + _th("Token") + _th("Veličina", cls="n") + _th("Ulaz (MC)", cls="n")
+            + _th("Sada (MC)", cls="n") + _th("PnL", cls="n") + _th("SL", cls="n") + _th("TP", cls="n") + _th("Izvor")
+            + '</div>')
     if not rows:
         body = ('<p class=apx-empty>Nema otvorenih pozicija. Kupi u panelu desno (na mobitelu gumb Kupi dolje) ili '
                 'zaprati nekoga pod „Koga pratimo”.</p>')
@@ -1243,8 +1334,8 @@ def orders_html(d):
     rows = d["orders"]
     if not rows:
         return '<div class=apx-tbl data-n=0><p class=apx-empty>Nema otvorenih naloga.</p></div>'
-    head = ('<div class="apx-tr apx-th apx-ord" aria-hidden=true><span>Token</span><span>Vrsta</span><span class=n>Razina</span>'
-            '<span class=n>Iznos</span><span>Status</span><span></span></div>')
+    head = ('<div class="apx-tr apx-th apx-ord">' + _th("Token") + _th("Vrsta") + _th("Razina", cls="n")
+            + _th("Iznos", cls="n") + _th("Status") + '<span></span></div>')
     out = []
     for o in sorted(rows, key=lambda o: (bool(o.get("paper")), o["kind"] not in ("dca", "limit"))):
         cls = {"tp": "up", "sl": "dn", "dca": "", "limit": "", "trail": "up", "sell": "dn"}.get(o["kind"], "")
@@ -1507,6 +1598,7 @@ def page(qs, user, full=False):
                 + '</div><div class=apx-scrim data-sheet-close></div>')
         fj = {k: v for k, v in d.items() if not k.startswith("_")}
         fj["urls"] = {"lwc": static_url(LWC_FILE), "poll_s": POLL_S}
+        fj["help"] = COL_HELP   # the info buttons of the numbers ap.js writes (Portfelj, PnL by day): the same words as the tables
         boot = json.dumps(fj, ensure_ascii=False, separators=(",", ":"), default=str).replace("</", "<\\/")
         noscript = ('<noscript><p class=apx-mut>Bez JavaScripta: <a href="/pravi-trade?sve=1">otvori sve dijelove odjednom</a>'
                     '</p></noscript>')
@@ -1605,7 +1697,8 @@ def kupiti_html(tcon, cfg, owner, now):
         # 11.11. (Jure: "prikazuj samo ono što ima zaključak"): an EV measured on fewer than N_MIN outcomes is no
         # conclusion yet: the row waits in one closed "U procjeni" row
         (rows if int(r.get("n") or 0) >= N_MIN else wait).append({"epm": ev_per_min(p), "html": (
-            f'<div class=apx-krow id=pr-{int(p["id"])}><div class=apx-kmain>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}'
+            f'<div class=apx-krow id=pr-{int(p["id"])}><div class=apx-kmain>'
+            f'<span class=apx-tline>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}{_xl(p["token"])}</span>'
             f'<span class=apx-mut>{esc(view.entry_state(p, now)["state"])} · '   # 11.11.: čeka ulaz / u zoni / ušao (paper)
             f'{esc(strategies.HR.get(p.get("strategy"), p.get("strategy") or ""))} · '
             f'{esc(", ".join(strategies.HR.get(s, s) for s in p.get("sources") or []))}</span></div>'
@@ -1636,7 +1729,8 @@ def kupiti_html(tcon, cfg, owner, now):
         # sources behind the EV; every other one (provjera u tijeku, n izvora < 10) waits in one closed row
         ok = fv.get("decision") in flive.BUY and (fv.get("ev_pct") or 0) > 0 and int(fv.get("n") or 0) >= N_MIN
         (rows if ok else rows_live).append({"epm": flive.ev_per_min(fv) if ok else None, "html": (
-            f'<div class=apx-krow><div class=apx-kmain>{_sel_btn(z["token"], sym)}<span class=apx-mut>alat (živo) · '
+            f'<div class=apx-krow><div class=apx-kmain><span class=apx-tline>{_sel_btn(z["token"], sym)}{_xl(z["token"])}</span>'
+            '<span class=apx-mut>alat (živo) · '
             f'{esc(z.get("src") or "")}{" · " + esc(why) if why else ""}</span></div>'
             f'{flive.cells_html(fv, esc, _tone)}'
             f'<span class=n data-l="MC">{mc(m.get("mcap"))}</span><span class=n data-l="5 min / 1 h">'
@@ -1652,12 +1746,13 @@ def kupiti_html(tcon, cfg, owner, now):
             _r, n_sug = assistnotes.notes(tcon, "novo", "suggestion", 1, 0)
         except Exception:  # noqa: BLE001
             n_sug = 0
-        inner = pt._safe("prijedlozi", pt._suggest_section, tcon, owner) if n_sug else ""
-        if inner:
+        inner = pt._safe("prijedlozi", pt._suggest_section, tcon, owner)
+        if inner and (n_sug or _acts(inner)):   # new ones wait, or accepted ones wait for "Primijeni"
             sug = (f'<details class=apx-sug id=prijedlozi><summary>Prijedlozi asistenta <span class=apx-cnt>{n_sug} čeka'
                    f'</span></summary><div class=ap>{inner}</div></details>')
-    head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Token · strategija i izvori</span><span class=n>EV</span>'
-            '<span class=n>p_tp (n)</span><span class=n>Ulaz</span><span class=n>Istječe</span><span></span></div>')
+    head = ('<div class="apx-krow apx-th">' + _th("Token · strategija i izvori") + _th("EV", cls="n")
+            + _th("p_tp (n)", cls="n") + _th("Ulaz", "Ulaz · prijedlog", cls="n") + _th("Istječe", cls="n")
+            + '<span></span></div>')
     waiting = (f'<details class=apx-skoro><summary>U procjeni: {_count(len(wait), "prijedlog", "prijedloga")} (n &lt; {N_MIN})'
                f'</summary>{"".join(r["html"] for r in wait)}</details>' if wait else "")
     live_rows = (f'<details class=apx-skoro><summary>Živi kandidati alata: provjera u tijeku ili n izvora &lt; {N_MIN} '
@@ -1745,8 +1840,8 @@ def pratimo_html(tcon, cfg, owner, now, prefill=""):
             return ""
         ok = [f for f in act if closed(f) >= N_MIN]
         wait = [f for f in act if closed(f) < N_MIN]
-        head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Tko</span><span class=n>Pogodak</span><span class=n>n</span>'
-                '<span class=n>PnL</span><span class=n>Zadnje</span></div>')
+        head = ('<div class="apx-krow apx-th">' + _th("Tko") + _th("Pogodak", cls="n") + _th("n", cls="n")
+                + _th("PnL", "PnL · praćenje", cls="n") + _th("Zadnje", cls="n") + '</div>')
         body = (head + "".join(frow(f) for f in ok)) if ok else ""
         if wait:
             body += (f'<details class=apx-skoro><summary>U procjeni: {_count(len(wait), one, many)} (n &lt; {N_MIN})</summary>'
@@ -1770,11 +1865,52 @@ def pratimo_html(tcon, cfg, owner, now, prefill=""):
             f'{age_badge(now, now)}</h2>{tabs}{panes}{feed}')
 
 
+def range_entry(r, x, now):
+    """11.11. (Jure: "ne znam što znači U rasponu"; poredak po prioritetu kupnje): the range's place and the entry state
+    of a token, the same state as get_range_candidates (rangedca/view.one: entry_ready, entry_now, breakout, excluded).
+    Returns {zone, zone_tone, word, why, tone, group, dist}: zone "u zoni ulaza" (at most rules.entry_bottom of the
+    range), "blizu vrha – ne kupuj" (from the top zone, range_high_low, up) or "sredina"; word "spreman" (entry_ready
+    on a fresh range), "u zoni, čeka potvrdu", "čeka dno (−X %)" (how far the price must fall to the entry zone) or
+    "ne (vrh / breakout / isključen)"; group 0 ready, 1 waiting (dist = % to fall), 2 no."""
+    from rangedca import rules, trade as rtrade, view as rview
+    pos = r.get("pos_pct")
+    z = r.get("zones") or {}
+    lo, hi, top0 = z.get("range_low_low"), z.get("range_high_top"), z.get("range_high_low")
+    bottom = rules.RULES["entry_bottom"] * 100
+    top_pct = (top0 - lo) / (hi - lo) * 100 if lo and hi and top0 and hi > lo else 85.0
+    fresh = now - (r.get("ts") or 0) <= rtrade.RANGE_FRESH_S
+    zone, ztone = (("u zoni ulaza", "up") if pos is not None and pos <= bottom else
+                   ("blizu vrha – ne kupuj", "dn") if pos is not None and pos >= top_pct else ("sredina", ""))
+    out = {"zone": zone if pos is not None else "", "zone_tone": ztone, "why": x.get("entry_now") or "", "tone": "",
+           "group": 1, "dist": 999.0}
+    if x.get("excluded_until"):
+        return {**out, "word": "ne (isključen)", "why": x.get("excluded_why") or out["why"], "group": 2}
+    if x.get("status") == rview.BREAKOUT:
+        return {**out, "word": "ne (breakout)", "group": 2}
+    if pos is not None and pos >= top_pct:
+        return {**out, "word": "ne (vrh)", "why": "cijena je u gornjoj zoni: tu range prodaje", "tone": "dn", "group": 2}
+    if x.get("entry_ready") and fresh:
+        return {**out, "word": "spreman", "tone": "up", "group": 0, "dist": 0.0}
+    if pos is None:
+        return {**out, "word": "–"}
+    if pos <= bottom:
+        return {**out, "word": "u zoni, čeka potvrdu" if fresh else "u zoni, čeka svjež izračun", "dist": 0.0}
+    if not lo or not hi:   # no zones stored with it: the place in the range only, no price distance
+        return {**out, "word": "čeka dno", "dist": 200.0 + pos - bottom}
+    price, entry = lo + pos / 100 * (hi - lo), lo + bottom / 100 * (hi - lo)
+    drop = (entry / price - 1) * 100 if price else None
+    return {**out, "word": f"čeka dno ({redak.pct(drop, 0)})" if drop is not None else "čeka dno",
+            "dist": -drop if drop is not None else 999.0}
+
+
 def _watch_tokens(now, limit=30):
-    """The rangedca watchlist as rows: status, score, MC, position in the range, source, when computed; the ones
-    that are not an active range behind "prikaži isključene". Columns only, no JSON parsed."""
+    """The rangedca watchlist ("Koga pratimo / Tokeni"): the active ranges in the order of buying priority (11.11.,
+    Jure): ready to enter first, then the nearest to the entry zone, then by score; the top zone, breakouts and
+    excluded ones last. Per row DexScreener / Solscan, score, MC, the place in the range with a word ("u zoni
+    ulaza", "sredina", "blizu vrha – ne kupuj"), the entry state ("spreman", "čeka dno (−X %)", "ne (…)") and when
+    the range was computed. "" (no tab) without an active range."""
     try:
-        from rangedca import data as rdata
+        from rangedca import data as rdata, view as rview
         con = rdata.ro()
     except Exception:  # noqa: BLE001
         con = None
@@ -1782,33 +1918,36 @@ def _watch_tokens(now, limit=30):
         return ""
     try:
         src = ", src" if rdata.has_src(con) else ", NULL"
-        rows = con.execute(f"SELECT token, symbol, status, active, score, mcap, pos_pct, ts{src} FROM ranges "
-                           "ORDER BY active DESC, score DESC, ts DESC LIMIT ?", (limit * 3,)).fetchall()
+        rows = con.execute(f"SELECT token, symbol, status, score, mcap, pos_pct, ts{src} FROM ranges WHERE active=1 "
+                           "ORDER BY score DESC, ts DESC LIMIT ?", (limit * 3,)).fetchall()
     except sqlite3.Error:
         rows = []
     finally:
         con.close()
     if not rows:
         return ""
-
-    def trow(r):
-        tok, sym, st, act, score, mcap, pos, ts, src = r
-        return (f'<div class="apx-krow{"" if act else " is-paper"}"><div class=apx-kmain>{_sel_btn(tok, sym or tok[:6])}'
-                f'<span class=apx-mut>{esc(st or "")} · {esc(src or "signal")}</span></div>'
-                f'<span class=n data-l="Ocjena">{redak.num(score, 2) if score is not None else "–"}</span>'
-                f'<span class=n data-l="MC">{mc(mcap)}</span>'
-                f'<span class=n data-l="U rasponu">{redak.pct(pos, sign=False) if pos is not None else "–"}</span>'
-                f'<span class=n data-l="Izračunato">{esc(redak.ago(ts, now))}</span></div>')
-    on = [r for r in rows if r[3]][:limit]
-    off = [r for r in rows if not r[3]][:limit]
-    head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Token</span><span class=n>Ocjena</span><span class=n>MC</span>'
-            '<span class=n>U rasponu</span><span class=n>Izračunato</span></div>')
-    if not on:   # only inactive ranges: no conclusion, no tab
-        return ""
-    body = head + "".join(trow(r) for r in on)
-    if off:
-        body += f'<details class=apx-skoro><summary>prikaži isključene ({len(off)})</summary>{"".join(trow(r) for r in off)}</details>'
-    return f'<div class=apx-tbl>{body}</div>'
+    full = rdata.read_ranges(tokens=[r[0] for r in rows])
+    items = []
+    for tok, sym, st, score, mcap, pos, ts, src in rows:
+        r = full.get(tok) or {"pos_pct": pos, "ts": ts, "score": score}
+        try:
+            x = rview.one(tok, r, now)
+        except Exception:  # noqa: BLE001 - one odd range must not cost the tab
+            x = {"entry_now": "", "status": st}
+        e = range_entry(r, x, now)
+        items.append(((e["group"], e["dist"], -(score or 0)), (
+            f'<div class="apx-krow apx-trow"><div class=apx-kmain><span class=apx-tline>{_sel_btn(tok, sym or tok[:6])}{_xl(tok)}</span>'
+            f'<span class=apx-mut>{esc(st or "")} · {esc(src or "signal")}</span></div>'
+            f'<span class=n data-l="Ocjena">{redak.num(score, 2) if score is not None else "–"}</span>'
+            f'<span class=n data-l="MC">{mc(mcap)}</span>'
+            f'<span class=n data-l="U rasponu">{redak.pct(pos, sign=False) if pos is not None else "–"}'
+            f'<small class="{e["zone_tone"]}">{esc(e["zone"])}</small></span>'
+            f'<span class="n apx-ulaz {e["tone"]}" data-l="Ulaz" title="{esc(e["why"])}">{esc(e["word"])}</span>'
+            f'<span class=n data-l="Izračunato">{esc(redak.ago(ts, now))}</span></div>')))
+    items.sort(key=lambda t: t[0])
+    head = ('<div class="apx-krow apx-trow apx-th">' + _th("Token") + _th("Ocjena", cls="n") + _th("MC", cls="n")
+            + _th("U rasponu", cls="n") + _th("Ulaz", "Ulaz · raspon", cls="n") + _th("Izračunato", cls="n") + '</div>')
+    return f'<div class=apx-tbl>{head}{"".join(h for _k, h in items[:limit])}</div>'
 
 
 def povijest_html(tcon, cfg, owner, now, page_no=1):
@@ -1847,8 +1986,8 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
                    f'<span class="n {_tone(pnl)}" data-l="PnL">{redak.sol(pnl, 4, sign=True)}<small>{_pct(pp)}</small></span>'
                    f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small></span>'
                    f'<span class=apx-act>{link}</span>{_note_html(_slim(notes.get(("p", pid))))}</div>')
-    head = ('<div class="apx-tr apx-th apx-hist" aria-hidden=true><span>Token</span><span class=n>Zatvoreno</span>'
-            '<span class=n>Uloženo</span><span class=n>Vraćeno</span><span class=n>PnL</span><span>Izvor</span><span></span></div>')
+    head = ('<div class="apx-tr apx-th apx-hist">' + _th("Token") + _th("Zatvoreno", cls="n") + _th("Uloženo", cls="n")
+            + _th("Vraćeno", cls="n") + _th("PnL", "PnL · povijest", cls="n") + _th("Izvor") + '<span></span></div>')
     body = head + "".join(out) if out else '<p class=apx-empty>Još nema zatvorenih pozicija.</p>'
     nav = ""
     if more or page_no > 1:
@@ -1899,7 +2038,7 @@ def ostalo_html(tcon, cfg, owner, now, prefill=""):
         ]
     finally:
         con.close()
-    out = "".join(h for h in settings_parts if h) + "".join(h for h in diag_parts if h and not empty_meta(h))
+    out = "".join(h for h in settings_parts if h) + "".join(h for h in diag_parts if h and (not empty_meta(h) or _acts(h)))
     out += ('<p class=apx-mut style="margin-top:14px"><a href="/pravi-trade?stari=1">Stari prikaz stranice</a> (privremeno, '
             'za usporedbu)</p>')
     return f'<div class=ap-grp>{out}</div>'

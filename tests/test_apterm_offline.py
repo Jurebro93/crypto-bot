@@ -843,6 +843,100 @@ class OnlyConclusions(HandlerMixin, Env):
         self.assertEqual(body.count("<details class=apx-acc"), 1)
 
 
+class ColumnHelpAndRanges(Candles):
+    """11.11. (Jure): an info button on every column; "Koga pratimo / Tokeni" in the order of buying priority with
+    the place in the range said in words, the entry state, DexScreener and Solscan."""
+
+    def rng(self, rc, tok, sym, score, pos, ts=None, status="aktivan", active=True, state=None):
+        from rangedca import data as rdata
+        lo, hi = 100_000 / 1e9, 200_000 / 1e9   # low 100k, top 200k (MC = price x 1e9)
+        z = {"range_low_low": lo, "range_low_top": lo * 1.1, "range_high_low": hi * 0.9, "range_high_top": hi}
+        px = lo + pos / 100 * (hi - lo)
+        rdata.save_range(rc, tok, {"ts": ts or NOW - 60, "status": status, "active": active, "score": score,
+                                   "pos_pct": pos, "zones": z, "metrics": {"price": px, "mcap": px * 1e9, "supply": 1e9}},
+                         state or {}, sym)
+
+    def test_every_column_has_its_info_button(self):
+        self.seed()
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
+        heads = re.findall(r'<div class="apx-(?:tr|krow)[^"]*apx-th[^"]*">(.*?)</div>', body)
+        self.assertGreaterEqual(len(heads), 3)                             # positions, orders, history (+ proposals…)
+        for h in heads:
+            for cell in re.findall(r"<span(?: class=n)?>(.*?)</span>(?=<span|$)", h):
+                if cell and not cell.startswith("<span"):
+                    self.assertIn('class="tip apx-i" tabindex=0 role=button', cell, cell)
+        self.assertNotIn("aria-hidden=true><span>Token", body)             # the titles are real now (focusable help)
+        for k in ("Ukupno", "Slobodno", "U pozicijama", "Danas", "Ukupni PnL"):   # the Portfelj numbers
+            self.assertIn(f'<span>{k}<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: {k}"', body)
+        self.assertEqual(json.loads(re.search(r"<script type=application/json id=apx-first>(.*?)</script>", body).group(1))
+                         ["help"]["win rate"], apterm.COL_HELP["win rate"])   # PnL by day: the same words in ap.js
+        self.assertIn("Range kupuje samo pri dnu (donja zona, ~0–15 % / bottom zona), a prodaje u gornjoj zoni.",
+                      apterm.COL_HELP["U rasponu"])
+        css = apterm.CSS
+        self.assertIn(".apx-tr.apx-th,.apx-krow.apx-th{display:flex;flex-wrap:wrap", css)   # phone: one wrapping line
+
+    def test_range_tokens_by_buying_priority_with_entry_words_and_links(self):
+        from rangedca import data as rdata
+        rc = rdata.connect(self.rdb)
+        a, b, c, d, e = ("A" * 40 + "pump", "B" * 40 + "pump", "C" * 40 + "pump", "D" * 40 + "pump", "E" * 40 + "pump")
+        self.rng(rc, a, "VRH", 0.95, 93)                 # top zone: no
+        self.rng(rc, b, "SREDINA", 0.9, 67)              # waits for the bottom, far
+        self.rng(rc, c, "BLIZU", 0.75, 30)               # waits for the bottom, near: before SREDINA despite its score
+        self.rng(rc, d, "DNO", 0.72, 10)                 # in the entry zone
+        self.rng(rc, e, "PROBOJ", 0.99, 130)             # breakout: last
+        rc.commit()
+        rc.close()
+        with mock.patch("rangedca.view.one", lambda tok, r, now, *a, **k: {
+                "entry_ready": tok == d, "entry_now": "ulaz bi prošao" if tok == d else "čeka",
+                "status": "breakout" if (r.get("pos_pct") or 0) > 100 else r.get("status")}):
+            html = apterm._watch_tokens(NOW)
+        order = [html.index(s) for s in (">DNO<", ">BLIZU<", ">SREDINA<")]
+        self.assertEqual(order, sorted(order))                             # ready, then the nearest to the bottom
+        self.assertLess(html.index(">SREDINA<"), html.index(">VRH<"))     # the top zone and breakouts last
+        self.assertLess(html.index(">SREDINA<"), html.index(">PROBOJ<"))
+        nb = " "
+        self.assertIn(f'<span class="n apx-ulaz up" data-l="Ulaz" title="ulaz bi prošao">spreman</span>', html)
+        self.assertRegex(html, rf"čeka dno \(−\d+{nb}%\)")
+        self.assertIn(">ne (vrh)<", html)
+        self.assertIn(">ne (breakout)<", html)
+        self.assertIn(f'10{nb}%<small class="up">u zoni ulaza</small>', html)
+        self.assertIn(f'67{nb}%<small class="">sredina</small>', html)
+        self.assertIn(f'93{nb}%<small class="dn">blizu vrha – ne kupuj</small>', html)
+        self.assertIn(f'href="https://dexscreener.com/solana/{d}" target=_blank rel=noopener', html)
+        self.assertIn(f'href="https://solscan.io/token/{d}" target=_blank rel=noopener', html)
+        self.assertIn('aria-label="Što znači: Ulaz"', html)
+
+    def test_live_candidates_need_kupi_ev_and_ten_sources(self):
+        def fast(dec, ev, n, state="done"):
+            return {"state": state, "decision": dec, "label": "KUPI (paper)" if dec else "provjera u tijeku",
+                    "ev_pct": ev, "ev_lo_pct": None, "ev_hi_pct": None, "p": 0.6, "n": n, "origin": "source"}
+        rows = [{"token": "L1".ljust(44, "1"), "symbol": "L1", "fast": fast("BUY_PAPER", 4.0, 12)},
+                {"token": "L2".ljust(44, "1"), "symbol": "L2", "fast": fast("BUY_PAPER", 4.0, 3)},     # n < 10
+                {"token": "L3".ljust(44, "1"), "symbol": "L3", "fast": fast("BUY_PAPER", -1.0, 30)},   # EV <= 0
+                {"token": "L4".ljust(44, "1"), "symbol": "L4", "fast": fast(None, None, 0, "pending")},
+                {"token": "L5".ljust(44, "1"), "symbol": "L5", "fast": fast("SKIP", 6.0, 30)}]          # PRESKOČI
+        from ui import zivo
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([], [], [], "paper")), \
+                mock.patch.object(zivo, "rows", lambda now: rows):
+            html = apterm.lazy("kupiti", "Jure")
+        main = html.split("<details", 1)[0]
+        self.assertIn(">L1<", main)                                        # KUPI, EV > 0, 12 sources: in the list
+        self.assertNotIn(">L5<", html)                                     # a PRESKOČI goes to "Preskočeni" (fast/live)
+        for s in ("L2", "L3", "L4"):
+            self.assertNotIn(f">{s}<", main)
+            self.assertIn(f">{s}<", html)                                  # folded, not lost
+        self.assertIn("Živi kandidati alata: provjera u tijeku ili n izvora &lt; 10 (3)", html)
+        self.assertNotIn("nije izmjeren", html)
+
+    def test_a_part_is_asked_again_when_the_tab_comes_back(self):
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        for k in ("document.addEventListener('visibilitychange', wake)", "addEventListener('pageshow'",
+                  "el._retry = setTimeout(() => { el._retry = 0; loadBox(el); }, 10000)",
+                  "Osvježavanje nije uspjelo (mreža ili poslužitelj); pokušavam ponovno.",
+                  "if (window.apPatch(el, h) === false) setTimeout(() => loadBox(el), 3000)"):
+            self.assertIn(k, js)
+
+
 class CardsOpenAtOnce(Env):
     """11.11. (Jure: "klikom na zatvorene kartice ne otvaraju se iz prvoga, kao da je lag; tako je za sve kartice")."""
 
