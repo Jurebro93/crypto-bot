@@ -295,6 +295,12 @@ def render(data, ai, source):
     if ins:
         out.append(section("Insajderi prije poziva i nova lansiranja od 10k", insajderi_body(ins)))
 
+    # 11.11.: momentum_scalp and Grok's EV gate calibration (momentum/view.lines)
+    mo = data.get("momentum")
+    if mo:
+        from momentum import view as mview
+        out.append(section("Momentum scalp i Grokova EV vrata", bullets(mview.lines(mo))))
+
     # the 1.11. entry rules and their effect
     ru = data.get("rules")
     if ru:

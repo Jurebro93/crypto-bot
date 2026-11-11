@@ -276,7 +276,21 @@ def collect(now=None):
             "market": market(now), "koltest": koltest(now), "rules": rules(now),
             "strategije": strategije(now), "spend": spend(now), "skener": skener(now)}
     data["insajderi"] = insajderi(now)   # 10.11. (flag insider_copy, kol/precall.py)
+    data["momentum"] = momentum(now)     # 11.11. (flags momentum_scalp, grok_ev_gate; momentum/)
     return data
+
+
+def momentum(now):
+    """momentum_scalp's day (signals, hit rate, EV after cost, base rate, paper proof, backtest, spend) and Grok's EV
+    gate calibration (momentum/view.report_data). None while both flags are off and nothing was ever recorded."""
+    try:
+        from momentum import view
+        d = view.report_data(now)
+        if d["flag_mode"] == "off" and not d["signals_24h"] and not (d.get("grok_calibration") or {}).get("n_requests"):
+            return None
+        return d
+    except Exception:  # noqa: BLE001 - never break the report on this section
+        return None
 
 
 def insajderi(now):

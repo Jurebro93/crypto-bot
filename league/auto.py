@@ -386,6 +386,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                     print(text, flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"range izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 11.11. (Jure, flag momentum_scalp): TP1 / trailing / stop / 45 min (momentum/trade.py)
+                from momentum import trade as mtrade
+                for text in mtrade.exits_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"momentum izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             if time.time() - beat >= FAST_BEAT_S:
                 beat = time.time()
                 n, priced = fast_once.last
@@ -506,6 +512,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"range ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag momentum_scalp): entries on fresh signals (momentum/trade.py); off: one flag read
+                from momentum import trade as mtrade
+                for user, what in mtrade.run_once(con):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"momentum ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # rekt: a player (or the bot) under $25 starts a new round with $1,000 (league/rekt.py)
                 from . import rekt
                 from ui import leaguedash

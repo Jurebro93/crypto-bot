@@ -263,6 +263,16 @@ def _range_lot(con, lg, t, cfg):
     return None, sol, True
 
 
+def _momentum_gate():
+    """11.11. (flag momentum_scalp): the live gate again before a momentum trade becomes a real swap (momentum/gate.py:
+    >= 50 closed paper trades, EV > 0, hit rate >= 45 %). An unreadable proof refuses."""
+    try:
+        from momentum import gate
+        return gate.refusal(cached=True)
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"momentum_scalp: dokaz se ne može pročitati ({type(e).__name__})"
+
+
 def _mirrored(con, league_id):
     """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
     positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
@@ -328,6 +338,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             rng_sol, rng_add = None, False
             if not why and (t["source"] or "").startswith("range lot "):   # 10.11. (Jure, flag range_dca)
                 why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
+            if not why and (t["source"] or "").startswith("momentum"):     # 11.11. (Jure, flag momentum_scalp)
+                why = _momentum_gate()
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))

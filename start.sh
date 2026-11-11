@@ -174,6 +174,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ( sleep 2100; while true; do python3 -m ops.heavy --night -m kol.precall night --credits "${INSIDERS_NIGHT_CREDITS:-3000}" || echo "insajderi (noć) nisu uspjeli"; sleep 3600; done ) &
 ( sleep 1020; while true; do low python3 -m kol.precall incr || echo "insajderi (15 min) nisu uspjeli"; sleep 900; done ) &
 
+# 11.11. (Jure, flag pre_shill G15, kol/preshill.py): wallets that buy before the paid shill network, shadow only. The
+# night pass (--night, 01-06 Zagreb; at most once in 20 h): the chain check of the big caller groups, the network's
+# tokens of 14 days, Helius for the 6 h before its first call and the candidates' sells (PRESHILL_NIGHT_CREDITS, default
+# 3000 a pass), the wallet analysis. Every 30 min a cheap pass: our databases, the newest page of the 8 best wallets
+# (PRESHILL_POLL_CREDITS a day, default 1000), signals, the network's calls as exit, results. Flag off: both end at once.
+( sleep 2400; while true; do python3 -m ops.heavy --night -m kol.preshill night --credits "${PRESHILL_NIGHT_CREDITS:-3000}" || echo "shill mreža (noć) nije uspjela"; sleep 3600; done ) &
+( sleep 1080; while true; do low python3 -m kol.preshill incr --credits "${PRESHILL_POLL_CREDITS:-1000}" || echo "shill mreža (30 min) nije uspjela"; sleep 1800; done ) &
+
 # 10.11. (Jure, Hope research, option 1): one read-only run after the deploy, ~120 Helius pages (~1.2k credits);
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it
 ( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio"; python3 -m research.hope_report || true ) &
@@ -185,6 +193,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # The backtest over the data we have, nightly (01-06 Zagreb) -> output/range-backtest-*.{json,md} and the log.
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
+
+# 11.11. (Jure, flag momentum_scalp): momentum data (momentum/, run_momentum.py), a short process every MOM_EVERY_S:
+# DexScreener minute snapshots of 60 tokens (free), PumpPortal's unique buyers (free), GeckoTerminal /pools/multi only
+# for prequalified tokens (MOM_GT_DAY 100), Helius top 10 only for a full match (MOM_HELIUS_DAY 2000 credits); the
+# signals' base rate and Grok's EV-gate calibration outcomes. Flag off: it reads the flag and ends. The backtest over
+# the last 7 days of candles, nightly (01-06 Zagreb, MOM_BT_GT 60 GeckoTerminal requests) -> output/momentum-backtest-*.
+( sleep 300; while true; do low python3 run_momentum.py once || echo "momentum nije uspio"; sleep "${MOM_EVERY_S:-60}"; done ) &
+( sleep 960; while true; do python3 -m ops.heavy --night run_momentum.py backtest || echo "momentum backtest nije uspio"; sleep 86400; done ) &
 
 # 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
 # outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,

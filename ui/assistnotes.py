@@ -605,6 +605,9 @@ OWNER_FLAG_ORDERS = (
     ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
     ("range_dca", "paper", "vlasnik u chatu 10.11.: range_dca, start = paper (samo demo račun)"),
     ("insider_copy", "shadow", "vlasnik u chatu 10.11.: insajderi prije poziva, start = shadow (paper tek na njegov zahtjev)"),
+    ("momentum_scalp", "paper", "vlasnik u chatu 11.11.: momentum_scalp, start = paper (samo demo račun)"),
+    ("grok_ev_gate", "shadow", "vlasnik u chatu 11.11.: Grokov EV gate, prvo shadow"),
+    ("pre_shill", "shadow", "vlasnik u chatu 11.11.: kupci prije shill mreže, prvo shadow (nikad ne kupuje)"),
 )
 
 
