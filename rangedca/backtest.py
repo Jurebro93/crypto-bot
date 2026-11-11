@@ -33,7 +33,7 @@ import time
 
 from trade import cost as _cost
 
-from . import data, detect, rules
+from . import data, detect, gate, rules
 
 LOT_USD = 15.0       # ~0.1 SOL, the Autopilot's size_sol
 BT_LIQ = 40_000.0    # pool depth for the impact when the history has no liquidity reading
@@ -354,6 +354,8 @@ class FlipCompare:
                "params": dict(detect.FLIP), "cost": "2 x fee_side + 2 x size / (liq / 2 + size), fee_side 1 %"}
         o, n = out["variants"]["old"], out["variants"]["new"]
         out["dd_ok"] = n["max_dd_sol"] <= o["max_dd_sol"] + 1e-9
+        # 11.11. (Jure): no conclusion below gate.FLIP_MIN_ROUNDS (30) closed rounds of BOTH rule sets
+        out["enough"] = min(o["rounds"], n["rounds"]) >= gate.FLIP_MIN_ROUNDS
         return out
 
 
@@ -364,9 +366,12 @@ def flip_line(fr):
     def s(x):
         return (f"runde {x['rounds']}, PnL {x['pnl_sol']:+.3f} SOL ({x['pnl_pct'] if x['pnl_pct'] is not None else 0:+.1f} %), "
                 f"DD {x['max_dd_sol']:.3f} SOL, lažni ulazi {x['false_entries']}")
-    return (f"range flip backtest: {d['tokens']} tokena, {d['days_total']} dana podataka ukupno (najviše "
-            f"{d['max_days']} dana po tokenu, medijan {d['median_hours']} h, {d['tokens_24h_plus']} tokena s 24 h+); "
-            f"staro: {s(v['old'])}; novo: {s(v['new'])}; samo ATR stop: {s(v['atr_only'])}; samo flip/pauza: "
+    head = (f"range flip backtest: {d['tokens']} tokena, {d['days_total']} dana podataka ukupno (najviše "
+            f"{d['max_days']} dana po tokenu, medijan {d['median_hours']} h, {d['tokens_24h_plus']} tokena s 24 h+); ")
+    if not fr.get("enough", True):   # 11.11. (Jure): below 30 rounds of both, only the count (no comparison)
+        return (head + f"premalo rundi za zaključak (staro {v['old']['rounds']}, novo {v['new']['rounds']}, treba "
+                f"{gate.FLIP_MIN_ROUNDS} za oba): usporedba čeka")
+    return (head + f"staro: {s(v['old'])}; novo: {s(v['new'])}; samo ATR stop: {s(v['atr_only'])}; samo flip/pauza: "
             f"{s(v['flip_only'])}; DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}")
 
 
@@ -387,7 +392,10 @@ def flip_md(fr):
             lines.append(f"| {name} | {h} | {k} | {x['rounds']} | {x['pnl_sol']:+.4f} | "
                          f"{x['pnl_pct'] if x['pnl_pct'] is not None else '-'} | {x['max_dd_sol']:.4f} | "
                          f"{x['false_entries']} | {x['stops']} |")
-    lines += ["", f"DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}"]
+    v = fr["variants"]
+    lines += ["", f"DD novo <= staro: {'da' if fr['dd_ok'] else 'ne'}" if fr.get("enough", True) else
+              f"Bez zaključka: premalo rundi (staro {v['old']['rounds']}, novo {v['new']['rounds']}, treba "
+              f"{gate.FLIP_MIN_ROUNDS} za oba)."]
     return "\n".join(lines) + "\n"
 
 
@@ -560,7 +568,8 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
         fr = rep.get("flip")
         if fr:   # 11.11. (range_flip G26): the old vs new numbers the live gate reads (rangedca/gate.flip_refusal)
             data.kv_put(rcon, "flip_backtest", {"ts": now, "days": days, "tokens": fr["data"]["tokens"],
-                                                "data": fr["data"], "dd_ok": fr["dd_ok"], **fr["variants"]})
+                                                "data": fr["data"], "dd_ok": fr["dd_ok"], "enough": fr["enough"],
+                                                **fr["variants"]})
             rcon.commit()
     finally:
         rcon.close()
