@@ -212,26 +212,21 @@ class StopNeverLooser(PlanBase):
         settings.put(self.con, "sl_default", 20)
         self.assertEqual(exitplan.sl_floor(), 20.0)
 
-    def test_a_looser_sl_refuses_the_buy_before_anything_is_written(self):
+    def test_the_owners_typed_sl_overrides_the_default_an_empty_one_takes_it(self):
+        # 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss nego što je zadan, onda znači da to
+        # želim napraviti samo za tu kupovinu. I tada ručno uvijek nadjačava ono što je zapisano programski")
         loc = self.buy(tp="30%", sl="-70%")
-        self.assertIn("err=", loc)
-        self.assertIn("SL −70 % je širi od zadanog −30 %; najviše −30 %", loc)
-        self.assertEqual(self.written(), ([], 0, {}))
-        loc = self.buy(tp="30%", sl="$40k")                                       # a market cap: -51 % of $82k
-        self.assertIn("SL MC $40k (−51,2 % od prosječnog ulaza) je širi od zadanog −30 %; najviše −30 %", loc)
-        self.assertEqual(self.written(), ([], 0, {}))
-        loc = self.buy(sl="-30%")                                                 # exactly the default: fine
         self.assertIn("ok=", loc)
-        settings.put(self.con, "sl_default", 20)                                  # the owner's tighter default holds
-        loc = self.buy(tp="30%", sl="-25%")
-        self.assertIn("SL −25 % je širi od zadanog −20 %; najviše −20 %", loc)
-        self.assertEqual(len(self.lots()), 1)
+        self.assertEqual(exitplan.active(self.lg, MINT)["plan"]["stop"], {"kind": "pct", "v": -70.0})
+        loc = self.buy(tp="40%", sl="")                                           # empty: the default (-30 %)
+        self.assertIn("ok=", loc)
+        self.assertEqual(exitplan.active(self.lg, MINT)["plan"]["stop"], {"kind": "pct", "v": -30.0})
 
-    def test_a_buy_order_at_a_market_cap_refuses_it_too(self):
+    def test_a_buy_order_at_a_market_cap_keeps_the_owners_stop(self):
         loc = unquote(self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "at": "$50k", "exit": "tpsl",
                                                      "tp": "30%", "sl": "-40%", "trail": "8"}))
-        self.assertIn("SL −40 % je širi od zadanog −30 %", loc)
-        self.assertEqual(settings.raw(self.con).get("buy_orders") or [], [])
+        self.assertIn("ok=", loc)                                                  # 11.11.: the owner's own stop
+        settings.put(self.con, "buy_orders", [])
         loc = unquote(self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "at": "$50k", "exit": "tpsl",
                                                      "tp": "30%", "sl": "-20%", "trail": "8", "time": "60"}))
         self.assertIn("ok=", loc)
@@ -249,8 +244,8 @@ class StopNeverLooser(PlanBase):
         before = (exitplan.active(self.lg, MINT)["id"], self.lots()[0]["auto"])
         with mock.patch("sys.stdout", io.StringIO()):
             loc = unquote(self.post("/pravi-trade/exit", {"id": str(pid), "tp": "40%", "sl": "-45%"}))
-        self.assertIn("SL −45 % je širi od zadanog −30 %; najviše −30 %", loc)
-        self.assertEqual((exitplan.active(self.lg, MINT)["id"], self.lots()[0]["auto"]), before)   # nothing changed
+        self.assertIn("ok=", loc)                                                 # 11.11.: the owner's typed stop holds
+        self.assertEqual(exitplan.active(self.lg, MINT)["plan"]["stop"], {"kind": "pct", "v": -45.0})
         out = io.StringIO()
         with mock.patch("sys.stdout", out):
             loc = unquote(self.post("/pravi-trade/exit", {"id": str(pid), "tp": "40%", "sl": "-20%"}))
@@ -260,7 +255,7 @@ class StopNeverLooser(PlanBase):
         self.assertEqual(p["plan"]["stop"], {"kind": "pct", "v": -20.0})
         self.assertEqual(p["plan"]["trailing"], {"activate_pct": 40.0, "trail_pct": 8.0})   # its trailing stays
         self.assertEqual(p["plan"]["take_profits"][0]["sell_share"], 0.5)
-        self.assertIn("plan izlaza #2 HOPE (panel, live): TP1 +40 % pola · trailing 8 % · SL −20 %", out.getvalue())
+        self.assertIn("HOPE (panel, live): TP1 +40 % pola · trailing 8 % · SL −20 %", out.getvalue())
         self.assertEqual(json.loads(self.lots()[0]["auto"])["sl_in"], "-20%")
 
 
@@ -291,14 +286,15 @@ class Dca(PlanBase):
         self.assertEqual(len(lots), 3)
         self.assertAlmostEqual(p2["state"]["stop_px"][LU], exitplan._avg(lots) * 0.8)
         self.assertEqual({json.loads(t["auto"])["tp_in"] for t in lots}, {"40%"})
-        # a looser stop on a dokup: refused, nothing written
+        # 11.11.: a dokup with the owner's own looser stop: his, a new plan for the whole position
         loc = self.buy(tp="40%", sl="-35%")
-        self.assertIn("SL −35 % je širi od zadanog −30 %", loc)
-        self.assertEqual(len(exitplan._lots(self.lg, LU, MINT)), 3)
-        self.assertEqual(exitplan.active(self.lg, MINT)["id"], p2["id"])
-        # a DCA order (no fields): the plan covers the lot
+        self.assertIn("ok=", loc)
+        self.assertEqual(len(exitplan._lots(self.lg, LU, MINT)), 4)
+        self.assertEqual(exitplan.active(self.lg, MINT)["plan"]["stop"], {"kind": "pct", "v": -35.0})
+        p3 = exitplan.active(self.lg, MINT)
+        # a DCA order (no fields): the plan covers the lot (the owner's -35 % stop kept, not refused)
         self.assertIn("pokriva i novi ulaz", self.buy())
-        self.assertEqual(exitplan.active(self.lg, MINT)["id"], p2["id"])
+        self.assertEqual(exitplan.active(self.lg, MINT)["id"], p3["id"])
 
     def test_the_owners_dokup_keeps_a_live_grok_plan_live(self):
         # a Grok autotrade position with Grok's own plan (live through grok_live while autotrade is on)
@@ -457,15 +453,15 @@ class GrokAutotrade(GrokBase):
         self.assertEqual(grokauto.limits(self.con), {"grok_max_sol_per_trade": 0.1, "grok_max_sol_per_day": 0.3,
                                                      "grok_max_open": 3, "grok_max_loss_day": 0.15})
 
-    def test_a_looser_stop_from_the_owners_last_exit_refuses_grok_before_anything_is_written(self):
+    def test_a_looser_stop_from_the_owners_last_exit_gives_grok_the_default(self):
+        # 11.11.: Grok's buy takes the owner's last exit; a stop looser than the default is the program's, so Grok's
+        # stop is the default (-30 %), never looser, and the buy is not refused for it
         self.post("/pravi-trade/grokon", {})
         settings.put(self.con, "last_exit", {"tp": "30%", "sl": "-60%"})
         with mock.patch("sys.stdout", io.StringIO()):
             code, out = self.ask(MINT, 0.1)
-        self.assertEqual(out["status"], "rejected")
-        self.assertIn("SL −60 % je širi od zadanog −30 %; najviše −30 %", out["reason"])
-        self.assertEqual(store.trades(self.lg, LU, "open"), [])
-        self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM exit_plans").fetchone()[0], 0)
+        self.assertEqual(out["status"], "executed")
+        self.assertEqual(exitplan.active(self.lg, MINT)["plan"]["stop"], {"kind": "pct", "v": -30.0})
 
 
 if __name__ == "__main__":
