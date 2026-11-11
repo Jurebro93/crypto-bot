@@ -93,8 +93,28 @@ def pace_factor(cfg=None, used=None, cap=None, end=None, now=None):
     return max(0.0, min(1.0, allowed / planned))
 
 
+def off(source, cfg=None):
+    """11.11.: why a source is switched off in hype/apify.json "ugaseno" (None = it runs). Reversible: delete the line."""
+    try:
+        return ((cfg or config()).get("ugaseno") or {}).get(source)
+    except (OSError, ValueError):
+        return None
+
+
+def status_line(cfg=None):
+    """One line for the start of the server log: which Apify sources are off and why, and which stay on and why."""
+    cfg = cfg or config()
+    off_ = cfg.get("ugaseno") or {}
+    kept = cfg.get("zadrzano") or {}
+    parts = [f"ugašeno {k}: {v}" for k, v in off_.items()] + [f"ostaje {k}: {v}" for k, v in kept.items()]
+    return "apify: " + (" | ".join(parts) if parts else "svi izvori po dnevnim budžetima (hype/apify.json)")
+
+
 def check(source):
     cfg = config()
+    why = off(source, cfg)
+    if why:
+        raise BudgetExceeded(f"{source}: ugašeno u hype/apify.json ({why[:80]})")
     budget = cfg["daily_usd"].get(source, 0)
     if spent(source) >= budget:
         raise BudgetExceeded(f"{source}: dnevni budžet ${budget} potrošen")
@@ -150,3 +170,7 @@ def run(source, actor, actor_input, cache_secs=0, max_usd=None, wait=60, max_wai
     if r["status"] != "SUCCEEDED" and not items:
         raise RuntimeError(f"{actor}: {r['status']}")
     return items
+
+
+if __name__ == "__main__":   # start.sh: python3 -m hype.apify (one line: what is off and why)
+    print(status_line(), flush=True)

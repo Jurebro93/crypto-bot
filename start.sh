@@ -35,6 +35,9 @@ if [ -n "${PORT:-}" ]; then python3 deploy_wait.py --port "$PORT" & disown; fi
 # upkeep below (they ran here on every deploy, 20+ a day, while the UI, webhooks and trade waited); only a tight disk
 # (ops/dbs.STARTUP_COMPACT_FREE_MB) still compacts offline here, the one case where nothing else works.
 python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
+# 11.11. (Jure, preporuka 3): one line in the log at every start: which Apify sources are off (hype/apify.json
+# "ugaseno") and which stay on and why ("zadrzano"); reading a small JSON, no network
+python3 -m hype.apify || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).

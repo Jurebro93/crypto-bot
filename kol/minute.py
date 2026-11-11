@@ -574,6 +574,7 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
     c = config(cfg)
     mcon = connect()
     _late = []
+    last_hour = [None]   # 11.11.: one CoinGecko line a UTC hour (event_calendar/http.cg_hour_line)
     if fetch is None and not once:   # 11.11. (Jure: a post up only a second is no call): fresh X calls re-checked
         try:                          # every 30 s in a side thread (a pass here can take 9 min), kol/deleted.py
             from kol import deleted
@@ -612,6 +613,13 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
             for a, k in _late:   # the skips' lines after the pass's own line, which stays the first
                 log(*a, **k)
             _late.clear()
+            hour = int(time.time() // 3600)
+            if fetch is None and hour != last_hour[0]:
+                last_hour[0] = hour
+                try:
+                    log(http.cg_hour_line(queue=left), flush=True)
+                except Exception as e:  # noqa: BLE001 - a status line never stops the measurements
+                    log(f"coingecko sat: {type(e).__name__}: {e}")
             if once:
                 return
             cool = cooling() if fetch is None else 0

@@ -3,6 +3,8 @@
     python3 run_usage.py report          # this cycle, burn rate, projection, warnings, top scripts
     python3 run_usage.py snap            # one reading from the provider accounts + store warnings
     python3 run_usage.py loop --every 15 # snap every N minutes (start.sh runs this on the server)
+    python3 run_usage.py dnevno          # 11.11.: the day's cost line per source (run_sched: 23:59 UTC) + usage.db
+    python3 run_usage.py dnevno --tjedan # the 7-day sums (the weekly report)
 
 Every Helius call (event_calendar/http.py, trade/wallet.py) and every Apify run (hype/apify.py) is counted
 into usage.db by usage/meter.py. The account readings need HELIUS_PROJECT_ID for Helius and APIFY_TOKEN for Apify.
@@ -55,6 +57,15 @@ def cmd_tick(a):
         print(f"usage snap: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def cmd_dnevno(a):
+    """11.11. (preporuka 8): the day's cost line per source in the log + usage.db daily_cost (run_sched at 23:59 UTC)."""
+    from usage import daily
+    if getattr(a, "tjedan", False):
+        print("\n".join(daily.week_md(daily.week())))
+        return
+    daily.run()
+
+
 def cmd_loop(a):
     while True:
         cmd_tick(a)
@@ -67,10 +78,12 @@ def main(argv=None):
     sub.add_parser("report")
     sub.add_parser("snap")
     sub.add_parser("tick")
+    dn = sub.add_parser("dnevno")
+    dn.add_argument("--tjedan", action="store_true", help="the 7-day sums instead of today's line")
     lp = sub.add_parser("loop")
     lp.add_argument("--every", type=float, default=15, help="minutes between account readings")
     a = p.parse_args(argv)
-    {"report": cmd_report, "snap": cmd_snap, "tick": cmd_tick, "loop": cmd_loop}[a.cmd](a)
+    {"report": cmd_report, "snap": cmd_snap, "tick": cmd_tick, "loop": cmd_loop, "dnevno": cmd_dnevno}[a.cmd](a)
 
 
 if __name__ == "__main__":

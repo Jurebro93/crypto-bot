@@ -57,6 +57,76 @@ def _cg_key_raw():
 # jobs that waited behind the free limit (all KOL calls, Dugoročni, trending) could use a month's calls in days.
 # CG_DAILY_CALLS (default 3000 a day, ~90k a month, under the smallest paid plan) is the day's budget for the key;
 # past it, the calls go to the free GeckoTerminal again (and its pace) until midnight UTC. Counted across processes.
+#
+# 11.11. (Jure, preporuka 1 iz analize troška: "Može sve"): the 3000 were gone by 03:38 CET every day (01:00-03:38 the
+# night book "masovno" ~60 % and the minute backlog ~27 %), so from early morning to midnight - when the market is
+# busiest - the live jobs ran on the free API with ~27 HTTP 429 an hour and the minute queue grew 59 -> 106 tokens by
+# 13:00. Now the key is spent by the hour, cumulatively over the UTC day: by the end of hour h at most
+# cap x (h + 1) / 24 (as the scanner's own caps, scan/store.allowance); unused hours roll over. The live jobs
+# (CG_PRIORITY: the minute loop, range, momentum, the scanner) may use the whole slice; every other job stops
+# CG_RESERVE of an hour's share earlier, so the last part of each slice is theirs. The night book "masovno" uses the
+# key only in the night window (01-06 Zagreb) and at most CG_MASOVNO_NIGHT (1000) calls a night; the rest of its
+# calls and all of its day calls go to the free GeckoTerminal. The day file also counts, per job, the calls that went
+# free, and the HTTP 429 per UTC hour (the daily cost line, usage/daily.py; the hourly line, kol/minute.loop).
+CG_PRIORITY = ("minute", "range", "momentum", "scan")
+_CG_JOB = [None]
+
+
+def _env_f(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+
+
+def _now():
+    return time.time()
+
+
+def cg_cap():
+    return int(_env_f("CG_DAILY_CALLS", 3000))
+
+
+def set_cg_job(name):
+    """Name this process's job for the CoinGecko budget (overrides the command line)."""
+    _CG_JOB[0] = name or None
+
+
+def _job_from_argv(argv):
+    script = os.path.basename((argv or [""])[0] or "")
+    sub = argv[1] if len(argv or []) > 1 else ""
+    if script == "run_kol.py" and sub == "minute-loop":
+        return "minute"
+    if script == "run_learn.py" and sub == "masovno":
+        return "masovno"
+    fixed = {"run_range.py": "range", "run_momentum.py": "momentum", "run_scan.py": "scan"}
+    if script in fixed:
+        return fixed[script]
+    if script.endswith(".py"):
+        script = script[:-3]
+    if script.startswith("run_"):
+        script = script[4:]
+    return script or "python"
+
+
+def cg_job():
+    """The job this process spends the CoinGecko budget for: set_cg_job(), else CG_JOB, else the command line
+    (run_kol.py minute-loop -> minute, run_learn.py masovno -> masovno, run_range.py -> range, ...)."""
+    import sys
+    return _CG_JOB[0] or os.environ.get("CG_JOB") or _job_from_argv(sys.argv)
+
+
+def zagreb_night(now=None):
+    """01:00-06:00 Europe/Zagreb (the window of the heavy night jobs, ops/heavy.NIGHT)."""
+    import datetime as _dt
+    try:
+        import zoneinfo
+        h = _dt.datetime.fromtimestamp(now or _now(), zoneinfo.ZoneInfo("Europe/Zagreb")).hour
+    except Exception:  # noqa: BLE001 - no tz data: CET
+        h = (time.gmtime(now or _now()).tm_hour + 1) % 24
+    return 1 <= h < 6
+
+
 def _cg_day_file():
     """10.11. (Jure: "postavljen je, što se ne koristi?"): the day's count lived in GATE_DIR (/tmp), which every deploy
     empties, so the budget started again from 0 after each of today's 9 deploys and the cap held nothing. It is kept
@@ -66,22 +136,48 @@ def _cg_day_file():
     return os.path.join(base, "coingecko.day")
 
 
-def cg_used(today=None):
-    """(calls through the key today (UTC), the day's budget)."""
-    today = today or time.strftime("%Y-%m-%d", time.gmtime())
-    cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+def _cg_blank(day):
+    return {"day": day, "n": 0, "jobs": {}, "free": {}, "e429": {}, "last429": 0}
+
+
+def _cg_parse(text, day):
+    """The day file -> state dict for `day` (a new day starts blank). Before 11.11. the file was "YYYY-MM-DD n"."""
+    text = (text or "").strip()
+    st = None
+    if text.startswith("{"):
+        try:
+            st = json.loads(text)
+        except ValueError:
+            st = None
+    elif text:
+        try:
+            d, n = text.split()[:2]
+            st = {"day": d, "n": int(n), "jobs": {}}
+        except ValueError:
+            st = None
+    if not isinstance(st, dict) or st.get("day") != day:
+        return _cg_blank(day)
+    out = _cg_blank(day)
+    out.update({k: v for k, v in st.items() if k in out})
+    return out
+
+
+def _day(now):
+    return time.strftime("%Y-%m-%d", time.gmtime(now))
+
+
+def _cg_read(now=None):
+    now = now or _now()
     try:
         with open(_cg_day_file()) as f:
-            day, n = f.read().split()[:2]
-        return (int(n) if day == today else 0), cap
-    except (OSError, ValueError):
-        return 0, cap
+            return _cg_parse(f.read(), _day(now))
+    except OSError:
+        return _cg_blank(_day(now))
 
 
-def _cg_take():
-    """One call from today's budget: True when the key may be used for it."""
-    today = time.strftime("%Y-%m-%d", time.gmtime())
-    cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
+def _cg_update(fn, now=None):
+    """Read-modify-write the day file under an exclusive lock: fn(state) -> result. None when the file cannot be used."""
+    now = now or _now()
     try:
         os.makedirs(os.path.dirname(_cg_day_file()), exist_ok=True)
         with open(_cg_day_file(), "a+") as f:
@@ -91,37 +187,155 @@ def _cg_take():
             except (ImportError, OSError):
                 pass
             f.seek(0)
-            try:
-                day, n = f.read().split()[:2]
-                n = int(n) if day == today else 0
-            except ValueError:
-                n = 0
-            if n >= cap:
-                return False
+            st = _cg_parse(f.read(), _day(now))
+            res = fn(st)
             f.seek(0)
             f.truncate()
-            f.write(f"{today} {n + 1}")
-            if (n + 1) % 500 == 0 or n + 1 == cap:   # for the weekly cost report (CLAUDE.md: cost per source)
-                print(f"coingecko: {n + 1} poziva danas od {cap}", flush=True)
-            return True
+            f.write(json.dumps(st, separators=(",", ":")))
+            return res
     except OSError:
+        return None
+
+
+def allowance(cap, now):
+    """Key calls the whole bot may have spent by now: cap x (UTC hours begun) / 24."""
+    return cap * min(1.0, (time.gmtime(now).tm_hour + 1) / 24)
+
+
+def cg_allow(st, job, now, cap=None, night=None):
+    """(True, "") when `job` may spend one paid call now, else (False, why). Pure: st is the day state."""
+    cap = cg_cap() if cap is None else cap
+    n = st.get("n", 0)
+    if n >= cap:
+        return False, "dnevni strop"
+    if job == "masovno":
+        night = zagreb_night(now) if night is None else night
+        if not night:
+            return False, "masovno danju ide na besplatni GeckoTerminal"
+        if (st.get("jobs") or {}).get("masovno", 0) >= int(_env_f("CG_MASOVNO_NIGHT", 1000)):
+            return False, "masovno: noćni strop ključa"
+    limit = allowance(cap, now)
+    if job not in CG_PRIORITY:
+        limit -= cap / 24 * _env_f("CG_RESERVE", 0.5)
+    if n >= limit:
+        return False, "satni dio potrošen"
+    return True, ""
+
+
+def cg_used(today=None):
+    """(calls through the key today (UTC), the day's budget)."""
+    st = _cg_read() if today is None else _cg_read_day(today)
+    return st["n"], cg_cap()
+
+
+def _cg_read_day(day):
+    try:
+        with open(_cg_day_file()) as f:
+            return _cg_parse(f.read(), day)
+    except OSError:
+        return _cg_blank(day)
+
+
+def _cg_take(now=None, job=None):
+    """One call from today's budget for this job: True when the key may be used for it."""
+    now = now or _now()
+    job = job or cg_job()
+    cap = cg_cap()
+
+    def take(st):
+        ok, _ = cg_allow(st, job, now, cap)
+        if not ok:
+            return False
+        st["n"] += 1
+        st["jobs"][job] = st["jobs"].get(job, 0) + 1
+        return st["n"]
+    n = _cg_update(take, now)
+    if n is None:   # the disk said no: the call goes through, as before
         return True
+    if n and (n % 500 == 0 or n == cap):   # for the weekly cost report (CLAUDE.md: cost per source)
+        print(f"coingecko: {n} poziva danas od {cap}", flush=True)
+    return bool(n)
+
+
+def _cg_free(job=None, now=None):
+    """A GeckoTerminal call that went to the free API although the key is set (the daily cost line counts them)."""
+    job = job or cg_job()
+
+    def add(st):
+        st["free"][job] = st["free"].get(job, 0) + 1
+    _cg_update(add, now)
+
+
+def note_429(url, now=None):
+    """An HTTP 429 from GeckoTerminal or CoinGecko: counted per UTC hour, and its time (learn/masovno pauses on it)."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not (host.endswith("geckoterminal.com") or host.endswith("coingecko.com")):
+        return
+    now = now or _now()
+    hour = time.strftime("%H", time.gmtime(now))
+
+    def add(st):
+        st["e429"][hour] = st["e429"].get(hour, 0) + 1
+        st["last429"] = int(now)
+    _cg_update(add, now)
+
+
+def gt_last_429(now=None):
+    """Unix time of today's (UTC) last 429 from GeckoTerminal / CoinGecko, 0 when none."""
+    return int(_cg_read(now).get("last429") or 0)
+
+
+def cg_status(now=None):
+    """The day state plus cap and the allowance by now (the hourly line and the daily cost line)."""
+    now = now or _now()
+    st = _cg_read(now)
+    cap = cg_cap()
+    return {**st, "cap": cap, "allowed": int(allowance(cap, now)), "key": bool(_cg_key_raw())}
+
+
+def _fmt(n):
+    return f"{int(n):,}".replace(",", ".")
+
+
+def cg_hour_line(now=None, queue=None):
+    """One log line a UTC hour (kol/minute.loop): the key spent vs allowed by now, the 429 of the last hour, the
+    minute queue and the spend per job (11.11., Jure: preporuka 1)."""
+    now = now or _now()
+    st = cg_status(now)
+    h = time.gmtime(now).tm_hour
+    prev = st["e429"].get(f"{(h - 1) % 24:02d}", 0) if h else 0
+    jobs = ", ".join(f"{k} {_fmt(v)}" for k, v in sorted(st["jobs"].items(), key=lambda kv: -kv[1])) or "-"
+    free = sum(st["free"].values())
+    q = f"; red minutnih svijeća {queue} tokena" if queue is not None else ""
+    if not st["key"]:
+        return f"coingecko sat {h:02d} UTC: ključ nije postavljen; 429 prošli sat {prev} (ovaj sat {st['e429'].get(f'{h:02d}', 0)}){q}"
+    return (f"coingecko sat {h:02d} UTC: ključem {_fmt(st['n'])} / dopušteno {_fmt(st['allowed'])} do sad "
+            f"(dnevni strop {_fmt(st['cap'])}), 429 prošli sat {prev} (ovaj sat {st['e429'].get(f'{h:02d}', 0)}), "
+            f"besplatno {_fmt(free)}{q}; po poslu: {jobs}")
 
 
 def cg_key():
-    """The CoinGecko key while today's budget lasts, else "" (the free API and its pace)."""
+    """The CoinGecko key when this job may spend a call of it now (today's budget, the hour's slice), else ""."""
     key = _cg_key_raw()
     if not key:
         return ""
-    used, cap = cg_used()
-    return key if used < cap else ""
+    return key if cg_allow(_cg_read(), cg_job(), _now())[0] else ""
+
+
+def cg_configured():
+    """True when a CoinGecko key is set at all (whatever is left of today's budget)."""
+    return bool(_cg_key_raw())
 
 
 def _cg_route(url, headers):
-    """(url, headers) for a GeckoTerminal URL when the CoinGecko key is set, else unchanged."""
-    key = cg_key()
-    if not key or not url.startswith(GT_BASE) or not _cg_take():
+    """(url, headers) for a GeckoTerminal URL when the CoinGecko key is set and this job may spend a call of it,
+    else unchanged (the free GeckoTerminal; counted per job when the key is set)."""
+    if not url.startswith(GT_BASE) or not _cg_key_raw():
         return url, headers
+    if not _cg_take():
+        _cg_free()
+        return url, headers
+    key = _cg_key_raw()
     demo = os.environ.get("COINGECKO_DEMO") == "1"
     base = "https://api.coingecko.com/api/v3/onchain" if demo else "https://pro-api.coingecko.com/api/v3/onchain"
     return base + url[len(GT_BASE):], {**(headers or {}), ("x-cg-demo-api-key" if demo else "x-cg-pro-api-key"): key}
@@ -129,7 +343,9 @@ def _cg_route(url, headers):
 
 def _shared(url):
     host = urllib.parse.urlsplit(url).hostname or ""
-    if cg_key() and (host.endswith("geckoterminal.com") or host.endswith("coingecko.com")):
+    # 11.11.: the paid host is always on the paid gate; a GeckoTerminal URL only when this job may spend the key now
+    # (with the hourly budget one job can be on the key while another one runs on the free API at its pace)
+    if (host.endswith("coingecko.com") and _cg_key_raw()) or (host.endswith("geckoterminal.com") and cg_key()):
         return "coingecko.com", float(os.environ.get("CG_GAP", "0.25"))
     for suffix, gap in SHARED_GAP.items():
         if host.endswith(suffix):
@@ -307,6 +523,7 @@ def _fetch(req, timeout, retries=None):
                 delay = 0
             if e.code == 429:
                 limited(req.full_url, delay)
+                note_429(req.full_url)
             elif e.code == 403 and _shared(req.full_url)[0]:   # 9.11. (audit P24): GeckoTerminal's 403 burst is a
                 limited(req.full_url, SHARED_403_PAUSE)        # block too: every process pauses, not just this call
             if attempt == retries or not (e.code == 429 or e.code >= 500):

@@ -136,6 +136,8 @@ PROCESSES = (
      "nadzor memorije svake minute i održavanje baza: drži bravu pisanja i nad trade.db i league.db, "
      "pauza bi produžila čekanje petlje novca"),
     ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
+    # 11.11.: one line at every start (start.sh): which Apify sources are off and why; reads a small JSON, milliseconds
+    ("apify-stanje", "-m hype.apify", (), PROTECTED, "jedan red na startu: ugašeni Apify izvori; čita mali JSON"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),

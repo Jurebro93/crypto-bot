@@ -376,7 +376,8 @@ def scan(a, weights, smart, tg_count, now=None, kol=({}, {})):
     if apify.enabled() and not a.no_apify:  # paid: only tokens that already look good and passed T0
         rows.sort(key=lambda r: -r["score"])
         ok = [r for r in rows if r["tier"]["t0"] != "pad"]
-        for r in [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]:
+        # 11.11.: x_buzz switched off in hype/apify.json "ugaseno" (the scanner's X momentum covers it): no line a token
+        for r in ([] if apify.off("x_buzz") else [r for r in ok if r["score"] >= a.x_min_score][:a.x_top]):
             try:
                 r["x"] = xbuzz.token_buzz(r["token"], r["symbol"])
                 r["features"]["x_buzz"] = r["x"]["feature"]

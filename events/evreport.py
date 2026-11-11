@@ -450,6 +450,24 @@ def md(day, rows):
     return "\n".join(lines) + "\n"
 
 
+def cost_week(now=None, log=print):
+    """11.11. (Jure, preporuka 8): the 7-day sums of the daily cost lines (usage/daily.week), {} when unreadable."""
+    try:
+        from usage import daily
+        return daily.week(now)
+    except Exception as e:  # noqa: BLE001 - the EV report never fails on its cost section
+        log(f"događaji: trošak po izvoru (7 dana) nije pročitan ({type(e).__name__}: {e})")
+        return {}
+
+
+def cost_md(cost):
+    try:
+        from usage import daily
+        return "\n" + "\n".join(daily.week_md(cost or {})) + "\n"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def run(now=None, log=print, econ=None, outdir=None):
     now = int(now or time.time())
     own = econ is None
@@ -465,10 +483,11 @@ def run(now=None, log=print, econ=None, outdir=None):
         try:
             os.makedirs(outdir, exist_ok=True)
             base = os.path.join(outdir, f"ev-report-{day.replace('-', '')}")
+            cost = cost_week(now, log)   # 11.11. (preporuka 8): the cost per source of the last 7 days
             with open(base + ".json", "w") as f:
-                json.dump({"day": day, "ts": now, "rows": rows}, f, ensure_ascii=False, indent=1)
+                json.dump({"day": day, "ts": now, "rows": rows, "trosak_7d": cost}, f, ensure_ascii=False, indent=1)
             with open(base + ".md", "w") as f:
-                f.write(md(day, rows))
+                f.write(md(day, rows) + cost_md(cost))
         except OSError as e:
             log(f"događaji: EV izvještaj nije zapisan u output/ ({e})")
         props = [r for r in rows if r.get("proposal")]
