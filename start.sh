@@ -202,6 +202,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ( sleep 300; while true; do low python3 run_momentum.py once || echo "momentum nije uspio"; sleep "${MOM_EVERY_S:-60}"; done ) &
 ( sleep 960; while true; do python3 -m ops.heavy --night run_momentum.py backtest || echo "momentum backtest nije uspio"; sleep 86400; done ) &
 
+# 11.11. (Jure, flag proposals G21): Prijedlozi (proposals/, run_proposals.py), a short low-priority process every
+# PROPOSALS_EVERY_S (150 s): the merged list over every strategy on ui/kandidati (DexScreener free), proposals.db sync,
+# near misses, after-outcomes from the minute data we keep (+ at most PROPOSALS_DEX_DAY free DexScreener batches a day).
+# The UI and the MCP only read proposals.db. Nightly (01-06 Zagreb, once a day) the callers' quick-exit benchmark from
+# minute.db. Flag off: both read the flag and end.
+( sleep 330; while true; do low python3 run_proposals.py once || echo "prijedlozi nisu uspjeli"; sleep "${PROPOSALS_EVERY_S:-150}"; done ) &
+( sleep 1110; while true; do python3 -m ops.heavy --night run_proposals.py night || echo "prijedlozi (noć) nisu uspjeli"; sleep 3600; done ) &
+
 # 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
 # outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,
 # channels and wallets, groupdisc's night pass (skipped when its own loop above already ran), the range backtest

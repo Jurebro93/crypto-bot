@@ -856,11 +856,27 @@ TOOLS += [
                      "waiting for approval), or a get_trade_candidates / get_grok_tasks token: verdict kupi | "
                      "preskoči | dobar | loš | neutralan, confidence 0-1, interpretation, evidence. Shown next to the "
                      "position or the waiting request; buys nothing. A kupi / dobar of the last 30 min can lift a rug "
-                     "risk rating (grok_override, half size); a newer preskoči / loš takes it back."),
+                     "risk rating (grok_override, half size); a newer preskoči / loš takes it back. Optional (11.11., "
+                     "proposals G21): a trade PROPOSAL with verdict kupi + p_tp (your probability 0-1 that the take "
+                     "profit comes before the stop), strategy (range | momentum | influencer | group | insider | event | "
+                     "catalyst | grok), entry_zone {mcap_low, mcap_high}, exit_zone {tp_mcap, sl_mcap, trailing_pct} "
+                     "and valid_min (5-1440, default 60): shown on the Autopilot's Prijedlozi and in get_proposals "
+                     "only when your p_tp CALIBRATED on your measured predictions gives EV > 0 after cost and no block "
+                     "applies; without these fields nothing changes."),
      "inputSchema": {"type": "object", "properties": {
          "token": {"type": "string"}, "verdict": {"type": "string", "enum": ["kupi", "preskoči", "dobar", "loš", "neutralan"]},
          "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "interpretation": {"type": "string", "maxLength": 4000},
-         "evidence": {"type": "object"}}, "required": ["token", "verdict", "interpretation"]}},
+         "evidence": {"type": "object"},
+         "strategy": {"type": "string", "enum": ["range", "momentum", "influencer", "group", "insider", "event",
+                                                 "catalyst", "grok"]},
+         "p_tp": {"type": "number", "minimum": 0, "maximum": 1},
+         "entry_zone": {"type": "object", "properties": {"mcap_low": {"type": "number", "exclusiveMinimum": 0},
+                                                         "mcap_high": {"type": "number", "exclusiveMinimum": 0}}},
+         "exit_zone": {"type": "object", "properties": {"tp_mcap": {"type": "number", "exclusiveMinimum": 0},
+                                                        "sl_mcap": {"type": "number", "exclusiveMinimum": 0},
+                                                        "trailing_pct": {"type": "number", "minimum": 1, "maximum": 90}}},
+         "valid_min": {"type": "integer", "minimum": 5, "maximum": 1440}},
+         "required": ["token", "verdict", "interpretation"]}},
     {"name": "submit_suggestion", "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
      "description": ("Suggest an improvement for the owner: title, interpretation, improvement, evidence, and optionally "
                      "proposed_change. The owner taps 'Označi prihvaćenim (bez promjene)' (agrees, NOTHING changes), Odbij, "
@@ -1153,6 +1169,28 @@ TOOLS += [
 ]
 INSTRUCTIONS += (" Start with get_grok_tasks and get_trade_candidates: the candidates are ranked over every source, "
                  "and your fresh X rows (submit_x_features) feed the ranking and the scanner.")
+
+# 11.11. (Jure, proposals/ flag proposals G21): the Autopilot's "Prijedlozi" for Grok, read-only
+TOOLS.append(
+    {"name": "get_proposals", "annotations": _READ,
+     "description": ("The Autopilot's trade proposals from every strategy (range, momentum, influencer, group, insider, "
+                     "event, catalyst, grok), ONE row per token, the same list the owner sees. Per proposal: status "
+                     "(novo | kupljeno | isteklo | odbijeno), strategy (the best) and sources (every strategy proposing "
+                     "it), n_independent, ev_pct = p_tp x TP - (1 - p_tp) x SL - cost (cost by liquidity: 3 / 5 / 8 %), "
+                     "p_tp with n and ci90 (Wilson 90 %), per strategy its p_tp, n, EV, entry zone and exits in market "
+                     "cap, your raw and calibrated p_tp (grok, grok_calibration), exit_plan in set_exit_plan's format, "
+                     "size_sol (<= 0.15 SOL and the owner's caps), risks, why, expires_ts, and for decided / expired "
+                     "ones what happened after (after: max gain, max drawdown, TP before SL at 1 h and 4 h). report: "
+                     "the newest daily report per strategy with the day's missed risers. since: unix time (default "
+                     "24 h ago); min_ev: at least this ev_pct (default 0); status: only this status; include_blocked: "
+                     "also the last pass's near misses with their blocks; limit 1-200 (default 50). Read-only: buy a "
+                     "proposal only through execute_trade within your grok_autotrade limits; add one with "
+                     "submit_signal_opinion (kupi + p_tp)."),
+     "inputSchema": {"type": "object", "properties": {
+         "since": {"type": "integer", "minimum": 0}, "min_ev": {"type": "number", "default": 0},
+         "status": {"type": "string", "enum": ["novo", "kupljeno", "isteklo", "odbijeno"]},
+         "include_blocked": {"type": "boolean", "default": False},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
 # 11.11. (Jure, part D, momentum/evgate.py): the buy gate is an EV with the strategy's TP / SL
 INSTRUCTIONS += (" Buy gate: send execute_trade with p_tp (your probability 0-1 that the take profit comes before the "
                  "stop) and strategy (momentum_scalp: +15 % / -10 % in 45 min; range_dca: the range's zones; other: "
@@ -1251,8 +1289,9 @@ def _note_tool(name, a, kid):
                                                    a.get("confidence"), a.get("interpretation"), a.get("improvement"),
                                                    a.get("evidence"))
         if name == "submit_signal_opinion":
+            prop = {k: a.get(k) for k in assistnotes.PROPOSAL_KEYS if a.get(k) not in (None, "")}   # 11.11.: optional
             return assistnotes.submit_signal_opinion(tcon, kid, a.get("token"), a.get("verdict"), a.get("confidence"),
-                                                     a.get("interpretation"), a.get("evidence"))
+                                                     a.get("interpretation"), a.get("evidence"), proposal=prop or None)
         if name == "submit_suggestion":
             return assistnotes.submit_suggestion(tcon, kid, a.get("title"), a.get("interpretation"), a.get("improvement"),
                                                  a.get("evidence"), a.get("proposed_change"))
@@ -1279,6 +1318,11 @@ def _tool(name, args, kid="local"):
         from ui import kandidati
         d = (kandidati.candidates(args.get("min_sources"), args.get("limit")) if name == "get_trade_candidates"
              else kandidati.tasks(args.get("limit")))
+        return d, "error" in d
+    if name == "get_proposals":   # 11.11. proposals/ (flag proposals G21), read-only, cached
+        from proposals import view as pview
+        d = pview.mcp(args.get("since"), args.get("min_ev"), _truthy(args.get("include_blocked")), args.get("status"),
+                      args.get("limit"))
         return d, "error" in d
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc

@@ -391,7 +391,9 @@ class ExitPlanLive(TradeBase):
         self.assertEqual(d["execution"][LU]["mode"], "paper")
         self.assertEqual(d["exit_plan_live"], "off")
         self.assertIn("exit_plan_live", settings.FLAGS)
-        self.assertEqual(list(settings.FLAGS)[-1], "exit_plan_live")
+        names_ = list(settings.FLAGS)   # 11.11.: later flags (proposals G21) come after it
+        self.assertEqual(names_[names_.index("grok_ev_gate") + 1], "exit_plan_live")
+        self.assertEqual(settings.FLAGS["exit_plan_live"][0], "G18")
         names = {t["name"]: t for t in mcpapi.TOOLS}
         self.assertIn("exit_plan_live", names["set_exit_plan"]["description"])
         self.assertIn("execution", names["get_portfolio_status"]["description"])

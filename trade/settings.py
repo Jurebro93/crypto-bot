@@ -101,6 +101,10 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
     # exit_plans' mode; it only sells, never buys; default off, only the owner moves it
     "exit_plan_live": ("G18", "Grokovi planovi izlaza na pravom računu za Grok autotrade pozicije (samo prodaja)"),
+    # 11.11. (Jure, proposals/): one list of proposals from every strategy on the Autopilot card and in get_proposals;
+    # shadow = list and measure, paper = the demo account takes every shown proposal; never live (LIVE_GATES)
+    "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
+                         "svaki prikazani prijedlog s planom izlaza; pravi račun kupuje samo na tvoj dodir"),
 }
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
@@ -112,6 +116,7 @@ PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of sh
 # 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
 LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
               "momentum_scalp": "momentum.gate:live_refusal"}   # 11.11.: >= 50 paper trades, EV > 0, hit >= 45 %
+LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist"})
