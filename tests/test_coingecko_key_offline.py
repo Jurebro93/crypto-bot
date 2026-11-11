@@ -25,8 +25,15 @@ class Route(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._gate = http.GATE_DIR
         http.GATE_DIR = self._tmp.name
+        from usage import meter   # 11.11.: the key's calls are tallied in usage.db; never the repository's one
+        self._usage = meter.DB
+        meter.flush()            # what earlier tests tallied goes to the old DB, not into this test's counts
+        meter.DB = os.path.join(self._tmp.name, "usage.db")
 
     def tearDown(self):
+        from usage import meter
+        meter._tally.clear()
+        meter.DB = self._usage
         http.GATE_DIR = self._gate
         self._tmp.cleanup()
         for k, v in self._env.items():
@@ -80,6 +87,30 @@ class Route(unittest.TestCase):
         url, h = http._cg_route(GT, None)
         self.assertTrue(url.startswith("https://api.coingecko.com/api/v3/onchain/networks/solana/"))
         self.assertEqual(h, {"x-cg-demo-api-key": "CG-demo"})
+
+    def test_key_calls_are_tallied_per_script_and_kind(self):
+        """11.11. (Jure: "javi koliko od 3.000 dnevno trošimo"): the day was gone by 02:38 UTC; usage.db now says who."""
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from usage import meter
+        os.environ.update(COINGECKO_API_KEY="CG-test", CG_DAILY_CALLS="3")
+        self.assertEqual(http._cg_kind(GT), "ohlcv")
+        self.assertEqual(http._cg_kind("https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"),
+                         "trending_pools")
+        self.assertEqual(http._cg_kind("https://api.geckoterminal.com/api/v2/networks/solana/tokens/M1/info"), "tokens")
+        db = os.path.join(tempfile.mkdtemp(), "usage.db")
+        out = io.StringIO()
+        with mock.patch.object(meter, "DB", db), mock.patch.object(meter, "SCRIPT", "run_dugo.py"), redirect_stdout(out):
+            for _ in range(3):
+                http._cg_route(GT, None)
+            self.assertEqual(http.cg_by_script(), [("run_dugo.py", 3)])
+        self.assertIn("coingecko: 3 poziva danas od 3 (po skripti: run_dugo.py 3), ključ potrošen u", out.getvalue())
+        con = meter.connect(db)
+        self.assertEqual(con.execute("SELECT method, calls FROM usage WHERE service=?", (http.CG_TALLY,)).fetchall(),
+                         [("ohlcv", 3)])
+        con.close()
 
 
 if __name__ == "__main__":

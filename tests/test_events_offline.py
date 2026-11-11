@@ -611,7 +611,7 @@ class Remeasure(Env):
 
     def test_cap_leaves_half_of_the_coingecko_day(self):
         from event_calendar import http
-        with mock.patch.object(http, "cg_key", lambda: "k"), mock.patch.object(http, "cg_used", lambda today=None: 1400), \
+        with mock.patch.object(http, "cg_key", lambda: "k"), mock.patch.object(http, "cg_used", lambda today=None: (1400, 3000)), \
                 mock.patch.dict(os.environ, {"CG_DAILY_CALLS": "3000"}):
             self.assertEqual(remeasure.cap_left(self.econ, NOW, 600), 100)
 

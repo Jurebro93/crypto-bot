@@ -65,7 +65,8 @@ def cap_left(econ, now, cap=NIGHT_CAP):
         from event_calendar import http
         if http.cg_key():
             day_cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
-            left = min(left, day_cap // 2 - http.cg_used())
+            # 11.11.: cg_used() is (used, cap); the int minus a tuple raised, the except hid it, the half never held
+            left = min(left, day_cap // 2 - http.cg_used()[0])
     except Exception:  # noqa: BLE001
         pass
     return max(0, left)

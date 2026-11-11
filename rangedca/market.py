@@ -377,6 +377,20 @@ def gt_row(p):
     return tok, (a.get("name") or "").split(" / ")[0][:20] or None, created, s
 
 
+def cg_day_text(con, now):
+    """The shared CoinGecko day in one phrase: the key's calls today of CG_DAILY_CALLS (all jobs) and the range list's
+    own GT requests of GT_DAY; without the key, the free GeckoTerminal."""
+    own = f"range lista {data.day_used(con, 'mkt_gt_day', now)}/{GT_DAY}"
+    try:
+        from event_calendar import http
+        if not http._cg_key_raw():
+            return f"CoinGecko bez ključa (besplatni GT), {own}"
+        used, cap = http.cg_used()
+        return f"CoinGecko ključ danas {used}/{cap}" + (" (potrošen: ostatak dana besplatni GT)" if used >= cap else "") + f", {own}"
+    except Exception:  # noqa: BLE001
+        return own
+
+
 def gt_requests():
     """GeckoTerminal requests of one discovery round (trending 1 h + 6 h pages, top-volume pages)."""
     return 2 * GT_TREND_PAGES + GT_TOP_PAGES
@@ -423,7 +437,12 @@ def discover_lists(con, now, net, log):
                     nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]})
             new_n += k
             n += k
-        log(f"range tržište GT: {n_req} upita, {got} poolova, novih {new_n}, prolazi filter {ok_n}")
+        real = ""
+        if got:   # 11.11. (Jure): more GT pages only if the shared day has room after the first two real rounds
+            k = int(data.kv_get(con, "mkt_gt_real") or 0) + 1
+            data.kv_put(con, "mkt_gt_real", k)
+            real = f" (prava runda {k})" if k <= 2 else ""
+        log(f"range tržište GT: {n_req} upita, {got} poolova, novih {new_n}, prolazi filter {ok_n}{real}; {cg_day_text(con, now)}")
     if (os.environ.get("BIRDEYE_API_KEY") and now - (data.kv_get(con, "mkt_bird_ts") or 0) >= BIRD_EVERY_S
             and slice_left(con, "mkt_bird_day", BIRDEYE_DAY, now) >= 1):
         data.kv_put(con, "mkt_bird_ts", int(now))

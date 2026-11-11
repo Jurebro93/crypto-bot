@@ -78,7 +78,39 @@ def cg_used(today=None):
         return 0, cap
 
 
-def _cg_take():
+CG_TALLY = "coingecko_kljuc"   # usage.db service: the key's calls per script and kind (who spends the 3000)
+
+
+def _cg_kind(url):
+    """The kind of a GeckoTerminal call for the per-script tally: ohlcv, pools, trending_pools, tokens, ..."""
+    path = urllib.parse.urlsplit(url or "").path
+    if "/ohlcv/" in path:
+        return "ohlcv"
+    parts = [x for x in path.split("/") if x]
+    i = parts.index("solana") + 1 if "solana" in parts else len(parts) - 1
+    return parts[i] if 0 <= i < len(parts) else "?"
+
+
+def cg_by_script(day0=None):
+    """[(script, calls)] of the key today (UTC) from usage.db, most first. 11.11. (Jure: "javi koliko od 3.000 dnevno
+    trošimo"): on 11.11. the whole day was gone by 02:38 UTC, before the range list's first real round."""
+    if meter is None:
+        return []
+    day0 = int(day0 if day0 is not None else time.time() // 86400 * 86400)
+    try:
+        meter.flush()
+        con = meter.connect()
+        try:
+            return [(s, int(n)) for s, n in con.execute(
+                "SELECT script, SUM(calls) FROM usage WHERE service=? AND hour>=? AND hour<? GROUP BY script "
+                "ORDER BY 2 DESC", (CG_TALLY, day0, day0 + 86400))]
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - a missing usage.db loses only the breakdown
+        return []
+
+
+def _cg_take(url=None):
     """One call from today's budget: True when the key may be used for it."""
     today = time.strftime("%Y-%m-%d", time.gmtime())
     cap = int(float(os.environ.get("CG_DAILY_CALLS", "3000")))
@@ -101,9 +133,14 @@ def _cg_take():
             f.seek(0)
             f.truncate()
             f.write(f"{today} {n + 1}")
-            if (n + 1) % 500 == 0 or n + 1 == cap:   # for the weekly cost report (CLAUDE.md: cost per source)
-                print(f"coingecko: {n + 1} poziva danas od {cap}", flush=True)
-            return True
+        if meter is not None:
+            meter.record(CG_TALLY, _cg_kind(url))
+        if (n + 1) % 500 == 0 or n + 1 == cap:   # for the weekly cost report (CLAUDE.md: cost per source)
+            by = ", ".join(f"{s} {c}" for s, c in cg_by_script()[:6])
+            print(f"coingecko: {n + 1} poziva danas od {cap}" + (f" (po skripti: {by})" if by else "")
+                  + (f", ključ potrošen u {time.strftime('%H:%M', time.gmtime())} UTC" if n + 1 == cap else ""),
+                  flush=True)
+        return True
     except OSError:
         return True
 
@@ -120,7 +157,7 @@ def cg_key():
 def _cg_route(url, headers):
     """(url, headers) for a GeckoTerminal URL when the CoinGecko key is set, else unchanged."""
     key = cg_key()
-    if not key or not url.startswith(GT_BASE) or not _cg_take():
+    if not key or not url.startswith(GT_BASE) or not _cg_take(url):
         return url, headers
     demo = os.environ.get("COINGECKO_DEMO") == "1"
     base = "https://api.coingecko.com/api/v3/onchain" if demo else "https://pro-api.coingecko.com/api/v3/onchain"
