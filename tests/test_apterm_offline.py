@@ -129,6 +129,11 @@ class FirstView(Env):
         self.assertEqual(p["balance_sol"], SUMMARY["sol"])
         self.assertEqual(p["value_sol"], SUMMARY["value_sol"])
         self.assertIsNone(apterm.first_json("Nepoznat"))                      # the page's access
+        # a token without a position: the header takes the symbol of the row it was tapped on (?s=), sanitised
+        other = "Mochi11111111111111111111111111111111111pump"
+        h = json.loads(apterm.first_json("Jure", other, sym="MOCHI<b>"))["header"]
+        self.assertEqual((h["mint"], h["sym"]), (other, "MOCHIb"))
+        self.assertEqual(json.loads(apterm.first_json("Jure", LIVE_T, sym="X"))["header"]["sym"], "LIVE")   # position wins
 
     def test_one_build_per_ttl_and_a_fresh_one_after_a_form(self):
         self.seed()
@@ -376,6 +381,25 @@ class Stream(HandlerMixin, Env):
         finally:
             for _ in range(taken):
                 apterm.stream_release()
+
+    def test_a_closed_tab_frees_its_stream_at_once(self):
+        import socket
+        import run_ui
+        a, b = socket.socketpair()
+        try:
+            self.assertFalse(run_ui._peer_gone(a))                         # open, nothing sent: alive
+            b.close()
+            self.assertTrue(run_ui._peer_gone(a))                          # the browser left
+        finally:
+            a.close()
+        self.assertTrue(run_ui._peer_gone(None))
+        checks = iter([True, True, False])
+        clock = {"t": 0.0}
+        out = list(apterm.stream("A", clock=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+                                 max_s=100, every=2, hb_s=50, alive=lambda: next(checks),
+                                 tick_fn=lambda m: {"ts": 1, "data_ts": 1, "tok": {}, "sig": "s"}))
+        self.assertEqual(len(out), 2)                                      # retry + one tick, then it stops
+        self.assertNotIn(b"bye", b"".join(out))
 
     def test_one_shared_tick_for_every_viewer(self):
         self.seed()

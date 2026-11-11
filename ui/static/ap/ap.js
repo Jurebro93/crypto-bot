@@ -329,8 +329,8 @@
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { startLive(); refreshFirst(); } else stopLive(); });
 
-  async function getFirst(m, html) {
-    const r = await fetch(`/pravi-trade/api/first?m=${encodeURIComponent(m || '')}${html ? '&html=1' : ''}`, { cache: 'no-store', credentials: 'same-origin' });
+  async function getFirst(m, html, sym) {
+    const r = await fetch(`/pravi-trade/api/first?m=${encodeURIComponent(m || '')}${html ? '&html=1' : ''}${sym ? '&s=' + encodeURIComponent(sym) : ''}`, { cache: 'no-store', credentials: 'same-origin' });
     if (!r.ok) throw new Error(String(r.status));
     return r.json();
   }
@@ -361,14 +361,14 @@
   }
   setInterval(() => { if (document.visibilityState === 'visible') refreshFirst(); }, 30000);
 
-  async function selectToken(m) {
+  async function selectToken(m, sym) {
     if (!m || m === S.m) return;
     const f = form(), sol = f && f.elements.sol.value;
     S.m = m; S.fit = true;
     try { history.replaceState(null, '', '?m=' + encodeURIComponent(m)); } catch (e) { /* file:// */ }
     const box = $('#apx-chart'); if (box) box.dataset.m = m;
     try {
-      const j = await getFirst(m, true);
+      const j = await getFirst(m, true, sym);
       j.urls = URLS; F = j;
       swapPart('#apx-hdr', j.html.hdr);
       const side = $('.apx-side');
@@ -449,7 +449,7 @@
     el.classList.toggle('warn', imp > sm || !!over);
   }
   async function fillFrom(d, plain) {   // "Kupi" on a proposal / "U panel": only fills the form, never posts it
-    if (d.token && d.token !== S.m) await selectToken(d.token);
+    if (d.token && d.token !== S.m) await selectToken(d.token, d.sym);
     const f = form(); if (!f) return;
     setSide('buy');
     f.elements.token.value = d.token || '';
@@ -499,7 +499,7 @@
     if ((b = g('[data-fill]'))) { e.preventDefault(); try { fillFrom(JSON.parse(b.dataset.fill), true); } catch (x) { /* bad data */ } return; }
     if ((b = g('[data-sel]'))) {
       e.preventDefault();
-      selectToken(b.dataset.sel);
+      selectToken(b.dataset.sel, b.textContent.trim());
       const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }

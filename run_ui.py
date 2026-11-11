@@ -1342,7 +1342,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._ap_stream(qs)
         try:
             if path == "/pravi-trade/api/first":
-                body, ctype = apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1"), "application/json"
+                body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
+                                                 sym=qs.get("s", "")), "application/json")
             elif path == "/pravi-trade/api/tick":
                 body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
             elif path == "/pravi-trade/api/candles":
@@ -1379,7 +1380,7 @@ class Handler(BaseHTTPRequestHandler):
             for k, v in apterm.STREAM_HEADERS:
                 self.send_header(k, v)
             self.end_headers()
-            for chunk in apterm.stream(qs.get("m", "")):
+            for chunk in apterm.stream(qs.get("m", ""), alive=lambda: not _peer_gone(self.connection)):
                 self.wfile.write(chunk)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -1425,6 +1426,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         if self.server.verbose:
             super().log_message(fmt, *args)
+
+
+def _peer_gone(sock):
+    """True when the browser has closed an SSE connection: it never sends anything after its GET, so a readable socket
+    that peeks 0 bytes is a closed one (ui/apterm.stream asks this before every tick)."""
+    import select
+    import socket
+    try:
+        r, _w, _x = select.select([sock], [], [], 0)
+        return bool(r) and sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError, TypeError):
+        return True
 
 
 def _bind(host, port):

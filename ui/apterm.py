@@ -526,12 +526,17 @@ def first_view(user, mint="", now=None, fresh=False):
         tcon.close()
 
 
-def first_json(user, mint="", with_html=False):
+def first_json(user, mint="", with_html=False, sym=""):
     """The JSON of GET /pravi-trade/api/first (private keys dropped); with_html adds the tables' HTML, so the browser
-    swaps them in one request when a tick says they changed."""
+    swaps them in one request when a tick says they changed. sym: the symbol the browser showed on the row it was
+    tapped on (a proposal, a watchlist token), used for the header when no position names the token."""
     d = first_view(user, mint)
     if d is None:
         return None
+    sym = re.sub(r"[^\w$.\-]", "", str(sym or ""))[:20]
+    h = d.get("header")
+    if sym and h and h.get("sym") == short(h.get("mint") or ""):
+        d = {**d, "header": {**h, "sym": sym}}   # a copy: the cached view stays as it was
     out = {k: v for k, v in d.items() if not k.startswith("_")}
     if with_html:
         sel_pos = next((p for p in d["positions"] if p["token"] == d.get("m")), None)
@@ -628,10 +633,11 @@ def stream_release():
         pass
 
 
-def stream(mint="", clock=time.time, sleep=time.sleep, max_s=None, every=None, hb_s=None, tick_fn=None):
+def stream(mint="", clock=time.time, sleep=time.sleep, max_s=None, every=None, hb_s=None, tick_fn=None, alive=None):
     """The SSE body as bytes chunks: a retry hint, then an event "tick" whenever the shared tick changed (checked
     every `every` s), an event "hb" after hb_s s of no change, and "bye" after max_s s (EventSource reconnects).
-    Nothing is computed here per viewer: tick() is shared."""
+    Nothing is computed here per viewer: tick() is shared. alive(): False once the browser has gone (run_ui checks
+    the socket), so a closed tab frees its slot within `every` seconds, not at the next failed write."""
     max_s = STREAM_MAX_S if max_s is None else max_s
     every = TICK_S if every is None else every
     hb_s = STREAM_HB_S if hb_s is None else hb_s
@@ -640,6 +646,8 @@ def stream(mint="", clock=time.time, sleep=time.sleep, max_s=None, every=None, h
     yield f"retry: {POLL_S * 1000}\n\n".encode()
     last, last_out = None, t0
     while clock() - t0 < max_s:
+        if alive is not None and not alive():
+            return
         try:
             t = tick_fn(mint)
         except Exception as e:  # noqa: BLE001 - a locked database: the stream lives on, the badge turns yellow
