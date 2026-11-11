@@ -3,11 +3,16 @@ Read-only on range.db and league.db.
 
 11.11. (market watchlist, rangedca/market.py): every row says which watchlist brought the token, source = signal |
 event | market (several: the first of signal > event > market, all of them in `sources`), and paper_only (a market /
-event token is traded only on the demo account); watched_by_source and the watchlist's filter and cost today."""
+event token is traded only on the demo account); watched_by_source and the watchlist's filter and cost today.
+11.11. (flag range_flip G26, detect.flip_step): while the flag is not off every row carries range_flip (status normal |
+flip_candidate | flipped | paused | resumed, the break, the flip zone or the resistance, the retests, ATR, stop_kind,
+the stop of today's rules and of the new ones, the range after the break, why the new rules take no entry) and
+entry_ready_new_rules; the answer lists every token not in state normal under range_flip (a paused token is often not
+active under today's rules, so it would not be in the candidates at all)."""
 import sqlite3
 import time
 
-from . import data, gate, market, rules, trade
+from . import data, detect, gate, market, rules, trade
 
 ZONE_KEYS = ("range_low_low", "range_low_top", "range_high_low", "range_high_top")
 SOURCES = ("signal", "event", "market")   # priority order of the watchlist source
@@ -76,7 +81,74 @@ def one(tok, r, now=None):
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
             "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
                           why or "ulaz bi prošao (uz provjeru ruga i limite)"),
-            "paper_only": src != "signal"}
+            "paper_only": src != "signal", **_flip_part(r, m, now)}
+
+
+def flip_view(fl, rng=None):
+    """The range_flip block of a range (detect.flip_public) as the MCP API shows it, None without one."""
+    if not fl:
+        return None
+    m = (rng or {}).get("metrics") or {}
+    sup = m.get("supply")
+    z = (rng or {}).get("zones") or {}
+    old_stop = z["range_low_low"] * rules.RULES["stop_x"] if z.get("range_low_low") else None
+    s = fl.get("state")
+    zone = fl.get("zone") or {}
+    zmc = {"low": zone.get("mc_low"), "top": zone.get("mc_top")} if zone else None
+    brk = fl.get("brk") or {}
+    alt = fl.get("alt") or {}
+    return {"status": s, "since": fl.get("since"), "version": fl.get("v"), "changes": fl.get("ver"),
+            "why": fl.get("why") or None, "entry_block": fl.get("block"),
+            "break": ({"direction": brk.get("dir"), "ts": brk.get("ts"), "close_price": brk.get("close"),
+                       "close_market_cap_usd": round(brk["close"] * sup) if sup and brk.get("close") else None,
+                       "volume_x_median": brk.get("vol_x")} if brk else None),
+            "flip_zone_market_cap_usd": zmc if s in ("flip_candidate", "flipped") else None,
+            "resistance_market_cap_usd": zmc if s in ("paused", "resumed") else None,
+            "retests": len(fl.get("touches") or []),
+            "atr": {"price": fl.get("atr"), "pct_of_price": fl.get("atr_pct"), "market_cap_usd": fl.get("atr_mc"),
+                    "bars": "14 x 15 min"} if fl.get("atr") else None,
+            "stop_kind": fl.get("stop_kind"),
+            "stop_new_rules": {"price": fl.get("stop_px"), "market_cap_usd": fl.get("stop_mc")} if fl.get("stop_px") else None,
+            "stop_today": {"price": old_stop, "market_cap_usd": round(old_stop * sup) if sup and old_stop else None,
+                           "rule": "range_low_low x 0.85"} if old_stop else None,
+            "range_after_break": ({"status": alt.get("status"), "active": alt.get("active"), "score": alt.get("score"),
+                                   "zones_market_cap_usd": (alt.get("zones") or {}).get("mc")} if alt else None),
+            "last_unconfirmed_break": ({"direction": fl["seen"].get("dir"), "ts": fl["seen"].get("ts"),
+                                        "volume_x_median": fl["seen"].get("vol_x")} if fl.get("seen") else None)}
+
+
+FLIP_RULES = ("range_flip (G26): a 5-minute close beyond the range by max(2 %, 1 x ATR) with volume >= 1.5 x the "
+              "median 5-minute volume is a confirmed break. Up: the old top zone is the candidate for the new bottom, "
+              "no entries until 2 retests (swing lows within it +-3 %) without a close under it x 0.97 (then the range "
+              "after the break trades). Down: paused, no lot 1 / lot 2, the old bottom zone is the resistance, resumed "
+              "when a range formed after the break has its top <= the resistance x 1.03. A state ends 24 h after its "
+              "break. Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (today: x 0.85).")
+
+
+def _flip_tokens(since, limit=50):
+    """Every token whose range_flip state is not normal (range.db range_flip), newest change first."""
+    fr = data.flip_rows(since=since, states=[s for s in detect.FLIP_STATES if s != "normal"])
+    if not fr:
+        return []
+    rr = data.read_ranges(since=since, tokens=sorted(fr))
+    out = []
+    for t, s in sorted(fr.items(), key=lambda kv: -(kv[1].get("since") or 0))[:limit]:
+        r = rr.get(t) or {}
+        sup = (r.get("metrics") or {}).get("supply")
+        out.append({"token": t, "symbol": r.get("symbol"), **flip_view(detect.flip_public(s, sup), r)})
+    return out
+
+
+def _flip_part(r, m, now):
+    """range_flip in a row (only while the flag is not off and the range carries the state)."""
+    from league import flags
+    fl = r.get("flip")
+    if not fl or flags.mode(trade.FLIP_FLAG) == "off":
+        return {}
+    nr = rules.new_range(r)
+    why = trade.entry_view(nr, m.get("price"), now)
+    return {"range_flip": flip_view(fl, r), "flip_status": fl.get("state"),
+            "entry_ready_new_rules": why is None and not is_breakout(nr), "entry_new_rules": why or "ulaz bi prošao"}
 
 
 def positions(tokens=None):
@@ -98,6 +170,9 @@ def positions(tokens=None):
             "take_half_at (range_high_low)": round(lv["rhl"] * sup) if sup and lv.get("rhl") else None,
             "rest_at (range_high_top)": round(lv["rht"] * sup) if sup and lv.get("rht") else None,
             "hard_stop (range_low_low x 0.85)": round(lv["stop_px"] * sup) if sup and lv.get("stop_px") else None}
+        # 11.11. (range_flip): a round of the new rules has the volatility stop in that field (range_low_low - 1.5 x ATR)
+        r["rules"] = "range_flip" if lv.get("rules") == "flip" else "today"
+        r["stop_kind"] = lv.get("stop_kind") or "range_low_low x 0.85"
         r["tighten_with"] = {"tool": "set_exit_plan", "plan.accounts": [r["user"]],
                              "note": "a plan only tightens: the range's own exits keep running next to it"}
     if tokens:
@@ -149,9 +224,11 @@ def candidates(min_score=None, now=None, limit=50, source=None):
     total, by = _watched(since)
     mcounts, cost = market.info(now=now)
     from league import flags
+    mflip = flags.mode(trade.FLIP_FLAG)
+    flip = {"flag_mode": mflip, "tokens": _flip_tokens(since, limit), "rules": FLIP_RULES} if mflip != "off" else None
     return {"ts": int(now), "flag_mode": flags.mode(trade.FLAG), "min_score": ms, "source": src,
             "candidates": rows[:limit], "entry_ready": sum(1 for x in rows if x["entry_ready"]),
-            "breakouts": brk[:limit],
+            "breakouts": brk[:limit], "range_flip": flip,
             "watched": total, "watched_by_source": {s: by.get(s, 0) for s in SOURCES},
             "watchlist": {"range_market_flag": flags.mode("range_market"), "event_tokens_flag": flags.mode("event_tokens"),
                           "market_max": market.MARKET_MAX, "signal_max": data.MAX_TOKENS,

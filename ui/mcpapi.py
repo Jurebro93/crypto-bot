@@ -1131,7 +1131,11 @@ TOOLS.append(
                      "signal > event > market, all in sources), entry_ready (not a breakout and the entry rules pass "
                      "now; those rows first) and paper_only (market / event tokens are traded only on the demo account, "
                      "never with real money); breakouts (ranges broken upward), watched_by_source and the watchlist's "
-                     "filter, refresh and cost today per source."),
+                     "filter, refresh and cost today per source. While the flag range_flip is not off: per row "
+                     "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
+                     "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
+                     "of the new ones, the range after the break), flip_status and entry_ready_new_rules, and the "
+                     "range_flip list of every token not in state normal (a paused token may not be a candidate)."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
          "source": {"type": "string", "enum": ["signal", "market", "event"],
