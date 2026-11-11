@@ -1223,8 +1223,10 @@ def kupiti_html(tcon, cfg, owner, now):
             f'<span class=apx-act>{buy_btn}</span>'
             f'<details class=apx-kmore><summary>detalji</summary><div class=ap>{view._row_inner(p, esc)}</div></details></div>')})
     try:
+        from fast import live as flive
         from ui import zivo
-        live = zivo.rows(now)[:8]
+        # 11.11. (fast/live): a PRESKOČI of the row's fast_check goes to the Preskočeni box, not here
+        live = [z for z in zivo.rows(now) if (z.get("fast") or {}).get("decision") != "SKIP"][:8]
     except Exception:  # noqa: BLE001
         live = []
     seen = {p["token"] for p in act}
@@ -1236,10 +1238,11 @@ def kupiti_html(tcon, cfg, owner, now):
         sym = z.get("symbol") or m.get("symbol") or z["token"][:6]
         fill = json.dumps({"token": z["token"], "sym": sym, "sol": f"{min(float(cfg.get('size_sol') or 0.1), cap or 9e9):g}"})
         fill_btn = f'<button type=button class=apx-b data-fill="{esc(fill)}">U panel</button>' if owner else ""
-        rows.append({"epm": None, "html": (
+        fv = z.get("fast") or {}
+        rows.append({"epm": flive.ev_per_min(fv), "html": (
             f'<div class=apx-krow><div class=apx-kmain>{_sel_btn(z["token"], sym)}<span class=apx-mut>alat (živo) · '
             f'{esc(z.get("src") or "")}{" · " + esc(why) if why else ""}</span></div>'
-            '<span class=n data-l="EV">–<small>nije izmjeren</small></span><span class=n data-l="p_tp (n)">–</span>'
+            f'{flive.cells_html(fv, esc, _tone)}'
             f'<span class=n data-l="MC">{mc(m.get("mcap"))}</span><span class=n data-l="5 min / 1 h">'
             f'{_pct(m.get("ch_m5"), 0)}<small>{_pct(m.get("ch_h1"), 0)}</small></span>'
             f'<span class=apx-act>{fill_btn}'

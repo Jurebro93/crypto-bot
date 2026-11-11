@@ -131,6 +131,9 @@ class FakeSources(kandidati.Sources):
     def records(self, now):
         return self.recs
 
+    def fast_verdicts(self, tokens, now):   # 11.11. (fast/live): in memory, never the real fast.db
+        return {t: v for t, v in (getattr(self, "fastv", None) or {}).items() if t in tokens}
+
     def rug_tables(self):
         return self.tc, self.rug
 
@@ -419,7 +422,9 @@ class EvGate(unittest.TestCase):
         self.assertFalse(got[A]["tradeable"])
         self.assertIsNone(got[A]["ev_pct"])
         self.assertEqual((got[A]["n_samples"], got[A]["ev_confidence"]), (0, "low"))
-        self.assertTrue(any("EV nije izmjeren" in w for w in got[A]["why_not"]))
+        # 11.11. (Jure: "nikad 'nije izmjeren'"): the block names the fast_check's state instead
+        self.assertTrue(any(w.startswith("EV: izvori bez izmjerenih ishoda") for w in got[A]["why_not"]))
+        self.assertFalse(any("nije izmjeren" in w for w in got[A]["why_not"]))
         # 11.11. (owner's rule B): only paid shills call it: a tag and P x 0.5 (on the signal exit), never a block
         self.assertIn("shill_driven", got[B]["flags"])
         self.assertTrue(any(t["text"].startswith("vođeno shillanjem") for t in got[B]["tags"]))

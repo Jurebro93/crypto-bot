@@ -17,7 +17,12 @@
                saw at the signal), how far above it we would buy and how late (seconds after its buy), the run-up from
                the token's first call (11.11. rule B: 4x+ is a tag, P x 0.7 / size x 0.5 in the decision), the buy
                slippage of the stake (trade/cost.impact) and the ONE cost model (trade/cost.round_trip of the stake,
-               rule A); liquidity under $15k fails (trade/cost.LIQ_HARD_MIN), a pool under 3 % of MC is a tag
+               rule A); liquidity under $15k fails (trade/cost.LIQ_HARD_MIN), a pool under 3 % of MC is a tag.
+               11.11. (Jure): a market cap outside our band (CFG mcap_min / mcap_max, FAST_MC_MIN 30k / FAST_MC_MAX
+               5M) fails first ("MC $14.0M izvan raspona (30k–5M)"); the lag from the source's entry (its swap
+               price, else the market cap at the signal for a call / convergence) in words (fast/estimate.lag:
+               "jeftinije od njega" / "skuplje od njega"), and the source's own sale after its buy fails ("izvor
+               izlazi": the copy exit would sell at once)
   e) source    the source's record (fast/sources.quality): closed trades, PnL, winners, tier, the proof
 
 A check whose data could not be read (an API error, a timeout, the Helius credit cap) is "error": the whole signal is
@@ -57,7 +62,11 @@ CFG = {
     "insider_max": 25.0,     # a) insiders (rugfilter/score insider_hard)
     "min_tx_m5": 5,          # c) transactions in 5 min
     "min_buy_share": 0.40,   # c) buys / transactions in 5 min
-    "mcap_min": 30_000,      # d) CLAUDE.md
+    # d) 11.11. (Jure, 4CxjZy at $14M): our market-cap band for the live signals, env FAST_MC_MIN / FAST_MC_MAX; the
+    # floor never under CLAUDE.md's $30k. No existing constant is "our range" for these signals (league/copy max_mcap
+    # $50M is "velik token", rangedca/market.MAX_MCAP $5M is the range watchlist's own filter): a band of its own
+    "mcap_min": max(30_000.0, float(os.environ.get("FAST_MC_MIN") or 30_000)),
+    "mcap_max": float(os.environ.get("FAST_MC_MAX") or 5_000_000),
     "liq_min": 15_000,       # d) trade/cost.LIQ_HARD_MIN (11.11. owner's rule B: the only liquidity block)
     "liq_mcap_min": 0.03,    # d) league/copy.CFG min_liq_mcap: under it a tag (rule B), not a fail
     "chase_max": 0.20,       # d) at most +20 % above the wallet's entry
@@ -294,6 +303,38 @@ class Net:
 
     def quality(self, sig, now):
         return sources.quality(sig, now)
+
+    def source_sold(self, sig, since):
+        """11.11. (Jure, DOPE -10 % from the signal: "bolji ulaz ili znak da izlazi?"): {"ts", "via"} of the source's
+        first sale of the token at or after its buy (a wallet source: hype.db chain_trades, the Helius webhook; a
+        convergence: kol.db converge kol_selling, a tracked KOL wallet sells), None when none is seen."""
+        from league import copy as lcopy
+        kind, tok = sig.get("kind"), sig.get("token")
+        p = lcopy._paths()
+        if kind in sources.WALLET_KINDS and sig.get("source_id"):
+            c = _ro(p["hype"])
+            if c is None:
+                return None
+            try:
+                r = c.execute("SELECT MIN(ts) FROM chain_trades WHERE wallet=? AND mint=? AND side='sell' AND ts >= ?",
+                              (sig["source_id"], tok, int(since or 0))).fetchone()
+            except sqlite3.Error:
+                return None
+            finally:
+                c.close()
+            return {"ts": int(r[0]), "via": "Helius (chain_trades)"} if r and r[0] else None
+        if kind == "convergence":
+            c = _ro(p["kol"])
+            if c is None:
+                return None
+            try:
+                r = c.execute("SELECT kol_selling, ts FROM converge WHERE token=?", (tok,)).fetchone()
+            except sqlite3.Error:
+                return None
+            finally:
+                c.close()
+            return {"ts": int(r[1] or 0), "via": "konvergencija: praćeni KOL novčanik prodaje"} if r and r[0] else None
+        return None
 
 
 def _ro(path):
@@ -662,6 +703,42 @@ def check_flow(sig, d, now, cfg=CFG):
                               f"${vol5:,.0f} = {v['vol5_liq'] or 0:.2f}× likv.{one}{wash}", v, thr, ms)
 
 
+def usd(x):
+    """$14.0M / $250k / $900."""
+    x = float(x or 0)
+    if x >= 1e6:
+        return f"${x / 1e6:.1f}M"
+    if x >= 1e3:
+        return f"${x / 1e3:.0f}k"
+    return f"${x:,.0f}"
+
+
+def _short(x):
+    x = float(x)
+    if x >= 1e6:
+        return f"{x / 1e6:g}M".replace(".", ",")
+    return f"{x / 1e3:g}k".replace(".", ",") if x >= 1e3 else f"{x:g}"
+
+
+def band_text(cfg=CFG):
+    """"30k–5M": the market-cap band of the live signals."""
+    return f"{_short(cfg['mcap_min'])}–{_short(cfg['mcap_max'])}"
+
+
+def _source_sold(sig, d, net):
+    """The source's sale of the token after its signal (Net.source_sold; for a wallet also the PumpPortal trades
+    gathered for check c), None when none is seen or it cannot be read (an unknown sale is not a block)."""
+    since = int(sig.get("sig_ts") or 0)
+    if sig.get("kind") in sources.WALLET_KINDS:
+        for t in d.get("trades") or []:
+            if t.get("wallet") == sig.get("source_id") and t.get("side") == "sell" and (t.get("ts") or 0) >= since:
+                return {"ts": int(t["ts"]), "via": "PumpPortal"}
+    try:
+        return net.source_sold(sig, since)
+    except Exception:  # noqa: BLE001 - a fake / broken read: no sale seen
+        return None
+
+
 def entry_usd(sig, sol_usd):
     """The wallet's entry in USD per token: the signal's own (entry_px), else the swap's SOL per token x SOL price."""
     if sig.get("entry_px"):
@@ -681,10 +758,16 @@ def check_price(sig, d, net, now, size_sol, cfg=CFG):
         return _res("price", "fail", "cijena: nema živog DexScreener para s likvidnošću (uzimaju se bondani)", {}, {}, ms)
     from trade import cost as tcost
     from ui import kandidati
+    from . import estimate
     sol = net.sol_usd()
     ent, ent_src = entry_usd(sig, sol)
     late = max(0, int(now - (sig.get("sig_ts") or now)))
     chase = (m["price"] / ent - 1) if ent else None
+    if chase is None and sig.get("entry_mcap") and m.get("mcap"):   # a call / convergence: its market cap (same supply)
+        chase = float(m["mcap"]) / float(sig["entry_mcap"]) - 1
+        ent, ent_src = m["price"] / (1 + chase), "MC u trenutku signala"
+    sold = _source_sold(sig, d, net)
+    lag = estimate.lag(chase, sold, sig.get("kind"))
     stake = (size_sol or 0) * (sol or 0)
     slip = tcost.impact(stake, m["liq"]) if stake else None
     ru = kandidati.runup({"mcap": m.get("mcap"), "ch_h1": (m["w"].get("h1") or {}).get("ch"),
@@ -700,25 +783,35 @@ def check_price(sig, d, net, now, size_sol, cfg=CFG):
          "cost_pct": round(cost * 100, 2) if cost is not None else None, "runup_x": ru.get("x"),
          "runup_from": ru.get("from"),
          "sol_usd": sol, "vol_h1": (m["w"].get("h1") or {}).get("vol"), "tags": tags,
-         "dex": m.get("dex"), "symbol": m.get("symbol")}
-    thr = {"mcap_min": cfg["mcap_min"], "liq_min": cfg["liq_min"], "liq_mcap_min": cfg["liq_mcap_min"],
-           "chase_max_pct": cfg["chase_max"] * 100, "late_max_s": cfg["late_max_s"], "runup_max_x": cfg["runup_max_x"]}
+         "dex": m.get("dex"), "symbol": m.get("symbol"), "band": "in", "lag_txt": lag["txt"], "src_sold": sold}
+    thr = {"mcap_min": cfg["mcap_min"], "mcap_max": cfg["mcap_max"], "liq_min": cfg["liq_min"],
+           "liq_mcap_min": cfg["liq_mcap_min"], "chase_max_pct": cfg["chase_max"] * 100, "late_max_s": cfg["late_max_s"],
+           "runup_max_x": cfg["runup_max_x"]}
     mc, liq = m.get("mcap") or 0, m["liq"]
+    who = "kupnje novčanika" if sig.get("kind") in sources.WALLET_KINDS else (
+        "poziva" if sig.get("kind") == "influencer" else "signala")
     why = None
-    if mc < cfg["mcap_min"]:
-        why = f"cijena: MC ${mc:,.0f} < $30k (ispod 30k se ne analizira)"
+    if mc < cfg["mcap_min"] or mc > cfg["mcap_max"]:   # 11.11. (Jure): out of our band, the first reason
+        v["band"] = "out"
+        why = f"cijena: MC {usd(mc)} izvan raspona ({band_text(cfg)})" + (
+            "; ispod 30k se ne analizira" if mc < 30_000 else "")
     elif liq < cfg["liq_min"]:
         why = f"cijena: likvidnost ${liq:,.0f} < ${cfg['liq_min']:,.0f}"
     elif liq > mc:
         why = f"cijena: lažni pool (likvidnost ${liq:,.0f} > MC ${mc:,.0f})"
+    elif sold:   # 11.11. (Jure, DOPE): under his entry after his sale is him leaving, not a cheaper entry
+        frm = f"; cijena {chase * 100:+.1f} % od {who}".replace(".", ",") if chase is not None else ""
+        why = (f"cijena: izvor izlazi (prodaja viđena {max(0, int((sold.get('ts') or now) - (sig.get('sig_ts') or now)))}"
+               f" s nakon signala, {sold.get('via')}{frm})")
     elif chase is not None and chase > cfg["chase_max"]:
-        why = f"cijena: {chase * 100:+.0f} % od kupnje novčanika > +{cfg['chase_max'] * 100:.0f} %"
+        why = f"cijena: {chase * 100:+.0f} % od {who} > +{cfg['chase_max'] * 100:.0f} %"
     elif chase is None and late > cfg["late_max_s"]:
         why = f"cijena: {late // 60} min nakon signala (ulazna cijena nepoznata) > {cfg['late_max_s'] // 60} min"
     ms += (time.time() - t0) * 1000
     if why:
         return _res("price", "fail", why, v, thr, ms)
-    frm = f"{chase * 100:+.1f} % od kupnje novčanika".replace(".", ",") if chase is not None else "ulaz novčanika nepoznat"
+    frm = (f"{chase * 100:+.1f} % od {who} ({lag['txt']})".replace(".", ",") if chase is not None
+           else f"ulaz {who} nepoznat")
     tg = ""
     if "runup" in tags:
         tg += f"; oznaka: već {ru['x']:.1f}x od prvog poziva (P × 0,7, ulog × 0,5)".replace(".", ",", 1)

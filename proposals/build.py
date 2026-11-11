@@ -1,4 +1,5 @@
-"""Merge and rank: ONE row per token over the seven proposal sources (proposals/strategies.py), built on
+"""Merge and rank: ONE row per token over the proposal sources (proposals/strategies.py; 11.11. also "fast", the fast
+path's KUPI decisions, fast/live.kupi_rows), built on
 ui/kandidati.build (the same sources, market, rug view, run-up, crew counting and keyed blocks; no second scoring
 system). Read-only on every database; proposals/job.py writes the result into proposals.db.
 
@@ -117,6 +118,8 @@ def independent(evs, member_of=None):
         if k == "group" and infl and v.get("crew_handles") and not v["detail"].get("hidden_group") \
                 and not v["detail"].get("pre_shill") and {str(h).lower() for h in v["crew_handles"]} <= infl:
             continue   # the same callers as the influencer source: not a second, independent source
+        if k == "fast" and infl and str((v.get("detail") or {}).get("source_id") or "").lower().lstrip("@") in infl:
+            continue   # 11.11.: the fast check of a call the influencer source already counts
         n += 1
     return max(1, n) if evs else 0
 
@@ -331,6 +334,11 @@ class Sources(kandidati.Sources):
         finally:
             con.close()
 
+    def fast_rows(self, now):
+        """11.11. (fast/live): {token: the best KUPI fast_check of the last 15 min}; {} without fast.db."""
+        from fast import live
+        return live.kupi_rows(now)
+
     def bench(self, handles):
         """{handle: {"n", "hits", "sl_first", "ev_pct"}} of the callers' cached quick-exit benchmark."""
         from . import store
@@ -414,6 +422,7 @@ def detect(r, ctx, now):
     put(strategies.catalyst_ev(ctx["catalysts"].get(tok), ctx["zones"].get(tok), mcap, ctx["records"].get("catalyst"),
                                now))
     put(strategies.grok_ev(ctx["grok"].get(tok), mcap, ctx["calib"], now))
+    put(strategies.fast_ev((ctx.get("fast") or {}).get(tok), mcap, now))
     return out
 
 
@@ -588,13 +597,17 @@ def build(now=None, src=None):
     evr = {r["token"]: r for r in safe("event", lambda: S.event_rows(now), [])}
     cat = {r["token"]: r for r in safe("catalyst", lambda: S.catalyst_rows(now), [])}
     gps = safe("grok", lambda: S.grok_proposals(now), {}) or {}
+    # 11.11. (fast/live): the fast path's KUPI decisions (a source without the reader, e.g. a test double: none)
+    fst = safe("fast", lambda: getattr(S, "fast_rows", lambda _n: {})(now), {}) or {}
     extra = ([{"token": t, "kind": "range", "symbol": r.get("symbol"), "ts": r.get("computed_ts") or now,
                "mcap": ((r.get("now") or {}).get("market_cap_usd"))} for t, r in rcs.items()]
              + [{"token": t, "kind": "event", "symbol": r.get("symbol"), "ts": now, "mcap": r.get("mcap")}
                 for t, r in evr.items()]
              + [{"token": t, "kind": "catalyst", "symbol": r.get("symbol"), "ts": r.get("ts") or now,
                  "mcap": r.get("mcap")} for t, r in cat.items()]
-             + [{"token": t, "kind": "grok", "ts": g.get("ts")} for t, g in gps.items()])
+             + [{"token": t, "kind": "grok", "ts": g.get("ts")} for t, g in gps.items()]
+             + [{"token": t, "kind": "fast", "symbol": f.get("symbol"), "ts": f.get("sig_ts") or f.get("decided_ts"),
+                 "mcap": f.get("mcap0")} for t, f in fst.items()])
     krows, kmeta = kandidati.build(now, S, details=False, extra=extra, raw=True)
     failed += kmeta.get("sources_failed") or []
     recs = dict(kmeta.get("records") or {})
@@ -606,7 +619,7 @@ def build(now=None, src=None):
     recs["catalyst"] = safe("catalyst_record", lambda: S.catalyst_record(now), None) if cat else None
     handles = {c.get("who") for r in krows for c in ((r.get("sources") or {}).get("caller") or {}).get("callers") or []}
     toks = [r["token"] for r in krows]
-    ctx = {"ranges": rcs, "events": evr, "catalysts": cat, "grok": gps, "records": recs,
+    ctx = {"ranges": rcs, "events": evr, "catalysts": cat, "grok": gps, "records": recs, "fast": fst,
            "zones": safe("range_zones", lambda: S.range_zones(sorted(cat)), {}) if cat else {},
            "bench": safe("bench", lambda: S.bench(handles), {}) if handles else {},
            "firsts": safe("first_calls", lambda: S.first_calls(toks, now), {}) if toks else {},

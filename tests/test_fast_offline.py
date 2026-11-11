@@ -272,7 +272,8 @@ class HodlReplay(Env):
         self.assertEqual({k: v["status"] for k, v in res.items()}, {k: "ok" for k in res})
         self.assertEqual(r["decision"], "BUY_PAPER")
         self.assertEqual(r["size_sol"], 0.05)
-        self.assertIn("zatvorenih 1 od 10", r["reason"])
+        self.assertIn("procjena, n izvora < 10", r["reason"])        # 1 closed: P leans on the prior (11.11.)
+        self.assertEqual(r["checks"]["label"], "KUPI (paper)")
         self.assertEqual(r["quality"]["closed"], 1)
         self.assertFalse(r["quality"]["proof"])
         self.assertAlmostEqual(res["price"]["values"]["from_entry_pct"], 1.3, places=1)   # 1.52e-5 vs 1e-7 x 150
@@ -422,8 +423,11 @@ class Decide(unittest.TestCase):
         self.assertEqual(decide.decide(checks_ok(), q)["decision"], "SKIP")   # proven but EV <= 0
         q = {"kind": "wallet_follow", "hits": 0, "n": 1, "closed": 1, "proof": False}
         d = decide.decide(checks_ok(22_000), q)
-        self.assertEqual((d["decision"], d["size_sol"]), ("BUY_PAPER", decide.PAPER_SOL))   # collecting, EV < 0 too
+        # 11.11. (the owner's consolidated rule, Jure "KUPI kad je EV > 0"): a source still collecting rides on its
+        # strategy's prior; EV <= 0 is a PRESKOČI, no longer a paper buy whatever the EV
+        self.assertEqual((d["decision"], d["label"]), ("SKIP", "PRESKOČI"))
         self.assertLess(d["ev_pct"], 0)
+        self.assertIn("procjena, n izvora < 10", d["reason"])
         q = {"kind": "wallet_follow", "hits": 2, "n": 14, "closed": 14, "proof": False, "proof_why": "x"}
         self.assertEqual(decide.decide(checks_ok(), q)["decision"], "SKIP")   # measured, unproven, EV <= 0
 

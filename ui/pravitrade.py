@@ -1953,10 +1953,12 @@ def ideas_inner(cfg, owner, now=None, force=False):
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
             why = r.get("why_not") or r.get("tag") or (r.get("reasons") or [""])[0]   # 11.11.: "kasno ..." is a tag
+            fz = r.get("fast") or {}   # 11.11. (fast/live): the row's fast_check (a PRESKOČI is already why_not)
+            fline = "" if not fz or fz.get("decision") == "SKIP" else _fast_short(fz)
             # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
             # as the one number and the price moves under it; a tap opens the live pop-up as before
             out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],
-                             reason=" · ".join(x for x in (r.get("src") or "", why) if x),
+                             reason=" · ".join(x for x in (r.get("src") or "", why, fline) if x),
                              value=redak.usd(m.get("mcap")), sub=f"5 min {ch5} · 1 h {ch1}"))
         html = "".join(out)
     with _LOCK:   # the same HTML for both viewer kinds (one computation in the background thread serves both)
@@ -2505,6 +2507,27 @@ def _fast_skip(mint, t, now):
     try:
         from fast import view
         return view.skip_block(mint, int(t), esc, now)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_short(v):
+    """One line of a live row's fast_check verdict (fast/live.short); '' without fast/."""
+    try:
+        from fast import live as flive
+        return flive.short(v)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip_block(now, owner):
+    """11.11. (Jure: PRESKOČI -> "Preskočeno" s razlogom): the fast_check skips of the last 24 h with their numbers
+    and what happened after (fast.db outcomes: propušteno = +20 % within 60 min), owner only; '' without fast.db."""
+    if not owner:
+        return ""
+    try:
+        from fast import live as flive
+        return flive.skip_html(flive.skip_rows(now), esc, now)
     except Exception:  # noqa: BLE001
         return ""
 
@@ -3844,6 +3867,9 @@ def skip_box(tcon, cfg, now=None, owner=True):
         paths = _skip_paths([(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows])
         tp_cfg = int(cfg.get("tp_default") or 15)
         html = {o: _skip_html(rows, paths, now, o, tp_cfg) for o in (True, False)}
+    fsk = _fast_skip_block(now, True)   # 11.11.: the fast_check skips, the owner's copy only
+    if fsk:
+        html = {True: html[True] + fsk, False: html[False]}
     with _LOCK:
         _SK.update(ts=now, key=settings.DB, html=html, rows=rows or [])   # rows: the pop-up of one skip reads them
     return html[bool(owner)]
