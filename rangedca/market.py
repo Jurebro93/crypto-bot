@@ -56,8 +56,8 @@ HOT_N = int(os.environ.get("RANGE_MKT_HOT_N", "100"))
 HOT_EVERY_S = 300
 COLD_EVERY_S = 900
 SLACK_S = 30              # the pass runs every 60 s: a token due within 30 s is taken now
-DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "3000"))
-DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "600"))   # of DEX_DAY at most this for discovery (the rest refreshes)
+DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "4000"))
+DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "1500"))   # of DEX_DAY at most this for discovery (the rest refreshes)
 LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "300"))
 GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "130"))
 # 11.11. (Jure: "watchlist 300+", faza 1): after 40 min the list held 8 market tokens: PumpPortal migrations mostly die
@@ -71,11 +71,14 @@ KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "5000"))
 KEEP_LIQ = float(os.environ.get("RANGE_MKT_KEEP_LIQ", "15000"))
 BIRDEYE_DAY = int(os.environ.get("RANGE_MKT_BIRDEYE_DAY", "24"))
 SEED_DAY = int(os.environ.get("RANGE_MKT_SEED_DAY", "20"))   # GeckoTerminal seeds of market / event tokens (in GT_DAY 60)
-MAX_REQ_PASS = 20         # DexScreener /tokens requests in one pass (refresh + discovery)
-DISC_REQ_PASS = 3         # of them at most this many for discovery
+MAX_REQ_PASS = 30         # DexScreener /tokens requests in one pass (refresh + discovery)
+# 11.11. 09:48 (faza 1, dijagnostika): 4,627 in the universe, 2,748 due for a check, 10 watched: 3 requests a pass
+# (90 tokens) could not clear the backlog of PumpPortal migrations; DexScreener is free (300 a minute)
+DISC_REQ_PASS = int(os.environ.get("RANGE_MKT_DISC_PASS", "10"))   # of them at most this many for discovery
 LISTS_EVERY_S = 900
 GT_EVERY_S = 7200
 BIRD_EVERY_S = 7200
+NO_PRICE_WAIT_S = 3 * 86400   # 11.11.: 1,244 dead migrations were asked again every 6 h
 KEEP_SNAPS_DAYS = 3       # snapshots of market-only tokens (7 for the signal pass)
 MIN_ANALYSED = data.MIN_MCAP   # 30k (CLAUDE.md)
 WATCH_FLAG = {"market": "range_market", "event": "event_tokens"}   # never live: trade/settings.NEVER_LIVE
@@ -199,7 +202,7 @@ def check(s, created_ts, src, now, keep=False):
     """(ok, why, wait_s) of one snapshot (data.snap_of shape) against the filter of its source. keep: a token already
     watched stays with the softer KEEP_VOL_H1 / KEEP_LIQ (11.11.: one quiet hour dropped it at once)."""
     if not s or not s.get("price"):
-        return False, "nema cijene na DexScreeneru", 6 * 3600
+        return False, "nema cijene na DexScreeneru", NO_PRICE_WAIT_S
     if not s.get("bonded"):
         return False, "još na krivulji (uzimaju se bondani)", 6 * 3600
     mc = s.get("mcap") or 0
@@ -396,14 +399,20 @@ def discover_lists(con, now, net, log):
             pools = net.gt_pools(n_req)
         except TypeError:   # an injected net without the n_req argument (tests of the first version)
             pools = net.gt_pools()
+        got = ok_n = new_n = 0
         for p in pools or []:
             g = gt_row(p) if isinstance(p, dict) else None
             if not g:
                 continue
+            got += 1
             tok, sym, created, s = g
             ok, why, wait = check(s, created, "market", now)
-            n += add(con, tok, "gt", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
-                     nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]})
+            ok_n += int(ok)
+            k = add(con, tok, "gt", now, symbol=sym, created_ts=created, due=now if ok else now + wait,
+                    nums={"mcap": s["mcap"], "liq": s["liq"], "vol_h1": s["vol_h1"]})
+            new_n += k
+            n += k
+        log(f"range tržište GT: {n_req} upita, {got} poolova, novih {new_n}, prolazi filter {ok_n}")
     if (os.environ.get("BIRDEYE_API_KEY") and now - (data.kv_get(con, "mkt_bird_ts") or 0) >= BIRD_EVERY_S
             and slice_left(con, "mkt_bird_day", BIRDEYE_DAY, now) >= 1):
         data.kv_put(con, "mkt_bird_ts", int(now))
