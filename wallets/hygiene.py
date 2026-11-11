@@ -12,7 +12,7 @@ Tier S does not protect it: tier S is a profitable bot or sniper (wallets/pnl.ti
 ONLY REMOVES. screen() returns each given list minus the dropped wallets, in the same order, and never adds a wallet,
 so it is applied directly, without a flag, where copy candidates are chosen:
   ui/autopilot.auto_targets     the wallet auto pick (proven twice + the 7/14/30-day list)
-  kol/chainwatch.wanted         the Helius webhook's own-registry groups: copy (copy_score), signal (tier S) and the
+  kol/chainwatch.wanted         the Helius webhook's own-registry groups: copy (wallets/rang), signal (tier S) and the
                                 proven-twice wallets (wallets/dokazani.current); the wallets a player follows and the
                                 public leaderboard / insider groups are not screened here
 Unknown is kept: a wallet without a wallets.db row, without stats or without any known trade time is not dropped for

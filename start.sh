@@ -138,6 +138,8 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
     # 9.11. (Jure): 1000 novčanika / 12.000 kredita svaka 3 h davalo je 9 profitabilnih od 100 bodovanih; pola toga
     python3 -m ops.heavy --night run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-6000}" --max "${WALLETS_RUN_MAX:-500}" >/dev/null || echo "wallets score nije uspio"
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"   # 9.11.: proven-twice list
+    # 11.11. (Jure): rang za kopiranje (wallets/rang.py, DB reads only); the first run logs "prije ... / poslije ..."
+    python3 -m ops.heavy run_wallets.py rang || echo "wallets rang nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))   # 7.11. (Jure): fresher copy list; the credit share cap still holds
   done
@@ -150,6 +152,7 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
   sleep 1200
   while true; do
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"
+    python3 -m ops.heavy run_wallets.py rang || echo "wallets rang nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done

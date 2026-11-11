@@ -793,8 +793,10 @@ TOOLS += [
     {"name": "get_wallet_leaderboard", "annotations": _READ,
      "description": ("Tracked wallets: realized / unrealized PnL (SOL), win rate, median hold time, style, tier, scores and "
                      "the linked influencer handle when known (an influencer wallet not scored yet carries its linked "
-                     "caller's call_power, score_source linked_kol_call_power). kind: influencer (a known influencer's "
-                     "wallet) or smart (tier S/A/B)." + _PAGED),
+                     "caller's call_power, score_source linked_kol_call_power). copy_score: the copy ranking 0-100 "
+                     "(30 days, closed positions: Wilson win rate, median return, profit factor, copyability, recency; "
+                     "no absolute SOL PnL), copy_proven = 10+ closed tokens, copy_copyable = median entry liquidity "
+                     "15k+. kind: influencer (a known influencer's wallet) or smart (tier S/A/B)." + _PAGED),
      "inputSchema": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["influencer", "smart"]}, **_PAGE}}},
     {"name": "get_wallet_history", "annotations": _READ,
      "description": ("One wallet's buys and sells, newest first: token, ts, side, SOL size, token amount, market cap in "

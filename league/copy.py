@@ -1248,6 +1248,25 @@ def run_once(con, market_fn=None, now=None, paths=None):
     return done
 
 
+def _rang_gate(f):
+    """11.11. (Jure, wallets/rang.py "Za kopiranje"): the real-money account (trade.settings.LEAGUE_USER) does not
+    copy a wallet or an influencer the copy ranking marks "nije kopirljivo" (median pool liquidity at its entries under
+    15k, or unknown) or that has fewer than rang.MIN_N closed tokens / calls in 30 days. The paper account and the
+    players are not gated (demo copies keep collecting n under the existing rules); crews ('ekipa') neither. The reason
+    in Croatian, or None. No ranking yet (fresh deploy): None, nothing blocked. Cached reads (wallets.db copy_rank)."""
+    if f["kind"] not in ("wallet", "kol"):
+        return None
+    au, _ts = _autopilot_user()
+    if au is None or f["user"] != au:
+        return None
+    try:
+        from wallets import rang
+        ok, why = rang.gate(f["kind"], f["target"])
+    except Exception:  # noqa: BLE001 - an unreadable ranking never blocks and never crashes the copy pass
+        return None
+    return f"rang za kopiranje: {why}" if ok is False else None
+
+
 def _enter(con, auto, mk, todo, now, paths=None):
     """The second half of run_once: sells and gated buys for the candidates in todo. Returns [(user, text)]."""
     done = []
@@ -1306,6 +1325,8 @@ def _enter(con, auto, mk, todo, now, paths=None):
             why = "velik token (preko $50M), to nije poziv na memecoin"
         elif mcap and liq and liq > mcap:
             why = "lažni pool (likvidnost veća od market capa), tipičan rug"
+        elif (gw := _rang_gate(f)):
+            why = gw   # 11.11. (Jure, wallets/rang.py): real money never copies "nije kopirljivo" or n < 10
         elif _today(con, f["id"], now) >= f["per_day"]:
             why = f"već {f['per_day']} ulaza danas (tvoj limit)"
         elif con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (f["user"], tok)).fetchone():

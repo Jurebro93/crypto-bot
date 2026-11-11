@@ -343,14 +343,35 @@ def smart_wallets():
 
 # ---------- wallets ----------
 
+def copy_rank(kind="wallet"):
+    """11.11. (Jure): {target: row} of the copy ranking (wallets/rang.py, wallets.db copy_rank; cached 60 s, {} before
+    the first run)."""
+    try:
+        from wallets import rang
+        return rang.load(kind, WALLET_DB)
+    except Exception:  # noqa: BLE001 - the pages stand without the ranking
+        return {}
+
+
+def _with_rank(r, rank):
+    r["stats"] = js(r["stats"], {}) or {}
+    r["labels"] = js(r["labels"], []) or []
+    r["sources"] = js(r["sources"], {}) or {}
+    r["rang"] = rank.get(r["wallet"])
+    r["ocjena"] = (r["rang"] or {}).get("score")   # 11.11.: the copy ranking's Ocjena replaces copy_score on the pages
+    return r
+
+
 def wallets(scored_only=True):
+    """Every (scored) wallet with its copy ranking row attached (rang, ocjena), best Ocjena first (11.11.: was
+    copy_score), then the profitability score and the queue priority."""
     where = "stats IS NOT NULL" if scored_only else "1=1"
-    rows = multi("wallets", f"SELECT * FROM wallets WHERE {where} ORDER BY COALESCE(copy_score,-1) DESC, "
-                 f"COALESCE(score,-1) DESC, priority DESC", key=lambda r: r["wallet"])
+    rows = multi("wallets", f"SELECT * FROM wallets WHERE {where} ORDER BY COALESCE(score,-1) DESC, priority DESC",
+                 key=lambda r: r["wallet"])
+    rank = copy_rank("wallet")
     for r in rows:
-        r["stats"] = js(r["stats"], {}) or {}
-        r["labels"] = js(r["labels"], []) or []
-        r["sources"] = js(r["sources"], {}) or {}
+        _with_rank(r, rank)
+    rows.sort(key=lambda r: -(r["ocjena"] if r["ocjena"] is not None else -1))   # stable: score, priority after it
     return rows
 
 
@@ -358,11 +379,7 @@ def wallet(addr):
     rows = multi("wallets", "SELECT * FROM wallets WHERE wallet=?", (addr,))
     if not rows:
         return None
-    r = rows[0]
-    r["stats"] = js(r["stats"], {}) or {}
-    r["labels"] = js(r["labels"], []) or []
-    r["sources"] = js(r["sources"], {}) or {}
-    return r
+    return _with_rank(rows[0], copy_rank("wallet"))
 
 
 def sightings(wallet=None, token=None):
