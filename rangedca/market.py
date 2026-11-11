@@ -59,13 +59,22 @@ SLACK_S = 30              # the pass runs every 60 s: a token due within 30 s is
 DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "3000"))
 DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "600"))   # of DEX_DAY at most this for discovery (the rest refreshes)
 LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "300"))
-GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "48"))
+GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "130"))
+# 11.11. (Jure: "watchlist 300+", faza 1): after 40 min the list held 8 market tokens: PumpPortal migrations mostly die
+# under 50k and one page of GeckoTerminal's top pools (20) an hour found almost nothing else. Now GT_TOP_PAGES pages of
+# the top pools by 24 h volume + GT_TREND_PAGES of trending (1 h and 6 h) every GT_EVERY_S: 20 pools a request, their
+# numbers admit a pool without a DexScreener request. ~10 requests every 2 h = ~120 a day of the shared 3000.
+GT_TOP_PAGES = int(os.environ.get("RANGE_MKT_GT_PAGES", "6"))
+GT_TREND_PAGES = int(os.environ.get("RANGE_MKT_GT_TREND_PAGES", "2"))
+# a watched token stays while it keeps these (admission needs MIN_VOL_H1 / MIN_LIQ): one quiet hour no longer drops it
+KEEP_VOL_H1 = float(os.environ.get("RANGE_MKT_KEEP_VOL_H1", "5000"))
+KEEP_LIQ = float(os.environ.get("RANGE_MKT_KEEP_LIQ", "15000"))
 BIRDEYE_DAY = int(os.environ.get("RANGE_MKT_BIRDEYE_DAY", "24"))
 SEED_DAY = int(os.environ.get("RANGE_MKT_SEED_DAY", "20"))   # GeckoTerminal seeds of market / event tokens (in GT_DAY 60)
 MAX_REQ_PASS = 20         # DexScreener /tokens requests in one pass (refresh + discovery)
 DISC_REQ_PASS = 3         # of them at most this many for discovery
 LISTS_EVERY_S = 900
-GT_EVERY_S = 3600
+GT_EVERY_S = 7200
 BIRD_EVERY_S = 7200
 KEEP_SNAPS_DAYS = 3       # snapshots of market-only tokens (7 for the signal pass)
 MIN_ANALYSED = data.MIN_MCAP   # 30k (CLAUDE.md)
@@ -109,11 +118,13 @@ class Net:
                 pass
         return out
 
-    def gt_pools(self):
+    def gt_pools(self, n_req=None):
+        """Trending (1 h, 6 h) and the top pools by 24 h volume, page by page, at most n_req requests."""
         from event_calendar import http
         out = []
-        for path, params in (("/trending_pools", {"page": 1, "duration": "1h"}),
-                             ("/pools", {"page": 1, "sort": "h24_volume_usd_desc"})):
+        reqs = [("/trending_pools", {"page": pg, "duration": d}) for d in ("1h", "6h") for pg in range(1, GT_TREND_PAGES + 1)]
+        reqs += [("/pools", {"page": pg, "sort": "h24_volume_usd_desc"}) for pg in range(1, GT_TOP_PAGES + 1)]
+        for path, params in reqs[:n_req if n_req is not None else len(reqs)]:
             try:
                 d = http.get_json(f"{GT}{path}", params, ttl=600, headers={"Accept": "application/json"}, retries=1)
                 out += list((d or {}).get("data") or [])
@@ -184,8 +195,9 @@ def spend_line(con, now, log=print):
 
 # ---------- filters -------------------------------------------------------------------------------------------------------
 
-def check(s, created_ts, src, now):
-    """(ok, why, wait_s) of one snapshot (data.snap_of shape) against the filter of its source."""
+def check(s, created_ts, src, now, keep=False):
+    """(ok, why, wait_s) of one snapshot (data.snap_of shape) against the filter of its source. keep: a token already
+    watched stays with the softer KEEP_VOL_H1 / KEEP_LIQ (11.11.: one quiet hour dropped it at once)."""
     if not s or not s.get("price"):
         return False, "nema cijene na DexScreeneru", 6 * 3600
     if not s.get("bonded"):
@@ -199,9 +211,9 @@ def check(s, created_ts, src, now):
         return False, f"MC ${mc:,.0f} ispod ${MIN_MCAP:,.0f}", 2 * 3600
     if mc > MAX_MCAP:
         return False, f"MC ${mc:,.0f} iznad ${MAX_MCAP:,.0f}", 86400
-    if (s.get("liq") or 0) < MIN_LIQ:
+    if (s.get("liq") or 0) < (KEEP_LIQ if keep else MIN_LIQ):
         return False, f"likvidnost ${s.get('liq') or 0:,.0f}", 2 * 3600
-    if (s.get("vol_h1") or 0) < MIN_VOL_H1:
+    if (s.get("vol_h1") or 0) < (KEEP_VOL_H1 if keep else MIN_VOL_H1):
         return False, f"volumen 1 h ${s.get('vol_h1') or 0:,.0f}", 3600
     if created_ts and now - created_ts < MIN_AGE_H * 3600:
         return False, f"mlađi od {MIN_AGE_H:g} h", int(created_ts + MIN_AGE_H * 3600 - now) + 60
@@ -358,6 +370,11 @@ def gt_row(p):
     return tok, (a.get("name") or "").split(" / ")[0][:20] or None, created, s
 
 
+def gt_requests():
+    """GeckoTerminal requests of one discovery round (trending 1 h + 6 h pages, top-volume pages)."""
+    return 2 * GT_TREND_PAGES + GT_TOP_PAGES
+
+
 def discover_lists(con, now, net, log):
     """DexScreener lists, GeckoTerminal pools and Birdeye's list, each on its own cadence and day cap."""
     n = 0
@@ -368,11 +385,18 @@ def discover_lists(con, now, net, log):
         for it in net.lists() or []:
             if isinstance(it, dict) and it.get("chainId") == "solana" and it.get("tokenAddress"):
                 n += add(con, it["tokenAddress"], "dex_liste", now)
-    if now - (data.kv_get(con, "mkt_gt_ts") or 0) >= GT_EVERY_S and slice_left(con, "mkt_gt_day", GT_DAY, now) >= 2:
+    gt_req = gt_requests()
+    left = slice_left(con, "mkt_gt_day", GT_DAY, now)
+    if now - (data.kv_get(con, "mkt_gt_ts") or 0) >= GT_EVERY_S and left >= 2:
+        n_req = min(gt_req, left)
         data.kv_put(con, "mkt_gt_ts", int(now))
-        data.day_add(con, "mkt_gt_day", 2, now)
-        _meter("coingecko", "range tržište", 2)
-        for p in net.gt_pools() or []:
+        data.day_add(con, "mkt_gt_day", n_req, now)
+        _meter("coingecko", "range tržište", n_req)
+        try:
+            pools = net.gt_pools(n_req)
+        except TypeError:   # an injected net without the n_req argument (tests of the first version)
+            pools = net.gt_pools()
+        for p in pools or []:
             g = gt_row(p) if isinstance(p, dict) else None
             if not g:
                 continue
@@ -416,9 +440,10 @@ def watched(con):
     return [r[0] for r in con.execute("SELECT token FROM mkt WHERE watched=1")]
 
 
-def _store(con, tok, s, now, src, created_ts, keep):
-    """Store a fresh snapshot of a watched / candidate token; returns (ok, why, wait)."""
-    ok, why, wait = check(s, created_ts, src, now)
+def _store(con, tok, s, now, src, created_ts, keep, watched=False):
+    """Store a fresh snapshot of a watched / candidate token; returns (ok, why, wait). watched: the softer keep
+    thresholds of check()."""
+    ok, why, wait = check(s, created_ts, src, now, keep=watched)
     if s and s.get("price") and s.get("bonded") and (s.get("mcap") or 0) >= MIN_ANALYSED:
         data.save_snap(con, tok, s)
     if keep:
@@ -503,7 +528,7 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
             p = best.get(t)
             s = data.snap_of(p, now) if p else None
             src = srcs.get(t, "market")
-            ok, why, wait = _store(con, t, s, now, src, made.get(t), t in open_toks)
+            ok, why, wait = _store(con, t, s, now, src, made.get(t), t in open_toks, watched=True)
             if made.get(t):
                 con.execute("UPDATE mkt SET created_ts=? WHERE token=?", (made[t], t))
             stats["refreshed"] += int(bool(s))
@@ -552,12 +577,38 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
                 n_w += 1
                 stats["admitted"] += 1
     con.commit()
+    universe_line(con, now, log)
     rows = con.execute("SELECT token, src, vol_h1 FROM mkt WHERE watched=1").fetchall()
     ordered = order(rows, near, open_toks)[:MARKET_MAX]
     stats["watched"] = len(ordered)
     stats["events"] = sum(1 for _t, s, _v in ordered if s == "event")
     return {"tokens": [t for t, _s, _v in ordered], "src": {t: s for t, s, _v in ordered}, "stats": stats,
             "event_tokens": ev}
+
+
+def universe_line(con, now, log=print, every_s=3600):
+    """Once an hour (11.11., faza 1: why the list stays short): the universe by source, watched / waiting, and the
+    commonest reasons a token is not watched."""
+    if now - (data.kv_get(con, "mkt_uni_log") or 0) < every_s:
+        return None
+    data.kv_put(con, "mkt_uni_log", int(now))
+    vias = {}
+    for via, n in con.execute("SELECT via, COUNT(*) FROM mkt GROUP BY via"):
+        for v in (via or "?").split(","):
+            vias[v] = vias.get(v, 0) + n
+    w = con.execute("SELECT COUNT(*) FROM mkt WHERE watched=1").fetchone()[0]
+    due = con.execute("SELECT COUNT(*) FROM mkt WHERE watched=0 AND next_ts <= ?", (int(now),)).fetchone()[0]
+    wait = con.execute("SELECT COUNT(*) FROM mkt WHERE watched=0 AND next_ts > ?", (int(now),)).fetchone()[0]
+    whys = {}
+    for why, n in con.execute("SELECT why, COUNT(*) FROM mkt WHERE watched=0 AND why IS NOT NULL GROUP BY why"):
+        k = (why or "").split(" $")[0].split(" (")[0]
+        whys[k] = whys.get(k, 0) + n
+    top = ", ".join(f"{k} {n}" for k, n in sorted(whys.items(), key=lambda kv: -kv[1])[:6])
+    text = (f"range tržište svemir: {sum(1 for _ in con.execute('SELECT 1 FROM mkt'))} tokena "
+            f"({', '.join(f'{k} {n}' for k, n in sorted(vias.items(), key=lambda kv: -kv[1]))}); prati {w}, čeka provjeru "
+            f"{due}, odgođeno {wait}; razlozi: {top or '-'}")
+    log(text)
+    return text
 
 
 def prune(con, now, keep_tokens=()):

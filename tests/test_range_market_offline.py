@@ -165,7 +165,8 @@ class Budget(RDB):
         line = [x for x in logs if x.startswith("range watchlist trošak")]
         self.assertEqual(len(line), 1, logs)
         self.assertIn(time.strftime("%Y-%m-%d", time.gmtime(now)), line[0])
-        for part in ("dexscreener 1/1", "dexscreener liste 3/300", "gt 2/48", "birdeye 0/24 (bez ključa)"):
+        gt = f"gt {market.gt_requests()}/{market.GT_DAY}"   # 11.11.: GT_TOP_PAGES + 2 x GT_TREND_PAGES a round
+        for part in ("dexscreener 1/1", "dexscreener liste 3/300", gt, "birdeye 0/24 (bez ključa)"):
             self.assertIn(part, line[0])
         logs.clear()
         with mock.patch.object(market, "DEX_DAY", 1):
@@ -377,3 +378,20 @@ class FlagsNeverLive(TradeBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Faza1(unittest.TestCase):
+    """11.11. (faza 1, watchlist 300+): more GT pages a round, softer keep thresholds, the hourly universe line."""
+
+    def test_keep_thresholds_are_softer_than_admission(self):
+        now = 1794346000
+        s = {"price": 1.0, "bonded": True, "mcap": 200_000, "liq": 18_000, "vol_h1": 7_000}
+        self.assertFalse(market.check(s, now - 86400, "market", now)[0])            # not admitted at 18k / 7k
+        self.assertTrue(market.check(s, now - 86400, "market", now, keep=True)[0])  # but a watched one stays
+        s2 = dict(s, vol_h1=4_000)
+        self.assertFalse(market.check(s2, now - 86400, "market", now, keep=True)[0])
+
+    def test_gt_round_asks_every_page_within_the_day_cap(self):
+        self.assertEqual(market.gt_requests(), 2 * market.GT_TREND_PAGES + market.GT_TOP_PAGES)
+        self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)
+
