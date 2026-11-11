@@ -61,6 +61,9 @@ CANDLE_KEEP = 6          # token series kept in memory (RAM: ~1-2 MB at most)
 WANT_TTL_S = 30          # a token a viewer looks at stays in the shared tick this long after the last ask
 WANT_MAX = 4             # tokens beyond the open positions in the shared tick
 HIST_PAGE = 20
+# 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): a hit rate / PnL / EV from fewer closed trades
+# (outcomes) than this is no conclusion: such rows wait in one closed "U procjeni" row, never in the main view
+N_MIN = 10
 QUICK_SOL = (0.05, 0.1, 0.15)
 SELL_FRACS = ((0.25, "25 %"), (0.5, "50 %"), (1.0, "100 %"))
 TP_CHIPS = (15, 30, 50, 100)
@@ -173,8 +176,8 @@ def ev_per_min(p):
 
 
 def empty_meta(html):
-    """True when a settings section's one-line summary says it has nothing ("0 …", "nema …", "isključen"): such a
-    section goes grey to the bottom of "Postavke i dijagnostika"."""
+    """True when a section's one-line summary says it has nothing ("0 …", "nema …", "isključen"). 11.11.: such a
+    diagnostic or data card is not rendered at all (ostalo_html, card_html); a setting keeps its row."""
     m = re.search(r'<div class="ms-s">(.*?)</div>', html or "", re.S)
     meta = re.sub(r"<[^>]+>", "", m.group(1)).strip().lower() if m else ""
     return bool(re.match(r"^(0\b|0 |nema\b|još nema|isključen|ništa|ugašen)", meta))
@@ -1049,7 +1052,7 @@ def _port_paper(tcon, cfg, days, now):
     kpi = {"value_sol": None, "value_usd": None, "free_sol": None, "pos_sol": sol(pos_usd), "pos_usd": round(pos_usd, 2),
            "pos_n": len(opens), "today_sol": sol(today), "today_usd": round(today, 2), "total_sol": sol(total),
            "total_usd": round(total, 2), "total_pct": None, "realized_usd": round(realized_all, 2),
-           "unreal_usd": round(unreal, 2), "at": int(now)}
+           "unreal_usd": round(unreal, 2), "n_closed": len(closed), "at": int(now)}
     return kpi, series, rate
 
 
@@ -1104,6 +1107,10 @@ def _kpi_cells(k, mode):
         cells.append(("Otvoreno (nerealizirano)", u(k.get("unreal_usd"), True) or "–", "po živoj cijeni", _tone(k.get("unreal_usd"))))
     cells.append(("Danas", s(k.get("today_sol"), 4, True), (u(k.get("today_usd"), True) + " · zatvoreno danas").strip(" ·"),
                   _tone(k.get("today_sol") if k.get("today_sol") is not None else k.get("today_usd"))))
+    if mode == "paper" and (k.get("n_closed") or 0) < N_MIN:   # no conclusion yet (11.11., Jure)
+        cells.append(("Ukupni PnL", s(k.get("total_sol"), 3, True), f'u procjeni: {k.get("n_closed") or 0} zatvorenih '
+                      f'(n < {N_MIN})', ""))
+        return cells
     small = redak.pct(k["total_pct"], 1) if k.get("total_pct") is not None else u(k.get("total_usd"), True)
     cells.append(("Ukupni PnL", s(k.get("total_sol"), 3, True), small,
                   _tone(k.get("total_sol") if k.get("total_sol") is not None else k.get("total_usd"))))
@@ -1474,18 +1481,26 @@ def page(qs, user, full=False):
                  f'{dn}</div><p class=ms-hint><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
                  '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p></div>')
         ek = (qs.get("ekipa") or "").strip()
-        pr_src = "/pravi-trade/l/pratimo" + (f"?ekipa={quote(ek)}" if ek else "")
-        k_in = lazy("kupiti", user, qs) if full else '<h2 data-sec="" class=apx-h2>Što kupiti</h2>' + _skel(4)
-        p_in = lazy("pratimo", user, qs) if full else '<h2 data-sec="" class=apx-h2>Koga pratimo</h2>' + _skel(4)
+        q_ek = f"?ekipa={quote(ek)}" if ek else ""
+        # skeletons without a title: a card that turns out empty never flashes its name (11.11., Jure)
+        k_in = lazy("kupiti", user, qs) if full else _skel(2)
+        p_in = lazy("pratimo", user, qs) if full else _skel(3)
         # 11.11.: a box opened before its content arrived says so at once (ap.js fetches it ahead, near the screen)
-        o_in = lazy("ostalo", user, qs) if full else '<p class="apx-mut apx-ld">Učitavam postavke i dijagnostiku…</p>' + _skel(5)
-        cards = (f'<section class="apx-card apx-lz" id=kupiti data-x-src=/pravi-trade/l/kupiti data-x-every={KUPITI_EVERY_S}>'
-                 f'{k_in}</section>'
-                 f'<section class="apx-card apx-lz" id=pratimo data-x-src="{esc(pr_src)}" data-x-every={PRATIMO_EVERY_S}>'
-                 f'{p_in}</section>')
-        ost = (f'<details class=apx-acc id=apx-ostalo{" open" if full else ""}><summary><h2 data-sec="">Postavke i dijagnostika</h2>'
-               '<span class=apx-mut>pravila, Grok, zastavice, preporuke, wallet…</span></summary>'
-               f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo>{o_in}</div></details>')
+        o_in = lazy("ostalo", user, qs) if full else '<p class="apx-mut apx-ld">Učitavam postavke…</p>' + _skel(5)
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): "Što kupiti" is always there (one line
+        # when nothing has EV > 0); "Koga pratimo", "Eventi" and "Kupci prije shill mreže" exist only while they have
+        # something (data-hide-empty: ap.js hides an empty answer, keeps asking, and shows the card when it fills)
+        cards = (f'<section class="apx-card apx-lz" id=kupiti data-x-src=/pravi-trade/l/kupiti data-x-every={KUPITI_EVERY_S} '
+                 f'data-slow="Prijedlozi još nisu stigli · pokušavam ponovno">{k_in}</section>'
+                 f'<section class="apx-card apx-lz" id=pratimo data-x-src="/pravi-trade/l/pratimo{esc(q_ek)}" '
+                 f'data-x-every={PRATIMO_EVERY_S} data-hide-empty{" hidden" if full and not p_in else ""}>{p_in}</section>')
+        for name, every in (("eventi", 60), ("preshill", 120)):
+            c_in = lazy(name, user, qs) if full else ""
+            cards += (f'<section class="apx-card apx-lz ap" id=apx-{name} data-x-src=/pravi-trade/l/{name} data-x-every={every} '
+                      f'data-hide-empty{"" if c_in else " hidden"}>{c_in}</section>')
+        ost = (f'<details class=apx-acc id=apx-ostalo{" open" if full or ek else ""}><summary><h2 data-sec="">Postavke</h2>'
+               '<span class=apx-mut>pravila, praćenja, zastavice, Grok, wallet, dijagnostika…</span></summary>'
+               f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo{esc(q_ek)}>{o_in}</div></details>')
         mbar = ('<div class=apx-mbar>'
                 + ('<button type=button class="apx-go buy" data-sheet=buy>Kupi</button><button type=button class="apx-go sell" '
                    'data-sheet=sell>Prodaj</button>' if owner else '<button type=button class=apx-go data-sheet=buy>Nalog i wallet</button>')
@@ -1531,10 +1546,17 @@ def lazy(name, user, qs=None):
                 p = 1
             return povijest_html(tcon, cfg, owner, now, p)
         if name == "ostalo":
-            return ostalo_html(tcon, cfg, owner, now)
+            return ostalo_html(tcon, cfg, owner, now, (qs.get("ekipa") or "").strip())
+        if name in ("eventi", "preshill"):
+            return card_html(name, tcon, owner)
         return ""
     finally:
         tcon.close()
+
+
+# the lazy parts that exist; "" from one of them means "nothing to show now" (200, the page hides the card), "" for
+# any other name is a 404
+LAZY = ("kupiti", "pratimo", "povijest", "ostalo", "eventi", "preshill")
 
 
 def _proposals(owner, now):
@@ -1568,7 +1590,7 @@ def kupiti_html(tcon, cfg, owner, now):
     from proposals import strategies, view
     act, near, recent, mode = _proposals(owner, now)
     cap = float(cfg.get("max_sol_per_trade") or 0) or None
-    rows = []
+    rows, wait, rows_live = [], [], []
     for p in act:
         r = p.get("row") or {}
         ez = r.get("entry_zone") or {}
@@ -1580,7 +1602,9 @@ def kupiti_html(tcon, cfg, owner, now):
         pk = json.dumps({"id": p["id"], "token": p["token"], "sol": f"{size:g}", "tp": b.get("tp") or "",
                          "sl": b.get("sl") or "", "sym": p.get("symbol") or p["token"][:6], "trail": trail})
         buy_btn = f'<button type=button class="apx-b buy" data-pk="{esc(pk)}">Kupi</button>' if owner else ""
-        rows.append({"epm": ev_per_min(p), "html": (
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak"): an EV measured on fewer than N_MIN outcomes is no
+        # conclusion yet: the row waits in one closed "U procjeni" row
+        (rows if int(r.get("n") or 0) >= N_MIN else wait).append({"epm": ev_per_min(p), "html": (
             f'<div class=apx-krow id=pr-{int(p["id"])}><div class=apx-kmain>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}'
             f'<span class=apx-mut>{esc(view.entry_state(p, now)["state"])} · '   # 11.11.: čeka ulaz / u zoni / ušao (paper)
             f'{esc(strategies.HR.get(p.get("strategy"), p.get("strategy") or ""))} · '
@@ -1608,7 +1632,10 @@ def kupiti_html(tcon, cfg, owner, now):
         fill = json.dumps({"token": z["token"], "sym": sym, "sol": f"{min(float(cfg.get('size_sol') or 0.1), cap or 9e9):g}"})
         fill_btn = f'<button type=button class=apx-b data-fill="{esc(fill)}">U panel</button>' if owner else ""
         fv = z.get("fast") or {}
-        rows.append({"epm": flive.ev_per_min(fv), "html": (
+        # 11.11. (Jure): a live candidate is in the main list only with KUPI (fast/live.BUY), EV > 0 and N_MIN+
+        # sources behind the EV; every other one (provjera u tijeku, n izvora < 10) waits in one closed row
+        ok = fv.get("decision") in flive.BUY and (fv.get("ev_pct") or 0) > 0 and int(fv.get("n") or 0) >= N_MIN
+        (rows if ok else rows_live).append({"epm": flive.ev_per_min(fv) if ok else None, "html": (
             f'<div class=apx-krow><div class=apx-kmain>{_sel_btn(z["token"], sym)}<span class=apx-mut>alat (živo) · '
             f'{esc(z.get("src") or "")}{" · " + esc(why) if why else ""}</span></div>'
             f'{flive.cells_html(fv, esc, _tone)}'
@@ -1616,12 +1643,30 @@ def kupiti_html(tcon, cfg, owner, now):
             f'{_pct(m.get("ch_m5"), 0)}<small>{_pct(m.get("ch_h1"), 0)}</small></span>'
             f'<span class=apx-act>{fill_btn}'
             f'<span class="ap-lnk" role=button tabindex=0{pt._pop(z["token"])}>provjera</span></span></div>')})
-    rows.sort(key=lambda r: (r["epm"] is None, -(r["epm"] or 0)))
+    rows.sort(key=lambda r: -(r["epm"] or 0))
+    wait.sort(key=lambda r: -(r["epm"] or 0))
+    sug = ""
+    if owner:   # the assistant's suggestions only while some wait for the owner (an action), else nothing
+        try:
+            from ui import assistnotes
+            _r, n_sug = assistnotes.notes(tcon, "novo", "suggestion", 1, 0)
+        except Exception:  # noqa: BLE001
+            n_sug = 0
+        inner = pt._safe("prijedlozi", pt._suggest_section, tcon, owner) if n_sug else ""
+        if inner:
+            sug = (f'<details class=apx-sug id=prijedlozi><summary>Prijedlozi asistenta <span class=apx-cnt>{n_sug} čeka'
+                   f'</span></summary><div class=ap>{inner}</div></details>')
     head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Token · strategija i izvori</span><span class=n>EV</span>'
             '<span class=n>p_tp (n)</span><span class=n>Ulaz</span><span class=n>Istječe</span><span></span></div>')
-    body = head + "".join(r["html"] for r in rows) if rows else (
-        '<p class=apx-empty>Trenutno ništa ne prolazi: nijedan prijedlog nema EV iznad nule bez blokade, a alat nema živog '
-        'kandidata.' + ("" if owner else " Prijedlozi strategija vide se samo vlasniku.") + '</p>')
+    waiting = (f'<details class=apx-skoro><summary>U procjeni: {_count(len(wait), "prijedlog", "prijedloga")} (n &lt; {N_MIN})'
+               f'</summary>{"".join(r["html"] for r in wait)}</details>' if wait else "")
+    live_rows = (f'<details class=apx-skoro><summary>Živi kandidati alata: provjera u tijeku ili n izvora &lt; {N_MIN} '
+                 f'({len(rows_live)})</summary>{"".join(r["html"] for r in rows_live)}</details>' if rows_live else "")
+    if not rows:
+        # 11.11. (Jure: "prazni Prijedlozi postaju jedan red"): no proposal with EV > 0 measured on N_MIN+ outcomes:
+        # one line with the time of the check; only what still waits for a tap stays under it, closed
+        return (f'<p class=apx-one id=prijedlozi-trade>Nema prijedloga s EV &gt; 0 · zadnja provjera {_hm(now)}</p>'
+                f'{waiting}{live_rows}{sug}')
     near_rows = "".join(
         f'<div class="apx-krow is-paper"><div class=apx-kmain>{_sel_btn(n.get("token") or "", n.get("symbol") or (n.get("token") or "")[:6])}'
         f'<span class=apx-mut>{esc(", ".join(strategies.HR.get(s, s) for s in n.get("strategies") or []))}</span></div>'
@@ -1629,26 +1674,28 @@ def kupiti_html(tcon, cfg, owner, now):
         f'<span data-l="Blokada" class=apx-why>{esc("; ".join(n.get("blocks") or []) or n.get("why") or "")}</span></div>'
         for n in near[:20])
     skoro = (f'<details class=apx-skoro><summary>prikaži skoro ({len(near)})</summary>{near_rows}</details>' if near else "")
-    sug = ""
-    if owner:
-        try:
-            from ui import assistnotes
-            _r, n_sug = assistnotes.notes(tcon, "novo", "suggestion", 1, 0)
-        except Exception:  # noqa: BLE001
-            n_sug = 0
-        inner = pt._safe("prijedlozi", pt._suggest_section, tcon, owner)
-        if inner:
-            sug = (f'<details class=apx-sug id=prijedlozi><summary>Prijedlozi asistenta <span class=apx-cnt>{n_sug} čeka'
-                   f'</span></summary><div class=ap>{inner}</div></details>')
     rec = ""
     if recent:
         n = {s: sum(1 for p in recent if p["status"] == s) for s in ("kupljeno", "odbijeno", "isteklo")}
         rec = (f'<p class=apx-mut>Zadnja 24 h: kupljeno {n["kupljeno"]}, odbijeno {n["odbijeno"]}, isteklo {n["isteklo"]}.</p>')
     flag = f' · prijedlozi: {esc(mode)}' if owner else ""
     return (f'<h2 data-sec="" class=apx-h2>Što kupiti <span class=apx-cnt>{len(rows)}</span>{age_badge(now, now)}</h2>'
-            f'<p class=apx-mut>Svi prijedlozi strategija i živi kandidati alata, poredani po EV po minuti{flag}. Kupi samo '
-            'popuni panel; kupuješ ti.</p>'
-            f'<div class="apx-tbl apx-ktbl" id=prijedlozi-trade>{body}</div>{skoro}{sug}{rec}')
+            f'<p class=apx-mut>Prijedlozi strategija s EV iznad nule (izmjereno na {N_MIN}+ ishoda), poredani po EV po '
+            f'minuti{flag}. Kupi samo popuni panel; kupuješ ti.</p>'
+            f'<div class="apx-tbl apx-ktbl" id=prijedlozi-trade>{head}{"".join(r["html"] for r in rows)}</div>'
+            f'{waiting}{live_rows}{skoro}{sug}{rec}')
+
+
+def _hm(ts):
+    """HH:MM in Zagreb (the page's clock)."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.fromtimestamp(ts, ZoneInfo("Europe/Zagreb")).strftime("%H:%M")
+
+
+def _count(n, one, many):
+    """"1 wallet" / "3 walleta" (Croatian: 1, 21, 31… take the singular; 11 does not)."""
+    return f"{n} {one if n % 10 == 1 and n % 100 != 11 else many}"
 
 
 def _follow_last(con):
@@ -1659,9 +1706,13 @@ def _follow_last(con):
 
 
 def pratimo_html(tcon, cfg, owner, now, prefill=""):
-    """"Koga pratimo": Walleti / Influenceri / Tokeni (rangedca watchlist); per row hit rate, n, PnL, last activity;
-    stopped / excluded ones behind "prikaži isključene"; the live feed of who calls which token in the last 60 min;
-    the old "Koga prati" with its forms (zaprati, izlaz, prestani) behind "Uredi praćenja"."""
+    """"Koga pratimo": Walleti / Influenceri / Tokeni (rangedca watchlist); per row hit rate, n, PnL, last activity.
+    11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): a follow with fewer than N_MIN closed trades
+    shows no hit rate or PnL as a conclusion: such follows wait in one closed "U procjeni: X walleta (n < 10)" row; a
+    tab without a follow (or an active range) is left out, and the whole card is "" (the page hides it) when nothing
+    is followed; stopped ones are not shown. The live feed of who calls what in the last 60 min shows itself only
+    while it has calls. The forms (zaprati, izlaz, prestani: the old "Koga prati", the same follows again) moved to
+    "Postavke" as "Uredi praćenja": one list here, not two. prefill is kept for the old call signature."""
     from league import copy, store
     con = store.connect()
     try:
@@ -1669,46 +1720,54 @@ def pratimo_html(tcon, cfg, owner, now, prefill=""):
         fl = copy.follows(con, settings.LEAGUE_USER, active=None)
         res = copy.follow_results(con)
         last = _follow_last(con)
-        manage = pt._safe("praćenja", pt._follows, con, owner, settings.raw(tcon), prefill)
     finally:
         con.close()
 
-    def frow(f):
+    def closed(f):
+        return res.get(f["id"], {}).get("closed") or 0
+
+    def frow(f, judged=True):
         r = res.get(f["id"], {"n": 0, "closed": 0, "wins": 0, "pnl": 0.0})
         hit = (r["wins"] / r["closed"]) if r["closed"] else None
-        return (f'<div class="apx-krow apx-frow{"" if f.get("active") else " is-paper"}" id=prati-{f["id"]}>'
+        return (f'<div class="apx-krow apx-frow{"" if judged else " is-paper"}" id=pf-{f["id"]}>'
                 f'<div class=apx-kmain><b>{esc(pt._follow_name(f))}</b><span class=apx-mut>'
                 f'{esc(copy.describe_exit(f["exit"], copy.default_sl(f["user"])) or "zadani izlaz")}</span></div>'
-                f'<span class=n data-l="Pogodak">{redak.pct(hit, sign=False, frac=True) if hit is not None else "–"}</span>'
-                f'<span class=n data-l="n">{r["n"]}<small>{r["closed"]} zatv.</small></span>'
-                f'<span class="n {_tone(r["pnl"])}" data-l="PnL">{redak.usd(r["pnl"], sign=True) if r["closed"] else "–"}</span>'
-                f'<span class=n data-l="Zadnje">{esc(redak.ago(last.get(f["id"]), now)) if last.get(f["id"]) else "–"}</span></div>')
+                + (f'<span class=n data-l="Pogodak">{redak.pct(hit, sign=False, frac=True) if hit is not None else "–"}</span>'
+                   if judged else '<span class=n data-l="Pogodak">–<small>u procjeni</small></span>')
+                + f'<span class=n data-l="n">{r["n"]}<small>{r["closed"]} zatv.</small></span>'
+                + (f'<span class="n {_tone(r["pnl"])}" data-l="PnL">{redak.usd(r["pnl"], sign=True) if r["closed"] else "–"}</span>'
+                   if judged else '<span class=n data-l="PnL">–</span>')
+                + f'<span class=n data-l="Zadnje">{esc(redak.ago(last.get(f["id"]), now)) if last.get(f["id"]) else "–"}</span></div>')
 
-    def group(kinds, empty):
+    def group(kinds, one, many):
         act = [f for f in fl if f["kind"] in kinds and f.get("active")]
-        off = [f for f in fl if f["kind"] in kinds and not f.get("active")]
+        if not act:
+            return ""
+        ok = [f for f in act if closed(f) >= N_MIN]
+        wait = [f for f in act if closed(f) < N_MIN]
         head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Tko</span><span class=n>Pogodak</span><span class=n>n</span>'
                 '<span class=n>PnL</span><span class=n>Zadnje</span></div>')
-        body = (head + "".join(frow(f) for f in act)) if act else f'<p class=apx-empty>{empty}</p>'
-        if off:
-            body += (f'<details class=apx-skoro><summary>prikaži isključene ({len(off)})</summary>'
-                     + "".join(frow(f) for f in off) + '</details>')
+        body = (head + "".join(frow(f) for f in ok)) if ok else ""
+        if wait:
+            body += (f'<details class=apx-skoro><summary>U procjeni: {_count(len(wait), one, many)} (n &lt; {N_MIN})</summary>'
+                     + "".join(frow(f, False) for f in wait) + '</details>')
         return f'<div class=apx-tbl>{body}</div>'
-    tok = _watch_tokens(now)
-    tabs = ('<div class="apx-tabs apx-sub" role=tablist><button type=button class=on data-sub=pr-w>Walleti</button>'
-            '<button type=button data-sub=pr-i>Influenceri</button><button type=button data-sub=pr-t>Tokeni</button></div>')
-    feed = (f'<h3 class=apx-h3>Tko sada zove koji token (60 min)</h3><div class=ap><div id=ap-zovu data-x-src=/pravi-trade/zovu '
-            f'data-x-every={ZOVU_EVERY_S} data-empty="U zadnjih 60 minuta nema poziva koji sada prolazi provjere.">{_skel(3)}'
-            '</div><p class=ms-hint>Tokeni koje su u zadnjih 60 minuta objavili influenceri i Telegram kanali ili kupili walleti '
+    parts = [(k, lab, h) for k, lab, h in (("pr-w", "Walleti", group(("wallet",), "wallet", "walleta")),
+                                             ("pr-i", "Influenceri", group(("kol", "ekipa"), "influencer", "influencera")),
+                                             ("pr-t", "Tokeni", _watch_tokens(now))) if h]
+    feed = (f'<div class=apx-feed data-hide-wrap hidden><h3 class=apx-h3>Tko sada zove koji token (60 min)</h3><div class=ap>'
+            f'<div id=ap-zovu data-x-src=/pravi-trade/zovu data-x-every={ZOVU_EVERY_S} data-hide-empty></div>'
+            '<p class=ms-hint>Tokeni koje su u zadnjih 60 minuta objavili influenceri i Telegram kanali ili kupili walleti '
             'koje pratiš i dokazani walleti, a upravo se trguju. Dodirni token za provjeru uživo, podcrtano ime za cijelu ekipu. '
-            'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p></div>')
-    edit = (f'<details class="apx-sug ap" id=pratim{" open" if prefill else ""}><summary>Uredi praćenja (zaprati, izlaz, '
-            f'prestani)</summary>{manage}</details>' if manage else "")
+            'Tko od njih stvarno nosi +5/10/15/20/30 % nakon poziva: <a href="/ekipe">Ekipe i minutna provjera</a>.</p></div></div>')
+    if not parts:
+        return ""
+    tabs = ('<div class="apx-tabs apx-sub" role=tablist>'
+            + "".join(f'<button type=button{" class=on" if i == 0 else ""} data-sub={k}>{lab}</button>'
+                      for i, (k, lab, _h) in enumerate(parts)) + '</div>') if len(parts) > 1 else ""
+    panes = "".join(f'<div class=apx-subp id={k}{" hidden" if i else ""}>{h}</div>' for i, (k, _lab, h) in enumerate(parts))
     return (f'<h2 data-sec="" class=apx-h2>Koga pratimo <span class=apx-cnt>{sum(1 for f in fl if f.get("active"))}</span>'
-            f'{age_badge(now, now)}</h2>{tabs}'
-            f'<div class=apx-subp id=pr-w>{group(("wallet",), "Ne pratimo nijedan wallet.")}</div>'
-            f'<div class=apx-subp id=pr-i hidden>{group(("kol", "ekipa"), "Ne pratimo nijednog influencera.")}</div>'
-            f'<div class=apx-subp id=pr-t hidden>{tok}</div>{feed}{edit}')
+            f'{age_badge(now, now)}</h2>{tabs}{panes}{feed}')
 
 
 def _watch_tokens(now, limit=30):
@@ -1719,8 +1778,8 @@ def _watch_tokens(now, limit=30):
         con = rdata.ro()
     except Exception:  # noqa: BLE001
         con = None
-    if con is None:
-        return '<p class=apx-empty>Watchlista raspona je prazna (range.db još ne postoji).</p>'
+    if con is None:   # 11.11.: nothing to show is no tab ("" = left out), not a sentence
+        return ""
     try:
         src = ", src" if rdata.has_src(con) else ", NULL"
         rows = con.execute(f"SELECT token, symbol, status, active, score, mcap, pos_pct, ts{src} FROM ranges "
@@ -1730,7 +1789,7 @@ def _watch_tokens(now, limit=30):
     finally:
         con.close()
     if not rows:
-        return '<p class=apx-empty>Watchlista raspona je prazna.</p>'
+        return ""
 
     def trow(r):
         tok, sym, st, act, score, mcap, pos, ts, src = r
@@ -1744,7 +1803,9 @@ def _watch_tokens(now, limit=30):
     off = [r for r in rows if not r[3]][:limit]
     head = ('<div class="apx-krow apx-th" aria-hidden=true><span>Token</span><span class=n>Ocjena</span><span class=n>MC</span>'
             '<span class=n>U rasponu</span><span class=n>Izračunato</span></div>')
-    body = (head + "".join(trow(r) for r in on)) if on else '<p class=apx-empty>Nijedan aktivan raspon.</p>'
+    if not on:   # only inactive ranges: no conclusion, no tab
+        return ""
+    body = head + "".join(trow(r) for r in on)
     if off:
         body += f'<details class=apx-skoro><summary>prikaži isključene ({len(off)})</summary>{"".join(trow(r) for r in off)}</details>'
     return f'<div class=apx-tbl>{body}</div>'
@@ -1806,42 +1867,53 @@ def _wrap(title, html, sid):
     return pt._sec(title, "", html, sid=sid)
 
 
-def ostalo_html(tcon, cfg, owner, now):
-    """"Postavke i dijagnostika": the page's older sections, each one closed row with its one-line summary (details
-    on a tap); a section with nothing in it ("0 …", "nema …", "isključen") goes grey to the bottom; a section that
-    returns nothing is left out."""
+def ostalo_html(tcon, cfg, owner, now, prefill=""):
+    """"Postavke" (closed, at the bottom, outside the main view): the page's settings, diagnostics and flags, each one
+    closed row with its one-line summary (details on a tap). 11.11. (Jure: "prikazuj samo ono što ima zaključak ili
+    nešto radi"): a SETTING is always listed (its row is the switch / form, even while it says "isključen" or "0
+    pozvanih"); a DIAGNOSTIC with nothing in it ("0 …", "nema …") or that returns nothing is not rendered at all (no
+    grey "Bez sadržaja" group any more). "Uredi praćenja" (zaprati, izlaz, prestani) moved here from "Koga pratimo";
+    "Eventi" and "Kupci prije shill mreže" are cards on the main view that show themselves when they have data."""
     from league import store
     con = store.connect()
     try:
         from league import copy
         copy.ensure(con)
-        parts = [
-            ("pravila", pt._safe("pravila", pt._rules, tcon, cfg, owner)),
-            ("grok", pt._safe("grok", pt._mcp_section, tcon, owner)),
-            ("grok-postavke", pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner)),
-            ("zastavice", pt._safe("zastavice", pt._flags_section, tcon, con, owner)),
-            ("pregled", pt._safe("pregled", pt._review_section, tcon, owner)),
-            ("preshill", pt._safe("preshill", pt._preshill_card, owner)),
-            ("eventi", pt._safe("eventi", pt._eventi_card, owner)),
-            ("ev", pt._safe("ev", pt._ev_card, owner)),
-            ("fast-path", pt._safe("fast-path", pt._fast_card, owner)),
-            ("preporuke", pt._recs_section()),
-            ("sazetak", _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r")),
+        settings_parts = [
+            pt._safe("pravila", pt._rules, tcon, cfg, owner),
+            pt._safe("praćenja", pt._follows, con, owner, settings.raw(tcon), prefill, "Uredi praćenja"),
+            pt._safe("zastavice", pt._flags_section, tcon, con, owner),
+            pt._safe("grok", pt._mcp_section, tcon, owner),
+            pt._safe("grok-postavke", pt._grok_auto_setup, tcon, owner),
+            pt._safe("wallet", pt._wallet_row, tcon, owner, _setup(tcon, cfg) if owner else {}),
+            pt._safe("pozivnice", pt._invites, tcon) if owner else "",
+            pt._safety(),
+        ]
+        diag_parts = [
+            pt._safe("pregled", pt._review_section, tcon, owner),
+            pt._safe("ev", pt._ev_card, owner),
+            pt._safe("fast-path", pt._fast_card, owner),
+            pt._recs_section(),
+            _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r"),
             # 11.11.: the wallet's value is the "Portfelj" card on the main view now (one chart, not two)
-            ("wallet", pt._safe("wallet", pt._wallet_row, tcon, owner, _setup(tcon, cfg) if owner else {})),
-            ("pozivnice", pt._safe("pozivnice", pt._invites, tcon) if owner else ""),
-            ("zastita", pt._safety()),
         ]
     finally:
         con.close()
-    full = [h for _k, h in parts if h and not empty_meta(h)]
-    dim = [h for _k, h in parts if h and empty_meta(h)]
-    out = "".join(full)
-    if dim:
-        out += f'<div class=apx-dim><p class=apx-mut>Bez sadržaja trenutno ({len(dim)}):</p>{"".join(dim)}</div>'
+    out = "".join(h for h in settings_parts if h) + "".join(h for h in diag_parts if h and not empty_meta(h))
     out += ('<p class=apx-mut style="margin-top:14px"><a href="/pravi-trade?stari=1">Stari prikaz stranice</a> (privremeno, '
             'za usporedbu)</p>')
     return f'<div class=ap-grp>{out}</div>'
+
+
+def card_html(name, tcon, owner):
+    """GET /pravi-trade/l/eventi and /l/preshill: a card of the main view that exists only while it has data (an
+    active event topic, wallets that buy before a shill network); "" otherwise and the page keeps it hidden, asking
+    again every minute or two, so it appears by itself the moment it has something (11.11., Jure)."""
+    fn = {"eventi": pt._eventi_card, "preshill": pt._preshill_card}[name]
+    h = pt._safe(name, fn, owner)
+    if not h or empty_meta(h):
+        return ""
+    return h
 
 
 def _setup(tcon, cfg):

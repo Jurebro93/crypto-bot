@@ -1354,8 +1354,9 @@ class Handler(BaseHTTPRequestHandler):
                 d = fn(user, qs.get("m", "live"), qs.get("d", "30"))
                 body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False, separators=(",", ":"))), "application/json"
             elif path.startswith("/pravi-trade/l/"):
-                body, ctype = apterm.lazy(path[len("/pravi-trade/l/"):], user, qs), "text/html"
-                if body == "":
+                name = path[len("/pravi-trade/l/"):]
+                body, ctype = apterm.lazy(name, user, qs), "text/html"
+                if body == "" and name not in apterm.LAZY:   # 11.11.: "" of a known part = nothing to show now (200)
                     return self._send(404, b"", "text/plain")
             else:
                 return self._send(404, b"", "text/plain")

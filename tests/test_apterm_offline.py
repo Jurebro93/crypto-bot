@@ -266,8 +266,13 @@ class Lazy(Env):
         self.assertIn("class=apx-skel", body)                              # skeletons instead of empty blocks
         self.assertNotIn("Postavljanje walleta", body)
         _, full = pravitrade.page({"sve": "1"}, "Jure")                    # no JavaScript: everything in the page
-        for k in ("Što kupiti", "Koga pratimo", "Postavljanje walleta", "Danas uživo", "id=apx-ostalo open"):
+        for k in ("Nema prijedloga s EV &gt; 0", "Postavljanje walleta", "Danas uživo", "id=apx-ostalo open"):
             self.assertIn(k, full)
+        # nobody followed, no event, no pre-shill wallet: those cards are in the page but hidden, empty (no title)
+        for cid in ("pratimo", "apx-eventi", "apx-preshill"):
+            self.assertRegex(full, rf'id={cid} data-x-src="?/pravi-trade/l/\w+"? data-x-every=\d+ data-hide-empty hidden>'
+                                   r'</section>')
+        self.assertNotIn(">Koga pratimo <", full)
         self.assertIn('<a href="/pravi-trade?sve=1">', body)               # the link for a browser without JS
 
     def test_history_has_the_days_pnl_on_top_live_first_and_pages(self):
@@ -296,14 +301,19 @@ class EmptySections(Env):
             self.assertEqual(apterm.empty_meta(row.format(meta)), empty, meta)
         self.assertFalse(apterm.empty_meta("<p>bez retka</p>"))
 
-    def test_settings_put_empty_sections_grey_at_the_bottom(self):
+    def test_settings_always_empty_diagnostics_never(self):
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): a setting keeps its row (it is the
+        # switch), an empty diagnostic is not rendered at all; no grey "Bez sadržaja" group any more
         html = apterm.lazy("ostalo", "Jure")
-        dim = html.index("class=apx-dim")
-        self.assertGreater(html.index(">Grok (MCP)<"), dim)               # "isključen": grey, at the bottom
-        self.assertLess(html.index("Tko vidi stranicu"), dim)             # "1 pozvanih": in the list
-        self.assertLess(html.index(">Pravila<"), dim)
-        self.assertLess(html.index("Kako je zaštićeno"), dim)
+        self.assertNotIn("class=apx-dim", html)
+        self.assertNotIn("Bez sadržaja", html)
+        for k in (">Pravila<", ">Uredi praćenja<", ">Grok (MCP)<", "Tko vidi stranicu", "Kako je zaštićeno"):
+            self.assertIn(k, html, k)
+        self.assertNotIn(">Koga prati<", html)                              # one list ("Koga pratimo"), not two
         self.assertNotIn("id=ev-znacajke", html)                           # no report: the section is left out
+        for name in ("eventi", "preshill"):                                # main-view cards: "" while empty (200)
+            self.assertEqual(apterm.lazy(name, "Jure"), "")
+            self.assertIn(name, apterm.LAZY)
 
 
 class LiveFirst(Env):
@@ -745,6 +755,94 @@ class Portfelj(HandlerMixin, Env):
         self.assertEqual(self._get("/pravi-trade/api/portfelj", "Nepoznat").sent[0][0], 403)
 
 
+class OnlyConclusions(HandlerMixin, Env):
+    """11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi")."""
+
+    def follow(self, kind, target, closed_trades, wins=0):
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, kind, target, "", 25, 5, "tpsl", "15%", "-20%")
+        for i in range(closed_trades):
+            pnl = 2.0 if i < wins else -1.0
+            self.lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, "
+                            "source, follow_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (settings.LEAGUE_USER, f"T{fid}{i}".ljust(44, "1"), "T", NOW - 9000, NOW - 8000, "closed", 25.0,
+                             pnl, pnl / 25, f"copy {target}", fid))
+        self.lg.commit()
+        return fid
+
+    def test_follows_under_ten_closed_are_folded(self):
+        self.follow("wallet", "W" * 44, 12, wins=7)      # representative
+        self.follow("wallet", "V" * 44, 3, wins=1)       # n < 10
+        self.follow("wallet", "U" * 44, 0)
+        self.follow("kol", "ansem", 2, wins=2)           # n < 10: the only influencer
+        html = apterm.lazy("pratimo", "Jure")
+        main, wait = html.split("<details class=apx-skoro>", 1)
+        nb = " "
+        self.assertIn(f"58{nb}%", main.split("id=pr-i")[0])               # 7 of 12: a conclusion, in the list
+        self.assertIn("U procjeni: 2 walleta (n &lt; 10)", html)
+        self.assertIn("U procjeni: 1 influencer (n &lt; 10)", html)
+        self.assertNotIn(f"33{nb}%", html)                                 # 1 of 3: no hit rate shown at all
+        self.assertNotIn(f"100{nb}%", html)                                # 2 of 2: neither
+        self.assertIn("u procjeni</small>", html)
+        self.assertNotIn("id=pratim", html)                                # the forms are under "Postavke"
+        self.assertEqual(html.count("data-sub="), 2)                       # Walleti, Influenceri; no empty Tokeni tab
+        self.assertIn("data-x-src=/pravi-trade/zovu data-x-every=15 data-hide-empty", html)   # the feed: only with calls
+        self.assertIn("<div class=apx-feed data-hide-wrap hidden>", html)
+
+    def test_nobody_followed_is_no_card(self):
+        self.assertEqual(apterm.lazy("pratimo", "Jure"), "")
+        self.assertEqual(self._get_status("/pravi-trade/l/pratimo"), 200)    # empty is an answer, not a 404
+        self.assertEqual(self._get_status("/pravi-trade/l/nista"), 404)
+
+    def _get_status(self, path):
+        return self._get(path).sent[0][0]
+
+    def test_proposals_one_line_when_empty_and_n_under_ten_folded(self):
+        from proposals import strategies   # noqa: F401 - the module kupiti_html reads
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([], [], [], "paper")):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertTrue(html.startswith("<p class=apx-one id=prijedlozi-trade>Nema prijedloga s EV &gt; 0 · zadnja provjera "))
+        self.assertNotIn("<h2", html)                                      # no title, no rest of the block
+        self.assertNotIn("prikaži skoro", html)
+
+        def prop(pid, n, ev):
+            return {"id": pid, "token": f"P{pid}".ljust(44, "1"), "symbol": f"P{pid}", "strategy": "momentum",
+                    "sources": [], "ev_pct": ev, "p_tp": 0.5, "size_sol": 0.1, "expires_ts": NOW + 600,
+                    "row": {"n": n, "entry_zone": {}, "buy": {"tp": "+20%", "sl": "-20%"}}}
+        from proposals import view
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([prop(1, 40, 3.0), prop(2, 4, 9.0)], [], [], "paper")), \
+                mock.patch.object(view, "_row_inner", lambda p, esc: ""), \
+                mock.patch.object(view, "entry_state", lambda p, now: {"state": "čeka ulaz"}, create=True):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertIn("Što kupiti <span class=apx-cnt>1</span>", html)   # only the one measured on 10+ outcomes
+        main = html.split("<details", 1)[0]
+        self.assertIn("id=pr-1", main)
+        self.assertNotIn("id=pr-2", main)
+        self.assertIn("U procjeni: 1 prijedlog (n &lt; 10)", html)
+
+    def test_paper_pnl_under_ten_closed_is_no_conclusion(self):
+        self.assertEqual(apterm._kpi_cells({"total_sol": 0.1, "total_usd": 16.0, "n_closed": 4}, "paper")[-1][2],
+                         "u procjeni: 4 zatvorenih (n < 10)")
+        self.assertNotIn("u procjeni", apterm._kpi_cells({"total_sol": 0.1, "total_usd": 16.0, "n_closed": 12},
+                                                         "paper")[-1][2])
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("t.n < 10 ? 'u procjeni'", js)                       # PnL by day: no win rate under 10
+        self.assertIn("(k.n_closed || 0) < 10", js)
+
+    def test_hidden_cards_keep_asking_and_show_themselves(self):
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        for k in ("const hides = el => el.dataset.hideEmpty !== undefined", "wrapOf(el).hidden = empty",
+                  "(hides(el) || (shown(el) && inView(el)))", "if (hides(el)) wrapOf(el).hidden = true", "}, 5000);",
+                  "el.dataset.slow"):
+            self.assertIn(k, js)
+        self.seed()
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn('data-slow="Prijedlozi još nisu stigli · pokušavam ponovno"', body)   # always there: says so
+        for k in ("id=apx-chartbox", "id=apx-port", "id=pozicije", "id=nalozi", "id=kupi-odmah", "id=kupiti"):
+            self.assertIn(k, body)                                         # always shown, also without data
+        self.assertIn('<h2 data-sec="">Postavke</h2>', body)               # one closed "Postavke" at the bottom
+        self.assertEqual(body.count("<details class=apx-acc"), 1)
+
+
 class CardsOpenAtOnce(Env):
     """11.11. (Jure: "klikom na zatvorene kartice ne otvaraju se iz prvoga, kao da je lag; tako je za sve kartice")."""
 
@@ -763,7 +861,7 @@ class CardsOpenAtOnce(Env):
         self.seed()
         _, body = pravitrade.page({}, "Jure")
         box = body[body.index("id=apx-ostalo"):]
-        self.assertIn("Učitavam postavke i dijagnostiku…", box)          # an opened box says so at once
+        self.assertIn("Učitavam postavke…", box)                          # an opened box says so at once
 
 
 if __name__ == "__main__":

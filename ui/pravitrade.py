@@ -781,7 +781,7 @@ def _follow_exit_form(f, st):
             'zadani stop iz „Pravila”.</p>')
 
 
-def _follows(con, owner, st=None, prefill=""):
+def _follows(con, owner, st=None, prefill="", title="Koga prati"):
     """"Koga prati" under "Kako trguje" (maketa): one row with the names and how many; opened, the tool's own
     choice, the form to follow anybody (owner), and one row per follow (who, what kind, entries) that opens its
     numbers and "Prestani pratiti"."""
@@ -859,7 +859,8 @@ def _follows(con, owner, st=None, prefill=""):
     inner = (listed + pool_box + '<h3 class=ap-sub><span>Automatski izbor</span></h3>' + _auto_box(st, owner) + anyone)
     # 10.11. (Jure: "nek su sve zatvorene kartice za početak, osim grafa, brze kupnje i otvorenih pozicija"): open
     # only when a crew is being filled in from "Zovu sada" (prefill)
-    return _sec("Koga prati", meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
+    # 11.11.: the Autopilot terminal names it "Uredi praćenja" under "Postavke" (its list is "Koga pratimo")
+    return _sec(title, meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
 
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render

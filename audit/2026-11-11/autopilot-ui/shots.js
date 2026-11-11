@@ -14,7 +14,9 @@ const PREFIX = arg('prefix', 'poslije');
 const PATH = arg('path', '/pravi-trade');
 const OPEN = arg('open', '');   // e.g. "#apx-ostalo": a <details> to open before the shot (lazy part)
 const OPEN_SHEET = arg('sheet', '1') === '1';
-const WIDTHS = [[375, 812], [768, 1024], [1440, 900]];
+const FIRST = arg('first', '1') === '1';   // also the -prvi-ekran shot (viewport only)
+// --widths 375,1440: only these (11.11.: the "prikaz" shots are 375 and 1440)
+const WIDTHS = [[375, 812], [768, 1024], [1440, 900]].filter(([w]) => !arg('widths', '') || arg('widths', '').split(',').includes(String(w)));
 
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
@@ -46,7 +48,7 @@ const WIDTHS = [[375, 812], [768, 1024], [1440, 900]];
     const m = await page.evaluate(() => ({ scrollWidth: document.scrollingElement.scrollWidth, innerWidth: window.innerWidth,
       height: document.scrollingElement.scrollHeight }));
     const name = `${PREFIX}-${w}.png`;
-    await page.screenshot({ path: path.join(OUT, `${PREFIX}-${w}-prvi-ekran.png`), fullPage: false });
+    if (FIRST) await page.screenshot({ path: path.join(OUT, `${PREFIX}-${w}-prvi-ekran.png`), fullPage: false });
     if (w < 1024 && OPEN_SHEET) {   // the order panel as the phone's bottom sheet (viewport only)
       const b = await page.$('[data-sheet=buy]');
       if (b) { await b.click(); await page.waitForTimeout(400); await page.screenshot({ path: path.join(OUT, `${PREFIX}-${w}-nalog.png`) }); }

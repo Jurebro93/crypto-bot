@@ -83,12 +83,24 @@
     dd.forEach(([id, o], i) => { const d = id ? document.getElementById(id) : now[i]; if (d && d.open !== o) d.open = o; });
   }
   function watch(el) { if (!el || el._w) return; el._w = 1; if (io) io.observe(el); else startLazy(el); }
+  // 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): data-hide-empty = a card that exists only
+  // while it has something. An empty answer hides it (or its [data-hide-wrap]) and it keeps being asked, hidden, so it
+  // shows itself the moment it fills. No skeleton stays longer than 5 s: such a card is hidden, an always-shown one
+  // (data-slow) says in one line that it is still coming.
+  const hides = el => el.dataset.hideEmpty !== undefined;
+  const wrapOf = el => el.closest('[data-hide-wrap]') || el;
+  const isEmpty = h => !h.trim() || /^<p class=mut>u[čc]itavam…<\/p>$/i.test(h.trim());
   function startLazy(el) {
     if (!el || el._on) return;
     el._on = 1;
     loadBox(el);
+    setTimeout(() => {
+      if (el._filled || !$('.apx-skel', el)) return;
+      if (hides(el)) wrapOf(el).hidden = true;
+      else if (el.dataset.slow) { const p = document.createElement('p'); p.className = 'apx-one'; p.textContent = el.dataset.slow; el.replaceChildren(p); }
+    }, 5000);
     const ev = +el.dataset.xEvery;
-    if (ev) setInterval(() => { if (document.visibilityState === 'visible' && shown(el) && inView(el)) loadBox(el); }, ev * 1000);
+    if (ev) setInterval(() => { if (document.visibilityState === 'visible' && (hides(el) || (shown(el) && inView(el)))) loadBox(el); }, ev * 1000);
   }
   function runScripts(el) {   // scripts of a part that arrived as HTML (e.g. the wallet value chart) run once
     for (const old of $$('script', el)) {
@@ -105,6 +117,11 @@
       const r = await fetch(url || el.dataset.xSrc, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const h = await r.text();
+      if (hides(el)) {
+        const empty = isEmpty(h);
+        wrapOf(el).hidden = empty;
+        if (empty) { el.replaceChildren(); el._filled = 0; return; }
+      }
       const first = !el._filled || url;
       if (!first && window.apPatch) {
         window.apPatch(el, h);
@@ -124,7 +141,7 @@
     } finally { el._busy = 0; }
   }
   function after(el) {
-    for (const c of $$('[data-x-src]', el)) if (shown(c)) watch(c);
+    for (const c of $$('[data-x-src]', el)) if (shown(c)) watch(c); else if (hides(c)) startLazy(c);
     if (window.apOpen) window.apOpen(el);
     if (window.apTick) window.apTick();
     if (window.apcInit) window.apcInit();
@@ -149,7 +166,8 @@
   }
 
   // ---- an address (#limiti after saving the limits, #poz-12 after a sale) that lives in a part not loaded yet ----
-  const OSTALO = /^(limiti|cilj|stop|trigger|mcp|grok|pozivnice|postavljanje|exit-planovi|pregled|jos|zastita|sazetak|ev-|zastavice|fl-|pravila|fast|preshill|eventi|preporuke|vrijednost|zatvorene)/;
+  // 11.11.: "Uredi praćenja" (#pratim, #prati-<id> after a follow form) is under "Postavke" now
+  const OSTALO = /^(limiti|cilj|stop|trigger|mcp|grok|pozivnice|postavljanje|exit-planovi|pregled|jos|zastita|sazetak|ev-|zastavice|fl-|pravila|fast|preporuke|zatvorene|pratim|prati-)/;
   function scrollHash() {
     const h = decodeURIComponent(location.hash.slice(1));
     if (!h || S.hashDone === h) return;
@@ -170,7 +188,8 @@
     else if (/^nalozi/.test(h)) showTab('nalozi');
     else if (/^(povijest)/.test(h)) showTab('povijest');
     else if (/^(dnevnik)/.test(h)) showTab('dnevnik');
-    else if (/^(pratim|prati-|pr-[wit]$)/.test(h)) startLazy($('#pratimo'));
+    else if (/^(pf-|pr-[wit]$)/.test(h)) startLazy($('#pratimo'));
+    else if (/^(eventi|preshill|ps-)/.test(h)) { startLazy($('#apx-eventi')); startLazy($('#apx-preshill')); }
     else if (/^(prijedlozi|pr-)/.test(h)) startLazy($('#kupiti'));
     else if (OSTALO.test(h) || h) { const o = $('#apx-ostalo'); if (o) { o.open = true; for (const c of $$('[data-x-src]', o)) startLazy(c); } }
   }
@@ -487,7 +506,8 @@
       cells.push(['Otvoreno (nerealizirano)', u(k.unreal_usd, true) || '–', 'po živoj cijeni', tone(k.unreal_usd)]);
     }
     cells.push(['Danas', s(k.today_sol, 4, true), (u(k.today_usd, true) + ' · zatvoreno danas').replace(/^ · /, ''), tone(k.today_sol != null ? k.today_sol : k.today_usd)]);
-    cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
+    if (p.mode === 'paper' && (k.n_closed || 0) < 10) cells.push(['Ukupni PnL', s(k.total_sol, 3, true), `u procjeni: ${k.n_closed || 0} zatvorenih (n < 10)`, '']);
+    else cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
     el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
     const a = $('#apx-port-age');
     if (a) { a.dataset.ts = k.at || p.ts || 0; age(); }
@@ -602,7 +622,8 @@
     const tot = PN.u === 'usd' ? t.pnl_usd : t.pnl_sol, who = j.mode === 'live' ? 'uživo' : 'paper';
     if (sum) {
       sum.innerHTML = t.n ? `<span><b class=${tone(tot)}>${pfmt(tot)}</b>${j.days} d ${who}</span>` +
-        `<span><b>${t.n}</b>zatvorenih</span><span><b>${t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate</span>` +
+        // fewer than 10 closed trades: a win rate is no conclusion yet (11.11., Jure)
+        `<span><b>${t.n}</b>zatvorenih</span><span><b>${t.n < 10 ? 'u procjeni' : t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate${t.n < 10 ? ' (n &lt; 10)' : ''}</span>` +
         `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu</span>` +
         (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade</span>` : '') +
         (noRate ? '<span>tečaj SOL-a nije poznat: prikaz u drugoj jedinici</span>' : '') : '';
@@ -956,7 +977,7 @@
     later(pnlLoad);   // "Portfelj": the numbers come with the page, its chart after the first paint
     setInterval(() => { const c = $('#apx-port'); if (document.visibilityState === 'visible' && c && inView(c)) pnlLoad(); }, 60000);
     // the parts under the tables, once the page is idle: loaded before the finger gets there (no jump under a tap)
-    setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el)) startLazy(el); warmBoxes(); }), 900);
+    setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el) || hides(el)) startLazy(el); warmBoxes(); }), 900);
   };
   warmBoxes();
   if (document.readyState === 'complete') go(); else addEventListener('load', go);

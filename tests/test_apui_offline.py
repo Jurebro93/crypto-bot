@@ -410,8 +410,10 @@ class Page(Base):
         self.assertIn(apterm.static_url("ap.js"), body)
         # the same parts, rendered into the page for a browser without JavaScript (sve=1), in the old order inside
         _, full = pravitrade.page({"sve": "1"}, "Jure")
-        keys = ("id=kupiti", "id=pratimo", "Tko sada zove koji token", "id=pratim>", "id=apx-ostalo", "id=pravila",
-                "id=cilj", "id=limiti", "id=preporuke", "id=postavljanje", "id=pozivnice", "id=zastita")
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): the settings first in "Postavke" (the
+        # follow forms, "Uredi praćenja", moved there from "Koga pratimo"), the diagnostics with data after them
+        keys = ("id=kupiti", "id=pratimo", "id=apx-ostalo", "id=pravila", "id=cilj", "id=limiti", "id=pratim>",
+                "id=postavljanje", "id=pozivnice", "id=zastita", "id=preporuke")
         at = [full.index(k) for k in keys]
         self.assertEqual(at, sorted(at))
         self.assertRegex(full, r"data-src=/pravi-trade/preporuke data-every=\d+ data-lazy")   # still only once opened
