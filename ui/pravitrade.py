@@ -5176,6 +5176,8 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
         held = held_sol(tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
+            # 11.11. (Jure: "poruka odmah nestane"): every refused owner buy is one line in the log too
+            print(f"pravi trade: kupnja {token[:6]} odbijena: {why} (strop vlasnika)", flush=True)
             if owner_cap:
                 raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
@@ -5308,6 +5310,7 @@ def _post_buy(con, tcon, form, user, src=None):
     # "poslana". The same gate now answers here, before anything is written, with the way out in the message.
     why = _gate_now(tcon, sol, token)
     if why:
+        print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
         hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
         raise ValueError(f"kupnja nije poslana: {why}.{hint}")
     _owner_buy_rules(con, tcon, token, sol)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
