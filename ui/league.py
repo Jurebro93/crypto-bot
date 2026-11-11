@@ -255,8 +255,8 @@ def page(qs, user):
                           usd(r["mcap"]), signed(move, "{:+.0%}"), usd(liq), ago(r["last_seen"]), act])
         b.append(f"<h2 id=prijedlozi>Prijedlozi alata</h2><p class=mut>Isti tokeni i isti poredak kao „Istaknuti kandidati” na "
                  "<a href=/>Pregledu</a>: confidence spaja hype, X, smart money, KOL, holdere, rug filter i evente. "
-                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: 70%+ ispod vrha ili "
-                 "izvučena likvidnost) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
+                 "Tokeni koje je rug filter odbacio i tokeni koji su se u međuvremenu srušili (rug: izvučena likvidnost, ili "
+                 "pad 70%+ od vrha uz prodaju deva / top holdera ili visok rug rizik) su skriveni osim ako ih uključiš ili tražiš po imenu; njih se ne može kupiti. "
                  f"Prikazano {len(srows)} (najviše {SUGGEST_MAX}). Upiši ulog u $ i klikni Kupi.</p>"
                  "<p class=mut>Prvih 20 prijedloga alat provjerava <b>svake 3 minute</b>: nova analiza u svakom skenu, "
                  "<b>stanje tržišta</b> (🚀 pumpa: ne kupuj, pričekaj · ↗ pad uz oporavak · 📉 pada · ➖ stabilno) i "

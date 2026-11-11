@@ -16,7 +16,8 @@ passes the active ranges get fresh 5-minute numbers (buys share, volume, change)
 the same pass also runs the market watchlist (rangedca/market.py: up to RANGE_MARKET_MAX 400 bonded tokens of the
 whole market and the event topics' tokens, 5 / 15-minute DexScreener snapshots inside per-source day caps) and
 computes their ranges with the signal pass's (which keeps its 40 tokens and its rules unchanged). Every range carries
-its source (signal > event > market). A market / event token gets a GeckoTerminal seed only when it is close to an
+its source (signal > event > missed > market; 11.11. flag range_missed G27: the skipped tokens labelled propušteno,
+rangedca/missed.py, for 72 h). A market / event / missed token gets a GeckoTerminal seed only when it is close to an
 entry (an active range in the bottom 40 % without minute candles, or 2 h+ of snapshots that already show a range
 with the price in the bottom 30 %), inside RANGE_GT_DAY and RANGE_MKT_SEED_DAY. range_dca off with both of them on:
 only the market watchlist's data is collected (nothing trades).
@@ -68,10 +69,11 @@ def _near_entry(res, candles, snap, now, has_gt):
 
 
 def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), net=None):
-    """One pass. Returns a short summary text ("off" when range_dca, range_market and event_tokens are all off).
-    net: rangedca/market.Net stand-in (tests); fetch also serves the market pass when net is not given."""
+    """One pass. Returns a short summary text ("off" when range_dca, range_market, event_tokens and range_missed are
+    all off). net: rangedca/market.Net stand-in (tests); fetch also serves the market pass when net is not given."""
     m_dca, m_mkt, m_evt = _mode(), _mode("range_market"), _mode("event_tokens")
-    if m_dca == "off" and m_mkt == "off" and m_evt == "off":
+    m_mis = _missed_mode()   # 11.11. (G27, rangedca/missed.py): the missed tokens on the list for 72 h
+    if m_dca == "off" and m_mkt == "off" and m_evt == "off" and m_mis == "off":
         return "off"
     from rangedca import data, detect, holders, market, rules, view
     now = int(now or time.time())
@@ -90,10 +92,11 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         open_toks = set(data.open_round_tokens())
         srcs = {t: ["signal"] for t in sig}
         mk = {"tokens": [], "src": {}, "stats": {}}
-        if m_mkt != "off" or m_evt != "off":
+        if m_mkt != "off" or m_evt != "off" or m_mis != "off":
             t_mkt = time.monotonic()
             mk = market.pass_once(con, now, net or market.Net(fetch), log, signal=sig, pulse=pulse_all,
-                                  market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks)
+                                  market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks,
+                                  missed_on=m_mis != "off")
             t_mkt_s = time.monotonic() - t_mkt
             for t in mk["tokens"]:
                 srcs.setdefault(t, []).append(mk["src"].get(t, "market"))
@@ -178,8 +181,9 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
             data.kv_put(con, "last_prune", now)
         con.commit()
         ms = mk.get("stats") or {}
-        text = (f"range: {len(cands)} kandidata (signal {len(sig)}, tržište {len(mk['tokens']) - ms.get('events', 0)}, "
-                f"eventi {ms.get('events', 0)}), aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}; "
+        text = (f"range: {len(cands)} kandidata (signal {len(sig)}, tržište "
+                f"{len(mk['tokens']) - ms.get('events', 0) - ms.get('missed', 0)}, eventi {ms.get('events', 0)}, "
+                f"propušteni {ms.get('missed', 0)}), aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}; "
                 f"GeckoTerminal danas {data.day_used(con, 'gt_day', now)}/{data.GT_DAY}, Helius danas "
                 f"{data.day_used(con, 'helius_day', now)}/{holders.CREDITS_DAY} kredita"
                 + (f"; tržište: DexScreener danas {data.day_used(con, 'mkt_dex_day', now)}/{market.DEX_DAY}, osvježeno "
@@ -249,6 +253,14 @@ def _flip_mode():
     try:
         return _mode("range_flip")
     except Exception:  # noqa: BLE001 - unreadable: off, today's rules
+        return "off"
+
+
+def _missed_mode():
+    """range_missed's mode (11.11., G27); "off" whenever it cannot be read."""
+    try:
+        return _mode("range_missed")
+    except Exception:  # noqa: BLE001 - unreadable: off, no missed list
         return "off"
 
 
