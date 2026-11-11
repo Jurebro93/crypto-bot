@@ -160,6 +160,9 @@ PROCESSES = (
     # 10.11. (flag group_discovery): the night pass and the 15-min pass; shadow only, nobody waits for them
     ("grupe", "-m kol.groupdisc", (), JOBS,
      "ekipe callera i skriveni popisi novčanika: noćni prolaz (Helius, strop kredita) i mali svakih 15 min, samo sjena"),
+    # 10.11. (flag insider_copy): launches from 10k, pre-call insiders; the copy itself runs in the UI's copy loop
+    ("insajderi", "-m kol.precall", (), JOBS,
+     "insajderi prije poziva i nova lansiranja od 10k: noćni prolaz (Helius, strop kredita) i mali svakih 15 min"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
@@ -167,6 +170,9 @@ PROCESSES = (
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
     # 10.11. (flag range_dca): the entries and exits run in run_ui (protected); this only collects and computes
     ("range", "run_range.py", (), JOBS, "raspon + DCA: snimke kandidata svake minute, rasponi svakih 5 min, noćni backtest"),
+    # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
+    ("events", "run_events.py", (), JOBS,
+     "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),
     # 5: last of all: its rug check feeds the entry guard (_concentration) of the copy loop
     ("top", "run_top.py", (), LAST,
      "provjera preporučenih tokena svake 3 min; njena provjera ruga hrani zaštitu ulaza, pa staje zadnja"),

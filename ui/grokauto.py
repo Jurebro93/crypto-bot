@@ -174,33 +174,52 @@ def maybe_pause(tcon, now=None, lcon=None):
 
 
 def safety(token, market=None):
-    """The checks of the Autopilot's copies (league/copy._enter) again, now: None when the token passes, else why."""
+    """The checks of the Autopilot's copies (league/copy._enter) again, now: None when the token passes, else why
+    (a rug risk rating included; execute() lets fresh Grok evidence override only that part, safety_ex)."""
+    why, risk = safety_ex(token, market)
+    return why or (risk[0] if risk else None)
+
+
+def safety_ex(token, market=None):
+    """(why, risk). why: a check nothing overrides (price, bonded, the pool gates, a collapse, the rug archive, mint /
+    freeze authority, RugCheck rugged, honeypot). risk: the rug RISK ratings (supply concentration, the rug filter's
+    ODBAČEN / VISOK RIZIK verdict; 10.11. BOXCAT: the verdict was not checked here before) that fresh Grok evidence
+    may override at half size (ui/kandidati.py, the same rule get_trade_candidates shows)."""
     from league import copy
     mk = (market or copy.market)({token}) or {}
     m = mk.get(token)
     if not m or not m[0]:
-        return "nema cijene tog tokena (DexScreener)"
+        return "nema cijene tog tokena (DexScreener)", []
     if copy._dex_pair_empty(m):
-        return "DexScreener ima par, ali trenutno bez cijene/likvidnosti"
+        return "DexScreener ima par, ali trenutno bez cijene/likvidnosti", []
     price, liq, _, mcap = m[:4]
     c = copy.CFG
     if copy._bonding_curve(m):
-        return "token je još na pump.fun krivulji; uzimaju se samo bondani"
+        return "token je još na pump.fun krivulji; uzimaju se samo bondani", []
     if (liq or 0) < c["min_liq"]:
-        return f"premala likvidnost (${liq or 0:,.0f}, treba ${c['min_liq']:,.0f})"
+        return f"premala likvidnost (${liq or 0:,.0f}, treba ${c['min_liq']:,.0f})", []
     if (mcap or 0) < c["min_mcap"]:
-        return f"MC ${mcap or 0:,.0f} ispod 30k"
+        return f"MC ${mcap or 0:,.0f} ispod 30k", []
     if mcap > c["max_mcap"]:
-        return "velik token (preko $50M)"
+        return "velik token (preko $50M)", []
     if liq > mcap:
-        return "lažni pool (likvidnost veća od market capa)"
+        return "lažni pool (likvidnost veća od market capa)", []
     if liq < c["min_liq_mcap"] * mcap:
-        return f"likvidnost je samo {liq / mcap:.1%} MC-a (granica {c['min_liq_mcap']:.0%})"
+        return f"likvidnost je samo {liq / mcap:.1%} MC-a (granica {c['min_liq_mcap']:.0%})", []
     col = copy._rugged(token, mcap, liq)
     if col:
-        return f"token je rugan ({col['text']})"
-    why, _shown = copy._concentration(token)
-    return why or None
+        return f"token je rugan ({col['text']})", []
+    from scan import filters
+    from ui import kandidati
+    src = kandidati.Sources()
+    try:
+        archived = src.archived()
+    except Exception:  # noqa: BLE001
+        archived = frozenset()
+    rv = kandidati.rug_view(token, mcap, liq, src, filters.rug_tables(), archived)
+    if rv["hard"]:
+        return f"rug: {rv['hard'][0]}", []
+    return None, rv["risk"]
 
 
 def notify(text):
@@ -291,9 +310,22 @@ def execute(body, now=None, wait_s=None, market=None):
                 _league_ids(tcon))}
             if tok not in held and u["open"] >= lim["grok_max_open"]:
                 return reject(f"{u['open']} Grok positions open, at most {lim['grok_max_open']} (grok_max_open)")
-            why = safety(tok, market)
+            why, risk = safety_ex(tok, market)
             if why:
                 return reject(f"safety check failed: {why}")
+            if risk:   # 10.11. (Jure: "ako je BOXCAT označen kao rug, ipak slušaj Groka"): a measured override
+                from ui import kandidati
+                ev = kandidati.override_now(tok, now)
+                if not ev:
+                    return reject(f"safety check failed: {risk[0]} (a rug risk rating: fresh evidence of yours from the "
+                                  "last 30 min can override it at half size: submit_x_features naming known callers / "
+                                  "large accounts or growing organic authors, or submit_signal_opinion kupi)")
+                cap = round(lim["grok_max_sol_per_trade"] * kandidati.OVERRIDE_SIZE, 6)
+                if amount > cap + 1e-12:
+                    return reject(f"rug risk overridden by your fresh evidence, but only at half size: at most {cap:g} "
+                                  f"SOL (rug: {risk[0]})", 400)
+                row["override"] = {"rug_risk": risk[0], "strength": ev["strength"]}
+                reason = row["reason"] = (f"[Grok nadjačao rug ocjenu: {risk[0]}] " + reason)[:300]
             before = lcon.execute("SELECT COALESCE(MAX(id), 0) FROM trades").fetchone()[0]
             tp, sl = pravitrade._last_exit(pravitrade._cfg(tcon))
             try:

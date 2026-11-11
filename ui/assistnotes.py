@@ -327,6 +327,25 @@ def _apply_caller(con, pc):
     return h, old, cur[h]
 
 
+INSIDER_LABELS_MAX = 5000
+
+
+def _apply_insider_label(con, x, nid):
+    """10.11. (flag insider_copy, kol/precall.py): Grok's verdict on a pre-call wallet, {"wallet", "label": insider |
+    team | bot | sniper | legit, "note"}, stored in settings insider_labels only by the owner's "Primijeni"; bot and
+    sniper keep the wallet out of the insider copy. Changes no flag and no trading setting. -> (wallet, old, new)."""
+    from kol import precall
+    w, lab, note = precall.parse_label(x)
+    cur = dict(settings.raw(con).get("insider_labels") or {})
+    old = (cur.get(w) or {}).get("label")
+    cur.pop(w, None)
+    cur[w] = {"label": lab, "note": note, "ts": int(time.time()), "note_id": int(nid)}
+    if len(cur) > INSIDER_LABELS_MAX:   # the oldest out (dicts keep insertion order; a re-label moved to the end above)
+        cur = dict(list(cur.items())[-INSIDER_LABELS_MAX:])
+    _set_settings(con, "insider_labels", cur)
+    return w, old, lab
+
+
 def _to_shadow(con, flag):
     """10.11. (Jure: "svaku iza zastavice, prvo shadow"): a rule an applied suggestion sets is switched to shadow when
     it is off; a flag already in shadow, paper or live stays where the owner put it. Never live from here."""
@@ -585,6 +604,7 @@ OWNER_FLAG_ORDERS = (
     ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
     ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
     ("range_dca", "paper", "vlasnik u chatu 10.11.: range_dca, start = paper (samo demo račun)"),
+    ("insider_copy", "shadow", "vlasnik u chatu 10.11.: insajderi prije poziva, start = shadow (paper tek na njegov zahtjev)"),
 )
 
 
@@ -682,6 +702,10 @@ def apply(con, nid, owner_note=""):
         h, old, new = _apply_caller(con, pc)
         applied = {"key": f"caller_weights.{h}", "old": old, "new": new}
         words = f"težina callera {h}: {old} → {new}" + _to_shadow(con, "caller_weights")
+    elif pc and isinstance(pc.get("insider_label"), dict):
+        w, old, new = _apply_insider_label(con, pc["insider_label"], d["id"])
+        applied = {"key": f"insider_label.{w}", "old": old, "new": new}
+        words = f"oznaka novčanika {w[:6]}…: {old or 'bez oznake'} → {new}"
     elif pc and pc.get("key") in APPLY:
         key = pc["key"]
         old = _current(con, key)

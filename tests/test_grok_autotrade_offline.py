@@ -51,7 +51,8 @@ class Grok(Base):
         self.assertIn("off", out["reason"])
         self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])
         # no MCP tool turns it on or changes its limits
-        names = [t["name"] for t in mcpapi.TOOLS]
+        # (10.11.: the read-only work queue get_grok_tasks is allowed; no tool that writes may touch it)
+        names = [t["name"] for t in mcpapi.TOOLS if not (t.get("annotations") or {}).get("readOnlyHint")]
         self.assertFalse([n for n in names if "grok" in n or "autotrade" in n])
         self.assertIn("err=", pravitrade.post("/pravi-trade/grokon", {}, "netko"))   # only the owner
         self.assertFalse(grokauto.state(self.con)["on"])

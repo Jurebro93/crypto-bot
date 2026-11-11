@@ -135,7 +135,8 @@ def stats(con, cfg, since, now=None, source=None, tradeable=True):
     for row in con.execute(sql, args):
         r = dict(zip(COLS, row))
         by.setdefault(r["source"], []).append(r)
-    for src in [s for s in store.SOURCES if s in by] + sorted(s for s in by if s not in store.SOURCES):
+    order = store.SOURCES + store.COMBINED
+    for src in [s for s in order if s in by] + sorted(s for s in by if s not in order):
         rows = by[src]
         fin = [r for r in rows if r["done"] and not r["bad"] and r["result"] is not None]
         oc = [outcome(r, cfg) for r in fin]
@@ -192,6 +193,19 @@ def flag_paper_refusal(con=None, cfg=None, now=None):
     return "; ".join(why)
 
 
+def combined(gate):
+    """10.11. (ui/kandidati.py): does confluence beat a single source? The gate window's outcomes of the combined
+    list (kandidati), of the Grok overrides of a rug risk rating (grok_override) and of the best single source with
+    at least 10 outcomes, side by side (ev = mean result of the shadow trade after cost)."""
+    by = {r["source"]: r for r in gate or []}
+    single = [r for r in gate or [] if r["source"] in store.SOURCES and (r.get("n") or 0) >= 10 and r.get("ev") is not None]
+    best = max(single, key=lambda r: r["ev"], default=None)
+    pick = ("n", "hit1h", "hit4h", "sl_first", "ev", "median", "open")
+    return {"kandidati": {k: (by.get("kandidati") or {}).get(k) for k in pick},
+            "grok_override": {k: (by.get("grok_override") or {}).get(k) for k in pick},
+            "best_single": {"source": best["source"], "n": best["n"], "ev": best["ev"]} if best else None}
+
+
 def report_data(now=None, con=None, cfg=None):
     """What the daily report and the MCP tool get_source_stats show: per source the last 24 h (found, outcomes,
     hit rates, -30 %-first, EV), the gate window, the paper gate per source, the measured-only line, beta by meta
@@ -208,7 +222,7 @@ def report_data(now=None, con=None, cfg=None):
         day = stats(con, cfg, now - 86400, now)
         gate = stats(con, cfg, now - int(cfg["gate_days"]) * 86400, now)
         measured = stats(con, cfg, now - 86400, now, tradeable=False)
-        gates = {s: paper_refusal(s, con, cfg, now) for s in store.SOURCES}
+        gates = {s: paper_refusal(s, con, cfg, now) for s in store.SOURCES + store.COMBINED}
         leads = [r[0] for r in con.execute("SELECT lead_time_min FROM cand WHERE lead_time_min IS NOT NULL AND "
                                            "first_pass_ts >= ?", (now - 7 * 86400,))]
         passed_day = con.execute("SELECT COUNT(*) FROM cand WHERE first_pass_ts >= ?", (now - 86400,)).fetchone()[0]
@@ -219,8 +233,8 @@ def report_data(now=None, con=None, cfg=None):
     finally:
         if own:
             con.close()
-    return {"ts": now, "mode": store.mode(), "rule": {"tp": cfg["tp"], "sl": cfg["sl"], "horizon_h": cfg["horizon_h"],
-                                                     "cost": cfg["cost"]},
+    return {"ts": now, "mode": store.mode(), "combined": combined(gate),
+            "rule": {"tp": cfg["tp"], "sl": cfg["sl"], "horizon_h": cfg["horizon_h"], "cost": cfg["cost"]},
             "day": day, "gate_window": gate, "gate_days": cfg["gate_days"], "measured_only_day": measured,
             "paper_gate": {s: (w or "prolazi") for s, w in gates.items()},
             "lead_time": {"n": len(leads), "median_min": round(statistics.median(leads), 1) if leads else None,

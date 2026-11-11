@@ -131,6 +131,12 @@ def wanted(con, cfg, wallet_db=None):
         ins = [w for w, _n, _s in _ins.wallets(con, _ins.DEFAULT["min_tokens"], cap)]
     except Exception:  # noqa: BLE001
         ins = []
+    try:   # 10.11. (flag insider_copy, kol/precall.py): confirmed pre-call insiders first in the insider share, ONLY in
+        from kol import precall as _pre   # paper / live (each webhook event costs a credit; [] in off / shadow)
+        pre = _pre.webhook_wallets(max(0, int(round(cap * share.get("insajderi", 0)))))
+        ins = pre + [w for w in ins if w not in pre]
+    except Exception:  # noqa: BLE001
+        pass
     # 4.11.: wallets a player follows in the competition (league.db follows) MUST be in the webhook, or the follow
     # never sees a buy ("pratim nekoliko walleta, nemam otvorenih pozicija"); they go first, outside the shares
     followed = []
@@ -416,6 +422,11 @@ def ingest(payload, hype_db=None, _spool=True, timeout=None):
             _PRUNED["ts"] = now
         con.commit()
         con.close()
+        try:   # 11.11. dual write into events.db (events/hooks.py): queued, never waits, never fails the webhook
+            from events import hooks as _ev
+            _ev.chain_ingested(payload, rows, transfers)
+        except Exception:  # noqa: BLE001
+            pass
     except sqlite3.OperationalError:
         if _spool and spool(payload, hype_db) is not None:
             return len(rows) + len(transfers)

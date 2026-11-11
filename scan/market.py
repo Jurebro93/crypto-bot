@@ -7,6 +7,7 @@ Discovery (cheapest first; everything but GeckoTerminal is free or already paid 
                PumpPortal SOL budget LIVE_MAX_TRADES_DAY is unchanged)
   hype         hype.db hype_signals of the last 15 min (the hype scan's pump.fun boards, already paid on Apify)
   graduates    kol.db graduates first seen in the last 24 h (the KOL round's PumpSwap pool listing)
+  launch10k    new pump.fun launches that reached 10k at their +10/+30/+90 min check (kol/precall.py, flag insider_copy)
   dexscreener  latest token profiles and boosts (free API), Solana only; their descriptions feed the meta keywords
   gecko        one page of pump.fun curve pools and one of PumpSwap pools by volume, every gt_every_min, inside the
                scanner's own GeckoTerminal day cap gt_calls_day (the paid CoinGecko day budget is shared with the bot)
@@ -98,6 +99,12 @@ class Net:
 
     x_get = None   # kol/twapi._get (the tests pass their own)
 
+    def kandidati(self, now):
+        """10.11.: the combined candidate list, ranked (ui/kandidati.build); a test net without this method skips the
+        combined shadow log."""
+        from ui import kandidati
+        return kandidati.build(now, details=False)[0]
+
 
 # ---------- discovery -------------------------------------------------------------------------------------------
 
@@ -139,6 +146,19 @@ def from_graduates(kc, now, cfg, c):
                                 "ORDER BY first_seen DESC LIMIT 60",
                             (int(now) - 86400, float(cfg["final_stretch_min_mcap"]))):
         _add(c, tok, "graduates", symbol=sym, migrated=True)
+
+
+def from_launches(now, c):
+    """10.11. (Jure, flag insider_copy, kol/precall.py): new pump.fun launches the +10/+30/+90 min DexScreener checks
+    saw at 10k or more in the last promote_h hours. On the curve they are final_stretch: measured, never tradeable."""
+    try:
+        from kol import precall
+        rows = precall.reached(now)
+    except Exception as e:  # noqa: BLE001 - discovery is best effort
+        log(f"lansiranja od 10k: {type(e).__name__}: {str(e)[:80]}")
+        rows = []
+    for mint, sym in rows:
+        _add(c, mint, "launch10k", symbol=sym or None)
 
 
 def from_dex_lists(items, c, con, now):
@@ -427,8 +447,10 @@ def check(m, cfg, ctx, has_signal):
     if why:
         out["why"] = out["why_sig"] = why
         return out
+    # 10.11. (BOXCAT): the label says what was checked, the rug filter's verdict included (a truthful "prolazi")
     out["reasons"].append(f"rug provjera prolazi ({shown}, holdera {facts.get('holders')}"
-                          + ("+" if facts.get("holders_capped") else "") + f", izvor {facts.get('src')})")
+                          + ("+" if facts.get("holders_capped") else "") + f", izvor {facts.get('src')}, "
+                          f"rug filter: {filters.rug_filter_word(tok)})")
     if vol_fail:
         out["why"] = filters.volume_rule_text(m, cfg)
     return out
@@ -490,6 +512,7 @@ def pass_once(now=None, net=None, cfg=None, p=None, settings_path=None):
         from_pumpportal(hc, now, cfg, c)
         from_hype(hc, now, c)
         from_graduates(kc, now, cfg, c)
+        from_launches(now, c)
         from_dex_lists(net.dex_lists(), c, con, now)
         out["gt"] = from_gecko(net, con, now, cfg, c, gt_rows)
         from_signals(con, now, cfg, c, p)
@@ -568,6 +591,9 @@ def pass_once(now=None, net=None, cfg=None, p=None, settings_path=None):
         # X momentum, lead time, the shadow paths
         out["x_usd"] = x_momentum(con, cfg, now, p, net)
         update_lead_times(con, now, p)
+        con.commit()
+        for src, n in log_kandidati(con, net, cfg, now).items():
+            out["passed"][src] = out["passed"].get(src, 0) + n
         if ok_prices:
             prices = {t: r["price"] for t, r in mk.items() if r.get("price")}
             out["finished"] = shadow.track(con, prices, now, cfg)
@@ -701,6 +727,29 @@ def x_momentum(con, cfg, now, p, net):
     finally:
         kcon.close()
     return round(usd, 5)
+
+
+def log_kandidati(con, net, cfg, now):
+    """10.11. (ui/kandidati.py): every kandidati_every_min the combined candidate list (net.kandidati) and its shadow
+    entries: source kandidati for a tradeable row the first time it ranks in the top kandidati_top_n, source
+    grok_override for every tradeable row Grok's fresh evidence lifted over a rug risk rating. Free (DexScreener and
+    the bot's own databases); a failure is logged and never stops the pass. Returns {source: new entries}."""
+    fn = getattr(net, "kandidati", None)
+    if fn is None:
+        return {}
+    last = _f(store.kv_get(con, "last_kand_ts")) or 0
+    if now - last < float(cfg["kandidati_every_min"]) * 60:
+        return {}
+    store.kv_set(con, "last_kand_ts", int(now))
+    try:
+        rows = fn(now)
+        from ui import kandidati
+        out = kandidati.log_shadow(con, rows, now, int(cfg["kandidati_top_n"]))
+    except Exception as e:  # noqa: BLE001 - the combined list is extra; the scanner's own pass goes on
+        log(f"kandidati: {type(e).__name__}: {str(e)[:80]}")
+        return {}
+    con.commit()
+    return out
 
 
 def update_lead_times(con, now, p):
