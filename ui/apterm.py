@@ -623,11 +623,11 @@ def first_view(user, mint="", now=None, fresh=False):
         tcon.close()
 
 
-def first_json(user, mint="", with_html=False, sym=""):
+def first_json(user, mint="", with_html=False, sym="", fresh=False):
     """The JSON of GET /pravi-trade/api/first (private keys dropped); with_html adds the tables' HTML, so the browser
     swaps them in one request when a tick says they changed. sym: the symbol the browser showed on the row it was
     tapped on (a proposal, a watchlist token), used for the header when no position names the token."""
-    d = first_view(user, mint)
+    d = first_view(user, mint, fresh=fresh)   # fresh: the tick says the positions changed (11.11.: no 3-s old view)
     if d is None:
         return None
     sym = re.sub(r"[^\w$.\-]", "", str(sym or ""))[:20]
@@ -640,6 +640,62 @@ def first_json(user, mint="", with_html=False, sym=""):
         out["html"] = {"pos": positions_html(d), "ord": orders_html(d), "hdr": _hdr_html(d.get("header"), time.time()),
                        "side": panel_html(d, sel_pos)}
     return json.dumps(out, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _cached_row(mint, now, max_age=120):
+    """The token's newest live row in ui/pravitrade's shared DexScreener cache (any token set holding it, at most
+    max_age s old), without a request and without marking a set wanted (unlike _peek_live); None when there is none."""
+    with pt._LOCK:
+        slots = sorted(pt._LIVE_CACHE.items(), key=lambda kv: -kv[1][0])
+    for _k, (sts, data) in slots:
+        if mint in (data or {}) and now - sts < max_age:
+            return data[mint]
+    return None
+
+
+def _pair_token(addr):
+    """The token of a DexScreener pair address (as ui/real.resolve's fallback; one free request), else None."""
+    try:
+        from dexscreener import client
+        return ((client.pair("solana", addr) or {}).get("baseToken") or {}).get("address")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def token_info(user, q, now=None):
+    """GET /pravi-trade/api/token?q=: what the buy panel's Token field names (11.11., Jure: "da nisam krivo pastao
+    adresu"): the mint of an address or a DexScreener link, its symbol and name, MC, liquidity and the pair's age,
+    from ui/pravitrade's shared DexScreener cache (one free request for a token nobody asked for yet, then the cache);
+    a pair's address (a DexScreener link) is looked up once as a pair (_pair_token, as ui/real.resolve does when the
+    buy is posted, so the panel names the token the buy will get). found: True, False (DexScreener answered
+    and knows no such token) or None (DexScreener did not answer). None without access to the page."""
+    now = now or time.time()
+    tcon = pt._tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+    finally:
+        tcon.close()
+    q = (q or "").strip()[:300]
+    m = MINT.search(q)
+    if not m:
+        return {"q": q, "mint": None, "found": False, "err": "ne vidim Solana adresu ni DexScreener link"}
+    mint = m[0]
+    lv = _cached_row(mint, now)   # a token the page already follows (a position, the chart): no request at all
+    if not lv:
+        live = pt._live_cached((mint,), now)
+        if live is None:
+            return {"q": q, "mint": mint, "found": None, "err": "DexScreener se trenutno ne javlja"}
+        lv = live.get(mint)
+    if not lv:   # a pair's address (a DexScreener link or a pasted pair): its token
+        tok = _pair_token(mint)
+        if tok and tok != mint and MINT.fullmatch(tok):
+            mint, lv = tok, (pt._live_cached((tok,), now) or {}).get(tok)
+    if not lv:
+        return {"q": q, "mint": mint, "found": False, "err": "token nije pronađen na DexScreeneru"}
+    made = lv.get("created_ms")
+    return {"q": q, "mint": mint, "found": True, "sym": lv.get("symbol") or "", "name": lv.get("name") or "",
+            "mcap": lv.get("mcap"), "liq": lv.get("liq"), "age_s": int(now - made / 1000) if made else None}
 
 
 # ---------- the shared live tick and the SSE stream ---------------------------------------------------------------
@@ -696,6 +752,12 @@ def tick(mint="", now=None):
     with _LOCK:
         _TICK.update(ts=now, val=val, toks=set(toks), db=settings.DB)
     return val
+
+
+def forget_first():
+    """Forget the cached first views (after an owner's POST: the next /api/first shows what the form changed)."""
+    with _LOCK:
+        _FIRST.clear()
 
 
 def reset():
@@ -1312,10 +1374,11 @@ def _pos_row(p, owner, cfg, rule):
                 f'value={fr}><button class="apx-b sell{" full" if fr == "1" else ""}">Zatvori {lab}</button></form>'
                 for fr, lab in (("0.5", "50 %"), ("1", "100 %")))
             if p["has_demo"]:
-                act += f'<button type=button class=apx-b data-edit="ed-{p["pid"]}">Uredi SL-TP</button>'
+                act += (f'<button type=button class=apx-b data-edit="ed-{p["pid"]}" aria-controls=ed-{p["pid"]} '
+                        'aria-expanded=false>Uredi SL-TP</button>')
                 lv = pt._dca_block(tok, p["sym"], [], [], cfg, p["avg_mc"], p["mc_now"])
-                edit = (f'<div class=apx-edit id=ed-{p["pid"]} hidden><div><h4>SL / TP</h4>{pt._exit_form(p["pid"], rule, cfg)}'
-                        f'</div><div><h4>DCA dokup</h4>{lv}</div></div>')
+                edit = (f'<div class=apx-edit id=ed-{p["pid"]} hidden><div><h4>SL / TP · {esc(p["sym"])}</h4>'
+                        f'{sltp_html(p, cfg)}</div><div><h4>DCA dokup</h4>{lv}</div></div>')
     pnl_cls = _tone(p["pnl_pct"])
     return (f'<div class="apx-tr apx-pos{" is-paper" if p["paper"] else ""}" id=poz-{p["pid"]} data-key="{esc(p["key"])}" '
             f'data-tok="{esc(tok)}">'
@@ -1326,6 +1389,62 @@ def _pos_row(p, owner, cfg, rule):
             f'<span class="n apx-pnl {pnl_cls}" data-l="PnL" data-f=pnl>{pnl}</span>'
             f'<span class="n dn" data-l="SL">{sl}</span><span class="n up" data-l="TP">{tp}</span>'
             f'<span data-l="Izvor">{src}</span>{_note_html(p.get("note"))}<span class=apx-act>{act}</span>{edit}</div>')
+
+
+def sltp_html(p, cfg):
+    """Uredi SL-TP of one open position (11.11., Jure: "nemam nigdje button spremi, samo Kupi 0,15"): the TP and SL it
+    has now, as stored (percent from the average entry or MC), quick chips that only fill a field, and one "Spremi
+    SL/TP". The form posts what it always posted (POST /pravi-trade/exit: id, tp, sl); ap.js sends it with fetch and
+    shows the answer in place, without JavaScript it is an ordinary form that comes back to #poz-<id>. The same editor
+    sits in the position's row and in the panel's "Tvoja pozicija"."""
+    sl0 = pt._sl0(cfg)
+    tpc = "".join(f'<button type=button class="apx-chip up" data-etp="{v}%">+{v} %</button>' for v in pt.EXIT_TP_QUICK)
+    slc = "".join(f'<button type=button class="apx-chip dn" data-esl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
+    now = "Smart sell (alat sam bira izlaz)" if p.get("smart") else (p.get("exit") or "bez TP/SL-a")
+    return (f'<form method=post action=/pravi-trade/exit class="apx-f apx-sltp" data-sltp data-base="{p.get("avg_mc") or ""}" '
+            f'aria-label="SL i TP pozicije {esc(p["sym"])}"><input type=hidden name=id value={int(p["pid"])}>'
+            f'<div class=apx-two><label class="apx-fl up">TP<input name=tp value="{esc(p.get("tp") or "")}" '
+            'placeholder="npr. 30% ili $200k" autocomplete=off><small data-ehint=tp></small></label>'
+            f'<label class="apx-fl dn">SL<input name=sl value="{esc(p.get("sl") or "")}" placeholder="zadano {esc(sl0)}" '
+            'autocomplete=off><small data-ehint=sl></small></label></div>'
+            f'<div class=apx-chips>{tpc}{slc}</div>'
+            f'<p class=apx-note>Sada: {esc(now)}. Postotak od prosječnog ulaza ({mc(p.get("avg_mc"))}) ili MC (npr. $200k). '
+            f'Prazan TP = samo stop; prazan SL = zadani stop {esc(sl0)}. Ako je cijena već preko razine, prodaja kreće '
+            'u sljedećih 20 s.</p>'
+            '<div class=apx-sltp-go><button class=apx-go data-save>Spremi SL/TP</button>'
+            '<button type=button class=apx-b data-edit-close>Odustani</button></div>'
+            '<p class=apx-sltp-msg role=status aria-live=polite></p></form>')
+
+
+def _mypos_html(p, cfg):
+    """The panel's "Tvoja pozicija" (11.11., Jure: "kliknem na token u pozicijama, odvede me na graf", and there he
+    looks for SL / TP): the selected token's open position on top of the panel (entry MC, now, PnL, SL, TP; the tick
+    keeps "Sada" and PnL fresh by data-key) and Uredi SL-TP, the same editor and route as the row's. Without a
+    position an empty hidden box, so a refresh can put one in when the token gets a position."""
+    if not p:
+        return '<div class=apx-mypos id=apx-mypos hidden></div>'
+    pnl = (f'{_pct(p["pnl_pct"])}<small>{redak.sol(p["pnl_sol"], 4, sign=True) if p["pnl_sol"] is not None else ""}</small>'
+           if p["pnl_pct"] is not None else "čekam cijenu")
+    sl = (f'{_pct(p["sl_pct"], 0)}<small>{mc(p["sl_mc"])}</small>' if p["sl_mc"] else "Smart" if p["smart"] else "–")
+    tp = (f'{_pct(p["tp_pct"], 0)}<small>{mc(p["tp_mc"])}</small>' if p["tp_mc"] else "–")
+    if p.get("trail"):
+        tp += f'<small>trailing {esc(str(p["trail"].get("trail_pct")))} %</small>'
+    cells = [("Ulaz (MC)", f'<b>{mc(p["avg_mc"])}</b>'), ("Sada (MC)", f'<b data-f=mc>{mc(p["mc_now"])}</b>'),
+             ("PnL", f'<b class="n apx-pnl {_tone(p["pnl_pct"])}" data-f=pnl>{pnl}</b>'),
+             ("SL", f'<b class=dn>{sl}</b>'), ("TP", f'<b class=up>{tp}</b>')]
+    grid = "".join(f'<div><span>{k}</span>{v}</div>' for k, v in cells)
+    eid = f'pe-{p["pid"]}'
+    if p["pending"] is not None:
+        act = f'<p class=apx-mut>Prodaja {redak.pct(p["pending"], sign=False, frac=True)} je u tijeku.</p>'
+    elif p["has_demo"]:
+        act = (f'<button type=button class="apx-b apx-myedit" data-edit={eid} aria-controls={eid} aria-expanded=false>'
+               f'Uredi SL-TP</button><div class="apx-edit apx-pedit" id={eid} hidden>{sltp_html(p, cfg)}</div>')
+    else:
+        act = '<p class=apx-mut>Izlaz ove pozicije se ne mijenja ovdje (nema demo par).</p>'
+    badge = BADGE_PAPER if p["paper"] else BADGE_LIVE
+    return (f'<div class=apx-mypos id=apx-mypos data-key="{esc(p["key"])}"><div class=apx-myh><b>Tvoja pozicija</b>{badge}'
+            f'<span class=apx-mut translate=no>{esc(p["sym"])} · {redak.sol(p["sol_in"], 3)}</span></div>'
+            f'<div class=apx-myg>{grid}</div>{act}</div>')
 
 
 def orders_html(d):
@@ -1412,12 +1531,24 @@ def panel_html(d, sel_pos):
     slc = "".join(f'<button type=button class="apx-chip dn" data-sl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
     sol0 = pn.get("size_sol") or 0.1
     tp_last, sl_last = pn.get("tp_last") or "", pn.get("sl_last") or ""
-    buy = ('<form method=post action=/pravi-trade/buy class=apx-f id=apx-buy onsubmit="return confirm(\'Kupiti ovaj token pravim '
-           'novcem (ako je Autopilot uključen)?\')">'
+    # 11.11. (Jure upisao TP 60 / SL 85k ovdje za otvorenu poziciju i našao samo "Kupi 0,15 SOL"): these TP / SL are a
+    # new buy's; the open position's are edited in "Tvoja pozicija" above (or the row's Uredi SL-TP)
+    ed = sel_pos and sel_pos.get("has_demo") and sel_pos.get("pending") is None
+    newbuy = ('<p class="apx-note apx-newbuy">TP/SL ovdje vrijede samo za <b>novu kupnju</b>. Za otvorenu poziciju: '
+              + (f'<button type=button class=apx-lnk data-edit=pe-{sel_pos["pid"]}>Uredi SL-TP pozicije '
+                 f'{esc(sel_pos["sym"])}</button>' if ed else '„Uredi SL-TP” u tablici Pozicije') + '.</p>')
+    # 11.11. (owner's rule: "Kupi mora koristiti isključivo mint iz polja za adresu; ako se mint iz polja i token na
+    # grafu razlikuju, prikaži upozorenje i traži potvrdu"): ap.js (apBuyOk) asks with the field's symbol and address,
+    # a second time when it is not the chart's token; chart_mint lets the server refuse an unconfirmed difference
+    buy = ('<form method=post action=/pravi-trade/buy class=apx-f id=apx-buy onsubmit="return window.apBuyOk ? apBuyOk(this) : '
+           'confirm(\'Kupiti ovaj token pravim novcem (ako je Autopilot uključen)?\')">'
+           f'<input type=hidden name=chart_mint value="{esc(m)}"><input type=hidden name=confirm_mismatch value="">'
            f'<label class=apx-fl>Token<input name=token required value="{esc(m)}" placeholder="adresa tokena ili DexScreener link" '
            'autocomplete=off spellcheck=false></label>'
+           # 11.11. (Jure: "da nisam krivo pastao adresu"): ap.js names the address here (GET /pravi-trade/api/token)
+           '<p class=apx-tokline data-tokline aria-live=polite></p>'
            f'<div class=apx-fl><span>Iznos (SOL)</span><div class=apx-amt><div class=apx-chips>{quick}</div>'
-           f'<input name=sol value="{sol0:g}" inputmode=decimal aria-label="Iznos u SOL-u"></div></div>'
+           f'<input name=sol value="{sol0:g}" inputmode=decimal aria-label="Iznos u SOL-u"></div></div>{newbuy}'
            f'<div class=apx-two><label class="apx-fl up">TP<input name=tp value="{esc(tp_last)}" placeholder="npr. 30% ili $200k" '
            'autocomplete=off><small data-hint=tp></small></label>'
            f'<label class="apx-fl dn">SL<input name=sl value="{esc(sl_last)}" placeholder="zadano {esc(pn.get("sl_default") or "")}" '
@@ -1432,6 +1563,7 @@ def panel_html(d, sel_pos):
            '<option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option><option value=manual>prodajem sam</option>'
            '</select></label></details>'
            '<div class=apx-cost data-cost>Procjena troška: upiši token i iznos.</div>'
+           '<p class="apx-mismatch dn" data-mismatch role=alert hidden></p>'
            f'<button class="apx-go buy" data-go=buy>Kupi {esc(sym)}</button>'
            '<p class=apx-note>Prolazi iste provjere i limite kao i prije (ulog, dan, trošak, rug, MC 30k+). Pravi novac ide samo '
            'kad je Autopilot uključen.</p></form>')
@@ -1452,7 +1584,8 @@ def panel_html(d, sel_pos):
                 'poziciju u tablici.</p></div>')
     seg = ('<div class=apx-seg role=tablist><button type=button class="on buy" data-side=buy role=tab aria-selected=true>Kupi'
            '</button><button type=button class=sell data-side=sell role=tab aria-selected=false>Prodaj</button></div>')
-    return f'<aside class=apx-side id=kupi-odmah aria-label="Nalog">{head}{wal}{seg}{buy}{sell}{dca}</aside>'
+    mypos = _mypos_html(sel_pos, d.get("_cfg") or {})
+    return f'<aside class=apx-side id=kupi-odmah aria-label="Nalog">{head}{mypos}{wal}{seg}{buy}{sell}{dca}</aside>'
 
 
 def _dca_rows(m, sel_pos, pn):
@@ -1674,6 +1807,38 @@ def _mins_left(ts, now):
     return "isteklo" if m < 0 else f"{m} min" if m < 120 else f"{m // 60} h"
 
 
+def _mc_lvl(x):
+    """A market cap as the buy form and league/auto.parse_level take it ("$160k", "$1.200m"; = proposals/strategies.buy_form)."""
+    return f"${x / 1000:.1f}k".replace(".0k", "k") if x < 1e6 else f"${x / 1e6:.3f}m"
+
+
+def proposal_fill(p, size):
+    """What "Kupi" on a proposal puts into the order panel (it never posts): token, the stake, TP, SL, trailing and the
+    exit "moj TP/SL". TP / SL are the proposal's buy form (proposals/build: strategies.buy_form, set on every row it
+    writes since 11.11.); a row without them (an older one) takes its exit levels (exits_mcap tp / sl as MC, else
+    tp_pct / sl_pct), so no field stays empty."""
+    r = p.get("row") or {}
+    b, ex = r.get("buy") or {}, r.get("exits_mcap") or {}
+    tp0 = (ex.get("tp") or [None])[0]
+    tp = b.get("tp") or (_mc_lvl(tp0) if tp0 else f'{r["tp_pct"]:g}%' if r.get("tp_pct") else "")
+    sl = b.get("sl") or (_mc_lvl(ex["sl"]) if ex.get("sl") else f'-{abs(r["sl_pct"]):g}%' if r.get("sl_pct") else "")
+    return {"id": p["id"], "token": p["token"], "sol": f"{size:g}", "tp": tp, "sl": sl, "exit": "tpsl",
+            "sym": p.get("symbol") or p["token"][:6], "trail": ex.get("trailing_pct")}
+
+
+def live_fill(token, sym, size, fv=None):
+    """"Kupi" on a live pick of the tool: the fast path's exit (trade/edge rule E = fast/paper.PLAN: half out at +15 %,
+    the rest trailing 8 %, stop -10 %, out after 45 min). A manual buy takes TP / SL of it ("moj TP/SL"); trailing and
+    the time stop belong to the fast path's own trades, so the panel shows them as the plan, not as set."""
+    from trade import edge
+    tp, sl, tr = (round(x * 100, 2) for x in (edge.TP, edge.SL, edge.TRAIL))
+    word = "KUPI" if (fv or {}).get("decision") in ("BUY_PAPER", "BUY_LIVE") else "kandidat"
+    return {"token": token, "sym": sym, "sol": f"{size:g}", "tp": f"{tp:g}%", "sl": f"-{sl:g}%", "exit": "tpsl",
+            "trail": tr, "kind": "alat",
+            "plan": f"Izlaz brzog puta ({word}): pola na +{tp:g} %, ostatak trailing {tr:g} %, stop −{sl:g} %, van nakon "
+                    f"{edge.TIME_MIN} min. Ručna kupnja postavlja samo TP/SL (trailing i {edge.TIME_MIN} min ne)."}
+
+
 def kupiti_html(tcon, cfg, owner, now):
     """"Što kupiti": ONE list of what to buy now, every strategy's proposals (proposals/, EV after cost) and the tool's
     live picks (ui/zivo, "Što alat sada predlaže"), sorted by EV per minute (no EV last). Kupi only fills the order
@@ -1690,9 +1855,7 @@ def kupiti_html(tcon, cfg, owner, now):
         size = float(p.get("size_sol") or cfg.get("size_sol") or 0.1)
         if cap:
             size = min(size, cap)
-        trail = (r.get("exits_mcap") or {}).get("trailing_pct")
-        pk = json.dumps({"id": p["id"], "token": p["token"], "sol": f"{size:g}", "tp": b.get("tp") or "",
-                         "sl": b.get("sl") or "", "sym": p.get("symbol") or p["token"][:6], "trail": trail})
+        pk = json.dumps(proposal_fill(p, size))
         buy_btn = f'<button type=button class="apx-b buy" data-pk="{esc(pk)}">Kupi</button>' if owner else ""
         # 11.11. (Jure: "prikazuj samo ono što ima zaključak"): an EV measured on fewer than N_MIN outcomes is no
         # conclusion yet: the row waits in one closed "U procjeni" row
@@ -1722,9 +1885,10 @@ def kupiti_html(tcon, cfg, owner, now):
         m = z.get("live") or {}
         why = z.get("why_not") or (z.get("reasons") or [""])[0]
         sym = z.get("symbol") or m.get("symbol") or z["token"][:6]
-        fill = json.dumps({"token": z["token"], "sym": sym, "sol": f"{min(float(cfg.get('size_sol') or 0.1), cap or 9e9):g}"})
-        fill_btn = f'<button type=button class=apx-b data-fill="{esc(fill)}">U panel</button>' if owner else ""
         fv = z.get("fast") or {}
+        # 11.11. (Jure: "neka prepopulira sve stavke"): the same green Kupi as a proposal's, with the fast path's exit
+        fill = json.dumps(live_fill(z["token"], sym, min(float(cfg.get("size_sol") or 0.1), cap or 9e9), fv))
+        fill_btn = f'<button type=button class="apx-b buy" data-pk="{esc(fill)}">Kupi</button>' if owner else ""
         # 11.11. (Jure): a live candidate is in the main list only with KUPI (fast/live.BUY), EV > 0 and N_MIN+
         # sources behind the EV; every other one (provjera u tijeku, n izvora < 10) waits in one closed row
         ok = fv.get("decision") in flive.BUY and (fv.get("ev_pct") or 0) > 0 and int(fv.get("n") or 0) >= N_MIN

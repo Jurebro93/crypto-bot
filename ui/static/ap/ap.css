@@ -140,6 +140,39 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-edit[hidden]{display:none}.apx-edit h4{margin:0 0 6px;font-size:13.5px}
 .apx-edit form{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px}
 .apx-edit input{width:110px;background:var(--card)}.apx-edit .mut{font-size:12.5px;color:var(--mut);margin:4px 0}
+/* 11.11. the SL / TP editor (ui/apterm.sltp_html): the same one in the position's row and in the panel's "Tvoja pozicija";
+   opened, it is framed, scrolled clear of the sticky header and the phone's bars, its TP field focused */
+.apx-edit{scroll-margin:90px 0 140px}
+.apx-edit:not([hidden]){box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--acc) 45%,transparent)}
+.apx-edit form.apx-sltp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;margin:0}
+.apx-edit .apx-sltp .apx-fl input{width:100%}
+.apx-sltp-go{display:flex;gap:8px;align-items:center}.apx .apx-sltp-go .apx-go{flex:1;min-height:44px}
+.apx-sltp-msg{margin:0;font-size:13px;font-weight:600}.apx-sltp-msg:empty{display:none}
+.apx-sltp-msg.up{color:var(--up)}.apx-sltp-msg.dn{color:var(--dn)}
+.apx .apx-chip.up.on{border-color:var(--up);color:var(--up);background:color-mix(in srgb,var(--up) 12%,var(--card))}
+.apx .apx-chip.dn.on{border-color:var(--dn);color:var(--dn);background:color-mix(in srgb,var(--dn) 9%,var(--card))}
+.apx-saved{animation:apx-saved 2s ease-out}
+@keyframes apx-saved{from{background:var(--ap-acc-bg)}to{background:transparent}}
+.apx-mypos{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:14px;
+ background:var(--ap-acc-bg);border:1px solid color-mix(in srgb,var(--acc) 30%,var(--line))}
+.apx-mypos[hidden]{display:none}
+.apx-myh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.apx-myh>b{font-size:14px}
+.apx-myg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px}
+.apx-myg span{display:block;font-size:11px;color:var(--mut)}
+.apx .apx-myg b{display:block;text-align:left;font-family:var(--ap-mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.apx-myg small{display:block;font-size:11px;font-weight:400;color:var(--mut)}
+.apx .apx-myedit{width:100%;min-height:38px;font-size:13.5px}
+.apx-edit.apx-pedit{grid-template-columns:1fr;margin:0;padding:10px;background:var(--card)}
+.apx-newbuy{background:var(--soft);border-radius:10px;padding:7px 10px}
+/* 11.11. the Token field names its address; Kupi names that token and is off until it is known; another token than
+   the chart's is said in red above Kupi (and asked before sending) */
+.apx-tokline{margin:-4px 0 0;font-size:12.5px;color:var(--fg);overflow-wrap:anywhere}.apx-tokline:empty{display:none}
+.apx-tokline.wait{color:var(--mut)}.apx-tokline.dn{color:var(--dn);font-weight:600}
+.apx-mismatch.dn{margin:0;padding:9px 12px;border-radius:10px;font-size:13px;font-weight:600;color:var(--dn);
+ background:color-mix(in srgb,var(--dn) 7%,var(--card));border:2px solid var(--dn)}.apx-mismatch[hidden]{display:none}
+.apx .apx-go:disabled,.apx .apx-go:disabled:hover{opacity:.55;cursor:not-allowed;filter:none;box-shadow:none}
+.apx .apx-lnk,.apx .apx-lnk:hover{background:none;border:0;padding:0;min-height:0;color:var(--acc);font:inherit;font-weight:600;
+ text-decoration:underline;cursor:pointer;box-shadow:none}
 .apx .ap-btns{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}.apx .ap-btns form{margin:0}
 .apx .ap-btns button{font-size:12.5px;padding:5px 12px}
 .apx button.ap-go{background:var(--fg);border-color:var(--fg);color:#fff}.apx button.ap-go:hover{background:#1f2937}
