@@ -412,6 +412,15 @@ def run_once(con, market, now=None):
     from paper import sim
     now = now or time.time()
     rows = [dict(r) for r in con.execute("SELECT * FROM trades WHERE status='open' AND auto IS NOT NULL")]
+    # 11.11. (zonewatch audit): this 20-s loop sold a lot by its own TP/SL even when an exit plan was in force for its
+    # account (only fast_once skipped them), so a plan's half at +15 % / trailing could be overridden by the lot's TP;
+    # the plan's executor decides for those tokens, as in fast_once (plans paused or flag off: the default is back)
+    try:
+        from . import exitplan
+        planned = {u: exitplan.in_force_tokens(con, u) for u in {r["user"] for r in rows}}
+        rows = [r for r in rows if r["token"] not in planned.get(r["user"], set())]
+    except Exception:  # noqa: BLE001 - plans unreadable: the default TP/SL holds
+        pass
     if not rows:
         return []
     mk = market({r["token"] for r in rows}) or {}
