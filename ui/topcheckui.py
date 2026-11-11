@@ -59,7 +59,8 @@ def fresh(top, max_age_min=30):
 
 
 CHECK_LABEL = {"mint": "Mint authority", "freeze": "Freeze authority", "lp": "LP zaključan", "holderi": "Top 10 holdera",
-               "dev": "Dev", "honeypot": "Honeypot", "rugfilter": "Rug filter (Helius)", "rugcheck": "RugCheck"}
+               "dev": "Dev", "honeypot": "Honeypot", "rugfilter": "Rug filter (Helius)", "rugcheck": "RugCheck",
+               "volumen": "Volumen (botovi)"}
 ICON = {"ok": "✓", "warn": "⚠", "fail": "✗", None: "–"}
 
 
@@ -67,10 +68,12 @@ ICON = {"ok": "✓", "warn": "⚠", "fail": "✗", None: "–"}
 # One row per check: name left, the result in a few words right ("Mint authority · ugašen"), a state line on top
 # ("● Prolazi sve provjere") and the age of the data next to the heading. Same data as token_box, calmer.
 ROW_LABEL = {"mint": "Mint authority", "freeze": "Freeze authority", "lp": "Likvidnost", "holderi": "Top 10 holdera",
-             "dev": "Dev", "honeypot": "Probna prodaja", "rugfilter": "Rug filter", "rugcheck": "RugCheck"}
+             "dev": "Dev", "honeypot": "Probna prodaja", "rugfilter": "Rug filter", "rugcheck": "RugCheck",
+             "volumen": "Volumen"}
 # the words a check's text starts with, dropped on the right side ("mint authority ugašen" -> "ugašen")
 _LEAD = {"mint": "mint authority", "freeze": "freeze authority", "lp": "likvidnost", "holderi": "top 10 holdera",
-         "dev": "dev", "honeypot": "testna prodaja", "rugfilter": "rug filter", "rugcheck": "rugcheck"}
+         "dev": "dev", "honeypot": "testna prodaja", "rugfilter": "rug filter", "rugcheck": "rugcheck",
+         "volumen": "volumen"}
 KIND = {"ok": "", "warn": "warn", "fail": "bad"}
 
 

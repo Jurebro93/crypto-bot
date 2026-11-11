@@ -69,7 +69,9 @@ class Rule(unittest.TestCase):
         kcon = kstore.connect(os.path.join(tmp, "kol.db"))
         idents.save(kcon, [{"wallet": f"ID{i}", "name": f"k{i}", "twitter": None, "telegram": None, "pnl": 1, "wins": 1,
                             "losses": 0, "rank": i} for i in range(10)], "kolscan")
-        got = chainwatch.wanted(kcon, {"max_wallets": 6}, wallet_db=path)
+        # 11.11. (wallets/hygiene): measured a few hours after PROVEN's last trade, so the idle rule does not depend on
+        # the wall clock
+        got = chainwatch.wanted(kcon, {"max_wallets": 6}, wallet_db=path, now=NOW - 4 * D + 4 * 3600)
         self.assertEqual(got[0], "PROVEN")
         self.assertEqual(len(got), 6)
 

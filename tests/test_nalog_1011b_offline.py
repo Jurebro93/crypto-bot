@@ -58,13 +58,38 @@ class LaterOrders(Base):
         done = assistnotes.owner_flag_orders(self.tc, now=NOW)
         self.assertEqual(done, ["zastavica market_scan: off → shadow", "zastavica group_discovery: off → shadow",
                                 "zastavica range_dca: off → paper", "zastavica insider_copy: off → shadow",
-                                "zastavica momentum_scalp: off → paper", "zastavica grok_ev_gate: off → shadow", "zastavica pre_shill: off → shadow"])
+                                "zastavica momentum_scalp: off → paper", "zastavica grok_ev_gate: off → shadow", "zastavica pre_shill: off → shadow",
+                                "zastavica grok_predictions: off → shadow"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)
         settings.set_flag(self.tc, "market_scan", "off", "Jure")                   # the owner turns it off later
         self.assertEqual(assistnotes.owner_flag_orders(self.tc, now=NOW), [])     # it stays off
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "off")
+
+
+class NoteOrders(Base):
+    """11.11.: Grok's accepted critiques now in the code: each note marked primijenjeno once, with what was done."""
+    def note(self, nid, status):
+        assistnotes.ensure(self.tc)
+        self.tc.execute("INSERT INTO assistant_notes (id, ts, kind, title, status) VALUES (?,?,?,?,?)",
+                        (nid, NOW, "suggestion", f"kritika {nid}", status))
+        self.tc.commit()
+
+    def test_marks_accepted_once_leaves_rejected(self):
+        self.note(54, "prihvaćeno")
+        self.note(96, "novo")
+        self.note(74, "odbijeno")
+        self.note(82, "prihvaćeno")
+        done = assistnotes.owner_note_orders(self.tc, now=NOW)
+        self.assertEqual(done, ["bilješka #54 primijenjena (signals_clean)", "bilješka #96 primijenjena (signals_clean)",
+                                "bilješka #82 primijenjena (caller_weights)"])
+        st = dict(self.tc.execute("SELECT id, status FROM assistant_notes").fetchall())
+        self.assertEqual(st, {54: "primijenjeno", 96: "primijenjeno", 74: "odbijeno", 82: "primijenjeno"})
+        why = self.tc.execute("SELECT owner_note FROM assistant_notes WHERE id=54").fetchone()[0]
+        self.assertIn("include_hidden", why)
+        self.assertIn(54, {x["note_id"] for x in assistnotes.applied(self.tc)})
+        self.assertEqual(assistnotes.owner_note_orders(self.tc, now=NOW), [])      # once
 
 
 class HopeStop(Base):

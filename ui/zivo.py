@@ -16,6 +16,13 @@ Two layers, so the page can be fast and still strict:
   60-s box on Pregled asks with sync=True and gets a fresh table in its own (child) process.
 - The expectation for +15 %: the callers' minute check (kol/minute.py handle_stats hit15) when they have one,
   otherwise the market-cap band's measured chance of +30 % in 24 h (ui/prijedlog.chances), marked as the old measure.
+- 11.11. (Grok's note #92): run-up from the FIRST CALL. A source's own mcap0 is not the call's (the 'zovu' row carries
+  the live market cap of the moment, 'alat' the fresh check's), so a token the callers took 4x+ was offered as if it
+  had just been called. Each row now carries runup (live market cap over the market cap of the token's first measured
+  call in the last 24 h, kol.db calls.mcap0); at RUNUP_MAX_X or more it is marked like ui/kandidati marks it:
+  pick=False with why_not "kasno: ...", sorted after the picks; the Pregled box and the Autopilot list never offer it
+  as a pick. league/copy's runup_default gate already measures from the first call (copy.first_call: the earliest
+  call overall, its price p0), so the copy entries need no change.
 """
 import threading
 import time
@@ -25,6 +32,9 @@ LIVE_TTL = 2          # 9.11. (audit P2/P33): 2-5 s, never 1 s (DexScreener's 30
 RECENT_S = 600
 MAX_SIGNAL_AGE_S = 6 * 3600
 IDLE_STOP_S = 30      # the refresh thread stops this long after the last rows() call (nobody is watching)
+RUNUP_MAX_X = 4.0     # = ui/kandidati.RUNUP_MAX_X: 4x or more over the first call is too late, not a pick
+FIRST_TTL = 60        # first-call market caps are read again at most this often per token
+_FIRST = {}           # token -> (read ts, (first call ts, mcap0) or None, kol.db path)
 _CANDS = {"ts": 0.0, "rows": []}
 _ROWS = {"ts": 0.0, "rows": []}
 _MIN = {"ts": 0.0, "stats": {}}
@@ -216,15 +226,66 @@ def expectation(callers, mstats, chance):
     return "još bez mjerenja", None
 
 
-def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, sync=False):
+def first_calls(now, tokens, kol_db=None):
+    """{token: (ts, mcap0)} of the token's first call of the last 24 h whose market cap was measured (kol.db calls,
+    kind 'call', mcap0 > 0); cached FIRST_TTL per token, so the 2-second refresh reads kol.db at most once a minute."""
+    from kol import store as kstore
+    path = kol_db or kstore.DB
+    toks = [t for t in tokens if t]
+
+    def fresh(t):
+        c = _FIRST.get(t)
+        return bool(c) and c[2] == path and 0 <= now - c[0] < FIRST_TTL
+
+    due = [t for t in toks if not fresh(t)]
+    if due:
+        got = {}
+        try:
+            from league import copy
+            kc = copy._ro(path)
+            if kc is not None:
+                try:
+                    q = ",".join("?" * len(due))
+                    for tok, ts, mc in copy._q(kc, f"SELECT token, MIN(ts), mcap0 FROM calls WHERE token IN ({q}) AND "
+                                                   f"kind = 'call' AND mcap0 > 0 AND ts >= ? GROUP BY token",
+                                               (*due, int(now) - 86400)):
+                        got[tok] = (int(ts), float(mc))
+                finally:
+                    kc.close()
+        except Exception:  # noqa: BLE001 - unknown first call = no run-up mark, never a missing list
+            pass
+        for t in due:
+            _FIRST[t] = (now, got.get(t), path)
+        if len(_FIRST) > 2000:
+            for t in [t for t, c in _FIRST.items() if not 0 <= now - c[0] <= 3600]:
+                _FIRST.pop(t, None)
+    return {t: _FIRST[t][1] for t in toks if _FIRST.get(t) and _FIRST[t][1]}
+
+
+def runup_mark(r, first):
+    """Set r["runup"] (x over the first call, its market cap and time) and r["pick"] / r["why_not"]: a row at
+    RUNUP_MAX_X or more is shown but is not a pick (ui/kandidati: "kasno")."""
+    m = r.get("live") or {}
+    r["pick"], r["why_not"], r["runup"] = True, None, None
+    if not first or not first[1] or not m.get("mcap"):
+        return r
+    x = float(m["mcap"]) / first[1]
+    r["runup"] = {"x": round(x, 2), "first_call_mcap": round(first[1]), "first_call_ts": first[0]}
+    if x >= RUNUP_MAX_X:
+        r["pick"] = False
+        r["why_not"] = f"kasno: već {x:.1f}× od prvog poziva (granica {RUNUP_MAX_X:g}×), nije prijedlog"
+    return r
+
+
+def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, sync=False, firsts=None):
     """The live table: candidates that trade right now, with fresh numbers, most active first. Cached LIVE_TTL.
     9.11. (audit P33): without injected data this never fetches in the caller's thread: a fresh cache is returned,
     a stale one is returned as it is while the refresh thread (started here) fills it; sync=True computes in place
     (the 60-s Pregled box). Each row carries 'checked' = the time of its numbers, so a page shows data time."""
     now = now or time.time()
     injected = cands is not None
-    if injected:
-        return _compute(now, cands, live, callers, smart, mstats, chances)
+    if injected:   # tests: no first-call lookup unless they pass firsts
+        return _compute(now, cands, live, callers, smart, mstats, chances, firsts if firsts is not None else {})
     _BG["asked"] = now
     if now - _ROWS["ts"] < LIVE_TTL:
         return _ROWS["rows"]
@@ -266,7 +327,7 @@ def _ensure_bg():
             t.start()
 
 
-def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None):
+def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, firsts=None):
     from ui import prijedlog
     cs = cands if cands is not None else candidates(now)
     if not cs:
@@ -279,6 +340,7 @@ def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, 
     smart = smart if smart is not None else _smart_buys(now, set(toks))
     mstats = mstats if mstats is not None else _minute_stats(now)
     ch = chances if chances is not None else _chances()
+    firsts = firsts if firsts is not None else first_calls(now, toks)
     out = []
     for c in cs:
         t = c["token"]
@@ -295,8 +357,9 @@ def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, 
             continue
         turn = (m["vol_h1"] / m["liq"]) if m.get("liq") else 0
         r["heat"] = (3 * len(r["callers10"]) + 4 * r["smart10"] + (m.get("ch_m5") or 0) / 10 + min(3.0, turn))
+        runup_mark(r, firsts.get(t))   # 11.11. (Grok #92): 4x+ over the first call = shown, not a pick
         out.append(r)
-    out.sort(key=lambda r: (-r["heat"], r["age_s"]))
+    out.sort(key=lambda r: (not r["pick"], -r["heat"], r["age_s"]))
     return out
 
 

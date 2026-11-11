@@ -47,8 +47,13 @@ or a falling X count). Then grok_override is set: the rug warning stays on the r
 Grok's own per-trade limit, the exit plan is tight (EXIT_TIGHT), and the row is logged as shadow source grok_override.
 execute_trade with require_approval=false applies the same rule (ui/grokauto.py: a risk rating without fresh Grok
 evidence is refused; with it the buy may be at most half of grok_max_sol_per_trade).
+11.11. (Jure: "Dacity score 2.384, ev -0.166, MC $6.6M, tradeable"): tradeable ALSO needs ev_pct > 0 (ev_estimate:
+the n-weighted EV of the measured records the sources rest on, shrunk by SHRINK_N, net of the 2 % cost and the price
+impact of the suggested size; n_samples, ev_confidence low under 10) and the row not shill-driven (only paid shillers
+call it, kol/shillers.json); else why_not says "negativan EV" / "EV nije izmjeren" / "vođeno shillanjem". The run-up
+block stays at RUNUP_MAX_X (4x, stricter than 5x).
 
-The score (SCORE_TEXT; tradeable rows first, then the score, highest first):
+The ranking (rank_key): tradeable rows first, then ev_pct, then confluence, then the score (SCORE_TEXT):
     score = 1.0 * log2(1 + confluence)
           + 3.0 * sum over source kinds of clamp(ev * n / (n + 20), -0.10, +0.10)
           + 0.5 * freshness                    1 when the newest signal is <= 10 min old, falling to 0 at 60 min
@@ -87,7 +92,9 @@ EXIT_TIGHT = {"take_profits": [{"at_pct": 15, "sell_share": 0.5}], "trailing": {
               "stop": {"at_pct": -12}, "time_stop": {"after_min": 30, "if_pnl_below_pct": 5},
               "reason": "Grok je nadjačao rug ocjenu: pola uloga, stop -12 %, pola van na +15 %, trailing 10 %"}
 HARD_MECHANICS = ("mint authority", "freeze authority", "RugCheck ga je označio kao rugan")
-SCORE_TEXT = ("tradeable first, then score = 1.0*log2(1+confluence) + 3.0*sum_k clamp(ev_k*n_k/(n_k+20), -0.10, "
+SOL_USD = float(os.environ.get("KAND_SOL_USD") or 250)   # SOL price for the price impact of the suggested size (high = cautious)
+SCORE_TEXT = ("tradeable first (tradeable needs ev_pct > 0), then ev_pct (unmeasured = 0), then confluence, then "
+              "score = 1.0*log2(1+confluence) + 3.0*sum_k clamp(ev_k*n_k/(n_k+20), -0.10, "
               "0.10) + 0.5*freshness(1 at <=10 min, 0 at 60 min) + 0.4*clamp(x_momentum_score,-1,1) (fresh X only, "
               "Grok first) - 1.5*chase(run-up from the first signal; 24 h pump) - rug penalty (0 ok, 0.3 oprez, 1.5 "
               "risk even when overridden, 3 hard) - 1.0*shill-network call signals (flag pre_shill: exit liquidity)")
@@ -264,10 +271,11 @@ class Sources:
                 ec.close()
 
     def ranges(self, now):
-        from rangedca import data, rules, trade
+        from rangedca import data, rules, trade, view
         ms = rules.RULES["score_min"]
         return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S).items()
-                if r.get("active") and (r.get("score") or 0) >= ms - 1e-9}
+                if r.get("active") and (r.get("score") or 0) >= ms - 1e-9
+                and not view.is_breakout(r)}   # 11.11.: above its range it is no range candidate
 
     def momentum(self, now):
         """11.11. (flag momentum_scalp): the newest momentum signal per token of the last 15 min (momentum.db)."""
@@ -469,6 +477,11 @@ class Sources:
     def concentration(self, token):
         from league import copy as lcopy
         return lcopy._concentration(token)
+
+    def shillers(self):
+        """11.11.: the owner's paid shillers (kol/shillers.json), lowercased kol.db handles."""
+        from kol import shillers
+        return shillers.handles()
 
     def tpsl(self, handles):
         from kol import tpsl
@@ -966,10 +979,63 @@ def build(now=None, src=None, details=True):
         # only our own dict is taken back, never one a running pass put there
         if mine is not None and lcopy._CONC_CACHE is mine:
             lcopy._CONC_CACHE = None
-    out.sort(key=lambda r: (not r["tradeable"], -r["score"], r["token"]))
+    out.sort(key=rank_key)
     for i, r in enumerate(out, 1):
         r["rank"] = i
     return out, {"sources_failed": failed, "records": records}
+
+
+def rank_key(r):
+    """11.11.: tradeable first, then the EV (an unmeasured EV counts as 0), then the confluence, then the score:
+    confluence never outranks a better EV."""
+    ev = r.get("ev_pct")
+    return (not r["tradeable"], -(ev if ev is not None else 0.0), -r["confluence"], -r["score"], r["token"])
+
+
+def shill_driven(srcs, S):
+    """11.11.: the handles when the token's only signal is callers and every one of them is a paid shill (kol/shillers,
+    the owner's list); [] otherwise."""
+    if set(srcs) != {"caller"}:
+        return []
+    who = [c["who"] for c in srcs["caller"].get("callers") or []]
+    try:
+        paid = S.shillers()
+    except Exception:  # noqa: BLE001 - the list unreadable: nobody counts as a shill
+        return []
+    return who if who and all(str(w).lower() in paid for w in who) else []
+
+
+def ev_estimate(srcs, records, size_sol, liq):
+    """{"ev_pct", "n_samples", "ev_confidence", "detail"}: what a trade on this row is expected to make, in % per trade.
+    The measured records the row's sources rest on (the calling accounts' own records for the caller signal, else
+    the caller source's shadow record; each other source kind its shadow record), n-weighted and pulled toward 0 by
+    SHRINK_N pseudo-outcomes: sum(n * ev) / (sum(n) + SHRINK_N). The records are already net of the 2 % round-trip
+    cost; the price impact of suggested_size_sol in the pool, in and out (league/store.impact), comes off on top.
+    ev_pct None when no source has a measured outcome; ev_confidence low under 10 samples, medium under 30."""
+    samples = []
+    for k, ev in srcs.items():
+        if k == "caller":
+            own = [("caller:" + str(c["who"]), c["record"]["ev_n"], c["record"]["ev_mean"])
+                   for c in ev.get("callers") or []
+                   if (c.get("record") or {}).get("ev_n") and c["record"].get("ev_mean") is not None]
+            if own:
+                samples += own
+                continue
+        rec = records.get(k)
+        if rec and rec.get("n") and rec.get("ev") is not None:
+            samples.append((k, rec["n"], rec["ev"]))
+    n = int(sum(x[1] for x in samples))
+    if not n:
+        return {"ev_pct": None, "n_samples": 0, "ev_confidence": "low", "detail": []}
+    pooled = sum(x[1] * x[2] for x in samples) / (n + SHRINK_N)
+    slip = 0.0
+    if liq:
+        from league import store as lstore
+        slip = 2 * lstore.impact(size_sol * SOL_USD, liq)
+    return {"ev_pct": round((pooled - slip) * 100, 2), "n_samples": n,
+            "ev_confidence": "low" if n < 10 else ("medium" if n < 30 else "high"),
+            "detail": [{"from": k, "n": int(nn), "ev_pct": round(e * 100, 2)} for k, nn, e in samples][:10]
+            + [{"from": "price_impact", "ev_pct": round(-slip * 100, 3)}]}
 
 
 def prijedlog_live_min():
@@ -1060,6 +1126,18 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     ov = override_of(ge, rug) if not why_not else None
     if rug["level"] == "risk" and not ov:
         why_not.append(f"rug ocjena: {rug['risk'][0]} (svjež Grokov dokaz s X-a može je nadjačati: get_grok_tasks)")
+    shill = shill_driven(srcs, S)
+    if shill:
+        why_not.append(f"vođeno shillanjem: zovu ga samo plaćeni shilleri ({', '.join(shill[:3])})")
+    # 11.11. (Jure: Dacity score 2.384, ev -0.166, still tradeable): the score carries confluence, not expected profit;
+    # tradeable needs a measured EV above 0 after cost and price impact, whatever the confluence
+    size = lim.get("grok_max_sol_per_trade") or 0.1
+    evx = ev_estimate(srcs, records, size, liq)
+    if evx["ev_pct"] is None:
+        why_not.append("EV nije izmjeren (0 izmjerenih ishoda izvora): tradeable traži EV > 0")
+    elif evx["ev_pct"] <= 0:
+        why_not.append(f"negativan EV: {evx['ev_pct']:+.1f} % po tradeu nakon troška i slippagea "
+                       f"(n={evx['n_samples']})")
     tradeable = not why_not
     # X: Grok's row first (2 h), the scanner's own (1 h)
     x = xm.get(tok) or {}
@@ -1076,10 +1154,11 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
              "chase": round(-W["chase"] * ru["chase"], 3), "rug": -RUG_PEN[rug["level"]],
              # 11.11. (flag pre_shill): every call signal of the paid shill network -1 (exit liquidity)
              "shill": -W["shill"] * r["shill_n"] if r.get("shill_n") else 0.0}
-    size = lim.get("grok_max_sol_per_trade") or 0.1
     flags = (["grok_override"] if ov else []) + (["shill_network_call"] if r.get("shill_n") else []) \
         + (["exit_signal"] if (srcs.get("caller") or {}).get("exit_signal") else [])
     out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": why_not,
+           "ev_pct": evx["ev_pct"], "n_samples": evx["n_samples"], "ev_confidence": evx["ev_confidence"],
+           "ev_detail": evx["detail"],
            "flags": flags, "score": round(sum(parts.values()), 3), "score_parts": parts,
            "confluence": confluence, "source_kinds": sorted(srcs), "sources": srcs,
            "first_signal_ts": first_ts, "last_signal_ts": last_ts,
@@ -1161,8 +1240,10 @@ def candidates(min_sources=1, limit=30, now=None, src=None):
             "rules": {"min_mcap_usd": MIN_MCAP, "measured_from_mcap_usd": MEASURE_MIN_MCAP,
                       "runup_max_x": RUNUP_MAX_X, "crew_window_min": CREW_S // 60,
                       "grok_fresh_min": GROK_FRESH_S // 60, "override_size_share": OVERRIDE_SIZE},
-            "notes": ("Read-only: nothing is bought here. tradeable = bonded, 30k+, the copy loop's pool gates, no "
-                      "confirmed rug, trading now, run-up under 4x, and no rug risk rating unless grok_override "
+            "notes": ("Read-only: nothing is bought here. tradeable = ev_pct > 0 (the measured EV after cost and "
+                      "slippage; n_samples = the measured outcomes it rests on, ev_confidence low under 10), bonded, "
+                      "30k+, the copy loop's pool gates, no confirmed rug, not shill-driven, trading now, run-up under "
+                      "4x, and no rug risk rating unless grok_override "
                       "(fresh Grok evidence; half size, tight exit_plan; a collapse is never overridden). Buy only through "
                       "execute_trade within grok_autotrade limits at suggested_size_sol, then set_exit_plan with "
                       "exit_plan. Shadow: the top rows are measured as source kandidati, overrides as grok_override "

@@ -1795,6 +1795,9 @@ def _flags_section(tcon, con, owner):
         if name in settings.DATA_FLAGS:
             bits.append('<p class=mut>Podatkovna zastavica: bilo koji mod osim „isključeno” uključuje skupljanje '
                         'ili upis; na trgovanje ne utječe.</p>')
+        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live
+            bits.append('<p class=mut>Tvoj prekidač: „uživo” ga uključuje (bez backtesta, samo prodaja); svaki drugi '
+                        'mod ostavlja sve kako je bilo.</p>')
         else:
             sh = week.get(name)
             bits.append(f'<p class=mut>Sjena, zadnjih 7 dana: '
@@ -1905,7 +1908,7 @@ def ideas_inner(cfg, owner, now=None, force=False):
             m = r["live"]
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-            why = (r.get("reasons") or [""])[0]
+            why = r.get("why_not") or (r.get("reasons") or [""])[0]   # 11.11. (Grok #92): "kasno ..." = not a pick
             # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
             # as the one number and the price moves under it; a tap opens the live pop-up as before
             out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],
@@ -3296,6 +3299,7 @@ def dca_loop(every=DCA_EVERY_S):
             if not once:   # 10.11. (Jure, chat): his list of Grok's notes, applied once (ui/assistnotes.owner_once)
                 from ui import assistnotes
                 assistnotes.owner_once(con)
+                assistnotes.owner_once_1111(con)   # 11.11.: waiting caller weights applied, stale Grok requests tidied
                 once = True
             if time.time() >= g_next:   # 10.11. (Grok autotrade): the day-loss pause even without a new Grok buy
                 from ui import grokauto
@@ -4891,7 +4895,9 @@ def _post_mcp_ok(con, tcon, form, user):
             raise
         mcpapi.decide(tcon, rid, "approved", "kupnja poslana")
         return out
-    ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open'", (r["token"],))]
+    # 11.11.: only the positions the request was about (open when it was made, ui/mcpapi.sell_positions_open)
+    ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open' AND "
+                                           "COALESCE(opened_ts, 0) <= ?", (r["token"], int(r.get("ts") or 0)))]
     if not ids:
         mcpapi.decide(tcon, rid, "failed", "pozicija više nije otvorena")
         raise ValueError("ta pozicija više nije otvorena")
