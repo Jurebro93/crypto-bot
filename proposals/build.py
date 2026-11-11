@@ -588,6 +588,13 @@ def finish(r, ctx, now, evs_all=None):
            "grok": ({"p_tp_raw": valid["grok"].get("p_tp_raw"), "p_tp_calibrated": valid["grok"]["p_tp"],
                      "n": valid["grok"]["n"]} if "grok" in valid else None),
            "price0": price, "mcap0": mcap, "liq0": liq}
+    # 11.11. (owner: "tradeable (EV > 0) ne znači da se smije kupiti s pravim novcem"): live / samo papir, by the
+    # proposal's own EV and n and the candidate row's source dependence (ui/kandidati.live_state)
+    lst, lwhy = kandidati.live_state(True, {"ev_pct": best["ev_pct"], "n_samples": best["n"],
+                                            "top_source": r.get("ev_top_source")}, paper_only)
+    if lst == "live" and r.get("live_state") == "paper":
+        lst, lwhy = "paper", r.get("live_why")
+    row["live_state"], row["live_why"] = lst, lwhy
     if rc and rc.get("pinned"):   # 11.11. (the owner's pin, rangedca/owner.py): marked; never an automatic real buy
         row["pinned"] = True
         row["pin_only"] = "range" in pos and not rc.get("entry_ready")
