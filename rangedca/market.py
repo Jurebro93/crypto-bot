@@ -72,6 +72,9 @@ KEEP_LIQ = float(os.environ.get("RANGE_MKT_KEEP_LIQ", "15000"))
 BIRDEYE_DAY = int(os.environ.get("RANGE_MKT_BIRDEYE_DAY", "24"))
 SEED_DAY = int(os.environ.get("RANGE_MKT_SEED_DAY", "20"))   # GeckoTerminal seeds of market / event tokens (in GT_DAY 60)
 MAX_REQ_PASS = 30         # DexScreener /tokens requests in one pass (refresh + discovery)
+# 11.11. (all 6 range candidates "5-minutni podaci nisu svježi"): the market part of a run_range pass stops asking
+# DexScreener after this many seconds, so the active ranges' numbers are renewed every pass (METRICS_FRESH_S 4 min)
+PASS_BUDGET_S = float(os.environ.get("RANGE_MKT_PASS_S", "25"))
 # 11.11. 09:48 (faza 1, dijagnostika): 4,627 in the universe, 2,748 due for a check, 10 watched: 3 requests a pass
 # (90 tokens) could not clear the backlog of PumpPortal migrations; DexScreener is free (300 a minute)
 DISC_REQ_PASS = int(os.environ.get("RANGE_MKT_DISC_PASS", "10"))   # of them at most this many for discovery
@@ -108,8 +111,10 @@ class Net:
     def __init__(self, fetch=None):
         self._fetch = fetch
 
-    def pairs(self, tokens):
-        return (self._fetch or data.fetch_pairs)(tokens)
+    def pairs(self, tokens, deadline=None):
+        if self._fetch:
+            return self._fetch(tokens)
+        return data.fetch_pairs_fast(tokens, deadline)   # 11.11.: short leash, inside the pass's time budget
 
     def lists(self):
         from dexscreener import client
@@ -486,6 +491,14 @@ def _created(pairs):
     return out
 
 
+def _pairs(net, tokens, deadline):
+    """net.pairs inside the pass's time budget; a test net without the deadline argument is called as before."""
+    try:
+        return net.pairs(tokens, deadline=deadline) or []
+    except TypeError:
+        return net.pairs(tokens) or []
+
+
 def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=True, event_on=True, open_toks=(),
               hype_db=None, scan_db=None, topics_db=None):
     """One pass: discovery, refresh of the due watched tokens within the budget, admission of due universe tokens.
@@ -493,6 +506,7 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     ensure(con)
     now = int(now)
     net = net or Net()
+    t_end = time.monotonic() + PASS_BUDGET_S
     spend_line(con, now, log)
     stats = {"refreshed": 0, "reused": 0, "dropped": 0, "admitted": 0, "left": 0, "requests": 0, "new": 0}
     if market_on:
@@ -541,7 +555,7 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
         data.day_add(con, "mkt_dex_day", n_req, now)
         _meter("dexscreener", "range tržište", n_req)
         stats["requests"] += n_req
-        pairs = net.pairs(due) or []
+        pairs = _pairs(net, due, t_end)
         best = data.best_pairs(pairs)
         made = _created(pairs)
         for t in due:
@@ -571,7 +585,7 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
             data.day_add(con, "mkt_disc_day", n_req, now)
             _meter("dexscreener", "range tržište otkrivanje", n_req)
             stats["requests"] += n_req
-            pairs = net.pairs([r[0] for r in cand]) or []
+            pairs = _pairs(net, [r[0] for r in cand], t_end) if time.monotonic() < t_end else []
             best = data.best_pairs(pairs)
             made = _created(pairs)
             for tok, src, _v, created in cand:

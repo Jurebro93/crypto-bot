@@ -187,6 +187,27 @@ def fetch_pairs(tokens):
         return []
 
 
+def fetch_pairs_fast(tokens, deadline=None):
+    """11.11. (stale 5-minute data): the market watchlist's DexScreener batches on the short leash of tokens_live (a
+    few seconds, no retry), one batch of 30 at a time, and no new batch after `deadline` (monotonic). The scanners'
+    path (fetch_pairs) waits up to 30 s a try and retries with back-off up to a minute: 30 batches of the market pass
+    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S."""
+    import time as _t
+    out = []
+    try:
+        from dexscreener import client
+    except Exception:  # noqa: BLE001
+        return out
+    for i in range(0, len(tokens or []), 30):
+        if deadline is not None and _t.monotonic() >= deadline:
+            break
+        try:
+            out += client.tokens_live("solana", list(tokens[i:i + 30]), ttl=20) or []
+        except Exception:  # noqa: BLE001 - this batch has no snapshot this pass
+            continue
+    return out
+
+
 def save_snap(con, token, s):
     con.execute("INSERT OR REPLACE INTO snaps VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (token, s["ts"], s["price"], s["mcap"], s["liq"], s["vol_m5"], s["vol_h1"], s["vol_h6"], s["buys_m5"],
