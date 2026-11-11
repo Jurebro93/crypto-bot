@@ -36,7 +36,7 @@ def loop(log=print):
                 if said_off != store.day(time.time()):
                     said_off = store.day(time.time())
                     log("zonewatch: zastavica je off, ništa se ne prati")
-            elif res.get("alerts") or res.get("catalyst"):
+            elif res.get("alerts") or res.get("catalyst") or res.get("position_alerts") or res.get("range_off"):
                 log(f"zonewatch: {res}")
         except Exception as e:  # noqa: BLE001 - the loop never dies on one pass; never str(e) (may hold a URL)
             log(f"zonewatch: prolaz nije uspio ({type(e).__name__})")
@@ -60,7 +60,7 @@ def status(log=print):
             f"do {time.strftime('%d.%m. %H:%M', time.gmtime(z['expires_at']))} UTC  {z.get('note') or ''}")
     if con is not None:
         for r in con.execute("SELECT ts, event, mint, zone_type, status FROM alerts ORDER BY ts DESC LIMIT 15"):
-            log(f"  alarm {time.strftime('%d.%m. %H:%M:%S', time.gmtime(r[0]))} UTC {r[1]} {r[2][:6]} {r[3]} → {r[4]}")
+            log(f"  alarm {time.strftime('%d.%m. %H:%M:%S', time.gmtime(r[0]))} UTC {r[1]} {(r[2] or '-')[:6]} {r[3]} → {r[4]}")
         con.close()
     return d
 

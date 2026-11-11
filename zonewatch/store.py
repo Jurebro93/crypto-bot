@@ -24,7 +24,12 @@ Tables
   arm_log        every arm_zone write (ts, kid, mint, zone_type, source, what): the audit trail and the hourly limit
   px             the newest numbers this job fetched itself per mint (DexScreener), for the next pass
   kv             day counters, the team_catalyst watermark, last_post_ok, last_error, range_why (why an eligible
-                 token has no range zones), the one-time migration flag
+                 token has no range zones), the one-time migration flag; 11.11. pos_prev (the real account's
+                 positions and their levels as the last pass saw them), pos_wm (the executors' records read so far),
+                 pos_watch (counts for get_hourly_brief), range_on_pos (held tokens whose range was active)
+  pos_alert      (mint, lkey, level): the last position_level alarm of one position level (the debounce)
+  zone_state rows of source "position" are the position levels' states (zone_type pos:<level key> and
+                 pos:<level key>:near), kept while the token is held
 11.11. (Jure: "nikad fiksni seed"): the HOPE seed of PR #122 is gone; migrate_once expires what it may have armed
 (its kv key seed:hope_1111 is left harmless) and cuts every hand-armed zone to at most 2 h from then.
 """
@@ -80,6 +85,8 @@ CREATE TABLE IF NOT EXISTS px (
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS range_ver (
     mint TEXT PRIMARY KEY, zone_version INTEGER, computed_ts INTEGER, window_h REAL, updated_ts INTEGER);
+CREATE TABLE IF NOT EXISTS pos_alert (
+    mint TEXT, lkey TEXT, level TEXT, ts INTEGER, alert_id TEXT, PRIMARY KEY (mint, lkey, level));
 """
 
 
@@ -351,9 +358,14 @@ def save_state(con, key, st):
 
 def prune(con, now):
     con.execute("DELETE FROM armed_zones WHERE expires_at < ?", (int(now - KEEP_EXPIRED_D * 86400),))
-    con.execute("DELETE FROM zone_state WHERE NOT EXISTS (SELECT 1 FROM armed_zones a WHERE a.mint = zone_state.mint "
-                "AND a.zone_type = zone_state.zone_type AND a.source = zone_state.source AND a.expires_at > ?)",
-                (int(now),))
+    con.execute("DELETE FROM zone_state WHERE source != 'position' AND NOT EXISTS (SELECT 1 FROM armed_zones a WHERE "
+                "a.mint = zone_state.mint AND a.zone_type = zone_state.zone_type AND a.source = zone_state.source AND "
+                "a.expires_at > ?)", (int(now),))
+    # a position level's state lives while the token is held (job.evaluate_positions drops it at the close); one not
+    # seen for a week is a leftover
+    con.execute("DELETE FROM zone_state WHERE source = 'position' AND COALESCE(last_ts, 0) < ?",
+                (int(now - KEEP_EXPIRED_D * 86400),))
+    con.execute("DELETE FROM pos_alert WHERE ts < ?", (int(now - KEEP_EXPIRED_D * 86400),))
     con.execute("DELETE FROM alerts WHERE ts < ?", (int(now - KEEP_ALERTS_D * 86400),))
     con.execute("DELETE FROM zonewatch_log WHERE ts < ?", (int(now - KEEP_LOG_D * 86400),))
     con.execute("DELETE FROM arm_log WHERE ts < ?", (int(now - KEEP_ALERTS_D * 86400),))

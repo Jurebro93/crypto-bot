@@ -905,6 +905,11 @@ class HopeFixture(Base):
             pv.append(p["zone_version"])
         self.assertEqual(pv, sorted(pv))
         self.assertIn(("top_hit", "top"), [(e, z) for e, z, *_ in rows])
+        # 11.11. (Jure): HOPE is held on the real account, so rangedca switching its range off (18:25 CET: the last
+        # hour's volume under half of the 6 h average) is ONE range_off alarm with that reason
+        off = [json.loads(pl) for ev, _zt, _ts, pl in rows if ev == "range_off"]
+        self.assertEqual([(p["reason_key"], p["range_status"]) for p in off], [("weak_volume", "isključen")])
+        self.assertEqual(off[0]["position"]["account"], settings.LEAGUE_USER)
         if os.environ.get("ZW_DEBUG"):
             for ev, zt, ts_, pl in rows:
                 q = json.loads(pl)
