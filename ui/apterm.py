@@ -1214,7 +1214,8 @@ def kupiti_html(tcon, cfg, owner, now):
         buy_btn = f'<button type=button class="apx-b buy" data-pk="{esc(pk)}">Kupi</button>' if owner else ""
         rows.append({"epm": ev_per_min(p), "html": (
             f'<div class=apx-krow id=pr-{int(p["id"])}><div class=apx-kmain>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}'
-            f'<span class=apx-mut>{esc(strategies.HR.get(p.get("strategy"), p.get("strategy") or ""))} · '
+            f'<span class=apx-mut>{esc(view.entry_state(p, now)["state"])} · '   # 11.11.: čeka ulaz / u zoni / ušao (paper)
+            f'{esc(strategies.HR.get(p.get("strategy"), p.get("strategy") or ""))} · '
             f'{esc(", ".join(strategies.HR.get(s, s) for s in p.get("sources") or []))}</span></div>'
             f'<span class="n {_tone(p.get("ev_pct"))}" data-l="EV">{_pct(p.get("ev_pct"))}<small>{redak.num(ev_per_min(p), 3)} %/min</small></span>'
             f'<span class=n data-l="p_tp (n)">{redak.pct(p.get("p_tp"), sign=False, frac=True)}<small>n={int(r.get("n") or 0)}</small></span>'

@@ -112,7 +112,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 15k+, volumen "
                             "1 h 10k+, stariji od 6 h), snimke svakih 5/15 min unutar dnevnih stropova"),
     # 11.11. (Jure, proposals/): one list of proposals from every strategy on the Autopilot card and in get_proposals;
-    # shadow = list and measure, paper = the demo account takes every shown proposal; never live (LIVE_GATES)
+    # shadow = list and measure, paper = the demo account takes a proposal in its entry zone; never live (LIVE_GATES)
     "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
                          "svaki prikazani prijedlog s planom izlaza; pravi račun kupuje samo na tvoj dodir"),
     # 11.11. (Jure: "real-time zone alarm na Grok Bot", zonewatch/): a data flag (DATA_FLAGS): off = nothing watched or
