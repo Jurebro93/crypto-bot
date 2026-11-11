@@ -67,6 +67,29 @@ class LaterOrders(Base):
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "off")
 
 
+class NoteOrders(Base):
+    """11.11.: Grok's accepted critiques now in the code: each note marked primijenjeno once, with what was done."""
+    def note(self, nid, status):
+        assistnotes.ensure(self.tc)
+        self.tc.execute("INSERT INTO assistant_notes (id, ts, kind, title, status) VALUES (?,?,?,?,?)",
+                        (nid, NOW, "suggestion", f"kritika {nid}", status))
+        self.tc.commit()
+
+    def test_marks_accepted_once_leaves_rejected_and_bad_callers(self):
+        self.note(54, "prihvaćeno")
+        self.note(96, "novo")
+        self.note(74, "odbijeno")
+        self.note(82, "prihvaćeno")
+        done = assistnotes.owner_note_orders(self.tc, now=NOW)
+        self.assertEqual(done, ["bilješka #54 primijenjena (signals_clean)", "bilješka #96 primijenjena (signals_clean)"])
+        st = dict(self.tc.execute("SELECT id, status FROM assistant_notes").fetchall())
+        self.assertEqual(st, {54: "primijenjeno", 96: "primijenjeno", 74: "odbijeno", 82: "prihvaćeno"})
+        why = self.tc.execute("SELECT owner_note FROM assistant_notes WHERE id=54").fetchone()[0]
+        self.assertIn("include_hidden", why)
+        self.assertIn(54, {x["note_id"] for x in assistnotes.applied(self.tc)})
+        self.assertEqual(assistnotes.owner_note_orders(self.tc, now=NOW), [])      # once
+
+
 class HopeStop(Base):
     def trade(self, user=settings.LEAGUE_USER, sl="-40%", entry=1.0, eff=1.02):
         tid = self.lc.execute("INSERT INTO trades (user, token, symbol, opened_ts, size_usd, status, entry_px, entry_eff, qty)"

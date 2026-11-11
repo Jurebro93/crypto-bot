@@ -630,11 +630,56 @@ def owner_flag_orders(con, now=None):
     return done
 
 
+# 11.11. (Jure: "Prihvati ih. Primjeni ih i makni sa liste. Lista treba biti čista ako nema što što zahtjeva pažnju"):
+# Grok's accepted critiques, now in the code; each note marked primijenjeno ONCE (its own settings key) with what was
+# actually done, so Grok reads in get_assistant_notes / get_scoring_config what changed. #82 and #75 (bad callers)
+# wait for the automatic caller weights (next deploy), so they are not here yet.
+_SIGNALS = ("signali: token s rug ocjenom risk/hard ili rastom 4x+ od prvog poziva skriven je po zadanom (include_hidden="
+            "true ga vraća s razlogom, hidden_count je uvijek u odgovoru); skener ima gornju granicu rasta 4x (runup_max_x)")
+OWNER_NOTE_ORDERS = (
+    (54, "signals_clean", _SIGNALS),
+    (96, "signals_clean", _SIGNALS),
+    (105, "grok_ev_gate", "Grokova vrata po EV-u (grok_ev_gate, shadow): EV = p x TP - (1 - p) x SL - trošak, execute_trade "
+                          "prima p_tp i strategy, kalibracija u get_hourly_brief.grok_calibration; momentum_scalp (paper) "
+                          "hvata skokove bez callera; " + _SIGNALS),
+    (84, "grok_ev_gate", "Grokova kalibracija: execute_trade prima p_tp (0-1) i strategy, grok_ev_gate (shadow) bilježi što "
+                         "bi odbio po EV-u, Brierova kalibracija u get_hourly_brief.grok_calibration; momentum_scalp (paper)"),
+    (74, "volume_check", "topcheck: nova provjera volumena (wash score, novčanici prema tradeovima, promet prema likvidnosti, "
+                         "simetrija kupnji i prodaja, sitne transakcije); wash 60+ = pad, ostalo oprez; vrijedi i za "
+                         "kopiranja na Autopilotu"),
+    (77, "volume_check", "topcheck: nova provjera botovskog volumena (wash score, novčanici prema tradeovima, promet prema "
+                         "likvidnosti, simetrija kupnji i prodaja, sitne transakcije); wash 60+ = pad, ostalo oprez"),
+    (85, "wallet_hygiene", "higijena novčanika (wallets/hygiene.py): neaktivni i botovski/sniper novčanici izbačeni iz "
+                           "kopiranja Autopilota i webhooka (copy, signal, dokazani); bilježi se koliko je izbačeno"),
+    (92, "zivo_runup", "živa lista: token 4x+ od prvog poziva označen kao kasno (pick=False), Pregled ga preskače; ekipa "
+                       "se u kandidatima za trade broji jednom"),
+)
+
+
+def owner_note_orders(con, now=None):
+    """Mark the notes of OWNER_NOTE_ORDERS primijenjeno, each once. [text] of what was done."""
+    ensure(con)
+    done = []
+    for nid, key, what in OWNER_NOTE_ORDERS:
+        k = f"owner_note_once:{nid}"
+        if settings.raw(con).get(k):
+            continue
+        r = con.execute("SELECT status FROM assistant_notes WHERE id=?", (nid,)).fetchone()
+        if r and r[0] in ("novo", "prihvaćeno"):
+            record_applied(con, nid, key, r[0], "primijenjeno", what)
+            done.append(f"bilješka #{nid} primijenjena ({key})")
+        settings.put(con, k, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
 def owner_once_b(con, lcon=None, market=None, now=None):
     """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
     missing. Returns True when nothing is left to do."""
     owner_flags_b(con, now)
     owner_flag_orders(con, now)
+    owner_note_orders(con, now)
     raw = settings.raw(con)
     if raw.get(HOPE_KEY):
         return True
