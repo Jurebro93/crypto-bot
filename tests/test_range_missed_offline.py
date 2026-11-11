@@ -364,11 +364,15 @@ class Money(TradeBase):
 # ---------------------------------------------------------------------------------------------------------------
 class RugRule(Env):
     def test_each_branch(self):
-        liq = collapse.judge(600_000, 250_000, 60_000, 25_000)               # -58 %, the pool -58 %: pulled
+        # 11.11. evening, pool rule (rugfilter/collapse): L = liquidity / sqrt(mcap) must fall 50 %+, not the USD side
+        liq = collapse.judge(600_000, 250_000, 60_000, 15_000)               # -58 %, liquidity -75 %: L -61 %, pulled
         self.assertEqual(liq["kind"], "rug")
         self.assertIn("izvučena likvidnost", liq["text"])
-        self.assertEqual(collapse.judge(600_000, 90_000, 62_000, 20_000)["kind"], "rug")    # -85 %, pool -68 %
-        dump = collapse.judge(600_000, 90_000, 62_000, 60_000)               # -85 %, the pool holds
+        self.assertIsNone(collapse.judge(600_000, 250_000, 60_000, 25_000))  # -58 %, liquidity -58 %: L -35 %, nothing
+        cp = collapse.judge(600_000, 90_000, 62_000, 20_000)                 # -85 %, SOL side -68 %: L -17 %
+        self.assertEqual((cp["kind"], cp["sol_rule"]), ("dump", "rug"))       # the literal SOL rule would say rug
+        self.assertEqual(collapse.judge(600_000, 90_000, 62_000, 8_000)["kind"], "rug")     # -85 %, L -67 %: pulled
+        dump = collapse.judge(600_000, 90_000, 62_000, 24_000)               # -85 %, L held (24k = 62k * sqrt(0.15))
         self.assertEqual(dump["kind"], "dump")
         self.assertTrue(dump["text"].startswith("dump nakon pumpe"))
         self.assertEqual(collapse.judge(600_000, 90_000)["kind"], "dump")   # liquidity unknown: no proof of a rug
@@ -376,7 +380,8 @@ class RugRule(Env):
         self.assertEqual(ev["kind"], "rug")
         self.assertIn("dev prodaje", ev["text"])
         self.assertIsNone(collapse.judge(600_000, 250_000, 60_000, 40_000))  # -58 %, the pool -33 %: nothing
-        self.assertIsNone(collapse.judge(600_000, 400_000, 60_000, 10_000))  # above half the peak: nothing
+        self.assertIsNone(collapse.judge(600_000, 400_000, 60_000, 45_000))  # above half the peak, pool held: nothing
+        self.assertEqual(collapse.judge(600_000, 400_000, 60_000, 10_000)["kind"], "rug")   # pool emptied: a rug anyway
         # the archive's cleanup keeps the old rule (what it deletes does not change)
         self.assertEqual(archive.judge(600_000, 90_000, 62_000, 60_000)[0], "srusen")
 
@@ -405,20 +410,22 @@ class RugRule(Env):
         self.assertIsNone(collapse.check(pk, token=OLD))
 
     def test_x_crash_and_recovery_is_a_dump_not_a_rug(self):
-        # CccS…y1eU: called at $151.8k, peak $600k, -85 % to $90k with the pool steady, no dev sells, then $387k
-        pk = self.peak_row(X, [(NOW - 20 * 3600, 151_800, 58_000), (NOW - 16 * 3600, 600_000, 62_000),
-                               (NOW - 8 * 3600, 90_000, 60_000)])
-        bottom = collapse.assess(pk, 90_000, 60_000, token=X)
+        # CccS…y1eU: called at $151.8k, peak $600k, -85 % to $90k with the pool's L steady (a constant-product pool:
+        # the liquidity follows sqrt(price), 62k at the peak, 24k at the bottom = SOL side -61 %), no dev sells, then $387k
+        pk = self.peak_row(X, [(NOW - 20 * 3600, 151_800, 31_200), (NOW - 16 * 3600, 600_000, 62_000),
+                               (NOW - 8 * 3600, 90_000, 24_000)])
+        bottom = collapse.assess(pk, 90_000, 24_000, token=X)
         self.assertEqual(bottom["kind"], "dump")
         self.assertIn("dump nakon pumpe: pao 85 %", bottom["text"].replace("%", " %").replace("  ", " "))
-        self.assertIsNone(collapse.check(pk, 90_000, 60_000, token=X))       # no rug label, no block
-        self.assertIsNone(collapse.assess(pk, 387_000, 61_000, token=X))      # +155 % from the call: nothing at all
+        self.assertEqual(bottom["sol_rule"], "rug")                         # "SOL side -50 %" alone: a rug
+        self.assertIsNone(collapse.check(pk, 90_000, 24_000, token=X))       # no rug label, no block
+        self.assertIsNone(collapse.assess(pk, 387_000, 49_800, token=X))      # +155 % from the call: nothing at all
         self.assertAlmostEqual(387_000 / 151_800 - 1, 1.55, places=2)
         hdb = os.path.join(self.tmp.name, "hype_peaks.db")
         with mock.patch.object(copy, "_rugged", REAL_RUGGED), mock.patch("ui.data.HYPE_DB", hdb), \
                 mock.patch("time.time", lambda: NOW):
-            self.assertIsNone(copy._rugged(X, 90_000, 60_000))               # every trading guard: no block
-            self.assertEqual(copy._collapse(X, 90_000, 60_000)["kind"], "dump")
+            self.assertIsNone(copy._rugged(X, 90_000, 24_000))               # every trading guard: no block
+            self.assertEqual(copy._collapse(X, 90_000, 24_000)["kind"], "dump")
 
     def test_archive_kinds_read_through_the_new_rule_and_logged(self):
         ac = archive.connect(archive.HYPE_DB)

@@ -27,7 +27,9 @@
     grok_predictions   events/predictions.brief_part: Grok's predictions scored since `since` and the calibration
                        per p_tp bucket, Grok's and MemeSonar's
     health             the feeds' gap alerts (events/health), last night's batch (start, duration, calls processed,
-                       Helius credits, errors) and the alert when it had not finished by 04:30 Zagreb
+                       Helius credits, errors) and the alert when it had not finished by 04:30 Zagreb; disk
+                       (ops/diskreport.brief_part: used %, growth, runway, top cleanup candidates) with an alert when
+                       the disk is over 80 % or full within 3 days (11.11.)
 Nothing is fetched or recomputed per call beyond reading these stores; every part has its own try and its time in
 "timing_ms", so one broken store never costs the rest.
 """
@@ -408,6 +410,13 @@ def health_part(econ, now=None):
     today = night.zagreb(now).date().isoformat()
     if alert.get("day") == today:   # 11.11.: the night batch had not finished by 04:30 Zagreb
         h["alerts"] = list(h.get("alerts") or []) + [alert]
+    try:   # 11.11. (ops/diskreport): disk over 80 % or full within 3 days -> an alert; the numbers always
+        from ops import diskreport
+        h["disk"] = diskreport.brief_part(now)
+        if h["disk"].get("alerts"):
+            h["alerts"] = list(h.get("alerts") or []) + h["disk"]["alerts"]
+    except Exception as e:  # noqa: BLE001 - the disk part never costs the health part
+        h["disk"] = {"error": f"{type(e).__name__}: {e}"[:200]}
     if not rep and not start:
         h["last_night"] = None
         return h

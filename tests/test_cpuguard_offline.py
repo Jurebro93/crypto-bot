@@ -301,6 +301,7 @@ class WhoIsWho(unittest.TestCase):
         self.assertEqual(self.kind("run_dugo.py once"), ("dugo", g.JOBS))
         self.assertEqual(self.kind("-m ops.heavy -m ops.health --hourly"), ("heavy", g.PROTECTED))
         self.assertEqual(self.kind("-m rugfilter.archive"), ("rug-arhiva", g.JOBS))
+        self.assertEqual(self.kind("-m ops.diskreport --auto"), ("disk", g.JOBS))   # 11.11.: read-only, may wait
 
     def test_background_ranks_follow_the_audit(self):
         """Audit §4 "Smije čekati, ovim redom": page builds, hype scan and demo, KOL jobs, the scheduler's jobs and
@@ -916,7 +917,7 @@ class Priorities(unittest.TestCase):
             if m:
                 name, kind, _ = g.classify(["python3", m.group(1)] + m.group(2).split())
                 self.assertIn(name, ("minute", "sched", "report", "top", "watch", "simianx", "skener", "grupe", "range", "insajderi",
-                                     "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast"), ln)   # 11.11.:
+                                     "momentum", "shill-mreza", "eventi", "prijedlozi", "zonewatch", "fast", "disk"), ln)   # 11.11.:
                 # momentum/, kol/preshill.py, topics/, proposals/, zonewatch/, fast/ (run_fast.py, flag fast_path G24)
                 self.assertNotIn(name, ("ui", "trade", "kol", "tg", "live", "paper"), ln)
 

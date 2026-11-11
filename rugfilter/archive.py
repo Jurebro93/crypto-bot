@@ -27,7 +27,7 @@ import os
 import sqlite3
 import time
 
-from rugfilter import collapse
+from rugfilter import collapse, relabel
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HYPE_DB = os.path.join(ROOT, "hype.db")
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS rug_watch (token TEXT PRIMARY KEY, first_ts INTEGER, 
 CREATE TABLE IF NOT EXISTS rug_recovered (
     token TEXT PRIMARY KEY, symbol TEXT, archived_ts INTEGER, recovered_ts INTEGER, peak_mcap REAL, mcap REAL,
     kind TEXT, reason TEXT);
-"""
+""" + relabel.SCHEMA   # 11.11. evening: the pool rule's labels next to the stored ones (rugfilter/relabel)
 
 _cache = {"ts": 0, "path": None, "set": frozenset()}
 
@@ -91,19 +91,51 @@ def forget_cache():
 
 
 # 11.11. (owner's rug rule, rugfilter/collapse): the archive still CLEANS UP the same tokens (judge_legacy), but what
-# blocks as a rug is read through the new rule: "likvidnost" and "mehanika" are rugs; "srusen" (70 %+ under the peak)
-# is a rug only when its stored liquidity fell more than collapse.LIQ_RUG from its peak, else a dump after a pump (a P
-# modifier, not a block). The stored rows are never rewritten; the first read logs how many "srusen" rows changed.
+# blocks as a rug is read through the new rule: "mehanika" is a rug; "srusen" (70 %+ under the peak) and "likvidnost"
+# are what rugfilter/relabel wrote next to them (rug_relabel new_kind: the pool invariant L on the token's history),
+# else a "srusen" row is a rug only when the pool's L, from its stored peak / last numbers, fell collapse.LIQ_RUG or
+# more (11.11. evening; at noon it was the USD liquidity alone, kind_usd), else a dump after a pump (a P modifier, not
+# a block). The stored rows are never rewritten; the first read logs how many "srusen" rows changed.
 _kcache = {"ts": 0, "path": None, "map": {}}
 _KLOGGED = set()
 
 
-def kind_of(kind, peak_liq, last_liq):
-    """"rug" | "dump" of one archive row under the 11.11. rule."""
+def kind_usd(kind, peak_liq, last_liq):
+    """"rug" | "dump" of one archive row under the 11.11. noon rule (USD liquidity more than 50 % down); kept only as the
+    old label rugfilter/relabel compares with."""
     if kind != "srusen":
         return "rug"
     liq_drop = (1 - (last_liq or 0) / peak_liq) if peak_liq else None
     return "rug" if liq_drop is not None and liq_drop > collapse.LIQ_RUG else "dump"
+
+
+def kind_of(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, relabeled=None):
+    """"rug" | "dump" of one archive row under the pool rule: relabeled (rug_relabel new_kind) when there is one; a
+    "srusen" row else by the pool's L from its peak / last numbers (collapse.judge without a series), and without
+    market caps by the plain liquidity fall."""
+    if kind == "mehanika":
+        return "rug"
+    if relabeled in ("rug", "dump"):
+        return relabeled
+    if kind != "srusen":
+        return "rug"
+    if peak_mcap and last_mcap is not None and peak_liq and last_liq is not None:
+        j = collapse.judge(peak_mcap, last_mcap, peak_liq, last_liq)
+        return "rug" if j and j["kind"] == "rug" else "dump"
+    liq_drop = (1 - (last_liq or 0) / peak_liq) if peak_liq else None
+    return "rug" if liq_drop is not None and liq_drop >= collapse.LIQ_RUG else "dump"
+
+
+_SEL = ("SELECT a.token, a.kind, a.peak_liq, a.last_liq, a.peak_mcap, a.last_mcap, r.new_kind FROM rug_archive a "
+        "LEFT JOIN rug_relabel r ON r.token = a.token AND r.src = 'archive'")
+_SEL_OLD = "SELECT token, kind, peak_liq, last_liq, peak_mcap, last_mcap, NULL FROM rug_archive a"
+
+
+def _rows(con, where="", args=()):
+    try:
+        return con.execute(_SEL + where, args).fetchall()
+    except sqlite3.OperationalError:   # no rug_relabel yet (a read-only look before the hourly run made it)
+        return con.execute(_SEL_OLD + where, args).fetchall()
 
 
 def kind_one(token, path=None):
@@ -115,12 +147,12 @@ def kind_one(token, path=None):
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
         try:
-            r = con.execute("SELECT kind, peak_liq, last_liq FROM rug_archive WHERE token=?", (token,)).fetchone()
+            r = _rows(con, " WHERE a.token=?", (token,))
         finally:
             con.close()
     except sqlite3.Error:
         return None
-    return kind_of(*r) if r else None
+    return kind_of(*r[0][1:]) if r else None
 
 
 def kinds(path=None, ttl=300, log=print):
@@ -134,8 +166,8 @@ def kinds(path=None, ttl=300, log=print):
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
             try:
-                for t, k, pl, ll in con.execute("SELECT token, kind, peak_liq, last_liq FROM rug_archive"):
-                    m[t] = kind_of(k, pl, ll)
+                for t, k, *rest in _rows(con):
+                    m[t] = kind_of(k, *rest)
                     n_srusen += k == "srusen"
                     n_dump += m[t] == "dump"
             finally:
@@ -145,9 +177,9 @@ def kinds(path=None, ttl=300, log=print):
     _kcache.update(ts=now, path=path, map=m)
     if m and path not in _KLOGGED:
         _KLOGGED.add(path)
-        log(f"rug arhiva (pravilo 11.11.): od {n_srusen} redova 'srusen' {n_dump} je dump nakon pumpe (likvidnost nije "
-            f"pala > {collapse.LIQ_RUG:.0%}): više ne blokira kao rug, P × 0,7; {len(m) - n_dump} od {len(m)} ostaje rug "
-            "(spremljeni redovi se ne mijenjaju)")
+        log(f"rug arhiva (pravilo poola, 11.11.): od {n_srusen} redova 'srusen' {n_dump} je dump nakon pumpe (L poola "
+            f"nije pao {collapse.LIQ_RUG:.0%}+): više ne blokira kao rug, P × 0,7; {len(m) - n_dump} od {len(m)} ostaje "
+            "rug (spremljeni redovi se ne mijenjaju)")
     return m
 
 
@@ -385,6 +417,11 @@ def run(path=None, now=None, limit=BATCH, log=print):
                 return 0, 0
             raise
         c = confirm(con, c, now or time.time())
+        try:   # 11.11. evening: the pool rule's label next to the stored one, from the history before the purge
+            relabel.note_archived(con, c, now)
+        except Exception as e:  # noqa: BLE001 - a label is never the reason the archive stops
+            if log:
+                log(f"rugovi: oznaka po pravilu poola nije zapisana ({type(e).__name__}: {e})")
         n, rows = archive(con, c, now)
         back = recover(con, now)
     finally:
@@ -483,3 +520,7 @@ if __name__ == "__main__":   # start.sh: 2 minutes after every start, then hourl
     except Exception as e:  # noqa: BLE001
         print(f"rugovi: arhiviranje nije uspjelo: {type(e).__name__}: {e}", flush=True)
         sys.exit(1)
+    try:   # 11.11. evening: the last 7 days' rug labels under the pool rule, once (rugfilter/relabel, one log block)
+        relabel.retro_once(os.path.join(disk.DATA_DIR, "hype.db"), log=lambda m: print(m, flush=True))
+    except Exception as e:  # noqa: BLE001
+        print(f"rug pravilo: ponovno označavanje nije uspjelo: {type(e).__name__}: {e}", flush=True)
