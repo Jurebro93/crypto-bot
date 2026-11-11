@@ -77,13 +77,20 @@ class Chart(unittest.TestCase):
         self.assertEqual(walletchart.strip([]), "")
 
 
-def _w(addr, cs, labels=(), **st):
+def _rk(addr, cs, n=20):
+    """A copy ranking row (wallets/rang.py) as rang.load returns it."""
+    return {"target": addr, "score": cs, "n": n, "proven": n >= 10, "copyable": True, "roi": 0.4, "median": 0.3,
+            "win_lo": 0.45, "conc": 0.2, "liq": 50_000, "hold_min": 240, "last_ts": NOW - 7200, "pnl": 2.5, "stake": 0.5}
+
+
+def _w(addr, cs, labels=(), rang=True, **st):
     s = {"closed_pnl_sol": 2.5, "win_rate": 0.6, "closed": 20, "median_hold_min": 240, "trades_per_day": 3,
          "roi_on_cost": 0.4, "top_trade_share": 0.2, "history_days": 18.6, "profit_factor": 3.1, "median_roi": 0.3,
          "big_wins": 4}
     s.update(st)
-    return {"wallet": addr, "copy_score": cs, "score": cs, "tier": "A", "sources": {}, "labels": list(labels),
-            "stats": s, "scored_at": NOW - 3600, "last_tx_ts": NOW - 7200}
+    return {"wallet": addr, "copy_score": None, "score": cs, "tier": "A", "sources": {}, "labels": list(labels),
+            "stats": s, "scored_at": NOW - 3600, "last_tx_ts": NOW - 7200, "ocjena": cs if rang else None,
+            "rang": _rk(addr, cs, s["closed"]) if rang else None}
 
 
 class Words(unittest.TestCase):
@@ -103,6 +110,12 @@ class Words(unittest.TestCase):
         self.assertEqual((word, kind), ("Vrijedi kopirati", "good"))
         self.assertIn("dokazan dvaput · kopirljiv", facts)
         self.assertIn("+8,0 SOL na 16 zatvorenih, pa +3,8 SOL na 15", say)
+        nc = _w("NC", 60)
+        nc["rang"] = dict(nc["rang"], copyable=False, why="medijan likvidnosti na ulazu $5.0k, ispod $15k")
+        word, kind, facts, say = pages._verdict(nc, row, NOW)                   # 11.11.: proven twice, not copyable
+        self.assertEqual((word, kind), ("Ne kopirati pravim novcem", "warn"))
+        self.assertIn("nije kopirljiv", facts)
+        self.assertIn("ispod $15k", say)
         word, kind, _, say = pages._verdict(_w("O", 70), dict(row, passed=0, realized_after=-1.2), NOW)
         self.assertEqual((word, kind), ("Još nije dokazan", "warn"))
         self.assertIn("Poslije reza nije u plusu", say)
@@ -124,6 +137,7 @@ class ListPage(unittest.TestCase):
 
     def render(self, qs):
         with mock.patch("ui.data.wallets", return_value=self.ws), \
+                mock.patch.object(pages, "rangtable_rows", return_value=[w["rang"] for w in self.ws if w.get("rang")]), \
                 mock.patch("ui.preporuka.copies_from_strat", return_value={}), \
                 mock.patch("ui.jobs.status", return_value=(None, None, "")), \
                 mock.patch.object(pages, "_last_buy", return_value={"mint": "M1", "ts": NOW - 3600, "sol": 0.5, "sold": None}), \
@@ -140,12 +154,19 @@ class ListPage(unittest.TestCase):
         self.assertIn("<b>GIGAFROG</b>", hero)
         self.assertIn("još drži", hero)
         self.assertNotIn("Prijedlog za danas", html)                   # the box lives only on Pregled
-        lst = html[html.index('class="ms-wl"'):]
-        self.assertNotIn("SNIPE", lst)                                 # not on the copy list
-        self.assertLess(lst.index("PROVEN"), lst.index("BEST"))        # 9.11. (P44): the bot's pick first
-        self.assertIn("+40 %", lst)                               # Autopilot 14 d where it has a number
-        self.assertIn('title="2 otvorenih gubitnika"', lst)
+        lst = html[html.index("data-rt"):]
+        self.assertNotIn("SNIPE", lst)                                 # a bad label: not on the copy list
+        self.assertLess(lst.index("/wallet/BEST"), lst.index("/wallet/PROVEN"))   # 11.11.: by Ocjena
+        self.assertIn("dokazan dvaput", lst)                           # the bot's own marks next to the name
+        self.assertIn("prati Autopilot", lst)
+        for col in ("Ocjena", "ROI %", "Medijan/trade", "Win (donja granica)", "Koncentracija", "Kopirljivo", "Drži",
+                    "Zadnji trade"):
+            self.assertIn(f">{col}</th>", lst)
         self.assertIn('data-wf', html)                                 # the search field filters the rows
+        _, svi = self.render({"v": "svi"})
+        svi = svi[svi.index('class="ms-wl"'):]
+        self.assertIn("+40 %", svi)                               # Autopilot 14 d where it has a number
+        self.assertIn('title="2 otvorenih gubitnika"', svi)
         self.assertIn('action=/run/wallets class="adm-only"', html)    # "Ocijeni sada" stays admin-only
         self.assertIn("/wallets?v=tablica", html)
         self.assertNotIn("ⓘ", html)
@@ -163,7 +184,14 @@ class ListPage(unittest.TestCase):
     def test_empty_copy_list(self):
         self.ws = [_w("SNIPE", 0, ["sniper"])]
         _, html = self.render({})
-        self.assertIn("Trenutno nema koga kopirati", html)
+        self.assertIn("Trenutno nema dokazanih novčanika", html)
+        self.ws = [_w("FEW", 50, closed=4)]
+        _, html = self.render({})
+        self.assertIn("Trenutno nema dokazanih novčanika", html)
+        self.assertIn("Još nisu dokazani", html)                       # the unproven one tap below
+        self.ws = []
+        _, html = self.render({})
+        self.assertIn("Rang za kopiranje još nije izračunat", html)
 
 
 class WalletPage(unittest.TestCase):
@@ -173,7 +201,10 @@ class WalletPage(unittest.TestCase):
         dokazani.run(con, NOW, log=None)
         con.execute("UPDATE wallets SET stats=?, score=70, copy_score=64, tier='A' WHERE wallet='PROVEN'",
                     (json.dumps(_w("PROVEN", 64)["stats"]),))
+        from wallets import rang
+        rang.save(con, "wallet", [dict(_rk("PROVEN", 64.0), why="", parts={}, pen=1.0)], NOW)   # 11.11. copy ranking
         con.commit()
+        rang.clear()
         con.close()
 
     def render(self, addr, qs=None):
@@ -182,7 +213,8 @@ class WalletPage(unittest.TestCase):
         try:
             data.GROUPS["wallets"] = [self.path]
             data.GROUPS["hype"] = data.GROUPS["rug"] = data.GROUPS["paper"] = [os.path.join(self.tmp, "none.db")]
-            with mock.patch.object(wstore, "DB", self.path), mock.patch("ui.pravitrade.followed_wallets", return_value={"PROVEN"}):
+            with mock.patch.object(wstore, "DB", self.path), mock.patch.object(data, "WALLET_DB", self.path), \
+                    mock.patch("ui.pravitrade.followed_wallets", return_value={"PROVEN"}):
                 return pages.wallet(addr, qs or {})
         finally:
             data.GROUPS.update(groups)
@@ -197,7 +229,7 @@ class WalletPage(unittest.TestCase):
         self.assertIn("Zadnji tradeovi", html)
         self.assertIn("?v=pozicije", html)
         self.assertIn("Kako je dobio ocjenu 70", html)
-        self.assertIn("copy ocjena 64", html)                          # the two scores differ: said once, one tap away
+        self.assertIn("ocjena za kopiranje 64,0", html)                # 11.11.: the copy ranking, said once
         self.assertIn('class="ms-h2 nosec"', html)                    # no section chips on this short page
         self.assertIn('data-m="PROVEN"', html)                         # copy the address
         self.assertNotIn("\U0001F4CB", html)                           # no emoji (the old clipboard icon)
@@ -209,7 +241,7 @@ class WalletPage(unittest.TestCase):
         self.assertIn("nema u registru", html)
 
     def test_subpages(self):
-        for v, words in (("ocjena", "Copy ocjena 64"), ("brojke", "medijan držanja"), ("registar", "Zašto je u registru"),
+        for v, words in (("ocjena", "Ocjena za kopiranje 64,0"), ("brojke", "medijan držanja"), ("registar", "Zašto je u registru"),
                          ("pozicije", "Sve pozicije"), ("povijest", "Povijest ocjena")):
             title, html = self.render("PROVEN", {"v": v})
             self.assertIn(words, html, v)

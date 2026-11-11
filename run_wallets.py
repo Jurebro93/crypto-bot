@@ -4,7 +4,8 @@
     python3 run_wallets.py score --credits 3000    # score / recheck wallets from the queue within a Helius budget
     python3 run_wallets.py top                     # ranking (--style sniper, --by score)
     python3 run_wallets.py top --signals           # profitable bots/snipers: followed as a signal, not copied
-    python3 run_wallets.py copy --n 5              # copytrading shortlist, writes output/wallets-copy-<date>.md
+    python3 run_wallets.py rang                    # copy ranking of wallets and influencers (wallets/rang.py)
+    python3 run_wallets.py copy --n 5              # copytrading shortlist (copy ranking), output/wallets-copy-<date>.md
     python3 run_wallets.py wallet <address>        # score one wallet now, with open/closed positions
     python3 run_wallets.py history <address>       # score and PnL over time
     python3 run_wallets.py label <address> rugger  # manual label (--off to remove)
@@ -209,6 +210,15 @@ def _rows(con, order, n, where="1=1"):
 
 def cmd_top(a):
     con = wstore.connect()
+    if a.by == "ocjena" and not a.signals:   # 11.11. (Jure): the copy ranking (wallets/rang.py), not the old copy_score
+        from wallets import rang
+        rang.ensure(con)
+        print("ocjena  n  win(donja)  medijan  ROI  konc  kopirljiv")
+        for r in rang.ranked("wallet", wstore.DB)[:a.n]:
+            print(f"{r['score']:>5.1f} {r['n']:>3}  {r.get('win_lo') or 0:>6.0%}  {r.get('median') or 0:>+7.0%}  "
+                  f"{r.get('roi') or 0:>+5.0%}  {('–' if r.get('conc') is None else format(r['conc'], '.0%')):>4}  "
+                  f"{'da' if r['copyable'] else 'ne'}{'' if r['proven'] else ' (nije dokazan)'}  {r['target']}")
+        return
     print("tier copy score")
     where = "tier='S'" if a.signals else "1=1"
     rows = _rows(con, "score" if a.signals or a.by == "score" else "copy_score", 1000, where)
@@ -219,28 +229,30 @@ def cmd_top(a):
 
 
 def cmd_copy(a):
+    """11.11. (Jure): the copy shortlist is the copy ranking (wallets/rang.py): proven (10+ closed tokens in 30 days),
+    copyable (median entry liquidity 15k+), no bad label, best Ocjena first. Absolute SOL PnL is not in the order."""
+    from wallets import rang
     con = wstore.connect()
-    picks = []
-    for w, t, s, lab, src in _rows(con, "copy_score", 200, "copy_score > 0"):
-        if set(lab) & wstore.BAD_LABELS or s["closed"] < a.min_closed or s["copy_score"] < a.min_score:
-            continue
-        picks.append((w, t, s, src))
-        if len(picks) >= a.n:
-            break
+    rang.ensure(con)
+    labs = {w: set(json.loads(lab or "[]")) for w, lab in con.execute("SELECT wallet, labels FROM wallets")}
+    picks = [r for r in rang.ranked("wallet", wstore.DB, proven=True, copyable=True)
+             if not labs.get(r["target"], set()) & rang.BAD and (r.get("score") or 0) >= a.min_score][:a.n]
     today = dt.date.today().isoformat()
     lines = [f"# Kandidati za copytrading ({today})", "",
-             f"Uvjeti: copy ocjena >= {a.min_score}, barem {a.min_closed} zatvorenih pozicija u zadnjih "
-             f"{LOOKBACK_D}-60 dana, bez oznaka {', '.join(sorted(wstore.BAD_LABELS))}.", "",
-             "| # | Wallet | Copy | Ocjena | PnL (SOL) | ROI | Win | 2x+ | Drži (min) | Kupnja (SOL) | Trejd/dan | Pobjednici | Napomene |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
-    for i, (w, t, s, src) in enumerate(picks, 1):
-        lines.append(f"| {i} | [`{w[:6]}…{w[-4:]}`](https://gmgn.ai/sol/address/{w}) | {s['copy_score']} | {s['score']} | "
-                     f"{s['closed_pnl_sol']:+.1f} | {s['roi_on_cost']:+.0%} | {s['win_rate']:.0%} ({s['closed']}) | "
-                     f"{s['big_wins']} | {s['median_hold_min']} | {s['median_buy_sol']} | {s['trades_per_day']} | "
-                     f"{s.get('early_in_winners', 0)} | {', '.join(s.get('copy_notes') or []) or '-'} |")
+             f"Uvjeti: ocjena za kopiranje >= {a.min_score:g}, barem {rang.MIN_N} zatvorenih tokena u zadnjih "
+             f"{rang.WINDOW_D} dana, medijan likvidnosti na ulazu >= ${rang.MIN_LIQ_USD:,.0f}, bez oznaka "
+             f"{', '.join(sorted(wstore.BAD_LABELS))}.", "",
+             "| # | Wallet | Ocjena | ROI | Medijan/trade | Win (donja granica) | n | Koncentracija | Likvidnost na ulazu | Drži (min) |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    pct = lambda x, f="{:+.0%}": "–" if x is None else f.format(x)
+    for i, r in enumerate(picks, 1):
+        w = r["target"]
+        lines.append(f"| {i} | [`{w[:6]}…{w[-4:]}`](https://gmgn.ai/sol/address/{w}) | {r['score']:.1f} | {pct(r.get('roi'))} | "
+                     f"{pct(r.get('median'))} | {pct(r.get('win_lo'), '{:.0%}')} | {r['n']} | {pct(r.get('conc'), '{:.0%}')} | "
+                     f"${(r.get('liq') or 0):,.0f} | {pct(r.get('hold_min'), '{:.0f}')} |")
     if not picks:
-        lines.append("| - | još nema walleta koji prolaze uvjete | | | | | | | | | | | |")
-    lines += ["", "Puna adresa: " + ", ".join(f"`{w}`" for w, *_ in picks) if picks else ""]
+        lines.append("| - | još nema novčanika koji prolaze uvjete | | | | | | | | |")
+    lines += ["", "Puna adresa: " + ", ".join(f"`{r['target']}`" for r in picks) if picks else ""]
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, f"wallets-copy-{today}.md")
     with open(path, "w") as f:
@@ -285,6 +297,17 @@ def cmd_dokazani(a):
     con.close()
 
 
+def cmd_rang(a):
+    """11.11. (Jure): the copy ranking of wallets and influencers (wallets/rang.py) into wallets.db copy_rank; the first
+    run on a database also logs the before/after block. Database reads only, no API call."""
+    from wallets import rang
+    con = wstore.connect()
+    try:
+        rang.run(con)
+    finally:
+        con.close()
+
+
 def cmd_credits(a):
     con = wstore.connect()
     ms = _month_start()
@@ -321,13 +344,15 @@ def main(argv=None):
     s.add_argument("--pages", type=int, default=3, help="first look: up to N x 100 txs (10 credits per page)")
     t = sub.add_parser("top")
     t.add_argument("--n", type=int, default=30)
-    t.add_argument("--by", choices=("copy", "score"), default="copy")
+    t.add_argument("--by", choices=("ocjena", "copy", "score"), default="ocjena",
+                   help="ocjena: rang za kopiranje (wallets/rang.py); copy: stara copy ocjena")
     t.add_argument("--style", choices=("bot", "sniper", "scalper", "swing"))
     t.add_argument("--signals", action="store_true", help="tier S: profitable bots/snipers, signal not copy")
     sub.add_parser("dokazani")
+    sub.add_parser("rang")
     c = sub.add_parser("copy")
     c.add_argument("--n", type=int, default=5)
-    c.add_argument("--min-score", type=float, default=50)
+    c.add_argument("--min-score", type=float, default=0, help="najmanja ocjena za kopiranje (0-100)")
     c.add_argument("--min-closed", type=int, default=10)
     w = sub.add_parser("wallet")
     w.add_argument("address")
@@ -342,7 +367,8 @@ def main(argv=None):
     sub.add_parser("credits")
     a = p.parse_args(argv)
     {"harvest": cmd_harvest, "score": cmd_score, "top": cmd_top, "copy": cmd_copy, "wallet": cmd_wallet,
-     "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani}[a.cmd](a)
+     "history": cmd_history, "label": cmd_label, "credits": cmd_credits, "dokazani": cmd_dokazani,
+     "rang": cmd_rang}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -768,16 +768,23 @@ def wallet_leaderboard(kind=None, limit=None, offset=None):
     finally:
         _close(kc)
     wc = _ro("wallets")
+    # 11.11. (Jure): copy_score is the copy ranking's Ocjena (wallets/rang.py: 30 days, closed positions, Wilson win
+    # rate, median, profit factor, copyability, recency; no absolute SOL PnL); copy_proven / copy_copyable its flags
+    rank = {}
+    for t, sc, pr, cp in _q(wc, "SELECT target, score, proven, copyable FROM copy_rank WHERE kind = 'wallet'"):
+        rank[t] = (sc, pr, cp)
     try:
         rows = []
-        for w, tier, score, cscore, stats, labels, last_tx in _q(
+        for w, tier, score, _old, stats, labels, last_tx in _q(
                 wc, "SELECT wallet, tier, score, copy_score, stats, labels, last_tx_ts FROM wallets "
                     "WHERE stats IS NOT NULL ORDER BY COALESCE(score, 0) DESC"):
             st = _json(stats)
             link = ids.get(w) or {}
             meta = _wallet_meta(wc, kidx, ids, w)
             rows.append({"wallet": w, "kind": meta["kind"], "tier": tier, "score": meta["score"],
-                         "score_source": meta["score_source"], "copy_score": _f(cscore, 2),
+                         "score_source": meta["score_source"], "copy_score": _f((rank.get(w) or (None,))[0], 2),
+                         "copy_proven": bool((rank.get(w) or (0, 0, 0))[1]) if w in rank else None,
+                         "copy_copyable": bool((rank.get(w) or (0, 0, 0))[2]) if w in rank else None,
                          "realized_pnl_sol": _f(st.get("realized_sol"), 4), "unrealized_pnl_sol": _f(st.get("unrealized_sol"), 4),
                          "win_rate": _f(st.get("win_rate"), 4), "median_hold_min": _f(st.get("median_hold_min"), 1),
                          "style": st.get("style"), "last_trade_ts": _i(last_tx), "linked_handle": _linked(link)})

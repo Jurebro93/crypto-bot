@@ -79,10 +79,13 @@ HELP = {
     "Izvor": "Odakle je podatak došao.",
     # wallets
     "Wallet": "Adresa walleta. Klik otvara detalje i raspis ocjene.",
-    "Tier": "A = copy ≥ 60 (provjera svakih 6 h), B = dobar (dnevno), C = ostali (tjedno), D = bot ili u minusu.",
+    "Tier": "Raspored provjera: A svakih 6 h, B dnevno, C tjedno, D bot ili u minusu.",
     "Na listi": "Prolazi li sve uvjete za copytrading listu.",
     "Na listi?": "Prolazi li sve uvjete za copytrading listu.",
-    "Copy": "Copy ocjena 0-100: ocjena profitabilnosti × kazne za stvari zbog kojih se wallet teško kopira.",
+    "Copy": "Ocjena za kopiranje 0-100 (30 dana, zatvorene pozicije): donja granica win ratea, medijan po tradeu, profit "
+            "factor, kopirljivost, svježina; bez apsolutne zarade u SOL-u.",
+    "Ocjena za kopiranje": "0-100 iz zadnjih 30 dana: donja granica win ratea, medijan po tradeu, profit factor, kopirljivost "
+                           "(likvidnost na ulazu, naš trošak, kašnjenje), svježina; koncentracija iznad 50 % × 0,6.",
     "Ocjena": "Ocjena profitabilnosti 0-100: PnL, ROI, win rate, profit factor, 2x trejdovi.",
     "PnL SOL": "Dobit ili gubitak na zatvorenim pozicijama u SOL-u.",
     "ROI": "Povrat na uloženi SOL na zatvorenim pozicijama.",
@@ -96,12 +99,12 @@ HELP = {
     "Neaktivan d": "Dana od zadnjeg trejda.",
     "Rano u pobj.": "U koliko pobjedničkih tokena je ušao među prvim kupcima.",
     "Oznake": "Oznake poput bot, dev, sniper, bundler: takvi walleti nikad ne idu na copy listu.",
-    "Zašto nije na listi / napomene": "Koji uvjet copy liste ne prolazi i koje kazne copy ocjene ima.",
+    "Zašto nije na listi / napomene": "Koji uvjet copy liste ne prolazi (dokazan, kopirljiv, ocjena za kopiranje).",
     "Walleta": "Broj walleta u klasteru.",
     "Zajednički tokeni (koliko walleta ga ima)": "Tokeni koje kupuje više walleta iz klastera; ×N = broj walleta.",
     "Zajedničkih": "Broj tokena koje drže barem 2 walleta iz klastera.",
-    "Prosj. copy": "Prosječna copy ocjena ocijenjenih walleta u klasteru.",
-    "Najbolji": "Wallet s najvišom copy ocjenom u klasteru.",
+    "Prosj. copy": "Prosječna ocjena za kopiranje ocijenjenih walleta u klasteru.",
+    "Najbolji": "Wallet s najvišom ocjenom za kopiranje u klasteru.",
     "Financijer": "Wallet koji je poslao SOL drugim walletima prije njihovih kupnji.",
     "Financirao walleta": "Koliko walleta je financirao.",
     # demo trading
