@@ -3056,7 +3056,10 @@ def _dca_level(txt, avg_mc):
     m = re.fullmatch(r"\$?([0-9.]+)([kmb])?(mc)?", s)
     if not m:
         raise ValueError(f"ne razumijem '{txt}': upiši MC (npr. $70k) ili postotak (npr. -20%)")
-    return float(m.group(1)) * {"k": 1e3, "m": 1e6, "b": 1e9}.get(m.group(2) or "", 1)
+    v = float(m.group(1))
+    if not m.group(2) and v < 1000:   # 11.11. (Jure: "razina MC $50 ... a MC je 149k"): a bare 50 means 50k, never $50
+        return v * 1e3
+    return v * {"k": 1e3, "m": 1e6, "b": 1e9}.get(m.group(2) or "", 1)
 
 
 def _post_dca(con, tcon, form, user):
@@ -3196,9 +3199,10 @@ def _post_limit(con, tcon, form, user):
         raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
     price, _liq, _, mcap = live[token]
     now_mc = (_now_mcap([token])[0] or {}).get(token) or mcap
-    lvl = _dca_level(form.get("at"), now_mc)   # "$50k" / "50k" / "50000", or "-40%" from the market cap now
+    lvl = _dca_level(form.get("at"), now_mc)   # "$50k" / "50k" / "50" (= 50k) / "50000", or "-40%" from the MC now
     if lvl < 30_000:
-        raise ValueError(f"razina MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
+        raise ValueError(f"„Kupi na MC” je ${lvl:,.0f}, ispod 30k (pravilo: ispod 30k se ne kupuje). Za kupnju odmah "
+                         f"ostavi to polje prazno (MC je sada ${now_mc or 0:,.0f}).")
     if now_mc and lvl >= now_mc:
         return _post_buy(con, tcon, form, user)   # it is there already: the plain buy, now
     sol = float((form.get("sol") or "0").replace(",", "."))
