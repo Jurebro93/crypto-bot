@@ -153,19 +153,22 @@ def page(qs):
         ("Profit factor", 15, "dobici / gubici; 1 = 0, 3+ = max"), ("2x+ trejdovi", 10, "5 = max"),
         ("Raspršenost profita", 10, "1 - udio najvećeg trejda u dobiti (samo ako je u plusu)")]))
     b.append("<p>Zbroj × min(1, zatvorenih / 10): manje od 10 zatvorenih pozicija = premalo dokaza.</p>")
-    b.append("<h3>Copy ocjena = ocjena × kazne + bonus</h3>")
-    b.append(table(["Uvjet", ("Množitelj", "n")], [[esc(x), (f"× {m:g}", m, "n")] for x, m in [
-        ("bot (> 300 trejdova/dan ili medijan držanja < 30 s)", 0), ("loša oznaka", 0), ("u minusu", 0),
-        ("drži < 2 min", 0.2), ("drži < 10 min", 0.6), ("> 60 trejdova dnevno", 0.4), ("< 0.3 trejda dnevno", 0.7),
-        ("neaktivan 14+ dana", 0.2), ("neaktivan 5+ dana", 0.6), ("medijan kupnje < 0.05 SOL", 0.5),
-        ("> 30% tokena dobio besplatno (insider?)", 0.3)]]))
-    b.append("<p>Bonus: +5 za svaki dodatni pobjednički token u koji je rano ušao (max +15).</p>")
-    b.append(f"<h3>Copy lista</h3><p>copy ocjena ≥ <b>{explain.COPY_MIN_SCORE}</b>, barem <b>{explain.COPY_MIN_CLOSED}</b> "
-             f"zatvorenih pozicija, bez oznaka: <b>{esc(', '.join(sorted(labels.wallet_label(x) for x in explain.BAD_LABELS)))}</b>. Pragove možeš "
-             f"mijenjati na stranici <a href=/wallets>Walleti</a>.</p>")
+    from wallets import rang
+    b.append("<h3>Ocjena za kopiranje (od 11.11.)</h3><p>Zadnjih 30 dana, samo zatvorene pozicije. Apsolutna zarada u "
+             "SOL-u nije u ocjeni (vidi se u detaljima novčanika).</p>")
+    names = {"win": "Win rate, donja granica (Wilson 90 %)", "median": "Medijan povrata po tradeu",
+             "pf": "Profit factor", "copy": "Kopirljivost (likvidnost na ulazu, naš trošak 0,1-0,15 SOL, dobitak nakon "
+             "našeg kašnjenja)", "recency": "Svježina (poluživot 7 dana)"}
+    b.append(_parts_table([(names[k], round(100 * w), "") for k, w in rang.WEIGHTS.items()]))
+    b.append(f"<p>Koncentracija (najveći trade nosi više od {rang.CONC_MAX:.0%} zarade): ocjena × {rang.CONC_MULT:g}. "
+             f"Ispod {rang.MIN_N} zatvorenih: nije dokazan. Medijan likvidnosti na ulazu ispod "
+             f"{rang.MIN_LIQ_USD // 1000}k $ ili nepoznat: nije kopirljivo (vidi se, ali se pravim novcem ne kopira).</p>")
+    b.append(f"<h3>Copy lista</h3><p>dokazan, kopirljiv, ocjena za kopiranje ≥ <b>{explain.COPY_MIN_SCORE}</b>, "
+             f"bez oznaka: <b>{esc(', '.join(sorted(labels.wallet_label(x) for x in explain.BAD_LABELS)))}</b>.</p>")
     b.append(table(["Tier", "Uvjet", "Ponovna provjera"], [
-        ["A", "copy ≥ 60", "svakih 6 h"], ["B", "ocjena ≥ 40 ili copy ≥ 35", "dnevno"],
-        ["C", "ostali", "tjedno"], ["D", "bot, ili copy 0 uz ≥ 10 zatvorenih", "samo ako ga druga analiza opet vidi"]]))
+        ["A", "stara copy ocjena ≥ 60", "svakih 6 h"], ["B", "ocjena ≥ 40 ili stara copy ≥ 35", "dnevno"],
+        ["C", "ostali", "tjedno"], ["D", "bot, ili stara copy 0 uz ≥ 10 zatvorenih", "samo ako ga druga analiza opet vidi"]]))
+    b.append("<p>Tier je samo raspored provjera (trošak Helius kredita): stara copy ocjena tu ostaje, nigdje drugdje.</p>")
 
     # ---- paper
     cfg = _try(lambda: __import__("paper.sim", fromlist=["x"]).load_config(), {})

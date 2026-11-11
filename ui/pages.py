@@ -94,13 +94,16 @@ a.ms-wr:hover .tk{color:var(--acc)}
 
 # one tap to copy the full address (the old 📋 next to tokens is an emoji; rule 5: a line icon instead)
 _W_JS = ("<script>document.querySelectorAll('input[data-wf]').forEach(function(i){i.oninput=function(){"
-         "var q=i.value.trim().toLowerCase();document.querySelectorAll('.ms-wr').forEach(function(r){"
-         "r.style.display=!q||((r.dataset.k||'')+' '+r.textContent).toLowerCase().indexOf(q)>=0?'':'none'})}});"
+         "var q=i.value.trim().toLowerCase();document.querySelectorAll('.ms-wr,tr.rt-r').forEach(function(r){"
+         "var on=!q||((r.dataset.k||r.dataset.name||'')+' '+r.textContent).toLowerCase().indexOf(q)>=0;"
+         "r.style.display=on?'':'none';var d=r.nextElementSibling;"
+         "if(r.tagName==='TR'&&d&&d.classList.contains('rt-d'))d.style.display=on?'':'none'})}});"
          "document.querySelectorAll('.ms-cp').forEach(function(b){b.onclick=function(){var m=b.dataset.m;"
          "(navigator.clipboard?navigator.clipboard.writeText(m):Promise.reject()).then(function(){"
          "b.title='Kopirano'},function(){prompt('Kopiraj adresu:',m)})}})</script>")
 
-SORTS = [("dokaz", "Poredano: prvo dokazani", "Prvo dokazani"), ("copy", "Poredano po copy ocjeni", "Po copy ocjeni"),
+SORTS = [("dokaz", "Poredano: prvo dokazani", "Prvo dokazani"),
+         ("copy", "Poredano po ocjeni za kopiranje", "Po ocjeni za kopiranje"),
          ("zarada", "Poredano po zaradi", "Po zaradi"), ("plus", "Poredano po udjelu u plusu", "Po udjelu u plusu"),
          ("zadnji", "Poredano po zadnjem tradeu", "Po zadnjem tradeu")]
 
@@ -203,7 +206,7 @@ def _last_buy(addr, now=None):
 
 
 def autopilot_marks(now=None):
-    """9.11. (audit P44): what the bot copies by, next to the page's copy_score: the proven-twice list
+    """9.11. (audit P44): what the bot copies by, next to the page's Ocjena (11.11.: wallets/rang.py): the proven-twice list
     (wallets/dokazani.latest: wallet -> row with as_of, bags), the wallets the real-money account follows
     (ui/pravitrade.followed_wallets) and the Autopilot's 14-day wallet stats (ui/autopilot.wallet_recs). Read-only;
     every source may be missing (empty until the first run after a deploy), the page then shows "ne" / dashes."""
@@ -244,7 +247,7 @@ MARK_HEAD = [("Dokazani dvaput", "n"), ("Prati Autopilot", "n"), ("Autopilot 14 
 
 
 def _wallet_hero(ws, marks, now=None):
-    """Hero "Koga kopirati": prvi s popisa preporuke (ui/preporuka.rank_wallets: pouzdanost, copy ocjena, zarada,
+    """Hero "Koga kopirati": prvi s popisa preporuke (ui/preporuka.rank_wallets: pouzdanost, ocjena za kopiranje,
     isti red kao prijedlog na Pregledu) koji je i dokazan dvaput; bez dokazanih prvi s preporuke. None bez ikoga."""
     from ui import preporuka
     from wallets import dokazani
@@ -257,14 +260,22 @@ def _wallet_hero(ws, marks, now=None):
     w, r = next(((w, r) for w, r in ranked if w["wallet"] in marks["proven"]), ranked[0])
     s, addr = w.get("stats") or {}, w["wallet"]
     proven = addr in marks["proven"]
-    cop = dokazani.copyable(s, w.get("labels") or [])
+    cop = dokazani.copyable(s, w.get("labels") or []) and bool((w.get("rang") or {}).get("copyable"))
     facts = rd.cat(rd.dot("good" if proven else ""), "dokazan dvaput" if proven else "nije dokazan dvaput",
-                   " · ", "kopirljiv" if cop else "nije kopirljiv", " · copy ocjena" + rd.NBSP, rd.num(w.get("copy_score")))
+                   " · ", "kopirljiv" if cop else "nije kopirljiv", " · ocjena" + rd.NBSP, rd.num(w.get("ocjena"), 1))
     n = s.get("closed") or 0
     lead = {"visoka": "Najviše dokaza", "srednja": "Dovoljno dokaza"}.get(r.get("tier"), "Malo dokaza")
-    why = (f"{lead}: {rd.sol(s.get('closed_pnl_sol'), 1, sign=True)} na {rd.num(n)} "
-           f"{_pl(n, 'zatvorenoj', 'zatvorene', 'zatvorenih')}, {rd.pct(s.get('win_rate'), sign=False, frac=True)} u plusu"
-           + (", prije i poslije reza" if proven else "") + f". Drži oko {_hold(s.get('median_hold_min'))}.")
+    rk = w.get("rang") or {}
+    if rk:   # 11.11.: the copy ranking's numbers (30 days, closed positions), the same as the table below
+        n = rk.get("n") or 0
+        why = (f"{lead}: {rd.num(n)} {_pl(n, 'zatvorena', 'zatvorene', 'zatvorenih')} u 30 dana, ROI "
+               f"{rd.pct(rk.get('roi'), sign=True, frac=True)}, medijan po tradeu {rd.pct(rk.get('median'), sign=True, frac=True)}, "
+               f"win (donja granica) {rd.pct(rk.get('win_lo'), sign=False, frac=True)}"
+               + (", prije i poslije reza u plusu" if proven else "") + f". Drži oko {_hold(rk.get('hold_min'))}.")
+    else:
+        why = (f"{lead}: {rd.sol(s.get('closed_pnl_sol'), 1, sign=True)} na {rd.num(n)} "
+               f"{_pl(n, 'zatvorenoj', 'zatvorene', 'zatvorenih')}, {rd.pct(s.get('win_rate'), sign=False, frac=True)} u plusu"
+               + (", prije i poslije reza" if proven else "") + f". Drži oko {_hold(s.get('median_hold_min'))}.")
     c = r.get("copy")
     if c and c[0]:   # the only real test of copying him: what the demo's copies earned (strat.db)
         why += f" Naše demo kopije: {rd.num(c[0])}, {rd.pct(c[1], sign=True, frac=True)} po tradeu."
@@ -314,7 +325,7 @@ def _wrow(w, marks, now=None, show_bad=False):
         f'<a class="ms-wr" href="/wallet/{quote(addr)}" data-k="{rd.h(key)}"><span class="tk">{rd.h(short(addr))}</span>'
         f'<span class="why">{rd.cat(*why, sep=" · ")}</span>'
         f'<span class="v {rd.tone(pnl) if s else ""}">{rd.h(val)}</span><span class="w">{rd.h(sub)}</span>'
-        f'<span class="x cs">{rd.h(rd.num(w.get("copy_score")))}</span>'
+        f'<span class="x cs">{rd.h(rd.num(w.get("ocjena")))}</span>'
         f'<span class="x hd">{rd.h(_hold(s.get("median_hold_min")) if s else rd.DASH)}</span>'
         f'<span class="x dk"{dk_t}>{"da" if proven else rd.DASH}</span>{ap}'
         f'<span class="x last">{rd.h(rd.ago(w.get("last_tx_ts"), now))}</span><span class="ms-chev" aria-hidden="true"></span></a>')
@@ -327,7 +338,7 @@ def _f(x, default=0.0):
 def _sort_ws(ws, key, marks):
     if key == "dokaz":
         # 9.11. (audit P44): the wallets the Autopilot actually copies by (proven twice, followed) on top of the
-        # copy_score order, so the hand pick and the bot's pick are the same list (stable sort keeps copy_score order)
+        # Ocjena order (11.11.: wallets/rang.py), so the hand pick and the bot's pick are the same list (stable sort)
         return sorted(ws, key=lambda w: (w["wallet"] in marks["proven"], w["wallet"] in marks["followed"]), reverse=True)
     if key == "zarada":
         return sorted(ws, key=lambda w: -_f((w.get("stats") or {}).get("closed_pnl_sol"), -1e9))
@@ -335,7 +346,7 @@ def _sort_ws(ws, key, marks):
         return sorted(ws, key=lambda w: (-((w.get("stats") or {}).get("win_rate") or 0), -((w.get("stats") or {}).get("closed") or 0)))
     if key == "zadnji":
         return sorted(ws, key=lambda w: -(w.get("last_tx_ts") or 0))
-    return list(ws)   # "copy": data.wallets already orders by copy_score, score, priority
+    return list(ws)   # "copy": data.wallets already orders by the copy ranking's Ocjena (11.11.), score, priority
 
 
 def _sort_menu(v, cur):
@@ -437,10 +448,8 @@ def wallets(qs):
                 + rd.hint("Kupnje i prodaje influencera s njihovih novčanika su i na Influencerima."))
         return "Novčanici", W_CSS + f'<div class="ms-page ms-wide">{body}</div>'
     show_all = v == "svi"
-    min_score = float(qs.get("min_score", explain.COPY_MIN_SCORE))
-    min_closed = int(qs.get("min_closed", explain.COPY_MIN_CLOSED))
     ws = data.wallets(scored_only=not show_all)
-    marks = autopilot_marks()   # 9.11. (audit P44): the bot's own lists next to the page's copy_score
+    marks = autopilot_marks()   # 9.11. (audit P44): the bot's own lists next to the page's Ocjena
     scored = [w for w in ws if w.get("stats")]
     sub = (f"{rd.num(len(scored))} {_pl(len(scored), 'ocijenjen', 'ocijenjena', 'ocijenjenih')} · "
            f"{rd.num(len(marks['proven']))} {_pl(len(marks['proven']), 'dokazan', 'dokazana', 'dokazanih')} dvaput")
@@ -448,26 +457,57 @@ def wallets(qs):
         hero = _wallet_hero(scored, marks, now) or ""
     except Exception:  # noqa: BLE001 - the answer is a nicety; the list below still works
         hero = ""
-    srt = qs.get("s") if qs.get("s") in {k for k, _, _ in SORTS} else ("copy" if show_all else "dokaz")
-    ws = _sort_ws(ws, srt, marks)
+    fld = ('<label class="ms-fld"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/>'
+           '<path d="M20 20l-4.2-4.2"/></svg><input type="search" data-wf placeholder="Adresa ili oznaka" '
+           'aria-label="Traži novčanik po adresi ili oznaci" autocomplete="off" enterkeyhint="search"></label>')
     if not show_all:
-        ws = [w for w in ws if explain.shortlist(w, min_score, min_closed)[0]]
+        # 11.11. (Jure): "Za kopiranje" is the copy ranking (wallets/rang.py) as one table with the owner's columns,
+        # proven wallets (10+ closed tokens in 30 days) by Ocjena; "nije kopirljivo" stays visible, marked. The
+        # not-yet-proven ones are one tap below. Client-side sort on every header, details row per wallet.
+        from ui import rangtable
+        bad = {w["wallet"] for w in ws if _bad(w)}
+        allr = rangtable_rows()
+        rk = [r for r in allr if r["target"] not in bad]
+        top_ = [r for r in rk if r["proven"]]
+        few = [r for r in rk if not r["proven"]][:RANG_FEW_SHOW]
+        tags = {}
+        for t in set(marks["proven"]) | set(marks["followed"]):   # the Autopilot's own marks next to the name
+            tags[t] = (["dokazan dvaput"] if t in marks["proven"] else []) + (
+                ["prati Autopilot"] if t in marks["followed"] and t not in marks["proven"] else [])
+        tbl = rangtable.table(top_, "wallet", now, tags=tags, empty=(
+            "Trenutno nema dokazanih novčanika (10+ zatvorenih u 30 dana). Rang se računa nakon ocjenjivanja, svaka 3 h."
+            if allr else None))
+        more = ""
+        if few:
+            more = ('<details class="ms-more" style="margin-top:14px"><summary>Još nisu dokazani (manje od 10 zatvorenih) · '
+                    f'{rd.num(len(few))}</summary>{rangtable.table(few, "wallet", now, tags=tags)}</details>')
+        body = (rd.top("Novčanici", sub) + hero + sw + fld + str(tbl) + more + str(rangtable.note("wallet"))
+                + _wallets_foot(scored, marks, now) + _wallets_hint())
+        return "Novčanici", W_CSS + f'<div class="ms-page ms-wide">{body}</div>' + _W_JS
+    srt = qs.get("s") if qs.get("s") in {k for k, _, _ in SORTS} else "copy"
+    ws = _sort_ws(ws, srt, marks)
     head = rd.raw('<div class="ms-wth grid">' + _sort_menu(v, srt)
-                  + "".join(f'<span class="d">{t}</span>' for t in ("Copy", "Zarada", "U plusu", "Drži", "Dokazan",
+                  + "".join(f'<span class="d">{t}</span>' for t in ("Ocjena", "Zarada", "U plusu", "Drži", "Dokazan",
                                                                      "Autopilot", "Zadnji trade"))
                   + '<span class="p">zarada · u plusu</span><span class="d"></span></div>')
     rows = "".join(_wrow(w, marks, now, show_bad=show_all) for w in ws)
     if not rows:
-        rows = ('<div class="ms-empty"><b>Trenutno nema koga kopirati</b><p>Nijedan novčanik ne prolazi uvjete kopiranja '
-                f"(copy ocjena {min_score:g}+, {min_closed}+ zatvorenih, bez loših oznaka). Ocjene se računaju noću iz "
-                'spremljenih tradeova.</p><a href="/wallets?v=svi">Pogledaj sve</a></div>' if not show_all else
-                '<div class="ms-empty"><b>Još nema novčanika</b><p>Bot ih skuplja i ocjenjuje sam, noću.</p></div>')
-    fld = ('<label class="ms-fld"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/>'
-           '<path d="M20 20l-4.2-4.2"/></svg><input type="search" data-wf placeholder="Adresa ili oznaka" '
-           'aria-label="Traži novčanik po adresi ili oznaci" autocomplete="off" enterkeyhint="search"></label>')
+        rows = '<div class="ms-empty"><b>Još nema novčanika</b><p>Bot ih skuplja i ocjenjuje sam, noću.</p></div>'
     body = (rd.top("Novčanici", sub) + hero + sw + fld + head + f'<div class="ms-wl">{rows}</div>'
             + _wallets_foot(scored, marks, now) + _wallets_hint())
     return "Novčanici", W_CSS + f'<div class="ms-page ms-wide">{body}</div>' + _W_JS
+
+
+RANG_FEW_SHOW = 60
+
+
+def rangtable_rows():
+    """The copy ranking's wallet rows, best Ocjena first ([] before the first run)."""
+    try:
+        from wallets import rang
+        return rang.ranked("wallet", data.WALLET_DB)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _wallets_table(qs):
@@ -483,7 +523,7 @@ def _wallets_table(qs):
         ok, why = explain.shortlist(w, min_score, min_closed)
         rows.append([wlink(w["wallet"]), tierb(w["tier"]), *_mark_cells(w["wallet"], marks),
                      badge("DA", "good") if ok else badge("ne"),
-                     scorecell(w["copy_score"]), scorecell(w["score"]),
+                     scorecell(w.get("ocjena")), scorecell(w["score"]),
                      signed(s.get("closed_pnl_sol")), signed(s.get("roi_on_cost"), "{:+.0%}"),
                      num(s.get("win_rate"), "{:.0%}"), num(s.get("closed")), num(s.get("big_wins")),
                      mins(s.get("median_hold_min")), num(s.get("median_buy_sol"), "{:.2f}"),
@@ -492,7 +532,7 @@ def _wallets_table(qs):
                      esc(", ".join(f"{SOURCE.get(k, k)}" for k in w["sources"])),
                      " ".join(badge(labels.wallet_label(l), "bad") for l in w["labels"]),
                      (esc("; ".join(why + (s.get("copy_notes") or []))) or "–", "", "wrap")])
-    head = ["Wallet", "Tier", *MARK_HEAD, "Na listi", ("Copy", "n"), ("Ocjena", "n"), ("PnL SOL", "n"), ("ROI", "n"),
+    head = ["Wallet", "Tier", *MARK_HEAD, "Na listi", ("Ocjena za kopiranje", "n"), ("Profitabilnost", "n"), ("PnL SOL", "n"), ("ROI", "n"),
             ("Win", "n"), ("Zatv.", "n"), ("2x+", "n"), ("Medijan držanja", "n"), ("Kupnja SOL", "n"), ("Trejd/dan", "n"),
             ("Neaktivan d", "n"), ("Rano u pobj.", "n"), "Izvor", "Oznake", ("Zašto nije na listi / napomene", "wrap")]
     form = f'<div class=flt>{filt("wt", "Filtriraj adresu, oznaku…")}</div>'
@@ -501,7 +541,8 @@ def _wallets_table(qs):
               + (f"; lista iz {ago(marks['as_of'])[0]}" if marks["as_of"] else "; lista još nije izračunata") + "), "
               "<b>Prati Autopilot</b> = račun pravog novca ga prati ili je dokazan (to su novčanici čije kupnje bot broji kao "
               "poziv), <b>Autopilot 14 d</b> = ROI/win/zatvoreno na njegovim kupnjama u 14 dana (Autopilot preporuke). "
-              f"Copy ocjena je zasebno bodovanje ove stranice; u ovom pogledu {n_pf} novčanika ima oznaku bota.</p>")
+              "<b>Ocjena za kopiranje</b> je rang iz wallets/rang (30 dana, zatvorene pozicije, bez apsolutne zarade u "
+              f"SOL-u); u ovom pogledu {n_pf} novčanika ima oznaku bota.</p>")
     return "Novčanici", (W_CSS + '<a class="ms-back" href="/wallets?v=svi">Novčanici</a>'
                          + rd.top("Sve brojke novčanika") + form + legend
                          + table(head, rows, "wt", "Još nema novčanika. Bot ih skuplja i ocjenjuje sam, noću."))
@@ -520,7 +561,7 @@ STAT_LABEL = {"positions": "pozicija", "closed": "zatvorenih", "open": "otvoreni
               "median_buy_sol": "medijan kupnje", "trades_per_day": "tradeova dnevno",
               "free_token_ratio": "udio tokena dobivenih besplatno", "last_trade_days": "dana od zadnjeg tradea",
               "history_days": "dana povijesti", "early_in_winners": "rano u pobjednicima", "credits": "Helius kredita",
-              "score": "ocjena profitabilnosti", "copy_score": "copy ocjena", "bot": "izgleda kao bot",
+              "score": "ocjena profitabilnosti", "copy_score": "stara copy ocjena (samo raspored provjera)", "bot": "izgleda kao bot",
               "style": "stil trgovanja", "pnl_sol": "zarada ukupno (s otvorenima)", "scored_pnl_sol": "zarada za ocjenu",
               "bags": "stari gubitnici (otvoreni)", "bag_share": "udio starih gubitnika u knjizi",
               "bag_sol": "stari gubitnici, uloženo"}
@@ -563,15 +604,23 @@ def _verdict(w, row, now=None):
     passed in the latest run, copyable), said with its numbers. Judges nothing itself."""
     from wallets import dokazani
     s, labs = w.get("stats") or {}, w.get("labels") or []
-    cs = f"copy ocjena{rd.NBSP}{rd.num(w.get('copy_score'))}" if w.get("copy_score") is not None else ""
+    cs = f"ocjena za kopiranje{rd.NBSP}{rd.num(w.get('ocjena'), 1)}" if w.get("ocjena") is not None else ""
     if not s:
         return "Još nije ocijenjen", "", cs, "Bot ga ocjenjuje u sljedećem krugu (noću), iz njegovih tradeova na lancu."
     miss_c = dokazani.not_copyable(s, labs)
     cut = walletchart.day(row["cut"]) if row else ""
     proven = bool(row and row.get("passed"))
+    rk = w.get("rang")   # 11.11. (wallets/rang.py): "nije kopirljivo" / n < 10 never goes to real money
+    rk_no = rk is not None and not miss_c and (not rk.get("copyable") or not rk.get("proven"))
     facts = rd.cat("dokazan dvaput" if proven else "nije dokazan dvaput", " · ",
-                   "kopirljiv" if not miss_c else "nije kopirljiv", (" · " + cs) if cs else "")
+                   "kopirljiv" if not miss_c and not rk_no else "nije kopirljiv", (" · " + cs) if cs else "")
     hold = _hold(s.get("median_hold_min"))
+    if rk_no:
+        why_rk = (f"Nije kopirljivo: {rk.get('why')}." if not rk.get("copyable") else
+                  f"U zadnjih 30 dana ima {rd.num(rk.get('n'))} zatvorenih, a za kopiranje pravim novcem treba 10.")
+        return ("Ne kopirati pravim novcem", "warn", facts,
+                why_rk + " Vidi se u rangu, ali ga Autopilot ne kopira pravim novcem."
+                + (f" Prije i poslije reza {cut} bio je u plusu." if proven else ""))
     if proven:
         nb, na = row.get("closed_before") or 0, row.get("closed_after") or 0
         return ("Vrijedi kopirati", "good", facts,
@@ -664,7 +713,7 @@ def wallet(addr, qs):
                                              "Na lancu ga možeš pogledati preko Solscana ili GMGN-a gore."))
         return "Novčanik", W_CSS + f'<div class="ms-page">{body}</div>' + _W_JS
     w = w or {"wallet": addr, "stats": {}, "labels": [], "sources": {}, "tier": None, "score": None,
-              "copy_score": None}
+              "copy_score": None, "ocjena": None, "rang": None}
     v = qs.get("v") or ""
     if v in WALLET_VIEWS:
         title, body = _wallet_sub(v, addr, w, sm)
@@ -739,7 +788,7 @@ def wallet(addr, qs):
         sc = w.get("score")
         more.append({"name": f"Kako je dobio ocjenu {rd.num(sc)}" if sc is not None else "Kako se računa ocjena",
                      "reason": "zatvoreni profit, povrat, udio u plusu, profit factor"
-                               + (f"; copy ocjena {rd.num(w.get('copy_score'))}" if w.get("copy_score") != sc else ""),
+                               + (f"; ocjena za kopiranje {rd.num(w.get('ocjena'), 1)}" if w.get("ocjena") is not None else ""),
                      "href": f"/wallet/{quote(addr)}?v=ocjena"})
         big = s.get("big_wins") or 0
         more.append({"name": "Sve brojke",
@@ -789,37 +838,31 @@ def _wallet_sub(v, addr, w, sm):
         items.append({"name": "Dokaz", "reason": f"{rd.num(s.get('closed') or 0)} zatvorenih; ispod 10 zbroj se smanjuje",
                       "value": f"× {rd.num(ev, 2)}"})
         items.append({"name": "Ocjena", "reason": "zbroj puta dokaz, 0 do 100", "value": rd.num(w.get("score"))})
-        mults = explain.copy_multipliers(s, w["labels"])
-        m = 1.0
-        citems = []
-        for reason, f in mults:
-            m *= f
-            citems.append({"name": reason, "value": f"× {rd.num(f, 1)}", "value_tone": "neg" if f == 0 else None})
-        if not mults:
-            citems.append({"name": "Bez kazni", "reason": "drži dovoljno dugo, aktivan, normalne veličine kupnji"})
-        e = s.get("early_in_winners", 0) or 0
-        bonus = 5 * min(3, e - 1) if e > 1 else 0
-        if bonus and m:
-            citems.append({"name": "Rano u više pobjednika", "reason": f"ušao rano u {rd.num(e)} pobjednika", "value": f"+{bonus}"})
-        citems.append({"name": "Copy ocjena", "reason": f"ocjena {rd.num(w.get('score'))} × {rd.num(m, 2)}"
-                                                         + (f" + {bonus}" if bonus and m else ""),
-                       "value": rd.num(w.get("copy_score"))})
+        r = w.get("rang")
         ok, why = explain.shortlist(w)
         litems = [{"name": "Na copy listi", "reason": "prolazi sve uvjete" if ok else "; ".join(why),
                    "value": rd.cat(rd.dot("good"), "da") if ok else "ne"},
-                  {"name": "Razred", "reason": "A najbolji, D najslabiji", "value": w.get("tier") or rd.DASH}]
+                  {"name": "Razred", "reason": "A najbolji, D najslabiji (raspored provjera)", "value": w.get("tier") or rd.DASH}]
         if w["labels"]:
             litems.append({"name": "Oznake", "reason": "oznake s popisa loših nikad ne idu na copy listu",
                            "value": ", ".join(labels.wallet_label(x) for x in w["labels"]), "value_tone": "warn"})
         title = f"Kako je dobio ocjenu {rd.num(w.get('score'))}"
-        return "Ocjena", (head(title) + rd.rows(items, cls="ms-wrap") + _sec(f"Copy ocjena {rd.num(w.get('copy_score'))}")
-                          + rd.rows(citems, cls="ms-wrap") + _sec("Copy lista") + rd.rows(litems, cls="ms-wrap")
-                          + rd.hint("Ocjena 0 do 100 dolazi iz zatvorenih pozicija; copy ocjena je ista ocjena s kaznama "
-                                    "za stil koji bot teško prati. Presuda na vrhu novčanika je Autopilotova: dokazan "
-                                    "dvaput i kopirljiv."))
+        if r:
+            from ui import rangtable
+            sec = (_sec(f"Ocjena za kopiranje {rd.num(r.get('score'), 1)}")
+                   + rd.raw(str(rangtable.table([r], "wallet", now)).replace("<tr class=rt-d hidden>", "<tr class=rt-d>"))
+                   + rangtable.note("wallet"))
+        else:
+            sec = (_sec("Ocjena za kopiranje") + rd.hint("Nema zatvorenih tokena u zadnjih 30 dana, pa nije u rangu za "
+                                                         "kopiranje."))
+        return "Ocjena", (head(title) + rd.rows(items, cls="ms-wrap") + sec + _sec("Copy lista")
+                          + rd.rows(litems, cls="ms-wrap")
+                          + rd.hint("Ocjena profitabilnosti 0 do 100 dolazi iz zatvorenih pozicija i služi samo rasporedu "
+                                    "provjera; za kopiranje vrijedi ocjena za kopiranje (30 dana, bez apsolutne zarade u "
+                                    "SOL-u). Presuda na vrhu novčanika je Autopilotova: dokazan dvaput i kopirljiv."))
     if v == "brojke":
         items = [{"name": STAT_LABEL.get(k, k.replace("_", " ")), "value": _statfmt(k, val)}
-                 for k, val in s.items() if not isinstance(val, (list, dict))]
+                 for k, val in s.items() if not isinstance(val, (list, dict)) and k != "copy_score"]
         return "Sve brojke", (head("Sve brojke") + rd.rows(items, empty="Još nije ocijenjen.")
                               + rd.hint("Sirove brojke iz zadnjeg ocjenjivanja, iz kojih su izračunate ocjene."))
     if v == "povijest":
@@ -827,14 +870,13 @@ def _wallet_sub(v, addr, w, sm):
         chart = ""
         if len(hist) >= 2:
             from ui import charts
-            chart = charts.line([{"name": "Ocjena profitabilnosti", "pts": [(x["ts"], x["score"]) for x in hist if x["score"] is not None]},
-                                 {"name": "Copy ocjena", "pts": [(x["ts"], x["copy_score"]) for x in hist if x["copy_score"] is not None]}],
+            chart = charts.line([{"name": "Ocjena profitabilnosti", "pts": [(x["ts"], x["score"]) for x in hist if x["score"] is not None]}],
                                 "Ocjene kroz vrijeme", "0-100", fmt="num", ymin=0, ymax=100)
         items = [{"name": _wwhen(x["ts"], now),
                   "reason": f"{rd.sol(x['realized_sol'], 2, sign=True)} ostvareno · {rd.num(x['closed'])} zatvorenih · "
                             f"{rd.pct(x['win_rate'], sign=False, frac=True)} u plusu",
-                  "value": rd.num(x["score"]), "sub": f"copy {rd.num(x['copy_score'])}"} for x in reversed(hist)]
-        return "Povijest ocjena", (head("Povijest ocjena") + chart + rd.colhead("Ocjenjivanje", "ocjena · copy")
+                  "value": rd.num(x["score"])} for x in reversed(hist)]
+        return "Povijest ocjena", (head("Povijest ocjena") + chart + rd.colhead("Ocjenjivanje", "ocjena")
                                    + rd.rows(items, empty="Još nije ocijenjen.")
                                    + rd.hint("Svako ocjenjivanje ovog novčanika: vidi se popravlja li se ili kvari."))
     if v == "registar":
@@ -1166,8 +1208,7 @@ def _smart_html(mint, det, now):
         proven = {r["wallet"] for r in dokazani.latest()}
     except Exception:  # noqa: BLE001
         pass
-    reg = {r["wallet"]: r for r in data.q(data.WALLET_DB, f"SELECT wallet, copy_score FROM wallets WHERE wallet IN "
-                                                          f"({','.join('?' * len(ws))})", ws)}
+    rank = data.copy_rank("wallet")   # 11.11.: the copy ranking's Ocjena (wallets/rang.py), not copy_score
     items = []
     for x in rows:
         w = x["wallet"]
@@ -1181,11 +1222,11 @@ def _smart_html(mint, det, now):
             hold = "još drži"
         else:
             hold = None
-        cs_ = (reg.get(w) or {}).get("copy_score")
+        cs_ = (rank.get(w) or {}).get("score")
         if w in proven:
             what = R.cat(R.dot("good"), "dokazan dvaput")
         elif cs_:
-            what = f"copy ocjena {R.num(cs_)}"
+            what = f"ocjena za kopiranje {R.num(cs_)}"
         else:
             what = ROLE.get(x["role"], (x["role"],))[0]
         items.append(R.row(_short_addr(w), reason=R.cat(what, " · ", R.ago(x.get("ts"), now)),
@@ -1523,12 +1564,13 @@ def _layers_html(mint, ev, sigs, rugs, pc, best, role, opened):
     wmap = {}
     for i in range(0, len(ws), 500):
         part = ws[i:i + 500]
-        for w in data.q(data.WALLET_DB, f"SELECT wallet, copy_score, tier, labels FROM wallets WHERE wallet IN ({','.join('?' * len(part))})", part):
+        for w in data.q(data.WALLET_DB, f"SELECT wallet, tier, labels FROM wallets WHERE wallet IN ({','.join('?' * len(part))})", part):
             w["labels"] = data.js(w.get("labels"), []) or []
             wmap[w["wallet"]] = w
-    b.append(table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Copy", "n"), "Tier", "Oznake"],
+    rank = data.copy_rank("wallet")   # 11.11.: Ocjena of the copy ranking replaces copy_score
+    b.append(table(["Wallet", "Uloga", "Izvor", ("SOL", "n"), ("Ocjena", "n"), "Tier", "Oznake"],
                    [[wlink(x["wallet"]), esc(ROLE.get(x["role"], (x["role"],))[0]), esc(SOURCE.get(x["source"], x["source"])),
-                     num(x["sol_in"], "{:.2f}"), num((wmap.get(x["wallet"]) or {}).get("copy_score")),
+                     num(x["sol_in"], "{:.2f}"), num((rank.get(x["wallet"]) or {}).get("score"), "{:.1f}"),
                      tierb((wmap.get(x["wallet"]) or {}).get("tier")),
                      " ".join(badge(l, "bad") for l in (wmap.get(x["wallet"]) or {}).get("labels", []))] for x in sg],
                    empty="Nijedan wallet nije zabilježen za ovaj token."))

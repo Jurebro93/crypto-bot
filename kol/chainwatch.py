@@ -85,9 +85,11 @@ def too_busy(wallets, wallet_db=None, max_tpd=MAX_TRADES_DAY):
 
 
 def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
-    """(copyable, signal) wallets from our own registry (wallets.db, run_wallets.py score): the best by copy_score
-    (tier A/B, without bad labels) and tier S (profitable bots / snipers: a buy is a signal, not a copy). Until
-    5.11. only the public leaderboards (kol_ids) were followed live; the wallets the bot scores itself were not."""
+    """(copyable, signal) wallets from our own registry (wallets.db, run_wallets.py score): the best by the copy
+    ranking (11.11., wallets/rang.py: proven = 10+ closed tokens in 30 days, copyable = median entry liquidity 15k+,
+    Ocjena >= min_copy, no bad label; the old copy_score only while copy_rank has no wallet row yet, i.e. the first
+    minutes after the deploy that added it) and tier S (profitable bots / snipers: a buy is a signal, not a copy).
+    Until 5.11. only the public leaderboards (kol_ids) were followed live; the wallets the bot scores itself were not."""
     try:
         from wallets import store as wstore
     except ImportError:
@@ -101,12 +103,32 @@ def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
         return [], []
     copy, signal = [], []
     try:
-        for w, lab in src.execute("SELECT wallet, labels FROM wallets WHERE copy_score >= ? ORDER BY copy_score DESC, "
-                                  "score DESC LIMIT ?", (min_copy, max(0, n_copy) * 3)):
-            if not set(json.loads(lab or "[]")) & wstore.BAD_LABELS:
-                copy.append(w)
-            if len(copy) >= n_copy:
-                break
+        ranked = []
+        try:
+            from wallets import rang
+            ranked = [r["target"] for r in rang.ranked("wallet", path, proven=True, copyable=True)
+                      if (r.get("score") or 0) >= min_copy]
+        except Exception:  # noqa: BLE001 - no ranking module / table: the old order below
+            ranked = None
+        if ranked is not None and rang.load("wallet", path):
+            labs = {}
+            for i in range(0, len(ranked), 500):
+                part = ranked[i:i + 500]
+                for w, lab in src.execute(f"SELECT wallet, labels FROM wallets WHERE wallet IN ({','.join('?' * len(part))})",
+                                          part):
+                    labs[w] = set(json.loads(lab or "[]"))
+            for w in ranked:
+                if not labs.get(w, set()) & wstore.BAD_LABELS:
+                    copy.append(w)
+                if len(copy) >= n_copy:
+                    break
+        else:
+            for w, lab in src.execute("SELECT wallet, labels FROM wallets WHERE copy_score >= ? ORDER BY copy_score DESC, "
+                                      "score DESC LIMIT ?", (min_copy, max(0, n_copy) * 3)):
+                if not set(json.loads(lab or "[]")) & wstore.BAD_LABELS:
+                    copy.append(w)
+                if len(copy) >= n_copy:
+                    break
         for w, in src.execute("SELECT wallet FROM wallets WHERE tier = 'S' AND score >= 40 ORDER BY score DESC LIMIT ?",
                               (max(0, n_signal),)):
             signal.append(w)

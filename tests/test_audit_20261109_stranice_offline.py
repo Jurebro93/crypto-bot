@@ -354,29 +354,34 @@ class WalletsAutopilotMarks(unittest.TestCase):
         self.assertEqual((m["proven"], m["followed"], m["recs"], m["as_of"]), ({}, {"F"}, {}, None))
 
     def test_page_sorts_proven_and_followed_first(self):
+        def rk(addr, cs):
+            return {"target": addr, "score": cs, "n": 12, "proven": True, "copyable": True, "roi": 0.2, "median": 0.1,
+                    "win_lo": 0.4, "conc": 0.2, "liq": 40_000, "hold_min": 30, "last_ts": NOW - 3600}
+
         def w(addr, cs):
-            return {"wallet": addr, "copy_score": cs, "score": cs, "tier": 1, "sources": {}, "labels": [],
+            return {"wallet": addr, "copy_score": None, "ocjena": cs, "rang": rk(addr, cs), "score": cs, "tier": 1,
+                    "sources": {}, "labels": [],
                     "stats": {"closed_pnl_sol": 1.0, "win_rate": 0.5, "closed": 12, "median_hold_min": 30, "last_trade_days": 1}}
         ws = [w("BEST", 90), w("PROVEN", 60), w("FOLLOWED", 55)]
         marks = {"proven": {"PROVEN": {"as_of": NOW - 3600}}, "followed": {"FOLLOWED", "PROVEN"}, "recs": {}, "as_of": NOW - 3600}
         with mock.patch("ui.data.wallets", return_value=ws), mock.patch("ui.explain.shortlist", return_value=(True, [])), \
                 mock.patch("ui.prijedlog.box", return_value=""), mock.patch("ui.preporuka.wallets_box", return_value=""), \
                 mock.patch("ui.preporuka.copies_from_strat", return_value=[]), mock.patch("ui.jobs.status", return_value=(None, None, "")), \
-                mock.patch.object(pages, "autopilot_marks", return_value=marks):
+                mock.patch.object(pages, "autopilot_marks", return_value=marks), \
+                mock.patch.object(pages, "rangtable_rows", return_value=[x["rang"] for x in ws]):
             title, html = pages.wallets({})
             _, html_all = pages.wallets({"v": "svi"})
             _, table = pages.wallets({"v": "tablica"})                              # every column one tap away
         self.assertEqual(title, "Novčanici")
-        # 10.11. (Jure, prijedlog 4.6): rows instead of the table; the marks are a dot "dokazan dvaput" / "prati
-        # Autopilot" in the row and the columns Dokazan / Autopilot on a computer; the hero above the list names the
-        # first proven wallet, so the order is checked inside the list (.ms-wl)
+        # 11.11. (Jure, wallets/rang.py): "Za kopiranje" is the ranking table by Ocjena; the Autopilot's own marks
+        # ("dokazan dvaput" / "prati Autopilot") stand next to the name; the hero above names the first proven wallet
         self.assertIn("dokazan dvaput", html)
         self.assertIn("prati Autopilot", html)
         self.assertIn("lista dokazanih prije 1 h", html)                            # data time of the proven list
-        lst, lst_all = html[html.index('class="ms-wl"'):], html_all[html_all.index('class="ms-wl"'):]
-        self.assertLess(lst.index("PROVEN"), lst.index("FOLLOWED"))
-        self.assertLess(lst.index("FOLLOWED"), lst.index("BEST"))
-        self.assertLess(lst_all.index("BEST"), lst_all.index("PROVEN"))             # "Svi" keeps the copy_score order
+        lst, lst_all = html[html.index("data-rt"):], html_all[html_all.index('class="ms-wl"'):]
+        self.assertLess(lst.index("/wallet/BEST"), lst.index("/wallet/PROVEN"))
+        self.assertLess(lst.index("/wallet/PROVEN"), lst.index("/wallet/FOLLOWED"))
+        self.assertLess(lst_all.index("BEST"), lst_all.index("PROVEN"))             # "Svi" keeps the Ocjena order
         self.assertIn(">Dokazan<", html_all)
         self.assertIn("Dokazani dvaput", table)
         self.assertIn("lista iz prije 1.0 h", table)

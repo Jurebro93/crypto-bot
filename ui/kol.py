@@ -857,11 +857,33 @@ def page(qs):
     body = (f'<div class="ms-page ms-wide kl"><style>{KL_CSS}</style>{top}'
             f'<p class=ms-sub>{esc(R.num(n_all))} računa · svaki poziv mjeren nakon 1 h i 24 h</p>'
             + _hero(ranked14, follows)
-            + R.seg([("#ljestvica", "Ljestvica"), ("#pozivi", "Upravo zvali")], "#ljestvica")
+            + R.seg([("#ljestvica", "Ljestvica"), ("#kopiranje", "Za kopiranje"), ("#pozivi", "Upravo zvali")], "#ljestvica")
             + f'<div class=kl-pane data-pane=ljestvica id=ljestvica>{ctl}{th}{"".join(sets)}{hint}</div>'
+            + f'<div class=kl-pane data-pane=kopiranje id=kopiranje hidden>{rang_pane(now)}</div>'
             + f'<div class=kl-pane data-pane=pozivi id=pozivi hidden>{recent}</div>'
             + R.section("Analize", sid="analize") + analize + "</div>" + KL_JS.replace("__OLD__", json.dumps(list(OLD_IDS))))
     return "Influenceri", _calm(body)
+
+
+def rang_pane(now=None):
+    """11.11. (Jure): "Za kopiranje" for influencers: the copy ranking (wallets/rang.py) with the same columns as the
+    wallets' table: proven accounts (10+ measured calls in 30 days) by Ocjena, the rest one tap below. The return of a
+    call is its close 4 h later where the night batch measured it, else after 1 h; "nije kopirljivo" = the median pool
+    liquidity at the calls under 15k (or unknown): shown, never copied with real money."""
+    from ui import rangtable
+    try:
+        from wallets import rang
+        rows = rang.ranked("kol")
+    except Exception:  # noqa: BLE001 - the page stands without the ranking
+        rows = []
+    top = [r for r in rows if r["proven"]]
+    few = [r for r in rows if not r["proven"]][:60]
+    out = str(rangtable.table(top, "kol", now, empty=(
+        "Trenutno nijedan influencer nema 10 izmjerenih poziva u 30 dana." if rows else None)))
+    if few:
+        out += ('<details style="margin-top:14px"><summary>Još nisu dokazani (manje od 10 poziva) · '
+                f'{len(few)}</summary>{rangtable.table(few, "kol", now)}</details>')
+    return out + str(rangtable.note("kol"))
 
 
 KL_JS = """<script>(()=>{const qa=s=>[...document.querySelectorAll(s)],q=s=>document.querySelector(s);
@@ -875,7 +897,7 @@ g.addEventListener('change',show);d.addEventListener('change',show);qa('[data-d3
 so.addEventListener('change',()=>{const k=so.value;qa('.kl-top').forEach(l=>{const rs=[...l.children];rs.sort((a,b)=>(+b.dataset[k])-(+a.dataset[k]));
 rs.forEach((r,i)=>{l.appendChild(r);const n=r.querySelector('.rk');if(n)n.textContent=i+1})})});
 qa('.kl-more').forEach(b=>b.onclick=()=>{b.previousElementSibling.classList.add('open');b.remove()});
-if(hs==='pozivi')pane('pozivi');if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
+if(hs==='pozivi'||hs==='kopiranje')pane(hs);if(hs==='zvijezde'){g.value='stars';g.dispatchEvent(new Event('change'))}})()</script>"""
 
 # Vrijednosti iz maketa influenceri-ljestvica.html i influencer.html (prefiks kl-, uz ui/html.MS_CSS i ui/kolchart.CSS).
 # Stupci za računalo idu po širini stranice (container query), ne prozora: s bočnim izbornikom (1001 px+) sadržaj je

@@ -473,12 +473,12 @@ def _grid(ci, c, syms, reg, max_w=14, max_t=10):
     toks = [t for t, _ in c["shared"][:max_t]]
     holds = c.get("holds") or {}
     ws = sorted(c["wallets"], key=lambda w: (-len(set(holds.get(w) or ()) & set(toks)),
-                                             -((reg.get(w) or {}).get("copy_score") or 0)))[:max_w]
+                                             -((reg.get(w) or {}).get("ocjena") or 0)))[:max_w]
     head = "".join(f'<th class=t title="{esc(syms.get(t) or t)}">{esc((syms.get(t) or short(t))[:12])}</th>' for t in toks)
     rows = []
     for w in ws:
         h = set(holds.get(w) or ())
-        sc = (reg.get(w) or {}).get("copy_score")
+        sc = (reg.get(w) or {}).get("ocjena")   # 11.11.: the copy ranking (wallets/rang.py)
         cells = "".join(f'<td class=c>{"<i style=background:" + col + "></i>" if t in h else "<i class=o></i>"}</td>'
                         for t in toks)
         rows.append(f'<tr><td class=w>{wlink(w)}{f" <span class=mut>{sc:.0f}</span>" if sc is not None else ""}</td>{cells}</tr>')
@@ -588,12 +588,12 @@ def page(qs):
     if cl:
         b.append(GRID_CSS + "<p><b>4 najveća klastera: tko je kupio što</b> <span class=mut>(red = wallet, stupac = token; "
                  "obojeni kvadrat = wallet je kupio taj token, siva točkica = nije. Što je više obojenih kvadrata u istim "
-                 "stupcima, to walleti više rade zajedno. Broj uz wallet je njegova copy ocjena.)</span></p><div class=kg>"
+                 "stupcima, to walleti više rade zajedno. Broj uz wallet je njegova ocjena za kopiranje.)</span></p><div class=kg>"
                  + "".join(_grid(i, c, syms, reg) for i, c in enumerate(cl[:4])) + "</div>")
         crow = []
         for i, c in enumerate(cl[:15], 1):
-            scores = [reg[w]["copy_score"] for w in c["wallets"] if w in reg and reg[w].get("copy_score") is not None]
-            best = max(c["wallets"], key=lambda w: (reg.get(w) or {}).get("copy_score") or -1)
+            scores = [reg[w]["ocjena"] for w in c["wallets"] if w in reg and reg[w].get("ocjena") is not None]
+            best = max(c["wallets"], key=lambda w: (reg.get(w) or {}).get("ocjena") or -1)
             crow.append([num(i), num(len(c["wallets"])),
                          (", ".join(tlink(t, syms.get(t)) + f" <span class=mut>×{n}</span>" for t, n in c["shared"][:6]), "", "wrap"),
                          num(c["n_shared"]), num(sum(scores) / len(scores) if scores else None, "{:.0f}"),
