@@ -7,7 +7,7 @@ pozicije). Stop nikad ne smije biti širi od sl_default. U kartici pozicije jasn
     (ui/pravitrade._buy_plan, league/exitplan.panel_plan); under exit_plan_live it executes on the real account
     (league/exitplan.panel_live) and run_trade mirrors every sale into the real position;
   * a buy without any exit field: the old behaviour (the owner's default stop on the lot, no plan);
-  * a stop looser than sl_default (the stricter of the owner's and LIVE_SL_CAP: exitplan.sl_floor) refuses the buy,
+  * a stop looser than sl_default (the owner's sl_default: exitplan.sl_floor) refuses the buy,
     the Uredi SL-TP save and a Grok autotrade buy before anything is written;
   * DCA: the same fields keep the plan (its state, the stop from the new average); new fields replace it;
   * the kill switch stops a panel plan; the page and get_portfolio_status say live / paper / shadow and why.
@@ -43,6 +43,8 @@ class PlanBase(Base):
         from trade import jupiter
         exitplan._LAST.clear()
         exitplan.ensure(self.lg)
+        # 11.11.: the floor is the owner's sl_default alone (no other cap); these tests run with his default at 30
+        settings.put(self.con, "sl_default", 30)
         self.mode("exit_plan_live", "live")
         self.live = True   # the Autopilot is live (switch + key); the gate's RPC is not asked here
         for p in (mock.patch.object(executor, "is_live", lambda cfg: self.live),
@@ -170,7 +172,7 @@ class BuyWithExit(PlanBase):
         self.assertNotIn("Plan izlaza", loc)
         self.assertIsNone(exitplan.active(self.lg, MINT))
         (t,) = self.lots()
-        self.assertEqual(json.loads(t["auto"])["sl"], "-60%")                     # the owner's default stop, as before
+        self.assertEqual(json.loads(t["auto"])["sl"], "-30%")                     # the owner's default stop (30 here)
         self.assertEqual(exitplan.in_force_tokens(self.lg, LU), set())
         loc = self.buy(exit="smart")                                              # Smart sell: no plan either
         self.assertIsNone(exitplan.active(self.lg, MINT))
@@ -190,15 +192,22 @@ class BuyWithExit(PlanBase):
 
 
 class StopNeverLooser(PlanBase):
+    def test_the_floor_is_the_owners_sl_default_alone(self):
+        settings.put(self.con, "sl_default", 60)                    # his Pravila default: -40 % is within it
+        self.assertEqual(exitplan.sl_floor(settings.merged(executor.load_config(), self.con)), 60.0)
+        settings.put(self.con, "sl_default", 25)
+        self.assertEqual(exitplan.sl_floor(settings.merged(executor.load_config(), self.con)), 25.0)
+        self.assertEqual(exitplan.DEFAULT_PLAN_SL, 30.0)            # Grok's default plans keep the -30 % they ran with
+
     def written(self):
         return (self.lots(), self.lg.execute("SELECT COUNT(*) FROM exit_plans").fetchone()[0],
                 settings.raw(self.con).get("manual_size") or {})
 
-    def test_the_floor_is_the_stricter_of_the_owners_default_and_the_live_cap(self):
+    def test_the_floor_follows_the_owners_default(self):
         cfg = settings.merged(executor.load_config(), self.con)
-        self.assertEqual((cfg["sl_default"], exitplan.sl_floor(cfg)), (60, 30.0))   # owner -60 %, live plans -30 %
+        self.assertEqual((cfg["sl_default"], exitplan.sl_floor(cfg)), (30, 30.0))
         self.assertEqual(exitplan.sl_floor({"sl_default": 20}), 20.0)
-        self.assertEqual(exitplan.sl_floor({"sl_default": 70}), 30.0)
+        self.assertEqual(exitplan.sl_floor({"sl_default": 70}), 70.0)          # 11.11.: no other cap
         self.assertEqual(exitplan.sl_floor(), 30.0)                               # read from trade.db
         settings.put(self.con, "sl_default", 20)
         self.assertEqual(exitplan.sl_floor(), 20.0)
@@ -420,6 +429,7 @@ class GrokAutotrade(GrokBase):
         exitplan._LAST.clear()
         exitplan.ensure(self.lg)
         settings.put(self.con, "flag:exit_plan_live", {"mode": "live", "since": int(time.time())})
+        settings.put(self.con, "sl_default", 30)   # 11.11.: the floor is the owner's sl_default alone
         settings._FLAG_CACHE.clear()
         p = mock.patch.object(executor, "is_live", lambda cfg: True)
         p.start()

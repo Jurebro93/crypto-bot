@@ -95,10 +95,8 @@ class ManualBuy(unittest.TestCase):
         (t,) = self._open()
         a = json.loads(t["auto"])
         self.assertEqual(a["mode"], "tpsl")
-        # 10.11.: the owner's default stop, same as copies get; 11.11. (plan uz kupnju): a buy with an exit takes the
-        # exit plan's default, the stricter of the owner's (-60 %) and the live plans' limit (league/exitplan.sl_floor)
-        self.assertEqual(a["sl"], "-30%")
-        self.assertAlmostEqual(a["sl_px"], 0.7)
+        self.assertEqual(a["sl"], "-60%")                         # 10.11.: the owner's default stop, same as copies get
+        self.assertAlmostEqual(a["sl_px"], 0.4)
         self.assertAlmostEqual(a["tp_px"], 2.0)
 
     def test_owner_buy_has_no_liquidity_floor_but_the_lists_keep_it(self):
@@ -509,11 +507,8 @@ class FollowForms(PageBase):
         card = pravitrade._sl_card(cfg, True)
         self.assertNotIn("ili zadani", card)
         self.assertIn("sada −60 %", card)
-        # 11.11. (plan uz kupnju): a buy with an exit takes the exit plan's default stop (the stricter, -30 %); the card
-        # says so, the copies keep the owner's -60 %
-        self.assertIn("koristi stroži stop: −30 %", card)
-        self.assertIn('placeholder="zadano -30%"', pravitrade._buy_now_card(cfg, True))
-        self.assertIn('placeholder="zadano -30%"', pravitrade._buy_form(MINT2, cfg, "tpsl", True))
+        self.assertIn("-60%", pravitrade._buy_now_card(cfg, True))
+        self.assertIn("-60%", pravitrade._buy_form(MINT2, cfg, "tpsl", True))
         loc = pravitrade.post("/pravi-trade/followall", {"handles": "ansem,tg:alpha"}, "Jure")
         self.assertIn("stop%20-60%25", loc)
 

@@ -99,14 +99,12 @@ class DefaultStop(Base):
         self.assertNotIn("<form", pravitrade._sl_card(cfg, False))              # an invited viewer only reads it
 
     def test_manual_buy_without_a_stop_gets_the_owners_default(self):
-        # 11.11. (plan uz kupnju): a buy with an exit takes the exit plan's default stop, the stricter of the owner's
-        # and the live plans' limit (league/exitplan.sl_floor: -30 % at most); a tighter owner's default holds
-        self.post("/pravi-trade/sl", {"sl": "20"})
+        self.post("/pravi-trade/sl", {"sl": "50"})
         loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,02", "exit": "tpsl", "tp": "30%", "sl": ""})
         self.assertIn("ok=", loc)
         (t,) = store.trades(self.lg, settings.LEAGUE_USER, "open")
         a = json.loads(t["auto"])
-        self.assertEqual((a["tp"], a["sl"]), ("+30%", "-20%"))
+        self.assertEqual((a["tp"], a["sl"]), ("+30%", "-50%"))
 
     def test_old_stored_default_on_the_autopilot_follows_becomes_the_owners_default_once(self):
         au = settings.LEAGUE_USER
@@ -147,12 +145,11 @@ class Positions(Base):
         self.assertRegex(inner, r"1\. ulaz \d\d:\d\d na MC <b>\$82\.0k</b> \(<b>0,0\xa0%</b>\)")   # inside, bold entry MC
         self.assertRegex(inner, r"MC sada <b>\$82\.0k</b> · osvježeno <b>\d\d:\d\d:\d\d</b>")   # the quote's clock time
         self.assertIn("Ulaz na MC <b>$82.0k</b>", inner)
-        # 10.11.: under "Otvoreni nalozi"; 11.11.: the exit plan's default stop (-30 %, league/exitplan.sl_floor)
-        self.assertIn("<b>TP/SL</b> · TP +15 % · SL −30 %", inner)
+        self.assertIn("<b>TP/SL</b> · TP +15 % · SL −60 %", inner)          # 10.11.: under "Otvoreni nalozi"
         self.assertIn("Otvoreni nalozi · 1", inner)
         self.assertIn("<button class=ap-sellall aria-label=\"Prodaj sve\">Prodaj sve</button>", inner)
         self.assertIn("action=/pravi-trade/exit", inner)
-        self.assertIn('name=sl value="-30%"', inner)                 # the quick TP buttons keep the stop
+        self.assertIn('name=sl value="-60%"', inner)                 # the quick TP buttons keep the stop
         self.assertIn("TP +30 %", inner)
         viewer, _, _ = pravitrade.positions_inner(self.con, True, False, {}, cfg)
         self.assertIn("ulaz MC $82.0k", viewer)
@@ -160,23 +157,18 @@ class Positions(Base):
 
     def test_owner_sets_tp_30_and_keeps_the_stop(self):
         pid, lid = self._bought()
-        # 11.11. (owner: "Stop nikad ne smije biti širi od sl_default ... Isto pravilo vrijedi za Uredi SL-TP"): a
-        # looser stop is refused with the numbers and nothing changes
         loc = self.post("/pravi-trade/exit", {"id": str(pid), "tp": "30%", "sl": "-60%"})
-        self.assertIn("SL −60 % je širi od zadanog −30 %; najviše −30 %", unquote(loc))
-        self.assertEqual(json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (lid,)).fetchone()[0])["tp"], "+15%")
-        loc = self.post("/pravi-trade/exit", {"id": str(pid), "tp": "30%", "sl": "-25%"})
         self.assertIn("ok=", loc)
-        self.assertIn("TP +30 % · SL −25 %", unquote(loc))
+        self.assertIn("TP +30 % · SL −60 %", unquote(loc))
         a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (lid,)).fetchone()[0])
-        self.assertEqual((a["mode"], a["tp"], a["sl"]), ("tpsl", "+30%", "-25%"))
+        self.assertEqual((a["mode"], a["tp"], a["sl"]), ("tpsl", "+30%", "-60%"))
         self.assertAlmostEqual(a["tp_px"], 1.3)
-        # an empty stop = the default stop (the owner's when tighter); a typo is refused and changes nothing
-        self.post("/pravi-trade/sl", {"sl": "20"})
+        # an empty stop = the default stop; a typo is refused and changes nothing
+        self.post("/pravi-trade/sl", {"sl": "50"})
         loc = self.post("/pravi-trade/exit", {"id": str(pid), "tp": "$200k", "sl": ""})
         self.assertIn("ok=", loc)
         a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (lid,)).fetchone()[0])
-        self.assertEqual((a["tp"], a["sl"]), ("MC $200,000", "-20%"))
+        self.assertEqual((a["tp"], a["sl"]), ("MC $200,000", "-50%"))
         loc = self.post("/pravi-trade/exit", {"id": str(pid), "tp": "abc", "sl": ""})
         self.assertIn("err=", loc)
         self.assertEqual(json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (lid,)).fetchone()[0])["tp"],
@@ -188,7 +180,7 @@ class Positions(Base):
                         (json.dumps({"mode": "tpsl", "tp": "+15%", "sl": "-60%", "tp_px": 1.265, "sl_px": 0.44,
                                      "from_eff": True, "until": int(time.time()) + 600}), lid))
         self.lg.commit()
-        self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid), "tp": "30%", "sl": "-25%"}))
+        self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid), "tp": "30%", "sl": "-60%"}))
         a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (lid,)).fetchone()[0])
         self.assertTrue(a["from_eff"])
         self.assertAlmostEqual(a["tp_px"], 1.1 * 1.3)
@@ -347,12 +339,12 @@ class AddToPosition(Base):
         lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
         self.assertEqual(len(lots), 2)
         a = {t["entry_mcap"]: json.loads(t["auto"]) for t in lots}
-        # 10.11. (Jure: "prosječan ulaz, na to take profit, zatvori cijelu poziciju"): the position's +30 % from the
-        # average entry weighted by SOL (0,05 at $82k + 0,04 at $100k = $89.1k), the same level on both lots, so both
-        # close at once (11.11.: the stop is the exit plan's default, -30 %, league/exitplan.sl_floor)
+        # 10.11. (Jure: "prosječan ulaz, na to take profit, zatvori cijelu poziciju"): the position's +30 % (not the
+        # form's 15 %) from the average entry weighted by SOL (0,05 at $82k + 0,04 at $100k = $89.1k), the same level
+        # on both lots, so both close at once
         avg_mc = 0.09 / (0.05 / 82_000 + 0.04 / 100_000)
         for r in a.values():
-            self.assertEqual((r["tp_in"], r["sl_in"]), ("30%", "-30%"))
+            self.assertEqual((r["tp_in"], r["sl_in"]), ("30%", "-60%"))
             self.assertAlmostEqual(r["grp"]["avg_mc"], avg_mc, places=3)
             self.assertIn("od prosjeka", r["tp"])
         self.assertAlmostEqual(a[82_000.0]["tp_px"], a[100_000.0]["tp_px"])
@@ -376,11 +368,11 @@ class AddToPosition(Base):
         self.assertIn(f"name=id value={ids}>", inner)                     # sell buttons: every lot
         # the exit form changes both lots: one level from the average entry
         pid0 = int(ids.split(",")[0])
-        self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid0), "tp": "50%", "sl": "-25%"}))
+        self.assertIn("ok=", self.post("/pravi-trade/exit", {"id": str(pid0), "tp": "50%", "sl": "-40%"}))
         pxs = set()
         for t in store.trades(self.lg, settings.LEAGUE_USER, "open"):
             a = json.loads(t["auto"])
-            self.assertEqual((a["tp_in"], a["sl_in"]), ("50%", "-25%"))
+            self.assertEqual((a["tp_in"], a["sl_in"]), ("50%", "-40%"))
             pxs.add(round(a["tp_px"], 9))
             self.assertAlmostEqual(a["tp_px"] * 82_000.0, avg_mc * 1.5, places=3)
         self.assertEqual(len(pxs), 1)
@@ -426,14 +418,13 @@ class FastExit(Base):
         from ui import paper
         self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "40%", "sl": ""}))
         saved = paper.jup_prices
-        # -61 %: under the stop (11.11.: -30 %, the exit plan's default; the plan is not in force here, the lot's is)
-        paper.jup_prices = lambda mints: {m: (0.39, 5e4) for m in mints}
+        paper.jup_prices = lambda mints: {m: (0.39, 5e4) for m in mints}     # -61 %: under the -60 % stop
         try:
             done = auto.fast_once(self.lg, lambda toks: {}, settings.LEAGUE_USER)
         finally:
             paper.jup_prices = saved
         self.assertEqual(len(done), 1)
-        self.assertIn("auto SL -30%", done[0][2])
+        self.assertIn("auto SL -60%", done[0][2])
 
 
 class FollowExit(Base):
@@ -547,12 +538,12 @@ class RememberedExit(Base):
 
     def test_last_manual_exit_prefills_the_next_order(self):
         from ui import pravitrade
-        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "60%", "sl": "-25%"}))
+        self.assertIn("ok=", self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,05", "exit": "tpsl", "tp": "60%", "sl": "-50%"}))
         cfg = settings.merged(executor.load_config(), self.con)
-        self.assertEqual(pravitrade._last_exit(cfg), ("60%", "-25%"))
+        self.assertEqual(pravitrade._last_exit(cfg), ("60%", "-50%"))
         card = pravitrade._buy_now_card(cfg, True)
         self.assertIn('name=tp value="60%"', card)
-        self.assertIn('name=sl value="-25%"', card)
+        self.assertIn('name=sl value="-50%"', card)
         self.assertIn('class="ap-buy ap-wide">Kupi', card)
         self.assertIn("value=60%", pravitrade._buy_form(MINT, cfg, "tpsl", True))
 
@@ -564,11 +555,11 @@ class RememberedExit(Base):
         cur = self.con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, sol_in) "
                                "VALUES (?,?,?,?,?,?,?)", (tid, MINT, "HOPE", int(time.time()), "dry", "open", 0.05))
         self.con.commit()
-        loc = self.post("/pravi-trade/exit", {"id": str(cur.lastrowid), "tp": "60%", "sl": "-25%"})
+        loc = self.post("/pravi-trade/exit", {"id": str(cur.lastrowid), "tp": "60%", "sl": "-60%"})
         self.assertIn("Zapamćeno i za sljedeće ulaze od ansem", unquote(loc))
         f = next(x for x in copy.follows(self.lg, settings.LEAGUE_USER) if x["id"] == fid)
-        self.assertEqual((f["exit"]["tp"], f["exit"]["sl"]), ("60%", "-25%"))
-        self.assertEqual(settings.raw(self.con)["last_exit"], {"tp": "60%", "sl": "-25%"})
+        self.assertEqual((f["exit"]["tp"], f["exit"]["sl"]), ("60%", "-60%"))
+        self.assertEqual(settings.raw(self.con)["last_exit"], {"tp": "60%", "sl": "-60%"})
 
     def test_toast_shows_the_forms_answer(self):
         from ui import pravitrade

@@ -5585,7 +5585,7 @@ def _buy_plan(con, token, pa, src, given, fields, has_exit, price, liq, mcap, fl
     extra = {U: [nl]}
     was_live = bool(old and lots) and exitplan.execution(U, lots, plan=old)["mode"] == "live"
     if old and lots:
-        typed = not _is_grok_auto(src) and src != exitplan.APPROVED_SRC
+        typed = not _is_grok(src)
         new = given is not None or (typed and has_exit and not exitplan.same_exit(
             fields, exitplan.position_fields(old, pa), floor))
         if not new:

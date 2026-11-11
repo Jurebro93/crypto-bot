@@ -45,7 +45,7 @@ sl_default"): a plan the owner's own action sets (ui/pravitrade: a buy with exit
 kupnja, Kupi from "Što kupiti", a Grok autotrade buy, an approved Grok request, "Uredi SL-TP") is a PANEL plan: its
 client starts with PANEL_SRC and under exit_plan_live it executes on the real account whoever bought the lots
 (panel_live). Its stop is never looser than sl_floor(): the stricter of the owner's sl_default (trade settings, the
-Autopilot's default stop) and LIVE_SL_CAP. status() says per position whether its plan runs live, only on paper or in
+Autopilot's default stop). status() says per position whether its plan runs live, only on paper or in
 the shadow, and why (the Autopilot page, get_portfolio_status).
 """
 import json
@@ -336,13 +336,14 @@ PANEL_SRC = "panel:"
 # 11.11.: a live plan's stop is never looser than this, percent below the average entry, nor than the owner's
 # sl_default (sl_floor takes the stricter). Until 11.11. ensure_live_plans read the owner's setting as
 # ts.merged(tcon), without the config: a TypeError every time, so every default plan got its fallback, -30 %.
-LIVE_SL_CAP = 30.0
+DEFAULT_PLAN_SL = 30.0   # the stop of Grok's default plans (ensure_live_plans), as they ran before 11.11.
 
 
 def sl_floor(cfg=None):
-    """Percent below the average entry a panel / live plan's stop may be at most: the stricter of the owner's
-    sl_default (trade settings "sl_default", the Autopilot's default stop under Pravila, SL_DEFAULT 60 unless changed;
-    cfg = trade settings merged, else read here) and LIVE_SL_CAP."""
+    """Percent below the average entry a panel / live plan's stop may be at most: the owner's sl_default (trade
+    settings "sl_default", the Autopilot's default stop under Pravila, SL_DEFAULT 60 unless changed; cfg = trade
+    settings merged, else read here). 11.11. (Jure: "Stop nikad ne smije biti širi od sl_default"): exactly that, no
+    other cap (the "-30 %" the plans showed came from a TypeError fallback in ensure_live_plans, fixed)."""
     from trade import settings as ts
     v = (cfg or {}).get("sl_default") if cfg is not None else None
     if v is None:
@@ -352,13 +353,13 @@ def sl_floor(cfg=None):
                 v = ts.raw(tcon).get("sl_default")
             finally:
                 tcon.close()
-        except Exception:  # noqa: BLE001 - unreadable: the cap alone
+        except Exception:  # noqa: BLE001 - unreadable: the default
             v = None
     try:
         v = abs(float(v)) if v else float(ts.SL_DEFAULT)
     except (TypeError, ValueError):
         v = float(ts.SL_DEFAULT)
-    return min(v, LIVE_SL_CAP)
+    return v
 
 
 def is_panel(plan):
@@ -558,9 +559,9 @@ def ensure_live_plans(con, now=None, sl_default=None, log=print):
     if flags.mode(LIVE_FLAG) != "live" or paused():
         return []
     if sl_default is None:
-        # 11.11.: was ts.merged(tcon) (no config: TypeError, so always the fallback 30); the stricter of the owner's
-        # sl_default and LIVE_SL_CAP (30) now, never looser than what ran before
-        sl_default = sl_floor()
+        # 11.11.: was ts.merged(tcon) (no config: TypeError, so always the fallback 30); Grok's default plans keep
+        # the -30 % they ran with (never looser), and never looser than the owner's sl_default either
+        sl_default = min(DEFAULT_PLAN_SL, sl_floor())
     out = []
     toks = [r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND status='open'", (ts.LEAGUE_USER,))]
     for tok in toks:
@@ -791,7 +792,7 @@ def field_num(x, name, lo, hi):
     return v
 
 
-def panel_plan(tp="", sl="", trail=None, time_min=None, floor=LIVE_SL_CAP, avg_mc=None, reason="", user=None):
+def panel_plan(tp="", sl="", trail=None, time_min=None, floor=None, avg_mc=None, reason="", user=None):
     """The plan of the owner's exit fields (set_plan's format) or None when none is filled in (no exit: the old
     behaviour). The fast path's shape (fast/paper.PLAN, trade/edge rule E): TP sells everything, or HALF when a
     trailing is set (the rest trails from the TP on: activate_pct = the TP's percent, avg_mc turns a market-cap TP
@@ -811,6 +812,8 @@ def panel_plan(tp="", sl="", trail=None, time_min=None, floor=LIVE_SL_CAP, avg_m
         tp_pct = tp_l[1] if tp_l[0] == "pct" else ((tp_l[1] / avg_mc - 1) * 100 if avg_mc else None)
     if trail:
         plan["trailing"] = {"activate_pct": round(max(0.0, tp_pct or 0.0), 4), "trail_pct": float(trail)}
+    if floor is None:
+        floor = sl_floor()
     st = sl_l or ("pct", -abs(float(floor)))
     plan["stop"] = {("at_pct" if st[0] == "pct" else "at_mc_usd"): st[1]}
     if time_min:
