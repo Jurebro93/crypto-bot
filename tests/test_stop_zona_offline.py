@@ -205,8 +205,10 @@ class ReclaimGate(Base):
         self.lg.execute("UPDATE range_rounds SET token = token || 'b' WHERE ret < 0")
         self.lg.commit()
         gate._RCACHE.update(at=0.0)
-        self.assertIn("nije iznad nule", gate.reclaim_refusal())
-        ok, why, s = gate.reclaim_proof_ok([0.02] * 10 + [-0.019] * 10)
+        self.assertIn("treba barem +3 %", gate.reclaim_refusal())        # 11.11. (Jure): EV >= +3 % after cost
+        ok, why, s = gate.reclaim_proof_ok([0.02] * 10 + [-0.019] * 10)    # EV +0,05 %: above zero, under +3 %
+        self.assertEqual((ok, s["n"]), (False, 20))
+        ok, why, s = gate.reclaim_proof_ok([0.08] * 10 + [-0.019] * 10)    # EV +3,05 %
         self.assertEqual((ok, why, s["n"]), (True, None, 20))
 
     def test_reclaim_rounds_are_counted_apart(self):

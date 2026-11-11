@@ -1565,8 +1565,9 @@ def panel_html(d, sel_pos):
            '<div class=apx-cost data-cost>Procjena troška: upiši token i iznos.</div>'
            '<p class="apx-mismatch dn" data-mismatch role=alert hidden></p>'
            f'<button class="apx-go buy" data-go=buy>Kupi {esc(sym)}</button>'
-           '<p class=apx-note>Prolazi iste provjere i limite kao i prije (ulog, dan, trošak, rug, MC 30k+). Pravi novac ide samo '
-           'kad je Autopilot uključen.</p></form>')
+           '<p class=apx-note>Prolazi iste provjere i limite kao i prije (ulog, dan, trošak, rug, MC 30k+). '
+           f'Tvoj strop po tokenu: {pt._g(pn.get("dca_cap") or settings.DCA_TOKEN_CAP)} SOL (tvoje kupnje, DCA i odobrene '
+           'Grokove; Grok autotrade ima svoje limite). Pravi novac ide samo kad je Autopilot uključen.</p></form>')
     dca = _dca_rows(m, sel_pos, pn)
     if sel_pos:
         ids = ",".join(map(str, sel_pos["ids"]))

@@ -61,6 +61,39 @@ class Held(Base):
         self.assertIn("u tokenu bi bilo 0.450 SOL (otvoreno 0.300 + 0.15), najviše 0.4 SOL po tokenu", str(e.exception))
 
 
+class GrokAuto(Base):
+    def test_grok_autotrade_keeps_the_autopilot_cap(self):
+        from ui import grokauto
+        from league import exitplan
+        self.pos("live", 0.25)
+        settings.put(self.tc, "dca_cap_owner", True, "t")
+        settings.put(self.tc, "owner_token_cap", 1.0, "t")
+        settings.put(self.tc, "dca_token_cap", 0.3, "t")
+        with mock.patch.object(executor, "is_live", lambda cfg: True), \
+                mock.patch("league.flags.mode", lambda name: "off"), mock.patch("builtins.print"):
+            with self.assertRaises(ValueError) as e:      # 0.25 + 0.1 > 0.3: Grok's own buy stops
+                pravitrade._owner_buy_rules(self.lc, self.tc, HOPE, 0.1, src=grokauto.SRC)
+            self.assertIn("Grok autotrade: strop po tokenu 0.3 SOL", str(e.exception))
+            pravitrade._owner_buy_rules(self.lc, self.tc, HOPE, 0.1, src=exitplan.APPROVED_SRC)   # approved: owner's
+            pravitrade._owner_buy_rules(self.lc, self.tc, HOPE, 0.5)                             # manual: owner's
+
+    def test_the_pravila_words(self):
+        settings.put(self.tc, "owner_token_cap", 1.0, "t")
+        html = pravitrade._limits(pravitrade._cfg(self.tc), True)
+        self.assertIn("Ne vrijedi za Grok autotrade", html)
+        self.assertIn("0,1 SOL po kupnji, 0,3 SOL na dan, 3 otvorene, dnevni gubitak 0,15 SOL", html)
+
+
+class Reclaim(unittest.TestCase):
+    def test_reclaim_needs_plus_three_percent(self):
+        from rangedca import gate
+        ok, why, _ = gate.reclaim_proof_ok([0.02] * 25)
+        self.assertFalse(ok)
+        self.assertIn("treba barem +3 %", why)
+        self.assertTrue(gate.reclaim_proof_ok([0.035] * 25)[0])
+        self.assertFalse(gate.reclaim_proof_ok([0.05] * 19)[0])
+
+
 class Order(Base):
     def test_the_order_sets_one_sol_once_and_keeps_the_autopilot_cap(self):
         settings.put(self.tc, "dca_token_cap", 0.3, "t")
