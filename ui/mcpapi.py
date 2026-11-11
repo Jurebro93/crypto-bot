@@ -1281,7 +1281,8 @@ TOOLS.append(
                      "loss, which of TP / SL came first, up10/20/50), pending, and the calibration per p_tp bucket "
                      "(predicted vs actual %) for you and for MemeSonar's own EV-implied probability, with Brier "
                      "scores. zonewatch: armed (zones in force, by source), alerts_24h (by event and status), "
-                     "last_post_ok, last_error, configured (whether the Grok Bot webhook is set) and the flag. "
+                     "last_post_ok, last_error, configured (whether the Grok Bot webhook is set), the flag and "
+                     "without_range (watched tokens with no active range, so no zones, and why). "
                      "health: feed gap alerts (no events of an active type for > 60 min, 08-24 Zagreb), "
                      "last_night (started_ts, finished_ts, duration_s, calls_processed, helius_credits, errors, "
                      "status) and an alert when the night batch has not finished by 04:30 Zagreb. timing_ms per part."),
@@ -1328,39 +1329,46 @@ _MC = {"type": "number", "exclusiveMinimum": 0, "description": "market cap in US
 TOOLS += [
     {"name": "arm_zone",
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-     "description": ("Arm (or update, or disarm) one price zone of a Solana token, in MARKET CAP USD: MemeSonar watches "
-                     "it and POSTs an alarm to the Grok Bot webhook the moment the market cap crosses it (zone_enter / "
-                     "zone_exit for bottom, dca and custom; top_hit at >= lo of a top zone; stop_hit at <= a stop). "
-                     "Upsert on (mint, zone_type, source). zone_type bottom | dca | top | stop | custom; lo <= hi, both "
-                     "at least $30k; a stop may be given as lo only. ttl_h: hours it stays armed (default 72, max "
-                     "720); ttl_h=0 DISARMS the zone (lo / hi not needed). source manual (default) | event (a zone "
-                     "tied to an event topic); range zones come from MemeSonar's range engine by themselves. At most "
-                     "100 active armed zones and 60 arm_zone calls an hour per key. The alarm JSON: id, event, mint, "
-                     "symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, vol_1h, buys_5m, sells_5m, "
-                     "buy_share_5m, buy_share_1h, uniq_traders_1h, rug_risk, source, ts. Buys nothing."),
+     "description": ("Arm (or update, or disarm) one SHORT-LIVED price zone of a Solana token by hand, in MARKET CAP "
+                     "USD: MemeSonar watches it and POSTs an alarm to the Grok Bot webhook the moment the market cap "
+                     "crosses it (zone_enter / zone_exit for bottom, dca and custom; top_hit at >= lo of a top zone; "
+                     "stop_hit at <= a stop). Upsert on (mint, zone_type, source). zone_type bottom | dca | top | stop "
+                     "| custom; lo <= hi, both at least $30k; a stop may be given as lo only. ttl_h: hours it stays "
+                     "armed (default 2, max 2); ttl_h=0 DISARMS the zone (lo / hi not needed). source manual (default) "
+                     "| event (a zone tied to an event topic). Range zones (source range) are not armed here: they "
+                     "come only from MemeSonar's range engine (recomputed about every 5 min) for tokens with an open "
+                     "range round, an entry-ready range or an open position on the real account, while the engine has "
+                     "an active range for them. At most 100 active armed zones and 60 arm_zone calls an hour per key. "
+                     "The alarm JSON: id, event, mint, symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, "
+                     "vol_1h, buys_5m, sells_5m, buy_share_5m, buy_share_1h, uniq_traders_1h, rug_risk, source, ts, "
+                     "and for a range zone what it is based on: zone_version (+1 per range computation), computed_ts "
+                     "(when the range was computed), window_h (hours of data it spanned); null for a hand-armed zone. "
+                     "Buys nothing."),
      "inputSchema": {"type": "object", "properties": {
          "mint": {"type": "string", "description": "Solana token mint address"},
          "zone_type": {"type": "string", "enum": ["bottom", "dca", "top", "stop", "custom"]},
          "lo": _MC, "hi": _MC,
          "note": {"type": "string", "maxLength": 300},
-         "ttl_h": {"type": "number", "minimum": 0, "maximum": 720, "default": 72,
-                   "description": "hours armed; 0 disarms"},
+         "ttl_h": {"type": "number", "minimum": 0, "maximum": 2, "default": 2,
+                   "description": "hours armed, at most 2; 0 disarms"},
          "source": {"type": "string", "enum": ["manual", "event"], "default": "manual"}},
          "required": ["mint", "zone_type"]}},
     {"name": "get_armed_zones", "annotations": _READ,
      "description": ("The zones MemeSonar watches now (hand-armed first, then the range engine's: bottom, dca, top, "
                      "stop in market cap USD), each with lo, hi, source (manual | event | range), note, armed_by, "
-                     "expires_at, state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone "
-                     "(0 inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also "
-                     "the flag, whether the Grok Bot webhook is configured, the counts by source and the limits. "
-                     "mint / source filter; limit 1-300 (default 100)."),
+                     "expires_at, zone_version / computed_ts / window_h of a range zone's range (null for a hand-armed "
+                     "one), state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone (0 "
+                     "inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also the "
+                     "flag, whether the Grok Bot webhook is configured, the counts by source and the limits (ttl_h at "
+                     "most 2). mint / source filter; limit 1-300 (default 100)."),
      "inputSchema": {"type": "object", "properties": {
          "mint": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "event", "range"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 100}}}},
 ]
-INSTRUCTIONS += (" Zone alarms: arm_zone(mint, zone_type, lo, hi, note, ttl_h) sets a market-cap zone (bottom, dca, "
-                 "top, stop); MemeSonar POSTs to your Grok Bot webhook when the price crosses it (ttl_h=0 disarms); "
-                 "get_armed_zones lists them with their state.")
+INSTRUCTIONS += (" Zone alarms: MemeSonar watches its range engine's zones (bottom, dca, top, stop; zone_version, "
+                 "computed_ts and window_h in every alarm) and POSTs to your Grok Bot webhook when the price crosses "
+                 "one; arm_zone(mint, zone_type, lo, hi, note, ttl_h) adds a market-cap zone by hand for at most 2 h "
+                 "(ttl_h=0 disarms); get_armed_zones lists them with their state.")
 ZONE_TOOLS = ("arm_zone", "get_armed_zones")
 
 

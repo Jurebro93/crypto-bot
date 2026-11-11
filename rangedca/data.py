@@ -395,13 +395,18 @@ def open_round_tokens():
 
 
 def autopilot_tokens():
+    """The open tokens of the Autopilot accounts, newest first, at most 15. 11.11.: the real account's (LEAGUE_USER)
+    first, so its positions (the owner's manual HOPE one, whose zones zonewatch alarms) are never pushed out of the
+    signal pass by the demo account's newer ones."""
     con = _league_ro()
     if con is None:
         return []
     try:
         from trade import settings as ts
-        return [r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE status='open' AND user IN (?,?) "
-                                          "ORDER BY opened_ts DESC LIMIT 15", (ts.LEAGUE_USER, ts.PAPER_USER))]
+        return [r[0] for r in con.execute("SELECT token, MAX(user = ?) AS real_acc, MAX(opened_ts) AS last FROM trades "
+                                          "WHERE status='open' AND user IN (?,?) GROUP BY token "
+                                          "ORDER BY real_acc DESC, last DESC LIMIT 15",
+                                          (ts.LEAGUE_USER, ts.LEAGUE_USER, ts.PAPER_USER))]
     except (sqlite3.Error, ImportError):
         return []
     finally:

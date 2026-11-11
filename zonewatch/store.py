@@ -8,8 +8,14 @@ Tables
   armed_zones    one row per (mint, zone_type, source): lo, hi (market cap USD; a stop given as one number has
                  lo = hi), note, symbol, kid (who armed it: mcp:<key fingerprint> | owner | range), created_ts,
                  updated_ts, expires_at. zone_type bottom | dca | top | stop | custom; source manual | range | event.
+                 manual / event: armed by hand (MCP arm_zone, the owner's CLI), at most TTL_MAX_H = 2 h; range: the
+                 range engine's zones (rangedca/detect.py, read from range.db, never computed here).
                  A disarmed or expired row stays (expires_at <= now) a week for the history.
   zone_state     (mint, zone_type, source): inside 0/1, since_ts, last_mcap, last_ts (the state machine, zones.py)
+  range_ver      one row per token with range zones: zone_version (+1 for every new range computation of rangedca
+                 this job has read, i.e. a newer ranges.ts), computed_ts (ranges.ts: when rangedca computed the
+                 range), window_h (the hours of data the computation spanned, ranges data span_h; detect's window is
+                 24 h), updated_ts. Every alarm and get_armed_zones carry these three for a range zone.
   alerts         one row per alarm: id (stable, the webhook-id across retries), ts, mint, zone_type, event, source,
                  status pending | sent | failed | config_error | not_configured | off | expired, attempts,
                  http_status, posted_ts, payload (the JSON body)
@@ -17,7 +23,10 @@ Tables
                  (scheme + host only, never the path or the query), error (a short class, never the message)
   arm_log        every arm_zone write (ts, kid, mint, zone_type, source, what): the audit trail and the hourly limit
   px             the newest numbers this job fetched itself per mint (DexScreener), for the next pass
-  kv             the seed flag, day counters, the team_catalyst watermark, last_post_ok, last_error
+  kv             day counters, the team_catalyst watermark, last_post_ok, last_error, range_why (why an eligible
+                 token has no range zones), the one-time migration flag
+11.11. (Jure: "nikad fiksni seed"): the HOPE seed of PR #122 is gone; migrate_once expires what it may have armed
+(its kv key seed:hope_1111 is left harmless) and cuts every hand-armed zone to at most 2 h from then.
 """
 import json
 import os
@@ -32,7 +41,7 @@ SOURCES = ("manual", "range", "event")
 ARM_SOURCES = ("manual", "event")   # range zones come from the range engine only
 MIN_MCAP = 30_000                    # CLAUDE.md: tokens under 30k are not analysed
 MAX_MCAP = 1e11
-TTL_DEFAULT_H, TTL_MAX_H = 72, 720
+TTL_DEFAULT_H, TTL_MAX_H = 2, 2      # 11.11. (Jure): a hand-armed zone lives at most 2 h
 MAX_ARMED = int(os.environ.get("ZONEWATCH_MAX_ARMED") or 100)
 RATE_PER_HOUR = int(os.environ.get("ZONEWATCH_ARM_PER_HOUR") or 60)
 NOTE_MAX = 300
@@ -42,10 +51,7 @@ KEEP_LOG_D = 14
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 OWNER = "owner"
 
-# 11.11. (Jure): HOPE bought by hand at ~133k; armed once (kv seed:hope), source manual, 7 days
-SEED_KEY = "seed:hope_1111"
-SEED = {"mint": "GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump", "symbol": "HOPE", "note": "vlasnik ručno kupio ~133k",
-        "ttl_h": 7 * 24, "zones": (("dca", 100_000, 105_000), ("stop", 85_000, 85_000), ("top", 145_000, 155_000))}
+MIGRATE_KEY = "migrate:noseed_1111"   # the seed expired and the hand-armed TTLs cut, once
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS armed_zones (
@@ -72,6 +78,8 @@ CREATE TABLE IF NOT EXISTS px (
     mint TEXT PRIMARY KEY, ts INTEGER, price REAL, mcap REAL, liq REAL, vol_m5 REAL, vol_h1 REAL, buys_m5 INTEGER,
     sells_m5 INTEGER, buys_h1 INTEGER, sells_h1 INTEGER, symbol TEXT, src TEXT);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS range_ver (
+    mint TEXT PRIMARY KEY, zone_version INTEGER, computed_ts INTEGER, window_h REAL, updated_ts INTEGER);
 """
 
 
@@ -232,7 +240,8 @@ def validate(mint, zone_type, lo, hi, ttl_h, source):
     else:
         ttl = _num(ttl_h, "ttl_h")
         if ttl < 0 or ttl > TTL_MAX_H:
-            raise ValueError(f"ttl_h must be 0 (disarm) to {TTL_MAX_H} hours")
+            raise ValueError(f"ttl_h must be 0 (disarm) to {TTL_MAX_H} hours (a hand-armed zone lives at most "
+                             f"{TTL_MAX_H} h; the range zones follow the range engine by themselves)")
     if ttl == 0:
         return m, zt, None, None, 0.0, src
     lo_v = _num(lo, "lo") if lo not in (None, "") else None
@@ -255,7 +264,8 @@ def validate(mint, zone_type, lo, hi, ttl_h, source):
 
 def arm(mint, zone_type, lo=None, hi=None, note=None, ttl_h=None, source="manual", kid="local", now=None, con=None,
         path=None):
-    """MCP arm_zone (and the owner's CLI): upsert one zone on (mint, zone_type, source); ttl_h 0 disarms it.
+    """MCP arm_zone (and the owner's CLI): upsert one zone on (mint, zone_type, source) for at most TTL_MAX_H (2 h);
+    ttl_h 0 disarms it.
     Returns the stored zone and what changed; ValueError with the reason for the client (bad field, the hourly limit
     of RATE_PER_HOUR writes per key, more than MAX_ARMED active hand-armed zones, nothing to disarm)."""
     now = int(now or time.time())
@@ -298,19 +308,27 @@ def arm(mint, zone_type, lo=None, hi=None, note=None, ttl_h=None, source="manual
     return {"zone": _zone(row) if row else None, "changed": what}
 
 
-def seed_once(con, now=None):
-    """Arm HOPE's zones once (kv SEED_KEY survives restarts; after 7 days they expire and are never re-armed)."""
+def migrate_once(con, now=None, log=print):
+    """11.11. (Jure: "nikad fiksni seed"): once (kv MIGRATE_KEY), expire the zones the HOPE seed of PR #122 may have
+    armed (its arm_log rows "seed"; arm_log "seed uklonjen") and cut every hand-armed zone still in force to at most
+    TTL_MAX_H from now. Returns True when it ran."""
     now = int(now or time.time())
-    if kv_get(con, SEED_KEY):
+    if kv_get(con, MIGRATE_KEY):
         return False
-    for zt, lo, hi in SEED["zones"]:
-        upsert(con, SEED["mint"], zt, lo, hi, SEED["note"], "manual", OWNER, now + SEED["ttl_h"] * 3600, now,
-               SEED["symbol"])
-        con.execute("INSERT INTO arm_log VALUES (?,?,?,?,?,?)", (now, OWNER, SEED["mint"], zt, "manual", "seed"))
-    kv_put(con, SEED_KEY, now)
+    gone = 0
+    for m, zt, src in con.execute("SELECT DISTINCT mint, zone_type, source FROM arm_log WHERE what='seed'").fetchall():
+        n = con.execute("UPDATE armed_zones SET expires_at=?, updated_ts=? WHERE mint=? AND zone_type=? AND source=? "
+                        "AND kid=? AND expires_at > ?", (now, now, m, zt, src, OWNER, now)).rowcount
+        if n:
+            gone += n
+            con.execute("DELETE FROM zone_state WHERE mint=? AND zone_type=? AND source=?", (m, zt, src))
+            con.execute("INSERT INTO arm_log VALUES (?,?,?,?,?,?)", (now, OWNER, m, zt, src, "seed uklonjen"))
+    cut = con.execute("UPDATE armed_zones SET expires_at=? WHERE source IN ('manual', 'event') AND expires_at > ?",
+                      (now + TTL_MAX_H * 3600, now + TTL_MAX_H * 3600)).rowcount
+    kv_put(con, MIGRATE_KEY, now)
     con.commit()
-    print(f"zonewatch: HOPE zone postavljene (dca 100-105k, stop 85k, top 145-155k, {SEED['ttl_h'] // 24} dana)",
-          flush=True)
+    if gone or cut:
+        log(f"zonewatch: fiksne HOPE zone istekle ({gone}), ručnim zonama rok skraćen na najviše {TTL_MAX_H} h ({cut})")
     return True
 
 
@@ -340,6 +358,7 @@ def prune(con, now):
     con.execute("DELETE FROM zonewatch_log WHERE ts < ?", (int(now - KEEP_LOG_D * 86400),))
     con.execute("DELETE FROM arm_log WHERE ts < ?", (int(now - KEEP_ALERTS_D * 86400),))
     con.execute("DELETE FROM px WHERE ts < ?", (int(now - 86400),))
+    con.execute("DELETE FROM range_ver WHERE updated_ts < ?", (int(now - KEEP_EXPIRED_D * 86400),))
     con.commit()
     try:
         con.execute("PRAGMA incremental_vacuum")
@@ -348,10 +367,14 @@ def prune(con, now):
 
 
 # ---------- range zones (source range) ------------------------------------------------------------------------------
+# 11.11. (Jure, zbirni ispravak F): ONE source of zones, the range engine (rangedca/detect.py: pivots of 24 h, touches
+# weighted by age with a half-life of 8 h, stop range_low_low x 0.85) and the recomputation rangedca already does
+# (run_range.py every ~5 min). This job only reads range.db; it adds the version (range_ver) and nothing else.
 
 def _range_rows(now, range_path=None):
-    """[(token, symbol, ts, src, score, rll, rlt, rhl, rht, range_low_px, supply)] of the active ranges computed in
-    the last RANGE_FRESH_S (15 min), market caps from the range JSON (json_extract: no JSON parsed in Python)."""
+    """[(token, symbol, ts, src, score, rll, rlt, rhl, rht, range_low_px, supply, span_h)] of the active ranges
+    computed in the last RANGE_FRESH_S (15 min), market caps from the range JSON (json_extract: no JSON parsed in
+    Python); span_h = the hours of data the computation spanned (window_h)."""
     from rangedca import data, trade
     con = data.ro(range_path)
     if con is None:
@@ -361,7 +384,8 @@ def _range_rows(now, range_path=None):
         q = (f"SELECT token, symbol, ts, {src}, score, json_extract(data, '$.zones.mc.range_low_low'), "
              "json_extract(data, '$.zones.mc.range_low_top'), json_extract(data, '$.zones.mc.range_high_low'), "
              "json_extract(data, '$.zones.mc.range_high_top'), json_extract(data, '$.zones.range_low'), "
-             "json_extract(data, '$.metrics.supply') FROM ranges WHERE active = 1 AND ts >= ?")
+             "json_extract(data, '$.metrics.supply'), json_extract(data, '$.span_h') FROM ranges WHERE active = 1 "
+             "AND ts >= ?")
         try:
             return con.execute(q, (int(now - trade.RANGE_FRESH_S),)).fetchall()
         except sqlite3.OperationalError:   # no JSON1 in this SQLite: parse in Python (only the active rows)
@@ -376,7 +400,7 @@ def _range_rows(now, range_path=None):
                 mc = z.get("mc") or {}
                 out.append((tok, sym, ts, s, sc, mc.get("range_low_low"), mc.get("range_low_top"),
                             mc.get("range_high_low"), mc.get("range_high_top"), z.get("range_low"),
-                            (x.get("metrics") or {}).get("supply")))
+                            (x.get("metrics") or {}).get("supply"), x.get("span_h")))
             return out
     except sqlite3.Error:
         return []
@@ -402,6 +426,27 @@ def _open_lot1_mc():
         con.close()
 
 
+def position_tokens():
+    """{token} with an open trade on the real Autopilot account (league.db trades, user trade.settings.LEAGUE_USER;
+    the owner's manual HOPE position is one), read-only; set() on any error. The demo account (PAPER_USER) is not
+    the real account: its tokens get no zones for it."""
+    try:
+        from rangedca import data
+        from trade import settings
+        con = data._league_ro()
+    except Exception:  # noqa: BLE001
+        return set()
+    if con is None:
+        return set()
+    try:
+        return {r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND status='open'",
+                                          (settings.LEAGUE_USER,)) if r[0]}
+    except sqlite3.Error:
+        return set()
+    finally:
+        con.close()
+
+
 def range_zones(row, lot1_mc=None):
     """The range engine's zones of one active range, in market cap USD (rangedca/detect.py and rules.py):
         bottom   range_low_low .. range_low_top
@@ -412,7 +457,7 @@ def range_zones(row, lot1_mc=None):
         stop     range_low_low x 0.85 (the round's hard stop), lo = hi
     [(zone_type, lo, hi)]; [] when the market caps are unknown (no supply)."""
     from rangedca import rules
-    tok, sym, ts, src, score, rll, rlt, rhl, rht, rl_px, supply = row
+    tok, sym, ts, src, score, rll, rlt, rhl, rht, rl_px, supply = row[:11]
     if not all(isinstance(v, (int, float)) and v > 0 for v in (rll, rlt, rhl, rht)):
         return []
     r = rules.RULES
@@ -429,7 +474,7 @@ def range_zones(row, lot1_mc=None):
 
 def _entry_ready(now):
     """{token} of the active ranges an entry would pass now (rangedca/view: no breakout, entry_now passes); set() on
-    any error (then only the open rounds and the hand-armed zones alarm)."""
+    any error (then only the open rounds, the positions and the hand-armed zones alarm)."""
     try:
         from rangedca import data, trade, view
         out = set()
@@ -443,21 +488,99 @@ def _entry_ready(now):
         return set()
 
 
-def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None):
+def no_range_why(tokens, now, range_path=None):
+    """{token: why it has no active range now} from range.db (read-only): never computed (rangedca does not follow
+    it), the newest computation too old, or the range engine's own status and reason ("probijen gore: cijena iznad
+    range_high_top × 1,15", "nema raspona: ...", "isključen: ...")."""
+    from rangedca import data, trade
+    tokens = sorted(tokens)
+    if not tokens:
+        return {}
+    con = data.ro(range_path)
+    if con is None:
+        return {t: "range.db ne postoji (rangedca još nije računao raspone)" for t in tokens}
+    out = {}
+    try:
+        for t in tokens:
+            r = con.execute("SELECT ts, status, active, data FROM ranges WHERE token=?", (t,)).fetchone()
+            if not r:
+                out[t] = "rangedca nema izračun raspona za token (nije među kandidatima signalnog prolaza)"
+                continue
+            ts, status, active, d = r
+            if now - (ts or 0) > trade.RANGE_FRESH_S:
+                out[t] = f"raspon zastario: zadnji izračun prije {int((now - (ts or 0)) // 60)} min ({status or '?'})"
+                continue
+            try:
+                why = (json.loads(d) or {}).get("why") if d else None
+            except ValueError:
+                why = None
+            if active:   # active but no zone at or over 30k (or no supply): nothing to watch
+                out[t] = "raspon bez zona u MC iznad 30k"
+            else:
+                out[t] = (status or "bez raspona") + (f": {why}" if why else "")
+    except sqlite3.Error as e:
+        for t in tokens:
+            out.setdefault(t, f"range.db nije pročitan ({type(e).__name__})")
+    finally:
+        con.close()
+    return out
+
+
+def _why_key(w):
+    """The part of a reason that names it ("slab volumen", "isključen", "raspon zastario"): what is logged once."""
+    return (w or "").split(":")[0]
+
+
+def _bump_versions(con, keep_ts, now):
+    """range_ver: +1 for every token whose range computation (ranges.ts) is newer than the one read last time."""
+    old = {m: (v, ts) for m, v, ts in con.execute("SELECT mint, zone_version, computed_ts FROM range_ver")}
+    for tok, (ts, wh) in keep_ts.items():
+        v, last = old.get(tok, (0, None))
+        if last is None or int(ts) > int(last):
+            con.execute("INSERT OR REPLACE INTO range_ver VALUES (?,?,?,?,?)",
+                        (tok, int(v or 0) + 1, int(ts), None if wh is None else round(float(wh), 2), int(now)))
+
+
+def versions(con, mints=None):
+    """{mint: {"zone_version", "computed_ts", "window_h"}} of the tokens with range zones."""
+    out = {}
+    try:
+        rows = con.execute("SELECT mint, zone_version, computed_ts, window_h FROM range_ver").fetchall()
+    except sqlite3.Error:   # a zonewatch.db opened read-only before this job created the table
+        return out
+    for m, v, ts, wh in rows:
+        if mints is None or m in mints:
+            out[m] = {"zone_version": v, "computed_ts": ts, "window_h": wh}
+    return out
+
+
+def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positions=None):
     """The range engine's active ranges -> armed_zones (source range): upsert their zones (expiring RANGE_FRESH_S +
     5 min after the range was computed, so a range the engine stops computing goes away by itself) and expire at once
     the range zones of tokens whose range is no longer active. Returns (tokens, zones written).
-    11.11. (Jure: "alarmi samo za tokene s otvorenom rundom, entry_ready ili ručno armirane zone"): only tokens with an
-    open range round or an entry-ready range get range zones; eligible: that set (computed when rows are read here;
-    None with given rows = no filter, for the callers that pass their own rows)."""
+    11.11. (Jure): only tokens with an open range round, an entry-ready range or an open position on the real account
+    (position_tokens) get range zones, and ONLY when rangedca has an active range for them: an eligible token without
+    one gets no zones, and why goes to the log once (when it changes) and to kv range_why. eligible: that set
+    (computed when rows are read here; None with given rows = no filter, for the callers that pass their own rows).
+    Every newer range computation of a token with zones is a new zone_version (range_ver)."""
     from rangedca import trade
+    read_here = rows is None
+    reasons = {}
     if rows is None:
         rows = _range_rows(now)
         if eligible is None:
             lot1 = _open_lot1_mc() if lot1 is None else lot1
-            eligible = set(lot1) | _entry_ready(now)
+            positions = position_tokens() if positions is None else set(positions)
+            ready = _entry_ready(now)
+            for t in lot1:
+                reasons.setdefault(t, []).append("otvorena runda")
+            for t in ready:
+                reasons.setdefault(t, []).append("entry_ready")
+            for t in positions:
+                reasons.setdefault(t, []).append("pozicija na pravom računu")
+            eligible = set(lot1) | ready | positions
     lot1 = _open_lot1_mc() if lot1 is None else lot1
-    keep, n = set(), 0
+    keep, n, keep_ts = set(), 0, {}
     for row in rows:
         tok, sym, ts, src = row[0], row[1], int(row[2] or now), row[3] or "signal"
         if not tok or not MINT_RE.match(tok):
@@ -465,18 +588,32 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None):
         if eligible is not None and tok not in eligible:
             continue
         sc = row[4]
+        why = reasons.get(tok) or (["lot 1 otvoren"] if lot1.get(tok) else [])
         note = f"raspon {src}" + (f", ocjena {sc:.2f}" if isinstance(sc, (int, float)) else "") + \
-            (", lot 1 otvoren" if lot1.get(tok) else "")
+            "".join(f", {w}" for w in why)
+        wrote = False
         for zt, lo, hi in range_zones(row, lot1.get(tok)):
             if lo < MIN_MCAP:   # CLAUDE.md: nothing under 30k (a stop of a 32k floor at 27k is left out too)
                 continue
             keep.add((tok, zt))
+            wrote = True
             if upsert(con, tok, zt, lo, hi, note, "range", "range", ts + trade.RANGE_FRESH_S + 300, now, sym,
                       reset=False) != "unchanged":
                 n += 1
+        if wrote:
+            keep_ts[tok] = (ts, row[11] if len(row) > 11 else None)
+    _bump_versions(con, keep_ts, now)
     gone = [(m, zt) for m, zt in con.execute("SELECT mint, zone_type FROM armed_zones WHERE source='range' AND "
                                              "expires_at > ?", (int(now),)) if (m, zt) not in keep]
     for m, zt in gone:
         con.execute("UPDATE armed_zones SET expires_at=? WHERE mint=? AND zone_type=? AND source='range'", (int(now), m, zt))
+    if eligible is not None:
+        missing = {t for t in eligible if t not in keep_ts and MINT_RE.match(t or "")}
+        whys = no_range_why(missing, now) if read_here else {t: "nema aktivnog raspona" for t in missing}
+        said = kv_get(con, "range_why") or {}
+        for t, w in sorted(whys.items()):
+            if _why_key(said.get(t)) != _why_key(w):   # once per status, not on every changed number
+                log(f"zonewatch: {t[:6]}… ({', '.join(reasons.get(t) or ['prati se'])}) bez zona: {w}")
+        kv_put(con, "range_why", whys)
     con.commit()
     return len({t for t, _ in keep}), n

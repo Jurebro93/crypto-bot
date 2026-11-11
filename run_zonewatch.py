@@ -7,7 +7,8 @@ priority (low keep zonewatch ... loop): a pass every ZONEWATCH_EVERY_S (30 s); f
     python3 run_zonewatch.py once                 one pass
     python3 run_zonewatch.py status               the zones in force, the last alarms and today's DexScreener use
     python3 run_zonewatch.py arm MINT TYPE LO [HI] [--note TEXT] [--ttl-h H]
-                                                  the owner arms (or with --ttl-h 0 disarms) one zone, source manual
+                                                  the owner arms (or with --ttl-h 0 disarms) one zone, source manual,
+                                                  for at most 2 h (default 2)
 
 Env: GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_KEY (secrets, Render dashboard only), GROKBOT_WEBHOOK_AUTH (bearer |
 standard), ZONEWATCH_DEX_DAY (3000), ZONEWATCH_EVERY_S (30), ZONEWATCH_FIRST_S (90). Writes zonewatch.db only (and
