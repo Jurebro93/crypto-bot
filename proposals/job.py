@@ -323,6 +323,9 @@ def night(now=None, path=None, log=print, minute_path=None, force=False):
         con.close()
 
 
+_MLOG = {"at": 0}
+
+
 def once(now=None, src=None, path=None, log=print, dex_fetch=None, pairs_fn=None, econ=None):
     """One pass (see the module text). {"off": True} while the flag is off."""
     if mode() == "off":
@@ -363,6 +366,13 @@ def once(now=None, src=None, path=None, log=print, dex_fetch=None, pairs_fn=None
     finally:
         con.close()
     n_wait = sum(1 for r in rows if r.get("wait_why"))   # 11.11. (decision 4): stored, not published ("čeka zonu")
+    km = meta.get("kmarket") or {}
+    if km and (km.get("none") or _MLOG["at"] < now - 3600):   # 11.11.: where the candidates' market came from, hourly
+        _MLOG["at"] = now                                      # (and whenever a row has none)
+        log(f"kandidati: tržište za {km.get('rows', 0) - km.get('none', 0)} od {km.get('rows', 0)} (rangedca "
+            f"{km.get('range', 0)}, DexScreener {km.get('dexscreener', 0)}, provjera callera {km.get('live', 0)}, "
+            f"rangedca do 15 min {km.get('range_stale', 0)}, skener {km.get('scan', 0)}), bez tržišta "
+            f"{km.get('none', 0)}; tradeable {km.get('tradeable', 0)}")
     if ch["new"] or ch["expired"] or n_out:
         log(f"prijedlozi: prikazano {len(rows) - n_wait}, čeka zonu {n_wait}, novih {ch['new']}, isteklo "
             f"{ch['expired']}, skoro {len(near)}; "

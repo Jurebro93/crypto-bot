@@ -101,7 +101,12 @@ class FakeSources(kandidati.Sources):
         return self.ins
 
     def live(self, tokens):
+        if getattr(self, "live_err", None):
+            raise self.live_err
         return {t: self.mk[t] for t in tokens if t in self.mk}
+
+    def range_market(self, tokens, now):   # 11.11.: rangedca's snapshots, in memory (never the real range.db)
+        return {t: m for t, m in (getattr(self, "rmk", None) or {}).items() if t in tokens}
 
     def x_latest(self, tokens, now):
         return {t: self.xm[t] for t in tokens if t in self.xm}
@@ -741,3 +746,53 @@ class Execute(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RangeMarket(unittest.TestCase):
+    """11.11. (owner: "get_trade_candidates / get_proposals show 'no live market' and MC $0 for most rows, even when
+    rangedca has fresh data for the same token"): the market comes from rangedca's own snapshots first, DexScreener for
+    the rest without the 60-token cut, and a row without any reading says why instead of $0."""
+
+    def setUp(self):
+        self.S = FakeSources()
+
+    def rng_row(self, tok):
+        return {"status": "active", "active": 1, "score": 0.8, "mcap": 120_000, "pos_pct": 10.0, "ts": NOW - 60,
+                "symbol": "DTC", "entry_ready": True, "source": "signal"}
+
+    def test_a_token_with_a_fresh_range_has_its_market_from_rangedca(self):
+        S = self.S
+        S.rng = {A: self.rng_row(A)}
+        S.rmk = {A: {"price": 0.00012, "mcap": 120_000.0, "liq": 28_000.0, "vol_h1": 9_000.0, "vol_m5": 700.0,
+                     "ts": NOW - 60}}
+        rows, meta = kandidati.build(NOW, S)
+        r = by_token(rows)[A]
+        self.assertEqual(r["market"]["market_cap_usd"], 120_000)               # MC > 0 from rangedca
+        self.assertEqual((r["market"]["liquidity_usd"], r["market"]["volume_1h_usd"]), (28_000, 9_000))
+        self.assertIn("range.db", r["market"]["source"])
+        self.assertFalse(any("nema živog tržišta" in w or "market fetch failed" in w for w in r["why_not"]))
+        self.assertEqual(meta["market"]["range"], 1)
+
+    def test_no_market_says_why_never_zero(self):
+        S = self.S
+        S.rng = {B: self.rng_row(B)}
+        S.live_err = RuntimeError("DexScreener nije odgovorio")
+        rows, meta = kandidati.build(NOW, S)
+        r = by_token(rows)[B]
+        self.assertIsNone(r["market"])
+        self.assertIn("market fetch failed: RuntimeError: DexScreener nije odgovorio", r["market_why"])
+        self.assertTrue(any("market fetch failed" in w for w in r["why_not"]))
+        self.assertFalse(any("$0" in w for w in r["why_not"]))          # never "MC $0 ispod 30k"
+        self.assertIsNone(r["under_30k"])
+        self.assertEqual(meta["market"]["none"], 1)
+
+    def test_more_than_sixty_tokens_are_all_priced(self):
+        S = self.S
+        toks = [mint(10 + i) for i in range(80)]
+        S.rng = {t: self.rng_row(t) for t in toks}
+        S.mk = {t: live() for t in toks}
+        rows, meta = kandidati.build(NOW, S)
+        got = by_token(rows)
+        self.assertTrue(all(got[t]["market"] for t in toks if t in got))
+        self.assertEqual(meta["market"]["none"], 0)
+
