@@ -1341,6 +1341,16 @@ def _ev_card(owner):
                 value=str(len(props)) if props else None, sub="prijedloga" if props else None)
 
 
+def _preshill_card(owner):
+    """11.11. (Jure, kol/preshill.py, flag pre_shill): "Kupci prije shill mreže", one closed row under "Još" (owner
+    only, nothing while the flag is off): per wallet the Solscan link, cluster, tokens, minutes before the network,
+    entry MC, PnL, hit rate and a sentence; a tap opens its tokens' timeline. No h2, no chip."""
+    if not owner:
+        return ""
+    from kol import preshill
+    return preshill.card_html(_sec, _item, esc)
+
+
 VERDICT_TONE = {"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
 
 
@@ -4426,6 +4436,7 @@ def page(qs, user):
         b += [_h2("Još", sid="jos"),
               _safe("sazetak", _summary_card, tcon, owner),
               _group(_safe("ev", _ev_card, owner),   # 11.11.: EV per feature phase, one closed row (events/evreport)
+                     _safe("preshill", _preshill_card, owner),   # 11.11.: kupci prije shill mreže (kol/preshill.py)
                      _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),

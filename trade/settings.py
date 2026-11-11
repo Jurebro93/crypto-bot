@@ -87,10 +87,14 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
     # live_refusal + LIVE_GATES
     "insider_copy": ("G14", "Insajderi prije poziva: novčanici koji kupuju prije poziva callera, kopiranje u demo"),
+    # 11.11. (Jure, kol/preshill.py): wallets that buy before the paid shill network calls; shadow only, never buys
+    "pre_shill": ("G15", "Kupci prije shill mreže: novčanici koji kupe prije plaćene mreže callera, poziv mreže je "
+                         "znak za izlaz"),
 }
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
+PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of shadow, >= 30 measured signals, EV > 0
 # 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
 LIVE_GATES = {"insider_copy": "kol.precall:live_refusal"}
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
