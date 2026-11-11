@@ -248,6 +248,7 @@ def portfolio(now=None):
                                                      "tp_default", "sl_default")},
                 "open_positions": out,
                 "grok_autotrade": _grok_part(tcon, now),
+                "momentum_candidates": _momentum_part(now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
                                 # 11.11.: only what can still be approved (not expired, not a sell of a closed position)
                                 "waiting_for_owner": pending(tcon, now)}}
@@ -318,6 +319,15 @@ def _grok_part(tcon, now):
         return {"error": type(e).__name__}
 
 
+def _momentum_part(now):
+    """11.11. (flag momentum_scalp): the newest momentum candidates for Grok to rate (momentum/view.py, read-only)."""
+    try:
+        from momentum import view
+        return view.candidates(now, minutes=60, limit=10)
+    except Exception as e:  # noqa: BLE001 - the portfolio answers without it
+        return {"error": type(e).__name__}
+
+
 def trade_request(body, now=None):
     """Queue a trade for the owner's approval. body: {token, side: buy|sell, amount, require_approval, reason}.
     buy: amount in SOL; sell: amount as a share of the position (0.25 = 25 %, 1 = all). require_approval=false:
@@ -337,9 +347,15 @@ def trade_request(body, now=None):
         return 400, {"error": "amount must be a number (SOL for buy, share 0-1 for sell)"}
     if side == "sell" and not 0 < amount <= 1:
         return 400, {"error": "sell amount is a share of the position: 0 < amount <= 1"}
+    # 11.11. (flag grok_ev_gate, momentum/evgate.py): optional p_tp (0-1) and strategy; old requests stay valid
+    from momentum import evgate
+    p_tp, strategy, perr = evgate.parse(body)
+    if perr:
+        return 400, {"error": perr}
     if auto:   # 10.11. (Jure): executed at once only while the owner has switched grok_autotrade on (ui/grokauto)
         from ui import grokauto
-        return grokauto.execute({"token": tok, "side": side, "amount": amount, "reason": body.get("reason")}, now)
+        return grokauto.execute({"token": tok, "side": side, "amount": amount, "reason": body.get("reason"),
+                                 "p_tp": p_tp, "strategy": strategy}, now)
     tcon = settings.connect()
     try:
         cfg = settings.merged(__import__("trade.executor", fromlist=["load_config"]).load_config(), tcon)
@@ -354,14 +370,35 @@ def trade_request(body, now=None):
         if sum(1 for r in reqs if r.get("status") == "pending" and now - r["ts"] < REQUEST_TTL_S) >= MAX_PENDING:
             return 429, {"error": f"{MAX_PENDING} requests already wait for the owner"}
         rid = f"g{now}{len(reqs) % 1000:03d}"
-        reqs.append({"id": rid, "ts": now, "token": tok, "side": side, "amount": amount, "status": "pending",
-                     "reason": str(body.get("reason") or "")[:300], "client": "mcp"})
+        req = {"id": rid, "ts": now, "token": tok, "side": side, "amount": amount, "status": "pending",
+               "reason": str(body.get("reason") or "")[:300], "client": "mcp"}
+        if p_tp is not None:
+            req.update(p_tp=p_tp, strategy=strategy)
+        reqs.append(req)
         settings.put(tcon, "mcp_requests", reqs[-100:], "mcp")
     finally:
         tcon.close()
     print(f"mcp: zahtjev {rid} {side} {tok[:6]} {amount:g} čeka odobrenje", flush=True)
-    return 202, {"status": "pending_approval", "id": rid,
-                 "message": "Waiting for the owner's approval on the MemeSonar Autopilot page; expires in 15 minutes."}
+    out = {"status": "pending_approval", "id": rid,
+           "message": "Waiting for the owner's approval on the MemeSonar Autopilot page; expires in 15 minutes."}
+    if side == "buy" and p_tp is not None:
+        out["ev_gate"] = _calib_queued(tok, amount, p_tp, strategy, now)
+    return 202, out
+
+
+def _calib_queued(tok, amount, p_tp, strategy, now):
+    """11.11.: a queued buy with p_tp is recorded for calibration (never refused here: the owner decides) and the
+    answer says what the EV gate makes of it."""
+    try:
+        from momentum import evgate
+        g = evgate.check(tok, amount, p_tp, strategy, None, now, gate_mode="off")
+        g["mode"] = evgate.mode()
+        evgate.record(g, tok, amount, "pending_approval", now)
+        return {"ev_pct": round(g["ev"] * 100, 2) if g.get("ev") is not None else None,
+                "break_even_p_tp": round(g["break_even_p"], 3) if g.get("break_even_p") is not None else None,
+                "would_pass": g.get("would_reject") is None, "why": g.get("would_reject")}
+    except Exception as e:  # noqa: BLE001 - bookkeeping never fails a request
+        return {"error": type(e).__name__}
 
 
 def _open_tokens(tcon):
@@ -500,7 +537,10 @@ TOOLS = [
                      "required": ["token_address"]}},
     {"name": "get_portfolio_status", "annotations": _READ,
      "description": ("The MemeSonar Autopilot: mode (live / trial / off), wallet value in SOL, limits, every open "
-                     "position (entries, average entry market cap, market cap now, PnL %, exit rule), open orders."),
+                     "position (entries, average entry market cap, market cap now, PnL %, exit rule), open orders, and "
+                     "momentum_candidates: the newest momentum_scalp signals (bonded jumps that met every entry rule, "
+                     "with their numbers and outcome), near misses, the base rate and the paper proof, to rate with "
+                     "execute_trade strategy momentum_scalp and p_tp."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "execute_trade",
      "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
@@ -512,13 +552,29 @@ TOOLS = [
                      "and after a fresh rug and liquidity check; sells of any open position, any share. Answer: "
                      "status executed (with tx_signature when the swap landed in the wait, else tx_status submitted) "
                      "or rejected with the reason. side 'buy': amount in SOL; side 'sell': amount as a share of the "
-                     "open position (0.25 = 25 %, 1 = all). reason: one line for the owner."),
+                     "open position (0.25 = 25 %, 1 = all). reason: one line for the owner. "
+                     "Buy gate (11.11., replaces P(+20 % in 4 h) >= 0.6): send p_tp = your probability (0-1) that the "
+                     "strategy's take profit comes BEFORE its stop, and strategy: momentum_scalp (TP +15 % / SL -10 %, "
+                     "45 min), range_dca (TP range_high_low / SL range_low_low x 0.85 of the token's range, 24 h) or "
+                     "other (default: the exit your buys get, the owner's TP, default +15 %, and the default stop, "
+                     "-60 % unless changed, 4 h). EV = p_tp x TP - (1 - p_tp) x SL - cost (~2-3 % round trip: 1 % fee "
+                     "each side + pool impact). While the owner has grok_ev_gate in paper or live, an autotrade buy "
+                     "with EV <= 0 or without p_tp is rejected with the numbers, and a momentum_scalp / range_dca buy "
+                     "gets that strategy's TP / SL as its exit; in shadow it is only logged. Break-even p_tp: ~0.5 for "
+                     "momentum_scalp, ~0.83 for other with a -60 % stop. Every buy with p_tp is scored later (TP "
+                     "before SL within the horizon) for your calibration: get_hourly_brief grok_calibration (Brier "
+                     "score, hit rate per p bucket). Both fields are optional; old calls work as before."),
      "inputSchema": {"type": "object", "properties": {
          "token_address": {"type": "string", "description": "Solana token mint address"},
          "amount": {"type": "number", "description": "SOL for a buy, share 0-1 for a sell"},
          "side": {"type": "string", "enum": ["buy", "sell"]},
          "require_approval": {"type": "boolean", "default": True},
-         "reason": {"type": "string"}}, "required": ["token_address", "amount", "side"]}},
+         "reason": {"type": "string"},
+         "p_tp": {"type": "number", "minimum": 0, "maximum": 1,
+                  "description": "your probability that the strategy's TP comes before its SL (buy only)"},
+         "strategy": {"type": "string", "enum": ["momentum_scalp", "range_dca", "other"], "default": "other",
+                      "description": "whose TP / SL the EV gate prices (buy only)"}},
+         "required": ["token_address", "amount", "side"]}},
 ]
 
 
@@ -879,6 +935,13 @@ TOOLS += [
 ]
 INSTRUCTIONS += (" Start with get_grok_tasks and get_trade_candidates: the candidates are ranked over every source, "
                  "and your fresh X rows (submit_x_features) feed the ranking and the scanner.")
+# 11.11. (Jure, part D, momentum/evgate.py): the buy gate is an EV with the strategy's TP / SL
+INSTRUCTIONS += (" Buy gate: send execute_trade with p_tp (your probability 0-1 that the take profit comes before the "
+                 "stop) and strategy (momentum_scalp: +15 % / -10 % in 45 min; range_dca: the range's zones; other: "
+                 "the owner's exit, default +15 % / -60 %). Buy only when EV = p_tp x TP - (1 - p_tp) x SL - cost "
+                 "(~2-3 %) > 0; with grok_ev_gate on, the server rejects the rest. get_portfolio_status and "
+                 "get_hourly_brief list momentum_candidates (fresh jumps that met every momentum_scalp entry rule) to "
+                 "rate, and grok_calibration shows how well your p_tp matched what happened.")
 
 
 # 11.11. (Jure, events.db): one read-only call with what an hourly look needs (events/brief.py)
@@ -896,6 +959,9 @@ TOOLS.append(
                      "(posts_per_h, unique authors, template_share, brag_ratio), every caller's and wallet's score "
                      "(n, n_measured, hit_rate = +20 % within 4 h, median max 4 h, EV) and wallets' early-buyer "
                      "record. groups: group activity and hidden_group signals. range_candidates: range_score >= 0.7. "
+                     "momentum_candidates: the newest momentum_scalp signals and near misses to rate (strategy "
+                     "momentum_scalp, p_tp = +15 % before -10 % in 45 min). grok_calibration: your p_tp against the "
+                     "outcomes (Brier score, hit rate per p bucket). "
                      "grok_predictions: Grok predictions past their deadline with outcomes ([] while no predictions "
                      "store exists, with a note). health: feed gap alerts (no events of an active type for > 60 min, "
                      "08-24 Zagreb) and last night's batch. timing_ms per part."),
@@ -1009,7 +1075,8 @@ def _tool(name, args, kid="local"):
     if name == "execute_trade":
         code, d = trade_request({"token": args.get("token_address") or args.get("token"), "amount": args.get("amount"),
                                  "side": args.get("side"), "require_approval": args.get("require_approval", True),
-                                 "reason": args.get("reason") or ""})
+                                 "reason": args.get("reason") or "", "p_tp": args.get("p_tp"),
+                                 "strategy": args.get("strategy")})
         return d, code >= 400
     return {"error": f"unknown tool {name}"}, True
 

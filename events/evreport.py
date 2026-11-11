@@ -22,6 +22,10 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
   groups   group_discovery: early.db group_signals per kind (hidden_group, caller_group_first); baseline = the mean
            EV of all calls of the window (events.db call_outcomes).
   range    range_dca: the paper rounds (league.db range_rounds); baseline: the newest backtest's EV when one exists.
+  momentum momentum_scalp (11.11.): the base rate of every signal (momentum.db; hit = +15 % before -10 % in 45 min,
+           EV = the exit rules on the same path after cost) vs the newest backtest, and the paper trades vs that base
+           rate with the live gate's verdict (>= 50 trades, EV > 0, hit >= 45 %; break-even is ~50 %, not 45 %).
+  kalibracija  grok_ev_gate (11.11.): Grok's p_tp against the outcomes (Brier score, hit rate per p bucket).
 Max drawdown: the deepest fall of the running sum of results, in percentage points, in time order.
 A promotion proposal (shadow -> paper -> live) only with n >= MIN_N outcomes and EV > 0, and only as text: the owner
 switches flags by hand on the Autopilot page (trade/settings.set_flag); nothing here changes a flag.
@@ -254,6 +258,60 @@ def range_rows(now, mode, lcon):
              "note": note, "proposal": _proposal(mode, s)}]
 
 
+def momentum_rows(now, mode, lcon):
+    """momentum_scalp (11.11., momentum/): the base rate of every signal (hit = +15 % before -10 % in 45 min, EV = the
+    exit rules on the same path after cost) vs the newest backtest, and the paper trades vs the live gate."""
+    from momentum import data as mdata, gate, rules, view
+    from trade import settings
+    since = now - WINDOW_D * 86400
+    sigs = sorted((s for s in mdata.read_signals(since) if s.get("status") == "done" and s.get("sim_ret") is not None),
+                  key=lambda s: s["resolved_ts"] or 0)
+    s = summary([x["sim_ret"] for x in sigs])
+    hits = sum(int(x["hit"] or 0) for x in sigs)
+    bt = view.backtest_latest() or {}
+    bev = ((bt.get("variants") or {}).get("osnovno") or {}).get("ev_pct")
+    be = rules.break_even_p(rules.RULES["tp1"], rules.RULES["stop"], rules.round_trip_cost())
+    rows = [{"flag": "momentum_scalp", "phase": mode, "part": "momentum", "n": len(sigs), "n_outcomes": len(sigs),
+             "hit_rate": _r(hits / len(sigs), 3) if sigs else None, "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+             "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": bev, "baseline_n": None,
+             "delta_ev_pct": _r(s["ev_pct"] - bev, 2) if s["ev_pct"] is not None and bev is not None else None,
+             "note": (f"osnovna stopa svih signala (pogodak = +15 % prije -10 % u 45 min); prag isplativosti ~{be:.0%} "
+                      "pri TP 15 / SL 10 i ~2-3 % troška, ne 45 %; osnovica = backtest "
+                      + (bt.get("file") or "nema")), "proposal": None}]
+    if lcon is not None:
+        try:
+            tr = lcon.execute("SELECT ret, hit FROM momentum_trades WHERE user = ? AND status = 'closed' AND closed_ts >= ? "
+                              "ORDER BY closed_ts", (settings.PAPER_USER, since)).fetchall()
+        except sqlite3.Error:
+            tr = []
+        p = summary([r for r, _h in tr])
+        why = gate.refusal()
+        rows.append({"flag": "momentum_scalp", "phase": mode, "part": "momentum_paper", "n": p["n"], "n_outcomes": p["n"],
+                     "hit_rate": _r(sum(int(h or 0) for _r_, h in tr) / len(tr), 3) if tr else None,
+                     "avg_pnl_pct": p["avg_pnl_pct"], "ev_pct": p["ev_pct"], "max_dd_pct": p["max_dd_pct"],
+                     "baseline_ev_pct": s["ev_pct"], "baseline_n": len(sigs), "delta_ev_pct":
+                     _r(p["ev_pct"] - s["ev_pct"], 2) if p["ev_pct"] is not None and s["ev_pct"] is not None else None,
+                     "note": "paper tradeovi (pogodak = TP1 prije stopa) vs osnovna stopa signala; live vrata: "
+                             + (why or "prolaze"),
+                     "proposal": ("prijedlog: paper → live (>= 50 tradeova, EV > 0, pogodak >= 45 %); odobrava vlasnik "
+                                  "ručno") if mode == "paper" and not why else None})
+    return rows
+
+
+def calib_rows(now, mode):
+    """grok_ev_gate (11.11., momentum/evgate.py): Grok's p_tp against what happened, 30 days."""
+    from momentum import evgate
+    rep = evgate.report(now)
+    a = (rep or {}).get("all") or {}
+    buckets = "; ".join(f"p {b['p_from']:.1f}-{b['p_to']:.1f}: n {b['n']}, pogodak {b['hit_rate']:.0%}"
+                        for b in a.get("buckets") or [])
+    return [{"flag": "grok_ev_gate", "phase": mode, "part": "kalibracija", "n": (rep or {}).get("n_requests") or 0,
+             "n_outcomes": a.get("n") or 0, "hit_rate": a.get("base_rate"), "avg_pnl_pct": None, "ev_pct": None,
+             "max_dd_pct": None, "baseline_ev_pct": None, "baseline_n": None, "delta_ev_pct": None,
+             "note": (f"Brier {a['brier']:.3f}, prosječni p {a['mean_p']:.2f}" if a.get("n") else "još nema riješenih")
+             + (f"; {buckets}" if buckets else ""), "proposal": None}]
+
+
 COLS = ("n", "n_outcomes", "hit_rate", "avg_pnl_pct", "ev_pct", "max_dd_pct", "baseline_ev_pct", "baseline_n",
         "delta_ev_pct", "proposal", "note")
 
@@ -279,6 +337,10 @@ def build(now=None, econ=None, log=print):
                     out += group_rows(now, st["mode"], econ)
                 elif name == "range_dca":
                     out += range_rows(now, st["mode"], lcon)
+                elif name == "momentum_scalp":
+                    out += momentum_rows(now, st["mode"], lcon)
+                elif name == "grok_ev_gate":
+                    out += calib_rows(now, st["mode"])
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")

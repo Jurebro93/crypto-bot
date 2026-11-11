@@ -17,6 +17,8 @@ ONE row per token. The sources (a loader that fails is named in sources_failed, 
   hidden_group  group_signals of the last hour: 3+ wallets of one quality wallet group bought, no public call; a
                 quality caller crew that called first (caller_group_first) is evidence on the caller signal instead
   range         active ranges (range_score >= 0.7, computed in the last 15 min; rangedca)
+  momentum      momentum_scalp signals of the last 15 min (momentum/: a bonded jump that met every entry rule); its
+                record is the base rate of every signal (EV of the exit rules after cost), its exit plan the strategy's
   tool          the tool's own fresh top list (topcheck: rug check 'prolazi', not pumping or falling) and the Pregled
                 box's 'visoka' picks: the live list's independent sources (ui/zivo; its 'zovu' and 'konvergencija'
                 are the callers and wallets above)
@@ -259,6 +261,11 @@ class Sources:
         ms = rules.RULES["score_min"]
         return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S).items()
                 if r.get("active") and (r.get("score") or 0) >= ms - 1e-9}
+
+    def momentum(self, now):
+        """11.11. (flag momentum_scalp): the newest momentum signal per token of the last 15 min (momentum.db)."""
+        from momentum import view
+        return view.kandidati_rows(now)
 
     def tool_rows(self, now):
         """The live list's own sources (ui/zivo._sources 'alat' and 'prijedlog')."""
@@ -521,7 +528,7 @@ def source_records(now, scan_con=None):
     (30 days, measured) for hidden_group and caller_group_first (sl_first: the stop came first, ev = -30 % - cost);
     the range paper rounds; None for a kind nothing measures yet (tool, insider)."""
     out = {k: None for k in ("caller", "wallet", "scan", "beta", "hidden_group", "caller_group_first", "range", "tool",
-                             "insider", "kandidati", "grok_override")}
+                             "insider", "kandidati", "grok_override", "momentum")}
     try:
         from scan import shadow, store
         cfg = store.config()
@@ -566,6 +573,12 @@ def source_records(now, scan_con=None):
         out["range"] = {"n": p["n"], "hit1h": None, "hit4h": None, "sl_first": None,
                         "ev": round(p["ev_pct"] / 100, 4) if p.get("ev_pct") is not None else None,
                         "wins": p["wins"], "from": "range.db closed paper rounds (EV per round)"}
+    except Exception:  # noqa: BLE001
+        pass
+    try:   # 11.11.: the momentum base rate (every signal, traded or not; EV of the exit rules after cost)
+        from momentum import view
+        rec = view.record(now)
+        out["momentum"] = rec if rec["n"] else None
     except Exception:  # noqa: BLE001
         pass
     return out
@@ -844,6 +857,13 @@ def build(now=None, src=None, details=True):
                                  "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts")}
         r["range"] = z
         r["count"]["range"] = 1
+    # 11.11. momentum_scalp signals (momentum/): every entry rule met in the last 15 min
+    for t in safe("momentum", lambda: S.momentum(now), []):
+        r = row(t["token"], t.get("symbol"))
+        r["sources"]["momentum"] = {k: t.get(k) for k in ("signal_id", "ts", "mcap_usd", "change_5m_pct", "volume_x",
+                                                           "buy_share_5m", "unique_buyers_5m")}
+        r["count"]["momentum"] = 1
+        r["sig"].append((int(t["ts"]), t.get("mcap_usd"), "momentum"))
     # the live list's own sources
     for t in safe("tool", lambda: S.tool_rows(now), []):
         r = row(t["token"], t.get("symbol"))
@@ -1044,6 +1064,10 @@ def exit_plan(r, ov, lim, S):
                                  {"at_mc_usd": mc["range_high_top"], "sell_share": 0.5}],
                 "stop": {"at_mc_usd": round(mc["range_low_low"] * 0.85)},
                 "reason": "raspon: pola van na range_high_low, ostatak na range_high_top, stop range_low_low × 0,85"}
+    if "momentum" in r["sources"]:   # 11.11. momentum_scalp's own exits (momentum/rules.py)
+        return {"take_profits": [{"at_pct": 15, "sell_share": 0.5}], "trailing": {"activate_pct": 15, "trail_pct": 8},
+                "stop": {"at_pct": -10}, "time_stop": {"after_min": 45, "if_pnl_below_pct": 1000},
+                "reason": "momentum: pola van na +15 %, ostatak trailing 8 % od vrha, stop -10 %, van nakon 45 min"}
     sl_cap = min(30.0, float(lim.get("sl_default") or 30.0))
     cal = (r["sources"].get("caller") or {}).get("callers") or []
     if cal:
