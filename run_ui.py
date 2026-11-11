@@ -653,6 +653,11 @@ class Handler(BaseHTTPRequestHandler):
                 _error_html()   # the traceback to the log under a reference; the box only greys out
                 return self._send(500, b"")
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path.startswith(("/pravi-trade/api/", "/pravi-trade/l/", "/pravi-trade/static/")):
+            # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the first view as JSON, the shared live tick (SSE
+            # and the 5-s poll), the chart's candles, the parts loaded on scroll and the page's static files. All
+            # read-only GETs with the page's access; a failure is a 500 with no text (the block greys out).
+            return self._apterm(path, qs)
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
@@ -1305,6 +1310,83 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "public, max-age=86400")
         self.end_headers()
         self.wfile.write(body)
+
+    def _apterm(self, path, qs):
+        """GET /pravi-trade/api/{first,tick,candles,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
+        (ui/apterm.py). Same access as the page (403 for anybody else); nothing here writes or trades."""
+        from ui import apterm
+        user = getattr(self, "user", None)
+        if path.startswith("/pravi-trade/static/"):
+            asset = apterm.static_asset(path[len("/pravi-trade/static/"):])
+            if not asset:
+                return self._send(404, b"", "text/plain")
+            raw, gz, ctype, ver = asset
+            zipped = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            out = gz if zipped else raw
+            self.send_response(200)
+            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+            self.send_header("Content-Length", str(len(out)))
+            # the page links the file with ?v=<hash of its content>: a new deploy is a new address, so a year is safe
+            self.send_header("Cache-Control", "private, max-age=31536000, immutable" if qs.get("v") == ver else "no-cache")
+            self.send_header("ETag", f'"{ver}"')
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            try:
+                return self.wfile.write(out)
+            except (BrokenPipeError, ConnectionResetError):
+                return None
+        if path == "/pravi-trade/api/stream":
+            return self._ap_stream(qs)
+        try:
+            if path == "/pravi-trade/api/first":
+                body, ctype = apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1"), "application/json"
+            elif path == "/pravi-trade/api/tick":
+                body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
+            elif path == "/pravi-trade/api/candles":
+                d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
+                body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"
+            elif path.startswith("/pravi-trade/l/"):
+                body, ctype = apterm.lazy(path[len("/pravi-trade/l/"):], user, qs), "text/html"
+                if body == "":
+                    return self._send(404, b"", "text/plain")
+            else:
+                return self._send(404, b"", "text/plain")
+        except Exception:  # noqa: BLE001
+            _error_html()   # the traceback to the log under a reference; the block only greys out
+            return self._send(500, b"", "text/plain")
+        if body is None:
+            return self._send(403, b"", "text/plain")
+        return self._send(200, body.encode("utf-8"), ctype)
+
+    def _ap_stream(self, qs):
+        """GET /pravi-trade/api/stream: Server-Sent Events of the shared live tick (ui/apterm.stream). At most
+        apterm.STREAM_MAX at once (each holds one thread of this server); one more gets 503 and the browser polls
+        /pravi-trade/api/tick every 5 s instead. A stream ends after apterm.STREAM_MAX_S (the browser reconnects)."""
+        from ui import apterm
+        if not apterm.can_view(getattr(self, "user", None)):
+            return self._send(403, b"", "text/plain")
+        if not apterm.stream_slot():
+            self.send_response(503)
+            self.send_header("Retry-After", str(apterm.POLL_S))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        try:
+            self.send_response(200)
+            for k, v in apterm.STREAM_HEADERS:
+                self.send_header(k, v)
+            self.end_headers()
+            for chunk in apterm.stream(qs.get("m", "")):
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass   # the viewer left: the slot is freed below
+        finally:
+            apterm.stream_release()
+        return None
 
     def _redirect(self, location, cookie=None, code=303):
         self.send_response(code)

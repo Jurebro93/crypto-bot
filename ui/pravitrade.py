@@ -4480,6 +4480,18 @@ def _with_toggle(html_body):
 
 
 def page(qs, user):
+    """11.11. (Jure: "brzo, pregledno, svježe, na svakom uređaju"): the page is the trading terminal of ui/apterm.py
+    (chart + tables left, the order panel right, the rest loaded when it comes into view). Every form still posts to
+    post() below with the same fields. ?stari=1 shows the page as it was (page_classic), for a comparison while the
+    new one settles in; ?sve=1 renders every lazy part into the page (no JavaScript)."""
+    qs = qs if isinstance(qs, dict) else {}
+    if qs.get("stari") == "1":
+        return page_classic(qs, user)
+    from ui import apterm
+    return apterm.page(qs, user)
+
+
+def page_classic(qs, user):
     """10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4 and the mock-up audit/2026-11-10/makete/autopilot.html, in
     the order of audit/2026-11-10/dizajn.md section 2; 10.11. 20:41 the trade first): the header (title with the
     owner's switch, one state line, the wallet's value as one big number) with the chart; Grok's trade requests that

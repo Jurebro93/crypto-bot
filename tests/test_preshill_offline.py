@@ -528,9 +528,10 @@ class Card(ApBase):
         ec.commit()
         ec.close()
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
-        _, body = pravitrade.page({}, "Jure")
+        self.assertNotIn("id=preshill", pravitrade.page({}, "Jure")[1])                 # 11.11.: lazy (ui/apterm)
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         at = body.index('id=preshill')
-        self.assertGreater(at, body.index(">Još<"))                                     # under "Još"
+        self.assertGreater(at, body.index("id=apx-ostalo"))                            # under "Postavke i dijagnostika"
         tag = body[body.rindex("<details", 0, at):body.index(">", at)]
         self.assertNotIn(" open", tag)                                                    # closed
         self.assertIn("Kupci prije shill mreže", body)
@@ -539,7 +540,7 @@ class Card(ApBase):
         self.assertIn("prvi shill call", body)
         h2s = re.findall(r"<h2[^>]*>", body)
         self.assertEqual([h for h in h2s if 'data-sec=""' not in h and "nosec" not in h], [])   # no chip bar
-        _, viewer = pravitrade.page({}, "Ivan")
+        _, viewer = pravitrade.page({"sve": "1"}, "Ivan")
         self.assertNotIn("id=preshill", viewer)                                           # owner only
 
 

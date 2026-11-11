@@ -268,7 +268,7 @@ class Tools(Base):
         self.assertIn("error", mcpdata.submit_caller_weights([{"handle": "x", "weight": 3}]))   # the 0-2 check
         self.assertIn("error", mcpdata.submit_caller_weights([]))
         self.assertNotIn("x", settings.raw(self.con)["caller_weights"])
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: every lazy part rendered in (ui/apterm)
         self.assertNotIn("težina callera ansem (x) → 1.5", body)                   # nothing waits for a tap
 
     def test_8b_waiting_weights_applied_once_at_start(self):
@@ -431,15 +431,15 @@ class AssistantNotes(Base):
                                              "proposed_change": {"key": "tp_default", "from": 15, "to": 30}})[0]["id"]
         n2 = self.call("submit_suggestion", {"title": "Drugo", "interpretation": "x"})[0]["id"]
         n3 = self.call("submit_suggestion", {"title": "Treće", "interpretation": "y"})[0]["id"]
-        _, body = pravitrade.page({}, "Jure")
-        self.assertIn("Sažetak utorka", body)                                   # the newest summary at the top
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: summary and suggestions are lazy (ui/apterm)
+        self.assertIn("Sažetak utorka", body)                                   # the newest summary
         self.assertIn("Prijedlozi asistenta", body)
         self.assertIn("tp_default: 15 → 30", body)
         self.assertIn("formaction=/pravi-trade/asapply", body)
-        self.assertIn("Grok: dobar", body)                                      # the closed trade's review
+        self.assertIn("Grok: dobar", body)                                      # the closed trade's review (Povijest)
         self.assertIn("Lijep TP", body)
         settings.put(self.con, "invited", ["gost"], "Jure")
-        guest = pravitrade.page({}, "gost")[1]
+        guest = pravitrade.page({"sve": "1"}, "gost")[1]
         self.assertNotIn("Prijedlozi asistenta", guest)
         self.assertNotIn("Sažetak utorka", guest)
         self.assertIn("ok=", pravitrade.post("/pravi-trade/asapply", {"id": str(n1), "note": "ok"}, "Jure"))

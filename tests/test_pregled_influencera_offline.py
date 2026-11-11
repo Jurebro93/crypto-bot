@@ -99,7 +99,7 @@ class Review(unittest.TestCase):
         pravitrade._LIVE_CACHE.clear()
         pravitrade._LIVE_FAIL.clear()
         followreview.review(self.lc, self.tc, NOW, mcon=self.mc)
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: under Postavke (ui/apterm, lazy)
         self.assertIn("Pregled influencera", body)
         self.assertIn("action=/pravi-trade/reviewback", body)
         loc = unquote(pravitrade.post("/pravi-trade/reviewback", {"id": str(self.ids["gubitnik"])}, "Jure"))

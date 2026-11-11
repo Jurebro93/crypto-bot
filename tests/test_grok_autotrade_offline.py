@@ -142,7 +142,7 @@ class Grok(Base):
         self.assertEqual(cfg["grok_autotrade"]["limits"]["grok_max_open"], 2)
 
     def test_page_block_with_label_and_kill_button_only_while_on(self):
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the setup is under Postavke (ui/apterm, lazy)
         self.assertNotIn("Ugasi Grok autotrade", body)
         self.assertIn("Uključi Grok autotrade", body)
         self.post("/pravi-trade/grokon", {})
@@ -150,7 +150,9 @@ class Grok(Base):
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("Ugasi Grok autotrade", body)
         self.assertIn("<span class=ap-tag>Grok auto</span> kupnja", body)
-        self.assertLess(body.index("id=pozicije"), body.index("id=grok-auto"))
+        # 11.11. (ui/apterm): while it is on, the block with its red "Ugasi" is in the title bar's alerts, above the
+        # tables, in the first HTML (a kill switch is never lazy)
+        self.assertLess(body.index("id=grok-auto"), body.index("id=pozicije"))
         self.assertNotIn("Ugasi Grok autotrade", pravitrade.page({}, "netko")[1])
         self.assertEqual(pravitrade._who("Grok auto (MCP)"), "Grok auto")
 

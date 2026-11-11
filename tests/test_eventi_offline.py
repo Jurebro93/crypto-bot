@@ -460,7 +460,7 @@ class Card(ApBase):
     def test_closed_under_jos_below_dnevnik_owner_only(self):
         from ui import pravitrade
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: sve=1 renders the lazy parts (ui/apterm)
         self.assertNotIn("id=eventi", body)                                 # flag off: no card
         settings.put(self.con, "flag:event_tokens", {"mode": "shadow", "since": NOW})
         settings._FLAG_CACHE.clear()
@@ -468,11 +468,12 @@ class Card(ApBase):
         view.submit("GTA6", buzz_score=80, kid="mcp:k1", now=NOW + 900)
         Base.token(self, tid, GTA6, "main", "GTA6", metrics={"mcap": 450_000})
         Base.token(self, tid, CLONE, "clone", "GTA6X")
-        _, body = pravitrade.page({}, "Jure")
+        self.assertNotIn("id=eventi", pravitrade.page({}, "Jure")[1])      # 11.11.: never in the first HTML
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         at = body.index("id=eventi")
         tag = body[body.rindex("<details", 0, at):body.index(">", at)]
         self.assertNotIn(" open", tag)                                      # closed
-        self.assertGreater(at, body.index(">Još<"))                          # under "Još"
+        self.assertGreater(at, body.index("id=apx-ostalo"))                  # under "Postavke i dijagnostika"
         self.assertGreater(at, body.index("id=dnevnik"))                     # nothing above Dnevnik
         card = body[body.rindex("<details", 0, at):]
         self.assertIn("Eventi", card)
@@ -482,7 +483,7 @@ class Card(ApBase):
         self.assertIn("↑", card)
         h2s = re.findall(r"<h2[^>]*>", body)
         self.assertEqual([h for h in h2s if 'data-sec=""' not in h and "nosec" not in h], [])   # no chip bar
-        self.assertNotIn("id=eventi", pravitrade.page({}, "Ivan")[1])       # owner only
+        self.assertNotIn("id=eventi", pravitrade.page({"sve": "1"}, "Ivan")[1])   # owner only
 
 
 if __name__ == "__main__":
