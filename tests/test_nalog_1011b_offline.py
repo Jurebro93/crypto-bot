@@ -202,7 +202,7 @@ class CapForm(Base):
         self.assertEqual((raw["dca_token_cap"], raw["dca_cap_owner"]), (0.5, True))
         pravitrade.post("/pravi-trade/limits", dict(form, dca_token_cap="0.3"), "Jure")
         self.assertFalse(settings.raw(self.tc)["dca_cap_owner"])
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: Pravila is under Postavke (ui/apterm, lazy)
         self.assertIn("Najviše SOL po tokenu (tvoje kupnje i DCA)", body)
 
 

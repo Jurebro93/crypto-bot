@@ -1,0 +1,29 @@
+[
+ {
+  "width": 375,
+  "file": "prije-375.png",
+  "scrollWidth": 375,
+  "innerWidth": 375,
+  "height": 3427,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 768,
+  "file": "prije-768.png",
+  "scrollWidth": 768,
+  "innerWidth": 768,
+  "height": 3221,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 1440,
+  "file": "prije-1440.png",
+  "scrollWidth": 1440,
+  "innerWidth": 1440,
+  "height": 3177,
+  "noHorizontalScroll": true,
+  "errors": []
+ }
+]

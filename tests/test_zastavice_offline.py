@@ -470,7 +470,7 @@ class Page(Base):
 
     def test_the_owner_sets_a_flag_and_live_is_refused_with_the_reason(self):
         from ui import pravitrade
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: under Postavke (ui/apterm, lazy)
         self.assertIn("Zastavice plana", body)
         self.assertIn("sve isključeno", body)
         self.assertIn("action=/pravi-trade/flag", body)
@@ -483,7 +483,7 @@ class Page(Base):
         self.assertIn("backtest", loc)
         self.assertIn("err=", pravitrade.post("/pravi-trade/flag", {"name": "dca_guard", "mode": "live"}, "netko"))
         self.assertEqual(settings.flag("dca_guard", con=self.con), "shadow")
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("1 od", body)
 
     def test_others_see_the_modes_but_no_form(self):

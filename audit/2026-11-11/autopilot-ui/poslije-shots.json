@@ -1,0 +1,29 @@
+[
+ {
+  "width": 375,
+  "file": "poslije-375.png",
+  "scrollWidth": 375,
+  "innerWidth": 375,
+  "height": 3219,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 768,
+  "file": "poslije-768.png",
+  "scrollWidth": 768,
+  "innerWidth": 768,
+  "height": 2350,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 1440,
+  "file": "poslije-1440.png",
+  "scrollWidth": 1440,
+  "innerWidth": 1440,
+  "height": 2204,
+  "noHorizontalScroll": true,
+  "errors": []
+ }
+]
