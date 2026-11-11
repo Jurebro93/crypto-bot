@@ -393,10 +393,19 @@ def wins(path=None, lbs=None, now=None):
     11.11. (Jure: HAOBIBI rugged after it was labelled): a reference for the similarity is only a "win" label older
     than REF_MIN_AGE_S whose token got no hard block since (invalidate() turns such a label into "rug")."""
     now = now or time.time()
+    void = _void()   # 11.11. evening: a rug by any label voids the counterfactual win (rugfilter/labels)
     return [{"token": lb["token"], "symbol": lb.get("symbol"), "features": (lb.get("data") or {}).get("features") or {}}
             for lb in (labels(path) if lbs is None else lbs)
             if lb.get("label") == "win" and (lb.get("data") or {}).get("features")
-            and now - int(lb.get("ts") or now) >= REF_MIN_AGE_S]
+            and now - int(lb.get("ts") or now) >= REF_MIN_AGE_S and lb["token"] not in void]
+
+
+def _void():
+    try:
+        from rugfilter import labels as rlabels
+        return rlabels.void_set()
+    except Exception:  # noqa: BLE001
+        return frozenset()
 
 
 # ---------- 11.11. (Jure: "HAOBIBI je RUGAN u 12:51"): a hard block ends a pin and a counterfactual win ------------
@@ -481,7 +490,12 @@ def auto_check(lcon, market_fn=None, now=None, log=print):
             settings.put(tcon, f"owner_invalidate:{t}", now, "Jure")
     finally:
         tcon.close()
-    toks = set(pins(fresh=True)) | {lb["token"] for lb in labels(label="win")}
+    wins_ = {lb["token"] for lb in labels(label="win")}
+    toks = set(pins(fresh=True)) | wins_
+    void = _void() & wins_   # 11.11. evening: a stored rug label (any version) voids a win even when the market is calm
+    for t in sorted(void):
+        done += invalidate(lcon, t, "rug po oznaci (stara ili nova, rugfilter/labels): pobjeda poništena", now, log)
+        toks.discard(t)
     q = {}
     if market_fn and (toks or todo):
         try:

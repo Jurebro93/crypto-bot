@@ -7,37 +7,37 @@ judges what *happened*: we compare the newest market cap and liquidity with the 
 token in the last `WINDOW_H` hours (hype scans and the 2-minute pulse).
 
 11.11. (Jure: "rugan" meant only "70 %+ under the peak"; X (CccS…y1eU), labelled rugan, was later at $387k, +155 %
-from the call): the owner's rule. 11.11. evening (Jure: "mjeri pad likvidnosti na SOL (quote) strani poola, ne u
-USD"), measured on the pool itself. In a constant-product pool (pump.fun migrated to PumpSwap, Raydium AMM / CPMM,
-Meteora DYN) the SOL reserve is y = L * sqrt(p), with L = sqrt(x * y) the pool's invariant and p the price in SOL. An
-organic -85 % dump with no LP removed leaves L as it was and cuts the SOL side to sqrt(0.15) = 0.387 of its peak
-(-61 %): "SOL side -50 %" alone would call a plain dump (X) a rug. Pulling LP lowers L, whatever the price does. So a
-token is RUGGED only when
-  - its pool invariant L = sol_reserve / sqrt(price_in_sol) fell LIQ_RUG (50 %) or more from its peak (LP removed;
-    no price condition: L does not move with the price), OR
-  - it crashed (DROP, 70 %+ under the peak) AND the dev or a top holder is selling, or the rug filter rates it high
+from the call), then 11.11. evening the owner's rule as he finally wrote it ("Prag 'SOL strana -50 %' na x*y=k poolu
+hvata i čisti dump (pad cijene 75 % → SOL -50 %). Rug je izvučena likvidnost, pa mjeri višak"). In a constant-product
+pool the SOL side is y = L * sqrt(p): a price move alone changes it by sqrt(p_end / p_start). So (sol_v2, judge_v2):
+  expected SOL ratio = sqrt(price_end / price_start), actual SOL ratio = SOL_end / SOL_start;
+  RUGGED when actual / expected <= EXCESS_RUG (0.5: half the SOL left beyond what the price explains; the quotient
+    is L_end / L_start), the start being the first snapshot, or the first one after liquidity was added or the pool
+    migrated (L up more than LP_ADD between two snapshots, or a different pool), OR
+  the price fell PRICE_CRASH (90 %) or more and the SOL side SOL_CRASH (90 %) or more (a total collapse: XTO, FOTF,
+    GTA, HERO, where the price ratio is ~0 and the quotient says nothing), OR
+  it crashed (DROP, 70 %+ under the peak) AND the dev or a top holder is selling, or the rug filter rates it high
     risk (rug_evidence: rug.db's newest report VISOK RIZIK / ODBAČEN on anything but thin liquidity, "dev je
     prodao" / "dev je prebacio"; range.db's transfer holders net-selling, rangedca/holders).
-  For a pool whose L is not constant (concentrated liquidity: Meteora DLMM / DAMM v2, Raydium CLMM, Orca whirlpool;
-  a bonding curve; is_cp) the SOL side itself is the measure, -50 % with the price at least half down, and the
-  reason says "ne-CP pool".
-A crash without any of that is a "dump nakon pumpe" (kind "dump"): not a block, only a P modifier x 0.7 where the
-old label blocked (ui/kandidati, proposals/build, fast/decide through trade/edge.modifiers(dump=...)).
-Where L comes from (pool_drops): the SOL side and the price in SOL the hype scan stores in token_pulse (liq_sol,
-price_native, pool, dex from DexScreener liquidity.quote / priceNative, hype/pulse.record), compared within the same
-pool; otherwise from the USD numbers every snapshot has, L ~ liquidity_usd / sqrt(mcap * SOL/USD) (the supply is
-constant, SOL/USD per day from market.db), and with only peak / now numbers (judge without `pool`) from those, as if
-the liquidity and the market cap peaked together. Every result also carries the plain SOL-side fall ("sol_drop") and
-what the owner's literal rule would have said ("sol_rule"), for the comparison in rugfilter/relabel.
-check() returns only the rug, so every caller that blocked on it keeps blocking, under the new rule; assess()
-returns the rug or the dump. Nothing stored is rewritten: the check is recomputed on every look. rugfilter/archive
-keeps its own cleanup rule (judge_legacy, unchanged); its stored kinds are read through the new rule (archive.kinds,
-rugfilter/relabel next to the old label).
+Everything else that fell 70 %+ is a "dump nakon pumpe" (kind "dump"): not a block, only a P modifier x 0.7 (ui/kandidati,
+proposals/build, fast/decide through trade/edge.modifiers(dump=...)). A non-CP pool (concentrated liquidity, a bonding
+curve; is_cp) is judged the same way and the reason says "ne-CP pool".
+Where the numbers come from (pool_drops, Track): the hype scan's token_pulse (liq_sol = DexScreener liquidity.quote,
+price_native, pool, dex; hype/pulse.record), compared only within the newest pool; for older rows and tokens without a
+pulse, liquidity_usd / 2 / the day's SOL price (market.db) with mcap / SOL price as the price, marked as an estimate
+("sol_measured" False, "procjena iz USD"); with only peak / now numbers (judge without `pool`) the peak is the start.
+Until the owner's switch rug_labels_v2_ok (rugfilter/labels) a token blocks when ANY version says rug: usd (11.11.
+noon, judge_usd), pool_v1 (PR #140: L 50 %+ under its peak, judge_pool_v1) or sol_v2; "kinds" carries all three.
+check() returns only the rug, so every caller that blocked on it keeps blocking; assess() returns the rug or the dump.
+Nothing stored is rewritten: the check is recomputed on every look. rugfilter/archive keeps its own cleanup rule
+(judge_legacy, unchanged); its stored kinds are read through the same versions (archive.kinds, rugfilter/relabel next
+to the old labels).
 
 If a collapsed token later climbs back above `RECOVER` of its peak it is shown again (the check is recomputed on
 every look, nothing is stored).
 """
 import bisect
+import collections
 import json
 import math
 import os
@@ -48,7 +48,11 @@ WINDOW_H = 24
 DROP = 0.70          # market cap at least 70% below the peak seen in WINDOW_H -> collapsed (a dump; a rug with evidence)
 LIQ_DROP = 0.60      # judge_legacy (rugfilter/archive's cleanup): liquidity at least 60% below its peak ...
 LIQ_PRICE_DROP = 0.50  # ... together with market cap at least 50% below its peak (liquidity pulled)
-LIQ_RUG = 0.50       # 11.11.: a rug when the pool invariant L (CP) / the SOL side (non-CP) fell this much from its peak
+LIQ_RUG = 0.50       # pool_v1 (PR #140): a rug when the pool invariant L fell this much from its peak
+EXCESS_RUG = 0.50    # sol_v2 (11.11. evening): a rug when actual SOL ratio / expected (sqrt of the price ratio) <= this
+PRICE_CRASH = 0.90   # sol_v2: ... or the price this much from the peak
+SOL_CRASH = 0.90     # ... together with the SOL side this much
+LP_ADD = 0.20        # L up more than this between two snapshots: liquidity added / a migration, the start moves there
 RECOVER = 0.50       # recomputed each time; above half of the peak it is no longer collapsed
 MIN_PEAK_MCAP = 5000  # below this nothing meaningful to compare
 DUMP = "dump nakon pumpe"
@@ -119,81 +123,142 @@ def pair_pool(p, sol_usd=None):
 
 
 def approx_pool(peak_mcap, now_mcap, peak_liq, now_liq):
-    """pool dict from peak / now numbers only (judge called without a series): L ~ liquidity / sqrt(mcap), as if the
-    liquidity and the market cap peaked together; the SOL side ~ the USD liquidity (SOL/USD taken as steady)."""
-    out = {"l_drop": None, "sol_drop": None, "cp": None, "src": "vrhovi", "empty": False}
+    """pool dict from peak / now numbers only (judge called without a series): the peak stands in for the start
+    snapshot, the SOL side ~ the USD liquidity / 2 (SOL/USD taken as steady, an estimate), so the actual SOL ratio is
+    now_liq / peak_liq, the expected one sqrt(now_mcap / peak_mcap) and their quotient L_now / L_peak."""
+    out = {"ratio": None, "actual": None, "expected": None, "l_drop": None, "sol_drop": None, "sol_drop_peak": None,
+           "sol_first": None, "sol_last": None, "sol_low": None, "sol_peak": None, "reset": False, "measured": False,
+           "cp": None, "src": "vrhovi", "empty": False}
     if not peak_liq or now_liq is None:
         return out
-    out["sol_drop"] = 1 - now_liq / peak_liq
+    actual = now_liq / peak_liq
+    out.update(actual=actual, sol_drop=1 - actual, sol_drop_peak=1 - actual)
     if now_liq <= 0:
-        out.update(l_drop=1.0, empty=True)
+        out.update(ratio=0.0, l_drop=1.0, empty=True)
     elif now_mcap and now_mcap > 0 and peak_mcap and peak_mcap > 0:
-        out["l_drop"] = 1 - (now_liq / peak_liq) * math.sqrt(peak_mcap / now_mcap)
+        exp = math.sqrt(now_mcap / peak_mcap)
+        out.update(expected=exp, ratio=actual / exp, l_drop=1 - actual / exp)
     return out
-
-
-def literal_kind(drop, sol_drop, evidence=None):
-    """What the owner's literal words of 11.11. evening would say: "rug" = SOL side -50 % or more, or 70 %+ down with
-    the dev / a top holder selling or a high rug risk; "dump" = 70 %+ down otherwise; None. Only for comparison."""
-    if sol_drop is not None and sol_drop >= LIQ_RUG:
-        return "rug"
-    if drop is not None and drop >= DROP:
-        return "rug" if evidence else "dump"
-    return None
 
 
 def _pct(x):
     return f"{x:.0%}" if x is not None else "?"
 
 
+def _sol(x):
+    return "?" if x is None else (f"{x:,.1f}" if x < 1000 else f"{x:,.0f}")
+
+
 def _nonc(pool):
     return f"ne-CP pool {pool.get('dex')}" if pool.get("dex") else "ne-CP pool"
 
 
-def judge(peak_mcap, now_mcap, peak_liq=None, now_liq=None, evidence=None, pool=None):
-    """None, or {"kind": "rug" | "dump", "drop", "liq_drop", "l_drop", "sol_drop", "cp", "dex", "basis", "sol_rule",
-    "text"} under the pool rule (module text). pool: pool_drops() of the token's series; without it L comes from the
-    peak / now numbers (approx_pool). evidence: the Croatian line of the dev / a top holder selling or the rug filter's
-    high risk (rug_evidence), which turns a crash into a rug. Plain Croatian text for the dashboard."""
+def judge_v2(drop, pool, evidence=None):
+    """(kind, why) under the owner's rule of 11.11. evening (sol_v2): why "višak" = more SOL left the pool than the
+    price explains: actual SOL ratio (SOL_end / SOL_start) / expected (sqrt(price_end / price_start)) <= EXCESS_RUG,
+    i.e. L_end / L_start <= 0.5, the start being the first snapshot or the first after an LP add / a migration;
+    "90/90" = the price PRICE_CRASH and the SOL side SOL_CRASH or more down; "dokaz" = 70 %+ down with the dev / a top
+    holder selling or a high rug risk; else a 70 %+ fall is ("dump", None) and anything less (None, None). An empty
+    pool (liquidity 0) counts only with a real fall."""
+    ratio, sd, sdp = pool.get("ratio"), pool.get("sol_drop"), pool.get("sol_drop_peak")
+    if ratio is not None and ratio <= EXCESS_RUG and (not pool.get("empty") or drop >= 1 - RECOVER):
+        return "rug", "višak"
+    if drop >= PRICE_CRASH and max(sd or 0, sdp or 0) >= SOL_CRASH:
+        return "rug", "90/90"
+    if drop >= DROP:
+        return ("rug", "dokaz") if evidence else ("dump", None)
+    return None, None
+
+
+def judge_pool_v1(drop, pool, evidence=None):
+    """The 11.11. afternoon rule (PR #140, pool_v1): the pool invariant L 50 %+ down from its PEAK (CP; no price
+    condition), for a non-CP pool the SOL side from its peak with the price half down; kept for the stricter label
+    until the owner's switch (rugfilter/labels) and for the relabel's comparison. "rug" | "dump" | None."""
+    l_drop, sdp, cp = pool.get("l_drop"), pool.get("sol_drop_peak"), pool.get("cp")
+    if cp is False:
+        pulled = sdp is not None and sdp >= LIQ_RUG and drop >= 1 - RECOVER
+    else:
+        pulled = l_drop is not None and l_drop >= LIQ_RUG and (not pool.get("empty") or drop >= 1 - RECOVER)
+    if pulled:
+        return "rug"
+    if drop >= DROP:
+        return "rug" if evidence else "dump"
+    return None
+
+
+def sol_line(pool):
+    """"SOL strana -61 % (85.0 → 32.9 SOL), očekivano 0,39 po cijeni, stvarni / očekivani 1,00" (Croatian)."""
+    a, e, r = pool.get("actual"), pool.get("expected"), pool.get("ratio")
+    if a is None:
+        return "SOL strana nepoznata"
+    if pool.get("src") == "vrhovi":   # only peak / now USD numbers: no SOL amounts to show
+        head = f"SOL strana {a - 1:+.0%} (procjena iz USD likvidnosti, vrh → sada)"
+    else:
+        head = (f"SOL strana {a - 1:+.0%} ({_sol(pool.get('sol_first'))} → {_sol(pool.get('sol_last'))} SOL"
+                + ("" if pool.get("measured") else ", procjena iz USD") + ")")
+    tail = (f", očekivano {e:.2f} po cijeni, stvarni / očekivani {r:.2f}".replace(".", ",")
+            if e is not None and r is not None else "")
+    if pool.get("reset"):
+        tail += ", od snimke nakon dodavanja likvidnosti / migracije"
+    if pool.get("cp") is False:
+        tail += f", {_nonc(pool)}"
+    return head + tail
+
+
+def judge(peak_mcap, now_mcap, peak_liq=None, now_liq=None, evidence=None, pool=None, strict=None):
+    """None, or {"kind", "kinds": {"usd", "pool_v1", "sol_v2"}, "rule", "why", "drop", "liq_drop", "ratio", "actual",
+    "expected", "l_drop", "sol_drop", "sol_drop_peak", "sol_first", "sol_last", "sol_low", "sol_measured", "reset", "cp",
+    "dex", "basis", "sol_rule", "text"}. kind is what blocks: until the owner's switch rug_labels_v2_ok
+    (rugfilter/labels) the STRICTER of the three versions (a rug if any says rug), then sol_v2 alone. pool:
+    pool_drops() of the token's series; without it the start is the peak and the SOL side the USD liquidity / 2
+    (approx_pool, an estimate). evidence: the Croatian line of the dev / a top holder selling or the rug filter's high
+    risk (rug_evidence). Plain Croatian text for the dashboard."""
     if not peak_mcap or peak_mcap < MIN_PEAK_MCAP or now_mcap is None or now_mcap < 0:
         return None
+    from rugfilter import labels
     drop = 1 - now_mcap / peak_mcap
     liq_drop = (1 - (now_liq or 0) / peak_liq) if peak_liq and now_liq is not None else None
     pool = pool or approx_pool(peak_mcap, now_mcap, peak_liq, now_liq)
-    l_drop, sol_drop, cp = pool.get("l_drop"), pool.get("sol_drop"), pool.get("cp")
-    if cp is False:   # L is not constant in this pool: the SOL side, with the price at least half down
-        pulled = sol_drop is not None and sol_drop >= LIQ_RUG and drop >= 1 - RECOVER
-    else:             # an empty pool (liquidity 0) is a rug only together with a real fall, as before
-        pulled = l_drop is not None and l_drop >= LIQ_RUG and (not pool.get("empty") or drop >= 1 - RECOVER)
-    if not pulled and drop < DROP:
+    v2, why = judge_v2(drop, pool, evidence)
+    kinds = {"usd": (judge_usd(peak_mcap, now_mcap, peak_liq, now_liq, evidence) or {}).get("kind"),
+             "pool_v1": judge_pool_v1(drop, pool, evidence), "sol_v2": v2}
+    strict = labels.strict() if strict is None else strict
+    kind = labels.effective(kinds, strict)
+    if kind is None:
         return None
-    out = {"drop": round(drop, 3), "liq_drop": None if liq_drop is None else round(liq_drop, 3),
-           "l_drop": None if l_drop is None else round(l_drop, 3),
-           "sol_drop": None if sol_drop is None else round(sol_drop, 3), "cp": cp, "dex": pool.get("dex"),
-           "basis": pool.get("src"), "sol_rule": literal_kind(drop, sol_drop, evidence)}
-    fell = f"srušio se {drop:.0%} od vrha ({_k(peak_mcap)} → {_k(now_mcap)})"
-    if pulled:
-        how = (f"SOL strana poola {_pct(sol_drop)} manja ({_nonc(pool)})" if cp is False
-               else f"pool (L) {_pct(l_drop)} manji od vrha, SOL strana {_pct(sol_drop)} manja")
-        return {"kind": "rug", **out, "text": f"izvučena likvidnost: {how}; pad {drop:.0%} od vrha "
-                                              f"({_k(peak_mcap)} → {_k(now_mcap)})"}
-    if evidence:
-        return {"kind": "rug", **out, "text": f"{fell}; {evidence}"}
-    if cp is False:
-        liq = f"SOL strana {_pct(sol_drop)} manja ({_nonc(pool)})"
-    elif l_drop is None:
-        liq = "likvidnost nepoznata"
-    else:
-        hold = "pool drži" if l_drop < 0.2 else f"pool {l_drop:.0%} manji"
-        why = " (pad cijene, ne izvlačenje)" if l_drop < 0.2 and (sol_drop or 0) >= 0.4 else ""
-        liq = f"{hold}, SOL strana {_pct(sol_drop)} manja{why}" if sol_drop is not None else hold
-    return {"kind": "dump", **out, "text": f"{DUMP}: pao {drop:.0%} od vrha ({_k(peak_mcap)} → {_k(now_mcap)}), {liq}, "
-                                         "bez prodaje deva i visokog rug rizika"}
+
+    def r3(k):
+        return None if pool.get(k) is None else round(pool[k], 3)
+    out = {"kind": kind, "kinds": kinds, "rule": "stroža" if strict else "sol_v2", "why": why, "drop": round(drop, 3),
+           "liq_drop": None if liq_drop is None else round(liq_drop, 3), "ratio": r3("ratio"), "actual": r3("actual"),
+           "expected": r3("expected"), "l_drop": r3("l_drop"), "sol_drop": r3("sol_drop"),
+           "sol_drop_peak": r3("sol_drop_peak"), "sol_first": pool.get("sol_first"), "sol_last": pool.get("sol_last"),
+           "sol_low": pool.get("sol_low"), "sol_measured": bool(pool.get("measured")), "reset": bool(pool.get("reset")),
+           "cp": pool.get("cp"), "dex": pool.get("dex"), "basis": pool.get("src"), "sol_rule": v2,
+           # 11.11. hotfix (#141): "old" when only an older version (usd / pool_v1) makes it a rug
+           "strict": "old" if kind == "rug" and v2 != "rug" else None}
+    span = f"({_k(peak_mcap)} → {_k(now_mcap)})"
+    sl = sol_line(pool)
+    if kind == "rug":
+        if v2 == "rug" and why == "višak":
+            text = f"izvučena likvidnost: {sl}; pad {drop:.0%} od vrha {span}"
+        elif v2 == "rug" and why == "90/90":
+            text = (f"srušio se {drop:.0%} od vrha {span} i SOL strana "
+                    f"{_pct(max(pool.get('sol_drop') or 0, pool.get('sol_drop_peak') or 0))} manja (90/90); {sl}")
+        elif v2 == "rug":
+            text = f"srušio se {drop:.0%} od vrha {span}; {evidence}"
+        else:   # only an older version says rug: the stricter label holds until the owner confirms the relabel
+            old = [v for v in ("usd", "pool_v1") if kinds.get(v) == "rug"]
+            text = (f"stroža oznaka do potvrde novih ({', '.join(old)}): pad {drop:.0%} od vrha {span}, likvidnost "
+                    f"{_pct(liq_drop)} manja, {sl}; po novom pravilu {v2 or 'ništa'}")
+        return {**out, "text": text}
+    return {**out, "text": f"{DUMP}: pao {drop:.0%} od vrha {span}, {sl}, bez prodaje deva i visokog rug rizika"}
 
 
 def judge_usd(peak_mcap, now_mcap, peak_liq=None, now_liq=None, evidence=None):
-    """The rule of 11.11. noon (USD liquidity more than 50 % down = rug), kept ONLY so rugfilter/relabel can show what
-    the pool rule changed; nothing decides on it any more."""
+    """The rule of 11.11. noon (USD liquidity more than 50 % down = rug): the OLD label (usd). Until the owner's switch
+    rug_labels_v2_ok it is one of the three versions of the stricter label (judge) and the label statistics use
+    (rugfilter/labels.for_stats); rugfilter/relabel compares with it."""
     if not peak_mcap or peak_mcap < MIN_PEAK_MCAP or now_mcap is None or now_mcap < 0:
         return None
     drop = 1 - now_mcap / peak_mcap
@@ -320,36 +385,97 @@ def sol_usd_at(ts):
     return v
 
 
+class Track:
+    """The pool numbers of one token's series, point by point in time order (sol = SOL side, px = price in SOL or a
+    proxy proportional to it; L = sol / sqrt(px)): the START snapshot is the first one, or the first after an LP add /
+    a migration (L AND the SOL side both up more than LP_ADD between two snapshots: liquidity came in; a crash where
+    the price falls faster than the SOL side raises L without any SOL coming in, and must not move the start); from it
+    to the newest: the actual SOL ratio, the expected
+    one sqrt(px_end / px_start), their quotient (= L_end / L_start), the SOL side's lowest and peak; and L's peak over
+    the window for pool_v1. window_s: points older than that before the newest drop out (None: all stay)."""
+
+    def __init__(self, window_s=None):
+        self.window_s = window_s
+        self.win = collections.deque()      # (ts, sol, px, L, measured)
+        self.start = None
+        self.prev_L = self.prev_sol = None
+        self.reset = False
+        self.mx_sol, self.mx_L, self.mn_sol = collections.deque(), collections.deque(), collections.deque()
+        self.last = None
+
+    @staticmethod
+    def _push(q, ts, v, low=False):
+        while q and ((q[-1][1] >= v) if low else (q[-1][1] <= v)):
+            q.pop()
+        q.append((ts, v))
+
+    @staticmethod
+    def _expire(q, ts_min):
+        while q and q[0][0] < ts_min:
+            q.popleft()
+
+    def push(self, ts, sol, px, measured=False):
+        L = sol / math.sqrt(px) if px and px > 0 and sol > 0 else 0.0
+        pt = (ts, sol, px, L, measured)
+        self.win.append(pt)
+        if self.start is None or (self.prev_L and L > self.prev_L * (1 + LP_ADD)
+                                  and sol > self.prev_sol * (1 + LP_ADD)):
+            if self.start is not None:
+                self.reset = True
+            self.start = pt
+            self.mx_sol.clear()
+            self.mn_sol.clear()
+        if L > 0:
+            self.prev_L, self.prev_sol = L, sol
+        if self.window_s is not None:
+            lo = ts - self.window_s
+            while self.win and self.win[0][0] < lo:
+                self.win.popleft()
+            if self.start[0] < lo:          # the start fell out of the window: the oldest point in it
+                self.start = self.win[0]
+            self._expire(self.mx_L, lo)
+        self._expire(self.mx_sol, self.start[0])
+        self._expire(self.mn_sol, self.start[0])
+        self._push(self.mx_sol, ts, sol)
+        self._push(self.mn_sol, ts, sol, low=True)
+        self._push(self.mx_L, ts, L)
+        self.last = pt
+
+    def state(self):
+        """The pool dict judge_v2 / judge_pool_v1 read (None before the first point)."""
+        if self.last is None:
+            return None
+        f, z = self.start, self.last
+        fS, fp, fL = f[1], f[2], f[3]
+        lS, lp, lL = z[1], z[2], z[3]
+        pS = self.mx_sol[0][1] if self.mx_sol else lS
+        pL = self.mx_L[0][1] if self.mx_L else lL
+        actual = lS / fS if fS else None
+        expected = math.sqrt(lp / fp) if fp and fp > 0 and lp and lp > 0 else (0.0 if fp and fp > 0 else None)
+        ratio = lL / fL if fL and lL else (0.0 if fL and lS <= 0 else None)
+        return {"ratio": ratio, "actual": actual, "expected": expected, "sol_first": fS, "sol_last": lS,
+                "sol_low": self.mn_sol[0][1] if self.mn_sol else lS, "sol_peak": pS,
+                "sol_drop": 1 - actual if actual is not None else None, "sol_drop_peak": 1 - lS / pS if pS else None,
+                "l_drop": 1 - lL / pL if pL else None, "measured": bool(f[4] and z[4]), "reset": self.reset,
+                "start_ts": f[0], "empty": lS <= 0}
+
+
 def _series():
-    return {"u": None, "z": 0, "s": {}}
+    return {"u": [], "z": 0, "s": {}}
 
 
 def _fold(st, ts, mcap, liq, liq_sol=None, price_native=None, pool=None, dex=None):
-    """One snapshot into the pool state: u = the USD-based L (liquidity / sqrt(mcap * SOL/USD)) and the SOL side
-    (liquidity / 2 / SOL/USD) as [peak_L, last_L, peak_sol, last_sol, last_ts]; z = the newest ts with liquidity 0;
-    s = per pool the exact L (SOL side / sqrt(price in SOL)) as [peak_L, last_L, peak_sol, last_sol, last_ts, dex]."""
+    """One snapshot into the pool state (points, sorted when read: the rows come from two tables): u = the SOL side
+    estimated from USD (liquidity / 2 / SOL/USD) with the price proxy mcap / SOL/USD; z = the newest ts with liquidity
+    0; s = per pool the measured SOL side (DexScreener liquidity.quote) with the price in SOL."""
     if mcap and mcap > 0 and liq is not None:
         if liq > 0:
             sol = sol_usd_at(ts)
-            lu, ls = liq / math.sqrt(mcap * sol), liq / 2 / sol
-            u = st["u"]
-            if u is None:
-                st["u"] = [lu, lu, ls, ls, ts]
-            else:
-                u[0], u[2] = max(u[0], lu), max(u[2], ls)
-                if ts >= u[4]:
-                    u[1], u[3], u[4] = lu, ls, ts
+            st["u"].append((ts, liq / 2 / sol, mcap / sol))
         else:
             st["z"] = max(st["z"], ts)
     if liq_sol and liq_sol > 0 and price_native and price_native > 0:
-        L = liq_sol / math.sqrt(price_native)
-        v = st["s"].get(pool or "?")
-        if v is None:
-            st["s"][pool or "?"] = [L, L, liq_sol, liq_sol, ts, dex]
-        else:
-            v[0], v[2] = max(v[0], L), max(v[2], liq_sol)
-            if ts >= v[4]:
-                v[1], v[3], v[4], v[5] = L, liq_sol, ts, dex or v[5]
+        st["s"].setdefault(pool or "?", []).append((ts, liq_sol, price_native, dex))
 
 
 def add(acc, token, ts, mcap, liq, liq_sol=None, price_native=None, pool=None, dex=None):
@@ -368,41 +494,58 @@ def add(acc, token, ts, mcap, liq, liq_sol=None, price_native=None, pool=None, d
 
 
 def pool_drops(peak_row, live_mcap=None, live_liq=None, now=None):
-    """{"l_drop", "sol_drop", "cp", "dex", "src", "empty"} of a peaks() row (None for a row without a series): the
-    exact L of the newest pool in token_pulse when that series is as fresh as the newest snapshot (FRESH_S), else the
-    USD-based L, with the live market cap / liquidity folded in as the newest point."""
+    """The pool dict (Track.state plus "cp", "dex", "src", "measured") of a peaks() row, None for a row without a
+    series: the measured SOL side of the newest pool in token_pulse when that series is as fresh as the newest snapshot
+    (FRESH_S; only that pool is compared), else the SOL side estimated from the USD liquidity and the day's SOL price,
+    with the live market cap / liquidity folded in as the newest point."""
     if not peak_row or len(peak_row) < 6 or not isinstance(peak_row[5], dict):
         return None
     st = peak_row[5]
-    u = list(st["u"]) if st["u"] else None
+    u = list(st["u"])
     z = st["z"]
     now = int(now or time.time())
     if live_mcap and live_mcap > 0 and live_liq is not None:
         if live_liq > 0:
             sol = sol_usd_at(now)
-            lu, ls = live_liq / math.sqrt(live_mcap * sol), live_liq / 2 / sol
-            u = [max(u[0], lu), lu, max(u[2], ls), ls, now] if u else [lu, lu, ls, ls, now]
+            u.append((now, live_liq / 2 / sol, live_mcap / sol))
         else:
             z = max(z, now)
-    newest = max(st["s"].items(), key=lambda kv: kv[1][4]) if st["s"] else None
-    dex = newest[1][5] if newest else None
-    out = {"l_drop": None, "sol_drop": None, "cp": is_cp(dex), "dex": dex, "src": None, "empty": False}
-    u_ts = u[4] if u else 0
-    if z > u_ts and z >= (newest[1][4] if newest else 0):
-        out.update(l_drop=1.0, sol_drop=1.0, src="likvidnost 0", empty=True)
-        return out
-    if newest and newest[1][4] >= u_ts - FRESH_S:
-        pl, ll, ps, ls = newest[1][:4]
-        out.update(l_drop=1 - ll / pl if pl else None, sol_drop=1 - ls / ps if ps else None, src="sol")
+    newest = max(st["s"].items(), key=lambda kv: max(p[0] for p in kv[1])) if st["s"] else None
+    n_ts = max(p[0] for p in newest[1]) if newest else 0
+    dex = max(newest[1])[3] if newest else None
+    u_ts = max((p[0] for p in u), default=0)
+    out = {"cp": is_cp(dex), "dex": dex, "src": None, "measured": False}
+    if newest and n_ts >= u_ts - FRESH_S:
+        tr = Track()
+        for ts, s, px, _d in sorted(newest[1]):
+            tr.push(ts, s, px, True)
+        out["src"] = "sol"
     elif u:
-        out.update(l_drop=1 - u[1] / u[0] if u[0] else None, sol_drop=1 - u[3] / u[2] if u[2] else None, src="usd")
-    return out
+        tr = Track()
+        for ts, s, px in sorted(u):
+            tr.push(ts, s, px, False)
+        out["src"] = "usd"
+    else:
+        tr = None
+    state = tr.state() if tr else None
+    if z > max(u_ts, n_ts):   # the newest snapshot shows an empty pool
+        state = dict(state or {"sol_first": None, "measured": False, "reset": False, "sol_peak": None})
+        state.update(ratio=0.0, actual=0.0, expected=None, sol_last=0.0, sol_low=0.0, sol_drop=1.0, sol_drop_peak=1.0,
+                     l_drop=1.0, empty=True)
+        out["src"] = "likvidnost 0"
+    if state is None:
+        return {**out, "ratio": None, "actual": None, "expected": None, "sol_drop": None, "sol_drop_peak": None,
+                "l_drop": None, "empty": False, "reset": False}
+    measured = state.pop("measured", False)
+    return {**state, **out, "measured": measured}
 
 
-def assess(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
-    """The rug OR the dump after a pump of a peaks() row (judge's dict), preferring a live market cap / liquidity when
-    given (and counting it into the peak and the pool series). token: for a dump the evidence (rug_evidence) is looked
-    up, which can make it a rug; evidence given: used as is."""
+def assess(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None, strict=None):
+    """What BLOCKS (11.11. hotfix #141, Jure: "stara ILI nova = rug -> blokiran"): the rug OR the dump after a pump of a
+    peaks() row (judge's dict; kind = the stricter of the versions until the owner's switch rug_labels_v2_ok, "kinds"
+    has each), preferring a live market cap / liquidity when given (and counting it into the peak and the pool
+    series). token: for a dump the evidence (rug_evidence) is looked up, which can make it a rug; evidence given: used
+    as is."""
     if not peak_row:
         return None
     pm, pl, lm, ll = peak_row[:4]
@@ -410,12 +553,18 @@ def assess(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
     now_l = live_liq if live_liq is not None else ll
     args = (max(pm or 0, now_m or 0), now_m, max(pl or 0, now_l or 0) or None, now_l)
     pool = pool_drops(peak_row, live_mcap, live_liq)
-    j = judge(*args, evidence=evidence, pool=pool)
+    j = judge(*args, evidence=evidence, pool=pool, strict=strict)
     if j and j["kind"] == "dump" and evidence is None and token:
         ev = rug_evidence(token)
         if ev:
-            j = judge(*args, evidence=ev, pool=pool)
+            j = judge(*args, evidence=ev, pool=pool, strict=strict)
     return j
+
+
+def assess_pool(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
+    """The new rule alone (sol_v2: the SOL that left beyond what the price explains, 90 / 90, evidence), whatever the
+    owner's switch: for the relabel and the comparison, never for a block until he confirms it."""
+    return assess(peak_row, live_mcap, live_liq, token, evidence, strict=False)
 
 
 def check(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
