@@ -11,7 +11,9 @@ right (~35 %); below 1024 px one column, the panel opens as a bottom sheet from 
   2. the order panel: Kupi / Prodaj tabs posting to the SAME routes with the same field names as before
      (/pravi-trade/buy: token, sol, at, tp, sl, exit, prijedlog; /pravi-trade/sell: id, frac; /pravi-trade/dca:
      token, lvl, sol); quick amounts only fill fields; the cost estimate (cost_pct) and the wallet / day numbers.
-  3. tabs under the chart: Pozicije (live first, paper grey), Otvoreni nalozi, Povijest (lazy), Dnevnik (lazy).
+  3. tabs under the chart: Pozicije (live first, paper grey), Otvoreni nalozi, Povijest (lazy: PnL by day on top,
+     GET /pravi-trade/api/pnl-days, then the closed trades), Dnevnik (lazy). Both charts show a tooltip beside the
+     cursor / finger and move with the arrow keys.
   4. "Što kupiti" (one list of every proposal + the tool's live picks, sorted by EV per minute, lazy, every 30 s)
      and "Koga pratimo" (wallets / influencers / tokens, lazy).
   5. "Postavke i dijagnostika": the older sections of this page (pravila, Grok, zastavice, ...), loaded when opened.
@@ -609,6 +611,7 @@ def reset():
         _WANT.clear()
         _CANDLES.clear()
         _RUG.clear()
+        _PNL.clear()
 
 
 def tick_json(user, mint=""):
@@ -697,18 +700,24 @@ def _series(mint, hours, now):
     return cs, snap
 
 
-def bucket(candles, step, mult=1.0):
-    """Minute candles [(ts, o, h, l, c, ...)] -> [{time, open, high, low, close}] in buckets of `step` seconds,
-    every value x mult (the supply for market cap)."""
+def bucket(candles, step, mult=1.0, vols=None):
+    """Minute candles [(ts, o, h, l, c, v, ...)] -> [{time, open, high, low, close}] in buckets of `step` seconds,
+    every value x mult (the supply for market cap). vols: a list that gets each bucket's volume in USD, aligned with
+    the result (None for a bucket none of whose minutes had a volume), for the chart's tooltip."""
     out = []
     for c in candles:
         t = int(c[0]) - int(c[0]) % step
         o, h, lo, cl = (float(c[1]) * mult, float(c[2]) * mult, float(c[3]) * mult, float(c[4]) * mult)
+        v = c[5] if len(c) > 5 and c[5] is not None else None
         if out and out[-1]["time"] == t:
             b = out[-1]
             b["high"], b["low"], b["close"] = max(b["high"], h), min(b["low"], lo), cl
+            if vols is not None and v is not None:
+                vols[-1] = (vols[-1] or 0.0) + float(v)
         else:
             out.append({"time": t, "open": o, "high": h, "low": lo, "close": cl})
+            if vols is not None:
+                vols.append(float(v) if v is not None else None)
     return out
 
 
@@ -760,7 +769,8 @@ def candles_data(user, mint, tf="5m", unit="mc", now=None):
         supply = zones["supply"]
     unit = "mc" if unit == "mc" and supply else "price"
     mult = supply if unit == "mc" else 1.0
-    out = bucket(cs, step, mult)
+    vols = []
+    out = bucket(cs, step, mult, vols)
     conv = (lambda x: x) if unit == "mc" else (lambda x: x / supply if x and supply else None)
     lines = []
     for p in fv["positions"]:
@@ -781,8 +791,189 @@ def candles_data(user, mint, tf="5m", unit="mc", now=None):
     if zones:
         zones = {**zones, "bands": [{**b, "lo": conv(b["lo"]), "hi": conv(b["hi"])} for b in zones["bands"]]}
     return {"mint": mint, "tf": tf if tf in TFS else "5m", "unit": unit, "ts": int(now),
-            "data_ts": int(cs[-1][0]) if cs else None, "candles": out[-2000:], "supply": supply,
+            "data_ts": int(cs[-1][0]) if cs else None, "candles": out[-2000:],
+            "vol": [round(v, 2) if v is not None else None for v in vols[-2000:]], "supply": supply,
             "lines": [ln for ln in lines if ln["value"]], "zones": zones, "zones_mc": zones_mc}
+
+
+# ---------- PnL by day (GET /pravi-trade/api/pnl-days), 11.11. (Jure: "po danima profit and loss") -----------------
+# Only closed trades we already store, read-only: live = trade.db positions (mode 'live', closed), PnL = SOL back -
+# SOL in - network fees (the same sum as the "Povijest" table); paper = league.db demo trades of the Autopilot's
+# account (settings.LEAGUE_USER, closed), PnL in USD with the simulated fee and slippage already in it. Days are
+# calendar days in the Autopilot's day zone (Europe/Zagreb). SOL <-> USD at the day's average rate from the wallet
+# snapshots (trade.db equity), else at today's rate (the day says so: rate_now).
+
+PNL_TTL_S = 5            # one build per (account, span) at most this often, the same for every viewer
+PNL_SPANS = (7, 30, 90)
+_PNL = {}                # (mode, days) -> (ts, dict)
+
+
+def _pnl_days_keys(now, days, tz):
+    """[(day 'YYYY-MM-DD', its midnight as unix time)] of the last `days` calendar days in tz, today last."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    z = ZoneInfo(tz)
+    today = datetime.datetime.fromtimestamp(now, z).date()
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = today - datetime.timedelta(days=i)
+        out.append((d.isoformat(), int(datetime.datetime(d.year, d.month, d.day, tzinfo=z).timestamp())))
+    return out
+
+
+def _pnl_day_of(ts, tz):
+    import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.fromtimestamp(ts, ZoneInfo(tz)).date().isoformat()
+
+
+def _pnl_rates(tcon, keys):
+    """{day: average SOL/USD of that day's wallet snapshots}; one grouped read of trade.db equity (days counted in
+    24-h steps from the first midnight, so a daylight-saving day is off by an hour: an average, not a fill price)."""
+    t0 = keys[0][1]
+    try:
+        rows = tcon.execute("SELECT (ts - ?) / 86400, AVG(sol_usd) FROM equity WHERE ts >= ? AND sol_usd > 0 GROUP BY 1",
+                            (t0, t0)).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {keys[int(i)][0]: v for i, v in rows if v and 0 <= int(i) < len(keys)}
+
+
+def _pnl_trades(tcon, mode, t0):
+    """[(day ts, mint, symbol, pnl SOL or None, pnl USD or None, pct, fees SOL or None)] of the closed trades."""
+    if mode == "live":
+        rows = tcon.execute("SELECT COALESCE(closed_ts, opened_ts), token, symbol, sol_in, sol_back, COALESCE(fees_sol, 0) "
+                            "FROM positions WHERE status='closed' AND mode='live' AND COALESCE(closed_ts, opened_ts) >= ?",
+                            (t0,)).fetchall()
+        out = []
+        for ts, tok, sym, sin, sback, fees in rows:
+            pnl = (sback or 0) - (sin or 0) - (fees or 0)
+            out.append((ts, tok, sym, pnl, None, pnl / sin * 100 if sin else None, fees or 0.0))
+        return out
+    lg = pt._league_ro()
+    if lg is None:
+        return []
+    try:
+        rows = lg.execute("SELECT closed_ts, token, symbol, size_usd, pnl_usd FROM trades WHERE user=? AND status='closed' "
+                          "AND closed_ts >= ?", (settings.LEAGUE_USER, t0)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        lg.close()
+    return [(ts, tok, sym, None, pnl or 0.0, (pnl or 0.0) / size * 100 if size else None, None)
+            for ts, tok, sym, size, pnl in rows if ts]
+
+
+def _pnl_build(tcon, cfg, mode, days, now):
+    tz = cfg.get("day_tz") or "Europe/Zagreb"
+    keys = _pnl_days_keys(now, days, tz)
+    rates = _pnl_rates(tcon, keys)
+    rate_now = _sol_usd(tcon)
+    by_day = {k: [] for k, _ in keys}
+    for tr in _pnl_trades(tcon, mode, keys[0][1]):
+        k = _pnl_day_of(tr[0], tz)
+        if k in by_day:
+            by_day[k].append(tr)
+
+    def r2(x, d):
+        return round(x, d) if x is not None else None
+
+    def pick(trs, fn):
+        trs = [t for t in trs if t[5] is not None]
+        if not trs:
+            return None
+        t = fn(trs, key=lambda t: t[5])
+        return {"sym": t[2] or short(t[1] or ""), "token": t[1], "pct": round(t[5], 2)}
+
+    out, cum_s, cum_u, tot = [], 0.0, 0.0, {"n": 0, "wins": 0, "sol": 0.0, "usd": 0.0, "fees": 0.0, "all": []}
+    sol_ok = usd_ok = True
+    for k, _t in keys:
+        trs = by_day[k]
+        rate = rates.get(k) or rate_now
+        r_now = k not in rates
+        n = len(trs)
+        wins = sum(1 for t in trs if ((t[3] if mode == "live" else t[4]) or 0) > 0)
+        if mode == "live":
+            p_sol = sum(t[3] for t in trs)
+            p_usd = p_sol * rate if rate else None
+            fees = sum(t[6] or 0 for t in trs)
+        else:
+            p_usd = sum(t[4] for t in trs)
+            p_sol = p_usd / rate if rate else None
+            fees = None
+        if n and p_sol is None:
+            sol_ok = False
+        if n and p_usd is None:
+            usd_ok = False
+        cum_s += p_sol or 0.0
+        cum_u += p_usd or 0.0
+        tot["n"] += n
+        tot["wins"] += wins
+        tot["sol"] += p_sol or 0.0
+        tot["usd"] += p_usd or 0.0
+        tot["fees"] += fees or 0.0
+        tot["all"] += trs
+        out.append({"day": k, "n": n, "wins": wins, "win_rate": round(100 * wins / n, 1) if n else None,
+                    "pnl_sol": r2(p_sol, 6), "pnl_usd": r2(p_usd, 2), "cum_sol": round(cum_s, 6), "cum_usd": round(cum_u, 2),
+                    "fees_sol": r2(fees, 6) if n else None,
+                    "fees_usd": r2(fees * rate, 2) if n and fees is not None and rate else None,
+                    "best": pick(trs, max) if n else None, "worst": pick(trs, min) if n else None,
+                    "rate": r2(rate, 2), "rate_now": r_now})
+    total = {"n": tot["n"], "wins": tot["wins"], "win_rate": round(100 * tot["wins"] / tot["n"], 1) if tot["n"] else None,
+             "pnl_sol": round(tot["sol"], 6) if sol_ok else None, "pnl_usd": round(tot["usd"], 2) if usd_ok else None,
+             "fees_sol": round(tot["fees"], 6) if mode == "live" else None,
+             "days_plus": sum(1 for r in out if r["n"] and ((r["pnl_sol"] if mode == "live" else r["pnl_usd"]) or 0) > 0),
+             "days_minus": sum(1 for r in out if r["n"] and ((r["pnl_sol"] if mode == "live" else r["pnl_usd"]) or 0) < 0),
+             "best": pick(tot["all"], max), "worst": pick(tot["all"], min)}
+    note = ("Zarada = vraćeno − uloženo − mrežne naknade (zatvorene prave pozicije). $ po prosječnom tečaju SOL-a toga dana."
+            if mode == "live" else
+            "Demo račun Autopilota (paper): naknada 1 % po strani i klizanje su već u PnL-u. SOL po prosječnom tečaju toga dana.")
+    return {"mode": mode, "days": days, "tz": tz, "ts": int(now), "native": "sol" if mode == "live" else "usd",
+            "fees_known": mode == "live", "rate_now": r2(rate_now, 2), "rows": out, "total": total, "note": note}
+
+
+def pnl_days(user, mode="live", days=30, now=None):
+    """GET /pravi-trade/api/pnl-days?m=live|paper&d=7|30|90: closed trades per calendar day (Zagreb), oldest first,
+    every day of the span (a day without trades has n 0): PnL in SOL and USD, the running sum, count, wins and win
+    rate, the best and the worst trade (symbol, %), fees in SOL and USD when known (live), the rate used; plus the
+    span's totals. Read-only, cached PNL_TTL_S for every viewer; None without access (403)."""
+    now = now or time.time()
+    mode = mode if mode in ("live", "paper") else "live"
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 30
+    days = days if days in PNL_SPANS else 30
+    tcon = pt._tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        with _LOCK:
+            hit = _PNL.get((mode, days))
+        if hit and 0 <= now - hit[0] < PNL_TTL_S:
+            return hit[1]
+        d = _pnl_build(tcon, pt._cfg(tcon), mode, days, now)
+    finally:
+        tcon.close()
+    with _LOCK:
+        _PNL[(mode, days)] = (now, d)
+    return d
+
+
+# the PnL block on top of the "Povijest" tab: the controls and the chart's box; ap.js fills it when the tab opens
+PNL_BLOCK = ('<section class=apx-pnlc id=apx-pnlc aria-label="PnL po danima"><div class=apx-cbar><h3>PnL po danima</h3>'
+             '<div class=apx-tf role=group aria-label="Račun"><button type=button data-pm=live class=on>Uživo</button>'
+             '<button type=button data-pm=paper>Paper</button></div>'
+             '<div class=apx-tf role=group aria-label="Jedinica"><button type=button data-pu=sol class=on>SOL</button>'
+             '<button type=button data-pu=usd>$</button></div>'
+             '<div class=apx-tf role=group aria-label="Raspon">'
+             + "".join(f'<button type=button data-pd={n}{" class=on" if n == 30 else ""}>{n} d</button>' for n in PNL_SPANS)
+             + '</div></div><div class=apx-psum id=apx-psum></div>'
+             '<div class=apx-pchart id=apx-pchart tabindex=0 role=img aria-roledescription="graf" aria-label="PnL po danima: '
+             'stupac je dobit ili gubitak dana, linija zbroj od početka raspona. Miš ili dodir pokazuje dan; strelice lijevo '
+             'i desno idu dan po dan."><div class=apx-skel><i></i></div></div><p class=apx-pnote id=apx-pnote></p>'
+             '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
+             'Charts™</a></p></section>')
 
 
 # ---------- HTML of the first view -------------------------------------------------------------------------------
@@ -891,7 +1082,7 @@ def orders_html(d):
         act = ""
         if owner and o.get("cancel"):
             act = (f'<form method=post action={o["cancel"]} onsubmit="return confirm(\'Otkazati ovaj nalog?\')">'
-                   f'<input type=hidden name=id value="{esc(o["id"])}"><button class="apx-b sell">Otkaži</button></form>')
+                   f'<input type=hidden name=id value="{esc(o["id"])}"><button class=apx-b>Otkaži</button></form>')
         elif owner and o["kind"] in ("tp", "sl", "trail") and o.get("pid"):
             act = f'<button type=button class=apx-b data-edit="ed-{o["pid"]}" data-goto="poz-{o["pid"]}">Uredi</button>'
         note = f'<small>{esc(o["note"])}</small>' if o.get("note") else ""
@@ -1080,13 +1271,17 @@ def page(qs, user, full=False):
                      '<span class=ap-toast-x aria-hidden=true>×</span></div>'
                      + ("" if bad else "<script>setTimeout(()=>{const t=document.querySelector('.ap-toast');if(t)t.remove()},6000)</script>"))
         npos, nord = len(d["positions"]), len(d["orders"])
+        # 11.11. (Jure: "graf interaktivan"): one row of controls above the chart (the line legend is gone: every line
+        # carries its label on the price axis and every zone its name), a tooltip beside the cursor or the finger
+        # (ap.js), and the arrow keys move it candle by candle once the chart has focus
         chart = ('<div class=apx-card id=apx-chartbox><div class=apx-cbar><div class=apx-tf role=group aria-label="Vremenski okvir">'
                  + "".join(f'<button type=button data-tf={k}{" class=on" if k == "5m" else ""}>{k}</button>' for k in TFS)
                  + '</div><div class=apx-tf role=group aria-label="Jedinica"><button type=button data-unit=mc class=on>MC</button>'
                  '<button type=button data-unit=price>Cijena</button></div><span class=apx-sp></span>'
-                 '<span class=apx-leg><i class=e></i>ulaz <i class=d></i>DCA <i class=s></i>SL <i class=t></i>TP <i class=z></i>zone'
-                 '</span><span class=apx-age data-ts=0 id=apx-chart-age>graf se učitava</span></div>'
-                 f'<div id=apx-chart class=apx-chart data-m="{esc(sel)}">{_skel(1) if sel else ""}'
+                 '<span class=apx-age data-ts=0 data-short=1 id=apx-chart-age>graf se učitava</span></div>'
+                 f'<div id=apx-chart class=apx-chart data-m="{esc(sel)}" tabindex=0 role=img aria-roledescription="graf" '
+                 'aria-label="Graf svijeća. Miš ili dodir pokazuje podatke svijeće; strelice lijevo i desno idu svijeću po '
+                 f'svijeću.">{_skel(1) if sel else ""}'
                  + ('' if sel else '<p class=apx-empty>Nema odabranog tokena.</p>') + '</div>'
                  '<p class=apx-zinfo id=apx-zinfo></p>'
                  '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
@@ -1103,7 +1298,9 @@ def page(qs, user, full=False):
                  f'<div class=apx-pane id=nalozi hidden>{orders_html(d)}'
                  # 10.11.: the exit plans' kill switch stays with the orders, never lazy (only while plans exist)
                  f'<div class="ap apx-blk">{pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)}</div></div>'
-                 f'<div class=apx-pane id=povijest hidden data-x-src=/pravi-trade/l/povijest>{hist}</div>'
+                 # 11.11. (Jure: "po danima profit and loss"): PnL by day on top of the tab, the closed trades under it
+                 f'<div class=apx-pane id=povijest hidden>{PNL_BLOCK}'
+                 f'<div id=apx-hist data-x-src=/pravi-trade/l/povijest>{hist}</div></div>'
                  f'<div class="apx-pane ap" id=dnevnik hidden><div data-x-src=/pravi-trade/dnevnik data-x-every={DNEVNIK_EVERY_S}>'
                  f'{dn}</div><p class=ms-hint><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
                  '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p></div>')

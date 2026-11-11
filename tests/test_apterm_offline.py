@@ -179,6 +179,7 @@ class OwnerOnly(Env):
         self.assertEqual(apterm.lazy("nista", "Jure"), "")
         self.assertIsNone(apterm.tick_json("Nepoznat"))
         self.assertIsNone(apterm.candles_data("Nepoznat", LIVE_T))
+        self.assertIsNone(apterm.pnl_days("Nepoznat"))
 
 
 def forms(html):
@@ -315,7 +316,9 @@ class LiveFirst(Env):
         self.assertIn('<span class="apx-badge live">uživo</span>', pos)
         self.assertIn('<span class="apx-badge paper">paper</span>', pos)
         self.assertRegex(pos, r'class="apx-tr apx-pos is-paper"[^>]*data-tok="' + PAPER_T)
-        self.assertIn(".apx-badge.paper{background:var(--line2);color:var(--mut)}", apterm.CSS)   # grey
+        # grey (11.11.: the site's soft grey with a thin line, like the rest of memesonar.app)
+        self.assertIn(".apx-badge.paper{background:var(--soft);color:var(--mut);box-shadow:inset 0 0 0 1px var(--line)}",
+                      apterm.CSS)
         # green / red only for up / buy / TP and down / sell / SL
         self.assertIn('<span class="n apx-pnl up" data-l="PnL" data-f=pnl>', pos)
         self.assertIn('<span class="n dn" data-l="SL">', pos)
@@ -491,6 +494,168 @@ class Candles(Env):
         self.assertEqual(apterm.candles_data("Jure", "nije-adresa"), {"error": "nije adresa tokena"})
         empty = apterm.candles_data("Jure", PAPER_T, "5m", "mc", now=NOW)   # nothing stored: [] and no zones
         self.assertEqual((empty["candles"], empty["zones"]), ([], None))
+        # 11.11. (the tooltip): each candle's volume in USD, aligned with the candles (None where none is known)
+        self.assertEqual(len(c["vol"]), len(c["candles"]))
+        self.assertTrue(any(v for v in c["vol"]))
+        self.assertTrue(all(v is None or v >= 0 for v in c["vol"]))
+        self.assertEqual(empty["vol"], [])
+
+    def test_bucket_volume(self):
+        vols = []
+        out = apterm.bucket([(600, 1, 2, 1, 2, 10.0), (660, 2, 3, 2, 3, None), (900, 3, 3, 3, 3, 5.0), (960, 3, 4, 3, 4, None)],
+                            300, 1.0, vols)
+        self.assertEqual([b["time"] for b in out], [600, 900])
+        self.assertEqual(vols, [10.0, 5.0])
+        vols = []
+        apterm.bucket([(600, 1, 1, 1, 1, None)], 300, 1.0, vols)
+        self.assertEqual(vols, [None])                                     # no volume known: None, not 0
+        self.assertEqual(apterm.bucket([(600, 1, 1, 1, 1)], 300), [{"time": 600, "open": 1.0, "high": 1.0, "low": 1.0,
+                                                                     "close": 1.0}])
+
+
+class PnlDays(HandlerMixin, Env):
+    """11.11. (Jure: "po danima profit and loss"): GET /pravi-trade/api/pnl-days, read-only, live and paper apart."""
+
+    def days(self):
+        from trade import executor
+        d0 = executor._day_start(NOW, "Europe/Zagreb")          # today's midnight in Zagreb
+        d1 = executor._day_start(d0 - 1, "Europe/Zagreb")      # yesterday's
+        return d0, d1, max(d0 + 1, NOW - 30)
+
+    def closed(self, mode, sin, back, fee, ts, sym="T"):
+        self.con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, qty_left, "
+                         "sol_back, closed_ts, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (sym + "1" * (44 - len(sym)), sym, ts - 600, mode, "closed", "ručno", sin, 1000, 0, back, ts, fee))
+
+    def demo_closed(self, size, pnl, ts, sym="D", user=None, status="closed"):
+        self.lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, source) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)", (user or settings.LEAGUE_USER, sym + "2" * (44 - len(sym)), sym,
+                                                         ts - 600, ts if status == "closed" else None, status, size, pnl,
+                                                         pnl / size, "copy"))
+
+    def test_live_by_day_sums_win_rate_fees_and_the_day_rate(self):
+        d0, d1, today = self.days()
+        self.closed("live", 0.1, 0.13, 0.002, today, "WIN")       # +0,028 SOL, +28 %
+        self.closed("live", 0.1, 0.08, 0.001, today, "LOSS")      # -0,021 SOL, -21 %
+        self.closed("live", 0.2, 0.25, 0.003, d1 + 3600, "Y")     # yesterday: +0,047 SOL
+        self.closed("dry", 0.1, 0.5, 0.0, today, "DRY")           # paper position: not in "live"
+        self.closed("live", 0.1, 0.5, 0.0, d0 - 40 * 86400, "OLD")   # outside the 30 days
+        # yesterday's wallet snapshots: SOL at 140 and 160 $ (average 150); today none: today's rate (200)
+        self.con.executemany("INSERT INTO equity (ts, sol, usdc, tokens_sol, sol_usd, usd_eur, flow_sol, src) "
+                             "VALUES (?,?,?,?,?,?,?,?)", [(d1 + 600, 1, 0, 0, 140.0, 0.9, 0, "live"),
+                                                         (d1 + 7200, 1, 0, 0, 160.0, 0.9, 0, "live")])
+        self.con.commit()
+        with mock.patch.object(apterm, "_sol_usd", lambda tcon: 200.0):
+            d = apterm.pnl_days("Jure", "live", 30, now=NOW)
+        rows = d["rows"]
+        self.assertEqual((d["mode"], d["days"], d["native"], d["fees_known"], len(rows)), ("live", 30, "sol", True, 30))
+        self.assertEqual([r["day"] for r in rows], sorted(r["day"] for r in rows))   # oldest first, every day
+        import datetime
+        from zoneinfo import ZoneInfo
+        self.assertEqual(rows[-1]["day"], datetime.datetime.fromtimestamp(NOW, ZoneInfo("Europe/Zagreb")).date().isoformat())
+        t, y = rows[-1], rows[-2]
+        self.assertEqual((t["n"], t["wins"], t["win_rate"]), (2, 1, 50.0))
+        self.assertAlmostEqual(t["pnl_sol"], 0.007)
+        self.assertAlmostEqual(t["fees_sol"], 0.003)
+        self.assertAlmostEqual(t["pnl_usd"], 1.4)                  # today's rate
+        self.assertTrue(t["rate_now"])
+        self.assertEqual((t["best"]["sym"], t["best"]["pct"], t["worst"]["sym"], t["worst"]["pct"]), ("WIN", 28.0, "LOSS", -21.0))
+        self.assertEqual((y["n"], y["win_rate"], y["rate"], y["rate_now"]), (1, 100.0, 150.0, False))
+        self.assertAlmostEqual(y["pnl_usd"], 0.047 * 150, places=2)  # yesterday's average rate
+        self.assertAlmostEqual(t["cum_sol"], 0.054)
+        self.assertTrue(all(r["n"] == 0 and r["best"] is None for r in rows[:-2]))   # the dry and the old one are out
+        tot = d["total"]
+        self.assertEqual((tot["n"], tot["wins"], tot["win_rate"], tot["days_plus"], tot["days_minus"]), (3, 2, 66.7, 2, 0))
+        self.assertAlmostEqual(tot["pnl_sol"], 0.054)
+        self.assertAlmostEqual(tot["fees_sol"], 0.006)
+        self.assertEqual(tot["best"]["sym"], "WIN")
+        self.assertEqual(tot["worst"]["sym"], "LOSS")
+
+    def test_paper_comes_from_the_demo_account_in_usd(self):
+        d0, d1, today = self.days()
+        self.demo_closed(25, 5.0, today, "UP")                    # +20 %
+        self.demo_closed(25, -2.5, today, "DOWN")                 # -10 %
+        self.demo_closed(20, 10.0, d1 - 2 * 86400 + 7200, "OLDER")
+        self.demo_closed(25, 99.0, today, "OTHER", user="Ivan")   # another player: not the Autopilot's
+        self.demo_closed(25, 0.0, today, "OPEN", status="open")
+        self.lg.commit()
+        self.closed("live", 0.1, 0.2, 0.001, today, "LIVE")      # live stays out of paper
+        self.con.commit()
+        with mock.patch.object(apterm, "_sol_usd", lambda tcon: 200.0):
+            d = apterm.pnl_days("Jure", "paper", 7, now=NOW)
+            live = apterm.pnl_days("Jure", "live", 7, now=NOW)
+        self.assertEqual((d["native"], d["fees_known"], len(d["rows"])), ("usd", False, 7))
+        t = d["rows"][-1]
+        self.assertEqual((t["n"], t["wins"], t["win_rate"], t["pnl_usd"], t["fees_sol"]), (2, 1, 50.0, 2.5, None))
+        self.assertAlmostEqual(t["pnl_sol"], 2.5 / 200)
+        self.assertEqual((t["best"]["sym"], t["best"]["pct"], t["worst"]["pct"]), ("UP", 20.0, -10.0))
+        self.assertEqual((d["total"]["n"], d["total"]["pnl_usd"]), (3, 12.5))
+        self.assertEqual((live["total"]["n"], live["rows"][-1]["best"]["sym"]), (1, "LIVE"))
+
+    def test_cache_parameters_and_route(self):
+        d0, d1, today = self.days()
+        self.closed("live", 0.1, 0.13, 0.002, today)
+        self.con.commit()
+        with mock.patch.object(apterm, "_sol_usd", lambda tcon: 200.0):
+            a = apterm.pnl_days("Jure", "live", 30, now=NOW)
+            self.assertIs(apterm.pnl_days("Jure", "live", 30, now=NOW + 1), a)          # cached PNL_TTL_S
+            self.assertIsNot(apterm.pnl_days("Jure", "live", 30, now=NOW + apterm.PNL_TTL_S + 1), a)
+            self.assertEqual(apterm.pnl_days("Jure", "x", "13", now=NOW)["mode"], "live")   # unknown: live, 30 days
+            self.assertEqual(apterm.pnl_days("Jure", "live", "13", now=NOW)["days"], 30)
+            self.assertEqual(len(apterm.pnl_days("Jure", "paper", "90", now=NOW)["rows"]), 90)
+            h = self._get("/pravi-trade/api/pnl-days?m=paper&d=7")
+            self.assertEqual((h.sent[0][0], h.sent[0][2]), (200, "application/json"))
+            self.assertEqual(json.loads(h.sent[0][1])["mode"], "paper")
+            self.assertEqual(self._get("/pravi-trade/api/pnl-days", "Nepoznat").sent[0][0], 403)
+        with mock.patch.object(pravitrade, "_league_ro", lambda: None):                 # no league.db: no paper rows
+            apterm.reset()
+            self.assertEqual(apterm.pnl_days("Jure", "paper", 7, now=NOW)["total"]["n"], 0)
+
+
+class BrandAndTooltip(Env):
+    """11.11. (Jure): the page in the site's colours (not a black exchange terminal), the colour rule, the tooltip and
+    the keyboard on both charts, the PnL block on top of "Povijest"."""
+
+    def test_brand_tokens_light_and_the_colour_rule(self):
+        css = apterm.CSS
+        for dark in ("#0b0e14", "#16c784", "#ea3943", "#f0b90b", "color-scheme:dark", "prefers-color-scheme"):
+            self.assertNotIn(dark, css)                         # the site is always light: so is this page
+        self.assertNotRegex(css, r"--(bg|soft|card|fg|mut|line|acc|good|bad|warn):")   # the site's tokens, not its own
+        self.assertIn("--up:var(--good);--dn:var(--bad)", css)
+        self.assertIn(".apx .apx-tabs button.on{color:var(--fg);font-weight:650;border-bottom-color:var(--acc)}", css)
+        # green / red only on up / down, buy / sell, TP / SL (and the sell fraction chips of the sell form)
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", css, flags=re.S)):
+            if re.search(r"var\(--(up|dn|good|bad)\)", body) and ":root" not in sel:   # :root defines the aliases
+                for one in sel.split(","):
+                    self.assertRegex(one, r"\.(up|dn|buy|sell)\b|sellall|ap-buy|input:checked", one)
+        # cancel / refuse / kill switches and status dots are not red or green on this page
+        self.assertIn(".apx .ap button.ap-cancel,.apx .ap button.ap-stop{color:var(--fg)", css)
+        self.assertIn(".apx .ms-dot.good,", css)
+        tip = re.search(r"\.apx-tip\{[^}]*\}", css).group(0)
+        self.assertGreaterEqual(int(re.search(r"font-size:(\d+)px", tip).group(1)), 13)   # readable
+
+    def test_chart_markup_tooltip_and_keyboard_hooks(self):
+        self.seed()
+        _, body = pravitrade.page({}, "Jure")
+        self.assertRegex(body, r'<div id=apx-chart class=apx-chart data-m="[^"]+" tabindex=0 role=img')
+        self.assertIn("strelice lijevo i desno", body)
+        self.assertNotIn("class=apx-leg", body)                # the small legend row above the chart is gone
+        self.assertEqual(body.count("class=apx-cbar"), 2)      # one row of controls per chart
+        self.assertIn("TradingView Lightweight Charts™</a> · Copyright (c) 2025 TradingView, Inc.", body)   # attribution
+        pane = body[body.index("id=povijest"):body.index("id=dnevnik")]
+        self.assertLess(pane.index("id=apx-pnlc"), pane.index("id=apx-hist data-x-src=/pravi-trade/l/povijest"))
+        for k in ("data-pm=live class=on", "data-pm=paper", "data-pu=sol class=on", "data-pu=usd", "data-pd=7",
+                  "data-pd=30 class=on", "data-pd=90", "id=apx-pchart tabindex=0"):
+            self.assertIn(k, pane)
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        for k in ("subscribeCrosshairMove", "subscribeClick", "setCrosshairPosition", "'ArrowLeft'", "'ArrowRight'",
+                  "'apx-tip'", "/pravi-trade/api/pnl-days?m=", "addHistogramSeries", "addLineSeries", "attributionLogo: true",
+                  "getComputedStyle(document.documentElement)", "$('#apx-hist')"):
+            self.assertIn(k, js)
+        self.assertIn("x = y > H - 42 ? 54 : 8", js)             # zone labels start right of the TradingView logo
+        self.assertNotRegex(js, r"#(6d8cff|b48cff|16c784|ea3943|151b26|1d2431)")   # no terminal colours left
+        self.assertIn("<button class=apx-b>Otkaži</button>", body)   # cancelling an order is no sale: not red
+        self.assertNotIn('class="apx-b sell">Otkaži', body)
 
 
 class Static(HandlerMixin, Env):
