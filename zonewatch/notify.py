@@ -3,8 +3,10 @@
 Body: one compact JSON object (the exact bytes signed are the bytes sent), Content-Type application/json:
     id, event (zone_enter | zone_exit | stop_hit | top_hit | team_catalyst) and the owner's fields
     mint, symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, vol_1h, buys_5m, sells_5m, buy_share_5m,
-    buy_share_1h, uniq_traders_1h, rug_risk, source, ts (null when unknown, never left out), plus a few extras
-    (ts_iso, direction, note, initial, data_age_s, price_source).
+    buy_share_1h, uniq_traders_1h, rug_risk, source, ts (null when unknown, never left out); 11.11. what a range
+    zone is based on (RANGE_FIELDS, null for a hand-armed zone): zone_version (+1 for every range computation of
+    rangedca read for the token), computed_ts (unix s: when rangedca computed the range), window_h (the hours of data
+    the computation spanned); plus a few extras (ts_iso, direction, note, initial, data_age_s, price_source).
 Auth (the receiver's docs could not be read from the sandbox, so both are implemented):
     bearer     (default)  Authorization: Bearer <GROKBOT_WEBHOOK_KEY>
     standard   (GROKBOT_WEBHOOK_AUTH=standard, or a key starting "whsec_")  Standard Webhooks: webhook-id (the alert
@@ -41,6 +43,8 @@ BACKOFF_S = (1, 2, 4)
 RETRY_AFTER_MAX_S = 10
 OWNER_FIELDS = ("mint", "symbol", "zone_type", "zone_lo", "zone_hi", "mcap", "price", "liq", "vol_5m", "vol_1h",
                 "buys_5m", "sells_5m", "buy_share_5m", "buy_share_1h", "uniq_traders_1h", "rug_risk", "source", "ts")
+# 11.11. (Jure): "alarm nosi i verziju zone da Grok vidi na čemu se temelji" (store.range_ver)
+RANGE_FIELDS = ("zone_version", "computed_ts", "window_h")
 USER_AGENT = "memesonar-zonewatch/1.0"
 FINAL = ("sent", "failed", "config_error", "not_configured", "off", "expired")
 
@@ -101,7 +105,8 @@ def new_id(*parts):
 
 
 def normalize(alert, now=None):
-    """The payload: the owner's fields (null when unknown, never left out), id and event, then the extras as given.
+    """The payload: the owner's fields and RANGE_FIELDS (null when unknown, never left out), id and event, then the
+    extras as given.
     An id is made once here when the caller did not bring one (it then stays the same over the retries)."""
     a = dict(alert or {})
     now = int(now or time.time())
@@ -118,7 +123,7 @@ def normalize(alert, now=None):
     aid = re.sub(r"[^A-Za-z0-9_.:-]", "", str(a.get("id") or ""))[:80] or \
         new_id(a.get("mint"), zt, ev, a.get("source"), a["ts"])
     out = {"id": aid, "event": ev}
-    for k in OWNER_FIELDS:
+    for k in OWNER_FIELDS + RANGE_FIELDS:
         out[k] = a.get(k)
     out["ts_iso"] = dt.datetime.fromtimestamp(out["ts"], dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for k, v in a.items():

@@ -1,12 +1,16 @@
 """One pass of the zone watch (run_zonewatch.py loop, every EVERY_S = 30 s, low priority). Flag zonewatch off: the
 pass reads the flag and ends (nothing watched, nothing fetched, nothing posted).
 
-    1. HOPE's zones once (store.seed_once), the range engine's active ranges -> zones (source range) when range.db
-       has a newer computation or every 5 min
+    1. once: the old fixed HOPE seed expired and the hand-armed zones cut to 2 h (store.migrate_once; never a seed
+       again); the range engine's active ranges -> zones (source range) when range.db has a newer computation or
+       every 5 min, for the tokens with an open range round, an entry-ready range or an open position on the real
+       account, and only while rangedca has an active range for them (store.sync_range); each newer computation is
+       a new zone_version
     2. the numbers of every token with a zone (prices.py: stored snapshots first, one DexScreener batch for the near
        / armed ones, inside the day cap)
     3. every zone's state (zones.step): an event on a crossing; the same mint + zone_type + event at most once in
-       30 min (stop_hit: once in 60 s, never held back longer); several sources of the same zone in one pass: one alarm
+       30 min (stop_hit: once in 60 s, never held back longer); several sources of the same zone in one pass: one
+       alarm; a range zone's alarm carries zone_version, computed_ts and window_h of the range it comes from
     4. each alarm is stored (alerts, status pending) and written to events.db (type zone_alert), then posted
        (notify.deliver); stop_hit first, then the oldest; at most POST_BUDGET_S of posting a pass, the rest waits for
        the next pass (same id); an alarm still pending after PENDING_MAX_S is dropped as expired (a late alarm is noise)
@@ -76,10 +80,11 @@ def _last_alert(con, mint, zone_type, event):
 
 def evaluate(con, zs, snaps, now, rug_fn=None, uniq_fn=None):
     """Step every zone with a fresh enough number; store the states; return the new alerts' payloads (stored as
-    pending) and the count of debounced ones."""
+    pending) and the count of debounced ones. A range zone's alarm carries its range's version (store.versions)."""
     rug_fn = rug_fn or prices.rug_risk
     uniq_fn = uniq_fn or prices.uniq_traders_1h
     st = store.states(con)
+    ver = store.versions(con, {z["mint"] for z in zs if z["source"] == "range"})
     fired, seen = [], set()
     for z in sorted(zs, key=lambda z: SRC_ORDER.get(z["source"], 9)):
         s = snaps.get(z["mint"])
@@ -105,8 +110,11 @@ def evaluate(con, zs, snaps, now, rug_fn=None, uniq_fn=None):
         seen.add(k)
         aid = notify.new_id(z["mint"], z["zone_type"], ev, z["source"], int(now))
         tx5 = (s.get("buys_m5") or 0) + (s.get("sells_m5") or 0)
-        p = notify.normalize(_payload(aid, ev, z, s, now, extra, rug_fn(z["mint"], s.get("mcap"), s.get("liq")),
-                                      uniq_fn(z["mint"], now, tx5)), now)
+        p = _payload(aid, ev, z, s, now, extra, rug_fn(z["mint"], s.get("mcap"), s.get("liq")),
+                     uniq_fn(z["mint"], now, tx5))
+        if z["source"] == "range":
+            p.update(ver.get(z["mint"]) or {})
+        p = notify.normalize(p, now)
         if notify.record(con, p, "pending", now):
             out.append(p)
     con.commit()
@@ -217,13 +225,14 @@ def cost_line(con, now, log=print):
 
 def probe_once(con, now, cfg=None, log=print):
     """11.11. (Jure: "javi kad je live da Grok Bot pošalje probni alarm"): one test alarm (event "test") the first
-    time the webhook env is set, so the receiving routine can be checked end to end; never again (kv probe_sent)."""
+    time the webhook env is set, so the receiving routine can be checked end to end; never again (kv probe_sent). No
+    token (mint null): it says nothing about any coin."""
     c = cfg or notify.config()
     if not c.configured or store.kv_get(con, "probe_sent"):
         return None
-    p = notify.normalize({"event": "test", "zone_type": "test", "mint": store.SEED["mint"], "symbol": store.SEED.get("symbol"),
-                          "source": "manual", "note": "probni alarm MemeSonar zonewatch (jednom, pri prvom pokretanju s "
-                                                      "postavljenim webhookom); nije trgovinski signal"}, now)
+    p = notify.normalize({"event": "test", "zone_type": "test", "mint": None, "symbol": None, "source": "manual",
+                          "note": "probni alarm MemeSonar zonewatch (jednom, pri prvom pokretanju s postavljenim "
+                                  "webhookom); nije trgovinski signal"}, now)
     notify.record(con, p, "pending", now)
     store.kv_put(con, "probe_sent", now)
     con.commit()
@@ -240,7 +249,7 @@ def pass_once(now=None, fetch=None, cfg=None, opener=None, sleep=None, clock=Non
     now = int(now or time.time())
     con = store.connect(path)
     try:
-        store.seed_once(con, now)
+        store.migrate_once(con, now, log)
         probe_once(con, now, cfg, log)
         _sync_range(con, now, log)
         zs = store.active(con, now)
