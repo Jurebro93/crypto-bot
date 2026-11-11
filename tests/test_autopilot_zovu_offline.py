@@ -153,14 +153,17 @@ class Page(unittest.TestCase):
         loc = pravitrade.post("/pravi-trade/tp", {"tp": "10"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertEqual(settings.merged(CFG, self.con)["tp_default"], 10)
-        # 11.11. (ui/apterm): "Pravila" is under "Postavke i dijagnostika", the callers' feed in "Koga pratimo" and the
-        # tool's live picks in the one list "Što kupiti", each loaded when it comes into view (sve=1: all in the page)
+        # 11.11. (ui/apterm): "Pravila" is under "Postavke", the callers' feed in "Koga pratimo" (which exists only
+        # while somebody is followed) and the tool's live picks (EV not measured: one closed row) in "Što kupiti",
+        # each loaded when it comes into view (sve=1: all in the page)
+        copy.follow(self.lg, settings.LEAGUE_USER, "kol", "ansem", "", 25, 5, "tpsl", "15%", "-20%")
+        self.lg.commit()
         _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("Cilj izlaza za nove kopije", body)
         self.assertIn("sada +10 %", body)
         self.assertIn("Tko sada zove koji token", body)
         self.assertIn("pratiš i dokazani walleti", body)
-        self.assertIn("živi kandidati alata", body)
+        self.assertIn("Nema prijedloga s EV &gt; 0", body)
         self.assertIn('value="10%"', body)   # the order panel's TP starts from the target (the last TP used, else it)
         self.assertIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "tpsl", True))   # TP/SL forms take it
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))
@@ -168,7 +171,7 @@ class Page(unittest.TestCase):
         # 11.11. (ui/apterm): positions and the log (tabs), the order panel, "Što kupiti", "Koga pratimo" with its
         # feed, then "Postavke i dijagnostika" with Pravila (exit target + limits) and the recommendations
         order = [body.index(x) for x in ("id=pozicije", "id=dnevnik", "id=kupi-odmah", "id=kupiti", "id=pratimo", "id=ap-zovu",
-                                         "id=pratim>", "id=apx-ostalo", "id=cilj", "id=limiti", "id=preporuke")]
+                                         "id=apx-ostalo", "id=cilj", "id=limiti", "id=pratim>", "id=preporuke")]
         self.assertEqual(order, sorted(order))
         for sid in ("preporuke", "pravila"):   # closed until tapped
             self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)

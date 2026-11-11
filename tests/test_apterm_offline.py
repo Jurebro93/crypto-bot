@@ -266,8 +266,13 @@ class Lazy(Env):
         self.assertIn("class=apx-skel", body)                              # skeletons instead of empty blocks
         self.assertNotIn("Postavljanje walleta", body)
         _, full = pravitrade.page({"sve": "1"}, "Jure")                    # no JavaScript: everything in the page
-        for k in ("Što kupiti", "Koga pratimo", "Postavljanje walleta", "Danas uživo", "id=apx-ostalo open"):
+        for k in ("Nema prijedloga s EV &gt; 0", "Postavljanje walleta", "Danas uživo", "id=apx-ostalo open"):
             self.assertIn(k, full)
+        # nobody followed, no event, no pre-shill wallet: those cards are in the page but hidden, empty (no title)
+        for cid in ("pratimo", "apx-eventi", "apx-preshill"):
+            self.assertRegex(full, rf'id={cid} data-x-src="?/pravi-trade/l/\w+"? data-x-every=\d+ data-hide-empty hidden>'
+                                   r'</section>')
+        self.assertNotIn(">Koga pratimo <", full)
         self.assertIn('<a href="/pravi-trade?sve=1">', body)               # the link for a browser without JS
 
     def test_history_has_the_days_pnl_on_top_live_first_and_pages(self):
@@ -296,14 +301,19 @@ class EmptySections(Env):
             self.assertEqual(apterm.empty_meta(row.format(meta)), empty, meta)
         self.assertFalse(apterm.empty_meta("<p>bez retka</p>"))
 
-    def test_settings_put_empty_sections_grey_at_the_bottom(self):
+    def test_settings_always_empty_diagnostics_never(self):
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): a setting keeps its row (it is the
+        # switch), an empty diagnostic is not rendered at all; no grey "Bez sadržaja" group any more
         html = apterm.lazy("ostalo", "Jure")
-        dim = html.index("class=apx-dim")
-        self.assertGreater(html.index(">Grok (MCP)<"), dim)               # "isključen": grey, at the bottom
-        self.assertLess(html.index("Tko vidi stranicu"), dim)             # "1 pozvanih": in the list
-        self.assertLess(html.index(">Pravila<"), dim)
-        self.assertLess(html.index("Kako je zaštićeno"), dim)
+        self.assertNotIn("class=apx-dim", html)
+        self.assertNotIn("Bez sadržaja", html)
+        for k in (">Pravila<", ">Uredi praćenja<", ">Grok (MCP)<", "Tko vidi stranicu", "Kako je zaštićeno"):
+            self.assertIn(k, html, k)
+        self.assertNotIn(">Koga prati<", html)                              # one list ("Koga pratimo"), not two
         self.assertNotIn("id=ev-znacajke", html)                           # no report: the section is left out
+        for name in ("eventi", "preshill"):                                # main-view cards: "" while empty (200)
+            self.assertEqual(apterm.lazy(name, "Jure"), "")
+            self.assertIn(name, apterm.LAZY)
 
 
 class LiveFirst(Env):
@@ -745,6 +755,214 @@ class Portfelj(HandlerMixin, Env):
         self.assertEqual(self._get("/pravi-trade/api/portfelj", "Nepoznat").sent[0][0], 403)
 
 
+class OnlyConclusions(HandlerMixin, Env):
+    """11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi")."""
+
+    def follow(self, kind, target, closed_trades, wins=0):
+        fid = copy.follow(self.lg, settings.LEAGUE_USER, kind, target, "", 25, 5, "tpsl", "15%", "-20%")
+        for i in range(closed_trades):
+            pnl = 2.0 if i < wins else -1.0
+            self.lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, "
+                            "source, follow_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (settings.LEAGUE_USER, f"T{fid}{i}".ljust(44, "1"), "T", NOW - 9000, NOW - 8000, "closed", 25.0,
+                             pnl, pnl / 25, f"copy {target}", fid))
+        self.lg.commit()
+        return fid
+
+    def test_follows_under_ten_closed_are_folded(self):
+        self.follow("wallet", "W" * 44, 12, wins=7)      # representative
+        self.follow("wallet", "V" * 44, 3, wins=1)       # n < 10
+        self.follow("wallet", "U" * 44, 0)
+        self.follow("kol", "ansem", 2, wins=2)           # n < 10: the only influencer
+        html = apterm.lazy("pratimo", "Jure")
+        main, wait = html.split("<details class=apx-skoro>", 1)
+        nb = " "
+        self.assertIn(f"58{nb}%", main.split("id=pr-i")[0])               # 7 of 12: a conclusion, in the list
+        self.assertIn("U procjeni: 2 walleta (n &lt; 10)", html)
+        self.assertIn("U procjeni: 1 influencer (n &lt; 10)", html)
+        self.assertNotIn(f"33{nb}%", html)                                 # 1 of 3: no hit rate shown at all
+        self.assertNotIn(f"100{nb}%", html)                                # 2 of 2: neither
+        self.assertIn("u procjeni</small>", html)
+        self.assertNotIn("id=pratim", html)                                # the forms are under "Postavke"
+        self.assertEqual(html.count("data-sub="), 2)                       # Walleti, Influenceri; no empty Tokeni tab
+        self.assertIn("data-x-src=/pravi-trade/zovu data-x-every=15 data-hide-empty", html)   # the feed: only with calls
+        self.assertIn("<div class=apx-feed data-hide-wrap hidden>", html)
+
+    def test_nobody_followed_is_no_card(self):
+        self.assertEqual(apterm.lazy("pratimo", "Jure"), "")
+        self.assertEqual(self._get_status("/pravi-trade/l/pratimo"), 200)    # empty is an answer, not a 404
+        self.assertEqual(self._get_status("/pravi-trade/l/nista"), 404)
+
+    def _get_status(self, path):
+        return self._get(path).sent[0][0]
+
+    def test_proposals_one_line_when_empty_and_n_under_ten_folded(self):
+        from proposals import strategies   # noqa: F401 - the module kupiti_html reads
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([], [], [], "paper")):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertTrue(html.startswith("<p class=apx-one id=prijedlozi-trade>Nema prijedloga s EV &gt; 0 · zadnja provjera "))
+        self.assertNotIn("<h2", html)                                      # no title, no rest of the block
+        self.assertNotIn("prikaži skoro", html)
+
+        def prop(pid, n, ev):
+            return {"id": pid, "token": f"P{pid}".ljust(44, "1"), "symbol": f"P{pid}", "strategy": "momentum",
+                    "sources": [], "ev_pct": ev, "p_tp": 0.5, "size_sol": 0.1, "expires_ts": NOW + 600,
+                    "row": {"n": n, "entry_zone": {}, "buy": {"tp": "+20%", "sl": "-20%"}}}
+        from proposals import view
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([prop(1, 40, 3.0), prop(2, 4, 9.0)], [], [], "paper")), \
+                mock.patch.object(view, "_row_inner", lambda p, esc: ""), \
+                mock.patch.object(view, "entry_state", lambda p, now: {"state": "čeka ulaz"}, create=True):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertIn("Što kupiti <span class=apx-cnt>1</span>", html)   # only the one measured on 10+ outcomes
+        main = html.split("<details", 1)[0]
+        self.assertIn("id=pr-1", main)
+        self.assertNotIn("id=pr-2", main)
+        self.assertIn("U procjeni: 1 prijedlog (n &lt; 10)", html)
+
+    def test_near_misses_with_blocks_render(self):
+        """11.11.: proposals/build gives a near miss's blocks as [{"key", "text"}]; "prikaži skoro" joined them as text
+        and the whole Što kupiti card fell (TypeError) as soon as one proposal and one blocked near miss stood."""
+        from proposals import view
+        prop = {"id": 1, "token": "P1".ljust(44, "1"), "symbol": "P1", "strategy": "momentum", "sources": [],
+                "ev_pct": 3.0, "p_tp": 0.5, "size_sol": 0.1, "expires_ts": NOW + 600,
+                "row": {"n": 40, "entry_zone": {}, "buy": {"tp": "+20%", "sl": "-20%"}}}
+        near = [{"token": "N1".ljust(44, "1"), "symbol": "BLOK", "strategies": ["range"], "ev_pct": 4.0,
+                 "why": "likvidnost ispod $15k", "blocks": [{"key": "liq", "text": "likvidnost ispod $15k"},
+                                                             {"key": "vol", "text": "volumen 1 h < 5k <x>"}]},
+                {"token": "N2".ljust(44, "1"), "symbol": "EVNEG", "strategies": ["momentum"], "ev_pct": -1.0,
+                 "why": "EV -1,0 % nakon troška", "blocks": []},
+                {"token": "N3".ljust(44, "1"), "symbol": "STARO", "strategies": [], "why": "stari zapis",
+                 "blocks": ["već tekst"]}]
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([prop], near, [], "paper")), \
+                mock.patch.object(view, "_row_inner", lambda p, esc: ""), \
+                mock.patch.object(view, "entry_state", lambda p, now: {"state": "čeka ulaz"}, create=True), \
+                mock.patch("builtins.print"):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertIn("id=pr-1", html)
+        self.assertIn("prikaži skoro (3)", html)
+        self.assertIn("likvidnost ispod $15k; volumen 1 h &lt; 5k &lt;x&gt;", html)   # the texts, escaped
+        self.assertIn("EV -1,0 % nakon troška", html)                              # no blocks: the why
+        self.assertIn("već tekst", html)                                           # an old row of plain strings
+        self.assertNotIn("{'key'", html)
+
+    def test_paper_pnl_under_ten_closed_is_no_conclusion(self):
+        self.assertEqual(apterm._kpi_cells({"total_sol": 0.1, "total_usd": 16.0, "n_closed": 4}, "paper")[-1][2],
+                         "u procjeni: 4 zatvorenih (n < 10)")
+        self.assertNotIn("u procjeni", apterm._kpi_cells({"total_sol": 0.1, "total_usd": 16.0, "n_closed": 12},
+                                                         "paper")[-1][2])
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("t.n < 10 ? 'u procjeni'", js)                       # PnL by day: no win rate under 10
+        self.assertIn("(k.n_closed || 0) < 10", js)
+
+    def test_hidden_cards_keep_asking_and_show_themselves(self):
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        for k in ("const hides = el => el.dataset.hideEmpty !== undefined", "wrapOf(el).hidden = empty",
+                  "(hides(el) || (shown(el) && inView(el)))", "if (hides(el)) wrapOf(el).hidden = true", "}, 5000);",
+                  "el.dataset.slow"):
+            self.assertIn(k, js)
+        self.seed()
+        _, body = pravitrade.page({}, "Jure")
+        self.assertIn('data-slow="Prijedlozi još nisu stigli · pokušavam ponovno"', body)   # always there: says so
+        for k in ("id=apx-chartbox", "id=apx-port", "id=pozicije", "id=nalozi", "id=kupi-odmah", "id=kupiti"):
+            self.assertIn(k, body)                                         # always shown, also without data
+        self.assertIn('<h2 data-sec="">Postavke</h2>', body)               # one closed "Postavke" at the bottom
+        self.assertEqual(body.count("<details class=apx-acc"), 1)
+
+
+class ColumnHelpAndRanges(Candles):
+    """11.11. (Jure): an info button on every column; "Koga pratimo / Tokeni" in the order of buying priority with
+    the place in the range said in words, the entry state, DexScreener and Solscan."""
+
+    def rng(self, rc, tok, sym, score, pos, ts=None, status="aktivan", active=True, state=None):
+        from rangedca import data as rdata
+        lo, hi = 100_000 / 1e9, 200_000 / 1e9   # low 100k, top 200k (MC = price x 1e9)
+        z = {"range_low_low": lo, "range_low_top": lo * 1.1, "range_high_low": hi * 0.9, "range_high_top": hi}
+        px = lo + pos / 100 * (hi - lo)
+        rdata.save_range(rc, tok, {"ts": ts or NOW - 60, "status": status, "active": active, "score": score,
+                                   "pos_pct": pos, "zones": z, "metrics": {"price": px, "mcap": px * 1e9, "supply": 1e9}},
+                         state or {}, sym)
+
+    def test_every_column_has_its_info_button(self):
+        self.seed()
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
+        heads = re.findall(r'<div class="apx-(?:tr|krow)[^"]*apx-th[^"]*">(.*?)</div>', body)
+        self.assertGreaterEqual(len(heads), 3)                             # positions, orders, history (+ proposals…)
+        for h in heads:
+            for cell in re.findall(r"<span(?: class=n)?>(.*?)</span>(?=<span|$)", h):
+                if cell and not cell.startswith("<span"):
+                    self.assertIn('class="tip apx-i" tabindex=0 role=button', cell, cell)
+        self.assertNotIn("aria-hidden=true><span>Token", body)             # the titles are real now (focusable help)
+        for k in ("Ukupno", "Slobodno", "U pozicijama", "Danas", "Ukupni PnL"):   # the Portfelj numbers
+            self.assertIn(f'<span>{k}<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: {k}"', body)
+        self.assertEqual(json.loads(re.search(r"<script type=application/json id=apx-first>(.*?)</script>", body).group(1))
+                         ["help"]["win rate"], apterm.COL_HELP["win rate"])   # PnL by day: the same words in ap.js
+        self.assertIn("Range kupuje samo pri dnu (donja zona, ~0–15 % / bottom zona), a prodaje u gornjoj zoni.",
+                      apterm.COL_HELP["U rasponu"])
+        css = apterm.CSS
+        self.assertIn(".apx-tr.apx-th,.apx-krow.apx-th{display:flex;flex-wrap:wrap", css)   # phone: one wrapping line
+
+    def test_range_tokens_by_buying_priority_with_entry_words_and_links(self):
+        from rangedca import data as rdata
+        rc = rdata.connect(self.rdb)
+        a, b, c, d, e = ("A" * 40 + "pump", "B" * 40 + "pump", "C" * 40 + "pump", "D" * 40 + "pump", "E" * 40 + "pump")
+        self.rng(rc, a, "VRH", 0.95, 93)                 # top zone: no
+        self.rng(rc, b, "SREDINA", 0.9, 67)              # waits for the bottom, far
+        self.rng(rc, c, "BLIZU", 0.75, 30)               # waits for the bottom, near: before SREDINA despite its score
+        self.rng(rc, d, "DNO", 0.72, 10)                 # in the entry zone
+        self.rng(rc, e, "PROBOJ", 0.99, 130)             # breakout: last
+        rc.commit()
+        rc.close()
+        with mock.patch("rangedca.view.one", lambda tok, r, now, *a, **k: {
+                "entry_ready": tok == d, "entry_now": "ulaz bi prošao" if tok == d else "čeka",
+                "status": "breakout" if (r.get("pos_pct") or 0) > 100 else r.get("status")}):
+            html = apterm._watch_tokens(NOW)
+        order = [html.index(s) for s in (">DNO<", ">BLIZU<", ">SREDINA<")]
+        self.assertEqual(order, sorted(order))                             # ready, then the nearest to the bottom
+        self.assertLess(html.index(">SREDINA<"), html.index(">VRH<"))     # the top zone and breakouts last
+        self.assertLess(html.index(">SREDINA<"), html.index(">PROBOJ<"))
+        nb = " "
+        self.assertIn(f'<span class="n apx-ulaz up" data-l="Ulaz" title="ulaz bi prošao">spreman</span>', html)
+        self.assertRegex(html, rf"čeka dno \(−\d+{nb}%\)")
+        self.assertIn(">ne (vrh)<", html)
+        self.assertIn(">ne (breakout)<", html)
+        self.assertIn(f'10{nb}%<small class="up">u zoni ulaza</small>', html)
+        self.assertIn(f'67{nb}%<small class="">sredina</small>', html)
+        self.assertIn(f'93{nb}%<small class="dn">blizu vrha – ne kupuj</small>', html)
+        self.assertIn(f'href="https://dexscreener.com/solana/{d}" target=_blank rel=noopener', html)
+        self.assertIn(f'href="https://solscan.io/token/{d}" target=_blank rel=noopener', html)
+        self.assertIn('aria-label="Što znači: Ulaz"', html)
+
+    def test_live_candidates_need_kupi_ev_and_ten_sources(self):
+        def fast(dec, ev, n, state="done"):
+            return {"state": state, "decision": dec, "label": "KUPI (paper)" if dec else "provjera u tijeku",
+                    "ev_pct": ev, "ev_lo_pct": None, "ev_hi_pct": None, "p": 0.6, "n": n, "origin": "source"}
+        rows = [{"token": "L1".ljust(44, "1"), "symbol": "L1", "fast": fast("BUY_PAPER", 4.0, 12)},
+                {"token": "L2".ljust(44, "1"), "symbol": "L2", "fast": fast("BUY_PAPER", 4.0, 3)},     # n < 10
+                {"token": "L3".ljust(44, "1"), "symbol": "L3", "fast": fast("BUY_PAPER", -1.0, 30)},   # EV <= 0
+                {"token": "L4".ljust(44, "1"), "symbol": "L4", "fast": fast(None, None, 0, "pending")},
+                {"token": "L5".ljust(44, "1"), "symbol": "L5", "fast": fast("SKIP", 6.0, 30)}]          # PRESKOČI
+        from ui import zivo
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([], [], [], "paper")), \
+                mock.patch.object(zivo, "rows", lambda now: rows):
+            html = apterm.lazy("kupiti", "Jure")
+        main = html.split("<details", 1)[0]
+        self.assertIn(">L1<", main)                                        # KUPI, EV > 0, 12 sources: in the list
+        self.assertNotIn(">L5<", html)                                     # a PRESKOČI goes to "Preskočeni" (fast/live)
+        for s in ("L2", "L3", "L4"):
+            self.assertNotIn(f">{s}<", main)
+            self.assertIn(f">{s}<", html)                                  # folded, not lost
+        self.assertIn("Živi kandidati alata: provjera u tijeku ili n izvora &lt; 10 (3)", html)
+        self.assertNotIn("nije izmjeren", html)
+
+    def test_a_part_is_asked_again_when_the_tab_comes_back(self):
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        for k in ("document.addEventListener('visibilitychange', wake)", "addEventListener('pageshow'",
+                  "el._retry = setTimeout(() => { el._retry = 0; loadBox(el); }, 10000)",
+                  "Osvježavanje nije uspjelo (mreža ili poslužitelj); pokušavam ponovno.",
+                  "if (window.apPatch(el, h) === false) setTimeout(() => loadBox(el), 3000)"):
+            self.assertIn(k, js)
+
+
 class CardsOpenAtOnce(Env):
     """11.11. (Jure: "klikom na zatvorene kartice ne otvaraju se iz prvoga, kao da je lag; tako je za sve kartice")."""
 
@@ -763,7 +981,7 @@ class CardsOpenAtOnce(Env):
         self.seed()
         _, body = pravitrade.page({}, "Jure")
         box = body[body.index("id=apx-ostalo"):]
-        self.assertIn("Učitavam postavke i dijagnostiku…", box)          # an opened box says so at once
+        self.assertIn("Učitavam postavke…", box)                          # an opened box says so at once
 
 
 if __name__ == "__main__":

@@ -139,7 +139,9 @@ def range_ev(rc, mcap, rec, now):
     rll, rlt, rhl, rht = (_f(z.get(k)) for k in ("range_low_low", "range_low_top", "range_high_low", "range_high_top"))
     if not (rll and rhl and rht and mcap):
         return None
-    stop = rll * 0.85
+    # 11.11. (the owner's decision 1): the stop the range trader uses on every account, the ATR stop (rangedca/view row
+    # "stop"); x 0.85 only while the range has no ATR (or a row from before it)
+    stop = _f(((rc or {}).get("stop") or {}).get("market_cap_usd")) or rll * 0.85
     ev = {"strategy": "range", "ts": int((rc or {}).get("computed_ts") or now), "expires_after_s": EXPIRY_S["range"],
           "tp": rhl / mcap - 1, "sl": 1 - stop / mcap, "hits": (rec or {}).get("wins") or 0, "n": (rec or {}).get("n") or 0,
           "record_from": "zatvorene paper runde raspona (dobitne od svih)",

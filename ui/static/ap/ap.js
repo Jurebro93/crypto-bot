@@ -10,6 +10,15 @@
   let F = {};
   try { F = JSON.parse($('#apx-first').textContent); } catch (e) { F = {}; }
   const URLS = F.urls || {};
+  // 11.11. (Jure: "mali info button na svim stupcima"): the info buttons of the numbers written here, the words of the tables
+  // (ui/apterm.COL_HELP); .tip is the site's own tooltip (ui/html.JS: hover, tap, keyboard focus)
+  const HELP = F.help || {};
+  const tipI = (k, label) => {
+    const t = HELP[k];
+    if (!t) return '';
+    const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    return `<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: ${e(label || k)}" data-tip="${e(t)}">i</span>`;
+  };
   const S = { m: F.m || '', tf: '5m', unit: 'mc', side: 'buy', live: {}, tsig: null, fit: true };
   try { S.tf = localStorage.getItem('apx.tf') || '5m'; S.unit = localStorage.getItem('apx.unit') || 'mc'; } catch (e) { /* private mode */ }
   if (!['1m', '5m', '15m', '1h'].includes(S.tf)) S.tf = '5m';
@@ -83,12 +92,24 @@
     dd.forEach(([id, o], i) => { const d = id ? document.getElementById(id) : now[i]; if (d && d.open !== o) d.open = o; });
   }
   function watch(el) { if (!el || el._w) return; el._w = 1; if (io) io.observe(el); else startLazy(el); }
+  // 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): data-hide-empty = a card that exists only
+  // while it has something. An empty answer hides it (or its [data-hide-wrap]) and it keeps being asked, hidden, so it
+  // shows itself the moment it fills. No skeleton stays longer than 5 s: such a card is hidden, an always-shown one
+  // (data-slow) says in one line that it is still coming.
+  const hides = el => el.dataset.hideEmpty !== undefined;
+  const wrapOf = el => el.closest('[data-hide-wrap]') || el;
+  const isEmpty = h => !h.trim() || /^<p class=mut>u[čc]itavam…<\/p>$/i.test(h.trim());
   function startLazy(el) {
     if (!el || el._on) return;
     el._on = 1;
     loadBox(el);
+    setTimeout(() => {
+      if (el._filled || !$('.apx-skel', el)) return;
+      if (hides(el)) wrapOf(el).hidden = true;
+      else if (el.dataset.slow) { const p = document.createElement('p'); p.className = 'apx-one'; p.textContent = el.dataset.slow; el.replaceChildren(p); }
+    }, 5000);
     const ev = +el.dataset.xEvery;
-    if (ev) setInterval(() => { if (document.visibilityState === 'visible' && shown(el) && inView(el)) loadBox(el); }, ev * 1000);
+    if (ev) setInterval(() => { if (document.visibilityState === 'visible' && (hides(el) || (shown(el) && inView(el)))) loadBox(el); }, ev * 1000);
   }
   function runScripts(el) {   // scripts of a part that arrived as HTML (e.g. the wallet value chart) run once
     for (const old of $$('script', el)) {
@@ -105,9 +126,15 @@
       const r = await fetch(url || el.dataset.xSrc, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const h = await r.text();
+      if (hides(el)) {
+        const empty = isEmpty(h);
+        wrapOf(el).hidden = empty;
+        if (empty) { el.replaceChildren(); el._filled = 0; return; }
+      }
       const first = !el._filled || url;
       if (!first && window.apPatch) {
-        window.apPatch(el, h);
+        // refused (a finger on it, a field in focus): again in a moment, not a whole interval later
+        if (window.apPatch(el, h) === false) setTimeout(() => loadBox(el), 3000);
       } else {
         el.innerHTML = h || (el.dataset.empty ? '<p class=apx-empty></p>' : '');
         if (!h && el.dataset.empty) el.firstChild.textContent = el.dataset.empty;
@@ -118,13 +145,24 @@
       el.classList.remove('stale');
       after(el);
     } catch (e) {
+      // 11.11. (Jure: "Koga pratimo / Tokeni: ažurirano prije 38 min"): the badge says why it is old, and the part
+      // is asked again in 10 s instead of a whole interval later
       el.classList.add('stale');
       const a = $('.apx-age', el);
-      if (a) a.classList.add('old');
+      if (a) { a.classList.add('old'); a.title = 'Osvježavanje nije uspjelo (mreža ili poslužitelj); pokušavam ponovno.'; }
+      if (!el._retry) el._retry = setTimeout(() => { el._retry = 0; loadBox(el); }, 10000);
     } finally { el._busy = 0; }
   }
+  // back to the tab / the phone unlocked: every part already on the page is asked at once (the timers of a hidden tab
+  // are frozen; a card showed "ažurirano prije 38 min" until its next minute came round)
+  function wake() {
+    if (document.visibilityState !== 'visible') return;
+    for (const el of $$('[data-x-src]')) if (el._on && (hides(el) || (shown(el) && inView(el)))) loadBox(el);
+  }
+  document.addEventListener('visibilitychange', wake);
+  addEventListener('pageshow', e => { if (e.persisted) wake(); });
   function after(el) {
-    for (const c of $$('[data-x-src]', el)) if (shown(c)) watch(c);
+    for (const c of $$('[data-x-src]', el)) if (shown(c)) watch(c); else if (hides(c)) startLazy(c);
     if (window.apOpen) window.apOpen(el);
     if (window.apTick) window.apTick();
     if (window.apcInit) window.apcInit();
@@ -149,7 +187,8 @@
   }
 
   // ---- an address (#limiti after saving the limits, #poz-12 after a sale) that lives in a part not loaded yet ----
-  const OSTALO = /^(limiti|cilj|stop|trigger|mcp|grok|pozivnice|postavljanje|exit-planovi|pregled|jos|zastita|sazetak|ev-|zastavice|fl-|pravila|fast|preshill|eventi|preporuke|vrijednost|zatvorene)/;
+  // 11.11.: "Uredi praćenja" (#pratim, #prati-<id> after a follow form) is under "Postavke" now
+  const OSTALO = /^(limiti|cilj|stop|trigger|mcp|grok|pozivnice|postavljanje|exit-planovi|pregled|jos|zastita|sazetak|ev-|zastavice|fl-|pravila|fast|preporuke|zatvorene|pratim|prati-)/;
   function scrollHash() {
     const h = decodeURIComponent(location.hash.slice(1));
     if (!h || S.hashDone === h) return;
@@ -170,7 +209,8 @@
     else if (/^nalozi/.test(h)) showTab('nalozi');
     else if (/^(povijest)/.test(h)) showTab('povijest');
     else if (/^(dnevnik)/.test(h)) showTab('dnevnik');
-    else if (/^(pratim|prati-|pr-[wit]$)/.test(h)) startLazy($('#pratimo'));
+    else if (/^(pf-|pr-[wit]$)/.test(h)) startLazy($('#pratimo'));
+    else if (/^(eventi|preshill|ps-)/.test(h)) { startLazy($('#apx-eventi')); startLazy($('#apx-preshill')); }
     else if (/^(prijedlozi|pr-)/.test(h)) startLazy($('#kupiti'));
     else if (OSTALO.test(h) || h) { const o = $('#apx-ostalo'); if (o) { o.open = true; for (const c of $$('[data-x-src]', o)) startLazy(c); } }
   }
@@ -487,8 +527,9 @@
       cells.push(['Otvoreno (nerealizirano)', u(k.unreal_usd, true) || '–', 'po živoj cijeni', tone(k.unreal_usd)]);
     }
     cells.push(['Danas', s(k.today_sol, 4, true), (u(k.today_usd, true) + ' · zatvoreno danas').replace(/^ · /, ''), tone(k.today_sol != null ? k.today_sol : k.today_usd)]);
-    cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
-    el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
+    if (p.mode === 'paper' && (k.n_closed || 0) < 10) cells.push(['Ukupni PnL', s(k.total_sol, 3, true), `u procjeni: ${k.n_closed || 0} zatvorenih (n < 10)`, '']);
+    else cells.push(['Ukupni PnL', s(k.total_sol, 3, true), k.total_pct != null ? fPct(k.total_pct) : u(k.total_usd, true), tone(k.total_sol != null ? k.total_sol : k.total_usd)]);
+    el.innerHTML = cells.map(([l, v, sm, t]) => `<div><span>${esc(l)}${tipI(l)}</span><b class="${t}">${v}</b><small>${esc(sm)}</small></div>`).join('');
     const a = $('#apx-port-age');
     if (a) { a.dataset.ts = k.at || p.ts || 0; age(); }
   }
@@ -552,7 +593,7 @@
     if (note) note.textContent = p.note || '';
     if (sum) {
       const a = rows[0], z = rows[rows.length - 1], ch = a && z ? valOf(z) - valOf(a) : null;
-      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d</span>` : '';
+      sum.innerHTML = rows.length > 1 ? `<span><b class=${tone(ch)}>${pfmt(ch)}</b>${live ? 'promjena vrijednosti' : 'zatvoreno'} u ${p.days} d${tipI('promjena')}</span>` : '';
     }
     if (rows.length < 2) {
       pnlEmpty(live ? 'Još nema dovoljno snimki vrijednosti walleta za graf (jedna svakih 5 min).' : `Demo račun nema zatvorenih tradeova u zadnjih ${p.days} dana.`);
@@ -602,9 +643,10 @@
     const tot = PN.u === 'usd' ? t.pnl_usd : t.pnl_sol, who = j.mode === 'live' ? 'uživo' : 'paper';
     if (sum) {
       sum.innerHTML = t.n ? `<span><b class=${tone(tot)}>${pfmt(tot)}</b>${j.days} d ${who}</span>` +
-        `<span><b>${t.n}</b>zatvorenih</span><span><b>${t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate</span>` +
-        `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu</span>` +
-        (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade</span>` : '') +
+        // fewer than 10 closed trades: a win rate is no conclusion yet (11.11., Jure)
+        `<span><b>${t.n}</b>zatvorenih${tipI('zatvorenih')}</span><span><b>${t.n < 10 ? 'u procjeni' : t.win_rate == null ? '–' : fNum(t.win_rate, 0) + NB + '%'}</b>win rate${t.n < 10 ? ' (n &lt; 10)' : ''}${tipI('win rate')}</span>` +
+        `<span><b>${t.days_plus}/${t.days_minus}</b>dana u plusu / minusu${tipI('dana u plusu / minusu')}</span>` +
+        (j.fees_known && t.fees_sol != null ? `<span><b>${fSol(t.fees_sol, 4)}</b>naknade${tipI('naknade')}</span>` : '') +
         (noRate ? '<span>tečaj SOL-a nije poznat: prikaz u drugoj jedinici</span>' : '') : '';
     }
     if (note) note.textContent = j.note || '';
@@ -943,7 +985,8 @@
   if (ost) ost.addEventListener('toggle', () => { if (ost.open) for (const c of $$('[data-x-src]', ost)) startLazy(c); });
 
   // ---- start: lazy parts, the remembered tab, the panel's numbers; the chart and the stream after the first paint ----
-  for (const el of $$('[data-x-src]')) if (shown(el)) watch(el);
+  // what is on the first screen now; the rest after the token's chart (go, below), so they do not race it
+  for (const el of $$('[data-x-src]')) if (shown(el) && inView(el)) watch(el);
   try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !location.hash) showTab(t); } catch (e) { /* no storage */ }
   for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf);
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
@@ -952,11 +995,15 @@
   window.addEventListener('hashchange', () => { S.hashDone = null; S.hashTried = null; scrollHash(); });
   const later = fn => ('requestIdleCallback' in window) ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300);
   const go = () => {
-    later(chartInit); setTimeout(startLive, 400);
-    later(pnlLoad);   // "Portfelj": the numbers come with the page, its chart after the first paint
+    setTimeout(startLive, 400);
+    // one at a time on a slow phone line: the token's chart first, then the "Portfelj" chart (its numbers came with
+    // the page), then the parts under the tables (loaded before the finger gets there: no jump under a tap)
+    later(async () => {
+      try { await chartInit(); } catch (e) { /* the chart says so in its box */ }
+      pnlLoad();
+      setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el) || hides(el)) { watch(el); startLazy(el); } warmBoxes(); }), 300);
+    });
     setInterval(() => { const c = $('#apx-port'); if (document.visibilityState === 'visible' && c && inView(c)) pnlLoad(); }, 60000);
-    // the parts under the tables, once the page is idle: loaded before the finger gets there (no jump under a tap)
-    setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el)) startLazy(el); warmBoxes(); }), 900);
   };
   warmBoxes();
   if (document.readyState === 'complete') go(); else addEventListener('load', go);

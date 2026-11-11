@@ -112,7 +112,25 @@ def one(tok, r, now=None, pin=None, ws=None):
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
             "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
                           why or "ulaz bi prošao (uz provjeru ruga i limite)"),
-            "paper_only": src != "signal" and not (src == "missed" and trade.missed_live(now)), **_flip_part(r, m, now)}
+            "paper_only": src != "signal" and not (src == "missed" and trade.missed_live(now)),
+            "stop": stop_view(r), **_flip_part(r, m, now)}
+
+
+def stop_view(r):
+    """11.11. (the owner's decision 1): the hard stop every account trades on this range (the ATR stop; x 0.85 while
+    ATR is unknown), its ATR and today's old x 0.85, in market cap; None without zones or supply."""
+    sp = rules.stop_parts(r)
+    sup = ((r or {}).get("metrics") or {}).get("supply")
+    if not sp or not sup:
+        return None
+
+    def mc(px):
+        return round(px * sup) if px else None
+    return {"market_cap_usd": mc(sp["stop_px"]), "kind": sp["kind"], "atr_market_cap_usd": mc(sp["atr_px"]),
+            "old_x085_market_cap_usd": mc(sp["old_px"]),
+            "rule": ("range_low_low - 1.5 x ATR (14 x 15 min), 5-20 % under it; every account; the demo account also "
+                     "reclaims (30 min, back above range_low, buys >= 60 %)") if sp["kind"] == "atr" else
+                    "range_low_low x 0.85 while ATR is unknown"}
 
 
 def flip_view(fl, rng=None):
@@ -153,7 +171,8 @@ FLIP_RULES = ("range_flip (G26): a 5-minute close beyond the range by max(2 %, 1
               "no entries until 2 retests (swing lows within it +-3 %) without a close under it x 0.97 (then the range "
               "after the break trades). Down: paused, no lot 1 / lot 2, the old bottom zone is the resistance, resumed "
               "when a range formed after the break has its top <= the resistance x 1.03. A state ends 24 h after its "
-              "break. Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (today: x 0.85).")
+              "break. Stop: range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under range_low_low (11.11., the owner's "
+              "decision 1: every account's stop now, range_flip or not; x 0.85 only while ATR is unknown).")
 
 
 def _flip_tokens(since, limit=50):
@@ -201,9 +220,12 @@ def positions(tokens=None):
             "take_half_at (range_high_low)": round(lv["rhl"] * sup) if sup and lv.get("rhl") else None,
             "rest_at (range_high_top)": round(lv["rht"] * sup) if sup and lv.get("rht") else None,
             "hard_stop (range_low_low x 0.85)": round(lv["stop_px"] * sup) if sup and lv.get("stop_px") else None}
-        # 11.11. (range_flip): a round of the new rules has the volatility stop in that field (range_low_low - 1.5 x ATR)
+        # 11.11. (range_flip; decision 1: every round): the round's hard stop is in that field whatever its kind
+        # (stop_kind: atr = range_low_low - 1.5 x ATR, reclaim = under the new low by the ATR rule)
+        r["exit_levels_market_cap_usd"]["hard_stop"] = r["exit_levels_market_cap_usd"]["hard_stop (range_low_low x 0.85)"]
         r["rules"] = "range_flip" if lv.get("rules") == "flip" else "today"
         r["stop_kind"] = lv.get("stop_kind") or "range_low_low x 0.85"
+        r["reclaim"] = bool(lv.get("reclaim"))
         r["tighten_with"] = {"tool": "set_exit_plan", "plan.accounts": [r["user"]],
                              "note": "a plan only tightens: the range's own exits keep running next to it"}
     if tokens:
@@ -307,8 +329,12 @@ def candidates(min_score=None, now=None, limit=50, source=None):
             "rules": ("lot 1 in the bottom 15 % of the range or inside the bottom zone, 5m change > -3 %, buys >= 50 % "
                       "of 5m transactions, 15m volume x4 >= 50 % of the 1h average, range_score >= 0.7; lot 2 at -10 to "
                       "-15 % from lot 1 above range_low_low x 0.92; half out at range_high_low, the rest at "
-                      "range_high_top or a 10 % trailing stop above it; hard stop range_low_low x 0.85; after 6 h "
-                      "without the top zone out at break-even; 20 min cooldown")}
+                      "range_high_top or a 10 % trailing stop above it; hard stop (11.11., the owner's decision 1, "
+                      "every account) range_low_low - 1.5 x ATR(14 x 15 min), 5-20 % under it (x 0.85 while ATR is "
+                      "unknown; row stop); the demo account also reclaims: within 30 min of a stop-out, back above "
+                      "range_low with buys >= 60 % of 5 min, a new lot 1 with its stop under the new low by the ATR "
+                      "rule (the real account only past >= 7 nights of the stop comparison and >= 20 reclaim rounds "
+                      "with EV > 0); after 6 h without the top zone out at break-even; 20 min cooldown")}
 
 
 def _pin_only(tok, p, now):

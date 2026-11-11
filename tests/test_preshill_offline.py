@@ -531,7 +531,11 @@ class Card(ApBase):
         self.assertNotIn("id=preshill", pravitrade.page({}, "Jure")[1])                 # 11.11.: lazy (ui/apterm)
         _, body = pravitrade.page({"sve": "1"}, "Jure")
         at = body.index('id=preshill')
-        self.assertGreater(at, body.index("id=apx-ostalo"))                            # under "Postavke i dijagnostika"
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak"): with wallets found it is a card of the main view, under
+        # "Koga pratimo" and above "Postavke", that shows itself once it has data (data-hide-empty, polled)
+        self.assertGreater(at, body.index("id=pratimo"))
+        self.assertLess(at, body.index("id=apx-ostalo"))
+        self.assertIn("id=apx-preshill data-x-src=/pravi-trade/l/preshill data-x-every=120 data-hide-empty>", body)
         tag = body[body.rindex("<details", 0, at):body.index(">", at)]
         self.assertNotIn(" open", tag)                                                    # closed
         self.assertIn("Kupci prije shill mreže", body)

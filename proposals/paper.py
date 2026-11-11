@@ -2,7 +2,8 @@
 the shown proposals with their exits, so each strategy gets its own paper record. Runs inside league/auto.loop (20 s;
 run_ui.py is league.db's only writer). run_trade.py never mirrors PAPER_USER: no real money moves.
 
-  off / shadow   nothing (shadow = the list and the measurements only)
+  off            nothing
+  shadow         no entries (the list and the measurements only); 11.11.: the publication and the stop rule below
   paper / live   11.11. (the owner's rules after HAOBIBI, where a proposal was bought at $88k, outside its $104-112k
                  zone and under its own $88.6k stop, 2 s after range_dca's round in the same token closed on its stop):
                  every WAITING proposal (status novo, expires_ts in the future, not yet taken by the demo account, at
@@ -31,6 +32,10 @@ run_ui.py is league.db's only writer). run_trade.py never mirrors PAPER_USER: no
                  on the Autopilot card); Grok autotrade may read get_proposals and buy through execute_trade within its
                  own limits, as before.
 league.db proposal_trades: one row per proposal and account, closed from the lot's own result (trades.ret).
+11.11. (the owner's decision 4, proposals/publish.py): this 20-s loop also decides the publication of every waiting
+proposal at the market cap it reads (shown only inside the entry zone and >= 1 x ATR above the stop, else "čeka zonu"
+with the reason, proposals.db wait_why), in shadow too (shadow publishes and keeps the stop rule, it never enters);
+the demo account enters only a proposal published at this market cap.
 """
 import json
 import sqlite3
@@ -159,10 +164,11 @@ def range_block(con, user, tok, now, rng=None):
         return None
 
 
-def _write_back(path, seen, dead, entered, now):
-    """The waiting columns, the stop rule's isteklo and the paper entries into proposals.db (a short timeout: the pass
-    may hold its write lock; what fails here is written again by the next pass or the next proposals pass)."""
-    if not (seen or dead or entered):
+def _write_back(path, seen, dead, entered, now, pubs=()):
+    """The waiting columns, the stop rule's isteklo, the paper entries and (11.11., decision 4) the publication state
+    into proposals.db (a short timeout: the pass may hold its write lock; what fails here is written again by the next
+    pass or the next proposals pass)."""
+    if not (seen or dead or entered or pubs):
         return
     try:
         pc = store.connect(path, timeout=5)
@@ -170,6 +176,7 @@ def _write_back(path, seen, dead, entered, now):
         return
     try:
         store.mark_seen(pc, seen, now)
+        store.mark_published(pc, pubs, now)
         for pid, why in dead:
             store.set_status(pc, pid, "isteklo", why, now)
         for pid, mc in entered:
@@ -182,34 +189,40 @@ def _write_back(path, seen, dead, entered, now):
 
 
 def run_once(con, market_fn=None, now=None, path=None, sol=None):
-    """One entry pass: [(user, text)]. Only in paper / live, only on PAPER_USER."""
+    """One pass: [(user, text)]. Every mode but off: the publication of the waiting proposals (11.11., decision 4,
+    proposals/publish.check at the market cap read here) and the stop rule; paper / live also the entries, only on
+    PAPER_USER, only of a proposal published at this market cap."""
     m = mode()
-    if m not in ("paper", "live"):
+    if m == "off":
         return []
+    trading = m in ("paper", "live")
     from league import auto, copy, exitplan
     from league import store as lstore
     from trade import cost as tcost, settings
+    from . import publish
     now = int(now or time.time())
     user = settings.PAPER_USER
-    ensure(con)
-    sync_closed(con, user)
-    con.commit()
-    key = path or store.db_path()
+    if trading:
+        ensure(con)
+        sync_closed(con, user)
+        con.commit()
+    key = (path or store.db_path(), trading)
     last = _LAST.get(key)
     if last is not None and 0 <= now - last < CHECK_EVERY_S:
         return []
     _LAST[key] = now
-    taken = {p for (p,) in con.execute("SELECT proposal_id FROM proposal_trades WHERE user=?", (user,))}
+    try:
+        taken = {p for (p,) in con.execute("SELECT proposal_id FROM proposal_trades WHERE user=?", (user,))}
+    except sqlite3.Error:   # shadow: the table may not exist yet
+        taken = set()
     ps = waiting(now, path, taken)
     if not ps:
         return []
-    if sol is None:
+    if trading and sol is None:
         from rangedca import trade as rtrade
         sol = rtrade.sol_usd()
-    if not sol:
-        return []
     mk = (market_fn or copy.market)(sorted({p["token"] for p in ps})) or {}
-    seen, dead, entered, done, inz = [], [], [], [], []
+    seen, dead, entered, done, inz, pubs = [], [], [], [], [], []
     for p in ps:
         mq = mk.get(p["token"])
         if not mq or not mq[0]:
@@ -220,8 +233,14 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         seen.append((p["id"], mq[3], chk["state"] == strategies.IN_ZONE))
         if chk["dead"]:
             dead.append((p["id"], chk["dead"]))
-        elif chk["state"] == strategies.IN_ZONE:
+            continue
+        why = publish.check(p.get("row") or {}, mq[3])   # 11.11. (decision 4): in the zone and >= 1 ATR above the stop
+        pubs.append((p["id"], why, mq[3]))
+        if why is None and chk["state"] == strategies.IN_ZONE:
             inz.append((p, mq, chk))
+    if not trading or not sol:
+        _write_back(path, seen, dead, [], now, pubs)
+        return []
     rngs = _range_rows({p["token"] for p, _mq, _c in inz})
     for p, mq, chk in inz:
         tok, r = p["token"], p.get("row") or {}
@@ -269,7 +288,7 @@ def run_once(con, market_fn=None, now=None, path=None, sol=None):
         done.append((user, f"prijedlog #{p['id']} ({p.get('strategy')}) {p.get('symbol') or tok[:6]}: ušao (paper) na MC "
                            f"${mcap or 0:,.0f} u zoni {strategies.zone_text(chk['zone'])}, {size:g} SOL, EV "
                            f"{got[0] * 100:+.1f} %, izlaz {b.get('tp')} / {b.get('sl')}"))
-    _write_back(path, seen, dead, entered, now)
+    _write_back(path, seen, dead, entered, now, pubs)
     return done
 
 

@@ -781,7 +781,7 @@ def _follow_exit_form(f, st):
             'zadani stop iz „Pravila”.</p>')
 
 
-def _follows(con, owner, st=None, prefill=""):
+def _follows(con, owner, st=None, prefill="", title="Koga prati"):
     """"Koga prati" under "Kako trguje" (maketa): one row with the names and how many; opened, the tool's own
     choice, the form to follow anybody (owner), and one row per follow (who, what kind, entries) that opens its
     numbers and "Prestani pratiti"."""
@@ -859,7 +859,8 @@ def _follows(con, owner, st=None, prefill=""):
     inner = (listed + pool_box + '<h3 class=ap-sub><span>Automatski izbor</span></h3>' + _auto_box(st, owner) + anyone)
     # 10.11. (Jure: "nek su sve zatvorene kartice za početak, osim grafa, brze kupnje i otvorenih pozicija"): open
     # only when a crew is being filled in from "Zovu sada" (prefill)
-    return _sec("Koga prati", meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
+    # 11.11.: the Autopilot terminal names it "Uredi praćenja" under "Postavke" (its list is "Koga pratimo")
+    return _sec(title, meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
 
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
@@ -4430,8 +4431,8 @@ def _limits(cfg, owner):
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
     # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
-    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=dca_token_cap '
-               f'value="{_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
+    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=owner_token_cap '
+               f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
     extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
                  t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
@@ -4738,11 +4739,14 @@ def post(path, form, user):
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
-            if "dca_token_cap" in form:   # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL)
-                cap = float(str(form.get("dca_token_cap")).replace(",", ".") or settings.DCA_TOKEN_CAP)
+            # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL); 11.11.: its own key (owner_token_cap), the
+            # Autopilot's copy cap dca_token_cap stays as it is (an older form still sends dca_token_cap)
+            ck = "owner_token_cap" if "owner_token_cap" in form else "dca_token_cap" if "dca_token_cap" in form else None
+            if ck:
+                cap = float(str(form.get(ck)).replace(",", ".") or settings.DCA_TOKEN_CAP)
                 if not 0.01 <= cap <= 5:
                     raise ValueError("strop po tokenu mora biti 0,01-5 SOL")
-                settings.put(tcon, "dca_token_cap", round(cap, 4), user)
+                settings.put(tcon, "owner_token_cap", round(cap, 4), user)
                 settings.put(tcon, "dca_cap_owner", form.get("dca_cap_owner") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/sell":
@@ -5134,6 +5138,24 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
+PENDING_FRESH_S = 15 * 60   # a lot still 'pending' after this never filled: it holds nothing
+
+
+def held_sol(tcon, token, mode=None):
+    """SOL still in this token on ONE account: the open lots of the account the buy goes to (live while the switch is
+    live, else the demo "dry" one), each counted for the part not sold yet (sol_in x qty_left / qty_raw); a pending
+    lot in full while it is fresh (PENDING_FRESH_S). 11.11. (Jure: "u poziciji je 0,3, kupujem 0,1 = 0,4, a piše
+    0,45"): the sum took every open and pending row of the token, the other account's and the sold parts too."""
+    if mode is None:
+        mode = "live" if executor.is_live(_cfg(tcon)) else "dry"
+    since = int(time.time()) - PENDING_FRESH_S
+    r = tcon.execute("SELECT COALESCE(SUM(CASE WHEN status='open' AND qty_raw > 0 AND qty_left IS NOT NULL "
+                     "THEN sol_in * MIN(1.0, MAX(0.0, CAST(qty_left AS REAL) / qty_raw)) ELSE sol_in END), 0) "
+                     "FROM positions WHERE token=? AND mode=? AND (status='open' OR (status='pending' AND opened_ts >= ?))",
+                     (token, mode, since)).fetchone()
+    return float(r[0] or 0.0)
+
+
 def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
     dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
@@ -5150,11 +5172,12 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
     if m != "off" or owner_cap:
-        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
-        held = tcon.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE token=? AND status IN ('open','pending')",
-                            (token,)).fetchone()[0] or 0.0
+        cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        held = held_sol(tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
+            # 11.11. (Jure: "poruka odmah nestane"): every refused owner buy is one line in the log too
+            print(f"pravi trade: kupnja {token[:6]} odbijena: {why} (strop vlasnika)", flush=True)
             if owner_cap:
                 raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
@@ -5287,6 +5310,7 @@ def _post_buy(con, tcon, form, user, src=None):
     # "poslana". The same gate now answers here, before anything is written, with the way out in the message.
     why = _gate_now(tcon, sol, token)
     if why:
+        print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
         hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
         raise ValueError(f"kupnja nije poslana: {why}.{hint}")
     _owner_buy_rules(con, tcon, token, sol)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag

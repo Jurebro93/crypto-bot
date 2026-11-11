@@ -4,6 +4,10 @@ cost, the demo's booking moved to the calibrated fee by trade/cost.demo_adjust, 
 90 % interval > 0; MIN_ROUNDS 20 is stricter than the rule's n >= 10). trade/settings.live_refusal asks it
 when the owner moves the flag to live; rangedca/trade.py asks it again before every action on the real account, so
 a hand edit of the flag or a proof that turned negative never trades real money. Nothing here sets a flag.
+11.11. (the owner's decision 1): the demo account's reclaim rounds (levels "reclaim": true) are counted apart: they are
+not in proof() (the real account trades the ATR stop without reclaim), only in reclaim_proof() and the real account's
+reclaim gate reclaim_refusal() (>= 7 nights of the nightly stop comparison, >= 20 closed reclaim rounds, EV > 0 after
+cost). The owner's learning labels (rangedca/owner.py) are never read here.
 Read-only on league.db; light (trade/cost and trade/edge only)."""
 import json
 import os
@@ -31,10 +35,20 @@ def round_source(levels):
         return "signal"
 
 
-def proof(path=None, with_rets=False, source=None):
+def is_reclaim(levels):
+    """11.11. (decision 1): a reclaim round (range_rounds.levels "reclaim": true)."""
+    try:
+        return bool((json.loads(levels or "{}") or {}).get("reclaim"))
+    except (ValueError, AttributeError):
+        return False
+
+
+def proof(path=None, with_rets=False, source=None, reclaim=False):
     """{"n", "wins", "pnl_usd", "ev_pct", "ci90_lo_pct"} (+ "rets" with_rets) of the demo account's closed range
     rounds (zeros when none); ev_pct / ci90_lo_pct net of the calibrated cost (trade/cost.demo_adjust). source
-    (11.11.): "missed" = only the rounds opened from source missed, "other" = all the others; None = every round."""
+    (11.11.): "missed" = only the rounds opened from source missed, "other" = all the others; None = every round.
+    reclaim (11.11., decision 1): False = the ordinary rounds (the ATR stop, what the real account trades: range_dca's
+    and range_missed's proof, the proposals' range record); True = only the reclaim rounds (reclaim_refusal)."""
     from trade import cost, edge, settings as ts
     path = path or _db()
     out = {"n": 0, "wins": 0, "pnl_usd": 0.0, "ev_pct": None, "ci90_lo_pct": None, **({"rets": []} if with_rets else {})}
@@ -49,6 +63,7 @@ def proof(path=None, with_rets=False, source=None):
             con.close()
     except sqlite3.Error:
         return out
+    rows = [r for r in rows if is_reclaim(r[2]) == bool(reclaim)]
     if source:
         rows = [r for r in rows if (round_source(r[2]) == "missed") == (source == "missed")]
     rows = [(p, r) for p, r, *_ in rows]
@@ -172,3 +187,81 @@ def flip_refusal(path=None, now=None, cached=False):
 def flip_live_refusal(con=None, now=None):
     """trade/settings.LIVE_GATES' shape: (con, now=) -> None or the reason."""
     return flip_refusal(now=now)
+
+
+# ---------- reclaim on the real account (11.11., the owner's decision 1) ---------------------------------------------
+# The demo account trades the ATR stop + reclaim (rangedca/trade.py); the real account trades the ATR stop alone and a
+# reclaim only past this gate, asked again before every reclaim (trade.may_reclaim): >= RECLAIM_MIN_NIGHTS nights of the
+# nightly stop comparison (rangedca/backtest.run_server keeps their dates in range.db kv stop_backtest_nights) AND >=
+# RECLAIM_MIN_ROUNDS closed demo reclaim rounds (range_rounds.levels "reclaim": true) whose mean result per round net of
+# the calibrated cost (trade/cost.demo_adjust, as proof()) is above zero (the owner's words: "EV > 0 nakon troškova";
+# reclaim_proof_ok has trade/edge.live_proof's shape). Nothing here sets a flag; no flag exists for it.
+RECLAIM_MIN_NIGHTS = 7
+RECLAIM_MIN_ROUNDS = 20
+_RCACHE = {"at": 0.0, "key": None, "val": None}
+
+
+def stop_nights(path=None):
+    """The dates (YYYY-MM-DD, UTC) of the nights the stop comparison ran (range.db kv stop_backtest_nights); []."""
+    from . import data
+    con = data.ro(path)
+    if con is None:
+        return []
+    try:
+        v = data.kv_get(con, "stop_backtest_nights") or []
+        return [d for d in v if isinstance(d, str)] if isinstance(v, list) else []
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+def reclaim_proof(path=None, with_rets=False):
+    """proof() of the demo account's closed reclaim rounds only."""
+    return proof(path, with_rets=with_rets, reclaim=True)
+
+
+def reclaim_proof_ok(rets, n_min=RECLAIM_MIN_ROUNDS):
+    """(ok, why not or None, trade/edge.ev_stats) of the reclaim rounds' results (fractions, net of cost): n >= n_min
+    and EV (their mean) > 0."""
+    from trade import edge
+    s = edge.ev_stats(rets)
+    if s["n"] < n_min:
+        return False, f"zatvorenih reclaim rundi {s['n']} od potrebnih {n_min}", s
+    if s["ev"] is None or s["ev"] <= 0:
+        return False, f"EV reclaim rundi {(s['ev'] or 0) * 100:+.2f} % po rundi nakon troška nije iznad nule", s
+    return True, None, s
+
+
+def reclaim_refusal(path=None, rpath=None, now=None, cached=False):
+    """None when the real account may buy a reclaim, else the reason in Croatian (see above)."""
+    now = now or time.time()
+    key = (path, rpath)
+    if cached and _RCACHE["key"] == key and now - _RCACHE["at"] < CACHE_S:
+        return _RCACHE["val"]
+    nights = len(set(stop_nights(rpath)))
+    why = None
+    if nights < RECLAIM_MIN_NIGHTS:
+        why = f"reclaim: tek {nights} noći usporedbe stopova, treba {RECLAIM_MIN_NIGHTS}"
+    else:
+        p = reclaim_proof(path, with_rets=True)
+        ok, w, _s = reclaim_proof_ok(p["rets"])
+        if not ok:
+            why = f"reclaim: {w}"
+    _RCACHE.update(at=now, key=key, val=why)
+    return why
+
+
+def reclaim_live_refusal(con=None, now=None):
+    """trade/settings.LIVE_GATES' shape: (con, now=) -> None or the reason."""
+    return reclaim_refusal(now=now)
+
+
+def reclaim_line(path=None, rpath=None):
+    """One log line of the demo reclaim rounds and the real account's reclaim gate (the nightly comparison)."""
+    p = reclaim_proof(path)
+    why = reclaim_refusal(path, rpath)
+    ev = f"EV {p['ev_pct']:+.2f} %" if p["ev_pct"] is not None else "EV -"
+    return (f"range reclaim (demo, ATR + reclaim): {p['n']} zatvorenih rundi, {ev} nakon troška, PnL "
+            f"{p['pnl_usd']:+.2f} $; noći usporedbe {len(set(stop_nights(rpath)))}/{RECLAIM_MIN_NIGHTS}; pravi račun: "
+            + (why or "reclaim dozvoljen"))

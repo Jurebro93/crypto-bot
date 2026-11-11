@@ -106,13 +106,14 @@ class Page(Base):
 
     def test_order_of_the_mock_up_and_no_chip_bar(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
+        self._follow()   # 11.11.: "Koga pratimo" exists only while somebody is followed
         # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): chart and tables first, the order panel beside them,
-        # then "Što kupiti", "Koga pratimo" and "Postavke i dijagnostika" (sve=1: every lazy part in the page)
+        # then "Što kupiti" (one line while nothing has EV > 0), "Koga pratimo" and "Postavke" (sve=1: every lazy part)
         _, body = pravitrade.page({"sve": "1"}, "Jure")
-        at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", ">Pozicije <", ">Otvoreni nalozi <", ">Povijest<",
-                                      ">Dnevnik<", "id=kupi-odmah", ">Što kupiti <", ">Koga pratimo <",
-                                      ">Tko sada zove koji token (60 min)<", ">Postavke i dijagnostika<", ">Pravila<",
-                                      ">Wallet i uplata<", ">Kako je zaštićeno<")]
+        at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", "id=apx-port", ">Pozicije <", ">Otvoreni nalozi <",
+                                      ">Povijest<", ">Dnevnik<", "id=kupi-odmah", "Nema prijedloga s EV &gt; 0",
+                                      ">Koga pratimo <", ">Tko sada zove koji token (60 min)<", ">Postavke<", ">Pravila<",
+                                      ">Uredi praćenja<", ">Wallet i uplata<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         # no secnav chips: every h2 opts out (10.11. 23:04: the cards' titles had made a chip bar again)
         h2s = re.findall(r"<h2[^>]*>", body)

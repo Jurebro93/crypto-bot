@@ -473,8 +473,12 @@ class Card(ApBase):
         at = body.index("id=eventi")
         tag = body[body.rindex("<details", 0, at):body.index(">", at)]
         self.assertNotIn(" open", tag)                                      # closed
-        self.assertGreater(at, body.index("id=apx-ostalo"))                  # under "Postavke i dijagnostika"
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak"): with an active topic it is a card of the main view,
+        # under "Koga pratimo" and above "Postavke"; without one it is not rendered at all (the flag-off check above)
+        self.assertGreater(at, body.index("id=pratimo"))
+        self.assertLess(at, body.index("id=apx-ostalo"))
         self.assertGreater(at, body.index("id=dnevnik"))                     # nothing above Dnevnik
+        self.assertIn("id=apx-eventi data-x-src=/pravi-trade/l/eventi data-x-every=60 data-hide-empty>", body)
         card = body[body.rindex("<details", 0, at):]
         self.assertIn("Eventi", card)
         self.assertIn("glavni", card)

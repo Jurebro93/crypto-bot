@@ -302,11 +302,12 @@ def summary(rounds):
     return out
 
 
-def run_tokens(series, log=print, flip=True, stops=True):
+def run_tokens(series, log=print, flip=True, stops=True, gate_exclude=()):
     """series: {token: (candles, supply, liq, symbol)}. Returns the report dict. flip (11.11.): the timeline also
     carries the range_flip state (today's variants do not read it) and rep["flip"] compares today's rules with the
     new ones (flip_compare). stops (11.11., rangedca/stops.py; needs flip): rep["stops"] compares the stop variants
-    (a-e, be), measured only."""
+    (a-e, be), measured only. gate_exclude (11.11.): rep["flip_gate"] = rep["flip"] without these tokens (what the
+    range_flip live gate reads; the report keeps them)."""
     var = {f"{th:.1f}{'' if l2 else '_bez_lota2'}": [] for th in THRESHOLDS for l2 in (True, False)}
     var[PROXY_OFF] = []
     per = {}
@@ -340,6 +341,8 @@ def run_tokens(series, log=print, flip=True, stops=True):
            "variants": {k: summary(v) for k, v in var.items()}, "tokens": per}
     if fc:
         rep["flip"] = fc.report()
+        if gate_exclude:
+            rep["flip_gate"] = fc.report(gate_exclude)
     if sc:
         rep["stops"] = sc.report()
     return rep
@@ -453,9 +456,14 @@ class FlipCompare:
                                        "false_entry": false_entry(r)} for r in rs]
         self.tokens[tok] = per
 
-    def report(self):
-        hours = sorted(p["hours"] for p in self.tokens.values())
-        out = {"variants": {k: flip_summary(v) for k, v in self.rounds.items()}, "tokens": self.tokens,
+    def report(self, exclude=()):
+        """exclude (11.11.): tokens left out of the totals (the owner's labelled / pinned tokens that only a fixture
+        brought into the nightly set: a label must never steer the live gate's numbers)."""
+        ex = set(exclude or ())
+        toks = {t: p for t, p in self.tokens.items() if t not in ex}
+        hours = sorted(p["hours"] for p in toks.values())
+        out = {"variants": {k: flip_summary([r for r in v if r.get("token") not in ex]) for k, v in self.rounds.items()},
+               "tokens": toks,
                "score_min": self.score_min, "lot_usd": LOT_USD, "sol_usd": BT_SOL_USD,
                "data": {"tokens": len(hours), "days_total": round(sum(hours) / 24, 2),
                         "max_days": round(hours[-1] / 24, 2) if hours else 0.0,
@@ -704,19 +712,30 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
         top_up(rcon, now, gt, days, fetch, log)
         toks = tokens_with_data(rcon, now, days)
         extra = fixture_series(sorted(keep - set(toks)))
-        rep = run_tokens(_Lazy(rcon, toks, now, days, extra), log)
+        # 11.11. (decision 1: a label is never in a win rate / EV): the tokens only a label / pin fixture brought are
+        # in the report and the stop comparison per token, never in the totals the range_flip live gate reads
+        rep = run_tokens(_Lazy(rcon, toks, now, days, extra), log, gate_exclude=sorted(extra))
         fx = fixture_series([_stops.HAOBIBI])   # the live HAOBIBI round of 11.11. replayed per stop variant
         if fx:
             cs, sup, _l, _s = fx[_stops.HAOBIBI]
             rep["stop_replay"] = _stops.replay_table(cs, sup)
-        fr = rep.get("flip")
+        fr = rep.pop("flip_gate", None) or rep.get("flip")
         if fr:   # 11.11. (range_flip G26): the old vs new numbers the live gate reads (rangedca/gate.flip_refusal)
             data.kv_put(rcon, "flip_backtest", {"ts": now, "days": days, "tokens": fr["data"]["tokens"],
                                                 "data": fr["data"], "dd_ok": fr["dd_ok"], **fr["variants"]})
         sr = rep.get("stops")
         if sr:   # 11.11.: the stop variants, for the owner's decision (nothing reads them to trade)
+            nights = [d for d in (data.kv_get(rcon, "stop_backtest_nights") or []) if isinstance(d, str)]
+            day = time.strftime("%Y-%m-%d", time.gmtime(now))
+            nights = (nights + ([day] if day not in nights else []))[-60:]   # the reclaim gate counts these nights
+            data.kv_put(rcon, "stop_backtest_nights", nights)
+            try:   # 11.11. (decision 1): the demo account's reclaim rounds next to the comparison
+                from . import gate as _gate
+                rec = _gate.reclaim_proof()
+            except Exception:  # noqa: BLE001
+                rec = None
             data.kv_put(rcon, "stop_backtest", {"ts": now, "days": days, "data": sr["data"], "vs_a": sr["vs_a"],
-                                                **sr["variants"]})
+                                                "nights": len(nights), "paper_reclaim": rec, **sr["variants"]})
         rcon.commit()
     finally:
         rcon.close()
@@ -727,6 +746,11 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
         log(flip_line(rep["flip"]))
     if rep.get("stops"):
         log(_stops.line(rep["stops"], focus=sorted(keep)))
+        try:   # 11.11. (decision 1): the demo reclaim rounds and the real account's reclaim gate
+            from . import gate as _gate
+            log(_gate.reclaim_line())
+        except Exception as e:  # noqa: BLE001
+            log(f"range reclaim: dokaz nije čitljiv ({type(e).__name__})")
     if rep.get("stop_replay"):
         log(_stops.replay_line(rep["stop_replay"]))
     return rep

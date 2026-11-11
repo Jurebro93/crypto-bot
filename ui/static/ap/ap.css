@@ -109,6 +109,17 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-th{font-size:12px;color:var(--mut);padding:8px 2px}
 .apx-th span{font-family:inherit!important;font-size:12px!important;font-weight:500!important}
 .apx-tr.is-paper,.apx-krow.is-paper{opacity:.66}
+/* the info button of a column (11.11.): the site's .tip tooltip; focusable, never wider than its column */
+.apx .apx-i{display:inline-flex;align-items:center;justify-content:center;width:14px;min-width:14px;height:14px;
+ margin:0 0 0 4px;border:1px solid currentColor;border-radius:50%;font:italic 600 9.5px/1 Georgia,serif!important;
+ color:var(--acc);cursor:help;vertical-align:1px;text-align:center;opacity:.85}
+.apx .apx-i:hover{opacity:1}
+.apx .apx-i:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.apx-xl{display:inline-flex;gap:5px;margin:0 0 0 6px;vertical-align:middle}.apx-xl a{display:inline-flex;opacity:.8}
+.apx-xl a:hover{opacity:1}.apx-xl img{width:14px;height:14px;border-radius:3px;display:block}
+.apx-ulaz{font-family:inherit!important;font-weight:600}
+.apx-tline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px 0;max-width:100%}
+.apx-trow small{font-family:Inter,system-ui,sans-serif}
 .apx-div{font-size:12px;font-weight:600;color:var(--mut);padding:12px 2px 6px;border-bottom:1px solid var(--line)}
 .apx-c-tok{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
 .apx .apx-tok{background:none;border:0;padding:0;color:var(--fg);font-weight:700;font-size:14px;cursor:pointer;border-radius:4px;
@@ -144,7 +155,7 @@ a.apx-state:hover{border-color:var(--line2)}
 /* "Portfelj" under the token's chart: the numbers, then the value line or PnL by day */
 .apx-port .apx-h2{margin:0 4px 0 0}
 .apx-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px 16px;margin:2px 0 14px}
-.apx-kpi div{min-width:0}.apx-kpi span{display:block;font-size:12px;color:var(--mut)}
+.apx-kpi div{min-width:0}.apx-kpi div>span{display:block;font-size:12px;color:var(--mut)}
 .apx-kpi b{display:block;font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:16px;font-weight:650;
  white-space:nowrap;letter-spacing:-.01em}
 .apx-kpi small{font-size:12px}
@@ -214,6 +225,7 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-krow{display:grid;grid-template-columns:minmax(150px,2.2fr) .9fr .8fr 1.1fr .7fr minmax(90px,.9fr);gap:4px 10px;
  align-items:center;padding:10px 2px;border-bottom:1px solid var(--line)}
 .apx-frow,#pratimo .apx-krow{grid-template-columns:minmax(150px,2.2fr) .8fr .7fr .9fr .9fr}
+#pratimo .apx-krow.apx-trow{grid-template-columns:minmax(140px,1.9fr) .6fr .8fr 1.1fr 1.2fr .8fr}
 .apx-kmain{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
 .apx-kmain .apx-mut{font-size:12.5px;overflow-wrap:anywhere}.apx .apx-kmain .apx-tok{text-align:left}
 .apx-kmore{grid-column:1/-1}.apx-kmore summary{font-size:12.5px;color:var(--mut);cursor:pointer}
@@ -237,6 +249,9 @@ a.apx-state:hover{border-color:var(--line2)}
 @media(prefers-reduced-motion:reduce){.apx-skel i{animation:none}}
 .apx-sk{color:var(--mut);font-size:12.5px}
 .apx-ld{margin:4px 0 0;font-size:13px}
+/* a card that has nothing to conclude is one line (11.11., Jure: "prikazuj samo ono što ima zaključak") */
+.apx-one{margin:0;padding:2px 0;color:var(--mut);font-size:14px;display:flex;gap:6px 12px;flex-wrap:wrap;align-items:baseline}
+.apx-one+.apx-skoro{margin-top:6px}
 /* parts that load or refresh in place are never the scroll anchor: the browser keeps the box under the finger still */
 .apx-lz,.apx-pane,#apx-hist{overflow-anchor:none}
 .apx-mbar,.apx-scrim{display:none}
@@ -282,9 +297,11 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
 @media(max-width:700px){
  .apx-card,.apx-hdr{padding:12px 14px}.apx-pane{padding:4px 12px 10px}
  .apx-kpi{grid-template-columns:1fr 1fr;gap:10px 14px}.apx-kpi b{font-size:15px}
- .apx-th{display:none}
- .apx-tr,.apx-tr.apx-ord,.apx-tr.apx-hist,.apx-krow,.apx-frow,#pratimo .apx-krow{grid-template-columns:1fr 1fr;padding:12px 2px;
-  gap:4px 14px}
+ .apx-tr,.apx-tr.apx-ord,.apx-tr.apx-hist,.apx-krow,.apx-frow,#pratimo .apx-krow,#pratimo .apx-krow.apx-trow{
+  grid-template-columns:1fr 1fr;padding:12px 2px;gap:4px 14px}
+ /* the column titles become one wrapping line of words with their info button (each row names its cells itself) */
+ .apx-tr.apx-th,.apx-krow.apx-th{display:flex;flex-wrap:wrap;gap:2px 12px;padding:8px 2px 6px}
+ .apx-th>span{text-align:left!important}.apx-th>span:empty{display:none}
  .apx-tr>[data-l],.apx-krow>[data-l]{display:block;text-align:right;min-width:0}
  .apx-tr>[data-l]::before,.apx-krow>[data-l]::before{content:attr(data-l);float:left;margin-right:8px;color:var(--mut);
   font-size:12px;font-weight:400;font-family:Inter,system-ui,sans-serif}

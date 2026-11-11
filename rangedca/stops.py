@@ -1,5 +1,7 @@
 """Stop variants of range_dca, measured, never traded (11.11., Jure: "HAOBIBI je bio jako dobar ulaz ... trade je samo
-trebalo malo držati"; the owner decides from these numbers, the live / paper stop rule does not change here).
+trebalo malo držati"; the owner decides from these numbers). 11.11. the owner's decision 1: the live stop of every
+account is (b); the demo account trades (b) + reclaim (rangedca/rules.atr_range / reclaim_*, rangedca/trade.py); this
+module still only measures.
 
 The variants (backtest.simulate over the same detection timeline, OHLC ticks: the live exit loop sees every second, so
 a wick is a tick; a stop / trailing exit a tick passes through fills at its level, one that gapped past it at the tick):
@@ -109,12 +111,12 @@ def line(sr, focus=()):
         p = sr["tokens"].get(tok)
         if p:
             out += (f"; {p['symbol'] or tok[:6]}: " + ", ".join(f"{k} {p[k]['pnl_usd']:+.2f} $" for k in VARIANTS))
-    return out + "; pravilo uživo se ne mijenja (odluka vlasnika)"
+    return out + "; pravilo uživo (odluka vlasnika 11.11.): b na svim računima, demo b + reclaim"
 
 
 def md(sr):
     """The markdown section (per token and in total)."""
-    lines = ["", "## Stop varijante (mjereno, pravilo uživo se ne mijenja)", "",
+    lines = ["", "## Stop varijante (mjereno; uživo od 11.11.: b na svim računima, demo b + reclaim)", "",
              f"Prag ocjene {sr['score_min']}, lot 2, lot ${sr['lot_usd']:.0f}, tickovi {sr['ticks']}, trošak kao gore. "
              "Lažni ulaz = runda završena tvrdim stopom bez prvog TP-a; MAE = najgori trenutni gubitak runde.", ""]
     lines += [f"- {k}: {VARIANTS[k]['hr']}" for k in VARIANTS]

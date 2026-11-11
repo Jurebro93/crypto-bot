@@ -38,6 +38,21 @@ trades the new rules (rules.new_range: no lot 1 / lot 2 while paused or a flip c
 flipped / resumed, the volatility stop; its rounds carry levels rules = "flip"); the real account never. live:
 LEAGUE_USER too, but only while gate.flip_refusal() is None (the nightly backtest's new max drawdown <= today's) and
 only where range_dca itself trades it (range_dca stays paper: then it never does).
+
+11.11. (the owner's decision 1, "range stopovi", rules.atr_range / reclaim_*): no flag changes. The hard stop of every
+round, on every account, is the ATR stop (stop variant b: range_low_low - 1.5 x ATR, 5-20 % under it; x 0.85 only while
+ATR is unknown); x 0.85 is no longer the live stop of today's rules. On top of it:
+  real account LEAGUE_USER (only where range_dca trades it: live past gate.refusal)  the ATR stop; a reclaim only while
+                gate.reclaim_refusal() is None (>= 7 nights of the nightly stop comparison and >= 20 closed demo
+                reclaim rounds with EV > 0 after cost), asked again before every reclaim; never a market / event token
+  demo account PAPER_USER  the ATR stop + reclaim. A stop-out (or the "range broken downward" give-up) of a round that
+                was no reclaim arms its closed row's state "reclaim" {until (+30 min), rl (range_low), low, atr}; every
+                20-s pass lowers `low` to the lowest price it sees and buys lot 1 of a new round (levels "reclaim": true,
+                "reclaim_of", the stopped round's take-profit levels) once the price is above range_low with buys >=
+                60 % of 5 minutes (fresh numbers); its stop = rules.reclaim_stop(low, ATR), kept as it is (only the
+                take-profit levels follow the newest range). Not after 30 min; one reclaim per stopped round; the
+                cooldown and range_flip's pause do not apply to it (the stop comparison's variant "be" measured it so);
+                the guards and the limits do. Counted apart (gate.reclaim_proof); range_dca's own proof leaves them out.
 """
 import json
 import os
@@ -61,14 +76,18 @@ EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "
 REASON_HR = {"tp1": "pola u gornjoj zoni", "top": "ostatak na vrhu raspona", "trailing": "trailing 10 % od vrha",
              "stop": "tvrdi stop (range_low_low × 0,85)", "time": "6 h bez gornje zone, izlaz na nuli",
              "odustajanje": "odustajanje", "rug": "tvrdi blok (rug): pin i oznaka poništeni"}
-STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: a round of the new rules (range_flip)
+STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: the ATR stop (every account, decision 1)
+STOP_RECLAIM_HR = "tvrdi stop reclaim runde (novo dno − 1,5 × ATR)"
 
 
 def _hr(reason, levels=None):
-    """The reason in Croatian; the stop of a round with the volatility stop says so."""
+    """The reason in Croatian; the stop of a round with the volatility stop (or a reclaim round's) says so."""
     k = reason.split(":")[0]
-    if k == "stop" and (levels or {}).get("stop_kind") == "atr":
+    kind = (levels or {}).get("stop_kind")
+    if k == "stop" and kind == "atr":
         return STOP_ATR_HR
+    if k == "stop" and kind in ("reclaim", "reclaim_fixed"):
+        return STOP_RECLAIM_HR
     return REASON_HR.get(k, reason)
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS range_rounds (
@@ -254,9 +273,41 @@ def _fresh_levels(rng, now, new=False):
     """The levels of the newest range when it is active and fresh. new: True = of the new rules' range
     (rules.new_range), or the parts of them to apply (("atr",): today's range with the volatility stop)."""
     rx = (rules.new_range(rng, rules.FLIP_PARTS if new is True else new) if new and rng else rng)
+    rx = rules.atr_range(rx)   # 11.11. (decision 1): the ATR stop on every account's levels
     if rx and rx.get("zones") and rx.get("active") and now - (rng.get("ts") or 0) <= RANGE_FRESH_S:
         return rules.levels_of(rx)
     return None
+
+
+def _levels_now(r, rng, now):
+    """The levels in force for an open round (rules.merge_levels with the newest range). A reclaim round keeps its
+    own stop (under the new low): only its take-profit levels follow the range."""
+    lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
+    if r["levels"].get("reclaim"):
+        lv["stop_px"] = r["levels"]["stop_px"]
+        lv["stop_kind"] = r["levels"].get("stop_kind")
+    return lv
+
+
+def may_reclaim(user, now=None):
+    """11.11. (decision 1): may this account buy a reclaim? The demo account yes; the real account only while
+    gate.reclaim_refusal() is None (asked again here; logged once an hour when it refuses); nobody else."""
+    from trade import settings as ts
+    if user == ts.PAPER_USER:
+        return True
+    if user != ts.LEAGUE_USER:
+        return False
+    try:
+        why = gate.reclaim_refusal(now=now, cached=True)
+    except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+        why = f"dokaz reclaima nije čitljiv ({type(e).__name__})"
+    if why:
+        t = now or time.time()
+        if t - _CACHE.get("reclaim_gate_log", 0.0) > 3600:
+            _CACHE["reclaim_gate_log"] = t
+            print(f"range reclaim: pravi račun ne kupuje reclaim ({why})", flush=True)
+        return False
+    return True
 
 
 def _is_new(r):
@@ -338,7 +389,7 @@ def entry_view(rng, price, now):
         return "raspon nije svjež"
     if now - (rng.get("mts") or rng.get("ts") or 0) > METRICS_FRESH_S:
         return "5-minutni podaci nisu svježi"
-    return rules.entry_check(rng, price)
+    return rules.entry_check(rules.atr_range(rng), price)   # 11.11.: the floor never under the ATR stop (variant b)
 
 
 def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
@@ -352,19 +403,20 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         return []
     ensure(con)
     open_r = rounds(con)
+    armed = [r for r in _armed(con, now) if r["user"] in act] if act else []   # 11.11.: open reclaim windows
     mflip, new_u, flip_sh = flip_roles(act, now)
     if ranges is not None:
         rngs = ranges
     else:   # 11.11.: the active ranges and the open rounds' ranges only (range.db holds the whole market watchlist)
         rngs = data.read_ranges(since=now - RANGE_FRESH_S, active_only=True)
-        rest = {r["token"] for r in open_r} - set(rngs)
+        rest = ({r["token"] for r in open_r} | {r["token"] for r in armed}) - set(rngs)
         if mflip != "off":   # range_flip: the tokens whose range after a break is active (today's may not be)
             rest |= set(data.flip_rows(since=now - RANGE_FRESH_S, alt_active=True)) - set(rngs)
         if rest:
             rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=sorted(rest)))
     cand = {t for t, r in rngs.items() if _candidate(r)}
     cand_new = {t for t, r in rngs.items() if _candidate(rules.new_range(r))} if mflip != "off" else set()
-    toks = sorted(cand | cand_new | {r["token"] for r in open_r if r["user"] in act})
+    toks = sorted(cand | cand_new | {r["token"] for r in open_r if r["user"] in act} | {r["token"] for r in armed})
     if not toks:
         return []
     from league import copy
@@ -380,6 +432,13 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         for r in mine:
             done += _lot2(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim, sol, now)
         n_open = len(mine)
+        for r in armed:   # 11.11. (decision 1): a reclaim within 30 min of the stop-out, before any new lot 1
+            if r["user"] == user and not any(x["token"] == r["token"] for x in mine):
+                got = _reclaim(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim, sol, now, n_open)
+                if got:
+                    n_open += 1
+                    mine.append({"token": r["token"]})
+                    done += got
         for tok in sorted(cand_new if new else cand):
             if n_open >= lim["max_open"]:
                 break
@@ -446,7 +505,8 @@ def _flip_shadow(con, users, toks, rngs, mk, now, mflip):
             _flags().shadow(con, FLIP_FLAG, None, tok, "range ulaz lot 1" if old is None else f"bez ulaza ({old})",
                             "range ulaz lot 1 (raspon nakon proboja)" if new is None else f"blokirano ({new})",
                             {"user": user, "state": fl.get("state"), "mc": mq[3], "mode": mflip,
-                             "stop_old_px": z["range_low_low"] * rules.RULES["stop_x"] if z.get("range_low_low") else None,
+                             "stop_old_px": rules.levels_of(rules.atr_range(rng))["stop_px"] if z.get("range_low_low")
+                             else None,
                              "stop_new_px": (rules.new_range(rng, ("atr",)) or {}).get("stop_px"), "zone": fl.get("zone")},
                             now)
             n += 1
@@ -462,7 +522,7 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
         return []
     price, liq, _url, mcap = mq[:4]
     base = rng
-    rng = rules.new_range(rng) if new else rng
+    rng = rules.atr_range(rules.new_range(rng) if new else rng)   # 11.11. (decision 1): the ATR stop, every account
     why = entry_view(rng, price, now)
     if why is None and (_held(con, user, tok) or _cooldown(con, user, tok, now)):
         why = "već drži token ili je u pauzi nakon runde"
@@ -488,13 +548,16 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
     srcs = base.get("sources") or [base.get("source") or "signal"]   # 11.11.: the round's source (EV per source, gate)
     lv["src"] = next((s for s in market.SRC_ORDER if s in srcs), "signal")
+    if (rng.get("zones") or {}).get("range_low"):   # 11.11.: range_low (the bottom zone's average): a reclaim's line
+        lv["rl"] = rng["zones"]["range_low"]
     nr = None
     if new:   # range_flip: the round follows the new rules to its end (fresh levels from rules.new_range)
         lv["rules"] = "flip"
         lv["flip_state"] = (base.get("flip") or {}).get("state")
         if (base.get("zones") or {}).get("range_low_low"):
             lv["old_stop_px"] = base["zones"]["range_low_low"] * rules.RULES["stop_x"]
-    elif flip_log:   # the would-be volatility stop on today's zones (also while the new rules would block)
+    elif flip_log and lv.get("stop_kind") != "atr":   # the would-be volatility stop on today's zones (also while the
+        # new rules would block); 11.11.: not when today's stop already IS the ATR stop (decision 1), nothing differs
         nr = rules.new_range(base, ("atr",))
         if nr and nr.get("stop_px"):
             lv["flip_stop_px"] = nr["stop_px"]
@@ -523,7 +586,7 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
         return []
     if _is_new(r) and rules.flip_block(rng):   # range_flip: no lot 2 while paused or a flip candidate
         return []
-    lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
+    lv = _levels_now(r, rng, now)
     mets = (rng or {}).get("metrics") if rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S else None
     why = rules.lot2_check(t1[0], price, lv, mets)
     lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
@@ -658,7 +721,7 @@ def exits_once(con, market_fn, now=None):
             continue
         price, mcap, liq, age = q[r["token"]]
         rng = rngs.get(r["token"])
-        lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
+        lv = _levels_now(r, rng, now)
         st = r["state"]
         before = json.dumps(st, sort_keys=True)
         if flip_on and r["levels"].get("flip_stop_px"):   # range_flip shadow: the would-be stop of a today's-rules round
@@ -671,6 +734,8 @@ def exits_once(con, market_fn, now=None):
             hit = rules.exit_step(lv, st, price, now, r["opened_ts"], _be_px(lots, liq), stale=age > STALE_S)
         if lv["stop_px"] != r["levels"].get("stop_px"):   # the stop tightened with the newer range: kept
             r["levels"]["stop_px"] = lv["stop_px"]
+            if lv.get("stop_kind"):   # 11.11.: the kind of the stop that won (an old x 0.85 round under the ATR stop)
+                r["levels"]["stop_kind"] = lv["stop_kind"]
             con.execute("UPDATE range_rounds SET levels=? WHERE id=?", (json.dumps(r["levels"]), r["id"]))
         if hit:
             reason, frac = hit
@@ -695,11 +760,113 @@ def exits_once(con, market_fn, now=None):
             if not _lots(con, r):
                 tot = _finish(con, r, reason, now)
                 text += f"; runda gotova {tot:+.2f} $"
+                arm = _arm_reclaim(r, rng, lv, reason, price, now)
+                if arm:   # 11.11. (decision 1): the stopped round's reclaim window (run_once buys it, or not)
+                    st["reclaim"] = arm
+                    con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(st), r["id"]))
+                    con.commit()
+                    text += f"; reclaim moguć do {time.strftime('%H:%M', time.gmtime(arm['until']))} UTC"
             out.append(text)
         elif json.dumps(st, sort_keys=True) != before:
             con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(st), r["id"]))
             con.commit()
     return out
+
+
+# ---------- 11.11. reclaim (the owner's decision 1) -----------------------------------------------------------------
+def _stopped(reason):
+    """A stop-out: the hard stop, or the "range broken downward" give-up (a stop in effect, as backtest.simulate)."""
+    return reason == "stop" or (reason.startswith("odustajanje") and "probijen dolje" in reason)
+
+
+def _arm_reclaim(r, rng, lv, reason, price, now):
+    """The reclaim window of a round that just ended (state "reclaim"), None when it is no stop-out or the round was a
+    reclaim itself (one reclaim per stopped round). rl: range_low at lot 1 (levels "rl"), else the range's now, else
+    range_low_low; low: the stop-out price (run_once lowers it); atr: the range's ATR now (None: x 0.85)."""
+    if not _stopped(reason) or r["levels"].get("reclaim"):
+        return None
+    rl = r["levels"].get("rl") or ((rng or {}).get("zones") or {}).get("range_low") or lv.get("rll") \
+        or r["levels"].get("rll")
+    if not rl:
+        return None
+    return {"until": int(now) + rules.RECLAIM["window_s"], "rl": rl, "low": price, "atr": rules.atr_of(rng),
+            "levels": {k: lv.get(k) for k in ("rll", "rlt", "rhl", "rht", "floor_px")}, "done": None}
+
+
+def _armed(con, now):
+    """[closed round dicts] whose reclaim window is open (state "reclaim", not done, until >= now)."""
+    try:
+        rows = con.execute("SELECT * FROM range_rounds WHERE status='closed' AND closed_ts >= ? AND state LIKE "
+                           "'%\"reclaim\"%'", (int(now) - rules.RECLAIM["window_s"] - 60,))
+    except sqlite3.Error:
+        return []
+    cols = [c[0] for c in rows.description]
+    out = []
+    for row in rows.fetchall():
+        d = dict(zip(cols, row))
+        d["levels"], d["state"] = json.loads(d["levels"] or "{}"), json.loads(d["state"] or "{}")
+        a = d["state"].get("reclaim")
+        if a and not a.get("done") and now <= (a.get("until") or 0):
+            out.append(d)
+    return out
+
+
+def _reclaim(con, user, r, rng, mq, lim, sol, now, n_open):
+    """One armed reclaim of `user` (the stopped round r): lowers its `low`, buys lot 1 of the reclaim round when
+    rules.reclaim_check passes and the guards and limits hold. [(user, text)]."""
+    a = r["state"]["reclaim"]
+    tok = r["token"]
+    if not mq or not mq[0]:
+        return []
+    price, liq, _url, mcap = mq[:4]
+    if price < (a.get("low") or price):   # the new low: the lowest price the loops saw since the stop-out
+        a["low"] = price
+        con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(r["state"]), r["id"]))
+        con.commit()
+    if n_open >= lim["max_open"] or not may_reclaim(user, now):
+        return []
+    if not allowed(rng or {"source": r["levels"].get("src") or "signal"}, user, now):
+        return []   # a market / event token never on the real account (paper_only)
+    fresh = rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S
+    why = rules.reclaim_check(a, price, (rng or {}).get("metrics") if fresh else None, now)
+    if why is None and (_held(con, user, tok) or
+                        con.execute("SELECT 1 FROM range_rounds WHERE status='open' AND user=? AND token=?",
+                                    (user, tok)).fetchone()):
+        why = "već drži token"
+    if why is None:
+        why = _guards(tok, mq)
+    lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
+    lot = _sized(lot, liq, sol, rng)
+    if why is None and lot <= 0:
+        why = "ulog 0 (dca_cap ili volumen 1 h)"
+    if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
+        why = "dnevni limit SOL-a za range ulaze"
+    if why:
+        return []
+    stop, kind = rules.reclaim_stop(a["low"], a.get("atr") or rules.atr_of(rng))
+    if not stop or price <= stop:
+        return []
+    sym = (mq[4] if len(mq) > 4 else None) or r.get("symbol")
+    try:
+        tid = _buy(con, user, tok, sym, lot * sol, price, liq, mcap, SRC1, False)
+    except ValueError as e:
+        print(f"range {user} {tok[:6]}: reclaim nije prošao ({e})", flush=True)
+        return []
+    lv = {k: v for k, v in (a.get("levels") or {}).items() if v is not None}
+    lv.update(stop_px=stop, stop_kind=kind, reclaim=True, reclaim_of=r["id"], low_px=a["low"], rl=a["rl"],
+              src=r["levels"].get("src") or "signal",
+              supply=(mcap / price) if mcap and price else r["levels"].get("supply"))
+    lv["floor_px"] = max(lv.get("floor_px") or 0, stop)
+    cur = con.execute("INSERT INTO range_rounds (user, token, symbol, opened_ts, status, lot1_id, lot1_sol, entry_mc, "
+                      "score, levels, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (user, tok, sym, int(now), "open", tid, lot, mcap, r.get("score"), json.dumps(lv), json.dumps({})))
+    a["done"], a["round_id"] = int(now), cur.lastrowid
+    con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(r["state"]), r["id"]))
+    con.commit()
+    sup = lv.get("supply")
+    return [(user, f"range reclaim {sym or tok[:6]}: lot 1 {lot:g} SOL na MC ${mcap or 0:,.0f} (natrag iznad range_low "
+                   f"{(a['rl'] * sup) if sup else 0:,.0f}, kupnje {((rng or {}).get('metrics') or {}).get('buy_share_5m') or 0:.0%}"
+                   f"), stop ispod novog dna MC ${(stop * sup) if sup else 0:,.0f}")]
 
 
 def view_rounds(con, user=None, limit=50):
