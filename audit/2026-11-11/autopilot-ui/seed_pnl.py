@@ -77,7 +77,42 @@ def main():
             n_paper += 1
     lg.commit()
     lg.close()
-    print(f"seed_pnl: gotovo ({n_live} zatvorenih pravih pozicija u 30 d, {n_paper} demo tradeova u 80 d).")
+    n_eq = seed_equity(rng, settings.DB)
+    print(f"seed_pnl: gotovo ({n_live} zatvorenih pravih pozicija u 30 d, {n_paper} demo tradeova u 80 d, "
+          f"{n_eq} snimki vrijednosti walleta).")
+
+
+def seed_equity(rng, db):
+    """30 dana snimki vrijednosti walleta (trade.db equity, svakih 30 min) PRIJE zadnje koju je napisao seed_app:
+    početna uplata 1,5 SOL na prvoj snimci (ne više na zadnjoj), jedna uplata 0,3 SOL prije 12 dana, vrijednost se
+    kreće prema zadnjoj (SOL + pozicije + USDC)."""
+    import math
+    import sqlite3
+    con = sqlite3.connect(db)
+    last = con.execute("SELECT ts, sol, usdc, tokens_sol, sol_usd, usd_eur FROM equity ORDER BY ts DESC LIMIT 1").fetchone()
+    if not last:
+        return 0
+    lts, lsol, usdc, ltok, lrate, eur = last
+    start, step = lts - 30 * 86400, 1800
+    n = (lts - start) // step
+    v_end = lsol + ltok + (usdc / lrate if usdc and lrate else 0)
+    rows, dep_ts = [], lts - 12 * 86400
+    for i in range(n):
+        ts = start + i * step
+        f = i / n
+        rate = 150 + 12 * f + 4 * math.sin(i / 37.0)
+        base = 1.5 + (v_end - 1.5 - 0.3) * f + (0.3 if ts >= dep_ts else 0)
+        value = max(0.5, base + 0.08 * math.sin(i / 23.0) + rng.uniform(-0.02, 0.02))
+        tok = 0.2 + 0.25 * abs(math.sin(i / 51.0))
+        sol = value - tok - (usdc / rate if usdc else 0)
+        flow = 1.5 if i == 0 else 0.3 if dep_ts <= ts < dep_ts + step else 0.0
+        rows.append((ts, round(sol, 6), usdc, round(tok, 6), round(rate, 2), eur, flow, "live"))
+    con.executemany("INSERT OR IGNORE INTO equity (ts, sol, usdc, tokens_sol, sol_usd, usd_eur, flow_sol, src) "
+                    "VALUES (?,?,?,?,?,?,?,?)", rows)
+    con.execute("UPDATE equity SET flow_sol=0 WHERE ts=?", (lts,))   # the opening deposit is the first row now
+    con.commit()
+    con.close()
+    return len(rows)
 
 
 if __name__ == "__main__":

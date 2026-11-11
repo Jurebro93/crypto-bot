@@ -141,9 +141,14 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx-pg{display:flex;gap:8px;justify-content:flex-end;margin:8px 0 0}
 .apx-sum{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;padding:10px 2px}
 .apx-sum span{display:block;font-size:12px;color:var(--mut)}.apx-sum b{font-size:16px}
-/* PnL by day (top of the "Povijest" tab) */
-.apx-pnlc{padding:8px 0 4px;border-bottom:1px solid var(--line);margin:0 0 4px}
-.apx-pnlc h3{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 6px 0 0}
+/* "Portfelj" under the token's chart: the numbers, then the value line or PnL by day */
+.apx-port .apx-h2{margin:0 4px 0 0}
+.apx-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px 16px;margin:2px 0 14px}
+.apx-kpi div{min-width:0}.apx-kpi span{display:block;font-size:12px;color:var(--mut)}
+.apx-kpi b{display:block;font-family:var(--ap-mono);font-variant-numeric:tabular-nums;font-size:16px;font-weight:650;
+ white-space:nowrap;letter-spacing:-.01em}
+.apx-kpi small{font-size:12px}
+.apx-pbar{margin:0 0 6px}
 .apx-psum{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:baseline;margin:2px 0 8px;font-size:12px;color:var(--mut)}
 .apx-psum b{font-size:15px;color:var(--fg);margin-right:4px}.apx-psum:empty{display:none}
 .apx-pchart{height:220px;position:relative;outline:none;border-radius:var(--ap-r2)}
@@ -231,6 +236,9 @@ a.apx-state:hover{border-color:var(--line2)}
 @keyframes apx-sh{to{background-position:-200% 0}}
 @media(prefers-reduced-motion:reduce){.apx-skel i{animation:none}}
 .apx-sk{color:var(--mut);font-size:12.5px}
+.apx-ld{margin:4px 0 0;font-size:13px}
+/* parts that load or refresh in place are never the scroll anchor: the browser keeps the box under the finger still */
+.apx-lz,.apx-pane,#apx-hist{overflow-anchor:none}
 .apx-mbar,.apx-scrim{display:none}
 /* the older sections inside "Postavke i dijagnostika" and the tabs: the same type scale and buttons */
 .apx .ap{font-size:14px}.apx .ap .ms-row{min-height:52px;border-bottom-color:var(--line)}
@@ -273,7 +281,7 @@ dialog#ap-pop::backdrop{background:rgba(11,18,32,.45)}
 }
 @media(max-width:700px){
  .apx-card,.apx-hdr{padding:12px 14px}.apx-pane{padding:4px 12px 10px}
- .apx-pnlc h3{flex-basis:100%;margin:0 0 2px}
+ .apx-kpi{grid-template-columns:1fr 1fr;gap:10px 14px}.apx-kpi b{font-size:15px}
  .apx-th{display:none}
  .apx-tr,.apx-tr.apx-ord,.apx-tr.apx-hist,.apx-krow,.apx-frow,#pratimo .apx-krow{grid-template-columns:1fr 1fr;padding:12px 2px;
   gap:4px 14px}

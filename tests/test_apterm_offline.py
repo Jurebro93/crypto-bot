@@ -433,7 +433,8 @@ class Freshness(unittest.TestCase):
         self.assertEqual(apterm.age_badge(1000, now=1005), '<span class="apx-age" data-ts="1000">ažurirano prije 5 s</span>')
         self.assertIn('class="apx-age old"', apterm.age_badge(1000, now=1100))
         js = apterm.static_asset("ap.js")[0].decode("utf-8")
-        self.assertIn("el.classList.toggle('old', a > 60)", js)           # the browser counts the same way
+        # the browser counts the same way (11.11.: a block with its own cadence, the wallet's 5-min snapshots, sets its own)
+        self.assertIn("el.classList.toggle('old', a > (+el.dataset.stale || 60))", js)
 
     def test_cost_estimate_is_trade_cost(self):
         from trade import cost
@@ -640,17 +641,19 @@ class BrandAndTooltip(Env):
         self.assertRegex(body, r'<div id=apx-chart class=apx-chart data-m="[^"]+" tabindex=0 role=img')
         self.assertIn("strelice lijevo i desno", body)
         self.assertNotIn("class=apx-leg", body)                # the small legend row above the chart is gone
-        self.assertEqual(body.count("class=apx-cbar"), 2)      # one row of controls per chart
         self.assertIn("TradingView Lightweight Charts™</a> · Copyright (c) 2025 TradingView, Inc.", body)   # attribution
-        pane = body[body.index("id=povijest"):body.index("id=dnevnik")]
-        self.assertLess(pane.index("id=apx-pnlc"), pane.index("id=apx-hist data-x-src=/pravi-trade/l/povijest"))
-        for k in ("data-pm=live class=on", "data-pm=paper", "data-pu=sol class=on", "data-pu=usd", "data-pd=7",
-                  "data-pd=30 class=on", "data-pd=90", "id=apx-pchart tabindex=0"):
-            self.assertIn(k, pane)
+        # PnL by day lives in the "Portfelj" card (one place, not also in "Povijest")
+        port = body[body.index("id=apx-port"):body.index("class=apx-tabs")]
+        for k in ("data-pm=live class=on", "data-pm=paper", "data-pv=val class=on", "data-pv=days", "data-pu=sol class=on",
+                  "data-pu=usd", "data-pd=7", "data-pd=30 class=on", "data-pd=90", "id=apx-pchart tabindex=0"):
+            self.assertIn(k, port)
+        self.assertNotIn("data-pm=", body[body.index("id=povijest"):body.index("id=dnevnik")])
+        self.assertIn("<div id=apx-hist data-x-src=/pravi-trade/l/povijest>", body)
         js = apterm.static_asset("ap.js")[0].decode("utf-8")
         for k in ("subscribeCrosshairMove", "subscribeClick", "setCrosshairPosition", "'ArrowLeft'", "'ArrowRight'",
-                  "'apx-tip'", "/pravi-trade/api/pnl-days?m=", "addHistogramSeries", "addLineSeries", "attributionLogo: true",
-                  "getComputedStyle(document.documentElement)", "$('#apx-hist')"):
+                  "'apx-tip'", "/pravi-trade/api/pnl-days?", "/pravi-trade/api/portfelj?", "addHistogramSeries",
+                  "addLineSeries", "addAreaSeries", "attributionLogo: true", "getComputedStyle(document.documentElement)",
+                  "$('#apx-hist')"):
             self.assertIn(k, js)
         self.assertIn("x = y > H - 42 ? 54 : 8", js)             # zone labels start right of the TradingView logo
         self.assertNotRegex(js, r"#(6d8cff|b48cff|16c784|ea3943|151b26|1d2431)")   # no terminal colours left
@@ -686,6 +689,81 @@ class Static(HandlerMixin, Env):
         self.assertEqual(self._get("/pravi-trade/l/nista").sent[0][0], 404)
         with mock.patch.object(apterm, "kupiti_html", side_effect=RuntimeError("x")), mock.patch("sys.stderr", io.StringIO()):
             self.assertEqual(self._get("/pravi-trade/l/kupiti").sent[0][:2], (500, b""))   # the block greys, no text
+
+
+class Portfelj(HandlerMixin, Env):
+    """11.11. (Jure: "nestao je graf profit and loss cjelokupnog portfelja: koliko trenutno imamo"): the "Portfelj"
+    card under the token's chart, always shown, live and paper apart (GET /pravi-trade/api/portfelj)."""
+
+    def test_the_card_is_on_the_main_view_with_the_live_numbers(self):
+        self.seed()
+        _, body = pravitrade.page({}, "Jure")
+        at = [body.index(k) for k in ("id=apx-chartbox", "id=apx-port", "class=apx-tabs", "id=pozicije")]
+        self.assertEqual(at, sorted(at))                                   # under the chart, above the tabs
+        port = body[body.index("id=apx-port"):body.index("class=apx-tabs")]
+        for k in ("<h2 class=apx-h2 data-sec=\"\">Portfelj</h2>", ">Ukupno<", ">Slobodno<", ">U pozicijama<", ">Danas<",
+                  ">Ukupni PnL<", "1,815", "1,772", "0,043", "+3,7"):     # SUMMARY of tests/test_apui_offline
+            self.assertIn(k, port, k)
+        self.assertNotIn("id=vrijednost", body)                           # the old chart under the settings: gone
+        _, guest = pravitrade.page({}, "Ivan")
+        self.assertIn("id=apx-port", guest)                               # a viewer sees it too
+
+    def test_live_and_paper_apart(self):
+        self.seed()
+        lg = self.lg
+        now = time.time()
+        lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, source) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?)", (settings.LEAGUE_USER, "A" * 44, "AAA", now - 7200, now - 3600, "closed",
+                                                    25.0, 5.0, 0.2, "copy"))
+        lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, source) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?)", (settings.LEAGUE_USER, "B" * 44, "BBB", now - 7200, now - 1800, "closed",
+                                                    25.0, -2.0, -0.08, "copy"))
+        lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, ret, source) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?)", ("Ivan", "C" * 44, "CCC", now - 7200, now - 1800, "closed", 25.0, 50.0,
+                                                    2.0, "ručno"))
+        lg.commit()
+        with mock.patch.object(apterm, "_sol_usd", lambda tcon: 200.0):
+            live = apterm.portfelj("Jure", "live", 7, now=NOW)
+            paper = apterm.portfelj("Jure", "paper", 7, now=NOW)
+        k = live["kpi"]
+        self.assertEqual((k["value_sol"], k["free_sol"], k["pos_sol"], k["total_sol"], k["total_pct"]),
+                         (1.815, 1.772, 0.043, 0.065, 3.71))
+        self.assertEqual(k["pos_n"], 1)                                   # the live position (the paper one is apart)
+        self.assertAlmostEqual(k["today_sol"], 0.03 - 0.002 + 0.002, places=6)   # the closed live trade of the seed
+        self.assertTrue(live["series"])                                   # the value line from trade/equity
+        self.assertTrue(all(p["t"] >= NOW - 7 * 86400 for p in live["series"]))
+        self.assertEqual(set(live["series"][0]), {"t", "v", "u", "pnl", "flow"})
+        p = paper["kpi"]
+        self.assertIsNone(p["free_sol"])                                  # the demo account has no "free" amount
+        self.assertEqual((p["realized_usd"], p["today_usd"], p["pos_n"]), (3.0, 3.0, 2))
+        self.assertEqual([(s["sym"], s["u"]) for s in paper["series"]], [("AAA", 5.0), ("BBB", 3.0)])   # running sum
+        self.assertAlmostEqual(paper["series"][-1]["v"], 3.0 / 200)
+        self.assertIs(apterm.portfelj("Jure", "live", 7, now=NOW + 1), live)   # cached PORT_TTL_S
+        self.assertIsNone(apterm.portfelj("Nepoznat"))
+        h = self._get("/pravi-trade/api/portfelj?m=paper&d=7")
+        self.assertEqual((h.sent[0][0], h.sent[0][2]), (200, "application/json"))
+        self.assertEqual(self._get("/pravi-trade/api/portfelj", "Nepoznat").sent[0][0], 403)
+
+
+class CardsOpenAtOnce(Env):
+    """11.11. (Jure: "klikom na zatvorene kartice ne otvaraju se iz prvoga, kao da je lag; tako je za sve kartice")."""
+
+    def test_nothing_shifts_or_closes_under_a_tap(self):
+        from ui import secnav
+        self.assertNotIn("document.addEventListener('click',later)", secnav.JS)   # no chip rebuild on every click
+        self.assertIn("new MutationObserver(ms=>{for(const m of ms)if(!mine(m.target)", secnav.JS)
+        self.assertIn("requestIdleCallback", secnav.JS)
+        self.assertIn("const carry=(o,n)=>", pravitrade.PATCH_JS)         # a swapped part keeps its open boxes
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("rootMargin: '1200px'", js)                         # the parts load well before the finger
+        for k in ("function warmBoxes()", "'touchstart', pf", "'pointerenter', pf", "function keepOpen(el, swap)",
+                  "keepOpen(pos,", "keepOpen(ord,"):
+            self.assertIn(k, js)
+        self.assertIn(".apx-lz,.apx-pane,#apx-hist{overflow-anchor:none}", apterm.CSS)
+        self.seed()
+        _, body = pravitrade.page({}, "Jure")
+        box = body[body.index("id=apx-ostalo"):]
+        self.assertIn("Učitavam postavke i dijagnostiku…", box)          # an opened box says so at once
 
 
 if __name__ == "__main__":

@@ -1,0 +1,175 @@
+{
+ "1440 /pravi-trade": [
+  {
+   "box": "Limit (kupi na MC), trailing i način izlaza",
+   "open_ms": 51,
+   "content_ms": 51,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "detalji",
+   "open_ms": 35,
+   "content_ms": 35,
+   "still_open_1s": true,
+   "max_event_ms": 48
+  },
+  {
+   "box": "prikaži skoro (2)",
+   "open_ms": 27,
+   "content_ms": 27,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "#pratim Uredi praćenja (zaprati, izlaz, prestani)",
+   "open_ms": 31,
+   "content_ms": 31,
+   "still_open_1s": true,
+   "max_event_ms": 32
+  },
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": 35,
+   "content_ms": 35,
+   "still_open_1s": true,
+   "max_event_ms": 48
+  }
+ ],
+ "1440 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 17,
+   "content_ms": 17,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 33,
+   "content_ms": 33,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 30,
+   "content_ms": 30,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 60,
+   "content_ms": 60,
+   "still_open_1s": true,
+   "max_event_ms": 104
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 54,
+   "content_ms": 54,
+   "still_open_1s": true,
+   "max_event_ms": 80
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 45,
+   "content_ms": 45,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  }
+ ],
+ "1440 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 37,
+   "content_ms": 37,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  }
+ ],
+ "375 /pravi-trade": [
+  {
+   "box": "detalji",
+   "open_ms": 52,
+   "content_ms": 52,
+   "still_open_1s": true,
+   "max_event_ms": 72
+  },
+  {
+   "box": "prikaži skoro (2)",
+   "open_ms": 52,
+   "content_ms": 52,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  },
+  {
+   "box": "#pratim Uredi praćenja (zaprati, izlaz, prestani)",
+   "open_ms": 44,
+   "content_ms": 44,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "#apx-ostalo Postavke i dijagnostika pravila, Grok, zastavice, ",
+   "open_ms": 77,
+   "content_ms": 77,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  }
+ ],
+ "375 /paper": [
+  {
+   "box": "sl 13 (100%)",
+   "open_ms": 45,
+   "content_ms": 45,
+   "still_open_1s": true,
+   "max_event_ms": 64
+  },
+  {
+   "box": "Više tradeova, brže učenje",
+   "open_ms": 48,
+   "content_ms": 48,
+   "still_open_1s": true,
+   "max_event_ms": 56
+  },
+  {
+   "box": "Nova pravila ulaza (od 1. 11.)",
+   "open_ms": 31,
+   "content_ms": 31,
+   "still_open_1s": true,
+   "max_event_ms": 40
+  },
+  {
+   "box": "Zatvoreni trejdovi",
+   "open_ms": 67,
+   "content_ms": 67,
+   "still_open_1s": true,
+   "max_event_ms": 80
+  },
+  {
+   "box": "DCA prijedlozi (kupnja u padu)",
+   "open_ms": 72,
+   "content_ms": 72,
+   "still_open_1s": true,
+   "max_event_ms": 72
+  },
+  {
+   "box": "Kandidati i odluke",
+   "open_ms": 85,
+   "content_ms": 85,
+   "still_open_1s": true,
+   "max_event_ms": 80
+  }
+ ],
+ "375 /tokens": [
+  {
+   "box": "#tk-odb Odbačeni · 2 (rug ili pao na provjeri)",
+   "open_ms": 29,
+   "content_ms": 29,
+   "still_open_1s": true,
+   "max_event_ms": 32
+  }
+ ]
+}

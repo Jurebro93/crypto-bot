@@ -11,12 +11,13 @@ right (~35 %); below 1024 px one column, the panel opens as a bottom sheet from 
   2. the order panel: Kupi / Prodaj tabs posting to the SAME routes with the same field names as before
      (/pravi-trade/buy: token, sol, at, tp, sl, exit, prijedlog; /pravi-trade/sell: id, frac; /pravi-trade/dca:
      token, lvl, sol); quick amounts only fill fields; the cost estimate (cost_pct) and the wallet / day numbers.
-  3. tabs under the chart: Pozicije (live first, paper grey), Otvoreni nalozi, Povijest (lazy: PnL by day on top,
-     GET /pravi-trade/api/pnl-days, then the closed trades), Dnevnik (lazy). Both charts show a tooltip beside the
-     cursor / finger and move with the arrow keys.
-  4. "Što kupiti" (one list of every proposal + the tool's live picks, sorted by EV per minute, lazy, every 30 s)
+  3. "Portfelj" under the chart (11.11., always shown): total value, free SOL, open positions, today's and total PnL,
+     and one chart: the wallet's value over time or PnL by day (GET /pravi-trade/api/portfelj, /api/pnl-days), live
+     and paper apart. Both charts show a tooltip beside the cursor / finger and move with the arrow keys.
+  4. tabs under it: Pozicije (live first, paper grey), Otvoreni nalozi, Povijest (lazy), Dnevnik (lazy).
+  5. "Što kupiti" (one list of every proposal + the tool's live picks, sorted by EV per minute, lazy, every 30 s)
      and "Koga pratimo" (wallets / influencers / tokens, lazy).
-  5. "Postavke i dijagnostika": the older sections of this page (pravila, Grok, zastavice, ...), loaded when opened.
+  6. "Postavke i dijagnostika": the older sections of this page (pravila, Grok, zastavice, ...), loaded when opened.
 
 Speed: the first HTML holds only the header, the chart's frame, the positions, the orders and the panel, built from
 cached reads (no DexScreener request waits for the page: live numbers come with the first tick); everything else is
@@ -612,6 +613,7 @@ def reset():
         _CANDLES.clear()
         _RUG.clear()
         _PNL.clear()
+        _PORT.clear()
 
 
 def tick_json(user, mint=""):
@@ -960,20 +962,188 @@ def pnl_days(user, mode="live", days=30, now=None):
     return d
 
 
-# the PnL block on top of the "Povijest" tab: the controls and the chart's box; ap.js fills it when the tab opens
-PNL_BLOCK = ('<section class=apx-pnlc id=apx-pnlc aria-label="PnL po danima"><div class=apx-cbar><h3>PnL po danima</h3>'
-             '<div class=apx-tf role=group aria-label="Račun"><button type=button data-pm=live class=on>Uživo</button>'
-             '<button type=button data-pm=paper>Paper</button></div>'
-             '<div class=apx-tf role=group aria-label="Jedinica"><button type=button data-pu=sol class=on>SOL</button>'
-             '<button type=button data-pu=usd>$</button></div>'
-             '<div class=apx-tf role=group aria-label="Raspon">'
-             + "".join(f'<button type=button data-pd={n}{" class=on" if n == 30 else ""}>{n} d</button>' for n in PNL_SPANS)
-             + '</div></div><div class=apx-psum id=apx-psum></div>'
-             '<div class=apx-pchart id=apx-pchart tabindex=0 role=img aria-roledescription="graf" aria-label="PnL po danima: '
-             'stupac je dobit ili gubitak dana, linija zbroj od početka raspona. Miš ili dodir pokazuje dan; strelice lijevo '
-             'i desno idu dan po dan."><div class=apx-skel><i></i></div></div><p class=apx-pnote id=apx-pnote></p>'
-             '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
-             'Charts™</a></p></section>')
+# ---------- "Portfelj" (GET /pravi-trade/api/portfelj), 11.11. (Jure: "nestao je graf profit and loss cjelokupnog
+# portfelja: koliko trenutno imamo") -------------------------------------------------------------------------------
+# Live: the wallet's value from trade/equity (the snapshots the old page's chart drew: whole value, free SOL, the part
+# in open positions, PnL against the money put in) and today's result with every fee (executor.day_pnl). Paper: the
+# Autopilot's demo account in league.db (its balance is a big number on purpose, so no "free" amount): open positions
+# at the live price where the shared cache has one, else at cost, the closed trades' sum and today's. Read-only.
+
+PORT_TTL_S = 5
+_PORT = {}               # (mode, days) -> (ts, dict)
+
+
+def _port_live(tcon, cfg, days, now):
+    eq = pt.equity_data(tcon, now)
+    s = eq.get("summary") or {}
+    rate = s.get("sol_usd") or _sol_usd(tcon)
+    n_open, in_open = tcon.execute("SELECT COUNT(*), COALESCE(SUM(sol_in), 0) FROM positions WHERE status='open' "
+                                   "AND mode='live'").fetchone()
+    try:
+        today = executor.day_pnl(tcon, now, "live", cfg.get("day_tz"))
+    except sqlite3.Error:
+        today = None
+    if s.get("value_sol") is not None:
+        value, free, pos = s["value_sol"], s.get("sol"), s.get("tokens_sol")
+        total, pct, at = s.get("pnl_sol"), s.get("pnl_pct"), s.get("last_ts")
+    else:   # no history yet: the plain balance (60-s cache), the positions at what went in
+        free = pt._balance(pt._addr(tcon)[0])
+        pos = in_open if n_open else 0.0
+        value = (free or 0.0) + pos if free is not None else None
+        total = pct = at = None
+    t0 = now - days * 86400
+    series = [{"t": int(p["ts"]), "v": round(p["value_sol"], 6),
+               "u": round(p["value_usd"], 2) if p.get("value_usd") is not None else None,
+               "pnl": round(p["pnl_sol"], 6), "flow": round(p.get("flow_sol") or 0.0, 6)}
+              for p in eq.get("series") or [] if p.get("ts", 0) >= t0 and p.get("value_sol") is not None]
+
+    def usd(x):
+        return round(x * rate, 2) if x is not None and rate else None
+    kpi = {"value_sol": value, "value_usd": usd(value), "free_sol": free, "pos_sol": pos, "pos_n": n_open,
+           "today_sol": today, "today_usd": usd(today), "total_sol": total, "total_usd": usd(total), "total_pct": pct,
+           "at": at}
+    return kpi, series, rate
+
+
+def _port_paper(tcon, cfg, days, now):
+    rate = _sol_usd(tcon)
+    start = executor._day_start(now, cfg.get("day_tz"))
+    lg = pt._league_ro()
+    opens, closed = [], []
+    if lg is not None:
+        try:
+            opens = lg.execute("SELECT token, size_usd, entry_px, qty, COALESCE(realized, 0) FROM trades WHERE user=? "
+                               "AND status='open'", (settings.LEAGUE_USER,)).fetchall()
+            closed = lg.execute("SELECT closed_ts, symbol, token, size_usd, pnl_usd FROM trades WHERE user=? AND "
+                                "status='closed' AND closed_ts IS NOT NULL ORDER BY closed_ts", (settings.LEAGUE_USER,)).fetchall()
+        except sqlite3.Error:
+            pass
+        finally:
+            lg.close()
+    live, _ts = _peek_live([r[0] for r in opens], now)
+    pos_usd = unreal = 0.0
+    for tok, size, px0, qty, realized in opens:
+        px = (live.get(tok) or {}).get("price")
+        val = (qty or 0) * px + realized if px and qty else (size or 0)
+        pos_usd += val
+        unreal += val - (size or 0)
+    realized_all = sum(r[4] or 0 for r in closed)
+    today = sum(r[4] or 0 for r in closed if r[0] >= start)
+    t0 = now - days * 86400
+    cum = sum(r[4] or 0 for r in closed if r[0] < t0)
+    series = []
+    for ts, sym, tok, size, pnl in closed:
+        if ts < t0:
+            continue
+        cum += pnl or 0
+        t = int(ts)
+        if series and series[-1]["t"] >= t:   # one point per second: the chart's time must grow
+            t = series[-1]["t"] + 1
+        series.append({"t": t, "u": round(cum, 2), "v": round(cum / rate, 6) if rate else None,
+                       "sym": sym or short(tok or ""), "pnl": round(pnl or 0, 2),
+                       "pct": round((pnl or 0) / size * 100, 2) if size else None})
+
+    def sol(x):
+        return round(x / rate, 6) if x is not None and rate else None
+    total = realized_all + unreal
+    kpi = {"value_sol": None, "value_usd": None, "free_sol": None, "pos_sol": sol(pos_usd), "pos_usd": round(pos_usd, 2),
+           "pos_n": len(opens), "today_sol": sol(today), "today_usd": round(today, 2), "total_sol": sol(total),
+           "total_usd": round(total, 2), "total_pct": None, "realized_usd": round(realized_all, 2),
+           "unreal_usd": round(unreal, 2), "at": int(now)}
+    return kpi, series, rate
+
+
+def portfelj(user, mode="live", days=30, now=None):
+    """GET /pravi-trade/api/portfelj?m=live|paper&d=7|30|90: the portfolio's numbers (kpi) and its line over the span
+    (live: the wallet's value in SOL / USD with the deposits; paper: the running sum of the demo account's closed
+    trades, each point naming the trade that closed). Read-only, cached PORT_TTL_S for every viewer; None (403)
+    without access."""
+    now = now or time.time()
+    mode = mode if mode in ("live", "paper") else "live"
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 30
+    days = days if days in PNL_SPANS else 30
+    tcon = pt._tcon()
+    try:
+        if not settings.can_view(tcon, user):
+            return None
+        with _LOCK:
+            hit = _PORT.get((mode, days))
+        if hit and 0 <= now - hit[0] < PORT_TTL_S:
+            return hit[1]
+        cfg = pt._cfg(tcon)
+        kpi, series, rate = (_port_live if mode == "live" else _port_paper)(tcon, cfg, days, now)
+    finally:
+        tcon.close()
+    d = {"mode": mode, "days": days, "ts": int(now), "rate": round(rate, 2) if rate else None, "kpi": kpi,
+         "series": series,
+         "note": ("Vrijednost walleta: SOL + otvorene pozicije po tržišnoj cijeni (snimka svakih 5 min); PnL prema uplatama."
+                  if mode == "live" else
+                  "Demo račun Autopilota (paper): linija je zbroj zatvorenih tradeova; otvorene po živoj cijeni, inače po ulogu.")}
+    with _LOCK:
+        _PORT[(mode, days)] = (now, d)
+    return d
+
+
+def _kpi_cells(k, mode):
+    """[(label, value HTML, small, tone)] of the Portfelj numbers; the same words ap.js writes on an update."""
+    def s(x, dec=3, sign=False):
+        return redak.sol(x, dec, sign) if x is not None else "–"
+
+    def u(x, sign=False):
+        return redak.usd(x, sign) if x is not None else ""
+    cells = []
+    if mode == "live":
+        cells.append(("Ukupno", s(k.get("value_sol")), ("≈ " + u(k.get("value_usd"))) if k.get("value_usd") is not None else "", ""))
+        cells.append(("Slobodno", s(k.get("free_sol")), "SOL u walletu", ""))
+        cells.append(("U pozicijama", s(k.get("pos_sol")), f'{k.get("pos_n") or 0} otvorenih', ""))
+    else:
+        cells.append(("U pozicijama", s(k.get("pos_sol")), f'{k.get("pos_n") or 0} otvorenih · {u(k.get("pos_usd"))}', ""))
+        cells.append(("Otvoreno (nerealizirano)", u(k.get("unreal_usd"), True) or "–", "po živoj cijeni", _tone(k.get("unreal_usd"))))
+    cells.append(("Danas", s(k.get("today_sol"), 4, True), (u(k.get("today_usd"), True) + " · zatvoreno danas").strip(" ·"),
+                  _tone(k.get("today_sol") if k.get("today_sol") is not None else k.get("today_usd"))))
+    small = redak.pct(k["total_pct"], 1) if k.get("total_pct") is not None else u(k.get("total_usd"), True)
+    cells.append(("Ukupni PnL", s(k.get("total_sol"), 3, True), small,
+                  _tone(k.get("total_sol") if k.get("total_sol") is not None else k.get("total_usd"))))
+    return cells
+
+
+def _kpi_html(k, mode):
+    return "".join(f'<div><span>{esc(lab)}</span><b class="{tone}">{val}</b><small>{esc(sm)}</small></div>'
+                   for lab, val, sm, tone in _kpi_cells(k, mode))
+
+
+def port_html(tcon, cfg, now):
+    """The "Portfelj" card under the token's chart (always shown: it carries the money): the live numbers in the
+    first HTML; ap.js fills the chart (the wallet's value, or PnL by day) and switches Uživo / Paper, SOL / $ and
+    7 / 30 / 90 days."""
+    try:
+        kpi = _port_live(tcon, cfg, 30, now)[0]
+    except Exception as e:  # noqa: BLE001 - the card stays, with dashes
+        print(f"autopilot: portfelj nije složen: {type(e).__name__}: {e}", flush=True)
+        kpi = {}
+    seg = ('<div class=apx-tf role=group aria-label="Račun"><button type=button data-pm=live class=on>Uživo</button>'
+           '<button type=button data-pm=paper>Paper</button></div>')
+    view = ('<div class=apx-tf role=group aria-label="Prikaz"><button type=button data-pv=val class=on>Vrijednost</button>'
+            '<button type=button data-pv=days>PnL po danima</button></div>')
+    unit = ('<div class=apx-tf role=group aria-label="Jedinica"><button type=button data-pu=sol class=on>SOL</button>'
+            '<button type=button data-pu=usd>$</button></div>')
+    span = ('<div class=apx-tf role=group aria-label="Raspon">'
+            + "".join(f'<button type=button data-pd={n}{" class=on" if n == 30 else ""}>{n} d</button>' for n in PNL_SPANS)
+            + '</div>')
+    return (f'<section class="apx-card apx-port" id=apx-port aria-label="Portfelj"><div class=apx-cbar>'
+            f'<h2 class=apx-h2 data-sec="">Portfelj</h2>{seg}<span class=apx-sp></span>'
+            # the wallet is snapshotted every 5 min (trade/equity): amber only after three missed snapshots
+            f'<span class=apx-age data-ts="{int(kpi.get("at") or 0)}" data-short=1 data-stale=900 id=apx-port-age></span></div>'
+            f'<div class=apx-kpi id=apx-kpi>{_kpi_html(kpi, "live")}</div>'
+            f'<div class="apx-cbar apx-pbar">{view}{unit}{span}</div><div class=apx-psum id=apx-psum></div>'
+            '<div class=apx-pchart id=apx-pchart tabindex=0 role=img aria-roledescription="graf" aria-label="Portfelj kroz '
+            'vrijeme, ili PnL po danima. Miš ili dodir pokazuje točku; strelice lijevo i desno idu točku po točku.">'
+            '<div class=apx-skel><i></i></div></div><p class=apx-pnote id=apx-pnote></p>'
+            '<p class=apx-attr>Graf: <a href="https://www.tradingview.com/" target=_blank rel=noopener>TradingView Lightweight '
+            'Charts™</a></p></section>')
 
 
 # ---------- HTML of the first view -------------------------------------------------------------------------------
@@ -1298,9 +1468,8 @@ def page(qs, user, full=False):
                  f'<div class=apx-pane id=nalozi hidden>{orders_html(d)}'
                  # 10.11.: the exit plans' kill switch stays with the orders, never lazy (only while plans exist)
                  f'<div class="ap apx-blk">{pt._safe("exit-planovi", pt._exit_plans_block, tcon, owner)}</div></div>'
-                 # 11.11. (Jure: "po danima profit and loss"): PnL by day on top of the tab, the closed trades under it
-                 f'<div class=apx-pane id=povijest hidden>{PNL_BLOCK}'
-                 f'<div id=apx-hist data-x-src=/pravi-trade/l/povijest>{hist}</div></div>'
+                 # the closed trades (PnL by day is in the "Portfelj" card above the tabs)
+                 f'<div class=apx-pane id=povijest hidden><div id=apx-hist data-x-src=/pravi-trade/l/povijest>{hist}</div></div>'
                  f'<div class="apx-pane ap" id=dnevnik hidden><div data-x-src=/pravi-trade/dnevnik data-x-every={DNEVNIK_EVERY_S}>'
                  f'{dn}</div><p class=ms-hint><u data-pop="/pravi-trade/log" style="cursor:pointer">Tehnički zapis naloga</u> '
                  '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p></div>')
@@ -1308,7 +1477,8 @@ def page(qs, user, full=False):
         pr_src = "/pravi-trade/l/pratimo" + (f"?ekipa={quote(ek)}" if ek else "")
         k_in = lazy("kupiti", user, qs) if full else '<h2 data-sec="" class=apx-h2>Što kupiti</h2>' + _skel(4)
         p_in = lazy("pratimo", user, qs) if full else '<h2 data-sec="" class=apx-h2>Koga pratimo</h2>' + _skel(4)
-        o_in = lazy("ostalo", user, qs) if full else _skel(5)
+        # 11.11.: a box opened before its content arrived says so at once (ap.js fetches it ahead, near the screen)
+        o_in = lazy("ostalo", user, qs) if full else '<p class="apx-mut apx-ld">Učitavam postavke i dijagnostiku…</p>' + _skel(5)
         cards = (f'<section class="apx-card apx-lz" id=kupiti data-x-src=/pravi-trade/l/kupiti data-x-every={KUPITI_EVERY_S}>'
                  f'{k_in}</section>'
                  f'<section class="apx-card apx-lz" id=pratimo data-x-src="{esc(pr_src)}" data-x-every={PRATIMO_EVERY_S}>'
@@ -1328,7 +1498,8 @@ def page(qs, user, full=False):
         # pravitrade.CSS first: the older sections (tabs, settings) keep their shapes; ap.css after it sets the colours
         body = [pt.CSS, CSS, '<div class=apx id=apx data-owner=' + ("1" if owner else "0") + '>', toast,
                 _top_html(d, tcon, cfg, owner), noscript,
-                '<div class=apx-grid><div class=apx-main>', _hdr_html(d.get("header"), now), chart, tabs, panes, '</div>',
+                '<div class=apx-grid><div class=apx-main>', _hdr_html(d.get("header"), now), chart,
+                port_html(tcon, cfg, now), tabs, panes, '</div>',
                 panel_html(d, sel_pos), '</div>', cards, ost, mbar,
                 f'<script type=application/json id=apx-first>{boot}</script>', '</div>',
                 pt.POP_CSS, pt.POP_HTML, f'<script src="{static_url("ap.js")}" defer></script>']
@@ -1652,7 +1823,7 @@ def ostalo_html(tcon, cfg, owner, now):
             ("fast-path", pt._safe("fast-path", pt._fast_card, owner)),
             ("preporuke", pt._recs_section()),
             ("sazetak", _wrap("Grokov dnevni sažetak", pt._safe("sazetak", pt._summary_card, tcon, owner), "sazetak-r")),
-            ("vrijednost", _wrap("Vrijednost walleta (graf)", pt._safe("vrijednost", _equity_chart, tcon), "vrijednost")),
+            # 11.11.: the wallet's value is the "Portfelj" card on the main view now (one chart, not two)
             ("wallet", pt._safe("wallet", pt._wallet_row, tcon, owner, _setup(tcon, cfg) if owner else {})),
             ("pozivnice", pt._safe("pozivnice", pt._invites, tcon) if owner else ""),
             ("zastita", pt._safety()),
@@ -1673,17 +1844,6 @@ def _setup(tcon, cfg):
     addr, key_addr, saved = pt._addr(tcon)
     n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0]
     return pt._setup(tcon, cfg, addr, key_addr, saved, pt._balance(addr), pt._usdc(addr), n_open)
-
-
-def _equity_chart(tcon):
-    """The wallet's value over time (ui/apchart), the old header's chart, now one row under the settings."""
-    if pt._equity_mod() is None:
-        return ""
-    from ui import apchart
-    eq = pt.equity_data(tcon)
-    if not eq["series"]:
-        return ""
-    return apchart.chart_html(eq["series"], eq["summary"], eq["deposits"], ident="ap")
 
 
 # ---------- static files (the chart library and the page script), cached by the browser for a year -----------------

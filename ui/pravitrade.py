@@ -192,7 +192,9 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # A box that still holds only its "učitavam…" is filled even right after the tap that opened it (that tap is what
 # asked for it); a refused swap (finger down, field in focus) returns false and the poller asks again a moment later
 # (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
-PATCH_JS = """<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
+# 11.11. (Jure: "kartice se ne otvaraju iz prvoga"): a part that is swapped keeps the open / closed state of its
+# <details> (by id, else by position), so a refresh never closes a box the user has just opened.
+PATCH_JS ="""<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
 addEventListener('pointerdown',()=>{down=Date.now();held=true},true);
 addEventListener('pointerup',()=>{down=Date.now();held=false},true);addEventListener('pointercancel',()=>{held=false},true);
 addEventListener('touchstart',()=>{down=Date.now();held=true},{capture:true,passive:true});
@@ -202,7 +204,9 @@ window.apPatch=(box,h)=>{const virgin=![...box.children].some(c=>SRC.has(c));
 if((!virgin&&(held||Date.now()-down<1200))||box.contains(document.activeElement))return false;
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
-b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o)o.replaceWith(n);else box.appendChild(n)});
+const ds=e=>[...(e.matches('details')?[e]:[]),...e.querySelectorAll('details')];
+const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open})};
+b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o){carry(o,n);o.replaceWith(n)}else box.appendChild(n)});
 a.slice(b.length).forEach(o=>o.remove());
 box.querySelectorAll('[data-meta]').forEach(m=>{const to=document.querySelector(m.dataset.meta);if(to&&to.textContent!==m.textContent)to.textContent=m.textContent});
 if(window.apOpen)window.apOpen(box);if(window.apcInit)window.apcInit();return true}})()</script>"""
