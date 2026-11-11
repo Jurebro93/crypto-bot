@@ -93,3 +93,19 @@ klika (mjerenje svih `<h2>`), nego samo kad se struktura stranice promijeni (Mut
 straničenje tablica reagira samo na promjene tablica, ne na svaki tekst (sat „prije X s”, tooltip). Osvježavanje
 dijela (PATCH_JS, `refreshFirst`) zadržava otvorene `<details>` i otvoren „Uredi SL-TP”.
 Brojke: `kartice-prije.json`, `kartice-poslije.json`, `kartice-*-cpu4.json`.
+
+## Boje weba, Portfelj, "samo ono što ima zaključak": brzina (11.11. navečer)
+
+`lcp4g.js`, isti uvjeti kao gore (150 ms RTT, 1,6 Mbit/s, CPU 4x, 412x823, prazan cache), 3 pokretanja, medijan:
+
+| | PR #131 (crni terminal) | Sada |
+|---|---|---|
+| LCP | 0,43 s | 0,52 s |
+| događaj `load` | 0,65 s | 0,87 s |
+| graf svijeća nacrtan | 1,43 s | 1,76 s |
+| HTML prvog prikaza (gzip) | 34 KB | 37 KB (kartica Portfelj s brojevima) |
+| `ap.js` (gzip, cache godinu dana) | 12 KB | 21 KB (tooltip, Portfelj, PnL po danima) |
+
+Bez novih vanjskih fontova i datoteka (isti self-hosted Lightweight Charts, Inter kao ostatak stranice). Na sporoj
+liniji redom: graf tokena, pa graf Portfelja, pa dijelovi ispod tablica (ne natječu se za liniju).
+Snimke: `brand-{375,768,1440}*.png`, `pnl-dani-{375,1440}.png` (`pnl_shots.js`), `prikaz-{prije,poslije}-*.png`.

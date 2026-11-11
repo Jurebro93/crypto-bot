@@ -964,7 +964,8 @@
   if (ost) ost.addEventListener('toggle', () => { if (ost.open) for (const c of $$('[data-x-src]', ost)) startLazy(c); });
 
   // ---- start: lazy parts, the remembered tab, the panel's numbers; the chart and the stream after the first paint ----
-  for (const el of $$('[data-x-src]')) if (shown(el)) watch(el);
+  // what is on the first screen now; the rest after the token's chart (go, below), so they do not race it
+  for (const el of $$('[data-x-src]')) if (shown(el) && inView(el)) watch(el);
   try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !location.hash) showTab(t); } catch (e) { /* no storage */ }
   for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf);
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
@@ -973,11 +974,15 @@
   window.addEventListener('hashchange', () => { S.hashDone = null; S.hashTried = null; scrollHash(); });
   const later = fn => ('requestIdleCallback' in window) ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300);
   const go = () => {
-    later(chartInit); setTimeout(startLive, 400);
-    later(pnlLoad);   // "Portfelj": the numbers come with the page, its chart after the first paint
+    setTimeout(startLive, 400);
+    // one at a time on a slow phone line: the token's chart first, then the "Portfelj" chart (its numbers came with
+    // the page), then the parts under the tables (loaded before the finger gets there: no jump under a tap)
+    later(async () => {
+      try { await chartInit(); } catch (e) { /* the chart says so in its box */ }
+      pnlLoad();
+      setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el) || hides(el)) { watch(el); startLazy(el); } warmBoxes(); }), 300);
+    });
     setInterval(() => { const c = $('#apx-port'); if (document.visibilityState === 'visible' && c && inView(c)) pnlLoad(); }, 60000);
-    // the parts under the tables, once the page is idle: loaded before the finger gets there (no jump under a tap)
-    setTimeout(() => later(() => { for (const el of $$('[data-x-src]')) if (shown(el) || hides(el)) startLazy(el); warmBoxes(); }), 900);
   };
   warmBoxes();
   if (document.readyState === 'complete') go(); else addEventListener('load', go);
