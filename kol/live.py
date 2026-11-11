@@ -39,6 +39,15 @@ def sync(con, cfg, monitor=None, now=None, log=print):
     watch = [r[0] for r in con.execute("SELECT handle FROM watch ORDER BY score DESC")]
     rows = dict(con.execute("SELECT handle, last_run FROM monitor"))
     last = max(rows.values()) if rows else 0
+    why = apify.off("kol_monitor")
+    if why:   # 11.11.: switched off in hype/apify.json "ugaseno": stop the running monitor once, then nothing
+        if not rows:
+            return False
+        monitor(list(rows), url, stop=True, hours=round((now - last) / 3600, 2))
+        con.execute("DELETE FROM monitor")
+        con.commit()
+        log(f"live: xquik monitor zaustavljen ({why[:80]})")
+        return True
     changed, due = plan(watch, list(rows), last, now, cfg["watch"]["resync_h"])
     import hashlib
     url_h = hashlib.sha256(url.encode()).hexdigest()[:16]

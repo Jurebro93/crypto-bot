@@ -17,6 +17,7 @@ process that ends and gives its memory back; this process only keeps the clock. 
   web     run_web.py daily      once a day at 02:00 Zagreb time (WEB_DAILY_HOUR): public tables fresh + site log row; light
   events  run_events.py tick    every EVENTS_EVERY_MIN minutes (default 5): events.db sync, feed health, stale requests; light
   evreport run_events.py ev     once a day at 23:30 Zagreb: the EV report per feature phase (events/evreport.py); light
+  trosak  run_usage.py dnevno   once a day at 23:59 UTC: one cost line per source + usage.db daily_cost; light
 """
 import datetime as dt
 import json
@@ -173,6 +174,35 @@ def daily_local(name, args, hour, light=True, minute=0):
         time.sleep(wait)
 
 
+def utc_due(hh, mm, last_day, now=None):
+    """The UTC date a once-a-day job at hh:mm UTC is due for right now, or None (11.11.: the daily cost line)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    day = now.date().isoformat()
+    return day if (now.hour, now.minute) >= (hh, mm) and last_day != day else None
+
+
+def daily_utc(name, args, hh, mm):
+    """Once per UTC day at hh:mm UTC (light), sleeping to the minute rather than polling every 5 min: the cost line
+    has to come in the last minute before UTC midnight, when every daily counter of the bot resets."""
+    time.sleep(LIGHT_START_DELAY_S)
+    last_day = _last_day(name)
+    while True:
+        try:
+            day = utc_due(hh, mm, last_day)
+            if day:
+                run(name, args, light=True)
+                last_day = day
+                _set_last_day(name, day)
+            now = dt.datetime.now(dt.timezone.utc)
+            target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if target <= now:
+                target += dt.timedelta(days=1)
+            time.sleep(max(5.0, min(300.0, (target - now).total_seconds())))
+        except Exception as e:  # noqa: BLE001 - the scheduler must not die
+            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            time.sleep(60)
+
+
 def every_hours(name, args, config, key="every_h", night=False):
     """Every config `key` hours, the last run's time kept on the disk like daily(), so 10+ deploys a day do not
     re-run it each time. night (9.11.): due or not, it waits for the night window (ops/heavy.NIGHT)."""
@@ -257,6 +287,9 @@ JOBS = [
     ("events", every, (["run_events.py", "tick"], float(os.environ.get("EVENTS_EVERY_MIN", "5")), True)),
     # 11.11.: the EV report per feature phase at 23:30 Zagreb (events/evreport.py: table + output/ev-report-*); light
     ("evreport", daily_local, (["run_events.py", "ev"], 23, True, 30)),
+    # 11.11. (Jure, preporuka 8 iz analize troška): the day's cost line per source at 23:59 UTC (00:59 CET), the minute
+    # before every daily counter resets at UTC midnight; same numbers in usage.db daily_cost (usage/daily.py); light
+    ("trosak", daily_utc, (["run_usage.py", "dnevno"], 23, 59)),
 ]
 
 
