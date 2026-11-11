@@ -74,16 +74,6 @@ def impact(c):
 LAST_N = 50
 
 
-def _void():
-    """11.11. evening (Jure: "Rug poništava i counterfactual 'pobjeda'"): tokens whose wins do not count (rugfilter/labels:
-    a rug by any label until the owner's switch rug_labels_v2_ok, then by sol_v2); empty when unreadable."""
-    try:
-        from rugfilter import labels
-        return labels.void_set()
-    except Exception:  # noqa: BLE001
-        return frozenset()
-
-
 def kol_stats(calls, cfg):
     """Stats and raw (unshrunk) score for one KOL from his first calls (dicts with the calls columns)."""
     mine = [c for c in calls if c["kind"] in ("call", "bot") and c["first_by_kol"]]
@@ -94,11 +84,10 @@ def kol_stats(calls, cfg):
     if not measured:
         return s, None
     w = cfg["weights"]
-    void = _void()   # 11.11.: a call of a rugged token is never a hit (rugfilter/labels)
-    s["hit_rate"] = sum(1 for c in measured if c["max24"] >= cfg["hit_x"] and c["token"] not in void) / len(measured)
+    s["hit_rate"] = sum(1 for c in measured if c["max24"] >= cfg["hit_x"]) / len(measured)
     last = sorted(measured, key=lambda c: c.get("ts") or 0)[-LAST_N:]  # the page shows the latest 50, not all-time
     s["n_last"] = len(last)
-    s["hit_last"] = sum(1 for c in last if c["max24"] >= cfg["hit_x"] and c["token"] not in void) / len(last)
+    s["hit_last"] = sum(1 for c in last if c["max24"] >= cfg["hit_x"]) / len(last)
     s["med_max24"] = _med(c["max24"] for c in measured)
     s["med_r1h"] = _med(c["r1h"] for c in measured)
     s["med_lift"] = _med(c["vol_lift"] for c in measured)

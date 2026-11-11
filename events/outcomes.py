@@ -292,16 +292,6 @@ def _med(xs):
     return round(statistics.median(xs), 4) if xs else None
 
 
-def _void():
-    """11.11. evening (Jure: "Rug poništava i counterfactual 'pobjeda'"): tokens whose wins do not count (rugfilter/labels:
-    a rug by any label until the owner's switch rug_labels_v2_ok, then by sol_v2); empty when unreadable."""
-    try:
-        from rugfilter import labels
-        return labels.void_set()
-    except Exception:  # noqa: BLE001
-        return frozenset()
-
-
 def scores(econ, now=None, days=SCORE_DAYS, log=print):
     """Recompute the scores table from call_outcomes (measured calls only count; n_measured says how many)."""
     now = int(now or time.time())
@@ -315,20 +305,18 @@ def scores(econ, now=None, days=SCORE_DAYS, log=print):
         seen.add(k)
         sk = "wallet" if kind == "wallet_buy" else ("channel" if source == "telegram" or actor.startswith("tg:")
                                                      else "caller")
-        a = agg.setdefault((sk, actor), {"n": 0, "m4": [], "m24": [], "ev": [], "last": 0, "mint": []})
+        a = agg.setdefault((sk, actor), {"n": 0, "m4": [], "m24": [], "ev": [], "last": 0})
         a["n"] += 1
         a["last"] = max(a["last"], ts)
         if status == "ok" and m4 is not None:
             a["m4"].append(m4)
-            a["mint"].append(mint)
             a["m24"].append(m24)
             if ev is not None:
                 a["ev"].append(ev)
     out = []
-    void = _void()   # 11.11.: a rugged token is never a hit (rugfilter/labels)
     for (sk, actor), a in agg.items():
         nm = len(a["m4"])
-        hits = sum(1 for x, mt in zip(a["m4"], a["mint"]) if x >= TP and mt not in void)
+        hits = sum(1 for x in a["m4"] if x >= TP)
         out.append((sk, actor, a["n"], nm, hits, round(hits / nm, 4) if nm else None, _med(a["m4"]), _med(a["m24"]),
                     round(sum(a["ev"]) / len(a["ev"]), 4) if a["ev"] else None, a["last"], now))
     econ.execute("DELETE FROM scores")
@@ -362,10 +350,9 @@ def early_wallets(econ, now=None, days=SCORE_DAYS, log=print):
     first = dict(econ.execute("SELECT mint, MIN(ts) FROM events WHERE type = 'call' AND ts >= ? GROUP BY mint",
                               (since,)).fetchall())
     win = {}
-    void = _void()   # 11.11.: a rugged token is never a win (rugfilter/labels)
     for mint, m4 in econ.execute("SELECT mint, MAX(max_4h) FROM call_outcomes WHERE kind = 'call' AND status = 'ok' "
                                  "AND ts >= ? GROUP BY mint", (now - days * 86400,)):
-        win[mint] = (m4 or 0) >= WIN_4H and mint not in void
+        win[mint] = (m4 or 0) >= WIN_4H
     agg = {}
     for mint, fts in first.items():
         for w, ts in econ.execute("SELECT actor, MIN(ts) FROM events WHERE mint = ? AND type = 'wallet_buy' AND ts < ? "

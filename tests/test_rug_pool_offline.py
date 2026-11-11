@@ -261,13 +261,15 @@ class Strict(unittest.TestCase):
 
 
 class VoidWins(unittest.TestCase):
-    """A rug by any label voids a counterfactual win in the statistics (callers, sources, proposals, owner labels)."""
+    """11.11. (owner): "Rug poništava samo counterfactual 'pobjeda' … hit rate i EV idu samo po booked rezultatu": a rug
+    voids the owner's counterfactual win labels (rangedca/owner); the measured statistics (callers, sources,
+    proposals) are NOT changed by the rug labels."""
 
     def setUp(self):
         labels.forget()
         self.addCleanup(labels.forget)
 
-    def test_hits_and_wins(self):
+    def test_only_the_counterfactual_win_labels(self):
         rugged = frozenset({"RUG"})
         from kol import score
         cfg = json.load(open(os.path.join(os.path.dirname(score.__file__), "config.json")))
@@ -276,22 +278,21 @@ class VoidWins(unittest.TestCase):
                  for i, t in enumerate(("OK", "RUG"))]
         with mock.patch.object(labels, "void_set", lambda **k: rugged):
             s, _ = score.kol_stats(calls, cfg)
-            self.assertAlmostEqual(s["hit_rate"], 0.5)                    # the rugged token's +200 % is no hit
+            self.assertAlmostEqual(s["hit_rate"], 1.0)                    # measured statistics: unchanged
             from proposals import report
             ps = [{"token": t, "status": "novo", "after": {"4h": {"status": "ok", "first": "tp", "ret_pct": 50.0}}}
                   for t in ("OK", "RUG")]
-            self.assertEqual(report._summ(ps)["hit_rate"], 0.5)
+            self.assertEqual(report._summ(ps)["hit_rate"], 1.0)
             from fast import outcomes
             con = sqlite3.connect(":memory:")
             con.execute("CREATE TABLE signals (source_id TEXT, kind TEXT, token TEXT, hit INTEGER, out_done INTEGER, "
                         "decided_ts INTEGER)")
             con.executemany("INSERT INTO signals VALUES ('w1','wallet',?,1,1,?)", [("OK", NOW), ("RUG", NOW)])
-            self.assertEqual(outcomes.source_rates(con, NOW)["w1"], (1, 2))
-            self.assertEqual(outcomes.base_rates(con, NOW)["wallet"], (1, 2))
+            self.assertEqual(outcomes.source_rates(con, NOW)["w1"], (2, 2))
             from rangedca import owner
             lbs = [{"token": t, "symbol": t, "label": "win", "ts": NOW - 2 * 86400, "data": {"features": {"a": 1}}}
                    for t in ("OK", "RUG")]
-            self.assertEqual([w["token"] for w in owner.wins(lbs=lbs, now=NOW)], ["OK"])
+            self.assertEqual([w["token"] for w in owner.wins(lbs=lbs, now=NOW)], ["OK"])   # the counterfactual win: void
 
     def test_void_set_uses_the_label_statistics_may_use(self):
         # 11.11. (owner): "Statistike ... računaj sa starim oznakama. Nove oznake nemoj koristiti dok ne prođe korak 3":
