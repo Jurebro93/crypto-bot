@@ -65,3 +65,31 @@ samo HTML.
 Pojedinačna pokretanja: `lighthouse.json` u ovoj mapi. Snimke: `prije-{375,768,1440}.png` i `poslije-{375,768,1440}.png`
 (cijela stranica, deviceScaleFactor 2; ljepljiva traka i zatvoreni panel su na snimkama `-prvi-ekran` i `-nalog`),
 `*-shots.json`: bez vodoravnog skrola na sve tri širine (`scrollWidth <= innerWidth`).
+
+## Otvaranje kartica (`<details>`), 11.11. popodne
+
+Jure: „klikom na zatvorene kartice (npr. Postavke i dijagnostika) ne otvaraju se iz prvoga, kao da je lag”. Mjereno
+`kartice.js` (Playwright, lokalni seed, isti poslužitelj): stranica se učita, pričeka 2,5 s, kartica se skrola na sredinu
+ekrana, 0,4 s kasnije dodir (375 px, touch) ili klik (1440 px); vrijeme od `pointerdown` do vidljivo otvorene kartice i
+do vidljivog sadržaja (bez kostura / „učitavam”), te je li kartica otvorena 1,2 s kasnije. `--cpu 4` = spori mobitel.
+
+| | Prije | Poslije |
+|---|---|---|
+| Autopilot, „Postavke i dijagnostika”, 1440 / 375 | **ne otvori se iz prvog** (oboje) | 9 ms / 19 ms, sadržaj odmah |
+| isto, CPU 4x | ne otvori se | 35 ms / 77 ms |
+| Autopilot, kartice u „Što kupiti” / „Koga pratimo” | još nisu učitane kad se do njih dođe | 11–21 ms (CPU 4x: 27–52 ms) |
+| Demo trading (/paper), 6 kartica, 1440 / 375 | 9–23 ms / 16–19 ms | 8–35 ms / 15–21 ms |
+| isto, CPU 4x, najsporija („Zatvoreni trejdovi”) | 130 ms / 111 ms | 60 ms / 67 ms |
+| Tokeni (/tokens), „Odbačeni” | 4–16 ms (CPU 4x: 25–30 ms) | 10–16 ms (CPU 4x: 29–37 ms) |
+| Pregled, Novčanici | u ovoj verziji nemaju sklopljenih kartica (0 pronađenih) | – |
+
+Uzrok na Autopilotu nije bio spor JavaScript nego pomak sadržaja: „Što kupiti” i „Koga pratimo” učitavali su se tek
+300 px prije ulaska u ekran, pa su u trenutku dodira na „Postavke i dijagnostika” (ispod njih) narasli za ~540 px i
+dodir je pao na prazno. Popravak: dijelovi se učitavaju 1200 px unaprijed i svi čim je stranica mirna nakon prvog
+iscrtavanja; zatvorena kartica s lijenim sadržajem dohvati ga kad je blizu ekrana ili na dodir / prelazak mišem preko
+naslova; dijelovi koji se osvježavaju nisu sidro skrola (`overflow-anchor:none`); otvorena kartica odmah piše
+„Učitavam…”. Općenito (sve stranice, `ui/secnav.py`): trake sekcija se više ne preračunavaju 250 ms nakon SVAKOG
+klika (mjerenje svih `<h2>`), nego samo kad se struktura stranice promijeni (MutationObserver, u mirnom trenutku);
+straničenje tablica reagira samo na promjene tablica, ne na svaki tekst (sat „prije X s”, tooltip). Osvježavanje
+dijela (PATCH_JS, `refreshFirst`) zadržava otvorene `<details>` i otvoren „Uredi SL-TP”.
+Brojke: `kartice-prije.json`, `kartice-poslije.json`, `kartice-*-cpu4.json`.
