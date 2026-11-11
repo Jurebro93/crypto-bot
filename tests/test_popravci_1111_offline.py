@@ -369,7 +369,8 @@ class ExitPlanLive(TradeBase):
         lots = exitplan._lots(self.lg, LU, MINT)
         ex = exitplan.execution(LU, lots)
         self.assertEqual(ex["mode"], "paper")
-        self.assertIn("exit_plan_live vrijedi samo", ex["why"])
+        # 11.11. (plan uz kupnju): the switch covers panel plans too; this one (MCP, mixed lots) is not one
+        self.assertIn("exit_plan_live vrijedi za plan iz panela", ex["why"])
         self.lg.execute("UPDATE trades SET source='Grok auto (MCP)' WHERE user=? AND token=?", (LU, MINT))
         self.lg.commit()
         self.assertEqual(exitplan.in_force_tokens(self.lg, LU), {MINT})

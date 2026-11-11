@@ -1247,7 +1247,7 @@ def _buy_form(mint, cfg, exit_mode, owner):
                 'walleta (Jupiter) ↗</a></p>')
     opts = "".join(f'<option value={v}{" selected" if v == exit_mode else ""}>{lab}</option>'
                    for v, lab in (("smart", "Smart sell"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")))
-    sl0 = _sl0(cfg)
+    sl0 = _plan_sl0(cfg)   # 11.11.: a buy with an exit takes the plan's default stop
     tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure): the TP / SL used last, not always the default
     return ('<form method=post action=/pravi-trade/buy class=ap-buyf onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             f'(ako je Autopilot uključen)?\')"><input type=hidden name=token value="{esc(mint)}">'
@@ -1649,7 +1649,7 @@ def _buy_now_card(cfg, owner):
     are the same."""
     if not owner:
         return ""
-    sl0 = _sl0(cfg)
+    sl0 = _plan_sl0(cfg)   # 11.11.: a buy with an exit takes the plan's default stop
     tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure: "neka ostane zapamćen za sljedeću narudžbu, a ne default")
     # 10.11. (Jure: "kako mjenjačnice rade na mobitelu"): the order ticket as on an exchange: token, amount, TP and SL
     # in sight (prefilled with the last ones used), one wide green "Kupi"; the exit kind behind "Više"
@@ -1698,12 +1698,30 @@ def _sl0(cfg):
     return settings.sl_text((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
 
 
+def _plan_sl0(cfg):
+    """11.11. (plan uz kupnju): the default stop of a buy with an exit and of a saved SL/TP ("-30%"): the stricter of
+    the owner's (_sl0) and the live plans' limit (league/exitplan.sl_floor)."""
+    try:
+        from league import exitplan
+        return f"-{exitplan.sl_floor(cfg):g}%"
+    except Exception:  # noqa: BLE001
+        return _sl0(cfg)
+
+
 def _sl_card(cfg, owner):
     """10.11. (Jure: "default stop loss treba biti na minus 60 %, a to moram negdje na stranici Autopilota kao
     administrator moći promijeniti"): the stop of every new entry with "moj TP/SL" and no stop typed in (copies,
     the auto pick, crews, manual buys). Open positions keep theirs (changed on the position itself)."""
     cur = int((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
     head = f'<h3 class=ap-sub><span>Zadani stop</span><span>sada −{cur} %</span></h3>'
+    try:   # 11.11.: the exit plan of a buy / Uredi SL-TP takes the stricter of this and the live plans' limit
+        from league import exitplan
+        fl = exitplan.sl_floor(cfg)
+    except Exception:  # noqa: BLE001
+        fl = cur
+    if fl < cur:
+        head += (f'<p class=mut>Plan izlaza (kupnja s izlazom, spremljen SL/TP pozicije, Grok) koristi stroži stop: '
+                 f'−{fl:g} % (granica planova na pravom računu); širi SL se odbija.</p>')
     if not owner:
         return f'<div id=stop>{head}</div>'
     btns = "".join(f'<form method=post action=/pravi-trade/sl style="margin:0"><input type=hidden name=sl value={v}>'
@@ -2974,7 +2992,7 @@ def _exit_form(pid, rule, cfg):
     rule = rule or {}
     sl_now = (rule.get("sl_in") or rule.get("sl") or "") if rule.get("mode") == "tpsl" else ""
     tp_now = (rule.get("tp_in") or rule.get("tp") or "") if rule.get("mode") == "tpsl" else ""
-    keep = esc(sl_now or _sl0(cfg))
+    keep = esc(sl_now or _plan_sl0(cfg))   # 11.11.: a saved SL/TP is the position's plan: its default stop
     quick = "".join(
         f'<form method=post action=/pravi-trade/exit style="margin:0"><input type=hidden name=id value={pid}>'
         f'<input type=hidden name=tp value="{v}%"><input type=hidden name=sl value="{keep}">'
@@ -2983,7 +3001,7 @@ def _exit_form(pid, rule, cfg):
     return (f'<div class=ap-btns>{quick}</div>'
             f'<form method=post action=/pravi-trade/exit class=ap-exit><input type=hidden name=id value={pid}>'
             f'<label>TP <input name=tp value="{esc(tp_now)}" placeholder="npr. 30%" size=7 autocomplete=off></label> '
-            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(_sl0(cfg))}" size=9 autocomplete=off></label> '
+            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(_plan_sl0(cfg))}" size=9 autocomplete=off></label> '
             '<button>Spremi izlaz</button></form>'
             '<p class=mut>Postotak od ulaza ili MC (npr. $200k). Prazan TP = bez cilja, samo stop; prazan SL = zadani stop. '
             'Ako je cijena već iznad TP-a ili ispod SL-a, prodaja kreće u sljedećih 20 s.</p>')
@@ -3303,16 +3321,29 @@ def _post_limit(con, tcon, form, user):
         raise ValueError(f"SOL mora biti između {lo:g} i {min(hi, cfg['max_sol_per_trade']):g}")
     ex = form.get("exit") or "tpsl"
     tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    # 11.11. (plan uz kupnju): trailing and time stop go with the order and become the plan when it buys (_post_buy)
+    from league import exitplan
+    trail = exitplan.field_num(form.get("trail"), "Trailing %", 1, 90)
+    tmin = exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)
     if ex == "tpsl":   # checked now on the entry the order would get (price scaled to the level), so a typo shows here
         px = price * lvl / mcap if price and mcap else None
+        floor = exitplan.sl_floor(cfg)
         tp_px, _ = auto.parse_level(tp, px or 1.0, lvl, "tp")
         sl_px, _ = auto.parse_level(sl or _sl0(cfg), px or 1.0, lvl, "sl")
         if tp_px is not None and px and tp_px <= px:
             raise ValueError(f"TP mora biti iznad ulaza na MC ${lvl:,.0f}")
         if sl_px is not None and px and sl_px >= px:
             raise ValueError(f"SL mora biti ispod ulaza na MC ${lvl:,.0f}")
+        lv = exitplan.level_of(sl, "sl")   # the owner's rule: never looser than the default (from the order's entry)
+        pct = (lv[1] if lv[0] == "pct" else (lv[1] / lvl - 1) * 100) if lv else None
+        if pct is not None and pct < -floor - 1e-9:
+            words = exitplan.pct_words(pct) if lv[0] == "pct" else (f"MC {exitplan.mc_words(lv[1])} "
+                                                                     f"({exitplan.pct_words(round(pct, 1))} od ulaza)")
+            raise ValueError(f"SL {words} je širi od zadanog −{floor:g} %; najviše −{floor:g} %")
     elif ex not in ("smart", "manual"):
         raise ValueError("nepoznat način izlaza")
+    if ex != "tpsl" and (trail or tmin):
+        raise ValueError("trailing i time stop idu uz izlaz „moj TP/SL”")
     sym = _symbol(token) or token[:6]
     now = int(time.time())
     with _LIMIT_LOCK:
@@ -3321,7 +3352,7 @@ def _post_limit(con, tcon, form, user):
             raise ValueError(f"najviše {LIMIT_MAX} naloga za kupnju odjednom")
         orders.append({"id": int(time.time() * 1000), "token": token, "sym": sym, "mc": round(lvl, 2), "sol": sol,
                        "exit": ex, "tp": tp, "sl": sl, "made": now, "until": now + LIMIT_HOURS * 3600,
-                       "mc_made": round(now_mc or mcap or 0, 2)})
+                       "mc_made": round(now_mc or mcap or 0, 2), "trail": trail, "time": tmin})
         settings.put(tcon, "buy_orders", orders, user)
         if ex == "tpsl":
             settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
@@ -3329,7 +3360,9 @@ def _post_limit(con, tcon, form, user):
           + (f" uz potvrđenu razliku od grafa {chart}" if chart else ""), flush=True)
     words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
     if ex == "tpsl":
-        words += f", TP {tp or 'zadani'} · SL {sl or _sl0(cfg)} od tog ulaza"
+        words += f", TP {tp or 'zadani'} · SL {sl or (_plan_sl0(cfg) if tp or trail or tmin else _sl0(cfg))} od tog ulaza"
+        if trail or tmin:
+            words += "".join((f", trailing {trail:g} %" if trail else "", f", time stop {tmin:g} min" if tmin else ""))
     return f"{BACK}?ok={qq(words + f' (vrijedi {LIMIT_HOURS} h).')}#kupi-odmah"
 
 
@@ -3372,7 +3405,9 @@ def limit_once(tcon, now=None, live_fn=None, buy_fn=None):
         try:
             copy.ensure(con)
             (buy_fn or _post_buy)(con, tcon, {"token": o["token"], "sol": f"{o['sol']:g}", "exit": o.get("exit") or "tpsl",
-                                              "tp": o.get("tp") or "", "sl": o.get("sl") or ""}, settings.owner())
+                                              "tp": o.get("tp") or "", "sl": o.get("sl") or "",
+                                              "trail": o.get("trail") or "", "time": o.get("time") or ""},
+                                  settings.owner())
             done.append((o, f"Nalog {o.get('sym')}: kupljeno {o['sol']:g} SOL na MC ${mc:,.0f} (razina ${o['mc']:,.0f})"))
         except ValueError as e:
             done.append((o, f"Nalog {o.get('sym')}: kupnja na MC ${mc:,.0f} nije prošla: {e}"))
@@ -3401,7 +3436,8 @@ def _limit_orders_html(cfg):
     rows = []
     for o in orders:
         until = _dt.datetime.fromtimestamp(o.get("until", 0), tz).strftime("%d.%m. %H:%M")
-        ex = (f' · TP {esc(o.get("tp") or "zadani")} · SL {esc(o.get("sl") or _sl0(cfg))}'
+        sl0 = _plan_sl0(cfg) if (o.get("tp") or o.get("trail") or o.get("time")) else _sl0(cfg)
+        ex = (f' · TP {esc(o.get("tp") or "zadani")} · SL {esc(o.get("sl") or sl0)}'
               if (o.get("exit") or "tpsl") == "tpsl" else f' · izlaz {esc(o.get("exit"))}')
         rows.append(f'<div class=ap-ord-r><span><b>{esc(o.get("sym") or "")}</b> · kupi na MC <b>{esc(_usd_short(o["mc"]))}</b>'
                     f' za {esc(redak.sol(o["sol"], 3))}{ex} · do {esc(until)}</span>'
@@ -5109,9 +5145,23 @@ def _post_exit(con, tcon, form):
         raise ValueError("ova pozicija nema demo par (demo strategija ili stara pozicija): izlaz joj se ne mijenja ovdje")
     # 10.11. (Jure: više ulaza = prosječan ulaz, TP/SL na prosjek, zatvara cijelu poziciju): _group_exit
     tp = (form.get("tp") or "").strip()
-    sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
-    rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, _cfg(tcon))
+    cfg = _cfg(tcon)
+    # 11.11. (owner: "Stop nikad ne smije biti širi od sl_default ... Isto pravilo vrijedi za Uredi SL-TP"): the saved
+    # TP / SL are the position's panel plan (live on the real account under exit_plan_live), its trailing and time
+    # stop kept; a stop looser than the default is refused before anything is written; empty SL = the plan's default
+    from league import exitplan
+    floor = exitplan.sl_floor(cfg)
+    sl = (form.get("sl") or "").strip() or f"-{floor:g}%"
+    plan = _edit_plan(con, tok, tp, sl, floor)
+    rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, cfg)
     print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({n} ulaza)", flush=True)
+    pnote = ""
+    try:
+        exitplan.set_plan(con, tok, plan, floor, client=f"{exitplan.PANEL_SRC} Uredi SL-TP", tighten_only=False, hr=True)
+        pnote = _plan_words(_plan_status_line(con, tcon, tok, sym, cfg))
+    except ValueError as e:   # checked above: only a race gets here; the lots keep the TP / SL just written
+        print(f"pravi trade: plan izlaza {sym or tok[:6]} nije postavljen ({e})", flush=True)
+        pnote = f" Plan izlaza NIJE postavljen ({e}); vrijedi TP/SL pozicije."
     # 10.11. (Jure: "kad se postavi izlaz za određenog influencera, neka ostane zapamćen za sljedeću narudžbu, a ne da se
     # uvijek vraća na default"): the TP / SL typed here prefill the next manual order, and a position bought on a
     # follow's signal hands them to that follow, so its next entries get them too
@@ -5127,7 +5177,30 @@ def _post_exit(con, tcon, form):
             note = f" Zapamćeno i za sljedeće ulaze od {(f[0] or f[1]) if f else 'tog praćenja'}."
         except ValueError:   # the follow was stopped meanwhile
             pass
-    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}{pnote}')}#poz-{pid}"
+
+
+def _edit_plan(con, tok, tp, sl, floor):
+    """The plan "Uredi SL-TP" saves (checked, nothing written): the TP / SL typed, the trailing and the time stop the
+    position's plan had (the editor has no fields for them); ValueError in the owner's words for a stop looser than
+    the default or a TP under the average entry."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    old = exitplan.active(con, tok)
+    if old and U not in exitplan._scope(old["plan"]):
+        old = None
+    lots = exitplan._lots(con, U, tok)
+    if not lots:
+        raise ValueError("ta pozicija više nije otvorena")
+    ratio = exitplan._mc_ratio(lots)
+    avg_mc = exitplan._avg(lots) * ratio if ratio else None
+    was = exitplan.position_fields(old) if old else {}
+    pl = (old or {}).get("plan") or {}
+    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)")
+    if pl.get("time_stop") and not was.get("time"):   # a conditional time stop (Grok's / a proposal's) stays as it was
+        plan["time_stop"] = dict(pl["time_stop"])
+    exitplan.validate(con, tok, plan, floor, tighten_only=False, hr=True)
+    return plan
 
 
 def _gate_now(tcon, sol, token, now=None):
@@ -5258,11 +5331,9 @@ def _post_proposal_buy(con, tcon, form, user):
     """11.11. (Jure, proposals/ flag proposals G21): the owner's buy of a proposal. "Kupi" on the card only fills Brza
     kupnja (token, size, TP, SL); the owner confirms there and this is the same _post_buy with every check and limit.
     The TP / SL in the form become the position's OWN TP/SL (league/auto "tpsl": they work on the real account
-    whatever exit_plans' mode); then the proposal's full exit plan (partial TP, trailing, time stop) is set through
-    league/exitplan for the real account (it executes where exit_plans applies, otherwise it is logged) when the token
-    has no other active plan, and the proposal is marked kupljeno. A form whose token is no longer the proposal's is
-    an ordinary buy."""
-    from urllib.parse import quote as qq
+    whatever exit_plans' mode); the proposal's full exit plan (partial TP, trailing, time stop) is the position's
+    panel plan (11.11.: set in the same request, live on the real account under exit_plan_live; _post_buy), and the
+    proposal is marked kupljeno. A form whose token is no longer the proposal's is an ordinary buy."""
     from league import exitplan
     from proposals import store as pstore, view as pview
     from ui import real
@@ -5286,28 +5357,35 @@ def _post_proposal_buy(con, tcon, form, user):
         raise ValueError(f"prijedlog više nije otvoren ({p['status']}): kupnja nije poslana")
     form = dict(form, token=token)
     form.setdefault("exit", "tpsl")
-    out = _post_buy(con, tcon, form, user, src=f"ručno: prijedlog {p.get('strategy') or ''}".strip())
+    # 11.11. (owner: "Plan izlaza uz kupnju: DA"): the proposal's whole exit plan (partial TP, trailing, time stop) is
+    # the position's panel plan, set in the same request and checked before the buy (a stop looser than the default
+    # refuses it), as long as the panel's fields are still the proposal's (Kupi filled them); changed fields are the
+    # owner's own exit (an ordinary panel plan of those fields)
     plan = dict((p.get("row") or {}).get("exit_plan") or {})
-    note = ""
-    if plan:
-        plan["accounts"] = [settings.LEAGUE_USER]
-        if exitplan.active(con, token) is None:
-            try:
-                sl_default = float(settings.merged(executor.load_config(), tcon).get("sl_default") or 60)
-                got = exitplan.set_plan(con, token, plan, sl_default, client=f"prijedlog #{pid}")
-                note = f" Plan izlaza prijedloga #{got['plan_id']} je zapisan."
-            except ValueError as e:
-                print(f"pravi trade: prijedlog #{pid}: plan izlaza nije postavljen ({e})", flush=True)
-        else:
-            note = " Token već ima plan izlaza; ostaje taj."
+    fill = {}
+    try:
+        from ui import apterm
+        fill = apterm.proposal_fill(p, 0)
+    except Exception:  # noqa: BLE001 - no fill: the fields decide
+        fill = {}
+    floor = exitplan.sl_floor(_cfg(tcon))
+    typed = {"tp": form.get("tp"), "sl": form.get("sl"), "trail": exitplan.field_num(form.get("trail"), "Trailing %", 1, 90),
+             "time": exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)}
+    want = {"tp": fill.get("tp"), "sl": fill.get("sl"), "trail": fill.get("trail"), "time": fill.get("time")}
+    for k in ("trail", "time"):   # a form without those fields (an older page): only TP / SL say whether it changed
+        if k not in form:
+            typed[k] = want[k]
+    same = exitplan.same_exit(typed, want, floor) if fill else True
+    given = None
+    if plan and same:
+        given = dict(plan, accounts=[settings.LEAGUE_USER],
+                     panel={"tp": (form.get("tp") or "").strip(), "sl": (form.get("sl") or "").strip(),
+                            "trail": typed["trail"], "time": typed["time"]})
+    out = _post_buy(con, tcon, form, user, src=f"ručno: prijedlog {p.get('strategy') or ''}".strip(), plan=given,
+                    plan_client=f"{exitplan.PANEL_SRC} prijedlog #{pid}")
     pstore.mark_bought(pid, float((form.get("sol") or "0").replace(",", ".")), user)
     pview.clear()
     print(f"pravi trade: {user} je kupio prijedlog #{pid} ({p.get('strategy')}) {p.get('symbol') or token[:6]}", flush=True)
-    if "?ok=" in out and note:
-        base, _, rest = out.partition("?ok=")
-        msg, hsh, frag = rest.partition("#")
-        from urllib.parse import unquote
-        out = f"{base}?ok={qq(unquote(msg) + note)}{hsh}{frag}"
     return out
 
 
@@ -5331,12 +5409,16 @@ def _chart_guard(form, token):
     return chart
 
 
-def _post_buy(con, tcon, form, user, src=None):
+def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
-    real swap within the limits."""
+    real swap within the limits.
+    11.11. (owner: "Plan izlaza uz kupnju: DA"): with exit fields (TP / SL / trailing / time stop) the position's
+    exit plan is set right after the demo trade, in this request (a panel plan: under exit_plan_live it sells on the
+    real account); plan = a ready plan in set_plan's format (a proposal's), plan_client its client. Everything is
+    checked before anything is written; a stop looser than the default is refused with the numbers."""
     from urllib.parse import quote as qq
-    from league import auto
+    from league import auto, exitplan
     from rugfilter import collapse
     from ui import data, real
     from ui.league import MINT, _symbol, market
@@ -5375,9 +5457,20 @@ def _post_buy(con, tcon, form, user, src=None):
     # blocked by gate_buy, leaving a demo position with no real one behind it.
     ex = form.get("exit") or "smart"
     tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    # 11.11. (owner: "Plan izlaza uz kupnju: DA ... Stop nikad ne smije biti širi od sl_default"): the panel's exit
+    # fields (TP / SL / trailing % / time stop) become the position's exit plan in this request (_buy_plan below);
+    # a buy with none of them keeps the old behaviour (the default stop, no plan)
+    cfg = _cfg(tcon)
+    trail = exitplan.field_num(form.get("trail"), "Trailing %", 1, 90)
+    tmin = exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)
+    if ex != "tpsl" and (trail or tmin):
+        raise ValueError("trailing i time stop idu uz izlaz „moj TP/SL”")
+    floor = exitplan.sl_floor(cfg)
+    fields = {"tp": tp, "sl": sl, "trail": trail, "time": tmin}
+    has_exit = ex == "tpsl" and bool(tp or sl or trail or tmin or plan)
     if ex == "tpsl":
-        if not sl:
-            sl = _sl0(_cfg(tcon))   # owner rule 9.11.: no explicit stop -> the default one (10.11.: set under "Pravila")
+        if not sl:   # owner rule 9.11.: no explicit stop -> the default one (10.11.: set under "Pravila"); with an exit
+            sl = f"-{floor:g}%" if has_exit else _sl0(cfg)   # plan (11.11.) the plan's, never looser (sl_floor)
         tp_px, _ = auto.parse_level(tp, price, mcap, "tp")   # raises on a typo or an MC level without entry MC
         sl_px, _ = auto.parse_level(sl, price, mcap, "sl")
         if tp_px is None and sl_px is None:
@@ -5386,7 +5479,7 @@ def _post_buy(con, tcon, form, user, src=None):
             raise ValueError("TP mora biti iznad ulaznog MC-a")
     elif ex != "smart":
         raise ValueError("nepoznat način izlaza")
-    lim = _cfg(tcon)["max_sol_per_trade"]
+    lim = cfg["max_sol_per_trade"]
     if sol > lim:
         raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
     # 10.11. (Jure: "piše da je kupovina prošla, a nema otvorene pozicije"): the day limit, the day's loss stop, the
@@ -5410,12 +5503,18 @@ def _post_buy(con, tcon, form, user, src=None):
             pa = json.loads(prev["auto"]) if prev["auto"] else None
         except ValueError:
             pa = None
+    # 11.11.: the exit plan of this buy, checked on the position as it will be (this lot included), before any write
+    plan_new, plan_keep, was_live = (None, None, False)
+    if ex == "tpsl":
+        plan_new, plan_keep, was_live = _buy_plan(con, token, pa, src, plan, fields, has_exit, price, liq, mcap, floor)
+    if prev is not None and not plan_new:
+        # the position's own exit first (new exit fields: the new rule for every lot, _group_exit below)
         if pa and pa.get("mode") == "smart":
             rules.insert(0, ("smart", "", ""))
         elif pa and pa.get("mode") == "tpsl":
             rules.insert(0, ("tpsl", pa.get("tp_in") or pa.get("tp") or "", pa.get("sl_in") or pa.get("sl") or ""))
     # src (10.11., ui/grokauto): "Grok auto (MCP)" for Grok's autotrades, so the position says whose it is
-    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, src or "ručno (pravi trade)", None, mcap,
+    tid = store.buy(con, settings.LEAGUE_USER, token, sym, DEMO_USD, price, liq, src or "ručno (pravi trade)", None, mcap,
                     allow_open=prev is not None)
     for r_ex, r_tp, r_sl in rules:
         try:
@@ -5435,17 +5534,122 @@ def _post_buy(con, tcon, form, user, src=None):
         settings.put(tcon, "last_exit", {"tp": (form.get("tp") or "").strip(), "sl": (form.get("sl") or "").strip()}, user)
     if prev is not None and rules[0][0] == "tpsl":
         # 10.11. (Jure): the position's TP/SL from the new average entry, on every lot (the first lot's typed rule;
-        # a rule already made for the position keeps its own text in "grp")
-        g = (pa or {}).get("grp") or {}
+        # a rule already made for the position keeps its own text in "grp"); 11.11.: new exit fields = the new rule
+        g = {} if plan_new else (pa or {}).get("grp") or {}
         try:
-            _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), _cfg(tcon))
+            _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), cfg)
         except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
             print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
+    note = _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, floor, cfg, plan_client)
     if chart:
         print(f"pravi trade: kupnja {sym or token[:6]} ({token}) uz potvrđenu razliku od grafa {chart}", flush=True)
     if prev is not None:
-        return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
-    return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        words = ("novi izlaz vrijedi za cijelu poziciju" if plan_new else "izlaz kao i prvi")
+        return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, {words}.{note}')}#pozicije"
+    return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.{note}')}#pozicije"
+
+
+DEMO_USD = 25   # the demo trade behind every owner's buy (league/store.buy); the real stake is its manual_size
+# 11.11.: the client of the plan a buy sets (league/exitplan.PANEL_SRC: executes live under exit_plan_live)
+PLAN_CLIENTS = {"Grok auto (MCP)": "Grok autotrade", "ručno: Grok odobreno (MCP)": "Grok odobreno"}
+
+
+def _plan_client(src):
+    from league import exitplan
+    return f"{exitplan.PANEL_SRC} {PLAN_CLIENTS.get(src or '', 'ručna kupnja')}"
+
+
+def _new_lot(price, liq, mcap):
+    """The demo lot store.buy is about to write (its entry, quantity and MC), for the checks before the write."""
+    eff = price * (1 + store.FEE) / (1 - store.impact(DEMO_USD, liq))
+    return {"user": settings.LEAGUE_USER, "entry_px": price, "qty": DEMO_USD / eff, "entry_mcap": mcap,
+            "opened_ts": int(time.time()), "auto": None, "source": ""}
+
+
+def _buy_plan(con, token, pa, src, given, fields, has_exit, price, liq, mcap, floor):
+    """11.11. (owner: "Plan izlaza uz kupnju: DA"): (plan to set, plan to keep, its mode was live) for one buy.
+    - a buy with exit fields (or a ready plan: a proposal's) gets a new panel plan, checked on the position as it will
+      be: the stop never looser than -floor from the average entry (ValueError: the buy is refused, nothing written);
+    - a DCA / one more lot into a token that already has a plan: new exit fields (different from what the position
+      has, exitplan.position_fields; the panel shows those for an open position) replace the plan; the same fields,
+      none, or a Grok buy (it never types an exit) keep it: the plan covers the new lot, its stop checked again from
+      the new average;
+    - no exit fields and no plan: nothing (the old behaviour)."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    old = exitplan.active(con, token)
+    if old and U not in exitplan._scope(old["plan"]):
+        old = None
+    lots = exitplan._lots(con, U, token)
+    nl = _new_lot(price, liq, mcap)
+    extra = {U: [nl]}
+    was_live = bool(old and lots) and exitplan.execution(U, lots, plan=old)["mode"] == "live"
+    if old and lots:
+        typed = not _is_grok_auto(src) and src != exitplan.APPROVED_SRC
+        new = given is not None or (typed and has_exit and not exitplan.same_exit(
+            fields, exitplan.position_fields(old, pa), floor))
+        if not new:
+            if old["plan"].get("stop"):
+                exitplan.validate(con, token, exitplan.denorm(old["plan"], stop_only=True), floor, extra=extra,
+                                  tighten_only=False, hr=True)
+            return None, old, was_live
+    if given is None:
+        if not has_exit:
+            return None, None, was_live
+        after = lots + [nl]
+        ratio = exitplan._mc_ratio(after)
+        avg_mc = exitplan._avg(after) * ratio if ratio else None
+        given = exitplan.panel_plan(fields["tp"], fields["sl"], fields["trail"], fields["time"], floor, avg_mc,
+                                    reason="plan uz kupnju (panel)")
+        if given is None:
+            return None, None, was_live
+    given = dict(given, accounts=[U])
+    exitplan.validate(con, token, given, floor, extra=extra, tighten_only=False, hr=True)
+    return given, None, was_live
+
+
+def _plan_status_line(con, tcon, token, sym, cfg, kind="panel"):
+    """The plan's mode now and the one log line ("plan izlaza #N TOKEN (panel, live): TP1 +15 % pola · ...")."""
+    from league import exitplan
+    live = executor.is_live(cfg)
+    held_live = live or bool(tcon.execute("SELECT 1 FROM positions WHERE token=? AND status='open' AND mode='live' "
+                                          "LIMIT 1", (token,)).fetchone())   # a real position held from before
+    st = exitplan.status(con, token, pos_live=held_live, autopilot_live=live)
+    word = {"live": "live", "shadow": "sjena"}.get(st["plan_mode"], "paper")
+    print(f"plan izlaza #{st['plan_id']} {sym or token[:6]} ({kind}, {word}): {st['summary']}"
+          + ("" if st["plan_mode"] == "live" else f" · {st['reason']}"), flush=True)
+    return st
+
+
+def _plan_words(st, head="Plan izlaza", tail=""):
+    mode = "live" if st["plan_mode"] == "live" else f"samo paper: {st['reason']}"
+    return f" {head} #{st['plan_id']}{tail}: {st['summary']} ({mode})."
+
+
+def _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, floor, cfg, plan_client=None):
+    """After the demo trade: set the new plan or let the kept one cover the new lot. Returns the words for the page."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    if plan_new:
+        try:
+            exitplan.set_plan(con, token, plan_new, floor, client=plan_client or _plan_client(src), tighten_only=False,
+                              hr=True)
+        except ValueError as e:   # checked before the write: only a race gets here; the lots keep their TP/SL
+            print(f"pravi trade: plan izlaza {sym or token[:6]} nije postavljen ({e})", flush=True)
+            return f" Plan izlaza NIJE postavljen ({e}); vrijedi TP/SL pozicije."
+        st = _plan_status_line(con, tcon, token, sym, cfg)
+        return _plan_words(st, "Plan izlaza prijedloga" if plan_client and "prijedlog" in plan_client else "Plan izlaza")
+    if plan_keep:
+        now_live = exitplan.execution(U, exitplan._lots(con, U, token), plan=plan_keep)["mode"] == "live"
+        # a plan that sold live before this lot stays live (a Grok position the owner adds to by hand): it becomes the
+        # owner's (panel) plan; one in the shadow stays in the shadow
+        retag = (f"{exitplan.PANEL_SRC} dokup (bio {plan_keep['client']})"[:120]
+                 if was_live and not now_live and not exitplan.is_panel(plan_keep) else None)
+        exitplan.extend(con, token, floor, client=retag)
+        st = _plan_status_line(con, tcon, token, sym, cfg, "panel, dokup" if retag or exitplan.is_panel(plan_keep)
+                               else "dokup")
+        return _plan_words(st, tail=" pokriva i novi ulaz")
+    return ""
 
 
 _VIEW = {"ts": 0, "names": set()}

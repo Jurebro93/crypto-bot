@@ -99,8 +99,10 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
                             "iznad nule"),
     # 11.11. (Jure: GTA's plan was only logged, the real exit went through the default TP): an owner switch, uživo =
     # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
-    # exit_plans' mode; it only sells, never buys; default off, only the owner moves it
-    "exit_plan_live": ("G18", "Grokovi planovi izlaza na pravom računu za Grok autotrade pozicije (samo prodaja)"),
+    # exit_plans' mode; it only sells, never buys; default off, only the owner moves it. 11.11. (owner: "Plan izlaza uz
+    # kupnju: DA"): also the plan a buy from the panel / Uredi SL-TP sets (league/exitplan.panel_live)
+    "exit_plan_live": ("G18", "Planovi izlaza na pravom računu: plan uz kupnju iz panela (i spremljen SL/TP pozicije) "
+                              "i Grokove autotrade pozicije (samo prodaja)"),
     # 11.11. (Jure: "event tokeni s Grokom", topics/): Grok's event topics, their matching tokens (main / clone / rug),
     # the price 24 h before / at / after the event; shadow = measure only, paper = range_dca may trade them on the demo
     # account; never real money (NEVER_LIVE)
