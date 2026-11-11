@@ -1110,9 +1110,63 @@ TOOLS.append(
                      "under breakouts. Also the open range positions (account, lots, exit levels) and the paper "
                      "proof (closed rounds, EV per round, the live gate: >= 20 rounds with EV > 0). Tokens under $30k "
                      "market cap and tokens still on the pump.fun curve are never in it. To tighten a range position's "
-                     "exits use set_exit_plan with plan.accounts set to its account."),
+                     "exits use set_exit_plan with plan.accounts set to its account. 11.11.: per row source (signal = "
+                     "our own signals, event = an event topic's token, market = the whole-market watchlist; several: "
+                     "signal > event > market, all in sources), entry_ready (not a breakout and the entry rules pass "
+                     "now; those rows first) and paper_only (market / event tokens are traded only on the demo account, "
+                     "never with real money); breakouts (ranges broken upward), watched_by_source and the watchlist's "
+                     "filter, refresh and cost today per source."),
      "inputSchema": {"type": "object", "properties": {
-         "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7}}}})
+         "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
+         "source": {"type": "string", "enum": ["signal", "market", "event"],
+                    "description": "only rows whose sources include this one"}}}})
+
+
+# 11.11. (Jure: "event tokeni s Grokom", flag event_tokens G19, topics/): Grok's event topics and their tokens
+TOOLS += [
+    {"name": "submit_event_topic",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Send an event topic you see driving meme tokens on X (e.g. GTA6's release), or update one: upsert "
+                     "by name (case and spaces do not matter). keywords: 1-20 strings incl. tickers, each at least 2 "
+                     "letters or digits, e.g. [\"GTA6\", \"GTA 6\", \"Grand Theft Auto\", \"$GTA6\"]; matching is "
+                     "token-aware (\"GTA 6\" == \"GTA6\" == \"gta-6\" == \"$GTA6\", but GTA6 never matches GTA, GTA5 or "
+                     "GTAV; list those too if they should count). event_ts: unix seconds or ISO 8601 when known. "
+                     "buzz_score 0-100 from X (send it again as it changes: the history is the trend). status "
+                     "upcoming -> live -> done (only forward). New topics need keywords; an update may send any field. "
+                     "At most 8 active (upcoming / live) topics, 60 writes an hour; refused while the owner has the "
+                     "flag event_tokens off. MemeSonar then matches new pump.fun tokens in real time and searches "
+                     "DexScreener every 10 min per active topic. Nothing is bought with real money."),
+     "inputSchema": {"type": "object", "properties": {
+         "name": {"type": "string", "minLength": 2, "maxLength": 60},
+         "keywords": {"type": "array", "items": {"type": "string", "minLength": 2, "maxLength": 60}, "minItems": 1,
+                      "maxItems": 20},
+         "event_ts": {"type": ["integer", "string"], "description": "unix seconds or ISO 8601"},
+         "buzz_score": {"type": "number", "minimum": 0, "maximum": 100},
+         "status": {"type": "string", "enum": ["upcoming", "live", "done"]},
+         "source": {"type": "string", "maxLength": 40, "description": "where you saw it, default x"},
+         "note": {"type": "string", "maxLength": 500}}, "required": ["name"]}},
+    {"name": "get_event_topics", "annotations": _READ,
+     "description": ("The event topics with their ids: name, keywords, event_ts, status, buzz_score, buzz_trend (↑ ↓ →) "
+                     "and buzz_spark from the buzz history, created_by, how many tokens match and the main token. "
+                     "status: upcoming | live | done | active (upcoming + live); default all, newest first."),
+     "inputSchema": {"type": "object", "properties": {
+         "status": {"type": "string", "enum": ["upcoming", "live", "done", "active"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}}},
+    {"name": "get_event_tokens", "annotations": _READ,
+     "description": ("All Solana tokens whose ticker, name or description matches one topic's keywords (new pump.fun "
+                     "tokens in real time, DexScreener / Birdeye search, the scanner's tokens), main first: per token "
+                     "role (main = the most liquid with organic X; clone = under 30 min old with snipers / bundlers "
+                     "holding over 30 %; rug = the rug check says hard or risk; other) and why, the match (field, "
+                     "keyword, via), age_min, market (price, market cap, liquidity, 1 h / 24 h volume, bonded, its "
+                     "source and time), holders, snipers_pct, the rug check, X numbers you or the scanner stored "
+                     "(organic yes / no), the range (status, score, position, entry_ready) and the price 24 h before / "
+                     "at / 24 h after event_ts with the changes. measure_summary: the median run-up into the event "
+                     "and the median move after it (buy the rumour, exit before the event). Read-only."),
+     "inputSchema": {"type": "object", "properties": {"topic_id": {"type": "integer"}}, "required": ["topic_id"]}},
+]
+INSTRUCTIONS += (" Event topics: when X shows a real-world event driving meme tokens, send it with submit_event_topic "
+                 "(keywords incl. tickers, event_ts, buzz_score) and update the buzz as it changes; get_event_topics "
+                 "gives the ids, get_event_tokens(topic_id) the matching tokens with main / clone / rug.")
 
 
 # 10.11. (Jure: "najvažnije je naći tokene kojima treba trgovati"; ui/kandidati.py): one ranked row per token over
@@ -1264,6 +1318,22 @@ def _note_tool(name, a, kid):
 
 
 NOTE_TOOLS = ("submit_trade_review", "submit_signal_opinion", "submit_suggestion", "submit_daily_summary")
+EVENT_TOOLS = ("submit_event_topic", "get_event_topics", "get_event_tokens")
+
+
+def _event_tool(name, a, kid):
+    """11.11. (flag event_tokens): the three event-topic tools (topics/view.py); the key's fingerprint is the
+    client attribution of a submitted topic (event_topics.kid, topic_log)."""
+    from topics import view
+    try:
+        if name == "submit_event_topic":
+            return view.submit(a.get("name"), a.get("keywords"), a.get("event_ts"), a.get("buzz_score"), a.get("status"),
+                               a.get("source"), a.get("note"), kid=f"mcp:{kid}")
+        if name == "get_event_topics":
+            return view.list_topics(a.get("status"), a.get("limit"))
+        return view.tokens(a.get("topic_id"))
+    except ValueError as e:
+        return {"error": str(e)}
 
 
 def _tool(name, args, kid="local"):
@@ -1303,6 +1373,9 @@ def _tool(name, args, kid="local"):
         except ValueError as e:
             d = {"error": str(e)}
         return d, "error" in d
+    if name in EVENT_TOOLS:   # 11.11. topics/view.py (flag event_tokens)
+        d = _event_tool(name, args, kid)
+        return d, "error" in d
     from ui import mcpdata
     data_tools = {
         "get_caller_leaderboard": lambda a: mcpdata.caller_leaderboard(a.get("platform"), a.get("min_calls"), a.get("sort"),
@@ -1327,7 +1400,7 @@ def _tool(name, args, kid="local"):
             a.get("name"), a.get("part"), a.get("limit"), a.get("offset"), a.get("sort")),
         "get_source_stats": lambda a: source_stats(),
         "get_range_candidates": lambda a: __import__("rangedca.view", fromlist=["candidates"]).candidates(
-            a.get("min_score")),
+            a.get("min_score"), source=a.get("source")),
     }
     if name in data_tools:
         d = data_tools[name](args)

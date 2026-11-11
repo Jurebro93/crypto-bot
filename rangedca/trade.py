@@ -7,6 +7,9 @@ Modes (league/flags): off nothing new (rounds already open keep their exits: a s
 a minute); shadow: the real account LEAGUE_USER only logs what it would buy (league.db shadow_decisions); paper: the
 demo account PAPER_USER trades (run_trade.py never mirrors it), LEAGUE_USER logs; live: both trade, and LEAGUE_USER
 only while rangedca/gate.refusal() is None (>= 20 closed paper rounds with EV > 0), checked again every minute.
+11.11.: a token only the market watchlist or an event topic brought (ranges.src market / event, rangedca/market.py)
+is entered only by the demo account PAPER_USER and only while its own flag (range_market / event_tokens) is paper;
+the real account never buys one and never logs one (allowed()).
 
 A round = lot 1 (+ lot 2) until everything is sold; table range_rounds (league.db) keeps its levels (frozen at the
 entry; the take-profit levels follow the newest range, the stop only tightens), its state (tp1, top touched, peak)
@@ -26,7 +29,7 @@ import sqlite3
 import time
 
 from league import store
-from . import data, gate, rules
+from . import data, gate, market, rules
 
 FLAG = "range_dca"
 SRC1, SRC2 = "range lot 1", "range lot 2"
@@ -149,11 +152,31 @@ def stop_px(con, user, token):
     return (json.loads(r[0] or "{}") or {}).get("stop_px")
 
 
-def _ranges(now, force=False):
-    if force or now - _CACHE["rng_at"] > RNG_TTL_S:
-        _CACHE["rng"] = data.read_ranges(since=now - 86400)
+def _ranges(now, force=False, tokens=None):
+    """The ranges of these tokens (the open rounds'), re-read at most every RNG_TTL_S. 11.11.: only those tokens,
+    never every range of the day (the market watchlist keeps ~400; the 1-s exit loop needs a handful)."""
+    key = tuple(sorted(tokens)) if tokens is not None else None
+    if force or now - _CACHE["rng_at"] > RNG_TTL_S or _CACHE.get("rng_key") != key:
+        _CACHE["rng"] = ({} if tokens is not None and not tokens else
+                         data.read_ranges(since=now - 86400, tokens=list(key) if key is not None else None))
         _CACHE["rng_at"] = now
+        _CACHE["rng_key"] = key
     return _CACHE["rng"]
+
+
+def allowed(rng, user, now=None):
+    """May range_dca enter this range's token for this account? A token of the signal pass: wherever range_dca trades.
+    A token only the market watchlist or an event topic brought (11.11., flags range_market / event_tokens): only the
+    demo account PAPER_USER, and only while that source's own flag is paper (or live, which is paper for them: they
+    never trade real money); never LEAGUE_USER, whatever the flags say."""
+    srcs = (rng or {}).get("sources") or [(rng or {}).get("source") or "signal"]
+    if "signal" in srcs:
+        return True
+    from trade import settings as ts
+    if user != ts.PAPER_USER:
+        return False
+    fl = _flags()
+    return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
 
 
 def _fresh_levels(rng, now):
@@ -229,8 +252,14 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
     if not act and not sh:
         return []
     ensure(con)
-    rngs = ranges if ranges is not None else data.read_ranges(since=now - RANGE_FRESH_S)
     open_r = rounds(con)
+    if ranges is not None:
+        rngs = ranges
+    else:   # 11.11.: the active ranges and the open rounds' ranges only (range.db holds the whole market watchlist)
+        rngs = data.read_ranges(since=now - RANGE_FRESH_S, active_only=True)
+        rest = sorted({r["token"] for r in open_r} - set(rngs))
+        if rest:
+            rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=rest))
     cand = {t for t, r in rngs.items() if r.get("active") and (r.get("score") or 0) >= rules.RULES["score_min"]
             and (r.get("pos_pct") is None or r["pos_pct"] <= 40)}
     toks = sorted(cand | {r["token"] for r in open_r if r["user"] in act})
@@ -251,7 +280,7 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         for tok in sorted(cand):
             if n_open >= lim["max_open"]:
                 break
-            if any(r["token"] == tok for r in mine):
+            if any(r["token"] == tok for r in mine) or not allowed(rngs[tok], user, now):
                 continue
             got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim, sol, now)
             if got:
@@ -261,6 +290,8 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         for tok in sorted(cand):
             mq = mk.get(tok)
             if not mq or not mq[0] or now - _SHADOWED.get((user, tok), 0) < SHADOW_EVERY_S:
+                continue
+            if not allowed(rngs[tok], user, now):   # the real account would never buy a market / event token
                 continue
             why = entry_view(rngs[tok], mq[0], now) or _guards(tok, mq)
             if why is None:
@@ -411,7 +442,7 @@ def exits_once(con, market_fn, now=None):
         return []
     from league import exitplan
     q = exitplan.quote(market_fn, {r["token"] for r in open_r}, now)
-    rngs = _ranges(now)
+    rngs = _ranges(now, tokens={r["token"] for r in open_r})
     out = []
     for r in open_r:
         lots = _lots(con, r)

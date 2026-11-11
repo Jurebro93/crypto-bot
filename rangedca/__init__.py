@@ -26,4 +26,14 @@ Data sources, in this order (CLAUDE.md: prefer what we have, measure and cap eve
   5. Helius getTransactionsForAddress on the pool, only for tokens with an OPEN range position, every 15 min, at most
      RANGE_HELIUS_CREDITS_DAY (3000) credits a day (~10 credits a page of 100 transactions).
 Flag off: run_range.py reads the flag and ends; the league loops read one cached flag and do nothing.
+
+11.11. (Jure: "širi range watchlist + event tokeni s Grokom"; market.py, flags range_market G20 and event_tokens G19):
+the 40 above (RANGE_MAX_TOKENS) is both a cap and a narrow universe: only tokens our own signals name. The market
+watchlist adds up to RANGE_MARKET_MAX (400) bonded tokens of the whole market (PumpPortal migrations, KOL graduates,
+the scanner's priced tokens, DexScreener lists, GeckoTerminal trending / top volume, Birdeye only with its key) and
+the event topics' tokens, with their own per-source day caps; their series are 5 / 15-minute DexScreener snapshots
+in the same range.db snaps (detection reads timestamps, so a 5-minute series finds a range). Every range carries its
+source: signal > event > market. A market / event token is traded only on the demo account (paper), never with real
+money.
+    market.py    the market watchlist: universe, filter, budgeted refresh, the daily cost line per source
 """

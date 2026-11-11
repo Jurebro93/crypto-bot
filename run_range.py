@@ -11,6 +11,15 @@ itself; every 5 minutes the range of every candidate from its minute series (det
 (rules.exclusions; for a token with an open range position also the transfer-holders check, rangedca/holders.py),
 and at most 3 GeckoTerminal seeds for a candidate that meets the minimums but has < 6 h of history; between those
 passes the active ranges get fresh 5-minute numbers (buys share, volume, change) every minute. Writes range.db only.
+
+11.11. (Jure: "širi range watchlist + event tokeni"): while the flag range_market (G20) or event_tokens (G19) is on,
+the same pass also runs the market watchlist (rangedca/market.py: up to RANGE_MARKET_MAX 400 bonded tokens of the
+whole market and the event topics' tokens, 5 / 15-minute DexScreener snapshots inside per-source day caps) and
+computes their ranges with the signal pass's (which keeps its 40 tokens and its rules unchanged). Every range carries
+its source (signal > event > market). A market / event token gets a GeckoTerminal seed only when it is close to an
+entry (an active range in the bottom 40 % without minute candles, or 2 h+ of snapshots that already show a range
+with the price in the bottom 30 %), inside RANGE_GT_DAY and RANGE_MKT_SEED_DAY. range_dca off with both of them on:
+only the market watchlist's data is collected (nothing trades).
 """
 import argparse
 import os
@@ -24,10 +33,10 @@ DETECT_EVERY_S = 290   # "recomputed every 5 min" (a pass a minute; 10 s of slac
 PRUNE_EVERY_S = 3600
 
 
-def _mode():
+def _mode(name="range_dca"):
     try:
         from league import flags
-        return flags.mode("range_dca")
+        return flags.mode(name)
     except Exception:  # noqa: BLE001 - unreadable flag: off
         return "off"
 
@@ -37,20 +46,45 @@ def _minimums_met(snap):
                 and (snap.get("vol_h1") or 0) >= 10_000)
 
 
-def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=()):
-    """One pass. Returns a short summary text ("off" when the flag is off)."""
-    if _mode() == "off":
+def _near_entry(res, candles, snap, now, has_gt):
+    """A market / event token close to an entry, worth a GeckoTerminal seed: an active range in the bottom 40 % still
+    without minute candles, or (under 6 h of snapshots) 2 h+ of them already showing an active range with the price in
+    the bottom 30 %."""
+    from rangedca import detect
+    if res.get("active"):
+        return not has_gt and res.get("pos_pct") is not None and res["pos_pct"] <= 40
+    if res.get("status") != "premalo podataka" or not candles or candles[-1][0] - candles[0][0] < 2 * 3600:
+        return False
+    proto = detect.analyze(candles, now, snap, {"min_hist_h": 2})
+    return bool(proto.get("active") and proto.get("pos_pct") is not None and proto["pos_pct"] <= 30)
+
+
+def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), net=None):
+    """One pass. Returns a short summary text ("off" when range_dca, range_market and event_tokens are all off).
+    net: rangedca/market.Net stand-in (tests); fetch also serves the market pass when net is not given."""
+    m_dca, m_mkt, m_evt = _mode(), _mode("range_market"), _mode("event_tokens")
+    if m_dca == "off" and m_mkt == "off" and m_evt == "off":
         return "off"
-    from rangedca import data, detect, holders, rules
+    from rangedca import data, detect, holders, market, rules, view
     now = int(now or time.time())
     con = data.connect()
     try:
-        cands = data.candidates(con, now, extra)
+        sig = data.candidates(con, now, extra) if m_dca != "off" else []
         pools = {r[0] for r in con.execute("SELECT token FROM pools")}
-        pulse = data.pulse_recent(now) - (set(cands) - pools)   # a token without a known pool is polled once for it
-        data.poll(con, cands, now, fetch=fetch, pulse_fresh=pulse)
-        full = now - (data.kv_get(con, "last_detect") or 0) >= DETECT_EVERY_S
+        pulse_all = data.pulse_recent(now)
+        pulse = pulse_all - (set(sig) - pools)   # a token without a known pool is polled once for it
+        if sig:
+            data.poll(con, sig, now, fetch=fetch, pulse_fresh=pulse)
         open_toks = set(data.open_round_tokens())
+        srcs = {t: ["signal"] for t in sig}
+        mk = {"tokens": [], "src": {}, "stats": {}}
+        if m_mkt != "off" or m_evt != "off":
+            mk = market.pass_once(con, now, net or market.Net(fetch), log, signal=sig, pulse=pulse_all,
+                                  market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks)
+            for t in mk["tokens"]:
+                srcs.setdefault(t, []).append(mk["src"].get(t, "market"))
+        cands = sig + [t for t in mk["tokens"] if t not in set(sig)]
+        full = now - (data.kv_get(con, "last_detect") or 0) >= DETECT_EVERY_S
         seeds, n_act, n_ok = 0, 0, 0
         for tok in cands:
             prev, st = data.load_range(con, tok)
@@ -60,12 +94,21 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=()):
             if not candles:
                 continue
             sym = (snap or {}).get("symbol") or (prev or {}).get("symbol")
+            src, src_all = view.source_of(srcs.get(tok) or ["signal"])
             if full:
                 res = detect.analyze(candles, now, snap)
-                if (res["status"] == "premalo podataka" and seeds < data.GT_PER_PASS and _minimums_met(snap)
-                        and (snap or {}).get("pool")):
-                    if data.seed(con, tok, snap["pool"], now, fetch=gt_fetch):
+                pool = (snap or {}).get("pool")
+                if src == "signal":
+                    want = res["status"] == "premalo podataka" and _minimums_met(snap)
+                else:   # 11.11.: a market / event token only close to an entry, inside its own day cap
+                    has_gt = con.execute("SELECT 1 FROM gt_candles WHERE token=?", (tok,)).fetchone() is not None
+                    want = (data.day_used(con, "mkt_seed_day", now) < market.SEED_DAY and _minimums_met(snap)
+                            and _near_entry(res, candles, snap, now, has_gt))
+                if want and seeds < data.GT_PER_PASS and pool:
+                    if data.seed(con, tok, pool, now, fetch=gt_fetch):
                         seeds += 1
+                        if src != "signal":
+                            data.day_add(con, "mkt_seed_day", 1, now)
                         candles, snap = data.series(con, tok, now)
                         res = detect.analyze(candles, now, snap)
                 hw = None
@@ -91,6 +134,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=()):
                 res["mts"] = now
             res.pop("symbol", None)
             res.pop("state", None)
+            res["source"], res["sources"] = src, src_all
             data.save_range(con, tok, res, st, sym)
             n_act += int(bool(res.get("active")))
             n_ok += int(bool(res.get("active")) and (res.get("score") or 0) >= rules.RULES["score_min"])
@@ -99,11 +143,17 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=()):
         if now - (data.kv_get(con, "last_prune") or 0) >= PRUNE_EVERY_S:
             data.prune(con, now)
             _prune_holders(con, now, open_toks)
+            market.prune(con, now, keep_tokens=set(sig) | open_toks)
             data.kv_put(con, "last_prune", now)
         con.commit()
-        text = (f"range: {len(cands)} kandidata, aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}; "
+        ms = mk.get("stats") or {}
+        text = (f"range: {len(cands)} kandidata (signal {len(sig)}, tržište {len(mk['tokens']) - ms.get('events', 0)}, "
+                f"eventi {ms.get('events', 0)}), aktivnih {n_act}, ocjena >= {rules.RULES['score_min']}: {n_ok}; "
                 f"GeckoTerminal danas {data.day_used(con, 'gt_day', now)}/{data.GT_DAY}, Helius danas "
-                f"{data.day_used(con, 'helius_day', now)}/{holders.CREDITS_DAY} kredita")
+                f"{data.day_used(con, 'helius_day', now)}/{holders.CREDITS_DAY} kredita"
+                + (f"; tržište: DexScreener danas {data.day_used(con, 'mkt_dex_day', now)}/{market.DEX_DAY}, osvježeno "
+                   f"{ms.get('refreshed', 0)}, iz hype skena {ms.get('reused', 0)}, preskočeno zbog stropa "
+                   f"{ms.get('dropped', 0)}, primljeno {ms.get('admitted', 0)}" if ms else ""))
         if full:
             log(text)
         return text
@@ -123,7 +173,17 @@ def _prune_holders(con, now, open_toks):
 
 
 def status(log=print):
-    from rangedca import data
+    from rangedca import data, market
+    con = data.ro()
+    if con is not None:
+        try:
+            cost = market.cost_today(con, time.time())
+            log("trošak danas: " + ", ".join(f"{k} {v['used']}" + (f"/{v['cap']}" if v["cap"] else "") for k, v in cost.items()))
+            log(f"tržišna lista: {market.counts(con)}")
+        except Exception:  # noqa: BLE001 - no market table yet
+            pass
+        finally:
+            con.close()
     rs = data.read_ranges()
     for tok, r in sorted(rs.items(), key=lambda kv: (-(kv[1].get("active") or 0), -(kv[1].get("score") or 0))):
         z = (r.get("zones") or {}).get("mc") or {}

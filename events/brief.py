@@ -17,6 +17,8 @@
                        a price above 100 % of the range is a breakout, listed apart, never a range entry candidate
     momentum_candidates  momentum/view.candidates: the newest momentum_scalp signals (every entry rule met), near
                        misses, the 7-day base rate and the paper proof (11.11.)
+    event_topics       topics/view.brief_part: the active event topics (flag event_tokens), buzz trend, token count,
+                       main token, the measured price run-up into the event and the move after it (11.11.)
     grok_calibration   momentum/evgate.report: Grok's p_tp on execute_trade against what happened (Brier, buckets)
     grok_predictions   events/predictions.brief_part: Grok's predictions scored since `since` and the calibration
                        per p_tp bucket, Grok's and MemeSonar's
@@ -363,6 +365,13 @@ def momentum_part(now):
     return d
 
 
+def event_part(now):
+    """11.11. (flag event_tokens, topics/view.py): the active event topics with buzz trend, token count, main token
+    and the measured run-up / after-event summary (one read of topics.db)."""
+    from topics import view
+    return view.brief_part(now)
+
+
 def calibration_part(now):
     """11.11. (flag grok_ev_gate, momentum/evgate.py): Brier score and reliability of Grok's p_tp, 30 days."""
     from momentum import evgate
@@ -432,6 +441,7 @@ def build(since=None, limit_signals=None, now=None, include_closed=False):
         out["groups"] = _timed(out, "groups", groups_part, since_s, now)
         out["range_candidates"] = _timed(out, "range_candidates", range_part)
         out["momentum_candidates"] = _timed(out, "momentum_candidates", momentum_part, now)
+        out["event_topics"] = _timed(out, "event_topics", event_part, now)
         out["grok_calibration"] = _timed(out, "grok_calibration", calibration_part, now)
         out["grok_predictions"] = _timed(out, "grok_predictions", predictions_part, econ, since_s, now)
         out["health"] = _timed(out, "health", health_part, econ, now)

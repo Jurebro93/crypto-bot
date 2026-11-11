@@ -191,8 +191,18 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # from the minute series, at most RANGE_GT_DAY (60) GeckoTerminal seeds a day, Helius only for open range positions
 # (RANGE_HELIUS_CREDITS_DAY 3000, log-only unless RANGE_HOLDER_RULE=act). Flag off: it reads the flag and ends.
 # The backtest over the data we have, nightly (01-06 Zagreb) -> output/range-backtest-*.{json,md} and the log.
+# 11.11. (flags range_market G20 / event_tokens G19): the same pass also keeps the market watchlist (rangedca/market.py):
+# up to RANGE_MARKET_MAX (400) bonded tokens, DexScreener snapshots every 5 / 15 min inside RANGE_MKT_DEX_DAY (3000) and
+# the other per-source day caps, one cost line per source a day. Both flags off: nothing of it runs.
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
+
+# 11.11. (Jure, flag event_tokens G19, topics/): Grok's event topics (MCP submit_event_topic) and their tokens, a short
+# process every TOPICS_EVERY_S: catch-up string matching of stored launches (the PumpPortal feed matches new tokens in
+# real time itself), one DexScreener search per active topic every 10 min (TOPICS_DEX_DAY 1200), Birdeye only with its
+# key (TOPICS_BIRDEYE_DAY 100), roles main / clone / rug, the price 24 h before / at / after the event (GeckoTerminal
+# only for a missing point, TOPICS_GT_DAY 20). Flag off: it reads the flag and ends.
+( sleep 330; while true; do low python3 run_topics.py once || echo "eventi nisu uspjeli"; sleep "${TOPICS_EVERY_S:-120}"; done ) &
 
 # 11.11. (Jure, flag momentum_scalp): momentum data (momentum/, run_momentum.py), a short process every MOM_EVERY_S:
 # DexScreener minute snapshots of 60 tokens (free), PumpPortal's unique buyers (free), GeckoTerminal /pools/multi only
