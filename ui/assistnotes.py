@@ -613,6 +613,8 @@ OWNER_FLAG_ORDERS = (
     ("grok_ev_gate", "shadow", "vlasnik u chatu 11.11.: Grokov EV gate, prvo shadow"),
     ("pre_shill", "shadow", "vlasnik u chatu 11.11.: kupci prije shill mreže, prvo shadow (nikad ne kupuje)"),
     ("grok_predictions", "shadow", "vlasnik u chatu 11.11.: submit_grok_prediction sprema predviđanja i kalibraciju"),
+    ("event_tokens", "shadow", "vlasnik u chatu 11.11.: event tokeni s Grokom, prvo shadow"),
+    ("range_market", "paper", "vlasnik u chatu 11.11.: range watchlist cijelog tržišta, prvo paper (samo demo račun)"),
 )
 
 
