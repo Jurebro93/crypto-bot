@@ -340,25 +340,59 @@ def _rug(mint, mcap=None, liq=None, now=None):
     return st
 
 
-def _plans(tokens):
-    """{token: trailing dict} of the active exit plans (league/exitplan), read-only; {} on any trouble."""
+def _plans(tokens, cfg=None, modes=None):
+    """{token: {"trail": trailing dict or None, "fields": the exit as the panel's fields, (mode): status}} of the real
+    account's active exit plans (league/exitplan), read-only; {} on any trouble. 11.11. (owner: "U kartici pozicije
+    jasno prikaži 'plan aktivan (live)' ili 'samo paper'"): per position mode in `modes` ({token: {mode, ...}}) the
+    plan's status (exitplan.status: live | paper | shadow, the reason, the plan in one line)."""
     if not tokens:
         return {}
     lg = pt._league_ro()
     if lg is None:
         return {}
     try:
+        from league import exitplan
         lg.row_factory = sqlite3.Row
         q = ",".join("?" * len(tokens))
+        rows = {}
+        try:
+            for r in lg.execute(f"SELECT * FROM exit_plans WHERE status='active' AND token IN ({q}) ORDER BY id",
+                                list(tokens)):
+                d = dict(r)
+                try:
+                    d["plan"], d["state"] = json.loads(d["plan"] or "{}"), json.loads(d["state"] or "{}")
+                except ValueError:
+                    continue
+                rows[d["token"]] = d   # the newest active one
+        except sqlite3.Error:   # no plans table yet
+            rows = {}
+        live_now = executor.is_live(cfg or {})
         out = {}
-        for r in lg.execute(f"SELECT token, plan FROM exit_plans WHERE status='active' AND token IN ({q}) ORDER BY id",
-                            list(tokens)):
-            try:
-                tr = (json.loads(r["plan"]) or {}).get("trailing")
-            except ValueError:
-                tr = None
-            if tr:
-                out[r["token"]] = tr
+        for tok in tokens:
+            p = rows.get(tok)
+            if p and settings.LEAGUE_USER not in exitplan._scope(p["plan"]):
+                p = None
+            lots = [dict(r) for r in lg.execute("SELECT * FROM trades WHERE user=? AND token=? AND status='open' "
+                                                "ORDER BY id", (settings.LEAGUE_USER, tok))]
+            rule = None
+            for t in reversed(lots):
+                try:
+                    rule = json.loads(t.get("auto") or "null")
+                except ValueError:
+                    rule = None
+                if rule:
+                    break
+            d = {"trail": (p["plan"].get("trailing") if p else None), "id": p["id"] if p else None,
+                 "fields": exitplan.position_fields(p, rule)}
+            for mode in (modes or {}).get(tok) or ():
+                try:
+                    st = exitplan.status(lg, tok, pos_live=mode == "live", autopilot_live=live_now, plan=p or False,
+                                         lots=lots)
+                except Exception as e:  # noqa: BLE001 - the row renders without the plan's state
+                    st = {"plan_mode": "paper", "reason": f"stanje plana nije pročitano ({type(e).__name__})",
+                          "summary": "", "plan_id": None}
+                d[mode] = {k: st.get(k) for k in ("plan_mode", "reason", "summary", "plan_id")}
+            out[tok] = d
         return out
     except sqlite3.Error:
         return {}
@@ -404,7 +438,10 @@ def positions_data(tcon, cfg, now=None, live=None):
     if live is None:
         live, _ts = _peek_live([k[0] for k in groups], now)
     pending = (cfg or {}).get("sell_req") or {}
-    trails = _plans(sorted({k[0] for k in groups}))
+    modes = {}
+    for tok, mode in groups:
+        modes.setdefault(tok, []).append(mode)
+    plans = _plans(sorted(modes), cfg, modes)
     notes = _notes(tcon, [r[0] for r in rows], {r[1] for r in rows})
     out = []
     for (tok, mode), lots in groups.items():
@@ -444,7 +481,9 @@ def positions_data(tcon, cfg, now=None, live=None):
                     "pnl_sol": round(pnl_sol, 6) if pnl_sol is not None else None,
                     "exit": pt._exit_words(rule), "smart": bool(rule and rule.get("mode") == "smart"),
                     "tp": tp_txt, "tp_pct": tp_pct, "tp_mc": tp_mc, "sl": sl_txt, "sl_pct": sl_pct, "sl_mc": sl_mc,
-                    "trail": trails.get(tok), "src": src_kind(first[5]), "who": pt._who(first[5]) or "",
+                    "trail": (plans.get(tok) or {}).get("trail"), "src": src_kind(first[5]), "who": pt._who(first[5]) or "",
+                    # 11.11.: "plan aktivan (live)" / "samo paper" + why, and the exit as the panel's fields
+                    "plan": (plans.get(tok) or {}).get(mode), "fields": (plans.get(tok) or {}).get("fields"),
                     "opened_ts": max(r[3] or 0 for r in lots), "pending": pend, "has_demo": bool(first[10]),
                     "note": _slim(next((notes[("p", i)] for i in ids if ("p", i) in notes), None) or notes.get(("t", tok))),
                     "rule": rule})
@@ -479,7 +518,10 @@ def orders_data(tcon, cfg, positions):
         out.append({"kind": "limit", "word": "Limit kupnja", "id": str(o.get("id")), "token": o.get("token"),
                     "sym": o.get("sym") or short(o.get("token") or ""), "mc": o.get("mc"), "sol": o.get("sol"),
                     "status": "čeka do " + time.strftime("%d.%m. %H:%M", time.localtime(o.get("until") or 0)),
-                    "note": (f"TP {o.get('tp') or 'zadani'} · SL {o.get('sl') or pt._sl0(cfg)}" if ex == "tpsl" else ex),
+                    # 11.11.: with an exit the plan's default stop; trailing / time stop go with the order's buy
+                    "note": (f"TP {o.get('tp') or 'zadani'} · SL {o.get('sl') or (plan_sl0(cfg) if o.get('tp') or o.get('trail') or o.get('time') else pt._sl0(cfg))}"
+                             + (f" · trailing {o['trail']:g} %" if o.get("trail") else "")
+                             + (f" · time stop {o['time']:g} min" if o.get("time") else "") if ex == "tpsl" else ex),
                     "cancel": "/pravi-trade/limitdel"})
     for p in positions:
         if p.get("tp_mc"):
@@ -559,7 +601,9 @@ def panel_data(tcon, cfg, owner, now=None):
     return {"balance_sol": bal, "value_sol": val, "auto_today": round(spent, 4) if spent is not None else None,
             "max_day": cfg.get("max_sol_per_day"), "size_sol": cfg.get("size_sol"),
             "max_trade": cfg.get("max_sol_per_trade"), "sol_lo": lo, "sol_hi": hi, "tp_last": tp_last,
-            "sl_last": sl_last, "sl_default": pt._sl0(cfg), "fee_side": fee, "slip_max": cost.SLIP_MAX,
+            # 11.11.: the default stop of a buy with exit fields (the plan's, never looser than sl_default)
+            "sl_last": sl_last, "sl_default": plan_sl0(cfg), "sl_owner": pt._sl0(cfg), "fee_side": fee,
+            "slip_max": cost.SLIP_MAX,
             "sol_usd": _sol_usd(tcon),
             "max_cost_pct": cfg.get("max_cost_pct"), "live": mode == "live", "on": bool(cfg.get("on")),
             "dca_cap": cfg.get("owner_token_cap", cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}
@@ -575,7 +619,8 @@ def _pick(positions, qs_m):
 
 def _sig(positions, orders):
     """What the tables show, in one short string: a tick whose sig differs makes the browser fetch the tables again."""
-    a = ",".join(f'{p["key"]}:{"-".join(map(str, p["ids"]))}:{p["pending"]}:{p["tp"]}:{p["sl"]}' for p in positions)
+    a = ",".join(f'{p["key"]}:{"-".join(map(str, p["ids"]))}:{p["pending"]}:{p["tp"]}:{p["sl"]}:'
+                 f'{(p.get("plan") or {}).get("plan_mode")}:{(p.get("plan") or {}).get("plan_id")}' for p in positions)
     b = ",".join(f'{o["kind"]}:{o.get("id") or o.get("pid")}' for o in orders)
     return hashlib.sha1(f"{a}|{b}".encode()).hexdigest()[:12]
 
@@ -1348,6 +1393,21 @@ def positions_html(d):
     return f'<div class=apx-tbl data-n={len(rows)}>{head}{"".join(out)}</div>{tail}'
 
 
+def plan_html(pl):
+    """11.11. (owner: "U kartici pozicije jasno prikaži 'plan aktivan (live)' ili 'samo paper'"): the position's exit
+    plan in one line: green "plan aktivan (live) · TP1 +15 % pola · trailing 8 % · SL −10 % · time stop 45 min", or
+    grey "samo paper · <why>" (a demo position, the Autopilot not live, exit_plan_live not live, the plans paused, a
+    plan in the shadow because it is not from the panel, no plan)."""
+    if not pl:
+        return ""
+    summ = esc(pl.get("summary") or "")
+    if pl.get("plan_mode") == "live":
+        return (f'<div class="apx-plan live up" data-plan=live><b>plan aktivan (live)</b>{" · " + summ if summ else ""}'
+                '</div>')
+    return (f'<div class="apx-plan paper" data-plan={esc(pl.get("plan_mode") or "paper")}><b>samo paper</b> · '
+            f'{esc(pl.get("reason") or "")}{" · plan: " + summ if summ else ""}</div>')
+
+
 def _pos_row(p, owner, cfg, rule):
     tok, ids = p["token"], ",".join(map(str, p["ids"]))
     badge = ('<span class="apx-badge paper">paper</span>' if p["paper"] else '<span class="apx-badge live">uživo</span>')
@@ -1388,7 +1448,18 @@ def _pos_row(p, owner, cfg, rule):
             f'<span class=n data-l="Sada (MC)" data-f=mc>{mc(p["mc_now"])}</span>'
             f'<span class="n apx-pnl {pnl_cls}" data-l="PnL" data-f=pnl>{pnl}</span>'
             f'<span class="n dn" data-l="SL">{sl}</span><span class="n up" data-l="TP">{tp}</span>'
-            f'<span data-l="Izvor">{src}</span>{_note_html(p.get("note"))}<span class=apx-act>{act}</span>{edit}</div>')
+            f'<span data-l="Izvor">{src}</span>{plan_html(p.get("plan"))}{_note_html(p.get("note"))}'
+            f'<span class=apx-act>{act}</span>{edit}</div>')
+
+
+def plan_sl0(cfg):
+    """The default stop of a buy with exit fields and of Uredi SL-TP as a level ("-30%"): league/exitplan.sl_floor,
+    the stricter of the owner's sl_default and the live plans' limit."""
+    try:
+        from league import exitplan
+        return f"-{exitplan.sl_floor(cfg):g}%"
+    except Exception:  # noqa: BLE001
+        return pt._sl0(cfg)
 
 
 def sltp_html(p, cfg):
@@ -1396,8 +1467,10 @@ def sltp_html(p, cfg):
     has now, as stored (percent from the average entry or MC), quick chips that only fill a field, and one "Spremi
     SL/TP". The form posts what it always posted (POST /pravi-trade/exit: id, tp, sl); ap.js sends it with fetch and
     shows the answer in place, without JavaScript it is an ordinary form that comes back to #poz-<id>. The same editor
-    sits in the position's row and in the panel's "Tvoja pozicija"."""
-    sl0 = pt._sl0(cfg)
+    sits in the position's row and in the panel's "Tvoja pozicija". 11.11.: saving it sets the position's exit plan
+    (panel: live on the real account under exit_plan_live, trailing / time stop kept); the default stop is the plan's
+    (league/exitplan.sl_floor) and a looser SL is refused."""
+    sl0 = plan_sl0(cfg)
     tpc = "".join(f'<button type=button class="apx-chip up" data-etp="{v}%">+{v} %</button>' for v in pt.EXIT_TP_QUICK)
     slc = "".join(f'<button type=button class="apx-chip dn" data-esl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
     now = "Smart sell (alat sam bira izlaz)" if p.get("smart") else (p.get("exit") or "bez TP/SL-a")
@@ -1409,8 +1482,9 @@ def sltp_html(p, cfg):
             'autocomplete=off><small data-ehint=sl></small></label></div>'
             f'<div class=apx-chips>{tpc}{slc}</div>'
             f'<p class=apx-note>Sada: {esc(now)}. Postotak od prosječnog ulaza ({mc(p.get("avg_mc"))}) ili MC (npr. $200k). '
-            f'Prazan TP = samo stop; prazan SL = zadani stop {esc(sl0)}. Ako je cijena već preko razine, prodaja kreće '
-            'u sljedećih 20 s.</p>'
+            f'Prazan TP = samo stop; prazan SL = zadani stop {esc(sl0)} (širi se odbija). Spremanje postavlja plan '
+            'izlaza pozicije (na pravom računu kad je Autopilot live); trailing i time stop plana ostaju. Ako je '
+            'cijena već preko razine, prodaja kreće u sljedećoj sekundi.</p>'
             '<div class=apx-sltp-go><button class=apx-go data-save>Spremi SL/TP</button>'
             '<button type=button class=apx-b data-edit-close>Odustani</button></div>'
             '<p class=apx-sltp-msg role=status aria-live=polite></p></form>')
@@ -1444,7 +1518,7 @@ def _mypos_html(p, cfg):
     badge = BADGE_PAPER if p["paper"] else BADGE_LIVE
     return (f'<div class=apx-mypos id=apx-mypos data-key="{esc(p["key"])}"><div class=apx-myh><b>Tvoja pozicija</b>{badge}'
             f'<span class=apx-mut translate=no>{esc(p["sym"])} · {redak.sol(p["sol_in"], 3)}</span></div>'
-            f'<div class=apx-myg>{grid}</div>{act}</div>')
+            f'<div class=apx-myg>{grid}</div>{plan_html(p.get("plan"))}{act}</div>')
 
 
 def orders_html(d):
@@ -1531,12 +1605,24 @@ def panel_html(d, sel_pos):
     slc = "".join(f'<button type=button class="apx-chip dn" data-sl="-{v}%">−{v} %</button>' for v in SL_CHIPS)
     sol0 = pn.get("size_sol") or 0.1
     tp_last, sl_last = pn.get("tp_last") or "", pn.get("sl_last") or ""
+    tr_last = tm_last = ""
     # 11.11. (Jure upisao TP 60 / SL 85k ovdje za otvorenu poziciju i našao samo "Kupi 0,15 SOL"): these TP / SL are a
     # new buy's; the open position's are edited in "Tvoja pozicija" above (or the row's Uredi SL-TP)
     ed = sel_pos and sel_pos.get("has_demo") and sel_pos.get("pending") is None
     newbuy = ('<p class="apx-note apx-newbuy">TP/SL ovdje vrijede samo za <b>novu kupnju</b>. Za otvorenu poziciju: '
               + (f'<button type=button class=apx-lnk data-edit=pe-{sel_pos["pid"]}>Uredi SL-TP pozicije '
                  f'{esc(sel_pos["sym"])}</button>' if ed else '„Uredi SL-TP” u tablici Pozicije') + '.</p>')
+    # 11.11. (owner: "Plan izlaza uz kupnju"): a dokup into the selected open position shows the position's exit in
+    # the fields (league/exitplan.position_fields): left as it is, the position's plan covers the new lot; changed,
+    # the new exit replaces it for the whole position (ui/pravitrade._buy_plan compares the same fields)
+    fl = (sel_pos or {}).get("fields") if sel_pos and sel_pos.get("has_demo") else None
+    if fl:
+        tp_last, sl_last = fl.get("tp") or "", fl.get("sl") or ""
+        tr_last = "" if fl.get("trail") in (None, "") else f'{float(fl["trail"]):g}'
+        tm_last = "" if fl.get("time") in (None, "") else f'{float(fl["time"]):g}'
+        newbuy += (f'<p class="apx-note apx-dokup">Dokup u {esc(sel_pos["sym"])}: polja pokazuju izlaz pozicije. Ne '
+                   'mijenjaš li ih, plan pozicije pokriva i novi ulaz; promijeniš li ih, novi izlaz vrijedi za cijelu '
+                   'poziciju.</p>')
     # 11.11. (owner's rule: "Kupi mora koristiti isključivo mint iz polja za adresu; ako se mint iz polja i token na
     # grafu razlikuju, prikaži upozorenje i traži potvrdu"): ap.js (apBuyOk) asks with the field's symbol and address,
     # a second time when it is not the chart's token; chart_mint lets the server refuse an unconfirmed difference
@@ -1557,8 +1643,14 @@ def panel_html(d, sel_pos):
            '<details class=apx-more><summary>Limit (kupi na MC), trailing i način izlaza</summary>'
            '<label class=apx-fl>Kupi na MC <small>(prazno = odmah; npr. $50k ili -40%)</small>'
            '<input name=at placeholder="odmah" autocomplete=off></label>'
-           '<label class="apx-fl apx-dis">Trailing %<input disabled placeholder="—" data-trail aria-describedby=apx-trail-n>'
-           '<small id=apx-trail-n>Trailing postavlja plan izlaza prijedloga (ili Grok); ručna kupnja ga nema.</small></label>'
+           # 11.11. (owner: "Plan izlaza uz kupnju: DA"): trailing and time stop go into the buy's exit plan
+           f'<div class=apx-two><label class="apx-fl up">Trailing %<input name=trail value="{esc(tr_last)}" placeholder="—" '
+           'inputmode=decimal autocomplete=off data-trail aria-describedby=apx-trail-n></label>'
+           f'<label class=apx-fl>Time stop (min)<input name=time value="{esc(tm_last)}" placeholder="—" inputmode=numeric '
+           'autocomplete=off data-time aria-describedby=apx-trail-n></label></div>'
+           '<small class=apx-note id=apx-trail-n>Trailing: pola se prodaje na TP-u, ostatak kad cijena padne toliko % od '
+           'vrha. Time stop: sve van nakon toliko minuta od zadnjeg ulaza. Prazno = bez toga. TP, SL, trailing i time '
+           'stop postaju plan izlaza ove kupnje: na pravom računu kad je Autopilot live.</small>'
            '<label class=apx-fl>Način izlaza<select name=exit aria-label="Kako prodati">'
            '<option value=tpsl>moj TP/SL</option><option value=smart>Smart sell</option><option value=manual>prodajem sam</option>'
            '</select></label></details>'
@@ -1566,8 +1658,8 @@ def panel_html(d, sel_pos):
            '<p class="apx-mismatch dn" data-mismatch role=alert hidden></p>'
            f'<button class="apx-go buy" data-go=buy>Kupi {esc(sym)}</button>'
            '<p class=apx-note>Prolazi iste provjere i limite kao i prije (ulog, dan, trošak, rug, MC 30k+). '
-           f'Tvoj strop po tokenu: {pt._g(pn.get("dca_cap") or settings.DCA_TOKEN_CAP)} SOL (tvoje kupnje, DCA i odobrene '
-           'Grokove; Grok autotrade ima svoje limite). Pravi novac ide samo kad je Autopilot uključen.</p></form>')
+           f'Tvoj strop po tokenu: {pt._g(pn.get("dca_cap") or settings.DCA_TOKEN_CAP)} SOL (samo kupnje koje sam '
+           'pokreneš; Grok, i kad mu odobriš zahtjev, ima svoje limite). Pravi novac ide samo kad je Autopilot uključen.</p></form>')
     dca = _dca_rows(m, sel_pos, pn)
     if sel_pos:
         ids = ",".join(map(str, sel_pos["ids"]))
@@ -1834,21 +1926,24 @@ def proposal_fill(p, size):
     tp0 = (ex.get("tp") or [None])[0]
     tp = b.get("tp") or (_mc_lvl(tp0) if tp0 else f'{r["tp_pct"]:g}%' if r.get("tp_pct") else "")
     sl = b.get("sl") or (_mc_lvl(ex["sl"]) if ex.get("sl") else f'-{abs(r["sl_pct"]):g}%' if r.get("sl_pct") else "")
+    # 11.11. (plan uz kupnju): the time stop too (an unconditional one: the panel's field means "everything out")
+    ts_ = (r.get("exit_plan") or {}).get("time_stop") or {}
+    tmin = ts_.get("after_min") if (ts_.get("if_pnl_below_pct") or 0) >= 1000 else None
     return {"id": p["id"], "token": p["token"], "sol": f"{size:g}", "tp": tp, "sl": sl, "exit": "tpsl",
-            "sym": p.get("symbol") or p["token"][:6], "trail": ex.get("trailing_pct")}
+            "sym": p.get("symbol") or p["token"][:6], "trail": ex.get("trailing_pct"), "time": tmin}
 
 
 def live_fill(token, sym, size, fv=None):
     """"Kupi" on a live pick of the tool: the fast path's exit (trade/edge rule E = fast/paper.PLAN: half out at +15 %,
-    the rest trailing 8 %, stop -10 %, out after 45 min). A manual buy takes TP / SL of it ("moj TP/SL"); trailing and
-    the time stop belong to the fast path's own trades, so the panel shows them as the plan, not as set."""
+    the rest trailing 8 %, stop -10 %, out after 45 min). 11.11. (owner: "Plan izlaza uz kupnju: DA"): the panel's
+    TP / SL / trailing / time stop take all of it and the buy sets it as the position's exit plan."""
     from trade import edge
     tp, sl, tr = (round(x * 100, 2) for x in (edge.TP, edge.SL, edge.TRAIL))
     word = "KUPI" if (fv or {}).get("decision") in ("BUY_PAPER", "BUY_LIVE") else "kandidat"
     return {"token": token, "sym": sym, "sol": f"{size:g}", "tp": f"{tp:g}%", "sl": f"-{sl:g}%", "exit": "tpsl",
-            "trail": tr, "kind": "alat",
+            "trail": tr, "time": edge.TIME_MIN, "kind": "alat",
             "plan": f"Izlaz brzog puta ({word}): pola na +{tp:g} %, ostatak trailing {tr:g} %, stop −{sl:g} %, van nakon "
-                    f"{edge.TIME_MIN} min. Ručna kupnja postavlja samo TP/SL (trailing i {edge.TIME_MIN} min ne)."}
+                    f"{edge.TIME_MIN} min. Kupnja postavlja taj plan izlaza."}
 
 
 def kupiti_html(tcon, cfg, owner, now):

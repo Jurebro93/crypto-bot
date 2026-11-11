@@ -12,18 +12,19 @@ from rugfilter import collapse  # noqa: E402
 class CollapseTest(unittest.TestCase):
     def test_judge(self):
         self.assertIsNone(collapse.judge(45000, 30000, 17000, 12000))       # -33%: a dip, not a rug
-        r = collapse.judge(45500, 6600, 17400, 6400)                        # the MAX case: -85%, liquidity -63 %
-        self.assertTrue(r and r["drop"] > 0.8)                              # 11.11. pool rule: sqrt(6.6/45.5) = 0.38,
-        self.assertEqual(r["kind"], "dump")                                 # so -63 % USD is the price, L held (-3 %)
-        r = collapse.judge(45500, 6600, 17400, 2000)                        # the same fall with the LP pulled
+        r = collapse.judge(45500, 6600, 17400, 6400, strict=False)          # the MAX case: -85%, liquidity -63 %
+        self.assertTrue(r and r["drop"] > 0.8)                              # 11.11. evening: expected SOL ratio
+        self.assertEqual(r["kind"], "dump")                                 # sqrt(6.6/45.5) = 0.38, actual 0.37: no excess
+        self.assertEqual(collapse.judge(45500, 6600, 17400, 6400, strict=True)["kind"], "rug")   # the noon rule blocks
+        r = collapse.judge(45500, 6600, 17400, 2000, strict=False)          # the same fall with the LP pulled
         self.assertEqual(r["kind"], "rug")
         self.assertIn("izvučena likvidnost", r["text"])
-        self.assertTrue(collapse.judge(40000, 18000, 20000, 5000))          # -55% with liquidity pulled (L -63 %)
+        self.assertTrue(collapse.judge(40000, 18000, 20000, 5000, strict=False))   # -55%, actual / expected 0.37
         self.assertIsNone(collapse.judge(40000, 18000, 20000, 15000))       # -55%, liquidity fine
         self.assertIsNone(collapse.judge(3000, 100))                        # too small to judge
         self.assertIsNone(collapse.judge(40000, 25000, 20000, 17000))       # recovered above half the peak, pool held
-        self.assertEqual(collapse.judge(40000, 25000, 20000, 1000)["kind"], "rug")   # pool emptied (L -94 %): a rug
-        # whatever the price (11.11. pool rule: L does not move with the price)
+        self.assertEqual(collapse.judge(40000, 25000, 20000, 1000, strict=False)["kind"], "rug")   # pool emptied:
+        # a rug whatever the price (actual / expected 0.06)
 
     def test_peaks_and_live(self):
         d = tempfile.mkdtemp()

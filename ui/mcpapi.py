@@ -334,18 +334,20 @@ def portfolio(now=None):
     try:
         cfg = settings.merged(executor.load_config(), tcon)
         eq = pravitrade.equity_data(tcon, now).get("summary") or {}
-        rows = tcon.execute("SELECT id, token, symbol, opened_ts, sol_in, league_id FROM positions WHERE status='open' "
+        rows = tcon.execute("SELECT id, token, symbol, opened_ts, sol_in, league_id, mode FROM positions WHERE status='open' "
                             "ORDER BY id").fetchall()
         demo = pravitrade._demo_sides(r[5] for r in rows)
         toks = sorted({r[1] for r in rows})
         now_mc, mc_ts = pravitrade._now_mcap(toks) if toks else ({}, None)
+        live_toks = {r[1] for r in rows if r[6] == "live"}
         by = {}
-        for pid, tok, sym, ts, sin, lid in rows:
+        for pid, tok, sym, ts, sin, lid, _mode in rows:
             mc, rule, _o = demo.get(lid, (None, None, False))
             g = by.setdefault(tok, {"token": tok, "symbol": sym, "lots": [], "exit": pravitrade._exit_words(rule)})
             g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0)})
         out = []
         plans = _plans_for(sorted(by), now_mc)
+        modes = _plan_modes(sorted(by), live_toks, executor.is_live(cfg))
         for tok, g in by.items():
             w = [(l["entry_market_cap_usd"], l["sol_in"] or 0) for l in g["lots"]]
             wsum = sum(s for m, s in w if m and s)
@@ -354,6 +356,9 @@ def portfolio(now=None):
             g.update(sol_in=_num(sum(l["sol_in"] or 0 for l in g["lots"]), 4), avg_entry_market_cap_usd=_num(avg, 0),
                      market_cap_now_usd=_num(mc, 0), pnl_pct=_num((mc / avg - 1) * 100, 2) if mc and avg else None)
             g["exit_plan"] = plans.get(tok)   # 10.11.: the plan in force, peak MC since entry, distance to each trigger
+            # 11.11. (owner: "jasno prikaži 'plan aktivan (live)' ili 'samo paper'"): live | paper | shadow + reason
+            m = modes.get(tok) or {}
+            g.update(plan_mode=m.get("plan_mode"), plan_reason=m.get("reason"), plan_summary=m.get("summary") or None)
             out.append(g)
         raw = settings.raw(tcon)
         return {"ts": int(now), "price_ts": int(mc_ts) if mc_ts else None,
@@ -369,9 +374,13 @@ def portfolio(now=None):
                                "exit_plan_live": settings.flag("exit_plan_live", con=tcon),
                                "paused_by_owner": bool(raw.get("exit_plans_paused")),
                                "rule": ("a plan sells on the real account (execution.mode live) when exit_plans is "
-                                        "live, or when exit_plan_live is live and every lot of the position is a Grok "
-                                        "autotrade buy while Grok autotrade is on; otherwise paper: the real account "
-                                        "only logs it and keeps its default TP/SL")},
+                                        "live, or when exit_plan_live is live and the plan came from the owner's "
+                                        "panel (a buy with exit fields, a Grok autotrade / approved buy, Uredi SL-TP; "
+                                        "client panel:...) or every lot of the position is a Grok autotrade buy "
+                                        "while Grok autotrade is on; otherwise paper: the real account only logs it "
+                                        "and keeps its default TP/SL"),
+                               # 11.11.: the stop limit of a plan on the real account (percent below the average entry)
+                               "live_stop_limit_pct": exitplan_floor(cfg)},
                 "grok_autotrade": _grok_part(tcon, now),
                 "momentum_candidates": _momentum_part(now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
@@ -391,7 +400,12 @@ def set_exit_plan(token, plan, kid="mcp"):
     tcon = settings.connect()
     lcon = lstore.connect()
     try:
-        sl_default = float(settings.merged(executor.load_config(), tcon).get("sl_default") or 30)
+        cfg = settings.merged(executor.load_config(), tcon)
+        sl_default = float(cfg.get("sl_default") or 30)
+        acc = (plan or {}).get("accounts") if isinstance(plan, dict) else None
+        acc = [acc] if isinstance(acc, str) else acc
+        if not acc or settings.LEAGUE_USER in acc:   # 11.11.: a plan for the real account: the stricter stop limit
+            sl_default = min(sl_default, exitplan.sl_floor(cfg))
         try:
             out = exitplan.set_plan(lcon, tok, plan, sl_default, client=f"mcp:{kid}")
         except ValueError as e:
@@ -433,6 +447,29 @@ def _plans_for(tokens, now_mc):
         try:
             exitplan.ensure(lcon)
             return {t: exitplan.view(lcon, t, settings.LEAGUE_USER, mcap=now_mc.get(t)) for t in tokens}
+        finally:
+            lcon.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def exitplan_floor(cfg):
+    """The stop limit of a plan on the real account, as a negative percent (-30.0); None when unreadable."""
+    try:
+        from league import exitplan
+        return -exitplan.sl_floor(cfg)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _plan_modes(tokens, live_tokens, autopilot_live):
+    """{token: league/exitplan.status} (plan_mode live | paper | shadow, reason, summary) of the real account."""
+    try:
+        from league import exitplan, store as lstore
+        lcon = lstore.connect()
+        try:
+            exitplan.ensure(lcon)
+            return {t: exitplan.status(lcon, t, pos_live=t in live_tokens, autopilot_live=autopilot_live) for t in tokens}
         finally:
             lcon.close()
     except Exception:  # noqa: BLE001
@@ -709,7 +746,10 @@ TOOLS = [
     {"name": "get_portfolio_status", "annotations": _READ,
      "description": ("The MemeSonar Autopilot: mode (live / trial / off), wallet value in SOL, limits, every open "
                      "position (entries, average entry market cap, market cap now, PnL %, exit rule, exit_plan with "
-                     "execution.mode live = it sells on the real account | paper = only logged there, and why), "
+                     "execution.mode live = it sells on the real account | paper = only logged there, and why; "
+                     "plan_mode live | paper | shadow with plan_reason and plan_summary: whether the position's exit "
+                     "plan really sells on the real account now; a plan the owner set with a buy or Uredi SL-TP "
+                     "(client panel:...) runs live under exit_plan_live), "
                      "exit_plans (the flags deciding that), open orders, and "
                      "momentum_candidates: the newest momentum_scalp signals (bonded jumps that met every entry rule, "
                      "with their numbers and outcome), near misses, the base rate and the paper proof, to rate with "

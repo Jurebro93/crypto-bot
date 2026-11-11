@@ -330,9 +330,12 @@ class AddToPosition(Base):
         # the price ran from $82k to $100k: the owner buys again
         uleague.market = lambda toks: {t: (100 / 82, 1e6, None, 100_000.0) for t in toks}
         prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 100 / 82, "mcap": 100_000.0} for t in toks}
-        loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "15%", "sl": ""})
+        # 11.11. (plan uz kupnju): the panel shows the position's exit for a dokup; left as it is, the position's plan
+        # and exit cover the new lot (new fields replace them: tests/test_plan_uz_kupnju_offline)
+        loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "30%", "sl": ""})
         self.assertIn("ok=", loc)
         self.assertIn("Dokupnja", unquote(loc))
+        self.assertIn("pokriva i novi ulaz", unquote(loc))
         lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
         self.assertEqual(len(lots), 2)
         a = {t["entry_mcap"]: json.loads(t["auto"]) for t in lots}

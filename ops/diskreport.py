@@ -71,6 +71,8 @@ KEEP = {
         "rug_archive": "oznake rugova: učenje (learn/rugprofile) i blok (rugfilter/archive)",
         "rug_recovered": "tokeni vraćeni iz arhive rugova (rugfilter/archive)",
         "rug_relabel": "oznake rug / dump po pravilu poola (rugfilter/relabel)",
+        "rug_relabel_sol": "oznake rug / dump po verzijama (stara, L, višak SOL-a) uz stare (rugfilter/relabel, labels)",
+        "rug_relabel_runs": "oznake izvršenja preoznačavanja (rugfilter/relabel)",
         "rug_watch": "potvrda kolapsa prije arhive (rugfilter/archive)",
         "smart_wallets": "ocjene pametnih walleta (hype/sources, wallets/store)",
         "dokazani": "dokazani novčanici, prvi izvor Autopilota (wallets/dokazani)",

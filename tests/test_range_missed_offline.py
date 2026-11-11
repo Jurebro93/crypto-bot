@@ -364,15 +364,17 @@ class Money(TradeBase):
 # ---------------------------------------------------------------------------------------------------------------
 class RugRule(Env):
     def test_each_branch(self):
-        # 11.11. evening, pool rule (rugfilter/collapse): L = liquidity / sqrt(mcap) must fall 50 %+, not the USD side
-        liq = collapse.judge(600_000, 250_000, 60_000, 15_000)               # -58 %, liquidity -75 %: L -61 %, pulled
+        # 11.11. evening, the owner's rule (rugfilter/collapse.judge_v2, strict=False: the new rule alone): the SOL that
+        # left beyond what the price explains, actual / expected (sqrt of the price ratio) <= 0.5
+        liq = collapse.judge(600_000, 250_000, 60_000, 15_000, strict=False)  # -58 %, SOL -75 %: 0.25 / 0.65 = 0.39
         self.assertEqual(liq["kind"], "rug")
         self.assertIn("izvučena likvidnost", liq["text"])
-        self.assertIsNone(collapse.judge(600_000, 250_000, 60_000, 25_000))  # -58 %, liquidity -58 %: L -35 %, nothing
-        cp = collapse.judge(600_000, 90_000, 62_000, 20_000)                 # -85 %, SOL side -68 %: L -17 %
-        self.assertEqual((cp["kind"], cp["sol_rule"]), ("dump", "rug"))       # the literal SOL rule would say rug
-        self.assertEqual(collapse.judge(600_000, 90_000, 62_000, 8_000)["kind"], "rug")     # -85 %, L -67 %: pulled
-        dump = collapse.judge(600_000, 90_000, 62_000, 24_000)               # -85 %, L held (24k = 62k * sqrt(0.15))
+        self.assertIsNone(collapse.judge(600_000, 250_000, 60_000, 25_000, strict=False))   # 0.42 / 0.65: nothing
+        self.assertEqual(collapse.judge(600_000, 250_000, 60_000, 25_000)["strict"], "old")  # the noon rule still blocks
+        cp = collapse.judge(600_000, 90_000, 62_000, 20_000, strict=False)   # -85 %, SOL side -68 %: 0.32 / 0.39
+        self.assertEqual((cp["kind"], cp["sol_rule"]), ("dump", "dump"))
+        self.assertEqual(collapse.judge(600_000, 90_000, 62_000, 8_000, strict=False)["kind"], "rug")   # 0.13 / 0.39
+        dump = collapse.judge(600_000, 90_000, 62_000, 24_000, strict=False)  # -85 %, SOL side as the price explains
         self.assertEqual(dump["kind"], "dump")
         self.assertTrue(dump["text"].startswith("dump nakon pumpe"))
         self.assertEqual(collapse.judge(600_000, 90_000)["kind"], "dump")   # liquidity unknown: no proof of a rug
@@ -381,7 +383,7 @@ class RugRule(Env):
         self.assertIn("dev prodaje", ev["text"])
         self.assertIsNone(collapse.judge(600_000, 250_000, 60_000, 40_000))  # -58 %, the pool -33 %: nothing
         self.assertIsNone(collapse.judge(600_000, 400_000, 60_000, 45_000))  # above half the peak, pool held: nothing
-        self.assertEqual(collapse.judge(600_000, 400_000, 60_000, 10_000)["kind"], "rug")   # pool emptied: a rug anyway
+        self.assertEqual(collapse.judge(600_000, 400_000, 60_000, 10_000, strict=False)["kind"], "rug")   # pool emptied
         # the archive's cleanup keeps the old rule (what it deletes does not change)
         self.assertEqual(archive.judge(600_000, 90_000, 62_000, 60_000)[0], "srusen")
 
@@ -417,7 +419,7 @@ class RugRule(Env):
         bottom = collapse.assess_pool(pk, 90_000, 24_000, token=X)          # the pool rule alone
         self.assertEqual(bottom["kind"], "dump")
         self.assertIn("dump nakon pumpe: pao 85 %", bottom["text"].replace("%", " %").replace("  ", " "))
-        self.assertEqual(bottom["sol_rule"], "rug")                         # "SOL side -50 %" alone: a rug
+        self.assertAlmostEqual(bottom["ratio"], 1.0, places=2)               # SOL left exactly as the price explains
         # 11.11. hotfix (Jure: "stara ILI nova = rug -> blokiran"): until the owner confirms the relabel the noon rule
         # (USD liquidity -61 %) still blocks X as a rug
         self.assertEqual(collapse.check(pk, 90_000, 24_000, token=X)["strict"], "old")

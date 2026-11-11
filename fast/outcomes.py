@@ -135,21 +135,35 @@ def measure(con, now):
     return closed
 
 
+def _void():
+    """11.11. evening (Jure: "Rug poništava i counterfactual 'pobjeda'"): tokens whose wins do not count (rugfilter/labels:
+    a rug by any label until the owner's switch rug_labels_v2_ok, then by sol_v2); empty when unreadable."""
+    try:
+        from rugfilter import labels
+        return labels.void_set()
+    except Exception:  # noqa: BLE001
+        return frozenset()
+
+
 def source_rates(con, now, days=BASE_DAYS):
     """{source id: (hits, n)} of the measured signals of the last `days`: each source's own +15 % before -10 % within
     45 min from our decision (11.11.: P's first sample for a wallet, fast/estimate.sample)."""
+    return _rates(con, "source_id", now, days)
+
+
+def _rates(con, key, now, days):
+    """{key: (hits, n)} of the measured signals; 11.11.: a hit on a rugged token is no hit (rugfilter/labels)."""
+    void = _void()
     out = {}
-    for sid, h, n in con.execute("SELECT source_id, COALESCE(SUM(hit), 0), COUNT(*) FROM signals WHERE out_done=1 AND "
-                                 "hit IS NOT NULL AND decided_ts >= ? GROUP BY source_id", (now - days * 86400,)):
-        if sid:
-            out[sid] = (int(h), int(n))
+    for k, tok, hit in con.execute(f"SELECT {key}, token, hit FROM signals WHERE out_done=1 AND hit IS NOT NULL AND "
+                                   "decided_ts >= ?", (now - days * 86400,)):
+        if not k:
+            continue
+        h, n = out.get(k, (0, 0))
+        out[k] = (h + (1 if hit and tok not in void else 0), n + 1)
     return out
 
 
 def base_rates(con, now, days=BASE_DAYS):
     """{kind: (hits, n)} of the measured signals of the last `days` (every decision: what the source's signal did)."""
-    out = {}
-    for kind, h, n in con.execute("SELECT kind, COALESCE(SUM(hit), 0), COUNT(*) FROM signals WHERE out_done=1 AND hit "
-                                  "IS NOT NULL AND decided_ts >= ? GROUP BY kind", (now - days * 86400,)):
-        out[kind] = (int(h), int(n))
-    return out
+    return _rates(con, "kind", now, days)

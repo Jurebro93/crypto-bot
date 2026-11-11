@@ -479,6 +479,10 @@ def cmd_follow(a):
                 print(f"pravi trade: mod {'LIVE' if live_now else 'DRY-RUN'} (prekidač {'uključen' if cfg.get('on') else 'isključen'}, "
                       f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'}, "
                       f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
+                try:   # 11.11. (Jure: "pokaži iz loga da su Grokovi limiti nepromijenjeni"): the limits in force
+                    print(f"pravi trade: {limits_line(con, cfg)}", flush=True)
+                except Exception as e:  # noqa: BLE001 - a log line never stops the loop
+                    print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
@@ -556,6 +560,23 @@ def cmd_status(a):
         for i, sym, tok, ts, st, sin, sback, q, ql, why in rows:
             extra = f"uloženo {sin:.3f}, vraćeno {sback:.4f}, ostalo {ql / q:.0%}" if q else (why or "")
             print(f"  #{i:<4} {dt.datetime.fromtimestamp(ts):%m-%d %H:%M} {sym or tok[:8]:<12} {st:<8} {extra}")
+
+
+def limits_line(con, cfg):
+    """One log line of the limits in force (settings as stored, not defaults): Grok autotrade's own, the caps every
+    automatic live buy gets (executor.LIVE_CAPS), the owner's per-token cap (his manual buys, DCA, MC orders, the Grok
+    requests he approves) and the Autopilot's per-token cap (copies; Grok autotrade too)."""
+    from ui import grokauto
+    g = grokauto.limits(con)
+    raw = settings.raw(con)
+    own = raw.get("owner_token_cap", raw.get("dca_token_cap", settings.DCA_TOKEN_CAP))
+    auto_cap = raw.get("dca_token_cap", settings.DCA_TOKEN_CAP)
+    lc = executor.LIVE_CAPS
+    return (f"limiti: Grok autotrade {g['grok_max_sol_per_trade']:g} SOL po tradeu, {g['grok_max_sol_per_day']:g} SOL "
+            f"na dan, {g['grok_max_open']} otvorene, dnevni gubitak {g['grok_max_loss_day']:g} SOL, {auto_cap:g} SOL po "
+            f"tokenu | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
+            f"{lc['max_open']} otvorene, gubitak {lc['max_loss_day']:g} | tvoje ručne kupnje: {own:g} SOL po tokenu, "
+            f"{cfg.get('max_sol_per_trade')} SOL po tradeu")
 
 
 def main(argv=None):

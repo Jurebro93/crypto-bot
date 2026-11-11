@@ -50,7 +50,7 @@ HELP = {
     "Rug filter": "Helius + RugCheck provjera: PROLAZI ili OPREZ = ✓, VISOK RIZIK ili ODBAČEN = ✗.",
     "Event": "Token je vezan uz nadolazeći događaj iz kalendara; ✓ ako je pravi token eventa, ✗ ako je kopija.",
     "Paper uzeo": "Je li ga demo trading kupio.",
-    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako je likvidnost izvučena iz poola (invarijanta poola L = SOL strana / √cijena pala 50 %+ od vrha; običan pad cijene smanji SOL stranu, ali ne L; kod ne-CP poola mjeri se SOL strana) ili je token pao 70%+ od vrha dok dev ili top holder prodaje ili je rug rizik visok. Pad od vrha bez toga je „dump nakon pumpe”: nije blok, samo manja vjerojatnost (P × 0,7). Rugani se ne nude i ne mogu se kupiti.",
+    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako je iz poola otišlo barem pola SOL-a više nego što objašnjava pad cijene (stvarni SOL omjer / očekivani √(cijena kraj / početak) ≤ 0,5, od prve snimke ili prve nakon dodavanja likvidnosti), ili su i cijena i SOL strana pale 90 %+, ili je token pao 70%+ od vrha dok dev ili top holder prodaje ili je rug rizik visok. Pad od vrha bez toga je „dump nakon pumpe”: nije blok, samo manja vjerojatnost (P × 0,7). Rugani se ne nude i ne mogu se kupiti; dok vlasnik ne potvrdi nove oznake, blokira i stara (rug ako ijedna kaže rug).",
     "Rug presuda": "Presuda rug filtera: PROLAZI, OPREZ, VISOK RIZIK ili ODBAČEN (tvrdi pad).",
     "Rug ocjena": "0-100, kreće od 100 i svaka zastavica oduzima bodove. Prazno kad je tvrdi pad.",
     "Glavni razlog": "Prvi tvrdi pad ili najteža zastavica rug filtera.",
