@@ -279,9 +279,18 @@ class Sources:
     def ranges(self, now):
         from rangedca import data, rules, trade, view
         ms = rules.RULES["score_min"]
-        return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S, active_only=True).items()
-                if r.get("active") and (r.get("score") or 0) >= ms - 1e-9
-                and not view.is_breakout(r)}   # 11.11.: above its range it is no range candidate
+        out = {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S, active_only=True).items()
+               if r.get("active") and (r.get("score") or 0) >= ms - 1e-9
+               and not view.is_breakout(r)}   # 11.11.: above its range it is no range candidate
+        if out:   # 11.11. token_tier: "Tier T2 · ulog 0.25 · razlog: ..." of the demo account, Grok's size capped
+            try:
+                rows, sol, gm = view.tiers(out), trade.sol_usd(), view._grok_max()
+                for t, r in out.items():
+                    ti = view.tier_info(t, (r.get("metrics") or {}).get("liq"), rows, sol, gm)
+                    r["tier"] = {k: ti[k] for k in ("tier", "size_sol", "grok_size_sol", "label")}
+            except Exception:  # noqa: BLE001 - the tier is shown, never the reason the candidates fail
+                pass
+        return out
 
     def events(self, now):
         """11.11. (flag event_tokens): the main / other tokens of the active event topics (topics/view.py)."""
@@ -921,7 +930,8 @@ def build(now=None, src=None, details=True):
         srcs = rg.get("sources") or [rg.get("source") or "signal"]
         r["sources"]["range"] = {"range_score": rg.get("score"), "position_in_range_pct": rg.get("pos_pct"),
                                  "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts"),
-                                 "watch_source": "signal" if "signal" in srcs else "event" if "event" in srcs else "market"}
+                                 "watch_source": "signal" if "signal" in srcs else "event" if "event" in srcs else "market",
+                                 "tier": rg.get("tier")}
         r["range"] = z
         r["count"]["range"] = 1
     # 11.11. (topics/, flag event_tokens): the tokens of Grok's active event topics

@@ -29,7 +29,7 @@ import sqlite3
 import time
 
 from league import store
-from . import data, gate, market, rules
+from . import data, gate, market, rules, tier
 
 FLAG = "range_dca"
 SRC1, SRC2 = "range lot 1", "range lot 2"
@@ -312,7 +312,8 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now):
         why = "već drži token ili je u pauzi nakon runde"
     if why is None:
         why = _guards(tok, mq)
-    lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
+    lot_sol, cap_sol, tier_note = stake(con, user, tok, lim, liq, sol)
+    lot = rules.lot_sizes(lot_sol, cap_sol)
     if why is None and lot <= 0:
         why = "dca_cap manji od pola uloga"
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
@@ -327,12 +328,14 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now):
         return []
     lv = rules.levels_of(rng)
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
+    lv["lot_sol"] = lot_sol   # the round's stake (tier): lot 2 uses the same, under the cap scaled with it
     con.execute("INSERT INTO range_rounds (user, token, symbol, opened_ts, status, lot1_id, lot1_sol, entry_mc, score, "
                 "levels, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (user, tok, sym, now, "open", tid, lot, mcap, rng.get("score"), json.dumps(lv), json.dumps({})))
+                (user, tok, sym, now, "open", tid, lot, mcap, rng.get("score"), json.dumps(lv),
+                 json.dumps({"lo": price, "hi": price})))
     con.commit()
     return [(user, f"range lot 1 {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} (raspon "
-                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f})")]
+                   f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f}; {tier_note})")]
 
 
 def _lot2(con, user, r, rng, mq, lim, sol, now):
@@ -349,7 +352,8 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
     lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now))
     mets = (rng or {}).get("metrics") if rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S else None
     why = rules.lot2_check(t1[0], price, lv, mets)
-    lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
+    lot_sol = r["levels"].get("lot_sol") or lim["size_sol"]
+    lot = rules.lot_sizes(lot_sol, scaled_cap(lim, lot_sol), held_sol=r["lot1_sol"] or 0)
     if why is None and lot <= 0:
         why = "dca_cap: nema mjesta za lot 2"
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
@@ -367,6 +371,38 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
     con.commit()
     return [(user, f"range lot 2 {r['symbol'] or r['token'][:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} "
                    f"({price / t1[0] - 1:+.1%} od prvog)")]
+
+
+def stake(con, user, tok, lim, liq, sol):
+    """(lot SOL, lot 1 + lot 2 cap SOL, note) of a new round. The demo account in tier mode paper: the token's tier
+    stake (rangedca/tier.py) capped by liquidity and impact, the dca cap scaled with it; everybody else: size_sol."""
+    if not tier.applies(user):
+        return lim["size_sol"], lim["dca_token_cap"], f"ulog {lim['size_sol']:g} (fiksno)"
+    st = tier.get(con, user, tok)
+    base = lim["size_sol"]
+    lot, why = tier.size(st["tier"], liq, sol, None, store.impact, base)
+    return lot, scaled_cap(lim, lot), tier.label(st, lot, base) + (f" ({why})" if why else "")
+
+
+def scaled_cap(lim, lot_sol):
+    """lot 1 + lot 2 cap of a round: dca_token_cap, scaled up with a tier stake above size_sol (demo account only;
+    at size_sol it is the cap itself)."""
+    base = lim["size_sol"]
+    return lim["dca_token_cap"] * max(1.0, lot_sol / base) if base else lim["dca_token_cap"]
+
+
+def _tier_close(con, r, reason, pnl_usd, rng, now, mcap=None, liq=None):
+    """Count the closed round in token_tier (every account; only the demo account's stake follows it). Text for
+    the log; a failure here never blocks an exit."""
+    try:
+        from league import copy
+        new = tier.on_close(con, dict(r, exit_reason=reason), pnl_usd, sol_usd(), rng, now,
+                            rug_fn=lambda t: copy._rugged(t, mcap, liq) if mcap and liq else None)
+        con.commit()
+        return f"; tier T{new['tier']} ({new['reason']})"
+    except Exception as e:  # noqa: BLE001
+        print(f"range tier {r['token'][:6]}: {e}", flush=True)
+        return ""
 
 
 # ---------- exits (every second) ------------------------------------------------------------------------------------
@@ -447,8 +483,10 @@ def exits_once(con, market_fn, now=None):
     for r in open_r:
         lots = _lots(con, r)
         if not lots:   # sold by an exit plan (Grok) or by hand: the round ends with what the trades say
-            pnl = _finish(con, r, r["state"].get("last") or "prodano izvan runde", now)
-            out.append(f"range {r['user']} {r['symbol'] or r['token'][:6]}: runda zatvorena ({pnl:+.2f} $)")
+            reason = r["state"].get("last") or "prodano izvan runde"
+            pnl = _finish(con, r, reason, now)
+            tt = _tier_close(con, r, reason, pnl, rngs.get(r["token"]), now)
+            out.append(f"range {r['user']} {r['symbol'] or r['token'][:6]}: runda zatvorena ({pnl:+.2f} $){tt}")
             continue
         if r["token"] not in q:
             continue
@@ -457,6 +495,9 @@ def exits_once(con, market_fn, now=None):
         lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now))
         st = r["state"]
         before = json.dumps(st, sort_keys=True)
+        if age <= STALE_S:   # the round's own low and high (token_tier: higher lows / lower highs)
+            st["lo"] = min(st.get("lo") or price, price)
+            st["hi"] = max(st.get("hi") or price, price)
         gu = ((rng or {}).get("state") or {}).get("give_up")
         hit = None
         if gu and gu.get("ts", 0) >= r["opened_ts"] and age <= STALE_S:
@@ -481,7 +522,7 @@ def exits_once(con, market_fn, now=None):
                     f"na MC ${mcap or 0:,.0f}, {pnl:+.2f} $")
             if not _lots(con, r):
                 tot = _finish(con, r, reason, now)
-                text += f"; runda gotova {tot:+.2f} $"
+                text += f"; runda gotova {tot:+.2f} $" + _tier_close(con, r, reason, tot, rng, now, mcap, liq)
             out.append(text)
         elif json.dumps(st, sort_keys=True) != before:
             con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(st), r["id"]))

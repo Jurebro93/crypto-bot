@@ -96,7 +96,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
             sym = (snap or {}).get("symbol") or (prev or {}).get("symbol")
             src, src_all = view.source_of(srcs.get(tok) or ["signal"])
             if full:
-                res = detect.analyze(candles, now, snap)
+                res = detect.analyze_reset(candles, now, snap)
                 pool = (snap or {}).get("pool")
                 if src == "signal":
                     want = res["status"] == "premalo podataka" and _minimums_met(snap)
@@ -110,13 +110,20 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                         if src != "signal":
                             data.day_add(con, "mkt_seed_day", 1, now)
                         candles, snap = data.series(con, tok, now)
-                        res = detect.analyze(candles, now, snap)
+                        res = detect.analyze_reset(candles, now, snap)
                 hw = None
                 if tok in open_toks:
                     hw = holders.check(con, tok, (snap or {}).get("pool"), (snap or {}).get("supply"), now, post)
                 new_st = rules.exclusions(st, res, now, hw)
                 res = rules.apply_exclusion(res, new_st, now)
                 res["mts"] = now
+                zr = res.get("zone_reset")
+                if zr and (prev or {}).get("zone_reset", {}).get("ts") != zr["ts"] and \
+                        ((prev or {}).get("zones") or {}).get("range_low") != res["zones"]["range_low"]:
+                    note = (f"novi viši raspon iz zadnjih {zr['window_h']} h: dno {zr['from_low_mc'] or 0:,.0f} -> "
+                            f"{zr['to_low_mc'] or 0:,.0f}")
+                    data.event(con, tok, "zone_reset", note, now)
+                    log(f"range {sym or tok[:6]}: zone_reset ({note})")
                 if (prev or {}).get("status") != res["status"] and (res["active"] or res["status"] == "isključen"):
                     note = (f"raspon {res['zones']['mc']['range_low_low'] or 0:,.0f}-{res['zones']['mc']['range_high_top'] or 0:,.0f}, "
                             f"ocjena {res['score']:.2f}" if res["active"] else res["why"])
@@ -127,6 +134,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                 res = dict(prev)
                 cs = [c for c in candles if c[0] >= now - 6 * 3600]
                 res["metrics"] = detect.metrics(cs, now, snap)
+                res["metrics"]["activity"] = detect.tier_activity(candles, now)
                 px = res["metrics"].get("price")
                 z = res.get("zones")
                 if px and z and z["range_high_top"] > z["range_low_low"]:
@@ -193,6 +201,49 @@ def status(log=print):
     return rs
 
 
+def _ts(x):
+    import datetime as dt
+    d = dt.datetime.fromisoformat(x)
+    return int((d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)).timestamp())
+
+
+def tier_replay(token, t_from, t_to, log=print, rcon=None):
+    """token_tier spec 8: one token's rounds between t_from and t_to with the trader's rules, fixed 0.15 vs tier,
+    round by round. Reads range.db / hype.db / minute.db as they are (no network)."""
+    from rangedca import backtest, data
+    t0, t1 = _ts(t_from), _ts(t_to)
+    own = rcon is None
+    rcon = rcon or data.connect()
+    try:
+        mint = token
+        r = rcon.execute("SELECT token FROM pools WHERE UPPER(symbol)=UPPER(?)", (token,)).fetchone()
+        if r:
+            mint = r[0]
+        days = max(1, (t1 - t0) // 86400 + 2)   # 24 h of history before t_from for the first range
+        candles, supply, liq, sym = backtest.load(rcon, mint, t1, days)
+    finally:
+        if own:
+            rcon.close()
+    candles = [c for c in candles if c[0] < t1]
+    if not candles or not supply:
+        log(f"tier-replay {token}: nema minutnih podataka ili supplyja u range.db / hype.db / minute.db")
+        return None
+    tl = [x for x in backtest.timeline(candles, supply, liq) if x[0] >= t0]
+    rounds = backtest.simulate(candles, supply, tl, 0.7, True, liq)
+    for x in rounds:
+        x["token"], x["symbol"] = mint, sym
+    out = backtest.tier_compare(rounds, {mint: liq})
+    log(f"tier-replay {sym or mint[:6]} {t_from} - {t_to}: {len(rounds)} rundi")
+    for st in out["steps"]:
+        log(f"  {time.strftime('%d.%m. %H:%M', time.gmtime(st['closed']))} T{st['tier_before']} ulog {st['size_sol']:g} "
+            f"{st['ret'] * 100:+.1f} % = {st['pnl_sol']:+.4f} SOL -> T{st['tier_after']} ({st['why']})")
+    for k in ("fixed", "tier"):
+        v = out[k]
+        log(f"  {k}: PnL {v['pnl_sol']:+.4f} SOL, max drawdown {v['max_drawdown_sol']:.4f}, najveći gubitak "
+            f"{v['worst_round_sol']:+.4f}")
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -203,6 +254,10 @@ def main(argv=None):
                    help="GeckoTerminal requests for history at most (inside the range day cap)")
     b.add_argument("--force", action="store_true", help="also while the flag is off")
     sub.add_parser("status")
+    tr = sub.add_parser("tier-replay", help="token_tier replay of one token (e.g. HOPE 10.-11.11.): fixed vs tier")
+    tr.add_argument("token", help="mint or symbol (range.db pools)")
+    tr.add_argument("--from", dest="t_from", default="2026-11-10", help="UTC date or ISO time")
+    tr.add_argument("--to", dest="t_to", default="2026-11-12", help="UTC date or ISO time (exclusive)")
     a = ap.parse_args(argv)
     if a.cmd == "once":
         once()
@@ -212,6 +267,8 @@ def main(argv=None):
             return 0
         from rangedca import backtest
         backtest.run_server(days=a.days, gt=a.gt)
+    elif a.cmd == "tier-replay":
+        tier_replay(a.token, a.t_from, a.t_to)
     else:
         status()
     return 0

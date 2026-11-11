@@ -310,6 +310,7 @@ def analyze(candles, now, snap=None, cfg=None):
     w0 = now - int(cfg["window_h"] * 3600)
     cs = [c for c in candles if w0 <= c[0] <= now and c[4] and c[4] > 0]
     m = metrics(cs, now, snap, cfg)
+    m["activity"] = tier_activity(candles, now)   # token_tier's step-up numbers (24 h)
     out = {"ts": now, "status": None, "active": False, "why": "", "zones": None, "touches": None, "recoveries": [],
            "components": None, "score": None, "ratio": None, "pos_pct": None, "metrics": m,
            "signals": {"lower_lows": False, "vol_decline": False, "broken_down": False, "broken_up": False},
@@ -365,3 +366,39 @@ def analyze(candles, now, snap=None, cfg=None):
     else:
         out.update(status=ACTIVE, active=True, why="")
     return out
+
+
+RESET_POS = 40.0     # zone_reset is looked for only with the price this high in the 24 h range (or above it)
+RESET_LOW_X = 1.10   # and taken only when the shorter window's bottom is at least 10 % higher
+
+
+def analyze_reset(candles, now, snap=None, cfg=None, windows=(12, 6)):
+    """analyze(), and when the token has left its range upward (status "probijen gore": a new, higher range), the
+    range again from only the last 12 h, then 6 h (zone_reset, 11.11., token_tier spec 6): the first of those that is
+    active with a higher bottom than the old range replaces it, so the take profit and the bottom follow the rise.
+    The result carries zone_reset {window_h, from_low_mc, to_low_mc, ts}."""
+    res = analyze(candles, now, snap, cfg)
+    if not res.get("zones"):
+        return res
+    # a new higher range shows as: broken up, or the 24 h window stretching the range from the old bottom up to the
+    # new tops with the price in its upper part (pos >= 40 %); only then the shorter windows are computed (CPU)
+    up = (res.get("signals") or {}).get("broken_up") or (res.get("pos_pct") is not None and res["pos_pct"] >= RESET_POS)
+    if not up:
+        return res
+    c = _cfg(cfg)
+    old = res["zones"]
+    for wh in windows:
+        if wh >= c["window_h"]:
+            continue
+        r2 = analyze(candles, now, snap, {**(cfg or {}), "window_h": wh, "min_hist_h": min(c["min_hist_h"], wh)})
+        z = r2.get("zones")
+        if r2.get("active") and z and z["range_low"] > old["range_low"] * RESET_LOW_X:
+            r2["zone_reset"] = {"window_h": wh, "from_low_mc": (old.get("mc") or {}).get("range_low_low"),
+                                "to_low_mc": (z.get("mc") or {}).get("range_low_low"), "ts": int(now)}
+            return r2
+    return res
+
+
+def tier_activity(candles, now):
+    from .tier import activity
+    return activity([c for c in candles if c[0] <= now], now)

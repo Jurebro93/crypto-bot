@@ -23,7 +23,7 @@ import os
 import statistics
 import time
 
-from . import data, detect, rules
+from . import data, detect, rules, tier
 
 LOT_USD = 15.0       # ~0.1 SOL, the Autopilot's size_sol
 BT_LIQ = 40_000.0    # pool depth for the impact when the history has no liquidity reading
@@ -52,7 +52,7 @@ def timeline(candles, supply, liq=None, step_s=STEP_S):
     while t <= end:
         lo = bisect.bisect_left(ts, t - int(detect.CFG["window_h"] * 3600))
         hi = bisect.bisect_right(ts, t)
-        res = detect.analyze(candles[lo:hi], t, snap, cfg)
+        res = detect.analyze_reset(candles[lo:hi], t, snap, cfg)
         if liq:
             res["metrics"]["liq"] = liq
         st = rules.exclusions(st, res, t)
@@ -84,6 +84,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
             continue
         _t, rng, st = tl[k]
         if pos:
+            pos["lo"], pos["hi"] = min(pos["lo"], c[3]), max(pos["hi"], c[2])
             lv = rules.merge_levels(pos["levels"], rules.levels_of(rng) if rng.get("active") and rng.get("zones") else None)
             pos["levels"]["stop_px"] = lv["stop_px"]
             gu = st.get("give_up")
@@ -115,7 +116,10 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                     rounds.append({"opened": pos["opened"], "closed": t, "lots": len(pos["lots"]),
                                    "entry_mc": pos["entry_mc"], "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"],
                                    "cost": round(cost, 4), "pnl": round(pnl, 4), "ret": round(pnl / cost, 5),
-                                   "reason": reason.split(":")[0], "score": pos["score"]})
+                                   "reason": reason.split(":")[0], "score": pos["score"],
+                                   "low_mc": round(pos["lo"] * supply) if supply else None,
+                                   "high_mc": round(pos["hi"] * supply) if supply else None,
+                                   "ctx": _close_ctx(rng, st, t)})
                     pos = None
                     cool_until = t + rules.RULES["cooldown_s"]
             if pos and lot2 and len(pos["lots"]) == 1 and not pos["state"].get("tp1"):
@@ -142,6 +146,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         if rules.entry_check(r2, px, min_score=score_min) is None:
             eff = px * (1 + FEE) / (1 - _impact(lot_usd, liq))
             pos = {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff}], "realized": 0.0,
+                   "lo": px, "hi": px,
                    "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": rng.get("score")}
     if pos:   # still open at the end of the data: valued at the last close, marked open
         px = candles[-1][4]
@@ -152,6 +157,59 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                        "pnl": round(val - cost, 4), "ret": round((val - cost) / cost, 5), "reason": "otvoreno",
                        "score": pos["score"]})
     return rounds
+
+
+def _close_ctx(rng, st, t):
+    """The token_tier context at a round's close from the timeline (rug history is not known: clean unless excluded)."""
+    return {"score": rng.get("score"), "broken_down": bool((rng.get("signals") or {}).get("broken_down")),
+            "rug_clean": (st.get("excluded_until") or 0) <= t,
+            "activity": (rng.get("metrics") or {}).get("activity")}
+
+
+SOL_USD_BT = 150.0   # SOL price for the 1.5 %-of-liquidity cap in history (the lot of $15 = ~0.1 SOL above)
+
+
+def tier_compare(rounds, liq_of=None, fixed=None, sol_usd=SOL_USD_BT):
+    """token_tier spec 8: the same closed rounds with a fixed stake (T0, 0.15 SOL) and with the tier system
+    (rangedca/tier.step after every round, the stake of the next round from its tier, capped by liquidity / impact).
+    A round's result in SOL = its return x the stake (the return was simulated with a ~0.1 SOL lot; a bigger lot's
+    extra impact is in the cap, not in the return: slightly optimistic for the tier side). Per variant: PnL SOL,
+    max drawdown SOL (all tokens summed in exit order), the biggest single loss SOL, rounds per tier."""
+    szs = tier.sizes()
+    fixed = fixed if fixed is not None else szs[0]
+    closed = sorted((r for r in rounds if r.get("closed")), key=lambda r: r["closed"])
+    states, res = {}, {"fixed": [], "tier": []}
+    by_tier = {f"T{i}": 0 for i in range(4)}
+    steps = []
+    for r in closed:
+        tok = r.get("token")
+        liq = (liq_of or {}).get(tok)
+        st = states.get(tok) or tier.blank()
+        size, _ = tier.size(st["tier"], liq, sol_usd, szs, _impact)
+        by_tier[f"T{st['tier']}"] += 1
+        p_fix, p_tier = r["ret"] * fixed, r["ret"] * size
+        res["fixed"].append((r["closed"], p_fix))
+        res["tier"].append((r["closed"], p_tier))
+        new = tier.step(st, {"pnl_sol": p_tier, "reason": r["reason"], "low_mc": r.get("low_mc"),
+                             "high_mc": r.get("high_mc")}, r.get("ctx") or {})
+        steps.append({"token": tok, "symbol": r.get("symbol"), "closed": r["closed"], "tier_before": st["tier"],
+                      "size_sol": size, "ret": r["ret"], "pnl_sol": round(p_tier, 5), "tier_after": new["tier"],
+                      "why": new["reason"]})
+        states[tok] = new
+    out = {}
+    for k, xs in res.items():
+        eq = peak = dd = 0.0
+        for _t, p in xs:
+            eq += p
+            peak = max(peak, eq)
+            dd = max(dd, peak - eq)
+        out[k] = {"rounds": len(xs), "pnl_sol": round(sum(p for _t, p in xs), 4), "max_drawdown_sol": round(dd, 4),
+                  "worst_round_sol": round(min((p for _t, p in xs), default=0.0), 4)}
+    out["fixed"]["stake_sol"] = fixed
+    out["tier"]["rounds_by_tier"] = by_tier
+    out["tier"]["sizes"] = list(szs)
+    out["steps"] = steps
+    return out
 
 
 def summary(rounds):
@@ -188,7 +246,7 @@ def run_tokens(series, log=print):
         act = [x for x in tl if x[1].get("active")]
         per[tok] = {"symbol": sym, "hours": round((candles[-1][0] - candles[0][0]) / 3600, 1), "detections": len(tl),
                     "active_detections": len(act), "best_score": max((x[1].get("score") or 0 for x in act), default=None),
-                    "tx_counts": any(c[6] is not None for c in candles)}
+                    "tx_counts": any(c[6] is not None for c in candles), "liq": liq}
         runs = [(f"{th:.1f}{'' if l2 else '_bez_lota2'}", th, l2, True) for th in THRESHOLDS for l2 in (True, False)]
         for key, th, l2, pb in runs + [(PROXY_OFF, 0.7, True, False)]:
             rs = simulate(candles, supply, tl, th, l2, liq, proxy_buys=pb)
@@ -197,7 +255,9 @@ def run_tokens(series, log=print):
             var[key] += rs
         per[tok]["rounds_0.7"] = [r for r in var["0.7"] if r["token"] == tok]
         per[tok]["rounds_0.7_bez_proxyja"] = [r for r in var[PROXY_OFF] if r["token"] == tok]
+    rep_tier = tier_compare(var["0.7"], {t: p.get("liq") for t, p in per.items()})
     rep = {"generated_ts": int(time.time()), "tokens_with_data": len(series), "tokens_simulated": len(per),
+           "tier_compare": rep_tier,
            "tokens_with_range": sum(1 for p in per.values() if p["active_detections"]),
            "cpu_s": round(time.time() - t0, 1), "lot_usd": LOT_USD,
            "variants": {k: summary(v) for k, v in var.items()}, "tokens": per}
@@ -220,6 +280,15 @@ def md(rep, title="Range DCA backtest"):
                      f"{s['avg_pnl_usd'] if s['avg_pnl_usd'] is not None else '-'} | "
                      f"{s['avg_ret_pct'] if s['avg_ret_pct'] is not None else '-'} | {s['total_pnl_usd']} | "
                      f"{s['max_drawdown_usd']} | {s['worst_ret_pct'] if s['worst_ret_pct'] is not None else '-'} |")
+    tc = rep.get("tier_compare")
+    if tc:
+        lines += ["", "## Fiksni ulog vs token_tier (prag 0,7, s lotom 2)", "",
+                  "| varijanta | runde | PnL SOL | max drawdown SOL | najveći gubitak runde SOL |", "|---|---|---|---|---|",
+                  f"| fiksno {tc['fixed']['stake_sol']:g} SOL | {tc['fixed']['rounds']} | {tc['fixed']['pnl_sol']} | "
+                  f"{tc['fixed']['max_drawdown_sol']} | {tc['fixed']['worst_round_sol']} |",
+                  f"| tier {'/'.join(f'{x:g}' for x in tc['tier']['sizes'])} | {tc['tier']['rounds']} | {tc['tier']['pnl_sol']} | "
+                  f"{tc['tier']['max_drawdown_sol']} | {tc['tier']['worst_round_sol']} |", "",
+                  "Runde po tieru: " + ", ".join(f"{k} {v}" for k, v in tc["tier"]["rounds_by_tier"].items())]
     for key, title_ in (("rounds_0.7", "prag 0,7, s lotom 2"), ("rounds_0.7_bez_proxyja", "prag 0,7, bez proxy filtra kupnji")):
         lines += ["", f"## Runde ({title_})", ""]
         for tok, p in rep["tokens"].items():

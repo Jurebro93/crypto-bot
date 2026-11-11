@@ -1115,7 +1115,12 @@ TOOLS.append(
                      "signal > event > market, all in sources), entry_ready (not a breakout and the entry rules pass "
                      "now; those rows first) and paper_only (market / event tokens are traded only on the demo account, "
                      "never with real money); breakouts (ranges broken upward), watched_by_source and the watchlist's "
-                     "filter, refresh and cost today per source."),
+                     "filter, refresh and cost today per source. 11.11. token_tier: per row tier {tier 0-3, "
+                     "size_sol (the demo account's stake for the next round: T0 0.15 / T1 0.2 / T2 0.25 / T3 0.3 SOL, "
+                     "at most 1.5 % of liquidity and <= 2 % simulated slippage), grok_size_sol (the most Grok may buy: "
+                     "never above grok_max_sol_per_trade), label, reason, rounds, wins, realized_pnl_sol (shown only), "
+                     "cooldown_rounds}; paper only. zone_reset when the zones were recomputed from the last 12 / 6 h "
+                     "after a new higher range."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
          "source": {"type": "string", "enum": ["signal", "market", "event"],

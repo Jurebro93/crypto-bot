@@ -36,4 +36,12 @@ in the same range.db snaps (detection reads timestamps, so a 5-minute series fin
 source: signal > event > market. A market / event token is traded only on the demo account (paper), never with real
 money.
     market.py    the market watchlist: universe, filter, budgeted refresh, the daily cost line per source
+
+11.11. (Jure: "adaptivni ulog po tokenu (token_tier)"; paper only until the backtest + 20 paper rounds confirm it):
+    tier.py      token_tier (league.db): T0-T3 stake per token on the demo account (RANGE_TIER_SIZES, T0 = size_sol),
+                 one tier up after a profitable round with higher lows, volume / transactions holding, score >= 0.7,
+                 rug clean and >= 3 wins; down to T0 (cooldown 1 round) on a loss, stop, broken bottom or lower highs
+                 twice; the lot capped at 1.5 % of liquidity and 2 % simulated slippage; no house money.
+    detect.analyze_reset: zone_reset, the zones from the last 12 / 6 h after a new higher range.
+    backtest.tier_compare and run_range.py tier-replay <token> --from --to: fixed 0.15 vs tier.
 """

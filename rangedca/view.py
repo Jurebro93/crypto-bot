@@ -7,7 +7,7 @@ event token is traded only on the demo account); watched_by_source and the watch
 import sqlite3
 import time
 
-from . import data, gate, market, rules, trade
+from . import data, gate, market, rules, tier, trade
 
 ZONE_KEYS = ("range_low_low", "range_low_top", "range_high_low", "range_high_top")
 SOURCES = ("signal", "event", "market")   # priority order of the watchlist source
@@ -50,7 +50,58 @@ def is_breakout(r):
     return p is not None and p > 100
 
 
-def one(tok, r, now=None):
+def tiers(tokens):
+    """{(user, mint): token_tier row} of these tokens from league.db, read-only ({} without it)."""
+    con = data._league_ro()
+    if con is None:
+        return {}
+    try:
+        return tier.all_for(con, list(tokens) if tokens else None)
+    finally:
+        con.close()
+
+
+def _grok_max():
+    try:
+        from ui import grokauto
+        from trade import settings as ts
+        tc = sqlite3.connect(f"file:{ts.DB}?mode=ro", uri=True, timeout=5)
+        try:
+            return float(grokauto.limits(tc)["grok_max_sol_per_trade"])
+        finally:
+            tc.close()
+    except Exception:  # noqa: BLE001
+        try:
+            from ui import grokauto
+            return float(grokauto.LIMITS["grok_max_sol_per_trade"][0])
+        except Exception:  # noqa: BLE001
+            return 0.1
+
+
+def tier_info(tok, liq, rows=None, sol=None, grok_max=None):
+    """token_tier of the demo account for this token: tier, size_sol (capped by liquidity / impact), grok_size_sol
+    (never above Grok's own limit), the shown label ("Tier T2 · ulog 0.25 · razlog: ...") and the counts."""
+    from league import store
+    from trade import settings as ts
+    st = (rows if rows is not None else tiers([tok])).get((ts.PAPER_USER, tok)) or tier.blank()
+    sol = sol if sol is not None else trade.sol_usd()
+    try:
+        base = trade.limits()["size_sol"]
+    except Exception:  # noqa: BLE001
+        base = None
+    size, why = tier.size(st["tier"], liq, sol, None, store.impact, base)
+    gm = grok_max if grok_max is not None else _grok_max()
+    return {"account": ts.PAPER_USER, "tier": st["tier"], "size_sol": size, "grok_size_sol": round(min(size, gm), 4),
+            "label": tier.label(st, size, base), "reason": st.get("reason"), "size_capped": why,
+            "rounds": st.get("rounds") or 0, "wins": st.get("wins") or 0,
+            "realized_pnl_sol": st.get("realized_pnl_sol") or 0.0,
+            "last_bottom_mc": st.get("last_bottom"), "prev_bottom_mc": st.get("prev_bottom"),
+            "cooldown_rounds": st.get("cooldown") or 0, "mode": tier.mode(),
+            "note": "tier stake only on the demo account (paper) until backtest + 20 paper rounds confirm it; "
+                    "realized_pnl_sol is shown only, it never raises the stake; Grok buys at most grok_size_sol"}
+
+
+def one(tok, r, now=None, tier_rows=None, sol=None, grok_max=None):
     """One range as the MCP API shows it. entry_ready: an entry would pass now (no breakout, entry_now passes);
     status "breakout" when the price is above 100 % of the range."""
     now = now or time.time()
@@ -76,7 +127,9 @@ def one(tok, r, now=None):
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
             "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
                           why or "ulaz bi prošao (uz provjeru ruga i limite)"),
-            "paper_only": src != "signal"}
+            "paper_only": src != "signal",
+            "tier": tier_info(tok, m.get("liq"), tier_rows, sol, grok_max),
+            "zone_reset": r.get("zone_reset")}
 
 
 def positions(tokens=None):
@@ -140,7 +193,9 @@ def candidates(min_score=None, now=None, limit=50, source=None):
         return {"error": f"source must be one of {', '.join(SOURCES)}"}
     since = now - trade.RANGE_FRESH_S
     rs = data.read_ranges(since=since, active_only=True)
-    rows = [one(t, r, now) for t, r in rs.items() if r.get("active") and (r.get("score") or 0) >= ms - 1e-9]
+    keep = {t: r for t, r in rs.items() if r.get("active") and (r.get("score") or 0) >= ms - 1e-9}
+    trows, sol, gm = tiers(keep), trade.sol_usd(), _grok_max()
+    rows = [one(t, r, now, trows, sol, gm) for t, r in keep.items()]
     if src:
         rows = [x for x in rows if src in x["sources"]]
     rows.sort(key=lambda x: (not x["entry_ready"], -(x["range_score"] or 0)))
