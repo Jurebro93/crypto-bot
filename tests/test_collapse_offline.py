@@ -12,12 +12,18 @@ from rugfilter import collapse  # noqa: E402
 class CollapseTest(unittest.TestCase):
     def test_judge(self):
         self.assertIsNone(collapse.judge(45000, 30000, 17000, 12000))       # -33%: a dip, not a rug
-        r = collapse.judge(45500, 6600, 17400, 6400)                        # the MAX case: -85%
-        self.assertTrue(r and r["drop"] > 0.8 and "srušio" in r["text"])
-        self.assertTrue(collapse.judge(40000, 18000, 20000, 5000))          # -55% with liquidity pulled
+        r = collapse.judge(45500, 6600, 17400, 6400)                        # the MAX case: -85%, liquidity -63 %
+        self.assertTrue(r and r["drop"] > 0.8)                              # 11.11. pool rule: sqrt(6.6/45.5) = 0.38,
+        self.assertEqual(r["kind"], "dump")                                 # so -63 % USD is the price, L held (-3 %)
+        r = collapse.judge(45500, 6600, 17400, 2000)                        # the same fall with the LP pulled
+        self.assertEqual(r["kind"], "rug")
+        self.assertIn("izvučena likvidnost", r["text"])
+        self.assertTrue(collapse.judge(40000, 18000, 20000, 5000))          # -55% with liquidity pulled (L -63 %)
         self.assertIsNone(collapse.judge(40000, 18000, 20000, 15000))       # -55%, liquidity fine
         self.assertIsNone(collapse.judge(3000, 100))                        # too small to judge
-        self.assertIsNone(collapse.judge(40000, 25000, 20000, 1000))        # recovered above half the peak
+        self.assertIsNone(collapse.judge(40000, 25000, 20000, 17000))       # recovered above half the peak, pool held
+        self.assertEqual(collapse.judge(40000, 25000, 20000, 1000)["kind"], "rug")   # pool emptied (L -94 %): a rug
+        # whatever the price (11.11. pool rule: L does not move with the price)
 
     def test_peaks_and_live(self):
         d = tempfile.mkdtemp()
@@ -32,7 +38,8 @@ class CollapseTest(unittest.TestCase):
         con.close()
         pk = collapse.peaks(db, ["A", "B", "C"])
         self.assertIsNone(collapse.check(pk.get("A")))                    # -62% on last scan, liquidity ok
-        self.assertTrue(collapse.check(pk.get("A"), 6600, 6400))          # live price shows the dump
+        self.assertEqual(collapse.assess(pk.get("A"), 6600, 6400)["kind"], "dump")   # live price: a dump, L held
+        self.assertTrue(collapse.check(pk.get("A"), 6600, 1500))          # live: the pool pulled (L -80 %)
         self.assertIsNone(collapse.check(pk.get("B")))                    # its peak is older than 24 h
         self.assertIsNone(collapse.check(pk.get("C"), 100, 100))          # never seen: nothing to compare
 
@@ -68,12 +75,14 @@ class LeagueRugTest(unittest.TestCase):
         old = data.HYPE_DB
         data.HYPE_DB = db
         try:
-            league.market = lambda mints: {m: (1e-6, 6400, None, 6600) for m in mints}
+            # 11.11. pool rule: the MAX crash with the pool pulled (L -70 %) is refused; the same crash with the pool
+            # holding (liquidity 6400 = sqrt(6.6/45.5) of 17.4k) is a dump after a pump, not a block
+            league.market = lambda mints: {m: (1e-6, 2000, None, 6600) for m in mints}
             loc = league.post("/natjecanje/buy", {"token": mint, "size": "50", "symbol": "MAX"}, "Jure")
             self.assertIn("err=", loc)
             league.market = lambda mints: {m: (1e-5, 17000, None, 44000) for m in mints}
             self.assertIn("ok=", league.post("/natjecanje/buy", {"token": mint, "size": "50", "symbol": "MAX"}, "Jure"))
-            league.market = lambda mints: {m: (1e-6, 6400, None, 6600) for m in mints}
+            league.market = lambda mints: {m: (1e-6, 2000, None, 6600) for m in mints}
             _, html = league.page({}, "Jure")
             self.assertIn("rugan", html)                            # warning on the open position
         finally:
