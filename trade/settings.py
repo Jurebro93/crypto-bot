@@ -115,6 +115,11 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # shadow = list and measure, paper = the demo account takes every shown proposal; never live (LIVE_GATES)
     "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
                          "svaki prikazani prijedlog s planom izlaza; pravi račun kupuje samo na tvoj dodir"),
+    # 11.11. (Jure: "real-time zone alarm na Grok Bot", zonewatch/): a data flag (DATA_FLAGS): off = nothing watched or
+    # posted; any other mode = the zones are watched and every alarm is POSTed to the Grok Bot webhook (when its env
+    # is set). It never trades.
+    "zonewatch": ("G25", "Zonski alarmi Grok Botu: ulaz cijene u zonu (dno, DCA, vrh, stop) raspona i ručno postavljenih "
+                         "zona, POST na webhook u stvarnom vremenu"),
 }
 # 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
 NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
@@ -132,7 +137,7 @@ LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
 LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
-                        "early_persist"})
+                        "early_persist", "zonewatch"})
 _FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})
 FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds within this
 

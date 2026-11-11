@@ -204,6 +204,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # only for a missing point, TOPICS_GT_DAY 20). Flag off: it reads the flag and ends.
 ( sleep 330; while true; do low python3 run_topics.py once || echo "eventi nisu uspjeli"; sleep "${TOPICS_EVERY_S:-120}"; done ) &
 
+# 11.11. (Jure: "real-time zone alarm na Grok Bot", data flag zonewatch G21, zonewatch/): one small process (~20 MB) at
+# low priority, a pass every ZONEWATCH_EVERY_S (30 s): zones of the active ranges + the zones Grok arms (MCP arm_zone,
+# HOPE seeded once), numbers from the snapshots range.db / hype.db already hold, DexScreener (free, 30 tokens a request)
+# only for tokens within 10 % of a zone or armed without a fresh snapshot, at most 4 requests a pass and
+# ZONEWATCH_DEX_DAY (3000) a day; an alarm (zone_enter / zone_exit / stop_hit / top_hit, team_catalyst rows of
+# events.db) is POSTed to GROKBOT_WEBHOOK_URL. Time-sensitive, so not under ops.heavy --night. Flag off: nothing runs.
+low keep zonewatch python3 run_zonewatch.py loop
+
 # 11.11. (Jure, flag momentum_scalp): momentum data (momentum/, run_momentum.py), a short process every MOM_EVERY_S:
 # DexScreener minute snapshots of 60 tokens (free), PumpPortal's unique buyers (free), GeckoTerminal /pools/multi only
 # for prequalified tokens (MOM_GT_DAY 100), Helius top 10 only for a full match (MOM_HELIUS_DAY 2000 credits); the

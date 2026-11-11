@@ -4931,7 +4931,9 @@ def _post_mcp_ok(con, tcon, form, user):
     if r["side"] == "buy":
         tp, sl = _last_exit(_cfg(tcon))
         try:
-            out = _post_buy(con, tcon, {"token": r["token"], "sol": f'{r["amount"]:g}', "exit": "tpsl", "tp": tp, "sl": sl}, user)
+            from league import exitplan as _xp   # 11.11.: approved Grok buys are tagged, exit_plan_live covers them
+            out = _post_buy(con, tcon, {"token": r["token"], "sol": f'{r["amount"]:g}', "exit": "tpsl", "tp": tp, "sl": sl}, user,
+                            src=_xp.APPROVED_SRC)
         except ValueError as e:
             mcpapi.decide(tcon, rid, "failed", str(e))
             raise
