@@ -117,10 +117,13 @@ def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
     return copy, signal
 
 
-def wanted(con, cfg, wallet_db=None):
+def wanted(con, cfg, wallet_db=None, now=None):
     """Wallets to follow (at most chain.max_wallets): public KOL leaderboards (kol_ids, by rank; FOMO traders last),
     then our own best copyable wallets, then our tier-S signal wallets (chain.share, chain.min_copy). Slots a group
-    cannot fill go to the others, so an empty registry still means the full leaderboard list as before."""
+    cannot fill go to the others, so an empty registry still means the full leaderboard list as before.
+    11.11. (Grok #85): our own groups (copy, tier S signal, proven twice) pass wallets/hygiene.screen first: idle
+    24 h+, bot / sniper / bundler labels and bot-like stats leave them (only removes; the freed slots go to the
+    others). now: the time the idle rule is measured at (default: now)."""
     cap = cfg["max_wallets"]
     share = dict(SHARE, **(cfg.get("share") or {}))
     ids = [w for w, in con.execute("""SELECT wallet FROM kol_ids ORDER BY (source = 'fomo'), COALESCE(rank, 999),
@@ -160,6 +163,13 @@ def wanted(con, cfg, wallet_db=None):
         proven = sorted(_dok.current(wallet_db))
     except Exception:  # noqa: BLE001
         proven = []
+    try:   # 11.11. (Grok #85, wallets/hygiene.py): only removes, so applied directly
+        from wallets import hygiene as _hyg
+        kept, _out = _hyg.screen({"copy": copy, "signal": signal, "proven": proven}, "webhook", now=now,
+                                 wallet_db=wallet_db, log=lambda m: print(f"chain: {m}", flush=True))
+        copy, signal, proven = kept["copy"], kept["signal"], kept["proven"]
+    except Exception as e:  # noqa: BLE001 - the webhook list never breaks on the screen
+        print(f"chain: higijena: {type(e).__name__}: {e}", flush=True)
     for w in proven[:max(1, cap // 2)]:
         if w not in seen:
             seen.add(w)

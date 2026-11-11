@@ -47,8 +47,9 @@ class Wanted(unittest.TestCase):
         got = chainwatch.wanted(self.con, cfg, wallet_db=self.wdb)
         self.assertEqual(got[:5], ["ID0", "ID1", "ID2", "ID3", "ID4"])        # 50%: leaderboard by rank
         self.assertEqual(got[5:8], ["C1", "C2", "C3"])                        # 40%: best copy scores, no rugger
-        self.assertEqual(got[8], "S1")                                        # 10%: tier S, score >= 40
-        self.assertEqual(got[9], "ID5")                                       # leftover slot -> next leaderboard wallet
+        # 10%: tier S, score >= 40; 11.11. (Grok #85, wallets/hygiene): S1 is labelled bot, so the signal slot is free
+        self.assertNotIn("S1", got)
+        self.assertEqual(got[8:], ["ID5", "ID6"])                             # leftover slots -> next leaderboard wallets
         self.assertNotIn("BAD", got)
         self.assertNotIn("LOW", got)
         self.assertEqual(len(got), len(set(got)))                             # ID1 is in both lists, once

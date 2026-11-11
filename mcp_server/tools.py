@@ -37,14 +37,19 @@ def _json(r):
     return data
 
 
-def get_market_signals(source: str = "") -> dict:
+def get_market_signals(source: str = "", include_hidden: bool = False) -> dict:
     """Meme coins being called right now on Solana by the X and Telegram accounts MemeSonar tracks, and buys of the
     wallets it follows: per token the callers, first/last call time, and the live market (price, market cap,
     liquidity, volume, 5m/1h/24h change, buys share of the last hour's transactions as on-chain sentiment). While
     MemeSonar's market scanner runs (shadow, it never buys) also tokens found without a caller (source scan) and
     betas of the top runners (source beta), with beta_score, x_momentum_score, x_early and lead_time_min.
+    Every row has rug_verdict (ok | unknown | oprez | risk | hard) and runup_x (market cap now over the first
+    signal's in 24 h); rows rated risk / hard or 4x+ are left out unless include_hidden (then under hidden).
     source: caller | wallet | scan | beta to filter; empty = all."""
-    return _get("/api/mcp/signals", {"source": source} if source else None)
+    params = {"source": source} if source else {}
+    if include_hidden:
+        params["include_hidden"] = "true"
+    return _get("/api/mcp/signals", params or None)
 
 
 def get_token_details(token_address: str) -> dict:

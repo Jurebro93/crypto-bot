@@ -155,10 +155,36 @@ def _full_data(r):
     under the hard line), the score and the concentration numbers, so OPREZ is a warn with its reason."""
     r = r or {}
     L, h, c = r.get("launch") or {}, r.get("holders") or {}, r.get("cluster") or {}
-    return {"hard_fails": r.get("hard_fails") or [], "flags": r.get("flags") or [], "score": r.get("score"),
-            "holders": {"top10_pct": h.get("top10_pct")},
-            "launch": {"bundle_pct": L.get("bundle_pct"), "sniper_pct": L.get("sniper_pct")},
-            "cluster": {"holding_pct": c.get("holding_pct")}}
+    out = {"hard_fails": r.get("hard_fails") or [], "flags": r.get("flags") or [], "score": r.get("score"),
+           "holders": {"top10_pct": h.get("top10_pct")},
+           "launch": {"bundle_pct": L.get("bundle_pct"), "sniper_pct": L.get("sniper_pct")},
+           "cluster": {"holding_pct": c.get("holding_pct")}}
+    if r.get("wash_score") is not None:   # 11.11. (Grok #74 / #77): safety.volume_check reads it
+        out["wash_score"] = r["wash_score"]
+    return out
+
+
+def live_trades(hc, mint, now):
+    """11.11. (Grok #74 / #77): the token's PumpPortal trades of the last hour (hype.db live_trades, only while run_live
+    is subscribed to it) as rugfilter/analysis rows for safety.volume_check; [] without the table. Indexed read
+    (live_trades_mint_ts), no API call."""
+    if hc is None:
+        return []
+    try:
+        return [{"side": s, "wallet": w, "amount": sol or 0, "ts": ts} for s, w, sol, ts in hc.execute(
+            "SELECT side, wallet, sol, ts FROM live_trades WHERE mint=? AND ts>=? LIMIT 3000", (mint, int(now) - 3600))]
+    except sqlite3.Error:
+        return []
+
+
+def _hype_ro():
+    path = os.environ.get("HYPE_DB") or os.path.join(HERE, "hype.db")
+    if not os.path.exists(path) or not os.path.getsize(path):
+        return None
+    try:
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    except sqlite3.Error:
+        return None
 
 
 def full_check(con, mint, now):
@@ -204,6 +230,7 @@ def pass_once(n=None):
     except Exception:
         sol_usd = None
     con = store.connect()
+    hc = _hype_ro()   # 11.11.: PumpPortal trades for the volume check
     jup_busy, jup_left = False, SELL_PER_PASS
     rc_busy, rc_left, rc_refusals = False, RC_PER_PASS, 0
     try:
@@ -250,7 +277,7 @@ def pass_once(n=None):
             row["sell_json"] = json.dumps(sell) if sell is not None else None
             full = full_check(con, mint, now) if rank <= (n or overview.TOP_N) else latest_full(mint)
             row["full_ts"] = (full or {}).get("checked_at")
-            sf = safety.judge(mint, rc, sell, full)
+            sf = safety.judge(mint, rc, sell, full, pair=p, trades=live_trades(hc, mint, now))
             row["verdict"], row["safety_json"] = sf["verdict"], json.dumps(sf, ensure_ascii=False)
             store.put(con, row)
             con.commit()
@@ -260,6 +287,8 @@ def pass_once(n=None):
         con.commit()
     finally:
         con.close()
+        if hc is not None:
+            hc.close()
     log(f"provjereno {len(mints)} preporučenih tokena")
     return len(mints)
 
