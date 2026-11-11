@@ -705,7 +705,8 @@ def build(now=None, src=None):
         r["rank"] = i
     near.sort(key=lambda x: -(x.get("ev_pct") if x.get("ev_pct") is not None else -99))
     return rows, near, {"sources_failed": failed, "prices": prices, "calib": ctx["calib"],
-                        "market_ok": not any(f.startswith("market") for f in failed)}
+                        "market_ok": not any(f.startswith("market") for f in failed),
+                        "kmarket": kmeta.get("market")}
 
 
 def rank_key(r):

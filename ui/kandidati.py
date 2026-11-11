@@ -96,7 +96,10 @@ MIN_MCAP = 30_000          # CLAUDE.md: never bought under 30k
 MEASURE_MIN_MCAP = 10_000  # 10.11. (owner): may be measured (shown, never tradeable) from 10k
 RUNUP_MAX_X = 4.0          # 4x or more since the first signal: a tag and P x 0.7 / size x 0.5 (trade/edge.RUNUP_X)
 CACHE_S = 60
-MAX_TOKENS = 60            # tokens priced in one build (two DexScreener requests, free)
+MAX_TOKENS = 240           # tokens priced in one build (8 DexScreener requests of 30, free; 11.11.: was 60 and cut
+                           # off every token after the 60th, the range rows came last and showed "no live market")
+RANGE_FRESH_S = 300        # 11.11.: rangedca's own DexScreener snapshot (range.db snaps) used as is when this fresh
+RANGE_STALE_S = 900        # ... and as the fallback, labelled, up to this age when DexScreener does not answer
 SHRINK_N = 20              # a source's EV is pulled toward 0 by this many pseudo-outcomes
 EV_CAP = 0.10
 W = {"confluence": 1.0, "ev": 3.0, "fresh": 0.5, "x": 0.4, "chase": 1.5, "shill": 1.0}
@@ -366,8 +369,38 @@ class Sources:
                 if m not in called]
 
     def live(self, tokens):
+        """{token: market} from DexScreener for every token (batches of 30); raises when the request failed, so the
+        build says why ("market fetch failed: ...") instead of a $0 row."""
         from ui import prijedlog
-        return prijedlog.live_market(list(tokens)[:MAX_TOKENS]) or {}
+        out = prijedlog.live_market(list(tokens)[:MAX_TOKENS])
+        if out is None:
+            raise RuntimeError("DexScreener nije odgovorio")
+        return out
+
+    def range_market(self, tokens, now):
+        """{token: market} from rangedca's own snapshots (range.db snaps, the same DexScreener pairs the range pass reads
+        every minute): the newest row per token not older than RANGE_STALE_S, with its "ts"."""
+        from rangedca import data as rdata
+        p = rdata.db_path()
+        tokens = list(tokens)
+        if not tokens or not os.path.exists(p):
+            return {}
+        con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+        out = {}
+        try:
+            for i in range(0, len(tokens), 400):
+                part = tokens[i:i + 400]
+                q = ",".join("?" * len(part))
+                for t, ts, price, mcap, liq, vm5, vh1, b5, s5, ch5 in con.execute(
+                        f"SELECT token, ts, price, mcap, liq, vol_m5, vol_h1, buys_m5, sells_m5, ch_m5 FROM snaps s "
+                        f"WHERE token IN ({q}) AND ts >= ? AND ts = (SELECT MAX(ts) FROM snaps WHERE token = s.token)",
+                        (*part, int(now) - RANGE_STALE_S)):
+                    if price and mcap:
+                        out[t] = {"price": price, "mcap": mcap, "liq": liq, "vol_m5": vm5, "vol_h1": vh1,
+                                  "buys_m5": b5, "sells_m5": s5, "ch_m5": ch5, "ts": ts}
+        finally:
+            con.close()
+        return out
 
     def x_latest(self, tokens, now):
         from scan import xmom
@@ -1005,23 +1038,50 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
             r["sig"].append((int(t["ts"]), t.get("mcap"), t["kind"]))
     if not rows:
         return [], {"sources_failed": failed, "records": {}}
-    # market now: the callers' live check first, then one DexScreener read for the rest, else the scanner's numbers
+    # market now (11.11.: every row gets a reading or the reason it has none, never a $0 row): the callers' live
+    # check first; rangedca's own snapshot when fresh (the same DexScreener pairs the range pass reads each minute);
+    # one DexScreener read for the rest, in batches of 30, up to MAX_TOKENS; else rangedca's older snapshot, the
+    # scanner's numbers, or the reason
     toks = list(rows)
     need = [t for t in toks if not rows[t]["live"] and t not in lives]
-    lv = safe("market", lambda: S.live(need), {}) if need else {}
+    rng = safe("range_market", lambda: S.range_market(need, now), {}) if need and hasattr(S, "range_market") else {}
+    rng_fresh = {t for t, m in rng.items() if now - int(m.get("ts") or 0) <= RANGE_FRESH_S}
+    ask = [t for t in need if t not in rng_fresh]
+    dex_err = None
+    try:
+        lv = S.live(ask) if ask else {}
+    except Exception as e:  # noqa: BLE001
+        lv, dex_err = {}, f"{type(e).__name__}: {e}"[:160]
+        failed.append(f"market: {type(e).__name__}")
+    cut = set(ask[MAX_TOKENS:])
+    msrc = {"live": 0, "range": 0, "dexscreener": 0, "range_stale": 0, "scan": 0, "none": 0}
     for t in toks:
         r = rows[t]
         r["live"] = r["live"] or lives.get(t)
+        r["market_why"] = None
         if r["live"]:
             r["market"], r["m"] = _market(r["live"]), r["live"]
+            msrc["live"] += 1
+        elif t in rng_fresh:
+            r["market"], r["m"] = _market(rng[t], rng[t]["ts"], "range.db (rangedca, DexScreener)"), rng[t]
+            msrc["range"] += 1
         elif lv.get(t):
             r["market"], r["m"] = _market(lv[t]), lv[t]
+            msrc["dexscreener"] += 1
+        elif rng.get(t):
+            r["market"], r["m"] = _market(rng[t], rng[t]["ts"], "range.db (do 15 min staro)"), rng[t]
+            msrc["range_stale"] += 1
         elif r["scan_row"]:
             sr = r["scan_row"]
             m = {k: sr.get(k) for k in ("price", "mcap", "liq", "vol_h1", "ch_h1", "ch_h24")}
             r["market"], r["m"] = _market(m, sr.get("checked_ts"), "scan.db (do 10 min staro)"), m
+            msrc["scan"] += 1
         else:
             r["market"], r["m"] = None, None
+            r["market_why"] = (f"market fetch failed: {dex_err}" if dex_err and t not in cut else
+                               f"nije dohvaćeno: preko {MAX_TOKENS} tokena u ovom prolazu" if t in cut else
+                               "DexScreener nema para za token (ni rangedca snimke u zadnjih 15 min)")
+            msrc["none"] += 1
     # drop what may not even be measured (under 10k) before the per-token reads
     rows = {t: r for t, r in rows.items() if not r["m"] or (_f(r["m"].get("mcap")) or 0) >= MEASURE_MIN_MCAP}
     toks = list(rows)
@@ -1054,7 +1114,9 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
     out.sort(key=rank_key)
     for i, r in enumerate(out, 1):
         r["rank"] = i
-    meta = {"sources_failed": failed, "records": records}
+    # 11.11.: where each row's market came from, and how many trade (one line in the proposals pass log)
+    meta = {"sources_failed": failed, "records": records,
+            "market": {**msrc, "rows": len(out), "tradeable": sum(1 for r in out if r.get("tradeable"))}}
     if raw:   # 11.11. (proposals/): what the proposals pass checks again without a second read
         meta.update(rug_tables=tables, member=member, glist=glist, shill_members=shill_of)
     return out, meta
@@ -1226,8 +1288,8 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     why_not = _WhyNot()
     tags = []
     if not r["m"] or not _f(m.get("price")):
-        why_not.add("market", "nema živog tržišta (DexScreener)")
-    if mcap < MIN_MCAP:
+        why_not.add("market", r.get("market_why") or "nema živog tržišta (DexScreener)")
+    elif mcap < MIN_MCAP:   # 11.11.: without a market reading the MC is unknown, never "$0 under 30k"
         why_not.add("under_30k", f"MC ${mcap:,.0f} ispod 30k: samo mjerenje, ne kupuje se")
     if curve:
         why_not.add("curve", "još na krivulji ili bez poola: uzimaju se samo bondani")
@@ -1315,7 +1377,8 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
            "confluence": confluence, "source_kinds": sorted(srcs), "sources": srcs,
            "first_signal_ts": first_ts, "last_signal_ts": last_ts,
            "age_min": round((now - first_ts) / 60, 1) if first_ts else None,
-           "market": r["market"], "bonded": not curve, "under_30k": mcap < MIN_MCAP, "runup": ru, "rug": rug,
+           "market": r["market"], "market_why": r.get("market_why"), "bonded": not curve,
+           "under_30k": (mcap < MIN_MCAP) if r["m"] else None, "runup": ru, "rug": rug,
            "x": ({"source": x.get("source"), "age_min": round((now - (x.get("ts") or now)) / 60, 1),
                   "x_momentum_score": x.get("x_momentum_score"), "x_early": x.get("x_early"),
                   "posts60": x.get("posts60"), "fresh": x_fresh} if x else None),
