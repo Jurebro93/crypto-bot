@@ -77,6 +77,53 @@ def score(cs, px0, t0, secs, tp, sl, cost):
             "coverage": round(min(1.0, len(seg) / (secs / 60)), 3)}
 
 
+def exit_sim(cs, entry_px, t0, plan, supply=None, t_end=None):
+    """A paper lot bought at entry_px in minute t0 on the proposal's exit plan (league/exitplan format: take_profits
+    at_mc_usd / at_pct with sell_share, stop, trailing {activate_pct, trail_pct}, time_stop {after_min,
+    if_pnl_below_pct}) over the minute path cs after t0 (up to t_end): (first, gross return fraction, exit minute).
+    first: "tp" (a take profit or the trailing came first), "sl" (the stop came first), "time" (the time stop sold
+    everything first), "open" (nothing by the end of the data: the rest marked at the last close). The stop is checked
+    before the take profits in the same minute (cautious); MC levels need the supply (MC / price)."""
+    def px(lv):
+        if not lv:
+            return None
+        if lv.get("at_mc_usd") and supply:
+            return float(lv["at_mc_usd"]) / supply
+        if lv.get("at_pct") is not None:
+            return entry_px * (1 + float(lv["at_pct"]) / 100)
+        return None
+    tps = sorted([(px(t), float(t.get("sell_share") or 1.0)) for t in plan.get("take_profits") or [] if px(t)])
+    sl = px(plan.get("stop"))
+    tr = plan.get("trailing") or {}
+    act = entry_px * (1 + float(tr.get("activate_pct") or 0) / 100) if tr.get("trail_pct") else None
+    trail = float(tr.get("trail_pct") or 0) / 100
+    ts_ = plan.get("time_stop") or {}
+    left, got, first, peak, hit, last_c, last_m = 1.0, 0.0, None, entry_px, set(), entry_px, t0
+    for m, _o, h, lo, c in cs:
+        if m <= t0:
+            continue
+        if t_end is not None and m > t_end:
+            break
+        last_c, last_m = c, m
+        if sl and lo <= sl:
+            return first or "sl", got + left * sl / entry_px - 1, m
+        if act and peak >= act and lo <= peak * (1 - trail):
+            return first or "tp", got + left * peak * (1 - trail) / entry_px - 1, m
+        for i, (tp_px, share) in enumerate(tps):
+            if i not in hit and h >= tp_px and left > 1e-9:
+                q = min(left, share)
+                got, left = got + q * tp_px / entry_px, left - q
+                hit.add(i)
+                first = first or "tp"
+        if left <= 1e-9:
+            return first or "tp", got - 1, m
+        peak = max(peak, h)
+        if ts_.get("after_min") and m - t0 >= float(ts_["after_min"]) * 60 \
+                and (c / entry_px - 1) * 100 < float(ts_.get("if_pnl_below_pct") or 0):
+            return first or "time", got + left * c / entry_px - 1, m
+    return first or "open", got + left * last_c / entry_px - 1, last_m
+
+
 def measure_one(p, now, econ=None, pcon=None, mom_path=None):
     """(after dict, done) of one proposal; None when nothing new is due."""
     t0 = int(p["created_ts"])

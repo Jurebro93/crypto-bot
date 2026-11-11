@@ -277,6 +277,25 @@ def _cooldown(con, user, tok, now):
     return bool(r and r[0] and now - r[0] < rules.RULES["cooldown_s"])
 
 
+def busy(con, user, tok, now, rng=None):
+    """11.11. (the owner after HAOBIBI: one position per token, a second buy is a lot of the same round or nothing):
+    why another strategy (proposals/paper.py) may not enter `tok` on `user` because of range_dca, or None. An open
+    range round (its second lot is range's own lot 2), a round closed within the cooldown (rules cooldown_s, 20 min:
+    HAOBIBI's round closed on its stop 2 s before the proposal bought), or the token's range paused by range_flip
+    (rules.flip_block: paused / flip candidate). rng: the token's range (range.db) when the caller has it."""
+    try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='range_rounds'").fetchone() is None:
+            return None
+        if con.execute("SELECT 1 FROM range_rounds WHERE status='open' AND user=? AND token=?", (user, tok)).fetchone():
+            return "range runda je otvorena (drugi ulaz bio bi lot iste runde)"
+        if _cooldown(con, user, tok, now):
+            return f"range runda zatvorena prije manje od {rules.RULES['cooldown_s'] // 60} min (cooldown)"
+    except sqlite3.Error:
+        return None
+    why = rules.flip_block(rng) if rng else None
+    return f"range je u pauzi ({why})" if why else None
+
+
 def _buy(con, user, tok, sym, usd, price, liq, mcap, src, allow_open):
     tid = store.buy(con, user, tok, sym, usd, price, liq, src, None, mcap, allow_open=allow_open)
     # the round's executor sells these lots; a player's "also for new buys" rule must not put its own TP/SL on them

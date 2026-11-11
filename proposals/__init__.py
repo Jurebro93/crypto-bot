@@ -11,7 +11,8 @@ page and in the MCP tool get_proposals. Paper first: nothing here buys on the re
     job.py         the pass (run_proposals.py once, every 150 s, low priority): proposals.db sync (novo / isteklo),
                    near misses, price points, after-outcomes; the night step: the callers' quick-exit benchmark
     outcomes.py    what happened 1 h and 4 h after every proposal (missed opportunities)
-    paper.py       paper mode: the demo account takes every shown proposal with its exit (league/auto.loop)
+    paper.py       paper mode: the demo account takes a waiting proposal with its exit when the price is in its entry
+                   zone and above its stop, never next to a range_dca round (league/auto.loop, 11.11.)
     report.py      the 23:30 report per strategy and the day's missed risers (events/evreport)
     view.py        the Autopilot card, its fragment and get_proposals (read-only, cached)
     store.py       proposals.db (DATA_DIR)

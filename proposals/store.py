@@ -2,9 +2,10 @@
 price points for the after-outcomes, the callers' quick-exit benchmark, the daily report and a small kv.
 
 Writers: run_proposals.py (the pass: new / updated / expired proposals, outcomes, near misses, prices, benchmark,
-report) and the owner's taps on the Autopilot page (Odbij, Kupi: one row's status). Readers: the Autopilot card, the
-MCP tool get_proposals and the demo account's paper entries, read-only with a short cache. WAL, so a reader never
-waits for the pass.
+report), the owner's taps on the Autopilot page (Odbij, Kupi: one row's status) and, 11.11., the demo account's paper
+loop (proposals/paper.py, run_ui: the waiting columns, the stop rule's isteklo and the paper entry, short timeout).
+Readers: the Autopilot card, the MCP tool get_proposals and the paper loop, read-only with a short cache. WAL, so a
+reader never waits for the pass.
 """
 import json
 import os
@@ -23,7 +24,9 @@ CREATE TABLE IF NOT EXISTS proposals (
     strategy TEXT, sources TEXT, n_independent INTEGER, ev_pct REAL, p_tp REAL, tp_pct REAL, sl_pct REAL,
     price0 REAL, mcap0 REAL, liq0 REAL, size_sol REAL, row TEXT,
     reject_reason TEXT, reject_note TEXT, decided_by TEXT, bought_sol REAL,
-    after TEXT, after_done INTEGER NOT NULL DEFAULT 0);
+    after TEXT, after_done INTEGER NOT NULL DEFAULT 0,
+    below_sl_at_creation INTEGER, last_mcap REAL, last_mcap_ts INTEGER, zone_seen_ts INTEGER, zone_seen_mcap REAL,
+    paper_ts INTEGER, paper_mcap REAL);
 CREATE INDEX IF NOT EXISTS proposals_status ON proposals (status, token);
 CREATE INDEX IF NOT EXISTS proposals_created ON proposals (created_ts);
 CREATE INDEX IF NOT EXISTS proposals_after ON proposals (after_done, created_ts);
@@ -35,9 +38,17 @@ CREATE TABLE IF NOT EXISTS bench (handle TEXT PRIMARY KEY, n INTEGER, hits INTEG
 CREATE TABLE IF NOT EXISTS reports (day TEXT PRIMARY KEY, ts INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
-COLS = ("id", "token", "symbol", "created_ts", "updated_ts", "expires_ts", "status", "status_ts", "status_why",
-        "strategy", "sources", "n_independent", "ev_pct", "p_tp", "tp_pct", "sl_pct", "price0", "mcap0", "liq0",
-        "size_sol", "row", "reject_reason", "reject_note", "decided_by", "bought_sol", "after", "after_done")
+BASE_COLS = ("id", "token", "symbol", "created_ts", "updated_ts", "expires_ts", "status", "status_ts", "status_why",
+             "strategy", "sources", "n_independent", "ev_pct", "p_tp", "tp_pct", "sl_pct", "price0", "mcap0", "liq0",
+             "size_sol", "row", "reject_reason", "reject_note", "decided_by", "bought_sol", "after", "after_done")
+# 11.11. (the owner's rules after HAOBIBI): the waiting state. below_sl_at_creation 1 / 0: the market cap was under /
+# above the proposal's stop when it was made (the stop rule, strategies.wait_check); last_mcap(_ts): the newest market
+# cap the pass or the demo account's paper loop read; zone_seen_ts / zone_seen_mcap: the first time it was seen inside
+# its entry zone; paper_ts / paper_mcap: the demo account's paper entry ("ušao (paper) na MC ...", status stays novo).
+WAIT_COLS = (("below_sl_at_creation", "INTEGER"), ("last_mcap", "REAL"), ("last_mcap_ts", "INTEGER"),
+             ("zone_seen_ts", "INTEGER"), ("zone_seen_mcap", "REAL"), ("paper_ts", "INTEGER"), ("paper_mcap", "REAL"))
+COLS = BASE_COLS + tuple(c for c, _t in WAIT_COLS)
+PRICE_FRESH_S = 600     # a market cap older than this is not the price "now" (sync, the view)
 
 
 def db_path():
@@ -50,10 +61,10 @@ def db_path():
     return os.path.join(ROOT, "proposals.db")
 
 
-def connect(path=None):
+def connect(path=None, timeout=30):
     p = path or db_path()
     new = not os.path.exists(p) or not os.path.getsize(p)
-    con = sqlite3.connect(p, timeout=30)
+    con = sqlite3.connect(p, timeout=timeout)
     if new:
         con.execute("PRAGMA auto_vacuum=INCREMENTAL")
     try:
@@ -61,7 +72,17 @@ def connect(path=None):
     except sqlite3.Error:
         pass
     con.executescript(SCHEMA)
+    migrate(con)
     return con
+
+
+def migrate(con):
+    """The waiting columns on a proposals.db made before them (ALTER TABLE, once)."""
+    have = {r[1] for r in con.execute("PRAGMA table_info(proposals)")}
+    for c, t in WAIT_COLS:
+        if c not in have:
+            con.execute(f"ALTER TABLE proposals ADD COLUMN {c} {t}")
+    con.commit()
 
 
 def ro(path=None):
@@ -103,11 +124,20 @@ def _dict(r):
 
 
 def read(con, where="1=1", args=(), order="id DESC", limit=500):
-    try:
-        return [_dict(r) for r in con.execute(f"SELECT {', '.join(COLS)} FROM proposals WHERE {where} ORDER BY {order} "
-                                              f"LIMIT ?", (*args, int(limit)))]
-    except sqlite3.Error:
-        return []
+    """Proposals as dicts. A read-only reader of a proposals.db the pass has not migrated yet gets the waiting columns
+    as None."""
+    for cols in (COLS, BASE_COLS):
+        try:
+            rows = con.execute(f"SELECT {', '.join(cols)} FROM proposals WHERE {where} ORDER BY {order} LIMIT ?",
+                               (*args, int(limit))).fetchall()
+        except sqlite3.OperationalError as e:
+            if cols is COLS and "no such column" in str(e):
+                continue
+            return []
+        except sqlite3.Error:
+            return []
+        return [_dict(tuple(r) + (None,) * (len(COLS) - len(cols))) for r in rows]
+    return []
 
 
 def one(con, pid):
@@ -141,9 +171,11 @@ def _cols(p):
 
 
 def insert(con, p, now):
+    from . import strategies
     c = _cols(p)
     c.update(token=p["token"], created_ts=int(now), updated_ts=int(now), status="novo", status_ts=int(now),
-             price0=p.get("price0"), mcap0=p.get("mcap0"), liq0=p.get("liq0"))
+             price0=p.get("price0"), mcap0=p.get("mcap0"), liq0=p.get("liq0"),
+             below_sl_at_creation=strategies.below_stop(p.get("mcap0"), strategies.stop_of(p)))
     cur = con.execute(f"INSERT INTO proposals ({', '.join(c)}) VALUES ({', '.join('?' * len(c))})", list(c.values()))
     return cur.lastrowid
 
@@ -163,6 +195,37 @@ def set_status(con, pid, status, why, now, **extra):
     cur = con.execute(f"UPDATE proposals SET {', '.join(f'{k}=?' for k in cols)} WHERE id=? AND status='novo'",
                       [*cols.values(), int(pid)])
     return cur.rowcount > 0
+
+
+def mark_seen(con, seen, now):
+    """seen [(proposal id, market cap, inside its zone)]: the newest market cap, and the first time inside the zone."""
+    for pid, mc, inside in seen:
+        if not mc:
+            continue
+        con.execute("UPDATE proposals SET last_mcap=?, last_mcap_ts=?, zone_seen_ts=CASE WHEN ? AND zone_seen_ts IS NULL "
+                    "THEN ? ELSE zone_seen_ts END, zone_seen_mcap=CASE WHEN ? AND zone_seen_mcap IS NULL THEN ? ELSE "
+                    "zone_seen_mcap END WHERE id=? AND status='novo'",
+                    (float(mc), int(now), int(bool(inside)), int(now), int(bool(inside)), float(mc), int(pid)))
+
+
+def mark_paper(con, pid, mcap, now):
+    """The demo account's paper entry of a waiting proposal (status stays novo: the owner may still buy it)."""
+    cur = con.execute("UPDATE proposals SET paper_ts=?, paper_mcap=?, status_why=? WHERE id=? AND status='novo' AND "
+                      "paper_ts IS NULL", (int(now), mcap, f"ušao (paper) na MC ${float(mcap or 0):,.0f}", int(pid)))
+    return cur.rowcount > 0
+
+
+def last_px(con, tokens, since):
+    """{token: (ts, market cap)}: the newest point of proposals.db px at or after since."""
+    toks = list(tokens)
+    if not toks:
+        return {}
+    try:
+        rows = con.execute(f"SELECT token, ts, mcap FROM px WHERE ts >= ? AND mcap > 0 AND token IN "
+                           f"({','.join('?' * len(toks))}) ORDER BY ts", (int(since), *toks)).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {t: (ts, m) for t, ts, m in rows}
 
 
 REJECT_REASONS = ("kasno", "ne vjerujem izvoru", "rug rizik", "premala likvidnost", "već imam dosta", "drugo")
