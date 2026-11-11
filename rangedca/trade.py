@@ -57,10 +57,10 @@ STALE_S = 60                # league/exitplan.STALE_S: an older price fires only
 RNG_TTL_S = 10              # the 1-s exit loop reads range.db at most this often
 OFF_CHECK_S = 60
 SHADOW_EVERY_S = 20 * 60
-EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "time", "odustajanje": "sl"}
+EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "time", "odustajanje": "sl", "rug": "rug"}
 REASON_HR = {"tp1": "pola u gornjoj zoni", "top": "ostatak na vrhu raspona", "trailing": "trailing 10 % od vrha",
              "stop": "tvrdi stop (range_low_low × 0,85)", "time": "6 h bez gornje zone, izlaz na nuli",
-             "odustajanje": "odustajanje"}
+             "odustajanje": "odustajanje", "rug": "tvrdi blok (rug): pin i oznaka poništeni"}
 STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: a round of the new rules (range_flip)
 
 
@@ -635,6 +635,11 @@ def exits_once(con, market_fn, now=None):
             return []
     elif con.execute("SELECT 1 FROM sqlite_master WHERE name='range_rounds'").fetchone() is None:
         return []
+    try:   # 11.11. (Jure: HAOBIBI rugged): a hard block ends a pin, a counterfactual win and the token's open round
+        from . import owner
+        owner.auto_check(con, market_fn, now)
+    except Exception as e:  # noqa: BLE001 - the exits below never wait for it
+        print(f"range: provjera pinova / oznaka: {type(e).__name__}: {e}", flush=True)
     open_r = rounds(con)
     if not open_r:
         return []
