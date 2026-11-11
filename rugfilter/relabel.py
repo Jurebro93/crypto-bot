@@ -176,7 +176,7 @@ def archive_row_labels(con, row, now=None):
         j = collapse.judge(pm, lm, pl, ll) if pm and lm is not None else None
         drop = 1 - lm / pm if pm and lm is not None else None
         pool = collapse.approx_pool(pm, lm, pl, ll) if pm else {}
-        out = {"new": archive.kind_of(row["kind"], pl, ll, pm, lm), "sol": collapse.literal_kind(drop, pool.get("sol_drop")),
+        out = {"new": archive.kind_new(row["kind"], pl, ll, pm, lm), "sol": collapse.literal_kind(drop, pool.get("sol_drop")),
                "pad": drop, "liq_pad": (1 - (ll or 0) / pl) if pl and ll is not None else None,
                "l_pad": pool.get("l_drop"), "sol_pad": pool.get("sol_drop"),
                "reason": (j or {}).get("text") or row.get("reason"), "ts": row.get("archived_ts")}

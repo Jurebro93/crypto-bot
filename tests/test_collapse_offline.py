@@ -38,7 +38,9 @@ class CollapseTest(unittest.TestCase):
         con.close()
         pk = collapse.peaks(db, ["A", "B", "C"])
         self.assertIsNone(collapse.check(pk.get("A")))                    # -62% on last scan, liquidity ok
-        self.assertEqual(collapse.assess(pk.get("A"), 6600, 6400)["kind"], "dump")   # live price: a dump, L held
+        self.assertEqual(collapse.assess_pool(pk.get("A"), 6600, 6400)["kind"], "dump")   # pool rule: a dump, L held
+        strict = collapse.assess(pk.get("A"), 6600, 6400)                  # 11.11. hotfix: the stricter label blocks
+        self.assertEqual((strict["kind"], strict["strict"]), ("rug", "old"))   # (noon rule: USD liquidity -75 %)
         self.assertTrue(collapse.check(pk.get("A"), 6600, 1500))          # live: the pool pulled (L -80 %)
         self.assertIsNone(collapse.check(pk.get("B")))                    # its peak is older than 24 h
         self.assertIsNone(collapse.check(pk.get("C"), 100, 100))          # never seen: nothing to compare
