@@ -127,10 +127,11 @@ def wilson_low(k, n, z=Z90):
 
 def cost(size_usd, liq):
     """Round-trip cost of a stake of size_usd in a pool of liq USD (both sides): 2 x fee per side + 2 x the price
-    impact. The same signature as trade/cost.cost (a parallel branch); None for an unknown pool."""
+    impact. trade/cost.round_trip; None for an unknown pool."""
     if not liq or liq <= 0 or size_usd is None:
         return None
-    return 2 * FEE_SIDE + 2 * size_usd / (liq / 2 + size_usd)
+    from trade import cost as _cost   # 11.11.: the one cost model (calibrated on our own orders when there are some)
+    return _cost.round_trip(size_usd, liq)
 
 
 def decay(age_s, half_life_d=HALF_LIFE_D):
