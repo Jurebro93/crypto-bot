@@ -170,6 +170,8 @@ PROCESSES = (
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
     # 10.11. (flag range_dca): the entries and exits run in run_ui (protected); this only collects and computes
     ("range", "run_range.py", (), JOBS, "raspon + DCA: snimke kandidata svake minute, rasponi svakih 5 min, noćni backtest"),
+    # 11.11. (flag momentum_scalp): the entries and exits run in run_ui (protected); this only collects the signals
+    ("momentum", "run_momentum.py", (), JOBS, "momentum scalp: snimke svake minute, signali i njihov ishod, noćni backtest"),
     # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
     ("events", "run_events.py", (), JOBS,
      "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),

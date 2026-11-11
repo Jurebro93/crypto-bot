@@ -13,6 +13,9 @@
                        n_measured and each wallet's early-buyer record (events.db, the night batch)
     groups             kol/groupdisc.group_activity since `since` (hidden_group, caller groups)
     range_candidates   rangedca/view.candidates (range_score >= 0.7)
+    momentum_candidates  momentum/view.candidates: the newest momentum_scalp signals (every entry rule met), near
+                       misses, the 7-day base rate and the paper proof (11.11.)
+    grok_calibration   momentum/evgate.report: Grok's p_tp against what happened (Brier, reliability per bucket)
     grok_predictions   [] with a note: no predictions store exists (the flag grok_predictions only reserves the
                        intake); nothing to score yet
     health             the feeds' gap alerts (events/health) and last night's batch
@@ -339,6 +342,20 @@ def range_part():
             "candidates": [{k: c.get(k) for k in keep if k in c} for c in (d.get("candidates") or [])[:15]]}
 
 
+def momentum_part(now):
+    """11.11. (flag momentum_scalp, momentum/view.py): the newest signals and near misses for Grok to rate."""
+    from momentum import view
+    d = view.candidates(now, minutes=60, limit=15)
+    d.pop("positions", None)   # get_portfolio_status has them
+    return d
+
+
+def calibration_part(now):
+    """11.11. (flag grok_ev_gate, momentum/evgate.py): Brier score and reliability of Grok's p_tp, 30 days."""
+    from momentum import evgate
+    return evgate.report(now)
+
+
 def health_part(econ):
     from events import night
     h = health.latest(econ)
@@ -368,6 +385,8 @@ def build(since=None, limit_signals=None, now=None):
         out["signals"] = _timed(out, "signals", signals_part, econ, since_s, now, limit)
         out["groups"] = _timed(out, "groups", groups_part, since_s, now)
         out["range_candidates"] = _timed(out, "range_candidates", range_part)
+        out["momentum_candidates"] = _timed(out, "momentum_candidates", momentum_part, now)
+        out["grok_calibration"] = _timed(out, "grok_calibration", calibration_part, now)
         out["grok_predictions"] = {"items": [], "note": "nema spremišta Grokovih predviđanja (zastavica grok_predictions "
                                                         "samo rezervira unos); nema ničega za ocijeniti"}
         out["health"] = _timed(out, "health", health_part, econ)

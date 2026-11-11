@@ -186,6 +186,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
 
+# 11.11. (Jure, flag momentum_scalp): momentum data (momentum/, run_momentum.py), a short process every MOM_EVERY_S:
+# DexScreener minute snapshots of 60 tokens (free), PumpPortal's unique buyers (free), GeckoTerminal /pools/multi only
+# for prequalified tokens (MOM_GT_DAY 100), Helius top 10 only for a full match (MOM_HELIUS_DAY 2000 credits); the
+# signals' base rate and Grok's EV-gate calibration outcomes. Flag off: it reads the flag and ends. The backtest over
+# the last 7 days of candles, nightly (01-06 Zagreb, MOM_BT_GT 60 GeckoTerminal requests) -> output/momentum-backtest-*.
+( sleep 300; while true; do low python3 run_momentum.py once || echo "momentum nije uspio"; sleep "${MOM_EVERY_S:-60}"; done ) &
+( sleep 960; while true; do python3 -m ops.heavy --night run_momentum.py backtest || echo "momentum backtest nije uspio"; sleep 86400; done ) &
+
 # 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
 # outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,
 # channels and wallets, groupdisc's night pass (skipped when its own loop above already ran), the range backtest
