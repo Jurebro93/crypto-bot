@@ -11,6 +11,11 @@ after Brza kupnja and owner-only (nav link only while the flag is on), the fragm
 Brza kupnja -> the position's own TP/SL + the exit plan + kupljeno, paper entries only on the demo account, live
 refused, the MCP schema and dispatch (get_proposals, submit_signal_opinion with and without a proposal), the guarded
 event / catalyst sources, the daily report with the missed risers, start.sh / cpuguard registration.
+11.11. (after HAOBIBI): the paper entry waits for the entry zone (no entry at $88k under a $104-112k zone and an $88.6k
+stop, an entry at $108k; proposals older than 10 min too; the cap per pass), the stop rule (under the stop at creation:
+waits; above it, then under: isteklo), a vanished source outside the zone keeps waiting, one position per token next
+to range_dca (open round, its cooldown, the pause; a proposal's position blocks a range round), the waiting state on
+the card / get_proposals, report.zone_misses and its log block once, live still refused.
 
     python3 -m unittest tests.test_prijedlozi_offline
 """
@@ -808,8 +813,11 @@ class Kupi(BuyBase):
     def test_paper_only_on_the_demo_account(self):
         import time as _t
         now = int(_t.time())
-        r = prow(MINT, tp=20.0, sl=12.0)
+        r = prow(MINT, tp=20.0, sl=12.0, exp=now + 900)
         r["buy"] = {"tp": "20%", "sl": "-12%", "sol": 0.15, "hold_s": 2700}
+        # 11.11.: the demo account enters only inside the entry zone and above the stop (MC $82k here)
+        r.update(entry_zone={"mcap_low": 80_000, "mcap_high": 85_000}, mcap0=82_000,
+                 exits_mcap={"tp": [98_400], "tp_share": [1.0], "sl": 72_160})
         con = store.connect(self.ppath)
         pid = store.insert(con, r, now)
         con.commit()
@@ -842,6 +850,385 @@ class Kupi(BuyBase):
 def unquote_(s):
     from urllib.parse import unquote
     return unquote(s)
+
+
+# ---------- 11.11. waiting for the entry zone (HAOBIBI), the stop rule, range_dca's round -----------------------------------
+
+from league import store as lstore  # noqa: E402
+from rangedca import trade as rtrade  # noqa: E402
+from tests.test_range_dca_offline import TradeBase as RangeBase, S as RS  # noqa: E402
+
+HAO = "8tbfkL8L" + "H" * 32 + "pump"   # HAOBIBI (only the start of the real mint is known here: symbolic)
+HAO_ZONE, HAO_SL = {"mcap_low": 104_000, "mcap_high": 112_000}, 88_600
+
+
+def hao_row(tok=HAO, mcap0=88_120, ev=20.0, hits=30, n=40, created=NOW):
+    """The HAOBIBI range proposal of 11.11.: zone $104-112k, stop $88.6k, TP $172.3k / $190k."""
+    r = prow(tok, ev=ev, sources=("range",), exp=created + 7200)
+    r.update(symbol="HAOBIBI", entry_zone=dict(HAO_ZONE), mcap0=mcap0, price0=mcap0 / 1e9, liq0=60_000,
+             market={"market_cap_usd": mcap0, "price_usd": mcap0 / 1e9, "liquidity_usd": 60_000},
+             exits_mcap={"tp": [172_300, 190_000], "tp_share": [0.5, 0.5], "sl": HAO_SL, "trailing_pct": 10,
+                         "time_min": 360},
+             exit_plan={"take_profits": [{"at_mc_usd": 172_300, "sell_share": 0.5},
+                                         {"at_mc_usd": 190_000, "sell_share": 0.5}],
+                        "stop": {"at_mc_usd": HAO_SL}, "trailing": {"activate_pct": 70, "trail_pct": 10},
+                        "time_stop": {"after_min": 360, "if_pnl_below_pct": 0}},
+             buy={"tp": "$172.3k", "sl": "$88.6k", "sol": 0.15, "hold_s": None},
+             strategies={"range": {"valid": True, "ev_pct": ev, "p_tp": 0.6, "n": n, "hits": hits, "p_mult": 1.0,
+                                   "calibrated": False, "expires_ts": None, "expires_after_s": 7200}})
+    return r
+
+
+def at_mc(mcap, liq=60_000.0, seen=None):
+    def mk(toks):
+        if seen is not None:
+            seen.append(sorted(toks))
+        return {t: (mcap / 1e9, liq, None, float(mcap)) for t in toks}
+    return mk
+
+
+class ZoneEntry(BuyBase):
+    """paper.run_once enters a waiting proposal only inside its zone, above its stop, never next to a range round."""
+
+    def setUp(self):
+        super().setUp()
+        self.ppath = os.path.join(self.tmp.name, "proposals.db")
+        self.penv = mock.patch.dict(os.environ, {"PROPOSALS_DB": self.ppath})
+        self.penv.start()
+        self.rug = mock.patch.object(lcopy, "_rugged", lambda *a: None)
+        self.rug.start()
+        self.now = int(__import__("time").time())
+        settings.put(self.con, "flag:proposals", {"mode": "paper", "since": self.now})
+        settings._FLAG_CACHE.clear()
+        paper._LAST.clear()
+        view.clear()
+
+    def tearDown(self):
+        self.rug.stop()
+        self.penv.stop()
+        settings._FLAG_CACHE.clear()
+        paper._LAST.clear()
+        view.clear()
+        super().tearDown()
+
+    def seed(self, r, created):
+        con = store.connect(self.ppath)
+        try:
+            pid = store.insert(con, r, created)
+            con.commit()
+            return pid
+        finally:
+            con.close()
+
+    def prop(self, pid):
+        con = store.ro(self.ppath)
+        try:
+            return store.one(con, pid)
+        finally:
+            con.close()
+
+    def go(self, mk, now):
+        return paper.run_once(self.lg, mk, now, sol=200.0)
+
+    def held(self, tok=HAO):
+        return [tuple(r) for r in self.lg.execute("SELECT user, source FROM trades WHERE token=? AND status='open'", (tok,))]
+
+    def test_haobibi_replay_under_the_stop_at_creation_waits_then_enters_in_the_zone(self):
+        # made 1 h ago (long past the old 10-min window) while the price was already under its $88.6k stop
+        pid = self.seed(hao_row(mcap0=88_120, created=self.now - 3600), self.now - 3600)
+        p = self.prop(pid)
+        self.assertEqual(p["below_sl_at_creation"], 1)
+        self.assertEqual(self.go(at_mc(88_120), self.now), [])                      # 11:44:39: no entry at $88k
+        p = self.prop(pid)
+        self.assertEqual((p["status"], p["last_mcap"], p["paper_ts"]), ("novo", 88_120, None))   # still waiting
+        self.assertEqual(view.entry_state(p, self.now)["state"], "čeka ulaz")
+        self.assertIn("ispod SL-a", view.entry_state(p, self.now)["text"])
+        self.assertEqual(self.held(), [])
+        self.assertEqual(self.go(at_mc(100_000), self.now + 20), [])               # under the zone: waits
+        done = self.go(at_mc(108_000), self.now + 40)                              # in the zone: paper entry
+        self.assertEqual(len(done), 1, done)
+        self.assertEqual(done[0][0], settings.PAPER_USER)
+        self.assertIn("ušao (paper) na MC $108,000", done[0][1])
+        self.assertIn("$104k–$112k", done[0][1])
+        self.assertEqual(self.held(), [(settings.PAPER_USER, "prijedlog (demo): range")])
+        p = self.prop(pid)
+        self.assertEqual((p["status"], p["paper_mcap"], p["status_why"]), ("novo", 108_000, "ušao (paper) na MC $108,000"))
+        self.assertIsNotNone(p["zone_seen_ts"])
+        self.assertEqual(view.entry_state(p, self.now)["state"], "ušao (paper)")
+        self.assertEqual(self.go(at_mc(108_000), self.now + 60), [])               # once per proposal
+        t = self.lg.execute("SELECT auto FROM trades WHERE user=? AND token=?", (settings.PAPER_USER, HAO)).fetchone()
+        self.assertEqual(json.loads(t[0])["mode"], "tpsl")
+
+    def test_above_the_stop_at_creation_then_under_it_expires(self):
+        pid = self.seed(hao_row(mcap0=96_210, created=self.now - 600), self.now - 600)   # lot 2's MC: above the stop
+        self.assertEqual(self.prop(pid)["below_sl_at_creation"], 0)
+        self.assertEqual(self.go(at_mc(88_120), self.now), [])
+        p = self.prop(pid)
+        self.assertEqual(p["status"], "isteklo")
+        self.assertTrue(p["status_why"].startswith("pao ispod SL-a"), p["status_why"])
+        self.assertEqual(self.go(at_mc(108_000), self.now + 20), [])               # dead: never entered
+        self.assertEqual(self.held(), [])
+
+    def test_entry_only_inside_the_zone_and_with_ev_above_zero(self):
+        pid = self.seed(hao_row(mcap0=108_000, created=self.now - 60), self.now - 60)
+        for i, mc in enumerate((103_000, 112_500, 150_000)):
+            self.assertEqual(self.go(at_mc(mc), self.now + 20 * i), [], mc)
+        self.assertEqual(self.prop(pid)["status"], "novo")
+        self.assertEqual(self.go(at_mc(108_000, liq=14_000), self.now + 80), [])   # liquidity under $15k
+        self.assertEqual(len(self.go(at_mc(104_000, liq=16_000), self.now + 100)), 1)   # $15k floor (not $20k), inclusive
+        # EV recomputed at the entry: a record with no hits is not entered even inside the zone
+        pid2 = self.seed(hao_row(tok=mint(30), mcap0=108_000, hits=0, created=self.now), self.now)
+        self.assertEqual(self.go(at_mc(108_000), self.now + 120), [])
+        self.assertEqual(self.prop(pid2)["paper_ts"], None)
+        # a proposal without an entry zone waits for its market cap +- 5 %
+        r = prow(mint(31), exp=self.now + 900)
+        r["entry_zone"] = None
+        self.seed(r, self.now)
+        self.assertEqual(self.go(at_mc(110_000), self.now + 140), [])
+        self.assertEqual(len(self.go(at_mc(104_000), self.now + 160)), 1)
+
+    def test_older_than_ten_minutes_and_the_cap_per_pass(self):
+        seen = []
+        for i in range(paper.PASS_CAP + 10):
+            self.seed(hao_row(tok=mint(100 + i), mcap0=108_000, ev=1.0 + i, created=self.now - 5400), self.now - 5400)
+        self.assertEqual(self.go(at_mc(150_000, seen=seen), self.now), [])          # all outside: nothing bought
+        self.assertEqual(len(seen[0]), paper.PASS_CAP)                              # at most 50 priced a pass
+        self.assertNotIn(mint(100), seen[0])                                        # the lowest EV ones wait
+        self.assertIn(mint(100 + paper.PASS_CAP + 9), seen[0])
+        self.assertEqual(self.go(at_mc(150_000, seen=seen), self.now + 5), [])      # at most every CHECK_EVERY_S
+        self.assertEqual(len(seen), 1)
+
+    def test_range_round_open_cooldown_and_pause_block_the_entry(self):
+        pid = self.seed(hao_row(mcap0=108_000, created=self.now - 60), self.now - 60)
+        rtrade.ensure(self.lg)
+        self.lg.execute("INSERT INTO range_rounds (user, token, opened_ts, status, levels, state) VALUES (?,?,?,?,?,?)",
+                        (settings.PAPER_USER, HAO, self.now - 3000, "open", "{}", "{}"))
+        self.lg.commit()
+        self.assertEqual(self.go(at_mc(108_000), self.now), [])                    # its second buy is range's lot 2
+        # HAOBIBI: the round closed on its stop 2 s before
+        self.lg.execute("UPDATE range_rounds SET status='closed', closed_ts=? WHERE token=?", (self.now + 18, HAO))
+        self.lg.commit()
+        self.assertEqual(self.go(at_mc(108_000), self.now + 20), [])
+        self.assertIn("cooldown", rtrade.busy(self.lg, settings.PAPER_USER, HAO, self.now + 20))
+        self.assertEqual(self.held(), [])
+        # the range paused by range_flip
+        later = self.now + 18 + 20 * 60 + 1
+        with mock.patch.object(paper, "_range_rows", lambda toks: {HAO: {"flip": {"state": "paused"}}}):
+            self.assertEqual(self.go(at_mc(108_000), later), [])
+        self.assertIsNone(rtrade.busy(self.lg, settings.PAPER_USER, HAO, later))
+        self.assertEqual(len(self.go(at_mc(108_000), later + 20)), 1)              # after the cooldown it may
+        self.assertEqual(self.prop(pid)["paper_mcap"], 108_000)
+
+    def test_live_is_still_refused_and_only_the_demo_account_enters(self):
+        with self.assertRaises(ValueError):
+            settings.set_flag(self.con, "proposals", "live", "Jure")
+        self.assertTrue(paper.live_refusal(self.con))
+        settings.put(self.con, "flag:proposals", {"mode": "live", "since": self.now})   # a hand edit: still paper only
+        settings._FLAG_CACHE.clear()
+        self.seed(hao_row(mcap0=108_000, created=self.now), self.now)
+        done = self.go(at_mc(108_000), self.now)
+        self.assertEqual([u for u, _w in done], [settings.PAPER_USER])
+        self.assertEqual(self.held(), [(settings.PAPER_USER, "prijedlog (demo): range")])
+
+    def test_the_card_and_get_proposals_show_the_waiting_state(self):
+        from ui.html import esc
+        pid = self.seed(hao_row(mcap0=96_210, created=self.now), self.now)
+        p = self.prop(pid)
+        self.assertIn("čeka ulaz · sada $96k, zona $104k–$112k", view._row_inner(p, esc))
+        con = store.connect(self.ppath)
+        store.mark_seen(con, [(pid, 108_000, True)], self.now)
+        con.commit()
+        con.close()
+        p = self.prop(pid)
+        self.assertEqual(view.entry_state(p, self.now)["state"], "u zoni")
+        self.assertIn("u zoni", view._row_inner(p, esc))
+        es = view._mcp_row(p)["entry_state"]
+        self.assertEqual((es["state"], es["zone"], es["sl"], es["below_sl_at_creation"]),
+                         ("u zoni", [104_000, 112_000], HAO_SL, 0))
+
+
+class WaitSync(unittest.TestCase):
+    """job.sync: a vanished source with the price outside the zone keeps the proposal waiting; the stop rule."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "proposals.db")
+        self.con = store.connect(self.path)
+
+    def tearDown(self):
+        self.con.close()
+        self.tmp.cleanup()
+
+    def p(self, tok=HAO):
+        return store.last_by_token(self.con, [tok])[tok]
+
+    def test_vanished_source_outside_the_zone_keeps_waiting(self):
+        c = self.con
+        job.sync(c, [hao_row(mcap0=108_000)], [], NOW)                              # made in the zone
+        self.assertEqual(self.p()["zone_seen_mcap"], 108_000)
+        # the range dropped out because the price left the bottom zone ($97k): it waits
+        out = job.sync(c, [], [], NOW + 150, prices={HAO: (97e-6, 97_000)})
+        self.assertEqual((out["expired"], out["waiting"], self.p()["status"]), (0, 1, "novo"))
+        self.assertEqual(self.p()["last_mcap"], 97_000)
+        # no price at all this pass: only the time rule decides
+        self.assertEqual(job.sync(c, [], [], NOW + 900)["expired"], 0)
+        # the pass's own px point (newer than the paper loop's read) outside the zone: still waiting
+        c.execute("INSERT INTO px VALUES (?,?,?,?)", (HAO, NOW + 1000, 99e-6, 99_000))
+        self.assertEqual(job.sync(c, [], [], NOW + 1050)["expired"], 0)
+        # a near miss that is a price reason (EV / an invalid strategy) outside the zone: waiting
+        near = [{"token": HAO, "why": "EV -1,0 % nakon troška", "blocks": [], "mcap": 100_000}]
+        self.assertEqual(job.sync(c, [], near, NOW + 1100)["expired"], 0)
+        # a hard block (rug) still expires it
+        near = [{"token": HAO, "why": "rug (kolaps)", "blocks": [{"key": "rug_hard"}], "mcap": 100_000}]
+        job.sync(c, [], near, NOW + 1200)
+        self.assertEqual((self.p()["status"], self.p()["status_why"]), ("isteklo", "više ne vrijedi: rug (kolaps)"))
+        # the source vanished while the price IS in the zone: not a price reason, it expires as before
+        job.sync(c, [hao_row(tok=A, mcap0=108_000)], [], NOW)
+        job.sync(c, [], [], NOW + 150, prices={A: (108e-6, 108_000)})
+        self.assertEqual(self.p(A)["status_why"], "više ne vrijedi: izvor prijedloga je nestao")
+        # and the time expiry ends any wait
+        job.sync(c, [hao_row(tok=B, mcap0=108_000)], [], NOW)
+        job.sync(c, [], [], NOW + 7201, prices={B: (97e-6, 97_000)})
+        self.assertEqual(self.p(B)["status_why"], "vrijeme je isteklo")
+
+    def test_the_stop_rule_in_the_pass(self):
+        c = self.con
+        job.sync(c, [hao_row(mcap0=88_120)], [], NOW)                               # made under its stop
+        self.assertEqual(self.p()["below_sl_at_creation"], 1)
+        job.sync(c, [hao_row(mcap0=87_000)], [], NOW + 150)                         # still under it: waits
+        job.sync(c, [], [], NOW + 300, prices={HAO: (85e-6, 85_000)})
+        self.assertEqual(self.p()["status"], "novo")
+        job.sync(c, [hao_row(mcap0=106_000)], [], NOW + 450)                        # in the zone: armed
+        self.assertIsNotNone(self.p()["zone_seen_ts"])
+        job.sync(c, [], [], NOW + 600, prices={HAO: (88e-6, 88_000)})              # then under the stop: dead
+        self.assertTrue(self.p()["status_why"].startswith("pao ispod SL-a"))
+        # above the stop at creation, then under it while still shown
+        job.sync(c, [hao_row(tok=A, mcap0=96_210)], [], NOW)
+        job.sync(c, [hao_row(tok=A, mcap0=88_120)], [], NOW + 150)
+        self.assertEqual(self.p(A)["status"], "isteklo")
+
+    def test_an_old_database_gets_the_columns_and_old_readers_still_read(self):
+        p2 = os.path.join(self.tmp.name, "old.db")
+        old = sqlite3.connect(p2)
+        old.executescript(store.SCHEMA.replace(",\n    below_sl_at_creation INTEGER, last_mcap REAL, last_mcap_ts "
+                                               "INTEGER, zone_seen_ts INTEGER, zone_seen_mcap REAL,\n    paper_ts "
+                                               "INTEGER, paper_mcap REAL", ""))
+        self.assertNotIn("paper_ts", {r[1] for r in old.execute("PRAGMA table_info(proposals)")})
+        old.execute("INSERT INTO proposals (token, created_ts, expires_ts, status, row) VALUES (?,?,?,?,?)",
+                    (A, NOW, NOW + 900, "novo", json.dumps(prow(A))))
+        old.commit()
+        got = store.read(old, "status='novo'")                                      # an unmigrated reader
+        self.assertEqual((got[0]["token"], got[0]["paper_ts"]), (A, None))
+        old.close()
+        con = store.connect(p2)
+        self.assertIn("paper_ts", {r[1] for r in con.execute("PRAGMA table_info(proposals)")})
+        con.close()
+
+
+class ZoneMisses(unittest.TestCase):
+    """report.zone_misses on a fixture: through the zone without a paper entry, paper, range round, never, no data."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "proposals.db")
+        self.con = store.connect(self.path)
+        self.lc = sqlite3.connect(":memory:")
+        paper.ensure(self.lc)
+        rtrade.ensure(self.lc)
+        self.lc.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, user TEXT, token TEXT, opened_ts INTEGER, "
+                        "closed_ts INTEGER, status TEXT, source TEXT, entry_mcap REAL)")
+
+    def tearDown(self):
+        self.con.close()
+        self.lc.close()
+        self.tmp.cleanup()
+
+    def add(self, r, created, status="novo", why=None, pts=()):
+        pid = store.insert(self.con, r, created)
+        if status != "novo":
+            store.set_status(self.con, pid, status, why, created + 300)
+        for dt_, mc in pts:
+            self.con.execute("INSERT INTO px VALUES (?,?,?,?)", (r["token"], created + dt_, mc / 1e9, mc))
+        return pid
+
+    def test_report_on_a_fixture_and_the_log_block_once(self):
+        T = NOW - 30 * 3600
+        G, H = mint(40), mint(41)
+        # HAOBIBI: its source vanished at +300 s (the old rule), the price came into the zone at +600 s, then TP1 / TP2
+        p1 = self.add(hao_row(mcap0=96_000, created=T), T, "isteklo", "više ne vrijedi: izvor prijedloga je nestao",
+                      [(60, 97_000), (600, 108_000), (1200, 120_000), (1800, 175_000), (2400, 195_000)])
+        # a paper entry by the old rule: bought at $88k, outside its zone and under its stop (#2 of 11.11.)
+        p2 = self.add(hao_row(tok=A, mcap0=88_120, created=T), T, pts=[(60, 88_120), (600, 80_000)])
+        self.lc.execute("INSERT INTO trades (id, user, token, opened_ts, status, source, entry_mcap) VALUES "
+                        "(7,?,?,?,?,?,?)", (settings.PAPER_USER, A, T + 60, "closed", "prijedlog (demo): range", 88_120))
+        self.lc.execute("INSERT INTO proposal_trades (user, proposal_id, token, strategy, trade_id, opened_ts, status) "
+                        "VALUES (?,?,?,?,?,?,?)", (settings.PAPER_USER, p2, A, "range", 7, T + 60, "open"))
+        # in the zone at +300 s, while range_dca's round closed at +250 s (its cooldown runs to +1450 s)
+        self.add(hao_row(tok=B, mcap0=96_000, created=T), T, pts=[(300, 106_000), (900, 70_000)])
+        self.lc.execute("INSERT INTO range_rounds (user, token, opened_ts, closed_ts, status) VALUES (?,?,?,?,?)",
+                        (settings.PAPER_USER, B, T + 100, T + 250, "closed"))
+        self.add(hao_row(tok=C, mcap0=96_000, created=T), T, pts=[(60, 97_000), (600, 99_000)])   # never in the zone
+        self.add(hao_row(tok=D, mcap0=96_000, created=T), T)                                      # no prices at all
+        # a momentum proposal through its zone, then its -10 % stop
+        r = prow(G, exp=T + 900)
+        r.update(entry_zone={"mcap_low": 100_000, "mcap_high": 105_000}, mcap0=100_000, price0=100_000 / 1e9)
+        self.add(r, T, pts=[(60, 101_000), (300, 89_000)])
+        # one older than 48 h is not in the window
+        self.add(hao_row(tok=H, mcap0=108_000, created=NOW - 50 * 3600), NOW - 50 * 3600, pts=[(60, 108_000)])
+        self.con.commit()
+        from events import predictions
+        econ = sqlite3.connect(":memory:")
+        self.addCleanup(econ.close)
+
+        def path_fn(tok, t0, t1):
+            return outcomes.path(tok, t0, t1, econ=econ, pcon=self.con, mom_path="/nema")
+        with mock.patch.object(predictions, "_minute_rows", lambda *a, **k: []):
+            rep = report.zone_misses(NOW, con=self.con, lcon=self.lc, path_fn=path_fn)
+        self.assertEqual((rep["n"], rep["missed"], rep["paper"], rep["skipped_range"], rep["not_in_zone"],
+                          rep["no_data"]), (6, 2, 1, 1, 1, 1))
+        got = {r["id"]: r for r in rep["list"]}
+        h = got[p1]
+        self.assertEqual((h["first_in_zone_mc"], h["outcome"], h["zone"]), (108_000, "tp", [104_000, 112_000]))
+        cost = tcost.round_trip(0.15 * kandidati.SOL_USD, 60_000)
+        self.assertAlmostEqual(h["ret_pct"], round(((172_300 + 190_000) / 2 / 108_000 - 1 - cost) * 100, 2), places=2)
+        mom = [r for r in rep["list"] if r["token"] == G][0]
+        self.assertEqual((mom["outcome"], mom["first_in_zone_mc"]), ("sl", 101_000))
+        self.assertAlmostEqual(mom["ret_pct"], round((-0.10 - tcost.round_trip(0.15 * kandidati.SOL_USD, 60_000)) * 100, 2),
+                               places=2)
+        self.assertEqual(rep["per_strategy"]["range"]["skipped_range"], 1)
+        self.assertEqual(rep["per_strategy"]["momentum"]["outcomes"]["sl"], 1)
+        self.assertEqual([s["token"] for s in rep["skipped"]], [B])
+        self.assertEqual((rep["paper_outside_zone"], rep["paper_outside"][0]["paper_mcap"]), (1, 88_120))
+        lines = report.zone_lines(rep)
+        self.assertIn("paper ulaz 1 (od toga izvan zone ili ispod SL-a 1)", lines[0])
+        self.assertTrue(lines[0].startswith("prijedlozi kroz zonu bez paper ulaza (48 h): 2 od 6, ishod: TP prvi 1, SL prvi 1"))
+        self.assertIn("preskočeno: range runda/cooldown 1", lines[0])
+        self.assertTrue(any("HAOBIBI (raspon) zona $104k–$112k, prvi u zoni $108k -> TP prvi" in ln for ln in lines))
+        # the pass: once in the log, then into get_proposals' report (kv zone_misses)
+        logged = []
+        with mock.patch.object(report, "zone_misses", lambda now, **k: rep):
+            job.zone_report(self.con, NOW, logged.append)
+            job.zone_report(self.con, NOW + 4000, logged.append)                     # refreshed, not logged again
+        self.assertEqual(len(logged), 1)
+        self.assertEqual(logged[0].count("\n"), len(lines) - 1)                     # ONE block
+        self.assertEqual(store.kv_get(self.con, "zone_misses")["missed"], 2)
+        self.con.commit()
+        with mock.patch.object(view, "_mode", lambda: "paper"):
+            d = view.mcp(path=self.path, now=NOW)
+        self.assertEqual(d["report"]["zone_misses"]["missed"], 2)
+
+
+class RangeSeesTheProposal(RangeBase):
+    def test_a_proposal_position_on_the_demo_account_blocks_a_range_round(self):
+        self.mode("paper")
+        lstore.buy(self.lg, settings.PAPER_USER, MINT, "RNG", 30, 52 * RS, 25_000, "prijedlog (demo): range", None,
+                   52_000)
+        self.assertEqual(self.enter(), [])                                          # range's _held: no lot 1
+        self.assertEqual(rtrade.rounds(self.lg), [])
+        self.assertEqual([t["source"] for t in self.lots(settings.PAPER_USER)], ["prijedlog (demo): range"])
+        self.lg.execute("UPDATE trades SET status='closed', closed_ts=? WHERE token=?", (self.now, MINT))
+        self.lg.commit()
+        self.assertEqual(len(self.enter()), 1)                                      # the token is free again
 
 
 # ---------- MCP and submit_signal_opinion ----------------------------------------------------------------------------------

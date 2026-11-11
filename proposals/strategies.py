@@ -474,3 +474,63 @@ def hold_s(ev):
 
 def fmt_pct(x):
     return f"{x * 100:+.1f} %".replace(".", ",") if x is not None and not math.isnan(x) else "-"
+
+
+# ---------- waiting for the entry (11.11., the owner's rules after HAOBIBI) ----------------------------------------------
+# A proposal (status novo) waits for its entry zone: the demo account enters only while the market cap is inside the
+# zone and above the proposal's stop (proposals/paper.py), the view shows "čeka ulaz" / "u zoni". The stop rule: the
+# price under the stop kills a proposal only when it fell there AFTER the proposal was computed (it was above the stop
+# at creation, or it has been in its zone since); one made while the price was already under its stop waits for the
+# zone (or its time expiry).
+
+ZONE_BAND = 0.05   # a strategy without an entry zone: the proposal's market cap +- 5 % (see zone_of)
+WAIT, IN_ZONE = "čeka ulaz", "u zoni"
+
+
+def zone_of(row, mcap0=None):
+    """(low, high) of a proposal's entry zone in market cap: its primary strategy's entry_zone (range / catalyst: the
+    range's bottom zone; momentum: the signal's MC up to +5 %; influencer: up to 1.5x the first call; group / insider
+    / event / grok: around the MC of the pass that last showed it). A strategy without one (influencer with no known
+    first call): the proposal's market cap (the row's, else mcap0) +- ZONE_BAND. None without either."""
+    row = row or {}
+    ez = row.get("entry_zone") or {}
+    lo, hi = _f(ez.get("mcap_low")), _f(ez.get("mcap_high"))
+    if lo and hi and hi >= lo:
+        return lo, hi
+    mc = _f(row.get("mcap0")) or _f(mcap0) or _f((row.get("market") or {}).get("market_cap_usd"))
+    return (mc * (1 - ZONE_BAND), mc * (1 + ZONE_BAND)) if mc else None
+
+
+def stop_of(row):
+    """The proposal's stop in market cap (exits_mcap sl: its MC level, or the percent stop from the MC of the pass
+    that last showed it), None when unknown."""
+    return _f(((row or {}).get("exits_mcap") or {}).get("sl"))
+
+
+def below_stop(mcap, sl):
+    """1 / 0 when the market cap is / is not under the stop, None when either is unknown."""
+    mcap, sl = _f(mcap), _f(sl)
+    return None if not mcap or not sl else int(mcap < sl)
+
+
+def wait_check(p, mcap):
+    """A waiting proposal p (a proposals.db row: "row", "mcap0", "below_sl_at_creation", "zone_seen_ts") at market
+    cap mcap: {"state": IN_ZONE | WAIT, "zone": (low, high) | None, "sl", "dead": the stop rule's reason or None}.
+    None without a market cap. IN_ZONE only inside the zone (inclusive) and above the stop."""
+    mc = _f(mcap)
+    if not mc:
+        return None
+    row = (p or {}).get("row") or {}
+    z, sl = zone_of(row, p.get("mcap0")), stop_of(row)
+    under = bool(sl and mc < sl)
+    b0 = p.get("below_sl_at_creation")
+    if b0 is None:   # a proposal made before the column existed: from its market cap at creation
+        b0 = below_stop(p.get("mcap0"), sl)
+    armed = b0 == 0 or bool(p.get("zone_seen_ts"))
+    dead = (f"pao ispod SL-a: MC {_usd(mc)} pod stopom {_usd(sl)} nakon prijedloga" if under and armed else None)
+    inside = bool(z and z[0] * (1 - 1e-9) <= mc <= z[1] * (1 + 1e-9) and (not sl or mc > sl))
+    return {"state": IN_ZONE if inside else WAIT, "zone": z, "sl": sl, "dead": dead}
+
+
+def zone_text(z):
+    return f"{_usd(z[0])}–{_usd(z[1])}" if z else "?"

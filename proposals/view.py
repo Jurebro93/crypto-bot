@@ -8,6 +8,9 @@ until when it is valid, with "Kupi" (fills Brza kupnja with the token, size, TP 
 "Odbij" (a preset reason or his own words, stored for learning). Under it the last 24 h: decided and expired
 proposals with what happened after (missed opportunities). The list is a fragment (/pravi-trade/prijedlozi) polled
 every EVERY_S seconds by the page's poller, not a page reload.
+11.11. (the owner's rules after HAOBIBI): every open row says whether it waits ("čeka ulaz": the market cap outside
+its entry zone or under its stop), is "u zoni", or the demo account already entered ("ušao (paper) na MC ..."); the
+status in proposals.db stays novo (entry_state; get_proposals entry_state and report.zone_misses).
 """
 import datetime as dt
 import json
@@ -118,6 +121,34 @@ def _p_text(r):
 
 
 REJECT_HR = store.REJECT_REASONS
+PAPER_IN = "ušao (paper)"
+
+
+def entry_state(p, now=None):
+    """11.11. (the owner's rules after HAOBIBI) the waiting state of an open proposal (status stays novo in the
+    database): {"state": "čeka ulaz" | "u zoni" | "ušao (paper)", "text", "mcap", "mcap_ts", "zone": [low, high],
+    "sl", "below_sl_at_creation"}. The market cap: the newest the pass or the demo account's paper loop read (last_mcap,
+    at most store.PRICE_FRESH_S old), else the one of the pass that last showed it."""
+    now = int(now or time.time())
+    r = p.get("row") or {}
+    mc, ts = p.get("last_mcap"), p.get("last_mcap_ts")
+    if not mc or now - (ts or 0) > store.PRICE_FRESH_S:
+        mc, ts = (r.get("market") or {}).get("market_cap_usd") or mc, p.get("updated_ts") or ts
+    chk = strategies.wait_check(p, mc) or {"state": strategies.WAIT, "zone": strategies.zone_of(r, p.get("mcap0")),
+                                           "sl": strategies.stop_of(r)}
+    z = chk["zone"]
+    out = {"state": chk["state"], "mcap": mc, "mcap_ts": ts, "zone": [round(z[0]), round(z[1])] if z else None,
+           "sl": chk["sl"], "below_sl_at_creation": p.get("below_sl_at_creation")}
+    if p.get("paper_ts"):
+        out.update(state=PAPER_IN, text=f"{PAPER_IN} na MC {_usd(p.get('paper_mcap'))} u {_hm(p['paper_ts'])}",
+                   paper_ts=p["paper_ts"], paper_mcap=p.get("paper_mcap"))
+        return out
+    where = f"sada {_usd(mc)}, zona {strategies.zone_text(z)}" if mc else f"zona {strategies.zone_text(z)}"
+    if chk["state"] == strategies.WAIT and mc and chk["sl"] and mc < chk["sl"]:
+        where += (f", pao ispod SL-a {_usd(chk['sl'])}: ističe" if chk.get("dead") else
+                  f", ispod SL-a {_usd(chk['sl'])} već pri prijedlogu: čeka zonu")
+    out["text"] = f"{chk['state']} · {where}"
+    return out
 
 
 def _row_inner(p, esc):
@@ -128,7 +159,8 @@ def _row_inner(p, esc):
     b = r.get("buy") or {}
     pk = json.dumps({"id": p["id"], "token": tok, "sol": f"{p.get('size_sol') or 0:g}", "tp": b.get("tp") or "",
                      "sl": b.get("sl") or "", "sym": p.get("symbol") or tok[:6]})
-    rows = [("Ulaz (MC)", f"{_usd(ez.get('mcap_low'))} – {_usd(ez.get('mcap_high'))} (sada {_usd(m.get('market_cap_usd'))})"
+    rows = [("Stanje", entry_state(p)["text"]),
+            ("Ulaz (MC)", f"{_usd(ez.get('mcap_low'))} – {_usd(ez.get('mcap_high'))} (sada {_usd(m.get('market_cap_usd'))})"
              if ez else f"sada {_usd(m.get('market_cap_usd'))}"),
             ("Izlaz (MC)", _exits_text(r)),
             ("Šansa TP prije SL", _p_text(r)),
@@ -177,7 +209,8 @@ def fragment(esc, item, now=None, path=None):
     out = []
 
     def one(p):
-        reason =" · ".join([strategies.HR.get(s, s) for s in p.get("sources") or []][:3]) + \
+        reason = entry_state(p, now)["state"] + " · " + \
+            " · ".join([strategies.HR.get(s, s) for s in p.get("sources") or []][:3]) + \
             f" · {p.get('size_sol') or 0:g} SOL".replace(".", ",") + f" · do {_hm(p.get('expires_ts'))}"
         return item(p.get("symbol") or p["token"][:6], reason, _row_inner(p, esc), value=_pct(p.get("ev_pct")),
                     sub="EV", iid=f"pr-{p['id']}", value_tone="pos")
@@ -240,7 +273,8 @@ def _mcp_row(p):
                                            "expires_ts", "entry_zone", "exits_mcap", "why", "calibrated")}
                  if v.get("valid") else {"valid": False, "why_not": v.get("why_not")})
     return {"id": p["id"], "token": p["token"], "symbol": p.get("symbol"), "status": p["status"],
-            "status_why": p.get("status_why"), "created_ts": p.get("created_ts"), "expires_ts": p.get("expires_ts"),
+            "status_why": p.get("status_why"),
+            "entry_state": entry_state(p) if p["status"] == "novo" else None, "created_ts": p.get("created_ts"), "expires_ts": p.get("expires_ts"),
             "strategy": p.get("strategy"), "sources": p.get("sources"), "n_independent": p.get("n_independent"),
             "ev_pct": p.get("ev_pct"), "p_tp": {"value": p.get("p_tp"), "n": r.get("n"), "ci90": r.get("ci90")},
             "grok": r.get("grok"), "strategies": st, "entry_zone_mcap": r.get("entry_zone"),
@@ -272,7 +306,11 @@ def mcp(since=None, min_ev=None, include_blocked=False, status=None, limit=None,
             "notes": ("Read-only; nothing here buys. Grok autotrade may buy a proposal only through execute_trade within "
                       "its own grok_autotrade limits (p_tp = the proposal's p_tp, strategy as named), then set_exit_plan "
                       "with the proposal's exit_plan. Add a proposal with submit_signal_opinion (verdict kupi, p_tp, "
-                      "optional strategy, entry_zone, exit_zone, valid_min); your p_tp is calibrated before it counts.")}
+                      "optional strategy, entry_zone, exit_zone, valid_min); your p_tp is calibrated before it counts. "
+                      "An open proposal (status novo) WAITS for its entry zone: entry_state.state 'čeka ulaz' while the "
+                      "market cap is outside entry_zone_mcap (or under the stop), 'u zoni' inside it, 'ušao (paper)' "
+                      "once the demo account entered; buy only 'u zoni'. report.zone_misses: the proposals of the last "
+                      "48 h that went through their zone without a paper entry and what would have happened.")}
     if m == "off":
         return {**base, "total": 0, "proposals": [], "note": "zastavica proposals (G21) je isključena"}
     con = store.ro(path)
@@ -289,6 +327,9 @@ def mcp(since=None, min_ev=None, include_blocked=False, status=None, limit=None,
         model = store.kv_get(con, "grok_calib")
         r = con.execute("SELECT data FROM reports ORDER BY day DESC LIMIT 1").fetchone()
         rep = json.loads(r[0]) if r else None
+        zm = store.kv_get(con, "zone_misses")   # 11.11.: proposals through their zone without a paper entry (48 h)
+        if zm:
+            rep = {**(rep or {}), "zone_misses": zm}
     finally:
         con.close()
     out = {**base, "total": len(rows), "open": sum(1 for p in rows if p["status"] == "novo"),
