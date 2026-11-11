@@ -122,8 +122,12 @@ class Net:
         return out
 
     def gt_pools(self, n_req=None):
-        """Trending (1 h, 6 h) and the top pools by 24 h volume, page by page, at most n_req requests."""
+        """Trending (1 h, 6 h) and the top pools by 24 h volume, page by page, at most n_req requests. None when
+        another job holds the shared GeckoTerminal host (11.11.: the first round got 0 pools from 10 requests that
+        way): nothing was asked, the round waits for a free minute."""
         from event_calendar import http
+        if http.reserved_by_other(f"{GT}/pools") > 0:
+            return None
         out = []
         reqs = [("/trending_pools", {"page": pg, "duration": d}) for d in ("1h", "6h") for pg in range(1, GT_TREND_PAGES + 1)]
         reqs += [("/pools", {"page": pg, "sort": "h24_volume_usd_desc"}) for pg in range(1, GT_TOP_PAGES + 1)]
@@ -390,15 +394,22 @@ def discover_lists(con, now, net, log):
                 n += add(con, it["tokenAddress"], "dex_liste", now)
     gt_req = gt_requests()
     left = slice_left(con, "mkt_gt_day", GT_DAY, now)
+    pools = None
     if now - (data.kv_get(con, "mkt_gt_ts") or 0) >= GT_EVERY_S and left >= 2:
         n_req = min(gt_req, left)
-        data.kv_put(con, "mkt_gt_ts", int(now))
-        data.day_add(con, "mkt_gt_day", n_req, now)
-        _meter("coingecko", "range tržište", n_req)
         try:
             pools = net.gt_pools(n_req)
         except TypeError:   # an injected net without the n_req argument (tests of the first version)
             pools = net.gt_pools()
+        if pools is None:   # the host is held by another job: not charged, asked again next pass
+            if now - (data.kv_get(con, "mkt_gt_busy_log") or 0) >= 3600:
+                data.kv_put(con, "mkt_gt_busy_log", int(now))
+                log("range tržište GT: GeckoTerminal drži drugi posao, runda čeka slobodnu minutu")
+        else:
+            data.kv_put(con, "mkt_gt_ts", int(now))
+            data.day_add(con, "mkt_gt_day", n_req, now)
+            _meter("coingecko", "range tržište", n_req)
+    if pools is not None:
         got = ok_n = new_n = 0
         for p in pools or []:
             g = gt_row(p) if isinstance(p, dict) else None

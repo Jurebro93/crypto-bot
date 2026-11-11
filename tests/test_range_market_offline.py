@@ -396,3 +396,25 @@ class Faza1(unittest.TestCase):
         self.assertEqual(market.gt_requests(), 2 * market.GT_TREND_PAGES + market.GT_TOP_PAGES)
         self.assertLessEqual(market.gt_requests() * 86400 // market.GT_EVERY_S, market.GT_DAY)
 
+
+class GtBusy(unittest.TestCase):
+    """11.11.: a GeckoTerminal round while another job holds the host is not charged and is asked again."""
+
+    def test_busy_host_is_not_charged(self):
+        con = data.connect(os.path.join(tempfile.mkdtemp(), "range.db"))
+        market.ensure(con)
+        logs = []
+
+        class Busy:
+            def lists(self):
+                return []
+
+            def gt_pools(self, n_req=None):
+                return None
+        now = 1794346000
+        data.kv_put(con, "mkt_lists_ts", now)        # lists not due
+        market.discover_lists(con, now, Busy(), logs.append)
+        self.assertIsNone(data.kv_get(con, "mkt_gt_ts"))
+        self.assertEqual(data.day_used(con, "mkt_gt_day", now), 0)
+        self.assertTrue(any("drži drugi posao" in x for x in logs))
+
