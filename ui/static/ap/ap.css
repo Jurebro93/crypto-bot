@@ -136,7 +136,7 @@ a.apx-state:hover{border-color:var(--line2)}
 .apx .ap-danger{margin:8px 0 0}
 .apx button.ap-danger{background:none;border:0;color:var(--fg);font-weight:600;padding:10px 2px;font-size:13.5px;box-shadow:none}
 .apx button.ap-danger:hover{background:none;color:var(--fg);text-decoration:underline}
-/* "Prodaj sve i isključi" is a sale: red; the other kill switches (Grok, exit plans) are not, so they stay ink */
+/* the sell-all-and-stop button is a sale: red; the other kill switches (Grok, exit plans) are not, so they stay ink */
 .apx form[action$="/sellall"] button.ap-danger,.apx form[action$="/sellall"] button.ap-danger:hover{color:var(--dn)}
 .apx-pg{display:flex;gap:8px;justify-content:flex-end;margin:8px 0 0}
 .apx-sum{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;padding:10px 2px}
