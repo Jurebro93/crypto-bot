@@ -1963,6 +1963,35 @@ def live_fill(token, sym, size, fv=None):
                     f"{edge.TIME_MIN} min. Kupnja postavlja taj plan izlaza."}
 
 
+LIVE_BADGE = {"live": ("live", "live"), "paper": ("paper", "samo papir"), "no": ("no", "ne")}
+
+
+def _prop_state(p, r):
+    """(state, why) of a proposal row: proposals/build stores live_state; older rows: from their EV and n."""
+    if r.get("live_state"):
+        return r["live_state"], r.get("live_why")
+    from ui import kandidati
+    return kandidati.live_state(True, {"ev_pct": p.get("ev_pct"), "n_samples": int(r.get("n") or 0)},
+                                bool(r.get("paper_only")))
+
+
+def _fast_state(fv, flive):
+    """(state, why) of a live tool row: KUPI of the fast path, its EV on n outcomes, all from that one check."""
+    from ui import kandidati
+    n = int(fv.get("n") or 0)
+    return kandidati.live_state(fv.get("decision") in flive.BUY and (fv.get("ev_pct") or 0) > 0,
+                                {"ev_pct": fv.get("ev_pct"), "n_samples": n,
+                                 "top_source": {"from": "fast_check", "n": n, "share": 1.0}})
+
+
+def _live_badge(state, why=None):
+    """11.11. (owner: "U UI-u prikaži tri stanja: live, samo papir i ne"): whether a row may be bought with real money
+    (ui/kandidati.live_state: EV >= +3 %, n >= 10, not resting on one source with n < 10)."""
+    cls, txt = LIVE_BADGE.get(state or "no", LIVE_BADGE["no"])
+    tip = f' title="{esc(why)}"' if why else ""
+    return f' <span class="apx-badge {cls}"{tip}>{txt}</span>'
+
+
 def kupiti_html(tcon, cfg, owner, now):
     """"Što kupiti": ONE list of what to buy now, every strategy's proposals (proposals/, EV after cost) and the tool's
     live picks (ui/zivo, "Što alat sada predlaže"), sorted by EV per minute (no EV last). Kupi only fills the order
@@ -1985,7 +2014,8 @@ def kupiti_html(tcon, cfg, owner, now):
         # conclusion yet: the row waits in one closed "U procjeni" row
         (rows if int(r.get("n") or 0) >= N_MIN else wait).append({"epm": ev_per_min(p), "html": (
             f'<div class=apx-krow id=pr-{int(p["id"])}><div class=apx-kmain>'
-            f'<span class=apx-tline>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}{_xl(p["token"])}</span>'
+            f'<span class=apx-tline>{_sel_btn(p["token"], p.get("symbol") or p["token"][:6])}{_xl(p["token"])}'
+            f'{_live_badge(*_prop_state(p, r))}</span>'
             f'<span class=apx-mut>{esc(view.entry_state(p, now)["state"])} · '   # 11.11.: čeka ulaz / u zoni / ušao (paper)
             f'{esc(strategies.HR.get(p.get("strategy"), p.get("strategy") or ""))} · '
             f'{esc(", ".join(strategies.HR.get(s, s) for s in p.get("sources") or []))}</span></div>'
@@ -2017,7 +2047,8 @@ def kupiti_html(tcon, cfg, owner, now):
         # sources behind the EV; every other one (provjera u tijeku, n izvora < 10) waits in one closed row
         ok = fv.get("decision") in flive.BUY and (fv.get("ev_pct") or 0) > 0 and int(fv.get("n") or 0) >= N_MIN
         (rows if ok else rows_live).append({"epm": flive.ev_per_min(fv) if ok else None, "html": (
-            f'<div class=apx-krow><div class=apx-kmain><span class=apx-tline>{_sel_btn(z["token"], sym)}{_xl(z["token"])}</span>'
+            f'<div class=apx-krow><div class=apx-kmain><span class=apx-tline>{_sel_btn(z["token"], sym)}{_xl(z["token"])}'
+            f'{_live_badge(*_fast_state(fv, flive))}</span>'
             '<span class=apx-mut>alat (živo) · '
             f'{esc(z.get("src") or "")}{" · " + esc(why) if why else ""}</span></div>'
             f'{flive.cells_html(fv, esc, _tone)}'
@@ -2051,7 +2082,7 @@ def kupiti_html(tcon, cfg, owner, now):
         return (f'<p class=apx-one id=prijedlozi-trade>Nema prijedloga s EV &gt; 0 · zadnja provjera {_hm(now)}</p>'
                 f'{waiting}{live_rows}{sug}')
     near_rows = "".join(
-        f'<div class="apx-krow is-paper"><div class=apx-kmain>{_sel_btn(n.get("token") or "", n.get("symbol") or (n.get("token") or "")[:6])}'
+        f'<div class="apx-krow is-paper"><div class=apx-kmain>{_sel_btn(n.get("token") or "", n.get("symbol") or (n.get("token") or "")[:6])}{_live_badge("no", _block_text(n))}'
         f'<span class=apx-mut>{esc(", ".join(strategies.HR.get(s, s) for s in n.get("strategies") or []))}</span></div>'
         f'<span class=n data-l="EV">{_pct(n.get("ev_pct"))}</span>'
         f'<span data-l="Blokada" class=apx-why>{esc(_block_text(n))}</span></div>'

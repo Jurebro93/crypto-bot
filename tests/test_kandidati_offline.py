@@ -796,3 +796,58 @@ class RangeMarket(unittest.TestCase):
         self.assertTrue(all(got[t]["market"] for t in toks if t in got))
         self.assertEqual(meta["market"]["none"], 0)
 
+
+
+class LiveState(unittest.TestCase):
+    """11.11. (owner): "tradeable (EV > 0) ne znači da se smije kupiti s pravim novcem": live_eligible = tradeable AND
+    ev_pct >= 3 AND n_samples >= 10 AND the EV does not rest more than 50 % on one source with n < 10."""
+
+    def test_jeff_ev_0_28_n_5_is_paper(self):
+        st, why = kandidati.live_state(True, {"ev_pct": 0.28, "n_samples": 5,
+                                              "top_source": {"from": "range", "n": 5, "share": 1.0}})
+        self.assertEqual(st, "paper")
+        self.assertIn("ispod +3 %", why)
+
+    def test_burnie_ev_from_one_caller_with_n_7_is_not_live(self):
+        evx = kandidati.ev_estimate(
+            {"caller": {"callers": [{"who": "burnie_kol", "record": {"ev_n": 7, "ev_mean": 0.40}}]},
+             "scan": {}}, {"scan": {"n": 40, "ev": 0.01}}, 0.1, 500_000)
+        self.assertGreaterEqual(evx["n_samples"], 10)                           # n alone would pass ...
+        self.assertGreaterEqual(evx["ev_pct"], 3)                               # ... and the EV too
+        self.assertEqual(evx["top_source"]["from"], "caller:burnie_kol")
+        self.assertGreater(evx["top_source"]["share"], 0.5)
+        st, why = kandidati.live_state(True, evx)
+        self.assertEqual(st, "paper")
+        self.assertIn("jednog izvora (caller:burnie_kol) s n = 7", why)
+
+    def test_live_and_no(self):
+        evx = kandidati.ev_estimate({"scan": {}, "wallet": {}}, {"scan": {"n": 40, "ev": 0.08},
+                                                                 "wallet": {"n": 30, "ev": 0.07}}, 0.1, 500_000)
+        self.assertEqual(kandidati.live_state(True, evx), ("live", None))
+        self.assertEqual(kandidati.live_state(False, evx)[0], "no")
+        self.assertEqual(kandidati.live_state(True, evx, paper=True)[0], "paper")
+
+    def test_rows_carry_the_state(self):
+        S = FakeSources()
+        S.scan = {A: scan_row(A)}
+        S.mk = {A: live()}
+        rows, _ = kandidati.build(NOW, S)
+        r = by_token(rows)[A]
+        self.assertIn(r["live_state"], ("live", "paper", "no"))
+        self.assertEqual(r["live_eligible"], r["live_state"] == "live")
+        if r["tradeable"]:
+            self.assertNotEqual(r["live_state"], "no")
+
+
+class LiveBadges(unittest.TestCase):
+    def test_three_states_in_the_ui(self):
+        from ui import apterm
+        self.assertIn('class="apx-badge live"', apterm._live_badge("live"))
+        self.assertIn(">samo papir<", apterm._live_badge("paper", "samo papir: n = 5"))
+        self.assertIn('title="samo papir: n = 5"', apterm._live_badge("paper", "samo papir: n = 5"))
+        self.assertIn(">ne<", apterm._live_badge("no"))
+        # a proposal like jeff (EV 0,28 %, n 5): samo papir
+        self.assertEqual(apterm._prop_state({"ev_pct": 0.28}, {"n": 5})[0], "paper")
+        self.assertEqual(apterm._prop_state({"ev_pct": 6.0}, {"n": 40})[0], "live")
+        self.assertEqual(apterm._prop_state({"ev_pct": 6.0}, {"n": 40, "live_state": "paper", "live_why": "x"}),
+                         ("paper", "x"))

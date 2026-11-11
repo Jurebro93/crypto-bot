@@ -1061,29 +1061,31 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
         r["market_why"] = None
         if r["live"]:
             r["market"], r["m"] = _market(r["live"]), r["live"]
-            msrc["live"] += 1
+            r["msrc"] = "live"
         elif t in rng_fresh:
             r["market"], r["m"] = _market(rng[t], rng[t]["ts"], "range.db (rangedca, DexScreener)"), rng[t]
-            msrc["range"] += 1
+            r["msrc"] = "range"
         elif lv.get(t):
             r["market"], r["m"] = _market(lv[t]), lv[t]
-            msrc["dexscreener"] += 1
+            r["msrc"] = "dexscreener"
         elif rng.get(t):
             r["market"], r["m"] = _market(rng[t], rng[t]["ts"], "range.db (do 15 min staro)"), rng[t]
-            msrc["range_stale"] += 1
+            r["msrc"] = "range_stale"
         elif r["scan_row"]:
             sr = r["scan_row"]
             m = {k: sr.get(k) for k in ("price", "mcap", "liq", "vol_h1", "ch_h1", "ch_h24")}
             r["market"], r["m"] = _market(m, sr.get("checked_ts"), "scan.db (do 10 min staro)"), m
-            msrc["scan"] += 1
+            r["msrc"] = "scan"
         else:
             r["market"], r["m"] = None, None
             r["market_why"] = (f"market fetch failed: {dex_err}" if dex_err and t not in cut else
                                f"nije dohvaćeno: preko {MAX_TOKENS} tokena u ovom prolazu" if t in cut else
                                "DexScreener nema para za token (ni rangedca snimke u zadnjih 15 min)")
-            msrc["none"] += 1
+            r["msrc"] = "none"
     # drop what may not even be measured (under 10k) before the per-token reads
     rows = {t: r for t, r in rows.items() if not r["m"] or (_f(r["m"].get("mcap")) or 0) >= MEASURE_MIN_MCAP}
+    for r in rows.values():   # 11.11.: counted after the under-10k drop, so the sources add up to the rows
+        msrc[r.get("msrc") or "none"] += 1
     toks = list(rows)
     records = safe("records", lambda: S.records(now), {}) or {}
     crec = safe("caller_records", lambda: S.caller_records(handles, now), {}) if handles else {}
@@ -1169,11 +1171,43 @@ def ev_estimate(srcs, records, size_sol, liq):
     cal = _tcost.calib_delta()
     imp = 2 * _tcost.impact(size_sol * SOL_USD, liq) if liq else 0.0
     slip = cal + imp
+    # 11.11. (owner: live only when the EV does not rest more than half on one source with n < 10): each source's
+    # share of the positive part of the pooled EV (n x ev)
+    pos = [(k, nn, max(0.0, nn * e)) for k, nn, e in samples]
+    tot = sum(c for _k, _n, c in pos)
+    top = max(pos, key=lambda x: x[2]) if tot > 0 else None
     return {"ev_pct": round((pooled - slip) * 100, 2), "n_samples": n,
+            "top_source": ({"from": top[0], "n": int(top[1]), "share": round(top[2] / tot, 3)} if top else None),
             "ev_confidence": "low" if n < 10 else ("medium" if n < 30 else "high"),
             "detail": [{"from": k, "n": int(nn), "ev_pct": round(e * 100, 2)} for k, nn, e in samples][:10]
             + [{"from": "price_impact", "ev_pct": round(-imp * 100, 3)}]
             + ([{"from": "cost_calibration", "ev_pct": round(-cal * 100, 3)}] if cal else [])}
+
+
+LIVE_EV_MIN = 3.0          # 11.11. (owner): live_eligible needs EV >= +3 % per trade after cost ...
+LIVE_N_MIN = 10            # ... on at least 10 measured outcomes ...
+LIVE_TOP_SHARE = 0.5       # ... and not more than half of it from one source with n < LIVE_N_MIN
+
+
+def live_state(tradeable, evx, paper=False):
+    """("live" | "paper" | "no", why or None). 11.11. (owner: "tradeable (EV > 0) ne znači da se smije kupiti s pravim
+    novcem"): live = tradeable AND ev_pct >= LIVE_EV_MIN AND n_samples >= LIVE_N_MIN AND the EV does not rest more
+    than LIVE_TOP_SHARE on one source with n < LIVE_N_MIN (and the row is not paper only); tradeable but short of that
+    = "paper" (samo papir, the demo account); not tradeable = "no"."""
+    if not tradeable:
+        return "no", None
+    ev, n = evx.get("ev_pct"), int(evx.get("n_samples") or 0)
+    top = evx.get("top_source") or {}
+    if paper:
+        return "paper", "samo papir: izvor je samo event / tržišna lista (nikad pravi novac)"
+    if ev is None or ev < LIVE_EV_MIN:
+        return "paper", f"samo papir: EV {ev if ev is not None else 0:+.2f} % ispod +{LIVE_EV_MIN:g} %"
+    if n < LIVE_N_MIN:
+        return "paper", f"samo papir: n = {n} izmjerenih ishoda, treba {LIVE_N_MIN}"
+    if top.get("n") is not None and top["n"] < LIVE_N_MIN and (top.get("share") or 0) > LIVE_TOP_SHARE:
+        return "paper", (f"samo papir: {top['share']:.0%} EV-a dolazi od jednog izvora ({top['from']}) s n = {top['n']} "
+                         f"(< {LIVE_N_MIN})")
+    return "live", None
 
 
 def prijedlog_live_min():
@@ -1216,7 +1250,8 @@ def fast_ev(evx, fv, why_not):
     elif evx["ev_pct"] is None and fv.get("ev_pct") is not None:
         n = int(fv.get("n") or 0)
         evx.update(ev_pct=round(float(fv["ev_pct"]), 2), n_samples=n,
-                   ev_confidence="low" if n < 10 else ("medium" if n < 30 else "high"))
+                   ev_confidence="low" if n < 10 else ("medium" if n < 30 else "high"),
+                   top_source={"from": "fast_check", "n": n, "share": 1.0})
         evx["detail"].append({"from": "fast_check", "ev_pct": fv["ev_pct"],
                               "ci90": [fv.get("ev_lo_pct"), fv.get("ev_hi_pct")], "p_tp": fv.get("p"), "n": n,
                               "origin": fv.get("origin"), "label": fv.get("n_label")})
@@ -1369,7 +1404,13 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     flags = (["grok_override"] if ov else []) + (["shill_network_call"] if r.get("shill_n") else []) \
         + (["exit_signal"] if (srcs.get("caller") or {}).get("exit_signal") else []) \
         + (["shill_driven"] if shill else []) + (["runup_4x"] if ru["x"] and ru["x"] >= RUNUP_MAX_X else [])
+    # a row whose only block is "paper only" (event / market range list) with a positive EV is "samo papir", not "ne"
+    papered = (not tradeable and {k["key"] for k in why_not.keys} == {"paper_only"}
+               and evx.get("ev_pct") is not None and evx["ev_pct"] > 0)
+    lstate, lwhy = live_state(tradeable or papered, evx, paper_only(srcs))
     out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": list(why_not),
+           "live_eligible": lstate == "live", "live_state": lstate, "live_why": lwhy,
+           "ev_top_source": evx.get("top_source"),
            "ev_pct": evx["ev_pct"], "n_samples": evx["n_samples"], "ev_confidence": evx["ev_confidence"],
            "ev_detail": evx["detail"], "fast": _fast_out(fv),
            "flags": flags, "tags": tags, "modifiers": {"p_mult": mods["p_mult"], "size_mult": mods["size_mult"]},
@@ -1442,14 +1483,19 @@ def candidates(min_sources=1, limit=30, now=None, src=None):
     rows, meta = _cached(now, src)
     keep = [r for r in rows if r["confluence"] >= ms]
     return {"ts": int(now or time.time()), "min_sources": ms, "total": len(keep),
-            "tradeable": sum(1 for r in keep if r["tradeable"]), "candidates": keep[:lim],
+            "tradeable": sum(1 for r in keep if r["tradeable"]),
+            "live_eligible": sum(1 for r in keep if r.get("live_eligible")), "candidates": keep[:lim],
             "ranking": SCORE_TEXT, "source_records": meta.get("records"), "sources_failed": meta.get("sources_failed"),
             "rules": {"min_mcap_usd": MIN_MCAP, "measured_from_mcap_usd": MEASURE_MIN_MCAP,
                       "runup_modifier_x": RUNUP_MAX_X, "min_liq_usd": _tcost.LIQ_HARD_MIN,
                       "min_vol_h1_usd": _tcost.VOL_FLOOR, "crew_window_min": CREW_S // 60,
                       "grok_fresh_min": GROK_FRESH_S // 60, "override_size_share": OVERRIDE_SIZE,
                       "cost_model": _tcost.describe(), "ev_rule": _tedge.RULE_TEXT},
-            "notes": ("Read-only: nothing is bought here. tradeable = ev_pct > 0 (the measured EV after the cost model "
+            "notes": ("Read-only: nothing is bought here. 11.11. (owner): tradeable (EV > 0) is NOT a real-money buy: "
+                      "live_eligible = tradeable AND ev_pct >= 3 AND n_samples >= 10 AND the EV does not rest more than "
+                      "50 % on one source with n < 10 (ev_top_source); live_state = live | paper (samo papir: demo only) | "
+                      "no, live_why says why not live. Buy with real money only a live_eligible row. "
+                      "tradeable = ev_pct > 0 (the measured EV after the cost model "
                       "and the P modifiers; n_samples = the measured outcomes it rests on, ev_confidence low under 10), "
                       "bonded, 30k+, liquidity $15k+, 1 h volume $3k+, no confirmed rug, trading now, and no rug risk "
                       "rating unless grok_override. Run-up 4x+, shill-driven and a thin pool vs MC are tags (P / size "
