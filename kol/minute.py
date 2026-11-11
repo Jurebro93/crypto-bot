@@ -574,6 +574,12 @@ def loop(cfg, log=print, once=False, sleep=time.sleep, fetch=None):
     c = config(cfg)
     mcon = connect()
     _late = []
+    if fetch is None and not once:   # 11.11. (Jure: a post up only a second is no call): fresh X calls re-checked
+        try:                          # every 30 s in a side thread (a pass here can take 9 min), kol/deleted.py
+            from kol import deleted
+            deleted.start_flash_thread(cfg)
+        except Exception as e:  # noqa: BLE001
+            log(f"brzo obrisane: {type(e).__name__}: {e}")
     try:
         while True:
             kcon = store.ro()
