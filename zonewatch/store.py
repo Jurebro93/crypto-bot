@@ -380,13 +380,15 @@ def prune(con, now):
 
 # ---------- range zones (source range) ------------------------------------------------------------------------------
 # 11.11. (Jure, zbirni ispravak F): ONE source of zones, the range engine (rangedca/detect.py: pivots of 24 h, touches
-# weighted by age with a half-life of 8 h, stop range_low_low x 0.85) and the recomputation rangedca already does
+# weighted by age with a half-life of 8 h; stop: 11.11. the ATR stop, range_low_low - 1.5 x ATR, x 0.85 without ATR)
+# and the recomputation rangedca already does
 # (run_range.py every ~5 min). This job only reads range.db; it adds the version (range_ver) and nothing else.
 
 def _range_rows(now, range_path=None):
-    """[(token, symbol, ts, src, score, rll, rlt, rhl, rht, range_low_px, supply, span_h)] of the active ranges
-    computed in the last RANGE_FRESH_S (15 min), market caps from the range JSON (json_extract: no JSON parsed in
-    Python); span_h = the hours of data the computation spanned (window_h)."""
+    """[(token, symbol, ts, src, score, rll, rlt, rhl, rht, range_low_px, supply, span_h, stop_mc)] of the active
+    ranges computed in the last RANGE_FRESH_S (15 min), market caps from the range JSON (json_extract: no JSON parsed in
+    Python); span_h = the hours of data the computation spanned (window_h); stop_mc (11.11., the owner's decision 1) =
+    the range's hard stop in market cap (ranges.data "stop": the ATR stop), None for a range computed before it."""
     from rangedca import data, trade
     con = data.ro(range_path)
     if con is None:
@@ -396,8 +398,8 @@ def _range_rows(now, range_path=None):
         q = (f"SELECT token, symbol, ts, {src}, score, json_extract(data, '$.zones.mc.range_low_low'), "
              "json_extract(data, '$.zones.mc.range_low_top'), json_extract(data, '$.zones.mc.range_high_low'), "
              "json_extract(data, '$.zones.mc.range_high_top'), json_extract(data, '$.zones.range_low'), "
-             "json_extract(data, '$.metrics.supply'), json_extract(data, '$.span_h') FROM ranges WHERE active = 1 "
-             "AND ts >= ?")
+             "json_extract(data, '$.metrics.supply'), json_extract(data, '$.span_h'), "
+             "json_extract(data, '$.stop.mc') FROM ranges WHERE active = 1 AND ts >= ?")
         try:
             return con.execute(q, (int(now - trade.RANGE_FRESH_S),)).fetchall()
         except sqlite3.OperationalError:   # no JSON1 in this SQLite: parse in Python (only the active rows)
@@ -412,7 +414,7 @@ def _range_rows(now, range_path=None):
                 mc = z.get("mc") or {}
                 out.append((tok, sym, ts, s, sc, mc.get("range_low_low"), mc.get("range_low_top"),
                             mc.get("range_high_low"), mc.get("range_high_top"), z.get("range_low"),
-                            (x.get("metrics") or {}).get("supply"), x.get("span_h")))
+                            (x.get("metrics") or {}).get("supply"), x.get("span_h"), (x.get("stop") or {}).get("mc")))
             return out
     except sqlite3.Error:
         return []
@@ -466,7 +468,8 @@ def range_zones(row, lot1_mc=None):
                  is one, else under the middle of the bottom zone (range_low), never under the floor range_low_low x
                  0.92 (lot 2's own floor); left out when that leaves nothing
         top      range_high_low .. range_high_top (half out at range_high_low)
-        stop     range_low_low x 0.85 (the round's hard stop), lo = hi
+        stop     the range's hard stop (11.11., the owner's decision 1: the ATR stop, range_low_low - 1.5 x ATR,
+                 5-20 % under it; ranges.data "stop"), range_low_low x 0.85 for a range computed before it; lo = hi
     [(zone_type, lo, hi)]; [] when the market caps are unknown (no supply)."""
     from rangedca import rules
     tok, sym, ts, src, score, rll, rlt, rhl, rht, rl_px, supply = row[:11]
@@ -479,7 +482,8 @@ def range_zones(row, lot1_mc=None):
     d_lo = max(ref * (1 - r["lot2_hi"]), rll * r["floor_x"])
     if d_lo < d_hi:
         out.append(("dca", round(d_lo), round(d_hi)))
-    stop = round(rll * r["stop_x"])
+    sm = row[12] if len(row) > 12 else None
+    stop = round(sm) if isinstance(sm, (int, float)) and 0 < sm < rll else round(rll * r["stop_x"])
     out.append(("stop", stop, stop))
     return out
 

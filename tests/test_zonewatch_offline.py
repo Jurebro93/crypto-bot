@@ -850,7 +850,8 @@ class HopeFixture(Base):
                 r = (data.read_ranges() or {}).get(HOPE) or {}
                 zs = {z["zone_type"]: (z["lo"], z["hi"]) for z in store.active(self.con, t, HOPE)}
                 zones_at[t] = (r.get("status"), r.get("ts"), r.get("zones"), zs,
-                               dict(store.versions(self.con).get(HOPE) or {}), r.get("span_h"))
+                               dict(store.versions(self.con).get(HOPE) or {}), r.get("span_h"),
+                               (r.get("stop") or {}).get("mc"))
                 seen.append(r.get("status"))
         self.assertLessEqual(len(gt), 3)   # rangedca asked for a seed while it had < 6 h; the range came from snapshots
         # nothing hand-armed, nothing seeded: every zone came from the range engine
@@ -860,12 +861,16 @@ class HopeFixture(Base):
         first, last = min(active), max(active)
         cet = dt.timezone(dt.timedelta(hours=1))
         self.assertEqual(dt.datetime.fromtimestamp(first, cet).strftime("%H"), "17")   # 6 h of data from 11:01 CET
-        for t, (st, rts, rz, zs, ver, span) in zones_at.items():
+        atr_stops = 0
+        for t, (st, rts, rz, zs, ver, span, smc) in zones_at.items():
             if st == "aktivan" and t - rts <= 900:   # an active, fresh range: its zones, exactly
                 mc = rz["mc"]
                 self.assertEqual(zs["bottom"], (mc["range_low_low"], mc["range_low_top"]), t)
                 self.assertEqual(zs["top"], (mc["range_high_low"], mc["range_high_top"]), t)
-                stop = round(mc["range_low_low"] * rules.RULES["stop_x"])
+                # 11.11. (the owner's decision 1): the range's hard stop, the ATR stop (ranges.data "stop"); x 0.85
+                # only for a range without it
+                stop = smc if smc else round(mc["range_low_low"] * rules.RULES["stop_x"])
+                atr_stops += int(bool(smc) and smc != round(mc["range_low_low"] * rules.RULES["stop_x"]))
                 self.assertEqual(zs["stop"], (stop, stop), t)
                 self.assertEqual(ver["computed_ts"], rts, t)              # computed_ts = when rangedca computed it
                 self.assertEqual(ver["window_h"], span, t)                # window_h = the hours of data it spanned
@@ -880,7 +885,8 @@ class HopeFixture(Base):
         self.assertGreaterEqual(n_comp, 10)
         self.assertTrue(6.0 <= zones_at[first][4]["window_h"] <= 6.2, zones_at[first][4])   # detect needs 6 h
         # at the end of the fixture (22:18 CET): the range is excluded / too thin, so HOPE has no zones, and why
-        st_end, _ts, _z, zs_end, _v, _s = zones_at[end]
+        self.assertGreater(atr_stops, 0)
+        st_end, _ts, _z, zs_end, _v, _s, _sm = zones_at[end]
         self.assertNotEqual(st_end, "aktivan")
         self.assertEqual(zs_end, {})
         why = view.brief_part(end)["without_range"]

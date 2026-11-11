@@ -45,8 +45,12 @@ BASE_COLS = ("id", "token", "symbol", "created_ts", "updated_ts", "expires_ts", 
 # above the proposal's stop when it was made (the stop rule, strategies.wait_check); last_mcap(_ts): the newest market
 # cap the pass or the demo account's paper loop read; zone_seen_ts / zone_seen_mcap: the first time it was seen inside
 # its entry zone; paper_ts / paper_mcap: the demo account's paper entry ("ušao (paper) na MC ...", status stays novo).
+# 11.11. (the owner's decision 4, proposals/publish.py): wait_why NULL = published (shown), else the state "čeka zonu"
+# with the reason (outside the entry zone, or within 1 ATR of the stop); published_ts / published_mcap: the first time it
+# was published. A proposal made before these columns reads as published (as it was shown then).
 WAIT_COLS = (("below_sl_at_creation", "INTEGER"), ("last_mcap", "REAL"), ("last_mcap_ts", "INTEGER"),
-             ("zone_seen_ts", "INTEGER"), ("zone_seen_mcap", "REAL"), ("paper_ts", "INTEGER"), ("paper_mcap", "REAL"))
+             ("zone_seen_ts", "INTEGER"), ("zone_seen_mcap", "REAL"), ("paper_ts", "INTEGER"), ("paper_mcap", "REAL"),
+             ("wait_why", "TEXT"), ("published_ts", "INTEGER"), ("published_mcap", "REAL"))
 COLS = BASE_COLS + tuple(c for c, _t in WAIT_COLS)
 PRICE_FRESH_S = 600     # a market cap older than this is not the price "now" (sync, the view)
 
@@ -175,7 +179,9 @@ def insert(con, p, now):
     c = _cols(p)
     c.update(token=p["token"], created_ts=int(now), updated_ts=int(now), status="novo", status_ts=int(now),
              price0=p.get("price0"), mcap0=p.get("mcap0"), liq0=p.get("liq0"),
-             below_sl_at_creation=strategies.below_stop(p.get("mcap0"), strategies.stop_of(p)))
+             below_sl_at_creation=strategies.below_stop(p.get("mcap0"), strategies.stop_of(p)),
+             wait_why=p.get("wait_why"), published_ts=None if p.get("wait_why") else int(now),
+             published_mcap=None if p.get("wait_why") else p.get("mcap0"))
     cur = con.execute(f"INSERT INTO proposals ({', '.join(c)}) VALUES ({', '.join('?' * len(c))})", list(c.values()))
     return cur.lastrowid
 
@@ -185,6 +191,23 @@ def update(con, pid, p, now):
     c["updated_ts"] = int(now)
     con.execute(f"UPDATE proposals SET {', '.join(f'{k}=?' for k in c)} WHERE id=? AND status='novo'",
                 [*c.values(), int(pid)])
+    mark_published(con, [(pid, p.get("wait_why"), (p.get("market") or {}).get("market_cap_usd") or p.get("mcap0"))], now)
+
+
+def mark_published(con, pubs, now):
+    """pubs [(proposal id, wait_why or None, market cap)]: the publication state (11.11., decision 4): wait_why NULL =
+    published (the first time: published_ts / published_mcap), else "čeka zonu" with the reason."""
+    for pid, why, mc in pubs:
+        pub = why is None
+        con.execute("UPDATE proposals SET wait_why=?, published_ts=CASE WHEN ? AND published_ts IS NULL THEN ? ELSE "
+                    "published_ts END, published_mcap=CASE WHEN ? AND published_mcap IS NULL THEN ? ELSE published_mcap "
+                    "END WHERE id=? AND status='novo'",
+                    ((why or None) and str(why)[:300], int(pub), int(now), int(pub), mc, int(pid)))
+
+
+def published(p):
+    """True when a proposal (a read() dict) is published now (wait_why empty; an old row without the column too)."""
+    return not p.get("wait_why")
 
 
 def set_status(con, pid, status, why, now, **extra):

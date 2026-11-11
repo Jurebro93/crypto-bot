@@ -18,8 +18,9 @@ from zonewatch import notify, positions, prices, store, zones
 
 LIMIT_DEFAULT, LIMIT_MAX = 100, 300
 HOW = ("Zones are market cap USD. Range zones (source range) come only from MemeSonar's range engine (swing points "
-       "of 24 h, touches weighted by age, recomputed about every 5 min; stop = range_low_low x 0.85), for tokens with an "
-       "open range round, an entry-ready range or an open position on the real account, and only while the engine "
+       "of 24 h, touches weighted by age, recomputed about every 5 min; stop = the ATR stop range_low_low - 1.5 x "
+       "ATR, 5-20 % under it, x 0.85 while ATR is unknown), for tokens with an open range round, an entry-ready "
+       "range or an open position on the real account, and only while the engine "
        "has an active range for them; each newer computation is a new zone_version (computed_ts = when it was "
        "computed, window_h = the hours of data it spanned), and every alarm of a range zone carries the three. "
        "zone_enter / zone_exit when the market cap crosses a bottom, dca or custom zone, top_hit at >= top lo, "

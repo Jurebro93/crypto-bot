@@ -5,7 +5,8 @@ system). Read-only on every database; proposals/job.py writes the result into pr
 Per token (11.11., the owner's consolidated correction, rules A-E: trade/cost.py and trade/edge.py):
   sources        the strategies that propose it (each with its own entry zone, exit, record and expiry)
   EV per strategy = P x TP - (1 - P) x SL - cost   (fractions of the stake; TP / SL of that strategy's exit from the
-                 market cap now; P its measured record shrunk toward no edge, proposals/calib.estimate, Grok's p_tp
+                 MIDDLE of its entry zone, 11.11. decision 4, proposals/publish.at_mid; P its measured record shrunk
+                 toward no edge, proposals/calib.estimate, Grok's p_tp
                  calibrated, calib.apply; then x the P modifiers below)
   cost           trade/cost.round_trip(size in USD at kandidati.SOL_USD, liquidity): 2 x fee_side + 2 x impact, the ONE
                  model (the old 3 / 5 / 8 % by liquidity is gone); under $15k liquidity: blocked
@@ -24,9 +25,11 @@ Per token (11.11., the owner's consolidated correction, rules A-E: trade/cost.py
   blocks         (rule B: only these) rug high (a collapse / mint / freeze / honeypot, or a rug risk rating Grok did not
                  override), liquidity under $15k, 1 h volume under $3k, no live market, under $30k, still on the
                  curve, a fake or tiny pool, not trading now, the owner's per-token cap already used
-Shown: EV > 0 (paper: to collect n) and no block. Ranked (rule D) by EV per expected minute, then the lower end of
-the EV's 90 % interval (P at the low end of the record's Wilson interval), then liquidity. The rest are near misses
-(why) for the report. Live / autotrade needs more (trade/edge.live_proof: EV >= +3 %, interval above 0, n >= 10).
+Shown: EV > 0 (paper: to collect n) and no block; published (11.11., proposals/publish.check) only while the market
+cap is inside the entry zone and >= 1 x ATR above the stop, else stored as "čeka zonu" (row wait_why). Ranked (rule D)
+by EV per expected minute, then the lower end of the EV's 90 % interval (P at the low end of the record's Wilson
+interval), then liquidity. The rest are near misses (why) for the report. Live / autotrade needs more
+(trade/edge.live_proof: EV >= +3 %, interval above 0, n >= 10).
 """
 import json
 import time
@@ -34,7 +37,7 @@ import time
 from trade import cost as tcost, edge
 from ui import kandidati
 
-from . import calib, strategies
+from . import calib, publish, strategies
 
 LIQ_THIN = 25_000           # under this the risks say the pool is thin (the size already follows the slippage)
 COORD_S = 30
@@ -504,6 +507,10 @@ def finish(r, ctx, now, evs_all=None):
             continue
         if cost is None:
             continue
+        ev = publish.at_mid(ev)   # 11.11. (decision 4): TP / SL from the middle of the entry zone, never the price now
+        if ev.get("invalid"):
+            strat[k] = {"valid": False, "why_not": ev["invalid"], "why": ev.get("why")}
+            continue
         p, e, e_lo = _price(ev, cost, mods["p_mult"])
         dur = strategies.duration_min(ev)
         strat[k] = {"valid": True, "p_tp": p["p"], "p_tp_raw": p.get("p_raw"), "n": p["n"], "hits": p.get("hits"),
@@ -513,7 +520,8 @@ def finish(r, ctx, now, evs_all=None):
                     "p_mult": mods["p_mult"], "p_tp_unmodified": p.get("p_unmodified"),
                     "ts": ev.get("ts"), "expires_ts": ev.get("expires_ts"), "expires_after_s": ev.get("expires_after_s"),
                     "entry_zone": ev.get("entry_zone"), "exits_mcap": strategies.mcaps(ev, mcap),
-                    "why": ev.get("why"), "detail": ev.get("detail"), "calibrated": bool(p.get("calibrated"))}
+                    "why": ev.get("why"), "detail": ev.get("detail"), "calibrated": bool(p.get("calibrated")),
+                    "zone_mid_mcap": ev.get("zone_mid")}
     rc = (ctx.get("ranges") or {}).get(tok)
     if "range" in strat and strat["range"].get("valid"):
         similar_shadow(strat["range"], rc, cost)
@@ -578,7 +586,19 @@ def finish(r, ctx, now, evs_all=None):
     if (strat.get("range") or {}).get("similar_shadow"):
         row["similar_shadow"] = strat["range"]["similar_shadow"]
     row["expires_ts"] = expiry(row, now)
+    publication(row, rc, mcap)
     return row, None
+
+
+def publication(row, rc, mcap):
+    """11.11. (the owner's decision 4, proposals/publish.py): the row's ATR in market cap (the token's range ATR when it
+    has a range row, else none: publish falls back to 5 % of the MC), where its EV is measured from, and wait_why (None:
+    published; else stored as "čeka zonu" with the reason, decided again by the 20-s loop)."""
+    row["atr_mc"], row["atr_from"] = publish.atr_for(rc)
+    mid = (row.get("strategies") or {}).get(row["strategy"], {}).get("zone_mid_mcap")
+    row["ev_from"] = (f"sredina zone ulaza {strategies._usd(mid)}" if mid else "MC sada (strategija nema zonu ulaza)")
+    row["wait_why"] = publish.check(row, mcap)
+    return row
 
 
 def similar_shadow(st, rc, cost):

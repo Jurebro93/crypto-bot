@@ -29,6 +29,11 @@ volatility stop range_low_low - 1.5 x ATR), keeps it in range.db range_flip and 
 zones.mc.stop / stop_flip / flip_low / flip_top / resistance_low / resistance_top), and logs every change of state
 (range.db events kind range_flip). Off: nothing of it is computed or written. Today's range, its status and `active`
 never change for it; only the trader's new rules (rangedca/rules.new_range) read the state.
+
+11.11. (the owner's decision 1, "range stopovi"): every full detection also keeps the range's ATR (detect.atr, 14 x 15
+min, whatever range_flip's mode) and "stop" (stop_block: the ATR stop every account trades, the old x 0.85 next to it,
+in price and market cap), and logs ONE line per active range when a level moved (3 significant digits): "range stop
+SYM: pravi račun ATR MC $X (range_low_low $Y, ATR $Z) · demo ATR+reclaim · staro 0,85 $W" (rules.stop_line).
 """
 import argparse
 import os
@@ -129,6 +134,9 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                             data.day_add(con, "mkt_seed_day", 1, now)
                         candles, snap = data.series(con, tok, now)
                         res = detect.analyze(candles, now, snap)
+                # 11.11. (the owner's decision 1): the ATR of every range, whatever range_flip's mode: the hard stop of
+                # every account is range_low_low - 1.5 x ATR (rangedca/rules.atr_range)
+                res["atr"] = detect.atr(candles, now)
                 if m_flip != "off":   # 11.11. (range_flip G26): the flip / pause state next to today's range
                     fprev = data.flip_load(con, tok)
                     fst = detect.flip_step(fprev, res, candles, now, snap)
@@ -149,6 +157,13 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                             f"ocjena {res['score']:.2f}" if res["active"] else res["why"])
                     data.event(con, tok, res["status"], note, now)
                     log(f"range {sym or tok[:6]}: {res['status']} ({note})")
+                res["stop"] = stop_block(res)
+                if res.get("active"):   # 11.11. (decision 1): ONE line per active range, only when a level moved
+                    ln = rules.stop_line(sym or tok[:6], res)
+                    if ln:
+                        if ln != (prev or {}).get("stop_line"):
+                            log(ln)
+                        res["stop_line"] = ln
                 st = new_st
             else:   # between the 5-minute passes: the active range keeps its zones, its 5-minute numbers are renewed
                 res = dict(prev)
@@ -268,6 +283,23 @@ def _alt_active(r):
     """True when the range's flip block (range_flip) has an active range after a break (flipped / resumed)."""
     fl = (r or {}).get("flip") or {}
     return fl.get("state") in ("flipped", "resumed") and bool((fl.get("alt") or {}).get("active"))
+
+
+def stop_block(res):
+    """11.11. (the owner's decision 1): the range JSON's "stop": the hard stop of every account (the ATR stop; x 0.85
+    while ATR is unknown) and today's old x 0.85 next to it, in price and market cap (zonewatch's stop alarm, the MCP
+    rows, proposals' range stop and ATR). None without zones."""
+    from rangedca import rules
+    sp = rules.stop_parts(res)
+    if not sp:
+        return None
+    sup = (res.get("metrics") or {}).get("supply")
+
+    def m(px):
+        return round(px * sup) if sup and px else None
+    return {"px": sp["stop_px"], "mc": m(sp["stop_px"]), "kind": sp["kind"], "atr_px": sp["atr_px"],
+            "atr_mc": m(sp["atr_px"]), "old_mc": m(sp["old_px"]), "rule": "range_low_low - 1,5 × ATR (5-20 %)"
+            if sp["kind"] == "atr" else "range_low_low × 0,85 (ATR nepoznat)"}
 
 
 def _flip_into(res, fst):

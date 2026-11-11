@@ -52,4 +52,12 @@ padne u raspon i volumen se drži"):
     stops.py     stop variants measured, never traded: today's x 0.85 on any tick, the ATR stop, both on a 5-minute
                  close, reclaim; over the backtest timeline (nightly "range stop varijante: ...", range.db kv
                  stop_backtest) and the live HAOBIBI round replayed with its own fills ("range stop replay ...")
+
+11.11. (the owner's decision 1, "range stopovi"; no flag changes): the live stop of every account is variant (b), the
+ATR stop range_low_low - 1.5 x ATR (5-20 % under it; x 0.85 only while ATR is unknown: rules.atr_range, the ATR kept by
+run_range in ranges.data "atr" whatever range_flip's mode); the demo account also reclaims (trade._reclaim: within
+30 min of a stop-out, back above range_low with buys >= 60 %, its stop under the new low by the ATR rule; rounds with
+levels "reclaim": true, counted apart); the real account reclaims only past gate.reclaim_refusal (>= 7 nights of the
+nightly stop comparison, >= 20 closed reclaim rounds, EV > 0 after cost). One log line per active range when a level
+moves: "range stop SYM: pravi račun ATR MC $X (range_low_low $Y, ATR $Z) · demo ATR+reclaim · staro 0,85 $W".
 """
