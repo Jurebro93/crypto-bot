@@ -81,6 +81,11 @@ DEFAULT = {
     "tp": 0.20, "sl": 0.30, "horizon_h": 4, "cost": 0.02, "max_gap_min": 30,
     "paper_min_outcomes": 30, "gate_days": 30,
     "show_min": 60,                  # get_market_signals: passers of the last hour
+    # 11.11. (Grok's notes #54 / #96 / #105: the scanner offered tokens after 6-39x): a bonded token whose market cap is
+    # runup_max_x or more over the scanner's first sighting of it as bonded (cand.mcap_first, kept runup_window_h; a
+    # sighting on the bonding curve does not count: a graduation is not a run-up) fails as "kasno"; 0 = off
+    "runup_max_x": 4.0,              # = ui/kandidati.RUNUP_MAX_X
+    "runup_window_h": 24,
     # ui/kandidati.py: the combined candidate list is built and logged in shadow every kandidati_every_min (DexScreener
     # is free; no paid call), its top kandidati_top_n tradeable rows as source kandidati
     "kandidati_every_min": 5,
@@ -135,12 +140,18 @@ CREATE TABLE IF NOT EXISTS profiles (token TEXT PRIMARY KEY, ts INTEGER, descrip
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 KEEP_CAND_S, KEEP_META_S, KEEP_SHADOW_S, KEEP_BETA_S = 3 * 86400, 3 * 86400, 90 * 86400, 30 * 86400
+# columns added after a table first shipped: (table, column, type), added to an older scan.db by connect()
+# 11.11.: cand.mcap_first / mcap_first_ts = the run-up anchor (market cap at the first sighting as bonded, scan/market)
+ADDED = (("cand", "mcap_first", "REAL"), ("cand", "mcap_first_ts", "INTEGER"))
 
 
 def connect(path=None):
     con = sqlite3.connect(path or db_path(), timeout=30)
     con.execute("PRAGMA busy_timeout = 30000")
     con.executescript(SCHEMA)
+    for table, col, typ in ADDED:
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     return con
 
 

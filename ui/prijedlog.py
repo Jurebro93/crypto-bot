@@ -588,7 +588,8 @@ def _base(kind, now=None, rows=None, live=None):
     if live is None:   # 9.11. (Jure): the Autopilot's live engine is the source; Pregled follows it
         try:
             from ui import zivo
-            zr = zivo.rows(now, sync=True)
+            # 11.11. (Grok #92): a row 4x+ over its first call is shown on the live list but is not a pick
+            zr = [r for r in zivo.rows(now, sync=True) if r.get("pick", True)]
             if zr:
                 # 9.11. (audit P50/P51): these are the live list's rows, graded 'uživo' and logged under kind 'zivo',
                 # so the box's 7-day record keeps the two methods (freshness + confidence vs. live reasons) apart

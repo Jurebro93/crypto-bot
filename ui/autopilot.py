@@ -587,6 +587,22 @@ def caller_weights_flag():
         return None, None
 
 
+def _hygienic(rows, now=None):
+    """11.11. (Grok #85, wallets/hygiene.py): the wallet candidates minus idle (24 h+), bot / sniper / bundler labelled
+    and bot-like ones, tier S included. Only removes (never adds a wallet), so it applies directly; an earlier auto
+    pick that fails it drops out of the candidates and sync_follows unfollows it like any pick that left the top."""
+    if not rows:
+        return rows
+    try:
+        from wallets import hygiene
+        _kept, out = hygiene.screen({"wallet": [r["wallet"] for r in rows]}, "autopilot", now=now,
+                                    log=lambda m: print(f"autopilot: {m}", flush=True))
+    except Exception as e:  # noqa: BLE001 - the auto pick never breaks on the screen
+        print(f"autopilot: higijena: {type(e).__name__}: {e}", flush=True)
+        return rows
+    return [r for r in rows if r["wallet"] not in out]
+
+
 def auto_targets(days, n, keep=(), skip=(), ev=None, weights=None):
     """[(kind, target, label, why)] the tool would follow: the n best live-watched influencers and the n best wallets of
     the window. An earlier pick in `keep` stays while it is still in the top 2n, so the list does not churn every hour.
@@ -601,7 +617,7 @@ def auto_targets(days, n, keep=(), skip=(), ev=None, weights=None):
     # going 10 -> 9 as old calls leave the window must not unfollow it: a new follow id restarts its demo proof)
     groups = (("kol", _weighted([r for r in (kol_recs(ev=True) if ev else kol_recs()).get(days) or [] if r["live"] and (
                    r["s"].get("mjera") == "minutna" or ("kol", r["handle"]) in keep)], weights)),
-              ("wallet", proven + [r for r in wallet_recs().get(days) or [] if r["wallet"] not in seen]))
+              ("wallet", _hygienic(proven + [r for r in wallet_recs().get(days) or [] if r["wallet"] not in seen])))
     for kind, rows in groups:
         key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
         # earlier picks still in the top 2n stay first, the rest of the n places go to the best new ones

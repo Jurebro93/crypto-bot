@@ -1905,7 +1905,7 @@ def ideas_inner(cfg, owner, now=None, force=False):
             m = r["live"]
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-            why = (r.get("reasons") or [""])[0]
+            why = r.get("why_not") or (r.get("reasons") or [""])[0]   # 11.11. (Grok #92): "kasno ..." = not a pick
             # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
             # as the one number and the price moves under it; a tap opens the live pop-up as before
             out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],

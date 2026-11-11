@@ -3,6 +3,7 @@ get_market_signals, get_token_details, get_portfolio_status, execute_trade s req
 
     GET  /api/mcp/signals             what is being called right now (X, Telegram, followed wallets) + live market,
                                       and the market scanner's finds (scan, beta) while market_scan is on; ?source=
+                                      (11.11.: rug risk / hard and 4x+ run-up rows only with ?include_hidden=true)
     GET  /api/mcp/token?address=...   one token: live market, who called it in the last hour, our position in it
     GET  /api/mcp/portfolio           the Autopilot: mode, wallet value, open positions with PnL, open orders
     POST /api/mcp/trade               a trade REQUEST: it waits on the Autopilot page until the owner taps
@@ -105,16 +106,19 @@ def _scan_fields(r, xm, first_call_ts=None):
             "scan_passed_now": bool(r.get("passed")), "scan_why_now": r.get("why")}
 
 
-def signals(now=None, source=None):
+def signals(now=None, source=None, include_hidden=False):
     """Tokens called in the last hour by the accounts the tool tracks (and buys of followed wallets), most callers
     first, each with its live market; while the flag market_scan is on, also the market scanner's passers of the last
     hour (source scan, with their pass reasons) and the betas of the active metas (source beta). A token the scanner
     found that a caller also called is ONE row (source caller or wallet, plus the scanner's fields and lead_time_min:
     how many minutes earlier the scanner had it). source: caller | wallet | scan | beta filters; None = everything
-    (the rows before 10.11. keep their fields; the new ones are added)."""
+    (the rows before 10.11. keep their fields; the new ones are added).
+    11.11. (Grok #54 / #96 / #105): every row carries rug_verdict and runup_x (_hygiene); a row rated rug risk / hard
+    or at RUNUP_HIDE_X+ leaves "signals" for "hidden" (only with include_hidden; "hidden_count" always)."""
     src = (source or "").strip().lower() or None
     if src and src not in SIGNAL_SOURCES:
         return {"error": f"source must be one of {', '.join(SIGNAL_SOURCES)}"}
+    explicit_now = now   # a caller's own time (tests, reports): the rug tables are read fresh, not from the cache
     now = now or time.time()
     scan_rows, xm = {}, {}
     try:
@@ -162,9 +166,120 @@ def signals(now=None, source=None):
             out.append(row)
     if src in (None, "hidden_group"):
         out += _group_signals(now)   # 10.11. source hidden_group (kol/groupdisc.py); nothing while group_discovery is off
-    return {"ts": int(now), "source": "MemeSonar (X, Telegram, followed wallets; DexScreener live; market scanner "
-                                      "in shadow while the flag market_scan is on)",
-            "filter": src, "signals": out}
+    out, hidden = _hygiene(out, now, scan_rows, cached=explicit_now is None)
+    res = {"ts": int(now), "source": "MemeSonar (X, Telegram, followed wallets; DexScreener live; market scanner "
+                                     "in shadow while the flag market_scan is on)",
+           "filter": src, "signals": out, "hidden_count": len(hidden), "hidden_rule": HIDDEN_RULE}
+    if include_hidden:
+        res["hidden"] = hidden
+    return res
+
+
+# ---------- 11.11. (Grok's notes #54 / #96 / #105): signal feed hygiene ---------------------------------------------
+# get_market_signals listed tokens that fail the rug check (Dacity, DOPE, HWAN, GTA) and late pumps (offered after
+# 6-39x, then -95 %). Every row now carries the verdict ui/kandidati uses (rug_view: ok | unknown | oprez | risk | hard)
+# and the run-up from the token's first signal of the last 24 h; risk / hard and 4x+ rows are left out by default.
+RUNUP_HIDE_X = 4.0          # = ui/kandidati.RUNUP_MAX_X
+HIDE_RUG = ("risk", "hard")
+HIDDEN_RULE = ("left out of signals (listed under hidden with include_hidden=true): rug_verdict risk or hard (the rug "
+               "filter's ODBAČEN / VISOK RIZIK, supply concentration, a collapse, mint / freeze authority, the rug "
+               "archive) or runup_x >= 4 (market cap now over the first signal's in 24 h: kol.db first measured call "
+               "or the scanner's first sighting as bonded; else 1 + the 1 h change)")
+_RUG_TTL_S = 120
+_RUG = {"ts": 0.0, "tables": None, "archived": frozenset()}
+
+
+class _RugSrc:
+    """ui/kandidati.rug_view's two reads, with one batched collapse read (hype.db) for all rows."""
+
+    def __init__(self, peaks):
+        self.peaks = peaks or {}
+
+    def collapse(self, token, mcap, liq):
+        from rugfilter import collapse
+        return collapse.check(self.peaks.get(token), mcap, liq)
+
+    def concentration(self, token):
+        from league import copy as lcopy
+        return lcopy._concentration(token)
+
+
+def _rug_inputs(cached=True):
+    """((topcheck rows, rug.db newest reports), archived mints): cached _RUG_TTL_S (the rug.db read is the slow part)."""
+    t = time.time()
+    if not cached or _RUG["tables"] is None or t - _RUG["ts"] >= _RUG_TTL_S:
+        from scan import filters
+        try:
+            tables = filters.rug_tables()
+        except Exception:  # noqa: BLE001
+            tables = ({}, {})
+        try:
+            from rugfilter import archive
+            archived = archive.blocked()
+        except Exception:  # noqa: BLE001
+            archived = frozenset()
+        if not cached:
+            return tables, archived
+        _RUG.update(ts=t, tables=tables, archived=archived)
+    return _RUG["tables"], _RUG["archived"]
+
+
+def _first_signal(tokens, now, scan_rows):
+    """{token: first signal market cap}: the earlier of the first measured call in 24 h (kol.db, ui/zivo.first_calls,
+    cached a minute) and the scanner's first sighting as bonded (scan.db cand.mcap_first, within 24 h)."""
+    from ui import zivo
+    cands = {t: [v] for t, v in zivo.first_calls(now, tokens).items()}
+    for t in tokens:
+        r = scan_rows.get(t) or {}
+        if r.get("mcap_first") and r.get("mcap_first_ts") and now - r["mcap_first_ts"] <= 86400:
+            cands.setdefault(t, []).append((int(r["mcap_first_ts"]), float(r["mcap_first"])))
+    return {t: min(v)[1] for t, v in cands.items() if v}
+
+
+def _hygiene(rows, now, scan_rows, cached=True):
+    """(visible rows, hidden rows): rug_verdict, rug_reasons, runup_x, runup_from, first_signal_mcap_usd on every
+    row; a broken read never hides a row (the fields stay None then)."""
+    for r in rows:
+        r.update(rug_verdict=None, rug_reasons=[], runup_x=None, runup_from=None, first_signal_mcap_usd=None)
+    if not rows:
+        return rows, []
+    from league import copy as lcopy
+    mine = None
+    try:
+        from ui import data, kandidati
+        from rugfilter import collapse
+        toks = sorted({r["token"] for r in rows})
+        tables, archived = _rug_inputs(cached)
+        first = _first_signal(toks, now, scan_rows or {})
+        rs = _RugSrc(collapse.peaks(data.HYPE_DB, toks))
+        if lcopy._CONC_CACHE is None:   # _concentration reads the same two tables once for all rows
+            mine = lcopy._CONC_CACHE = {"tc": tables[0], "rug": tables[1]}
+        for r in rows:
+            mk = r.get("market") or {}
+            m = {"mcap": mk.get("market_cap_usd"), "ch_h1": mk.get("change_1h_pct"), "ch_h24": mk.get("change_24h_pct")}
+            rv = kandidati.rug_view(r["token"], m["mcap"] or None, mk.get("liquidity_usd"), rs, tables, archived,
+                                    (scan_rows or {}).get(r["token"]))
+            ru = kandidati.runup(m, first.get(r["token"]))
+            r.update(rug_verdict=rv["level"], rug_reasons=(rv["hard"] + rv["risk"] + rv["warn"])[:3],
+                     runup_x=ru["x"], runup_from=ru["from"], first_signal_mcap_usd=ru["mcap_at_first_signal"])
+    except Exception as e:  # noqa: BLE001 - the hygiene is extra; the feed answers without it
+        print(f"mcp: higijena signala: {type(e).__name__}: {e}", flush=True)
+        return rows, []
+    finally:
+        if mine is not None and lcopy._CONC_CACHE is mine:
+            lcopy._CONC_CACHE = None
+    vis, hid = [], []
+    for r in rows:
+        why = []
+        if r["rug_verdict"] in HIDE_RUG:
+            why.append(f"rug ocjena {r['rug_verdict']}" + (f": {r['rug_reasons'][0]}" if r["rug_reasons"] else ""))
+        if r["runup_x"] is not None and r["runup_x"] >= RUNUP_HIDE_X:
+            why.append(f"kasno: već {r['runup_x']:.1f}× ({r['runup_from']}; granica {RUNUP_HIDE_X:g}×)")
+        if why:
+            hid.append(dict(r, hidden_reasons=why))
+        else:
+            vis.append(r)
+    return vis, hid
 
 
 def _group_signals(now):
@@ -486,10 +601,15 @@ def decide(tcon, rid, status, note=""):
     return hit
 
 
+def _truthy(x):
+    """A boolean argument from JSON (true) or a query string ("true", "1", "yes", "da")."""
+    return x is True or str(x or "").strip().lower() in ("1", "true", "yes", "da")
+
+
 def answer(path, qs):
     """(status, JSON text) of a GET."""
     if path == "/api/mcp/signals":
-        data = signals(source=qs.get("source"))
+        data = signals(source=qs.get("source"), include_hidden=_truthy(qs.get("include_hidden")))
     elif path == "/api/mcp/token":
         data = token(qs.get("address") or qs.get("token"))
     elif path == "/api/mcp/portfolio":
@@ -525,10 +645,16 @@ TOOLS = [
                      "x_momentum_score (growth of unique organic X authors in the last 15 min vs the hour before, "
                      "log2; > 0 = growing), x_early (growing and no known caller posted it yet), lead_time_min (how "
                      "many minutes before the first caller the scanner had it; negative = the caller was first); "
-                     "null when unknown. One row per token. source filters: caller | wallet | scan | beta; none = all."),
+                     "null when unknown. One row per token. source filters: caller | wallet | scan | beta; none = all. "
+                     "Every row also: rug_verdict (ok | unknown | oprez | risk | hard, the same rating as "
+                     "get_trade_candidates' rug.level) with rug_reasons, and runup_x (market cap now over the first "
+                     "signal's in the last 24 h) with runup_from. Rows rated risk / hard or with runup_x >= 4 are left "
+                     "out (hidden_count); include_hidden=true lists them under hidden with hidden_reasons."),
      "inputSchema": {"type": "object", "properties": {
          "source": {"type": "string", "enum": ["caller", "wallet", "scan", "beta", "hidden_group"],
-                    "description": "only rows of this source (default: all)"}}}},
+                    "description": "only rows of this source (default: all)"},
+         "include_hidden": {"type": "boolean", "default": False,
+                            "description": "also list the rows left out (rug risk / hard, run-up 4x+) under hidden"}}}},
     {"name": "get_token_details", "annotations": _READ,
      "description": ("One Solana token by its address: live market, who called it in the last hour, MemeSonar's open "
                      "position in it. Tokens under $30k market cap are flagged (MemeSonar does not trade them)."),
@@ -1099,7 +1225,7 @@ def _tool(name, args, kid="local"):
         d = data_tools[name](args)
         return d, isinstance(d, dict) and "error" in d
     if name == "get_market_signals":
-        d = signals(source=args.get("source"))
+        d = signals(source=args.get("source"), include_hidden=_truthy(args.get("include_hidden")))
         return d, "error" in d
     if name == "get_token_details":
         d = token(args.get("token_address") or args.get("address"))
