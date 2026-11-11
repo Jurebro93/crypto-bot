@@ -1125,8 +1125,79 @@
       say(`Nije spremljeno (${x.message || 'mreža'}). Upisano je ostalo; pokušaj ponovno.`, 'dn');
     } finally { f._busy = 0; btn.disabled = false; btn.textContent = 'Spremi SL/TP'; }
   }
+  // ---- 11.11. (owner: "Može izaći upozorenje, box na kojem piše upozorenje, ali ako se složim, ručno uvijek nadjačava
+  //      sve ostalo"): Kupi (and Kupi na MC) and the DCA rows post in place; a buy over the owner's limits answers
+  //      {"warn": [...]} (ui/pravitrade.fetch_answer): the box below lists every reason with its numbers, "Kupi
+  //      svejedno" sends the same form with override=1 after a confirm, "Odustani" closes it. The box never goes away
+  //      on its own (Jure: "poruke odmah nestanu"). Under $30k MC it asks for the reason first. ----
+  function goTo(to) {   // the page the answer names (its ?ok= / ?err= toast), like an ordinary form would
+    const u = new URL(to || '/pravi-trade', location.href);
+    if (u.pathname + u.search === location.pathname + location.search) location.reload(); else location.assign(u.href);
+  }
+  async function postForm(action, body) {
+    const r = await fetch(action, { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Apx-Fetch': '1' } });
+    if (!r.ok) throw new Error('poslužitelj ' + r.status);
+    return (r.headers.get('content-type') || '').includes('json') ? r.json() : { to: r.redirected ? r.url : '' };
+  }
+  function warnClose() { for (const o of $$('.ap-warnbox')) o.remove(); }
+  function warnBox(action, body, j) {
+    warnClose();
+    const box = document.createElement('div');
+    box.className = 'ap-warnbox'; box.id = 'ap-warn'; box.setAttribute('role', 'alertdialog');
+    box.setAttribute('aria-labelledby', 'ap-warn-h'); box.setAttribute('aria-describedby', 'ap-warn-l');
+    const min = +j.reason_min || 10, prev = body.get('reason') || '';
+    box.innerHTML = `<p class=ap-warnbox-h id=ap-warn-h>${esc(j.title || 'Upozorenje: ova kupnja prelazi tvoje limite')}</p>` +
+      (j.what ? `<p class=ap-warnbox-what>${esc(j.what)}</p>` : '') +
+      `<ul id=ap-warn-l>${(j.warn || []).map(w => `<li>${esc(w)}</li>`).join('')}</ul>` +
+      '<p class=ap-warnbox-note>Ako potvrdiš, tvoja ručna kupnja nadjačava ove limite samo za ovu kupnju. Kill switch, ' +
+      'stanje walleta i rug i dalje vrijede.</p>' +
+      (j.need_reason ? `<label class=ap-warnbox-r>${esc(j.reason_label || 'Razlog kupnje ispod 30k MC')} <small>(obavezno, ` +
+        `najmanje ${min} znakova)</small><textarea name=reason required minlength=${min} maxlength=300 rows=2 autocomplete=off ` +
+        `placeholder="npr. poznati caller, svjež volumen, likvidnost drži">${esc(prev)}</textarea></label>` : '') +
+      (j.note ? `<p class=ap-warnbox-err>${esc(j.note)}</p>` : '') + '<p class=ap-warnbox-err data-werr hidden></p>' +
+      '<div class=ap-warnbox-go><button type=button class=ap-warnbox-yes>Kupi svejedno</button>' +
+      '<button type=button class=ap-warnbox-no>Odustani</button></div>';
+    const yes = $('.ap-warnbox-yes', box), why = $('textarea', box), err = $('[data-werr]', box);
+    const ready = () => { yes.disabled = !!why && why.value.trim().length < min; };
+    if (why) { why.addEventListener('input', ready); ready(); }
+    $('.ap-warnbox-no', box).addEventListener('click', warnClose);
+    yes.addEventListener('click', async () => {
+      if (yes.disabled || box._busy) return;
+      if (!confirm('Kupiti svejedno, iznad svojih limita?\n\n' + (j.warn || []).join('\n'))) return;
+      body.set('override', '1');
+      if (why) body.set('reason', why.value.trim()); else body.delete('reason');
+      box._busy = 1; yes.disabled = true; yes.textContent = 'Šaljem…'; err.hidden = true;
+      try {
+        const a = await postForm(action, body);
+        if (a.warn && a.warn.length) { warnBox(action, body, a); return; }   // e.g. the reason is still missing
+        goTo(a.to);
+      } catch (x) {
+        err.textContent = `Nije poslano (${x.message || 'mreža'}). Pokušaj ponovno.`; err.hidden = false;
+        box._busy = 0; yes.textContent = 'Kupi svejedno'; ready(); if (!why) yes.disabled = false;
+      }
+    });
+    root.appendChild(box);
+    (why || yes).focus({ preventScroll: true });
+  }
+  async function sendOrder(f) {   // Kupi / Kupi na MC / a DCA row: in place; a warning opens the box, else the page
+    if (f._busy) return;
+    const btn = $('button:not([type=button])', f), txt = btn && btn.textContent;
+    f._busy = 1; if (btn) { btn.disabled = true; btn.textContent = 'Šaljem…'; }
+    const body = new URLSearchParams(new FormData(f));
+    body.delete('override'); body.delete('reason');
+    try {
+      const j = await postForm(f.action, body);
+      if (j.warn && j.warn.length) { warnBox(f.action, body, j); return; }
+      goTo(j.to);
+    } catch (x) {
+      toast(`Nije poslano (${x.message || 'mreža'}). Pokušaj ponovno.`, true);
+    } finally { f._busy = 0; if (btn) { btn.disabled = false; btn.textContent = txt; } }
+  }
   root.addEventListener('submit', e => {
     if (e.target.id === 'apx-buy' && !fieldMint(e.target, tokState(e.target))) { e.preventDefault(); label(); return; }   // never an unnamed token
+    if (!e.defaultPrevented && window.fetch && (e.target.id === 'apx-buy' || e.target.matches('form.apx-dcar'))) {
+      e.preventDefault(); sendOrder(e.target); return;   // the confirm (apBuyOk) ran in the form's own onsubmit
+    }
     const f = e.target.closest('form[data-sltp]');
     if (!f || !window.fetch) return;   // no fetch: the ordinary form, back to #poz-<id>
     e.preventDefault();

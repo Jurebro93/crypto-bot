@@ -1005,9 +1005,11 @@ class Handler(BaseHTTPRequestHandler):
                 pagecache.clear()
             from ui import apterm
             apterm.forget_first()   # 11.11.: the terminal's next first view is built anew (a saved SL/TP shows at once)
-            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP): the answer in place, no page render
+            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP, Kupi, DCA): the answer in place
                 from json import dumps   # (do_POST imports json further down: the module name is local here)
-                return self._send(200, dumps({"to": to}).encode("utf-8"), "application/json")
+                # 11.11.: {"to"} and, for a buy over the owner's limits, {"warn": [reasons], "title", "what"}
+                return self._send(200, dumps(pravitrade.fetch_answer(to), ensure_ascii=False).encode("utf-8"),
+                                  "application/json")
             return self._redirect(to)
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)

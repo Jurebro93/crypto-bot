@@ -37,7 +37,10 @@ CREATE TABLE IF NOT EXISTS orders (
 """
 NEW_COLS = {"positions": [("league_id", "INTEGER"), ("fees_sol", "REAL DEFAULT 0"),
                           # 10.11. (plan 1.5): the demo's exit price next to the real one, and how far apart
-                          ("demo_exit_px", "REAL"), ("real_exit_px", "REAL"), ("exit_slip_pct", "REAL")],
+                          ("demo_exit_px", "REAL"), ("real_exit_px", "REAL"), ("exit_slip_pct", "REAL"),
+                          # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the limits the owner confirmed he
+                          # overrides for this manual lot (buy(override=...)); NULL for every other buy
+                          ("override", "TEXT")],
             "orders": [("route", "TEXT"), ("code", "INTEGER"), ("fee_lamports", "INTEGER"), ("prio_lamports", "INTEGER")]}
 ROUTES = ("v2", "ultra", "pump")
 ROUTE_HR = {"v2": "Jupiter", "ultra": "Jupiter Ultra", "pump": "PumpPortal"}
@@ -151,51 +154,97 @@ def live_spent(con, now, tz=None):
                        "AND status IN ('open','closed','pending')", (_day_start(now, tz),)).fetchone()[0] or 0.0
 
 
-def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
-    """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
-    lot of the same position, so the duplicate check does not apply (every other limit does).
-    manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
-    he approved) is not held by the day's spending limit max_sol_per_day; the Autopilot's copies still are. The
-    stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy.
-    live (11.11., owner's rule C): LIVE_CAPS on top for every automatic live buy (not for manual)."""
+# 11.11. (owner: "Ako ručno postavim drugačije ... ručno uvijek nadjačava ono što je zapisano programski. I ne samo za
+# to, nego za količinu kupljenoga. Može izaći upozorenje ... ali ako se složim, ručno uvijek nadjačava sve ostalo"):
+# every reason a buy is refused is HARD or SOFT. HARD = physics and safety, nothing overrides it: the kill switch, an
+# empty stake, too little SOL for the stake, its fees and the fees to sell what is held, no route to sell back. SOFT =
+# the owner's own limits (stake per trade, open positions, the day's loss stop, his reserve, the swap's cost cap, his
+# per-token cap): his confirmed manual buy passes them (ui/pravitrade._post_buy with override=1, then run_trade hands
+# the mark to buy(override=...)). Grok's buys, copies and every automatic buy never carry an override.
+HARD, SOFT = "hard", "soft"
+# The rules of the owner's CLAUDE.md that stay hard even for his own confirmed buy: "rug" (a rugged token locks the
+# buy). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): "mc30k" is out
+# of the set, so MC under $30k is a SOFT reason of the owner's own manual buy only, and it also needs his typed
+# reason (ui/pravitrade.REASON_MIN); Grok, copies and every automatic buy never buy under $30k. Putting "mc30k" back
+# makes it hard again everywhere (the page and run_trade's MIN_MCAP check); taking "rug" out would make that soft.
+HARD_RULES = frozenset({"rug"})
+
+
+def buy_checks(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False):
+    """Every reason this buy is refused, in gate_buy's order, as (kind, key, text): kind HARD or SOFT (above), key a
+    short name of the rule (stop, stake, dup, day_spend, day_loss, max_open, balance, reserve). A generator: gate_buy
+    stops at the first reason, the owner's buy (ui/pravitrade) and an overridden one read on, so the wallet's RPC is
+    asked only when the checks before it are through."""
     if os.path.exists(STOP_FILE):
-        return "kill switch (trade/STOP)"
+        yield HARD, "stop", "kill switch (trade/STOP)"
     if live and not manual:   # 11.11.: the owner's own buy keeps his settings (Jure 10.11.: "makni limit")
         cfg = live_capped(cfg)
+    mode = "live" if live else "dry"
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
-                          (token, "live" if live else "dry")).fetchone()
+                          (token, mode)).fetchone()
         if dup:
-            return f"već postoji otvorena pozicija u ovom tokenu (#{dup[0]})"
+            yield SOFT, "dup", f"već postoji otvorena pozicija u ovom tokenu (#{dup[0]})"
     if size_sol <= 0 or size_sol > cfg["max_sol_per_trade"]:
-        return f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
+        yield (HARD if size_sol <= 0 else SOFT), "stake", f"{size_sol} SOL iznad limita {cfg['max_sol_per_trade']}"
     tz = cfg.get("day_tz")
-    spent = auto_spent(con, now, "live" if live else "dry", tz)
-    if not manual and spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
-        return f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
+    if not manual:
+        spent = auto_spent(con, now, mode, tz)
+        if spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
+            yield SOFT, "day_spend", f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
     if "max_loss_day" in cfg:
-        lost = day_pnl(con, now, "live" if live else "dry", tz)
+        lost = day_pnl(con, now, mode, tz)
         if lost <= -cfg["max_loss_day"]:
-            return f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
+            yield SOFT, "day_loss", f"dnevni gubitak {lost:+.3f} SOL, granica -{cfg['max_loss_day']} SOL: stop do ponoći"
     n_open = con.execute("SELECT COUNT(*) FROM positions WHERE status IN ('open','pending') AND mode=?",
-                         ("live" if live else "dry",)).fetchone()[0]
+                         (mode,)).fetchone()[0]
     # 10.11. (Jure: dokupnja u istu poziciju): a token bought in two lots is one position against max_open; the
     # reserve for selling (below) still counts every lot, each is sold by its own swap
     n_tok = con.execute("SELECT COUNT(DISTINCT COALESCE(token, '#' || id)) FROM positions WHERE status IN ('open','pending') AND mode=?",
-                        ("live" if live else "dry",)).fetchone()[0]
+                        (mode,)).fetchone()[0]
     held = token is not None and con.execute(
         "SELECT 1 FROM positions WHERE token=? AND mode=? AND status IN ('open','pending') LIMIT 1",
-        (token, "live" if live else "dry")).fetchone() is not None
+        (token, mode)).fetchone() is not None
     if n_tok >= cfg["max_open"] and not held:
-        return f"{n_tok} otvorenih pozicija"
+        yield SOFT, "max_open", f"{n_tok} otvorenih pozicija"
     if live:
         if balance is None:
             balance = wallet.sol_balance(wallet.address())
         need = size_sol + BUY_OVERHEAD_SOL + reserve_sol(cfg, n_open + 1)
         if balance < need:
-            return (f"premalo SOL-a: stanje {balance:.4f}, treba {need:.4f} (ulog {size_sol:g} + naknade i depozit "
+            text = (f"premalo SOL-a: stanje {balance:.4f}, treba {need:.4f} (ulog {size_sol:g} + naknade i depozit "
                     f"{BUY_OVERHEAD_SOL:g} + rezerva za prodaju {reserve_sol(cfg, n_open + 1):.4f})")
-    return None
+            # the fees of this buy and of selling every position that would be open are physics; only the owner's
+            # own "Uvijek ostavi u walletu" (min_sol_reserve) above that floor is his limit
+            floor = size_sol + BUY_OVERHEAD_SOL + reserve_sol({}, n_open + 1)
+            if balance < floor:
+                yield HARD, "balance", text
+            else:
+                yield SOFT, "reserve", (f"{text}; bez tvoje rezerve „Uvijek ostavi u walletu” "
+                                        f"({cfg.get('min_sol_reserve', 0):g} SOL) dovoljno je {floor:.4f}")
+
+
+def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False):
+    """Reason the buy is blocked, or None. add (10.11.): the owner's manual buy of a token already held: one more
+    lot of the same position, so the duplicate check does not apply (every other limit does).
+    manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
+    he approved) is not held by the day's spending limit max_sol_per_day; the Autopilot's copies still are. The
+    stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy.
+    live (11.11., owner's rule C): LIVE_CAPS on top for every automatic live buy (not for manual).
+    override (11.11.): the owner confirmed this manual buy over his limits: only the HARD reasons hold (buy_checks);
+    without manual it is ignored."""
+    return _gate(con, cfg, size_sol, now, live, balance, token, add, manual, override)[0]
+
+
+def _gate(con, cfg, size_sol, now, live, balance=None, token=None, add=False, manual=False, override=False):
+    """(reason the buy is blocked or None, the SOFT reasons an override let pass)."""
+    ov = bool(override) and manual
+    passed = []
+    for kind, _key, text in buy_checks(con, cfg, size_sol, now, live, balance, token, add, manual):
+        if kind == HARD or not ov:
+            return text, passed
+        passed.append(text)
+    return None, passed
 
 
 # what one sale costs at most in network fees (signature + a high priority fee), what a buy adds on top of its
@@ -357,13 +406,16 @@ def _quote_error(q):
     return None
 
 
-def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
+def sell_check(token, size_sol, max_cost_pct, tp_pct=None, override=None):
     """Before every buy: can the same amount be sold straight back? (audit 4.11. §20.4, T26). Quotes SOL -> token
     and then token -> SOL for what the first would give; no sell route, or a round trip losing more than twice the
     allowed swap cost, = reason to refuse the buy, whatever the score. A quote is not an executed sale (F10), but a
     honeypot or a pool too thin to exit shows up here for free. Returns None when fine, else the reason.
     tp_pct (9.11., audit P38): the exit target in percent; when the round trip plus network fees would eat half of
-    it, the buy has no edge left and is refused (TP +5 % with a 4 % round trip is a coin flip at best)."""
+    it, the buy has no edge left and is refused (TP +5 % with a 4 % round trip is a coin flip at best).
+    override (11.11.): a list for the owner's confirmed manual buy: the two cost lines (round trip over the cap, no
+    edge left) are SOFT, so they are appended to it instead of refusing; no sell route and a check that could not be
+    made stay HARD."""
     amount = int(size_sol * LAMPORTS)
     err = None
     for route in ("v2", "ultra"):         # the same fallback as the swap itself
@@ -391,14 +443,18 @@ def sell_check(token, size_sol, max_cost_pct, tp_pct=None):
     if not back:
         return "simulacija prodaje: nema rute za prodaju natrag u SOL (moguć honeypot)"
     loss = 100 * (1 - back / amount)
+    soft = []
     if max_cost_pct is not None and loss > 2 * max_cost_pct:
-        return f"simulacija prodaje: kupnja pa odmah prodaja gubi {loss:.1f}% (granica {2 * max_cost_pct:g}%)"
+        soft.append(f"simulacija prodaje: kupnja pa odmah prodaja gubi {loss:.1f}% (granica {2 * max_cost_pct:g}%)")
     if tp_pct:
         total = loss + 100 * NET_FEES_SOL / size_sol
         if total >= tp_pct / 2:
-            return (f"trošak kupnje i prodaje {total:.1f}% (swap {loss:.1f}% + mrežne naknade) pojeo bi pola cilja "
-                    f"+{tp_pct:g}%: nema ruba")
-    return None
+            soft.append(f"trošak kupnje i prodaje {total:.1f}% (swap {loss:.1f}% + mrežne naknade) pojeo bi pola cilja "
+                        f"+{tp_pct:g}%: nema ruba")
+    if soft and override is not None:
+        override.extend(soft)
+        return None
+    return soft[0] if soft else None
 
 
 def swap_px_usd(token, o, res):
@@ -432,33 +488,44 @@ def _over_limit(limit, token, o, res):
 
 
 def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, reason="", league_id=None, tp_pct=None,
-        add=False, manual=False, limit=None):
+        add=False, manual=False, limit=None, override=None):
     """Gate, then swap SOL -> token. Always leaves one positions row (open, blocked or failed) so a signal
     is never retried by accident. The row is written as 'pending' and committed BEFORE anything is sent, so a crash
     between the swap and the bookkeeping leaves a trace that reconcile_pending() matches with the chain (audit C09).
-    tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check."""
+    tp_pct (9.11., audit P38): the exit target of this position in percent (default cfg tp_default) for sell_check.
+    override (11.11., owner: "ručno uvijek nadjačava sve ostalo"): the owner confirmed this manual buy over his limits
+    on the page (the text of what he confirmed; only with manual): the SOFT reasons pass (gate_buy's, sell_check's
+    cost and edge lines, the swap's cost cap), the HARD ones hold (kill switch, wallet balance, no route to sell back).
+    The text is the lot's positions.override; the result's "overridden" lists the SOFT reasons that were passed."""
     now, live = now or time.time(), is_live(cfg)
     mode, size_sol = "live" if live else "dry", size_sol or cfg["size_sol"]
+    ov = bool(override) and manual
     if live and not manual:   # 11.11. (owner's rule C): an automatic stake above the live cap is cut to it; the
         size_sol = min(size_sol, LIVE_CAPS["max_sol_per_trade"])   # owner's own amount is refused by gate_buy instead
-    why = gate_buy(con, cfg, size_sol, now, live, token=token, add=add, manual=manual)
+    why, passed = _gate(con, cfg, size_sol, now, live, token=token, add=add, manual=manual, override=ov)
     if not why and cfg.get("sell_check", True):
-        why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct)
+        why = sell_check(token, size_sol, cfg.get("max_cost_pct"), cfg.get("tp_default") if tp_pct is None else tp_pct,
+                         override=passed if ov else None)
+    mark = (str(override) if isinstance(override, str) else "nadjačano")[:500] if ov else None
     # 9.11. (audit P11): the pending row carries the intended stake, so a buy that a crash leaves half-booked still
     # counts in the day limit and day_pnl (reconcile_pending keeps it); blocked/failed rows go back to 0 below
     cur = con.execute("INSERT INTO positions (paper_id, league_id, token, symbol, opened_ts, mode, status, reason, sol_in, "
-                      "qty_raw, qty_left, sol_back, fees_sol) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0)",
+                      "qty_raw, qty_left, sol_back, fees_sol, override) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0,?)",
                       (paper_id, league_id, token, symbol, int(now), mode, "blocked" if why else "pending",
-                       why or "namjera zapisana, šaljem", 0 if why else size_sol))
+                       why or "namjera zapisana, šaljem", 0 if why else size_sol, mark))
     pid = cur.lastrowid
     con.commit()
+    cap = None if ov else cfg["max_cost_pct"]   # 11.11.: the owner's confirmed buy is not held by the cost cap (SOFT)
     if why:
         res = {"status": "blocked", "error": why, "amount_in": int(size_sol * LAMPORTS)}
     elif limit is not None:   # 10.11. (Grok MCP audit 3): only routes that quote first (PumpPortal swaps blind)
-        res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"],
+        res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cap,
                    tuple(r for r in routes_for(cfg) if r != "pump"), limit=limit)
     else:
-        res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cfg["max_cost_pct"], routes_for(cfg))
+        res = swap(jupiter.SOL, token, int(size_sol * LAMPORTS), live, cap, routes_for(cfg))
+    if ov and res.get("cost_pct") is not None and cfg.get("max_cost_pct") is not None \
+            and res["cost_pct"] > cfg["max_cost_pct"]:
+        passed.append(f"trošak {res['cost_pct']}% > {cfg['max_cost_pct']}%")
     ok = res["status"] in ("ok", "dry")
     status = "open" if ok else ("blocked" if res["status"] == "blocked" else "failed")
     fees = (res.get("fee_total", res.get("fee_lamports")) or 0) / LAMPORTS   # dry: the quote's estimate (P67)
@@ -467,7 +534,7 @@ def buy(con, cfg, token, symbol=None, paper_id=None, size_sol=None, now=None, re
                  res.get("amount_out") if ok else 0, res.get("amount_out") if ok else 0, fees, pid))
     _log(con, now, pid, token, "buy", mode, res, reason)
     con.commit()
-    return {**res, "id": pid, "status": status, "mode": mode, "swap_status": res["status"]}
+    return {**res, "id": pid, "status": status, "mode": mode, "swap_status": res["status"], "overridden": passed if ov else []}
 
 
 def reconcile_pending(con, now=None, min_age_s=60, balance_of=None):
