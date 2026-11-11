@@ -1,9 +1,10 @@
 """What MCP clients and get_hourly_brief see of the zone watch.
 
-    mcp_tool()     arm_zone (upsert one zone; ttl_h=0 disarms it) and get_armed_zones (the zones in force with their
-                   state, distance and last alarm); client attribution mcp:<key fingerprint>
-    brief_part()   get_hourly_brief.zonewatch {armed, alerts_24h, last_post_ok, last_error, configured}
-Read-only except arm_zone (zonewatch.db armed_zones / arm_log).
+    mcp_tool()     arm_zone (upsert one zone for at most 2 h; ttl_h=0 disarms it) and get_armed_zones (the zones in
+                   force with their state, distance and last alarm; a range zone with zone_version, computed_ts and
+                   window_h of its range); client attribution mcp:<key fingerprint>
+    brief_part()   get_hourly_brief.zonewatch {armed, alerts_24h, last_post_ok, last_error, configured, without_range}
+Read-only except arm_zone (zonewatch.db armed_zones / arm_log) and the one-time migration (store.migrate_once).
 """
 import sqlite3
 import time
@@ -11,10 +12,15 @@ import time
 from zonewatch import notify, store, zones
 
 LIMIT_DEFAULT, LIMIT_MAX = 100, 300
-HOW = ("Zones are market cap USD. zone_enter / zone_exit when the market cap crosses a bottom, dca or custom zone, "
-       "top_hit at >= top lo, stop_hit at <= the stop; hysteresis 0.5 %; the same mint + zone + event at most once in "
-       "30 min (stop_hit: always, at most once a minute). Tokens within 10 % of a zone are re-priced every 30 s. "
-       "Disarm: arm_zone with ttl_h=0 (same mint, zone_type, source).")
+HOW = ("Zones are market cap USD. Range zones (source range) come only from MemeSonar's range engine (swing points "
+       "of 24 h, touches weighted by age, recomputed about every 5 min; stop = range_low_low x 0.85), for tokens with an "
+       "open range round, an entry-ready range or an open position on the real account, and only while the engine "
+       "has an active range for them; each newer computation is a new zone_version (computed_ts = when it was "
+       "computed, window_h = the hours of data it spanned), and every alarm of a range zone carries the three. "
+       "zone_enter / zone_exit when the market cap crosses a bottom, dca or custom zone, top_hit at >= top lo, "
+       "stop_hit at <= the stop; hysteresis 0.5 %; the same mint + zone + event at most once in 30 min (stop_hit: "
+       "always, at most once a minute). Tokens within 10 % of a zone are re-priced every 30 s. A hand-armed zone "
+       "(arm_zone) lives at most 2 h. Disarm: arm_zone with ttl_h=0 (same mint, zone_type, source).")
 
 
 def _state_of(z, st, px, now):
@@ -48,7 +54,7 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
            "how": HOW}
     con = store.connect(path)
     try:
-        store.seed_once(con, now)   # the loop's job; a first look before the loop ever ran shows the seed too
+        store.migrate_once(con, now, log=lambda s: None)   # the loop's job; a first look before it ever ran
         zs = store.active(con, now, m, src)
         out["counts"] = dict(con.execute("SELECT source, COUNT(*) FROM armed_zones WHERE expires_at > ? GROUP BY source",
                                          (now,)).fetchall())
@@ -56,6 +62,7 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
         mints = sorted({z["mint"] for z in zs})
         px = {r[0]: {"mcap": r[1], "ts": r[2], "symbol": r[3]} for r in con.execute(
             f"SELECT mint, mcap, ts, symbol FROM px WHERE mint IN ({','.join('?' * len(mints))})", mints)} if mints else {}
+        ver = store.versions(con)
         last = {}
         for mt, zt, ev, ts, status in con.execute(
                 "SELECT mint, zone_type, event, ts, status FROM alerts WHERE ts >= ? ORDER BY ts", (now - 30 * 86400,)):
@@ -67,6 +74,8 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
                 "lo": z["lo"], "hi": z["hi"], "source": z["source"], "note": z.get("note"), "armed_by": z.get("kid"),
                 "created_ts": z.get("created_ts"), "updated_ts": z.get("updated_ts"), "expires_at": z["expires_at"],
                 "expires_in_h": round((z["expires_at"] - now) / 3600, 1),
+                **{k: (ver.get(z["mint"]) or {}).get(k) if z["source"] == "range" else None
+                   for k in notify.RANGE_FIELDS},
                 **_state_of(z, sts.get((z["mint"], z["zone_type"], z["source"])), p, now),
                 "last_alert": last.get((z["mint"], z["zone_type"]))})
         out["shown"] = len(out["zones"])
@@ -83,7 +92,7 @@ def arm_zone(a, kid):
     now = int(time.time())
     con = store.connect()
     try:
-        store.seed_once(con, now)
+        store.migrate_once(con, now, log=lambda s: None)
         res = store.arm(a.get("mint") or a.get("token") or a.get("token_address"), a.get("zone_type"), a.get("lo"),
                         a.get("hi"), a.get("note"), a.get("ttl_h"), a.get("source") or "manual", kid=kid, now=now, con=con)
     finally:
@@ -121,7 +130,8 @@ def brief_part(now=None, path=None):
     cfg = notify.config()
     out = {"flag_mode": store.mode(), "configured": cfg.configured, "armed": 0, "armed_by_source": {},
            "alerts_24h": 0, "alerts_24h_by_event": {}, "alerts_24h_by_status": {}, "last_post_ok": None,
-           "last_error": None, "tool": "get_armed_zones for the zones, arm_zone to set one"}
+           "last_error": None, "without_range": {},
+           "tool": "get_armed_zones for the zones, arm_zone to set one"}
     con = store.ro(path)
     if con is None:
         return out
@@ -136,6 +146,8 @@ def brief_part(now=None, path=None):
         out["alerts_24h"] = sum(out["alerts_24h_by_event"].values())
         out["last_post_ok"] = store.kv_get(con, "last_post_ok")
         out["last_error"] = store.kv_get(con, "last_error")
+        # 11.11.: the watched tokens (open round, entry-ready, real-account position) without an active range: why
+        out["without_range"] = store.kv_get(con, "range_why") or {}
     except sqlite3.Error as e:
         out["error"] = f"zonewatch.db: {type(e).__name__}"
     finally:

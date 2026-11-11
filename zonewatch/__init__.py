@@ -2,11 +2,14 @@
 (trade settings G25: off = nothing is watched or posted; any other mode = watch and post while the webhook env is set).
 
 Every token with zones is watched: the range engine's active ranges (source range: bottom, dca, top, stop in market cap
-USD, rangedca/), and the zones Grok or the owner arm by hand (MCP arm_zone, source manual | event). When the market
+USD, rangedca/; the only source of computed zones, read from range.db, each newer computation a new zone_version), for
+tokens with an open range round, an entry-ready range or an open position on the real account, and the zones Grok or
+the owner arm by hand (MCP arm_zone, source manual | event, at most 2 h). Never a fixed seed (11.11.). When the market
 cap enters a zone the bot POSTs one JSON alarm to the Grok Bot webhook (GROKBOT_WEBHOOK_URL / GROKBOT_WEBHOOK_KEY).
 
     store.py    zonewatch.db: armed_zones, zone_state, alerts, zonewatch_log, arm_log, px, kv; arm / disarm with
-                validation, the caps and the hourly limit; the range sync; the HOPE seed (once)
+                validation, the caps and the hourly limit; the range sync and its versions (range_ver); the one-time
+                migration that expired PR #122's fixed HOPE seed
     zones.py    pure: inside / outside with hysteresis, distance to a zone, the events (zone_enter, zone_exit,
                 stop_hit, top_hit), the debounce windows
     prices.py   the numbers of a token: the snapshots the bot already stores (range.db snaps incl. the market
@@ -16,7 +19,7 @@ cap enters a zone the bot POSTs one JSON alarm to the Grok Bot webhook (GROKBOT_
     notify.py   the POST: payload, Bearer or Standard Webhooks signing, timeout 5 s, 3 retries with backoff only on a
                 network error / timeout / 429 / 5xx, zonewatch_log without the key or the URL path; post_alert(dict)
                 for direct callers (team_catalyst)
-    job.py      one pass (run_zonewatch.py loop, every 30 s): seed, range sync, prices, events, debounce, the alerts
+    job.py      one pass (run_zonewatch.py loop, every 30 s): range sync, prices, events, debounce, the alerts
                 (also into events.db as type zone_alert), team_catalyst rows of events.db forwarded once, delivery,
                 the daily cost line
     view.py     MCP arm_zone / get_armed_zones and the zonewatch part of get_hourly_brief

@@ -2,9 +2,12 @@
 hysteresis, the debounce (30 min; stop_hit always, at most once a minute), the POST's retries (timeout / 5xx / 429
 only, 1-2-4 s, Retry-After capped at 10 s, the same alert id / webhook-id on every try), Bearer and Standard Webhooks
 headers against known vectors, the key and the URL's path never in a log, a table or an error, no POST without the
-env, Hope's fall on 11.11. (00:00 CET ~133k -> 03:55 CET ~92k: exactly one dca zone_enter, one zone_exit, no stop, no
-top), arm_zone / get_armed_zones (schema, validation, ttl, upsert, limits, disarm), the HOPE seed once, the range
-engine's zones, team_catalyst rows forwarded once, get_hourly_brief's part, the CPU guard and start.sh. No network.
+env, arm_zone / get_armed_zones (schema, validation, ttl at most 2 h, upsert, limits, disarm), no fixed seed (the old
+HOPE seed expired once), the range engine's zones (the only computed zones: rangedca/detect.py, read from range.db)
+with their zone_version / computed_ts / window_h, eligibility (open round, entry-ready, a real-account position, and
+only with an active range; else the reason is logged once), HOPE from the range.db snapshots of the 10.11. fixture
+(rangedca's signal pass -> zonewatch, up to 22:18 CET), team_catalyst rows forwarded once, get_hourly_brief's part,
+the CPU guard and start.sh. No network.
 
     python3 -m unittest tests.test_zonewatch_offline
 """
@@ -32,7 +35,7 @@ from events import store as estore  # noqa: E402
 from trade import settings  # noqa: E402
 from zonewatch import job, notify, prices, store, view, zones  # noqa: E402
 
-HOPE = store.SEED["mint"]
+HOPE = "GxRPJsRK9TE9EgBhLxrFGcRYLGqPJe4fxtiPmdXCpump"   # the owner's manual position (11.11.); no zones are seeded
 MINT = "Zone1111111111111111111111111111111111pump"
 MINT2 = "Zone2222222222222222222222222222222222pump"
 NOW = 1794384000   # 2026-11-11 08:00 UTC
@@ -369,58 +372,6 @@ class NotConfigured(Base):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-class HopeReplay(Base):
-    """11.11.: Hope fell from ~133k at 00:00 CET to the bottom ~92k at 03:55 CET (then a small bounce). Passes every
-    30 s with DexScreener answering the series: exactly one zone_enter for the dca zone (100-105k) while crossing, one
-    zone_exit under 100k, no stop_hit (85k), no top_hit (145k)."""
-    T0 = int(dt.datetime(2026, 11, 10, 23, 0, tzinfo=dt.timezone.utc).timestamp())   # 00:00 CET 11.11.
-    BOTTOM = 3 * 3600 + 55 * 60
-
-    def mcap(self, t):
-        k = t - self.T0
-        base = 133_000 - 41_000 * k / self.BOTTOM if k <= self.BOTTOM else 92_000 + 4_000 * (k - self.BOTTOM) / 2100
-        return base * (1 + 0.002 * math.sin(k / 97.0) + 0.001 * math.sin(k / 13.0))   # +-0.3 % jitter
-
-    def test_replay(self):
-        self.flag("shadow")
-        clock = Clock(self.T0)
-        op = Opener([200] * 50)
-        asked, seen = [], []
-
-        def fetch(toks):
-            asked.append(len(toks))
-            seen.append(self.mcap(clock.t))
-            return [pair(t, seen[-1]) for t in toks]
-        for k in range(0, 4 * 3600 + 30 * 60 + 1, 30):
-            clock.t = self.T0 + k
-            job.pass_once(now=self.T0 + k, fetch=fetch, cfg=self.cfg(), opener=op, sleep=clock.sleep, clock=clock,
-                          log=lambda s: None, rug_fn=lambda *a: "ok", uniq_fn=lambda *a: None, flag="shadow")
-        probe = self.con.execute("SELECT status FROM alerts WHERE event='test'").fetchall()
-        self.assertEqual(probe, [("sent",)])                                   # 11.11.: one probe at the first pass
-        rows = self.con.execute("SELECT event, zone_type, ts, status, payload FROM alerts WHERE event != 'test' "
-                                "ORDER BY ts").fetchall()
-        evs = [(e, z) for e, z, *_ in rows]
-        self.assertEqual(evs, [("zone_enter", "dca"), ("zone_exit", "dca")], rows)
-        enter = json.loads(rows[0][4])
-        cet = dt.datetime.fromtimestamp(rows[0][2], dt.timezone(dt.timedelta(hours=1)))
-        self.assertTrue(dt.time(2, 25) <= cet.time() <= dt.time(2, 55), cet)
-        self.assertTrue(100_000 <= enter["mcap"] <= 105_000 * 1.005, enter["mcap"])
-        self.assertEqual((enter["zone_lo"], enter["zone_hi"], enter["source"], enter["symbol"]),
-                         (100_000.0, 105_000.0, "manual", "HOPE"))
-        self.assertEqual(enter["direction"], "down")
-        for k in notify.OWNER_FIELDS + ("id", "event"):
-            self.assertIn(k, enter)
-        self.assertEqual({r[3] for r in rows}, {"sent"})
-        self.assertEqual(len(op.reqs), 3)
-        self.assertEqual(json.loads(op.reqs[0]["body"])["event"], "test")
-        self.assertEqual(json.loads(op.reqs[1]["body"])["id"], enter["id"])
-        self.assertLess(min(seen), 93_000)                                      # the bottom was seen ...
-        self.assertGreater(min(seen), 85_000 * 1.05)                            # ... well above the stop
-        self.assertTrue(all(n <= 30 for n in asked))
-        self.assertLessEqual(sum(1 for _ in asked), 4 * 3600 // 30 + 2)   # at most one request a pass
-
-
-# ---------------------------------------------------------------------------------------------------------------------
 class ArmTools(Base):
     def tool(self, name, args, kid="abc123"):
         from ui import mcpapi
@@ -439,7 +390,8 @@ class ArmTools(Base):
                          ({"mint": MINT, "zone_type": "dca", "lo": 2e5, "hi": 1e5}, "lo must be <= hi"),
                          ({"mint": MINT, "zone_type": "dca", "lo": 1e5}, "needs lo and hi"),
                          ({"mint": MINT, "zone_type": "dca", "lo": 20_000, "hi": 25_000}, "30,000"),
-                         ({"mint": MINT, "zone_type": "dca", "lo": 1e5, "hi": 2e5, "ttl_h": 721}, "ttl_h"),
+                         ({"mint": MINT, "zone_type": "dca", "lo": 1e5, "hi": 2e5, "ttl_h": 2.5}, "at most 2 h"),
+                         ({"mint": MINT, "zone_type": "dca", "lo": 1e5, "hi": 2e5, "ttl_h": 72}, "ttl_h"),
                          ({"mint": MINT, "zone_type": "dca", "lo": True, "hi": 2e5}, "number"),
                          ({"mint": MINT, "zone_type": "dca", "lo": 1e5, "hi": 2e5, "source": "range"}, "range engine")):
             d, err = self.tool("arm_zone", bad)
@@ -454,7 +406,7 @@ class ArmTools(Base):
         self.assertEqual(d["changed"], "updated")
         row = self.con.execute("SELECT id, lo, hi, kid, expires_at - updated_ts FROM armed_zones WHERE mint=? AND "
                                "zone_type='dca'", (MINT,)).fetchone()
-        self.assertEqual(row, (zid, 101_000.0, 106_000.0, "mcp:abc123", 72 * 3600))
+        self.assertEqual(row, (zid, 101_000.0, 106_000.0, "mcp:abc123", 2 * 3600))   # 11.11.: default 2 h
         g, err = self.tool("get_armed_zones", {"mint": MINT})
         self.assertFalse(err, g)
         self.assertEqual({z["zone_type"] for z in g["zones"]}, {"stop", "dca"})
@@ -462,6 +414,13 @@ class ArmTools(Base):
         for k in ("state", "distance_pct", "last_alert", "expires_at", "mcap_now"):
             self.assertIn(k, g["zones"][0])
         self.assertIn("ttl_h=0", g["how"])
+        self.assertEqual((g["limits"]["ttl_h_default"], g["limits"]["ttl_h_max"]), (2, 2))
+        for k in notify.RANGE_FIELDS:   # a hand-armed zone has no range version
+            self.assertIsNone(g["zones"][0][k])
+        sch = names["arm_zone"]["inputSchema"]["properties"]["ttl_h"]
+        self.assertEqual((sch["maximum"], sch["default"]), (2, 2))
+        self.assertIn("default 2, max 2", names["arm_zone"]["description"])
+        self.assertNotIn("720", names["arm_zone"]["description"])
         # disarm with ttl_h=0; a second disarm has nothing left
         d, err = self.tool("arm_zone", {"mint": MINT, "zone_type": "dca", "ttl_h": 0})
         self.assertEqual((err, d["changed"]), (False, "disarmed"))
@@ -485,17 +444,32 @@ class ArmTools(Base):
                 store.arm(MINT2, "top", 145_000, 155_000, kid="mcp:k3", now=NOW, con=self.con)
             store.arm(MINT, "top", 146_000, 156_000, kid="mcp:k3", now=NOW, con=self.con)    # an update is fine
 
-    def test_hope_seed_once_survives_restarts(self):
-        self.assertTrue(store.seed_once(self.con, NOW))
-        self.assertFalse(store.seed_once(self.con, NOW + 10))
-        con2 = store.connect()
-        self.assertFalse(store.seed_once(con2, NOW + 8 * 86400))   # expired, never re-armed
-        con2.close()
-        rows = self.con.execute("SELECT zone_type, lo, hi, source, note, expires_at - created_ts FROM armed_zones "
-                                "WHERE mint=? ORDER BY zone_type", (HOPE,)).fetchall()
-        self.assertEqual(rows, [("dca", 100_000.0, 105_000.0, "manual", "vlasnik ručno kupio ~133k", 7 * 86400),
-                                ("stop", 85_000.0, 85_000.0, "manual", "vlasnik ručno kupio ~133k", 7 * 86400),
-                                ("top", 145_000.0, 155_000.0, "manual", "vlasnik ručno kupio ~133k", 7 * 86400)])
+    def test_no_fixed_seed_and_the_old_one_expires_once(self):
+        """11.11. (Jure: "nikad fiksni seed"): nothing arms HOPE by itself; the zones PR #122's seed may have armed
+        expire once, and every hand-armed zone is cut to at most 2 h."""
+        self.assertFalse(hasattr(store, "SEED") or hasattr(store, "seed_once"))
+        # a zonewatch.db as PR #122 left it: the seed (7 days) and a hand-armed zone of 72 h
+        for zt, lo, hi in (("dca", 100_000, 105_000), ("stop", 85_000, 85_000), ("top", 145_000, 155_000)):
+            store.upsert(self.con, HOPE, zt, lo, hi, "vlasnik ručno kupio ~133k", "manual", store.OWNER,
+                         NOW + 7 * 86400, NOW - 3600, "HOPE")
+            self.con.execute("INSERT INTO arm_log VALUES (?,?,?,?,?,?)", (NOW - 3600, store.OWNER, HOPE, zt, "manual",
+                                                                         "seed"))
+        store.upsert(self.con, MINT, "custom", 60_000, 70_000, "grok", "manual", "mcp:k", NOW + 72 * 3600, NOW - 60)
+        store.kv_put(self.con, "seed:hope_1111", NOW - 3600)   # the old key stays, harmless
+        self.con.commit()
+        said = []
+        self.assertTrue(store.migrate_once(self.con, NOW, log=said.append))
+        self.assertFalse(store.migrate_once(self.con, NOW + 60, log=said.append))   # once
+        self.assertEqual(store.active(self.con, NOW + 1, HOPE), [])
+        z = store.active(self.con, NOW + 1, MINT)
+        self.assertEqual([(x["zone_type"], x["expires_at"]) for x in z], [("custom", NOW + 2 * 3600)])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM arm_log WHERE what='seed uklonjen'").fetchone()[0], 3)
+        self.assertEqual(len(said), 1)
+        # a pass and the MCP tools never arm anything by themselves
+        self.flag("shadow")
+        job.pass_once(now=NOW + 120, fetch=lambda t: [], log=lambda s: None, flag="shadow")
+        view.armed_zones(now=NOW + 120)
+        self.assertEqual(store.active(self.con, NOW + 121, HOPE), [])
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -522,6 +496,8 @@ class RangeZones(Base):
         self.assertEqual(z["stop"], (51_000.0, 51_000.0))                       # range_low_low x 0.85
         self.assertEqual(z["dca"], (55_200.0, 56_700.0))                        # 63k x 0.90 / max(63k x 0.85, 60k x 0.92)
         self.assertEqual(store.sync_range(self.con, NOW + 90, lot1={}, eligible={MINT})[1], 0)   # nothing moved: nothing written
+        # one range computation = one version (the same ranges.ts read twice: still version 1); window_h = span_h
+        self.assertEqual(store.versions(self.con), {MINT: {"zone_version": 1, "computed_ts": NOW, "window_h": None}})
         # the engine moving a range zone's edges keeps its state (the zone moving onto the price is an entry too)
         store.save_state(self.con, (MINT, "bottom", "range"), {"inside": False, "since_ts": NOW, "last_mcap": 67_000,
                                                                "last_ts": NOW})
@@ -636,7 +612,10 @@ class Brief(Base):
     def test_hourly_brief_zonewatch_part(self):
         from events import brief
         self.flag("shadow")
-        store.seed_once(self.con, NOW)
+        for zt, lo, hi in (("dca", 100_000, 105_000), ("stop", 85_000, 85_000), ("top", 145_000, 155_000)):
+            store.arm(HOPE, zt, lo, hi, kid="owner", now=NOW, con=self.con)
+        store.kv_put(self.con, "range_why", {MINT2: "isključen: volumen zadnjeg sata pao ispod pola prosjeka 6 h"})
+        self.con.commit()
         c = Clock()
         notify.post_alert({"mint": HOPE, "zone_type": "dca", "event": "zone_enter", "ts": NOW}, con=self.con,
                           cfg=self.cfg(), flag="shadow", opener=Opener([200]), sleep=c.sleep, clock=c, now=NOW)
@@ -648,6 +627,7 @@ class Brief(Base):
         self.assertEqual((z["armed"], z["alerts_24h"], z["last_post_ok"], z["configured"], z["flag_mode"]),
                          (3, 2, NOW, False, "shadow"))
         self.assertEqual((z["last_error"]["status"], z["last_error"]["http_status"]), ("config_error", 401))
+        self.assertEqual(z["without_range"], {MINT2: "isključen: volumen zadnjeg sata pao ispod pola prosjeka 6 h"})
         with mock.patch.dict(os.environ, {"GROKBOT_WEBHOOK_URL": URL, "GROKBOT_WEBHOOK_KEY": KEY}):
             self.assertTrue(brief.zonewatch_part(NOW + 60)["configured"])
         full = brief.build(now=NOW + 60)
@@ -675,10 +655,6 @@ class Process(unittest.TestCase):
                                                              .timestamp())), [])   # sparse by nature: never a gap
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Faza11(Base):
     """11.11. (Jure): range zones only for open rounds / entry-ready tokens; the probe alarm once."""
 
@@ -700,3 +676,243 @@ class Faza11(Base):
         ev = self.con.execute("SELECT event, status FROM alerts WHERE id=?", (pid,)).fetchone()
         self.assertEqual(ev, ("test", "pending"))
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+def _league(path, rows):
+    """league.db with trades rows (user, token, status, opened_ts)."""
+    from league import store as lstore
+    c = lstore.connect(path)
+    for user, tok, status, ts in rows:
+        c.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px) VALUES (?,?,?,?,?,?,?)",
+                  (user, tok, tok[:4], ts, status, 50.0, 1e-4))
+    c.commit()
+    c.close()
+
+
+class Eligibility(Base):
+    """11.11. (Jure, zbirni ispravak F): range zones for tokens with an open range round, an entry-ready range or an
+    open position on the REAL account (LEAGUE_USER), and only while rangedca has an active range for them; otherwise
+    no zones and the reason in the log (once per status) and in get_hourly_brief."""
+
+    def setUp(self):
+        super().setUp()
+        from league import store as lstore
+        self.league = os.path.join(self.tmp.name, "league.db")
+        p = mock.patch.object(lstore, "DB", self.league)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def save(self, tok, active=True, status="aktivan", why="", ts=NOW, span_h=9.5):
+        from rangedca import data
+        rc = data.connect()
+        res = {"ts": ts, "status": status, "active": active, "why": why, "score": 0.8, "pos_pct": 40.0, "span_h": span_h,
+               "zones": {"range_low_low": 60e-6, "range_low_top": 66e-6, "range_high_low": 95e-6, "range_high_top": 100e-6,
+                         "range_low": 63e-6, "range_high": 97e-6,
+                         "mc": {"range_low_low": 60_000, "range_low_top": 66_000, "range_high_low": 95_000,
+                                "range_high_top": 100_000}},
+               "metrics": {"price": 80e-6, "mcap": 80_000, "supply": 1e9}, "source": "signal"}
+        data.save_range(rc, tok, res, {}, tok[:4])
+        rc.commit()
+        rc.close()
+
+    def test_real_account_positions_only_and_only_with_an_active_range(self):
+        from trade import settings as ts
+        a, b, c, d = ("A" * 43), ("B" * 43), ("C" * 43), ("D" * 43)
+        _league(self.league, [(ts.LEAGUE_USER, a, "open", NOW - 600), (ts.PAPER_USER, b, "open", NOW - 600),
+                              (ts.LEAGUE_USER, b, "closed", NOW - 900), (ts.LEAGUE_USER, c, "open", NOW - 300),
+                              (ts.LEAGUE_USER, d, "open", NOW - 200)])
+        self.assertEqual(store.position_tokens(), {a, c, d})                  # the demo account is not the real one
+        self.save(a)                                                           # active range
+        self.save(b)                                                           # active, but only a demo position
+        self.save(c, active=False, status="probijen gore", why="cijena iznad range_high_top × 1,15")
+        logs = []
+        with mock.patch.object(store, "_entry_ready", lambda now: set()):
+            toks, _ = store.sync_range(self.con, NOW + 60, log=logs.append)
+        self.assertEqual(toks, 1)
+        z = {(m, zt) for m, zt in self.con.execute("SELECT mint, zone_type FROM armed_zones WHERE source='range'")}
+        self.assertEqual({m for m, _ in z}, {a})
+        self.assertEqual({zt for _, zt in z}, {"bottom", "dca", "top", "stop"})
+        note = self.con.execute("SELECT note FROM armed_zones WHERE mint=? AND zone_type='top'", (a,)).fetchone()[0]
+        self.assertIn("pozicija na pravom računu", note)
+        self.assertEqual(store.versions(self.con)[a], {"zone_version": 1, "computed_ts": NOW, "window_h": 9.5})
+        why = store.kv_get(self.con, "range_why")
+        self.assertEqual(set(why), {c, d})                                     # b is no reason at all: not logged
+        self.assertEqual(why[c], "probijen gore: cijena iznad range_high_top × 1,15")
+        self.assertIn("nema izračun raspona", why[d])
+        self.assertEqual(len(logs), 2)
+        # the same reasons (a number in them may change) are not logged again; a new range computation = a new version
+        self.save(a, ts=NOW + 300, span_h=9.6)
+        with mock.patch.object(store, "_entry_ready", lambda now: set()):
+            store.sync_range(self.con, NOW + 330, log=logs.append)
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(store.versions(self.con)[a], {"zone_version": 2, "computed_ts": NOW + 300, "window_h": 9.6})
+        # the range of a goes inactive: its zones expire at once and why is logged
+        self.save(a, active=False, status="isključen", why="volumen zadnjeg sata pao ispod pola prosjeka 6 h", ts=NOW + 600)
+        with mock.patch.object(store, "_entry_ready", lambda now: set()):
+            store.sync_range(self.con, NOW + 630, log=logs.append)
+        self.assertEqual(store.active(self.con, NOW + 631, source="range"), [])
+        self.assertEqual(len(logs), 3)
+        self.assertIn("isključen: volumen zadnjeg sata", logs[-1])
+        self.assertIn("isključen", view.brief_part(NOW + 640)["without_range"][a])
+
+    def test_open_round_and_entry_ready_still_count(self):
+        a, b = "A" * 43, "B" * 43
+        self.save(a)
+        self.save(b)
+        with mock.patch.object(store, "_entry_ready", lambda now: {b}), \
+                mock.patch.object(store, "_open_lot1_mc", lambda: {a: 64_000}):
+            toks, _ = store.sync_range(self.con, NOW + 60, log=lambda s: None)
+        self.assertEqual(toks, 2)
+        notes = dict(self.con.execute("SELECT mint, note FROM armed_zones WHERE zone_type='bottom'").fetchall())
+        self.assertIn("otvorena runda", notes[a])
+        self.assertIn("entry_ready", notes[b])
+
+    def test_the_signal_pass_follows_the_real_accounts_tokens_first(self):
+        """rangedca's signal pass (data.candidates) takes the Autopilot accounts' open tokens (autopilot_tokens, at most
+        15); the real account's come first, so the demo account's newer ones never push them out."""
+        from rangedca import data
+        from trade import settings as ts
+        demo = [(ts.PAPER_USER, f"P{i:02d}" + "1" * 40, "open", NOW - i) for i in range(20)]
+        _league(self.league, demo + [(ts.LEAGUE_USER, HOPE, "open", NOW - 86400)])
+        got = data.autopilot_tokens()
+        self.assertEqual((len(got), got[0]), (15, HOPE))
+        rc = data.connect()
+        self.addCleanup(rc.close)
+        self.assertIn(HOPE, data.candidates(rc, NOW))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+class HopeFixture(Base):
+    """HOPE's zones from range.db snapshots of the stored 10.11. fixture (tests/fixtures/range_hope_20261110.json.gz:
+    GeckoTerminal minutes 10:01-21:18 UTC = 11:01-22:18 CET, supply 1e9). Each minute becomes one range.db snapshot
+    the moment it would have been taken (price = close, MC, the 5-minute and 1-hour volume from the minutes; liquidity
+    45k is assumed: the fixture has none). HOPE is the owner's position on the real account and nothing else (no open
+    round, no seed, no arming). rangedca's own signal pass (run_range.once, every minute; ranges every ~5 min) and the
+    zonewatch pass (every 30 s) run side by side from 15:55 to 21:18:30 UTC. What the range engine says, zonewatch
+    watches: zones exactly while HOPE's range is active (16:06-17:2x UTC, bottom ~51-56k, top ~89-96k, a new
+    zone_version every computation), none afterwards (excluded for falling volume, then too little volume), with the
+    reason logged once per status; alarms carry zone_version, computed_ts and window_h."""
+
+    def setUp(self):
+        super().setUp()
+        import gzip
+        from league import store as lstore
+        from rangedca import data
+        from trade import settings as ts
+        with gzip.open(os.path.join(ROOT, "tests", "fixtures", "range_hope_20261110.json.gz"), "rt") as f:
+            self.fx = json.load(f)
+        self.assertEqual(self.fx["token"], HOPE)
+        league = os.path.join(self.tmp.name, "league.db")
+        p = mock.patch.object(lstore, "DB", league)
+        p.start()
+        self.addCleanup(p.stop)
+        _league(league, [(ts.LEAGUE_USER, HOPE, "open", self.fx["candles"][0][0])])
+        self.rc = data.connect()
+        self.addCleanup(self.rc.close)
+        self.rc.execute("INSERT INTO pools VALUES (?,?,?,?,?)", (HOPE, self.fx["pool"], "pumpswap", "HOPE",
+                                                                 self.fx["candles"][0][0]))
+        self.rc.commit()
+        self.fed = 0
+
+    def feed(self, t):
+        """The fixture's minutes up to t as range.db snapshots (taken 20 s into the minute)."""
+        cs, sup = self.fx["candles"], self.fx["supply"]
+        while self.fed < len(cs) and cs[self.fed][0] + 20 <= t:
+            i = self.fed
+            ts_, _o, _h, _l, cl, _v = cs[i]
+            v5 = sum(x[5] for x in cs[max(0, i - 4):i + 1])
+            v60 = sum(x[5] for x in cs[max(0, i - 59):i + 1])
+            self.rc.execute("INSERT INTO snaps VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (HOPE, ts_ + 20, cl, cl * sup, 45_000.0, v5, v60, None, None, None, None, None, None))
+            self.fed += 1
+        self.rc.commit()
+
+    def test_zones_versions_and_alarms_follow_the_range_engine(self):
+        import run_range
+        from rangedca import data, rules
+        self.flag("shadow")
+        econ = estore.connect(os.environ["EVENTS_DB"])
+        self.addCleanup(econ.close)
+        modes = {"range_dca": "paper", "range_market": "off", "event_tokens": "off"}
+        end = self.fx["candles"][-1][0] + 30                      # 21:18:30 UTC = 22:18:30 CET
+        t0 = int(dt.datetime(2026, 11, 10, 15, 55, tzinfo=dt.timezone.utc).timestamp())
+        logs, seen, zones_at, gt = [], [], {}, []
+        op, c = Opener([200] * 50), Clock(t0)
+        with mock.patch.object(run_range, "_mode", lambda name="range_dca": modes[name]):
+            for t in range(t0, end + 1, 30):
+                c.t = t
+                self.feed(t)
+                if t % 60 == 0:
+                    run_range.once(now=t, log=lambda s: None, fetch=lambda toks: [],
+                                   gt_fetch=lambda *a: gt.append(a) and None)   # GeckoTerminal says no (no network)
+                job.pass_once(now=t, fetch=lambda toks: [], cfg=self.cfg(), opener=op, sleep=c.sleep, clock=c,
+                              log=logs.append, rug_fn=lambda *a: "ok", uniq_fn=lambda *a: None, flag="shadow")
+                r = (data.read_ranges() or {}).get(HOPE) or {}
+                zs = {z["zone_type"]: (z["lo"], z["hi"]) for z in store.active(self.con, t, HOPE)}
+                zones_at[t] = (r.get("status"), r.get("ts"), r.get("zones"), zs,
+                               dict(store.versions(self.con).get(HOPE) or {}), r.get("span_h"))
+                seen.append(r.get("status"))
+        self.assertLessEqual(len(gt), 3)   # rangedca asked for a seed while it had < 6 h; the range came from snapshots
+        # nothing hand-armed, nothing seeded: every zone came from the range engine
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM armed_zones WHERE source != 'range'").fetchone()[0], 0)
+        active = [t for t, (st, *_r) in zones_at.items() if st == "aktivan"]
+        self.assertTrue(active, set(seen))
+        first, last = min(active), max(active)
+        cet = dt.timezone(dt.timedelta(hours=1))
+        self.assertEqual(dt.datetime.fromtimestamp(first, cet).strftime("%H"), "17")   # 6 h of data from 11:01 CET
+        for t, (st, rts, rz, zs, ver, span) in zones_at.items():
+            if st == "aktivan" and t - rts <= 900:   # an active, fresh range: its zones, exactly
+                mc = rz["mc"]
+                self.assertEqual(zs["bottom"], (mc["range_low_low"], mc["range_low_top"]), t)
+                self.assertEqual(zs["top"], (mc["range_high_low"], mc["range_high_top"]), t)
+                stop = round(mc["range_low_low"] * rules.RULES["stop_x"])
+                self.assertEqual(zs["stop"], (stop, stop), t)
+                self.assertEqual(ver["computed_ts"], rts, t)              # computed_ts = when rangedca computed it
+                self.assertEqual(ver["window_h"], span, t)                # window_h = the hours of data it spanned
+                self.assertTrue(48_000 < mc["range_low_low"] < 56_000 and 80_000 < mc["range_high_low"] < 100_000, mc)
+            elif st != "aktivan":                     # no active range: no zones (the owner's rule)
+                self.assertEqual(zs, {}, (t, st))
+        # one version per range computation of rangedca (every ~5 min while active), never per zonewatch pass
+        vers = [zones_at[t][4]["zone_version"] for t in sorted(zones_at) if zones_at[t][4]]
+        self.assertEqual(vers, sorted(vers))
+        n_comp = len({zones_at[t][1] for t in active})
+        self.assertEqual(max(vers), n_comp)
+        self.assertGreaterEqual(n_comp, 10)
+        self.assertTrue(6.0 <= zones_at[first][4]["window_h"] <= 6.2, zones_at[first][4])   # detect needs 6 h
+        # at the end of the fixture (22:18 CET): the range is excluded / too thin, so HOPE has no zones, and why
+        st_end, _ts, _z, zs_end, _v, _s = zones_at[end]
+        self.assertNotEqual(st_end, "aktivan")
+        self.assertEqual(zs_end, {})
+        why = view.brief_part(end)["without_range"]
+        self.assertTrue(why[HOPE].startswith(st_end), why)
+        said = [x.split("bez zona: ")[1].split(":")[0] for x in logs if "bez zona" in x]
+        self.assertTrue(all(a != b for a, b in zip(said, said[1:])), said)   # once per status change, never repeated
+        self.assertIn("isključen", said)
+        self.assertLessEqual(len(said), 6)
+        # the alarms (all of them range zones of HOPE) carry the range's version
+        rows = self.con.execute("SELECT event, zone_type, ts, payload FROM alerts WHERE event != 'test' ORDER BY ts, id"
+                                ).fetchall()
+        self.assertTrue(rows)
+        pv = []
+        for ev, zt, ts_, pl in rows:
+            p = json.loads(pl)
+            self.assertEqual((p["mint"], p["source"]), (HOPE, "range"))
+            self.assertTrue(first <= ts_ <= last + 60, ts_)               # only while the range is active
+            for k in notify.RANGE_FIELDS:
+                self.assertIsNotNone(p[k], (k, p))
+            self.assertLessEqual(p["computed_ts"], ts_)
+            self.assertGreaterEqual(p["window_h"], 6.0)
+            pv.append(p["zone_version"])
+        self.assertEqual(pv, sorted(pv))
+        self.assertIn(("top_hit", "top"), [(e, z) for e, z, *_ in rows])
+        if os.environ.get("ZW_DEBUG"):
+            for ev, zt, ts_, pl in rows:
+                q = json.loads(pl)
+                print(dt.datetime.fromtimestamp(ts_, cet).strftime("%H:%M:%S"), ev, zt, q["zone_lo"], q["zone_hi"],
+                      q["mcap"], q["zone_version"], q["computed_ts"], q["window_h"], q["direction"])
+        estore.flush(os.environ["EVENTS_DB"])
+        self.assertEqual(econ.execute("SELECT COUNT(*) FROM events WHERE type='zone_alert'").fetchone()[0], len(rows) + 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
