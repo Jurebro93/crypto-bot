@@ -562,7 +562,7 @@ def panel_data(tcon, cfg, owner, now=None):
             "sl_last": sl_last, "sl_default": pt._sl0(cfg), "fee_side": fee, "slip_max": cost.SLIP_MAX,
             "sol_usd": _sol_usd(tcon),
             "max_cost_pct": cfg.get("max_cost_pct"), "live": mode == "live", "on": bool(cfg.get("on")),
-            "dca_cap": cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP)}
+            "dca_cap": cfg.get("owner_token_cap", cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}
 
 
 def _pick(positions, qs_m):

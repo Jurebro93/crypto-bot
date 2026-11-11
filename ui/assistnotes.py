@@ -722,6 +722,35 @@ OWNER_FLAG_ORDERS = (
 )
 
 
+# 11.11. (Jure: "Svakako promijeni maksimalnu poziciju tokenu na 1 sol"): settings the owner ordered in the chat, each
+# applied ONCE (its own key; the owner can change it again under Pravila). (key, value, why)
+OWNER_SETTING_ORDERS = (
+    ("owner_token_cap", 1.0, "vlasnik u chatu 11.11.: najviše 1 SOL po tokenu za njegove kupnje (ručno, DCA, nalog na MC); "
+                             "Autopilotov strop kopiranja (dca_token_cap) ostaje"),
+)
+
+
+def owner_setting_orders(con, now=None):
+    """Apply the entries of OWNER_SETTING_ORDERS not applied yet. [text] of what was done."""
+    done = []
+    for key, value, why in OWNER_SETTING_ORDERS:
+        once = f"owner_setting_once:{key}:{value}"
+        raw = settings.raw(con)
+        if raw.get(once):
+            continue
+        old = raw.get(key)
+        if old is None and key == "owner_token_cap":
+            old = raw.get("dca_token_cap", settings.DCA_TOKEN_CAP)
+        if old != value:
+            settings.put(con, key, value, "Jure")
+            record_applied(con, 0, f"setting:{key}", old, value, why)
+            done.append(f"postavka {key}: {old} → {value}")
+        settings.put(con, once, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
 def owner_flag_orders(con, now=None):
     """Apply the entries of OWNER_FLAG_ORDERS not applied yet. [text] of what was done."""
     done = []
@@ -795,6 +824,7 @@ def owner_once_b(con, lcon=None, market=None, now=None):
     missing. Returns True when nothing is left to do."""
     owner_flags_b(con, now)
     owner_flag_orders(con, now)
+    owner_setting_orders(con, now)
     owner_note_orders(con, now)
     try:   # 11.11. (Jure: HAOBIBI): the learning label (league.db) and the range pin, each once (rangedca/owner.py)
         from rangedca import owner as range_owner

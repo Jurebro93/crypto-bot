@@ -222,6 +222,9 @@ def merged(cfg, con):
     out["simianx"] = bool(s.get("simianx", False)) and "simianx" not in LOCKED
     out["dca_cap_owner"] = bool(s.get("dca_cap_owner", False))     # 10.11. ~21:00: the owner's per-token SOL cap
     out["dca_token_cap"] = s.get("dca_token_cap", DCA_TOKEN_CAP)
+    # 11.11. (Jure: "promijeni maksimalnu poziciju tokenu na 1 sol"): the cap of the OWNER's buys (manual, DCA,
+    # buy orders) apart from dca_token_cap, which stays the Autopilot's copy cap (10.11.: 0,3 SOL on autopilot-paper)
+    out["owner_token_cap"] = s.get("owner_token_cap", out["dca_token_cap"])
     out.setdefault("day_tz", "Europe/Zagreb")
     out["sell_all"] = s.get("sell_all") or 0
     out["sell_req"] = s.get("sell_req") or {}
