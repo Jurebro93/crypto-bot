@@ -195,11 +195,12 @@ class Budget(RDB):
         now = 1_794_400_000
         ok = {"price": 1e-4, "bonded": True, "mcap": 200_000, "liq": 40_000, "vol_h1": 20_000}
         self.assertTrue(market.check(ok, now - 7 * 3600, "market", now)[0])
-        for change, word in (({"mcap": 40_000}, "ispod $50,000"), ({"mcap": 6e6}, "iznad"), ({"liq": 15_000}, "likvidnost"),
+        for change, word in (({"mcap": 40_000}, "ispod $50,000"), ({"mcap": 6e6}, "iznad"), ({"liq": 14_000}, "likvidnost"),
                              ({"vol_h1": 5000}, "volumen"), ({"bonded": False}, "krivulji"), ({"mcap": 20_000}, "30k")):
             res = market.check({**ok, **change}, now - 7 * 3600, "market", now)
             self.assertFalse(res[0], change)
             self.assertIn(word, res[1])
+        self.assertTrue(market.check({**ok, "liq": 15_000}, now - 7 * 3600, "market", now)[0])   # 11.11.: $15k is enough
         young = market.check(ok, now - 3 * 3600, "market", now)
         self.assertFalse(young[0])
         self.assertAlmostEqual(young[2], 3 * 3600 + 60, delta=1)            # back when 6 h old

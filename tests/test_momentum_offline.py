@@ -94,14 +94,20 @@ class EntryRules(unittest.TestCase):
 
     def test_each_market_condition(self):
         cases = {"krivulji": mfeat(bonded=False), "ispod 30k": mfeat(mcap=25_000), "iznad": mfeat(mcap=3_500_000),
-                 "likvidnost": mfeat(liq=15_000), "već prošao": mfeat(ch_m5=22.0), "treba +5": mfeat(ch_m5=3.0),
+                 "likvidnost": mfeat(liq=14_000), "već prošao": mfeat(ch_m5=22.0), "treba +5": mfeat(ch_m5=3.0),
                  "kupnje": mfeat(buys_m5=50, sells_m5=50), "x prosjeka": mfeat(vol_m5=2_000),
-                 "osnovice": mfeat(vol_m5=5_000, vol_h1=5_000), "naknade": mfeat(fee_rate=0.0005),
+                 "osnovice": mfeat(vol_m5=5_000, vol_h1=5_000),
                  "promet": mfeat(liq=20_000, vol_h1=600_000, vol_m5=200_000), "nepoznat": mfeat(ch_m5=None)}
         for word, f in cases.items():
             why = rules.cheap_check(f)
             self.assertIsNotNone(why, word)
             self.assertIn(word, why, word)
+        # 11.11. (owner's rule B): $15k is enough (the only liquidity block is under $15k) and the fees / volume rule
+        # is gone (it never caught anything)
+        self.assertIsNone(rules.cheap_check(mfeat(liq=15_000)))
+        self.assertIsNone(rules.cheap_check(mfeat(fee_rate=0.0005)))
+        self.assertIsNone(rules.cheap_check(mfeat(fee_rate=None)))
+        self.assertNotIn("fee_vol_min", rules.RULES)
 
     def test_fees_over_volume_passes_wash_trading_so_the_real_check_is_the_traders(self):
         # PumpSwap takes ~0.3 % of every swap: a pure wash flow passes the fee rule and every market rule
@@ -432,16 +438,22 @@ class LiveGate(TradeBase):
         self.lg.commit()
         gate._CACHE.update(at=0.0)
 
-    def test_50_trades_ev_and_hit_rate(self):
+    def test_50_trades_and_the_ev_proof(self):
         self.assertIn("tek 0", gate.refusal())
         self.rows(49, 0.05, 1)
         self.assertIn("tek 49", gate.refusal())
         self.rows(1, 0.05, 1)
         self.assertIsNone(gate.refusal())
-        self.rows(70, 0.01, 0)                                               # EV still > 0, hit 50/120 = 42 %
-        self.assertIn("pogodak", gate.refusal())
+        # 11.11. (owner's rule D): no hit-rate rule; EV >= +3 % and the 90 % interval's lower bound > 0
+        self.rows(40, 0.04, 0)                                               # hit 50/90 = 56 %, EV +4.6 %: fine
+        self.assertIsNone(gate.refusal())
+        self.rows(30, 0.0, 0)                                                # EV +3.4 % ... still fine
+        self.assertIsNone(gate.refusal())
+        self.rows(40, 0.0, 0)                                                # EV +2.6 %: under +3 %
+        self.assertIn("treba barem +3", gate.refusal())
         self.rows(200, -0.05, 1)
         self.assertIn("EV", gate.refusal())
+        self.assertFalse(hasattr(gate, "MIN_HIT"))
 
     def test_set_flag_live_goes_through_live_gates(self):
         self.assertEqual(settings.LIVE_GATES["momentum_scalp"], "momentum.gate:live_refusal")
@@ -548,6 +560,19 @@ class EvGate(Base):
         return mcpapi.trade_request(dict({"token": tok, "side": side, "amount": amount, "require_approval": False,
                                           "reason": "test"}, **kw))
 
+    def track(self, hits=9, misses=3, strategy="momentum_scalp"):
+        """11.11. (owner's rule D): Grok's measured record for the strategy, resolved requests priced EV > 0."""
+        con = data.connect()
+        try:
+            for i in range(hits + misses):
+                con.execute("INSERT INTO calib (ts, token, strategy, p_tp, tp_pct, sl_pct, cost_pct, ev_pct, horizon_s, "
+                            "status, hit) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (int(time.time()) - 3600, f"T{i}", strategy, 0.7, 15.0, 10.0, 2.1, 5.0, 2700, "done",
+                             1 if i < hits else 0))
+            con.commit()
+        finally:
+            con.close()
+
     def calib(self):
         con = data.ro()
         if con is None:
@@ -576,7 +601,7 @@ class EvGate(Base):
         code, out = self.ask(p_tp=0.3, strategy="momentum_scalp")
         self.assertEqual(out["status"], "executed")
         self.assertEqual(self.calib()[0]["decision"], "shadow_reject")
-        self.assertEqual([r[5] for r in flags.shadow_rows(self.lg, "grok_ev_gate")], ["odbij (EV <= 0)"])
+        self.assertEqual([r[5] for r in flags.shadow_rows(self.lg, "grok_ev_gate")], ["odbij (EV < +3 % ili bez dokaza)"])
 
     def test_paper_refuses_ev_at_or_under_zero_and_a_buy_without_p_tp(self):
         self.mode("paper")
@@ -602,11 +627,20 @@ class EvGate(Base):
 
     def test_paper_passes_positive_ev_with_the_strategys_exit(self):
         self.mode("paper")
+        # 11.11. (owner's rule D): EV +5 % alone is not enough for an autotrade: Grok's record must prove it first
+        code, out = self.ask(p_tp=0.7, strategy="momentum_scalp")
+        self.assertEqual(out["status"], "rejected")
+        self.assertIn("not proof yet", out["reason"])
+        self.track(hits=2, misses=0)                                          # n = 2 < 10
+        self.assertIn("od potrebnih 10", self.ask(p_tp=0.7, strategy="momentum_scalp")[1]["reason"])
+        self.track(hits=7, misses=3)                                          # n = 12: 9 / 3, interval above 0
+        code, out = self.ask(p_tp=0.6, strategy="momentum_scalp")             # EV +2.9 %: under +3 %
+        self.assertIn("< +3 %", out["reason"])
         code, out = self.ask(p_tp=0.7, strategy="momentum_scalp")
         self.assertEqual((code, out["status"]), (200, "executed"))
         a = json.loads(self.lg.execute("SELECT auto FROM trades WHERE id=?", (out["league_trade_id"],)).fetchone()[0])
         self.assertEqual((a.get("tp_in") or a.get("tp"), a.get("sl_in") or a.get("sl")), ("15%", "-10%"))
-        self.assertEqual(self.calib()[0]["decision"], "pass")
+        self.assertEqual(self.calib()[-1]["decision"], "pass")
         log = grokauto.log_rows(self.con)[0]
         self.assertEqual(log["ev_gate"]["strategy"], "momentum_scalp")
 
@@ -617,10 +651,14 @@ class EvGate(Base):
         code, out = mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "p_tp": 0.6,
                                           "strategy": "momentum_scalp"})
         self.assertEqual(code, 202)
-        self.assertTrue(out["ev_gate"]["would_pass"])
+        self.assertFalse(out["ev_gate"]["would_pass"])                       # 11.11.: EV +2.9 % < +3 %, no record yet
+        self.track()
+        code, out = mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05, "p_tp": 0.7,
+                                          "strategy": "momentum_scalp"})
+        self.assertTrue(out["ev_gate"]["would_pass"], out["ev_gate"])
         self.assertAlmostEqual(out["ev_gate"]["break_even_p_tp"], 0.5, delta=0.02)
         req = settings.raw(self.con)["mcp_requests"][-1]
-        self.assertEqual((req["p_tp"], req["strategy"]), (0.6, "momentum_scalp"))
+        self.assertEqual((req["p_tp"], req["strategy"]), (0.7, "momentum_scalp"))
         self.assertEqual(self.calib()[-1]["request"], "pending_approval")
         code, out = mcpapi.trade_request({"token": MINT, "side": "buy", "amount": 0.05})
         self.assertEqual(code, 202)

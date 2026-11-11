@@ -148,7 +148,7 @@ KIND = {
     "viral_now": "viralno sada", "disaster": "katastrofa", "death_anniversary": "godišnjica smrti",
     "birthday": "rođendan", "crypto": "kripto događaj", "holiday": "praznik", "launch_deadline": "rok lansiranja",
     "prediction_market": "oklada na tržištu predviđanja", "manual": "ručno dodan", "election": "izbori",
-    "rocket_launch": "lansiranje rakete",
+    "rocket_launch": "lansiranje rakete", "regime": "režim tržišta (oznaka, nije event token)",
 }
 
 

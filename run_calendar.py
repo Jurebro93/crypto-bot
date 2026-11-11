@@ -117,8 +117,10 @@ def main(argv=None):
 
     today = dt.date.fromisoformat(a.start) if a.start else dt.date.today()
     events, errors = collect(today, a.days, a.min_sitelinks)
+    # 11.11.: a regime label (kind "regime": a macro release, a conference) stays on the calendar as a label whatever
+    # its token likelihood (0): it is never an event token (run_dex skips it)
     events = [e for e in enrich_all(dedupe(events), today, a.pageviews_top)
-              if e["token_likelihood"] >= a.min_tokens][:a.top]
+              if e["token_likelihood"] >= a.min_tokens or e.get("kind") == "regime"][:a.top]
 
     out = os.path.join(HERE, "output")
     os.makedirs(out, exist_ok=True)

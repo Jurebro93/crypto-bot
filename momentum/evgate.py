@@ -3,7 +3,13 @@
 Grok's buy gate for autotrade was "P(+20 % within 4 h) >= 0.6" in Grok's own prompt. A probability alone says nothing
 about the exits the position really gets, so the gate is now an expected value with the strategy's own TP / SL:
 
-    EV = p_tp x TP - (1 - p_tp) x SL - cost          (fractions of the stake; buy only when EV > 0)
+    EV = p_tp x TP - (1 - p_tp) x SL - cost          (fractions of the stake)
+
+11.11. (the owner's rule D, trade/edge): an AUTOTRADE buy (this gate enforcing: paper / live) needs EV >= +3 % AND
+Grok's measured record for the strategy: n >= 10 resolved requests it priced with EV > 0 (any mode, any decision:
+every request with p_tp is recorded and resolved), their results (+TP when TP came first, -SL otherwise, minus the
+request's cost) with a mean whose 90 % interval's lower bound is > 0 (trade/edge.live_proof; the EV >= +3 % of that
+rule is this request's own EV). Until that record exists every autotrade buy is refused while the gate enforces.
 
   p_tp      Grok's probability (0-1) that the take profit comes BEFORE the stop, sent in execute_trade
   strategy  momentum_scalp: TP +15 %, SL -10 %, horizon 45 min (momentum/rules: TP1 +15 %, stop -10 %, time 45 min)
@@ -13,7 +19,7 @@ about the exits the position really gets, so the gate is now an expected value w
             other (default): the exit Grok's buy really gets on the Autopilot (ui/pravitrade._post_buy): the owner's
                             last TP (default +15 %) and the default stop (sl_default, -60 % unless changed); horizon 4 h.
                             With +15 / -60 the break-even p is ~0.83: the honest price of a wide stop.
-  cost      the round trip of the stake: 1 % fee each side + the AMM impact both ways (momentum/rules.round_trip_cost)
+  cost      the round trip of the stake: trade/cost.round_trip, the ONE model (2 x fee_side + 2 x the AMM impact)
 A buy with strategy momentum_scalp or range_dca also gets that strategy's TP / SL as its exit (ui/grokauto passes them
 to the buy), so the levels the gate priced are the levels that trade; "other" keeps the owner's exit.
 
@@ -21,7 +27,8 @@ Modes (trade/settings flag grok_ev_gate; the owner sets it, nothing here does):
   off      no check (every request with p_tp is still RECORDED for calibration: bookkeeping, not enforcement)
   shadow   the check runs; a buy it would refuse goes through and is logged (league.db shadow_decisions + calib row
            decision "shadow_reject")
-  paper / live   a Grok autotrade BUY with EV <= 0 (or without p_tp, or without levels) is refused with the reason
+  paper / live   a Grok autotrade BUY with EV < +3 %, without Grok's proof for the strategy, without p_tp or without
+                 levels is refused with the reason
 Sells are never gated. Requests that wait for the owner's approval (require_approval=true) are recorded, never refused.
 
 Calibration: every recorded request keeps p_tp, strategy, TP / SL, cost, EV and the price at the request; run_momentum
@@ -32,6 +39,8 @@ Prices are minute samples: a wick inside a minute is not seen, for TP and SL ali
 """
 import time
 
+from trade import edge
+
 from . import data, rules
 
 FLAG = "grok_ev_gate"
@@ -40,6 +49,7 @@ MOMENTUM = {"tp": rules.RULES["tp1"], "sl": rules.RULES["stop"], "horizon_s": ru
 RANGE_HORIZON_S = 24 * 3600
 OTHER_HORIZON_S = 4 * 3600
 BUCKETS = [(i / 10, (i + 1) / 10) for i in range(10)]
+TRACK_DAYS = 60
 
 
 def mode():
@@ -126,16 +136,39 @@ def levels(strategy, token, price, mcap=None, tcon=None, ranges=None):
 
 
 def cost(amount_sol, sol_usd, liq):
+    """trade/cost.round_trip of the stake (through momentum/rules.round_trip_cost)."""
     usd = (amount_sol or 0.1) * (sol_usd or 150.0)
     return rules.round_trip_cost(usd, liq)
 
 
-def decide(p, lv, c):
-    """{"ev", "break_even_p", "pass"} of one request (p, lv may be None)."""
+def track(strategy, now=None, path=None, days=TRACK_DAYS):
+    """Grok's measured record for a strategy: the results of its resolved requests it priced with EV > 0 (+TP when
+    TP came first, else -SL, minus the request's own cost; fractions), last `days`."""
+    now = int(now or time.time())
+    con = data.ro(path)
+    if con is None:
+        return []
+    try:
+        rows = con.execute("SELECT hit, tp_pct, sl_pct, cost_pct FROM calib WHERE strategy=? AND status='done' AND hit IS "
+                           "NOT NULL AND ev_pct > 0 AND ts >= ?", (strategy, now - days * 86400)).fetchall()
+    except Exception:  # noqa: BLE001 - an old momentum.db: no record
+        rows = []
+    finally:
+        con.close()
+    return [((tp or 0) if h else -(sl or 0)) / 100 - (c or 0) / 100 for h, tp, sl, c in rows]
+
+
+def decide(p, lv, c, rec=None):
+    """{"ev", "break_even_p", "pass" (the autotrade rule: EV >= +3 % and the record's proof), "ev_ok", "proof",
+    "proof_why"} of one request (p, lv may be None; rec: track() of the strategy)."""
+    ok, why, st = edge.live_proof(rec or [])
     if p is None or not lv:
-        return {"ev": None, "break_even_p": rules.break_even_p(lv["tp"], lv["sl"], c) if lv else None, "pass": False}
+        return {"ev": None, "break_even_p": rules.break_even_p(lv["tp"], lv["sl"], c) if lv else None, "pass": False,
+                "ev_ok": False, "proof": st, "proof_why": why}
     e = rules.ev(p, lv["tp"], lv["sl"], c)
-    return {"ev": e, "break_even_p": rules.break_even_p(lv["tp"], lv["sl"], c), "pass": e > 0}
+    ev_ok = e >= edge.EV_LIVE_MIN - 1e-12
+    return {"ev": e, "break_even_p": rules.break_even_p(lv["tp"], lv["sl"], c), "pass": ev_ok and ok, "ev_ok": ev_ok,
+            "proof": st, "proof_why": why}
 
 
 def check(token, amount, p, strategy, market=None, now=None, sol_usd=None, tcon=None, ranges=None, gate_mode=None):
@@ -156,18 +189,24 @@ def check(token, amount, p, strategy, market=None, now=None, sol_usd=None, tcon=
         except Exception:  # noqa: BLE001
             sol_usd = None
     c = cost(amount, sol_usd, liq)
-    d = decide(p, lv, c)
+    rec = track(strategy, now) if p is not None and lv else []
+    d = decide(p, lv, c, rec)
     why = None
     if p is None:
         why = "grok_ev_gate: send p_tp (0-1, your probability that TP comes before SL) and strategy"
     elif not lv:
         why = f"grok_ev_gate: no TP/SL for strategy {strategy}: {why_lv}"
+    elif not d["ev_ok"]:
+        why = (f"grok_ev_gate: EV {d['ev'] * 100:+.2f} % < +{edge.EV_LIVE_MIN * 100:.0f} % (p_tp {p:.2f} x TP "
+               f"{lv['tp'] * 100:.1f} % - {1 - p:.2f} x SL {lv['sl'] * 100:.1f} % - cost {c * 100:.2f} %; break-even "
+               f"p_tp {d['break_even_p']:.2f})")
     elif not d["pass"]:
-        why = (f"grok_ev_gate: EV {d['ev'] * 100:+.2f} % <= 0 (p_tp {p:.2f} x TP {lv['tp'] * 100:.1f} % - "
-               f"{1 - p:.2f} x SL {lv['sl'] * 100:.1f} % - cost {c * 100:.2f} %; break-even p_tp "
-               f"{d['break_even_p']:.2f})")
+        why = (f"grok_ev_gate: EV {d['ev'] * 100:+.2f} %, but your measured record for {strategy} is not proof yet "
+               f"({d['proof_why']}; autotrade needs n >= {edge.N_MIN} resolved requests priced EV > 0 whose mean "
+               f"result has its 90 % interval above 0)")
     return {"mode": m, "p_tp": p, "strategy": strategy, "levels": lv, "levels_why": why_lv, "cost": c, "ev": d["ev"],
-            "break_even_p": d["break_even_p"], "price": price, "mcap": mcap, "liq": liq,
+            "break_even_p": d["break_even_p"], "proof": {k: d["proof"].get(k) for k in ("n", "ev", "lo90")},
+            "price": price, "mcap": mcap, "liq": liq,
             "reject": why if m in ("paper", "live") else None,
             "shadow_reject": why if m == "shadow" else None, "would_reject": why}
 
@@ -220,7 +259,7 @@ def shadow_log(g, token):
         from league import flags, store as lstore
         lcon = lstore.connect()
         try:
-            flags.shadow(lcon, FLAG, None, token, "kupi (Grok auto)", "odbij (EV <= 0)",
+            flags.shadow(lcon, FLAG, None, token, "kupi (Grok auto)", "odbij (EV < +3 % ili bez dokaza)",
                          {"p_tp": g["p_tp"], "strategy": g["strategy"], "ev": g["ev"], "why": g["shadow_reject"]})
             lcon.commit()
         finally:
@@ -298,8 +337,10 @@ def report(now=None, days=30, path=None):
     for _s, _p, _h, _st, d, _e, ts in rows:
         if ts >= now - 86400:
             out["decisions_24h"][d] = out["decisions_24h"].get(d, 0) + 1
-    out["rule"] = ("EV = p_tp x TP - (1 - p_tp) x SL - cost > 0; momentum_scalp TP 15 / SL 10 (45 min), range_dca from "
-                   "the zones (24 h), other = the owner's exit for Grok buys (4 h); hit = TP before SL within the horizon")
+    out["rule"] = ("autotrade: EV = p_tp x TP - (1 - p_tp) x SL - cost >= +3 % AND the strategy's measured record "
+                   "(n >= 10 resolved requests priced EV > 0, the 90 % interval of their mean result above 0); "
+                   "momentum_scalp TP 15 / SL 10 (45 min), range_dca from the zones (24 h), other = the owner's exit "
+                   "for Grok buys (4 h); hit = TP before SL within the horizon")
     return out
 
 

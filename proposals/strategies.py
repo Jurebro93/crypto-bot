@@ -2,7 +2,8 @@
 ui/kandidati row and the pass's context; proposals/build.py merges them).
 
   range       rangedca's get_range_candidates rows with entry_ready (price in the bottom zone / bottom 15 %), volume 1 h
-              >= $10k, buys >= 50 % of 5 min, range_score >= 0.7. Exit: half at range_high_low, the rest at
+              >= $3k (11.11. owner's rule B: under $10k the size shrinks, trade/cost.vol_factor), buys >= 50 % of
+              5 min, range_score >= 0.7. Exit: half at range_high_low, the rest at
               range_high_top or a 10 % trailing above it, stop range_low_low x 0.85, 6 h time stop at break-even; lot 2
               (DCA) at -10..-15 %. Record: the demo account's closed range rounds (wins of n). Valid 2 h from the
               proposal, or until the price leaves the bottom zone (it drops out of entry_ready). The token's tier
@@ -11,17 +12,20 @@ ui/kandidati row and the pass's context; proposals/build.py merges them).
   momentum    momentum_scalp signals of the last 15 min (every entry rule met). Exit: half at +15 %, the rest on an 8 %
               trailing stop, stop -10 %, out after 45 min. Record: the base rate of every signal (+15 % before -10 %
               within 45 min, 30 days). Entry only up to 5 % above the signal's market cap. Valid 15 min from the signal.
-  influencer  callers of the last hour with a measured quick-exit record: n >= 20 calls and EV > 0 on TP +10 % / SL
-              -20 % / 1 h after the 2 % cost (kol/tpsl over minute.db, cached nightly in proposals.db bench). Paid
-              shillers and shill-network members never count (their call is exit liquidity). Entry only while the
-              market cap is under 1.5x the first call's (run-up < 50 %). Exit +10 % / -20 %, out after 60 min. Record:
-              the qualifying callers' benchmark hits of n, pooled. Valid 30 min from the newest qualifying call.
+  influencer  callers of the last hour with a measured quick-exit record: n >= 10 calls (11.11., owner's rule D; the
+              shrink toward no edge stays) and EV > 0 on the SAME benchmark as the exit: +15 % before -10 % within
+              45 min after the cost model's fee part (kol/tpsl over minute.db, cached nightly in proposals.db bench).
+              Paid shillers and shill-network members never count (their call is exit liquidity). Entry only while the
+              market cap is under 1.5x the first call's (run-up < 50 %). Exit: the signal exit (trade/edge, rule E):
+              half at +15 %, trailing 8 %, stop -10 %, out after 45 min. Record: the qualifying callers' benchmark hits
+              of n, pooled. Valid 30 min from the newest qualifying call.
   group       a quality wallet group (hidden_group) or a quality caller crew with n >= 8 measured events (kol/groupdisc),
-              or a pre_shill signal (kol/preshill). Exit +20 % half, trailing 15 %, stop -30 %, 4 h. Record: early.db
-              group_signals hit4h (+20 % before -30 % in 4 h) per kind, preshill_signals hit4h. Valid 60 min.
+              or a pre_shill signal (kol/preshill). Exit: the signal exit (rule E, as influencer). Record: early.db
+              group_signals hit4h per kind, preshill_signals hit4h; NOTE: those are still measured as +20 % before
+              -30 % in 4 h (kol/groupdisc / kol/preshill), not on the +15 / -10 / 45 min benchmark. Valid 60 min.
   insider     confirmed pre-call insiders (kol/precall copy_set) among the 2+ insider wallets that bought within the
-              hour, nobody called yet. Exit as group. Record: the demo account's closed insider copies (ret > 0 of n).
-              Valid 60 min.
+              hour, nobody called yet. Exit: the signal exit (rule E). Record: the demo account's closed insider copies
+              (ret > 0 of n). Valid 60 min.
   event       the canonical ("main") token of an event in the next 7 days (topics.view.proposal_rows of the event
               work; nothing while that module is not merged). Exit +30 % half, trailing 15 %, stop -25 %, everything
               out EVENT_MARGIN_S before the event. Record: topics.view.record() when it exists, else none (the prior:
@@ -43,13 +47,15 @@ from the market cap now), "levels" (the exit: tp [{"pct" | "mc", "share"}], sl {
 """
 import math
 
+from trade import cost as _cost, edge as _edge
+
 STRATEGIES = ("range", "momentum", "influencer", "group", "insider", "event", "catalyst", "grok")
 HR = {"range": "raspon", "momentum": "momentum", "influencer": "influenceri", "group": "skupina", "insider": "insajderi",
       "event": "događaj", "catalyst": "katalizator", "grok": "Grok"}
-INFLUENCER_MIN_N = 20
+INFLUENCER_MIN_N = _edge.N_MIN   # 11.11. (owner's rule D): 20 -> 10, with the shrink toward no edge
 INFLUENCER_RUNUP_MAX = 1.5
 GROUP_MIN_N = 8
-RANGE_MIN_VOL_H1 = 10_000
+RANGE_MIN_VOL_H1 = _cost.VOL_FLOOR   # 11.11. (rule B): the hard floor $3k; $3k-$10k shrinks the size
 RANGE_MIN_BUY_SHARE = 0.5
 RANGE_MIN_SCORE = 0.7
 MOMENTUM_CHASE = 0.05
@@ -103,7 +109,7 @@ def range_ready(rc):
     if (_f(rc.get("range_score")) or 0) < RANGE_MIN_SCORE - 1e-9:
         return f"ocjena raspona {rc.get('range_score')} ispod {RANGE_MIN_SCORE}"
     if (_f(now_.get("volume_1h_usd")) or 0) < RANGE_MIN_VOL_H1:
-        return f"volumen 1 h {_usd(now_.get('volume_1h_usd'))} ispod $10k"
+        return f"volumen 1 h {_usd(now_.get('volume_1h_usd'))} ispod {_usd(RANGE_MIN_VOL_H1)}"
     bs = _f(now_.get("buy_share_5m"))
     if bs is None or bs < RANGE_MIN_BUY_SHARE:
         return "kupnje ispod 50 % transakcija u 5 min"
@@ -172,7 +178,8 @@ def bench_of(bench, who):
 
 
 def qualifies(b):
-    """A caller's quick-exit benchmark is good enough: n >= 20 and EV > 0 after cost."""
+    """A caller's quick-exit benchmark (+15 % before -10 % within 45 min) is good enough: n >= 10 and EV > 0 after
+    cost."""
     return bool(b) and (b.get("n") or 0) >= INFLUENCER_MIN_N and (b.get("ev_pct") or 0) > 0
 
 
@@ -197,14 +204,15 @@ def influencer_ev(cal, mcap, bench, first_call, shill, now):
     first_mc = _f((first_call or (None, None))[1])
     names = ", ".join("@" + str(c["who"]).replace("tg:", "") for c, _b in good[:3])
     best = max(good, key=lambda x: x[1].get("ev_pct") or 0)[1]
-    ev = {"strategy": "influencer", "ts": last, "expires_ts": last + EXPIRY_S["influencer"], "tp": 0.10, "sl": 0.20,
-          "hits": hits, "n": n, "record_from": "brzi izlaz callera: +10 % prije -20 % u 1 h (minute.db, 30 dana)",
+    ev = {"strategy": "influencer", "ts": last, "expires_ts": last + EXPIRY_S["influencer"], "tp": _edge.TP, "sl": _edge.SL,
+          "hits": hits, "n": n, "record_from": "brzi izlaz callera: +15 % prije -10 % u 45 min (minute.db, 30 dana)",
           "entry_zone": ({"mcap_low": round(min(mcap, first_mc)), "mcap_high": round(first_mc * INFLUENCER_RUNUP_MAX)}
                          if first_mc and mcap else None),
-          "levels": _pct_levels(10, 20, half=False, time_min=60, out_all=True),
+          "levels": _edge.signal_exit_levels(),
           "why": (f"{names} {'ga je zvao' if len(good) == 1 else 'su ga zvali'} prije "
                   f"{max(0, (now - last) // 60):.0f} min; u zadnjih 30 dana {'njegovi' if len(good) == 1 else 'njihovi'} "
-                  f"pozivi češće donesu brzih +10 % nego -20 % (najbolji: {best.get('hits')} od {best.get('n')})."),
+                  f"pozivi češće donesu +15 % prije -10 % u 45 min nego obrnuto (najbolji: {best.get('hits')} od "
+                  f"{best.get('n')})."),
           "detail": {"callers": [{"who": c["who"], "ts": c.get("ts"), "bench": {k: b.get(k) for k in ("n", "hits",
                                                                                                      "ev_pct")}}
                                  for c, b in good[:8]],
@@ -266,10 +274,12 @@ def group_ev(srcs, glist, records, preshill_rec, mcap, now):
         return None
     t = max(ts)
     sig_mc = _f((hg or {}).get("mcap_usd")) or _f((ps or {}).get("mcap_usd")) or mcap
-    return {"strategy": "group", "ts": t, "expires_ts": t + EXPIRY_S["group"], "tp": 0.20, "sl": 0.30, "hits": hits,
-            "n": n, "record_from": "signali skupina: +20 % prije -30 % u 4 h (early.db, preshill)",
+    return {"strategy": "group", "ts": t, "expires_ts": t + EXPIRY_S["group"], "tp": _edge.TP, "sl": _edge.SL,
+            "hits": hits, "n": n,
+            "record_from": ("signali skupina: +20 % prije -30 % u 4 h (early.db, preshill; staro mjerilo, izlaz je "
+                            "+15/-10/45 min)"),
             "entry_zone": {"mcap_low": round(mcap * 0.9), "mcap_high": round(max(mcap, sig_mc or mcap) * 1.5)} if mcap else None,
-            "levels": _pct_levels(20, 30, half=True, trail=15, time_min=240),
+            "levels": _edge.signal_exit_levels(),
             "why": parts[0][0].upper() + parts[0][1:] + "." + (f" Uz to: {parts[1]}." if len(parts) > 1 else ""),
             "detail": {"hidden_group": hg, "crews": crews[:3], "pre_shill": ps}, "crew_handles": handles,
             "invalid": None if now < t + EXPIRY_S["group"] else "signal skupine stariji od 60 min"}
@@ -285,11 +295,11 @@ def insider_ev(src, confirmed, rec, mcap, now):
         return None
     t = int(src.get("ts") or now)
     sig_mc = _f(src.get("mcap_usd")) or mcap
-    return {"strategy": "insider", "ts": t, "expires_ts": t + EXPIRY_S["insider"], "tp": 0.20, "sl": 0.30,
+    return {"strategy": "insider", "ts": t, "expires_ts": t + EXPIRY_S["insider"], "tp": _edge.TP, "sl": _edge.SL,
             "hits": (rec or {}).get("hits") or 0, "n": (rec or {}).get("n") or 0,
             "record_from": "zatvorene demo kopije insajdera (dobitne od svih)",
             "entry_zone": {"mcap_low": round(mcap * 0.9), "mcap_high": round(max(mcap, sig_mc) * 1.5)} if mcap else None,
-            "levels": _pct_levels(20, 30, half=True, trail=15, time_min=240),
+            "levels": _edge.signal_exit_levels(),
             "why": (f"{len(ws)} potvrđen{'' if len(ws) == 1 else 'a'} novčanik{'' if len(ws) == 1 else 'a'} koji inače kupuje "
                     "prije poziva callera upravo ga je kupio, a nitko ga još nije zvao."),
             "detail": {"wallets": ws[:8]}, "invalid": None if now < t + EXPIRY_S["insider"] else "kupnja starija od 60 min"}
@@ -444,6 +454,15 @@ def buy_form(ev):
     s = lv["sl"]
     sl = mc(s["mc"]) if "mc" in s else f"{s['pct']:g}%"
     return tp, sl
+
+
+def duration_min(ev):
+    """The expected holding time of a proposal in minutes (11.11., owner's rule D: the ranking is EV per minute): the
+    exit's time stop, else the strategy's validity (a Grok proposal without a time stop: its horizon, 4 h)."""
+    t = (ev.get("levels") or {}).get("time") or {}
+    if t.get("after_min"):
+        return max(1.0, float(t["after_min"]))
+    return 240.0
 
 
 def hold_s(ev):

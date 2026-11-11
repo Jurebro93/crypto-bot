@@ -2,53 +2,82 @@
 ui/kandidati.build (the same sources, market, rug view, run-up, crew counting and keyed blocks; no second scoring
 system). Read-only on every database; proposals/job.py writes the result into proposals.db.
 
-Per token:
+Per token (11.11., the owner's consolidated correction, rules A-E: trade/cost.py and trade/edge.py):
   sources        the strategies that propose it (each with its own entry zone, exit, record and expiry)
-  EV per strategy = p_tp x TP - (1 - p_tp) x SL - cost   (fractions of the stake; TP / SL of that strategy's exit
-                 from the market cap now; p_tp its measured record shrunk toward no edge, proposals/calib.estimate,
-                 Grok's p_tp calibrated, calib.apply)
-  cost           by the pool's liquidity: 3 % above $50k, 5 % from $25k to $50k, 8 % under $25k; under $20k blocked
-  primary        the strategy with the best EV: its exit, entry zone and why are the row's
+  EV per strategy = P x TP - (1 - P) x SL - cost   (fractions of the stake; TP / SL of that strategy's exit from the
+                 market cap now; P its measured record shrunk toward no edge, proposals/calib.estimate, Grok's p_tp
+                 calibrated, calib.apply; then x the P modifiers below)
+  cost           trade/cost.round_trip(size in USD at kandidati.SOL_USD, liquidity): 2 x fee_side + 2 x impact, the ONE
+                 model (the old 3 / 5 / 8 % by liquidity is gone); under $15k liquidity: blocked
+  size           min(MAX_SOL, the owner's per-trade and per-token caps, the stake whose buy impact stays <= 2 %)
+                 x the volume factor (1 h volume / $10k under $10k) x the size modifiers (trade/cost.size_sol)
+  modifiers      (trade/edge.modifiers, never blocks) run-up >= 4x from the first signal: P x 0.7 and size x 0.5 (not
+                 when X is bursting and buys >= 60 % of 5 min); wash volume (topcheck/safety.volume_check 'fail', or
+                 few unique traders for the transactions) or shill-driven (every caller a paid shiller or a shill-network
+                 member): P x 0.5
+  primary        the strategy with the best EV per expected minute (strategies.duration_min): its exit, entry zone and
+                 why are the row's
   n_independent  independent sources: every strategy once, the influencer strategy once per independent caller
                  signal (a known crew within 10 min is one, kol/groupdisc.dedupe as ui/kandidati counts it; callers
                  <= 30 s apart are one: coordinated), a caller crew counted under group not again when its callers are
                  the influencer's
-  blocks         rug high (a collapse / mint / freeze / honeypot, or a rug risk rating Grok did not override), wash volume
-                 (topcheck/safety.volume_check: 'fail', or few unique traders for the transactions), run-up 5x+ from the
-                 first signal, liquidity under $20k, shill-driven (every caller is a paid shiller or a shill-network
-                 member: their call is exit liquidity, never an entry), no live market, under $30k, still on the curve,
-                 a fake or tiny pool, not trading now, the owner's per-token cap already used
-Shown: EV > 0 and no block, ranked by EV, then n_independent. The rest are near misses (why) for the report.
+  blocks         (rule B: only these) rug high (a collapse / mint / freeze / honeypot, or a rug risk rating Grok did not
+                 override), liquidity under $15k, 1 h volume under $3k, no live market, under $30k, still on the
+                 curve, a fake or tiny pool, not trading now, the owner's per-token cap already used
+Shown: EV > 0 (paper: to collect n) and no block. Ranked (rule D) by EV per expected minute, then the lower end of
+the EV's 90 % interval (P at the low end of the record's Wilson interval), then liquidity. The rest are near misses
+(why) for the report. Live / autotrade needs more (trade/edge.live_proof: EV >= +3 %, interval above 0, n >= 10).
 """
 import json
 import time
 
+from trade import cost as tcost, edge
 from ui import kandidati
 
 from . import calib, strategies
 
-COST_HI, COST_MID, COST_LO = 0.03, 0.05, 0.08
-LIQ_HI, LIQ_MID, LIQ_MIN = 50_000, 25_000, 20_000
-RUNUP_BLOCK_X = 5.0
+LIQ_THIN = 25_000           # under this the risks say the pool is thin (the size already follows the slippage)
 COORD_S = 30
 MAX_SOL = 0.15              # the recommended size never above this
 OVERRIDE_SHARE = 0.5        # a rug risk rating lifted by Grok's fresh evidence: half the size (ui/kandidati)
-KANDIDATI_BLOCKS = ("market", "under_30k", "curve", "fake_pool", "too_big", "liq_share", "not_trading", "rug_hard",
-                    "rug_risk", "shill_driven")
-BLOCK_HR = {"liq": "likvidnost ispod $20k", "runup": "već 5x ili više od prvog signala", "wash": "lažni volumen",
-            "shill": "vođeno shillanjem", "cap": "strop po tokenu je potrošen"}
+# 11.11. (owner's rule B): kandidati's keyed blocks the proposals keep (run-up, liq_share and shill_driven are no longer
+# blocks there; the liquidity floor is this pass's own "liq")
+KANDIDATI_BLOCKS = ("market", "under_30k", "curve", "fake_pool", "too_big", "not_trading", "rug_hard", "rug_risk")
+BLOCK_HR = {"liq": "likvidnost ispod $15k", "vol": "volumen 1 h ispod $3k", "cap": "strop po tokenu je potrošen"}
 
 
-def cost_for(liq):
-    """The round-trip cost of a proposal by the pool's liquidity; None under $20k (blocked)."""
+def cost_for(liq, size_usd=None):
+    """The round-trip cost of a proposal (trade/cost.round_trip, a fraction); None under $15k liquidity (blocked)."""
     liq = kandidati._f(liq)
-    if liq is None or liq < LIQ_MIN:
+    if tcost.liq_block(liq):
         return None
-    if liq > LIQ_HI:
-        return COST_HI
-    if liq >= LIQ_MID:
-        return COST_MID
-    return COST_LO
+    return tcost.round_trip(size_usd, liq)
+
+
+def buy_share_5m(r):
+    """Buys / transactions of the last 5 min from the row's raw DexScreener reading (None unknown)."""
+    w = ((r.get("live_raw") or {}).get("w") or {}).get("m5") or {}
+    b, s = w.get("buys"), w.get("sells")
+    if b is None or s is None or b + s <= 0:
+        return None
+    return b / (b + s)
+
+
+def shill_driven(r, ctx):
+    """Every caller of the row is a paid shiller or a shill-network member (their call is exit liquidity)."""
+    cal = (r.get("sources") or {}).get("caller") or {}
+    who = [str(c.get("who")).lower() for c in cal.get("callers") or [] if c.get("who")]
+    shill = {str(h).lower() for h in (ctx.get("shillers") or ())} | {str(h).lower() for h in (ctx.get("shill_members") or ())}
+    return bool(who) and all(h in shill for h in who) or "shill_driven" in (r.get("flags") or [])
+
+
+def modifiers_of(r, ctx):
+    """trade/edge.modifiers of one kandidati row (run-up with X and the buy share, wash, shill-driven)."""
+    x = r.get("x") or {}
+    return edge.modifiers(runup_x=(r.get("runup") or {}).get("x"),
+                          x_score=x.get("x_momentum_score") if x.get("fresh") else None,
+                          buy_share_5m=buy_share_5m(r), wash=bool(ctx["wash"].get(r["token"], (False,))[0]),
+                          shill=shill_driven(r, ctx))
 
 
 def caller_signals(calls, member_of=None, crew_s=kandidati.CREW_S, coord_s=COORD_S):
@@ -344,8 +373,9 @@ class Sources(kandidati.Sources):
 
 # ---------- one row ----------------------------------------------------------------------------------------------------
 
-def _price(ev, cost):
-    """(p dict, EV fraction) of one strategy's evidence at this cost."""
+def _price(ev, cost, p_mult=1.0):
+    """(p dict, EV fraction, EV at the low end of P's 90 % interval) of one strategy's evidence at this cost, P x
+    p_mult (the owner's rule B modifiers)."""
     pf = ev.get("p_fixed")
     if pf:
         p = {"p": pf["p"], "p_raw": pf.get("raw"), "n": pf.get("n") or 0, "ci90": pf.get("ci90"), "from": pf.get("from"),
@@ -353,7 +383,12 @@ def _price(ev, cost):
     else:
         p = calib.estimate(ev.get("hits"), ev.get("n"), ev["tp"], ev["sl"], cost)
         p["from"] = ev.get("record_from")
-    return p, calib.ev(p["p"], ev["tp"], ev["sl"], cost)
+    # the low end: the Wilson 90 % low of the raw record, never above the shrunk estimate itself
+    lo = min((p.get("ci90") or [0.0])[0] or 0.0, p["p"]) * p_mult
+    if p_mult < 1:
+        p["p_unmodified"] = p["p"]
+        p["p"] = round(p["p"] * p_mult, 4)
+    return p, calib.ev(p["p"], ev["tp"], ev["sl"], cost), calib.ev(lo, ev["tp"], ev["sl"], cost)
 
 
 def detect(r, ctx, now):
@@ -382,30 +417,23 @@ def detect(r, ctx, now):
     return out
 
 
-def blocks_of(r, ctx, evs, cost, size):
-    """[{"key", "text"}] of what keeps the row from being shown (see the module text)."""
+def blocks_of(r, ctx, evs, cost, size, cap=None):
+    """[{"key", "text"}] of what keeps the row from being shown (only the owner's hard blocks, rule B)."""
     out = [b for b in r.get("blocks") or [] if b.get("key") in KANDIDATI_BLOCKS]
     m = r.get("market") or {}
     liq = kandidati._f(m.get("liquidity_usd"))
     if cost is None and not any(b["key"] in ("market", "curve") for b in out):
-        out.append({"key": "liq", "text": f"likvidnost ${liq or 0:,.0f} ispod $20k"})
-    ru = (r.get("runup") or {}).get("x")
-    if ru and ru >= RUNUP_BLOCK_X:
-        out.append({"key": "runup", "text": f"kasno: već {ru:.1f}x od prvog signala (granica 5x)"})
-    if ctx["wash"].get(r["token"], (False,))[0]:
-        out.append({"key": "wash", "text": f"lažni volumen: {ctx['wash'][r['token']][2]}"})
-    cal = (r.get("sources") or {}).get("caller") or {}
-    who = [str(c.get("who")).lower() for c in cal.get("callers") or [] if c.get("who")]
-    shill = {str(h).lower() for h in (ctx.get("shillers") or ())} | {str(h).lower() for h in (ctx.get("shill_members") or ())}
-    if who and all(h in shill for h in who) and not any(b["key"] == "shill_driven" for b in out):
-        out.append({"key": "shill", "text": "vođeno shillanjem: zovu ga samo plaćeni shilleri / shill mreža (izlazna "
-                                            "likvidnost)"})
-    if size is not None and size < 0.01:
+        out.append({"key": "liq", "text": tcost.liq_block(liq) or "likvidnost ispod $15k"})
+    vb = tcost.vol_block(m.get("volume_1h_usd"))
+    if vb and not any(b["key"] in ("market", "curve", "not_trading") for b in out):
+        out.append({"key": "vol", "text": vb})
+    c = cap if cap is not None else size
+    if c is not None and c < 0.01:
         out.append({"key": "cap", "text": "strop po tokenu ili po tradeu je već potrošen"})
     return out
 
 
-def risks_of(r, ctx, prim, est):
+def risks_of(r, ctx, prim, est, cost=None, mods=None):
     out = []
     rug = r.get("rug") or {}
     if r.get("grok_override"):
@@ -414,8 +442,9 @@ def risks_of(r, ctx, prim, est):
     if rug.get("level") == "unknown":
         out.append("rug provjera još nema podataka o ovom tokenu")
     st, txt = ctx["wash"].get(r["token"], (False, None, None))[1:3]
-    if st == "warn" and txt:
+    if st in ("warn", "fail") and txt:
         out.append(txt)
+    out += [t["text"] for t in (mods or {}).get("tags") or []]
     if r.get("shill_n"):
         out.append("zove ga i plaćena shill mreža: njen poziv je znak za izlaz, ne za ulaz")
     m = r.get("market") or {}
@@ -423,12 +452,16 @@ def risks_of(r, ctx, prim, est):
     if ch1 is not None and ch1 <= -20:
         out.append(f"pada {ch1:+.0f} % u zadnjem satu")
     liq = kandidati._f(m.get("liquidity_usd")) or 0
-    if liq < LIQ_MID:
-        out.append(f"tanak pool (${liq:,.0f}): trošak ulaza i izlaza ~8 %")
+    if liq < LIQ_THIN:
+        out.append(f"tanak pool (${liq:,.0f}): ulog po klizanju do 2 %, trošak ulaza i izlaza "
+                   f"~{(cost or 0) * 100:.1f} %".replace(".", ","))
+    vol = kandidati._f(m.get("volume_1h_usd"))
+    if vol is not None and vol < tcost.VOL_FULL:
+        out.append(f"volumen 1 h ${vol:,.0f}: ulog × {tcost.vol_factor(vol):.2f}".replace(".", ","))
     ru = (r.get("runup") or {}).get("x")
-    if ru and ru >= 2:
+    if ru and 2 <= ru < edge.RUNUP_X:
         out.append(f"već {ru:.1f}x od prvog signala")
-    if (est.get("n") or 0) < 20:
+    if (est.get("n") or 0) < edge.N_MIN:
         out.append(f"malo izmjerenih ishoda (n={est.get('n') or 0}): procjena je oprezna")
     if prim == "event":
         out.append("tokeni događaja često padaju nakon događaja: izlaz prije njega")
@@ -454,13 +487,15 @@ def finish(r, ctx, now, evs_all=None):
     m = r.get("market") or {}
     mcap, liq = kandidati._f(m.get("market_cap_usd")), kandidati._f(m.get("liquidity_usd"))
     price = kandidati._f(m.get("price_usd"))
-    cost = cost_for(liq)
     caps = ctx["caps"]
-    size = min(MAX_SOL, caps.get("max_sol_per_trade") or MAX_SOL,
-               max(0.0, (caps.get("dca_token_cap") or 0.3) - float((caps.get("held") or {}).get(tok) or 0)))
+    cap = min(MAX_SOL, caps.get("max_sol_per_trade") or MAX_SOL,
+              max(0.0, (caps.get("dca_token_cap") or 0.3) - float((caps.get("held") or {}).get(tok) or 0)))
     if r.get("grok_override"):
-        size *= OVERRIDE_SHARE
-    size = round(size, 3)
+        cap *= OVERRIDE_SHARE
+    mods = modifiers_of(r, ctx)
+    # 11.11. (owner's rule C): min(the caps, the 2 % slippage stake) x the volume factor x the size modifiers
+    size = round(tcost.size_sol(cap, liq, kandidati.SOL_USD, m.get("volume_1h_usd"), mods["size_mult"]), 3)
+    cost = cost_for(liq, size * kandidati.SOL_USD)
     strat = {}
     for k, ev in evs_all.items():
         if ev.get("invalid"):
@@ -468,16 +503,19 @@ def finish(r, ctx, now, evs_all=None):
             continue
         if cost is None:
             continue
-        p, e = _price(ev, cost)
+        p, e, e_lo = _price(ev, cost, mods["p_mult"])
+        dur = strategies.duration_min(ev)
         strat[k] = {"valid": True, "p_tp": p["p"], "p_tp_raw": p.get("p_raw"), "n": p["n"], "hits": p.get("hits"),
                     "ci90": p.get("ci90"), "prior": p.get("prior"), "p_from": p.get("from"), "tp_pct": round(ev["tp"] * 100, 2),
-                    "sl_pct": round(ev["sl"] * 100, 2), "cost_pct": round(cost * 100, 1), "ev_pct": round(e * 100, 2),
+                    "sl_pct": round(ev["sl"] * 100, 2), "cost_pct": round(cost * 100, 2), "ev_pct": round(e * 100, 2),
+                    "ev_lo_pct": round(e_lo * 100, 2), "duration_min": dur, "ev_per_min": round(e * 100 / dur, 4),
+                    "p_mult": mods["p_mult"], "p_tp_unmodified": p.get("p_unmodified"),
                     "ts": ev.get("ts"), "expires_ts": ev.get("expires_ts"), "expires_after_s": ev.get("expires_after_s"),
                     "entry_zone": ev.get("entry_zone"), "exits_mcap": strategies.mcaps(ev, mcap),
                     "why": ev.get("why"), "detail": ev.get("detail"), "calibrated": bool(p.get("calibrated"))}
     valid = {k: v for k, v in strat.items() if v.get("valid")}
     evs = {k: evs_all[k] for k in valid}
-    blocks = blocks_of(r, ctx, evs_all, cost, size)
+    blocks = blocks_of(r, ctx, evs_all, cost, size, cap)
     sym = r.get("symbol")
     if not valid or blocks:
         why = "; ".join(b["text"] for b in blocks) or "; ".join(f"{strategies.HR.get(k, k)}: {v['why_not']}"
@@ -486,14 +524,16 @@ def finish(r, ctx, now, evs_all=None):
         return None, {"token": tok, "symbol": sym, "strategies": sorted(evs_all), "why": why, "blocks": blocks,
                       "ev_pct": max((v["ev_pct"] for v in valid.values()), default=None), "mcap": mcap,
                       "strategy_detail": strat}
-    prim = max(valid, key=lambda k: (valid[k]["ev_pct"], -strategies.STRATEGIES.index(k)))
-    best = valid[prim]
-    if best["ev_pct"] <= 0:
-        return None, {"token": tok, "symbol": sym, "strategies": sorted(evs_all), "blocks": [],
-                      "why": f"EV {best['ev_pct']:+.1f} % nakon troška (najbolja: {strategies.HR[prim]})",
-                      "ev_pct": best["ev_pct"], "mcap": mcap, "strategy_detail": strat}
     pos = [k for k in valid if valid[k]["ev_pct"] > 0]
-    sources = sorted(pos, key=lambda k: -valid[k]["ev_pct"])
+    if not pos:
+        prim = max(valid, key=lambda k: (valid[k]["ev_pct"], -strategies.STRATEGIES.index(k)))
+        return None, {"token": tok, "symbol": sym, "strategies": sorted(evs_all), "blocks": [],
+                      "why": f"EV {valid[prim]['ev_pct']:+.1f} % nakon troška (najbolja: {strategies.HR[prim]})",
+                      "ev_pct": valid[prim]["ev_pct"], "mcap": mcap, "strategy_detail": strat}
+    # 11.11. (owner's rule D): the best EV per expected minute, then the low end of its interval
+    prim = max(pos, key=lambda k: (valid[k]["ev_per_min"], valid[k]["ev_lo_pct"], -strategies.STRATEGIES.index(k)))
+    best = valid[prim]
+    sources = sorted(pos, key=lambda k: (-valid[k]["ev_per_min"], -valid[k]["ev_pct"]))
     ev0 = evs[prim]
     # the range's tier (rangedca.tier of the tier work, guarded): its line on the card, and for a range proposal its
     # stake as the recommended size, always within MAX_SOL and the owner's caps (size above already is)
@@ -505,11 +545,16 @@ def finish(r, ctx, now, evs_all=None):
     tp_txt, sl_txt = strategies.buy_form(ev0)
     others = [strategies.HR[k] for k in sources if k != prim]
     why = ev0["why"] + (f" Potvrđuje i: {', '.join(others)}." if others else "")
+    # 11.11. (trade/settings.NEVER_LIVE): a row only an event topic / the market watchlist brings is paper only
+    paper_only = set(pos) <= {"event"} or any(b.get("key") == "paper_only" for b in r.get("blocks") or [])
     row = {"token": tok, "symbol": sym, "strategy": prim, "sources": sources,
            "n_independent": independent({k: evs[k] for k in pos}, ctx.get("member")),
-           "ev_pct": best["ev_pct"], "p_tp": best["p_tp"], "n": best["n"], "ci90": best["ci90"],
-           "tp_pct": best["tp_pct"], "sl_pct": best["sl_pct"], "cost_pct": round(cost * 100, 1),
-           "size_sol": size, "why": why, "risks": risks_of(r, ctx, prim, best),
+           "ev_pct": best["ev_pct"], "ev_lo_pct": best["ev_lo_pct"], "ev_per_min": best["ev_per_min"],
+           "duration_min": best["duration_min"], "p_tp": best["p_tp"], "n": best["n"], "ci90": best["ci90"],
+           "tp_pct": best["tp_pct"], "sl_pct": best["sl_pct"], "cost_pct": round(cost * 100, 2),
+           "size_sol": size, "why": why, "risks": risks_of(r, ctx, prim, best, cost, mods),
+           "modifiers": {"p_mult": mods["p_mult"], "size_mult": mods["size_mult"], "tags": mods["tags"]},
+           "paper_only": paper_only,
            "entry_zone": best["entry_zone"], "exits_mcap": best["exits_mcap"], "exit_plan": strategies.exit_plan(ev0),
            "dca": ev0.get("dca"), "buy": {"tp": tp_txt, "sl": sl_txt, "sol": size, "hold_s": strategies.hold_s(ev0)},
            "range_tier": ({k: tier.get(k) for k in ("tier", "size_sol", "reason", "text")} if tier else None),
@@ -602,6 +647,8 @@ def build(now=None, src=None):
 
 
 def rank_key(r):
-    """EV first, then the number of independent sources."""
-    return (-(r.get("ev_pct") or 0), -(r.get("n_independent") or 0), r["token"])
+    """11.11. (owner's rule D): EV per expected minute first, then the low end of the EV's 90 % interval, then the
+    liquidity (then the independent sources)."""
+    return (-(r.get("ev_per_min") or 0), -(r.get("ev_lo_pct") if r.get("ev_lo_pct") is not None else -999),
+            -(r.get("liq0") or 0), -(r.get("n_independent") or 0), r["token"])
 

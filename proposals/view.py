@@ -25,12 +25,16 @@ _CACHE = {}
 RULES_TEXT = (
     "One row per token over the strategies range, momentum, influencer, group, insider, event, grok (sources = the "
     "strategies proposing it). EV per strategy = p_tp x TP - (1 - p_tp) x SL - cost, TP / SL of that strategy's exit "
-    "from the market cap now, cost by liquidity (3 % above $50k, 5 % $25-50k, 8 % under $25k; under $20k blocked). "
-    "p_tp = the strategy's measured hits / n shrunk toward no edge: (hits + 20 x p0) / (n + 20), p0 = (SL + cost) / "
-    "(TP + SL), so an unmeasured strategy has EV 0 and is never shown; ci90 = Wilson 90 % of the raw hit rate. Grok's "
-    "p_tp is calibrated on its measured predictions first (grok_calibration). Shown only with EV > 0 and no block (rug "
-    "high, wash volume, run-up 5x+, liquidity < $20k, shill-driven, under $30k, not bonded, fake pool, not trading); "
-    "ranked by EV, then by independent sources (a crew within 10 min and callers <= 30 s apart count once).")
+    "from the market cap now; cost = trade/cost: 2 x fee_side + 2 x size / (liq / 2 + size) (fee_side 1 % until real "
+    "swaps calibrate it). p_tp = the strategy's measured hits / n shrunk toward no edge: (hits + 20 x p0) / (n + 20), "
+    "p0 = (SL + cost) / (TP + SL), so an unmeasured strategy has EV 0 and is never shown; ci90 = Wilson 90 % of the raw "
+    "hit rate. Grok's p_tp is calibrated on its measured predictions first (grok_calibration). Modifiers, never blocks: "
+    "run-up 4x+ from the first signal p x 0.7 and size x 0.5 (not when X bursts and buys >= 60 %), wash or shill-driven "
+    "p x 0.5; size = min(caps, the stake with <= 2 % slippage) x (1 h volume / $10k under $10k). Blocks only: rug high, "
+    "liquidity < $15k, 1 h volume < $3k, under $30k, not bonded, fake pool, not trading. Shown with EV > 0 (paper); "
+    "ranked by EV per expected minute, then the EV at the low end of the 90 % interval, then liquidity. Live / "
+    "autotrade needs EV >= +3 %, the interval's low end > 0 and n >= 10. paper_only rows (event / market watchlist) "
+    "never trade real money.")
 
 
 def _mode():
@@ -147,9 +151,11 @@ def _row_inner(p, esc):
             f' ({p.get("n_independent") or 1} neovisn{"i" if (p.get("n_independent") or 1) == 1 else "ih"})</p>'
             f'<table class=t>{cells}</table>'
             + (f'<p class=mut>Rizici: {esc("; ".join(risks))}.</p>' if risks else "")
-            + f'<p><button type=button class=ap-buy data-pk="{esc(pk)}">Kupi</button> '
-              '<span class=mut>otvara Brzu kupnju s ovim tokenom, ulogom, TP-om i SL-om; potvrđuješ ti</span></p>'
-            f'<details><summary class=mut>Odbij</summary><form method=post action=/pravi-trade/prijedlog-odbij>'
+            + ('<p class=mut>Samo paper: event token ili tržišna range lista nikad ne trguje pravim novcem.</p>'
+               if r.get("paper_only") else
+               f'<p><button type=button class=ap-buy data-pk="{esc(pk)}">Kupi</button> '
+               '<span class=mut>otvara Brzu kupnju s ovim tokenom, ulogom, TP-om i SL-om; potvrđuješ ti</span></p>')
+            + f'<details><summary class=mut>Odbij</summary><form method=post action=/pravi-trade/prijedlog-odbij>'
             f'<input type=hidden name=id value={int(p["id"])}>{opts}'
             '<input name=note placeholder="zašto (neobavezno)" size=24 maxlength=300 autocomplete=off>'
             '<button>Odbij</button></form></details>')
@@ -230,8 +236,8 @@ def _mcp_row(p):
     st = {}
     for k, v in (r.get("strategies") or {}).items():
         st[k] = ({kk: v.get(kk) for kk in ("p_tp", "p_tp_raw", "n", "hits", "ci90", "prior", "p_from", "tp_pct", "sl_pct",
-                                           "cost_pct", "ev_pct", "expires_ts", "entry_zone", "exits_mcap", "why",
-                                           "calibrated")}
+                                           "cost_pct", "ev_pct", "ev_lo_pct", "ev_per_min", "duration_min", "p_mult",
+                                           "expires_ts", "entry_zone", "exits_mcap", "why", "calibrated")}
                  if v.get("valid") else {"valid": False, "why_not": v.get("why_not")})
     return {"id": p["id"], "token": p["token"], "symbol": p.get("symbol"), "status": p["status"],
             "status_why": p.get("status_why"), "created_ts": p.get("created_ts"), "expires_ts": p.get("expires_ts"),
@@ -239,7 +245,8 @@ def _mcp_row(p):
             "ev_pct": p.get("ev_pct"), "p_tp": {"value": p.get("p_tp"), "n": r.get("n"), "ci90": r.get("ci90")},
             "grok": r.get("grok"), "strategies": st, "entry_zone_mcap": r.get("entry_zone"),
             "exits_mcap": r.get("exits_mcap"), "exit_plan": r.get("exit_plan"), "size_sol": p.get("size_sol"),
-            "range_tier": r.get("range_tier"),
+            "range_tier": r.get("range_tier"), "ev_lo_pct": r.get("ev_lo_pct"), "ev_per_min": r.get("ev_per_min"),
+            "duration_min": r.get("duration_min"), "modifiers": r.get("modifiers"), "paper_only": bool(r.get("paper_only")),
             "cost_pct": r.get("cost_pct"), "risks": r.get("risks"), "why": r.get("why"), "market_at_update": r.get("market"),
             "rug": r.get("rug"), "runup_x": r.get("runup_x"), "after": p.get("after") or None,
             "reject_reason": p.get("reject_reason"), "reject_note": p.get("reject_note"), "bought_sol": p.get("bought_sol")}

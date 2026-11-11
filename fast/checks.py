@@ -11,11 +11,13 @@
   c) flow      fresh flow: buys / sells, buy share and transactions in 5 min (DexScreener m5), buys / sells and unique
                traders in the last minute and 5 min from the PumpPortal trades we already store (hype.db live_trades,
                only while run_live follows the token; else "nepoznato", never a GeckoTerminal call), vol_5m / liq,
-               and topcheck/safety.volume_check (wash, unique traders per transaction, PR #117)
+               and topcheck/safety.volume_check (wash, unique traders per transaction, PR #117; 11.11. owner's rule
+               B: a 'fail' is a tag "wash" for the decision's P x 0.5, never a block)
   d) price     price, market cap, liquidity now; the wallet's entry (the swap's own SOL per token, else the price we
                saw at the signal), how far above it we would buy and how late (seconds after its buy), the run-up from
-               the token's first call (5x block), the slippage of the stake (league/store.impact + fee) and the cost
-               by liquidity (proposals/build.cost_for: 3 / 5 / 8 %, under $20k blocked)
+               the token's first call (11.11. rule B: 4x+ is a tag, P x 0.7 / size x 0.5 in the decision), the buy
+               slippage of the stake (trade/cost.impact) and the ONE cost model (trade/cost.round_trip of the stake,
+               rule A); liquidity under $15k fails (trade/cost.LIQ_HARD_MIN), a pool under 3 % of MC is a tag
   e) source    the source's record (fast/sources.quality): closed trades, PnL, winners, tier, the proof
 
 A check whose data could not be read (an API error, a timeout, the Helius credit cap) is "error": the whole signal is
@@ -56,11 +58,11 @@ CFG = {
     "min_tx_m5": 5,          # c) transactions in 5 min
     "min_buy_share": 0.40,   # c) buys / transactions in 5 min
     "mcap_min": 30_000,      # d) CLAUDE.md
-    "liq_min": 20_000,       # d) proposals / kandidati: under $20k blocked
-    "liq_mcap_min": 0.03,    # d) league/copy.CFG min_liq_mcap
+    "liq_min": 15_000,       # d) trade/cost.LIQ_HARD_MIN (11.11. owner's rule B: the only liquidity block)
+    "liq_mcap_min": 0.03,    # d) league/copy.CFG min_liq_mcap: under it a tag (rule B), not a fail
     "chase_max": 0.20,       # d) at most +20 % above the wallet's entry
     "late_max_s": 600,       # d) at most 10 min after the signal when its entry price is unknown
-    "runup_max_x": 5.0,      # d) proposals/build.RUNUP_BLOCK_X
+    "runup_max_x": 4.0,      # d) trade/edge.RUNUP_X: a tag (P x 0.7, size x 0.5), not a fail (rule B)
 }
 NAMES = {"rug": "rug", "holders": "holderi", "flow": "tok", "price": "cijena", "source": "izvor"}
 ORDER = ("rug", "holders", "flow", "price", "source")
@@ -648,16 +650,16 @@ def check_flow(sig, d, now, cfg=CFG):
          "volume_check": [st, txt]}
     thr = {"min_tx_5m": cfg["min_tx_m5"], "min_buy_share_5m": cfg["min_buy_share"]}
     ms += (time.time() - t0) * 1000
-    if st == "fail":
-        return _res("flow", "fail", f"tok: {txt}", v, thr, ms)
+    v["tags"] = ["wash"] if st == "fail" else []   # 11.11. (owner's rule B): wash = P x 0.5 in the decision
     if n5 < cfg["min_tx_m5"]:
         return _res("flow", "fail", f"tok: {n5} transakcija u 5 min < {cfg['min_tx_m5']}", v, thr, ms)
     if v["buy_share_5m"] is not None and v["buy_share_5m"] < cfg["min_buy_share"]:
         return _res("flow", "fail", f"tok: kupnje {_pct(v['buy_share_5m'] * 100)} u 5 min < "
                                     f"{_pct(cfg['min_buy_share'] * 100)}", v, thr, ms)
     one = (f", 1 min {v['buys_1m']}/{v['sells_1m']} ({v['traders_1m']} tradera)" if tr else "")
+    wash = f"; oznaka lažni volumen ({txt}): P × 0,5" if v["tags"] else ""
     return _res("flow", "ok", f"tok u redu: 5 min {b5}/{s5} kupnji/prodaja ({_pct(v['buy_share_5m'] * 100)}), "
-                              f"${vol5:,.0f} = {v['vol5_liq'] or 0:.2f}× likv.{one}", v, thr, ms)
+                              f"${vol5:,.0f} = {v['vol5_liq'] or 0:.2f}× likv.{one}{wash}", v, thr, ms)
 
 
 def entry_usd(sig, sol_usd):
@@ -677,22 +679,27 @@ def check_price(sig, d, net, now, size_sol, cfg=CFG):
     m = d.get("market")
     if not m or not m.get("price") or not m.get("liq"):
         return _res("price", "fail", "cijena: nema živog DexScreener para s likvidnošću (uzimaju se bondani)", {}, {}, ms)
-    from league import store as lstore
-    from proposals import build
+    from trade import cost as tcost
     from ui import kandidati
     sol = net.sol_usd()
     ent, ent_src = entry_usd(sig, sol)
     late = max(0, int(now - (sig.get("sig_ts") or now)))
     chase = (m["price"] / ent - 1) if ent else None
     stake = (size_sol or 0) * (sol or 0)
-    slip = (lstore.impact(stake, m["liq"]) + lstore.FEE) if stake else None
+    slip = tcost.impact(stake, m["liq"]) if stake else None
     ru = kandidati.runup({"mcap": m.get("mcap"), "ch_h1": (m["w"].get("h1") or {}).get("ch"),
                           "ch_h24": (m["w"].get("h24") or {}).get("ch")}, d.get("first_mcap"))
-    cost = build.cost_for(m["liq"])
+    # 11.11. (owner's rule A): the ONE cost model of this stake in this pool; None under $15k (blocked below)
+    cost = None if tcost.liq_block(m["liq"]) else tcost.round_trip(stake or None, m["liq"])
+    mc0 = m.get("mcap") or 0
+    tags = ((["runup"] if ru.get("x") and ru["x"] >= cfg["runup_max_x"] else [])
+            + (["liq_share"] if mc0 and m["liq"] < cfg["liq_mcap_min"] * mc0 else []))
     v = {"price": m["price"], "mcap": m.get("mcap"), "liq": m["liq"], "entry_px": ent, "entry_src": ent_src,
          "from_entry_pct": round(chase * 100, 1) if chase is not None else None, "late_s": late,
          "stake_usd": round(stake, 2) if stake else None, "slippage_pct": round(slip * 100, 2) if slip else None,
-         "cost_pct": round(cost * 100, 1) if cost is not None else None, "runup_x": ru.get("x"), "runup_from": ru.get("from"),
+         "cost_pct": round(cost * 100, 2) if cost is not None else None, "runup_x": ru.get("x"),
+         "runup_from": ru.get("from"),
+         "sol_usd": sol, "vol_h1": (m["w"].get("h1") or {}).get("vol"), "tags": tags,
          "dex": m.get("dex"), "symbol": m.get("symbol")}
     thr = {"mcap_min": cfg["mcap_min"], "liq_min": cfg["liq_min"], "liq_mcap_min": cfg["liq_mcap_min"],
            "chase_max_pct": cfg["chase_max"] * 100, "late_max_s": cfg["late_max_s"], "runup_max_x": cfg["runup_max_x"]}
@@ -704,20 +711,21 @@ def check_price(sig, d, net, now, size_sol, cfg=CFG):
         why = f"cijena: likvidnost ${liq:,.0f} < ${cfg['liq_min']:,.0f}"
     elif liq > mc:
         why = f"cijena: lažni pool (likvidnost ${liq:,.0f} > MC ${mc:,.0f})"
-    elif liq < cfg["liq_mcap_min"] * mc:
-        why = f"cijena: likvidnost {liq / mc:.1%} MC-a < {cfg['liq_mcap_min']:.0%}".replace(".", ",")
     elif chase is not None and chase > cfg["chase_max"]:
         why = f"cijena: {chase * 100:+.0f} % od kupnje novčanika > +{cfg['chase_max'] * 100:.0f} %"
     elif chase is None and late > cfg["late_max_s"]:
         why = f"cijena: {late // 60} min nakon signala (ulazna cijena nepoznata) > {cfg['late_max_s'] // 60} min"
-    elif ru.get("x") and ru["x"] >= cfg["runup_max_x"]:
-        why = f"cijena: već {ru['x']:.1f}x od prvog poziva ≥ {cfg['runup_max_x']:g}x".replace(".", ",")
     ms += (time.time() - t0) * 1000
     if why:
         return _res("price", "fail", why, v, thr, ms)
     frm = f"{chase * 100:+.1f} % od kupnje novčanika".replace(".", ",") if chase is not None else "ulaz novčanika nepoznat"
+    tg = ""
+    if "runup" in tags:
+        tg += f"; oznaka: već {ru['x']:.1f}x od prvog poziva (P × 0,7, ulog × 0,5)".replace(".", ",", 1)
+    if "liq_share" in tags:
+        tg += f"; oznaka: likvidnost {liq / mc:.1%} MC-a".replace(".", ",")
     return _res("price", "ok", f"cijena u redu: {frm}, {late} s kasnije, MC ${mc:,.0f}, likv. ${liq:,.0f}, "
-                               f"klizanje {_pct(v['slippage_pct'], 1)}", v, thr, ms)
+                               f"klizanje {_pct(v['slippage_pct'], 1)}{tg}", v, thr, ms)
 
 
 def check_source(sig, net, now):
@@ -726,8 +734,8 @@ def check_source(sig, net, now):
         q = net.quality(sig, now)
     except Exception as e:  # noqa: BLE001
         return _res("source", "error", f"izvor: zapis nije čitljiv ({type(e).__name__})", ms=(time.time() - t0) * 1000), None
-    rate = f"{q['win_rate']:.0%}" if q.get("win_rate") is not None else "–"
-    txt = (f"izvor: {q.get('label') or q.get('id')} ({q.get('kind_hr')}), zatvorenih {q['closed']}, dobitnih {rate}, "
+    ev = (f", EV {q['ev_pct']:+.1f} %".replace(".", ",") if q.get("ev_pct") is not None else "")
+    txt = (f"izvor: {q.get('label') or q.get('id')} ({q.get('kind_hr')}), zatvorenih {q['closed']}{ev}, "
            f"PnL {q['pnl_usd']:+.0f} $" + (f", tier {q['tier']}" if q.get("tier") else "")
            + ("; dokaz za pravi novac: da" if q.get("proof") else f"; bez dokaza ({q.get('proof_why')})"))
     return _res("source", "ok", txt, q, sources.proof_rule(), (time.time() - t0) * 1000), q

@@ -108,7 +108,8 @@ DEFAULT = {
     "night_credits": 3000, "sell_share": 0.34, "pre_pages": 3, "night_gap_h": 20,
     "poll_wallets": 8, "poll_gap_s": 1800, "poll_day_credits": 1000, "poll_back_s": 7200,
     # 4) signal and measurement
-    "signal_min_wallets": 2, "signal_window_s": 3600, "exit_window_s": 86400, "tp": 0.20, "sl": -0.30, "cost": 0.02,
+    "signal_min_wallets": 2, "signal_window_s": 3600, "exit_window_s": 86400, "tp": 0.20, "sl": -0.30,
+    "cost": gd.DEFAULT["cost"],   # 11.11.: trade/cost.FEE_ROUND_TRIP through kol/groupdisc
     "gt_night": 20, "gate_n": 30, "gate_days": 7, "keep_days": 45,
 }
 

@@ -82,7 +82,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
     "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
                                "ekipa izlazne likvidnosti negativno"),
-    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, EV > 0
+    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, trade/edge live proof
     "range_dca": ("G13", "Raspon + DCA: ulaz na dnu raspona, lot 2 na -10 do -15 %, pola van u gornjoj zoni"),
     # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
     # live_refusal + LIVE_GATES
@@ -91,7 +91,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "pre_shill": ("G15", "Kupci prije shill mreže: novčanici koji kupe prije plaćene mreže callera, poziv mreže je "
                          "znak za izlaz"),
     # 11.11. (Jure, momentum/): the +20-30 % jumps without callers; paper on the demo account, live only past
-    # LIVE_GATES (>= 50 paper trades, EV > 0, hit rate >= 45 %)
+    # LIVE_GATES (>= 50 paper trades, the trade/edge live proof: EV >= +3 % and its 90 % interval above 0)
     "momentum_scalp": ("G16", "Momentum scalp: ulaz na početku skoka (+5 do +15 % u 5 min, volumen 3x, kupci rastu), "
                               "pola van na +15 %, ostatak trailing 8 %, stop -10 %, 45 min"),
     # 11.11. (Jure, momentum/evgate.py): Grok's autotrade buy only with EV = p x TP - (1 - p) x SL - cost > 0
@@ -109,7 +109,7 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 11.11. (Jure: "širi range watchlist", rangedca/market.py): up to 400 bonded tokens of the whole market in the range
     # watchlist (5 / 15-min DexScreener snapshots inside daily caps); shadow = data, paper = range_dca may trade them on
     # the demo account; never real money (NEVER_LIVE)
-    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 20k+, volumen "
+    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 15k+, volumen "
                             "1 h 10k+, stariji od 6 h), snimke svakih 5/15 min unutar dnevnih stropova"),
     # 11.11. (Jure, proposals/): one list of proposals from every strategy on the Autopilot card and in get_proposals;
     # shadow = list and measure, paper = the demo account takes every shown proposal; never live (LIVE_GATES)
@@ -139,9 +139,9 @@ PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
 PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of shadow, >= 30 measured signals, EV > 0
 # 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
 LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
-              "momentum_scalp": "momentum.gate:live_refusal"}   # 11.11.: >= 50 paper trades, EV > 0, hit >= 45 %
+              "momentum_scalp": "momentum.gate:live_refusal"}   # >= 50 paper trades, trade/edge live proof
 LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
-LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # 11.11.: >= 30 closed fast-path paper trades with EV > 0
+LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # >= 30 closed fast-path paper trades, trade/edge live proof
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist", "zonewatch"})
@@ -320,7 +320,7 @@ def live_refusal(con, name, paper=None, now=None):
     st = flag_state(con)[name]
     if st["mode"] == "live":
         return None
-    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds with EV > 0 (rangedca/gate.py), on top
+    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds, trade/edge live proof (rangedca/gate.py)
         try:
             from rangedca import gate as _range_gate
             why = _range_gate.refusal(now=now)

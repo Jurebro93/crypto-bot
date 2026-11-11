@@ -3,7 +3,8 @@ momentum.db and league.db; never fetches anything.
 
 Base rate (base_rate): every signal (traded or not) after its 45 minutes: hit = +15 % before -10 %; EV per trade =
 the mean result of the exit rules (TP1 half at +15 %, trailing 8 %, stop -10 %, 45 min) on the same minute path after
-the round-trip cost (rules.round_trip_cost: 1 % fee each side + the measured pool impact of a $15 lot both ways).
+the round-trip cost (rules.round_trip_cost = trade/cost.round_trip: the fee each side, league/store.FEE until trade.db
+orders calibrate it, + the measured pool impact of a $15 lot both ways).
 """
 import glob
 import json
@@ -11,10 +12,12 @@ import os
 import sqlite3
 import time
 
+from trade import cost as _cost
+
 from . import data, evgate, gate, rules
 
 FLAG = "momentum_scalp"
-RULES_TEXT = ("entry: bonded, MC 30k-3M, liquidity >= $20k, 5m change +5..+15 %, buys >= 60 % of 5m transactions, 5m "
+RULES_TEXT = ("entry: bonded, MC 30k-3M, liquidity >= $15k, 5m change +5..+15 %, buys >= 60 % of 5m transactions, 5m "
               "volume >= 3x the hour's 5m average, unique buyers rising, anti-wash (unique traders vs transactions and "
               "volume), rug verdict not risk/hard, top 10 < 35 %, no shill-network call in the last hour. exit: half at "
               "+15 %, rest trailing 8 % from the peak, stop -10 %, out after 45 min. The base rate counts every signal, "
@@ -206,8 +209,8 @@ def report_data(now=None):
     return {"flag_mode": _mode(), "signals_24h": len(day), "traded_24h": sum(1 for s in day if tr.get(s["id"])),
             "day": summarize(day), "base_rate_7d": base_rate(now, 7), "paper": gate.proof(),
             "live_gate": gate.refusal() or "prolazi", "backtest": backtest_latest(), "spend": spend,
-            "cost_assumption": (f"povratni trošak {c * 100:.2f} % (1 % naknada po strani + utjecaj lota $15 na pool "
-                                "od $40k u oba smjera; stvarni pool iz signala)"),
+            "cost_assumption": (f"povratni trošak {c * 100:.2f} % (trade/cost: naknada {_cost.fee_side() * 100:.2f} % po "
+                                "strani + utjecaj lota $15 na pool od $40k u oba smjera; stvarni pool iz signala)"),
             "break_even_note": ("S TP +15 % / SL -10 % i ~2-3 % povratnog troška prag isplativosti je pogodak ~50 % "
                                 f"(npr. {rules.break_even_p(0.15, 0.10, 0.025):.0%} pri 2,5 %), ne 45 %."),
             "grok_calibration": evgate.report(now)}

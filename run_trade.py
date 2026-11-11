@@ -154,7 +154,10 @@ def _league():
 
 
 MIN_MCAP_USD = 30_000   # CLAUDE.md: tokens under $30k are never bought; last line of defence behind league/copy.py
-PROOF = {"closed": 10, "win_rate": 0.4}   # 9.11. (audit P39): a follow needs this much demo proof before real money
+# 9.11. (audit P39): a follow needs this much demo proof before real money. 11.11. (owner's rule D, trade/edge): n >= 10
+# closed demo trades, their mean result net of cost >= +3 % and the 90 % interval's lower bound > 0 (the old "PnL > 0
+# and >= 40 % winners" is gone: 40 % is under break-even for TP +15 / SL -10)
+PROOF = {"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0}
 COPY_BOOK_WAIT_S = 5   # 9.11. (review novac): league/copy.py commits the demo trade a few ms before its follow_id and
                        # copy_log row; a copy read in that gap looks like a manual buy with a fresh signal
 
@@ -195,15 +198,17 @@ def _no_proof(lg, follow_id):
     real money yet, or None. Only consulted when live (dry mirrors collect real quotes for exactly this proof)."""
     if follow_id is None:   # 9.11. (review novac): a copy whose follow was never booked has no proof to look up
         return "kopija bez zapisa praćenja (follow_id); bez dokaza u demu ne ide u pravi novac"
+    from trade import edge
     try:
         from league import copy as lcopy
         r = lcopy.follow_results(lg).get(follow_id)
     except Exception:  # noqa: BLE001 - no copy tables: no proof
         r = None
-    closed, wins, pnl = (r["closed"], r["wins"], r["pnl"]) if r else (0, 0, 0.0)
-    if closed < PROOF["closed"] or pnl <= 0 or wins / closed < PROOF["win_rate"]:
-        return (f"praćenje bez dokaza u demu (zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $; "
-                f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih)")
+    rets = list((r or {}).get("rets") or [])
+    ok, why, s = edge.live_proof(rets, n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
+    if not ok:
+        return (f"praćenje bez dokaza u demu ({edge.proof_text(s)}: {why}; treba {PROOF['closed']}+ zatvorenih, "
+                f"EV >= {PROOF['ev_min']:+.0%} i donja granica 90 % intervala > 0)")
     return None
 
 

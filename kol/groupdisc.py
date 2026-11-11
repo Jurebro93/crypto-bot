@@ -53,6 +53,8 @@ import sys
 import time
 from collections import Counter, defaultdict
 
+from trade import cost as _tcost
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FLAG = "group_discovery"
 WSOL = "So11111111111111111111111111111111111111112"
@@ -60,7 +62,8 @@ PUMP_SUPPLY = 1e9
 
 DEFAULT = {
     # 1) caller groups
-    "days": 30, "win_fast_s": 120, "win_s": 600, "min_shared": 3, "min_lift": 5.0, "min_events": 3, "cost": 0.02,
+    "days": 30, "win_fast_s": 120, "win_s": 600, "min_shared": 3, "min_lift": 5.0, "min_events": 3,
+    "cost": _tcost.FEE_ROUND_TRIP,   # 11.11. (owner's rule A): the ONE cost model's fee part (0.02)
     "r_cap": 3.0, "exit_drop": -0.15, "max_rug": 0.34,
     # 11.11. (Jure): "quality" only on >= q_min_measured measured events at 1 h, 4 h and 24 h, the medians at 4 h above
     # 0 and at 24 h above q_min_r24h, and EV > 0 at 1 h and at 4 h (LiLiStormX was "quality" with r24h -88 % on 6)

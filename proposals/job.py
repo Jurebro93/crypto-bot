@@ -16,8 +16,9 @@ once: flag off -> ends at once (nothing read or written). Otherwise:
   6. after-outcomes (proposals/outcomes.py) of every proposal 1 h and 4 h after it was made: max gain, max drawdown,
      TP before SL, from the minute data we already keep (events.db ticks, minute.db call candles, range.db, hype.db
      token_pulse, momentum.db snapshots) plus those points
-night: the callers' quick-exit benchmark (kol/tpsl over minute.db: TP +10 % / SL -20 % / 1 h after the 2 % cost, one
-call per token, 30 days) into proposals.db bench, at most once a Zagreb day. The pass computes it once only when the
+night: the callers' quick-exit benchmark (kol/tpsl over minute.db, one call per token, 30 days) into proposals.db bench,
+at most once a Zagreb day. 11.11. (owner's rule E): the SAME benchmark as the signal exit: +15 % before -10 % within
+45 min (BENCH_TP / BENCH_SL / BENCH_MIN), after the cost model's fee part (kol/tpsl.COST = trade/cost.FEE_ROUND_TRIP). The pass computes it once only when the
 table is still empty (the first run after a deploy), never per request.
 """
 import datetime as dt
@@ -36,7 +37,8 @@ DEX_TOKENS = 30
 DEX_DAY = int(os.environ.get("PROPOSALS_DEX_DAY", "300"))
 NEAR_KEEP = 40
 BENCH_DAYS = 30
-BENCH_TP, BENCH_SL = 10, 20
+BENCH_TP, BENCH_SL, BENCH_MIN = 15, 10, 45   # = trade/edge TP / SL / TIME_MIN (the signal exit, rule E)
+BENCH_RULE = f"{BENCH_TP}/{BENCH_SL}/{BENCH_MIN}"   # a bench stored under another rule is computed again once
 
 
 def mode(trade_db=None):
@@ -170,8 +172,8 @@ def refresh_calib(con, now, pairs_fn=None):
 
 
 def bench_rows(now=None, minute_path=None, days=BENCH_DAYS):
-    """{handle: {"n", "hits", "sl_first", "ev_pct"}} of every caller's quick-exit benchmark (TP +10 % / SL -20 % /
-    1 h after kol/tpsl.COST, one call per token): kol/tpsl.rows + outcome, read-only on minute.db."""
+    """{handle: {"n", "hits", "sl_first", "ev_pct"}} of every caller's quick-exit benchmark (TP +15 % before SL -10 %
+    within 45 min after kol/tpsl.COST, one call per token): kol/tpsl.rows + outcome, read-only on minute.db."""
     import sqlite3
     from kol import minute, tpsl
     p = minute_path or minute.db_path()
@@ -190,7 +192,7 @@ def bench_rows(now=None, minute_path=None, days=BENCH_DAYS):
         k = {"tp": 0, "sl": 0, "time": 0}
         tot = 0.0
         for r in xs:
-            kind, g = tpsl.outcome(r, BENCH_TP, BENCH_SL)
+            kind, g = tpsl.outcome(r, BENCH_TP, BENCH_SL, BENCH_MIN)
             k[kind] += 1
             tot += g - tpsl.COST
         out[h] = {"n": len(xs), "hits": k["tp"], "sl_first": k["sl"], "ev_pct": round(tot / len(xs), 3)}
@@ -203,6 +205,7 @@ def save_bench(con, rows, now):
                     [(h, b["n"], b["hits"], b["sl_first"], b["ev_pct"], int(now)) for h, b in rows.items()])
     store.kv_put(con, "bench_day", day_of(now))
     store.kv_put(con, "bench_ts", int(now))
+    store.kv_put(con, "bench_rule", BENCH_RULE)
 
 
 def night(now=None, path=None, log=print, minute_path=None, force=False):
@@ -220,9 +223,11 @@ def night(now=None, path=None, log=print, minute_path=None, force=False):
         save_bench(con, rows, now)
         store.prune(con, now)
         con.commit()
-        good = sum(1 for b in rows.values() if b["n"] >= 20 and b["ev_pct"] > 0)
-        log(f"prijedlozi (noć): brzi izlaz (+10 / -20 % / 1 h) za {len(rows)} callera, {good} s n >= 20 i EV > 0 "
-            f"({time.time() - t0:.1f} s)")
+        from . import strategies
+        good = sum(1 for b in rows.values() if strategies.qualifies(b))
+        log(f"prijedlozi (noć): brzi izlaz (+15 / -10 % / 45 min) za {len(rows)} callera, "
+            f"{sum(b['n'] for b in rows.values())} izmjerenih poziva, {good} s n >= {strategies.INFLUENCER_MIN_N} i "
+            f"EV > 0 ({time.time() - t0:.1f} s)")
         return rows
     finally:
         con.close()
@@ -236,8 +241,11 @@ def once(now=None, src=None, path=None, log=print, dex_fetch=None, pairs_fn=None
     con = store.connect(path)
     try:
         refresh_calib(con, now, pairs_fn)
-        if con.execute("SELECT 1 FROM bench LIMIT 1").fetchone() is None and not store.kv_get(con, "bench_boot"):
+        stale = store.kv_get(con, "bench_rule") != BENCH_RULE   # 11.11.: a bench of the old +10 / -20 / 1 h rule
+        if (con.execute("SELECT 1 FROM bench LIMIT 1").fetchone() is None and not store.kv_get(con, "bench_boot")) \
+                or (stale and store.kv_get(con, "bench_boot_rule") != BENCH_RULE):
             store.kv_put(con, "bench_boot", int(now))   # once: the first run after a deploy, then the night step
+            store.kv_put(con, "bench_boot_rule", BENCH_RULE)   # once per benchmark rule
             try:
                 save_bench(con, bench_rows(now), now)
             except Exception as e:  # noqa: BLE001 - no benchmark: no influencer proposals until the night step

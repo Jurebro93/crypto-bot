@@ -6,7 +6,7 @@ GeckoTerminal candles, minute.db call_candles (GeckoTerminal OHLCV around calls)
 momentum.db gt_candles: at most `gt` (MOM_BT_GT, 60) GeckoTerminal OHLCV requests a night inside momentum's day cap
 (data.GT_DAY), for signal tokens and called tokens that have no real candles yet.
 
-At every minute's close: MC = price x supply in 30k-3M, liquidity >= $20k where the history knows it (unknown is not
+At every minute's close: MC = price x supply in 30k-3M, liquidity >= $15k where the history knows it (unknown is not
 refused: said in the report), 5-min change +5..+15 %, the 5-min volume >= 3x the average 5 min of the 55 before,
 buys >= 60 % of the 5-min transactions (minutes without transaction counts: the share of volume in rising minutes,
 "proxy"; the variant samo_s_transakcijama uses only minutes with real counts). 45 minutes' cooldown per token after
@@ -14,8 +14,8 @@ a signal. NOT simulated (no history of them): unique buyers rising, the anti-was
 the shill network. They only remove signals; whether they remove more losers than winners is unknown, so the
 backtest is the entry's price-and-volume edge, an upper bound on the signal count.
 Exits on the following candles (rules.simulate): TP1 half at its level, trailing 8 %, stop -10 % (a candle that
-touches both the stop and TP1 is a stop; a gap fills at the open), out at 45 min; cost: 1 % fee each side + the
-pool impact of a $15 lot both ways. Base rate per signal: +15 % before -10 % within 45 min (rules.outcome).
+touches both the stop and TP1 is a stop; a gap fills at the open), out at 45 min; cost: rules.round_trip_cost
+(trade/cost: the fee each side + the pool impact of a $15 lot both ways). Base rate per signal: +15 % before -10 % within 45 min (rules.outcome).
 Output: output/momentum-backtest-YYYYMMDD.{json,md} and the summary in the log ("momentum backtest | ...").
 """
 import bisect
