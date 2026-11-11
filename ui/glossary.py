@@ -171,8 +171,9 @@ T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi i
   "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",
   vidi=["copy-trading"], alias=["profit share", "profit sharing"], k="udio-u-dobiti")
 T("Rug", "osnove", "Prevara ili krah: tvorci izvuku novac ili token padne 90%+ i više se ne oporavi.",
-  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je cijena 70%+ "
-  "ispod vrha u zadnja 24 h ili da je likvidnost izvučena. Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
+  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je likvidnost "
+  "izvučena (50 %+ ispod vrha) ili da je cijena 70%+ ispod vrha dok dev ili top holder prodaje ili je rug rizik "
+  "visok; pad bez toga je „dump nakon pumpe” (nije blok, P × 0,7). Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
   "njih uči kako prepoznati sljedeći (stranica Učenje → Rugovi).",
   vidi=["rug-filter", "rug-profil", "likvidnost"], gdje=[("/learn", "Učenje")], alias=["rugan", "rug pull", "rugovi", "💀 rugan"])
 T("Dev", "osnove", "Tvorac tokena (developer). Njegov novčanik je napravio token.",

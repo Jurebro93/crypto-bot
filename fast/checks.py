@@ -243,15 +243,17 @@ class Net:
             return None, None
 
     def collapse(self, token, mcap, liq):
+        """11.11.: the rug or the dump after a pump (league/copy._collapse); a dump is P x 0.7 in decide, no block."""
         from league import copy as lcopy
-        return lcopy._rugged(token, mcap, liq)
+        return lcopy._collapse(token, mcap, liq)
 
     def archived(self, token):
+        """11.11.: "rug" | "dump" (rugfilter/archive.kinds) or None when the token is not archived."""
         try:
             from rugfilter import archive
-            return token in archive.blocked()
+            return archive.kinds().get(token)
         except Exception:  # noqa: BLE001
-            return False
+            return None
 
     def first_mcap(self, token, now):
         try:
@@ -522,8 +524,9 @@ def check_rug(sig, d, cfg=CFG):
     full = {"verdict": rug.get("verdict"), "data": _full_data(rug.get("data"))} if rug else None
     judge = safety.judge(tok, rc, None, full, pair=m.get("pair"), trades=d.get("trades"))
     tc = {tok: {"verdict": judge["verdict"], "safety": judge, "rc": rc}}
+    ak = d.get("archived")
     rv = kandidati.rug_view(tok, m.get("mcap"), m.get("liq"), _RugSrc(d), (tc, {tok: rug} if rug else {}),
-                            archived=frozenset({tok}) if d.get("archived") else frozenset())
+                            archived={tok: ak if isinstance(ak, str) else "rug"} if ak else {})
     rdata = (rug or {}).get("data") or {}
     launch = rdata.get("launch") or {}
     bundle = _f((rug or {}).get("bundle_pct")) if rug else None
@@ -534,7 +537,8 @@ def check_rug(sig, d, cfg=CFG):
          "lp_locked_pct": rc.get("lp_locked"), "rugcheck_rugged": bool(rc.get("rugged")), "top10_pct": rc.get("top10"),
          "dev_pct": rc.get("dev_pct"), "insiders_pct": rc.get("insiders"), "bundle_pct": bundle, "cluster_pct": cluster,
          "sniper_bundle_pct": _f(snip), "sniper_src": snip_src, "level": rv["level"], "verdict": judge["verdict"],
-         "rug_filter": rv.get("rug_filter"), "src": d.get("rc_src"), "checks": judge.get("checks")}
+         "rug_filter": rv.get("rug_filter"), "src": d.get("rc_src"), "checks": judge.get("checks"),
+         "dump": rv.get("dump")}   # 11.11.: a dump after a pump, no block: P x 0.7 in decide
     thr = {"dev_max": safety.DEV_FAIL, "lp_min": safety.LP_FAIL, "bundle_max": cfg["bundle_max"],
            "sniper_max": cfg["sniper_max"], "cluster_max": cfg["cluster_max"], "insider_max": cfg["insider_max"]}
     chk = judge.get("checks") or {}

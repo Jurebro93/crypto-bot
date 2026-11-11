@@ -5,6 +5,7 @@ cost, the demo's booking moved to the calibrated fee by trade/cost.demo_adjust, 
 when the owner moves the flag to live; rangedca/trade.py asks it again before every action on the real account, so
 a hand edit of the flag or a proof that turned negative never trades real money. Nothing here sets a flag.
 Read-only on league.db; light (trade/cost and trade/edge only)."""
+import json
 import os
 import sqlite3
 import time
@@ -22,9 +23,18 @@ def _db():
         return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "league.db")
 
 
-def proof(path=None, with_rets=False):
+def round_source(levels):
+    """The watchlist source a round was opened from (range_rounds.levels "src", 11.11.); "signal" before that."""
+    try:
+        return (json.loads(levels or "{}") or {}).get("src") or "signal"
+    except (ValueError, AttributeError):
+        return "signal"
+
+
+def proof(path=None, with_rets=False, source=None):
     """{"n", "wins", "pnl_usd", "ev_pct", "ci90_lo_pct"} (+ "rets" with_rets) of the demo account's closed range
-    rounds (zeros when none); ev_pct / ci90_lo_pct net of the calibrated cost (trade/cost.demo_adjust)."""
+    rounds (zeros when none); ev_pct / ci90_lo_pct net of the calibrated cost (trade/cost.demo_adjust). source
+    (11.11.): "missed" = only the rounds opened from source missed, "other" = all the others; None = every round."""
     from trade import cost, edge, settings as ts
     path = path or _db()
     out = {"n": 0, "wins": 0, "pnl_usd": 0.0, "ev_pct": None, "ci90_lo_pct": None, **({"rets": []} if with_rets else {})}
@@ -33,12 +43,15 @@ def proof(path=None, with_rets=False):
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
         try:
-            rows = con.execute("SELECT pnl_usd, ret FROM range_rounds WHERE user=? AND status='closed'",
+            rows = con.execute("SELECT pnl_usd, ret, levels FROM range_rounds WHERE user=? AND status='closed'",
                                (ts.PAPER_USER,)).fetchall()
         finally:
             con.close()
     except sqlite3.Error:
         return out
+    if source:
+        rows = [r for r in rows if (round_source(r[2]) == "missed") == (source == "missed")]
+    rows = [(p, r) for p, r, *_ in rows]
     adj = cost.demo_adjust()
     rets = [r + adj for _p, r in rows if r is not None]
     s = edge.ev_stats(rets)
@@ -65,6 +78,41 @@ def refusal(path=None, now=None, cached=False):
             why = f"range_dca: dokaz paper rundi nije prošao: {w}"
     _CACHE.update(at=now, path=path, val=why)
     return why
+
+
+# ---------- range_missed (11.11., flag range_missed G27, rangedca/missed.py) ----------------------------------------
+# The missed tokens (skipped, then >= +20 % within 60 min) reach the real account only past their OWN proof: >=
+# MIN_ROUNDS (20) closed demo rounds opened from source missed (range_rounds.levels "src") passing trade/edge.live_proof
+# (EV >= +3 % net of the calibrated cost and the lower bound of its 90 % interval > 0), the same live gate as range_dca.
+_MCACHE = {"at": 0.0, "path": None, "val": None}
+
+
+def missed_refusal(path=None, now=None, cached=False):
+    """None when a missed-sourced token may be bought with real money (range_missed live), else the reason."""
+    now = now or time.time()
+    if cached and _MCACHE["path"] == path and now - _MCACHE["at"] < CACHE_S:
+        return _MCACHE["val"]
+    from trade import edge
+    p = proof(path, with_rets=True, source="missed")
+    why = None
+    if p["n"] < MIN_ROUNDS:
+        why = f"range_missed: tek {p['n']} zatvorenih paper rundi izvora missed, treba {MIN_ROUNDS}"
+    else:
+        ok, w, _s = edge.live_proof(p["rets"])
+        if not ok:
+            why = f"range_missed: dokaz paper rundi izvora missed nije prošao: {w}"
+    _MCACHE.update(at=now, path=path, val=why)
+    return why
+
+
+def missed_live_refusal(con=None, now=None):
+    """trade/settings.LIVE_GATES' shape: (con, now=) -> None or the reason."""
+    return missed_refusal(now=now)
+
+
+def by_source(path=None):
+    """{"missed": proof, "other": proof} of the demo account's closed range rounds (the EV report, get_range_candidates)."""
+    return {"missed": proof(path, source="missed"), "other": proof(path, source="other")}
 
 
 # ---------- range_flip (11.11., flag range_flip G26) ----------------------------------------------------------------

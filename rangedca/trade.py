@@ -11,6 +11,10 @@ every minute.
 11.11.: a token only the market watchlist or an event topic brought (ranges.src market / event, rangedca/market.py)
 is entered only by the demo account PAPER_USER and only while its own flag (range_market / event_tokens) is paper;
 the real account never buys one and never logs one (allowed()).
+11.11. (flag range_missed G27, rangedca/missed.py): a token on the list because it was skipped and then rose >= 20 %
+within 60 min (ranges.src missed) is entered by the range rules only (the range from detect, never the skip's price):
+the demo account while range_missed is paper; the real account only while it is live and gate.missed_refusal() is
+None. Every round keeps its source in levels "src" (the EV report and get_range_candidates split missed vs the rest).
 
 A round = lot 1 (+ lot 2) until everything is sold; table range_rounds (league.db) keeps its levels (frozen at the
 entry; the take-profit levels follow the newest range, the stop only tightens), its state (tp1, top touched, peak)
@@ -213,15 +217,37 @@ def allowed(rng, user, now=None):
     """May range_dca enter this range's token for this account? A token of the signal pass: wherever range_dca trades.
     A token only the market watchlist or an event topic brought (11.11., flags range_market / event_tokens): only the
     demo account PAPER_USER, and only while that source's own flag is paper (or live, which is paper for them: they
-    never trade real money); never LEAGUE_USER, whatever the flags say."""
+    never trade real money); never LEAGUE_USER, whatever the flags say. 11.11. (range_missed G27): a token whose first
+    source is "missed" (rangedca/missed.py): the demo account while range_missed is paper or live; LEAGUE_USER only
+    while range_missed is live AND gate.missed_refusal() is None (>= 20 closed demo rounds of source missed, EV
+    proof), checked again here (a hand edit of the flag never buys with real money)."""
     srcs = (rng or {}).get("sources") or [(rng or {}).get("source") or "signal"]
     if "signal" in srcs:
         return True
     from trade import settings as ts
     if user != ts.PAPER_USER:
-        return False
+        first = next((s for s in market.SRC_ORDER if s in srcs), None)
+        return user == ts.LEAGUE_USER and first == "missed" and missed_live(now)
     fl = _flags()
     return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
+
+
+def missed_live(now=None):
+    """True while range_missed (G27) is live AND its own proof passes (gate.missed_refusal); logged once an hour when
+    the flag is live but the proof refuses."""
+    if _flags().mode(market.WATCH_FLAG["missed"]) != "live":
+        return False
+    try:
+        why = gate.missed_refusal(now=now, cached=True)
+    except Exception as e:  # noqa: BLE001 - a proof that cannot be read is no proof
+        why = f"dokaz izvora missed nije čitljiv ({type(e).__name__})"
+    if why:
+        t = now or time.time()
+        if t - _CACHE.get("missed_gate_log", 0.0) > 3600:
+            _CACHE["missed_gate_log"] = t
+            print(f"range_missed live: pravi račun ne kupuje propuštene tokene ({why})", flush=True)
+        return False
+    return True
 
 
 def _fresh_levels(rng, now, new=False):
@@ -441,6 +467,8 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
         return []
     lv = rules.levels_of(rng)
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
+    srcs = base.get("sources") or [base.get("source") or "signal"]   # 11.11.: the round's source (EV per source, gate)
+    lv["src"] = next((s for s in market.SRC_ORDER if s in srcs), "signal")
     nr = None
     if new:   # range_flip: the round follows the new rules to its end (fresh levels from rules.new_range)
         lv["rules"] = "flip"

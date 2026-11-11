@@ -46,9 +46,10 @@ run-up / shill change P (EV through trade/edge.ev_p_mult on the signal exit: run
 >= 60 % of 5 min, shill P x 0.5) and run-up halves the size; the size is also capped at the stake with <= 2 % slippage
 and x (1 h volume / $10k) under $10k (trade/cost.size_sol).
 Rug, two kinds (10.11., Jure: "ako je BOXCAT označen kao rug, ipak slušaj Groka, jer Grok ima najnovije pozive"):
-  hard   NEVER overridden: a collapse that already happened (rugfilter/collapse via league/copy._rugged: price 70 %+
-         under the peak or the pool pulled), the rug archive, mint / freeze authority still set, RugCheck "rugged",
-         a failed sell test (honeypot)
+  hard   NEVER overridden: a rug that already happened (rugfilter/collapse, 11.11. owner's rule: the pool pulled
+         > 50 % from its peak, or 70 %+ under the peak with the dev / a top holder selling or a high rug risk), the
+         rug archive's rugs, mint / freeze authority still set, RugCheck "rugged", a failed sell test (honeypot).
+         A fall from the peak without that is a "dump nakon pumpe": rug.dump, a warning and P x 0.7 (trade/edge)
   risk   a rating of what may happen: the rug filter's verdict ODBAČEN / VISOK RIZIK (scan/filters.rug_filter_why),
          supply concentration (league/copy._concentration), topcheck 'pao' on anything but the mechanics above
 A risk row stays tradeable=false, unless Grok sent FRESH evidence for the token in the last GROK_FRESH_S (30 min): an
@@ -485,12 +486,15 @@ class Sources:
         return filters.rug_tables()
 
     def archived(self):
+        """11.11.: {token: "rug" | "dump"} (rugfilter/archive.kinds: a "srusen" row without the pool pulled is a dump
+        after a pump, no longer a hard block)."""
         from rugfilter import archive
-        return archive.blocked()
+        return archive.kinds()
 
     def collapse(self, token, mcap, liq):
+        """11.11.: the rug or the dump after a pump (league/copy._collapse, rugfilter/collapse.assess)."""
         from league import copy as lcopy
-        return lcopy._rugged(token, mcap, liq)
+        return lcopy._collapse(token, mcap, liq)
 
     def concentration(self, token):
         from league import copy as lcopy
@@ -640,19 +644,28 @@ def _ev_part(rec):
 
 def rug_view(token, mcap, liq, src, tables, archived=frozenset(), scan_row=None):
     """{"level": ok | unknown | oprez | risk | hard, "hard": [...], "risk": [...], "warn": [...], "rug_filter",
-    "topcheck"}: hard = never overridden (collapse, archive, mint / freeze, RugCheck rugged, honeypot), risk = a
-    rating (see the module text)."""
+    "topcheck", "dump"}: hard = never overridden (collapse, archive, mint / freeze, RugCheck rugged, honeypot), risk = a
+    rating (see the module text). 11.11. (owner's rug rule, rugfilter/collapse): a collapse of kind "dump" (70 %+ under
+    the peak without the pool pulled, the dev / a top holder selling or a high rug risk) and an archive row read as a
+    dump are no block: "dump" carries the line (a P x 0.7 modifier, trade/edge); with the rug filter's high risk it is
+    a rug. archived: a set (every token in it a rug, as before) or {token: "rug" | "dump"} (rugfilter/archive.kinds)."""
     from scan import filters
     tc, rug = tables
     hard, risk, warn = [], [], []
-    if token in archived:
-        hard.append("token je u arhivi rugova (srušen, izvučena likvidnost ili rug mehanika)")
+    dump = None
+    ak = archived.get(token) if isinstance(archived, dict) else ("rug" if token in archived else None)
+    if ak == "rug":
+        hard.append("token je u arhivi rugova (izvučena likvidnost ili rug mehanika)")
+    elif ak:
+        dump = "dump nakon pumpe: u arhivi kao srušen, ali bez izvlačenja likvidnosti"
     try:
         col = src.collapse(token, mcap, liq)
     except Exception:  # noqa: BLE001
         col = None
-    if col:
+    if col and (col.get("kind") or "rug") == "rug":
         hard.append(f"rugan: {col.get('text') or 'kolaps'}")
+    elif col:
+        dump = col.get("text") or "dump nakon pumpe"
     t = (tc or {}).get(token) or {}
     checks = ((t.get("safety") or {}).get("checks") or {}) if isinstance(t.get("safety"), dict) else {}
     for k in ("rugcheck", "mint", "freeze", "honeypot"):
@@ -683,15 +696,20 @@ def rug_view(token, mcap, liq, src, tables, archived=frozenset(), scan_row=None)
         risk.append(rf)
     if filters.is_rug_risk(sw):
         risk.append(sw)
+    if dump and rf:   # 11.11.: a crash with the rug filter's high risk is a rug (owner's rule)
+        hard.append(f"rugan: {dump.replace('dump nakon pumpe: ', '')}; {rf}")
+        dump = None
     if r.get("verdict") == "OPREZ":
         flags = data.get("flags") or []
         warn.append("rug filter: oprez" + (f" ({flags[0]})" if flags else ""))
     if t.get("verdict") == "oprez":
         warn.append("topcheck: oprez")
+    if dump:
+        warn.append(f"{dump} (nije blok, P × 0,7)")
     risk = [x for i, x in enumerate(risk) if x not in risk[:i] and x not in hard]
     level = "hard" if hard else "risk" if risk else "oprez" if warn else "ok" if (r or t) else "unknown"
     return {"level": level, "hard": hard, "risk": risk, "warn": warn, "rug_filter": r.get("verdict"),
-            "rug_filter_score": r.get("score"), "topcheck": t.get("verdict")}
+            "rug_filter_score": r.get("score"), "topcheck": t.get("verdict"), "dump": dump if not hard else None}
 
 
 def grok_evidence(rows, opinions, known, now):
@@ -933,7 +951,8 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
         srcs = rg.get("sources") or [rg.get("source") or "signal"]
         r["sources"]["range"] = {"range_score": rg.get("score"), "position_in_range_pct": rg.get("pos_pct"),
                                  "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts"),
-                                 "watch_source": "signal" if "signal" in srcs else "event" if "event" in srcs else "market"}
+                                 "watch_source": "signal" if "signal" in srcs else "event" if "event" in srcs
+                                 else "missed" if "missed" in srcs else "market"}   # 11.11.: range_missed (G27)
         r["range"] = z
         r["count"]["range"] = 1
     # 11.11. (topics/, flag event_tokens): the tokens of Grok's active event topics
@@ -1103,11 +1122,12 @@ def _record_of(kind, records):
 
 
 def paper_only(srcs):
-    """True when a row's only evidence is an event topic and / or a range the market watchlist or an event topic
-    brought (11.11.): measured and at most paper-traded on the demo account, never a real-money candidate."""
+    """True when a row's only evidence is an event topic and / or a range the market watchlist, an event topic or the
+    missed list (range_missed) brought (11.11.): measured and at most paper-traded on the demo account, never a
+    real-money candidate here (a missed token reaches the real account only through range_dca past its own gate)."""
     if not srcs or not set(srcs) <= {"event", "range"}:
         return False
-    return "event" in srcs or (srcs.get("range") or {}).get("watch_source") in ("market", "event")
+    return "event" in srcs or (srcs.get("range") or {}).get("watch_source") in ("market", "event", "missed")
 
 
 class _WhyNot(list):
@@ -1208,7 +1228,7 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     b5, s5 = w5.get("buys"), w5.get("sells")
     mods = _tedge.modifiers(runup_x=ru["x"], x_score=xs,
                             buy_share_5m=(b5 / (b5 + s5)) if b5 is not None and s5 is not None and b5 + s5 > 0 else None,
-                            shill=bool(shill))
+                            shill=bool(shill), dump=rug.get("dump"))   # 11.11.: a dump after a pump, P x 0.7
     tags += mods["tags"]
     if shill:
         tags.append({"key": "shill_driven", "text": f"vođeno shillanjem: zovu ga samo plaćeni shilleri "

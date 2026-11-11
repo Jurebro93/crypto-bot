@@ -72,12 +72,13 @@ def shill_driven(r, ctx):
 
 
 def modifiers_of(r, ctx):
-    """trade/edge.modifiers of one kandidati row (run-up with X and the buy share, wash, shill-driven)."""
+    """trade/edge.modifiers of one kandidati row (run-up with X and the buy share, wash, shill-driven; 11.11. a dump
+    after a pump, rugfilter/collapse kind "dump", P x 0.7 where the old "rugan" blocked)."""
     x = r.get("x") or {}
     return edge.modifiers(runup_x=(r.get("runup") or {}).get("x"),
                           x_score=x.get("x_momentum_score") if x.get("fresh") else None,
                           buy_share_5m=buy_share_5m(r), wash=bool(ctx["wash"].get(r["token"], (False,))[0]),
-                          shill=shill_driven(r, ctx))
+                          shill=shill_driven(r, ctx), dump=(r.get("rug") or {}).get("dump"))
 
 
 def caller_signals(calls, member_of=None, crew_s=kandidati.CREW_S, coord_s=COORD_S):

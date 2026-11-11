@@ -435,11 +435,24 @@ def _today(con, fid, now):
 
 
 def _rugged(token, mcap, liq):
+    """The rug under the owner's 11.11. rule (rugfilter/collapse.check: the pool pulled, or a crash with the dev / a
+    top holder selling or a high rug risk); a dump after a pump alone is no rug (None)."""
     try:
         from rugfilter import collapse
         from ui import data
-        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq, token=token)
     except Exception:  # noqa: BLE001 - the check is a guard, never the reason the copy loop stops
+        return None
+
+
+def _collapse(token, mcap, liq):
+    """11.11.: the rug OR the dump after a pump ({"kind": "rug" | "dump", "text", ...}, rugfilter/collapse.assess),
+    for ui/kandidati and fast/checks, which turn a dump into a P modifier; None when neither."""
+    try:
+        from rugfilter import collapse
+        from ui import data
+        return collapse.assess(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq, token=token)
+    except Exception:  # noqa: BLE001
         return None
 
 

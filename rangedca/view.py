@@ -8,18 +8,20 @@ event token is traded only on the demo account); watched_by_source and the watch
 flip_candidate | flipped | paused | resumed, the break, the flip zone or the resistance, the retests, ATR, stop_kind,
 the stop of today's rules and of the new ones, the range after the break, why the new rules take no entry) and
 entry_ready_new_rules; the answer lists every token not in state normal under range_flip (a paused token is often not
-active under today's rules, so it would not be in the candidates at all)."""
+active under today's rules, so it would not be in the candidates at all).
+11.11. (flag range_missed G27): source "missed" (signal > event > missed > market), and the answer's "missed" part
+(missed_meta): the list, its filter, the rounds of source missed vs the others and the missed live gate."""
 import sqlite3
 import time
 
 from . import data, detect, gate, market, rules, trade
 
 ZONE_KEYS = ("range_low_low", "range_low_top", "range_high_low", "range_high_top")
-SOURCES = ("signal", "event", "market")   # priority order of the watchlist source
+SOURCES = market.SRC_ORDER   # priority order of the watchlist source: signal > event > missed (11.11.) > market
 
 
 def source_of(srcs):
-    """(source, sources): the first of signal > event > market, and all of them in that order."""
+    """(source, sources): the first of signal > event > missed > market, and all of them in that order."""
     s = [x for x in SOURCES if x in set(srcs or ())] or ["signal"]
     return s[0], s
 
@@ -81,7 +83,7 @@ def one(tok, r, now=None):
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
             "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
                           why or "ulaz bi prošao (uz provjeru ruga i limite)"),
-            "paper_only": src != "signal", **_flip_part(r, m, now)}
+            "paper_only": src != "signal" and not (src == "missed" and trade.missed_live(now)), **_flip_part(r, m, now)}
 
 
 def flip_view(fl, rng=None):
@@ -243,11 +245,41 @@ def candidates(min_score=None, now=None, limit=50, source=None):
                                    "paper; never real money"},
             "positions": positions(),
             "paper_proof": {**gate.proof(), "live_gate": gate.refusal() or "prolazi (>= 20 rundi, EV > 0)"},
+            "missed": missed_meta(now),
             "rules": ("lot 1 in the bottom 15 % of the range or inside the bottom zone, 5m change > -3 %, buys >= 50 % "
                       "of 5m transactions, 15m volume x4 >= 50 % of the 1h average, range_score >= 0.7; lot 2 at -10 to "
                       "-15 % from lot 1 above range_low_low x 0.92; half out at range_high_low, the rest at "
                       "range_high_top or a 10 % trailing stop above it; hard stop range_low_low x 0.85; after 6 h "
                       "without the top zone out at break-even; 20 min cooldown")}
+
+
+def missed_meta(now=None):
+    """11.11. (flag range_missed G27, rangedca/missed.py): the missed list (tokens skipped, then >= +20 % within
+    60 min) and the paper rounds of source missed vs the other sources, with the missed live gate."""
+    from . import missed
+    now = now or time.time()
+    from league import flags
+    con = data.ro()
+    try:
+        lst = missed.info(con, now) if con is not None else {}
+    except sqlite3.Error:
+        lst = {}
+    finally:
+        if con is not None:
+            con.close()
+    try:
+        rounds, live = gate.by_source(), gate.missed_refusal() or \
+            f"prolazi (>= {gate.MIN_ROUNDS} rundi izvora missed, EV > 0)"
+    except Exception as e:  # noqa: BLE001 - the proof unreadable: said so, the answer still comes
+        rounds, live = None, f"dokaz nije čitljiv ({type(e).__name__}): pravi račun ne kupuje propuštene"
+    return {"flag_mode": flags.mode(missed.FLAG), "list": lst, "ttl_h": missed.TTL_S // 3600,
+            "label": f"preskočen, pa >= +{missed.MIN_PCT:g} % u 60 min (preskoceni, brzi put, prijedlozi)",
+            "filter": {"min_mcap_usd": market.MIN_ANALYSED, "min_liquidity_usd": market.MISSED_MIN_LIQ,
+                       "min_volume_1h_usd": market.MISSED_MIN_VOL_H1,
+                       "hard_blocks": "rug (11.11. pravilo), rug arhiva, honeypot / freeze / mint, visok rug rizik, "
+                                      "dev / top holderi prodaju"},
+            "entry": "samo raspon iz rangedca/detect (computed_ts), nikad cijena preskoka",
+            "rounds_by_source": rounds, "live_gate": live}
 
 
 def token(address, now=None):
