@@ -63,7 +63,6 @@ SELL_FRACS = ((0.25, "25 %"), (0.5, "50 %"), (1.0, "100 %"))
 TP_CHIPS = (15, 30, 50, 100)
 SL_CHIPS = (20, 40, 60)
 DCA_ROWS = 3
-SLIP_WARN_PCT = 2.0      # the panel warns when the estimated slippage (both sides) is above this
 TFS = {"1m": (60, 6), "5m": (300, 24), "15m": (900, 72), "1h": (3600, 168)}   # tf -> (bucket s, hours read)
 MINT = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
 OSTALO_ANCHORS = ("limiti", "cilj", "stop", "trigger", "mcp", "grok-auto", "pozivnice", "postavljanje", "exit-planovi",
@@ -83,22 +82,22 @@ _STATIC = {}                      # name -> (raw, gz, ctype, version)
 # ---------- small pure helpers (tested offline) -------------------------------------------------------------------
 
 def cost_pct(size_usd, liq, fee_side=None):
-    """Estimated round-trip cost of a swap in percent: 2 x fee_side + 2 x size_usd / (liq/2 + size_usd) (the formula
-    of trade/cost.py on the parallel branch, built here from league/store.impact and league/store.FEE until that
-    module is merged; point this at trade/cost.cost then). {'fee_pct', 'slip_pct', 'cost_pct', 'warn'}; warn: the
-    slippage alone (both sides) is above SLIP_WARN_PCT. None when the size or the liquidity is unknown."""
-    from league import store as lstore
+    """The panel's cost estimate in percent from trade/cost.py, the one cost model (11.11., rules A-C):
+    round trip = 2 x fee_side + 2 x impact, impact = size_usd / (liq/2 + size_usd); fee_side is its calibrated value
+    unless given. {'fee_pct', 'slip_pct' (both sides), 'buy_slip_pct', 'cost_pct', 'warn'}; warn: the buy's own
+    slippage is above cost.SLIP_MAX (2 %, the size-by-slippage rule C). None when the size or the liquidity is unknown.
+    The browser computes the same (ap.js costEst) with the fee_side and slip_max of the first view."""
+    from trade import cost
     try:
         size_usd, liq = float(size_usd), float(liq)
     except (TypeError, ValueError):
         return None
     if size_usd <= 0 or liq <= 0:
         return None
-    fee = lstore.FEE if fee_side is None else float(fee_side)
-    slip = 2 * lstore.impact(size_usd, liq) * 100
-    fee_pct = 2 * fee * 100
-    return {"fee_pct": round(fee_pct, 3), "slip_pct": round(slip, 3), "cost_pct": round(fee_pct + slip, 3),
-            "warn": slip > SLIP_WARN_PCT}
+    fee = cost.fee_side() if fee_side is None else float(fee_side)
+    imp = cost.impact(size_usd, liq)
+    return {"fee_pct": round(200 * fee, 3), "slip_pct": round(200 * imp, 3), "buy_slip_pct": round(100 * imp, 3),
+            "cost_pct": round(100 * cost.round_trip(size_usd, liq, fee), 3), "warn": imp > cost.SLIP_MAX}
 
 
 def freshness(ts, now=None, stale_s=STALE_S):
@@ -453,13 +452,18 @@ def panel_data(tcon, cfg, owner, now=None):
         s = {}
     if bal is None:
         bal = pt._balance(pt._addr(tcon)[0])   # 60-s cache; the same read the header made before
-    from league import store as lstore
+    from trade import cost
+    try:
+        fee = cost.fee_side()   # the calibrated per-side fee (cached 10 min per trade.db)
+    except Exception:  # noqa: BLE001
+        fee = cost.FEE_DEMO
     tp_last, sl_last = pt._last_exit(cfg)
     lo, hi = settings.LIMITS["size_sol"][2:4]
     return {"balance_sol": bal, "value_sol": val, "auto_today": round(spent, 4) if spent is not None else None,
             "max_day": cfg.get("max_sol_per_day"), "size_sol": cfg.get("size_sol"),
             "max_trade": cfg.get("max_sol_per_trade"), "sol_lo": lo, "sol_hi": hi, "tp_last": tp_last,
-            "sl_last": sl_last, "sl_default": pt._sl0(cfg), "fee_side": lstore.FEE, "sol_usd": _sol_usd(tcon),
+            "sl_last": sl_last, "sl_default": pt._sl0(cfg), "fee_side": fee, "slip_max": cost.SLIP_MAX,
+            "sol_usd": _sol_usd(tcon),
             "max_cost_pct": cfg.get("max_cost_pct"), "live": mode == "live", "on": bool(cfg.get("on")),
             "dca_cap": cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP)}
 

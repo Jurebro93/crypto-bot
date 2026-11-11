@@ -408,15 +408,20 @@ class Freshness(unittest.TestCase):
         js = apterm.static_asset("ap.js")[0].decode("utf-8")
         self.assertIn("el.classList.toggle('old', a > 60)", js)           # the browser counts the same way
 
-    def test_cost_estimate_formula(self):
-        from league import store as lstore
-        c = apterm.cost_pct(1000, 100_000)
-        slip = 2 * 1000 / (50_000 + 1000) * 100                             # 2 x size / (liq/2 + size)
-        self.assertAlmostEqual(c["slip_pct"], round(slip, 3))
-        self.assertAlmostEqual(c["cost_pct"], round(2 * lstore.FEE * 100 + slip, 3))   # + 2 x fee per side
-        self.assertTrue(c["warn"])                                          # 3,9 % slippage: above 2 %
-        self.assertFalse(apterm.cost_pct(400, 100_000)["warn"])            # 1,6 %: no warning
+    def test_cost_estimate_is_trade_cost(self):
+        from trade import cost
+        c = apterm.cost_pct(1000, 100_000, fee_side=0.01)
+        imp = 1000 / (50_000 + 1000)                                        # size / (liq/2 + size)
+        self.assertAlmostEqual(c["slip_pct"], round(200 * imp, 3))
+        self.assertAlmostEqual(c["buy_slip_pct"], round(100 * imp, 3))
+        self.assertAlmostEqual(c["cost_pct"], round(100 * cost.round_trip(1000, 100_000, 0.01), 3))   # the one model
+        self.assertAlmostEqual(c["cost_pct"], round(2 + 200 * imp, 3))     # 2 x 1 % fee + 2 x impact
+        self.assertFalse(c["warn"])                                         # 1,96 % buy slippage: under SLIP_MAX
+        self.assertTrue(apterm.cost_pct(1200, 100_000, 0.01)["warn"])       # 2,3 %: above 2 % (rule C)
         self.assertFalse(apterm.cost_pct(100, 1_000_000)["warn"])
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("const imp = usd / (liq / 2 + usd)", js)              # the browser: the same formula
+        self.assertIn("2 * (P.fee_side || 0) * 100", js)
         self.assertIsNone(apterm.cost_pct(0, 1000))
         self.assertIsNone(apterm.cost_pct(10, None))
 

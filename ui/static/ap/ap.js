@@ -437,11 +437,16 @@
     const usd = sol * (P.sol_usd || 0);
     const liq = (S.live[S.m] && S.live[S.m].liq) || (F.header && F.header.mint === S.m && F.header.liq) || 0;
     if (!sol || !usd || !liq) { el.textContent = 'Procjena troška: treba iznos, tečaj SOL-a i likvidnost tokena.'; el.classList.remove('warn'); return; }
-    const fee = 2 * (P.fee_side || 0) * 100, slip = 2 * usd / (liq / 2 + usd) * 100, cost = fee + slip;
+    // trade/cost.py (ui/apterm.cost_pct): round trip = 2 x fee_side + 2 x impact, impact = usd / (liq/2 + usd)
+    const imp = usd / (liq / 2 + usd), sm = P.slip_max || 0.02;
+    const fee = 2 * (P.fee_side || 0) * 100, slip = 2 * imp * 100, cost = fee + slip;
     const over = P.max_cost_pct && cost > P.max_cost_pct;
+    const maxSol = P.sol_usd ? sm / (1 - sm) * liq / 2 / P.sol_usd : null;   // the largest stake with buy slippage <= 2 %
     el.textContent = `Procjena troška ≈ ${fNum(cost, 2)} % (naknade ${fNum(fee, 1)} % + klizanje ${fNum(slip, 2)} %) · ulog ≈ ${fNum(usd, 0)} $` +
-      (slip > 2 ? ' · klizanje iznad 2 %' : '') + (over ? ` · iznad limita troška ${fNum(P.max_cost_pct, 0)} %: swap bi bio odbijen` : '');
-    el.classList.toggle('warn', slip > 2 || !!over);
+      (imp > sm ? ` · klizanje kupnje ${fNum(imp * 100, 1)} % je iznad ${fNum(sm * 100, 0)} %` : '') +
+      (maxSol ? ` · najviše ≈ ${fNum(maxSol, 2)} SOL uz ≤ ${fNum(sm * 100, 0)} %` : '') +
+      (over ? ` · iznad limita troška ${fNum(P.max_cost_pct, 0)} %: swap bi bio odbijen` : '');
+    el.classList.toggle('warn', imp > sm || !!over);
   }
   async function fillFrom(d, plain) {   // "Kupi" on a proposal / "U panel": only fills the form, never posts it
     if (d.token && d.token !== S.m) await selectToken(d.token);
