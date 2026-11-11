@@ -100,9 +100,17 @@ def _pct_levels(tp_pct, sl_pct, half=True, trail=None, time_min=None, out_all=Fa
 # ---------- range ------------------------------------------------------------------------------------------------------
 
 def range_ready(rc):
-    """None when a get_range_candidates row is a range entry now, else why not."""
+    """None when a get_range_candidates row is a range entry now, else why not. 11.11. (the owner's pin,
+    rangedca/owner.py): a pinned token the normal rules do not take is a range entry when its pin rule passes (the
+    price in the range's lower zone and the volume holds); the hard blocks still apply (proposals/build)."""
     if not rc:
         return "nema raspona"
+    if rc.get("pinned") and not rc.get("entry_ready"):
+        if not rc.get("pin_ready"):
+            return f"vlasnikov pin: {rc.get('pin_entry') or 'čeka donju zonu raspona i volumen'}"
+        if (_f((rc.get("now") or {}).get("volume_1h_usd")) or 0) < RANGE_MIN_VOL_H1:
+            return f"volumen 1 h {_usd((rc.get('now') or {}).get('volume_1h_usd'))} ispod {_usd(RANGE_MIN_VOL_H1)}"
+        return None
     if not rc.get("entry_ready"):
         return rc.get("entry_now") or "ulaz u raspon ne bi prošao"
     now_ = rc.get("now") or {}
@@ -136,6 +144,13 @@ def range_ev(rc, mcap, rec, now):
                      "zones_mc": {k: z.get(k) for k in ("range_low_low", "range_low_top", "range_high_low",
                                                          "range_high_top")}},
           "invalid": None}
+    if rc.get("pinned") and not rc.get("entry_ready"):   # 11.11.: the owner's pin made it (rangedca/owner.pin_check)
+        vol = ((rc.get("pin") or {}).get("volume") or {})
+        ev["why"] = (f"Vlasnikov pin: cijena je opet u donjoj zoni raspona ({_usd(rll)}-{_usd(rlt or rll)}) i volumen "
+                     f"se drži (1 h {_usd(vol.get('vol_h1'))}, medijan 6 h {_usd(vol.get('vol_h1_med6'))}). Cilj je "
+                     f"gornja zona oko {_usd(rhl)}.")
+        ev["detail"]["pinned"] = True
+        ev["detail"]["pin_notes"] = (rc.get("pin") or {}).get("notes") or []
     why = range_ready(rc)
     if why:
         ev["invalid"] = why

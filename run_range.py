@@ -78,9 +78,10 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
     m_flip = _flip_mode()
     n_flip = {}
     t0, t_mkt_s = time.monotonic(), 0.0   # 11.11.: the pass's duration in the log (stale 5-minute numbers)
+    pinned = _pins()   # 11.11. (owner's pins, rangedca/owner.py): always first in the signal pass, never capped out
     con = data.connect()
     try:
-        sig = data.candidates(con, now, extra) if m_dca != "off" else []
+        sig = data.candidates(con, now, tuple(extra) + tuple(t for t in pinned if t not in extra)) if m_dca != "off" else []
         pools = {r[0] for r in con.execute("SELECT token FROM pools")}
         pulse_all = data.pulse_recent(now)
         pulse = pulse_all - (set(sig) - pools)   # a token without a known pool is polled once for it
@@ -101,7 +102,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         seeds, n_act, n_ok = 0, 0, 0
         for tok in cands:
             prev, st = data.load_range(con, tok)
-            if not full and not (prev and (prev.get("active") or tok in open_toks
+            if not full and not (prev and (prev.get("active") or tok in open_toks or tok in pinned
                                            or (m_flip != "off" and _alt_active(prev)))):
                 continue
             candles, snap = data.series(con, tok, now)
@@ -157,6 +158,11 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                 if px and z and z["range_high_top"] > z["range_low_low"]:
                     res["pos_pct"] = round((px - z["range_low_low"]) / (z["range_high_top"] - z["range_low_low"]) * 100, 1)
                 res["mts"] = now
+            if full and (res.get("active") or tok in pinned):   # 11.11.: the similarity's features (rangedca/owner)
+                res["age_h"], res["holders"] = _age_h(con, tok, now), _holders(tok, now)
+            if tok in pinned:   # 11.11.: the pin's "volume holds" rule (volume 1 h vs the median of 6 hourly volumes)
+                res["pinned"] = True
+                res["pin_vol"] = _pin_vol(candles, now, snap)
             res.pop("symbol", None)
             res.pop("state", None)
             res["source"], res["sources"] = src, src_all
@@ -187,6 +193,55 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         return text
     finally:
         con.close()
+
+
+def _pins():
+    """The owner's pinned tokens (trade settings range_pins, rangedca/owner.py); () when unreadable."""
+    try:
+        from rangedca import owner
+        return tuple(owner.pin_tokens())
+    except Exception:  # noqa: BLE001 - no pins readable: the pass as before
+        return ()
+
+
+def _pin_vol(candles, now, snap):
+    try:
+        from rangedca import owner
+        return owner.vol_hold(candles, now, snap)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _age_h(con, tok, now):
+    """The token's age in hours for the similarity (rangedca/owner.features): the market list's pool creation when
+    known; else the GeckoTerminal seed's first candle when it starts after the requested start (the pool is younger
+    than the request, so its first candle is its first trade); else None (unknown)."""
+    try:
+        r = con.execute("SELECT created_ts FROM mkt WHERE token=?", (tok,)).fetchone()
+        if r and r[0]:
+            return round((now - r[0]) / 3600, 2)
+    except Exception:  # noqa: BLE001 - no market table
+        pass
+    r = con.execute("SELECT first_ts, fetched FROM gt_candles WHERE token=?", (tok,)).fetchone()
+    if r and r[0] and r[1] and r[0] > r[1] - 998 * 60 + 1800:
+        return round((now - r[0]) / 3600, 2)
+    return None
+
+
+def _holders(tok, now):
+    """The newest holder count the hype scan stored for the token (hype.db token_pulse, last 24 h), None unknown."""
+    from rangedca import data
+    c = data._ro_file(data.hype_path())
+    if c is None:
+        return None
+    try:
+        r = c.execute("SELECT holders FROM token_pulse WHERE token=? AND ts>=? AND holders IS NOT NULL ORDER BY ts DESC "
+                      "LIMIT 1", (tok, int(now - 86400))).fetchone()
+        return int(r[0]) if r and r[0] else None
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        c.close()
 
 
 def _flip_mode():

@@ -22,6 +22,9 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
   groups   group_discovery: early.db group_signals per kind (hidden_group, caller_group_first); baseline = the mean
            EV of all calls of the window (events.db call_outcomes).
   range    range_dca: the paper rounds (league.db range_rounds); baseline: the newest backtest's EV when one exists.
+           11.11. part range_oznake: the owner's learning labels (rangedca/owner.py, counterfactual: the booked rounds
+           above are never changed by them), his pins and the watched ranges most similar to his labelled wins (also
+           two log lines "range oznake vlasnika: ..." and "range slični ...").
   momentum momentum_scalp (11.11.): the base rate of every signal (momentum.db; hit = +15 % before -10 % in 45 min,
            EV = the exit rules on the same path after cost) vs the newest backtest, and the paper trades vs that base
            rate with the live gate's verdict (>= 50 trades, EV > 0, hit >= 45 %; break-even is ~50 %, not 45 %).
@@ -235,7 +238,7 @@ def group_rows(now, mode, econ):
     return out
 
 
-def range_rows(now, mode, lcon):
+def range_rows(now, mode, lcon, log=print):
     from trade import settings
     if lcon is None:
         return []
@@ -257,11 +260,37 @@ def range_rows(now, mode, lcon):
                 base, note = float(ev), f"paper runde vs backtest {files[-1][15:23]}"
     except (OSError, ValueError, TypeError):
         pass
-    return [{"flag": "range_dca", "phase": mode, "part": "range", "n": s["n"], "n_outcomes": s["n"],
-             "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
-             "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base, "baseline_n": None,
-             "delta_ev_pct": _r(s["ev_pct"] - base, 2) if s["ev_pct"] is not None and base is not None else None,
-             "note": note, "proposal": _proposal(mode, s)}]
+    out = [{"flag": "range_dca", "phase": mode, "part": "range", "n": s["n"], "n_outcomes": s["n"],
+            "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+            "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base, "baseline_n": None,
+            "delta_ev_pct": _r(s["ev_pct"] - base, 2) if s["ev_pct"] is not None and base is not None else None,
+            "note": note, "proposal": _proposal(mode, s)}]
+    return out + owner_rows(now, mode, log)
+
+
+def owner_rows(now, mode, log=print):
+    """11.11. (rangedca/owner.py): the owner's labels (counterfactual, the booked rounds above stay as booked) and the
+    watched ranges most similar to his labelled wins, as one row "range_oznake" and two log lines; [] without labels."""
+    try:
+        from rangedca import owner, view
+        lbs = owner.labels()
+        if not lbs:
+            return []
+        lab = "; ".join(owner.label_text(lb) for lb in lbs[:5])
+        d = view.candidates(0.0, now=now)
+        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs))
+        pins = ", ".join(f"{p.get('symbol') or p['token'][:6]} ({'preporuka sada' if p.get('pin_ready') else 'čeka'})"
+                         for p in d.get("pins") or [])
+    except Exception as e:  # noqa: BLE001 - the rest of the report never waits for this row
+        log(f"događaji: EV izvještaj, oznake vlasnika nisu pročitane ({type(e).__name__})")
+        return []
+    log(f"range oznake vlasnika: {lab}")
+    log(sim)
+    return [{"flag": "range_dca", "phase": mode, "part": "range_oznake", "n": len(lbs), "n_outcomes": None,
+             "hit_rate": None, "avg_pnl_pct": None, "ev_pct": None, "max_dd_pct": None, "baseline_ev_pct": None,
+             "baseline_n": None, "delta_ev_pct": None, "proposal": None,
+             "note": f"oznake vlasnika (protučinjenične, knjiženo se ne mijenja): {lab}. {sim}"
+                     + (f". Prikvačeni: {pins}" if pins else "")}]
 
 
 def momentum_rows(now, mode, lcon):
@@ -342,7 +371,7 @@ def build(now=None, econ=None, log=print):
                 elif name == "group_discovery":
                     out += group_rows(now, st["mode"], econ)
                 elif name == "range_dca":
-                    out += range_rows(now, st["mode"], lcon)
+                    out += range_rows(now, st["mode"], lcon, log)
                 elif name == "momentum_scalp":
                     out += momentum_rows(now, st["mode"], lcon)
                 elif name == "grok_ev_gate":

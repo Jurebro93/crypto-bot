@@ -88,60 +88,144 @@ def _metrics_at(candles, ts, i, t, supply, proxy_buys=True):
     return m
 
 
-def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LOT_USD, proxy_buys=True, new=None):
+RECLAIM_S = 30 * 60      # 11.11. stop variant (e): a reclaim within 30 minutes of the stop ...
+RECLAIM_BUYS = 0.6       # ... with buys >= 60 % of the last 5 minutes (the proxy where the candles have no counts)
+BAR_S = 300              # stop variants (c) / (d): the stop reads 5-minute closes (epoch-aligned, as detect.bars)
+
+
+def tick_path(c, ticks="body"):
+    """The prices one minute is walked through: "body" (today's backtest) open, close; "wick" (11.11., the stop
+    variants: the live loop sees every second, wicks included) open, low, high, close for a rising minute and open,
+    high, low, close for a falling one (the usual OHLC order)."""
+    if ticks != "wick":
+        return (c[1], c[4])
+    return (c[1], c[3], c[2], c[4]) if c[4] >= c[1] else (c[1], c[2], c[3], c[4])
+
+
+def bar_closes(candles, i, bar_s=BAR_S):
+    """True when candle i is the last one of its 5-minute bar (the next candle starts a new bar); the last candle of
+    the data is not known to close its bar."""
+    return i + 1 < len(candles) and candles[i + 1][0] // bar_s != candles[i][0] // bar_s
+
+
+def breakdown_give_up(gu):
+    """A give-up of the "range broken downward" exclusion (rules.exclusions): the floor gave way, a stop in effect."""
+    return bool(gu) and "probijen dolje" in (gu.get("why") or "")
+
+
+def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LOT_USD, proxy_buys=True, new=None,
+             ticks="body", stop_on="tick", reclaim=False):
     """The rounds of one token: [{opened, closed, lots, entry_mc, lot2_mc, exits, cost, pnl, ret, reason}].
     proxy_buys False: where the candles have no transaction counts, the buys-share gate is left out (a sensitivity
     check of the proxy, reported apart; live the gate reads DexScreener's real counts).
     new (11.11., range_flip): None = today's rules; else the parts of the new rules (rules.new_range: "flip", "atr")
-    over a timeline(flip=True): the range in force, no lot 1 / lot 2 while blocked, the volatility stop."""
+    over a timeline(flip=True): the range in force, no lot 1 / lot 2 while blocked, the volatility stop.
+    11.11. stop variants (rangedca/stops.py; the defaults are today's backtest exactly):
+      ticks    "body" (open, close) | "wick" (tick_path: the minute's low and high too; a stop, trailing or top exit
+               that a tick passes through fills at its level, one that gapped past it at the tick)
+      stop_on  "tick" | "close5": the hard stop AND the "range broken downward" give-up sell only on a 5-minute close
+               under their level (stop_px, floor_px = range_low_low x 0.92), at that close; other give-ups unchanged
+      reclaim  after a round that ended at the hard stop or on that give-up, a new lot 1 (a round of the same rules
+               with the stopped round's TP and stop levels) when within RECLAIM_S the minute closes above range_low
+               (the bottom zone's average) and above the stop with buys >= RECLAIM_BUYS of 5 minutes; one reclaim per
+               stopped round, never after a reclaim round, the cooldown and the exclusion do not apply to it.
+    A round also carries "mae" (the worst mark-to-market of its lots, a fraction of their cost, before cost) with
+    ticks "wick", and "reclaim" True for a reclaim round."""
     ts = [c[0] for c in candles]
     tl_ts = [x[0] for x in tl]
-    rounds, pos, cool_until = [], None, 0
+    rounds, pos, cool_until, rec = [], None, 0, None
+    wick, close5 = ticks == "wick", stop_on == "close5"
+    prev_close = None
+
+    def sell(reason, frac, fill, t, lv):
+        nonlocal pos, cool_until, rec
+        for x in pos["lots"]:
+            q = x["qty"] * frac
+            gross = q * fill
+            x["qty"] -= q
+            got = gross * (1 - _fee()) * (1 - _impact(gross, liq))
+            pos["realized"] += got
+        pos["exits"].append({"ts": t, "reason": reason.split(":")[0], "frac": frac,
+                             "mc": round(fill * supply) if supply else None, "px": fill, "n_lots": len(pos["lots"])})
+        if frac < 0.999:
+            return
+        cost = sum(x["usd"] for x in pos["lots"])
+        pnl = pos["realized"] - cost
+        r = {"opened": pos["opened"], "closed": t, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
+             "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4), "pnl": round(pnl, 4),
+             "ret": round(pnl / cost, 5), "reason": reason.split(":")[0], "score": pos["score"],
+             "lot_px": [x["px"] for x in pos["lots"]], "stop_px": lv["stop_px"]}
+        if wick:
+            r["mae"] = round(pos["mae"], 5)
+        if pos.get("reclaim"):
+            r["reclaim"] = True
+        rounds.append(r)
+        stopped = reason == "stop" or (reason.startswith("odustajanje") and "probijen dolje" in reason)
+        if reclaim and stopped and not pos.get("reclaim"):
+            rec = {"until": t + RECLAIM_S, "levels": dict(pos["levels"], stop_px=lv["stop_px"]),
+                   "rl": pos.get("rl") or lv["rll"], "score": pos["score"]}
+        pos = None
+        cool_until = t + rules.RULES["cooldown_s"]
+
+    def fill_of(reason, px, last, lv, st):
+        if reason == "tp1":
+            return lv["rhl"]
+        if not wick or reason not in ("stop", "trailing", "top"):
+            return px
+        level = {"stop": lv["stop_px"], "trailing": (st.get("peak") or 0) * (1 - rules.RULES["trail"]),
+                 "top": lv["rht"]}[reason]
+        return level if last is not None and last >= level >= px else px
+
+    def mark(px):
+        if pos and wick:
+            cost = sum(x["usd"] for x in pos["lots"])
+            val = pos["realized"] + sum(x["qty"] * px for x in pos["lots"])
+            pos["mae"] = min(pos["mae"], val / cost - 1)
+
+    def open_pos(t, px, lv, score, rl, is_reclaim=False):
+        eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
+        return {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff}], "realized": 0.0,
+                "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": score, "rl": rl,
+                "mae": 0.0, **({"reclaim": True} if is_reclaim else {})}
+
     for i, c in enumerate(candles):
         t = c[0]
         k = bisect.bisect_right(tl_ts, t) - 1
         if k < 0:
+            prev_close = c[4]
             continue
         _t, rng, st = tl[k]
         if new:
             rng = rules.new_range(rng, new)
+        was_open = pos is not None
         if pos:
             lv = rules.merge_levels(pos["levels"], rules.levels_of(rng) if rng.get("active") and rng.get("zones") else None)
             pos["levels"]["stop_px"] = lv["stop_px"]
             gu = st.get("give_up")
-            for px in (c[1], c[4]):
+            gu = gu if gu and gu["ts"] >= pos["opened"] else None
+            gu_bar = close5 and breakdown_give_up(gu)   # (c) / (d): that give-up waits for a 5-minute close
+            lv_t = dict(lv, stop_px=0.0) if close5 else lv
+            last = prev_close
+            for px in tick_path(c, ticks):
                 if not pos:
                     break
-                if gu and gu["ts"] >= pos["opened"]:
+                mark(px)
+                if gu and not gu_bar:
                     hit = (f"odustajanje: {gu['why']}", 1.0)
                 else:
                     q = sum(x["qty"] for x in pos["lots"])
                     cost_left = sum(x["usd"] for x in pos["lots"]) - pos["realized"]
                     be = cost_left / q / ((1 - _fee()) * (1 - _impact(cost_left, liq))) if q > 0 and cost_left > 0 else None
-                    hit = rules.exit_step(lv, pos["state"], px, t, pos["opened"], be)
-                if not hit:
-                    continue
-                reason, frac = hit
-                fill = lv["rhl"] if reason == "tp1" else px
-                for x in pos["lots"]:
-                    q = x["qty"] * frac
-                    gross = q * fill
-                    x["qty"] -= q
-                    got = gross * (1 - _fee()) * (1 - _impact(gross, liq))
-                    pos["realized"] += got
-                pos["exits"].append({"ts": t, "reason": reason.split(":")[0], "frac": frac,
-                                     "mc": round(fill * supply) if supply else None, "px": fill,
-                                     "n_lots": len(pos["lots"])})
-                if frac >= 0.999:
-                    cost = sum(x["usd"] for x in pos["lots"])
-                    pnl = pos["realized"] - cost
-                    rounds.append({"opened": pos["opened"], "closed": t, "lots": len(pos["lots"]),
-                                   "entry_mc": pos["entry_mc"], "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"],
-                                   "cost": round(cost, 4), "pnl": round(pnl, 4), "ret": round(pnl / cost, 5),
-                                   "reason": reason.split(":")[0], "score": pos["score"],
-                                   "lot_px": [x["px"] for x in pos["lots"]], "stop_px": lv["stop_px"]})
-                    pos = None
-                    cool_until = t + rules.RULES["cooldown_s"]
+                    hit = rules.exit_step(lv_t, pos["state"], px, t, pos["opened"], be)
+                if hit:
+                    sell(hit[0], hit[1], fill_of(hit[0], px, last, lv, pos["state"]), t, lv)
+                last = px
+            if pos and close5 and bar_closes(candles, i):
+                px = c[4]
+                if gu_bar and px < lv["floor_px"]:
+                    sell(f"odustajanje: {gu['why']}", 1.0, px, t, lv)
+                elif px <= lv["stop_px"]:
+                    sell("stop", 1.0, px, t, lv)
             if pos and lot2 and len(pos["lots"]) == 1 and not pos["state"].get("tp1") and not rng.get("flip_block"):
                 px = c[4]
                 drop = 1 - px / pos["lot1_px"]
@@ -151,7 +235,23 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                         eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
                         pos["lots"].append({"px": px, "usd": lot_usd, "qty": lot_usd / eff})
                         pos["lot2_mc"] = round(px * supply) if supply else None
-            continue
+            if pos or rec is None:
+                prev_close = c[4]
+                continue
+        if rec is not None:   # (e): the minute's close back above range_low within RECLAIM_S, buys >= 60 %
+            if t > rec["until"]:
+                rec = None
+            elif c[4] > rec["rl"] and c[4] > (rec["levels"].get("stop_px") or 0) and supply:
+                m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
+                if (m.get("buy_share_5m") or 0) >= RECLAIM_BUYS - 1e-9:
+                    pos = open_pos(t, c[4], dict(rec["levels"]), rec["score"], rec["rl"], True)
+                    rec = None
+                    prev_close = c[4]
+                    continue
+            if was_open:
+                prev_close = c[4]
+                continue
+        prev_close = c[4]
         if t < cool_until or not rng.get("active") or (rng.get("score") or 0) < score_min - 1e-9:
             continue
         px = c[4]
@@ -164,17 +264,20 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         if (m.get("vol_h1") or 0) < detect.CFG["min_vol_h1"] or not supply or px * supply < detect.CFG["min_mcap"]:
             continue
         if rules.entry_check(r2, px, min_score=score_min) is None:
-            eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
-            pos = {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff}], "realized": 0.0,
-                   "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": rng.get("score")}
+            pos = open_pos(t, px, lv, rng.get("score"), (rng.get("zones") or {}).get("range_low") or lv["rll"])
     if pos:   # still open at the end of the data: valued at the last close, marked open
         px = candles[-1][4]
         cost = sum(x["usd"] for x in pos["lots"])
         val = pos["realized"] + sum(x["qty"] * px * (1 - _fee()) for x in pos["lots"])
-        rounds.append({"opened": pos["opened"], "closed": None, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
-                       "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4),
-                       "pnl": round(val - cost, 4), "ret": round((val - cost) / cost, 5), "reason": "otvoreno",
-                       "score": pos["score"], "lot_px": [x["px"] for x in pos["lots"]], "last_px": px})
+        r = {"opened": pos["opened"], "closed": None, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
+             "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4),
+             "pnl": round(val - cost, 4), "ret": round((val - cost) / cost, 5), "reason": "otvoreno",
+             "score": pos["score"], "lot_px": [x["px"] for x in pos["lots"]], "last_px": px}
+        if wick:
+            r["mae"] = round(pos["mae"], 5)
+        if pos.get("reclaim"):
+            r["reclaim"] = True
+        rounds.append(r)
     return rounds
 
 
@@ -199,14 +302,17 @@ def summary(rounds):
     return out
 
 
-def run_tokens(series, log=print, flip=True):
+def run_tokens(series, log=print, flip=True, stops=True):
     """series: {token: (candles, supply, liq, symbol)}. Returns the report dict. flip (11.11.): the timeline also
     carries the range_flip state (today's variants do not read it) and rep["flip"] compares today's rules with the
-    new ones (flip_compare)."""
+    new ones (flip_compare). stops (11.11., rangedca/stops.py; needs flip): rep["stops"] compares the stop variants
+    (a-e, be), measured only."""
     var = {f"{th:.1f}{'' if l2 else '_bez_lota2'}": [] for th in THRESHOLDS for l2 in (True, False)}
     var[PROXY_OFF] = []
     per = {}
     fc = FlipCompare() if flip else None
+    from . import stops as _stops
+    sc = _stops.StopCompare() if stops and flip else None
     t0 = time.time()
     for tok, (candles, supply, liq, sym) in series.items():
         if not candles or not supply or candles[-1][0] - candles[0][0] < detect.CFG["min_hist_h"] * 3600:
@@ -214,6 +320,8 @@ def run_tokens(series, log=print, flip=True):
         tl = timeline(candles, supply, liq, flip=flip)
         if fc:
             fc.add(tok, sym, candles, supply, liq, tl)
+        if sc:
+            sc.add(tok, sym, candles, supply, liq, tl)
         act = [x for x in tl if x[1].get("active")]
         per[tok] = {"symbol": sym, "hours": round((candles[-1][0] - candles[0][0]) / 3600, 1), "detections": len(tl),
                     "active_detections": len(act), "best_score": max((x[1].get("score") or 0 for x in act), default=None),
@@ -232,6 +340,8 @@ def run_tokens(series, log=print, flip=True):
            "variants": {k: summary(v) for k, v in var.items()}, "tokens": per}
     if fc:
         rep["flip"] = fc.report()
+    if sc:
+        rep["stops"] = sc.report()
     return rep
 
 
@@ -415,7 +525,13 @@ def md(rep, title="Range DCA backtest"):
                 lines.append(f"- {p['symbol'] or tok[:6]} {time.strftime('%d.%m. %H:%M', time.gmtime(r['opened']))} UTC: "
                              f"ulaz MC {r['entry_mc']:,.0f}" + (f", lot 2 {r['lot2_mc']:,.0f}" if r.get("lot2_mc") else "")
                              + f"; izlazi: {ex or '-'}; {r['ret'] * 100:+.1f} % ({r['reason']})")
-    return "\n".join(lines) + "\n" + (flip_md(rep["flip"]) if rep.get("flip") else "")
+    out = "\n".join(lines) + "\n" + (flip_md(rep["flip"]) if rep.get("flip") else "")
+    if rep.get("stops"):   # 11.11. (rangedca/stops.py): the stop variants, measured; the live rule does not change
+        from . import stops as _stops
+        out += _stops.md(rep["stops"])
+        if rep.get("stop_replay"):
+            out += "\n" + _stops.replay_line(rep["stop_replay"]) + "\n"
+    return out
 
 
 def write(rep, log=print, name=None):
@@ -484,17 +600,41 @@ def tokens_with_data(rcon, now, days=14):
 
 class _Lazy:
     """{token: series} for run_tokens, loaded one token at a time (11.11.: with the market watchlist every series in
-    memory at once would be hundreds of MB on Render)."""
+    memory at once would be hundreds of MB on Render). extra: {token: series} already loaded (fixture_series)."""
 
-    def __init__(self, rcon, toks, now, days):
-        self.rcon, self.toks, self.now, self.days = rcon, toks, now, days
+    def __init__(self, rcon, toks, now, days, extra=None):
+        self.rcon, self.toks, self.now, self.days, self.extra = rcon, toks, now, days, extra or {}
 
     def __len__(self):
-        return len(self.toks)
+        return len(self.toks) + len(self.extra)
 
     def items(self):
         for t in self.toks:
             yield t, load(self.rcon, t, self.now, self.days)
+        yield from self.extra.items()
+
+
+FIXTURES_DIR = os.path.join(data.ROOT, "tests", "fixtures")
+
+
+def fixture_series(tokens, path=None):
+    """{token: (candles, supply, None, symbol)} from the stored GeckoTerminal candles (tests/fixtures/range_*.json.gz,
+    the newest file of a token) of these tokens. 11.11.: the owner's labelled tokens (rangedca/owner.py) stay in the
+    nightly backtest after range.db has pruned their minutes (HAOBIBI)."""
+    import glob
+    import gzip
+    want, out = set(tokens or ()), {}
+    if not want:
+        return out
+    for f in sorted(glob.glob(os.path.join(path or FIXTURES_DIR, "range_*.json.gz"))):
+        try:
+            with gzip.open(f, "rt") as fh:
+                fx = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if fx.get("token") in want and fx.get("candles"):
+            out[fx["token"]] = (data.merge([tuple(r) for r in fx["candles"]], []), fx.get("supply"), None, fx.get("symbol"))
+    return out
 
 
 def load(rcon, token, now, days=14):
@@ -553,15 +693,31 @@ def top_up(rcon, now, n, days=14, fetch=None, log=print):
 
 def run_server(now=None, days=14, gt=0, log=print, fetch=None):
     now = int(now or time.time())
+    from . import stops as _stops
+    try:   # 11.11. (rangedca/owner.py): the owner's labelled and pinned tokens are always in the nightly set
+        from . import owner
+        keep = {lb["token"] for lb in owner.labels()} | set(owner.pin_tokens())
+    except Exception:  # noqa: BLE001
+        keep = set()
     rcon = data.connect()
     try:
         top_up(rcon, now, gt, days, fetch, log)
-        rep = run_tokens(_Lazy(rcon, tokens_with_data(rcon, now, days), now, days), log)
+        toks = tokens_with_data(rcon, now, days)
+        extra = fixture_series(sorted(keep - set(toks)))
+        rep = run_tokens(_Lazy(rcon, toks, now, days, extra), log)
+        fx = fixture_series([_stops.HAOBIBI])   # the live HAOBIBI round of 11.11. replayed per stop variant
+        if fx:
+            cs, sup, _l, _s = fx[_stops.HAOBIBI]
+            rep["stop_replay"] = _stops.replay_table(cs, sup)
         fr = rep.get("flip")
         if fr:   # 11.11. (range_flip G26): the old vs new numbers the live gate reads (rangedca/gate.flip_refusal)
             data.kv_put(rcon, "flip_backtest", {"ts": now, "days": days, "tokens": fr["data"]["tokens"],
                                                 "data": fr["data"], "dd_ok": fr["dd_ok"], **fr["variants"]})
-            rcon.commit()
+        sr = rep.get("stops")
+        if sr:   # 11.11.: the stop variants, for the owner's decision (nothing reads them to trade)
+            data.kv_put(rcon, "stop_backtest", {"ts": now, "days": days, "data": sr["data"], "vs_a": sr["vs_a"],
+                                                **sr["variants"]})
+        rcon.commit()
     finally:
         rcon.close()
     rep["days"] = days
@@ -569,4 +725,8 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
     log(f"range backtest: {rep['tokens_simulated']} tokena, {rep['cpu_s']} s, izvještaj {path}")
     if rep.get("flip"):
         log(flip_line(rep["flip"]))
+    if rep.get("stops"):
+        log(_stops.line(rep["stops"], focus=sorted(keep)))
+    if rep.get("stop_replay"):
+        log(_stops.replay_line(rep["stop_replay"]))
     return rep

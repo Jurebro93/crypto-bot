@@ -43,4 +43,13 @@ entries until 2 retests hold), a confirmed break down pauses the token (the old 
 range forms under it), the stop is range_low_low - 1.5 x ATR (5-20 %) instead of x 0.85. detect.flip_step (the
 state, range.db range_flip), rules.new_range (the new rules), trade.flip_roles (off / shadow / paper / live past
 gate.flip_refusal), backtest FlipCompare (today's rules vs the new ones, nightly, range.db kv flip_backtest).
+
+11.11. (Jure: "HAOBIBI je bio jako dobar ulaz, zapiši ga kao dobitak ... zadrži ovaj token: neka bude preporuka ako
+padne u raspon i volumen se drži"):
+    owner.py     the owner's learning labels (league.db owner_labels, counterfactual: a booked round never changes),
+                 his pins (trade settings range_pins: always in the signal pass, a range proposal in the lower zone
+                 while the volume holds) and the similarity of watched ranges to his labelled wins (shadow P bonus)
+    stops.py     stop variants measured, never traded: today's x 0.85 on any tick, the ATR stop, both on a 5-minute
+                 close, reclaim; over the backtest timeline (nightly "range stop varijante: ...", range.db kv
+                 stop_backtest) and the live HAOBIBI round replayed with its own fills ("range stop replay ...")
 """

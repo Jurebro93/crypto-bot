@@ -349,16 +349,20 @@ def range_part():
     d = view.candidates(None)
     if "error" in d:
         return d
-    keep = ("token", "symbol", "status", "range_score", "position_in_range_pct", "entry_ready", "entry_now")
+    keep = ("token", "symbol", "status", "range_score", "position_in_range_pct", "entry_ready", "entry_now", "pinned",
+            "pin_ready", "pin_entry", "similar_to")
 
     def row(c):
         z = (c.get("zones") or {}).get("market_cap_usd") or {}
         return {**{k: c.get(k) for k in keep if k in c}, "range_low_low_mc": z.get("range_low_low"),
                 "range_high_top_mc": z.get("range_high_top")}
+    # 11.11. (rangedca/owner.py): the owner's labels (counterfactual), pins and the tokens most similar to his wins
     return {"flag_mode": d.get("flag_mode"), "watched": d.get("watched"),
             "candidates": [row(c) for c in (d.get("candidates") or [])[:15]],
-            "breakouts": [{k: c.get(k) for k in ("token", "symbol", "status", "position_in_range_pct") if k in c}
-                          for c in (d.get("breakouts") or [])[:10]]}
+            "breakouts": [{k: c.get(k) for k in ("token", "symbol", "status", "position_in_range_pct", "pinned") if k in c}
+                          for c in (d.get("breakouts") or [])[:10]],
+            "owner_labels": d.get("owner_labels") or [], "pins": d.get("pins") or [],
+            "similar": (d.get("similar") or [])[:5]}
 
 
 def momentum_part(now):
