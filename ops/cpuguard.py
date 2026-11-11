@@ -182,6 +182,10 @@ PROCESSES = (
     # run_ui (protected); nobody waits for this by the second
     ("prijedlozi", "run_proposals.py", (), JOBS,
      "prijedlozi svih strategija svakih 2,5 min (samo čita i piše proposals.db), noću brzi izlaz callera"),
+    # 11.11. (flag zonewatch): zone alarms to Grok Bot; a few ms of CPU every 30 s (mostly waiting on the network), so
+    # the guard (it pauses only processes above MIN_CPU) practically never touches it, and a pause is a fraction of a s
+    ("zonewatch", "run_zonewatch.py", (), JOBS,
+     "zonski alarmi Grok Botu: svakih 30 s cijene tokena kraj zona i POST webhooka; gotovo bez CPU-a"),
     # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
     ("events", "run_events.py", (), JOBS,
      "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),

@@ -267,19 +267,28 @@ def _grok_src():
         return "Grok auto (MCP)"
 
 
+# 11.11. (Jure: "exit_plan_live: DA, svaka live pozicija (autotrade i odobreni tradeovi) mora imati aktivan exit
+# plan"): an MCP buy request the owner approved is bought with this source (ui/pravitrade._post_mcp_ok); it starts
+# with "ručno" so the daily automatic-spend limit counts it as the owner's own buy (trade/executor.OWN_REASONS)
+APPROVED_SRC = "ručno: Grok odobreno (MCP)"
+
+
 def grok_live(user, lots):
     """11.11. (Jure: GTA's plan was only logged while the flag exit_plans was paper, and the real exit went through the
     default TP): True when the owner switch exit_plan_live is "live", the account is the real Autopilot account, every
-    open lot of the token is a Grok autotrade buy (league trades source "Grok auto (MCP)") and Grok autotrade is
-    switched on (Grok's limits: a plan only sells, which autotrade allows for any open position while it is on). Then
+    open lot of the token is a Grok autotrade buy (league trades source "Grok auto (MCP)") or an MCP request the owner
+    approved (APPROVED_SRC, 11.11.), and Grok autotrade is switched on whenever an autotrade lot is among them (Grok's
+    limits: a plan only sells, which autotrade allows for any open position while it is on). Then
     the plan runs on the real account whatever exit_plans' mode; everything else is unchanged."""
     try:
         from trade import settings as ts
         if user != ts.LEAGUE_USER or ts.flag(LIVE_FLAG) != "live":
             return False
         src = _grok_src()
-        if not lots or any((t.get("source") or "") != src for t in lots):
+        if not lots or any((t.get("source") or "") not in (src, APPROVED_SRC) for t in lots):
             return False
+        if all((t.get("source") or "") == APPROVED_SRC for t in lots):
+            return True   # 11.11.: the owner approved the buy himself; the switch alone covers its plan
         from ui import grokauto
         tcon = ts.connect()
         try:
@@ -422,6 +431,69 @@ def decide(p, user, lots, price, mcap, age_s, now):
     return None
 
 
+DEFAULT_CLIENT = "auto: zadani plan (vlasnik 11.11.)"
+
+
+def default_plan(lots, sl_default=30.0):
+    """The plan a live Grok position gets when none is set: its own TP / SL (league auto tpsl of the newest lot, as a
+    percent from the average entry), all of it at the TP; no TP known = only the stop. None when nothing is known."""
+    avg = _avg(lots)
+    if not avg:
+        return None
+    a = {}
+    for t in reversed(lots):
+        try:
+            a = json.loads(t.get("auto") or "{}") or {}
+        except ValueError:
+            a = {}
+        if a.get("mode") == "tpsl":
+            break
+    plan = {"accounts": [lots[0]["user"]], "reason": "zadani plan: vlastiti TP/SL pozicije (exit_plan_live, vlasnik 11.11.)"}
+    tp, sl = a.get("tp_px"), a.get("sl_px")
+    if tp and tp > avg:
+        plan["take_profits"] = [{"at_pct": round((tp / avg - 1) * 100, 2), "sell_share": 1.0}]
+    floor = -abs(float(sl_default or 30))
+    st = round((sl / avg - 1) * 100, 2) if sl and sl < avg else floor
+    plan["stop"] = {"at_pct": max(st, floor)}
+    return plan
+
+
+def ensure_live_plans(con, now=None, sl_default=None, log=print):
+    """11.11. (Jure: "svaka live pozicija (autotrade i odobreni tradeovi) mora imati aktivan exit plan"): every open
+    real-account token that exit_plan_live covers (grok_live) and that has no active plan gets default_plan. [token]."""
+    from trade import settings as ts
+    from . import flags
+    if flags.mode(LIVE_FLAG) != "live" or paused():
+        return []
+    if sl_default is None:
+        try:
+            tcon = ts.connect()
+            try:
+                sl_default = float(ts.merged(tcon).get("sl_default") or 30)
+            finally:
+                tcon.close()
+        except Exception:  # noqa: BLE001
+            sl_default = 30.0
+    out = []
+    toks = [r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND status='open'", (ts.LEAGUE_USER,))]
+    for tok in toks:
+        if active(con, tok):
+            continue
+        lots = _lots(con, ts.LEAGUE_USER, tok)
+        if not grok_live(ts.LEAGUE_USER, lots):
+            continue
+        plan = default_plan(lots, sl_default)
+        if not plan:
+            continue
+        try:
+            set_plan(con, tok, plan, sl_default, client=DEFAULT_CLIENT, now=now)
+            out.append(tok)
+            log(f"plan izlaza: {tok[:6]} dobio zadani plan (live pozicija bez plana, exit_plan_live)")
+        except ValueError as e:
+            log(f"plan izlaza: {tok[:6]} bez zadanog plana: {e}")
+    return out
+
+
 def run_once(con, market, now=None):
     """One pass over the active plans: [(user, token, trigger, text)] of what was executed (or shadow-logged)."""
     from . import flags
@@ -429,6 +501,11 @@ def run_once(con, market, now=None):
     ensure(con)
     m = flags.mode("exit_plans")
     sw = flags.mode(LIVE_FLAG) == "live"   # 11.11.: Grok autotrade positions on the real account (grok_live)
+    if sw and not paused():
+        try:
+            ensure_live_plans(con, now)
+        except Exception as e:  # noqa: BLE001 - the plans that exist keep running
+            print(f"plan izlaza: zadani planovi: {type(e).__name__}: {e}", flush=True)
     if (m == "off" and not sw) or paused():
         return []
     plans = [dict(r) for r in con.execute("SELECT * FROM exit_plans WHERE status='active'")]

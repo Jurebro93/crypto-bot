@@ -699,7 +699,8 @@ def hope_stop(con, lcon=None, market=None):
 
 
 # 10.11. later orders of the owner, each applied ONCE (its own settings key, so a new entry added in a later deploy
-# runs once too): (flag, mode, why). Never live from here.
+# runs once too): (flag, mode, why). Never live from here, except an owner switch (settings.OWNER_SWITCHES: live = on,
+# it only sells) the owner ordered in the chat.
 OWNER_FLAG_ORDERS = (
     ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
     ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
@@ -712,6 +713,7 @@ OWNER_FLAG_ORDERS = (
     ("event_tokens", "shadow", "vlasnik u chatu 11.11.: event tokeni s Grokom, prvo shadow"),
     ("range_market", "paper", "vlasnik u chatu 11.11.: range watchlist cijelog tržišta, prvo paper (samo demo račun)"),
     ("proposals", "paper", "vlasnik u chatu 11.11.: Prijedlozi svih strategija, prvo paper (demo račun; pravi samo na tvoj dodir)"),
+    ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
 )
 
 
@@ -720,7 +722,8 @@ def owner_flag_orders(con, now=None):
     done = []
     for name, mode, why in OWNER_FLAG_ORDERS:
         key = f"owner_flag_once:{name}:{mode}"
-        if mode not in ("off", "shadow", "paper") or name not in settings.FLAGS or settings.raw(con).get(key):
+        if (mode not in ("off", "shadow", "paper") and not (mode == "live" and name in settings.OWNER_SWITCHES)) \
+                or name not in settings.FLAGS or settings.raw(con).get(key):   # live only for an owner switch
             continue
         old = settings.flag_state(con)[name]["mode"]
         if old != mode:
