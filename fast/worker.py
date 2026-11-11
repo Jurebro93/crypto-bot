@@ -22,7 +22,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from zoneinfo import ZoneInfo
 
-from . import checks, decide, enqueue, outcomes, sources, store
+from . import checks, decide, enqueue, estimate, outcomes, sources, store
 
 FLAG = "fast_path"
 WORKERS = 20
@@ -49,12 +49,15 @@ def limits():
         return {"size_sol": 0.1, "max_sol_per_day": 1.0, "max_open": 5}
 
 
-def process(sig, net, path=None, rates=None, now_fn=time.time, cache=None, m=None, lim=None, log=print):
-    """One fast_check: run every check, decide, write. Returns the stored row's decision dict."""
+def process(sig, net, path=None, rates=None, now_fn=time.time, cache=None, m=None, lim=None, log=print, priors=None,
+            src_rates=None):
+    """One fast_check: run every check, decide, write. Returns the stored row's decision dict. priors / src_rates:
+    the worker's 10-min read (fast/estimate.priors_read, outcomes.source_rates)."""
     lim = lim or limits()
     now = now_fn()
     res, d, q = checks.run_all(sig, net, now, size_sol=lim.get("size_sol"), cache=cache)
-    dec = decide.decide(res, q, rates, live_sol=lim.get("size_sol") or 0.1)
+    dec = decide.decide(res, q, rates, live_sol=lim.get("size_sol") or 0.1, priors=priors,
+                        src_rate=(src_rates or {}).get(sig.get("source_id")))
     t1 = now_fn()
     attempts = int(sig.get("attempts") or 0) + 1
     status, next_ts = "done", None
@@ -68,7 +71,8 @@ def process(sig, net, path=None, rates=None, now_fn=time.time, cache=None, m=Non
     mk = (d or {}).get("market") or {}
     pr = (res.get("price") or {}).get("values") or {}
     payload = {"res": res, "key": dec.get("key"), "base": dec.get("base"), "fails": dec.get("fails"),
-               "errors": dec.get("errors"), "cached": bool((d or {}).get("cached")), "fetch_ms": (d or {}).get("ms")}
+               "errors": dec.get("errors"), "cached": bool((d or {}).get("cached")), "fetch_ms": (d or {}).get("ms"),
+               "est": dec.get("est"), "label": dec.get("label"), "lag": dec.get("lag")}
     latency = round(t1 - float(sig.get("sig_ts") or t1), 2)
     con = store.connect(path)
     try:
@@ -110,6 +114,8 @@ class Worker:
         self.lock = threading.Lock()
         self.t = {"sources": 0.0, "scan": 0.0, "sample": 0.0, "rates": 0.0, "prune": 0.0}
         self.rates = {}
+        self.priors = None      # 11.11.: fast/estimate.priors of the pooled rates (the strategy prior per kind)
+        self.src_rates = {}     # 11.11.: {source id: (hits, n)} of the measured fast.db outcomes
         self.max_parallel = 0
         self.lim = None
 
@@ -125,8 +131,27 @@ class Worker:
                 # a job left "running" by a killed worker goes back to the queue
                 con.execute("UPDATE signals SET status='queued' WHERE status='running'")
                 con.commit()
+                if self.priors is None:   # the first jobs already get the measured priors, not the no-edge one
+                    self.refresh_rates(con, self.now_fn())
             finally:
                 con.close()
+
+    def refresh_rates(self, con, now):
+        """The base rates, the strategy priors and every source's own outcomes (fast/estimate.priors_read; each
+        part guarded), into the worker and fast.db kv "priors" (the report, MCP and the live list read it)."""
+        self.t["rates"] = now
+        try:
+            self.priors, self.rates, pooled = estimate.priors_read(con, now)
+            self.src_rates = outcomes.source_rates(con, now)
+            store.kv_put(con, "priors", {"ts": int(now), "priors": self.priors, "pooled": pooled})
+            con.commit()
+            line = "; ".join(f"{k} {v['p']:.0%} (n={v['n']}, {v['strategy']})" for k, v in self.priors.items()
+                             if k in ("wallet_follow", "proven", "influencer", "convergence", "tool"))
+            if line != getattr(self, "_prior_line", None):   # logged when it changes, not every 10 min
+                self._prior_line = line
+                self.log(f"fast: priori po vrsti izvora: {line}")
+        except Exception as e:  # noqa: BLE001 - the old numbers stay
+            self.log(f"fast: priori nisu osvježeni ({type(e).__name__}: {e})")
 
     def stop(self, wait=True):
         if self.pool is not None:
@@ -153,10 +178,11 @@ class Worker:
                 ("chain", p["hype"], "SELECT rowid, wallet, mint, side, ts, sol FROM chain_trades WHERE rowid > ? "
                                      "ORDER BY rowid LIMIT 3000",
                  lambda r: {"token": r[2], "source_id": r[1], "sig_ts": r[4], "side": r[3], "via": "chain_trades"}),
-                ("calls", p["kol"], "SELECT rowid, token, handle, ts, kind, source FROM calls WHERE rowid > ? "
+                ("calls", p["kol"], "SELECT rowid, token, handle, ts, kind, source, p0, mcap0 FROM calls WHERE rowid > ? "
                                     "ORDER BY rowid LIMIT 3000",
                  lambda r: {"token": r[1], "source_id": (r[2] or "").lstrip("@"), "sig_ts": r[3],
-                            "side": "buy" if r[4] == "call" else "x", "via": r[5] or "kol.db"})):
+                            "side": "buy" if r[4] == "call" else "x", "via": r[5] or "kol.db",
+                            "entry_px": r[6] or None, "entry_mcap": r[7] or None})):
             c = _ro_quick(db)   # a locked file costs this pass at most a second, never the queue
             if c is None:
                 continue
@@ -176,9 +202,39 @@ class Worker:
                          <= enqueue.MAX_AGE_S]
             elif cur is not None and store.kv_get(con, f"cursor_{key}") is None:
                 store.kv_put(con, f"cursor_{key}", int(cur))
+        sigs += self.scan_converge(con, now, p)
         n = enqueue.submit(sigs, now=now, con=con) if sigs else 0
         con.commit()
         return n
+
+    def scan_converge(self, con, now, p):
+        """11.11. (Jure: convergence is a live candidate too): kol.db converge rows the KOL round saved since the
+        cursor (its `updated`) -> signals of the pseudo-source sources.CONVERGENCE (one check per token per 10 min:
+        enqueue's dedupe), with the market cap of the first measured call since the convergence began as its entry."""
+        c = _ro_quick(p.get("kol"))
+        if c is None:
+            return []
+        try:
+            cur = store.kv_get(con, "cursor_converge")
+            if cur is None:   # first run: only what is still fresh
+                cur = int(now) - enqueue.MAX_AGE_S
+            rows = c.execute("SELECT token, ts, first_ts, updated FROM converge WHERE updated > ? ORDER BY updated "
+                             "LIMIT 500", (int(cur),)).fetchall()
+            out = []
+            for tok, ts, first, _upd in rows:
+                if not ts or now - ts > enqueue.MAX_AGE_S:
+                    continue
+                mc = c.execute("SELECT mcap0 FROM calls WHERE token=? AND ts >= ? AND mcap0 > 0 ORDER BY ts LIMIT 1",
+                               (tok, int(first or ts))).fetchone()
+                out.append({"token": tok, "source_id": sources.CONVERGENCE, "sig_ts": int(ts), "via": "converge",
+                            "entry_mcap": (mc[0] if mc else None)})
+        except sqlite3.Error:
+            return []
+        finally:
+            c.close()
+        if rows:
+            store.kv_put(con, "cursor_converge", max(int(r[3] or 0) for r in rows))
+        return out
 
     def due(self, con, now, n):
         with self.lock:
@@ -205,7 +261,8 @@ class Worker:
 
     def _run(self, sig, m):
         try:
-            process(sig, self.net, self.path, self.rates, self.now_fn, self.cache, m, self.lim, self.log)
+            process(sig, self.net, self.path, self.rates, self.now_fn, self.cache, m, self.lim, self.log,
+                    priors=self.priors, src_rates=self.src_rates)
         except Exception as e:  # noqa: BLE001 - the job goes back as CHECK_FAILED, never lost, never a skip
             try:
                 con = self._con()
@@ -234,8 +291,7 @@ class Worker:
                 outcomes.sample(con, now, meter=self.net.meter)
                 outcomes.measure(con, now)
             if now - self.t["rates"] >= RATES_S:
-                self.t["rates"] = now
-                self.rates = outcomes.base_rates(con, now)
+                self.refresh_rates(con, now)
                 self.lim = limits()
             self.net.meter.flush(con, now)
             con.commit()

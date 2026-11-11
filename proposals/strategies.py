@@ -40,6 +40,11 @@ ui/kandidati row and the pass's context; proposals/build.py merges them).
   grok        Grok's submit_signal_opinion with verdict kupi and p_tp (optional strategy, entry_zone, exit_zone,
               valid_min). p = Grok's p_tp CALIBRATED on its measured predictions (proposals/calib.py). Exit: Grok's
               exit_zone (tp_mcap, sl_mcap, trailing_pct), else +20 % / -20 %. Valid valid_min (default 60 min).
+  fast        11.11. (Jure): a KUPI of the fast path (fast/live.kupi_rows): a live candidate (a followed / proven
+              wallet's buy, an influencer's call, a convergence, the tool's live pick) that passed the five checks, the
+              MC band and EV > 0. p = the fast_check's P (the source's record, else its strategy's prior, fast/estimate)
+              with its Wilson 90 % interval. Exit: the signal exit (rule E). Entry up to +10 % over the check's market
+              cap. Valid 15 min from the decision. detail.kind: wallet / influencer / convergence / tool.
 
 Evidence (one strategy on one token): {"strategy", "ts", "expires_ts" | "expires_after_s", "tp", "sl" (fractions
 from the market cap now), "levels" (the exit: tp [{"pct" | "mc", "share"}], sl {"pct" | "mc"}, trail, time), "hits",
@@ -49,9 +54,14 @@ import math
 
 from trade import cost as _cost, edge as _edge
 
-STRATEGIES = ("range", "momentum", "influencer", "group", "insider", "event", "catalyst", "grok")
+STRATEGIES = ("range", "momentum", "influencer", "group", "insider", "event", "catalyst", "grok", "fast")
 HR = {"range": "raspon", "momentum": "momentum", "influencer": "influenceri", "group": "skupina", "insider": "insajderi",
-      "event": "događaj", "catalyst": "katalizator", "grok": "Grok"}
+      "event": "događaj", "catalyst": "katalizator", "grok": "Grok", "fast": "fast check"}
+# 11.11. (fast/live): the fast_check's source kind -> the proposal's source kind (wallet / influencer / convergence)
+FAST_KINDS = {"wallet_follow": "wallet", "insider": "wallet", "pre_shill": "wallet", "group": "wallet",
+              "proven": "wallet", "influencer": "influencer", "convergence": "convergence", "tool": "tool"}
+FAST_HR = {"wallet": "novčanik", "influencer": "influencer", "convergence": "konvergencija", "tool": "alat"}
+FAST_CHASE = 0.10            # = fast/paper.CHASE_MAX: the demo entry's own guard
 INFLUENCER_MIN_N = _edge.N_MIN   # 11.11. (owner's rule D): 20 -> 10, with the shrink toward no edge
 INFLUENCER_RUNUP_MAX = 1.5
 GROUP_MIN_N = 8
@@ -60,7 +70,7 @@ RANGE_MIN_BUY_SHARE = 0.5
 RANGE_MIN_SCORE = 0.7
 MOMENTUM_CHASE = 0.05
 EXPIRY_S = {"momentum": 15 * 60, "range": 2 * 3600, "influencer": 30 * 60, "group": 3600, "insider": 3600,
-            "catalyst": 2 * 3600, "grok": 3600}
+            "catalyst": 2 * 3600, "grok": 3600, "fast": 15 * 60}
 CATALYST_HOURS = 2
 CATALYST_KINDS = {"dex_profile": "plaćen DexScreener profil", "profile": "plaćen DexScreener profil",
                   "socials": "nove društvene mreže", "site": "nov web", "website": "nov web", "boost": "boost na DexScreeneru",
@@ -428,6 +438,49 @@ def grok_ev(gp, mcap, model, now):
         ev["invalid"] = f"MC {_usd(mcap)} je iznad Grokove zone ulaza ({_usd(en.get('mcap_high'))})"
     elif now >= ev["expires_ts"]:
         ev["invalid"] = "Grokov prijedlog je istekao"
+    return ev
+
+
+# ---------- fast ---------------------------------------------------------------------------------------------------------
+
+def fast_ev(fr, mcap, now):
+    """11.11. (Jure: KUPI -> "Što kupiti"): fr = the token's best KUPI fast_check of the last 15 min (fast/live.
+    kupi_rows: a followed / proven wallet's buy, an influencer's call, a convergence, the tool's live pick, after the
+    five checks, the MC band and EV > 0). P = the fast_check's P before its modifiers (the source's record, else its
+    strategy's prior, fast/estimate) with its Wilson 90 % interval; build applies the row's own modifiers and cost.
+    Exit: the signal exit (rule E, = fast/paper.PLAN). Entry only up to +10 % over the market cap the check saw (the
+    demo entry's own guard). Valid 15 min from the decision. Source kinds: wallet / influencer / convergence / tool."""
+    if not fr or fr.get("decision") not in ("BUY_PAPER", "BUY_LIVE"):
+        return None
+    t = int(fr.get("decided_ts") or now)
+    m = float(fr.get("p_mult") or 1.0) or 1.0
+    p0 = fr.get("p0") if fr.get("p0") is not None else (fr.get("p") or 0.0) / m
+    lo, hi = (fr.get("p_lo") or 0.0) / m, min(1.0, (fr.get("p_hi") if fr.get("p_hi") is not None else m) / m)
+    kind = FAST_KINDS.get(fr.get("kind"), "tool")
+    mc0 = _f(fr.get("mcap0")) or mcap
+    origin = "zapis izvora" if fr.get("origin") == "source" else (fr.get("origin") or "prior")
+    age = max(0, int((now - int(fr.get("sig_ts") or t)) // 60))
+    verb = {"wallet": "je kupio", "influencer": "je zvao", "convergence": "se poklopila", "tool": "ga je izdvojio"}[kind]
+    lag = fr.get("lag_txt")
+    lag = (f"{fr['lag_pct']:+.1f} % od ulaza izvora ({lag})".replace(".", ",") if fr.get("lag_pct") is not None and lag
+           else lag or "ulaz izvora nepoznat")
+    ev = {"strategy": "fast", "ts": t, "expires_ts": t + EXPIRY_S["fast"], "tp": _edge.TP, "sl": _edge.SL,
+          "p_fixed": {"p": round(float(p0), 4), "n": int(fr.get("n") or 0), "ci90": [round(lo, 3), round(hi, 3)],
+                      "from": f"fast check: {origin}" + (f" ({fr['n_label']})" if fr.get("n_label") else "")},
+          "entry_zone": {"mcap_low": round(mc0 * 0.9), "mcap_high": round(mc0 * (1 + FAST_CHASE))} if mc0 else None,
+          "levels": _edge.signal_exit_levels(),
+          "why": (f"Fast check: {fr.get('source') or '?'} ({FAST_HR[kind]}) {verb} prije {age} min; "
+                  f"{fr.get('label') or 'KUPI'}, {lag}."),
+          "detail": {"signal_id": fr.get("id"), "kind": kind, "source_kind": fr.get("kind"),
+                     "source": fr.get("source"), "source_id": fr.get("source_id"), "decision": fr.get("decision"),
+                     "label": fr.get("label"), "ev_pct_fast": fr.get("ev_pct"), "ci90_ev_fast":
+                     [fr.get("ev_lo_pct"), fr.get("ev_hi_pct")], "origin": fr.get("origin"), "n_label": fr.get("n_label"),
+                     "lag_pct": fr.get("lag_pct"), "lag_txt": fr.get("lag_txt"), "mcap_at_check": mc0},
+          "fast_kind": kind, "invalid": None}
+    if mc0 and mcap and mcap > mc0 * (1 + FAST_CHASE):
+        ev["invalid"] = f"cijena je već {mcap / mc0 - 1:+.0%} od fast odluke (najviše +10 %)"
+    if now >= ev["expires_ts"]:
+        ev["invalid"] = "fast odluka starija od 15 min"
     return ev
 
 

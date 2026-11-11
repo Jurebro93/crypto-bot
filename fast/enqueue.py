@@ -9,7 +9,11 @@ cached flag read and nothing else; fast.db not there yet: nothing, the worker cr
   league/copy.run_once       the copy loop's fresh buys of followed wallets and calls of followed KOLs (kol.db calls,
                              hype.db kol_mentions, tg.db posts): the catch-all for every source the copy loop reads
   fast/worker.scan           the worker's own read of hype.db chain_trades and kol.db calls since its cursor (insider,
-                             pre_shill and group wallets, and anything a hook missed)
+                             pre_shill and group wallets, and anything a hook missed); 11.11.: and kol.db converge
+                             (the pseudo-source "konvergencija", kind convergence)
+  fast/live.ensure           11.11.: every row of the live list (ui/zivo) without a fast_check: its callers of the last
+                             10 min, its proven / followed wallets' buys, its convergence, else the tool's own pick
+                             (submit_live, each with its own source)
 Dedupe: one check per (token, source) per DEDUPE_S (10 min) of the signal's time; a signal older than MAX_AGE_S
 (15 min) when it reaches us is not checked (the copy loop calls that "prekasno" too). Every new job touches WAKE, so
 the worker starts it within its 0.5 s poll.
@@ -186,8 +190,47 @@ def from_calls(calls):
     if not calls or mode() == "off":
         return 0
     return submit([{"token": c.get("token"), "source_id": (c.get("handle") or "").lstrip("@"), "sig_ts": c.get("ts"),
-                    "via": c.get("source") or "x", "symbol": c.get("symbol")}
+                    "via": c.get("source") or "x", "symbol": c.get("symbol"), "entry_px": c.get("p0") or None,
+                    "entry_mcap": c.get("mcap0") or None}
                    for c in calls if c.get("kind") == "call"])
+
+
+def submit_live(items, now=None, path=None, timeout=1.0):
+    """11.11. (Jure: "svaki živi kandidat odmah dobiva fast_check"): the triggers of the live list's rows (fast/live.
+    ensure): [{"token", "source_id", "sig_ts", "via", "kind", "label", "follow_id"?, "entry_*"?}] with their own
+    source (a caller or a proven wallet the hooks do not follow, the convergence, the tool's pick). Deduped like every
+    signal (memory first, then fast.db). Returns how many were enqueued; never raises."""
+    if not items:
+        return 0
+    now = float(now or time.time())
+    fresh = [s for s in items if s.get("token") and s.get("source_id") and s.get("sig_ts")
+             and not _seen(s["token"], s["source_id"], int(s["sig_ts"]))]
+    if not fresh:
+        return 0
+    try:
+        if mode() == "off":
+            return 0
+        p = path or store.db_path()
+        if not os.path.exists(p) or not os.path.getsize(p):
+            return 0
+        con = sqlite3.connect(p, timeout=timeout)
+        try:
+            got = sources.lookup(con, [s["source_id"] for s in fresh])   # a followed source keeps its own kind
+            n = 0
+            for s in fresh:
+                src = got.get(s["source_id"]) or {"kind": s.get("kind"), "label": s.get("label"),
+                                                   "follow_id": s.get("follow_id")}
+                if enqueue(con, s, src, now):
+                    n += 1
+            if n:
+                con.commit()
+                wake()
+            return n
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001 - the live list never fails on the queue
+        print(f"fast: živi kandidati nisu upisani u red ({type(e).__name__}: {e})", flush=True)
+        return 0
 
 
 def from_copy(evs, now=None):
