@@ -101,6 +101,12 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
     # exit_plans' mode; it only sells, never buys; default off, only the owner moves it
     "exit_plan_live": ("G18", "Grokovi planovi izlaza na pravom računu za Grok autotrade pozicije (samo prodaja)"),
+    # 11.11. evening (Jure: "Dok se ne preoznači ponovno, za blokiranje vrijedi stroža oznaka ... Nove oznake nemoj
+    # koristiti dok ne prođe korak 3"): an owner switch (live = on, rugfilter/labels). Off (default): blocking takes
+    # the STRICTER of the old and the new rug labels (a rug if any says rug), statistics keep the old labels. Live:
+    # the SOL-side labels (rugfilter/collapse sol_v2) decide both. Only the owner moves it, after checking the relabel.
+    "rug_labels_v2_ok": ("G28", "Nove rug oznake (SOL strana poola) u blokiranju i statistikama; isključeno = blok po "
+                                "strožoj oznaci (stara ili nova), statistike po starim oznakama"),
     # 11.11. (Jure: "event tokeni s Grokom", topics/): Grok's event topics, their matching tokens (main / clone / rug),
     # the price 24 h before / at / after the event; shadow = measure only, paper = range_dca may trade them on the demo
     # account; never real money (NEVER_LIVE)
@@ -145,7 +151,7 @@ NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najvi
               "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
-OWNER_SWITCHES = frozenset({"exit_plan_live"})
+OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok"})
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
