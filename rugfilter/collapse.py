@@ -192,8 +192,8 @@ def judge(peak_mcap, now_mcap, peak_liq=None, now_liq=None, evidence=None, pool=
 
 
 def judge_usd(peak_mcap, now_mcap, peak_liq=None, now_liq=None, evidence=None):
-    """The rule of 11.11. noon (USD liquidity more than 50 % down = rug), kept ONLY so rugfilter/relabel can show what
-    the pool rule changed; nothing decides on it any more."""
+    """The rule of 11.11. noon (USD liquidity more than 50 % down = rug). 11.11. hotfix: the stricter of it and the pool
+    rule blocks (assess, rugfilter/archive.kind_of) until the owner confirms the relabel; rugfilter/relabel shows it."""
     if not peak_mcap or peak_mcap < MIN_PEAK_MCAP or now_mcap is None or now_mcap < 0:
         return None
     drop = 1 - now_mcap / peak_mcap
@@ -400,9 +400,23 @@ def pool_drops(peak_row, live_mcap=None, live_liq=None, now=None):
 
 
 def assess(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
-    """The rug OR the dump after a pump of a peaks() row (judge's dict), preferring a live market cap / liquidity when
-    given (and counting it into the peak and the pool series). token: for a dump the evidence (rug_evidence) is looked
-    up, which can make it a rug; evidence given: used as is."""
+    """What BLOCKS: the stricter of the pool rule (assess_pool) and the rule of 11.11. noon (judge_usd); 11.11. hotfix
+    (Jure: "stara ILI nova = rug -> blokiran"), until the owner confirms the relabel."""
+    j = assess_pool(peak_row, live_mcap, live_liq, token, evidence)
+    if peak_row and (not j or j["kind"] != "rug"):
+        pm, pl, lm, ll = peak_row[:4]
+        now_m = live_mcap if live_mcap is not None else lm
+        now_l = live_liq if live_liq is not None else ll
+        jo = judge_usd(max(pm or 0, now_m or 0), now_m, max(pl or 0, now_l or 0) or None, now_l)
+        if jo and jo["kind"] == "rug":
+            return {**jo, "text": jo["text"] + " (stroža oznaka: pravilo od 11.11. podne)", "strict": "old"}
+    return j
+
+
+def assess_pool(peak_row, live_mcap=None, live_liq=None, token=None, evidence=None):
+    """The rug OR the dump after a pump of a peaks() row under the pool rule alone (judge's dict), preferring a live
+    market cap / liquidity when given (and counting it into the peak and the pool series). token: for a dump the
+    evidence (rug_evidence) is looked up, which can make it a rug; evidence given: used as is."""
     if not peak_row:
         return None
     pm, pl, lm, ll = peak_row[:4]

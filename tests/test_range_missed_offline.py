@@ -414,18 +414,20 @@ class RugRule(Env):
         # the liquidity follows sqrt(price), 62k at the peak, 24k at the bottom = SOL side -61 %), no dev sells, then $387k
         pk = self.peak_row(X, [(NOW - 20 * 3600, 151_800, 31_200), (NOW - 16 * 3600, 600_000, 62_000),
                                (NOW - 8 * 3600, 90_000, 24_000)])
-        bottom = collapse.assess(pk, 90_000, 24_000, token=X)
+        bottom = collapse.assess_pool(pk, 90_000, 24_000, token=X)          # the pool rule alone
         self.assertEqual(bottom["kind"], "dump")
         self.assertIn("dump nakon pumpe: pao 85 %", bottom["text"].replace("%", " %").replace("  ", " "))
         self.assertEqual(bottom["sol_rule"], "rug")                         # "SOL side -50 %" alone: a rug
-        self.assertIsNone(collapse.check(pk, 90_000, 24_000, token=X))       # no rug label, no block
+        # 11.11. hotfix (Jure: "stara ILI nova = rug -> blokiran"): until the owner confirms the relabel the noon rule
+        # (USD liquidity -61 %) still blocks X as a rug
+        self.assertEqual(collapse.check(pk, 90_000, 24_000, token=X)["strict"], "old")
         self.assertIsNone(collapse.assess(pk, 387_000, 49_800, token=X))      # +155 % from the call: nothing at all
         self.assertAlmostEqual(387_000 / 151_800 - 1, 1.55, places=2)
         hdb = os.path.join(self.tmp.name, "hype_peaks.db")
         with mock.patch.object(copy, "_rugged", REAL_RUGGED), mock.patch("ui.data.HYPE_DB", hdb), \
                 mock.patch("time.time", lambda: NOW):
-            self.assertIsNone(copy._rugged(X, 90_000, 24_000))               # every trading guard: no block
-            self.assertEqual(copy._collapse(X, 90_000, 24_000)["kind"], "dump")
+            self.assertTrue(copy._rugged(X, 90_000, 24_000))                 # hotfix: the stricter label blocks
+            self.assertEqual(copy._collapse(X, 90_000, 24_000)["kind"], "rug")
 
     def test_archive_kinds_read_through_the_new_rule_and_logged(self):
         ac = archive.connect(archive.HYPE_DB)
@@ -438,7 +440,7 @@ class RugRule(Env):
         k = archive.kinds(log=logs.append)
         self.assertEqual(k, {A: "dump", B: "rug", C: "rug", OLD: "rug", X: "dump"})
         self.assertEqual(len(logs), 1)
-        self.assertIn("od 3 redova 'srusen' 2 je dump nakon pumpe", logs[0])
+        self.assertIn("stara oznaka rug 3, od toga sada odblokirano 0", logs[0])   # 11.11. hotfix: the stricter label
         archive.kinds(log=logs.append)
         self.assertEqual(len(logs), 1)                                       # logged once
         self.assertEqual(archive.blocked(archive.HYPE_DB), frozenset({A, B, C, OLD, X}))   # the cleanup set: unchanged

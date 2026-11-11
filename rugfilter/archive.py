@@ -110,9 +110,17 @@ def kind_usd(kind, peak_liq, last_liq):
 
 
 def kind_of(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, relabeled=None):
-    """"rug" | "dump" of one archive row under the pool rule: relabeled (rug_relabel new_kind) when there is one; a
-    "srusen" row else by the pool's L from its peak / last numbers (collapse.judge without a series), and without
-    market caps by the plain liquidity fall."""
+    """"rug" | "dump" of one archive row that BLOCKS: 11.11. hotfix (Jure: "blokiranje mora čitati strožu oznaku,
+    stara ILI nova = rug -> blokiran; nijedan se ne odblokira"): a rug when the stored label (kind_usd, the rule of
+    11.11. noon) OR the pool rule's label (kind_new) says rug."""
+    return "rug" if "rug" in (kind_usd(kind, peak_liq, last_liq),
+                              kind_new(kind, peak_liq, last_liq, peak_mcap, last_mcap, relabeled)) else "dump"
+
+
+def kind_new(kind, peak_liq, last_liq, peak_mcap=None, last_mcap=None, relabeled=None):
+    """"rug" | "dump" of one archive row under the pool rule alone: relabeled (rug_relabel new_kind) when there is one;
+    a "srusen" row else by the pool's L from its peak / last numbers (collapse.judge without a series), and without
+    market caps by the plain liquidity fall. Only shown in the log until the owner confirms the relabel."""
     if kind == "mehanika":
         return "rug"
     if relabeled in ("rug", "dump"):
@@ -162,6 +170,7 @@ def kinds(path=None, ttl=300, log=print):
     if _kcache["path"] == path and now - _kcache["ts"] < ttl:
         return _kcache["map"]
     m, n_srusen, n_dump = {}, 0, 0
+    n_old_rug = n_unblocked = n_new_only_dump = 0
     if os.path.exists(path):
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
@@ -170,6 +179,10 @@ def kinds(path=None, ttl=300, log=print):
                     m[t] = kind_of(k, *rest)
                     n_srusen += k == "srusen"
                     n_dump += m[t] == "dump"
+                    old_k = kind_usd(k, rest[0], rest[1])
+                    n_old_rug += old_k == "rug"
+                    n_unblocked += old_k == "rug" and m[t] == "dump"
+                    n_new_only_dump += old_k == "rug" and kind_new(k, *rest) == "dump"
             finally:
                 con.close()
         except sqlite3.Error:
@@ -177,9 +190,9 @@ def kinds(path=None, ttl=300, log=print):
     _kcache.update(ts=now, path=path, map=m)
     if m and path not in _KLOGGED:
         _KLOGGED.add(path)
-        log(f"rug arhiva (pravilo poola, 11.11.): od {n_srusen} redova 'srusen' {n_dump} je dump nakon pumpe (L poola "
-            f"nije pao {collapse.LIQ_RUG:.0%}+): više ne blokira kao rug, P × 0,7; {len(m) - n_dump} od {len(m)} ostaje "
-            "rug (spremljeni redovi se ne mijenjaju)")
+        log(f"rug arhiva (stroža oznaka, hotfix 11.11.): {len(m)} tokena, blokira kao rug {len(m) - n_dump}, dump "
+            f"{n_dump}; stara oznaka rug {n_old_rug}, od toga sada odblokirano {n_unblocked}; samo novo pravilo bi "
+            f"odblokiralo {n_new_only_dump} (ne primjenjuje se dok vlasnik ne potvrdi preoznačavanje)")
     return m
 
 

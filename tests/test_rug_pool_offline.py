@@ -79,18 +79,18 @@ class CpMath(unittest.TestCase):
         acc, p = {}, Pool()
         fold(acc, "D", NOW - 3600, p)
         fold(acc, "D", NOW, p.trade_to(0.15))
-        j = collapse.assess(acc["D"])
+        j = collapse.assess_pool(acc["D"])
         self.assertEqual(j["kind"], "dump")
         self.assertEqual(j["basis"], "sol")                                  # the stored SOL side, same pool
         self.assertAlmostEqual(j["l_drop"], 0.0, places=3)
         self.assertAlmostEqual(j["sol_drop"], 1 - math.sqrt(0.15), places=3)  # -61 %
         self.assertEqual(j["sol_rule"], "rug")                               # the literal "SOL side -50 %" would say rug
         self.assertIn("pool drži", j["text"])
-        self.assertIsNone(collapse.check(acc["D"]))                          # no block
+        self.assertEqual(collapse.check(acc["D"])["strict"], "old")           # 11.11. hotfix: the stricter label blocks
         acc, p = {}, Pool()
         fold(acc, "R", NOW - 3600, p)
         fold(acc, "R", NOW, p.pull(0.6))
-        j = collapse.assess(acc["R"])
+        j = collapse.assess_pool(acc["R"])
         self.assertEqual(j["kind"], "rug")                                   # L -60 %, the price did not move
         self.assertAlmostEqual(j["l_drop"], 0.6, places=3)
         self.assertEqual(j["drop"], 0.0)
@@ -105,7 +105,7 @@ class CpMath(unittest.TestCase):
         acc = {}
         collapse.add(acc, "U", NOW - 3600, m0, l0)                           # hype_signals: USD only
         collapse.add(acc, "U", NOW, p.mcap(), p.liq_usd())
-        j = collapse.assess(acc["U"])
+        j = collapse.assess_pool(acc["U"])
         self.assertEqual((j["kind"], j["basis"]), ("dump", "usd"))
         self.assertAlmostEqual(j["l_drop"], 0.0, places=6)
         q = Pool()
@@ -114,14 +114,14 @@ class CpMath(unittest.TestCase):
         self.assertEqual(collapse.judge(m0, q.mcap(), l0, q.liq_usd())["kind"], "rug")
         acc = {}
         collapse.add(acc, "U", NOW - 3600, m0, l0)
-        self.assertEqual(collapse.assess(acc["U"], q.mcap(), q.liq_usd())["kind"], "rug")   # live numbers folded in
+        self.assertEqual(collapse.assess_pool(acc["U"], q.mcap(), q.liq_usd())["kind"], "rug")   # live numbers folded in
 
     def test_dev_selling_and_a_75_crash_is_a_rug(self):
         acc, p = {}, Pool()
         fold(acc, "E", NOW - 3600, p)
         fold(acc, "E", NOW, p.trade_to(0.25))
-        self.assertEqual(collapse.assess(acc["E"])["kind"], "dump")
-        j = collapse.assess(acc["E"], evidence=DEV)
+        self.assertEqual(collapse.assess_pool(acc["E"])["kind"], "dump")
+        j = collapse.assess_pool(acc["E"], evidence=DEV)
         self.assertEqual(j["kind"], "rug")
         self.assertIn("dev prodaje", j["text"])
         with mock.patch.object(collapse, "rug_evidence", lambda t: DEV if t == "E" else None):
@@ -132,7 +132,7 @@ class CpMath(unittest.TestCase):
         acc, big, small = {}, Pool(sol=400, tokens=2e9), Pool(sol=40, tokens=2e8)   # same price, a tenth of the pool
         fold(acc, "S", NOW - 3600, big, addr="BIG")
         fold(acc, "S", NOW, small, addr="SMALL")                              # DexScreener now shows another pool
-        self.assertIsNone(collapse.assess(acc["S"]))                          # only the newest pool is compared
+        self.assertIsNone(collapse.assess_pool(acc["S"]))                          # only the newest pool is compared
         self.assertEqual(collapse.judge(big.mcap(), small.mcap(), big.liq_usd(), small.liq_usd())["kind"], "rug")
         # (the peak / now numbers alone cannot tell a switch from a pull: why the pool address is stored)
 
@@ -150,13 +150,13 @@ class NonCp(unittest.TestCase):
             for ts, sol, px in ((NOW - 3600, sol0, 1e-6), (NOW, sol1, 1e-6 * ratio)):
                 collapse.add(acc, "C", ts, px * 150 * 1e9, sol * 2 * 150, sol, px, "CL1", "raydium/CLMM")
             return acc["C"]
-        j = collapse.assess(row(100, 40, 0.4))                               # SOL side -60 %, price -60 %
+        j = collapse.assess_pool(row(100, 40, 0.4))                               # SOL side -60 %, price -60 %
         self.assertEqual((j["kind"], j["cp"]), ("rug", False))
         self.assertIn("ne-CP pool raydium/CLMM", j["text"])
-        j = collapse.assess(row(100, 55, 0.25))                              # SOL side -45 %, price -75 %
+        j = collapse.assess_pool(row(100, 55, 0.25))                              # SOL side -45 %, price -75 %
         self.assertEqual(j["kind"], "dump")
         self.assertIn("ne-CP pool", j["text"])
-        self.assertIsNone(collapse.assess(row(100, 40, 0.8)))                # SOL side -60 % on a -20 % dip: nothing
+        self.assertIsNone(collapse.assess_pool(row(100, 40, 0.8)))                # SOL side -60 % on a -20 % dip: nothing
 
     def test_pair_pool(self):
         p = Pool()
@@ -214,7 +214,7 @@ class PulseColumns(unittest.TestCase):
         self.assertAlmostEqual(r[0][0], 85.0)
         self.assertEqual(r[1][2:], ("POOL1", "pumpswap"))
         con.close()
-        j = collapse.assess(collapse.peaks(db, ["T"], now=NOW)["T"])
+        j = collapse.assess_pool(collapse.peaks(db, ["T"], now=NOW)["T"])
         self.assertEqual((j["kind"], j["basis"]), ("dump", "sol"))
         self.assertAlmostEqual(j["sol_drop"], 0.613, places=3)
 
@@ -323,8 +323,8 @@ class Relabel(unittest.TestCase):
         self.assertEqual(rows["ARCH1"], "rug>dump")
         self.assertNotIn("DIP", rows)
         self.assertNotIn("ARCH3", rows)                                          # archived 10 days ago
-        k = archive.kinds(self.db, ttl=0, log=lambda m: None)                    # the archive reads the new label
-        self.assertEqual((k["ARCH1"], k["ARCH2"], k["ARCH3"]), ("dump", "rug", "dump"))
+        k = archive.kinds(self.db, ttl=0, log=lambda m: None)                    # 11.11. hotfix: the stricter label
+        self.assertEqual((k["ARCH1"], k["ARCH2"], k["ARCH3"]), ("rug", "rug", "rug"))   # nothing is unblocked
         logs2 = []
         self.assertIsNone(relabel.retro_once(self.db, NOW + 60, log=logs2.append, paper_db=self.paper))   # once
         self.assertEqual(logs2, [])
@@ -374,17 +374,18 @@ class ArchiveRun(unittest.TestCase):
             self.assertEqual(rows, {"CPDUMP": "rug>dump", "PULLED": "rug>rug"})
             archive.forget_cache()
             k = archive.kinds(db, ttl=0, log=lambda m: None)
-            self.assertEqual((k["CPDUMP"], k["PULLED"]), ("dump", "rug"))
-            self.assertEqual(archive.kind_one("CPDUMP", db), "dump")
+            self.assertEqual((k["CPDUMP"], k["PULLED"]), ("rug", "rug"))      # 11.11. hotfix: the stricter label blocks
+            self.assertEqual(archive.kind_one("CPDUMP", db), "rug")
         finally:
             archive.ROOT = root
             archive.forget_cache()
 
     def test_kind_of_without_a_relabel(self):
-        self.assertEqual(archive.kind_of("srusen", 50_000, 50_000 * math.sqrt(0.12), 500_000, 60_000), "dump")
+        self.assertEqual(archive.kind_new("srusen", 50_000, 50_000 * math.sqrt(0.12), 500_000, 60_000), "dump")
         self.assertEqual(archive.kind_of("srusen", 50_000, 5_000, 500_000, 60_000), "rug")     # L -71 %
         self.assertEqual(archive.kind_of("srusen", 60_000, 10_000), "rug")                       # no market caps
-        self.assertEqual(archive.kind_of("srusen", 50_000, 5_000, 500_000, 60_000, "dump"), "dump")   # relabel wins
+        self.assertEqual(archive.kind_new("srusen", 50_000, 5_000, 500_000, 60_000, "dump"), "dump")   # relabel wins
+        self.assertEqual(archive.kind_of("srusen", 50_000, 5_000, 500_000, 60_000, "dump"), "rug")    # hotfix: stricter
         self.assertEqual(archive.kind_of("mehanika", None, None, None, None, "dump"), "rug")
         self.assertEqual(archive.kind_usd("srusen", 50_000, 50_000 * math.sqrt(0.12)), "rug")   # the noon rule
 
