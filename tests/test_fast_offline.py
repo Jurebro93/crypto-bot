@@ -392,9 +392,9 @@ def checks_ok(liq=60_000):
 
 
 def build_cost_pct(liq):
-    from proposals import build
-    c = build.cost_for(liq)
-    return None if c is None else c * 100
+    # 11.11. (owner's rule A): the ONE cost model of the stake (0.1 SOL ~ $15) in the pool; None under $15k
+    from trade import cost as tcost
+    return None if tcost.liq_block(liq) else tcost.round_trip(15.0, liq) * 100
 
 
 class Decide(unittest.TestCase):
@@ -402,16 +402,25 @@ class Decide(unittest.TestCase):
         P = sources.proof_rule()
         import run_trade
         self.assertIs(P, run_trade.PROOF)                              # the constant itself, never a copy
-        self.assertEqual(sources.has_proof(12, 6, 50.0), (True, None))
-        self.assertFalse(sources.has_proof(9, 9, 50.0)[0])             # n < 10
-        self.assertFalse(sources.has_proof(12, 6, -1.0)[0])            # PnL <= 0
-        self.assertFalse(sources.has_proof(12, 4, 50.0)[0])            # 33 % < 40 %
+        # 11.11. (owner's rule D): n >= 10, EV >= +3 % and the 90 % interval's lower bound > 0; no win-rate rule
+        self.assertNotIn("win_rate", P)
+        self.assertEqual(sources.has_proof([0.05, 0.06] * 6), (True, None))
+        self.assertIn("od potrebnih 10", sources.has_proof([0.2] * 9)[1])          # n < 10
+        self.assertIn("treba barem +3", sources.has_proof([0.02] * 12)[1])           # EV +2 % < +3 %
+        self.assertIn("donja granica", sources.has_proof([0.4, -0.25] * 6)[1])       # EV +7.5 %, interval under 0
+        # what the old rule passed (12 closed, PnL > 0, 42 % winners >= 40 %) is NOT proof: EV +0.4 %
+        self.assertFalse(sources.has_proof([0.15] * 5 + [-0.10] * 7)[0])
         q = {"kind": "wallet_follow", "hits": 9, "n": 12, "closed": 12, "proof": True}
         d = decide.decide(checks_ok(), q)
+        self.assertGreaterEqual(d["ev_pct"], 3.0)
         self.assertEqual((d["decision"], d["size_sol"]), ("BUY_LIVE", 0.1))
+        q = {"kind": "wallet_follow", "hits": 8, "n": 12, "closed": 12, "proof": True}
+        d = decide.decide(checks_ok(), q)                                  # proven, 0 < EV < +3 %: paper only
+        self.assertTrue(0 < d["ev_pct"] < 3.0, d["ev_pct"])
+        self.assertEqual((d["decision"], d["size_sol"]), ("BUY_PAPER", decide.PAPER_SOL))
         q = {"kind": "wallet_follow", "hits": 5, "n": 12, "closed": 12, "proof": True}
         self.assertEqual(decide.decide(checks_ok(), q)["decision"], "SKIP")   # proven but EV <= 0
-        q = {"kind": "wallet_follow", "hits": 1, "n": 1, "closed": 1, "proof": False}
+        q = {"kind": "wallet_follow", "hits": 0, "n": 1, "closed": 1, "proof": False}
         d = decide.decide(checks_ok(22_000), q)
         self.assertEqual((d["decision"], d["size_sol"]), ("BUY_PAPER", decide.PAPER_SOL))   # collecting, EV < 0 too
         self.assertLess(d["ev_pct"], 0)
@@ -420,7 +429,7 @@ class Decide(unittest.TestCase):
 
     def test_shrink_toward_the_base_rate_and_ev_by_liquidity(self):
         base = decide.PRIOR
-        self.assertAlmostEqual(base, 0.52)
+        self.assertAlmostEqual(base, 0.48)                             # (SL + the cost model's 2 % fee part) / 25
         p1 = decide.p_tp(1, 1, base)                                   # 1 winner of 1: barely moves
         self.assertAlmostEqual(p1, (1 + 10 * base) / 11)
         self.assertLess(abs(p1 - base), 0.05)
@@ -428,10 +437,34 @@ class Decide(unittest.TestCase):
         self.assertAlmostEqual(p10, (10 + 10 * base) / 20)
         self.assertGreater(abs(p10 - base), abs(p1 - base))
         self.assertAlmostEqual(decide.ev(0.6, 0.03), 0.6 * 0.15 - 0.4 * 0.10 - 0.03)
-        self.assertEqual([build_cost_pct(x) for x in (60_000, 30_000, 22_000, 15_000)], [3.0, 5.0, 8.0, None])
+        cs = [build_cost_pct(x) for x in (60_000, 30_000, 22_000, 15_000)]
+        self.assertEqual(cs, sorted(cs))                                # thinner pool, higher cost: one formula
+        self.assertTrue(all(2.0 < c < 2.5 for c in cs), cs)            # 2 % fee + 2 x the $15 stake's impact
+        self.assertIsNone(build_cost_pct(14_999))                      # under $15k: blocked
         b = decide.base_for("insider", {"insider": (12, 30)})
         self.assertEqual((b["p"], b["n"]), (0.4, 30))                  # measured base rate once there are enough
         self.assertEqual(decide.base_for("insider", {"insider": (3, 5)})["p"], decide.PRIOR)
+
+    def test_runup_and_wash_are_modifiers_not_fails(self):
+        # 11.11. (owner's rule B): a 4x+ run-up is P x 0.7 and size x 0.5, wash P x 0.5; neither is a SKIP by itself
+        q = {"kind": "wallet_follow", "hits": 12, "n": 12, "closed": 12, "proof": True}
+        plain = decide.decide(checks_ok(), q)
+        c = checks_ok()
+        c["price"]["values"]["runup_x"] = 5.0
+        late = decide.decide(c, q)
+        self.assertEqual(late["modifiers"]["p_mult"], 0.7)
+        self.assertAlmostEqual(late["p_tp"], round(plain["p_tp"] * 0.7, 4), places=3)
+        self.assertNotEqual(late["decision"], "CHECK_FAILED")
+        c = checks_ok()
+        c["flow"]["values"] = {"tags": ["wash"], "buy_share_5m": 0.7}
+        w = decide.decide(c, q)
+        self.assertEqual(w["modifiers"]["p_mult"], 0.5)
+        self.assertEqual(w["decision"], "SKIP")                          # P halved: EV <= 0, the reason is the EV
+        self.assertEqual(w["key"], "ev")
+        # the size follows the slippage and the volume: $3k-$10k of 1 h volume shrinks it
+        c = checks_ok()
+        c["price"]["values"].update(liq=60_000, sol_usd=150.0, vol_h1=5_000)
+        self.assertEqual(decide.decide(c, q)["size_sol"], 0.05)
 
     def test_errors_beat_fails_and_fails_name_the_first_check(self):
         c = checks_ok()
@@ -446,7 +479,7 @@ class Decide(unittest.TestCase):
 
 
 class LiveLabel(Env):
-    def proven(self, n=12, wins=8, pnl=5.0):
+    def proven(self, n=12, wins=10, pnl=5.0):   # 11.11.: EV net of cost >= +3 % with the interval above 0
         for i in range(n):
             self.lg.execute("INSERT INTO trades (user, token, symbol, opened_ts, closed_ts, status, size_usd, pnl_usd, "
                             "ret, source, follow_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",

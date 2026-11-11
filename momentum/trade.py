@@ -14,7 +14,7 @@ A trade = one demo lot (source "momentum scalp", no auto TP/SL of its own) and i
 the signal it came from, entry, state (tp1 done, peak), and at the end the PnL of every part sold (TP1's half is its
 own closed row, league/store.sell_partial), hit (TP1 came before the stop) and the exit reason.
 
-Before the buy, again on the live quote: bonded, MC 30k-3M, liquidity >= $20k, the copy loop's pool and rug guards
+Before the buy, again on the live quote: bonded, MC 30k-3M, liquidity >= $15k, the copy loop's pool and rug guards
 (league/copy), and the price not more than chase_max (5 %) above the signal's. Limits: trade settings size_sol at the
 SOL price, max_open open momentum trades per account, max_sol_per_day of momentum entries per Zagreb day.
 """

@@ -80,7 +80,10 @@
   "keywords": [
    "TURKEY",
    "THANKS"
-  ]
+  ],
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "note": "Fourth Thursday of November 2026 (federal holiday rule, 5 U.S.C. 6103)."
  },
  {
   "title": "Christmas",
@@ -108,8 +111,9 @@
   "query": "\"Tesla Roadster\" unveil OR reveal OR demo date"
  },
  {
-  "title": "GTA 6 release",
-  "date": "2026-11-19",
+  "title": "GTA 6 release (rolling, New Zealand first)",
+  "date": "2026-11-18",
+  "event_ts": "2026-11-18T11:00:00Z",
   "kind": "game_release",
   "subject": "GTA 6",
   "keywords": [
@@ -120,8 +124,15 @@
    "LUCIA",
    "JASON"
   ],
-  "url": "https://www.nme.com/news/gaming-news/grand-theft-auto-6-november-release-date-4chan-delay-rumour-3946832",
-  "note": "Rockstar date 19 Nov 2026; re-check for delays."
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "url": "https://mp1st.com/news/gta-6-unlock-times-revealed",
+  "sources": [
+   "https://mp1st.com/news/gta-6-unlock-times-revealed",
+   "https://www.igeeksblog.com/gta-6-global-release-times/",
+   "https://www.pcgamesn.com/gta-6-release-date"
+  ],
+  "note": "Rockstar date 19 Nov 2026, released at local midnight per region (PlayStation Store listings): the earliest global start is New Zealand, 19.11. 00:00 NZDT = 18.11. 11:00 UTC = 12:00 CET (event_ts). Rockstar has not published the hour itself; re-check for delays."
  },
  {
   "title": "GTA 6 trailer or delay news",
@@ -200,6 +211,81 @@
    "MIDTERMS",
    "MAGA",
    "VOTE"
-  ]
+  ],
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "note": "Tuesday after the first Monday of November 2026 (2 U.S.C. 7); already past."
+ },
+ {
+  "title": "PUMP token unlock (date unconfirmed)",
+  "date": null,
+  "kind": "crypto",
+  "subject": "PUMP",
+  "keywords": [
+   "PUMP",
+   "PUMPFUN"
+  ],
+  "status": "unconfirmed",
+  "verified": "2026-11-11",
+  "candidates": [
+   "2026-11-11T12:44:00Z",
+   "2026-11-14"
+  ],
+  "sources": [
+   "https://defillama.com/protocol/unlocks/pump",
+   "https://oakresearch.io/en/projects/pump"
+  ],
+  "note": "Sources disagree: DefiLlama / Oak Research 11.11. 12:44 UTC, another source 14.11. Never seeded as a certain event (status unconfirmed: the loader skips it) until one date is confirmed."
+ },
+ {
+  "title": "US PPI release (October data)",
+  "date": "2026-11-13",
+  "event_ts": "2026-11-13T13:30:00Z",
+  "kind": "regime",
+  "regime": "macro",
+  "subject": "PPI",
+  "keywords": [],
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "url": "https://www.bls.gov/schedule/news_release/ppi.htm",
+  "sources": [
+   "https://www.bls.gov/schedule/news_release/ppi.htm",
+   "https://www.bls.gov/schedule/2026/11_sched_list.htm"
+  ],
+  "note": "08:30 ET = 13:30 UTC = 14:30 CET. A market regime label (macro volatility), never an event token."
+ },
+ {
+  "title": "FOMC rate decision",
+  "date": "2026-12-09",
+  "event_ts": "2026-12-09T19:00:00Z",
+  "kind": "regime",
+  "regime": "macro",
+  "subject": "FOMC",
+  "keywords": [],
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+  "sources": [
+   "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "https://fedratecalc.com/fomc-meeting-schedule/december-2026/"
+  ],
+  "note": "Meeting 8-9 Dec 2026, decision 9 Dec 14:00 ET = 19:00 UTC = 20:00 CET. A market regime label, never an event token."
+ },
+ {
+  "title": "Solana Breakpoint 2026 (London, Olympia)",
+  "date": "2026-11-15",
+  "end_date": "2026-11-17",
+  "kind": "regime",
+  "regime": "conference",
+  "subject": "Solana Breakpoint",
+  "keywords": [],
+  "status": "confirmed",
+  "verified": "2026-11-11",
+  "url": "https://solana.com/news/breakpoint-london-lineup",
+  "sources": [
+   "https://solana.com/news/breakpoint-london-lineup",
+   "https://solanacompass.com/news/solana-breakpoint-2026-comes-to-london-for-the-first-time-november-15-17-at-olympia"
+  ],
+  "note": "15-17 Nov 2026, Olympia London. Only a REGIME label for the Solana market, not an event token."
  }
 ]

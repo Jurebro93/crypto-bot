@@ -28,8 +28,9 @@ import statistics
 import time
 
 from events import sources, store
+from trade import cost as _tcost
 
-COST = 0.02
+COST = _tcost.FEE_ROUND_TRIP   # 11.11. (owner's rule A): the ONE cost model's fee part (0.02)
 TP, SL = 0.20, -0.30
 WICK_X = 3.0
 PENDING_S = 26 * 3600

@@ -10,8 +10,8 @@ Simulation of one token, minute by minute (body path: open, then close):
   - exits with rules.exit_step at the open and the close of every minute; the first take profit fills at its level
     (the live executor sells at the first second at or over it), everything else at the price that triggered it
     (a stop that gapped fills lower: the pessimistic side); a give-up at that minute's close;
-  - costs as on the demo account: 1 % fee each way and the AMM impact of a LOT_USD lot on the pool (liquidity from
-    the snapshots, else BT_LIQ).
+  - costs: trade/cost, the ONE model (11.11. owner's rule A): the fee each way (league/store.FEE, 1 %, until trade.db
+    orders calibrate it) and the AMM impact of a LOT_USD lot on the pool (liquidity from the snapshots, else BT_LIQ).
 Variants: range_score threshold 0.6 / 0.7 / 0.8, with and without lot 2. Report: rounds, win rate, average result
 per round (USD and % of its cost), max drawdown of the summed rounds in exit order, the worst round, every round.
 Output: output/range-backtest-YYYYMMDD.json and .md, and the summary in the log ("range backtest | ...").
@@ -23,6 +23,8 @@ import os
 import statistics
 import time
 
+from trade import cost as _cost
+
 from . import data, detect, rules
 
 LOT_USD = 15.0       # ~0.1 SOL, the Autopilot's size_sol
@@ -30,12 +32,15 @@ BT_LIQ = 40_000.0    # pool depth for the impact when the history has no liquidi
 STEP_S = 300
 THRESHOLDS = (0.6, 0.7, 0.8)
 PROXY_OFF = "0.7_bez_proxyja"   # sensitivity: threshold 0.7 without the volume proxy of the buys share (see simulate)
-FEE = 0.01
+
+
+def _fee():
+    """The fee a side (trade/cost: league/store.FEE or its calibration)."""
+    return _cost.fee_side()
 
 
 def _impact(usd, liq):
-    side = (liq or BT_LIQ) / 2
-    return usd / (side + usd)
+    return _cost.impact(usd, liq or BT_LIQ)
 
 
 def timeline(candles, supply, liq=None, step_s=STEP_S):
@@ -95,7 +100,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                 else:
                     q = sum(x["qty"] for x in pos["lots"])
                     cost_left = sum(x["usd"] for x in pos["lots"]) - pos["realized"]
-                    be = cost_left / q / ((1 - FEE) * (1 - _impact(cost_left, liq))) if q > 0 and cost_left > 0 else None
+                    be = cost_left / q / ((1 - _fee()) * (1 - _impact(cost_left, liq))) if q > 0 and cost_left > 0 else None
                     hit = rules.exit_step(lv, pos["state"], px, t, pos["opened"], be)
                 if not hit:
                     continue
@@ -105,7 +110,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                     q = x["qty"] * frac
                     gross = q * fill
                     x["qty"] -= q
-                    got = gross * (1 - FEE) * (1 - _impact(gross, liq))
+                    got = gross * (1 - _fee()) * (1 - _impact(gross, liq))
                     pos["realized"] += got
                 pos["exits"].append({"ts": t, "reason": reason.split(":")[0], "frac": frac,
                                      "mc": round(fill * supply) if supply else None})
@@ -124,7 +129,7 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
                 if rules.RULES["lot2_lo"] - 1e-9 <= drop <= rules.RULES["lot2_hi"] + 1e-9:
                     m = _metrics_at(candles, ts, i, t, supply, proxy_buys)
                     if rules.lot2_check(pos["lot1_px"], px, lv, m) is None:
-                        eff = px * (1 + FEE) / (1 - _impact(lot_usd, liq))
+                        eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
                         pos["lots"].append({"px": px, "usd": lot_usd, "qty": lot_usd / eff})
                         pos["lot2_mc"] = round(px * supply) if supply else None
             continue
@@ -140,13 +145,13 @@ def simulate(candles, supply, tl, score_min=0.7, lot2=True, liq=None, lot_usd=LO
         if (m.get("vol_h1") or 0) < detect.CFG["min_vol_h1"] or not supply or px * supply < detect.CFG["min_mcap"]:
             continue
         if rules.entry_check(r2, px, min_score=score_min) is None:
-            eff = px * (1 + FEE) / (1 - _impact(lot_usd, liq))
+            eff = px * (1 + _fee()) / (1 - _impact(lot_usd, liq))
             pos = {"opened": t, "lot1_px": px, "lots": [{"px": px, "usd": lot_usd, "qty": lot_usd / eff}], "realized": 0.0,
                    "levels": lv, "state": {}, "exits": [], "entry_mc": round(px * supply), "score": rng.get("score")}
     if pos:   # still open at the end of the data: valued at the last close, marked open
         px = candles[-1][4]
         cost = sum(x["usd"] for x in pos["lots"])
-        val = pos["realized"] + sum(x["qty"] * px * (1 - FEE) for x in pos["lots"])
+        val = pos["realized"] + sum(x["qty"] * px * (1 - _fee()) for x in pos["lots"])
         rounds.append({"opened": pos["opened"], "closed": None, "lots": len(pos["lots"]), "entry_mc": pos["entry_mc"],
                        "lot2_mc": pos.get("lot2_mc"), "exits": pos["exits"], "cost": round(cost, 4),
                        "pnl": round(val - cost, 4), "ret": round((val - cost) / cost, 5), "reason": "otvoreno",

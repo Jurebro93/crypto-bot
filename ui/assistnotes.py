@@ -243,7 +243,7 @@ def submit_signal_opinion(con, kid, token, verdict, confidence=None, interpretat
         out["proposal_note"] = (
             "Stored as a proposal source (strategy grok): shown on the Autopilot's Prijedlozi and in get_proposals only "
             "while verdict is kupi with p_tp, your p_tp CALIBRATED on your measured record gives EV > 0 after cost, "
-            "and no block applies (rug, wash volume, 5x run-up, liquidity under $20k, shill-driven). Valid valid_min "
+            "and no block applies (rug high, liquidity under $15k; wash, run-up and shill only lower p). Valid valid_min "
             "minutes (default 60). Nothing is bought." if v == "kupi" and "p_tp" in prop else
             "Stored with the opinion; it becomes a proposal only with verdict kupi and p_tp.")
     return out

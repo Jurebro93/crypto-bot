@@ -25,11 +25,12 @@ RULES = ("Every buy of a followed wallet (wallet_follow, insider, pre_shill, gro
          "influencer gets five checks at once: rug (mint / freeze authority, LP, RugCheck, top 10, dev, bundle, "
          "snipers), holders (top 20 without pools / CEX, top 10 > 45 % fails, one wallet > 20 %, fresh wallets > 50 %), "
          "fresh flow (5 min buys / sells, buy share < 40 % or < 5 transactions fails, 1 min from PumpPortal when we "
-         "have it, wash), price (vs the wallet's entry: more than +20 % fails, MC < 30k, liquidity < $20k or < 3 % of "
-         "MC, 5x run-up) and source (closed trades, PnL, winners, tier). EV = P x 15 % - (1 - P) x 10 % - cost "
-         "(3 / 5 / 8 % by liquidity), P = (hits + 10 x base) / (n + 10). BUY_LIVE only with run_trade's proof "
-         "(closed >= 10, PnL > 0, >= 40 % winners) and EV > 0; a source still collecting (closed < 10) gets a "
-         "BUY_PAPER with 0.05 SOL; an API error is CHECK_FAILED and retried 3x within 30 s, never a skip. "
+         "have it; wash is a tag: P x 0.5), price (vs the wallet's entry: more than +20 % fails, MC < 30k, liquidity < "
+         "$15k; a 4x+ run-up is a tag: P x 0.7, size x 0.5) and source (closed trades, EV, PnL, tier). EV = P x 15 % - "
+         "(1 - P) x 10 % - cost (2 x fee + 2 x the stake's pool impact), P = (hits + 10 x base) / (n + 10) x the "
+         "modifiers. BUY_LIVE only with run_trade's proof (n >= 10, EV >= +3 % with its 90 % interval above 0) and "
+         "this signal's EV >= +3 %; a source still collecting (closed < 10) gets a BUY_PAPER with 0.05 SOL; an API "
+         "error is CHECK_FAILED and retried 3x within 30 s, never a skip. "
          "propušteno = SKIP and max >= +20 % within 60 min.")
 
 

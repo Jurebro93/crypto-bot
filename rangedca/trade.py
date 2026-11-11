@@ -6,7 +6,8 @@
 Modes (league/flags): off nothing new (rounds already open keep their exits: a stop is never dropped; looked for once
 a minute); shadow: the real account LEAGUE_USER only logs what it would buy (league.db shadow_decisions); paper: the
 demo account PAPER_USER trades (run_trade.py never mirrors it), LEAGUE_USER logs; live: both trade, and LEAGUE_USER
-only while rangedca/gate.refusal() is None (>= 20 closed paper rounds with EV > 0), checked again every minute.
+only while rangedca/gate.refusal() is None (>= 20 closed paper rounds passing trade/edge.live_proof), checked again
+every minute.
 11.11.: a token only the market watchlist or an event topic brought (ranges.src market / event, rangedca/market.py)
 is entered only by the demo account PAPER_USER and only while its own flag (range_market / event_tokens) is paper;
 the real account never buys one and never logs one (allowed()).
@@ -18,7 +19,8 @@ source "range lot 1" / "range lot 2" and no auto TP/SL of their own; run_trade.p
 other trade (lot 2 as one more lot of the same position, held by every real limit).
 
 Limits (spec 3): a lot is trade settings size_sol (in USD at the current SOL price), lot 1 + lot 2 at most
-dca_token_cap SOL; on the demo account max_open counts its open range rounds and max_sol_per_day its range lots of
+dca_token_cap SOL; 11.11. (owner's rules B / C, trade/cost.size_sol): never more than the stake whose buy impact stays
+<= 2 %, and x volume 1 h / $10k under $10k (the range itself needs $3k); on the demo account max_open counts its open range rounds and max_sol_per_day its range lots of
 the Zagreb day (run_trade.py holds the real account to every real limit again). Grok does not trade through this; a
 Grok trade in the same token goes through ui/grokauto and its own limits, and Grok may TIGHTEN a range position's
 exits with set_exit_plan (league/exitplan; "accounts": ["autopilot-paper"] keeps the plan off the real account).
@@ -29,6 +31,7 @@ import sqlite3
 import time
 
 from league import store
+from trade import cost as _cost
 from . import data, gate, market, rules
 
 FLAG = "range_dca"
@@ -201,8 +204,9 @@ def _guards(tok, m):
         return "token je još na pump.fun krivulji ili bez DexScreener para (uzimaju se bondani)"
     if (mcap or 0) < copy.CFG["min_mcap"]:
         return "MC ispod 30k (ispod 30k se ne kupuje)"
-    if (liq or 0) < 20_000:
-        return f"likvidnost ${liq or 0:,.0f}, treba $20k"
+    lb = _cost.liq_block(liq or 0)   # 11.11. owner's rule B: the only liquidity block, under $15k
+    if lb:
+        return lb
     if mcap and liq and liq > mcap:
         return "lažni pool (likvidnost veća od MC-a)"
     if mcap and liq and liq < copy.CFG["min_liq_mcap"] * mcap:
@@ -303,6 +307,14 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
     return done
 
 
+def _sized(lot, liq, sol, rng):
+    """11.11. (owner's rules B / C): the lot within the 2 % slippage stake and x the 1 h volume factor (trade/cost)."""
+    if lot <= 0:
+        return lot
+    vol = ((rng or {}).get("metrics") or {}).get("vol_h1")
+    return round(_cost.size_sol(lot, liq, sol, vol), 6)
+
+
 def _lot1(con, user, tok, rng, mq, lim, sol, now):
     if not mq or not mq[0]:
         return []
@@ -315,6 +327,9 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now):
     lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"])
     if why is None and lot <= 0:
         why = "dca_cap manji od pola uloga"
+    lot = _sized(lot, liq, sol, rng)
+    if why is None and lot <= 0:
+        why = "volumen 1 h ispod $3k"
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
         why = "dnevni limit SOL-a za range ulaze"
     if why:
@@ -352,6 +367,9 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
     lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
     if why is None and lot <= 0:
         why = "dca_cap: nema mjesta za lot 2"
+    lot = _sized(lot, liq, sol, rng)
+    if why is None and lot <= 0:
+        why = "volumen 1 h ispod $3k"
     if why is None and _spent_today(con, user, now, sol) + lot > lim["max_sol_per_day"] + 1e-9:
         why = "dnevni limit SOL-a za range ulaze"
     if why is None:

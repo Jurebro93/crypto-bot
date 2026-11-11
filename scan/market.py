@@ -433,10 +433,10 @@ def check(m, cfg, ctx, has_signal):
         out["why"] = out["why_sig"] = g
         return out
     out["reasons"].append("ulazna pravila kopiranja prolaze (likvidnost, MC, pool, arhiva, kolaps)")
-    ru = runup_why(m, stage, cfg, ctx)   # 11.11. (Grok #54 / #96 / #105): before the paid facts
-    if ru:
-        out["why"] = out["why_sig"] = ru
-        return out
+    ru = runup_why(m, stage, cfg, ctx)   # 11.11. (Grok #54 / #96 / #105)
+    if ru:   # 11.11. (owner's rule B): a tag, never a skip; the decision takes P x 0.7 / size x 0.5 (trade/edge)
+        out["reasons"].append(f"oznaka: {ru}")
+        out.setdefault("tags", []).append("runup")
     fee = filters.fees_filter(m, ctx.trades(tok), cfg, ctx.sol_usd)
     out.update(fees_paid_sol=fee["fees_paid_sol"], buy_share=fee["buy_share"], wash=fee["wash"])
     if fee["why"]:
@@ -473,10 +473,10 @@ def first_seen(con, tok, now, cfg):
 
 
 def runup_why(m, stage, cfg, ctx):
-    """11.11. (Grok #54 / #96 / #105): the run-up cap. A bonded token at runup_max_x (4x) or more over the market cap
-    at the scanner's first sighting of it as bonded fails as "kasno" (for the scanner's own rule and for a caller /
-    wallet signal alike, so neither enters shadow as a pass). None when the cap is off, the token is on the curve or
-    the anchor is unknown."""
+    """11.11. (Grok #54 / #96 / #105): the run-up mark. A bonded token at runup_max_x (4x) or more over the market cap
+    at the scanner's first sighting of it as bonded gets the text "kasno: ..." (11.11., owner's rule B: a TAG on the
+    row's reasons, no longer a fail; the P / size modifier is applied where the trade is decided, trade/edge). None
+    when the mark is off, the token is on the curve or the anchor is unknown."""
     cap = float(cfg.get("runup_max_x") or 0)
     con = getattr(ctx, "con", None)
     mc = _f(m.get("mcap"))

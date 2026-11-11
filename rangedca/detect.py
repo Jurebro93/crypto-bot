@@ -16,7 +16,8 @@ the top above the bottom and range_high / range_low (the zones' averages) >= 1.3
 range_low_low * 0.85 and range_high_top * 1.15), with the most touches on its weaker side, touches weighted by age
 (half-life 8 h: a level touched today outweighs yesterday's). A zone's edges come from its last 3 touches:
 range_high_low = their lowest, range_high_top = their highest (at least +-1 % around their average), so every new
-touch moves the zone. A range also needs data for >= 6 h, liquidity >= $20k, volume in the last hour >= $10k and
+touch moves the zone. A range also needs data for >= 6 h, liquidity >= $15k (trade/cost.LIQ_HARD_MIN), volume in the
+last hour >= $3k (trade/cost.VOL_FLOOR; 11.11. owner's rule B: $3k-$10k only shrinks the lot, rangedca/trade) and
 MC >= $30k (CLAUDE.md); the rug check is the entry's (league/copy guards).
 
 range_score 0-1 (spec 2), each component 0-1 times its weight:
@@ -35,11 +36,13 @@ Unknown inputs score 0, never a guess in our favour.
 """
 import statistics
 
+from trade import cost as _cost
+
 CFG = {
     "window_h": 24, "min_hist_h": 6,
     "high_turn": 0.10, "low_turn": 0.15, "high_tol": 0.08, "low_tol": 0.10,
     "keep_touches": 3, "zone_min_half": 0.01,
-    "min_ratio": 1.3, "min_liq": 20_000, "min_vol_h1": 10_000, "min_mcap": 30_000,
+    "min_ratio": 1.3, "min_liq": _cost.LIQ_HARD_MIN, "min_vol_h1": _cost.VOL_FLOOR, "min_mcap": 30_000,
     "rec_up": 0.25, "speed_fast_min": 20, "speed_slow_min": 90, "higher_low_x": 0.97,
     "vol_hold_hi": 0.5, "vol_hold_lo": 0.25, "buy_hi": 0.55, "buy_lo": 0.45, "panic_x": 2.0,
     "lower_low_x": 0.97, "vol_decline": 0.5,

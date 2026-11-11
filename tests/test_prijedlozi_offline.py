@@ -1,9 +1,10 @@
 """11.11. (Jure, flag proposals G21): "Prijedlozi" from every strategy (proposals/), offline, no network.
 
 Covers: several sources merged into one token row (sources, independent count: callers <= 30 s apart count once,
-a known crew within 10 min once), the cost by liquidity (3 / 5 / 8 % at 60k / 30k / 22k, blocked under 20k), the EV
-> 0 filter and the ranking (EV, then independent sources), the blocks (rug high, wash volume, 5x run-up, liquidity,
-shill-driven), the shrinkage (a strategy with no record is never shown), Grok's p_tp calibration (the owner's 20 % ->
+a known crew within 10 min once), the ONE cost model (trade/cost.round_trip, blocked under $15k; 11.11. owner's rule A),
+the EV > 0 filter and the ranking (11.11. rule D: EV per expected minute, then the low end of the EV's interval, then
+liquidity), the hard blocks (rug high, liquidity under $15k) and the modifiers that are no longer blocks (wash, 4x+
+run-up, shill-driven: P x 0.5 / x 0.7, size x 0.5; rule B), the shrinkage (a strategy with no record is never shown), Grok's p_tp calibration (the owner's 20 % ->
 56 % fixture, identity with few samples) and a Grok proposal through it, expiry (time, drop-out, a failed market
 read), the after-outcome recording (1 h / 4 h, TP before SL, from our own price points), the Autopilot card right
 after Brza kupnja and owner-only (nav link only while the flag is on), the fragment, Odbij with a reason, Kupi ->
@@ -27,7 +28,8 @@ sys.path.insert(0, ROOT)
 from league import copy as lcopy, exitplan  # noqa: E402
 from proposals import build, calib, job, outcomes, paper, report, store, strategies, view  # noqa: E402
 from tests.test_kandidati_offline import NOW, FakeSources, live, mint  # noqa: E402
-from trade import executor, settings  # noqa: E402
+from trade import cost as tcost, edge, executor, settings  # noqa: E402
+from ui import kandidati  # noqa: E402
 from ui import assistnotes, mcpapi  # noqa: E402
 
 A, B, C, D, E, F = (mint(i) for i in range(11, 17))
@@ -138,8 +140,9 @@ class Merge(unittest.TestCase):
         self.assertEqual(sorted(r["sources"]), ["influencer", "momentum"])
         # a1 and a2 called 10 s apart: coordinated, one source; solo another; momentum a third
         self.assertEqual(r["n_independent"], 3)
-        self.assertEqual(r["strategy"], max(r["sources"], key=lambda k: r["strategies"][k]["ev_pct"]))
-        self.assertEqual(r["cost_pct"], 5.0)                                        # $40k pool
+        self.assertEqual(r["strategy"], max(r["sources"], key=lambda k: r["strategies"][k]["ev_per_min"]))
+        # 11.11. (rule A): the ONE cost model, 2 x fee + 2 x impact of the stake in the $40k pool
+        self.assertEqual(r["cost_pct"], round(tcost.round_trip(r["size_sol"] * kandidati.SOL_USD, 40_000) * 100, 2))
         self.assertGreater(r["ev_pct"], 0)
         self.assertLessEqual(r["size_sol"], 0.15)
         self.assertIn("Potvrđuje i", r["why"])
@@ -155,28 +158,29 @@ class Merge(unittest.TestCase):
         self.assertEqual(len(build.caller_signals([(0, "c1"), (300, "c2")], {"c1": "g", "c2": "g"})), 1)
         self.assertEqual(len(build.caller_signals([(0, "c1"), (300, "c2")])), 2)
 
-    def test_cost_by_liquidity_and_blocked_under_20k(self):
-        self.assertEqual(build.cost_for(60_000), 0.03)
-        self.assertEqual(build.cost_for(50_001), 0.03)
-        self.assertEqual(build.cost_for(50_000), 0.05)
-        self.assertEqual(build.cost_for(30_000), 0.05)
-        self.assertEqual(build.cost_for(25_000), 0.05)
-        self.assertEqual(build.cost_for(22_000), 0.08)
-        self.assertIsNone(build.cost_for(19_999))
+    def test_cost_model_and_blocked_under_15k(self):
+        # 11.11. (owner's rule A): no more 3 / 5 / 8 % by liquidity; the ONE model, blocked only under $15k
+        for liq in (60_000, 50_000, 30_000, 22_000, 15_000):
+            self.assertAlmostEqual(build.cost_for(liq, 37.5), 2 * tcost.FEE_DEMO + 2 * 37.5 / (liq / 2 + 37.5))
+        self.assertIsNone(build.cost_for(14_999))
         self.assertIsNone(build.cost_for(None))
         S = self.S
-        for tok, liq in ((A, 60_000), (B, 30_000), (C, 22_000), (D, 15_000)):
+        for tok, liq in ((A, 60_000), (B, 30_000), (C, 22_000), (D, 15_000), (E, 14_000)):
             S.mom.append(msig(tok, 600_000))
             S.mk[tok] = live(mcap=600_000, liq=liq)
         S.mrec = {"n": 400, "hits": 300}
         rows, near, _m = self.build()
         got = by(rows)
-        self.assertEqual({t: got[t]["cost_pct"] for t in got}, {A: 3.0, B: 5.0, C: 8.0})
+        self.assertEqual(set(got), {A, B, C, D})                                   # $15k and $22k are no longer blocked
+        for t, liq in ((A, 60_000), (B, 30_000), (C, 22_000), (D, 15_000)):
+            self.assertEqual(got[t]["cost_pct"], round(tcost.round_trip(got[t]["size_sol"] * kandidati.SOL_USD, liq)
+                                                       * 100, 2))
         self.assertGreater(got[A]["ev_pct"], got[B]["ev_pct"])                     # the same p, a cheaper pool
         self.assertGreater(got[B]["ev_pct"], got[C]["ev_pct"])
+        self.assertIn("tanak pool", " ".join(got[D]["risks"]))
         nr = by(near)
-        self.assertIn("liq", [b["key"] for b in nr[D]["blocks"]])
-        self.assertIn("ispod $20k", nr[D]["why"])
+        self.assertIn("liq", [b["key"] for b in nr[E]["blocks"]])
+        self.assertIn("ispod $15k", nr[E]["why"])
 
     def test_ev_filter_ranking_and_no_record_is_never_shown(self):
         S = self.S
@@ -217,10 +221,16 @@ class Merge(unittest.TestCase):
         S.tier = {C: {"tier": "T2", "size_sol": 0.25, "text": "Tier T2"}}
         self.assertEqual(by(build.build(NOW, S)[0])[C]["size_sol"], 0.02)       # the owner's per-token cap wins
         S.tier, S.cp = {}, {"max_sol_per_trade": 0.5, "dca_token_cap": 0.3, "held": {}}
-        # equal EV: more independent sources first
-        x = [{"token": "b", "ev_pct": 2.0, "n_independent": 1}, {"token": "a", "ev_pct": 2.0, "n_independent": 3},
-             {"token": "c", "ev_pct": 5.0, "n_independent": 1}]
-        self.assertEqual([r["token"] for r in sorted(x, key=build.rank_key)], ["c", "a", "b"])
+        # 11.11. (rule D): EV per expected minute first, then the EV's low end, then liquidity
+        x = [{"token": "b", "ev_per_min": 0.05, "ev_lo_pct": 1.0, "liq0": 30_000},
+             {"token": "a", "ev_per_min": 0.05, "ev_lo_pct": 2.0, "liq0": 30_000},
+             {"token": "d", "ev_per_min": 0.05, "ev_lo_pct": 2.0, "liq0": 90_000},
+             {"token": "c", "ev_per_min": 0.10, "ev_lo_pct": -3.0, "liq0": 20_000}]
+        self.assertEqual([r["token"] for r in sorted(x, key=build.rank_key)], ["c", "d", "a", "b"])
+        # a 6 h range with the bigger EV ranks under a 45 min trade with the better EV per minute
+        rng = {"token": "r", "ev_pct": 9.0, "duration_min": 360.0, "ev_per_min": 9.0 / 360, "ev_lo_pct": 5.0}
+        mom = {"token": "m", "ev_pct": 3.0, "duration_min": 45.0, "ev_per_min": 3.0 / 45, "ev_lo_pct": 1.0}
+        self.assertEqual([r["token"] for r in sorted([rng, mom], key=build.rank_key)], ["m", "r"])
 
     def test_tiny_n_cannot_make_a_big_ev(self):
         p0 = calib.break_even(0.15, 0.10, 0.03)
@@ -236,10 +246,13 @@ class Merge(unittest.TestCase):
         big = calib.estimate(500, 500, 0.15, 0.10, 0.03)
         self.assertGreater(big["p"], 0.95)
 
-    def test_blocks(self):
+    def test_hard_blocks_only_the_rest_are_modifiers(self):
+        # 11.11. (owner's rule B): rug high and liquidity under $15k block; wash, a 4x+ run-up, shill-driven and a
+        # $20k pool only change P and the size
         S = self.S
         S.mrec = {"n": 400, "hits": 300}
-        for t in (A, B, C, D, E, F):
+        G = mint(17)
+        for t in (A, B, C, D, E, F, G):
             S.mom.append(msig(t))
         S.col = {A: {"text": "cijena 80 % ispod vrha"}}                              # rug high: a collapse
         S.rug = {B: {"verdict": "VISOK RIZIK", "score": 40, "data": {"flags": [], "hard_fails": []}}}   # rating, no Grok
@@ -247,39 +260,61 @@ class Merge(unittest.TestCase):
                          "ts": NOW - 3000 + i * 10} for i in range(150)]}             # 4 wallets churn it: wash
         S.firsts = {D: (NOW - 3000, 50_000)}                                         # 6x from the first call
         S.mk = {t: live() for t in (A, B, C, D, F)}
-        S.mk[E] = live(liq=15_000)                                                   # liquidity under $20k
+        S.mk[E] = live(liq=20_000)                                                   # $20k: no longer blocked
+        S.mk[G] = live(liq=14_000)                                                   # under $15k: blocked
         S.c = [(F, [("shill1", "x", NOW - 300), ("shill2", "x", NOW - 200)], NOW - 300, NOW - 200, "F", live())]
         S.paid = {"shill1", "shill2"}                                                # only paid shillers call it
         rows, near, _m = self.build()
-        self.assertEqual(rows, [])
+        got, nr = by(rows), by(near)
         keys = {n["token"]: [b["key"] for b in n["blocks"]] for n in near}
         self.assertIn("rug_hard", keys[A])
         self.assertIn("rug_risk", keys[B])
-        self.assertIn("wash", keys[C])
-        self.assertIn("runup", keys[D])
-        self.assertIn("liq", keys[E])
-        self.assertIn("shill", keys[F])
-        # without the blocks the same signal is shown
+        self.assertIn("liq", keys[G])
+        for t in (C, D, E, F):                                                       # never a block any more
+            self.assertEqual(keys.get(t, []), [], t)
+        # run-up 6x: P x 0.7 and half the size, still shown (no X burst known: the reduction applies)
+        self.assertEqual(got[D]["modifiers"]["p_mult"], 0.7)
+        self.assertEqual(got[D]["modifiers"]["size_mult"], 0.5)
+        self.assertEqual(got[D]["size_sol"], 0.075)
+        self.assertLess(got[D]["p_tp"], got[E]["p_tp"])
+        self.assertIn("runup", [t["key"] for t in got[D]["modifiers"]["tags"]])
+        self.assertIn(E, got)                                                        # a $20k pool is shown
+        # wash and shill-driven: P x 0.5, which turns this record's EV negative (a near miss, not a block)
+        for t in (C, F):
+            self.assertEqual(nr[t]["blocks"], [])
+            self.assertEqual(nr[t]["strategy_detail"]["momentum"]["p_mult"], 0.5)
+            self.assertIn("EV", nr[t]["why"])
+        # without them the same signal is shown at the full P
         S.col, S.rug, S.trades, S.firsts, S.c, S.paid = {}, {}, {}, {}, [], set()
-        S.mk[E] = live()
+        S.mk[G] = live()
         rows, _n, _m = self.build()
-        self.assertEqual(sorted(r["token"] for r in rows), sorted([A, B, C, D, E, F]))
+        self.assertEqual(sorted(r["token"] for r in rows), sorted([A, B, C, D, E, F, G]))
+        self.assertTrue(all(r["modifiers"]["p_mult"] == 1.0 for r in rows))
 
     def test_influencer_rules(self):
         S = self.S
         S.c = [(A, [("good", "x", NOW - 300), ("thin", "x", NOW - 290)], NOW - 300, NOW - 290, "A", live(mcap=140_000)),
                (B, [("good", "x", NOW - 300)], NOW - 300, NOW - 300, "B", live(mcap=200_000))]
-        S.bn = {"good": dict(GOOD_BENCH), "thin": {"n": 12, "hits": 12, "sl_first": 0, "ev_pct": 9.0}}
+        S.bn = {"good": dict(GOOD_BENCH), "thin": {"n": 9, "hits": 9, "sl_first": 0, "ev_pct": 9.0}}
         S.firsts = {A: (NOW - 300, 100_000), B: (NOW - 300, 100_000)}
         rows, near, _m = self.build()
         r = by(rows)[A]
         self.assertEqual(r["sources"], ["influencer"])
-        self.assertEqual([c["who"] for c in r["strategies"]["influencer"]["detail"]["callers"]], ["good"])   # n >= 20
-        self.assertEqual(r["exits_mcap"]["time_min"], 60)
+        self.assertEqual([c["who"] for c in r["strategies"]["influencer"]["detail"]["callers"]], ["good"])   # n >= 10
+        # 11.11. (rule E): the signal exit, half at +15 %, trailing 8 %, stop -10 %, 45 min
+        self.assertEqual((r["tp_pct"], r["sl_pct"]), (15.0, 10.0))
+        self.assertEqual(r["exits_mcap"]["time_min"], 45)
+        self.assertEqual(r["exits_mcap"]["trailing_pct"], 8)
+        self.assertEqual(r["exits_mcap"]["tp_share"], [0.5])
+        self.assertIn("+15 % prije -10 % u 45 min", r["strategies"]["influencer"]["p_from"])
+        S.bn["thin"]["n"] = S.bn["thin"]["hits"] = 10                               # 20 -> 10 (with the shrink)
+        rows, _n, _m = self.build()
+        self.assertEqual(sorted(c["who"] for c in by(rows)[A]["strategies"]["influencer"]["detail"]["callers"]),
+                         ["good", "thin"])
         nb = by(near)[B]                                                             # +100 % since the first call
         self.assertIn("granica +50 %", nb["strategy_detail"]["influencer"]["why_not"])
         # a shill-network member never counts, even with a good record
-        S.ps = {"members": {"good": "net1"}, "signals": [], "held": {}}
+        S.ps = {"members": {"good": "net1", "thin": "net1"}, "signals": [], "held": {}}
         rows, near, _m = self.build()
         self.assertNotIn(A, by(rows))
 
@@ -604,13 +639,22 @@ class FlagAndPass(unittest.TestCase):
         self.assertEqual((name, rank), ("prijedlozi", cpuguard.JOBS))
 
     def test_night_benchmark_from_minute_rows(self):
-        rows = [{"handle": "a", "token": f"t{i}", "ts": NOW - i, "_lv": ({10: 3}, {20: 9} if i % 5 == 0 else {}, True)}
+        # 11.11. (rule E): the benchmark is the signal exit, +15 % before -10 % within 45 min
+        rows = [{"handle": "a", "token": f"t{i}", "ts": NOW - i, "_lv": ({15: 3}, {10: 9} if i % 5 == 0 else {}, True)}
                 for i in range(25)]
+        rows += [{"handle": "late", "token": f"u{i}", "ts": NOW - i, "r60": 0.05, "_lv": ({15: 50}, {}, True)}
+                 for i in range(12)]                                        # +15 % only after 45 min: no hit
+        rows += [{"handle": "old", "token": f"v{i}", "ts": NOW - i, "_lv": ({10: 3}, {20: 30}, True)}
+                 for i in range(12)]                                        # +10 % was the old target: no hit
         with mock.patch("kol.tpsl.rows", lambda *a, **k: rows), mock.patch("os.path.getsize", lambda p: 1), \
                 mock.patch("os.path.exists", lambda p: True), mock.patch("sqlite3.connect"):
             b = job.bench_rows(NOW, "/x/minute.db")
         self.assertEqual((b["a"]["n"], b["a"]["hits"]), (25, 25))
         self.assertTrue(strategies.qualifies(b["a"]))
+        self.assertEqual((b["late"]["hits"], b["late"]["sl_first"]), (0, 0))
+        self.assertEqual(b["old"]["hits"], 0)
+        self.assertEqual((job.BENCH_TP, job.BENCH_SL, job.BENCH_MIN), (edge.TP * 100, edge.SL * 100, edge.TIME_MIN))
+        self.assertEqual(strategies.INFLUENCER_MIN_N, 10)
 
 
 # ---------- the Autopilot card, Kupi, Odbij, paper -------------------------------------------------------------------------

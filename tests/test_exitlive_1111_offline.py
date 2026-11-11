@@ -73,6 +73,18 @@ class ExitLive(TradeBase):
         done = exitplan.run_once(self.lg, lambda toks: {t: (0.6, 100_000.0, None, 30_000.0) for t in toks}, time.time())
         self.assertEqual([(d[0], d[2]) for d in done], [(LU, "stop")])     # executes on the real account
 
+    def test_the_20s_loop_leaves_a_planned_token_to_the_plan(self):
+        self.mode("live", "exit_plan_live")
+        self.lot(exitplan.APPROVED_SRC)                                    # lot TP +15 %
+        exitplan.set_plan(self.lg, MINT, {"take_profits": [{"at_pct": 30, "sell_share": 0.5}], "accounts": [LU]}, 30)
+        self.assertEqual(exitplan.in_force_tokens(self.lg, LU), {MINT})
+        done = auto.run_once(self.lg, lambda toks: {t: (1.2, 100_000.0, None, 60_000.0) for t in toks}, time.time())
+        self.assertEqual(done, [])                                         # +20 %: the lot's TP is not fired here
+        self.mode("off", "exit_plan_live")
+        settings._FLAG_CACHE.clear()
+        done = auto.run_once(self.lg, lambda toks: {t: (1.2, 100_000.0, None, 60_000.0) for t in toks}, time.time())
+        self.assertEqual(len(done), 1)                                     # no plan in force: the default is back
+
     def test_owner_order_sets_only_an_owner_switch_live(self):
         with mock.patch.object(assistnotes, "OWNER_FLAG_ORDERS", (("exit_plan_live", "live", "t"),
                                                                   ("momentum_scalp", "live", "t"))):

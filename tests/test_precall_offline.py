@@ -531,8 +531,8 @@ class Scenario(Base):
         paper = {"n": 30, "pnl": 100.0}
         with self.assertRaisesRegex(ValueError, "19 od 20"):
             settings.set_flag(self.tc, pc.FLAG, "live", "Jure", paper=paper, now=NOW)
-        trades(1, -5.0)
-        with self.assertRaisesRegex(ValueError, "nije iznad nule"):
+        trades(1, -2.0)                     # 11.11. (trade/edge): EV +9 % but the 90 % interval reaches below 0
+        with self.assertRaisesRegex(ValueError, "nije prošao.*donja granica"):
             settings.set_flag(self.tc, pc.FLAG, "live", "Jure", paper=paper, now=NOW)
         trades(10, 0.3)
         self.assertEqual(settings.flag(pc.FLAG, con=self.tc), "paper")           # never automatic

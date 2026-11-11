@@ -13,10 +13,13 @@ A wallet in several lists keeps the first kind in that order. Nothing here calls
 The record (quality): the source's closed trades: its Autopilot follow's closed demo copies (league.db trades by
 follow_id, the same rows run_trade._no_proof counts) plus the fast path's own closed paper trades of that source
 (league.db fast_trades), so the proof builds itself from the paper trades (Jure, point 4). Proof = run_trade.PROOF
-(closed >= 10, PnL > 0, >= 40 % winners), read from run_trade, never a second copy of the numbers. Wallets add their
+(11.11. owner's rule D: trade/edge.live_proof on the closed results, each pnl / stake net of the calibrated cost:
+n >= 10, EV >= +3 %, the 90 % interval's lower bound > 0; the old ">= 40 % winners" is gone), read from run_trade,
+never a second copy of the numbers. Wallets add their
 wallets.db tier, score and labels; influencers their kol.db caller statistics (only kind 'call': n of measured calls,
-EV after the 2 % cost, the minute check's hit rate +10 % before -20 % within 60 min, the Influenceri verdict;
-ui/kandidati.caller_records). P's sample (hits, n) is the record with more closed outcomes of the two.
+EV after the cost model's fee part, the Influenceri verdict; ui/kandidati.caller_records) and, 11.11. (owner's rule E),
+their benchmark on the fast exit itself: +15 % before -10 % within 45 min (proposals.db bench, kol/tpsl over minute.db,
+computed nightly). P's sample (hits, n) is the record with more closed outcomes of the two.
 """
 import json
 import os
@@ -34,8 +37,8 @@ REFRESH_S = 60
 
 
 def proof_rule():
-    """run_trade.PROOF ({"closed": 10, "win_rate": 0.4}); league/copy.PROOF is its tested twin when run_trade cannot
-    be imported (a test of the copy module keeps the two equal)."""
+    """run_trade.PROOF ({"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0}); league/copy.PROOF is its tested twin when
+    run_trade cannot be imported (a test of the copy module keeps the two equal)."""
     try:
         from run_trade import PROOF
     except Exception:  # noqa: BLE001 - the worker must run without the trade process module
@@ -43,17 +46,13 @@ def proof_rule():
     return PROOF
 
 
-def has_proof(closed, wins, pnl):
-    """(proven?, why not) under run_trade.PROOF: closed >= 10, PnL > 0, winners >= 40 %."""
+def has_proof(rets):
+    """(proven?, why not) under run_trade.PROOF: trade/edge.live_proof on the closed results (fractions of the stake,
+    net of cost): n >= 10, EV >= +3 %, the 90 % interval's lower bound > 0. No win-rate rule."""
+    from trade import edge
     P = proof_rule()
-    closed, wins, pnl = int(closed or 0), int(wins or 0), float(pnl or 0)
-    if closed < P["closed"]:
-        return False, f"zatvorenih {closed} od potrebnih {P['closed']}"
-    if pnl <= 0:
-        return False, f"PnL {pnl:+.0f} $ nije iznad nule"
-    if wins / closed < P["win_rate"]:
-        return False, f"dobitnih {wins / closed:.0%}, treba {P['win_rate']:.0%}+"
-    return True, None
+    ok, why, _s = edge.live_proof(rets, n_min=P["closed"], ev_min=P["ev_min"])
+    return ok, why
 
 
 def _ro(path):
@@ -170,28 +169,32 @@ def _follow_ids(lc, sid, kind):
     return out
 
 
+def _rets(rows):
+    """[(pnl_usd, stake_usd)] -> closed results as fractions of the stake, net of the calibrated cost (the demo books
+    league/store.FEE a side: trade/cost.demo_adjust)."""
+    from trade import cost
+    adj = cost.demo_adjust()
+    return [float(p) / float(s) + adj for p, s in rows if p is not None and s]
+
+
 def record(sid, kind, now=None, league_db=None):
-    """{"closed", "wins", "pnl_usd", "follow_closed", "fast_closed"} of the source (see the module text)."""
+    """{"closed", "wins", "pnl_usd", "rets", "follow_closed", "fast_closed"} of the source (see the module text)."""
     from league import store as lstore
     lc = _ro(league_db or lstore.DB)
     try:
         fids = _follow_ids(lc, sid, kind)
-        fc = fw = 0
-        fp = 0.0
+        fr = []
         if fids:
             q = ",".join("?" * len(fids))
-            r = _q(lc, f"SELECT COUNT(*), COALESCE(SUM(pnl_usd > 0), 0), COALESCE(SUM(pnl_usd), 0) FROM trades WHERE "
-                       f"follow_id IN ({q}) AND status='closed'", fids)
-            if r:
-                fc, fw, fp = int(r[0][0]), int(r[0][1]), float(r[0][2])
-        r = _q(lc, "SELECT COUNT(*), COALESCE(SUM(pnl_usd > 0), 0), COALESCE(SUM(pnl_usd), 0) FROM fast_trades WHERE "
-                   "source_id=? AND status='closed'", (sid,))
-        pc, pw, pp = (int(r[0][0]), int(r[0][1]), float(r[0][2])) if r else (0, 0, 0.0)
+            fr = _q(lc, f"SELECT pnl_usd, size_usd FROM trades WHERE follow_id IN ({q}) AND status='closed'", fids)
+        pr = _q(lc, "SELECT pnl_usd, size_usd FROM fast_trades WHERE source_id=? AND status='closed'", (sid,))
     finally:
         if lc is not None:
             lc.close()
-    return {"closed": fc + pc, "wins": fw + pw, "pnl_usd": round(fp + pp, 2), "follow_closed": fc, "fast_closed": pc,
-            "follow_ids": fids}
+    rows = list(fr) + list(pr)
+    return {"closed": len(rows), "wins": sum(1 for p, _s in rows if (p or 0) > 0),
+            "pnl_usd": round(sum(p or 0 for p, _s in rows), 2), "rets": _rets(rows), "follow_closed": len(fr),
+            "fast_closed": len(pr), "follow_ids": fids}
 
 
 def wallet_info(w, wallet_db=None):
@@ -231,14 +234,28 @@ def caller_info(handle, now):
         return {}
 
 
+def caller_bench(handle):
+    """{"n", "hits"} of the caller's +15 / -10 / 45 min benchmark (proposals.db bench), {} when unknown."""
+    try:
+        from proposals import build
+        b = build.Sources().bench([handle]) or {}
+    except Exception:  # noqa: BLE001 - no proposals.db yet: unknown
+        return {}
+    return b.get(handle) or b.get(str(handle).lower()) or {}
+
+
 def quality(sig, now=None, league_db=None):
     """Check e's numbers for one signal: the record, proof, tier / caller statistics and P's sample (hits, n)."""
     now = int(now or time.time())
     sid, kind = sig["source_id"], sig.get("kind")
+    from trade import edge
     rec = record(sid, kind, now, league_db)
-    ok, why = has_proof(rec["closed"], rec["wins"], rec["pnl_usd"])
+    ok, why = has_proof(rec["rets"])
+    st = edge.ev_stats(rec["rets"])
     q = {"kind": kind, "kind_hr": KIND_HR.get(kind, kind), "id": sid, "label": sig.get("source_label"),
          "closed": rec["closed"], "wins": rec["wins"], "pnl_usd": rec["pnl_usd"],
+         "ev_pct": round(st["ev"] * 100, 2) if st["ev"] is not None else None,
+         "ev_lo90_pct": round(st["lo90"] * 100, 2) if st["lo90"] is not None else None,
          "win_rate": round(rec["wins"] / rec["closed"], 3) if rec["closed"] else None,
          "follow_closed": rec["follow_closed"], "fast_closed": rec["fast_closed"], "proof": ok, "proof_why": why,
          "hits": rec["wins"], "n": rec["closed"], "sample": "zapis praćenja + fast paper"}
@@ -252,7 +269,8 @@ def quality(sig, now=None, league_db=None):
         q.update(tier=ci.get("verdict_hr"), calls_n=ci.get("ev_n"), calls_ev_pct=(round(ci["ev_mean"] * 100, 2)
                                                                                   if ci.get("ev_mean") is not None else None),
                  hit_rate=hit10, minute_n=n_min)
-        if n_min > q["n"] and hit10 is not None:   # the caller's measured calls are the bigger sample for P
-            q.update(hits=int(round(hit10 * n_min)), n=n_min,
-                     sample="minutna provjera poziva (+10 % prije −20 % u 60 min)")
+        bn = caller_bench(sid)
+        if int(bn.get("n") or 0) > q["n"]:   # the caller's measured calls on the fast exit are the bigger sample for P
+            q.update(hits=int(bn.get("hits") or 0), n=int(bn["n"]),
+                     sample="brzi izlaz callera (+15 % prije −10 % u 45 min, proposals bench)")
     return q

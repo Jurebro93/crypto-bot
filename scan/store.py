@@ -19,6 +19,8 @@ import os
 import sqlite3
 import time
 
+from trade import cost as _tcost
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 FLAG = "market_scan"
@@ -78,7 +80,8 @@ DEFAULT = {
     "runner_min_mcap": 100_000,
     "beta_min": 0.6,
     # shadow trade and the paper gate
-    "tp": 0.20, "sl": 0.30, "horizon_h": 4, "cost": 0.02, "max_gap_min": 30,
+    "tp": 0.20, "sl": 0.30, "horizon_h": 4, "max_gap_min": 30,
+    "cost": _tcost.FEE_ROUND_TRIP,   # 11.11. (owner's rule A): the ONE cost model's fee part (0.02)
     "paper_min_outcomes": 30, "gate_days": 30,
     "show_min": 60,                  # get_market_signals: passers of the last hour
     # 11.11. (Grok's notes #54 / #96 / #105: the scanner offered tokens after 6-39x): a bonded token whose market cap is

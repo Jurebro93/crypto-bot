@@ -45,6 +45,7 @@ import threading
 import time
 
 from events import store
+from trade import cost as _tcost
 
 FLAG = "grok_predictions"
 STRATEGIES = ("momentum", "range", "call")
@@ -60,7 +61,7 @@ COVER_MIN = 0.75          # the data must reach 75 % of the horizon
 UNAVAILABLE_S = 30 * 3600
 RATE_PER_HOUR = 120
 REASONS_MAX = 2000
-COST = 0.02               # the round-trip cost the measured records (and so ev_pct) are net of
+COST = _tcost.FEE_ROUND_TRIP   # the round-trip cost the measured records (and so ev_pct) are net of: trade/cost (0.02)
 CAL_DAYS = 30
 PRED_GT_NIGHT = int(store._env_num("PRED_GT_NIGHT", 60))
 MS_FRESH_S = 15 * 60      # a kandidati list this old is still "now" for MemeSonar's probability
