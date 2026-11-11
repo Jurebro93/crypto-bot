@@ -16,7 +16,13 @@ ONE row per token. The sources (a loader that fails is named in sources_failed, 
                 that passed every filter but a rug RISK rating (shown; tradeable only through a Grok override)
   hidden_group  group_signals of the last hour: 3+ wallets of one quality wallet group bought, no public call; a
                 quality caller crew that called first (caller_group_first) is evidence on the caller signal instead
-  range         active ranges (range_score >= 0.7, computed in the last 15 min; rangedca)
+  range         active ranges (range_score >= 0.7, computed in the last 15 min; rangedca). 11.11.: a range only the
+                market watchlist or an event topic brought (rangedca/market.py, watch_source market / event) is
+                evidence, never a real-money signal: a row with nothing else is not tradeable (paper only, range_dca
+                on the demo account)
+  event         11.11. (topics/, flag event_tokens): the main / other tokens of Grok's active event topics, with the
+                topic, its event time and buzz trend; counts as one signal, never tradeable on its own (event tokens
+                are measured, at most paper-traded on the demo account through range_dca, never real money)
   momentum      momentum_scalp signals of the last 15 min (momentum/: a bonded jump that met every entry rule); its
                 record is the base rate of every signal (EV of the exit rules after cost), its exit plan the strategy's
   tool          the tool's own fresh top list (topcheck: rug check 'prolazi', not pumping or falling) and the Pregled
@@ -273,9 +279,14 @@ class Sources:
     def ranges(self, now):
         from rangedca import data, rules, trade, view
         ms = rules.RULES["score_min"]
-        return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S).items()
+        return {t: r for t, r in data.read_ranges(since=now - trade.RANGE_FRESH_S, active_only=True).items()
                 if r.get("active") and (r.get("score") or 0) >= ms - 1e-9
                 and not view.is_breakout(r)}   # 11.11.: above its range it is no range candidate
+
+    def events(self, now):
+        """11.11. (flag event_tokens): the main / other tokens of the active event topics (topics/view.py)."""
+        from topics import view
+        return view.kandidati_rows(now)
 
     def momentum(self, now):
         """11.11. (flag momentum_scalp): the newest momentum signal per token of the last 15 min (momentum.db)."""
@@ -554,7 +565,7 @@ def source_records(now, scan_con=None):
     (30 days, measured) for hidden_group and caller_group_first (sl_first: the stop came first, ev = -30 % - cost);
     the range paper rounds; None for a kind nothing measures yet (tool, insider)."""
     out = {k: None for k in ("caller", "wallet", "scan", "beta", "hidden_group", "caller_group_first", "range", "tool",
-                             "insider", "kandidati", "grok_override", "momentum")}
+                             "insider", "kandidati", "grok_override", "momentum", "event")}
     try:
         from scan import shadow, store
         cfg = store.config()
@@ -907,10 +918,20 @@ def build(now=None, src=None, details=True):
     for tok, rg in safe("range", lambda: S.ranges(now), {}).items():
         r = row(tok, rg.get("symbol"))
         z = rg.get("zones") or {}
+        srcs = rg.get("sources") or [rg.get("source") or "signal"]
         r["sources"]["range"] = {"range_score": rg.get("score"), "position_in_range_pct": rg.get("pos_pct"),
-                                 "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts")}
+                                 "recoveries": rg.get("recoveries"), "zones_mc": z.get("mc"), "computed_ts": rg.get("ts"),
+                                 "watch_source": "signal" if "signal" in srcs else "event" if "event" in srcs else "market"}
         r["range"] = z
         r["count"]["range"] = 1
+    # 11.11. (topics/, flag event_tokens): the tokens of Grok's active event topics
+    for e in safe("event", lambda: getattr(S, "events", lambda _n: [])(now), []) or []:
+        r = row(e["token"], e.get("symbol"))
+        ev = r["sources"].setdefault("event", {"topics": []})
+        ev["topics"].append({k: e.get(k) for k in ("topic_id", "topic", "role", "event_ts", "buzz_score", "buzz_trend")})
+        r["count"]["event"] = 1
+        if e.get("first_seen"):
+            r["sig"].append((int(e["first_seen"]), None, "event"))
     # 11.11. momentum_scalp signals (momentum/): every entry rule met in the last 15 min
     for t in safe("momentum", lambda: S.momentum(now), []):
         r = row(t["token"], t.get("symbol"))
@@ -1055,6 +1076,14 @@ def _record_of(kind, records):
     return {k: rec.get(k) for k in ("n", "hit1h", "hit4h", "sl_first", "ev")}
 
 
+def paper_only(srcs):
+    """True when a row's only evidence is an event topic and / or a range the market watchlist or an event topic
+    brought (11.11.): measured and at most paper-traded on the demo account, never a real-money candidate."""
+    if not srcs or not set(srcs) <= {"event", "range"}:
+        return False
+    return "event" in srcs or (srcs.get("range") or {}).get("watch_source") in ("market", "event")
+
+
 def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details):
     tok, m = r["token"], r["m"] or {}
     from league import copy as lcopy
@@ -1122,6 +1151,9 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     why_not += [f"rug (nikad se ne nadjačava): {h}" for h in rug["hard"]]
     if ru["x"] and ru["x"] >= RUNUP_MAX_X:
         why_not.append(f"kasno: već {ru['x']:.1f}× od prvog signala (granica {RUNUP_MAX_X:g}×)")
+    if paper_only(srcs):   # 11.11.: an event topic / the market watchlist alone never buys with real money
+        why_not.append("samo event tema ili tržišna range lista: mjeri se, najviše paper na demo računu (range_dca), "
+                       "nikad pravi novac")
     ge = grok_evidence(grows.get(tok), ops.get(tok), known, now)
     ov = override_of(ge, rug) if not why_not else None
     if rug["level"] == "risk" and not ov:

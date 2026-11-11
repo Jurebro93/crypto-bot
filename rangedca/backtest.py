@@ -282,7 +282,32 @@ def tokens_with_data(rcon, now, days=14):
             pass
         finally:
             con.close()
+    # 11.11. (market watchlist): a token only the market list snapshots is simulated only when it had an active range
+    # in the window (range.db events 'aktivan'), so the night pass does not replay ~400 quiet tokens
+    try:
+        mkt = {r[0] for r in rcon.execute("SELECT token FROM mkt")}
+        if mkt:
+            had = {r[0] for r in rcon.execute("SELECT DISTINCT token FROM events WHERE kind='aktivan' AND ts >= ?", (t0,))}
+            sig = {r[0] for r in rcon.execute("SELECT token FROM gt_candles")}
+            toks = {t for t in toks if t not in mkt or t in had or t in sig}
+    except Exception:  # noqa: BLE001 - no market table: every token
+        pass
     return sorted(toks)
+
+
+class _Lazy:
+    """{token: series} for run_tokens, loaded one token at a time (11.11.: with the market watchlist every series in
+    memory at once would be hundreds of MB on Render)."""
+
+    def __init__(self, rcon, toks, now, days):
+        self.rcon, self.toks, self.now, self.days = rcon, toks, now, days
+
+    def __len__(self):
+        return len(self.toks)
+
+    def items(self):
+        for t in self.toks:
+            yield t, load(self.rcon, t, self.now, self.days)
 
 
 def load(rcon, token, now, days=14):
@@ -344,12 +369,9 @@ def run_server(now=None, days=14, gt=0, log=print, fetch=None):
     rcon = data.connect()
     try:
         top_up(rcon, now, gt, days, fetch, log)
-        series = {}
-        for tok in tokens_with_data(rcon, now, days):
-            series[tok] = load(rcon, tok, now, days)
+        rep = run_tokens(_Lazy(rcon, tokens_with_data(rcon, now, days), now, days), log)
     finally:
         rcon.close()
-    rep = run_tokens(series, log)
     rep["days"] = days
     path = write(rep, log)
     log(f"range backtest: {rep['tokens_simulated']} tokena, {rep['cpu_s']} s, izvještaj {path}")

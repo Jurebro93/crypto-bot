@@ -1351,7 +1351,17 @@ def _preshill_card(owner):
     return preshill.card_html(_sec, _item, esc)
 
 
-VERDICT_TONE = {"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
+def _eventi_card(owner):
+    """11.11. (Jure, topics/, flag event_tokens): "Eventi", one closed row under "Još" (owner only, nothing while the
+    flag is off): per topic the event time, the buzz trend (arrow and sparkline text) and its tokens with market cap
+    and role (glavni / klon / rug / ostali). The screen stays trade-focused: nothing above Dnevnik."""
+    if not owner:
+        return ""
+    from topics import view
+    return view.card_html(_sec, _item, esc)
+
+
+VERDICT_TONE ={"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
 
 
 def _grok_box(note, compact=False):
@@ -4441,6 +4451,7 @@ def page(qs, user):
               _safe("sazetak", _summary_card, tcon, owner),
               _group(_safe("ev", _ev_card, owner),   # 11.11.: EV per feature phase, one closed row (events/evreport)
                      _safe("preshill", _preshill_card, owner),   # 11.11.: kupci prije shill mreže (kol/preshill.py)
+                     _safe("eventi", _eventi_card, owner),   # 11.11.: event teme i njihovi tokeni (topics/)
                      _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),

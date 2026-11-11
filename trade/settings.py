@@ -101,7 +101,20 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
     # exit_plans' mode; it only sells, never buys; default off, only the owner moves it
     "exit_plan_live": ("G18", "Grokovi planovi izlaza na pravom računu za Grok autotrade pozicije (samo prodaja)"),
+    # 11.11. (Jure: "event tokeni s Grokom", topics/): Grok's event topics, their matching tokens (main / clone / rug),
+    # the price 24 h before / at / after the event; shadow = measure only, paper = range_dca may trade them on the demo
+    # account; never real money (NEVER_LIVE)
+    "event_tokens": ("G19", "Event tokeni: teme događaja od Groka (npr. GTA6), tokeni koji im odgovaraju (glavni, klon, "
+                            "rug) i cijena 24 h prije, u trenutku i 24 h nakon događaja"),
+    # 11.11. (Jure: "širi range watchlist", rangedca/market.py): up to 400 bonded tokens of the whole market in the range
+    # watchlist (5 / 15-min DexScreener snapshots inside daily caps); shadow = data, paper = range_dca may trade them on
+    # the demo account; never real money (NEVER_LIVE)
+    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 20k+, volumen "
+                            "1 h 10k+, stariji od 6 h), snimke svakih 5/15 min unutar dnevnih stropova"),
 }
+# 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
+NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
+              "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
 OWNER_SWITCHES = frozenset({"exit_plan_live"})
@@ -280,6 +293,8 @@ def live_refusal(con, name, paper=None, now=None):
     """None when `name` may go live, else the reason in Croatian. paper: {"n": closed trades, "pnl": USD} of the
     paper account since the flag went to paper (league/flags.paper_result); None = not known."""
     now = int(now or time.time())
+    if name in NEVER_LIVE:
+        return NEVER_LIVE[name]
     if name in DATA_FLAGS or name in OWNER_SWITCHES:
         return None
     bt = raw(con).get(f"backtest:{name}") or {}

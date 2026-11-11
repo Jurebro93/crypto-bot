@@ -220,6 +220,12 @@ class Feed:
             return 0
         self.n_trades += len(self.trades)
         self.n_launches += len(self.launches)
+        if self.launches:
+            try:   # 11.11. (flag event_tokens, topics/hook.py): string match against the event topics, queued
+                from topics import hook as _topics
+                _topics.launches(self.launches)
+            except Exception:  # noqa: BLE001 - the feed must never notice
+                pass
         self.trades, self.launches = [], []
         self.last_flush = now
         return n
