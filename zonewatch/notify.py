@@ -1,12 +1,21 @@
 """The POST to Grok Bot's webhook (env GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_KEY; never in the repository or a log).
 
 Body: one compact JSON object (the exact bytes signed are the bytes sent), Content-Type application/json:
-    id, event (zone_enter | zone_exit | stop_hit | top_hit | team_catalyst) and the owner's fields
+    id, event (zone_enter | zone_exit | stop_hit | top_hit | team_catalyst | position_level | range_off) and the
+    owner's fields
     mint, symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, vol_1h, buys_5m, sells_5m, buy_share_5m,
     buy_share_1h, uniq_traders_1h, rug_risk, source, ts (null when unknown, never left out); 11.11. what a range
     zone is based on (RANGE_FIELDS, null for a hand-armed zone): zone_version (+1 for every range computation of
     rangedca read for the token), computed_ts (unix s: when rangedca computed the range), window_h (the hours of data
     the computation spanned); plus a few extras (ts_iso, direction, note, initial, data_age_s, price_source).
+    11.11.: event position_level (a real-account position's own level; zone_type position_sl | position_tp |
+    position_dca, zone_lo = zone_hi = the level's market cap, source position) adds level (sl_near | sl_hit | tp_hit |
+    dca_hit), level_key, level_name, level_kind (sl | trailing | tp | dca), level_src, level_mcap, level_price,
+    level_basis, distance_pct, position {lots, lot_ids, qty, avg_entry_price, avg_entry_mcap, size_usd, pnl_pct,
+    pnl_usd, pnl_sol, pnl_sol_src, sources, account, plan_id, plan_in_force, opened_ts}, filled and fill (the executor
+    sold / bought there); event range_off (zone_type range, zone_lo / zone_hi = the last bottom lo / top hi) adds
+    reason (Croatian), reason_key (break_up | break_down | weak_volume | other), range_status, last_zones, position and
+    the last zone_version / computed_ts / window_h.
 Auth (the receiver's docs could not be read from the sandbox, so both are implemented):
     bearer     (default)  Authorization: Bearer <GROKBOT_WEBHOOK_KEY>
     standard   (GROKBOT_WEBHOOK_AUTH=standard, or a key starting "whsec_")  Standard Webhooks: webhook-id (the alert

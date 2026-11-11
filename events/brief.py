@@ -20,7 +20,9 @@
     event_topics       topics/view.brief_part: the active event topics (flag event_tokens), buzz trend, token count,
                        main token, the measured price run-up into the event and the move after it (11.11.)
     zonewatch          zonewatch/view.brief_part: zones in force (armed, by source), alarms of the last 24 h (by event
-                       and status), last_post_ok, last_error, configured (the Grok Bot webhook env) and the flag (11.11.)
+                       and status), last_post_ok, last_error, configured (the Grok Bot webhook env) and the flag (11.11.);
+                       positions (the real account's positions and levels watched), position_alerts_24h by level
+                       (sl_near, sl_hit, tp_hit, dca_hit) and range_off_24h
     grok_calibration   momentum/evgate.report: Grok's p_tp on execute_trade against what happened (Brier, buckets)
     grok_predictions   events/predictions.brief_part: Grok's predictions scored since `since` and the calibration
                        per p_tp bucket, Grok's and MemeSonar's
