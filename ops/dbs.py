@@ -104,7 +104,10 @@ def slim_signals(path=None, now=None, batch=SLIM_BATCH):
 # read scanned the whole table (tg.db posts 85 MB). One index each turns the scan into a range read.
 TIME_INDEXES = (("hype.db", "hype_signals_cover", "hype_signals (ts, token, score, mcap, liquidity, symbol)"),
                 ("hype.db", "kol_mentions_ts", "kol_mentions (ts)"),
-                ("tg.db", "posts_ts", "posts (ts)"))
+                ("tg.db", "posts_ts", "posts (ts)"),
+                # 11.11. (ops/retencija.py): the retention counts and deletes live_trades by time, and the 1-h readers
+                # (scan/market, kol/groupdisc, live/pulse.status) scanned the whole table for "ts >= ?"
+                ("hype.db", "live_trades_ts", "live_trades (ts)"))
 
 
 def ensure_indexes(path=None, tg_path=None):

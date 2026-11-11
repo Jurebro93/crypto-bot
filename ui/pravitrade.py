@@ -1862,9 +1862,10 @@ def _flags_section(tcon, con, owner):
         if name in settings.DATA_FLAGS:
             bits.append('<p class=mut>Podatkovna zastavica: bilo koji mod osim „isključeno” uključuje skupljanje '
                         'ili upis; na trgovanje ne utječe.</p>')
-        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live
-            bits.append('<p class=mut>Tvoj prekidač: „uživo” ga uključuje (bez backtesta, samo prodaja); svaki drugi '
-                        'mod ostavlja sve kako je bilo.</p>')
+        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live, rug_labels_v2_ok, the data retention
+            note = settings.OWNER_SWITCH_NOTES.get(name) or ("Tvoj prekidač: „uživo” ga uključuje (bez backtesta, "
+                                                             "samo prodaja); svaki drugi mod ostavlja sve kako je bilo.")
+            bits.append(f'<p class=mut>{esc(note)}</p>')
         else:
             sh = week.get(name)
             bits.append(f'<p class=mut>Sjena, zadnjih 7 dana: '

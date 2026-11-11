@@ -109,6 +109,16 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # the SOL-side labels (rugfilter/collapse sol_v2) decide both. Only the owner moves it, after checking the relabel.
     "rug_labels_v2_ok": ("G28", "Nove rug oznake (SOL strana poola) u blokiranju i statistikama; isključeno = blok po "
                                 "strožoj oznaci (stara ili nova), statistike po starim oznakama"),
+    # 11.11. (Jure: "ništa se stvarno ne briše bez moje potvrde nakon što vidim brojke"): owner switches of the data
+    # retention (ops/retencija.py). Off (default): only the measurement in the log (after a deploy and daily at 06:30,
+    # what WOULD go and how many MB); live: the deletion, only 01-06 Zagreb under the heavy-job lock.
+    "live_trades_retention": ("G29", "Retencija živog toka (hype.db live_trades): sirovi PumpPortal tradeovi drugih "
+                                     "tradera stariji od 48 h brišu se noću, nakon satnog agregata; nikad naši "
+                                     "swapovi, praćeni i ocjenjivani novčanici ni redovi koje treba čitač s duljim "
+                                     "prozorom; isključeno = samo mjerenje u logu"),
+    "tg_text_retention": ("G30", "Tekst Telegram objava starijih od 14 dana briše se noću (red i metapodaci ostaju) "
+                                 "kad je svaki poziv objave potpuno izmjeren ili objava nije dala poziv; isključeno = "
+                                 "samo mjerenje u logu"),
     # 11.11. (Jure: "event tokeni s Grokom", topics/): Grok's event topics, their matching tokens (main / clone / rug),
     # the price 24 h before / at / after the event; shadow = measure only, paper = range_dca may trade them on the demo
     # account; never real money (NEVER_LIVE)
@@ -153,7 +163,16 @@ NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najvi
               "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
-OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok"})
+OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
+# what "uživo" does, per owner switch (the page /pravi-trade; one without a note gets the exit-plan text)
+OWNER_SWITCH_NOTES = {
+    "rug_labels_v2_ok": "Tvoj prekidač: „uživo” uključuje nove rug oznake (bez backtesta); svaki drugi mod ostavlja "
+                        "stroži blok i stare oznake u statistikama.",
+    "live_trades_retention": "Tvoj prekidač: „uživo” uključuje brisanje (noću 01-06, nakon satnog agregata); svaki drugi "
+                             "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
+    "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
+                         "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
+}
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}

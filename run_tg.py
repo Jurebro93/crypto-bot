@@ -89,11 +89,10 @@ def housekeeping(con, cfg, log=print):
     poll.rebalance(con, cfg, scores, calls)
     r = tgstat.run(con, tokens, cfg["tgstat"]) if tgstat.enabled() else (0, 0, 0)
     h = history_round(con, cfg)
-    n = store.prune(con, cfg["prune_days"])
+    # 11.11.: no deletion here any more (tg/store.prune): the text retention is ops/retencija.py, the owner's switch
     store.kv_set(con, "last_discover", int(time.time()))
     con.commit()
-    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, povijest stranica/objava {h}, "
-        f"obrisano {n} starih")
+    log(f"tg otkrivanje: novi kandidati {found}, tgstat upiti/kandidati/objave {r}, povijest stranica/objava {h}")
     return scores
 
 

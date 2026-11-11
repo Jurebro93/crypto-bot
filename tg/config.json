@@ -14,7 +14,6 @@
  "recheck_dead_d": 14,
  "max_fails": 3,
  "discover_every_min": 60,
- "prune_days": 30,
  "drop_score": 25,
  "drop_min_calls": 12,
  "tgstat": {

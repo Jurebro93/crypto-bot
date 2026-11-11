@@ -85,8 +85,8 @@ class Store(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0], 2)
         self.assertEqual([r for r in con.execute("SELECT sig, wallet, mint, side, ts, sol FROM chain_trades")],
                          [("s1", "KOL", MINT, "buy", NOW, 2.0)])
-        lstore.prune(con, NOW + 3 * 86400)
-        self.assertEqual(con.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0], 0)
+        lstore.prune(con, NOW + 3 * 86400)   # 11.11.: trades are no longer deleted here (ops/retencija, owner switch)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM live_trades").fetchone()[0], 2)
         con.close()
 
 
