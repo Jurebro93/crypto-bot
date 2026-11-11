@@ -198,6 +198,7 @@ def flip_live_refusal(con=None, now=None):
 # reclaim_proof_ok has trade/edge.live_proof's shape). Nothing here sets a flag; no flag exists for it.
 RECLAIM_MIN_NIGHTS = 7
 RECLAIM_MIN_ROUNDS = 20
+RECLAIM_MIN_EV = 0.03      # 11.11. (Jure): "min. 20 reclaim rundi s EV >= +3 % nakon troška"
 _RCACHE = {"at": 0.0, "key": None, "val": None}
 
 
@@ -223,13 +224,14 @@ def reclaim_proof(path=None, with_rets=False):
 
 def reclaim_proof_ok(rets, n_min=RECLAIM_MIN_ROUNDS):
     """(ok, why not or None, trade/edge.ev_stats) of the reclaim rounds' results (fractions, net of cost): n >= n_min
-    and EV (their mean) > 0."""
+    and EV (their mean) >= RECLAIM_MIN_EV (+3 % per round, the owner's rule of 11.11.)."""
     from trade import edge
     s = edge.ev_stats(rets)
     if s["n"] < n_min:
         return False, f"zatvorenih reclaim rundi {s['n']} od potrebnih {n_min}", s
-    if s["ev"] is None or s["ev"] <= 0:
-        return False, f"EV reclaim rundi {(s['ev'] or 0) * 100:+.2f} % po rundi nakon troška nije iznad nule", s
+    if s["ev"] is None or s["ev"] < RECLAIM_MIN_EV - 1e-12:
+        return False, (f"EV reclaim rundi {(s['ev'] or 0) * 100:+.2f} % po rundi nakon troška, treba barem "
+                       f"{RECLAIM_MIN_EV * 100:+.0f} %"), s
     return True, None, s
 
 

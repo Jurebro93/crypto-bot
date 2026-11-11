@@ -35,6 +35,9 @@ if [ -n "${PORT:-}" ]; then python3 deploy_wait.py --port "$PORT" & disown; fi
 # upkeep below (they ran here on every deploy, 20+ a day, while the UI, webhooks and trade waited); only a tight disk
 # (ops/dbs.STARTUP_COMPACT_FREE_MB) still compacts offline here, the one case where nothing else works.
 python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
+# 11.11. (Jure, preporuka 3): one line in the log at every start: which Apify sources are off (hype/apify.json
+# "ugaseno") and which stay on and why ("zadrzano"); reading a small JSON, no network
+python3 -m hype.apify || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -77,7 +80,10 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
 # 9.11. (audit P9): first pass after HOURLY_FIRST_S (10 min), not an hour: with 20+ deploys a day a loop that sleeps
 # an hour first never got its turn, and the hype_signals slimming + compaction now live only here (under the heavy lock)
-( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; sleep 3600; done ) &
+# 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): right after it, the disk report (ops/diskreport.py, its own
+# low-priority process so the CPU guard may pause it; the upkeep above is protected): read-only, at the first pass after
+# a deploy and once a day from 06:30 Zagreb, never 01-06; otherwise it ends at once. One "disk izvještaj" block in the log.
+( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; low python3 -m ops.diskreport --auto || echo "disk izvještaj nije uspio"; sleep 3600; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 # 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
 # by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)

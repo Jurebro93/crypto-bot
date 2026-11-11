@@ -25,8 +25,18 @@ class Route(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._gate = http.GATE_DIR
         http.GATE_DIR = self._tmp.name
+        # 11.11.: the key is spent by the UTC hour (cap x (h + 1) / 24) and the live jobs come first: these tests
+        # check the day's budget, so they run as the minute loop at 23:30 UTC, when the whole day's cap is open
+        import time as _t
+        from unittest import mock
+        t = _t.time()
+        self._p = mock.patch.object(http, "_now", return_value=t - t % 86400 + 23 * 3600 + 1800)
+        self._p.start()
+        http.set_cg_job("minute")
 
     def tearDown(self):
+        self._p.stop()
+        http.set_cg_job(None)
         http.GATE_DIR = self._gate
         self._tmp.cleanup()
         for k, v in self._env.items():

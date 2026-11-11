@@ -263,7 +263,8 @@ class Page(unittest.TestCase):
                 mock.patch.object(overview, "token_rows", side_effect=AssertionError("token rows built")):
             frag = apterm.lazy("kupiti", "Jure")
         self.assertIn("alat (živo) · poziv · novi poziv", frag)
-        self.assertIn('data-fill="', frag)          # "U panel": fills the order panel, never buys
+        # 11.11. (noc/sltp): the green "Kupi" of a proposal (fills token, SOL, TP, SL, trailing; never buys)
+        self.assertIn('class="apx-b buy" data-pk="', frag)
         self.assertIn('data-pop="/pravi-trade/token?m=ZivToken1"', frag)
 
     def test_crew_rows_and_popups(self):

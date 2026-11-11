@@ -3284,6 +3284,7 @@ def _post_limit(con, tcon, form, user):
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: as _post_buy, another token than the chart's only when confirmed
     live = market({token})
     if token not in live:
         raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
@@ -3324,8 +3325,8 @@ def _post_limit(con, tcon, form, user):
         settings.put(tcon, "buy_orders", orders, user)
         if ex == "tpsl":
             settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
-    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})",
-          flush=True)
+    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})"
+          + (f" uz potvrđenu razliku od grafa {chart}" if chart else ""), flush=True)
     words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
     if ex == "tpsl":
         words += f", TP {tp or 'zadani'} · SL {sl or _sl0(cfg)} od tog ulaza"
@@ -4432,7 +4433,10 @@ def _limits(cfg, owner):
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
     # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
     fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=owner_token_cap '
-               f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
+               f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal>'
+               f'<small>Vrijedi za tvoje ručne kupnje, DCA, naloge na MC i Grokove kupnje koje odobriš. Ne vrijedi za '
+               f'Grok autotrade: on ostaje na svojim limitima (0,1 SOL po kupnji, 0,3 SOL na dan, 3 otvorene, dnevni '
+               f'gubitak 0,15 SOL) i na {_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))} SOL po tokenu.</small></label>')
     extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
                  t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
@@ -5138,6 +5142,16 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
+def _is_grok_auto(src):
+    """True for a buy of Grok autotrade (ui/grokauto.SRC); an approved Grok request (league/exitplan.APPROVED_SRC) is
+    the owner's own decision and is not."""
+    try:
+        from ui import grokauto
+        return bool(src) and src == grokauto.SRC
+    except Exception:  # noqa: BLE001
+        return False
+
+
 PENDING_FRESH_S = 15 * 60   # a lot still 'pending' after this never filled: it holds nothing
 
 
@@ -5156,7 +5170,7 @@ def held_sol(tcon, token, mode=None):
     return float(r[0] or 0.0)
 
 
-def _owner_buy_rules(lcon, tcon, token, sol, now=None):
+def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None):
     """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
     dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
                     live = the buy is refused with the reason; shadow / paper = logged in shadow_decisions.
@@ -5172,12 +5186,17 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
     if m != "off" or owner_cap:
-        cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        auto = _is_grok_auto(src)
+        # 11.11. (Jure: "Grok autotrade limiti ostaju … i NE smiju se dizati"): a Grok autotrade buy keeps the
+        # Autopilot's cap (dca_token_cap, 0,3); the owner's own cap (1 SOL) is for his buys and the ones he approves
+        cap = float((None if auto else raw.get("owner_token_cap")) or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
         held = held_sol(tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
             # 11.11. (Jure: "poruka odmah nestane"): every refused owner buy is one line in the log too
             print(f"pravi trade: kupnja {token[:6]} odbijena: {why} (strop vlasnika)", flush=True)
+            if auto:
+                raise ValueError(f"kupnja nije poslana: {why} (Grok autotrade: strop po tokenu {cap:g} SOL)")
             if owner_cap:
                 raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
@@ -5248,6 +5267,26 @@ def _post_proposal_buy(con, tcon, form, user):
     return out
 
 
+def _chart_guard(form, token):
+    """11.11. (owner's rule: "Kupi mora koristiti isključivo mint iz polja za adresu. Ako se mint iz polja i token na
+    grafu razlikuju, prikaži upozorenje i traži potvrdu prije slanja."): the Autopilot's buy form sends the token its
+    chart shows (chart_mint). A buy of another token than that needs confirm_mismatch=1; refused BEFORE anything is
+    written otherwise. The buy is always of the field's token, never of chart_mint; without chart_mint (an older page,
+    MCP, the other buy forms) nothing changes. Returns the chart's mint of a confirmed difference (for the log)."""
+    from ui.league import MINT
+    chart = (form.get("chart_mint") or "").strip()
+    if not chart or not MINT.fullmatch(chart) or chart == token:
+        return None
+    if (form.get("confirm_mismatch") or "").strip() != "1":
+        with _LOCK:   # the symbol from the shared DexScreener cache, no request
+            sym = next((d[token].get("symbol") for _ts, d in _LIVE_CACHE.values() if token in (d or {})), None)
+        # first four + last four: every pump.fun mint ends in "pump"
+        raise ValueError(f"adresa u polju ({sym + ' ' if sym else ''}{token[:4]}…{token[-4:]}) nije token na grafu "
+                         f"({chart[:4]}…{chart[-4:]}); "
+                         "potvrdi kupnju tog tokena")
+    return chart
+
+
 def _post_buy(con, tcon, form, user, src=None):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
@@ -5260,6 +5299,7 @@ def _post_buy(con, tcon, form, user, src=None):
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: the field's token, never the chart's; another one only when confirmed
     sol = float((form.get("sol") or "0").replace(",", "."))
     lab, _typ, lo, hi = settings.LIMITS["size_sol"]
     if not lo <= sol <= hi:
@@ -5313,7 +5353,7 @@ def _post_buy(con, tcon, form, user, src=None):
         print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
         hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
         raise ValueError(f"kupnja nije poslana: {why}.{hint}")
-    _owner_buy_rules(con, tcon, token, sol)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
+    _owner_buy_rules(con, tcon, token, sol, src=src)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
     sym = _symbol(token)
     # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held
     # gets one more lot (its own demo trade and real swap, run_trade passes add=True for a manual stake) with the exit
@@ -5357,6 +5397,8 @@ def _post_buy(con, tcon, form, user, src=None):
             _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), _cfg(tcon))
         except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
             print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
+    if chart:
+        print(f"pravi trade: kupnja {sym or token[:6]} ({token}) uz potvrđenu razliku od grafa {chart}", flush=True)
     if prev is not None:
         return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
     return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"

@@ -215,7 +215,12 @@
   "daily_usd": 3.2,
   "reserve_usd": 0.5,
   "burst_usd": 0.03,
-  "max_query_chars": 300
+  "max_query_chars": 300,
+  "mrtvi": {
+   "_": "11.11. (Jure, preporuka 4): račun bez ijednog poziva (kol.db calls, kind call) u zadnjih dani dana preskače se u krugu i čita se najviše jednom u svakih_h sati, da se ne izgubi račun koji je oživio; ništa se ne briše. Izuzeti: računi viđeni prvi put prije manje od dani dana (kols.first_seen) i vlasnikovi (praćeni na Autopilotu, kol/shillers.json). dani 0 = isključeno.",
+   "dani": 14,
+   "svakih_h": 6
+  }
  },
  "minute": {
   "budget_s": 150,

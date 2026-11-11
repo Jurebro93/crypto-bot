@@ -136,6 +136,8 @@ PROCESSES = (
      "nadzor memorije svake minute i održavanje baza: drži bravu pisanja i nad trade.db i league.db, "
      "pauza bi produžila čekanje petlje novca"),
     ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
+    # 11.11.: one line at every start (start.sh): which Apify sources are off and why; reads a small JSON, milliseconds
+    ("apify-stanje", "-m hype.apify", (), PROTECTED, "jedan red na startu: ugašeni Apify izvori; čita mali JSON"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
@@ -168,6 +170,9 @@ PROCESSES = (
      "kupci prije shill mreže: noćni prolaz (Helius, strop kredita) i mali svakih 30 min, samo sjena"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
+    # 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): read-only, after a deploy and daily at 06:30; nobody waits for it
+    ("disk", "-m ops.diskreport", (), JOBS,
+     "izvještaj diska (samo čita baze): nakon deploya i dnevno u 06:30, kandidati za čišćenje u log"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
     ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),

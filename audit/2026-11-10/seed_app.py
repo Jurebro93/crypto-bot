@@ -224,7 +224,8 @@ def seed_hype(kol_handles, wallets):
             k = 1 - i / 90
             mc = t["mcap"] / (1 + t["ch1"] / 100 * (i / 30)) * R.uniform(0.985, 1.015)
             v1 = t["liq"] * R.uniform(0.2, 0.5)
-            con.execute("INSERT OR REPLACE INTO token_pulse VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT OR REPLACE INTO token_pulse (token, ts, price, mcap, liquidity, vol_m5, vol_h1, buys_m5, "
+                        "sells_m5, buys_h1, sells_h1, holders, holders_src) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (t["mint"], ts, mc / 1e9, mc, t["liq"], v1 / 12, v1, R.randint(3, 22), R.randint(2, 15), R.randint(40, 190),
                          R.randint(25, 140), int(hold * (0.9 + 0.1 * k)) if i % 15 == 0 else None, "helius" if i % 15 == 0 else None))
     # kupnje i prodaje praćenih walleta (Helius webhook tablica), zadnjih 48 h

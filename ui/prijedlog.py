@@ -132,6 +132,9 @@ def live_market(tokens, fetch=None):
         # 10.11. (Jure: "stavi to u tablicu kao na DexScreeneru"): every window the pair has, buys and sells apart
         out[t]["w"] = {w: {"ch": ch.get(w), "vol": float(vol.get(w) or 0), "buys": int((tx.get(w) or {}).get("buys") or 0),
                            "sells": int((tx.get(w) or {}).get("sells") or 0)} for w in ("m5", "h1", "h6", "h24")}
+        # 11.11. (Jure: "da nisam krivo pastao adresu"): the name the buy panel shows for an address (ui/apterm.token_info)
+        bt = pr.get("baseToken") or {}
+        out[t].update(symbol=bt.get("symbol"), name=bt.get("name"), created_ms=pr.get("pairCreatedAt"))
     return out
 
 

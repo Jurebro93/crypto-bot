@@ -245,6 +245,14 @@ def _pool_for(token, kol_db=None):
     return (p["address"], p.get("liquidity") or None) if p else (None, None)
 
 
+def _last_429():
+    try:
+        from event_calendar import http
+        return http.gt_last_429()
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def candles_path(token, ts, horizon_s, fetch=None, pool_for=None):
     """[(ts, price, liq)] from 5-min candles after ts, and the entry price (close of the first candle at/after ts).
     (None, None, calls_used) when the token has no pool or no candles."""
@@ -266,8 +274,27 @@ def candles_path(token, ts, horizon_s, fetch=None, pool_for=None):
     return path, entry, calls
 
 
-def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=None):
+def day_pause_left(now=None, cfg=None, last_429=None):
+    """11.11. (Jure, preporuka 1): seconds the day pass still waits after GeckoTerminal's last HTTP 429 (backoff
+    masovno.day_pause_429_s, default 12 min; 0 = go). By day the night book only labels on the free API (its key share
+    is the night's, event_calendar/http), and on 11.11. its day passes spent 19-77 calls each and labelled nothing
+    while the free API answered 429: the minute loop, range, momentum and the scanner need that capacity."""
+    cfg = cfg or config()
+    now = now or int(time.time())
+    if last_429 is None:
+        try:
+            from event_calendar import http
+            last_429 = http.gt_last_429(now)
+        except Exception:  # noqa: BLE001
+            last_429 = 0
+    if not last_429:
+        return 0.0
+    return max(0.0, float(cfg.get("day_pause_429_s", 720)) - (now - last_429))
+
+
+def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=None, stop_on_429=False):
     """Replay due points of this module's sources whose horizon has passed, within `budget` GeckoTerminal calls.
+    stop_on_429 (11.11., by day): the pass ends at the first HTTP 429 GeckoTerminal answers after it started.
     Returns (labelled, calls_used)."""
     from paper import sim
     cfg = cfg or config()
@@ -279,9 +306,12 @@ def label(con, now=None, cfg=None, budget=None, fetch=None, pool_for=None, base=
                       (*SOURCES, now - horizon_s, max(1, budget // 2))).fetchall()
     base = base or sim.load_config()
     done = used = 0
+    started = time.time()
     for r in due:
         if used >= budget:
             break
+        if stop_on_429 and _last_429() >= int(started):
+            break   # a 429 in the middle of a day pass: stop here, the backoff decides the next pass
         path, entry, calls = candles_path(r["token"], r["ts"], horizon_s, fetch, pool_for)
         used += calls
         if not path or not entry:
@@ -338,10 +368,16 @@ def run(path=None, now=None, budget=None, fetch=None, pool_for=None):
         # one-off repair (7.11.): points labelled with liquidity 0 were simulated as total losses; relabel them
         con.execute("UPDATE points SET status='ceka', ret=NULL, varijante=NULL WHERE status='gotovo' AND COALESCE(liq,0)=0 "
                     f"AND point IN ({','.join('?' * len(SOURCES))})", SOURCES)
-        done, used = label(con, now, cfg, budget, fetch, pool_for)
-        shadow._set_kv(con, "masovno_last", {"ts": now, "new": new, "history": hist, "labeled": done, "calls": used})
+        night = is_night(now, cfg)
+        pause = 0 if night or fetch is not None else day_pause_left(now, cfg)
+        if pause > 0:   # 11.11.: by day GeckoTerminal answers 429: no calls this pass (they labelled nothing anyway)
+            done = used = 0
+        else:
+            done, used = label(con, now, cfg, budget, fetch, pool_for, stop_on_429=not night and fetch is None)
+        shadow._set_kv(con, "masovno_last", {"ts": now, "new": new, "history": hist, "labeled": done, "calls": used,
+                                             "pause_s": int(pause)})
         con.commit()
-        return {"new": new, "history": hist, "labeled": done, "calls": used, "night": is_night(now, cfg)}
+        return {"new": new, "history": hist, "labeled": done, "calls": used, "night": night, "pause_s": int(pause)}
     finally:
         con.close()
 

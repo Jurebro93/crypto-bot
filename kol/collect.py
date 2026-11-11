@@ -348,7 +348,58 @@ def _lower(stats_json, score):
     return lo if lo is not None else (score or 0)
 
 
-def timeline_handles(con, cfg, now=None):
+def _owner_handles():
+    """X handles the owner chose himself (lowercase): the Autopilot's KOL and crew follows, his shillers list."""
+    out = set()
+    try:
+        from league import copy as _copy
+        from trade import settings as _settings
+        out |= {h for h in _copy.followed_handles(_settings.LEAGUE_USER) if not h.startswith("tg:")}
+    except Exception:  # noqa: BLE001 - no league.db yet: nobody is followed
+        pass
+    try:
+        from kol import shillers
+        out |= set(shillers.x_handles())
+    except Exception:  # noqa: BLE001
+        pass
+    return {h.lower() for h in out}
+
+
+def skip_dead(con, handles, last, now, dcfg, owner=None):
+    """11.11. (Jure, preporuka 4: "izbaci račune bez ijednog poziva u 14 dana"): (handles to read, stats). An account
+    without one call (kol.db calls, kind 'call') in the last dcfg.dani days is read at most every dcfg.svakih_h hours
+    (so one that comes back to life is not lost), not every round; nothing is deleted. Never skipped: accounts first
+    seen (kols.first_seen) less than dani days ago or not in kols yet, and the owner's own (owner, _owner_handles()).
+    The round's budget then goes to the accounts that call: they are read more often for the same dollars."""
+    days = float((dcfg or {}).get("dani") or 0)
+    st = {"aktivni": 0, "novi": 0, "vlasnikovi": 0, "mrtvi_citani": 0, "mrtvi_preskoceni": 0}
+    if days <= 0 or not handles:
+        return list(handles), st
+    since = now - days * 86400
+    active = {h.lower() for (h,) in con.execute(
+        "SELECT DISTINCT handle FROM calls WHERE kind = 'call' AND ts >= ?", (int(since),)) if h}
+    first = {h.lower(): fs for h, fs in con.execute("SELECT handle, first_seen FROM kols") if h}
+    owner = {h.lower() for h in (_owner_handles() if owner is None else owner)}
+    every = float(dcfg.get("svakih_h", 6)) * 3600
+    kept = []
+    for h in handles:
+        low = h.lower()
+        if low in active:
+            st["aktivni"] += 1
+        elif low in owner:
+            st["vlasnikovi"] += 1
+        elif low not in first or (first[low] or 0) >= since:
+            st["novi"] += 1
+        elif now - (last.get(h) or 0) >= every:
+            st["mrtvi_citani"] += 1
+        else:
+            st["mrtvi_preskoceni"] += 1
+            continue
+        kept.append(h)
+    return kept, st
+
+
+def timeline_handles(con, cfg, now=None, stats=None):
     """Accounts for the next timeline round: the live watchlist, then the core (best by the LOWER end of the score
     range, so a lucky newcomer does not push out a proven KOL), read every round; then the rest of the slots rotate
     through candidates not looked at in timeline.refresh_d days: who called a winner (2x in 24 h) early (not after
@@ -405,7 +456,12 @@ def timeline_handles(con, cfg, now=None):
                    key=lambda h: last.get(h) or 0)[:min(t.get("stars_slots", 20), room // 2)]
     rest = [h for h in due if h not in stars][:max(0, room - len(stars))]
     k = (len(rest) + 1) // 2  # stars mid-rotation, not last: a round cut short by the budget still reaches some
-    return (watch + core + graph + rest[:k] + stars + rest[k:])[:total]
+    out = (watch + core + graph + rest[:k] + stars + rest[k:])[:total]
+    if t.get("mrtvi"):   # 11.11.: accounts without a call in 14 days: every 6 h, not every round (skip_dead)
+        out, st = skip_dead(con, out, last, now, t["mrtvi"])
+        if stats is not None:
+            stats.update(st)
+    return out
 
 
 def timeline(con, cfg, run=None, now=None):
@@ -460,9 +516,15 @@ def timeline_twapi(con, cfg, get=None, now=None):
     last = con.execute("SELECT last_ts FROM searches WHERE target = 'timeline_tw'").fetchone()
     if last and now - last[0] < t.get("every_min", 30) * 60:
         return 0
-    handles = timeline_handles(con, dict(cfg, timeline=t), now)
+    dead = {}
+    handles = timeline_handles(con, dict(cfg, timeline=t), now, stats=dead)
     if not handles:
         return 0
+    if dead:   # 11.11. (Jure, preporuka 4): who is read this round and who waits (skip_dead)
+        print(f"kol twitterapi: popis {len(handles)} računa: aktivnih {dead['aktivni']}, novih {dead['novi']}, "
+              f"vlasnikovih {dead['vlasnikovi']}, bez poziva {(t.get('mrtvi') or {}).get('dani', 14)} d: "
+              f"{dead['mrtvi_citani']} na redu (svakih {(t.get('mrtvi') or {}).get('svakih_h', 6)} h), "
+              f"{dead['mrtvi_preskoceni']} preskočeno", flush=True)
     # accounts a budget-cut round did not reach go first next round, each from its own last read (not just since
     # the last round), so nobody is skipped for good and no posts fall in the gap
     try:
@@ -523,8 +585,10 @@ def timeline_twapi(con, cfg, get=None, now=None):
     left = [h for h in handles if h not in dset]
     con.execute("INSERT INTO kv VALUES ('tw_pending', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (json.dumps(left),))
+    every = t.get("every_min", 30)   # 11.11.: how often an account of the list is read at this round's coverage
+    often = f", račun s popisa ~svakih {every * len(handles) / len(done):.0f} min" if done else ""
     print(f"kol twitterapi: krug pročitao {len(done)}/{len(handles)} računa ({len(left)} prvi sljedeći put), "
-          f"{n} novih poziva", flush=True)
+          f"{n} novih poziva{often}", flush=True)
     con.commit()
     return n
 
