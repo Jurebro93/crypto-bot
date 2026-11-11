@@ -301,14 +301,14 @@ class Job(TradeBase):
             self.assertIn("entry_ready", c)
         ready = [c["entry_ready"] for c in d["candidates"]]
         self.assertEqual(ready, sorted(ready, reverse=True))               # entry-ready rows first
-        self.assertEqual(d["watched_by_source"], {"signal": 2, "event": 1, "market": 1})
+        self.assertEqual(d["watched_by_source"], {"signal": 2, "event": 1, "missed": 0, "market": 1})
         self.assertIn("cost_today", d["watchlist"])
         only = view.candidates(min_score=0.3, now=now, source="market")
         self.assertEqual({c["token"] for c in only["candidates"]}, {MKT, BOTH})
         self.assertIn("error", view.candidates(source="nesto"))
         from ui import mcpapi
         t = {x["name"]: x for x in mcpapi.TOOLS}["get_range_candidates"]
-        self.assertEqual(t["inputSchema"]["properties"]["source"]["enum"], ["signal", "market", "event"])
+        self.assertEqual(t["inputSchema"]["properties"]["source"]["enum"], ["signal", "market", "event", "missed"])
         res, err = mcpapi._tool("get_range_candidates", {"min_score": 0.3, "source": "event"})
         self.assertFalse(err, res)
 

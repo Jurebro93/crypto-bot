@@ -50,7 +50,7 @@ HELP = {
     "Rug filter": "Helius + RugCheck provjera: PROLAZI ili OPREZ = ✓, VISOK RIZIK ili ODBAČEN = ✗.",
     "Event": "Token je vezan uz nadolazeći događaj iz kalendara; ✓ ako je pravi token eventa, ✗ ako je kopija.",
     "Paper uzeo": "Je li ga demo trading kupio.",
-    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako se token u međuvremenu srušio: cijena 70%+ ispod vrha u zadnja 24 h ili izvučena likvidnost. Rugani se ne nude i ne mogu se kupiti.",
+    "Rug": "Presuda rug filtera prije ulaza (PROLAZI, OPREZ, VISOK RIZIK, ODBAČEN), ili 💀 RUGAN ako je likvidnost izvučena (više od 50 % ispod vrha) ili je token pao 70%+ od vrha dok dev ili top holder prodaje ili je rug rizik visok. Pad od vrha bez toga je „dump nakon pumpe”: nije blok, samo manja vjerojatnost (P × 0,7). Rugani se ne nude i ne mogu se kupiti.",
     "Rug presuda": "Presuda rug filtera: PROLAZI, OPREZ, VISOK RIZIK ili ODBAČEN (tvrdi pad).",
     "Rug ocjena": "0-100, kreće od 100 i svaka zastavica oduzima bodove. Prazno kad je tvrdi pad.",
     "Glavni razlog": "Prvi tvrdi pad ili najteža zastavica rug filtera.",

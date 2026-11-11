@@ -17,6 +17,11 @@ Universe (table mkt), cheapest first:
                a day out of the SHARED CoinGecko budget (3000 a day; scan 150, range seeds 60, events 600 a night,
                momentum 100); their numbers admit a pool without another request
   birdeye      Birdeye's token list by 24 h volume, ONLY with BIRDEYE_API_KEY, every BIRD_EVERY_S, at most BIRDEYE_DAY
+  propusteno   11.11. (flag range_missed G27, rangedca/missed.py): every token a skip journal labels propušteno
+               (skipped, then >= +20 % within 60 min: preskoceni, fast path, proposals), src 'missed' for 72 h, due at
+               once; filter: bonded, MC >= 30k, liquidity >= $15k, volume 1 h >= $10k and the owner's hard blocks
+               (missed.hard_block); after 72 h back to src 'market' (the market filter keeps it or it leaves)
+Source priority of a token: event > missed > market (and the signal pass above them all, rangedca/view.source_of).
 Market filter (a market token): bonded, MC $50k-$5M, liquidity >= $15k, volume 1 h >= $10k, at least 6 h old. An
 event token only needs what every analysed token needs: bonded and MC >= $30k (CLAUDE.md). A token that fails waits
 (next_ts) by its reason: under 30k a day, on the curve 6 h, otherwise 1-2 h; too young until it is 6 h old.
@@ -38,7 +43,9 @@ scan already snapshots), plus discovery (<= DISC_REQ_PASS a pass and its own DIS
 refresh's share) = at most ~2,700 a day under DEX_DAY 3000, ~2 a minute against DexScreener's 300 a minute (a pass
 sends at most MAX_REQ_PASS 20).
 Nothing here trades. range_dca may enter a market / event token only on the demo account (paper), while its flag
-(range_market / event_tokens) is paper; never on the real account (rangedca/trade.py).
+(range_market / event_tokens) is paper; never on the real account (rangedca/trade.py). A missed token: the demo
+account while range_missed is paper; the real account only while it is live AND >= 20 closed demo rounds of source
+missed pass the live proof (rangedca/gate.missed_refusal).
 """
 import os
 import sqlite3
@@ -85,6 +92,11 @@ NO_PRICE_WAIT_S = 3 * 86400   # 11.11.: 1,244 dead migrations were asked again e
 KEEP_SNAPS_DAYS = 3       # snapshots of market-only tokens (7 for the signal pass)
 MIN_ANALYSED = data.MIN_MCAP   # 30k (CLAUDE.md)
 WATCH_FLAG = {"market": "range_market", "event": "event_tokens"}   # never live: trade/settings.NEVER_LIVE
+WATCH_FLAG["missed"] = "range_missed"   # 11.11. (G27): live only past rangedca/gate.missed_refusal (LIVE_GATES)
+SRC_ORDER = ("signal", "event", "missed", "market")   # the priority of a range's watchlist source (view.source_of)
+_RANK = {"event": 0, "missed": 1}                    # the universe's own sources (the signal pass is not in mkt)
+MISSED_MIN_LIQ = 15_000.0      # 11.11. owner's rule B for a missed token: trade/cost.LIQ_HARD_MIN
+MISSED_MIN_VOL_H1 = 10_000.0
 GT ="https://api.geckoterminal.com/api/v2/networks/solana"
 CURVE_DEX = ("pumpfun", "pump-fun", "moonshot", "moonit", "launchlab", "raydium-launchlab", "letsbonk", "letsbonk-fun",
              "meteora-dbc")
@@ -103,6 +115,8 @@ CREATE INDEX IF NOT EXISTS mkt_due ON mkt (watched, next_ts);
 
 def ensure(con):
     con.executescript(SCHEMA)
+    from . import missed
+    missed.ensure(con)   # 11.11.: missed_until / missed_ts / missed_pct / missed_via
 
 
 class Net:
@@ -219,6 +233,12 @@ def check(s, created_ts, src, now, keep=False):
         return False, "MC ispod 30k (ne analizira se)", 86400
     if src == "event":
         return True, "", 0
+    if src == "missed":   # 11.11. (range_missed): rule B's numbers; the hard blocks are missed.hard_block's (_store)
+        if (s.get("liq") or 0) < (KEEP_LIQ if keep else MISSED_MIN_LIQ):
+            return False, f"likvidnost ${s.get('liq') or 0:,.0f}", 2 * 3600
+        if (s.get("vol_h1") or 0) < (KEEP_VOL_H1 if keep else MISSED_MIN_VOL_H1):
+            return False, f"volumen 1 h ${s.get('vol_h1') or 0:,.0f}", 3600
+        return True, "", 0
     if mc < MIN_MCAP:
         return False, f"MC ${mc:,.0f} ispod ${MIN_MCAP:,.0f}", 2 * 3600
     if mc > MAX_MCAP:
@@ -236,7 +256,7 @@ def check(s, created_ts, src, now, keep=False):
 
 def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None, nums=None):
     """A token into the universe (or one more `via` for a known one). An event token is marked src 'event' and is due
-    at once."""
+    at once; 11.11. a missed one (rangedca/missed.py) src 'missed' (over 'market', never over 'event'), due at once."""
     r = con.execute("SELECT via, src, next_ts, watched FROM mkt WHERE token=?", (tok,)).fetchone()
     nums = nums or {}
     if r is None:
@@ -249,8 +269,8 @@ def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None
     upd = {}
     if via not in vias:
         upd["via"] = ",".join(sorted(vias | {via}))
-    if src == "event" and r[1] != "event":
-        upd["src"] = "event"
+    if src in _RANK and _RANK[src] < _RANK.get(r[1], 9):
+        upd["src"] = src
         if not r[3]:
             upd["next_ts"] = int(now)
     if created_ts:
@@ -353,10 +373,12 @@ def from_events(con, now, topics_db=None):
         tc.close()
     for tok in toks:
         add(con, tok, "event", now, src="event")
-    # an event token whose topic ended (or whose role became clone / rug) is a market token again or leaves
+    # an event token whose topic ended (or whose role became clone / rug) is a market token again (a missed one while
+    # its 72 h last, 11.11.) or leaves
+    from . import missed
     for (tok,) in con.execute("SELECT token FROM mkt WHERE src='event'").fetchall():
         if tok not in toks:
-            con.execute("UPDATE mkt SET src='market' WHERE token=?", (tok,))
+            con.execute(f"UPDATE mkt SET src={missed.fallback_sql()} WHERE token=?", (int(now), tok))
     return set(toks)
 
 
@@ -456,9 +478,9 @@ def _near_entry(con):
 
 
 def order(rows, near, open_toks=()):
-    """The refresh order: open positions, active ranges near the bottom, event tokens, then the 1 h volume (highest
-    first). rows: [(token, src, vol_h1)]."""
-    return sorted(rows, key=lambda r: (r[0] not in open_toks, r[0] not in near, r[1] != "event", -(r[2] or 0), r[0]))
+    """The refresh order: open positions, active ranges near the bottom, event tokens, missed tokens (11.11.), then
+    the 1 h volume (highest first). rows: [(token, src, vol_h1)]."""
+    return sorted(rows, key=lambda r: (r[0] not in open_toks, r[0] not in near, _RANK.get(r[1], 9), -(r[2] or 0), r[0]))
 
 
 def watched(con):
@@ -469,6 +491,11 @@ def _store(con, tok, s, now, src, created_ts, keep, watched=False):
     """Store a fresh snapshot of a watched / candidate token; returns (ok, why, wait). watched: the softer keep
     thresholds of check()."""
     ok, why, wait = check(s, created_ts, src, now, keep=watched)
+    if ok and src == "missed":   # 11.11. (range_missed): the owner's hard blocks (rug, honeypot / freeze, dev dump)
+        from . import missed
+        hb = missed.hard_block(con, tok, s, now)
+        if hb:
+            ok, why, wait = False, hb, missed.HARD_WAIT_S
     if s and s.get("price") and s.get("bonded") and (s.get("mcap") or 0) >= MIN_ANALYSED:
         data.save_snap(con, tok, s)
     if keep:
@@ -500,9 +527,11 @@ def _pairs(net, tokens, deadline):
 
 
 def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=True, event_on=True, open_toks=(),
-              hype_db=None, scan_db=None, topics_db=None):
+              hype_db=None, scan_db=None, topics_db=None, missed_on=False):
     """One pass: discovery, refresh of the due watched tokens within the budget, admission of due universe tokens.
-    Returns {"tokens": watched tokens in refresh order, "src": {token: market | event}, "stats": {...}}."""
+    Returns {"tokens": watched tokens in refresh order, "src": {token: market | event | missed}, "stats": {...}}.
+    missed_on (11.11., flag range_missed): the missed tokens (rangedca/missed.py) join the list for 72 h."""
+    from . import missed
     ensure(con)
     now = int(now)
     net = net or Net()
@@ -512,11 +541,14 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     if market_on:
         stats["new"] += from_migrations(con, now, hype_db) + from_graduates(con, now) + from_scanner(con, now, scan_db)
         stats["new"] += discover_lists(con, now, net, log)
+    if missed_on:
+        stats["new"] += missed.from_missed(con, now, log)
     ev = from_events(con, now, topics_db) if event_on else set()
     if not event_on:
-        con.execute("UPDATE mkt SET src='market' WHERE src='event'")
-    if not market_on:   # event tokens only: the market part of the list rests
-        con.execute("UPDATE mkt SET watched=0 WHERE watched=1 AND src!='event'")
+        con.execute(f"UPDATE mkt SET src={missed.fallback_sql()} WHERE src='event'", (now,))
+    missed.expire(con, now, missed_on, log)
+    if not market_on:   # event / missed tokens only: the market part of the list rests
+        con.execute("UPDATE mkt SET watched=0 WHERE watched=1 AND src NOT IN ('event', 'missed')")
     signal = set(signal)
     pulse = set(pulse if pulse is not None else data.pulse_recent(now))
     open_toks = set(open_toks)
@@ -574,10 +606,11 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     room = min(DISC_REQ_PASS, MAX_REQ_PASS - stats["requests"], slice_left(con, "mkt_dex_day", DEX_DAY, now),
                slice_left(con, "mkt_disc_day", DISC_DAY, now))   # discovery never eats the refresh's share
     if room > 0:
-        cond = "" if market_on else " AND src='event'"
+        cond = "" if market_on else " AND src IN ('event', 'missed')"
         cand = [r for r in con.execute(
             f"SELECT token, src, vol_h1, created_ts FROM mkt WHERE watched=0 AND next_ts <= ?{cond} "
-            f"ORDER BY src='event' DESC, COALESCE(vol_h1, 0) DESC, first_seen DESC LIMIT ?", (int(now), room * 30))
+            f"ORDER BY src='event' DESC, src='missed' DESC, COALESCE(vol_h1, 0) DESC, first_seen DESC LIMIT ?",
+            (int(now), room * 30))
             if r[0] not in signal]
         if cand:
             n_req = -(-len(cand) // 30)
@@ -601,7 +634,8 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
                 if n_w >= MARKET_MAX:   # full: a newcomer replaces the quietest market token when it trades more
                     low = con.execute("SELECT token, vol_h1 FROM mkt WHERE watched=1 AND src='market' ORDER BY "
                                       "COALESCE(vol_h1, 0) LIMIT 1").fetchone()
-                    if not low or (src != "event" and (low[1] or 0) >= ((s or {}).get("vol_h1") or 0)) or low[0] in open_toks:
+                    if not low or (src not in _RANK and (low[1] or 0) >= ((s or {}).get("vol_h1") or 0)) \
+                            or low[0] in open_toks:
                         con.execute("UPDATE mkt SET next_ts=?, why=? WHERE token=?", (int(now + 3600), "lista puna", tok))
                         continue
                     con.execute("UPDATE mkt SET watched=0, next_ts=?, why=? WHERE token=?",
@@ -616,6 +650,7 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     ordered = order(rows, near, open_toks)[:MARKET_MAX]
     stats["watched"] = len(ordered)
     stats["events"] = sum(1 for _t, s, _v in ordered if s == "event")
+    stats["missed"] = sum(1 for _t, s, _v in ordered if s == "missed")
     return {"tokens": [t for t, _s, _v in ordered], "src": {t: s for t, s, _v in ordered}, "stats": stats,
             "event_tokens": ev}
 
@@ -667,7 +702,7 @@ def cost_today(con, now):
 
 
 def counts(con):
-    """{"market": n, "event": n} of watched tokens."""
+    """{"market": n, "event": n, "missed": n} of watched tokens."""
     try:
         return {s: n for s, n in con.execute("SELECT src, COUNT(*) FROM mkt WHERE watched=1 GROUP BY src")}
     except sqlite3.Error:

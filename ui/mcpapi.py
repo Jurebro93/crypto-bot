@@ -1133,7 +1133,11 @@ TOOLS.append(
                      "signal > event > market, all in sources), entry_ready (not a breakout and the entry rules pass "
                      "now; those rows first) and paper_only (market / event tokens are traded only on the demo account, "
                      "never with real money); breakouts (ranges broken upward), watched_by_source and the watchlist's "
-                     "filter, refresh and cost today per source. While the flag range_flip is not off: per row "
+                     "filter, refresh and cost today per source. Source missed (flag range_missed): a token skipped "
+                     "and then >= +20 % within 60 min, watched 72 h (signal > event > missed > market); the answer's "
+                     "missed part has its filter, the closed rounds of source missed vs the others (rounds, wins, EV, "
+                     "PnL) and its own live gate (>= 20 rounds of source missed with EV > 0; paper only before that). "
+                     "While the flag range_flip is not off: per row "
                      "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
                      "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
                      "of the new ones, the range after the break), flip_status and entry_ready_new_rules, and the "
@@ -1146,7 +1150,7 @@ TOOLS.append(
                      "score 0-1) and similar (top 10, similar_rule says how it is computed)."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
-         "source": {"type": "string", "enum": ["signal", "market", "event"],
+         "source": {"type": "string", "enum": ["signal", "market", "event", "missed"],
                     "description": "only rows whose sources include this one"}}}})
 
 

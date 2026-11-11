@@ -82,7 +82,8 @@ def decide(checks, q, rates=None, live_sol=0.1, paper_sol=PAPER_SOL):
     # 11.11. (owner's rule B): the tags of checks c / d change P and the size, never block (X is unknown here: the
     # run-up reduction applies)
     mods = edge.modifiers(runup_x=price.get("runup_x"), x_score=None, buy_share_5m=flow.get("buy_share_5m"),
-                          wash="wash" in (flow.get("tags") or []))
+                          wash="wash" in (flow.get("tags") or []),   # 11.11.: a dump after a pump (check a), P x 0.7
+                          dump=((checks.get("rug") or {}).get("values") or {}).get("dump"))
     p = p_tp(q.get("hits"), q.get("n"), base["p"]) * mods["p_mult"]
     e = ev(p, cost) if cost is not None else None
     out = {"ev_pct": round(e * 100, 2) if e is not None else None, "p_tp": round(p, 4),

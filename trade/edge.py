@@ -21,6 +21,9 @@ Modifiers (rule B: they change P and the size, they never block):
                                                  stricter of the two (a token that pumps already posts more in the last
                                                  hour than its 24 h average). Unknown X or buy share: reduced.
   wash or shill-driven                           P x 0.5 (once, also when both)
+  dump after a pump (11.11.)                     P x 0.7: 70 %+ under the peak WITHOUT the liquidity pulled, the dev /
+                                                 a top holder selling or a high rug risk (rugfilter/collapse, kind
+                                                 "dump"); before 11.11. that was the hard label "rugan"
   liquidity $15-25k                              the size by slippage (trade/cost.size_sol), no modifier here
 Hard blocks (rule B) live where the data is: rug high / honeypot / freeze / dev dump (the rug view), liquidity under
 $15k (trade/cost.liq_block), under $30k MC and the bonding curve (CLAUDE.md).
@@ -40,6 +43,7 @@ RUNUP_P, RUNUP_SIZE = 0.7, 0.5
 X_BURST_SCORE = 1.0          # log2(rate of the last 15 min / rate of the hour before) >= 1: twice the rate
 BUY_SHARE_MIN = 0.6
 WASH_SHILL_P = 0.5
+DUMP_P = 0.7                 # 11.11. owner: "dump nakon pumpe" is not a block, only P x 0.7
 RULE_TEXT = ("EV = P x TP - (1 - P) x SL - cost; paper: EV > 0; live / autotrade: EV >= +3 %, the 90 % interval's lower "
              "bound of the measured EV > 0 and n >= 10; no win-rate rule")
 
@@ -105,8 +109,9 @@ def x_bursting(x_score):
     return v is not None and v >= X_BURST_SCORE
 
 
-def modifiers(runup_x=None, x_score=None, buy_share_5m=None, wash=False, shill=False):
-    """{"p_mult", "size_mult", "tags": [{"key", "text"}]} of rule B's modifiers (see the module text)."""
+def modifiers(runup_x=None, x_score=None, buy_share_5m=None, wash=False, shill=False, dump=None):
+    """{"p_mult", "size_mult", "tags": [{"key", "text"}]} of rule B's modifiers (see the module text). dump: truthy
+    (its Croatian line, rugfilter/collapse kind "dump") for a dump after a pump: P x DUMP_P."""
     p, size, tags = 1.0, 1.0, []
     try:
         ru = float(runup_x) if runup_x is not None else None
@@ -129,6 +134,10 @@ def modifiers(runup_x=None, x_score=None, buy_share_5m=None, wash=False, shill=F
         p *= WASH_SHILL_P
         what = " i ".join(w for w, on in (("lažni volumen", wash), ("vođeno shillanjem", shill)) if on)
         tags.append({"key": "wash" if wash else "shill", "text": f"{what}: P × {WASH_SHILL_P:g}"})
+    if dump:
+        p *= DUMP_P
+        what = dump if isinstance(dump, str) else "dump nakon pumpe (pad od vrha bez izvlačenja likvidnosti)"
+        tags.append({"key": "dump", "text": f"{what}: P × {DUMP_P:g} (nije blok)"})
     return {"p_mult": p, "size_mult": size, "tags": tags}
 
 

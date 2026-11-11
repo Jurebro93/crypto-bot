@@ -87,6 +87,68 @@ def blocked(path=None, ttl=300):
 
 def forget_cache():
     _cache.update(ts=0, path=None, set=frozenset())
+    _kcache.update(ts=0, path=None, map={})
+
+
+# 11.11. (owner's rug rule, rugfilter/collapse): the archive still CLEANS UP the same tokens (judge_legacy), but what
+# blocks as a rug is read through the new rule: "likvidnost" and "mehanika" are rugs; "srusen" (70 %+ under the peak)
+# is a rug only when its stored liquidity fell more than collapse.LIQ_RUG from its peak, else a dump after a pump (a P
+# modifier, not a block). The stored rows are never rewritten; the first read logs how many "srusen" rows changed.
+_kcache = {"ts": 0, "path": None, "map": {}}
+_KLOGGED = set()
+
+
+def kind_of(kind, peak_liq, last_liq):
+    """"rug" | "dump" of one archive row under the 11.11. rule."""
+    if kind != "srusen":
+        return "rug"
+    liq_drop = (1 - (last_liq or 0) / peak_liq) if peak_liq else None
+    return "rug" if liq_drop is not None and liq_drop > collapse.LIQ_RUG else "dump"
+
+
+def kind_one(token, path=None):
+    """"rug" | "dump" of one archived token (one row, for a short process such as run_range.py), None when it is not
+    archived or the table cannot be read."""
+    path = path or HYPE_DB
+    if not os.path.exists(path):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        try:
+            r = con.execute("SELECT kind, peak_liq, last_liq FROM rug_archive WHERE token=?", (token,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    return kind_of(*r) if r else None
+
+
+def kinds(path=None, ttl=300, log=print):
+    """{token: "rug" | "dump"} of every archived token (cached `ttl` seconds); {} without the table."""
+    path = path or HYPE_DB
+    now = time.time()
+    if _kcache["path"] == path and now - _kcache["ts"] < ttl:
+        return _kcache["map"]
+    m, n_srusen, n_dump = {}, 0, 0
+    if os.path.exists(path):
+        try:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+            try:
+                for t, k, pl, ll in con.execute("SELECT token, kind, peak_liq, last_liq FROM rug_archive"):
+                    m[t] = kind_of(k, pl, ll)
+                    n_srusen += k == "srusen"
+                    n_dump += m[t] == "dump"
+            finally:
+                con.close()
+        except sqlite3.Error:
+            m = {}
+    _kcache.update(ts=now, path=path, map=m)
+    if m and path not in _KLOGGED:
+        _KLOGGED.add(path)
+        log(f"rug arhiva (pravilo 11.11.): od {n_srusen} redova 'srusen' {n_dump} je dump nakon pumpe (likvidnost nije "
+            f"pala > {collapse.LIQ_RUG:.0%}): više ne blokira kao rug, P × 0,7; {len(m) - n_dump} od {len(m)} ostaje rug "
+            "(spremljeni redovi se ne mijenjaju)")
+    return m
 
 
 # ---------- judging ----------
@@ -141,7 +203,7 @@ def judge(peak_mcap, last_mcap, peak_liq, last_liq, t0=None, t0_razlog=None, ver
     if peak_mcap and peak_mcap >= collapse.MIN_PEAK_MCAP:
         if (last_mcap or 0) <= 0 and (last_liq or 0) <= 0:
             return "likvidnost", f"par nestao s DEX-a (vrh ${peak_mcap / 1000:,.1f}k)"
-        j = collapse.judge(peak_mcap, last_mcap or 0, peak_liq or None, last_liq)
+        j = collapse.judge_legacy(peak_mcap, last_mcap or 0, peak_liq or None, last_liq)   # 11.11.: cleanup unchanged
         if j:
             return ("srusen" if j["drop"] >= collapse.DROP else "likvidnost"), j["text"]
     if t0 == "pad" and t0_razlog and not t0_razlog.startswith("sliči rugovima"):

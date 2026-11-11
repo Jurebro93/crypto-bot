@@ -716,6 +716,7 @@ OWNER_FLAG_ORDERS = (
     ("fast_path", "shadow", "vlasnik u chatu 11.11.: faza 1 fast_check, prvo shadow (mjeri odluke i latenciju)"),
     ("zonewatch", "shadow", "vlasnik u chatu 11.11.: zonski alarmi Grok Botu (zone samo iz rangedca), spoji odmah"),
     ("range_flip", "shadow", "vlasnik u chatu 11.11.: rangedca flip/pauza/ATR stop, prvo shadow (backtest: DD isti, PnL niži)"),
+    ("range_missed", "paper", "vlasnik u chatu 11.11.: propušteni tokeni na range listu 72 h, paper po range pravilima"),
     ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
 )
 

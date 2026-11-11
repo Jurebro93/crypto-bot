@@ -25,6 +25,8 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
            11.11. part range_oznake: the owner's learning labels (rangedca/owner.py, counterfactual: the booked rounds
            above are never changed by them), his pins and the watched ranges most similar to his labelled wins (also
            two log lines "range oznake vlasnika: ..." and "range slični ...").
+           11.11. (range_missed G27): also split by the round's source, "range:missed" (skipped, then +20 % within
+           60 min) vs "range:ostali" (its baseline): rounds, win rate, EV %, PnL $ and the missed live gate.
   momentum momentum_scalp (11.11.): the base rate of every signal (momentum.db; hit = +15 % before -10 % in 45 min,
            EV = the exit rules on the same path after cost) vs the newest backtest, and the paper trades vs that base
            rate with the live gate's verdict (>= 50 trades, EV > 0, hit >= 45 %; break-even is ~50 %, not 45 %).
@@ -265,7 +267,7 @@ def range_rows(now, mode, lcon, log=print):
             "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base, "baseline_n": None,
             "delta_ev_pct": _r(s["ev_pct"] - base, 2) if s["ev_pct"] is not None and base is not None else None,
             "note": note, "proposal": _proposal(mode, s)}]
-    return out + owner_rows(now, mode, log)
+    return out + range_source_rows(now, mode, lcon) + owner_rows(now, mode, log)
 
 
 def owner_rows(now, mode, log=print):
@@ -291,6 +293,41 @@ def owner_rows(now, mode, log=print):
              "baseline_n": None, "delta_ev_pct": None, "proposal": None,
              "note": f"oznake vlasnika (protučinjenične, knjiženo se ne mijenja): {lab}. {sim}"
                      + (f". Prikvačeni: {pins}" if pins else "")}]
+
+
+def range_source_rows(now, mode, lcon):
+    """11.11. (flag range_missed G27): the same paper rounds split by their source (range_rounds.levels "src"): part
+    "range:missed" (tokens skipped, then >= +20 % within 60 min; rangedca/missed.py) vs "range:ostali" (every other
+    source) = its baseline. Rounds, win rate, EV %, PnL $ (in the note) and the missed live gate's verdict."""
+    from rangedca import gate
+    from trade import settings
+    try:
+        rows = lcon.execute("SELECT closed_ts, ret, pnl_usd, levels FROM range_rounds WHERE user = ? AND status = 'closed' "
+                            "AND closed_ts >= ? ORDER BY closed_ts", (settings.PAPER_USER, now - WINDOW_D * 86400)).fetchall()
+    except sqlite3.Error:
+        return []
+    part = {"missed": [], "ostali": []}
+    for _ts, ret, pnl, lv in rows:
+        part["missed" if gate.round_source(lv) == "missed" else "ostali"].append((ret, pnl or 0.0))
+    sm, so = summary([r for r, _p in part["missed"]]), summary([r for r, _p in part["ostali"]])
+    try:
+        live = gate.missed_refusal() or "prolazi"
+    except Exception as e:  # noqa: BLE001
+        live = f"nečitljivo ({type(e).__name__})"
+    out = []
+    for key, s, base in (("missed", sm, so), ("ostali", so, None)):
+        pnl = sum(p for _r, p in part[key])
+        out.append({"flag": "range_dca", "phase": mode, "part": f"range:{key}", "n": s["n"], "n_outcomes": s["n"],
+                    "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+                    "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base["ev_pct"] if base else None,
+                    "baseline_n": base["n"] if base else None,
+                    "delta_ev_pct": (_r(s["ev_pct"] - base["ev_pct"], 2) if base and s["ev_pct"] is not None
+                                     and base["ev_pct"] is not None else None),
+                    "note": (f"izvor missed (preskočen, pa +20 % u 60 min) vs ostali izvori: PnL {pnl:+.2f} $; "
+                             f"live vrata range_missed: {live}") if key == "missed"
+                    else f"range runde svih ostalih izvora (signal, event, market): PnL {pnl:+.2f} $",
+                    "proposal": None})
+    return out
 
 
 def momentum_rows(now, mode, lcon):
