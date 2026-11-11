@@ -113,12 +113,12 @@ def mention(channel, posts, hype_db=None):
         print(f"tg_mentions: {e}")
 
 
-def prune(con, days, now=None):
-    """Posts older than `days`: drop the text (the call itself lives on in kol.db), then rows without a CA."""
-    cut = (now or int(time.time())) - days * 86400
-    a = con.execute("DELETE FROM posts WHERE seen_ts < ? AND (cas IS NULL OR cas = '')", (cut,)).rowcount
-    con.execute("UPDATE posts SET text=NULL WHERE seen_ts < ?", (cut,))
-    return a
+def prune(con, days=None, now=None):
+    """Deletes nothing (returns 0). 11.11. (Jure: tekst objave tek kad je svaki njen poziv izmjeren; "red objave i
+    metapodaci ostaju"): this deleted the rows without a CA and every text older than 30 days whatever the
+    measurements of their calls. The text rule is ops/retencija.py now (14 days, only fully measured or call-less
+    posts, behind the owner switch tg_text_retention); rows are never deleted."""
+    return 0
 
 
 def summary(path=None):

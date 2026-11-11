@@ -79,6 +79,8 @@ KEEP = {
         "learn_runs": "povijest učenja i vraćanja (learn/store, report/collect)",
         "token_status": "stanje para: povratak iz arhive rugova, mrtvi tokeni (rugfilter/archive, ops/prune)",
         "graduates": "bondani tokeni, izvor skenera i range liste (scan/market, rangedca/market)",
+        "live_trades_hourly": "satni agregat živog toka (ops/retencija): gradi se prije brisanja live_trades, nikad "
+                              "se ne briše",
     },
     "kol.db": {
         "calls": "pozivi s izmjerenim ishodom: ocjene callera (kol/score i 70+ čitača); čisti ih samo ops/prune "
@@ -141,13 +143,15 @@ RAW = {
     ("hype.db", "chain_trades"): (14, "swapovi praćenih walleta; strategije čitaju zadnje sate, masovno zadnji dan; "
                                       "pravilo već postoji: ops/prune chain (14 d, DATA_PRUNE=on)"),
     ("hype.db", "chain_transfers"): (14, "transferi walleta (kol/traces); pravilo ops/prune chain (14 d)"),
-    ("hype.db", "live_trades"): (7, "PumpPortal kupnje/prodaje (fast/checks, grupe, insajderi: zadnji sati/dani)"),
+    ("hype.db", "live_trades"): (7, "PumpPortal kupnje/prodaje (fast/checks, grupe, insajderi: zadnji sati/dani); "
+                                    "pravilo: ops/retencija (48 h uz satni agregat, prekidač live_trades_retention)"),
     ("hype.db", "live_launches"): (14, "nova lansiranja (insajderi, shill mreža, learn/masovno)"),
     ("hype.db", "apify_cache"): (1, "sirovi Apify JSON; ops/dbs ga već briše nakon APIFY_KEEP_DAYS"),
     ("hype.db", "token_pulse"): (7, "puls tokena svake 2 min; hype/pulse ga sam čisti nakon 7 d"),
     ("hype.db", "kol_mentions"): (7, "spominjanja na X (converge, copy: zadnji sat)"),
     ("hype.db", "tg_mentions"): (14, "Telegram spominjanja (corr/analyze, evidence)"),
-    ("tg.db", "posts"): (14, "Telegram objave; pozivi su već u kol.db (kol/collect); learn/postai, converge: zadnji dani"),
+    ("tg.db", "posts"): (14, "Telegram objave; pozivi su već u kol.db (kol/collect); learn/postai, converge: zadnji "
+                             "dani; tekst: ops/retencija (14 d kad su pozivi izmjereni, prekidač tg_text_retention)"),
     ("paper.db", "ticks"): (14, "cijene demo pozicija; netradeane već čisti ops/prune (4 d), tradeane koristi exits/fit"),
     ("wallets.db", "wallet_sightings"): (14, "viđenja walleta: red za ocjenjivanje (run_wallets harvest, corr/analyze)"),
     ("events.db", "events"): (30, "jedinstveni log događaja; events/store ima svoju retenciju (cijene 30 d, ostalo 90 d, "

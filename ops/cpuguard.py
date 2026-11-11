@@ -173,6 +173,10 @@ PROCESSES = (
     # 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): read-only, after a deploy and daily at 06:30; nobody waits for it
     ("disk", "-m ops.diskreport", (), JOBS,
      "izvještaj diska (samo čita baze): nakon deploya i dnevno u 06:30, kandidati za čišćenje u log"),
+    # 11.11. (owner switches live_trades_retention / tg_text_retention): the hourly aggregate, the measurement after a
+    # deploy and at 06:30, and only with a switch on the night deletion (01-06, under the heavy-job lock); nobody waits
+    ("retencija", "-m ops.retencija", (), JOBS,
+     "retencija live_trades i tg teksta: satni agregat, mjerenje u log; brisanje samo uz prekidač vlasnika, noću"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
     ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
