@@ -249,7 +249,14 @@ class LimitBuy(Base):
         self.assertIn("ok=", self.order())
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)
         self.mc["v"] = 90_000.0
-        self.assertIn("ispod 30k", self.order(at="$20k"))
+        # 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): his order under
+        # 30k is a warning that asks for his reason (tests/test_nadjacaj_offline), never an order before he answers
+        loc = self.order(at="$20k")
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("ispod 30k", pravitrade.fetch_answer(loc)["warn"][0])
+        self.assertTrue(pravitrade.fetch_answer(loc)["need_reason"])
+        self.assertEqual(settings.raw(self.con).get("buy_orders") or [], [])
         self.assertIn("TP mora biti iznad", self.order(tp="$40k"))
         self.assertIn("err=", self.order(at="bilo kad"))
 
@@ -319,8 +326,11 @@ class AddToPosition(Base):
         self.mirror(time.time())
         other = MINT[:-4] + "abcd"
         loc = unquote(self.post("/pravi-trade/buy", {"token": other, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
-        self.assertIn("err=", loc)
-        self.assertIn("kupnja nije poslana", loc)
+        # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the owner's own buy over a limit is a warning he may
+        # confirm (tests/test_nadjacaj_offline), never written before he does
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("1 otvorenih pozicija, najviše 1", pravitrade.fetch_answer(loc)["warn"][0])
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)   # no demo lot without a real one
 
     def test_second_buy_of_a_held_token_is_a_second_lot_with_the_same_exit(self):
@@ -490,7 +500,8 @@ class ManualDca(Base):
         orders = settings.raw(self.con)["dca_orders"]
         self.assertEqual([round(o["mc"]) for o in orders], [65_600, 50_000])
         self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$90k", "sol": "0,04"}))   # above MC now
-        self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))   # under 30k
+        # under 30k (11.11.): the warning asking for the owner's reason, no order before he answers
+        self.assertIn("warn=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))
         cfg = settings.merged(executor.load_config(), self.con)
         inner, _, _ = pravitrade.positions_inner(self.con, False, True, {}, cfg)
         self.assertIn("<summary>DCA dokup · 2</summary>", inner)

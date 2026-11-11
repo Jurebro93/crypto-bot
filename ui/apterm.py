@@ -1668,7 +1668,9 @@ def panel_html(d, sel_pos):
            '<div class=apx-cost data-cost>Procjena troška: upiši token i iznos.</div>'
            '<p class="apx-mismatch dn" data-mismatch role=alert hidden></p>'
            f'<button class="apx-go buy" data-go=buy>Kupi {esc(sym)}</button>'
-           '<p class=apx-note>Prolazi iste provjere i limite kao i prije (ulog, dan, trošak, rug, MC 30k+). '
+           '<p class=apx-note>Iznad tvojih limita (ulog, pozicije, dnevni gubitak, strop po tokenu, trošak) dobiješ '
+           'upozorenje i sam biraš „Kupi svejedno” (samo za tu kupnju); MC ispod 30k samo uz upisan razlog. Kill switch, '
+           'stanje walleta i rug su tvrdi. '
            f'Tvoj strop po tokenu: {pt._g(pn.get("dca_cap") or settings.DCA_TOKEN_CAP)} SOL (samo kupnje koje sam '
            'pokreneš; Grok, i kad mu odobriš zahtjev, ima svoje limite). Pravi novac ide samo kad je Autopilot uključen.</p></form>')
     dca = _dca_rows(m, sel_pos, pn)
@@ -1775,6 +1777,10 @@ def page(qs, user, full=False):
                      f'onclick="this.remove()">{"<b>Nije prošlo:</b> " if bad else ""}{esc(qs.get("err") or qs.get("ok"))}'
                      '<span class=ap-toast-x aria-hidden=true>×</span></div>'
                      + ("" if bad else "<script>setTimeout(()=>{const t=document.querySelector('.ap-toast');if(t)t.remove()},6000)</script>"))
+        # 11.11. (owner: "Može izaći upozorenje, box na kojem piše upozorenje, ali ako se složim, ručno uvijek
+        # nadjačava sve ostalo"): a buy over his limits comes back here with ?warn=: the box with every reason,
+        # "Kupi svejedno" and "Odustani"; it stays until he presses one of them (ap.js shows the same box in place)
+        toast += pt.warn_box(qs, user)
         npos, nord = len(d["positions"]), len(d["orders"])
         # 11.11. (Jure: "graf interaktivan"): one row of controls above the chart (the line legend is gone: every line
         # carries its label on the price axis and every zone its name), a tooltip beside the cursor or the finger
@@ -2238,8 +2244,8 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
     start = executor._day_start(now, cfg.get("day_tz"))
     off = (page_no - 1) * HIST_PAGE
     rows = tcon.execute("SELECT id, token, symbol, opened_ts, closed_ts, mode, reason, sol_in, sol_back, "
-                        "COALESCE(fees_sol,0) FROM positions WHERE status='closed' ORDER BY COALESCE(closed_ts, opened_ts) "
-                        "DESC LIMIT ? OFFSET ?", (HIST_PAGE + 1, off)).fetchall()
+                        "COALESCE(fees_sol,0), override FROM positions WHERE status='closed' ORDER BY "
+                        "COALESCE(closed_ts, opened_ts) DESC LIMIT ? OFFSET ?", (HIST_PAGE + 1, off)).fetchall()
     more = len(rows) > HIST_PAGE
     rows = rows[:HIST_PAGE]
     today = tcon.execute("SELECT mode, COUNT(*), COALESCE(SUM(sol_back - sol_in - COALESCE(fees_sol,0)),0), "
@@ -2255,8 +2261,11 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
     rows.sort(key=lambda r: (r[5] != "live", -(r[4] or r[3] or 0)))
     notes = _notes(tcon, ids, ())
     out = []
-    for pid, tok, sym, ots, cts, mode, why, sin, sback, fees in rows:
+    for pid, tok, sym, ots, cts, mode, why, sin, sback, fees, ovr in rows:
         pnl = (sback or 0) - (sin or 0) - (fees or 0)
+        # 11.11.: the owner's buy he confirmed over his limits says so, with what he overrode (and his reason under 30k)
+        ov = (f'<small class=apx-ovr title="{esc(ovr)}">nadjačano: {esc(ovr[:110] + ("…" if len(ovr) > 110 else ""))}'
+              '</small>') if ovr else ""
         pp = pnl / sin * 100 if sin else None
         link = (f'<a href="https://solscan.io/tx/{esc(sigs[pid])}" target=_blank rel=noopener>Solscan ↗</a>'
                 if sigs.get(pid) else "")
@@ -2266,7 +2275,7 @@ def povijest_html(tcon, cfg, owner, now, page_no=1):
                    f'<span class=n data-l="Zatvoreno">{esc(time.strftime("%d.%m. %H:%M", time.localtime(cts or ots or 0)))}</span>'
                    f'<span class=n data-l="Uloženo">{redak.sol(sin, 3)}</span><span class=n data-l="Vraćeno">{redak.sol(sback, 4)}</span>'
                    f'<span class="n {_tone(pnl)}" data-l="PnL">{redak.sol(pnl, 4, sign=True)}<small>{_pct(pp)}</small></span>'
-                   f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small></span>'
+                   f'<span data-l="Izvor">{esc(src_kind(why))}<small>{esc(pt._who(why) or "")}</small>{ov}</span>'
                    f'<span class=apx-act>{link}</span>{_note_html(_slim(notes.get(("p", pid))))}</div>')
     head = ('<div class="apx-tr apx-th apx-hist">' + _th("Token") + _th("Zatvoreno", cls="n") + _th("Uloženo", cls="n")
             + _th("Vraćeno", cls="n") + _th("PnL", "PnL · povijest", cls="n") + _th("Izvor") + '<span></span></div>')

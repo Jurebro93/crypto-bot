@@ -48,7 +48,9 @@ class PlanBase(Base):
         self.mode("exit_plan_live", "live")
         self.live = True   # the Autopilot is live (switch + key); the gate's RPC is not asked here
         for p in (mock.patch.object(executor, "is_live", lambda cfg: self.live),
-                  mock.patch.object(pravitrade, "_gate_now", lambda tcon, sol, token, now=None: None)):
+                  mock.patch.object(pravitrade, "_gate_now", lambda tcon, sol, token, now=None: None),
+                  # 11.11.: the owner's buy reads every gate reason at once (_gate_all); no RPC here either
+                  mock.patch.object(pravitrade, "_gate_all", lambda tcon, sol, token, now=None, balance=True: [])):
             p.start()
             self.addCleanup(p.stop)
         self.fake = FakeJup()

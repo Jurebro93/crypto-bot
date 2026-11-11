@@ -316,8 +316,10 @@ class Page(unittest.TestCase):
             loc = pravitrade.post("/pravi-trade/buy", {"token": BANK_M, "sol": "0.1", "exit": "tpsl", "tp": "15%"}, "Jure")
         finally:
             prijedlog.live_market, uil.market = saved
-        self.assertIn("err=", loc)
-        self.assertIn("odbijena", loc)
+        # 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): the owner's own
+        # buy under 30k is a warning asking for his reason (tests/test_nadjacaj_offline), nothing bought before it
+        self.assertIn("warn=", loc)
+        self.assertTrue(pravitrade.fetch_answer(loc)["need_reason"])
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
         # 9.11. (audit P64): a token that trades fine but sits under $30k reaches the MC gate itself (the case above
         # is refused earlier, by the traffic check, so it never exercised the 30k line)
@@ -329,8 +331,8 @@ class Page(unittest.TestCase):
             loc = pravitrade.post("/pravi-trade/buy", {"token": BANK_M, "sol": "0.1", "exit": "tpsl", "tp": "15%"}, "Jure")
         finally:
             prijedlog.live_market, uil.market = saved
-        self.assertIn("err=", loc)
-        self.assertIn("ispod%2030k", loc)
+        self.assertIn("warn=", loc)
+        self.assertIn("ispod 30k", pravitrade.fetch_answer(loc)["warn"][0])
         self.assertEqual(self.lg.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
 
     def test_fragments_need_access(self):

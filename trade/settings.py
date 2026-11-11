@@ -256,6 +256,9 @@ def merged(cfg, con):
     out["sell_all"] = s.get("sell_all") or 0
     out["sell_req"] = s.get("sell_req") or {}
     out["manual_size"] = s.get("manual_size") or {}
+    # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): demo trade id -> {"why": [...], "ts", "who"} of the owner's
+    # buys he confirmed over his limits (ui/pravitrade._post_buy); run_trade hands it to executor.buy(override=...)
+    out["manual_override"] = s.get("manual_override") or {}
     out["heartbeat"] = s.get("heartbeat") or 0
     out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
     out["sl_default"] = int(s.get("sl_default") or SL_DEFAULT)
