@@ -237,7 +237,8 @@ def _mcp_row(p):
     for k, v in (r.get("strategies") or {}).items():
         st[k] = ({kk: v.get(kk) for kk in ("p_tp", "p_tp_raw", "n", "hits", "ci90", "prior", "p_from", "tp_pct", "sl_pct",
                                            "cost_pct", "ev_pct", "ev_lo_pct", "ev_per_min", "duration_min", "p_mult",
-                                           "expires_ts", "entry_zone", "exits_mcap", "why", "calibrated")}
+                                           "expires_ts", "entry_zone", "exits_mcap", "why", "calibrated",
+                                           "similar_shadow")}
                  if v.get("valid") else {"valid": False, "why_not": v.get("why_not")})
     return {"id": p["id"], "token": p["token"], "symbol": p.get("symbol"), "status": p["status"],
             "status_why": p.get("status_why"), "created_ts": p.get("created_ts"), "expires_ts": p.get("expires_ts"),
@@ -249,7 +250,19 @@ def _mcp_row(p):
             "duration_min": r.get("duration_min"), "modifiers": r.get("modifiers"), "paper_only": bool(r.get("paper_only")),
             "cost_pct": r.get("cost_pct"), "risks": r.get("risks"), "why": r.get("why"), "market_at_update": r.get("market"),
             "rug": r.get("rug"), "runup_x": r.get("runup_x"), "after": p.get("after") or None,
-            "reject_reason": p.get("reject_reason"), "reject_note": p.get("reject_note"), "bought_sol": p.get("bought_sol")}
+            "reject_reason": p.get("reject_reason"), "reject_note": p.get("reject_note"), "bought_sol": p.get("bought_sol"),
+            # 11.11. (rangedca/owner.py): the owner's pin (never an automatic real-money buy) and the similarity's
+            # shadow P bonus (recorded only, P unchanged)
+            "pinned": bool(r.get("pinned")), "pin_only": bool(r.get("pin_only")), "similar_shadow": r.get("similar_shadow")}
+
+
+def owner_labels():
+    """The owner's learning labels (rangedca/owner.py, league.db owner_labels) for get_proposals; [] when unreadable."""
+    try:
+        from rangedca import owner
+        return [owner.label_view(lb) for lb in owner.labels()]
+    except Exception:  # noqa: BLE001 - no labels readable: none shown
+        return []
 
 
 def _num(x, default, lo, hi, cast=float):
@@ -272,7 +285,11 @@ def mcp(since=None, min_ev=None, include_blocked=False, status=None, limit=None,
             "notes": ("Read-only; nothing here buys. Grok autotrade may buy a proposal only through execute_trade within "
                       "its own grok_autotrade limits (p_tp = the proposal's p_tp, strategy as named), then set_exit_plan "
                       "with the proposal's exit_plan. Add a proposal with submit_signal_opinion (verdict kupi, p_tp, "
-                      "optional strategy, entry_zone, exit_zone, valid_min); your p_tp is calibrated before it counts.")}
+                      "optional strategy, entry_zone, exit_zone, valid_min); your p_tp is calibrated before it counts. "
+                      "pinned / pin_only rows come from the owner's pin (a recommendation: never buy them with real "
+                      "money on your own; only the owner's tap does). owner_labels: the owner's learning labels "
+                      "(counterfactual; the booked results never change)."),
+            "owner_labels": owner_labels()}
     if m == "off":
         return {**base, "total": 0, "proposals": [], "note": "zastavica proposals (G21) je isključena"}
     con = store.ro(path)

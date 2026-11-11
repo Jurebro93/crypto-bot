@@ -794,6 +794,11 @@ def owner_once_b(con, lcon=None, market=None, now=None):
     owner_flags_b(con, now)
     owner_flag_orders(con, now)
     owner_note_orders(con, now)
+    try:   # 11.11. (Jure: HAOBIBI): the learning label (league.db) and the range pin, each once (rangedca/owner.py)
+        from rangedca import owner as range_owner
+        range_owner.owner_once(con, lcon, now)
+    except Exception as e:  # noqa: BLE001 - logged; its markers are not set, so the next start tries again
+        print(f"pravi trade: nalog vlasnika 11.11. (HAOBIBI): {type(e).__name__}: {e}", flush=True)
     raw = settings.raw(con)
     if raw.get(HOPE_KEY):
         return True

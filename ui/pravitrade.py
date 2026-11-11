@@ -4783,6 +4783,18 @@ def post(path, form, user):
             settings.set_flag(tcon, name, mode, user, paper=paper)
             print(f"pravi trade: {user} je zastavicu {name} postavio na {mode}", flush=True)
             return f"{BACK}?ok={qq(f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.')}#fl-{name}"
+        if path == "/pravi-trade/rangepin":   # 11.11. (rangedca/owner.py): the owner's range pins, add / remove
+            from rangedca import owner
+            tok, act = (form.get("token") or "").strip(), (form.get("action") or "add").strip()
+            if act == "remove":
+                ok = owner.unpin(tcon, tok, user)
+                print(f"pravi trade: {user} je maknuo range pin {tok[:6]}", flush=True)
+                return f"{BACK}?ok={qq('Pin maknut: token više nije stalno na range listi.' if ok else 'Taj token nije bio prikvačen.')}"
+            if act != "add":
+                raise ValueError("action: add ili remove")
+            owner.pin(tcon, tok, user, (form.get("symbol") or "").strip() or None, (form.get("note") or "").strip() or None)
+            print(f"pravi trade: {user} je prikvačio range token {tok[:6]}", flush=True)
+            return f"{BACK}?ok={qq('Token prikvačen: uvijek na range listi, prijedlog u donjoj zoni dok volumen drži.')}"
         if path == "/pravi-trade/triggerprobe":   # 10.11. (Jure: "da, v1"): Jupiter Trigger step 1, no money
             settings.put(tcon, "trigger_probe_req", int(time.time()), user)
             return f"{BACK}?ok={qq('Proba Jupiter Triggera poslana trade procesu; rezultat je pod Pravila za nekoliko sekundi.')}#trigger"

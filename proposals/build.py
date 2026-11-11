@@ -513,6 +513,9 @@ def finish(r, ctx, now, evs_all=None):
                     "ts": ev.get("ts"), "expires_ts": ev.get("expires_ts"), "expires_after_s": ev.get("expires_after_s"),
                     "entry_zone": ev.get("entry_zone"), "exits_mcap": strategies.mcaps(ev, mcap),
                     "why": ev.get("why"), "detail": ev.get("detail"), "calibrated": bool(p.get("calibrated"))}
+    rc = (ctx.get("ranges") or {}).get(tok)
+    if "range" in strat and strat["range"].get("valid"):
+        similar_shadow(strat["range"], rc, cost)
     valid = {k: v for k, v in strat.items() if v.get("valid")}
     evs = {k: evs_all[k] for k in valid}
     blocks = blocks_of(r, ctx, evs_all, cost, size, cap)
@@ -567,8 +570,33 @@ def finish(r, ctx, now, evs_all=None):
            "grok": ({"p_tp_raw": valid["grok"].get("p_tp_raw"), "p_tp_calibrated": valid["grok"]["p_tp"],
                      "n": valid["grok"]["n"]} if "grok" in valid else None),
            "price0": price, "mcap0": mcap, "liq0": liq}
+    if rc and rc.get("pinned"):   # 11.11. (the owner's pin, rangedca/owner.py): marked; never an automatic real buy
+        row["pinned"] = True
+        row["pin_only"] = "range" in pos and not rc.get("entry_ready")
+        row["risks"].append("vlasnikov pin: preporuka (demo paper i tvoj dodir); nikad automatska kupnja pravim novcem")
+    if (strat.get("range") or {}).get("similar_shadow"):
+        row["similar_shadow"] = strat["range"]["similar_shadow"]
     row["expires_ts"] = expiry(row, now)
     return row, None
+
+
+def similar_shadow(st, rc, cost):
+    """11.11. (rangedca/owner.py): a range proposal of a token similar (>= SIM_BONUS_MIN) to one of the owner's
+    labelled wins would get P + SIM_P_BONUS. ONLY IN SHADOW: st["similar_shadow"] records what that would change (P,
+    EV, shown or not); st's own p_tp / ev_pct stay as they are."""
+    from rangedca import owner
+    s = (rc or {}).get("similar_to") or {}
+    if not s or (s.get("score") or 0) < owner.SIM_BONUS_MIN or st.get("p_tp") is None:
+        return None
+    tp, sl = (st.get("tp_pct") or 0) / 100, (st.get("sl_pct") or 0) / 100
+    p2 = min(0.95, st["p_tp"] + owner.SIM_P_BONUS)
+    ev2 = calib.ev(p2, tp, sl, cost) * 100
+    st["similar_shadow"] = {"similar_to": s.get("symbol") or (s.get("token") or "")[:6], "similar_to_token": s.get("token"),
+                            "score": s.get("score"), "p_bonus": owner.SIM_P_BONUS, "p_tp_would_be": round(p2, 4),
+                            "ev_pct_would_be": round(ev2, 2), "ev_pct_now": st.get("ev_pct"),
+                            "would_be_shown": ev2 > 0, "shown_now": (st.get("ev_pct") or 0) > 0,
+                            "note": "samo u sjeni: P i EV se ne mijenjaju dok vlasnik ne odluči"}
+    return st["similar_shadow"]
 
 
 def build(now=None, src=None):

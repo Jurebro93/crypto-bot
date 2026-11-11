@@ -1137,7 +1137,13 @@ TOOLS.append(
                      "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
                      "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
                      "of the new ones, the range after the break), flip_status and entry_ready_new_rules, and the "
-                     "range_flip list of every token not in state normal (a paused token may not be a candidate)."),
+                     "range_flip list of every token not in state normal (a paused token may not be a candidate). "
+                     "11.11.: owner_labels (the owner's learning labels, e.g. HAOBIBI win / missed_win_stop_too_early: "
+                     "entry, lot 2, stop, peak, TP in market cap; counterfactual, the booked round never changes), "
+                     "pins (the owner's pinned tokens: always listed, row pinned true, pin_ready / pin_entry = price in "
+                     "the range's lower zone AND volume 1 h >= 50 % of its 6 h median and >= $10k; a recommendation, "
+                     "never buy one with real money on your own), per row similar_to (the most similar labelled win, "
+                     "score 0-1) and similar (top 10, similar_rule says how it is computed)."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
          "source": {"type": "string", "enum": ["signal", "market", "event"],
@@ -1250,7 +1256,10 @@ TOOLS.append(
                      "24 h ago); min_ev: at least this ev_pct (default 0); status: only this status; include_blocked: "
                      "also the last pass's near misses with their blocks; limit 1-200 (default 50). Read-only: buy a "
                      "proposal only through execute_trade within your grok_autotrade limits; add one with "
-                     "submit_signal_opinion (kupi + p_tp)."),
+                     "submit_signal_opinion (kupi + p_tp). 11.11.: owner_labels (the owner's learning labels, "
+                     "counterfactual), per row pinned / pin_only (the owner's pin: a recommendation, never buy it with "
+                     "real money on your own) and similar_shadow (a P bonus for tokens similar to his labelled wins, "
+                     "recorded only: p_tp and ev_pct are unchanged)."),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "integer", "minimum": 0}, "min_ev": {"type": "number", "default": 0},
          "status": {"type": "string", "enum": ["novo", "kupljeno", "isteklo", "odbijeno"]},
