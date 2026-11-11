@@ -173,6 +173,21 @@ class AcceptedAndOwnerList(Base):
         self.assertIn("Primijenjeno", loc)
 
 
+class CleanList(Base):
+    def test_accepted_critique_without_an_applicable_change_leaves_the_page(self):
+        """11.11. (Jure: "lista treba biti čista ako nema što što zahtijeva pažnju")."""
+        from ui import pravitrade
+        nid = self.suggest(None)
+        assistnotes.decide(self.tc, nid, "prihvaćeno")
+        self.assertEqual(pravitrade._suggest_section(self.tc, True), "")           # nothing needs the owner
+        nid2 = self.suggest({"key": "tp_default", "to": 30})
+        assistnotes.decide(self.tc, nid2, "prihvaćeno")
+        html = pravitrade._suggest_section(self.tc, True)
+        self.assertIn(f"as-{nid2}", html)
+        self.assertNotIn(f"as-{nid}\"", html)
+        self.assertIn("1 prihvaćeno bez promjene", html)
+
+
 class Page(Base):
     def test_the_buttons_say_what_they_do(self):
         from ui import pravitrade

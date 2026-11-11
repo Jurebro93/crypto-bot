@@ -1378,7 +1378,16 @@ def _suggest_section(tcon, owner):
         return ""
     from ui import assistnotes
     rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0)
-    acc, n_acc = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    acc, _n = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    # 11.11. (Jure: "lista treba biti čista ako nema što što zahtijeva pažnju"): an accepted note stays on the page only
+    # while it has a change the bot can apply (its "Primijeni na bota" waits for the owner); an accepted critique
+    # without one is the assistant's / developer's work item: logged (status, decided_ts, get_assistant_notes), not shown
+    def _can(r):
+        pc = r.get("proposed_change")
+        return isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY
+                                         or isinstance(pc.get("insider_label"), dict))
+    acc = [r for r in acc if _can(r)]
+    n_acc = len(acc)
     if not rows and not acc:
         return ""
     items = []
@@ -1410,7 +1419,7 @@ def _suggest_section(tcon, owner):
     acc_rows = []
     for r in acc:
         pc = r.get("proposed_change")
-        can = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY)
+        can = True   # only applicable ones are left (above)
         acc_rows.append(
             f'<div class=ap-sug id=as-{r["id"]}><p><b>#{r["id"]} {esc(r.get("title") or "")}</b> <span class=mut>· prihvaćeno '
             f'{esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
