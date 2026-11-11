@@ -1245,6 +1245,26 @@ TOOLS.append(
          "status": {"type": "string", "enum": ["novo", "kupljeno", "isteklo", "odbijeno"]},
          "include_blocked": {"type": "boolean", "default": False},
          "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
+# 11.11. (Jure, fast/ flag fast_path G24): every fast_check decision for Grok's opinion, read-only
+TOOLS.append(
+    {"name": "get_fast_checks", "annotations": _READ,
+     "description": ("The fast path's decisions: every buy of a followed wallet (wallet_follow, insider, pre_shill, "
+                     "group) and every call of a followed influencer gets five checks at once and a decision. Per "
+                     "signal: source (kind, id, label, via), signal_ts (the wallet's buy / the call), decided_ts, "
+                     "latency_s (seconds from the signal to the decision), decision (BUY_PAPER | BUY_LIVE | SKIP | "
+                     "CHECK_FAILED) with reason and decided_by (the check or rule), ev_pct = p_tp x 15 % - (1 - p_tp) x "
+                     "10 % - cost (3 / 5 / 8 % by liquidity), p_tp (the source's record shrunk toward base_rate), "
+                     "size_sol, checks {rug, holders, flow, price, source}: status ok | fail | error, text, values "
+                     "(numbers), threshold, ms; wallet_entry and price_at_decision; source_quality (closed, winners, "
+                     "PnL, tier, proof = run_trade's real-money proof); outcome (+1/+5/+15/+60 min, max and min within "
+                     "60 min, hit = +15 % before -10 % within 45 min) and missed (SKIP that did >= +20 %); traded (the "
+                     "demo trade). report: the newest daily report (false rejects per check, latency, cost per source). "
+                     "since: unix time (default 24 h ago); decision: only that one; limit 1-200 (default 50). Read-only: "
+                     "give your opinion with submit_signal_opinion."),
+     "inputSchema": {"type": "object", "properties": {
+         "since": {"type": "integer", "minimum": 0},
+         "decision": {"type": "string", "enum": ["BUY_PAPER", "BUY_LIVE", "SKIP", "CHECK_FAILED"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
 # 11.11. (Jure, part D, momentum/evgate.py): the buy gate is an EV with the strategy's TP / SL
 INSTRUCTIONS += (" Buy gate: send execute_trade with p_tp (your probability 0-1 that the take profit comes before the "
                  "stop) and strategy (momentum_scalp: +15 % / -10 % in 45 min; range_dca: the range's zones; other: "
@@ -1393,6 +1413,10 @@ def _tool(name, args, kid="local"):
         from proposals import view as pview
         d = pview.mcp(args.get("since"), args.get("min_ev"), _truthy(args.get("include_blocked")), args.get("status"),
                       args.get("limit"))
+        return d, "error" in d
+    if name == "get_fast_checks":   # 11.11. fast/ (flag fast_path G24), read-only
+        from fast import view as fview
+        d = fview.mcp(args.get("since"), args.get("decision"), args.get("limit"))
         return d, "error" in d
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc

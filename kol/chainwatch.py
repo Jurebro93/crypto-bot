@@ -452,4 +452,9 @@ def ingest(payload, hype_db=None, _spool=True, timeout=None):
             _copy.wake()
         except Exception:  # noqa: BLE001
             pass
+        try:   # 11.11. (Jure, flag fast_path G24): a followed wallet's buy -> a fast_check with its own entry price
+            from fast import enqueue as _fast   # (after the copy loop's wake-up: it never waits for this)
+            _fast.from_chain(payload, rows)
+        except Exception:  # noqa: BLE001 - never fails the webhook (the worker's own scan is the backup)
+            pass
     return len(rows) + len(transfers)

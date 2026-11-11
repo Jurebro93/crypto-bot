@@ -1373,6 +1373,16 @@ def _preshill_card(owner):
     return preshill.card_html(_sec, _item, esc)
 
 
+def _fast_card(owner):
+    """11.11. (Jure, fast/, flag fast_path G24): "Fast path", one closed row under "Još" (owner only, nothing while the
+    flag is off): the last signals of followed wallets and influencers, each with all five checks and their numbers,
+    the seconds from the wallet's buy to the decision, the decision and its reason. The top stays trade-focused."""
+    if not owner:
+        return ""
+    from fast import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
 def _eventi_card(owner):
     """11.11. (Jure, topics/, flag event_tokens): "Eventi", one closed row under "Još" (owner only, nothing while the
     flag is off): per topic the event time, the buzz trend (arrow and sparkline text) and its tokens with market cap
@@ -2469,6 +2479,43 @@ def _supply_line(mint, top, now):
     return f"tko drži supply: {', '.join(parts)} ({shape.get('izvor') or 'izvor nepoznat'}){when}"
 
 
+def _fast_reason(mint, now):
+    """11.11. (fast/, flag fast_path G24): (za, protiv, row) of the token's fast_check of the last 10 min; (None, None,
+    None) without one, without fast.db or on any error (the pop-up never fails on it)."""
+    try:
+        from fast import view
+        return view.token_reason(mint, now)
+    except Exception:  # noqa: BLE001
+        return None, None, None
+
+
+def _fast_block(row):
+    try:
+        from fast import view
+        return view.token_block(row, esc)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip(mint, t, now):
+    """The skip pop-up's fast_check block (its checks and numbers, "fast_check u tijeku" or the CHECK_FAILED reason);
+    '' when there is none."""
+    try:
+        from fast import view
+        return view.skip_block(mint, int(t), esc, now)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip_lines(rows):
+    """{(token, ts): "fast_check: ..."} for the skip box's rows; {} without fast.db."""
+    try:
+        from fast import view
+        return view.skip_summary([(e.get("token"), int(e.get("ts") or 0)) for e in rows if e.get("token")])
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def token_popup(user, mint, now=None):
     """GET /pravi-trade/token?m=: why this token is (or is not) worth entering RIGHT NOW, re-fetched every second
     by the pop-up: live market, buyers vs sellers, callers in the last hour, smart-wallet buys, the tool's fresh
@@ -2525,6 +2572,12 @@ def token_popup(user, mint, now=None):
             za.append("novi pozivatelj u 10 min: " + ", ".join((h[3:] if h.startswith("tg:") else "@" + h) for h in fresh[:4]))
     if smart:
         za.append(f"{smart} pametnih novčanika kupilo u 10 min")
+    # 11.11. (Jure, fast/: "nema svježeg razloga" for HODL's buy): a followed wallet's buy or a followed influencer's
+    # call of the last 10 min is a fresh reason; its fast_check's verdict (SKIP with the number, CHECK_FAILED) is the
+    # reason against, and the five checks are shown under the verdict
+    fast_za, fast_protiv, fast_row = _fast_reason(mint, now)
+    if fast_za:
+        za.append(fast_za)
     if n_social >= SOCIAL_MIN:   # described, not a verdict by itself: a campaign posts the same address too
         za_static.append(f"društveni signal: {n_social} različitih računa objavilo je adresu u zadnjih 60 min")
     if ((m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5
@@ -2574,6 +2627,8 @@ def token_popup(user, mint, now=None):
     veto = _callers_veto(caller_hs, mstats)
     if veto:
         protiv.append(veto)
+    if fast_protiv:
+        protiv.append(fast_protiv)
     if not za:
         protiv.append("nema svježeg razloga za ulaz (bez novog pozivatelja u 10 min, kupnje pametnog novčanika ili pokreta "
                       f"+{zivo.MOVE_M5:.0f} % u 5 min s prometom)")
@@ -2598,8 +2653,13 @@ def token_popup(user, mint, now=None):
                  + ".</p>")
     if protiv:
         b.append("<p class=ap-protiv><b>Protiv:</b> " + "; ".join(esc(x) for x in protiv) + ".</p>")
+    if fast_row:
+        b.append(_fast_block(fast_row))
+    fres = ((fast_row or {}).get("checks") or {}).get("res") or {}
     if top:
         sup = _supply_line(mint, top, now)
+    elif fres.get("rug") and fres.get("holders"):   # 11.11. (fast/): the fast_check ran both for this signal's token
+        sup = f"{fres['rug'].get('text')} · {fres['holders'].get('text')} (fast_check)"
     else:
         sup = "rug check alata: nije rađen (token nije među top 20 prijedloga) · tko drži supply: nepoznato"
     b.append(f"<p><b>Holderi:</b> {esc(sup)}.</p>")
@@ -3695,7 +3755,7 @@ def _skip_line(e, p, v, now):
                raw(f"<span class=ap-sks> · </span><span class=ap-skm>{steps}</span>") if steps else None)
 
 
-def _skip_row(e, v, owner, now, p=None):
+def _skip_row(e, v, owner, now, p=None, fast=None):
     """One skipped buy as the shared row (10.11., maketa): the token; when, whose signal and the reason under it;
     the verdict as a word after a dot on the right and what the price did under it; across the whole row the market
     cap at the call and the moves 5, 10 and 15 minutes after it (_skip_line). A tap opens the pop-up of this skip
@@ -3704,6 +3764,8 @@ def _skip_row(e, v, owner, now, p=None):
     from kol import preskoceni
     tok = e.get("token") or ""
     full = _skip_why(e, owner)
+    if fast and owner:   # 11.11. (fast/): the signal's fast_check with its numbers next to the copy loop's reason
+        full = f"{fast} · {full}" if full else fast
     why = _cut(full)
     meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source")),
                                   "nije prošlo (tehnički)" if e.get("kind") == "nije_proslo" else "") if x)
@@ -3738,7 +3800,9 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
     if missed:   # which RULE cost the most: the reasons of the rule skips that would have paid
         b.append("<p class=mut>Propušteni po razlogu: " + esc(", ".join(
             f"{n} {w}" for w, n in sorted(missed.items(), key=lambda kv: (-kv[1], kv[0])))) + ".</p>")
-    items = [_skip_row(e, v, owner, now, (paths or {}).get(k)) for e, v, k in zip(rows, vs, keys)]
+    fast = _fast_skip_lines(rows) if owner else {}   # 11.11. (fast/): {} without fast.db
+    items = [_skip_row(e, v, owner, now, (paths or {}).get(k), fast.get((e.get("token"), int(e.get("ts") or 0))))
+             for e, v, k in zip(rows, vs, keys)]
     b += items[:SKIP_SHOW]
     if len(items) > SKIP_SHOW:
         b.append(_item("Prikaži sve", None, "".join(items[SKIP_SHOW:]), value=f"još {len(items) - SKIP_SHOW}",
@@ -4105,6 +4169,11 @@ def skip_popup(user, mint, t, now=None):
     elif not mv and (seen_mc or samples):
         b.append("<p class=ms-hint>Market cap iz trenutka odluke i naših živih uzoraka (DexScreener); točne svijeće "
                  "po minutama dolaze kad se izmjere.</p>")
+    # 11.11. (Jure, fast/ flag fast_path G24): the signal's fast_check, every check with its number, instead of the bare
+    # reason alone ("fast_check u tijeku" or its CHECK_FAILED reason while it has none)
+    fb = _fast_skip(mint, t, now) if owner else ""
+    if fb:
+        b.append(fb)
     if post_url and owner:
         b.append(f'<p><a href="{esc(post_url)}" target=_blank rel=noopener>{esc(post_words)} ↗</a></p>')
     b.append(link)
@@ -4476,6 +4545,7 @@ def page(qs, user):
               _group(_safe("ev", _ev_card, owner),   # 11.11.: EV per feature phase, one closed row (events/evreport)
                      _safe("preshill", _preshill_card, owner),   # 11.11.: kupci prije shill mreže (kol/preshill.py)
                      _safe("eventi", _eventi_card, owner),   # 11.11.: event teme i njihovi tokeni (topics/)
+                     _safe("fast-path", _fast_card, owner),   # 11.11.: brzi put, svaka provjera signala (fast/)
                      _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),

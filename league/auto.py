@@ -483,6 +483,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag fast_path G24): the fast path's BUY decisions and copy exits (fast/paper.py),
+                from fast import paper as fpaper   # right after the copy loop: the same wake-up brings both; prices
+                for user, what in fpaper.run_once(con):   # through league/copy.market (it marks the bonding curve)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"fast path ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)
