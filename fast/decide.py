@@ -89,13 +89,18 @@ def decide(checks, q, rates=None, live_sol=0.1, paper_sol=PAPER_SOL, priors=None
     flow = (checks.get("flow") or {}).get("values") or {}
     cost = price.get("cost_pct")
     cost = cost / 100 if cost is not None else None
-    kind = q.get("kind")
-    pri = estimate.prior_for(kind, priors, rates)
-    base = {"p": pri["p"], "n": pri["n"], "src": pri["src"], "strategy": pri.get("strategy")}
+    base = base_for(q.get("kind"), rates)
     # 11.11. (owner's rule B): the tags of checks c / d change P and the size, never block (X is unknown here: the
     # run-up reduction applies)
     mods = edge.modifiers(runup_x=price.get("runup_x"), x_score=None, buy_share_5m=flow.get("buy_share_5m"),
                           wash="wash" in (flow.get("tags") or []))
+    p = p_tp(q.get("hits"), q.get("n"), base["p"]) * mods["p_mult"]
+    e = ev(p, cost) if cost is not None else None
+    # 11.11. (fast/estimate, Jure: "nikad 'nije izmjeren'"): P from the source's sample or, under n 10, its strategy's
+    # prior (the fast.db base rate above is the first link of that prior), its Wilson 90 % interval, EV and its interval
+    kind = q.get("kind")
+    pri = estimate.prior_for(kind, priors, rates)
+    base = {"p": pri["p"], "n": pri["n"], "src": pri["src"], "strategy": pri.get("strategy")}
     est = estimate.estimate(estimate.sample(kind, q, src_rate), pri, mods["p_mult"], cost)
     p, e = est["p"], est["ev"]
     st = estimate.stored(est)
