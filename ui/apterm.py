@@ -1667,6 +1667,17 @@ def _proposals(owner, now):
         return [], [], [], "off"
 
 
+def _block_text(n):
+    """The blocks of a near miss as one line: proposals/build gives [{"key", "text"}] (11.11.: joining the dicts as
+    text made the whole Što kupiti card fall); a plain string of an older row is kept; no blocks: the why."""
+    parts = []
+    for b in n.get("blocks") or []:
+        t = b.get("text") or b.get("key") if isinstance(b, dict) else b
+        if t:
+            parts.append(str(t))
+    return "; ".join(parts) or str(n.get("why") or "")
+
+
 def _mins_left(ts, now):
     if not ts:
         return "–"
@@ -1766,7 +1777,7 @@ def kupiti_html(tcon, cfg, owner, now):
         f'<div class="apx-krow is-paper"><div class=apx-kmain>{_sel_btn(n.get("token") or "", n.get("symbol") or (n.get("token") or "")[:6])}'
         f'<span class=apx-mut>{esc(", ".join(strategies.HR.get(s, s) for s in n.get("strategies") or []))}</span></div>'
         f'<span class=n data-l="EV">{_pct(n.get("ev_pct"))}</span>'
-        f'<span data-l="Blokada" class=apx-why>{esc("; ".join(n.get("blocks") or []) or n.get("why") or "")}</span></div>'
+        f'<span data-l="Blokada" class=apx-why>{esc(_block_text(n))}</span></div>'
         for n in near[:20])
     skoro = (f'<details class=apx-skoro><summary>prikaži skoro ({len(near)})</summary>{near_rows}</details>' if near else "")
     rec = ""

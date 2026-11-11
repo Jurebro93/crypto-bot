@@ -819,6 +819,32 @@ class OnlyConclusions(HandlerMixin, Env):
         self.assertNotIn("id=pr-2", main)
         self.assertIn("U procjeni: 1 prijedlog (n &lt; 10)", html)
 
+    def test_near_misses_with_blocks_render(self):
+        """11.11.: proposals/build gives a near miss's blocks as [{"key", "text"}]; "prikaži skoro" joined them as text
+        and the whole Što kupiti card fell (TypeError) as soon as one proposal and one blocked near miss stood."""
+        from proposals import view
+        prop = {"id": 1, "token": "P1".ljust(44, "1"), "symbol": "P1", "strategy": "momentum", "sources": [],
+                "ev_pct": 3.0, "p_tp": 0.5, "size_sol": 0.1, "expires_ts": NOW + 600,
+                "row": {"n": 40, "entry_zone": {}, "buy": {"tp": "+20%", "sl": "-20%"}}}
+        near = [{"token": "N1".ljust(44, "1"), "symbol": "BLOK", "strategies": ["range"], "ev_pct": 4.0,
+                 "why": "likvidnost ispod $15k", "blocks": [{"key": "liq", "text": "likvidnost ispod $15k"},
+                                                             {"key": "vol", "text": "volumen 1 h < 5k <x>"}]},
+                {"token": "N2".ljust(44, "1"), "symbol": "EVNEG", "strategies": ["momentum"], "ev_pct": -1.0,
+                 "why": "EV -1,0 % nakon troška", "blocks": []},
+                {"token": "N3".ljust(44, "1"), "symbol": "STARO", "strategies": [], "why": "stari zapis",
+                 "blocks": ["već tekst"]}]
+        with mock.patch.object(apterm, "_proposals", lambda owner, now: ([prop], near, [], "paper")), \
+                mock.patch.object(view, "_row_inner", lambda p, esc: ""), \
+                mock.patch.object(view, "entry_state", lambda p, now: {"state": "čeka ulaz"}, create=True), \
+                mock.patch("builtins.print"):
+            html = apterm.lazy("kupiti", "Jure")
+        self.assertIn("id=pr-1", html)
+        self.assertIn("prikaži skoro (3)", html)
+        self.assertIn("likvidnost ispod $15k; volumen 1 h &lt; 5k &lt;x&gt;", html)   # the texts, escaped
+        self.assertIn("EV -1,0 % nakon troška", html)                              # no blocks: the why
+        self.assertIn("već tekst", html)                                           # an old row of plain strings
+        self.assertNotIn("{'key'", html)
+
     def test_paper_pnl_under_ten_closed_is_no_conclusion(self):
         self.assertEqual(apterm._kpi_cells({"total_sol": 0.1, "total_usd": 16.0, "n_closed": 4}, "paper")[-1][2],
                          "u procjeni: 4 zatvorenih (n < 10)")
