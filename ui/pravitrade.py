@@ -4434,9 +4434,10 @@ def _limits(cfg, owner):
     # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
     fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=owner_token_cap '
                f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal>'
-               f'<small>Vrijedi za tvoje ručne kupnje, DCA, naloge na MC i Grokove kupnje koje odobriš. Ne vrijedi za '
-               f'Grok autotrade: on ostaje na svojim limitima (0,1 SOL po kupnji, 0,3 SOL na dan, 3 otvorene, dnevni '
-               f'gubitak 0,15 SOL) i na {_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))} SOL po tokenu.</small></label>')
+               f'<small>Vrijedi samo za kupnje koje sam pokreneš (Kupi, brza kupnja, DCA, nalozi na MC). Ne vrijedi za '
+               f'Groka: autotrade i zahtjevi koje odobriš ostaju na Grokovim limitima (0,1 SOL po kupnji, 0,3 SOL na dan, '
+               f'3 otvorene, dnevni gubitak 0,15 SOL) i na {_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))} SOL po '
+               f'tokenu.</small></label>')
     extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
                  t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
@@ -5142,14 +5143,59 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
-def _is_grok_auto(src):
-    """True for a buy of Grok autotrade (ui/grokauto.SRC); an approved Grok request (league/exitplan.APPROVED_SRC) is
-    the owner's own decision and is not."""
+def _grok_srcs():
+    from league import exitplan
+    from ui import grokauto
+    return grokauto.SRC, exitplan.APPROVED_SRC
+
+
+def _is_grok(src):
+    """True for a Grok buy: autotrade (ui/grokauto.SRC) or a Grok request the owner approved with a tap
+    (league/exitplan.APPROVED_SRC). 11.11. (Jure: "Grokovi zahtjevi koje odobrim tapom idu pod Grokove limite")."""
     try:
-        from ui import grokauto
-        return bool(src) and src == grokauto.SRC
+        return bool(src) and src in _grok_srcs()
     except Exception:  # noqa: BLE001
         return False
+
+
+def grok_day_spent(tcon, now=None, mode=None):
+    """SOL of Grok's buys today (Zagreb day), autotrade and approved requests together, on the account the buy goes to
+    (trade.db positions: the reason is the demo trade's source)."""
+    now = now or time.time()
+    if mode is None:
+        mode = "live" if executor.is_live(_cfg(tcon)) else "dry"
+    from ui import grokauto
+    start = grokauto._day_start(now)
+    q = ",".join("?" * len(_grok_srcs()))
+    r = tcon.execute(f"SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE mode=? AND opened_ts>=? AND reason IN ({q})",
+                     (mode, int(start), *_grok_srcs())).fetchone()
+    return float(r[0] or 0.0)
+
+
+def _grok_rules(tcon, token, sol, src, raw, now):
+    """A Grok buy (autotrade or approved) under Grok's limits, never the owner's 1 SOL: grok_max_sol_per_trade (0,1),
+    the Autopilot's per-token cap dca_token_cap (0,3) and grok_max_sol_per_day (0,3) for autotrade and approved
+    requests together. Raises ValueError with the reason (also one log line)."""
+    from ui import grokauto
+    lim = grokauto.limits(tcon)
+    who = "Grok autotrade" if src == grokauto.SRC else "odobreni Grokov zahtjev"
+    why = None
+    if sol > lim["grok_max_sol_per_trade"] + 1e-9:
+        why = f"ulog {sol:g} SOL, najviše {lim['grok_max_sol_per_trade']:g} SOL po kupnji (Grokov limit)"
+    if why is None:
+        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        held = held_sol(tcon, token)
+        if held + sol > cap + 1e-9:
+            why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu "
+                   "(Grokov limit)")
+    if why is None:
+        spent = grok_day_spent(tcon, now)
+        if spent + sol > lim["grok_max_sol_per_day"] + 1e-9:
+            why = (f"Grok je danas kupio {spent:.3f} SOL, s ovom bi bilo {spent + sol:.3f}, najviše "
+                   f"{lim['grok_max_sol_per_day']:g} SOL na dan (Grokov limit)")
+    if why:
+        print(f"pravi trade: kupnja {token[:6]} odbijena: {why} ({who})", flush=True)
+        raise ValueError(f"kupnja nije poslana: {why} ({who})")
 
 
 PENDING_FRESH_S = 15 * 60   # a lot still 'pending' after this never filled: it holds nothing
@@ -5185,18 +5231,16 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None):
     # the owner's own limit on his buys (manual, DCA orders, buy orders at a market cap), like the stake limits; it
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
-    if m != "off" or owner_cap:
-        auto = _is_grok_auto(src)
-        # 11.11. (Jure: "Grok autotrade limiti ostaju … i NE smiju se dizati"): a Grok autotrade buy keeps the
-        # Autopilot's cap (dca_token_cap, 0,3); the owner's own cap (1 SOL) is for his buys and the ones he approves
-        cap = float((None if auto else raw.get("owner_token_cap")) or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+    if _is_grok(src):
+        _grok_rules(tcon, token, sol, src, raw, now)
+    elif m != "off" or owner_cap:
+        # 11.11. (Jure: "strop od 1 SOL vrijedi samo za kupnje koje sam pokrenem (Kupi, brza kupnja, DCA, nalozi na MC)")
+        cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
         held = held_sol(tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
             # 11.11. (Jure: "poruka odmah nestane"): every refused owner buy is one line in the log too
             print(f"pravi trade: kupnja {token[:6]} odbijena: {why} (strop vlasnika)", flush=True)
-            if auto:
-                raise ValueError(f"kupnja nije poslana: {why} (Grok autotrade: strop po tokenu {cap:g} SOL)")
             if owner_cap:
                 raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
             if lflags.applies("dca_cap", U, m):
