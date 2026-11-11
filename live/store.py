@@ -80,6 +80,11 @@ def mirror_chain(con, rows, followed):
             _copy.wake()
         except Exception:  # noqa: BLE001
             pass
+        try:   # 11.11. (Jure, flag fast_path G24): a followed wallet's buy -> a fast_check (price_sol of the trade)
+            from fast import enqueue as _fast
+            _fast.from_live([r for r in rows if r[2] in followed])
+        except Exception:  # noqa: BLE001 - never stops the feed
+            pass
 
 
 def prune(con, now=None):

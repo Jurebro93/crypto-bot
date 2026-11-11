@@ -1185,6 +1185,11 @@ def run_once(con, market_fn=None, now=None, paths=None):
     wals = sorted({f["target"] for f in fl if f["kind"] == "wallet"})
     since = now - max(CFG["max_delay_min"], CFG["sell_lookback_min"]) * 60
     evs = sorted(events(kols, wals, since, paths), key=lambda e: e[3])
+    try:   # 11.11. (Jure, flag fast_path G24): a fresh buy / call of a followed source -> a fast_check (fast/enqueue);
+        from fast import enqueue as _fast   # flag off: one cached flag read; deduped in memory between passes
+        _fast.from_copy(evs, now)
+    except Exception:  # noqa: BLE001 - never stops the copy pass
+        pass
     todo = []   # (follow, token, side, ts)
     win = CFG["crew_window_min"] * 60
     for target, tok, side, ev_ts in evs:

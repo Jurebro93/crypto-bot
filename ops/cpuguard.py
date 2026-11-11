@@ -186,6 +186,10 @@ PROCESSES = (
     # the guard (it pauses only processes above MIN_CPU) practically never touches it, and a pause is a fraction of a s
     ("zonewatch", "run_zonewatch.py", (), JOBS,
      "zonski alarmi Grok Botu: svakih 30 s cijene tokena kraj zona i POST webhooka; gotovo bez CPU-a"),
+    # 11.11. (flag fast_path G24): time-sensitive (a decision within 10 s of a followed wallet's buy) but only checks
+    # and decides; the demo entries run in run_ui (protected). Low priority, so paused last of all
+    ("fast", "run_fast.py", (), LAST,
+     "brzi put: svaki signal praćenog izvora odmah dobije provjere i odluku (< 10 s), 20 provjera odjednom"),
     # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
     ("events", "run_events.py", (), JOBS,
      "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),
