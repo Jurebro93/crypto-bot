@@ -1242,7 +1242,9 @@ TOOLS.append(
                      "your submit_grok_prediction rows scored since `since` (per horizon 1h / 4h / 24h: max gain, max "
                      "loss, which of TP / SL came first, up10/20/50), pending, and the calibration per p_tp bucket "
                      "(predicted vs actual %) for you and for MemeSonar's own EV-implied probability, with Brier "
-                     "scores. health: feed gap alerts (no events of an active type for > 60 min, 08-24 Zagreb), "
+                     "scores. zonewatch: armed (zones in force, by source), alerts_24h (by event and status), "
+                     "last_post_ok, last_error, configured (whether the Grok Bot webhook is set) and the flag. "
+                     "health: feed gap alerts (no events of an active type for > 60 min, 08-24 Zagreb), "
                      "last_night (started_ts, finished_ts, duration_s, calls_processed, helius_credits, errors, "
                      "status) and an alert when the night batch has not finished by 04:30 Zagreb. timing_ms per part."),
      "inputSchema": {"type": "object", "properties": {
@@ -1280,6 +1282,48 @@ TOOLS.append(
          "verdict": {"type": "string", "enum": ["runner", "avoid", "neutral"]},
          "reasons": {"type": "string", "maxLength": 2000}},
          "required": ["token", "mcap", "strategy", "p_tp", "tp_pct", "sl_pct", "verdict"]}})
+
+
+# 11.11. (Jure: "real-time zone alarm na Grok Bot", data flag zonewatch G21, zonewatch/): Grok arms zones; MemeSonar
+# POSTs an alarm to the Grok Bot webhook when the market cap enters one
+_MC = {"type": "number", "exclusiveMinimum": 0, "description": "market cap in USD"}
+TOOLS += [
+    {"name": "arm_zone",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+     "description": ("Arm (or update, or disarm) one price zone of a Solana token, in MARKET CAP USD: MemeSonar watches "
+                     "it and POSTs an alarm to the Grok Bot webhook the moment the market cap crosses it (zone_enter / "
+                     "zone_exit for bottom, dca and custom; top_hit at >= lo of a top zone; stop_hit at <= a stop). "
+                     "Upsert on (mint, zone_type, source). zone_type bottom | dca | top | stop | custom; lo <= hi, both "
+                     "at least $30k; a stop may be given as lo only. ttl_h: hours it stays armed (default 72, max "
+                     "720); ttl_h=0 DISARMS the zone (lo / hi not needed). source manual (default) | event (a zone "
+                     "tied to an event topic); range zones come from MemeSonar's range engine by themselves. At most "
+                     "100 active armed zones and 60 arm_zone calls an hour per key. The alarm JSON: id, event, mint, "
+                     "symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, vol_1h, buys_5m, sells_5m, "
+                     "buy_share_5m, buy_share_1h, uniq_traders_1h, rug_risk, source, ts. Buys nothing."),
+     "inputSchema": {"type": "object", "properties": {
+         "mint": {"type": "string", "description": "Solana token mint address"},
+         "zone_type": {"type": "string", "enum": ["bottom", "dca", "top", "stop", "custom"]},
+         "lo": _MC, "hi": _MC,
+         "note": {"type": "string", "maxLength": 300},
+         "ttl_h": {"type": "number", "minimum": 0, "maximum": 720, "default": 72,
+                   "description": "hours armed; 0 disarms"},
+         "source": {"type": "string", "enum": ["manual", "event"], "default": "manual"}},
+         "required": ["mint", "zone_type"]}},
+    {"name": "get_armed_zones", "annotations": _READ,
+     "description": ("The zones MemeSonar watches now (hand-armed first, then the range engine's: bottom, dca, top, "
+                     "stop in market cap USD), each with lo, hi, source (manual | event | range), note, armed_by, "
+                     "expires_at, state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone "
+                     "(0 inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also "
+                     "the flag, whether the Grok Bot webhook is configured, the counts by source and the limits. "
+                     "mint / source filter; limit 1-300 (default 100)."),
+     "inputSchema": {"type": "object", "properties": {
+         "mint": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "event", "range"]},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 100}}}},
+]
+INSTRUCTIONS += (" Zone alarms: arm_zone(mint, zone_type, lo, hi, note, ttl_h) sets a market-cap zone (bottom, dca, "
+                 "top, stop); MemeSonar POSTs to your Grok Bot webhook when the price crosses it (ttl_h=0 disarms); "
+                 "get_armed_zones lists them with their state.")
+ZONE_TOOLS = ("arm_zone", "get_armed_zones")
 
 
 def _xfeat_tool(name, a, kid):
@@ -1375,6 +1419,10 @@ def _tool(name, args, kid="local"):
         return d, "error" in d
     if name in EVENT_TOOLS:   # 11.11. topics/view.py (flag event_tokens)
         d = _event_tool(name, args, kid)
+        return d, "error" in d
+    if name in ZONE_TOOLS:   # 11.11. zonewatch/view.py (flag zonewatch); the key's fingerprint attributes the write
+        from zonewatch import view as zview
+        d = zview.mcp_tool(name, args, kid=f"mcp:{kid}")
         return d, "error" in d
     from ui import mcpdata
     data_tools = {

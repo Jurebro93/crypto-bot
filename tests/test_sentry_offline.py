@@ -39,7 +39,8 @@ KEY = "0123456789abcdef0123456789abcdef"
 HOST = "o4500000000000000.ingest.de.sentry.io"
 DSN = f"https://{KEY}@{HOST}/4500000000000001"
 ENTRY = {"run_ui.py": "ui", "run_trade.py": "trade", "run_sched.py": "sched", "run_kol.py": "kol", "run_tg.py": "tg",
-         "run_report.py": "report", "run_paper.py": "paper", "run_watch.py": "watch", "run_live.py": "live"}
+         "run_report.py": "report", "run_paper.py": "paper", "run_watch.py": "watch", "run_live.py": "live",
+         "run_zonewatch.py": "zonewatch"}   # 11.11.: zonewatch/ (low keep zonewatch ... loop)
 
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 HEX = "0123456789abcdef"

@@ -34,6 +34,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TYPES = ("call", "wallet_buy", "wallet_sell", "transfer", "x_post", "price_tick", "trade", "signal")
+# 11.11. (zonewatch/): every zone alarm sent (or meant) for Grok Bot, source zonewatch, the alarm JSON as payload
+TYPES += ("zone_alert",)
 LOW_VALUE = ("price_tick", "transfer")   # cut first when the disk is tight
 DAY = 86400
 H = 3600
