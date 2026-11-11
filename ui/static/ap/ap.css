@@ -151,6 +151,7 @@
 .apx-dcar{display:grid;grid-template-columns:1.2fr 1fr .7fr auto;gap:5px;margin:0 0 6px}
 .apx-dcar input,.apx-dcar select{min-width:0;width:100%;font-size:12.5px;padding:6px 7px}
 .apx-wal{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;border-bottom:1px solid var(--line);margin:0 0 10px;padding:0 0 10px}
+.apx-wal-age{grid-column:1/-1;text-align:right;margin-top:-4px}
 .apx-amt{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.apx-amt input{flex:1;min-width:70px;width:auto}
 .apx-more{font-size:12px}.apx-more[open]{display:flex;flex-direction:column;gap:8px}.apx-more[open]>summary{margin-bottom:2px}
 .apx-wal span{display:block;font-size:11px;color:var(--mut)}.apx-wal b{font-size:12.5px}
@@ -185,6 +186,7 @@
 .apx-mbar,.apx-scrim{display:none}
 /* the older sections inside "Postavke i dijagnostika" and the tabs, on the dark surface */
 .apx .ap{font-size:14px}.apx .ap .ms-row{min-height:52px;border-bottom-color:var(--line)}
+.apx .ap .ms-hint,.apx .ap .mut{font-size:12.5px}
 .apx .ap .ms-row .ms-t{font-size:15px}.apx .ap .ms-row .ms-s{font-size:13px}
 .apx .ap .ms-row .ms-v{font-size:14px;font-family:ui-monospace,monospace}
 .apx .ap button{background:var(--soft);color:var(--fg);border-color:var(--line2);font-size:13px}
@@ -198,6 +200,8 @@
 .apx .ap table th{background:var(--card);color:var(--mut)}.apx tr:hover td{background:var(--soft)}
 .apx pre{background:var(--soft);border-color:var(--line)}
 .apx .ap .ms-dot.good{background:var(--acc)}.apx .ap .ms-dot.bad{background:var(--yel)}
+.apx .ap-steps li.ok::before{background:var(--acc)}.apx .ap p.ap-w.ok::before{background:var(--acc)}
+.apx .ap p.ap-w.bad::before{background:var(--yel)}
 .ap-toast{background:var(--acc)!important}.ap-toast.bad{background:var(--yel)!important;color:#111!important}
 dialog#ap-pop{background:var(--card);color:var(--fg)}
 @media(max-width:1023px){

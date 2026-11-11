@@ -636,7 +636,11 @@ def stream(mint="", clock=time.time, sleep=time.sleep, max_s=None, every=None, h
     yield f"retry: {POLL_S * 1000}\n\n".encode()
     last, last_out = None, t0
     while clock() - t0 < max_s:
-        t = tick_fn(mint)
+        try:
+            t = tick_fn(mint)
+        except Exception as e:  # noqa: BLE001 - a locked database: the stream lives on, the badge turns yellow
+            print(f"autopilot: tick nije složen: {type(e).__name__}: {e}", flush=True)
+            t = {"ts": int(clock()), "data_ts": None, "tok": {}, "sig": None, "err": 1}
         body = {k: v for k, v in t.items() if k != "ts"}
         sig = json.dumps(body, sort_keys=True, separators=(",", ":"))
         now = clock()
@@ -922,7 +926,8 @@ def panel_html(d, sel_pos):
     tot = f'<small>ukupno {redak.sol(val, 3)}</small>' if val is not None and bal is not None and abs(val - bal) > 5e-4 else ""
     wal = (f'<div class=apx-wal><div><span>Wallet</span><b>{redak.sol(bal, 3) if bal is not None else "–"}</b>{tot}</div>'
            f'<div><span>Danas auto</span><b>{redak.num(pn.get("auto_today"), 2)} od {pt._g(pn.get("max_day") or 0)} SOL</b></div>'
-           f'<div><span>Limit po tradeu</span><b>{pt._g(pn.get("max_trade") or 0)} SOL</b></div></div>')
+           f'<div><span>Limit po tradeu</span><b>{pt._g(pn.get("max_trade") or 0)} SOL</b></div>'
+           f'<div class=apx-wal-age>{age_badge(d.get("ts"))}</div></div>')
     head = ('<div class=apx-sheet-h><b>Nalog</b><button type=button class=apx-x data-sheet-close aria-label="Zatvori">'
             '×</button></div>')
     if not owner:
@@ -1092,14 +1097,16 @@ def page(qs, user, full=False):
                  '(svaki pokušaj kupnje i prodaje s rutom i greškom)</p></div>')
         ek = (qs.get("ekipa") or "").strip()
         pr_src = "/pravi-trade/l/pratimo" + (f"?ekipa={quote(ek)}" if ek else "")
+        k_in = lazy("kupiti", user, qs) if full else '<h2 data-sec="" class=apx-h2>Što kupiti</h2>' + _skel(4)
+        p_in = lazy("pratimo", user, qs) if full else '<h2 data-sec="" class=apx-h2>Koga pratimo</h2>' + _skel(4)
+        o_in = lazy("ostalo", user, qs) if full else _skel(5)
         cards = (f'<section class="apx-card apx-lz" id=kupiti data-x-src=/pravi-trade/l/kupiti data-x-every={KUPITI_EVERY_S}>'
-                 f'{lazy("kupiti", user, qs) if full else "<h2 data-sec="">Što kupiti</h2>" + _skel(4)}</section>'
+                 f'{k_in}</section>'
                  f'<section class="apx-card apx-lz" id=pratimo data-x-src="{esc(pr_src)}" data-x-every={PRATIMO_EVERY_S}>'
-                 f'{lazy("pratimo", user, qs) if full else "<h2 data-sec="">Koga pratimo</h2>" + _skel(4)}</section>')
+                 f'{p_in}</section>')
         ost = (f'<details class=apx-acc id=apx-ostalo{" open" if full else ""}><summary><h2 data-sec="">Postavke i dijagnostika</h2>'
                '<span class=apx-mut>pravila, Grok, zastavice, preporuke, wallet…</span></summary>'
-               f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo>{lazy("ostalo", user, qs) if full else _skel(5)}</div>'
-               '</details>')
+               f'<div class="ap apx-acc-in" data-x-src=/pravi-trade/l/ostalo>{o_in}</div></details>')
         mbar = ('<div class=apx-mbar>'
                 + ('<button type=button class="apx-go buy" data-sheet=buy>Kupi</button><button type=button class="apx-go sell" '
                    'data-sheet=sell>Prodaj</button>' if owner else '<button type=button class=apx-go data-sheet=buy>Nalog i wallet</button>')

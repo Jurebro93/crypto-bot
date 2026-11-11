@@ -353,7 +353,7 @@
       const np = $('#apx-npos'), no = $('#apx-nord');
       if (np) np.textContent = (j.positions || []).length;
       if (no) no.textContent = (j.orders || []).length;
-      swapPart('#apx-sell', j.html.side); swapPart('.apx-dca', j.html.side);
+      swapPart('#apx-sell', j.html.side); swapPart('.apx-dca', j.html.side); swapPart('.apx-wal', j.html.side);
       for (const p of F.positions || []) posRow(p, S.live[p.token]);
       label();
       if (series) loadCandles();
@@ -470,7 +470,7 @@
     }
     hints(); costEst(); label();
     if (matchMedia('(max-width:1023px)').matches) openSheet('buy');
-    else $('.apx-side').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    else { const go = $('[data-go="buy"]'); if (go) go.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
   }
   function openSheet(side) { if (side) setSide(side); root.classList.add('sheet'); document.body.style.overflow = 'hidden'; }
   function closeSheet() { root.classList.remove('sheet'); document.body.style.overflow = ''; }
