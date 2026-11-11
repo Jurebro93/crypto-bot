@@ -3284,6 +3284,7 @@ def _post_limit(con, tcon, form, user):
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: as _post_buy, another token than the chart's only when confirmed
     live = market({token})
     if token not in live:
         raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
@@ -3324,8 +3325,8 @@ def _post_limit(con, tcon, form, user):
         settings.put(tcon, "buy_orders", orders, user)
         if ex == "tpsl":
             settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
-    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})",
-          flush=True)
+    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})"
+          + (f" uz potvrđenu razliku od grafa {chart}" if chart else ""), flush=True)
     words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
     if ex == "tpsl":
         words += f", TP {tp or 'zadani'} · SL {sl or _sl0(cfg)} od tog ulaza"
@@ -5248,6 +5249,26 @@ def _post_proposal_buy(con, tcon, form, user):
     return out
 
 
+def _chart_guard(form, token):
+    """11.11. (owner's rule: "Kupi mora koristiti isključivo mint iz polja za adresu. Ako se mint iz polja i token na
+    grafu razlikuju, prikaži upozorenje i traži potvrdu prije slanja."): the Autopilot's buy form sends the token its
+    chart shows (chart_mint). A buy of another token than that needs confirm_mismatch=1; refused BEFORE anything is
+    written otherwise. The buy is always of the field's token, never of chart_mint; without chart_mint (an older page,
+    MCP, the other buy forms) nothing changes. Returns the chart's mint of a confirmed difference (for the log)."""
+    from ui.league import MINT
+    chart = (form.get("chart_mint") or "").strip()
+    if not chart or not MINT.fullmatch(chart) or chart == token:
+        return None
+    if (form.get("confirm_mismatch") or "").strip() != "1":
+        with _LOCK:   # the symbol from the shared DexScreener cache, no request
+            sym = next((d[token].get("symbol") for _ts, d in _LIVE_CACHE.values() if token in (d or {})), None)
+        # first four + last four: every pump.fun mint ends in "pump"
+        raise ValueError(f"adresa u polju ({sym + ' ' if sym else ''}{token[:4]}…{token[-4:]}) nije token na grafu "
+                         f"({chart[:4]}…{chart[-4:]}); "
+                         "potvrdi kupnju tog tokena")
+    return chart
+
+
 def _post_buy(con, tcon, form, user, src=None):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
@@ -5260,6 +5281,7 @@ def _post_buy(con, tcon, form, user, src=None):
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: the field's token, never the chart's; another one only when confirmed
     sol = float((form.get("sol") or "0").replace(",", "."))
     lab, _typ, lo, hi = settings.LIMITS["size_sol"]
     if not lo <= sol <= hi:
@@ -5357,6 +5379,8 @@ def _post_buy(con, tcon, form, user, src=None):
             _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), _cfg(tcon))
         except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
             print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
+    if chart:
+        print(f"pravi trade: kupnja {sym or token[:6]} ({token}) uz potvrđenu razliku od grafa {chart}", flush=True)
     if prev is not None:
         return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
     return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"

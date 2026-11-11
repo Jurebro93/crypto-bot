@@ -1003,6 +1003,11 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     pass
                 pagecache.clear()
+            from ui import apterm
+            apterm.forget_first()   # 11.11.: the terminal's next first view is built anew (a saved SL/TP shows at once)
+            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP): the answer in place, no page render
+                from json import dumps   # (do_POST imports json further down: the module name is local here)
+                return self._send(200, dumps({"to": to}).encode("utf-8"), "application/json")
             return self._redirect(to)
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)
@@ -1343,9 +1348,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/pravi-trade/api/first":
                 body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
-                                                 sym=qs.get("s", "")), "application/json")
+                                                 sym=qs.get("s", ""), fresh=qs.get("fresh") == "1"), "application/json")
             elif path == "/pravi-trade/api/tick":
                 body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
+            elif path == "/pravi-trade/api/token":   # 11.11.: the name of the address in the buy panel's Token field
+                d = apterm.token_info(user, qs.get("q", ""))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False)), "application/json"
             elif path == "/pravi-trade/api/candles":
                 d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
                 body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"

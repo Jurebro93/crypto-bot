@@ -413,14 +413,20 @@
     return `${new Date(b.time * 1000).toLocaleString('hr-HR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}: ` +
       `otvaranje ${f(b.open)}, najviše ${f(b.high)}, najniže ${f(b.low)}, zatvaranje ${f(b.close)}, ${fPct(b.open ? (b.close / b.open - 1) * 100 : null, 2)}`;
   }
+  let cAgain = false;
   async function loadCandles() {
-    if (!series || !S.m || cBusy) return;
+    if (!series || !S.m) return;
+    // 11.11. (Jure: "klik na ime tokena otvori gore njegov graf"): a token picked while candles were loading used to
+    // be skipped (the chart kept the old token's candles until the next refresh), and a late answer for the old
+    // token could land after the new one's: now the newest pick is loaded right after, and an old answer is dropped
+    if (cBusy) { cAgain = true; return; }
     cBusy = true;
-    const ageEl = $('#apx-chart-age');
+    const ageEl = $('#apx-chart-age'), want = [S.m, S.tf, S.unit];
     try {
-      const r = await fetch(`/pravi-trade/api/candles?m=${encodeURIComponent(S.m)}&tf=${S.tf}&u=${S.unit}`, { cache: 'no-store', credentials: 'same-origin' });
+      const r = await fetch(`/pravi-trade/api/candles?m=${encodeURIComponent(want[0])}&tf=${want[1]}&u=${want[2]}`, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
       const c = await r.json();
+      if (want.join() !== [S.m, S.tf, S.unit].join()) { cAgain = true; return; }
       cUnit = c.unit;
       for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === c.unit);
       series.applyOptions({ priceFormat: { type: 'custom', minMove: c.unit === 'mc' ? 1 : 1e-12, formatter: c.unit === 'mc' ? fMc : fPx } });
@@ -446,7 +452,10 @@
       age();
     } catch (e) {
       if (ageEl) { ageEl.textContent = 'graf: nema podataka'; ageEl.classList.add('old'); }
-    } finally { cBusy = false; }
+    } finally {
+      cBusy = false;
+      if (cAgain) { cAgain = false; loadCandles(); }
+    }
   }
   function liveBar(lv) {   // the last candle follows the tick between two candle reads
     if (!series || !lastBar) return;
@@ -708,17 +717,18 @@
     const a = $('.apx-age', h);
     if (a && ts) a.dataset.ts = ts;
   }
-  function posRow(p, lv) {
-    const row = document.querySelector(`.apx-pos[data-key="${CSS.escape(p.key)}"]`);
-    if (!row || !lv || !lv.mcap) return;
-    const mcEl = $('[data-f="mc"]', row), pnEl = $('[data-f="pnl"]', row);
-    if (mcEl) mcEl.textContent = fMc(lv.mcap);
-    if (!p.avg_mc || !pnEl) return;
-    const pp = (lv.mcap / p.avg_mc - 1) * 100;
-    let ps = 0;
-    for (const [sin, held, lmc, sback] of p.lots || []) ps += sin * held * (lv.mcap / (lmc || p.avg_mc)) + sback - sin;
-    pnEl.innerHTML = `${fPct(pp)}<small>${fSol(ps, 4, true)}</small>`;
-    pnEl.className = `n apx-pnl ${tone(pp)}`;
+  function posRow(p, lv) {   // the position's row and, when it is the selected token, the panel's "Tvoja pozicija"
+    if (!lv || !lv.mcap) return;
+    for (const row of $$(`[data-key="${CSS.escape(p.key)}"]`)) {
+      const mcEl = $('[data-f="mc"]', row), pnEl = $('[data-f="pnl"]', row);
+      if (mcEl) mcEl.textContent = fMc(lv.mcap);
+      if (!p.avg_mc || !pnEl) continue;
+      const pp = (lv.mcap / p.avg_mc - 1) * 100;
+      let ps = 0;
+      for (const [sin, held, lmc, sback] of p.lots || []) ps += sin * held * (lv.mcap / (lmc || p.avg_mc)) + sback - sin;
+      pnEl.innerHTML = `${fPct(pp)}<small>${fSol(ps, 4, true)}</small>`;
+      pnEl.className = `n apx-pnl ${tone(pp)}`;
+    }
   }
   function onTick(t) {
     if (!t) return;
@@ -732,7 +742,9 @@
     for (const p of F.positions || []) posRow(p, S.live[p.token]);
     if (t.data_ts) for (const el of $$('.apx-live-age')) el.dataset.ts = t.data_ts;
     hints(); costEst();
-    if (t.sig && S.tsig && t.sig !== S.tsig) refreshFirst();
+    // 11.11.: built anew on the server: a position opened a moment ago used to miss the 3-s cached view, and the
+    // table showed it only at the next 30-s refresh
+    if (t.sig && S.tsig && t.sig !== S.tsig) refreshFirst(true);
     S.tsig = t.sig || S.tsig;
     age();
   }
@@ -762,49 +774,74 @@
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { startLive(); refreshFirst(); } else stopLive(); });
 
-  async function getFirst(m, html, sym) {
-    const r = await fetch(`/pravi-trade/api/first?m=${encodeURIComponent(m || '')}${html ? '&html=1' : ''}${sym ? '&s=' + encodeURIComponent(sym) : ''}`, { cache: 'no-store', credentials: 'same-origin' });
+  async function getFirst(m, html, sym, fresh) {
+    const r = await fetch(`/pravi-trade/api/first?m=${encodeURIComponent(m || '')}${html ? '&html=1' : ''}${sym ? '&s=' + encodeURIComponent(sym) : ''}${fresh ? '&fresh=1' : ''}`, { cache: 'no-store', credentials: 'same-origin' });
     if (!r.ok) throw new Error(String(r.status));
     return r.json();
   }
-  function swapPart(sel, html) {   // replace one element of the panel from the server's HTML (by id / selector)
+  // 11.11. (Jure: "Uredi SL-TP ... teško je fokusirati text box, kao da je laggy, ima bugove"): the tables were rebuilt
+  // every 30 s (and on every changed tick) whenever the focus was not inside them, so an open editor lost what was
+  // typed, and a press that landed during the swap went nowhere (Safari gives a pressed button no focus). A part with
+  // an open editor, the focus, or a finger / the mouse pressed on it in the last 1.5 s is left as it is now; it is
+  // rebuilt when the editor closes, or a moment after the press.
+  const pressed = el => { for (let p = el; p; p = p.parentElement) if (Date.now() - (p._down || 0) < 1500) return true; return false; };
+  const busy = el => el.contains(document.activeElement) || !!$('.apx-edit:not([hidden])', el) || pressed(el);
+  root.addEventListener('pointerdown', e => { const p = e.target.closest('.apx-pane,.apx-side'); if (p) p._down = Date.now(); }, true);
+  function swapPart(sel, html, force) {   // replace one element of the panel from the server's HTML (by id / selector)
     const cur = $(sel); if (!cur || !html) return;
     const t = document.createElement('template'); t.innerHTML = html;
     const nxt = t.content.querySelector(sel);
-    if (nxt && !cur.contains(document.activeElement)) cur.replaceWith(nxt);
+    if (nxt && (force || !busy(cur))) cur.replaceWith(nxt);
   }
   let refreshing = false;
-  async function refreshFirst() {
-    if (refreshing) return;
+  async function refreshFirst(fresh) {
+    if (refreshing) { S.again = fresh ? 2 : (S.again || 1); return; }   // asked during a refresh: once more right after it
     refreshing = true;
     try {
-      const j = await getFirst(S.m, true);
+      const j = await getFirst(S.m, true, '', fresh);
       j.urls = URLS; F = j;
       const pos = $('#pozicije'), ord = $('#nalozi');
-      if (pos && !pos.contains(document.activeElement)) keepOpen(pos, () => { pos.innerHTML = j.html.pos; });
+      if (pos && !busy(pos)) { keepOpen(pos, () => { pos.innerHTML = j.html.pos; }); S.stale = 0; }
+      else if (pos) {
+        S.stale = 1;
+        if (pressed(pos) && !S.retry) S.retry = setTimeout(() => { S.retry = 0; refreshFirst(); }, 1600);
+      }
       // only the orders' table: the exit plans' kill switch under it (server-rendered, not in html.ord) stays
-      if (ord && !ord.contains(document.activeElement)) keepOpen(ord, () => { const t = $('.apx-tbl', ord); if (t) t.outerHTML = j.html.ord; else ord.insertAdjacentHTML('afterbegin', j.html.ord); });
+      if (ord && !busy(ord)) keepOpen(ord, () => { const t = $('.apx-tbl', ord); if (t) t.outerHTML = j.html.ord; else ord.insertAdjacentHTML('afterbegin', j.html.ord); });
       const np = $('#apx-npos'), no = $('#apx-nord');
       if (np) np.textContent = (j.positions || []).length;
       if (no) no.textContent = (j.orders || []).length;
       swapPart('#apx-sell', j.html.side); swapPart('.apx-dca', j.html.side); swapPart('.apx-wal', j.html.side);
+      swapPart('#apx-mypos', j.html.side);
+      if (S.flash && !S.stale) {   // a saved SL/TP: its row and card light up once with the new levels
+        const c = $('#apx-mypos'), mine = c && $('input[name=id]', c);
+        for (const el of [document.getElementById('poz-' + S.flash), mine && mine.value === S.flash ? c : null]) {
+          if (el) { el.classList.remove('apx-saved'); void el.offsetWidth; el.classList.add('apx-saved'); }
+        }
+        S.flash = 0;
+      }
       for (const p of F.positions || []) posRow(p, S.live[p.token]);
       label();
       if (series) loadCandles();
-    } catch (e) { /* the next tick tries again */ } finally { refreshing = false; }
+    } catch (e) { /* the next tick tries again */ } finally {
+      refreshing = false;
+      if (S.again) { const fr = S.again === 2; S.again = 0; setTimeout(() => refreshFirst(fr), 50); }
+    }
   }
   setInterval(() => { if (document.visibilityState === 'visible') refreshFirst(); }, 30000);
 
   async function selectToken(m, sym) {
     if (!m || m === S.m) return;
-    const f = form(), sol = f && f.elements.sol.value;
+    const f = form(), sol = f && f.elements.sol.value, foc = f && f.contains(document.activeElement) ? document.activeElement.name : '';
     S.m = m; S.fit = true;
+    lastBar = null;   // the tick must not draw the new token's MC onto the old token's last candle
     try { history.replaceState(null, '', '?m=' + encodeURIComponent(m)); } catch (e) { /* file:// */ }
     const box = $('#apx-chart'); if (box) box.dataset.m = m;
     try {
-      const j = await getFirst(m, true, sym);
+      const j = await getFirst(m, true, sym || tokSym(m));
+      if (S.m !== m) return;   // another token was picked meanwhile: its answer is the one shown
       j.urls = URLS; F = j;
-      swapPart('#apx-hdr', j.html.hdr);
+      swapPart('#apx-hdr', j.html.hdr, true);
       const side = $('.apx-side');
       if (side && j.html.side) {
         const t = document.createElement('template'); t.innerHTML = j.html.side;
@@ -812,11 +849,12 @@
         if (nxt) side.replaceWith(nxt);
       }
       const f2 = form(); if (f2 && sol) f2.elements.sol.value = sol;
+      if (f2 && foc && f2.elements[foc]) f2.elements[foc].focus({ preventScroll: true });   // typing / pasting goes on
       setSide(S.side);
     } catch (e) { /* the header stays as it was */ }
     if (chart) loadCandles(); else chartInit();
     startLive();
-    hints(); costEst(); label();
+    hints(); costEst(); label(); tokCheck(true);
   }
 
   // ---- the order panel ----
@@ -831,9 +869,95 @@
     label();
   }
   const symNow = () => { const h = F.header; return (h && h.mint === S.m && h.sym) || (S.m ? S.m.slice(0, 4) + '…' : ''); };
+  // ---- the Token field: which token is that address (11.11., Jure: "da nisam krivo pastao adresu") ----
+  // GET /pravi-trade/api/token (the server's DexScreener cache) 300 ms after typing or pasting. The Kupi button names
+  // the token of the ADDRESS IN THE FIELD (it used to name the token picked before, whatever was pasted: real money)
+  // and stays off until that name is known; a valid address of another token is picked, as a tap on its name
+  const shortM = a => a && a.length > 9 ? a.slice(0, 4) + '…' + a.slice(-4) : (a || '');
+  const tokSym = m => (S.tok && S.tok.found && S.tok.mint === m && S.tok.sym) || '';
+  const fAge = s => s == null ? '–' : s < 3600 ? Math.max(1, Math.floor(s / 60)) + ' min' : s < 86400 ? Math.floor(s / 3600) + ' h' : Math.floor(s / 86400) + ' d';
+  function tokState(f) {
+    const v = ((f && f.elements.token && f.elements.token.value) || '').trim();
+    if (!v) return { st: 'empty' };
+    const t = S.tok;
+    if (t && (t.q === v || t.mint === v)) return { st: t.found ? 'ok' : t.found === false ? 'bad' : 'down', sym: t.sym, t };
+    const p = (F.positions || []).find(x => x.token === v), h = F.header;
+    if (p && p.sym) return { st: 'ok', sym: p.sym };   // an open position's token: its name is ours already
+    if (h && h.mint === v && h.sym && h.sym !== shortM(v)) return { st: 'ok', sym: h.sym };
+    return { st: 'wait' };
+  }
+  const chartSym = () => { const h = F.header; return (h && h.mint === S.m && h.sym) || shortM(S.m); };
+  const fieldMint = (f, s) => {   // the mint the buy goes to: the field's address (a link: what the server resolved it to)
+    if (s.st !== 'ok') return '';
+    const v = f.elements.token.value.trim();
+    return (s.t && s.t.mint) || (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : '');
+  };
+  // the buy form's onsubmit (Kupi and Enter): only a named token; another token than the chart's after its own confirm
+  // (then confirm_mismatch=1, the server refuses a difference without it); the general confirm names the field's token
+  window.apBuyOk = f => {
+    const s = tokState(f), mint = fieldMint(f, s), cm = f.elements.confirm_mismatch, ch = f.elements.chart_mint;
+    label();
+    if (!mint) return false;
+    if (ch) ch.value = S.m || '';
+    if (cm) cm.value = '';
+    const sol = (f.elements.sol.value || '').trim().replace('.', ',');
+    if (S.m && mint !== S.m) {
+      if (!confirm(`PAŽNJA: adresa u polju je ${s.sym} (${shortM(mint)}), a graf prikazuje ${chartSym()} (${shortM(S.m)}).\n\n` +
+        `Kupnja ide na token iz polja: ${s.sym} (${shortM(mint)}). Kupiti baš njega?`)) return false;
+      if (cm) cm.value = '1';
+    }
+    return confirm(`Kupiti ${sol} SOL ${s.sym} (${shortM(mint)}) pravim novcem (ako je Autopilot uključen)?`);
+  };
+  function tokShow(f, s) {
+    const el = f && $('[data-tokline]', f);
+    if (!el) return;
+    const t = s.t;
+    el.className = 'apx-tokline' + (s.st === 'bad' || s.st === 'down' ? ' dn' : s.st === 'wait' ? ' wait' : '');
+    if (s.st === 'empty') el.textContent = '';
+    else if (s.st === 'wait') el.textContent = 'Provjeravam adresu…';
+    else if (s.st === 'bad') el.textContent = 'Token nije pronađen — provjeri adresu.';
+    else if (s.st === 'down') el.textContent = 'DexScreener se trenutno ne javlja: adresa nije provjerena. Pokušavam ponovno…';
+    else el.innerHTML = `Kupuješ: <b translate=no>${esc(s.sym)}</b>` + (t ? `${t.name ? ' (' + esc(t.name) + ')' : ''} · MC ${fMc(t.mcap)} · ` +
+      `likvidnost ${fMc(t.liq)} · starost ${fAge(t.age_s)}` : '');
+  }
+  let tokT = 0;
+  function tokCheck(now) {
+    clearTimeout(tokT);
+    const f = form(), v = ((f && f.elements.token.value) || '').trim();
+    label();   // at once: the button says what is known, "provjeravam adresu…" until then
+    // a known answer is kept; "not found" is asked again after 20 s (a token listed a moment ago)
+    if (!v || (S.tok && (S.tok.q === v || S.tok.mint === v) && (S.tok.found || (S.tok.found === false && Date.now() - S.tok.at < 20000)))) return;
+    tokT = setTimeout(async () => {
+      let t;
+      try {
+        const r = await fetch('/pravi-trade/api/token?q=' + encodeURIComponent(v), { cache: 'no-store', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(String(r.status));
+        t = await r.json();
+      } catch (e) { t = { q: v, found: null }; }
+      const f2 = form(), cur = ((f2 && f2.elements.token.value) || '').trim();
+      if (cur !== v && cur !== t.mint) return;   // typed on meanwhile: the newer check answers
+      S.tok = t; t.at = Date.now();
+      if (t.found && t.mint && cur !== t.mint) f2.elements.token.value = t.mint;   // a link: the mint it is, in sight
+      const named = !!(t.found && t.sym);   // DexScreener's symbol; without one the name we already show, else the address
+      if (t.found && !t.sym) t.sym = (F.header && F.header.mint === t.mint && F.header.sym) || shortM(t.mint);
+      if (t.found && t.mint && t.mint !== S.m) { selectToken(t.mint, t.sym); return; }   // chart, header, panel: that token
+      const hs = $('#apx-hdr [data-f=sym]');
+      if (named && F.header && F.header.mint === t.mint && F.header.sym !== t.sym) { F.header.sym = t.sym; if (hs) hs.textContent = t.sym; }
+      if (t.found == null) tokT = setTimeout(() => { if (S.tok === t) S.tok = null; tokCheck(true); }, 5000);
+      label();
+    }, now ? 0 : 300);
+  }
   function label() {
     const f = form(), b = f && $('[data-go="buy"]', f);
-    if (b) { const sol = (f.elements.sol.value || '').trim(); b.textContent = `Kupi ${sol ? sol.replace('.', ',') + ' SOL ' : ''}${symNow()}`.trim(); }
+    if (b) {
+      const sol = (f.elements.sol.value || '').trim(), s = tokState(f);
+      const who = { ok: s.sym, empty: '', wait: '(provjeravam adresu…)', bad: '(provjeri adresu)', down: '(adresa nije provjerena)' }[s.st];
+      b.textContent = `Kupi ${sol ? sol.replace('.', ',') + ' SOL ' : ''}${who}`.trim();
+      b.disabled = s.st !== 'ok';
+      tokShow(f, s);
+      const mm = $('[data-mismatch]', f), mint = fieldMint(f, s), on = !!(mint && S.m && mint !== S.m);
+      if (mm) { mm.hidden = !on; if (on) mm.textContent = `Adresa u polju je ${s.sym} (${shortM(mint)}), a graf prikazuje ${chartSym()} (${shortM(S.m)}). Kupnja ide na adresu iz polja, uz potvrdu.`; }
+    }
     const fs = $('#apx-sell'), bs = fs && $('[data-go="sell"]', fs);
     if (bs) { const fr = $('input[name=frac]:checked', fs); bs.textContent = `Prodaj ${fr ? Math.round(+fr.value * 100) + ' %' : ''} ${symNow()}`.trim(); }
   }
@@ -862,6 +986,15 @@
     const slTxt = f.elements.sl.value || ((F.panel || {}).sl_default || '');
     const sl = parseLvl(slTxt, base, 'sl');
     put('sl', sl ? ((f.elements.sl.value ? '' : 'zadano · ') + (slTxt.includes('%') || !/[$kmb]/i.test(slTxt) ? '≈ MC ' + fMc(sl.mc) : '≈ ' + fPct(sl.pct, 0))) : '');
+    chips(f);
+  }
+  // the quick TP / SL chips show what is in the field (filled from "Što kupiti", typed or tapped): "15%" = +15 %
+  const nLvl = v => { let s = String(v || '').trim().toLowerCase().replace(/\s/g, '').replace(/[−–]/g, '-').replace(',', '.').replace(/^\+/, ''); if (/^-?[0-9.]+$/.test(s)) s += '%'; return s; };
+  function chips(f) {
+    if (!f || !f.elements.tp) return;
+    const tp = nLvl(f.elements.tp.value), sl = nLvl(f.elements.sl.value);
+    for (const c of $$('[data-tp],[data-etp]', f)) c.classList.toggle('on', !!tp && nLvl(c.dataset.tp || c.dataset.etp) === tp);
+    for (const c of $$('[data-sl],[data-esl]', f)) c.classList.toggle('on', !!sl && nLvl(c.dataset.sl || c.dataset.esl) === sl);
   }
   function costEst() {
     const f = form(), el = f && $('[data-cost]', f);
@@ -882,38 +1015,121 @@
       (over ? ` · iznad limita troška ${fNum(P.max_cost_pct, 0)} %: swap bi bio odbijen` : '');
     el.classList.toggle('warn', imp > sm || !!over);
   }
-  async function fillFrom(d, plain) {   // "Kupi" on a proposal / "U panel": only fills the form, never posts it
+  // "Kupi" in "Što kupiti" (a proposal: ui/apterm.proposal_fill, a live pick: live_fill) / "U panel": only fills the
+  // form, never posts it. 11.11. (Jure: "neka prepopulira sve stavke ... da ja mogu gore opet samo kliknuti Kupi"):
+  // token, stake, TP, SL, trailing, exit "moj TP/SL", the matching chips lit, and the panel's Kupi focused
+  async function fillFrom(d, plain) {
     if (d.token && d.token !== S.m) await selectToken(d.token, d.sym);
     const f = form(); if (!f) return;
     setSide('buy');
     f.elements.token.value = d.token || '';
-    if (d.sol) f.elements.sol.value = d.sol;
+    if (d.sol) { f.elements.sol.value = d.sol; for (const c of $$('[data-sol]', f)) c.classList.toggle('on', c.dataset.sol === d.sol); }
     let note = $('#ap-pk-note');
     if (!plain) {
       if (f.elements.at) f.elements.at.value = '';
       f.elements.tp.value = d.tp || ''; f.elements.sl.value = d.sl || '';
-      if (f.elements.exit) f.elements.exit.value = 'tpsl';
-      let h = f.elements.prijedlog;
-      if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'prijedlog'; f.appendChild(h); }
-      h.value = d.id;
+      if (f.elements.exit) f.elements.exit.value = d.exit || 'tpsl';
+      let h = f.elements.prijedlog;   // a proposal's id: its exit plan goes with the buy (pravitrade._post_proposal_buy)
+      if (d.id) { if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'prijedlog'; f.appendChild(h); } h.value = d.id; }
+      else if (h) h.remove();
+      const pc = d.trail ? String(+(+d.trail).toFixed(2)).replace('.', ',') + NB + '%' : '';
       const tr = $('[data-trail]', f);
       if (tr) {
-        tr.value = d.trail ? String(d.trail).replace('.', ',') + ' % (iz plana prijedloga)' : '';
-        if (d.trail) { const det = tr.closest('details'); if (det) det.open = true; }
+        tr.value = !pc ? '' : d.id ? pc + ' (iz plana prijedloga)' : pc + ' u planu brzog puta (ova kupnja ga ne postavlja)';
+        const lab = tr.closest('label'); if (lab) lab.classList.toggle('apx-dis', !pc);
+        if (pc) { const det = tr.closest('details'); if (det) det.open = true; }
       }
       if (!note) { note = document.createElement('p'); note.id = 'ap-pk-note'; note.className = 'apx-note'; f.insertBefore(note, $('[data-cost]', f)); }
-      note.textContent = `Prijedlog ${d.sym}: ulog ${d.sol} SOL, TP ${d.tp || '–'}, SL ${d.sl || 'zadani'}. Provjeri i dodirni Kupi.`;
+      note.textContent = `${d.id ? 'Prijedlog' : 'Alat (živo)'} ${d.sym}: ulog ${String(d.sol).replace('.', ',')} SOL, TP ${d.tp || '–'}, ` +
+        `SL ${d.sl || 'zadani'}${pc ? ', trailing ' + pc : ''}. ${d.plan ? d.plan + ' ' : ''}Provjeri i dodirni Kupi.`;
     } else {
       if (f.elements.prijedlog) f.elements.prijedlog.remove();
       if (note) note.remove();
     }
-    hints(); costEst(); label();
+    hints(); costEst(); label(); tokCheck(true);
+    const go = $('[data-go="buy"]', f);
     if (matchMedia('(max-width:1023px)').matches) openSheet('buy');
-    else { const go = $('[data-go="buy"]'); if (go) go.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    else if (go) go.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (go) go.focus({ preventScroll: true });   // ready: one tap on Kupi (it still asks to confirm)
   }
   function openSheet(side) { if (side) setSide(side); root.classList.add('sheet'); document.body.style.overflow = 'hidden'; }
   function closeSheet() { root.classList.remove('sheet'); document.body.style.overflow = ''; }
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('sheet')) closeSheet(); });
+
+  // ---- Uredi SL-TP (ui/apterm.sltp_html): in the position's row, in the panel's "Tvoja pozicija", and "Uredi" in
+  //      Otvoreni nalozi opens the row's. 11.11. (Jure: "nemam nigdje button spremi ... nego samo Kupi 0,15"): it used to
+  //      open in place under the row, often below the screen's edge, so nothing seemed to happen and the TP / SL typed
+  //      went into the Kupi panel. Now it opens in sight with its TP focused, and "Spremi SL/TP" answers in place ----
+  function eHints(f) {   // "≈ MC $442k" / "≈ +30 % od ulaza" under the editor's fields, from the position's average entry
+    const base = +f.dataset.base || null;
+    for (const k of ['tp', 'sl']) {
+      const el = $(`[data-ehint="${k}"]`, f), v = (f.elements[k].value || '').trim();
+      if (!el) continue;
+      const txt = v || (k === 'sl' ? (F.panel || {}).sl_default || '' : ''), lv = parseLvl(txt, base, k);
+      el.textContent = !lv ? '' : (v ? '' : 'zadano · ') + (txt.includes('%') || !/[$kmb]/i.test(txt) ? '≈ MC ' + fMc(lv.mc) : '≈ ' + fPct(lv.pct, 0) + ' od ulaza');
+    }
+    chips(f);
+  }
+  function openEdit(t) {
+    const pane = t.closest('.apx-pane');
+    if (pane && pane.hidden) showTab(pane.id);
+    const inSide = !!t.closest('.apx-side');
+    if (inSide && matchMedia('(max-width:1023px)').matches) openSheet();   // the panel is the phone's sheet
+    t.hidden = false;
+    for (const b of $$(`[data-edit="${t.id}"]`)) b.setAttribute('aria-expanded', 'true');
+    const f = $('form[data-sltp]', t), m = f && $('.apx-sltp-msg', f);
+    if (m) { m.textContent = ''; m.className = 'apx-sltp-msg'; }
+    if (f) eHints(f);
+    t.scrollIntoView({ behavior: 'smooth', block: inSide ? 'nearest' : 'center' });
+    if (f) { f.elements.tp.focus({ preventScroll: true }); f.elements.tp.select(); }
+  }
+  function closeEdit(t, keep) {
+    if (!t) return;
+    if (t.contains(document.activeElement)) document.activeElement.blur();
+    t.hidden = true;
+    for (const b of $$(`[data-edit="${t.id}"]`)) b.setAttribute('aria-expanded', 'false');
+    const f = $('form[data-sltp]', t), m = f && $('.apx-sltp-msg', f);
+    if (f && !keep) { f.reset(); if (m) { m.textContent = ''; m.className = 'apx-sltp-msg'; } }
+    if (S.stale) refreshFirst();   // what the open editor held back
+  }
+  function toast(txt, bad) {   // the same note as the server's answer to a form (.ap-toast, ui/pravitrade.CSS)
+    for (const o of $$('.ap-toast')) o.remove();
+    const t = document.createElement('div');
+    t.className = 'ap-toast ' + (bad ? 'bad' : 'ok'); t.setAttribute('role', bad ? 'alert' : 'status');
+    t.textContent = txt; t.addEventListener('click', () => t.remove());
+    root.appendChild(t);
+    setTimeout(() => t.remove(), 7000);
+  }
+  async function saveExit(f) {   // POST /pravi-trade/exit with the form's own fields (and _csrf), the answer in place
+    if (f._busy) return;
+    const msg = $('.apx-sltp-msg', f), btn = $('[data-save]', f), ed = f.closest('.apx-edit');
+    const say = (txt, cls) => { msg.textContent = txt; msg.className = 'apx-sltp-msg ' + (cls || ''); };
+    f._busy = 1; btn.disabled = true; btn.textContent = 'Spremam…'; say('');
+    try {
+      const r = await fetch(f.action, { method: 'POST', body: new URLSearchParams(new FormData(f)), credentials: 'same-origin',
+        headers: { 'X-Apx-Fetch': '1' } });
+      if (!r.ok) throw new Error('poslužitelj ' + r.status);
+      // run_ui answers {"to": the address a form would go to}; an older server redirects, the address says the same
+      const to = (r.headers.get('content-type') || '').includes('json') ? ((await r.json()).to || '') : r.redirected ? r.url : '';
+      const q = new URL(to || '/', location.href).searchParams, err = q.get('err'), ok = q.get('ok');
+      if (err || !ok) { say('Nije spremljeno: ' + (err || 'poslužitelj nije potvrdio.'), 'dn'); return; }
+      say('✓ Spremljeno. ' + ok, 'up');
+      toast(ok);
+      for (const k of ['tp', 'sl']) f.elements[k].defaultValue = f.elements[k].value;
+      for (const p of $$('.apx-pane,.apx-side')) p._down = 0;   // the press on Spremi must not hold the tables back
+      S.flash = f.elements.id.value; S.stale = 1;
+      setTimeout(() => closeEdit(ed, true), 1200);
+    } catch (x) {
+      say(`Nije spremljeno (${x.message || 'mreža'}). Upisano je ostalo; pokušaj ponovno.`, 'dn');
+    } finally { f._busy = 0; btn.disabled = false; btn.textContent = 'Spremi SL/TP'; }
+  }
+  root.addEventListener('submit', e => {
+    if (e.target.id === 'apx-buy' && !fieldMint(e.target, tokState(e.target))) { e.preventDefault(); label(); return; }   // never an unnamed token
+    const f = e.target.closest('form[data-sltp]');
+    if (!f || !window.fetch) return;   // no fetch: the ordinary form, back to #poz-<id>
+    e.preventDefault();
+    saveExit(f);
+  });
 
   root.addEventListener('click', e => {
     const g = s => e.target.closest(s);
@@ -929,7 +1145,18 @@
     }
     if ((b = g('[data-tp]'))) { const f = form(); if (f) { f.elements.tp.value = b.dataset.tp; hints(); } return; }
     if ((b = g('[data-sl]'))) { const f = form(); if (f) { f.elements.sl.value = b.dataset.sl; hints(); } return; }
-    if ((b = g('[data-pk]'))) { e.preventDefault(); e.stopPropagation(); try { fillFrom(JSON.parse(b.dataset.pk)); } catch (x) { /* bad data */ } return; }
+    if ((b = g('[data-etp],[data-esl]'))) {   // the editor's chips only fill its field; "Spremi SL/TP" saves
+      const f = b.closest('form'), k = b.dataset.etp ? 'tp' : 'sl';
+      if (f) { f.elements[k].value = b.dataset.etp || b.dataset.esl; eHints(f); }
+      return;
+    }
+    if ((b = g('[data-pk]'))) {
+      e.preventDefault(); e.stopPropagation();
+      // the Kupi under a proposal's "detalji" (proposals/view) fills what its row's own Kupi does (apterm.proposal_fill)
+      const row = b.closest('.apx-krow'), main = row && $(':scope > .apx-act [data-pk]', row);
+      try { fillFrom(JSON.parse((main || b).dataset.pk)); } catch (x) { /* bad data */ }
+      return;
+    }
     if ((b = g('[data-fill]'))) { e.preventDefault(); try { fillFrom(JSON.parse(b.dataset.fill), true); } catch (x) { /* bad data */ } return; }
     if ((b = g('[data-sel]'))) {
       e.preventDefault();
@@ -939,11 +1166,16 @@
     }
     if ((b = g('[data-edit]'))) {
       const t = document.getElementById(b.dataset.edit);
-      if (!t) return;
-      if (b.dataset.goto) { showTab('pozicije'); t.hidden = false; t.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-      else t.hidden = !t.hidden;
+      if (!t) {   // a position with no editor here (no demo pair, a sale under way): at least its row
+        const r = b.dataset.goto && document.getElementById(b.dataset.goto);
+        if (r) { showTab('pozicije'); r.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        return;
+      }
+      // the row's button opens and closes it; "Uredi" in Otvoreni nalozi and the panel's link only open it
+      if (t.hidden || b.dataset.goto || b.classList.contains('apx-lnk')) openEdit(t); else closeEdit(t);
       return;
     }
+    if ((b = g('[data-edit-close]'))) { closeEdit(b.closest('.apx-edit')); return; }
     if ((b = g('[data-page]'))) { const box = $('#apx-hist'); if (box) loadBox(box, b.dataset.page); return; }
     if ((b = g('[data-pm]'))) { PN.m = b.dataset.pm; pnlSave(); pnlLoad(); return; }
     if ((b = g('[data-pd]'))) { PN.d = +b.dataset.pd; pnlSave(); pnlLoad(); return; }
@@ -970,15 +1202,15 @@
     if (f && f.contains(e.target)) {
       if (e.target.name === 'sol') for (const c of $$('[data-sol]', f)) c.classList.toggle('on', c.dataset.sol === e.target.value);
       hints(); costEst(); label();
+      if (e.target.name === 'token') tokCheck();
     }
+    const ef = e.target.closest('form[data-sltp]');
+    if (ef) eHints(ef);
     if (e.target.name === 'frac') label();
   });
   root.addEventListener('change', e => {
     if (e.target.matches('[data-zone]')) { const r = e.target.closest('form'); if (r && e.target.value) r.elements.lvl.value = e.target.value; }
-    if (e.target.name === 'token' && form() && form().contains(e.target)) {
-      const v = e.target.value.trim();
-      if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) selectToken(v);
-    }
+    if (e.target.name === 'token' && form() && form().contains(e.target)) tokCheck(true);   // picks it once it is found
     if (e.target.name === 'frac') label();
   });
   const ost = $('#apx-ostalo');
@@ -990,7 +1222,7 @@
   try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !location.hash) showTab(t); } catch (e) { /* no storage */ }
   for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf);
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
-  setSide('buy'); hints(); costEst(); age();
+  setSide('buy'); hints(); costEst(); age(); tokCheck(true);
   scrollHash();
   window.addEventListener('hashchange', () => { S.hashDone = null; S.hashTried = null; scrollHash(); });
   const later = fn => ('requestIdleCallback' in window) ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300);
