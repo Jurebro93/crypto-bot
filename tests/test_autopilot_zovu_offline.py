@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -152,26 +153,24 @@ class Page(unittest.TestCase):
         loc = pravitrade.post("/pravi-trade/tp", {"tp": "10"}, "Jure")
         self.assertIn("ok=", loc)
         self.assertEqual(settings.merged(CFG, self.con)["tp_default"], 10)
-        _, body = pravitrade.page({}, "Jure")
+        # 11.11. (ui/apterm): "Pravila" is under "Postavke i dijagnostika", the callers' feed in "Koga pratimo" and the
+        # tool's live picks in the one list "Što kupiti", each loaded when it comes into view (sve=1: all in the page)
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("Cilj izlaza za nove kopije", body)
         self.assertIn("sada +10 %", body)
-        # 10.11. (Jure: "nije mi jasno Zovu sada i Što kupiti sada, makni na dno"): both lists are closed sections at
-        # the bottom, each with a title that says what it is and one sentence about it
         self.assertIn("Tko sada zove koji token", body)
         self.assertIn("pratiš i dokazani walleti", body)
-        self.assertIn("Što alat sada predlaže za kupnju", body)
+        self.assertIn("živi kandidati alata", body)
+        self.assertIn('value="10%"', body)   # the order panel's TP starts from the target (the last TP used, else it)
         self.assertIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "tpsl", True))   # TP/SL forms take it
         self.assertNotIn('value=10%', pravitrade._buy_form("TOK", settings.merged(CFG, self.con), "smart", True))
-        self.assertIn("/pravi-trade/zovu", body)  # polled every LOG_EVERY_S seconds
-        self.assertIn("/pravi-trade/ideje", body)
-        # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): log, positions, then "Kako trguje" (follows, Pravila
-        # = exit target + limits, manual buy), and only then, closed under "Još", the two live lists and the picks
-        # 10.11. (Jure): the quick buy moved right under the chart, before the log
-        # 10.11. 20:41 (Jure: "fokusirano na trade"): positions before the decision log
-        order = [body.index(x) for x in ("id=kupi-odmah", "id=pozicije", "id=dnevnik", "id=pratim", "id=cilj", "id=limiti",
-                                         "id=zovu", "id=ideje", "id=preporuke")]
+        self.assertIn("data-x-src=/pravi-trade/zovu data-x-every=15", body)   # the feed, every 15 s while on screen
+        # 11.11. (ui/apterm): positions and the log (tabs), the order panel, "Što kupiti", "Koga pratimo" with its
+        # feed, then "Postavke i dijagnostika" with Pravila (exit target + limits) and the recommendations
+        order = [body.index(x) for x in ("id=pozicije", "id=dnevnik", "id=kupi-odmah", "id=kupiti", "id=pratimo", "id=ap-zovu",
+                                         "id=pratim>", "id=apx-ostalo", "id=cilj", "id=limiti", "id=preporuke")]
         self.assertEqual(order, sorted(order))
-        for sid in ("dnevnik", "preporuke", "zovu", "ideje", "pravila"):   # closed until tapped
+        for sid in ("preporuke", "pravila"):   # closed until tapped
             self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)
 
     def test_follow_all_callers_makes_one_crew_follow(self):
@@ -249,9 +248,20 @@ class Page(unittest.TestCase):
             overview.token_rows, zivo.rows = saved
             zivo._ROWS["ts"] = ts0
             pravitrade._IDEAS_CACHE.clear()
+        # 11.11. (Jure: "Što kupiti" = jedna lista): the live picks are rows of "Što kupiti", fetched with it when it
+        # scrolls into view (every 30 s while on screen), never in the first HTML
         _, body = pravitrade.page({}, "Jure")
-        # 10.11.: polled by the page's one poller, and only while its section is open (data-lazy: not before)
-        self.assertIn("<div id=ap-ideje data-src=/pravi-trade/ideje data-every=1 data-lazy", body)
+        self.assertIn("data-x-src=/pravi-trade/l/kupiti data-x-every=30", body)
+        self.assertNotIn("alat (živo)", body)
+        from ui import apterm
+        live = {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "ch_m5": 3.0, "ch_h1": 4.0, "symbol": "ZIVI"}
+        with mock.patch.object(zivo, "rows", lambda now=None, **k: [{"token": "ZivToken1", "live": live, "src": "poziv",
+                                                                      "reasons": ["novi poziv"], "checked": NOW}]), \
+                mock.patch.object(overview, "token_rows", side_effect=AssertionError("token rows built")):
+            frag = apterm.lazy("kupiti", "Jure")
+        self.assertIn("alat (živo) · poziv · novi poziv", frag)
+        self.assertIn('data-fill="', frag)          # "U panel": fills the order panel, never buys
+        self.assertIn('data-pop="/pravi-trade/token?m=ZivToken1"', frag)
 
     def test_crew_rows_and_popups(self):
         m = {"price": 0.001, "liq": 40_000.0, "mcap": 90_000.0, "vol_h1": 3000.0, "vol_h24": 9000.0, "txns_h1": 30, "buys_h1": 20,

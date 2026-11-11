@@ -228,7 +228,9 @@ class LimitBuy(Base):
         self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])      # nothing bought at 90k
         self.assertEqual(len(settings.raw(self.con)["buy_orders"]), 1)
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("Nalozi za kupnju · 1", body)
+        # 11.11. (ui/apterm): the waiting order is a row of the tab "Otvoreni nalozi", with its Otkaži (same route)
+        self.assertIn("<b id=apx-nord>1</b>", body)
+        self.assertIn(">Limit kupnja<", body)
         self.assertIn("action=/pravi-trade/limitdel", body)
         self.assertEqual(pravitrade.limit_once(self.con, live_fn=self.live), [])       # still 90k: waits
         self.mc["v"] = 49_000.0
@@ -652,17 +654,20 @@ class McpHosted(Base):
     def test_owner_makes_the_key_and_the_page_shows_it_only_to_him(self):
         from ui import mcpapi, pravitrade
         self.assertIsNone(mcpapi.authorized("Bearer x"))                       # no key yet: the endpoint is off
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the Grok row is under Postavke (lazy)
         self.assertIn("Napravi MCP ključ", body)
         self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))
         k = settings.raw(self.con)["mcp_key"]
         self.assertTrue(k.startswith("ms_") and len(k) > 40)
         self.assertTrue(mcpapi.authorized(f"Bearer {k}"))
-        _, body = pravitrade.page({}, "Jure")
+        self.assertNotIn(k, pravitrade.page({}, "Jure")[1])                   # 11.11.: never in the first HTML
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn(f'value="{k}"', body)
         self.assertIn("https://app.memesonar.app/mcp", body)
         settings.put(self.con, "invited", ["gost"], "Jure")
-        self.assertNotIn(k, pravitrade.page({}, "gost")[1])
+        self.assertNotIn(k, pravitrade.page({"sve": "1"}, "gost")[1])
+        from ui import apterm
+        self.assertNotIn(k, apterm.lazy("ostalo", "gost"))
         self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))             # a new key: the old one stops
         self.assertFalse(mcpapi.authorized(f"Bearer {k}"))
         self.assertIn("ok=", self.post("/pravi-trade/mcpkeyoff", {}))

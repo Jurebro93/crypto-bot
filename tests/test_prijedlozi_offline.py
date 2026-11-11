@@ -693,27 +693,26 @@ class Card(ApBase):
         import time as _t
         from ui import pravitrade
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
+        # 11.11. (Jure: "Što kupiti" = jedna lista, ui/apterm): the proposals are rows of "Što kupiti", loaded when the
+        # card scrolls into view and every 30 s while on screen; Kupi only fills the order panel (data-pk)
+        from ui import apterm
         _, body = pravitrade.page({}, "Jure")
-        self.assertNotIn("id=prijedlozi-trade", body)                              # flag off: no card, no link
-        self.assertNotIn("#prijedlozi-trade", body)
+        self.assertIn("data-x-src=/pravi-trade/l/kupiti data-x-every=30", body)
+        self.assertNotIn("data-pk=", body)                                          # never in the first HTML
+        self.assertNotIn("data-pk=", apterm.lazy("kupiti", "Jure"))                # flag off: no proposal rows
         settings.set_flag(self.con, "proposals", "shadow", "Jure")
         _seed(self.ppath, now=int(_t.time()))
         view.clear()
-        _, body = pravitrade.page({}, "Jure")
-        i = body.index("id=prijedlozi-trade")
-        self.assertLess(body.index("id=kupi-odmah"), i)
-        self.assertLess(i, body.index("id=pozicije"))
-        self.assertNotIn("id=mcp-zahtjevi", body[body.index("id=kupi-odmah"):i])  # nothing in between
-        nav = body[body.index("class=ap-fn"):body.index("</nav>", body.index("class=ap-fn"))]
-        self.assertIn('href="#prijedlozi-trade"', nav)
-        self.assertLess(nav.index("#kupi-odmah"), nav.index("#prijedlozi-trade"))
-        self.assertIn("data-src=/pravi-trade/prijedlozi data-every=150", body)
+        body = apterm.lazy("kupiti", "Jure")
+        self.assertIn("id=prijedlozi-trade", body)
+        self.assertIn("prijedlozi: shadow", body)
         self.assertIn("data-pk=", body)
         self.assertIn("dexscreener.com/solana/" + A, body)
         self.assertIn("solscan.io/token/" + A, body)
         self.assertIn("action=/pravi-trade/prijedlog-odbij", body)
-        _, body = pravitrade.page({}, "Ivan")                                       # invited: never
-        self.assertNotIn("prijedlozi-trade", body)
+        body = apterm.lazy("kupiti", "Ivan")                                        # invited: never a proposal
+        self.assertNotIn("data-pk=", body)
+        self.assertNotIn("T" + A[:3], body)
         self.assertIsNone(pravitrade.proposals_fragment("Ivan"))
         frag = pravitrade.proposals_fragment("Jure")
         self.assertIn("T" + A[:3], frag)
