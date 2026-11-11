@@ -941,8 +941,10 @@ class ZoneEntry(BuyBase):
         self.assertEqual(self.go(at_mc(88_120), self.now), [])                      # 11:44:39: no entry at $88k
         p = self.prop(pid)
         self.assertEqual((p["status"], p["last_mcap"], p["paper_ts"]), ("novo", 88_120, None))   # still waiting
-        self.assertEqual(view.entry_state(p, self.now)["state"], "čeka ulaz")
+        # 11.11. (decision 4): outside the zone and under the stop -> not published, "čeka zonu" with the reason
+        self.assertEqual(view.entry_state(p, self.now)["state"], "čeka zonu")
         self.assertIn("ispod SL-a", view.entry_state(p, self.now)["text"])
+        self.assertIn("izvan zone ulaza $104k–$112k", p["wait_why"])
         self.assertEqual(self.held(), [])
         self.assertEqual(self.go(at_mc(100_000), self.now + 20), [])               # under the zone: waits
         done = self.go(at_mc(108_000), self.now + 40)                              # in the zone: paper entry

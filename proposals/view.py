@@ -49,7 +49,9 @@ def _mode():
 
 
 def load(now=None, path=None, fresh=False):
-    """{"active", "recent", "last_pass", "report", "calib"} (cached CACHE_S)."""
+    """{"active", "waiting", "recent", "last_pass", "report", "calib"} (cached CACHE_S). 11.11. (the owner's decision
+    4): "active" = the PUBLISHED open proposals only (what "Što kupiti" and the card show); "waiting" = the open ones in
+    the state "čeka zonu" (proposals/publish.check), also put first among last_pass "near" (the "prikaži skoro" list)."""
     t = time.time()
     key = path or ""
     hit = _CACHE.get(key)
@@ -58,18 +60,19 @@ def load(now=None, path=None, fresh=False):
     now_i = int(now or t)
     con = store.ro(path)
     if con is None:
-        d = {"active": [], "recent": [], "last_pass": None, "report": None, "calib": None}
+        d = {"active": [], "waiting": [], "recent": [], "last_pass": None, "report": None, "calib": None}
     else:
         try:
             act = store.read(con, "status='novo' AND expires_ts > ?", (now_i,), order="ev_pct DESC, n_independent DESC, id",
                              limit=60)
             rec = store.read(con, "status != 'novo' AND status_ts >= ?", (now_i - 86400,), order="status_ts DESC", limit=60)
-            d = {"active": act, "recent": rec, "last_pass": store.kv_get(con, "last_pass"),
-                 "calib": store.kv_get(con, "grok_calib")}
+            d = {"active": [p for p in act if store.published(p)], "waiting": [p for p in act if not store.published(p)],
+                 "recent": rec, "last_pass": store.kv_get(con, "last_pass"), "calib": store.kv_get(con, "grok_calib")}
+            d["last_pass"] = waiting_near(d["waiting"], d["last_pass"])
             r = con.execute("SELECT data FROM reports ORDER BY day DESC LIMIT 1").fetchone()
             d["report"] = json.loads(r[0]) if r else None
         except Exception:  # noqa: BLE001 - a half-written database shows nothing, never an error page
-            d = {"active": [], "recent": [], "last_pass": None, "report": None, "calib": None}
+            d = {"active": [], "waiting": [], "recent": [], "last_pass": None, "report": None, "calib": None}
         finally:
             con.close()
     if now is None:
@@ -79,6 +82,20 @@ def load(now=None, path=None, fresh=False):
 
 def clear():
     _CACHE.clear()
+
+
+def waiting_near(waiting, lp):
+    """last_pass with the waiting proposals ("čeka zonu") first among its near misses (the "prikaži skoro" list reads
+    them: token, symbol, strategies, ev_pct, why, blocks)."""
+    if not waiting:
+        return lp
+    lp = dict(lp or {})
+    w = [{"token": p["token"], "symbol": p.get("symbol"), "strategies": p.get("sources") or [], "ev_pct": p.get("ev_pct"),
+          "why": f"{WAIT_ZONE}: {p.get('wait_why')}", "blocks": [], "mcap": p.get("last_mcap"), "proposal_id": p["id"],
+          "state": WAIT_ZONE} for p in waiting]
+    have = {x["token"] for x in w}
+    lp["near"] = w + [n for n in lp.get("near") or [] if n.get("token") not in have]
+    return lp
 
 
 def _hm(ts):
@@ -122,6 +139,7 @@ def _p_text(r):
 
 REJECT_HR = store.REJECT_REASONS
 PAPER_IN = "ušao (paper)"
+WAIT_ZONE = "čeka zonu"   # 11.11. (decision 4): not published (proposals/publish.check), wait_why says why
 
 
 def entry_state(p, now=None):
@@ -142,6 +160,9 @@ def entry_state(p, now=None):
     if p.get("paper_ts"):
         out.update(state=PAPER_IN, text=f"{PAPER_IN} na MC {_usd(p.get('paper_mcap'))} u {_hm(p['paper_ts'])}",
                    paper_ts=p["paper_ts"], paper_mcap=p.get("paper_mcap"))
+        return out
+    if p.get("wait_why"):   # 11.11. (decision 4): not published; the 20-s loop decides again until expires_ts
+        out.update(state=WAIT_ZONE, text=f"{WAIT_ZONE} · {p['wait_why']}", wait_why=p["wait_why"])
         return out
     where = f"sada {_usd(mc)}, zona {strategies.zone_text(z)}" if mc else f"zona {strategies.zone_text(z)}"
     if chk["state"] == strategies.WAIT and mc and chk["sl"] and mc < chk["sl"]:
@@ -218,6 +239,7 @@ def fragment(esc, item, now=None, path=None):
         lp = d.get("last_pass") or {}
         out.append('<p class=mut>Trenutno nijedan prijedlog nema EV iznad nule bez blokade.'
                    + (f' Zadnja provjera {_hm(lp.get("ts"))}, skoro: {len(lp.get("near") or [])}.' if lp.get("ts") else "")
+                   + (f' Čeka zonu: {len(d.get("waiting") or [])}.' if d.get("waiting") else "")
                    + '</p>')
     out += [one(p) for p in act[:TOP_N]]
     if len(act) > TOP_N:
@@ -276,6 +298,10 @@ def _mcp_row(p):
     return {"id": p["id"], "token": p["token"], "symbol": p.get("symbol"), "status": p["status"],
             "status_why": p.get("status_why"),
             "entry_state": entry_state(p) if p["status"] == "novo" else None, "created_ts": p.get("created_ts"), "expires_ts": p.get("expires_ts"),
+            # 11.11. (decision 4): published = shown in "Što kupiti"; else "čeka zonu" with wait_why; the EV is measured
+            # from the middle of the entry zone (ev_from), the publication against 1 x ATR (atr_mcap, atr_from)
+            "published": store.published(p), "wait_why": p.get("wait_why"), "published_ts": p.get("published_ts"),
+            "ev_from": r.get("ev_from"), "atr_mcap": r.get("atr_mc"), "atr_from": r.get("atr_from"),
             "strategy": p.get("strategy"), "sources": p.get("sources"), "n_independent": p.get("n_independent"),
             "ev_pct": p.get("ev_pct"), "p_tp": {"value": p.get("p_tp"), "n": r.get("n"), "ci90": r.get("ci90")},
             "grok": r.get("grok"), "strategies": st, "entry_zone_mcap": r.get("entry_zone"),
@@ -322,7 +348,11 @@ def mcp(since=None, min_ev=None, include_blocked=False, status=None, limit=None,
                       "optional strategy, entry_zone, exit_zone, valid_min); your p_tp is calibrated before it counts. "
                       "An open proposal (status novo) WAITS for its entry zone: entry_state.state 'čeka ulaz' while the "
                       "market cap is outside entry_zone_mcap (or under the stop), 'u zoni' inside it, 'ušao (paper)' "
-                      "once the demo account entered; buy only 'u zoni'. report.zone_misses: the proposals of the last "
+                      "once the demo account entered; buy only 'u zoni'. 11.11.: EV is measured from the MIDDLE of the "
+                      "entry zone (ev_from); a proposal is published only while the market cap is inside its zone and "
+                      ">= 1 x ATR above its stop (atr_mcap; 5 % of MC for strategies without an ATR), else it is kept "
+                      "as published false, entry_state 'čeka zonu' with wait_why (re-checked every 20 s until it "
+                      "expires); never buy a 'čeka zonu' row. report.zone_misses: the proposals of the last "
                       "48 h that went through their zone without a paper entry and what would have happened. "
                       "pinned / pin_only rows come from the owner's pin (a recommendation: never buy them with real "
                       "money on your own; only the owner's tap does). owner_labels: the owner's learning labels "

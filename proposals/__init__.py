@@ -13,6 +13,8 @@ page and in the MCP tool get_proposals. Paper first: nothing here buys on the re
     outcomes.py    what happened 1 h and 4 h after every proposal (missed opportunities)
     paper.py       paper mode: the demo account takes a waiting proposal with its exit when the price is in its entry
                    zone and above its stop, never next to a range_dca round (league/auto.loop, 11.11.)
+    publish.py     11.11. (the owner's decision 4): EV from the middle of the entry zone; published only while the
+                   market cap is in the zone and >= 1 x ATR above the stop, else stored as "čeka zonu" (20-s re-check)
     report.py      the 23:30 report per strategy and the day's missed risers (events/evreport)
     view.py        the Autopilot card, its fragment and get_proposals (read-only, cached)
     store.py       proposals.db (DATA_DIR)

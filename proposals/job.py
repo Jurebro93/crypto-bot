@@ -10,7 +10,10 @@ once: flag off -> ends at once (nothing read or written). Otherwise:
      strategy proposes it. Never on a pass whose market read failed (only the time expiry then). 11.11. (the owner's
      rules after HAOBIBI, sync's text): a proposal WAITS for its entry zone: no longer shown only because the price is
      outside the zone (a range's source drops out exactly then) it stays novo until expires_ts; the price under its
-     stop expires it only when it fell there after the proposal was made ("pao ispod SL-a").
+     stop expires it only when it fell there after the proposal was made ("pao ispod SL-a"). 11.11. (the owner's
+     decision 4, proposals/publish.py): every row's EV is measured from the middle of its entry zone, and a row is
+     stored PUBLISHED only while the pass's market cap is inside the zone and >= 1 x ATR above the stop, else with
+     wait_why ("čeka zonu"); the demo account's 20-s loop (proposals/paper.py) decides it again until expires_ts.
   4. the near misses and the shown rows of the day per (token, strategy) into seen (the daily report's "it saw it /
      near miss / never saw")
   5. our own price points for the after-outcomes: the market caps this pass already read (free), and one DexScreener
@@ -359,8 +362,10 @@ def once(now=None, src=None, path=None, log=print, dex_fetch=None, pairs_fn=None
         zone_report(con, now, log, econ=econ)
     finally:
         con.close()
+    n_wait = sum(1 for r in rows if r.get("wait_why"))   # 11.11. (decision 4): stored, not published ("čeka zonu")
     if ch["new"] or ch["expired"] or n_out:
-        log(f"prijedlozi: prikazano {len(rows)}, novih {ch['new']}, isteklo {ch['expired']}, skoro {len(near)}; "
+        log(f"prijedlozi: prikazano {len(rows) - n_wait}, čeka zonu {n_wait}, novih {ch['new']}, isteklo "
+            f"{ch['expired']}, skoro {len(near)}; "
             f"cijene {n_px} + DexScreener {n_dex}; ishodi {n_out}"
             + (f"; izvori s greškom: {', '.join(meta['sources_failed'][:4])}" if meta.get("sources_failed") else ""))
     return {"shown": len(rows), "near": len(near), **ch, "outcomes": n_out}
