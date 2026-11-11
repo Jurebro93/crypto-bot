@@ -36,4 +36,11 @@ in the same range.db snaps (detection reads timestamps, so a 5-minute series fin
 source: signal > event > market. A market / event token is traded only on the demo account (paper), never with real
 money.
     market.py    the market watchlist: universe, filter, budgeted refresh, the daily cost line per source
+
+11.11. (Jure: "rangedca flip / pauza / stop", flag range_flip G26, default off): a confirmed break up (a 5-minute close
+above the top by max(2 %, ATR) with 1.5 x the median volume) makes the old top the candidate for the new bottom (no
+entries until 2 retests hold), a confirmed break down pauses the token (the old bottom = resistance, no entries until a
+range forms under it), the stop is range_low_low - 1.5 x ATR (5-20 %) instead of x 0.85. detect.flip_step (the
+state, range.db range_flip), rules.new_range (the new rules), trade.flip_roles (off / shadow / paper / live past
+gate.flip_refusal), backtest FlipCompare (today's rules vs the new ones, nightly, range.db kv flip_backtest).
 """

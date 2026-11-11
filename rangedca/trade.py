@@ -24,6 +24,16 @@ dca_token_cap SOL; 11.11. (owner's rules B / C, trade/cost.size_sol): never more
 the Zagreb day (run_trade.py holds the real account to every real limit again). Grok does not trade through this; a
 Grok trade in the same token goes through ui/grokauto and its own limits, and Grok may TIGHTEN a range position's
 exits with set_exit_plan (league/exitplan; "accounts": ["autopilot-paper"] keeps the plan off the real account).
+
+11.11. (Jure: "rangedca flip / pauza / stop", flag range_flip G26, flip_roles): off: today's rules exactly (nothing of
+the flip state is read). shadow: every account trades today's rules; league.db shadow_decisions (flag range_flip)
+gets a row when the new rules would decide an entry otherwise (blocked by a pause / a flip candidate, or added on
+the range that formed after a break), the would-be stop at every lot 1 (levels flip_stop_px, which only tightens like
+the stop) and the moment either stop would have sold where the other did not. paper: the demo account PAPER_USER
+trades the new rules (rules.new_range: no lot 1 / lot 2 while paused or a flip candidate, the range after a break once
+flipped / resumed, the volatility stop; its rounds carry levels rules = "flip"); the real account never. live:
+LEAGUE_USER too, but only while gate.flip_refusal() is None (the nightly backtest's new max drawdown <= today's) and
+only where range_dca itself trades it (range_dca stays paper: then it never does).
 """
 import json
 import os
@@ -35,6 +45,7 @@ from trade import cost as _cost
 from . import data, gate, market, rules
 
 FLAG = "range_dca"
+FLIP_FLAG = "range_flip"    # 11.11. (G26): flip / pause / volatility stop, the new rules (rules.new_range)
 SRC1, SRC2 = "range lot 1", "range lot 2"
 RANGE_FRESH_S = 15 * 60     # a range computed longer ago is not traded
 METRICS_FRESH_S = 4 * 60    # the 5-minute numbers (buys share, volume, change) at most this old at an entry
@@ -46,6 +57,15 @@ EXIT_RULE = {"tp1": "tp", "top": "tp", "trailing": "tp", "stop": "sl", "time": "
 REASON_HR = {"tp1": "pola u gornjoj zoni", "top": "ostatak na vrhu raspona", "trailing": "trailing 10 % od vrha",
              "stop": "tvrdi stop (range_low_low × 0,85)", "time": "6 h bez gornje zone, izlaz na nuli",
              "odustajanje": "odustajanje"}
+STOP_ATR_HR = "tvrdi stop (range_low_low − 1,5 × ATR)"   # 11.11.: a round of the new rules (range_flip)
+
+
+def _hr(reason, levels=None):
+    """The reason in Croatian; the stop of a round with the volatility stop says so."""
+    k = reason.split(":")[0]
+    if k == "stop" and (levels or {}).get("stop_kind") == "atr":
+        return STOP_ATR_HR
+    return REASON_HR.get(k, reason)
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS range_rounds (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, token TEXT, symbol TEXT, opened_ts INTEGER, closed_ts INTEGER,
@@ -88,6 +108,28 @@ def roles(m, now=None):
                 _CACHE["gate_log"] = t
                 print(f"range_dca live: pravi račun ne trguje ({why}); samo zapis u sjeni", flush=True)
     return act, sh
+
+
+def flip_roles(act, now=None):
+    """(range_flip's mode, the accounts of `act` that trade the new rules, the accounts of `act` whose today's-rules
+    entries and stops get range_flip shadow rows). off: nobody and nothing; shadow: nobody trades them, every trading
+    account is logged; paper: PAPER_USER trades them; live: LEAGUE_USER too, only past gate.flip_refusal (checked
+    again here, so a hand edit of the flag never moves the real account onto them)."""
+    from trade import settings as ts
+    fl = _flags()
+    m = fl.mode(FLIP_FLAG)
+    if m == "off":
+        return m, set(), set()
+    new = {u for u in act if fl.applies(FLIP_FLAG, u, m)}
+    if ts.LEAGUE_USER in new:
+        why = gate.flip_refusal(now=now, cached=True)
+        if why:
+            new.discard(ts.LEAGUE_USER)
+            t = now or time.time()
+            if t - _CACHE.get("flip_gate_log", 0.0) > 3600:
+                _CACHE["flip_gate_log"] = t
+                print(f"range_flip live: pravi račun ostaje na starim pravilima ({why})", flush=True)
+    return m, new, set(act) - new
 
 
 def limits(now=None):
@@ -182,10 +224,18 @@ def allowed(rng, user, now=None):
     return any(fl.mode(market.WATCH_FLAG[s]) in ("paper", "live") for s in srcs if s in market.WATCH_FLAG)
 
 
-def _fresh_levels(rng, now):
-    if rng and rng.get("zones") and rng.get("active") and now - (rng.get("ts") or 0) <= RANGE_FRESH_S:
-        return rules.levels_of(rng)
+def _fresh_levels(rng, now, new=False):
+    """The levels of the newest range when it is active and fresh. new: True = of the new rules' range
+    (rules.new_range), or the parts of them to apply (("atr",): today's range with the volatility stop)."""
+    rx = (rules.new_range(rng, rules.FLIP_PARTS if new is True else new) if new and rng else rng)
+    if rx and rx.get("zones") and rx.get("active") and now - (rng.get("ts") or 0) <= RANGE_FRESH_S:
+        return rules.levels_of(rx)
     return None
+
+
+def _is_new(r):
+    """True for a round opened under the new rules (range_flip)."""
+    return (r.get("levels") or {}).get("rules") == "flip"
 
 
 def _spent_today(con, user, now, sol):
@@ -257,16 +307,19 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
         return []
     ensure(con)
     open_r = rounds(con)
+    mflip, new_u, flip_sh = flip_roles(act, now)
     if ranges is not None:
         rngs = ranges
     else:   # 11.11.: the active ranges and the open rounds' ranges only (range.db holds the whole market watchlist)
         rngs = data.read_ranges(since=now - RANGE_FRESH_S, active_only=True)
-        rest = sorted({r["token"] for r in open_r} - set(rngs))
+        rest = {r["token"] for r in open_r} - set(rngs)
+        if mflip != "off":   # range_flip: the tokens whose range after a break is active (today's may not be)
+            rest |= set(data.flip_rows(since=now - RANGE_FRESH_S, alt_active=True)) - set(rngs)
         if rest:
-            rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=rest))
-    cand = {t for t, r in rngs.items() if r.get("active") and (r.get("score") or 0) >= rules.RULES["score_min"]
-            and (r.get("pos_pct") is None or r["pos_pct"] <= 40)}
-    toks = sorted(cand | {r["token"] for r in open_r if r["user"] in act})
+            rngs.update(data.read_ranges(since=now - RANGE_FRESH_S, tokens=sorted(rest)))
+    cand = {t for t, r in rngs.items() if _candidate(r)}
+    cand_new = {t for t, r in rngs.items() if _candidate(rules.new_range(r))} if mflip != "off" else set()
+    toks = sorted(cand | cand_new | {r["token"] for r in open_r if r["user"] in act})
     if not toks:
         return []
     from league import copy
@@ -277,19 +330,23 @@ def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):
     if not sol:
         return done
     for user in act:
+        new = user in new_u
         mine = [r for r in open_r if r["user"] == user]
         for r in mine:
             done += _lot2(con, user, r, rngs.get(r["token"]), mk.get(r["token"]), lim, sol, now)
         n_open = len(mine)
-        for tok in sorted(cand):
+        for tok in sorted(cand_new if new else cand):
             if n_open >= lim["max_open"]:
                 break
             if any(r["token"] == tok for r in mine) or not allowed(rngs[tok], user, now):
                 continue
-            got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim, sol, now)
+            got = _lot1(con, user, tok, rngs[tok], mk.get(tok), lim, sol, now, new=new,
+                        flip_log=mflip if user in flip_sh else None)
             if got:
                 n_open += 1
                 done += got
+    if flip_sh:
+        _flip_shadow(con, sorted(flip_sh), cand | cand_new, rngs, mk, now, mflip)
     for user in sh:
         for tok in sorted(cand):
             mq = mk.get(tok)
@@ -315,10 +372,52 @@ def _sized(lot, liq, sol, rng):
     return round(_cost.size_sol(lot, liq, sol, vol), 6)
 
 
-def _lot1(con, user, tok, rng, mq, lim, sol, now):
+def _candidate(r):
+    """An active range with score >= score_min and the price in the lower 40 % (or unknown): worth a look this pass."""
+    return bool(r and r.get("active") and (r.get("score") or 0) >= rules.RULES["score_min"]
+                and (r.get("pos_pct") is None or r["pos_pct"] <= 40))
+
+
+def _flip_shadow(con, users, toks, rngs, mk, now, mflip):
+    """range_flip's shadow rows for accounts that trade today's rules: one row when the new rules decide a lot 1
+    otherwise than today's (blocked by a pause / a flip candidate, or added on the range after a break), at most once
+    per token and account every SHADOW_EVERY_S."""
+    n = 0
+    for user in users:
+        for tok in sorted(toks):
+            mq = mk.get(tok)
+            if not mq or not mq[0] or now - _SHADOWED.get((FLIP_FLAG, user, tok), 0) < SHADOW_EVERY_S:
+                continue
+            rng = rngs.get(tok)
+            if not rng or not allowed(rng, user, now):
+                continue
+            nr = rules.new_range(rng)
+            old, new = entry_view(rng, mq[0], now), entry_view(nr, mq[0], now)
+            if (old is None) == (new is None):
+                continue
+            _SHADOWED[(FLIP_FLAG, user, tok)] = now
+            fl = rng.get("flip") or {}
+            z = rng.get("zones") or {}
+            _flags().shadow(con, FLIP_FLAG, None, tok, "range ulaz lot 1" if old is None else f"bez ulaza ({old})",
+                            "range ulaz lot 1 (raspon nakon proboja)" if new is None else f"blokirano ({new})",
+                            {"user": user, "state": fl.get("state"), "mc": mq[3], "mode": mflip,
+                             "stop_old_px": z["range_low_low"] * rules.RULES["stop_x"] if z.get("range_low_low") else None,
+                             "stop_new_px": (rules.new_range(rng, ("atr",)) or {}).get("stop_px"), "zone": fl.get("zone")},
+                            now)
+            n += 1
+    if n:
+        con.commit()
+    return n
+
+
+def _lot1(con, user, tok, rng, mq, lim, sol, now, new=False, flip_log=None):
+    """Lot 1 of a new round. new: the account trades range_flip's new rules (rules.new_range); flip_log (range_flip's
+    mode): the account trades today's rules and the would-be stop is kept and logged next to the round's."""
     if not mq or not mq[0]:
         return []
     price, liq, _url, mcap = mq[:4]
+    base = rng
+    rng = rules.new_range(rng) if new else rng
     why = entry_view(rng, price, now)
     if why is None and (_held(con, user, tok) or _cooldown(con, user, tok, now)):
         why = "već drži token ili je u pauzi nakon runde"
@@ -342,9 +441,23 @@ def _lot1(con, user, tok, rng, mq, lim, sol, now):
         return []
     lv = rules.levels_of(rng)
     lv["supply"] = (mcap / price) if mcap and price else (rng.get("metrics") or {}).get("supply")
+    nr = None
+    if new:   # range_flip: the round follows the new rules to its end (fresh levels from rules.new_range)
+        lv["rules"] = "flip"
+        lv["flip_state"] = (base.get("flip") or {}).get("state")
+        if (base.get("zones") or {}).get("range_low_low"):
+            lv["old_stop_px"] = base["zones"]["range_low_low"] * rules.RULES["stop_x"]
+    elif flip_log:   # the would-be volatility stop on today's zones (also while the new rules would block)
+        nr = rules.new_range(base, ("atr",))
+        if nr and nr.get("stop_px"):
+            lv["flip_stop_px"] = nr["stop_px"]
     con.execute("INSERT INTO range_rounds (user, token, symbol, opened_ts, status, lot1_id, lot1_sol, entry_mc, score, "
                 "levels, state) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (user, tok, sym, now, "open", tid, lot, mcap, rng.get("score"), json.dumps(lv), json.dumps({})))
+    if lv.get("flip_stop_px"):
+        _flags().shadow(con, FLIP_FLAG, None, tok, f"stop {lv['stop_px']:.6g} (range_low_low × 0,85)",
+                        f"stop {lv['flip_stop_px']:.6g} (range_low_low − 1,5 × ATR, {nr.get('stop_kind')})",
+                        {"user": user, "lot1_id": tid, "mc": mcap, "supply": lv["supply"], "mode": flip_log}, now)
     con.commit()
     return [(user, f"range lot 1 {sym or tok[:6]}: {lot:g} SOL na MC ${mcap or 0:,.0f} (raspon "
                    f"{rng.get('pos_pct') or 0:.0f} %, ocjena {rng.get('score') or 0:.2f})")]
@@ -361,7 +474,9 @@ def _lot2(con, user, r, rng, mq, lim, sol, now):
     t1 = con.execute("SELECT entry_px FROM trades WHERE id=?", (r["lot1_id"],)).fetchone()
     if not t1 or not _held(con, user, r["token"]):
         return []
-    lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now))
+    if _is_new(r) and rules.flip_block(rng):   # range_flip: no lot 2 while paused or a flip candidate
+        return []
+    lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
     mets = (rng or {}).get("metrics") if rng and now - (rng.get("mts") or rng.get("ts") or 0) <= METRICS_FRESH_S else None
     why = rules.lot2_check(t1[0], price, lv, mets)
     lot = rules.lot_sizes(lim["size_sol"], lim["dca_token_cap"], held_sol=r["lot1_sol"] or 0)
@@ -420,7 +535,7 @@ def _finish(con, r, reason, now):
 def _sell(con, r, lots, reason, frac, price, liq, mcap):
     """Sell frac of every open lot of the round (1 = all). Returns the PnL in USD of what was sold."""
     rule = EXIT_RULE.get(reason.split(":")[0], "sl")
-    note = f"range: {REASON_HR.get(reason.split(':')[0], reason)}"
+    note = f"range: {_hr(reason, r.get('levels'))}"
     pnl = 0.0
     for t in lots:
         if frac >= 0.999:
@@ -435,6 +550,24 @@ def _sell(con, r, lots, reason, frac, price, liq, mcap):
             con.execute("UPDATE trades SET note=? WHERE id=?", (f"{note} ({frac:.0%})", part))
     con.commit()
     return pnl
+
+
+def _flip_stop_shadow(con, r, rng, st, price, mcap, age, now):
+    """range_flip shadow on a round that trades today's rules: its would-be volatility stop (levels flip_stop_px)
+    only tightens with the newer range like the real stop, and the first time the price is at or under it while
+    today's stop has not sold, one shadow row (state flip_stop_seen)."""
+    fresh = _fresh_levels(rng, now, ("atr",)) if rng and rng.get("flip") else None
+    fsp = max(r["levels"]["flip_stop_px"], (fresh or {}).get("stop_px") or 0)
+    if fsp != r["levels"]["flip_stop_px"]:
+        r["levels"]["flip_stop_px"] = fsp
+        con.execute("UPDATE range_rounds SET levels=? WHERE id=?", (json.dumps(r["levels"]), r["id"]))
+        con.commit()
+    stop = max(r["levels"].get("stop_px") or 0, ((_fresh_levels(rng, now) or {}).get("stop_px") or 0))
+    if price <= fsp and price > stop and age <= STALE_S and not st.get("flip_stop_seen"):
+        st["flip_stop_seen"] = int(now)
+        _flags().shadow(con, FLIP_FLAG, None, r["token"], f"drži (stop {stop:.6g})", f"ATR stop {fsp:.6g} bi prodao",
+                        {"user": r["user"], "round_id": r["id"], "px": price, "mcap": mcap}, now)
+        con.commit()
 
 
 def exits_once(con, market_fn, now=None):
@@ -460,6 +593,7 @@ def exits_once(con, market_fn, now=None):
         return []
     from league import exitplan
     q = exitplan.quote(market_fn, {r["token"] for r in open_r}, now)
+    flip_on = _flags().mode(FLIP_FLAG) != "off"
     rngs = _ranges(now, tokens={r["token"] for r in open_r})
     out = []
     for r in open_r:
@@ -472,9 +606,11 @@ def exits_once(con, market_fn, now=None):
             continue
         price, mcap, liq, age = q[r["token"]]
         rng = rngs.get(r["token"])
-        lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now))
+        lv = rules.merge_levels(r["levels"], _fresh_levels(rng, now, _is_new(r)))
         st = r["state"]
         before = json.dumps(st, sort_keys=True)
+        if flip_on and r["levels"].get("flip_stop_px"):   # range_flip shadow: the would-be stop of a today's-rules round
+            _flip_stop_shadow(con, r, rng, st, price, mcap, age, now)
         gu = ((rng or {}).get("state") or {}).get("give_up")
         hit = None
         if gu and gu.get("ts", 0) >= r["opened_ts"] and age <= STALE_S:
@@ -492,9 +628,16 @@ def exits_once(con, market_fn, now=None):
             except ValueError as e:   # closed in the same second by another path: next pass
                 print(f"range {r['token'][:6]}: {e}", flush=True)
                 continue
+            if flip_on and reason == "stop" and r["levels"].get("flip_stop_px") and price > r["levels"]["flip_stop_px"] \
+                    and not st.get("flip_stop_seen"):   # range_flip shadow: today's stop sold, the volatility stop not
+                st["flip_stop_seen"] = int(now)
+                _flags().shadow(con, FLIP_FLAG, None, r["token"], "tvrdi stop prodao (range_low_low × 0,85)",
+                                f"drži (ATR stop {r['levels']['flip_stop_px']:.6g} niže)",
+                                {"user": r["user"], "round_id": r["id"], "px": price, "mcap": mcap,
+                                 "stop_px": lv["stop_px"], "flip_stop_px": r["levels"]["flip_stop_px"]}, now)
             con.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(st), r["id"]))
             con.commit()
-            text = (f"range {r['user']} {r['symbol'] or r['token'][:6]}: {REASON_HR.get(reason.split(':')[0], reason)}"
+            text = (f"range {r['user']} {r['symbol'] or r['token'][:6]}: {_hr(reason, r['levels'])}"
                     f"{reason[len('odustajanje'):] if reason.startswith('odustajanje') else ''}, prodano {frac:.0%} "
                     f"na MC ${mcap or 0:,.0f}, {pnl:+.2f} $")
             if not _lots(con, r):

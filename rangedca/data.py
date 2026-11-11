@@ -7,6 +7,10 @@ Tables
   ranges      the newest computed range of every candidate (detect.analyze) + its exclusion state, JSON in `data`
   events      breakdowns, exclusions, give-ups, holder checks (for the owner and the backtest's comparison)
   kv          day counters (GeckoTerminal requests, Helius credits), the last detection, tokens put aside
+  range_flip  11.11. (flag range_flip G26): the flip / pause state of every candidate (detect.flip_step), one row a
+              token: v (the state's format version, detect.FLIP["v"]; another version is read as none), ver (+1 on every
+              change of state), state, since, ts, alt_active (the range after a break is active: the trader reads
+              those tokens too), data (the state, JSON). Written only while the flag is not off.
 
 The minute series (candles) of a token is merged from, best first: GeckoTerminal candles we hold (range.db gt_candles,
 minute.db call_candles: real OHLCV), then DexScreener snapshots (range.db snaps, hype.db token_pulse: one price per
@@ -47,6 +51,8 @@ CREATE TABLE IF NOT EXISTS ranges (token TEXT PRIMARY KEY, ts INTEGER, symbol TE
 CREATE TABLE IF NOT EXISTS events (token TEXT, ts INTEGER, kind TEXT, note TEXT);
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS range_flip (token TEXT PRIMARY KEY, v INTEGER, ver INTEGER, state TEXT, since INTEGER,
+    ts INTEGER, alt_active INTEGER, data TEXT);
 """
 
 
@@ -564,10 +570,65 @@ def read_ranges(path=None, since=None, tokens=None, active_only=False):
         con.close()
 
 
+# ---------- range_flip state (11.11., flag range_flip G26) ----------------------------------------------------------
+def flip_load(con, token):
+    """The token's range_flip state (detect.flip_step), None when there is none or it is of another version."""
+    from . import detect
+    try:
+        r = con.execute("SELECT v, data FROM range_flip WHERE token=?", (token,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not r or r[0] != detect.FLIP["v"]:
+        return None
+    try:
+        return json.loads(r[1])
+    except ValueError:
+        return None
+
+
+def flip_save(con, token, st):
+    alt = st.get("alt") or {}
+    con.execute("INSERT OR REPLACE INTO range_flip (token, v, ver, state, since, ts, alt_active, data) VALUES "
+                "(?,?,?,?,?,?,?,?)", (token, st.get("v"), st.get("ver") or 0, st.get("state"), st.get("since"), st.get("ts"),
+                                      int(bool(st.get("state") in ("flipped", "resumed") and alt.get("active"))),
+                                      json.dumps(st, separators=(",", ":"))))
+
+
+def flip_rows(path=None, since=None, states=None, alt_active=False):
+    """{token: state} of range_flip read-only (current version only): since (ts >=), states (only these), alt_active
+    (only the tokens whose range after a break is active); {} without range.db or the table."""
+    from . import detect
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        sql, args = "SELECT token, data FROM range_flip WHERE v = ?", [detect.FLIP["v"]]
+        if since:
+            sql += " AND ts >= ?"
+            args.append(int(since))
+        if states:
+            sql += f" AND state IN ({','.join('?' * len(states))})"
+            args += list(states)
+        if alt_active:
+            sql += " AND alt_active = 1"
+        out = {}
+        for tok, d in con.execute(sql, args):
+            try:
+                out[tok] = json.loads(d)
+            except ValueError:
+                continue
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        con.close()
+
+
 def prune(con, now):
     con.execute("DELETE FROM snaps WHERE ts < ?", (int(now - KEEP_DAYS * 86400),))
     con.execute("DELETE FROM gt_candles WHERE last_ts < ?", (int(now - GT_KEEP_DAYS * 86400),))
     con.execute("DELETE FROM ranges WHERE ts < ?", (int(now - 3 * 86400),))
+    con.execute("DELETE FROM range_flip WHERE ts < ?", (int(now - 3 * 86400),))
     con.execute("DELETE FROM events WHERE ts < ?", (int(now - 30 * 86400),))
     con.commit()
     try:

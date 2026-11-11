@@ -20,6 +20,14 @@ its source (signal > event > market). A market / event token gets a GeckoTermina
 entry (an active range in the bottom 40 % without minute candles, or 2 h+ of snapshots that already show a range
 with the price in the bottom 30 %), inside RANGE_GT_DAY and RANGE_MKT_SEED_DAY. range_dca off with both of them on:
 only the market watchlist's data is collected (nothing trades).
+
+11.11. (Jure: "rangedca flip / pauza / stop", flag range_flip G26): while it is not off, every full detection also
+computes the token's flip / pause state (rangedca/detect.flip_step: a confirmed break up makes the old top the
+candidate for the new bottom, a confirmed break down pauses the token with the old bottom as resistance, the
+volatility stop range_low_low - 1.5 x ATR), keeps it in range.db range_flip and in the range JSON ("flip", plus
+zones.mc.stop / stop_flip / flip_low / flip_top / resistance_low / resistance_top), and logs every change of state
+(range.db events kind range_flip). Off: nothing of it is computed or written. Today's range, its status and `active`
+never change for it; only the trader's new rules (rangedca/rules.new_range) read the state.
 """
 import argparse
 import os
@@ -67,6 +75,8 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         return "off"
     from rangedca import data, detect, holders, market, rules, view
     now = int(now or time.time())
+    m_flip = _flip_mode()
+    n_flip = {}
     con = data.connect()
     try:
         sig = data.candidates(con, now, extra) if m_dca != "off" else []
@@ -88,7 +98,8 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         seeds, n_act, n_ok = 0, 0, 0
         for tok in cands:
             prev, st = data.load_range(con, tok)
-            if not full and not (prev and (prev.get("active") or tok in open_toks)):
+            if not full and not (prev and (prev.get("active") or tok in open_toks
+                                           or (m_flip != "off" and _alt_active(prev)))):
                 continue
             candles, snap = data.series(con, tok, now)
             if not candles:
@@ -111,6 +122,15 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                             data.day_add(con, "mkt_seed_day", 1, now)
                         candles, snap = data.series(con, tok, now)
                         res = detect.analyze(candles, now, snap)
+                if m_flip != "off":   # 11.11. (range_flip G26): the flip / pause state next to today's range
+                    fprev = data.flip_load(con, tok)
+                    fst = detect.flip_step(fprev, res, candles, now, snap)
+                    data.flip_save(con, tok, fst)
+                    _flip_into(res, fst)
+                    n_flip[fst["state"]] = n_flip.get(fst["state"], 0) + 1
+                    if ((fprev or {}).get("state") or "normal") != fst["state"]:
+                        data.event(con, tok, "range_flip", f"{fst['state']}: {fst['why']}", now)
+                        log(f"range {sym or tok[:6]}: range_flip {fst['state']} ({fst['why']})")
                 hw = None
                 if tok in open_toks:
                     hw = holders.check(con, tok, (snap or {}).get("pool"), (snap or {}).get("supply"), now, post)
@@ -125,6 +145,8 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                 st = new_st
             else:   # between the 5-minute passes: the active range keeps its zones, its 5-minute numbers are renewed
                 res = dict(prev)
+                if m_flip == "off":
+                    res.pop("flip", None)
                 cs = [c for c in candles if c[0] >= now - 6 * 3600]
                 res["metrics"] = detect.metrics(cs, now, snap)
                 px = res["metrics"].get("price")
@@ -153,12 +175,51 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                 f"{data.day_used(con, 'helius_day', now)}/{holders.CREDITS_DAY} kredita"
                 + (f"; tržište: DexScreener danas {data.day_used(con, 'mkt_dex_day', now)}/{market.DEX_DAY}, osvježeno "
                    f"{ms.get('refreshed', 0)}, iz hype skena {ms.get('reused', 0)}, preskočeno zbog stropa "
-                   f"{ms.get('dropped', 0)}, primljeno {ms.get('admitted', 0)}" if ms else ""))
+                   f"{ms.get('dropped', 0)}, primljeno {ms.get('admitted', 0)}" if ms else "")
+                + (f"; range_flip ({m_flip}): " + ", ".join(f"{k} {v}" for k, v in sorted(n_flip.items()))
+                   if n_flip else ""))
         if full:
             log(text)
         return text
     finally:
         con.close()
+
+
+def _flip_mode():
+    """range_flip's mode (11.11., G26); "off" whenever it cannot be read."""
+    try:
+        return _mode("range_flip")
+    except Exception:  # noqa: BLE001 - unreadable: off, today's rules
+        return "off"
+
+
+def _alt_active(r):
+    """True when the range's flip block (range_flip) has an active range after a break (flipped / resumed)."""
+    fl = (r or {}).get("flip") or {}
+    return fl.get("state") in ("flipped", "resumed") and bool((fl.get("alt") or {}).get("active"))
+
+
+def _flip_into(res, fst):
+    """The flip state into the range JSON: "flip" (detect.flip_public) and, for whoever reads the zones (zonewatch
+    reads range.db), zones.flip_state and in zones.mc stop (today's range_low_low x 0.85), stop_flip (the stop of the
+    range the new rules trade), flip_low / flip_top (the candidate zone) or resistance_low / resistance_top."""
+    from rangedca import detect, rules
+    supply = (res.get("metrics") or {}).get("supply")
+    res["flip"] = detect.flip_public(fst, supply)
+    z = res.get("zones")
+    if not z:
+        return
+    mc = z.setdefault("mc", {})
+
+    def m(px):
+        return round(px * supply) if supply and px else None
+    z["flip_state"] = fst["state"]
+    mc["stop"] = m(z["range_low_low"] * rules.RULES["stop_x"])
+    mc["stop_flip"] = m(fst.get("stop_px"))
+    zone = fst.get("zone") or {}
+    pre = "flip" if fst["state"] in ("flip_candidate", "flipped") else "resistance" if zone else None
+    if pre:
+        mc[f"{pre}_low"], mc[f"{pre}_top"] = m(zone.get("low")), m(zone.get("top"))
 
 
 def _prune_holders(con, now, open_toks):
