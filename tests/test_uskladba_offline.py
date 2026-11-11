@@ -160,19 +160,21 @@ class LiveCaps(unittest.TestCase):
         from ui import grokauto
         self.assertEqual(executor.LIVE_CAPS, {k.replace("grok_", ""): v[0] for k, v in grokauto.LIMITS.items()})
 
-    def test_live_buys_are_held_to_them_dry_is_not(self):
+    def test_automatic_live_buys_are_held_to_them_the_owners_own_and_dry_are_not(self):
         g = lambda size, live, **k: executor.gate_buy(self.con, self.CFG, size, self.NOW, live, balance=10.0, **k)  # noqa
         self.assertIsNone(g(0.3, False))                                       # dry: the settings' own 0.5
-        self.assertIn("iznad limita 0.1", g(0.3, True, manual=True))           # live: never above 0.1 a buy
+        self.assertIn("iznad limita 0.1", g(0.3, True))                        # automatic live: never above 0.1 a buy
+        self.assertIsNone(g(0.3, True, manual=True))                           # the owner's own: his settings (0.5)
         self.assertIsNone(g(0.1, True))
         for i in range(3):
             self.con.execute("INSERT INTO positions (token, opened_ts, mode, status, sol_in, reason) VALUES "
-                             "(?,?,?,?,?,?)", (f"T{i}", self.NOW - 60, "live", "open", 0.1, "ručno"))
+                             "(?,?,?,?,?,?)", (f"T{i}", self.NOW - 60, "live", "open", 0.1, "copy KOL x"))
         self.con.commit()
-        self.assertIn("dnevni limit pravog novca", g(0.05, True, manual=True))  # 0.3 a day, the owner's own included
+        self.assertIn("dnevni limit automatskih kupnji", g(0.05, True))       # 0.3 a day of automatic buys
+        self.assertIsNone(g(0.05, True, manual=True, add=True))              # the owner's own buy is not held by it
         self.con.execute("UPDATE positions SET opened_ts=? ", (self.NOW - 3 * 86400,))
         self.con.commit()
-        self.assertIn("3 otvorenih", g(0.05, True))                             # 3 open at most
+        self.assertIn("3 otvorenih", g(0.05, True))                             # 3 open at most (automatic)
         self.assertIsNone(g(0.05, False))                                      # dry: max_open 5
 
 

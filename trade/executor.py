@@ -129,10 +129,11 @@ def auto_spent(con, now, mode, tz=None):
                        "AND COALESCE(reason, '') NOT LIKE ?", (_day_start(now, tz), mode, *OWN_REASONS)).fetchone()[0] or 0.0
 
 
-# 11.11. (owner's rule C): real money is never above the grok_autotrade limits (ui/grokauto.LIMITS' defaults), whatever
-# the trade settings say: 0.1 SOL a buy, 0.3 SOL of buys a Zagreb day (every live buy, the owner's own included), 3 open
-# positions, and a day loss of 0.15 SOL stops buying until midnight. Every real buy goes through buy() -> gate_buy(),
-# so this is the one place. Dry keeps the settings' own numbers (it only collects quotes).
+# 11.11. (owner's rule C): automatic real money is never above the grok_autotrade limits (ui/grokauto.LIMITS'
+# defaults), whatever the trade settings say: 0.1 SOL a buy, 0.3 SOL of automatic buys a Zagreb day (auto_spent: the
+# owner's own and Grok's own buys are counted apart, Grok has its own 0.3), 3 open positions, and a day loss of 0.15 SOL
+# stops automatic buying until midnight. The owner's own buys (manual=True: quick buy, his DCA, an approved Grok
+# request) keep his trade settings (Jure 10.11.: "makni limit"). Every real buy goes through buy() -> gate_buy().
 LIVE_CAPS = {"max_sol_per_trade": 0.1, "max_sol_per_day": 0.3, "max_open": 3, "max_loss_day": 0.15}
 
 
@@ -156,10 +157,10 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     manual (10.11., Jure: "makni limit"): the owner's own buy (quick buy, a lot added, his DCA order, a Grok request
     he approved) is not held by the day's spending limit max_sol_per_day; the Autopilot's copies still are. The
     stake per trade, the day's loss stop, the number of positions and the wallet balance hold for every buy.
-    live (11.11., owner's rule C): LIVE_CAPS on top, and their day limit counts every live buy, manual included."""
+    live (11.11., owner's rule C): LIVE_CAPS on top for every automatic live buy (not for manual)."""
     if os.path.exists(STOP_FILE):
         return "kill switch (trade/STOP)"
-    if live:
+    if live and not manual:   # 11.11.: the owner's own buy keeps his settings (Jure 10.11.: "makni limit")
         cfg = live_capped(cfg)
     if token is not None and not add:   # T22: an auto follow and a manual follow of the same coin = one real position
         dup = con.execute("SELECT id FROM positions WHERE token=? AND mode=? AND status IN ('open','pending')",
@@ -172,9 +173,6 @@ def gate_buy(con, cfg, size_sol, now, live, balance=None, token=None, add=False,
     spent = auto_spent(con, now, "live" if live else "dry", tz)
     if not manual and spent + size_sol > cfg["max_sol_per_day"] + 1e-9:
         return f"dnevni limit automatskih kupnji: potrošeno {spent:.3f} od {cfg['max_sol_per_day']} SOL"
-    if live and live_spent(con, now, tz) + size_sol > LIVE_CAPS["max_sol_per_day"] + 1e-9:
-        return (f"dnevni limit pravog novca: potrošeno {live_spent(con, now, tz):.3f} od "
-                f"{LIVE_CAPS['max_sol_per_day']} SOL (granica Grok autotradea vrijedi za svaki pravi trade)")
     if "max_loss_day" in cfg:
         lost = day_pnl(con, now, "live" if live else "dry", tz)
         if lost <= -cfg["max_loss_day"]:
