@@ -1131,7 +1131,11 @@ TOOLS.append(
                      "signal > event > market, all in sources), entry_ready (not a breakout and the entry rules pass "
                      "now; those rows first) and paper_only (market / event tokens are traded only on the demo account, "
                      "never with real money); breakouts (ranges broken upward), watched_by_source and the watchlist's "
-                     "filter, refresh and cost today per source."),
+                     "filter, refresh and cost today per source. While the flag range_flip is not off: per row "
+                     "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
+                     "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
+                     "of the new ones, the range after the break), flip_status and entry_ready_new_rules, and the "
+                     "range_flip list of every token not in state normal (a paused token may not be a candidate)."),
      "inputSchema": {"type": "object", "properties": {
          "min_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
          "source": {"type": "string", "enum": ["signal", "market", "event"],
@@ -1307,8 +1311,9 @@ TOOLS.append(
                      "loss, which of TP / SL came first, up10/20/50), pending, and the calibration per p_tp bucket "
                      "(predicted vs actual %) for you and for MemeSonar's own EV-implied probability, with Brier "
                      "scores. zonewatch: armed (zones in force, by source), alerts_24h (by event and status), "
-                     "last_post_ok, last_error, configured (whether the Grok Bot webhook is set), the flag and "
-                     "without_range (watched tokens with no active range, so no zones, and why). "
+                     "last_post_ok, last_error, configured (whether the Grok Bot webhook is set), the flag, "
+                     "without_range (watched tokens with no active range, so no zones, and why), positions (the real "
+                     "account's positions and levels watched), position_alerts_24h (by level) and range_off_24h. "
                      "health: feed gap alerts (no events of an active type for > 60 min, 08-24 Zagreb), "
                      "last_night (started_ts, finished_ts, duration_s, calls_processed, helius_credits, errors, "
                      "status) and an alert when the night batch has not finished by 04:30 Zagreb. timing_ms per part."),
@@ -1386,7 +1391,14 @@ TOOLS += [
                      "one), state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone (0 "
                      "inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also the "
                      "flag, whether the Grok Bot webhook is configured, the counts by source and the limits (ttl_h at "
-                     "most 2). mint / source filter; limit 1-300 (default 100)."),
+                     "most 2). positions (without a source filter): the REAL account's open positions (manual, Grok "
+                     "auto, approved; never the demo account) with lots, qty, avg_entry_price / avg_entry_mcap, "
+                     "pnl_pct / pnl_usd / pnl_sol, sources and their OWN levels watched with or without a range (stop "
+                     "/ trailing / take profit of the lots, Smart sell or an exit plan in force, DCA and buy orders): "
+                     "level_price, level_mcap, distance_pct (negative = below the price), state and the last alarm; "
+                     "these alarm as event position_level (sl_near within 3 % above a stop, sl_hit, tp_hit, dca_hit) "
+                     "and a held token whose range rangedca switches off as range_off (reason_key break_up | "
+                     "break_down | weak_volume | other). mint / source filter; limit 1-300 (default 100)."),
      "inputSchema": {"type": "object", "properties": {
          "mint": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "event", "range"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 100}}}},
@@ -1394,7 +1406,9 @@ TOOLS += [
 INSTRUCTIONS += (" Zone alarms: MemeSonar watches its range engine's zones (bottom, dca, top, stop; zone_version, "
                  "computed_ts and window_h in every alarm) and POSTs to your Grok Bot webhook when the price crosses "
                  "one; arm_zone(mint, zone_type, lo, hi, note, ttl_h) adds a market-cap zone by hand for at most 2 h "
-                 "(ttl_h=0 disarms); get_armed_zones lists them with their state.")
+                 "(ttl_h=0 disarms); get_armed_zones lists them with their state. The real account's open positions "
+                 "alarm on their own SL / TP / trailing / DCA levels (event position_level) and when the range of a "
+                 "held token is switched off (event range_off); advise from these, never trade on them alone.")
 ZONE_TOOLS = ("arm_zone", "get_armed_zones")
 
 

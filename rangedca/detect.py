@@ -33,6 +33,32 @@ range_score 0-1 (spec 2), each component 0-1 times its weight:
   sell_pressure_on_drop  0.10  volume per minute of the last fall into the bottom vs the window's average: <= 1x -> 1,
                                >= 2x (panic) -> 0
 Unknown inputs score 0, never a guess in our favour.
+
+range_flip (11.11., Jure: "rangedca flip / pauza / stop", flag range_flip G26; flip_step() and its helpers, pure):
+a state per token next to the range above, computed every detection pass from the previous pass's state.
+  break        a 5-minute bar (epoch-aligned bucket of the series) that CLOSES beyond the range in force by a margin of
+               max(2 %, 1 x ATR) (up: range_high_top + margin, down: range_low_low - margin), the bar before the
+               excursion closing inside; CONFIRMED when the bar's volume >= 1.5 x the median 5-minute volume of the
+               window (24 h) and the excursion is at most 3 bars (15 min) old. An unconfirmed break changes nothing
+               (it is shown as "seen").
+  normal       today's range (the 24 h window) is in force; its breaks are watched.
+  flip_candidate  after a confirmed break UP: the old top zone (range_high_low .. range_high_top) is the candidate
+               for the new bottom; no range entries. It becomes the bottom (state flipped) after >= 2 retest touches
+               (swing lows, the same pivots as the zones, within the zone +-3 %) without a 5-minute close under its
+               low x 0.97; such a close is a failed flip (state normal again).
+  paused       after a confirmed break DOWN: no new entries (lot 1 or lot 2); the old bottom zone (range_low_low ..
+               range_low_top) is stored as the resistance. Resumes (state resumed) when the range computed from the
+               candles after the break only has a valid pair (its bottom then has >= 2 touches after the break) whose
+               range_high_top <= the resistance's top x 1.03 (the new range lies under the old floor).
+  flipped / resumed  the range in force is the one computed from the candles after the break only (post_range;
+               the window's first candle is no swing point); its own breaks are watched like a normal range's.
+  Every non-normal state ends 24 h after its break (the 24 h window then holds only candles after it): normal. A
+  pass more than 1 h after the previous one reads no break (the zones it would read against are stale).
+  stop         ATR = mean true range (candle BODIES, like the pivots) of the last 14 complete 15-minute bars (3.5 h)
+               of the same series; the stop is range_low_low - 1.5 x ATR, held between 5 % and 20 % under
+               range_low_low (old: range_low_low x 0.85, kept under off / shadow and whenever ATR is unknown: fewer
+               than 4 bars).
+Only rules.new_range() reads the state (the new rules); today's range, its status and `active` never change for it.
 """
 import statistics
 
@@ -50,6 +76,7 @@ CFG = {
     "break_up_x": 1.15,     # over range_high_top * this the range is broken upward: no entries
     "snap_fresh_s": 300,    # a snapshot older than this is not "now"
     "unknown_liq_ok": False,  # backtest only: history without a liquidity reading is not refused for it
+    "skip_edge_pivot": False,  # range_flip's range after a break: the window's first candle is no swing point
 }
 WEIGHTS = {"recoveries": 0.25, "recovery_speed": 0.15, "higher_lows": 0.15, "volume_hold": 0.20,
            "buy_share_at_low": 0.15, "sell_pressure_on_drop": 0.10}
@@ -320,7 +347,8 @@ def analyze(candles, now, snap=None, cfg=None):
     if not cs or out["span_h"] < cfg["min_hist_h"]:
         out.update(status="premalo podataka", why=f"minutni podaci za {out['span_h']:.1f} h, treba {cfg['min_hist_h']} h")
         return out
-    pv = [p for p in pivots(cs, cfg["high_turn"], cfg["low_turn"]) if p["confirm_ts"] <= now]
+    pv = [p for p in pivots(cs, cfg["high_turn"], cfg["low_turn"]) if p["confirm_ts"] <= now
+          and not (cfg["skip_edge_pivot"] and p["ts"] == cs[0][0])]
     highs = [p for p in pv if p["kind"] == "H"]
     lows = [p for p in pv if p["kind"] == "L"]
     if m["vol_h1"] is not None and m["vol_1h_avg6"]:
@@ -367,4 +395,248 @@ def analyze(candles, now, snap=None, cfg=None):
         out.update(status="probijen gore", why="cijena iznad range_high_top × 1,15")
     else:
         out.update(status=ACTIVE, active=True, why="")
+    return out
+
+
+# ---------- range_flip (11.11., flag range_flip G26): flip, pause, volatility stop ---------------------------------
+# At the merge with noc/katalizator this replaces its zone_reset (analyze_reset / excursion): an excursion 2x above the
+# top or under half the bottom is a confirmed break here too (a close beyond the margin, with volume); instead of
+# trading zones of the last 6 h at once, the range after the break (post_range: the candles since the break only) is
+# traded once flipped / resumed, for 24 h, behind the flag. reset_zones(c, now, window_h=h) == post_range(c, now,
+# now - h x 3600) but for the minimum history; keep it as that one-line wrapper if another branch still calls it.
+FLIP = {
+    "v": 1,               # the state's format version (range.db range_flip.v; a state of another version is ignored)
+    "bar_s": 300,         # break bars: 5-minute buckets of the series
+    "atr_bar_s": 900,     # ATR bars: 15 minutes
+    "atr_n": 14,          # ATR periods (3.5 h)
+    "atr_min_bars": 4,    # fewer complete bars: ATR unknown, the stop stays range_low_low x 0.85
+    "brk_pct": 0.02,      # a break closes beyond the edge by >= max(brk_pct x edge, brk_atr x ATR)
+    "brk_atr": 1.0,
+    "brk_vol_x": 1.5,     # ... with its bar's volume >= 1.5 x the median 5-minute volume of the window
+    "brk_fresh_bars": 3,  # ... at most 3 bars after the excursion began (a slow grind is no break)
+    "touch_tol": 0.03,    # a retest touch: a swing low within the flip zone +-3 %; a close under its low x 0.97 fails
+    "touches": 2,
+    "hold_s": 24 * 3600,  # a flip / pause state ends 24 h after its break
+    "max_gap_s": 3600,    # a previous pass older than this: its zones are stale, no break is read against them
+    "alt_min_h": 1.0,     # the range after a break needs >= 1 h of candles after it
+    "res_tol": 0.03,      # resume: the new range's range_high_top <= the resistance's top x 1.03
+    "stop_k": 1.5, "stop_min": 0.05, "stop_max": 0.20,
+}
+FLIP_STATES = ("normal", "flip_candidate", "flipped", "paused", "resumed")
+FLIP_BLOCKED = ("flip_candidate", "paused")
+ZONE4 = ("range_low_low", "range_low_top", "range_high_low", "range_high_top")
+_NO_PAIR = ("nema raspona", "raspon preuzak", "premalo podataka")
+
+
+def _fcfg(cfg):
+    return {**FLIP, **((cfg or {}).get("flip") or {})}
+
+
+def bars(candles, bar_s, now):
+    """[[start, o, h, l, c, v]] epoch-aligned buckets of bar_s seconds of the candles, oldest first, only the complete
+    ones (start + bar_s <= now). h / l are the highs and lows of the candles' BODIES (like the pivots: a one-print wick
+    is not the bar's range, and a snapshot series has no wicks at all, so both sources give the same ATR)."""
+    out, cur = [], None
+    for c in candles:
+        b = int(c[0]) - int(c[0]) % bar_s
+        if b + bar_s > now:
+            break
+        bh, bl = max(c[1], c[4]), min(c[1], c[4])
+        if cur is None or cur[0] != b:
+            cur = [b, c[1], bh, bl, c[4], c[5] or 0.0]
+            out.append(cur)
+        else:
+            cur[2], cur[3], cur[4] = max(cur[2], bh), min(cur[3], bl), c[4]
+            cur[5] += c[5] or 0.0
+    return out
+
+
+def atr(candles, now, cfg=None):
+    """Mean true range (price) of the last atr_n complete atr_bar_s bars, against the previous bar's close; None
+    with fewer than atr_min_bars bars."""
+    c = _fcfg(cfg)
+    bs = bars(candles, c["atr_bar_s"], now)
+    trs = [max(b[2], p[4]) - min(b[3], p[4]) for p, b in zip(bs, bs[1:])][-c["atr_n"]:]
+    if len(trs) < c["atr_min_bars"]:
+        return None
+    return sum(trs) / len(trs)
+
+
+def vol_stop(rll, atr_px, cfg=None):
+    """(stop price, kind): range_low_low - stop_k x ATR, held between stop_max (20 %) and stop_min (5 %) under
+    range_low_low ("atr"); without ATR today's range_low_low x 0.85 ("fixed")."""
+    c = _fcfg(cfg)
+    if not rll or rll <= 0:
+        return None, None
+    if not atr_px or atr_px <= 0:
+        return rll * 0.85, "fixed"
+    return min(rll * (1 - c["stop_min"]), max(rll * (1 - c["stop_max"]), rll - c["stop_k"] * atr_px)), "atr"
+
+
+def breakout(zones, candles, t0, now, atr_px=None, cfg=None):
+    """The break of these zones among the 5-minute bars that closed in (t0, now] (see the module text): {"dir" up |
+    down, "ts" (bar start), "end", "close", "level", "margin", "vol_x", "confirmed"}; the first confirmed bar wins,
+    else the first unconfirmed one; None when nothing broke (or the excursion began before the window's first bar)."""
+    c = _fcfg(cfg)
+    if not zones or not zones.get("range_high_top") or not zones.get("range_low_low"):
+        return None
+    rht, rll = zones["range_high_top"], zones["range_low_low"]
+    m_up = max(c["brk_pct"] * rht, c["brk_atr"] * (atr_px or 0))
+    m_dn = max(c["brk_pct"] * rll, c["brk_atr"] * (atr_px or 0))
+    up, dn = rht + m_up, rll - m_dn
+    bs = bars(candles, c["bar_s"], now)
+    if not bs:
+        return None
+    vols = [b[5] for b in bs if b[5] > 0]
+    med = statistics.median(vols) if vols else 0.0
+
+    def side(b):
+        return "up" if b[4] > up else "down" if b[4] < dn else None
+    seen = None
+    for i, b in enumerate(bs):
+        if b[0] + c["bar_s"] <= t0:
+            continue
+        d = side(b)
+        if not d:
+            continue
+        j = i
+        while j > 0 and side(bs[j - 1]) == d:
+            j -= 1
+        if j == 0:   # no bar inside the range before this excursion in the window: no crossing seen
+            continue
+        vx = (b[5] / med) if med > 0 else None
+        out = {"dir": d, "ts": int(b[0]), "end": int(b[0] + c["bar_s"]), "close": b[4], "level": up if d == "up" else dn,
+               "margin": m_up if d == "up" else m_dn, "vol_x": round(vx, 2) if vx is not None else None,
+               "confirmed": bool(vx is not None and vx >= c["brk_vol_x"] and i - j < c["brk_fresh_bars"])}
+        if out["confirmed"]:
+            return out
+        seen = seen or out
+    return seen
+
+
+def retest_touches(zone, candles, t_from, now, cfg=None):
+    """The retests of a flip zone: swing lows (pivots of the candles from t_from, confirmed by now) within the zone
+    +-touch_tol, [{"ts", "px"}]."""
+    c = _fcfg(cfg)
+    lo, hi = zone["low"] * (1 - c["touch_tol"]), zone["top"] * (1 + c["touch_tol"])
+    cs = [x for x in candles if t_from <= x[0] <= now]
+    return [{"ts": p["ts"], "px": p["px"]} for p in pivots(cs) if p["kind"] == "L" and p["confirm_ts"] <= now
+            and lo <= p["px"] <= hi and p["ts"] != cs[0][0]]   # the first candle is where the window starts, no swing
+
+
+def post_range(candles, now, t_from, snap=None, cfg=None):
+    """The range computed from the candles since t_from (the break) only: analyze() over that window, with a minimum
+    history of alt_min_h (1 h), the window's first candle not taken for a swing point (it is where the window starts,
+    not a turn of the price). The old zones are not kept."""
+    c = _fcfg(cfg)
+    hours = max(0.0, (int(now) - int(t_from)) / 3600)
+    return analyze(candles, now, snap, {**(cfg or {}), "window_h": hours, "min_hist_h": c["alt_min_h"],
+                                        "skip_edge_pivot": True})
+
+
+def has_pair(r):
+    """True when a computed range has a real pair of zones (valid top / bottom, ratio >= min_ratio)."""
+    return bool(r and r.get("zones") and r.get("status") not in _NO_PAIR)
+
+
+def _z4(z):
+    return {k: z[k] for k in ZONE4} if z else None
+
+
+def _alt_view(r, supply):
+    """What the state keeps of the range after a break (compact: no touches, recoveries or components)."""
+    if not r:
+        return None
+    z = r.get("zones")
+    zz = None
+    if z:
+        zz = {**_z4(z), "range_high": z.get("range_high"), "range_low": z.get("range_low"),
+              "mc": {k: round(z[k] * supply) if supply else None for k in ZONE4}}
+    return {"status": r.get("status"), "active": bool(r.get("active")), "why": r.get("why") or "", "score": r.get("score"),
+            "ratio": r.get("ratio"), "pos_pct": r.get("pos_pct"), "span_h": r.get("span_h"), "zones": zz,
+            "bottom_touches": len((r.get("touches") or {}).get("bottom") or [])}
+
+
+def flip_step(prev, res, candles, now, snap=None, cfg=None):
+    """range_flip's state of one token after this pass (see the module text). prev: the state of the previous pass
+    (None the first time; another version counts as none); res: analyze() of now (today's range, 24 h); candles:
+    the series up to now. Returns the new state: v, state, ts, since, ver, brk, zone (flip zone or resistance),
+    touches, alt (the range after the break), ref (the zones whose breaks the next pass watches), atr, stop_px,
+    stop_kind, stop_rll, block (why no entry, None when entries may happen), seen (the last unconfirmed break), why
+    (the last change, Croatian)."""
+    c = _fcfg(cfg)
+    now = int(now)
+    prev = prev if prev and prev.get("v") == c["v"] and prev.get("state") in FLIP_STATES else None
+    cs = [x for x in candles if x[0] <= now]
+    supply = ((res or {}).get("metrics") or {}).get("supply") or (cfg or {}).get("supply")
+    st = dict(prev) if prev else {"v": c["v"], "state": "normal", "since": now, "ver": 0, "brk": None, "zone": None,
+                                  "touches": [], "alt": None, "ref": None, "seen": None, "why": ""}
+    t0 = int(prev["ts"]) if prev else now - c["bar_s"]
+    a = atr(cs, now, c)
+
+    def go(state, why, **kw):
+        st.update(state=state, why=why, ver=int(st.get("ver") or 0) + 1, **kw)
+    if st["state"] != "normal" and st.get("brk") and now - int(st["brk"]["end"]) > c["hold_s"]:
+        go("normal", "24 h od proboja: opet raspon zadnja 24 h", since=now, brk=None, zone=None, touches=[], alt=None)
+    if st["state"] in ("normal", "flipped", "resumed") and prev and prev.get("ref") and now - t0 <= c["max_gap_s"]:
+        b = breakout(prev["ref"], cs, t0, now, a, c)
+        if b and b["confirmed"]:
+            z = prev["ref"]
+            if b["dir"] == "up":
+                go("flip_candidate", f"potvrđen proboj gore (zatvaranje {b['close']:.6g}, volumen {b['vol_x']}x): stari "
+                   "vrh je kandidat za novo dno", since=b["end"], brk=b, touches=[], alt=None,
+                   zone={"low": z["range_high_low"], "top": z["range_high_top"]})
+            else:
+                go("paused", f"potvrđen proboj dolje (zatvaranje {b['close']:.6g}, volumen {b['vol_x']}x): pauza, staro "
+                   "dno je otpor", since=b["end"], brk=b, touches=[], alt=None,
+                   zone={"low": z["range_low_low"], "top": z["range_low_top"]})
+        elif b:
+            st["seen"] = b
+    alt = None
+    if st["state"] == "flip_candidate":
+        z, b = st["zone"], st["brk"]
+        fail = next((x for x in bars(cs, c["bar_s"], now) if x[0] >= b["end"] and x[4] < z["low"] * (1 - c["touch_tol"])),
+                    None)
+        if fail:
+            go("normal", f"flip nije uspio: zatvaranje {fail[4]:.6g} ispod starog vrha", since=now, brk=None, zone=None,
+               touches=[], alt=None)
+        else:
+            st["touches"] = [p["ts"] for p in retest_touches(z, cs, b["ts"], now, c)]
+            if len(st["touches"]) >= c["touches"]:
+                go("flipped", f"stari vrh je novo dno ({len(st['touches'])} retesta bez zatvaranja ispod)", since=now)
+    if st["state"] in ("paused", "flipped", "resumed"):
+        alt = post_range(cs, now, st["brk"]["ts"], snap, cfg)
+    if st["state"] == "paused" and has_pair(alt) and \
+            alt["zones"]["range_high_top"] <= st["zone"]["top"] * (1 + c["res_tol"]):
+        go("resumed", f"novi raspon ispod otpora (vrh {alt['zones']['range_high_top']:.6g}, "
+           f"{len(alt['touches']['bottom'])} dodira dna nakon proboja)", since=now)
+    s = st["state"]
+    force = res if s == "normal" else alt if s in ("flipped", "resumed") else None
+    st["alt"] = _alt_view(alt, supply) if s in ("paused", "flipped", "resumed") else None
+    st["ref"] = _z4(force["zones"]) if has_pair(force) else None
+    st["atr"] = a
+    px = ((res or {}).get("metrics") or {}).get("price")
+    st["atr_pct"] = round(a / px, 4) if a and px else None
+    st["stop_rll"] = st["ref"]["range_low_low"] if st["ref"] else None
+    st["stop_px"], st["stop_kind"] = vol_stop(st["stop_rll"], a, c) if st["ref"] else (None, None)
+    st["block"] = ("pauza nakon proboja dolje: nema novih ulaza dok se ispod otpora ne oblikuje novi raspon"
+                   if s == "paused" else "proboj gore: čeka se retest starog vrha (2 dodira) prije ulaza"
+                   if s == "flip_candidate" else None)
+    st["ts"] = now
+    return st
+
+
+def flip_public(st, supply=None):
+    """The state as the range JSON (range.db ranges.data "flip") and the MCP API show it: without ref, with market
+    caps of the zone, the stop and the ATR."""
+    if not st:
+        return None
+
+    def mc(px):
+        return round(px * supply) if supply and px else None
+    out = {k: v for k, v in st.items() if k != "ref"}
+    if st.get("zone"):
+        out["zone"] = dict(st["zone"], mc_low=mc(st["zone"]["low"]), mc_top=mc(st["zone"]["top"]))
+    out["stop_mc"] = mc(st.get("stop_px"))
+    out["atr_mc"] = mc(st.get("atr"))
     return out

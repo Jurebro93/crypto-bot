@@ -3,13 +3,18 @@
     mcp_tool()     arm_zone (upsert one zone for at most 2 h; ttl_h=0 disarms it) and get_armed_zones (the zones in
                    force with their state, distance and last alarm; a range zone with zone_version, computed_ts and
                    window_h of its range); client attribution mcp:<key fingerprint>
-    brief_part()   get_hourly_brief.zonewatch {armed, alerts_24h, last_post_ok, last_error, configured, without_range}
+    brief_part()   get_hourly_brief.zonewatch {armed, alerts_24h, last_post_ok, last_error, configured, without_range,
+                   positions (11.11.: the real account's positions and levels watched), position_alerts_24h by
+                   level, range_off_24h}
+11.11.: get_armed_zones also lists `positions`: the real account's open positions (zonewatch/positions.py) with
+their own levels (SL, TP, trailing, DCA / buy orders), the distance % to each and its state.
 Read-only except arm_zone (zonewatch.db armed_zones / arm_log) and the one-time migration (store.migrate_once).
 """
+import json
 import sqlite3
 import time
 
-from zonewatch import notify, store, zones
+from zonewatch import notify, positions, prices, store, zones
 
 LIMIT_DEFAULT, LIMIT_MAX = 100, 300
 HOW = ("Zones are market cap USD. Range zones (source range) come only from MemeSonar's range engine (swing points "
@@ -20,7 +25,15 @@ HOW = ("Zones are market cap USD. Range zones (source range) come only from Meme
        "zone_enter / zone_exit when the market cap crosses a bottom, dca or custom zone, top_hit at >= top lo, "
        "stop_hit at <= the stop; hysteresis 0.5 %; the same mint + zone + event at most once in 30 min (stop_hit: "
        "always, at most once a minute). Tokens within 10 % of a zone are re-priced every 30 s. A hand-armed zone "
-       "(arm_zone) lives at most 2 h. Disarm: arm_zone with ttl_h=0 (same mint, zone_type, source).")
+       "(arm_zone) lives at most 2 h. Disarm: arm_zone with ttl_h=0 (same mint, zone_type, source). "
+       "Positions: the real account's open positions (manual, Grok auto, approved; never the demo account) alarm on "
+       "their OWN levels with or without a range (event position_level: sl_near = the price within 3 % above a stop, "
+       "once in 30 min per level; sl_hit always, at most once a minute; tp_hit and dca_hit once per crossing; also "
+       "when the executor sold / bought there within the second, filled=true); an exit plan in force replaces the "
+       "lots' own SL / TP. When rangedca switches off the range of a held token: one range_off alarm with the reason "
+       "(reason_key break_up | break_down | weak_volume | other).")
+POS_NOTE = ("the real account (trade.settings.LEAGUE_USER) only; the demo account autopilot-paper is not alarmed. "
+            "distance_pct = the level's distance from the price now in % (negative: below the price)")
 
 
 def _state_of(z, st, px, now):
@@ -80,10 +93,58 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
                 "last_alert": last.get((z["mint"], z["zone_type"]))})
         out["shown"] = len(out["zones"])
         out["total"] = len(zs)
+        if not src:
+            try:
+                out["positions"] = positions_view(con, m, sts, now)
+            except Exception as e:  # noqa: BLE001 - the zones are answered without them
+                out["positions"], out["positions_error"] = None, type(e).__name__
+            out["positions_note"] = POS_NOTE
     except sqlite3.Error as e:
         return {"error": f"zonewatch.db: {type(e).__name__}"}
     finally:
         con.close()
+    return out
+
+
+def positions_view(con, mint=None, sts=None, now=None):
+    """get_armed_zones.positions: the real account's open positions (positions.load), each with its position block at
+    the newest stored number (no fetch here) and its levels: level_price / level_mcap, distance_pct, state (hit |
+    not_hit | unknown; near for a stop) and the last alarm per level. None when league.db cannot be read."""
+    now = int(now or time.time())
+    pos = positions.load(now)
+    if pos is None:
+        return None
+    if mint:
+        pos = [p for p in pos if p["mint"] == mint]
+    if not pos:
+        return []
+    sts = sts if sts is not None else store.states(con)
+    snaps = prices.latest(con, [p["mint"] for p in pos])
+    last = {}
+    try:
+        for m, k, lvl, ts in con.execute("SELECT mint, lkey, level, ts FROM pos_alert"):
+            last.setdefault((m, k), {})[lvl] = ts
+    except sqlite3.Error:
+        pass
+    out = []
+    for p in pos:
+        s = snaps.get(p["mint"]) or {}
+        price, mcap = positions.price_mcap(p, s)
+        lv_out = []
+        for lv in p["levels"]:
+            st = sts.get((p["mint"], f"pos:{lv['key']}", "position")) or {}
+            near = sts.get((p["mint"], f"pos:{lv['key']}:near", "position")) or {}
+            lv_out.append({"level_key": lv["key"], "name": lv["name"],
+                           "kind": "trailing" if lv.get("trailing") else lv["kind"], "src": lv["src"],
+                           "basis": lv["basis"], "level_price": lv["price"], "level_mcap": lv["mcap"],
+                           "distance_pct": positions.distance_pct(lv, price, mcap),
+                           "state": "unknown" if st.get("inside") is None else ("hit" if st["inside"] else "not_hit"),
+                           "near": (None if near.get("inside") is None else bool(near["inside"]))
+                           if lv["kind"] == "sl" else None,
+                           "last_alert": last.get((p["mint"], lv["key"]))})
+        out.append({"mint": p["mint"], "symbol": p.get("symbol") or s.get("symbol"), "position": positions.block(p, price),
+                    "price_now": price, "mcap_now": round(mcap) if mcap else None,
+                    "mcap_age_s": int(now - s["ts"]) if s.get("ts") else None, "levels": lv_out})
     return out
 
 
@@ -130,8 +191,8 @@ def brief_part(now=None, path=None):
     cfg = notify.config()
     out = {"flag_mode": store.mode(), "configured": cfg.configured, "armed": 0, "armed_by_source": {},
            "alerts_24h": 0, "alerts_24h_by_event": {}, "alerts_24h_by_status": {}, "last_post_ok": None,
-           "last_error": None, "without_range": {},
-           "tool": "get_armed_zones for the zones, arm_zone to set one"}
+           "last_error": None, "without_range": {}, "positions": None, "position_alerts_24h": {}, "range_off_24h": 0,
+           "tool": "get_armed_zones for the zones and the positions' levels, arm_zone to set one"}
     con = store.ro(path)
     if con is None:
         return out
@@ -148,6 +209,18 @@ def brief_part(now=None, path=None):
         out["last_error"] = store.kv_get(con, "last_error")
         # 11.11.: the watched tokens (open round, entry-ready, real-account position) without an active range: why
         out["without_range"] = store.kv_get(con, "range_why") or {}
+        # 11.11.: the real account's positions watched on their own levels (as the last pass counted them), the
+        # position_level alarms of 24 h by level and the range_off alarms
+        out["positions"] = store.kv_get(con, "pos_watch")
+        by_level = {}
+        for (pl,) in con.execute("SELECT payload FROM alerts WHERE ts >= ? AND event='position_level'", (now - 86400,)):
+            try:
+                lvl = (json.loads(pl) or {}).get("level") or "?"
+            except ValueError:
+                lvl = "?"
+            by_level[lvl] = by_level.get(lvl, 0) + 1
+        out["position_alerts_24h"] = by_level
+        out["range_off_24h"] = out["alerts_24h_by_event"].get("range_off", 0)
     except sqlite3.Error as e:
         out["error"] = f"zonewatch.db: {type(e).__name__}"
     finally:

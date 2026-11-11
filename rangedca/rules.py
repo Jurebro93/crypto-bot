@@ -17,6 +17,14 @@ ride back down to the hard stop; 10 % under the peak keeps most of the move. Har
 ever tightens when the zones move); time stop: 6 h after lot 1 without touching the top zone, out as soon as the
 price is at break-even (fees included) or better, else the hard stop decides. After a round, 20 minutes' cooldown;
 the token stays a candidate.
+
+11.11. (flag range_flip G26, detect.flip_step): new_range() is the range the NEW rules trade, from a computed range and
+its "flip" block: state normal -> today's range with the volatility stop (range_low_low - 1.5 x ATR, 5-20 % under it);
+flipped / resumed -> the range that formed after the break (its zones, score, status), with today's fresh 5-minute
+numbers and the volatility stop on its range_low_low; flip_candidate / paused -> no range (no lot 1, no lot 2). A
+range without a "flip" block (the flag was off when it was computed) is today's range unchanged. levels_of() takes a
+range's own stop_px when it has one (only new_range sets it) and then never lets an entry or lot 2 under it (floor =
+max(range_low_low x 0.92, stop)); without it the levels are today's.
 """
 RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_min": 0.5, "vol_ratio_min": 0.5,
          "lot2_lo": 0.10, "lot2_hi": 0.15, "floor_x": 0.92, "stop_x": 0.85, "tp1_share": 0.5, "trail": 0.10,
@@ -79,10 +87,61 @@ def _r(cfg):
 
 
 def levels_of(rng):
-    """The exit / entry levels (prices) of a computed range: rll, rlt, rhl, rht, stop_px, floor_px."""
+    """The exit / entry levels (prices) of a computed range: rll, rlt, rhl, rht, stop_px, floor_px. A range with its
+    own stop_px (new_range, flag range_flip) keeps that stop, stop_kind with it, and its floor is never under it."""
     z = rng["zones"]
-    return {"rll": z["range_low_low"], "rlt": z["range_low_top"], "rhl": z["range_high_low"], "rht": z["range_high_top"],
-            "stop_px": z["range_low_low"] * RULES["stop_x"], "floor_px": z["range_low_low"] * RULES["floor_x"]}
+    out = {"rll": z["range_low_low"], "rlt": z["range_low_top"], "rhl": z["range_high_low"], "rht": z["range_high_top"],
+           "stop_px": z["range_low_low"] * RULES["stop_x"], "floor_px": z["range_low_low"] * RULES["floor_x"]}
+    if rng.get("stop_px"):
+        out.update(stop_px=rng["stop_px"], floor_px=max(out["floor_px"], rng["stop_px"]),
+                   stop_kind=rng.get("stop_kind") or "atr")
+    return out
+
+
+FLIP_PARTS = ("flip", "atr")
+
+
+def new_range(rng, parts=FLIP_PARTS):
+    """The range the new rules (flag range_flip) trade, from a computed range with its "flip" block (see the module
+    text); parts: "flip" (the flip / pause states) and / or "atr" (the volatility stop), both by default (the
+    backtest measures each alone). Returns a range dict (with stop_px / stop_kind when "atr" and ATR is known; a
+    blocked one has active False, zones None and flip_block = why) or the range itself without a "flip" block."""
+    if not rng:
+        return rng
+    fl = rng.get("flip")
+    if not fl:
+        return rng
+    from . import detect
+    s = fl.get("state")
+    if "flip" in parts and s in detect.FLIP_BLOCKED:
+        why = fl.get("block") or s
+        return {**{k: rng.get(k) for k in ("ts", "mts", "metrics", "symbol", "state", "source", "sources", "flip")},
+                "active": False, "status": s, "why": why, "flip_block": why, "zones": None, "score": None,
+                "pos_pct": None, "ratio": None, "signals": {}}
+    out = dict(rng)
+    alt = fl.get("alt") if "flip" in parts and s in ("flipped", "resumed") else None
+    if "flip" in parts and s in ("flipped", "resumed"):
+        excluded = rng.get("status") == "isključen"
+        z = (alt or {}).get("zones")
+        out.update(zones=z, score=(alt or {}).get("score"), ratio=(alt or {}).get("ratio"),
+                   status="isključen" if excluded else (alt or {}).get("status") or s,
+                   active=bool(z and (alt or {}).get("active") and not excluded),
+                   why=rng.get("why") if excluded else (alt or {}).get("why") or ("" if z else
+                                                                                 "novi raspon nakon proboja još nije oblikovan"),
+                   touches=None, components=None, recoveries=[], flip_range=s)
+        px = (rng.get("metrics") or {}).get("price")
+        out["pos_pct"] = (round((px - z["range_low_low"]) / (z["range_high_top"] - z["range_low_low"]) * 100, 1)
+                          if z and px and z["range_high_top"] > z["range_low_low"] else None)
+    if "atr" in parts and out.get("zones") and fl.get("atr"):
+        out["stop_px"], out["stop_kind"] = detect.vol_stop(out["zones"]["range_low_low"], fl["atr"])
+    return out
+
+
+def flip_block(rng):
+    """Why the new rules take no entry in this range's token now (flip_candidate / paused), None otherwise."""
+    fl = (rng or {}).get("flip") or {}
+    from . import detect
+    return (fl.get("block") or fl.get("state")) if fl.get("state") in detect.FLIP_BLOCKED else None
 
 
 def merge_levels(frozen, fresh):

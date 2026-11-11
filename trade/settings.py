@@ -126,6 +126,12 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "fast_path": ("G24", "Brzi put: svaki signal praćenog novčanika ili influencera odmah dobije rug, holdere, tok, "
                          "cijenu prema ulazu novčanika i zapis izvora (< 10 s); paper = demo račun kupuje, pola van na "
                          "+15 %, trailing 8 %, stop -10 %, 45 min, izlaz kad izvor proda"),
+    # 11.11. (Jure: "rangedca flip / pauza / stop", rangedca/detect.flip_step): off = today's range rules; shadow =
+    # compute the flip / pause state and the volatility stop, log what would differ; paper = range_dca's demo account
+    # trades the new rules; live only past LIVE_GATES (the nightly backtest: new max drawdown <= today's)
+    "range_flip": ("G26", "Raspon flip / pauza / ATR stop: potvrđen proboj gore (zatvaranje + volumen) čini stari vrh "
+                          "kandidatom za novo dno (ulaz tek nakon 2 retesta), proboj dolje = pauza sa starim dnom kao "
+                          "otporom, stop range_low_low - 1,5 × ATR (5-20 %) umjesto × 0,85"),
 }
 # 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
 NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
@@ -142,6 +148,7 @@ LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
               "momentum_scalp": "momentum.gate:live_refusal"}   # >= 50 paper trades, trade/edge live proof
 LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
 LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # >= 30 closed fast-path paper trades, trade/edge live proof
+LIVE_GATES["range_flip"] = "rangedca.gate:flip_live_refusal"   # 11.11.: nightly backtest, new max DD <= today's
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
                         "early_persist", "zonewatch"})
