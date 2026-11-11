@@ -42,6 +42,8 @@ def ensure(con):
     have = {r[1] for r in con.execute("PRAGMA table_info(assistant_notes)")}
     if "key_id" not in have:
         con.execute("ALTER TABLE assistant_notes ADD COLUMN key_id TEXT")
+    if "proposal" not in have:   # 11.11. (proposals/, G21): submit_signal_opinion's optional trade proposal
+        con.execute("ALTER TABLE assistant_notes ADD COLUMN proposal TEXT")
     for sql in INDEXES:
         con.execute(sql)
     con.commit()
@@ -142,15 +144,109 @@ def submit_trade_review(con, kid, position_id, verdict, confidence=None, interpr
     return _done(nid, "trade_review")
 
 
-def submit_signal_opinion(con, kid, token, verdict, confidence=None, interpretation=None, evidence=None):
+# 11.11. (Jure, proposals/ flag proposals G21): submit_signal_opinion may carry a trade proposal. Every field is optional
+# and an opinion without them is stored exactly as before. The proposals pass reads a "kupi" with p_tp as the grok
+# strategy's proposal (its p_tp calibrated on Grok's measured record first); nothing here buys.
+PROPOSAL_STRATEGIES = ("range", "momentum", "influencer", "group", "insider", "event", "catalyst", "grok")
+STRATEGY_ALIAS = {"range_dca": "range", "momentum_scalp": "momentum", "caller": "influencer", "kol": "influencer",
+                  "callers": "influencer", "hidden_group": "group", "pre_shill": "group", "insider_copy": "insider",
+                  "events": "event", "team_catalyst": "catalyst", "other": "grok"}
+PROPOSAL_KEYS = ("strategy", "p_tp", "entry_zone", "exit_zone", "valid_min")
+
+
+def _mc(x, name):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a market cap in USD")
+    if not 0 < v <= 1e12:
+        raise ValueError(f"{name} must be a market cap in USD above 0")
+    return round(v, 2)
+
+
+def proposal_fields(strategy=None, p_tp=None, entry_zone=None, exit_zone=None, valid_min=None):
+    """The optional proposal of a signal opinion, validated -> dict, or None when no field is given."""
+    if all(x in (None, "", {}) for x in (strategy, p_tp, entry_zone, exit_zone, valid_min)):
+        return None
+    out = {}
+    if strategy not in (None, ""):
+        s = str(strategy).strip().lower()
+        s = STRATEGY_ALIAS.get(s, s)
+        if s not in PROPOSAL_STRATEGIES:
+            raise ValueError(f"strategy must be one of {', '.join(PROPOSAL_STRATEGIES)}")
+        out["strategy"] = s
+    if p_tp not in (None, ""):
+        try:
+            p = float(p_tp)
+        except (TypeError, ValueError):
+            raise ValueError("p_tp must be a probability between 0 and 1")
+        if not 0 <= p <= 1:
+            raise ValueError("p_tp must be between 0 and 1")
+        out["p_tp"] = round(p, 4)
+    if entry_zone not in (None, "", {}):
+        if not isinstance(entry_zone, dict):
+            raise ValueError("entry_zone must be {mcap_low, mcap_high}")
+        lo, hi = _mc(entry_zone.get("mcap_low"), "entry_zone.mcap_low"), _mc(entry_zone.get("mcap_high"), "entry_zone.mcap_high")
+        if lo > hi:
+            raise ValueError("entry_zone.mcap_low must not be above mcap_high")
+        out["entry_zone"] = {"mcap_low": lo, "mcap_high": hi}
+    if exit_zone not in (None, "", {}):
+        if not isinstance(exit_zone, dict):
+            raise ValueError("exit_zone must be {tp_mcap, sl_mcap, trailing_pct}")
+        ez = {}
+        for k in ("tp_mcap", "sl_mcap"):
+            if exit_zone.get(k) not in (None, ""):
+                ez[k] = _mc(exit_zone[k], f"exit_zone.{k}")
+        if exit_zone.get("trailing_pct") not in (None, ""):
+            try:
+                tr = float(exit_zone["trailing_pct"])
+            except (TypeError, ValueError):
+                raise ValueError("exit_zone.trailing_pct must be a number 1-90")
+            if not 1 <= tr <= 90:
+                raise ValueError("exit_zone.trailing_pct must be 1-90")
+            ez["trailing_pct"] = round(tr, 2)
+        if "tp_mcap" in ez and "sl_mcap" in ez and ez["sl_mcap"] >= ez["tp_mcap"]:
+            raise ValueError("exit_zone.sl_mcap must be under tp_mcap")
+        ent = out.get("entry_zone")
+        if ent and "tp_mcap" in ez and ez["tp_mcap"] <= ent["mcap_low"]:
+            raise ValueError("exit_zone.tp_mcap must be above the entry zone")
+        if ent and "sl_mcap" in ez and ez["sl_mcap"] >= ent["mcap_high"]:
+            raise ValueError("exit_zone.sl_mcap must be under the entry zone")
+        out["exit_zone"] = ez
+    if valid_min not in (None, ""):
+        try:
+            v = int(float(valid_min))
+        except (TypeError, ValueError):
+            raise ValueError("valid_min must be minutes 5-1440")
+        if not 5 <= v <= 1440:
+            raise ValueError("valid_min must be 5-1440 minutes")
+        out["valid_min"] = v
+    return out
+
+
+def submit_signal_opinion(con, kid, token, verdict, confidence=None, interpretation=None, evidence=None, proposal=None):
+    """proposal (11.11., optional): {strategy, p_tp, entry_zone, exit_zone, valid_min} (proposal_fields)."""
     tok = _text(token, "token", need=True, cap=64)
     if not 32 <= len(tok) <= 64:
         raise ValueError("token must be a Solana token address")
+    v = _verdict(verdict)
+    prop = proposal_fields(**{k: (proposal or {}).get(k) for k in PROPOSAL_KEYS}) if proposal else None
     pos = con.execute("SELECT id, symbol FROM positions WHERE token=? ORDER BY id DESC LIMIT 1", (tok,)).fetchone()
+    extra = {"proposal": json.dumps(prop, ensure_ascii=False)} if prop else {}
     nid = _insert(con, kid, kind="signal_opinion", position_id=pos[0] if pos else None, token=tok,
-                  symbol=pos[1] if pos else None, verdict=_verdict(verdict), confidence=_conf(confidence),
-                  interpretation=_text(interpretation, "interpretation", need=True), evidence=_json(evidence, "evidence"))
-    return _done(nid, "signal_opinion")
+                  symbol=pos[1] if pos else None, verdict=v, confidence=_conf(confidence),
+                  interpretation=_text(interpretation, "interpretation", need=True), evidence=_json(evidence, "evidence"),
+                  **extra)
+    out = _done(nid, "signal_opinion")
+    if prop:
+        out["proposal"] = prop
+        out["proposal_note"] = (
+            "Stored as a proposal source (strategy grok): shown on the Autopilot's Prijedlozi and in get_proposals only "
+            "while verdict is kupi with p_tp, your p_tp CALIBRATED on your measured record gives EV > 0 after cost, "
+            "and no block applies (rug, wash volume, 5x run-up, liquidity under $20k, shill-driven). Valid valid_min "
+            "minutes (default 60). Nothing is bought." if v == "kupi" and "p_tp" in prop else
+            "Stored with the opinion; it becomes a proposal only with verdict kupi and p_tp.")
+    return out
 
 
 def submit_suggestion(con, kid, title, interpretation=None, improvement=None, evidence=None, proposed_change=None):
@@ -615,6 +711,7 @@ OWNER_FLAG_ORDERS = (
     ("grok_predictions", "shadow", "vlasnik u chatu 11.11.: submit_grok_prediction sprema predviđanja i kalibraciju"),
     ("event_tokens", "shadow", "vlasnik u chatu 11.11.: event tokeni s Grokom, prvo shadow"),
     ("range_market", "paper", "vlasnik u chatu 11.11.: range watchlist cijelog tržišta, prvo paper (samo demo račun)"),
+    ("proposals", "paper", "vlasnik u chatu 11.11.: Prijedlozi svih strategija, prvo paper (demo račun; pravi samo na tvoj dodir)"),
 )
 
 

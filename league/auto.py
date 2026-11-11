@@ -518,6 +518,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"momentum ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag proposals G21): paper = the demo account takes every shown proposal (proposals/)
+                from proposals import paper as ppaper
+                for user, what in ppaper.run_once(con, market):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"prijedlozi ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # rekt: a player (or the bot) under $25 starts a new round with $1,000 (league/rekt.py)
                 from . import rekt
                 from ui import leaguedash

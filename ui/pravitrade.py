@@ -1258,18 +1258,40 @@ def _last_exit(cfg):
     return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
 
 
-FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("pozicije", "Pozicije", False),
-             ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
+FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("prijedlozi-trade", "Prijedlozi", True),
+             ("pozicije", "Pozicije", False), ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False),
+             ("pravila", "Pravila", False), ("jos", "Još", False))
+NAV_OPTIONAL = frozenset({"prijedlozi-trade"})   # 11.11.: linked only while the card is on the page (flag proposals)
 FLOAT_JS = ("<script>(()=>{document.querySelectorAll('.ap-fn a').forEach(a=>a.addEventListener('click',()=>{"
             "const t=document.getElementById(a.getAttribute('href').slice(1));"
             "if(t&&t.tagName==='DETAILS')t.open=true}))})()</script>")
 
 
-def _float_nav(owner):
+def _float_nav(owner, have=()):
     """10.11. (Jure: "dodaj gore floating izbornik da lakše dođem do pojedinih stavki na autopilot stranici"): a
-    sticky row of links under the app header; a link to a closed section also opens it."""
-    links = "".join(f'<a href="#{sid}">{esc(word)}</a>' for sid, word, own in FLOAT_NAV if owner or not own)
+    sticky row of links under the app header; a link to a closed section also opens it. have: the optional sections
+    (NAV_OPTIONAL) that are on the page this time."""
+    links = "".join(f'<a href="#{sid}">{esc(word)}</a>' for sid, word, own in FLOAT_NAV
+                    if (owner or not own) and (sid not in NAV_OPTIONAL or sid in have))
     return f'<nav class=ap-fn aria-label="Dijelovi stranice">{links}</nav>' + FLOAT_JS
+
+
+def _proposals_card(owner):
+    """11.11. (Jure, proposals/, flag proposals G21): "Prijedlozi" right after "Brza kupnja", owner only, nothing while
+    the flag is off: the open proposals of every strategy (top 5, the rest behind "još"), refreshed every 150 s by
+    the page's poller (/pravi-trade/prijedlozi); Kupi fills Brza kupnja, Odbij stores the reason."""
+    if not owner:
+        return ""
+    from proposals import view
+    return view.card(esc, _item, owner)
+
+
+def proposals_fragment(user):
+    """GET /pravi-trade/prijedlozi: the inside of the card (owner only, None for anybody else)."""
+    if not settings.is_owner(user):
+        return None
+    from proposals import view
+    return view.fragment(esc, _item)
 
 
 MCP_URL = os.environ.get("MCP_PUBLIC_URL") or "https://app.memesonar.app/mcp"
@@ -4422,10 +4444,11 @@ def page(qs, user):
                 n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0]
                 return _setup(tcon, cfg, addr, key_addr, saved, _balance(addr), _usdc(addr), n_open)
             setup = _safe("postavljanje", _mk_setup, fallback={})
+        props = _safe("prijedlozi-trade", _proposals_card, owner)   # 11.11.: '' while the flag proposals is off
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, '<div class="ap ms-page">', _float_nav(owner), toast,
+            b = [CSS, '<div class="ap ms-page">', _float_nav(owner, ("prijedlozi-trade",) if props else ()), toast,
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
@@ -4435,6 +4458,7 @@ def page(qs, user):
                  setup.get("warn", ""),
                  _safe("mcp", _mcp_requests, tcon, owner),
                  _safe("kupnja", _buy_now_card, cfg, owner),
+                 props,   # 11.11. (Jure): trade-focused, so right after Brza kupnja, above the positions
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
                  _safe("grok-auto", _grok_auto_live, tcon, owner),   # 10.11.: only while the owner has it on
                  _safe("exit-planovi", _exit_plans_block, tcon, owner),   # 10.11.: only while plans exist
@@ -4768,7 +4792,14 @@ def post(path, form, user):
             if path == "/pravi-trade/buy":
                 if (form.get("at") or "").strip():   # 10.11.: a buy order at a market cap
                     return _post_limit(con, tcon, form, user)
+                if (form.get("prijedlog") or "").strip():   # 11.11. (proposals/): Kupi on a proposal, then Brza kupnja
+                    return _post_proposal_buy(con, tcon, form, user)
                 return _post_buy(con, tcon, form, user)
+            if path == "/pravi-trade/prijedlog-odbij":   # 11.11. (proposals/): Odbij with a reason, stored for learning
+                from proposals import store as pstore, view as pview
+                pstore.reject(int(form.get("id") or 0), form.get("reason") or "", form.get("note") or "", user)
+                pview.clear()
+                return f"{BACK}?ok={qq('Prijedlog odbijen; razlog je zapisan.')}#prijedlozi-trade"
             if path == "/pravi-trade/exit":
                 return _post_exit(con, tcon, form)
             if path == "/pravi-trade/mcpok":
@@ -5003,6 +5034,63 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
         if not ok:
             lflags.shadow(lcon, "require_signal", None, token, "kupi (ručno)", "bez signala", {"why": why, "manual": True},
                           now)
+
+
+def _post_proposal_buy(con, tcon, form, user):
+    """11.11. (Jure, proposals/ flag proposals G21): the owner's buy of a proposal. "Kupi" on the card only fills Brza
+    kupnja (token, size, TP, SL); the owner confirms there and this is the same _post_buy with every check and limit.
+    The TP / SL in the form become the position's OWN TP/SL (league/auto "tpsl": they work on the real account
+    whatever exit_plans' mode); then the proposal's full exit plan (partial TP, trailing, time stop) is set through
+    league/exitplan for the real account (it executes where exit_plans applies, otherwise it is logged) when the token
+    has no other active plan, and the proposal is marked kupljeno. A form whose token is no longer the proposal's is
+    an ordinary buy."""
+    from urllib.parse import quote as qq
+    from league import exitplan
+    from proposals import store as pstore, view as pview
+    from ui import real
+    from ui.league import MINT
+    try:
+        pid = int(form.get("prijedlog") or 0)
+    except ValueError:
+        pid = 0
+    pcon = pstore.ro()
+    try:
+        p = pstore.one(pcon, pid) if pcon is not None and pid else None
+    finally:
+        if pcon is not None:
+            pcon.close()
+    token = (form.get("token") or "").strip()
+    if token and not MINT.fullmatch(token):
+        token = real.resolve(token)[0]
+    if p is None or p["token"] != token:
+        return _post_buy(con, tcon, form, user)
+    if p["status"] != "novo":
+        raise ValueError(f"prijedlog više nije otvoren ({p['status']}): kupnja nije poslana")
+    form = dict(form, token=token)
+    form.setdefault("exit", "tpsl")
+    out = _post_buy(con, tcon, form, user, src=f"ručno: prijedlog {p.get('strategy') or ''}".strip())
+    plan = dict((p.get("row") or {}).get("exit_plan") or {})
+    note = ""
+    if plan:
+        plan["accounts"] = [settings.LEAGUE_USER]
+        if exitplan.active(con, token) is None:
+            try:
+                sl_default = float(settings.merged(executor.load_config(), tcon).get("sl_default") or 60)
+                got = exitplan.set_plan(con, token, plan, sl_default, client=f"prijedlog #{pid}")
+                note = f" Plan izlaza prijedloga #{got['plan_id']} je zapisan."
+            except ValueError as e:
+                print(f"pravi trade: prijedlog #{pid}: plan izlaza nije postavljen ({e})", flush=True)
+        else:
+            note = " Token već ima plan izlaza; ostaje taj."
+    pstore.mark_bought(pid, float((form.get("sol") or "0").replace(",", ".")), user)
+    pview.clear()
+    print(f"pravi trade: {user} je kupio prijedlog #{pid} ({p.get('strategy')}) {p.get('symbol') or token[:6]}", flush=True)
+    if "?ok=" in out and note:
+        base, _, rest = out.partition("?ok=")
+        msg, hsh, frag = rest.partition("#")
+        from urllib.parse import unquote
+        out = f"{base}?ok={qq(unquote(msg) + note)}{hsh}{frag}"
+    return out
 
 
 def _post_buy(con, tcon, form, user, src=None):

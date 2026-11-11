@@ -784,9 +784,14 @@ def _market(m, ts=None, how="dexscreener"):
     return row
 
 
-def build(now=None, src=None, details=True):
+def build(now=None, src=None, details=True, extra=None, raw=False):
     """(rows ranked, meta). details=False skips the per-row caller records' exit plans (the scanner's shadow log
-    needs only the ranking)."""
+    needs only the ranking).
+    11.11. (proposals/, flag proposals G21: one scoring system, not two): extra = [{"token", "kind", "symbol", "ts",
+    "mcap"}] adds tokens of sources only the proposals pass knows (range entries, event tokens, Grok's proposals) as
+    their own source kind, so they get the same market, rug, run-up and block checks; raw=True keeps each row's
+    DexScreener reading ("live_raw") and the structured blocks ("blocks": [{"key", "text"}], the same lines as
+    why_not), and puts the rug tables and the caller crews into meta. The MCP answer (candidates) passes neither."""
     now = int(now or time.time())
     S = src or Sources()
     failed = []
@@ -955,6 +960,16 @@ def build(now=None, src=None, details=True):
         r["count"]["insider"] = 1
         if t.get("ts"):
             r["sig"].append((int(t["ts"]), t.get("mcap_usd"), "insider"))
+    # 11.11. (proposals/): the proposals pass's own sources, each its own kind (never passed by the MCP answer)
+    for t in extra or []:
+        if not isinstance(t, dict) or not t.get("token") or not t.get("kind") or t["kind"] in rows.get(t["token"], {}).get(
+                "sources", {}):
+            continue
+        r = row(t["token"], t.get("symbol"))
+        r["sources"][t["kind"]] = {k: t.get(k) for k in ("ts", "mcap") if t.get(k) is not None}
+        r["count"][t["kind"]] = 1
+        if t.get("ts"):
+            r["sig"].append((int(t["ts"]), t.get("mcap"), t["kind"]))
     if not rows:
         return [], {"sources_failed": failed, "records": {}}
     # market now: the callers' live check first, then one DexScreener read for the rest, else the scanner's numbers
@@ -993,8 +1008,8 @@ def build(now=None, src=None, details=True):
     if lcopy._CONC_CACHE is None:   # league/copy._concentration reads the same two tables once for the whole build
         mine = lcopy._CONC_CACHE = {"tc": tables[0], "rug": tables[1]}
     try:
-        out = [_finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details)
-               for r in rows.values()]
+        out = [_finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details,
+                       raw) for r in rows.values()]
     finally:
         # the dashboard's copy loop (league/auto -> copy.run_once) sets and clears the same cache in its own thread:
         # only our own dict is taken back, never one a running pass put there
@@ -1003,7 +1018,10 @@ def build(now=None, src=None, details=True):
     out.sort(key=rank_key)
     for i, r in enumerate(out, 1):
         r["rank"] = i
-    return out, {"sources_failed": failed, "records": records}
+    meta = {"sources_failed": failed, "records": records}
+    if raw:   # 11.11. (proposals/): what the proposals pass checks again without a second read
+        meta.update(rug_tables=tables, member=member, glist=glist, shill_members=shill_of)
+    return out, meta
 
 
 def rank_key(r):
@@ -1084,7 +1102,20 @@ def paper_only(srcs):
     return "event" in srcs or (srcs.get("range") or {}).get("watch_source") in ("market", "event")
 
 
-def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details):
+class _WhyNot(list):
+    """why_not, and next to each line its key (11.11., proposals/: the proposals pass applies its own subset of the
+    blocks by key, never by parsing the Croatian text)."""
+
+    def __init__(self):
+        super().__init__()
+        self.keys = []
+
+    def add(self, key, text):
+        self.append(text)
+        self.keys.append({"key": key, "text": text})
+
+
+def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details, raw=False):
     tok, m = r["token"], r["m"] or {}
     from league import copy as lcopy
     srcs = r["sources"]
@@ -1123,52 +1154,53 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     sr = r["scan_row"] or {}
     curve = sr.get("stage") in ("final_stretch", "curve") or (r["m"] is not None and not liq)
     rug = rug_view(tok, mcap or None, liq, S, tables, archived, sr)
-    why_not = []
+    why_not = _WhyNot()
     if not r["m"] or not _f(m.get("price")):
-        why_not.append("nema živog tržišta (DexScreener)")
+        why_not.add("market", "nema živog tržišta (DexScreener)")
     if mcap < MIN_MCAP:
-        why_not.append(f"MC ${mcap:,.0f} ispod 30k: samo mjerenje, ne kupuje se")
+        why_not.add("under_30k", f"MC ${mcap:,.0f} ispod 30k: samo mjerenje, ne kupuje se")
     if curve:
-        why_not.append("još na krivulji ili bez poola: uzimaju se samo bondani")
-    else:
+        why_not.add("curve", "još na krivulji ili bez poola: uzimaju se samo bondani")
+    elif r["m"]:   # 11.11.: without any market reading the row already says so ("market"); no pool gate on None
         c = lcopy.CFG
         if liq < c["min_liq"]:
-            why_not.append(f"premala likvidnost (${liq:,.0f})")
+            why_not.add("liq_low", f"premala likvidnost (${liq:,.0f})")
         elif mcap and mcap > c["max_mcap"]:
-            why_not.append("velik token (preko $50M)")
+            why_not.add("too_big", "velik token (preko $50M)")
         elif mcap and liq > mcap:
-            why_not.append("lažni pool (likvidnost veća od market capa)")
+            why_not.add("fake_pool", "lažni pool (likvidnost veća od market capa)")
         elif mcap and liq < c["min_liq_mcap"] * mcap:
-            why_not.append(f"likvidnost je samo {liq / mcap:.1%} MC-a (granica {c['min_liq_mcap']:.0%})")
+            why_not.add("liq_share", f"likvidnost je samo {liq / mcap:.1%} MC-a (granica {c['min_liq_mcap']:.0%})")
     if r["m"]:   # it must trade NOW (ui/prijedlog.alive's activity lines; liquidity is the pool gate above)
         tx, vol, ch1 = m.get("txns_h1"), _f(m.get("vol_h1")) or 0, _f(m.get("ch_h1"))
         lv = prijedlog_live_min()
         if (tx is not None and tx < lv["txns_h1"]) or vol < lv["vol_h1"]:
-            why_not.append(f"ne trguje se sada (volumen 1 h ${vol:,.0f}" + (f", {tx} transakcija" if tx is not None else "")
+            why_not.add("not_trading", f"ne trguje se sada (volumen 1 h ${vol:,.0f}" + (f", {tx} transakcija" if tx is not None else "")
                            + ")")
         elif ch1 is not None and ch1 <= lv["max_drop_h1"]:
-            why_not.append(f"pada: {ch1:+.0f} % u zadnjem satu")
-    why_not += [f"rug (nikad se ne nadjačava): {h}" for h in rug["hard"]]
+            why_not.add("falling", f"pada: {ch1:+.0f} % u zadnjem satu")
+    for h in rug["hard"]:
+        why_not.add("rug_hard", f"rug (nikad se ne nadjačava): {h}")
     if ru["x"] and ru["x"] >= RUNUP_MAX_X:
-        why_not.append(f"kasno: već {ru['x']:.1f}× od prvog signala (granica {RUNUP_MAX_X:g}×)")
+        why_not.add("runup", f"kasno: već {ru['x']:.1f}× od prvog signala (granica {RUNUP_MAX_X:g}×)")
     if paper_only(srcs):   # 11.11.: an event topic / the market watchlist alone never buys with real money
-        why_not.append("samo event tema ili tržišna range lista: mjeri se, najviše paper na demo računu (range_dca), "
-                       "nikad pravi novac")
+        why_not.add("paper_only", "samo event tema ili tržišna range lista: mjeri se, najviše paper na demo računu "
+                    "(range_dca), nikad pravi novac")
     ge = grok_evidence(grows.get(tok), ops.get(tok), known, now)
     ov = override_of(ge, rug) if not why_not else None
     if rug["level"] == "risk" and not ov:
-        why_not.append(f"rug ocjena: {rug['risk'][0]} (svjež Grokov dokaz s X-a može je nadjačati: get_grok_tasks)")
+        why_not.add("rug_risk", f"rug ocjena: {rug['risk'][0]} (svjež Grokov dokaz s X-a može je nadjačati: get_grok_tasks)")
     shill = shill_driven(srcs, S)
     if shill:
-        why_not.append(f"vođeno shillanjem: zovu ga samo plaćeni shilleri ({', '.join(shill[:3])})")
+        why_not.add("shill_driven", f"vođeno shillanjem: zovu ga samo plaćeni shilleri ({', '.join(shill[:3])})")
     # 11.11. (Jure: Dacity score 2.384, ev -0.166, still tradeable): the score carries confluence, not expected profit;
     # tradeable needs a measured EV above 0 after cost and price impact, whatever the confluence
     size = lim.get("grok_max_sol_per_trade") or 0.1
     evx = ev_estimate(srcs, records, size, liq)
     if evx["ev_pct"] is None:
-        why_not.append("EV nije izmjeren (0 izmjerenih ishoda izvora): tradeable traži EV > 0")
+        why_not.add("ev_unmeasured", "EV nije izmjeren (0 izmjerenih ishoda izvora): tradeable traži EV > 0")
     elif evx["ev_pct"] <= 0:
-        why_not.append(f"negativan EV: {evx['ev_pct']:+.1f} % po tradeu nakon troška i slippagea "
+        why_not.add("ev_negative", f"negativan EV: {evx['ev_pct']:+.1f} % po tradeu nakon troška i slippagea "
                        f"(n={evx['n_samples']})")
     tradeable = not why_not
     # X: Grok's row first (2 h), the scanner's own (1 h)
@@ -1188,7 +1220,7 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
              "shill": -W["shill"] * r["shill_n"] if r.get("shill_n") else 0.0}
     flags = (["grok_override"] if ov else []) + (["shill_network_call"] if r.get("shill_n") else []) \
         + (["exit_signal"] if (srcs.get("caller") or {}).get("exit_signal") else [])
-    out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": why_not,
+    out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": list(why_not),
            "ev_pct": evx["ev_pct"], "n_samples": evx["n_samples"], "ev_confidence": evx["ev_confidence"],
            "ev_detail": evx["detail"],
            "flags": flags, "score": round(sum(parts.values()), 3), "score_parts": parts,
@@ -1204,6 +1236,8 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
            "suggested_size_sol": round(size * (OVERRIDE_SIZE if ov else 1.0), 4) if tradeable else None}
     if details and tradeable:
         out["exit_plan"] = exit_plan(r, ov, lim, S)
+    if raw:   # 11.11. (proposals/): the keyed blocks, the raw market reading, the shill-network call count
+        out.update(blocks=list(why_not.keys), live_raw=r["m"], shill_n=r.get("shill_n") or 0)
     return out
 
 

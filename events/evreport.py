@@ -26,6 +26,9 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
            EV = the exit rules on the same path after cost) vs the newest backtest, and the paper trades vs that base
            rate with the live gate's verdict (>= 50 trades, EV > 0, hit >= 45 %; break-even is ~50 %, not 45 %).
   kalibracija  grok_ev_gate (11.11.): Grok's p_tp against the outcomes (Brier score, hit rate per p bucket).
+  prijedlozi   proposals (11.11., proposals/report.py): per strategy the day's proposals, bought, hit rate (TP before SL
+           within 4 h) and the measured EV vs the expected EV (baseline), the demo account's paper proof, and in the log
+           and proposals.db reports the day's biggest risers we did not propose (seen / near miss / never saw).
 Max drawdown: the deepest fall of the running sum of results, in percentage points, in time order.
 A promotion proposal (shadow -> paper -> live) only with n >= MIN_N outcomes and EV > 0, and only as text: the owner
 switches flags by hand on the Autopilot page (trade/settings.set_flag); nothing here changes a flag.
@@ -341,6 +344,9 @@ def build(now=None, econ=None, log=print):
                     out += momentum_rows(now, st["mode"], lcon)
                 elif name == "grok_ev_gate":
                     out += calib_rows(now, st["mode"])
+                elif name == "proposals":   # 11.11. (proposals/report.py): per strategy, the day's missed risers
+                    from proposals import report as preport
+                    out += preport.ev_rows(now, st["mode"], log=log)
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")

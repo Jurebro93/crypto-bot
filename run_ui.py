@@ -630,6 +630,16 @@ class Handler(BaseHTTPRequestHandler):
                   "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
             frag = fn(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/prijedlozi":
+            # 11.11. (Jure, proposals/ flag proposals G21): the card's list, polled every 150 s; owner only (403 for
+            # anybody else); it only reads proposals.db (cached), a failure greys the box
+            from ui import pravitrade
+            try:
+                frag = pravitrade.proposals_fragment(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path in ("/pravi-trade/graf", "/pravi-trade/dnevnik", "/pravi-trade/preporuke"):
             # 10.11. (Jure: graf na vrhu, dnevnik na klik, čista stranica): the header with the chart (every 45 s), the
             # open decision log (every second) and the recommendations (once, when opened); same access as the page.
