@@ -165,7 +165,26 @@ def factors(con):
     got = dict(con.execute("SELECT key, factor FROM sessions"))
     for s in f:
         f[s] = got.get(f"signal:{s}", got.get(f"call:{s}", 1.0))
+    live = live_pf()
+    for s, pf in live.items():
+        if s in f and pf is not None and pf < 1.0:
+            # 11.11. (jutarnji izvještaj): Asia had a live demo profit factor of 0.12 while its KOL call factor (peak
+            # +hit_x in 24 h after the call) still favoured it. What the demo really earned in a session now caps
+            # the factor: PF under 1 multiplies it by max(0.5, PF), so a losing session can never look better
+            # than an even one.
+            f[s] = round(max(0.35, min(f[s], 1.0) * max(0.5, pf)), 3)
     return f
+
+
+def live_pf(min_n=30):
+    """{session: profit factor} of closed demo trades from paper/rules.session_sizes (last 7 days, refreshed every
+    few hours), only sessions with at least min_n trades. {} when the demo has not measured yet."""
+    try:
+        from paper import rules
+        by = ((rules.load().get("sessions") or {}).get("by")) or {}
+    except Exception:  # noqa: BLE001 - KOL scoring must not depend on the demo
+        return {}
+    return {s: v.get("pf") for s, v in by.items() if (v.get("n") or 0) >= min_n}
 
 
 def backfill_due(con, limit):

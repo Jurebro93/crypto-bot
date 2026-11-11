@@ -144,6 +144,23 @@ def fit(rows, epochs=400, lr=0.5, l2=0.01):
             "base": {k: round(v, 4) for k, v in base.items()}, "n": len(rows)}
 
 
+def limit_step(old, new, max_step=0.25, floor=0.2):
+    """11.11. (jutarnji izvještaj: a fit would have halved smart money in one run): every coefficient of the new model
+    moves at most max_step of its current size (at least floor) toward the fit, like the hype weights (fit.step). A
+    signal that really lost its value gets there over a few days, each step judged on data again. Without a current
+    model the fit is taken as is."""
+    if not old or not new:
+        return new
+
+    def mv(o, f):
+        lim = max_step * max(abs(o), floor)
+        return round(o + max(-lim, min(lim, f - o)), 4)
+
+    coef = {k: mv(old["coef"].get(k, 0.0), v) for k, v in new["coef"].items()}
+    return {**new, "coef": coef, "hype": mv(old.get("hype", 0.0), new["hype"]),
+            "bias": mv(old.get("bias", 0.0), new["bias"]), "raw": {"coef": new["coef"], "hype": new["hype"]}}
+
+
 def prob(model, keys, hype):
     z = model["bias"] + model["hype"] * (hype or 0) / 100 + sum(model["coef"].get(k, 0.0) for k in keys)
     return 1 / (1 + math.exp(-max(-30, min(30, z))))
@@ -233,6 +250,7 @@ def run(con, cfg=None, now=None, apply_model=True):
         from learn import split   # audit 4.11. C04: fit on the older part, judge on the newer part it never saw
         train, val = split.by_time(rows, horizon_s=cfg.get("purge_h", cfg.get("horizon_h", 24)) * 3600)
         model = fit(train) if len(train) >= 10 and len(val) >= 20 else None
+        model = limit_step(current, model, cfg.get("conf_max_step", 0.25))
         if not model:
             rec["note"] = ("premalo za odvojeno učenje i provjeru" if len(train) < 10 or len(val) < 20 else
                            "još nema nijednog skoka u podacima, nema se iz čega učiti")
