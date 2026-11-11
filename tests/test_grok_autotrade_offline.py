@@ -53,7 +53,8 @@ class Grok(Base):
         # no MCP tool turns it on or changes its limits
         # (10.11.: the read-only work queue get_grok_tasks is allowed; no tool that writes may touch it)
         names = [t["name"] for t in mcpapi.TOOLS if not (t.get("annotations") or {}).get("readOnlyHint")]
-        self.assertFalse([n for n in names if "grok" in n or "autotrade" in n])
+        # (11.11.: submit_grok_prediction writes only events.db grok_predictions, nothing of autotrade)
+        self.assertFalse([n for n in names if ("grok" in n or "autotrade" in n) and n != "submit_grok_prediction"])
         self.assertIn("err=", pravitrade.post("/pravi-trade/grokon", {}, "netko"))   # only the owner
         self.assertFalse(grokauto.state(self.con)["on"])
         # with approval it queues as before

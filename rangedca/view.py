@@ -28,12 +28,27 @@ def _touches(r, supply):
     return {"top": rows(t.get("top")), "bottom": rows(t.get("bottom"))} if t else None
 
 
+BREAKOUT = "breakout"
+
+
+def is_breakout(r):
+    """11.11. (Jure: X at 138 % of its range was still offered as a range entry): the price sits above the range's top
+    (position in range > 100 %). detect.py calls a range broken only past range_high_top x 1.15, so such a range can
+    still be "aktivan"; it is no range entry either way."""
+    p = (r or {}).get("pos_pct")
+    return p is not None and p > 100
+
+
 def one(tok, r, now=None):
-    """One range as the MCP API shows it."""
+    """One range as the MCP API shows it. entry_ready: an entry would pass now (no breakout, entry_now passes);
+    status "breakout" when the price is above 100 % of the range."""
     now = now or time.time()
     m = r.get("metrics") or {}
     st = r.get("state") or {}
-    return {"token": tok, "symbol": r.get("symbol"), "status": r.get("status"), "active": bool(r.get("active")),
+    brk = is_breakout(r)
+    why = None if brk else trade.entry_view(r, m.get("price"), now)
+    return {"token": tok, "symbol": r.get("symbol"), "status": BREAKOUT if brk else r.get("status"),
+            "range_status": r.get("status"), "entry_ready": not brk and why is None, "active": bool(r.get("active")),
             "why": r.get("why") or None, "computed_ts": r.get("ts"), "numbers_ts": r.get("mts"),
             "range_score": r.get("score"), "range_high_to_low": r.get("ratio"),
             "position_in_range_pct": r.get("pos_pct"), "zones": _zones(r), "touches": _touches(r, m.get("supply")),
@@ -46,7 +61,8 @@ def one(tok, r, now=None):
             "signals": r.get("signals"),
             "excluded_until": st.get("excluded_until") if (st.get("excluded_until") or 0) > now else None,
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
-            "entry_now": trade.entry_view(r, m.get("price"), now) or "ulaz bi prošao (uz provjeru ruga i limite)"}
+            "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
+                          why or "ulaz bi prošao (uz provjeru ruga i limite)")}
 
 
 def positions(tokens=None):
@@ -85,10 +101,12 @@ def candidates(min_score=None, now=None, limit=50):
         return {"error": "min_score must be a number 0-1"}
     rs = data.read_ranges(since=now - trade.RANGE_FRESH_S)
     rows = [one(t, r, now) for t, r in rs.items() if r.get("active") and (r.get("score") or 0) >= ms - 1e-9]
-    rows.sort(key=lambda x: -(x["range_score"] or 0))
+    rows.sort(key=lambda x: (not x["entry_ready"], -(x["range_score"] or 0)))
+    brk = [x for x in rows if x["status"] == BREAKOUT]   # 11.11.: above the range: shown apart, never a range entry
+    rows = [x for x in rows if x["status"] != BREAKOUT]
     from league import flags
     return {"ts": int(now), "flag_mode": flags.mode(trade.FLAG), "min_score": ms, "candidates": rows[:limit],
-            "watched": len(rs), "positions": positions(),
+            "breakouts": brk[:limit], "watched": len(rs), "positions": positions(),
             "paper_proof": {**gate.proof(), "live_gate": gate.refusal() or "prolazi (>= 20 rundi, EV > 0)"},
             "rules": ("lot 1 in the bottom 15 % of the range or inside the bottom zone, 5m change > -3 %, buys >= 50 % "
                       "of 5m transactions, 15m volume x4 >= 50 % of the 1h average, range_score >= 0.7; lot 2 at -10 to "

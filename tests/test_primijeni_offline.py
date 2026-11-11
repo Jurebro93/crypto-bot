@@ -76,8 +76,10 @@ class Apply(Base):
         self.assertEqual(settings.flag("runup_default", con=self.tc), "paper")   # an owner's choice stays
         assistnotes.apply(self.tc, self.suggest({"key": "require_signal", "to": True}))
         self.assertEqual(settings.flag("require_signal", con=self.tc), "shadow")
-        assistnotes.apply(self.tc, self.suggest({"caller": "@Ansem", "platform": "x", "weight": 1.5}))
-        self.assertEqual(settings.flag("caller_weights", con=self.tc), "shadow")
+        # 11.11. (Jure): a caller weight is applied on arrival and never moves its flag
+        self.suggest({"caller": "@Ansem", "platform": "x", "weight": 1.5})
+        self.assertEqual(settings.raw(self.tc)["caller_weights"], {"Ansem": 1.5})
+        self.assertEqual(settings.flag("caller_weights", con=self.tc), "off")
         with self.assertRaises(ValueError):
             assistnotes.apply(self.tc, self.suggest({"key": "dca_token_cap", "to": 9}))
         for f in ("dca_cap", "require_signal", "runup_default", "caller_weights"):
