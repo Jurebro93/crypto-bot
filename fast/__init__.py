@@ -17,7 +17,12 @@ and the holders run for every signal's token.
                  {status ok | fail | error, values, threshold, text, ms}; token data cached 60 s and shared by every
                  signal on the token; the network behind one injectable Net
     decide.py    EV = P(TP) x TP - (1 - P) x SL - cost(liq); P shrunk toward the base rate; BUY_PAPER / BUY_LIVE /
-                 SKIP (the failing check and its number) / CHECK_FAILED (an API error: retried, never a skip)
+                 SKIP (the failing check and its number) / CHECK_FAILED (an API error: retried, never a skip);
+                 11.11.: the MC band first, EV > 0 for every KUPI, labels KUPI (paper) / KUPI (live-eligible) / PRESKOČI
+    estimate.py  11.11.: P from the source's sample or its strategy's prior ("procjena, n izvora < 10"), its Wilson
+                 90 % interval mapped onto EV, the lag from the source's entry in words
+    live.py      11.11.: every live candidate (ui/zivo) gets a fast_check (its triggers into the queue, convergence
+                 included) and shows its verdict; the PRESKOČI journal; the KUPI rows for proposals/ (strategy fast)
     worker.py    the loop of run_fast.py: scan, queue, thread pool, retries (3x within 30 s), outcomes, daily lines
     outcomes.py  +1 / +5 / +15 / +60 min and the max within 60 min of every signal, "propušteno" (SKIP and max >= +20 %)
     paper.py     the trades (league/auto.loop in run_ui.py, league.db's only writer): paper = BUY_PAPER and BUY_LIVE on

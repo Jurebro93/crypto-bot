@@ -385,11 +385,122 @@ def similarity(a, b):
     return round(math.exp(-sum(zs) / len(zs) / 2), 4)
 
 
-def wins(path=None, lbs=None):
-    """The labelled wins with their entry features: [{token, symbol, features}] (lbs: labels() already read)."""
+REF_MIN_AGE_S = 24 * 3600   # 11.11. (Jure): a reference win must have stood 24 h without a rug
+
+
+def wins(path=None, lbs=None, now=None):
+    """The labelled wins with their entry features: [{token, symbol, features}] (lbs: labels() already read).
+    11.11. (Jure: HAOBIBI rugged after it was labelled): a reference for the similarity is only a "win" label older
+    than REF_MIN_AGE_S whose token got no hard block since (invalidate() turns such a label into "rug")."""
+    now = now or time.time()
     return [{"token": lb["token"], "symbol": lb.get("symbol"), "features": (lb.get("data") or {}).get("features") or {}}
             for lb in (labels(path) if lbs is None else lbs)
-            if lb.get("label") == "win" and (lb.get("data") or {}).get("features")]
+            if lb.get("label") == "win" and (lb.get("data") or {}).get("features")
+            and now - int(lb.get("ts") or now) >= REF_MIN_AGE_S]
+
+
+# ---------- 11.11. (Jure: "HAOBIBI je RUGAN u 12:51"): a hard block ends a pin and a counterfactual win ------------
+HARD_LIQ = 15_000.0
+INVALIDATE = (("8tbfkL8LZYUN3ygzWMKfffqVd7tLRpWkuh2fowsepump",
+               "rugan 11.11. 12:51 CET: likvidnost ~24k → 2,6k $, buy share 5m 0,11, rug_risk hard (vlasnik)"),)
+CHECK_EVERY_S = 60
+_CHK = {"at": 0.0}
+
+
+def hard_block(token, mcap=None, liq=None):
+    """The reason of a hard block of the owner's rules B for a pinned / labelled token, else None: a rug (the 11.11.
+    rule, league/copy._rugged), liquidity under $15k."""
+    try:
+        from league import copy
+        rug = copy._rugged(token, mcap, liq)
+    except Exception:  # noqa: BLE001
+        rug = None
+    if rug:
+        return "rug" + (f": {rug}" if isinstance(rug, str) else "")
+    if liq is not None and liq < HARD_LIQ:
+        return f"likvidnost ${liq:,.0f} ispod $15k"
+    return None
+
+
+def invalidate(lcon, token, why, now=None, log=print, quote=None):
+    """A hard block on a pinned / labelled token: the pin goes, its "win" labels become "rug" (the counterfactual win
+    is void), an open range round of the token is closed at the market as rug (when a price is known) or marked.
+    [text] of what was done."""
+    from trade import settings
+    from . import trade as rtrade
+    now = int(now or time.time())
+    out = []
+    tcon = settings.connect()
+    try:
+        if unpin(tcon, token, who=f"auto: {why}"[:120]):
+            out.append("pin skinut")
+    finally:
+        tcon.close()
+    ensure_labels(lcon)
+    stamp = time.strftime("%d.%m. %H:%M", time.gmtime(now + 3600))
+    n = lcon.execute("UPDATE owner_labels SET label='rug', kind='rug_after_label', note=COALESCE(note, '') || ? "
+                     "WHERE token=? AND label='win'", (f" | {stamp} CET poništeno: {why}", token)).rowcount
+    if n:
+        out.append(f"oznaka pobjeda → rug ({n})")
+    try:
+        for r in rtrade.rounds(lcon, token=token):
+            lots = rtrade._lots(lcon, r)
+            q = (quote or {}).get(token)
+            if lots and q and q[0]:
+                price, mcap, liq = q[0], q[1], q[2]
+                rtrade._sell(lcon, r, lots, "rug", 1.0, price, liq, mcap)
+                pnl = rtrade._finish(lcon, r, "rug", now)
+                out.append(f"range runda {r['user']} zatvorena kao rug ({pnl:+.2f} $)")
+            else:
+                st = dict(r.get("state") or {})
+                st["rug"] = {"ts": now, "why": why}
+                lcon.execute("UPDATE range_rounds SET state=? WHERE id=?", (json.dumps(st), r["id"]))
+                out.append(f"range runda {r['user']} označena kao rug (nema cijene za zatvaranje)")
+    except Exception as e:  # noqa: BLE001 - the pin and the label above still hold
+        out.append(f"range runde: {type(e).__name__}")
+    lcon.commit()
+    if out:
+        log(f"range {token[:6]}: tvrdi blok ({why}): " + ", ".join(out))
+    return out
+
+
+def auto_check(lcon, market_fn=None, now=None, log=print):
+    """Once a minute (rangedca/trade.exits_once, run_ui): the owner's one-time list (INVALIDATE, each once), then
+    every pinned token and every "win"-labelled token against hard_block() at the market. [text]."""
+    from trade import settings
+    now = int(now or time.time())
+    if now - _CHK["at"] < CHECK_EVERY_S:
+        return []
+    _CHK["at"] = now
+    done = []
+    tcon = settings.connect()
+    try:
+        raw = settings.raw(tcon)
+        todo = [(t, w) for t, w in INVALIDATE if not raw.get(f"owner_invalidate:{t}")]
+        for t, _w in todo:
+            settings.put(tcon, f"owner_invalidate:{t}", now, "Jure")
+    finally:
+        tcon.close()
+    toks = set(pins(fresh=True)) | {lb["token"] for lb in labels(label="win")}
+    q = {}
+    if market_fn and (toks or todo):
+        try:
+            from league import exitplan
+            raw_q = exitplan.quote(market_fn, toks | {t for t, _w in todo}, now) or {}
+            q = {t: (v[0], v[1], v[2]) for t, v in raw_q.items()}   # (price, mcap, liq)
+        except Exception:  # noqa: BLE001
+            q = {}
+    for t, why in todo:
+        done += invalidate(lcon, t, why, now, log, q)
+        toks.discard(t)
+    for t in sorted(toks):
+        price, mcap, liq = q.get(t, (None, None, None))
+        if price is None:
+            continue
+        why = hard_block(t, mcap, liq)
+        if why:
+            done += invalidate(lcon, t, why, now, log, q)
+    return done
 
 
 def similar_to(token, feats, ws):
@@ -419,7 +530,7 @@ def ranking(rows, ws, top=10):
 def similar_line(rank, ws):
     """The daily log line of the similarity ranking."""
     if not ws:
-        return "range slični: nema vlasnikovih oznaka dobitka"
+        return "range slični: nema referenci (oznaka dobitka mora stajati 24 h bez ruga)"
     names = ", ".join(w["symbol"] or w["token"][:6] for w in ws)
     if not rank:
         return f"range slični ({names}): nijedan praćeni raspon nema dovoljno poznatih značajki"

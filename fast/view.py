@@ -19,18 +19,25 @@ _CACHE = {}
 ICON = {"ok": ("good", "u redu"), "fail": ("bad", "pao"), "error": ("warn", "greška")}
 NAMES = {"rug": "Rug", "holders": "Holderi", "flow": "Tok", "price": "Cijena", "source": "Izvor"}
 ORDER = ("rug", "holders", "flow", "price", "source")
-DEC_HR = {"BUY_PAPER": "kupi (paper)", "BUY_LIVE": "kupi (dokazan izvor)", "SKIP": "preskoči",
-          "CHECK_FAILED": "provjera nije uspjela"}
+DEC_HR = {"BUY_PAPER": "KUPI (paper)", "BUY_LIVE": "KUPI (live-eligible)", "SKIP": "PRESKOČI",
+          "CHECK_FAILED": "provjera nije uspjela"}   # = fast/estimate.LABEL (11.11., the owner's words)
 RULES = ("Every buy of a followed wallet (wallet_follow, insider, pre_shill, group) and every call of a followed "
          "influencer gets five checks at once: rug (mint / freeze authority, LP, RugCheck, top 10, dev, bundle, "
          "snipers), holders (top 20 without pools / CEX, top 10 > 45 % fails, one wallet > 20 %, fresh wallets > 50 %), "
          "fresh flow (5 min buys / sells, buy share < 40 % or < 5 transactions fails, 1 min from PumpPortal when we "
          "have it; wash is a tag: P x 0.5), price (vs the wallet's entry: more than +20 % fails, MC < 30k, liquidity < "
-         "$15k; a 4x+ run-up is a tag: P x 0.7, size x 0.5) and source (closed trades, EV, PnL, tier). EV = P x 15 % - "
-         "(1 - P) x 10 % - cost (2 x fee + 2 x the stake's pool impact), P = (hits + 10 x base) / (n + 10) x the "
-         "modifiers. BUY_LIVE only with run_trade's proof (n >= 10, EV >= +3 % with its 90 % interval above 0) and "
-         "this signal's EV >= +3 %; a source still collecting (closed < 10) gets a BUY_PAPER with 0.05 SOL; an API "
-         "error is CHECK_FAILED and retried 3x within 30 s, never a skip. "
+         "$15k, market cap outside the band 30k-5M (FAST_MC_MIN / FAST_MC_MAX: decides first), the source wallet "
+         "already selling after its buy; a 4x+ run-up is a tag: P x 0.7, size x 0.5; the lag from the source's entry "
+         "in words) and source (closed trades, EV, PnL, tier, copy rank). Also every live candidate of the tool "
+         "(convergence, proven wallets, callers, the tool's own live picks). EV = P x 15 % - (1 - P) x 10 % - cost "
+         "(2 x fee + 2 x the stake's pool impact), P = (hits + 10 x prior) / (n + 10) x the modifiers: the source's "
+         "sample (fast.db outcomes of the source, the copy rank, the callers' +15/-10/45 bench, the Autopilot record: "
+         "the first with n >= 10), else its strategy's prior (pooled per kind, >= 20 outcomes, else no edge 48 %), "
+         "labelled 'procjena, n izvora < 10'; its 90 % interval is Wilson's on (hits + 10 x prior) of (n + 10), mapped "
+         "onto EV. Decision: KUPI (paper) = BUY_PAPER when EV > 0 (0.05 SOL demo); KUPI (live-eligible) = BUY_LIVE only "
+         "with run_trade's proof (n >= 10, EV >= +3 % with its 90 % interval above 0) and this signal's EV >= +3 % "
+         "(a label: paper mode trades it on the demo account); PRESKOČI = SKIP with the check and its number, or EV "
+         "<= 0. An API error is CHECK_FAILED and retried 3x within 30 s, never a skip. "
          "propušteno = SKIP and max >= +20 % within 60 min.")
 
 
@@ -121,8 +128,14 @@ def row_inner(r, esc):
     if r.get("decision") and r.get("status") not in ("queued", "running"):
         b.append(f"<p><b>Odluka:</b> {esc(DEC_HR.get(r['decision'], r['decision']))} · {esc(r.get('reason') or '')}</p>")
         base = (r.get("checks") or {}).get("base") or {}
-        b.append(f"<p class=mut>EV {_pct(r.get('ev_pct'))} · P {_c((r.get('p_tp') or 0) * 100, 0)} % · trošak "
-                 f"{_c(r.get('cost_pct'), 0)} % · baza {esc(base.get('src') or '–')}</p>")
+        est = (r.get("checks") or {}).get("est") or {}
+        if est:   # 11.11. (fast/estimate): EV with its 90 % interval, P with n and its origin
+            from . import estimate
+            b.append(f"<p class=mut>{esc(estimate.ev_text(est))} · {esc(estimate.p_text(est))} · trošak "
+                     f"{_c(r.get('cost_pct'), 1)} % · prior {esc(base.get('src') or '–')}</p>")
+        else:
+            b.append(f"<p class=mut>EV {_pct(r.get('ev_pct'))} · P {_c((r.get('p_tp') or 0) * 100, 0)} % · trošak "
+                     f"{_c(r.get('cost_pct'), 0)} % · baza {esc(base.get('src') or '–')}</p>")
     if q:
         rate = f"{q['win_rate']:.0%}" if q.get("win_rate") is not None else "–"
         b.append(f"<p class=mut>Izvor: {esc(q.get('label') or q.get('id') or '')} ({esc(q.get('kind_hr') or '')}), "
@@ -255,6 +268,8 @@ def _row_out(r):
             "signal_ts": r.get("sig_ts"), "decided_ts": int(r["decided_ts"]) if r.get("decided_ts") else None,
             "latency_s": r.get("latency_s"), "status": r.get("status"), "attempts": r.get("attempts"),
             "decision": r.get("decision"), "reason": r.get("reason") if r.get("decision") else pending_text(r),
+            "label": DEC_HR.get(r.get("decision")) if r.get("decision") else None,
+            "estimate": c.get("est") or None, "lag": c.get("lag") or None,
             "decided_by": c.get("key"), "ev_pct": r.get("ev_pct"), "p_tp": r.get("p_tp"), "cost_pct": r.get("cost_pct"),
             "base_rate": c.get("base"), "size_sol": r.get("size_sol"), "mode": r.get("mode"),
             "wallet_entry": {"price_usd": (res.get("price") or {}).get("values", {}).get("entry_px"),
@@ -290,6 +305,7 @@ def mcp(since=None, decision=None, limit=None, path=None, now=None):
                                 "COALESCE(decided_ts, enq_ts) >= ? GROUP BY 1", (since,)):
             out["summary"][d] = n
         rep = con.execute("SELECT data FROM reports ORDER BY day DESC LIMIT 1").fetchone()
+        out["priors"] = store.kv_get(con, "priors")   # 11.11.: the strategy prior per source kind, with its n
     finally:
         con.close()
     import json

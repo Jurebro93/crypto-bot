@@ -101,7 +101,8 @@ class Labels(TradeBase):
         self.assertIn("HAOBIBI: oznaka vlasnika win (dobitak propušten preranim stopom)", rows[0]["note"])
         self.assertIn("knjiženo -4,26 $ ostaje", rows[0]["note"])
         self.assertTrue(logs[0].startswith("range oznake vlasnika: HAOBIBI"), logs)
-        self.assertTrue(logs[1].startswith("range slični (HAOBIBI)"), logs)
+        # 11.11.: a fresh label is not a similarity reference before it has stood 24 h without a rug
+        self.assertTrue(logs[1].startswith("range slični: nema referenci"), logs)
 
 
 # ---------------------------------------------------------------------------------------------------------------

@@ -64,7 +64,8 @@ class LaterOrders(Base):
                                 "zastavica fast_path: off → shadow",
                                 "zastavica zonewatch: off → shadow",
                                 "zastavica range_flip: off → shadow",
-                                "zastavica range_missed: off → paper", "zastavica exit_plan_live: off → live"])
+                                "zastavica range_missed: off → paper",
+                                "zastavica fast_path: shadow → paper", "zastavica exit_plan_live: off → live"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)

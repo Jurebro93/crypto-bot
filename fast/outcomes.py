@@ -135,6 +135,17 @@ def measure(con, now):
     return closed
 
 
+def source_rates(con, now, days=BASE_DAYS):
+    """{source id: (hits, n)} of the measured signals of the last `days`: each source's own +15 % before -10 % within
+    45 min from our decision (11.11.: P's first sample for a wallet, fast/estimate.sample)."""
+    out = {}
+    for sid, h, n in con.execute("SELECT source_id, COALESCE(SUM(hit), 0), COUNT(*) FROM signals WHERE out_done=1 AND "
+                                 "hit IS NOT NULL AND decided_ts >= ? GROUP BY source_id", (now - days * 86400,)):
+        if sid:
+            out[sid] = (int(h), int(n))
+    return out
+
+
 def base_rates(con, now, days=BASE_DAYS):
     """{kind: (hits, n)} of the measured signals of the last `days` (every decision: what the source's signal did)."""
     out = {}

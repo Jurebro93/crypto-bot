@@ -28,11 +28,20 @@ import time
 
 from . import store
 
-KINDS = ("wallet_follow", "insider", "pre_shill", "group", "influencer")
-WALLET_KINDS = frozenset(KINDS[:4])
+KINDS = ("wallet_follow", "insider", "pre_shill", "group", "influencer", "proven", "convergence", "tool")
+# 11.11. (Jure: every live candidate gets a fast_check): "proven" = a wallets/dokazani wallet whose buy put a token on
+# the live list (ui/zivo smart buys), "convergence" = several sources on one token (kol/converge; the pseudo-source
+# CONVERGENCE, enqueued by the worker's scan of kol.db converge), "tool" = a live pick of the tool itself (topcheck /
+# the Pregled box) with no wallet / call / convergence behind it (fast/live.ensure). The last three come only from the
+# live list and the scan, never from the hooks' followed-source list (except CONVERGENCE, refreshed below).
+WALLET_KINDS = frozenset(KINDS[:4] + ("proven",))
 KIND_HR = {"wallet_follow": "praćeni novčanik", "insider": "insajder prije poziva", "pre_shill": "kupac prije shill mreže",
-           "group": "skupina novčanika", "influencer": "influencer"}
-PRIORITY = {"wallet_follow": 0, "influencer": 1, "insider": 1, "pre_shill": 2, "group": 2}
+           "group": "skupina novčanika", "influencer": "influencer", "proven": "dokazani novčanik",
+           "convergence": "konvergencija izvora", "tool": "živi kandidat alata"}
+PRIORITY = {"wallet_follow": 0, "influencer": 1, "insider": 1, "proven": 1, "convergence": 1, "pre_shill": 2, "group": 2,
+            "tool": 3}
+CONVERGENCE = "konvergencija"
+TOOL = "alat"
 REFRESH_S = 60
 
 
@@ -126,6 +135,7 @@ def collect(league_db=None, early_db=None):
     finally:
         if ec is not None:
             ec.close()
+    put(CONVERGENCE, "convergence", "konvergencija izvora")   # 11.11.: the kol.db converge rows (worker scan)
     return out
 
 
@@ -225,6 +235,19 @@ def wallet_info(w, wallet_db=None):
             "trades_per_day": st.get("trades_per_day")}
 
 
+def rang_info(sid, kind):
+    """{"n", "wins", "win", "win_lo", "proven", "copyable", "score"} of the source in wallets/rang.py (the copy rank,
+    PR #129: a wallet's closed tokens, an influencer's calls of kind 'call'), {} when not ranked or unreadable."""
+    try:
+        from wallets import rang
+        r = rang.get("wallet" if kind in WALLET_KINDS else "kol", sid)
+    except Exception:  # noqa: BLE001 - no wallets.db / table yet: unknown
+        return {}
+    if not r:
+        return {}
+    return {k: r.get(k) for k in ("n", "wins", "win", "win_lo", "proven", "copyable", "score")}
+
+
 def caller_info(handle, now):
     """kol.db caller statistics of one account (ui/kandidati.caller_records: only kind 'call'), {} when unknown."""
     try:
@@ -259,6 +282,11 @@ def quality(sig, now=None, league_db=None):
          "win_rate": round(rec["wins"] / rec["closed"], 3) if rec["closed"] else None,
          "follow_closed": rec["follow_closed"], "fast_closed": rec["fast_closed"], "proof": ok, "proof_why": why,
          "hits": rec["wins"], "n": rec["closed"], "sample": "zapis praćenja + fast paper"}
+    if kind in ("convergence", "tool"):   # 11.11.: pseudo-sources, their record is the fast paper trades of the kind
+        return q
+    rg = rang_info(sid, kind)
+    if rg:   # 11.11. (PR #129): the copy rank's closed tokens / calls, one of P's samples (fast/estimate.sample)
+        q["rang"] = rg
     if kind in WALLET_KINDS:
         wi = wallet_info(sid)
         q.update(tier=wi.get("tier"), score=wi.get("score"), labels=wi.get("labels") or [],
@@ -270,6 +298,8 @@ def quality(sig, now=None, league_db=None):
                                                                                   if ci.get("ev_mean") is not None else None),
                  hit_rate=hit10, minute_n=n_min)
         bn = caller_bench(sid)
+        if bn:
+            q["bench"] = {"n": int(bn.get("n") or 0), "hits": int(bn.get("hits") or 0)}
         if int(bn.get("n") or 0) > q["n"]:   # the caller's measured calls on the fast exit are the bigger sample for P
             q.update(hits=int(bn.get("hits") or 0), n=int(bn["n"]),
                      sample="brzi izlaz callera (+15 % prije −10 % u 45 min, proposals bench)")

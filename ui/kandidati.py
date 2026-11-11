@@ -62,8 +62,10 @@ evidence is refused; with it the buy may be at most half of grok_max_sol_per_tra
 11.11. (Jure: "Dacity score 2.384, ev -0.166, MC $6.6M, tradeable"): tradeable ALSO needs ev_pct > 0 (ev_estimate:
 the n-weighted EV of the measured records the sources rest on, shrunk by SHRINK_N, net of the cost model (trade/cost:
 the records are net of its fee part, the calibration difference and the price impact of the suggested size come off
-on top) and of the P modifiers; n_samples, ev_confidence low under 10); else why_not says "negativan EV" / "EV nije
-izmjeren".
+on top) and of the P modifiers; n_samples, ev_confidence low under 10); else why_not says "negativan EV" / the
+fast_check's state. 11.11. (fast/live, Jure: every live candidate gets a fast_check and an EV): each row carries
+"fast" (the token's fast_check verdict); a row without a measured record takes its EV (fast_ev), a PRESKOČI on a check
+is the block "fast_skip".
 
 The ranking (rank_key): tradeable rows first, then ev_pct, then confluence, then the score (SCORE_TEXT):
     score = 1.0 * log2(1 + confluence)
@@ -508,6 +510,11 @@ class Sources:
     def tpsl(self, handles):
         from kol import tpsl
         return tpsl.for_handles(handles)
+
+    def fast_verdicts(self, tokens, now):
+        """11.11. (fast/live): {token: the fast_check verdict of the last 15 min} (fast.db read-only, {} without it)."""
+        from fast import live
+        return live.lookup(tokens, now)
 
 
 # ---------- measured records ----------------------------------------------------------------------------------------
@@ -1028,6 +1035,9 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
     sfirst = safe("scan_first", lambda: S.scan_first(toks), {})
     archived = safe("archive", S.archived, frozenset())
     lim = safe("limits", S.limits, {"grok_max_sol_per_trade": 0.1, "sl_default": 30.0})
+    # 11.11. (fast/live, Jure: "nikad 'nije izmjeren'"): the tokens' fast_check verdicts (a source without the reader,
+    # e.g. a test double, has none)
+    fastv = safe("fast", lambda: getattr(S, "fast_verdicts", lambda _t, _n: {})(toks, now), {}) or {}
     from league import copy as lcopy
     tables = safe("rug", S.rug_tables, ({}, {}))
     mine = None
@@ -1035,7 +1045,7 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
         mine = lcopy._CONC_CACHE = {"tc": tables[0], "rug": tables[1]}
     try:
         out = [_finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details,
-                       raw) for r in rows.values()]
+                       raw, fastv=fastv) for r in rows.values()]
     finally:
         # the dashboard's copy loop (league/auto -> copy.run_once) sets and clears the same cache in its own thread:
         # only our own dict is taken back, never one a running pass put there
@@ -1130,6 +1140,36 @@ def paper_only(srcs):
     return "event" in srcs or (srcs.get("range") or {}).get("watch_source") in ("market", "event", "missed")
 
 
+def fast_ev(evx, fv, why_not):
+    """11.11. (fast/live, Jure: "nikad 'nije izmjeren'"): a row whose sources have no measured record takes the EV of
+    its token's fast_check (P from the source's record or its strategy's prior, after the cost model) when that check
+    decided on the EV (KUPI, or PRESKOČI because EV <= 0); a PRESKOČI on a check (rug, holders, flow, price / MC band,
+    the source leaving) is a block of its own ("fast_skip"). Returns the verdict or None."""
+    if not fv:
+        return None
+    if fv.get("state") != "done":
+        return fv
+    if fv.get("decision") == "SKIP" and fv.get("key") != "ev":
+        why_not.add("fast_skip", f"fast_check PRESKOČI: {fv.get('reason') or ''}".strip())
+    elif evx["ev_pct"] is None and fv.get("ev_pct") is not None:
+        n = int(fv.get("n") or 0)
+        evx.update(ev_pct=round(float(fv["ev_pct"]), 2), n_samples=n,
+                   ev_confidence="low" if n < 10 else ("medium" if n < 30 else "high"))
+        evx["detail"].append({"from": "fast_check", "ev_pct": fv["ev_pct"],
+                              "ci90": [fv.get("ev_lo_pct"), fv.get("ev_hi_pct")], "p_tp": fv.get("p"), "n": n,
+                              "origin": fv.get("origin"), "label": fv.get("n_label")})
+    return fv
+
+
+def _fast_out(fv):
+    """The fast_check verdict as the MCP row carries it (None without one)."""
+    if not fv:
+        return None
+    keep = ("state", "label", "decision", "ev_pct", "ev_lo_pct", "ev_hi_pct", "p", "p_lo", "p_hi", "n", "origin",
+            "n_label", "lag_pct", "lag_txt", "reason", "kind", "source", "sig_ts", "decided_ts")
+    return {k: fv.get(k) for k in keep if k in fv}
+
+
 class _WhyNot(list):
     """why_not, and next to each line its key (11.11., proposals/: the proposals pass applies its own subset of the
     blocks by key, never by parsing the Croatian text)."""
@@ -1143,7 +1183,8 @@ class _WhyNot(list):
         self.keys.append({"key": key, "text": text})
 
 
-def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details, raw=False):
+def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details, raw=False,
+            fastv=None):
     tok, m = r["token"], r["m"] or {}
     from league import copy as lcopy
     srcs = r["sources"]
@@ -1243,8 +1284,12 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
         e1 = _tedge.ev_p_mult(e0, mods["p_mult"], _tcost.round_trip(size * SOL_USD, liq))
         evx["detail"].append({"from": "p_modifiers", "p_mult": mods["p_mult"], "ev_pct": round((e1 - e0) * 100, 2)})
         evx["ev_pct"] = round(e1 * 100, 2)
+    fv = fast_ev(evx, (fastv or {}).get(tok), why_not)
     if evx["ev_pct"] is None:
-        why_not.add("ev_unmeasured", "EV nije izmjeren (0 izmjerenih ishoda izvora): tradeable traži EV > 0")
+        why_not.add("ev_unmeasured", "EV: izvori bez izmjerenih ishoda, " + (
+            f"fast_check: {fv.get('label') or 'provjera u tijeku'}" if fv
+            else "nema fast_check-a (nema kupnje praćenog novčanika, poziva ni konvergencije u 15 min)")
+            + ": tradeable traži EV > 0")
     elif evx["ev_pct"] <= 0:
         why_not.add("ev_negative", f"negativan EV: {evx['ev_pct']:+.1f} % po tradeu nakon troška i slippagea "
                        f"(n={evx['n_samples']})")
@@ -1264,7 +1309,7 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
         + (["shill_driven"] if shill else []) + (["runup_4x"] if ru["x"] and ru["x"] >= RUNUP_MAX_X else [])
     out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": list(why_not),
            "ev_pct": evx["ev_pct"], "n_samples": evx["n_samples"], "ev_confidence": evx["ev_confidence"],
-           "ev_detail": evx["detail"],
+           "ev_detail": evx["detail"], "fast": _fast_out(fv),
            "flags": flags, "tags": tags, "modifiers": {"p_mult": mods["p_mult"], "size_mult": mods["size_mult"]},
            "score": round(sum(parts.values()), 3), "score_parts": parts,
            "confluence": confluence, "source_kinds": sorted(srcs), "sources": srcs,

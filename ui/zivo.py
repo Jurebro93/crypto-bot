@@ -23,6 +23,11 @@ Two layers, so the page can be fast and still strict:
   (11.11., owner's rule B: a tag, not a block): pick stays True, tags ["kasno"] and tag "kasno: ..." (P x 0.7 and half
   the size where the trade is decided, trade/edge), sorted after the untagged rows. league/copy's runup_default gate already measures from the first call (copy.first_call: the earliest
   call overall, its price p0), so the copy entries need no change.
+- 11.11. (Jure: "za svakog živog kandidata odmah fast_check i procjena EV-a, nikad 'nije izmjeren'"): fast_mark puts the
+  token's fast_check verdict on every row (fast/live.attach: the row's triggers go into the fast path's queue when it
+  has no check: its callers, its followed / proven wallets, its convergence, else the tool's own pick): KUPI (paper) /
+  KUPI (live-eligible) with EV, its 90 % interval, P with n and its origin and the lag from the source's entry; while
+  it runs "provjera u tijeku", a CHECK_FAILED with its failing check; a PRESKOČI is no pick (why_not = its reason).
 """
 import threading
 import time
@@ -277,15 +282,19 @@ def runup_mark(r, first):
     return r
 
 
-def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, sync=False, firsts=None):
+def rows(now=None, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, sync=False, firsts=None,
+         fastv=None):
     """The live table: candidates that trade right now, with fresh numbers, most active first. Cached LIVE_TTL.
     9.11. (audit P33): without injected data this never fetches in the caller's thread: a fresh cache is returned,
     a stale one is returned as it is while the refresh thread (started here) fills it; sync=True computes in place
-    (the 60-s Pregled box). Each row carries 'checked' = the time of its numbers, so a page shows data time."""
+    (the 60-s Pregled box). Each row carries 'checked' = the time of its numbers, so a page shows data time.
+    11.11. (Jure: "nikad 'nije izmjeren'"): every row carries "fast", its fast_check verdict (fast/live: the queue gets
+    the row's triggers when it has none; EV with its 90 % interval, P with n and its origin, the lag from the source's
+    entry, the decision and the reason). fastv: {token: verdict} injected by tests."""
     now = now or time.time()
     injected = cands is not None
     if injected:   # tests: no first-call lookup unless they pass firsts
-        return _compute(now, cands, live, callers, smart, mstats, chances, firsts if firsts is not None else {})
+        return _compute(now, cands, live, callers, smart, mstats, chances, firsts if firsts is not None else {}, fastv)
     _BG["asked"] = now
     if now - _ROWS["ts"] < LIVE_TTL:
         return _ROWS["rows"]
@@ -327,7 +336,7 @@ def _ensure_bg():
             t.start()
 
 
-def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, firsts=None):
+def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, chances=None, firsts=None, fastv=None):
     from ui import prijedlog
     cs = cands if cands is not None else candidates(now)
     if not cs:
@@ -359,8 +368,31 @@ def _compute(now, cands=None, live=None, callers=None, smart=None, mstats=None, 
         r["heat"] = (3 * len(r["callers10"]) + 4 * r["smart10"] + (m.get("ch_m5") or 0) / 10 + min(3.0, turn))
         runup_mark(r, firsts.get(t))   # 11.11. (Grok #92): 4x+ over the first call = shown, not a pick
         out.append(r)
+    fast_mark(out, now, fastv, injected=cands is not None)
     out.sort(key=lambda r: (not r["pick"], bool(r.get("tags")), -r["heat"], r["age_s"]))
     return out
+
+
+def fast_mark(out, now, fastv=None, injected=False):
+    """11.11. (Jure: "za svakog živog kandidata odmah fast_check i EV, nikad 'nije izmjeren'"): r["fast"] on every row
+    (fast/live.attach: the row's triggers into the queue when the token has no check yet, then its verdict). A
+    PRESKOČI is no pick: why_not is the check's reason (the row moves to the bottom; "Što kupiti" leaves it out, the
+    Preskočeni box lists it). Injected rows (tests) take fastv as given and never touch fast.db."""
+    if injected:
+        for r in out:
+            if fastv is not None and r["token"] in fastv:
+                r["fast"] = fastv[r["token"]]
+    else:
+        try:
+            from fast import live as flive
+            flive.attach(out, now)
+        except Exception as e:  # noqa: BLE001 - the list itself never depends on the fast path
+            print(f"zivo: fast_check: {type(e).__name__}: {e}", flush=True)
+    for r in out:
+        f = r.get("fast") or {}
+        if f.get("decision") == "SKIP":
+            r["pick"] = False
+            r["why_not"] = f"fast_check PRESKOČI: {f.get('reason') or ''}".strip()
 
 
 MOVE_M5 = 5.0        # +5 % in 5 minutes with real prints counts as a fresh reason
