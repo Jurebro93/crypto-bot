@@ -206,8 +206,8 @@ class SameRoutes(Env):
         self.assertEqual(acts - known, set())                               # no new POST route
         buy = next(n for a, n in got if a == "/pravi-trade/buy")
         # prijedlog is added by Kupi on a proposal; 11.11. (noc/sltp) chart_mint + confirm_mismatch: the chart's token,
-        # a buy of another token only when confirmed (pravitrade._chart_guard)
-        self.assertEqual(buy, {"token", "sol", "at", "tp", "sl", "exit", "chart_mint", "confirm_mismatch"})
+        # a buy of another token only when confirmed (pravitrade._chart_guard); 11.11. (plan uz kupnju): trail + time
+        self.assertEqual(buy, {"token", "sol", "at", "tp", "sl", "exit", "chart_mint", "confirm_mismatch", "trail", "time"})
         for a, n in got:
             if a == "/pravi-trade/sell":
                 self.assertEqual(n, {"id", "frac"})

@@ -90,7 +90,9 @@ class StoKupiti(Env):
         for s in ("L1", "L2"):   # the fast path's exit, no proposal id (an ordinary buy)
             self.assertEqual((got[s]["tp"], got[s]["sl"], got[s]["trail"], got[s]["kind"]), ("15%", "-10%", 8.0, "alat"))
             self.assertNotIn("id", got[s])
-            self.assertIn("Ručna kupnja postavlja samo TP/SL", got[s]["plan"])
+            # 11.11. (plan uz kupnju): the time stop too, and the buy sets the whole plan
+            self.assertEqual(got[s]["time"], 45)
+            self.assertIn("Kupnja postavlja taj plan izlaza", got[s]["plan"])
         self.assertIn("(KUPI)", got["L1"]["plan"])
 
     def test_proposal_fill_falls_back_to_the_exit_levels(self):
@@ -169,14 +171,14 @@ class Editor(Env):
                 h.do_POST()
             return h
 
-        h = post("/pravi-trade/exit", {"id": pid, "tp": "60%25", "sl": "%2485k"}, fetch=True)
+        h = post("/pravi-trade/exit", {"id": pid, "tp": "60%25", "sl": "%24255k"}, fetch=True)   # -25 % (11.11.: <= -30 %)
         code, raw, ctype = h.sent[0]
         self.assertEqual((code, ctype), (200, "application/json"))
         to = json.loads(raw)["to"]
         self.assertTrue(to.startswith("/pravi-trade?ok="), to)
         self.assertTrue(to.endswith(f"#poz-{pid}"))
         p = json.loads(apterm.first_json("Jure", LIVE_T))["positions"][0]   # not the 3-s cached view
-        self.assertEqual((p["tp"], p["sl"]), ("60%", "$85k"))
+        self.assertEqual((p["tp"], p["sl"]), ("60%", "$255k"))
         h = post("/pravi-trade/exit", {"id": pid, "tp": "abc"}, fetch=True)   # an error: in the JSON, not a redirect
         self.assertIn("err=", json.loads(h.sent[0][1])["to"])
         h = post("/pravi-trade/exit", {"id": pid, "tp": "50%25"}, fetch=False)   # the plain form: the redirect as before

@@ -1032,16 +1032,18 @@
       let h = f.elements.prijedlog;   // a proposal's id: its exit plan goes with the buy (pravitrade._post_proposal_buy)
       if (d.id) { if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'prijedlog'; f.appendChild(h); } h.value = d.id; }
       else if (h) h.remove();
-      const pc = d.trail ? String(+(+d.trail).toFixed(2)).replace('.', ',') + NB + '%' : '';
-      const tr = $('[data-trail]', f);
-      if (tr) {
-        tr.value = !pc ? '' : d.id ? pc + ' (iz plana prijedloga)' : pc + ' u planu brzog puta (ova kupnja ga ne postavlja)';
-        const lab = tr.closest('label'); if (lab) lab.classList.toggle('apx-dis', !pc);
-        if (pc) { const det = tr.closest('details'); if (det) det.open = true; }
-      }
+      // 11.11. (owner: "Plan izlaza uz kupnju: DA"): trailing and time stop are the buy's own fields now (the plan
+      // the server sets with the buy: pravitrade._buy_plan), filled from the proposal / the fast path's exit
+      const num = v => (v === null || v === undefined || v === '') ? '' : String(+(+v).toFixed(2));
+      const pc = num(d.trail), tm = num(d.time);
+      const tr = $('[data-trail]', f), tt = $('[data-time]', f);
+      if (tr) tr.value = pc;
+      if (tt) tt.value = tm;
+      if (pc || tm) { const det = (tr || tt).closest('details'); if (det) det.open = true; }
       if (!note) { note = document.createElement('p'); note.id = 'ap-pk-note'; note.className = 'apx-note'; f.insertBefore(note, $('[data-cost]', f)); }
       note.textContent = `${d.id ? 'Prijedlog' : 'Alat (živo)'} ${d.sym}: ulog ${String(d.sol).replace('.', ',')} SOL, TP ${d.tp || '–'}, ` +
-        `SL ${d.sl || 'zadani'}${pc ? ', trailing ' + pc : ''}. ${d.plan ? d.plan + ' ' : ''}Provjeri i dodirni Kupi.`;
+        `SL ${d.sl || 'zadani'}${pc ? ', trailing ' + pc.replace('.', ',') + NB + '%' : ''}${tm ? ', time stop ' + tm + NB + 'min' : ''}. ` +
+        `${d.plan ? d.plan + ' ' : ''}Provjeri i dodirni Kupi.`;
     } else {
       if (f.elements.prijedlog) f.elements.prijedlog.remove();
       if (note) note.remove();

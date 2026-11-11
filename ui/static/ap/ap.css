@@ -103,6 +103,11 @@ a.apx-state:hover{border-color:var(--line2)}
  gap:4px 10px;align-items:center;padding:10px 2px;border-bottom:1px solid var(--line)}
 .apx-pos>.apx-act{grid-column:1/-1;margin-top:2px}
 .apx-gnote{grid-column:1/-1;font-size:12.5px;color:var(--mut);background:var(--soft);border-radius:10px;padding:6px 10px}
+.apx-plan{grid-column:1/-1;font-size:12.5px;border-radius:10px;padding:5px 10px;line-height:1.4}
+.apx-plan b{font-weight:700}
+.apx-plan.up{color:var(--up);background:color-mix(in srgb,var(--up) 11%,var(--card));
+ box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--up) 35%,var(--line))}
+.apx-plan.paper{color:var(--mut);background:var(--soft);box-shadow:inset 0 0 0 1px var(--line)}
 .apx-tr.apx-ord{grid-template-columns:minmax(110px,1.4fr) .9fr 1fr .8fr 1.3fr minmax(80px,.8fr)}
 .apx-tr.apx-hist{grid-template-columns:minmax(110px,1.4fr) 1fr .8fr .8fr 1fr 1fr minmax(70px,.6fr)}
 .apx-tr:last-child{border-bottom:0}
