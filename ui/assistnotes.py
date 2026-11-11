@@ -160,7 +160,10 @@ def submit_suggestion(con, kid, title, interpretation=None, improvement=None, ev
     nid = _insert(con, kid, kind="suggestion", title=_text(title, "title", need=True, cap=TITLE_MAX),
                   interpretation=_text(interpretation, "interpretation", need=True),
                   improvement=_text(improvement, "improvement"), evidence=_json(evidence, "evidence"), proposed_change=pc)
-    return _done(nid, "suggestion")
+    out = _done(nid, "suggestion")
+    if _is_weight(json.loads(pc) if pc else None):   # 11.11.: a caller weight is applied on arrival (auto_apply_weight)
+        out.update(_auto_weight_answer(con, nid, f"mcp:{kid}"))
+    return out
 
 
 def submit_daily_summary(con, kid, title, interpretation=None, evidence=None):
@@ -409,14 +412,15 @@ def _current(con, key):
     return raw.get(key, None)
 
 
-def record_applied(con, nid, key, old, new, note="", client=None):
+def record_applied(con, nid, key, old, new, note="", client=None, extra=None):
     """An owner-ordered change that is already done: one line in applied_log for note `nid` (with the time) and the
     note marked primijenjeno, so get_assistant_notes / get_scoring_config show it. A note that is missing or was
-    rejected only gets the log line."""
+    rejected only gets the log line. extra: more fields of the log line (e.g. suggestion_id)."""
     ensure(con)
     now = int(time.time())
     log = list(settings.raw(con).get("applied_log") or [])
-    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new, **({"client": client} if client else {})})
+    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new, **({"client": client} if client else {}),
+                   **(extra or {})})
     _set_settings(con, "applied_log", log[:200])
     con.execute("UPDATE assistant_notes SET status='primijenjeno', decided_ts=?, owner_note=COALESCE(owner_note, ?) "
                 "WHERE id=? AND status IN ('novo', 'prihvaćeno')", (now, (note or "")[:1000] or None, int(nid)))
@@ -731,6 +735,141 @@ def apply(con, nid, owner_note=""):
     con.commit()
     print(f"pravi trade: primijenjen prijedlog asistenta #{d['id']}: {words}", flush=True)
     return "primijenjeno", f"Primijenjeno: {words}."
+
+
+# ---------- caller weights: applied on arrival ----------------------------------------------------------------------
+# 11.11. (Jure: "Automatically accept all weight changes and apply them."): a caller weight suggested by the assistant
+# (a suggestion note with proposed_change {"caller", "platform", "weight"}, from submit_suggestion or
+# submit_caller_weights; or a row of the older table assistant_suggestions) is written into trade settings
+# caller_weights the moment it arrives, through the same path as "Primijeni na bota" (_apply_caller, range 0-2), logged
+# in applied_log (ts, note_id or suggestion_id, key caller_weights.<handle>, old, new, client) and marked applied. The
+# weights act only through the flag caller_weights (ui/autopilot.caller_weights_flag); this NEVER moves that flag.
+AUTO_WEIGHT_WHY = "vlasnik 11.11.: težine callera primjenjuju se automatski"
+WEIGHTS_ONCE_KEY = "owner_once_1111_weights"
+SUGG_COLS = ("applied_ts",)
+
+
+def _is_weight(pc):
+    return isinstance(pc, dict) and "caller" in pc and "weight" in pc
+
+
+def auto_apply_weight(con, nid, client=None):
+    """Apply note `nid`'s caller weight now. (key, old, new); None when the note carries no weight or no longer
+    waits (rejected / applied). ValueError (weight outside 0-2, no handle): the note stays as it is."""
+    ensure(con)
+    r = con.execute("SELECT proposed_change FROM assistant_notes WHERE id=? AND kind='suggestion' AND status IN "
+                    "('novo', 'prihvaćeno')", (int(nid),)).fetchone()
+    try:
+        pc = json.loads(r[0]) if r and r[0] else None
+    except ValueError:
+        pc = None
+    if not _is_weight(pc):
+        return None
+    h, old, new = _apply_caller(con, pc)
+    key = f"caller_weights.{h}"
+    record_applied(con, nid, key, old, new, AUTO_WEIGHT_WHY, client=client or "auto")
+    print(f"pravi trade: težina callera {h}: {old} → {new} (bilješka #{nid}, automatski)", flush=True)
+    return key, old, new
+
+
+def _auto_weight_answer(con, nid, client):
+    """The part of submit_suggestion's answer for a caller weight."""
+    try:
+        got = auto_apply_weight(con, nid, client)
+    except (ValueError, TypeError) as e:
+        return {"status": "novo", "message": f"Stored, NOT applied: {e}. The owner decides it on the Autopilot page."}
+    if not got:
+        return {}
+    key, old, new = got
+    mode = settings.flag("caller_weights", con=con)
+    return {"status": "primijenjeno", "applied": {"key": key, "old": old, "new": new},
+            "flag_caller_weights": mode,
+            "message": (f"Applied at once (the owner's standing order): {key} {old} -> {new}. Caller weights act only "
+                        f"through the flag caller_weights, now {mode}; this never changes the flag.")}
+
+
+def _sugg_ensure(con):
+    """The older table assistant_suggestions (ui/mcpdata.SUGG_SCHEMA) with its applied_ts column."""
+    from ui import mcpdata
+    con.execute(mcpdata.SUGG_SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(assistant_suggestions)")}
+    for c in SUGG_COLS:
+        if c not in have:
+            con.execute(f"ALTER TABLE assistant_suggestions ADD COLUMN {c} INTEGER")
+    con.commit()
+
+
+def apply_suggestion_weight(con, sid, client=None):
+    """A row of assistant_suggestions (pending, or approved by /pravi-trade/sugok and not applied yet): its weight
+    into caller_weights, the log line (suggestion_id), status approved with applied_ts. (key, old, new) or None."""
+    _sugg_ensure(con)
+    r = con.execute("SELECT handle, platform, weight FROM assistant_suggestions WHERE id=? AND (status='pending' OR "
+                    "(status='approved' AND applied_ts IS NULL))", (int(sid),)).fetchone()
+    if not r:
+        return None
+    h, old, new = _apply_caller(con, {"caller": r[0], "platform": r[1] or "x", "weight": r[2]})
+    now = int(time.time())
+    key = f"caller_weights.{h}"
+    record_applied(con, 0, key, old, new, AUTO_WEIGHT_WHY, client=client or "auto", extra={"suggestion_id": int(sid)})
+    con.execute("UPDATE assistant_suggestions SET status='approved', decided_ts=COALESCE(decided_ts, ?), applied_ts=? "
+                "WHERE id=?", (now, now, int(sid)))
+    con.commit()
+    print(f"pravi trade: težina callera {h}: {old} → {new} (prijedlog #{sid}, automatski)", flush=True)
+    return key, old, new
+
+
+def apply_waiting_weights(con, client="vlasnik 11.11. (jednom)"):
+    """Every caller weight still waiting: suggestion notes novo / prihvaćeno with a weight, and assistant_suggestions
+    rows pending or approved-not-applied, oldest first (a newer weight of the same caller wins). [text] of what was
+    done; a weight that fails its check is logged and left waiting."""
+    ensure(con)
+    done = []
+    for nid, pc in con.execute("SELECT id, proposed_change FROM assistant_notes WHERE kind='suggestion' AND status IN "
+                               "('novo', 'prihvaćeno') AND proposed_change IS NOT NULL ORDER BY id").fetchall():
+        try:
+            if not _is_weight(json.loads(pc)):
+                continue
+            got = auto_apply_weight(con, nid, client)
+        except (ValueError, TypeError) as e:
+            done.append(f"#{nid}: nije primijenjeno ({e})")
+            continue
+        if got:
+            done.append(f"#{nid} {got[0]}: {got[1]} → {got[2]}")
+    try:
+        _sugg_ensure(con)
+        ids = [i for (i,) in con.execute("SELECT id FROM assistant_suggestions WHERE status='pending' OR "
+                                         "(status='approved' AND applied_ts IS NULL) ORDER BY id")]
+    except Exception:  # noqa: BLE001 - no older table: nothing waits there
+        ids = []
+    for sid in ids:
+        try:
+            got = apply_suggestion_weight(con, sid, client)
+        except (ValueError, TypeError) as e:
+            done.append(f"prijedlog #{sid}: nije primijenjen ({e})")
+            continue
+        if got:
+            done.append(f"prijedlog #{sid} {got[0]}: {got[1]} → {got[2]}")
+    return done
+
+
+def owner_once_1111(con, now=None):
+    """11.11. (Jure), once at the first start after the deploy (dca_loop): every caller weight still waiting is
+    applied (apply_waiting_weights), and the stale Grok trade requests are tidied (ui/mcpapi.cleanup_requests_once).
+    [text] of what was done ([] when both ran before)."""
+    done = []
+    if not settings.raw(con).get(WEIGHTS_ONCE_KEY):
+        done += apply_waiting_weights(con)
+        settings.put(con, WEIGHTS_ONCE_KEY, int(now or time.time()), "Jure")
+    try:
+        from ui import mcpapi
+        n = mcpapi.cleanup_requests_once(con, now)
+        if n:
+            done.append(f"zastarjelih zahtjeva s Groka pospremljeno: {n}")
+    except Exception as e:  # noqa: BLE001 - the 5-min tick tidies them anyway
+        done.append(f"zahtjevi s Groka nisu pospremljeni ({type(e).__name__})")
+    for t in done:
+        print(f"pravi trade: nalog vlasnika 11.11.: {t}", flush=True)
+    return done
 
 
 def _num(x):

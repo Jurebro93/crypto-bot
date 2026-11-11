@@ -245,25 +245,65 @@ class Tools(Base):
         for secret in ("mcp_key", "wallet_pub", "PRIVATE"):
             self.assertNotIn(secret, text)
 
-    def test_8_submit_caller_weights_waits_for_the_owner(self):
+    def test_8_submit_caller_weights_applied_on_arrival(self):
+        """11.11. (Jure: "Automatically accept all weight changes and apply them."): written into caller_weights at
+        once (0-2), logged with old / new / client, the notes marked primijenjeno; the flag is never moved."""
         from ui import mcpdata, pravitrade
         from ui import assistnotes
+        settings.put(self.con, "caller_weights", {"ansem": 0.8})
         out = mcpdata.submit_caller_weights([{"handle": "@ansem", "platform": "x", "weight": 1.5, "reason": "x2 rate"},
-                                             {"handle": "alpha", "platform": "telegram", "weight": 0}])
-        self.assertEqual((out["stored"], out["status"]), (2, "novo"))
-        rows, total = assistnotes.notes(self.con, "novo", "suggestion")
-        self.assertEqual({(r["proposed_change"]["caller"], r["proposed_change"]["weight"]) for r in rows},
-                         {("ansem", 1.5), ("tg:alpha", 0.0)})
-        self.assertIn("error", mcpdata.submit_caller_weights([{"handle": "x", "weight": 3}]))
+                                             {"handle": "alpha", "platform": "telegram", "weight": 0}], kid="grok")
+        self.assertEqual((out["stored"], out["status"], len(out["applied"])), (2, "primijenjeno", 2))
+        self.assertEqual(settings.raw(self.con)["caller_weights"], {"ansem": 1.5, "tg:alpha": 0.0})
+        self.assertEqual(settings.flag("caller_weights", con=self.con), "off")      # the flag is the owner's
+        log = {a["key"]: a for a in settings.raw(self.con)["applied_log"]}
+        a = log["caller_weights.ansem"]
+        self.assertEqual((a["old"], a["new"], a["client"]), (0.8, 1.5, "mcp:grok"))
+        self.assertIn(a["note_id"], out["ids"])
+        self.assertEqual(assistnotes.notes(self.con, "novo", "suggestion")[1], 0)
+        rows, total = assistnotes.notes(self.con, "primijenjeno", "suggestion")
+        self.assertEqual(total, 2)
+        notes = mcpdata.assistant_notes(status="primijenjeno")["rows"]
+        self.assertTrue(all(r["applied_ts"] for r in notes))
+        self.assertIn("error", mcpdata.submit_caller_weights([{"handle": "x", "weight": 3}]))   # the 0-2 check
         self.assertIn("error", mcpdata.submit_caller_weights([]))
+        self.assertNotIn("x", settings.raw(self.con)["caller_weights"])
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("Prijedlozi asistenta", body)
-        self.assertIn("težina callera ansem (x) → 1.5", body)
-        loc = pravitrade.post("/pravi-trade/asapply", {"id": str(next(r["id"] for r in rows
-                                                                       if r["proposed_change"]["caller"] == "ansem"))}, "Jure")
-        self.assertIn("ok=", loc)
-        self.assertEqual(settings.raw(self.con)["caller_weights"], {"ansem": 1.5})
-        self.assertEqual(assistnotes.notes(self.con, "novo", "suggestion")[1], 1)
+        self.assertNotIn("težina callera ansem (x) → 1.5", body)                   # nothing waits for a tap
+
+    def test_8b_waiting_weights_applied_once_at_start(self):
+        """Every weight still waiting (notes novo / prihvaćeno, the older table pending or approved-not-applied) is
+        applied once at the next start; the older table's sugok approval applies at once too."""
+        from ui import assistnotes, mcpdata
+        assistnotes.ensure(self.con)
+        now = int(time.time())
+        for pc, st in (({"caller": "old1", "platform": "x", "weight": 1.2}, "novo"),
+                       ({"caller": "old2", "platform": "x", "weight": 0.4}, "prihvaćeno"),
+                       ({"caller": "bad", "platform": "x", "weight": 7}, "novo"),
+                       ({"key": "tp_default", "to": 30}, "novo")):
+            self.con.execute("INSERT INTO assistant_notes (ts, kind, title, interpretation, proposed_change, status, "
+                             "key_id) VALUES (?,?,?,?,?,?,?)", (now, "suggestion", "t", "i", json.dumps(pc), st, "k"))
+        self.con.execute(mcpdata.SUGG_SCHEMA)
+        self.con.executemany("INSERT INTO assistant_suggestions (ts, kind, handle, platform, weight, reason, status) "
+                             "VALUES (?,?,?,?,?,?,?)", [(now, "caller_weight", "s1", "x", 1.1, "r", "pending"),
+                                                        (now, "caller_weight", "s2", "telegram", 0.7, "r", "approved"),
+                                                        (now, "caller_weight", "s3", "x", 0.2, "r", "rejected"),
+                                                        (now, "caller_weight", "s4", "x", 1.9, "r", "pending")])
+        self.con.commit()
+        self.assertEqual(mcpdata.decide_suggestion(self.con, 4, "approved"), 1)    # the sugok tap applies at once
+        self.assertEqual(settings.raw(self.con)["caller_weights"], {"s4": 1.9})
+        done = assistnotes.owner_once_1111(self.con, now)
+        w = settings.raw(self.con)["caller_weights"]
+        self.assertEqual(w, {"s4": 1.9, "old1": 1.2, "old2": 0.4, "s1": 1.1, "tg:s2": 0.7})
+        self.assertTrue(any("bad" in t or "nije primijenjeno" in t for t in done))
+        self.assertIsNone(self.con.execute("SELECT applied_ts FROM assistant_suggestions WHERE handle='s3'").fetchone()[0])
+        st = dict(self.con.execute("SELECT handle, status FROM assistant_suggestions").fetchall())
+        self.assertEqual(st, {"s1": "approved", "s2": "approved", "s3": "rejected", "s4": "approved"})
+        log = settings.raw(self.con)["applied_log"]
+        self.assertEqual({a.get("suggestion_id") for a in log if a.get("suggestion_id")}, {1, 2, 4})
+        self.assertEqual(settings.flag("caller_weights", con=self.con), "off")
+        self.assertEqual(assistnotes.owner_once_1111(self.con, now), [])           # once
+        self.assertEqual(assistnotes.notes(self.con, "novo", "suggestion")[1], 2)  # the bad weight and the tp_default
 
     def test_tools_are_listed_and_read_only_ones_are_marked(self):
         from ui import mcpapi

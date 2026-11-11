@@ -12,7 +12,9 @@ get_market_signals, get_token_details, get_portfolio_status, execute_trade s req
 
 Every call needs "Authorization: Bearer <MCP_API_KEY>" (Render env); without that variable the API answers 404, as
 if it did not exist. Read-only on the databases except the request queue (trade settings "mcp_requests"), the
-assistant's notes (ui/assistnotes.py) and the insert-only X features (xfeat.db, ui/xfeat.py; 10.11. Grok MCP audit 10).
+assistant's notes (ui/assistnotes.py) and the insert-only X features (xfeat.db, ui/xfeat.py; 10.11. Grok MCP audit 10);
+11.11.: also the caller weights (applied on arrival, trade settings caller_weights, behind the flag caller_weights)
+and Grok's predictions (events.db grok_predictions, insert only, events/predictions.py).
 Why trades wait for the owner: the client is an LLM that reads public posts; a crafted post has already made Grok
 order a transfer (May 2026). Real money moves only on the owner's tap (CLAUDE.md: pitaj prije), or, since 10.11. at
 the owner's request, through grok_autotrade: off by default, switched on only by the owner on the Autopilot page,
@@ -247,6 +249,14 @@ def portfolio(now=None):
                 "limits": {k: cfg.get(k) for k in ("size_sol", "max_sol_per_trade", "max_sol_per_day", "max_open",
                                                      "tp_default", "sl_default")},
                 "open_positions": out,
+                # 11.11.: whether set_exit_plan sells on the real account (each plan's exit_plan.execution says it too)
+                "exit_plans": {"exit_plans": settings.flag("exit_plans", con=tcon),
+                               "exit_plan_live": settings.flag("exit_plan_live", con=tcon),
+                               "paused_by_owner": bool(raw.get("exit_plans_paused")),
+                               "rule": ("a plan sells on the real account (execution.mode live) when exit_plans is "
+                                        "live, or when exit_plan_live is live and every lot of the position is a Grok "
+                                        "autotrade buy while Grok autotrade is on; otherwise paper: the real account "
+                                        "only logs it and keeps its default TP/SL")},
                 "grok_autotrade": _grok_part(tcon, now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
                                 # 11.11.: only what can still be approved (not expired, not a sell of a closed position)
@@ -277,6 +287,9 @@ def set_exit_plan(token, plan, kid="mcp"):
         print(f"mcp: plan izlaza #{out['plan_id']} za {tok[:6]}: {out['plan'].get('reason') or ''}", flush=True)
         out["flag_mode"] = settings.flag("exit_plans", con=tcon)
         out["paused_by_owner"] = bool(settings.raw(tcon).get("exit_plans_paused"))
+        # 11.11.: per account whether the plan sells live (the real account) or paper, and why (league/exitplan)
+        out["execution"] = {u: exitplan.execution(u, exitplan._lots(lcon, u, tok)) for u in out.get("stop_price") or {}}
+        out["exit_plan_live"] = settings.flag("exit_plan_live", con=tcon)
         return out
     finally:
         lcon.close()
@@ -365,20 +378,36 @@ def trade_request(body, now=None):
 
 
 def _open_tokens(tcon):
+    """{token: [opened_ts of each open position]} (a dict: `token in` works as with the set it used to be)."""
+    out = {}
     try:
-        return {t for (t,) in tcon.execute("SELECT DISTINCT token FROM positions WHERE status='open'")}
+        for t, ts in tcon.execute("SELECT token, opened_ts FROM positions WHERE status='open'"):
+            out.setdefault(t, []).append(int(ts or 0))
     except Exception:  # noqa: BLE001 - no positions table yet: nothing is open
-        return set()
+        return {}
+    return out
+
+
+def sell_positions_open(r, open_tokens):
+    """11.11. (VC sell g1794342901001, its position closed 10.11. 21:55): a sell request is about the positions of
+    its token that were open when it was made (opened at or before its ts); a position opened later is another
+    position. True while at least one of those is still open (open_tokens: _open_tokens() or a plain set)."""
+    tok = r.get("token")
+    if tok not in open_tokens:
+        return False
+    opened = open_tokens.get(tok) if isinstance(open_tokens, dict) else None
+    return opened is None or any(ts <= (r.get("ts") or 0) for ts in opened)
 
 
 def request_status(r, now, open_tokens):
     """11.11. (Jure: request g1794340688000 for Hope still "pending" after the position was closed): the status a
-    request really has now. A pending sell whose position is no longer open is "obsolete"; a pending request older
-    than REQUEST_TTL_S is "expired" (it can no longer be approved: the market moved); everything else as stored."""
+    request really has now. A pending sell whose position is no longer open is "obsolete" (sell_positions_open: a
+    NEW position in the same token does not revive an old sell); a pending request older than REQUEST_TTL_S is
+    "expired" (it can no longer be approved: the market moved); everything else as stored."""
     st = r.get("status")
     if st != "pending":
         return st
-    if r.get("side") == "sell" and r.get("token") not in open_tokens:
+    if r.get("side") == "sell" and not sell_positions_open(r, open_tokens):
         return "obsolete"
     if now - (r.get("ts") or 0) >= REQUEST_TTL_S:
         return "expired"
@@ -396,9 +425,10 @@ def pending(tcon, now=None):
     return [r for r in reqs if request_status(r, now, op) == "pending"]
 
 
-def requests_view(tcon, now=None, limit=20):
+def requests_view(tcon, now=None, limit=20, include_closed=True):
     """The last `limit` requests, newest first, each with its real status (pending | expired | obsolete | approved |
-    rejected | failed ...) and its age in minutes (get_hourly_brief)."""
+    rejected | failed ...) and its age in minutes (get_hourly_brief). include_closed=False: only those still pending
+    (11.11.: the brief listed the closed ones too, so a sell of a position closed the day before still showed)."""
     now = now or time.time()
     reqs = list(settings.raw(tcon).get("mcp_requests") or [])[-int(limit):]
     op = _open_tokens(tcon)
@@ -406,6 +436,8 @@ def requests_view(tcon, now=None, limit=20):
     for r in reversed(reqs):
         d = {k: r.get(k) for k in ("id", "ts", "token", "side", "amount", "reason", "decided", "note")}
         d["status"] = request_status(r, now, op)
+        if not include_closed and d["status"] != "pending":
+            continue
         d["age_min"] = round((now - (r.get("ts") or now)) / 60, 1)
         out.append(d)
     return out
@@ -435,6 +467,19 @@ def tidy_requests(tcon=None, now=None):
     finally:
         if own:
             tcon.close()
+
+
+REQUESTS_ONCE_KEY = "owner_once_1111_requests"
+
+
+def cleanup_requests_once(tcon, now=None):
+    """11.11. (Jure): the stale requests stored before the 5-min tidy existed, tidied once at the first start after the
+    deploy (ui/assistnotes.owner_once_1111). Returns the requests changed (0 when it ran before)."""
+    if settings.raw(tcon).get(REQUESTS_ONCE_KEY):
+        return 0
+    n = tidy_requests(tcon, now)
+    settings.put(tcon, REQUESTS_ONCE_KEY, int(now or time.time()), "Jure")
+    return n
 
 
 def decide(tcon, rid, status, note=""):
@@ -500,7 +545,9 @@ TOOLS = [
                      "required": ["token_address"]}},
     {"name": "get_portfolio_status", "annotations": _READ,
      "description": ("The MemeSonar Autopilot: mode (live / trial / off), wallet value in SOL, limits, every open "
-                     "position (entries, average entry market cap, market cap now, PnL %, exit rule), open orders."),
+                     "position (entries, average entry market cap, market cap now, PnL %, exit rule, exit_plan with "
+                     "execution.mode live = it sells on the real account | paper = only logged there, and why), "
+                     "exit_plans (the flags deciding that), open orders."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "execute_trade",
      "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
@@ -639,9 +686,11 @@ TOOLS += [
                      "sl_default | size_sol | max_open | auto_skip | copy.max_delay_min | copy.min_liq | copy.max_mcap | "
                      "copy.min_mcap | copy.min_liq_mcap | copy.crew_window_min | copy.max_per_day | dca_token_cap (SOL per "
                      "token, 0.01-5) | require_signal (true/false) | runup_max (fraction 0.02-2), \"from\": current, "
-                     "\"to\": new} or {\"caller\": handle, \"platform\": x|telegram, \"weight\": 0-2}. dca_token_cap, "
+                     "\"to\": new} or {\"caller\": handle, \"platform\": x|telegram, \"weight\": 0-2} (a caller weight is "
+                     "applied on arrival, no tap: the owner's standing order of 11.11.). dca_token_cap, "
                      "require_signal, runup_max and caller weights sit behind flags (dca_cap, require_signal, runup_default, "
-                     "caller_weights): applying moves an off flag to shadow only; live is the owner's call after a backtest. "
+                     "caller_weights): the owner's 'Primijeni' moves an off flag to shadow only, the automatic weight "
+                     "never moves a flag; live is the owner's call after a backtest. "
                      "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
                      "accepted for a manual change, e.g. a name for a group from get_trader_groups: {\"group_label\": "
                      "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label). "
@@ -660,10 +709,12 @@ TOOLS += [
          "evidence": {"type": "object"}}, "required": ["title", "interpretation"]}},
     {"name": "submit_caller_weights",
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-     "description": ("Suggest per-caller weights (0-2, 1 = neutral) with a reason: one suggestion note each (kind "
-                     "suggestion, proposed_change {caller, platform, weight}) for the owner's Prihvati / Odbij / Primijeni "
-                     "on the Autopilot page; live scoring does NOT change until he applies it. Does not trade. At most 50 "
-                     "per call, 60 notes an hour."),
+     "description": ("Set per-caller weights (0-2, 1 = neutral) with a reason: one suggestion note each (kind "
+                     "suggestion, proposed_change {caller, platform, weight}), APPLIED AT ONCE to the trade settings "
+                     "caller_weights (the owner's standing order of 11.11.; logged in applied_suggestions with old -> "
+                     "new and the note marked primijenjeno). The weights act only through the flag caller_weights "
+                     "(its mode is in the answer; this tool never changes it). Does not trade. At most 50 per call, 60 "
+                     "notes an hour."),
      "inputSchema": {"type": "object", "properties": {"weights": {"type": "array", "maxItems": 200, "items": {
          "type": "object", "properties": {"handle": {"type": "string"}, "platform": {"type": "string", "enum": ["x", "telegram"]},
                                           "weight": {"type": "number", "minimum": 0, "maximum": 2}, "reason": {"type": "string"}},
@@ -709,7 +760,10 @@ TOOLS += [
                      "only be TIGHTENED, never looser than the current stop nor than sl_default), time_stop "
                      "{after_min, if_pnl_below_pct} (counted from the last entry), reason (one line). Runs under the "
                      "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
-                     "one; live = both. A price older than 60 s fires only the hard stop. accounts (optional): the "
+                     "one; live = both. The owner's switch exit_plan_live (live = on) executes a plan on the REAL "
+                     "account for a Grok autotrade position (every lot bought by your execute_trade "
+                     "require_approval=false, while grok_autotrade is on) whatever exit_plans says. The answer's "
+                     "execution says per account live or paper. A price older than 60 s fires only the hard stop. accounts (optional): the "
                      "Autopilot accounts the plan applies to, e.g. [\"autopilot-paper\"] for a range position "
                      "(get_range_candidates names its account), so it never touches the other account's position in "
                      "the same token; a range position's own exits keep running next to the plan (a plan only "
@@ -838,8 +892,10 @@ TOOLS.append(
                      "= top zone, in price and market cap), every touch, the recoveries from the bottom, range_score "
                      "0-1 and its six components (recoveries, recovery_speed, higher_lows, volume_hold, "
                      "buy_share_at_low, sell_pressure_on_drop, each with value, score and weight), the position in the "
-                     "range (0 % = range_low_low, 100 % = range_high_top), the 5-minute numbers, exclusions, and whether "
-                     "an entry would pass now. Also the open range positions (account, lots, exit levels) and the paper "
+                     "range (0 % = range_low_low, 100 % = range_high_top), the 5-minute numbers, exclusions, whether "
+                     "an entry would pass now (entry_now, and entry_ready true | false; entry-ready rows first). A "
+                     "price above 100 % of the range is status breakout: never a range entry candidate, listed apart "
+                     "under breakouts. Also the open range positions (account, lots, exit levels) and the paper "
                      "proof (closed rounds, EV per round, the live gate: >= 20 rounds with EV > 0). Tokens under $30k "
                      "market cap and tokens still on the pump.fun curve are never in it. To tighten a range position's "
                      "exits use set_exit_plan with plan.accounts set to its account."),
@@ -854,7 +910,13 @@ TOOLS += [
      "description": ("ONE row per token over every source MemeSonar has right now (callers with each account's measured "
                      "record and verdict, followed and tier S/A wallets, the market scanner and betas, hidden wallet "
                      "lists, caller crews, range candidates, the tool's own top list, pre-call insiders), ranked: "
-                     "tradeable first, then score (the formula is in the answer's ranking). Per row: evidence per "
+                     "tradeable first, then ev_pct, then confluence, then score (the formula is in the answer's "
+                     "ranking): confluence never outranks a negative EV. ev_pct = the expected result per trade in % "
+                     "after the 2 % round-trip cost and the price impact of suggested_size_sol (the measured records "
+                     "the row's sources rest on, n-weighted, shrunk toward 0); n_samples = how many measured outcomes "
+                     "it rests on; ev_confidence low under 10. tradeable=true ONLY with ev_pct > 0 and no block (rug, "
+                     "shill-driven = only paid shillers call it, run-up 4x+, the market gates); else why_not names it "
+                     "(\"negativan EV\", \"EV nije izmjeren\" or the block). Per row: evidence per "
                      "source with that source's measured shadow record (n, hit1h / hit4h = +20 % within 1 h / 4 h, "
                      "sl_first = -30 % first, ev after cost), confluence (independent signals; a caller crew within "
                      "10 min counts once), the market now, runup (market cap now / at the first signal; 4x or more is "
@@ -885,24 +947,63 @@ INSTRUCTIONS += (" Start with get_grok_tasks and get_trade_candidates: the candi
 TOOLS.append(
     {"name": "get_hourly_brief", "annotations": _READ,
      "description": ("Everything for an hourly look in one read-only call. portfolio: get_portfolio_status's answer "
-                     "(open positions with entry and current market cap, PnL %, exit plan, account live | trial; "
-                     "wallet SOL; grok_autotrade state and what is left today) plus paper_positions (the paper "
-                     "account's open demo trades, account paper). trade_requests: the last 20 execute_trade requests "
-                     "with their real status (pending; expired = older than 15 min; obsolete = a sell whose position "
-                     "is already closed; approved, rejected, failed). signals: tokens with calls, followed wallets' "
+                     "(open positions with entry and current market cap, PnL %, exit plan with its execution live | "
+                     "paper, account live | trial; wallet SOL; grok_autotrade state and what is left today) plus "
+                     "paper_positions (the paper account's open demo trades, account paper). trade_requests: the "
+                     "execute_trade requests still pending (younger than 15 min, a sell only while the positions it "
+                     "was about are open); with include_closed=true also the rest of the last 20 with their real status "
+                     "(expired = older than 15 min; obsolete = a sell whose position is already closed; approved, "
+                     "rejected, failed); trade_requests_closed_hidden counts the ones left out. signals: tokens with "
+                     "calls, followed wallets' "
                      "buys or signals (scan, groups, autopilot, grok) since `since`, most sources first, with "
                      "precomputed features: rug verdict and snipers %, fees_paid_sol and volume_1h_usd, "
                      "run_up_since_first_seen_pct, phase (final_stretch = on the curve, migrated), X numbers "
                      "(posts_per_h, unique authors, template_share, brag_ratio), every caller's and wallet's score "
                      "(n, n_measured, hit_rate = +20 % within 4 h, median max 4 h, EV) and wallets' early-buyer "
-                     "record. groups: group activity and hidden_group signals. range_candidates: range_score >= 0.7. "
-                     "grok_predictions: Grok predictions past their deadline with outcomes ([] while no predictions "
-                     "store exists, with a note). health: feed gap alerts (no events of an active type for > 60 min, "
-                     "08-24 Zagreb) and last night's batch. timing_ms per part."),
+                     "record. groups: group activity and hidden_group signals. range_candidates: range_score >= 0.7, "
+                     "only tokens inside their range (entry_ready = an entry would pass now; a price above 100 % of "
+                     "the range is a breakout, never a range entry; breakouts lists them apart). grok_predictions: "
+                     "your submit_grok_prediction rows scored since `since` (per horizon 1h / 4h / 24h: max gain, max "
+                     "loss, which of TP / SL came first, up10/20/50), pending, and the calibration per p_tp bucket "
+                     "(predicted vs actual %) for you and for MemeSonar's own EV-implied probability, with Brier "
+                     "scores. health: feed gap alerts (no events of an active type for > 60 min, 08-24 Zagreb), "
+                     "last_night (started_ts, finished_ts, duration_s, calls_processed, helius_credits, errors, "
+                     "status) and an alert when the night batch has not finished by 04:30 Zagreb. timing_ms per part."),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": ["string", "integer"],
                    "description": "ISO 8601 or unix seconds / milliseconds; default the last 60 minutes"},
-         "limit_signals": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30}}}})
+         "limit_signals": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30},
+         "include_closed": {"type": "boolean", "default": False,
+                            "description": "also the trade requests that no longer wait (expired, obsolete, approved, "
+                                           "rejected, failed)"}}}})
+# 11.11. (Jure): Grok's predictions, stored immutable and scored after 1 h / 4 h / 24 h (events/predictions.py)
+_P01 = {"type": "number", "minimum": 0, "maximum": 1}
+TOOLS.append(
+    {"name": "submit_grok_prediction",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "description": ("Store one prediction for a token, made NOW (ts at most 15 min old; immutable once stored; buys "
+                     "nothing). strategy momentum | range | call; mcap = market cap at ts (under $30k refused); p_tp = "
+                     "probability that +tp_pct comes before -sl_pct (sl_pct = the stop in % below the entry); "
+                     "p_up10_1h ... p_up50_24h = probability that the high within 1 h / 4 h / 24 h reaches +10 / +20 "
+                     "/ +50 % (up10 >= up20 >= up50, and never lower for a longer horizon); p_drop30_first = "
+                     "probability that -30 % comes before +20 %; verdict runner | avoid | neutral; reasons. MemeSonar "
+                     "stores its own probability for the same trade next to it (the EV-implied p of the token's "
+                     "get_trade_candidates row) and scores both after 1 h, 4 h and 24 h from the minute data it keeps: "
+                     "max gain, max loss, TP before SL (both in one minute = SL). get_hourly_brief.grok_predictions "
+                     "shows the results and the calibration. Refused while the owner has the intake switched off "
+                     "(flag grok_predictions); at most 120 an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "token": {"type": "string", "description": "Solana token mint address"},
+         "ts": {"type": "integer", "description": "unix seconds of the prediction (default now)"},
+         "mcap": {"type": "number", "description": "market cap in USD at ts"},
+         "strategy": {"type": "string", "enum": ["momentum", "range", "call"]},
+         "p_tp": _P01, "tp_pct": {"type": "number", "exclusiveMinimum": 0},
+         "sl_pct": {"type": "number", "exclusiveMinimum": 0},
+         **{f"p_up{lv}_{hz}": _P01 for hz in ("1h", "4h", "24h") for lv in (10, 20, 50)},
+         "p_drop30_first": _P01,
+         "verdict": {"type": "string", "enum": ["runner", "avoid", "neutral"]},
+         "reasons": {"type": "string", "maxLength": 2000}},
+         "required": ["token", "mcap", "strategy", "p_tp", "tp_pct", "sl_pct", "verdict"]}})
 
 
 def _xfeat_tool(name, a, kid):
@@ -967,7 +1068,14 @@ def _tool(name, args, kid="local"):
         return d, "error" in d
     if name == "get_hourly_brief":   # 11.11. events/brief.py
         from events import brief
-        d = brief.build(args.get("since"), args.get("limit_signals"))
+        d = brief.build(args.get("since"), args.get("limit_signals"), include_closed=args.get("include_closed") is True)
+        return d, "error" in d
+    if name == "submit_grok_prediction":   # 11.11. events/predictions.py
+        from events import predictions
+        try:
+            d = predictions.submit(args, kid)
+        except ValueError as e:
+            d = {"error": str(e)}
         return d, "error" in d
     from ui import mcpdata
     data_tools = {

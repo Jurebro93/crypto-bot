@@ -62,6 +62,13 @@ class FakeSources(kandidati.Sources):
         self.arch, self.tc, self.rug, self.col, self.conc = frozenset(), {}, {}, {}, {}
         self.lab, self.act = (set(), set()), []
         self.lim = {"grok_max_sol_per_trade": 0.1, "sl_default": 60.0}
+        # 11.11.: tradeable needs a measured EV > 0; every source kind starts with a modest positive record
+        self.recs = {k: {"n": 50, "hit1h": 0.3, "hit4h": 0.4, "sl_first": 0.3, "ev": 0.05}
+                     for k in ("caller", "wallet", "scan", "beta", "hidden_group", "range", "tool", "insider")}
+        self.paid = set()
+
+    def shillers(self):
+        return self.paid
 
     def callers(self, now):
         return self.c
@@ -335,6 +342,85 @@ class Build(unittest.TestCase):
         got, _r, meta = self.build()
         self.assertIn(A, got)
         self.assertEqual(meta["sources_failed"], ["range: ZeroDivisionError"])
+
+
+class EvGate(unittest.TestCase):
+    """11.11. (Jure: Dacity score 2.384, ev -0.166, MC $6.6M, still tradeable): tradeable needs ev_pct > 0."""
+
+    def setUp(self):
+        self.S = FakeSources()
+
+    def build(self):
+        rows, _m = kandidati.build(NOW, self.S)
+        return by_token(rows), rows
+
+    def test_confluence_never_outweighs_a_negative_ev(self):
+        S = self.S
+        S.recs = {"caller": {"n": 200, "ev": -0.08}, "wallet": {"n": 120, "ev": -0.05}, "scan": {"n": 90, "ev": -0.04},
+                  "hidden_group": {"n": 40, "ev": -0.02}, "range": {"n": 25, "ev": 0.01}}
+        # A: five sources, every one losing (Dacity); B: one caller with a good own record
+        S.c = [(A, [("x1", "x", NOW - 600), ("x2", "x", NOW - 500)], NOW - 600, NOW - 500, "DACITY",
+                live(mcap=6_600_000, liq=900_000)),
+               (B, [("good", "x", NOW - 600)], NOW - 600, NOW - 600, "B", live())]
+        S.crec = {"good": {"ev_n": 40, "ev_mean": 0.09, "ev_lower": 0.02}}
+        S.w = [("W1", A, NOW - 400, "S")]
+        S.scan = {A: scan_row(A, mcap=6_600_000)}
+        S.gsig = [(NOW - 700, "hidden_group", "w1", A, "x1,x2,x3", 6_000_000)]
+        S.rng = {A: {"symbol": "DACITY", "score": 0.8, "zones": {}}}
+        got, rows = self.build()
+        a, b = got[A], got[B]
+        self.assertGreater(a["score"], b["score"])                              # confluence lifts the score ...
+        self.assertLess(a["score_parts"]["ev"], 0)
+        self.assertFalse(a["tradeable"])                                        # ... never the tradeable flag
+        self.assertTrue(any(w.startswith("negativan EV") for w in a["why_not"]), a["why_not"])
+        self.assertLess(a["ev_pct"], 0)
+        self.assertEqual(a["n_samples"], 200 + 120 + 90 + 40 + 25)
+        self.assertEqual(a["ev_confidence"], "high")
+        self.assertTrue(b["tradeable"], b["why_not"])
+        self.assertAlmostEqual(b["ev_pct"], round((0.09 * 40 / 60 - 2 * __import__("league.store", fromlist=["x"])
+                                                    .impact(0.1 * kandidati.SOL_USD, 40_000)) * 100, 2))
+        self.assertEqual([r["token"] for r in rows], [B, A])                    # tradeable first
+
+    def test_ranking_by_ev_then_confluence_and_low_confidence(self):
+        S = self.S
+        S.c = [(t, [(h, "x", NOW - 600)], NOW - 600, NOW - 600, "T", live()) for t, h in ((A, "a"), (B, "b"), (C, "c"))]
+        S.crec = {"a": {"ev_n": 30, "ev_mean": 0.04}, "b": {"ev_n": 30, "ev_mean": 0.12},
+                  "c": {"ev_n": 6, "ev_mean": 0.30}}
+        S.w = [("W1", A, NOW - 300, "S"), ("W2", A, NOW - 200, "A")]            # A: more confluence, lower EV
+        S.recs["wallet"] = {"n": 30, "ev": 0.04}
+        got, rows = self.build()
+        self.assertGreater(got[A]["confluence"], got[B]["confluence"])
+        self.assertTrue(all(got[t]["tradeable"] for t in (A, B, C)))
+        evs = [r["ev_pct"] for r in rows]
+        self.assertEqual(evs, sorted(evs, reverse=True))                        # EV decides, not confluence
+        self.assertEqual(rows[-1]["token"], A)
+        self.assertEqual(got[C]["n_samples"], 6)
+        self.assertEqual(got[C]["ev_confidence"], "low")                        # under 10 samples
+
+    def test_unmeasured_ev_and_shill_driven_are_not_tradeable(self):
+        S = self.S
+        S.recs = {}
+        S.c = [(A, [("nobody", "x", NOW - 600)], NOW - 600, NOW - 600, "A", live()),
+               (B, [("paid1", "x", NOW - 600), ("tg:paidch", "tg", NOW - 500)], NOW - 600, NOW - 500, "B", live())]
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.2}}
+        S.paid = {"paid1", "tg:paidch"}
+        got, _rows = self.build()
+        self.assertFalse(got[A]["tradeable"])
+        self.assertIsNone(got[A]["ev_pct"])
+        self.assertEqual((got[A]["n_samples"], got[A]["ev_confidence"]), (0, "low"))
+        self.assertTrue(any("EV nije izmjeren" in w for w in got[A]["why_not"]))
+        self.assertFalse(got[B]["tradeable"])                                   # a good EV, but only paid shills call it
+        self.assertTrue(any(w.startswith("vođeno shillanjem") for w in got[B]["why_not"]))
+        S.w = [("W1", B, NOW - 300, "S")]                                       # a tiered wallet buys too: not shill-only
+        S.recs = {"wallet": {"n": 40, "ev": 0.05}}
+        got, _rows = self.build()
+        self.assertTrue(got[B]["tradeable"], got[B]["why_not"])
+
+    def test_description_names_the_rule(self):
+        from ui import mcpapi
+        d = {t["name"]: t for t in mcpapi.TOOLS}["get_trade_candidates"]["description"]
+        for w in ("ev_pct", "n_samples", "ev_confidence", "negativan EV"):
+            self.assertIn(w, d)
 
 
 class Tasks(unittest.TestCase):

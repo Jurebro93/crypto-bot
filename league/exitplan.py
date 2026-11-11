@@ -31,8 +31,13 @@ Safety: a price older than STALE_S (60 s) fires only the hard stop, never a TP o
 "Pauziraj exit planove" (trade settings exit_plans_paused) stops every plan at once and the default TP/SL of each
 position is back (league/auto.fast_once skips only lots whose plan is in force); flag exit_plans: off nothing, shadow
 and paper on the real Autopilot account only log what a plan would do (shadow_decisions), paper executes on the demo
-account autopilot-paper, live on both. Every execution: table exit_events (trigger tp1/tp2/.../trailing/stop/
-time_stop, plan_id, price, MC, share, PnL) and a notice to the owner (ui/grokauto.notify: Telegram when set, log).
+account autopilot-paper, live on both. 11.11. (Jure: GTA's plan was only logged and the real exit went through the
+default TP): the owner switch exit_plan_live ("live" = on, default off) makes a plan execute on the REAL account for
+a Grok autotrade position (every open lot bought by Grok autotrade, source "Grok auto (MCP)", while Grok autotrade is
+on) whatever exit_plans' mode (grok_live); everything else as above. execution() says per account whether a plan
+sells live or paper, and why (get_portfolio_status, set_exit_plan). Every execution: table exit_events (trigger
+tp1/tp2/.../trailing/stop/time_stop, plan_id, price, MC, share, PnL, note exit_plan_live when that switch made it
+run) and a notice to the owner (ui/grokauto.notify: Telegram when set, log).
 """
 import json
 import time
@@ -251,16 +256,86 @@ def paused():
         return False
 
 
-def in_force_tokens(con, user):
-    """Tokens whose plan replaces the default TP/SL of `user`'s lots now (league/auto.fast_once skips those)."""
+LIVE_FLAG = "exit_plan_live"
+
+
+def _grok_src():
     try:
+        from ui import grokauto
+        return grokauto.SRC
+    except Exception:  # noqa: BLE001
+        return "Grok auto (MCP)"
+
+
+def grok_live(user, lots):
+    """11.11. (Jure: GTA's plan was only logged while the flag exit_plans was paper, and the real exit went through the
+    default TP): True when the owner switch exit_plan_live is "live", the account is the real Autopilot account, every
+    open lot of the token is a Grok autotrade buy (league trades source "Grok auto (MCP)") and Grok autotrade is
+    switched on (Grok's limits: a plan only sells, which autotrade allows for any open position while it is on). Then
+    the plan runs on the real account whatever exit_plans' mode; everything else is unchanged."""
+    try:
+        from trade import settings as ts
+        if user != ts.LEAGUE_USER or ts.flag(LIVE_FLAG) != "live":
+            return False
+        src = _grok_src()
+        if not lots or any((t.get("source") or "") != src for t in lots):
+            return False
+        from ui import grokauto
+        tcon = ts.connect()
+        try:
+            return bool(grokauto.state(tcon)["on"])
+        finally:
+            tcon.close()
+    except Exception:  # noqa: BLE001 - unreadable: the old behaviour (exit_plans decides)
+        return False
+
+
+def execution(user, lots, m=None):
+    """{"mode": live | paper | shadow | off, "executes": bool, "real_account": bool, "why"} of a plan on one account:
+    live = the plan sells on the real account (exit_plans live, or exit_plan_live for a Grok autotrade position);
+    paper = it sells only on the demo account autopilot-paper, the real account only logs it."""
+    from trade import settings as ts
+    from . import flags
+    m = m or flags.mode("exit_plans")
+    real = user == ts.LEAGUE_USER
+    if paused():
+        return {"mode": "off", "executes": False, "real_account": real, "why": "vlasnik je pauzirao planove izlaza"}
+    if flags.applies("exit_plans", user, m):
+        return {"mode": "live" if real else "paper", "executes": True, "real_account": real,
+                "why": f"zastavica exit_plans: {m}"}
+    if real and grok_live(user, lots):
+        return {"mode": "live", "executes": True, "real_account": True,
+                "why": "exit_plan_live: Grok autotrade pozicija izvršava se na pravom računu"}
+    why = {"paper": "exit_plans je paper: na pravom računu samo zapis (sjena), izvršava se na demo računu "
+                    "autopilot-paper; zadani TP/SL pozicije ostaje",
+           "shadow": "exit_plans je u sjeni: samo zapis, zadani TP/SL ostaje",
+           "off": "exit_plans je isključen: zadani TP/SL ostaje"}.get(m, m)
+    if real:
+        try:
+            if ts.flag(LIVE_FLAG) == "live":
+                why += ("; exit_plan_live vrijedi samo za pozicije u kojima je svaki ulaz Grok autotrade, dok je Grok "
+                        "autotrade uključen")
+        except Exception:  # noqa: BLE001
+            pass
+    return {"mode": "paper" if m == "paper" else m, "executes": False, "real_account": real, "why": why}
+
+
+def in_force_tokens(con, user):
+    """Tokens whose plan replaces the default TP/SL of `user`'s lots now (league/auto.fast_once skips those): every
+    planned token while exit_plans applies to the account, else (11.11.) the Grok autotrade positions under
+    exit_plan_live."""
+    try:
+        from trade import settings as ts
         from . import flags
-        m = flags.mode("exit_plans")
-        if m == "off" or not flags.applies("exit_plans", user, m) or paused():
+        m = flags.mode("exit_plans")   # cached reads first: the 1-s exit loop asks this for every account
+        on = m != "off" and flags.applies("exit_plans", user, m)
+        sw = not on and user == ts.LEAGUE_USER and flags.mode(LIVE_FLAG) == "live"
+        if not (on or sw) or paused():
             return set()
         ensure(con)
-        return {t for t, pl in con.execute("SELECT token, plan FROM exit_plans WHERE status='active'")
+        toks = {t for t, pl in con.execute("SELECT token, plan FROM exit_plans WHERE status='active'")
                 if user in _scope(json.loads(pl or "{}"))}
+        return toks if on else {t for t in toks if grok_live(user, _lots(con, user, t))}
     except Exception:  # noqa: BLE001
         return set()
 
@@ -353,7 +428,8 @@ def run_once(con, market, now=None):
     now = now or time.time()
     ensure(con)
     m = flags.mode("exit_plans")
-    if m == "off" or paused():
+    sw = flags.mode(LIVE_FLAG) == "live"   # 11.11.: Grok autotrade positions on the real account (grok_live)
+    if (m == "off" and not sw) or paused():
         return []
     plans = [dict(r) for r in con.execute("SELECT * FROM exit_plans WHERE status='active'")]
     if not plans:
@@ -374,6 +450,9 @@ def run_once(con, market, now=None):
                 continue
             any_open = True
             on, sh = flags.applies("exit_plans", user, m), flags.shadowing("exit_plans", user, m)
+            via = ""
+            if not on and sw and grok_live(user, lots):
+                on, via = True, LIVE_FLAG
             if not (on or sh):
                 continue
             before = json.dumps(p["state"])
@@ -392,7 +471,7 @@ def run_once(con, market, now=None):
                 except ValueError as e:   # closed meanwhile: next pass sees it
                     print(f"plan izlaza #{p['id']} {tok[:6]}: {e}", flush=True)
                     continue
-                _event(con, p, user, tok, trig, price, mcap, share, pnl, "izvršeno", age > STALE_S)
+                _event(con, p, user, tok, trig, price, mcap, share, pnl, "izvršeno", age > STALE_S, via)
                 text = (f"plan izlaza #{p['id']} {lots[0].get('symbol') or tok[:6]} ({user}): {trig}, prodano "
                         f"{share:.0%} pozicije na MC ${mcap or 0:,.0f}, {pnl:+.2f} $")
                 try:
@@ -429,6 +508,7 @@ def view(con, token, user, price=None, mcap=None):
     st = p["state"]
     peak = st["peak_px"].get(user, avg)
     out = {"plan_id": p["id"], "set_ts": p["created_ts"], "client": p["client"], "reason": p["reason"], "plan": p["plan"],
+           "execution": execution(user, lots),   # 11.11.: live (sells on the real account) or paper, and why
            "sold_share": st["sold"].get(user, 0.0), "peak_mc_since_entry": round(peak * ratio) if ratio else None,
            "trailing_active": bool(st["trail_peak_px"].get(user)), "triggers": []}
     if not price:

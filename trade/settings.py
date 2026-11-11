@@ -87,7 +87,14 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
     # live_refusal + LIVE_GATES
     "insider_copy": ("G14", "Insajderi prije poziva: novčanici koji kupuju prije poziva callera, kopiranje u demo"),
+    # 11.11. (Jure: GTA's plan was only logged, the real exit went through the default TP): an owner switch, uživo =
+    # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
+    # exit_plans' mode; it only sells, never buys; default off, only the owner moves it
+    "exit_plan_live": ("G15", "Grokovi planovi izlaza na pravom računu za Grok autotrade pozicije (samo prodaja)"),
 }
+# 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
+# never move on their own, only the owner's tap on the page sets them
+OWNER_SWITCHES = frozenset({"exit_plan_live"})
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
@@ -261,7 +268,7 @@ def live_refusal(con, name, paper=None, now=None):
     """None when `name` may go live, else the reason in Croatian. paper: {"n": closed trades, "pnl": USD} of the
     paper account since the flag went to paper (league/flags.paper_result); None = not known."""
     now = int(now or time.time())
-    if name in DATA_FLAGS:
+    if name in DATA_FLAGS or name in OWNER_SWITCHES:
         return None
     bt = raw(con).get(f"backtest:{name}") or {}
     if not (isinstance(bt, dict) and bt.get("pass") is True):

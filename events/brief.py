@@ -4,7 +4,8 @@
                        grok_autotrade with what is left today), each position marked live / trial, plus the paper
                        account's open demo trades (league.db, PAPER_USER) marked paper; at most PORTFOLIO_S seconds
                        (it asks DexScreener's shared cache), else the positions without the live price
-    trade_requests     the last 20 MCP trade requests with their real status (pending / expired / obsolete / ...)
+    trade_requests     the MCP trade requests still pending; with include_closed=true the last 20 with their real
+                       status (pending / expired / obsolete / ...); trade_requests_closed_hidden counts the rest
     signals            tokens with calls, followed wallets' buys or signals (scanner, groups, Autopilot, Grok) since
                        `since` (default 60 min), from events.db, with what is already computed: rug verdict and
                        snipers % (rug.db), stage final_stretch / migrated, fees and volume (scan.db), run-up since
@@ -12,10 +13,12 @@
                        Grok's), the brag share of the token's X posts in the hour (kol.db), each caller's score and
                        n_measured and each wallet's early-buyer record (events.db, the night batch)
     groups             kol/groupdisc.group_activity since `since` (hidden_group, caller groups)
-    range_candidates   rangedca/view.candidates (range_score >= 0.7)
-    grok_predictions   [] with a note: no predictions store exists (the flag grok_predictions only reserves the
-                       intake); nothing to score yet
-    health             the feeds' gap alerts (events/health) and last night's batch
+    range_candidates   rangedca/view.candidates (range_score >= 0.7): tokens inside their range with entry_ready;
+                       a price above 100 % of the range is a breakout, listed apart, never a range entry candidate
+    grok_predictions   events/predictions.brief_part: Grok's predictions scored since `since` and the calibration
+                       per p_tp bucket, Grok's and MemeSonar's
+    health             the feeds' gap alerts (events/health), last night's batch (start, duration, calls processed,
+                       Helius credits, errors) and the alert when it had not finished by 04:30 Zagreb
 Nothing is fetched or recomputed per call beyond reading these stores; every part has its own try and its time in
 "timing_ms", so one broken store never costs the rest.
 """
@@ -139,14 +142,17 @@ def _paper_positions(econ, now):
     return out
 
 
-def requests_part(now):
+def requests_part(now, include_closed=False):
+    """(the requests shown, how many of the last 20 were left out because they no longer wait)."""
     from trade import settings
     from ui import mcpapi
     tcon = settings.connect()
     try:
-        return mcpapi.requests_view(tcon, now, 20)
+        every = mcpapi.requests_view(tcon, now, 20)
     finally:
         tcon.close()
+    shown = every if include_closed else [r for r in every if r["status"] == "pending"]
+    return shown, len(every) - len(shown)
 
 
 def _group_events(econ, since, now):
@@ -334,22 +340,58 @@ def range_part():
     d = view.candidates(None)
     if "error" in d:
         return d
-    keep = ("token", "symbol", "range_score", "position_pct", "entry_now", "range_low_low", "range_high_top")
+    keep = ("token", "symbol", "status", "range_score", "position_in_range_pct", "entry_ready", "entry_now")
+
+    def row(c):
+        z = (c.get("zones") or {}).get("market_cap_usd") or {}
+        return {**{k: c.get(k) for k in keep if k in c}, "range_low_low_mc": z.get("range_low_low"),
+                "range_high_top_mc": z.get("range_high_top")}
     return {"flag_mode": d.get("flag_mode"), "watched": d.get("watched"),
-            "candidates": [{k: c.get(k) for k in keep if k in c} for c in (d.get("candidates") or [])[:15]]}
+            "candidates": [row(c) for c in (d.get("candidates") or [])[:15]],
+            "breakouts": [{k: c.get(k) for k in ("token", "symbol", "status", "position_in_range_pct") if k in c}
+                          for c in (d.get("breakouts") or [])[:10]]}
 
 
-def health_part(econ):
+def predictions_part(econ, since, now):
+    from events import predictions
+    return predictions.brief_part(econ, since, now)
+
+
+def health_part(econ, now=None):
     from events import night
+    now = int(now or time.time())
     h = health.latest(econ)
     rep = night.report(econ) if econ is not None else {}
-    errs = {k: v["result"]["error"] for k, v in (rep.get("steps") or {}).items()
-            if isinstance(v.get("result"), dict) and "error" in v["result"]}
-    h["last_night"] = {"ts": rep.get("ts"), "helius_credits": rep.get("helius_credits"), "errors": errs} if rep else None
+    start = (store.kv_get(econ, "night_start") or {}) if econ is not None else {}
+    alert = (store.kv_get(econ, "night_alert") or {}) if econ is not None else {}
+    today = night.zagreb(now).date().isoformat()
+    if alert.get("day") == today:   # 11.11.: the night batch had not finished by 04:30 Zagreb
+        h["alerts"] = list(h.get("alerts") or []) + [alert]
+    if not rep and not start:
+        h["last_night"] = None
+        return h
+    errs = rep.get("errors")
+    if errs is None:   # a report from before 11.11. (no errors field)
+        errs = {k: v["result"]["error"] for k, v in (rep.get("steps") or {}).items()
+                if isinstance(v.get("result"), dict) and "error" in v["result"]}
+    running = bool(start) and (start.get("ts") or 0) > (rep.get("started_ts") or rep.get("ts") or 0)
+    status = ("running" if running and alert.get("day") != start.get("day") else
+              "not_finished_by_0430" if running else "errors" if errs else "ok")
+    h["last_night"] = {"day": start.get("day") if running else rep.get("day"),
+                       "started_ts": start.get("ts") if running else rep.get("started_ts") or rep.get("ts"),
+                       "finished_ts": None if running else rep.get("finished_ts"),
+                       "duration_s": None if running else rep.get("s"),
+                       "calls_processed": None if running else (rep.get("calls_processed") or night.calls_processed(rep)),
+                       "helius_credits": None if running else rep.get("helius_credits"),
+                       "helius_cap": rep.get("helius_cap"), "errors": {} if running else errs, "status": status,
+                       "alert": alert if alert.get("day") == today else None}
+    if running and rep:
+        h["last_night"]["previous"] = {"day": rep.get("day"), "finished_ts": rep.get("finished_ts"),
+                                       "duration_s": rep.get("s"), "errors": errs}
     return h
 
 
-def build(since=None, limit_signals=None, now=None):
+def build(since=None, limit_signals=None, now=None, include_closed=False):
     now = int(now or time.time())
     try:
         since_s = parse_since(since, now)
@@ -364,13 +406,16 @@ def build(since=None, limit_signals=None, now=None):
     econ = store.ro()
     try:
         out["portfolio"] = _timed(out, "portfolio", portfolio_part, econ, now)
-        out["trade_requests"] = _timed(out, "trade_requests", requests_part, now)
+        req = _timed(out, "trade_requests", requests_part, now, include_closed)
+        if isinstance(req, tuple):
+            out["trade_requests"], out["trade_requests_closed_hidden"] = req
+        else:
+            out["trade_requests"] = req
         out["signals"] = _timed(out, "signals", signals_part, econ, since_s, now, limit)
         out["groups"] = _timed(out, "groups", groups_part, since_s, now)
         out["range_candidates"] = _timed(out, "range_candidates", range_part)
-        out["grok_predictions"] = {"items": [], "note": "nema spremišta Grokovih predviđanja (zastavica grok_predictions "
-                                                        "samo rezervira unos); nema ničega za ocijeniti"}
-        out["health"] = _timed(out, "health", health_part, econ)
+        out["grok_predictions"] = _timed(out, "grok_predictions", predictions_part, econ, since_s, now)
+        out["health"] = _timed(out, "health", health_part, econ, now)
     finally:
         if econ is not None:
             econ.close()

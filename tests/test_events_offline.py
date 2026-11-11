@@ -857,7 +857,8 @@ class HourlyBrief(TradeBase):
         d = res["structuredContent"]
         for k in ("portfolio", "trade_requests", "signals", "groups", "range_candidates", "grok_predictions", "health"):
             self.assertIn(k, d)
-        self.assertEqual(d["trade_requests"][0]["status"], "obsolete")
+        self.assertEqual(d["trade_requests"], [])                   # 11.11.: only pending ones by default
+        self.assertEqual(d["trade_requests_closed_hidden"], 1)
         sig = d["signals"]["items"]
         self.assertTrue(0 < len(sig) <= 30)
         f = sig[0]["features"]
@@ -870,6 +871,8 @@ class HourlyBrief(TradeBase):
         self.assertTrue(scored and scored[0]["score"]["n_measured"] == 30)
         self.assertEqual(d["grok_predictions"]["items"], [])
         self.assertIn("note", d["grok_predictions"])
+        full = brief.build(None, 5, include_closed=True)
+        self.assertEqual(full["trade_requests"][0]["status"], "obsolete")
         self.assertEqual(d["health"]["alerts"][0]["type"], "wallet_buy")
         self.assertIn("paper_positions", d["portfolio"])
 
