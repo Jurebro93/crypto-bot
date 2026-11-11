@@ -168,7 +168,7 @@ class AcceptedAndOwnerList(Base):
         pravitrade._LIVE_FAIL.clear()
         nid = self.suggest({"key": "tp_default", "to": 30})
         assistnotes.decide(self.tc, nid, "prihvaćeno")
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: in "Što kupiti" behind its badge (ui/apterm)
         self.assertIn("Prihvaćeni, još nisu primijenjeni", body)
         self.assertIn("1 prihvaćeno bez promjene", body)
         loc = unquote(pravitrade.post("/pravi-trade/asapply", {"id": str(nid)}, "Jure"))
@@ -196,8 +196,9 @@ class Page(Base):
         pravitrade._LIVE_CACHE.clear()
         pravitrade._LIVE_FAIL.clear()
         self.suggest({"key": "tp_default", "to": 30})
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("Označi prihvaćenim (bez promjene)", body)
+        self.assertIn("Prijedlozi asistenta <span class=apx-cnt>1 čeka</span>", body)   # the badge with the count
         self.assertIn("Primijeni na bota", body)
         self.assertNotIn(">Prihvati<", body)
 

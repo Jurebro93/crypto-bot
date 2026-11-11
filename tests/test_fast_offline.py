@@ -781,17 +781,18 @@ class Card(Env):
                 mock.patch.object(pravitrade, "_aplog_mod", lambda: fake_aplog()), \
                 mock.patch.object(pravitrade, "BG_REFRESH", False):
             settings.put(self.tc, "invited", ["Ivan"])
-            _, body = pravitrade.page({}, "Jure")
+            self.assertNotIn("id=fast-path", pravitrade.page({}, "Jure")[1])   # 11.11.: lazy (ui/apterm)
+            _, body = pravitrade.page({"sve": "1"}, "Jure")
             self.assertIn("id=fast-path", body)
-            self.assertLess(body.index("id=jos"), body.index("id=fast-path"))   # under "Još", the top stays trade-focused
+            self.assertLess(body.index("id=apx-ostalo"), body.index("id=fast-path"))   # under "Postavke i dijagnostika"
             self.assertIn("holderi: top10 62 % &gt; 45 %", body)
             self.assertIn("3,2 s", body)
-            _, guest = pravitrade.page({}, "Ivan")
+            _, guest = pravitrade.page({"sve": "1"}, "Ivan")
             self.assertNotIn("id=fast-path", guest)
             settings.put(self.tc, "flag:fast_path", {"mode": "off", "since": 0, "who": "Jure"})
             settings._FLAG_CACHE.clear()
             view.clear()
-            _, body = pravitrade.page({}, "Jure")
+            _, body = pravitrade.page({"sve": "1"}, "Jure")
             self.assertNotIn("id=fast-path", body)
 
 

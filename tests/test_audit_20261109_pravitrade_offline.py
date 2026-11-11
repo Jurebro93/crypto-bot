@@ -702,9 +702,14 @@ class LiveFragments(PageBase):
     def test_page_js_marks_stale_boxes(self):
         from ui import pravitrade
         self.assertIn("nema svježih podataka", pravitrade.POP_JS)
+        # 11.11. (ui/apterm): the page's script is the cached /pravi-trade/static/ap.js (the old helpers + the new ones)
+        from ui import apterm
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("nema svježih podataka", body)
-        self.assertIn("if(!r.ok){stale(box,true);return}", body)
+        self.assertIn(apterm.static_url("ap.js"), body)
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("nema svježih podataka", js)
+        self.assertIn("if(!r.ok){stale(box,true);return}", js)
+        self.assertIn("el.classList.add('stale')", js)            # the new lazy parts grey out the same way
 
 
 if __name__ == "__main__":
