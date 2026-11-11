@@ -178,6 +178,10 @@ PROCESSES = (
      "event tokeni: podudaranje novih tokena s temama, pretraga DexScreenera svakih 10 min, uloge, cijena oko događaja"),
     # 11.11. (flag momentum_scalp): the entries and exits run in run_ui (protected); this only collects the signals
     ("momentum", "run_momentum.py", (), JOBS, "momentum scalp: snimke svake minute, signali i njihov ishod, noćni backtest"),
+    # 11.11. (flag proposals G21): the list is built here and only read by the UI and the MCP; the demo entries run in
+    # run_ui (protected); nobody waits for this by the second
+    ("prijedlozi", "run_proposals.py", (), JOBS,
+     "prijedlozi svih strategija svakih 2,5 min (samo čita i piše proposals.db), noću brzi izlaz callera"),
     # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
     ("events", "run_events.py", (), JOBS,
      "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),
