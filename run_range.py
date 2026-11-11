@@ -77,6 +77,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
     now = int(now or time.time())
     m_flip = _flip_mode()
     n_flip = {}
+    t0, t_mkt_s = time.monotonic(), 0.0   # 11.11.: the pass's duration in the log (stale 5-minute numbers)
     con = data.connect()
     try:
         sig = data.candidates(con, now, extra) if m_dca != "off" else []
@@ -89,8 +90,10 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         srcs = {t: ["signal"] for t in sig}
         mk = {"tokens": [], "src": {}, "stats": {}}
         if m_mkt != "off" or m_evt != "off":
+            t_mkt = time.monotonic()
             mk = market.pass_once(con, now, net or market.Net(fetch), log, signal=sig, pulse=pulse_all,
                                   market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks)
+            t_mkt_s = time.monotonic() - t_mkt
             for t in mk["tokens"]:
                 srcs.setdefault(t, []).append(mk["src"].get(t, "market"))
         cands = sig + [t for t in mk["tokens"] if t not in set(sig)]
@@ -177,7 +180,8 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
                    f"{ms.get('refreshed', 0)}, iz hype skena {ms.get('reused', 0)}, preskočeno zbog stropa "
                    f"{ms.get('dropped', 0)}, primljeno {ms.get('admitted', 0)}" if ms else "")
                 + (f"; range_flip ({m_flip}): " + ", ".join(f"{k} {v}" for k, v in sorted(n_flip.items()))
-                   if n_flip else ""))
+                   if n_flip else "")
+                + f"; prolaz {time.monotonic() - t0:.0f} s (tržište {t_mkt_s:.0f} s)")
         if full:
             log(text)
         return text
