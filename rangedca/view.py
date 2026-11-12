@@ -368,6 +368,9 @@ def missed_meta(now=None):
         rounds, live = None, f"dokaz nije čitljiv ({type(e).__name__}): pravi račun ne kupuje propuštene"
     return {"flag_mode": flags.mode(missed.FLAG), "list": lst, "ttl_h": missed.TTL_S // 3600,
             "label": f"preskočen, pa >= +{missed.MIN_PCT:g} % u 60 min (preskoceni, brzi put, prijedlozi)",
+            # 12.11. (Jure, točka 4): the rule; list.unreliable says how many it left out
+            "unreliable_rule": f"{missed.UNRELIABLE} = {missed.WHY} u 60 min nakon preskoka: nije propušteno, nije na "
+                               "listi, ni u rundama izvora missed, ni u live vratima",
             "filter": {"min_mcap_usd": market.MIN_ANALYSED, "min_liquidity_usd": market.MISSED_MIN_LIQ,
                        "min_volume_1h_usd": market.MISSED_MIN_VOL_H1,
                        "hard_blocks": "rug (11.11. pravilo), rug arhiva, honeypot / freeze / mint, visok rug rizik, "

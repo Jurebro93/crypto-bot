@@ -23,6 +23,18 @@ Money: paper on the demo account while range_missed is paper (rangedca/trade.all
 range_missed is live AND rangedca/gate.missed_refusal() is None (>= 20 closed demo rounds of source missed passing the
 trade/edge live proof). The round keeps its source in range_rounds.levels ("src"), so the EV report and
 get_range_candidates show missed vs the other sources apart.
+
+12.11. (Jure, točka 4: "Missed-movers mjerenje: kad token ima manje od 3 točke cijene u prozoru, označi rezultat kao
+'nepouzdano' i ne računaj ga u statistiku propuštenih"): every measurement of what a skipped / missed token did
+afterwards counts the price points of its own window, and with fewer than MIN_POINTS (3) the result is UNRELIABLE
+("nepouzdano"): shown as that word instead of its number, never labelled propušteno here (so never on the range list
+as source missed, never in its rounds, the missed vs ostali report or the missed live gate), never in a count, hit
+rate or EV of the missed, and every such statistic says how many it left out (note()). The counts: kol/preskoceni
+skip_path.n_pts (1-minute candles of the 60 min), fast/outcomes out.n_points (fast.db px points of the 60 min),
+proposals/outcomes after["1h"].n_points (the merged minutes of the hour), proposals/report (the minutes after a zone
+entry, the momentum snapshots of a riser), learn/outcomes (the token's snapshots), learn/shadow points.n_pts (the
+24 h path: ui/learnpage's missed winners, learn/detektiv), paper/review (the ticks of the tracking window). A row
+measured before 12.11. without a count is unknown (reliable() None) and counted as before.
 """
 import json
 import os
@@ -39,6 +51,50 @@ HARD_WAIT_S = 6 * 3600        # a hard-blocked missed token is looked at again a
 HOLDERS_FRESH_S = 86400       # rangedca/holders' "transfer holders sold" counts this long
 COLS = (("missed_until", "INTEGER"), ("missed_ts", "INTEGER"), ("missed_pct", "REAL"), ("missed_via", "TEXT"))
 STORES = ("preskoceni", "brzi_put", "prijedlozi")
+# 12.11. (Jure, točka 4): a missed result measured on fewer than MIN_POINTS prices in its window is "nepouzdano"
+MIN_POINTS = 3
+UNRELIABLE = "nepouzdano"
+WHY = f"manje od {MIN_POINTS} točke cijene"
+UNREL_KV = "mkt_missed_unrel"   # range.db kv: the tokens whose every label of the last TTL_S was nepouzdano
+UNREL_KEEP = 500
+
+
+def reliable(n_points):
+    """12.11.: True = >= MIN_POINTS price points in the measured window; False = fewer (the result is nepouzdano, in
+    no statistic of the missed); None = no count stored (a row measured before 12.11.: counted as before)."""
+    if n_points is None or isinstance(n_points, bool):
+        return None
+    try:
+        return int(n_points) >= MIN_POINTS
+    except (TypeError, ValueError):
+        return None
+
+
+def unreliable(n_points):
+    """12.11.: the count is known and below MIN_POINTS."""
+    return reliable(n_points) is False
+
+
+def points_hr(n):
+    """'0 točaka' / '1 točka' / '2 točke' / '5 točaka' (cijene): the Croatian plural of a point count."""
+    n = int(n or 0)
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} točka"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} točke"
+    return f"{n} točaka"
+
+
+def note(n):
+    """12.11.: how many results a statistic of the missed left out, e.g. 'nepouzdano: 2 (manje od 3 točke cijene)'."""
+    return f"{UNRELIABLE}: {int(n or 0)} ({WHY})"
+
+
+def detail(n, window="60 min"):
+    """12.11.: one nepouzdano result in words, e.g. 'samo 2 točke cijene u 60 min (treba 3)'."""
+    n = int(n or 0)
+    head = "nijedna točka" if n == 0 else f"samo {points_hr(n)}"
+    return f"{head} cijene u {window} (treba {MIN_POINTS})"
 
 
 def ensure(con):
@@ -99,19 +155,45 @@ def _put(out, tok, ts, pct, via):
     d["via"].add(via)
 
 
-def labelled(now, minute_db=None, fast_db=None, proposals_db=None):
+def _put_unrel(unrel, tok, ts, n, via):
+    if not tok or not ts:
+        return
+    d = unrel.setdefault(tok, {"ts": 0, "n_points": None, "via": set()})
+    d["ts"] = max(d["ts"], int(ts))
+    d["n_points"] = max(d["n_points"] if d["n_points"] is not None else -1, int(n))
+    d["via"].add(via)
+
+
+def _n_points(js):
+    """n_points of a fast.db outcome JSON (out); None when not there."""
+    try:
+        d = json.loads(js) if js else {}
+        return d.get("n_points") if isinstance(d, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def labelled(now, minute_db=None, fast_db=None, proposals_db=None, excluded=None):
     """{token: {"ts": the newest labelled skip, "pct": the best max gain within 60 min (%), "via": {store}}} of the
     skips of the last TTL_S labelled propušteno (>= +MIN_PCT % within 60 min). Read-only; a missing store adds
-    nothing."""
+    nothing. 12.11. (Jure, točka 4): a skip measured on fewer than MIN_POINTS prices in its 60 min is nepouzdano, not
+    propušteno: no label (a fast.db row whose window is still open waits for its points). excluded: a dict filled with
+    {token: {"ts", "n_points", "via"}} of the tokens whose every rise of the last TTL_S was nepouzdano (the count the
+    list and the missed statistics leave out)."""
     now = int(now)
     since = now - TTL_S
     p = _paths(minute_db, fast_db, proposals_db)
-    out = {}
+    out, unrel = {}, {}
     c = _ro(p["preskoceni"])
     if c is not None:
         try:
-            for tok, ts, hi in c.execute("SELECT token, ts, hi60 FROM skip_path WHERE ts >= ? AND hi60 >= ? AND "
-                                         "entry IS NOT NULL AND bad IS NULL", (since, MIN_PCT / 100)):
+            # 12.11.: n_pts (kol/preskoceni, the 1-minute candles of the 60 min); NULL before 12.11. = counted as before
+            n_col = "n_pts" if "n_pts" in {r[1] for r in c.execute("PRAGMA table_info(skip_path)")} else "NULL"
+            for tok, ts, hi, n in c.execute(f"SELECT token, ts, hi60, {n_col} FROM skip_path WHERE ts >= ? AND "
+                                            "hi60 >= ? AND entry IS NOT NULL AND bad IS NULL", (since, MIN_PCT / 100)):
+                if unreliable(n):
+                    _put_unrel(unrel, tok, ts, n, "preskoceni")
+                    continue
                 _put(out, tok, ts, hi * 100, "preskoceni")
         except sqlite3.Error:
             pass
@@ -120,9 +202,18 @@ def labelled(now, minute_db=None, fast_db=None, proposals_db=None):
     c = _ro(p["brzi_put"])
     if c is not None:
         try:
-            for tok, ts, mx in c.execute("SELECT token, decided_ts, max60 FROM signals WHERE decision='SKIP' AND missed=1 "
-                                         "AND decided_ts >= ? AND max60 >= ?", (since, MIN_PCT)):
-                _put(out, tok, ts, mx, "brzi_put")
+            # 12.11.: fast/outcomes stores missed NULL for a thin window; a row measured before keeps missed = 1, so the
+            # count (out.n_points, the fast.db px points of the 60 min) decides for both
+            for tok, ts, mx, mi, done, js in c.execute(
+                    "SELECT token, decided_ts, max60, missed, out_done, out FROM signals WHERE decision='SKIP' AND "
+                    "decided_ts >= ? AND max60 >= ? AND (missed = 1 OR out_done = 1)", (since, MIN_PCT)):
+                n = _n_points(js)
+                if unreliable(n):
+                    if done:
+                        _put_unrel(unrel, tok, ts, n, "brzi_put")
+                    continue   # an open window: its next points decide
+                if mi == 1:
+                    _put(out, tok, ts, mx, "brzi_put")
         except sqlite3.Error:
             pass
         finally:
@@ -133,15 +224,21 @@ def labelled(now, minute_db=None, fast_db=None, proposals_db=None):
             for tok, ts, after in c.execute("SELECT token, created_ts, after FROM proposals WHERE status IN ('isteklo', "
                                             "'odbijeno') AND created_ts >= ? AND after IS NOT NULL", (since,)):
                 try:
-                    g = ((json.loads(after) or {}).get("1h") or {}).get("max_gain_pct")
+                    h1 = (json.loads(after) or {}).get("1h") or {}
+                    g = h1.get("max_gain_pct")
                 except (ValueError, AttributeError):
-                    g = None
+                    h1, g = {}, None
                 if g is not None and float(g) >= MIN_PCT:
+                    if unreliable(h1.get("n_points")):   # 12.11.: the merged minutes of the hour (proposals/outcomes)
+                        _put_unrel(unrel, tok, ts, h1["n_points"], "prijedlozi")
+                        continue
                     _put(out, tok, ts, float(g), "prijedlozi")
         except sqlite3.Error:
             pass
         finally:
             c.close()
+    if excluded is not None:
+        excluded.update({t: d for t, d in unrel.items() if t not in out})
     return out
 
 
@@ -153,7 +250,9 @@ def from_missed(con, now, log=print, force=False, **paths):
     if not force and now - (data.kv_get(con, "mkt_missed_ts") or 0) < EVERY_S:
         return 0
     data.kv_put(con, "mkt_missed_ts", now)
-    got = labelled(now, **paths)
+    unrel = {}
+    got = labelled(now, excluded=unrel, **paths)
+    _note_unreliable(con, unrel, now, log)
     n, by = 0, {}
     for tok, d in got.items():
         r = con.execute("SELECT missed_ts FROM mkt WHERE token=?", (tok,)).fetchone()
@@ -171,6 +270,45 @@ def from_missed(con, now, log=print, force=False, **paths):
         log(f"range propušteni: +{n} tokena na listu kao izvor missed na {TTL_S // 3600} h ("
             + ", ".join(f"{k} {v}" for k, v in sorted(by.items())) + "); raspon i ulaz samo iz rangedca/detect")
     return n
+
+
+def _note_unreliable(con, unrel, now, log=print):
+    """12.11.: the tokens left out as nepouzdano into range.db kv (UNREL_KV: missed_meta, the EV report); a log line
+    only for the ones not left out at the previous read."""
+    from . import data
+    prev = set((data.kv_get(con, UNREL_KV) or {}).get("tokens") or [])
+    toks = sorted(unrel, key=lambda t: -unrel[t]["ts"])[:UNREL_KEEP]
+    data.kv_put(con, UNREL_KV, {"ts": int(now), "n": len(unrel), "tokens": toks})
+    new = [t for t in toks if t not in prev]
+    if new:
+        who = "taj token nije" if len(new) == 1 else "ti tokeni nisu"
+        log(f"range propušteni: {note(len(new))} u 60 min nakon preskoka, {who} na listi ni u statistici "
+            f"propuštenih (u zadnja {TTL_S // 3600} h ukupno {len(unrel)})")
+
+
+def unreliable_info(con):
+    """12.11.: {"n", "ts", "tokens"} of the last read's nepouzdano tokens (range.db kv); zeros without one."""
+    try:
+        from . import data
+        u = data.kv_get(con, UNREL_KV) or {}
+    except sqlite3.Error:
+        u = {}
+    return {"n": int(u.get("n") or 0), "ts": u.get("ts"), "tokens": list(u.get("tokens") or [])}
+
+
+def unreliable_now():
+    """unreliable_info() on a read-only range.db connection (the EV report); zeros without range.db."""
+    try:
+        from . import data
+        con = data.ro()
+    except Exception:  # noqa: BLE001
+        con = None
+    if con is None:
+        return {"n": 0, "ts": None, "tokens": []}
+    try:
+        return unreliable_info(con)
+    finally:
+        con.close()
 
 
 def fallback_sql():
@@ -262,11 +400,15 @@ def hard_block(con, tok, s, now=None):
 
 
 def info(con, now):
-    """{"watched", "listed", "until_max"} of the missed tokens (for get_range_candidates)."""
+    """{"watched", "listed", "waiting_or_blocked", "unreliable", "unreliable_why"} of the missed tokens (for
+    get_range_candidates). 12.11.: unreliable = the tokens of the last TTL_S whose every rise was measured on fewer
+    than MIN_POINTS prices (nepouzdano: not on the list, in no statistic of the missed)."""
+    u = unreliable_info(con)
+    why = f"{WHY} u 60 min nakon preskoka: nije propušteno, nije na listi ni u statistici propuštenih"
     try:
         w = con.execute("SELECT COUNT(*) FROM mkt WHERE watched=1 AND src='missed'").fetchone()[0]
         n = con.execute("SELECT COUNT(*) FROM mkt WHERE COALESCE(missed_until, 0) > ?", (int(now),)).fetchone()[0]
         b = con.execute("SELECT COUNT(*) FROM mkt WHERE src='missed' AND watched=0 AND why IS NOT NULL").fetchone()[0]
     except sqlite3.Error:
-        return {"watched": 0, "listed": 0, "waiting_or_blocked": 0}
-    return {"watched": w, "listed": n, "waiting_or_blocked": b}
+        return {"watched": 0, "listed": 0, "waiting_or_blocked": 0, "unreliable": u["n"], "unreliable_why": why}
+    return {"watched": w, "listed": n, "waiting_or_blocked": b, "unreliable": u["n"], "unreliable_why": why}

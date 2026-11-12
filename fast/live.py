@@ -384,15 +384,19 @@ def skip_rows(now=None, path=None, day_s=SKIP_DAY_S, limit=300):
 
 
 def skip_verdict(v, now=None):
-    """{"kind" miss | ok | wait, "word", "detail"} of one skip by its fast.db outcome (fast/outcomes: propušteno =
-    max >= +20 % within 60 min of the decision)."""
+    """{"kind" miss | ok | wait | unrel, "word", "detail"} of one skip by its fast.db outcome (fast/outcomes:
+    propušteno = max >= +20 % within 60 min of the decision). 12.11. (Jure, točka 4): fewer than 3 price points in
+    the 60 min = "mjeri se" while the window is open, "nepouzdano" (unrel, no number) once it is closed."""
     from . import outcomes
     now = now or time.time()
     o = v.get("out") or {}
-    if v.get("max60") is None:
-        left = int((v.get("decided_ts") or now) + outcomes.HORIZON_S - now)
+    left = int((v.get("decided_ts") or now) + outcomes.HORIZON_S - now)
+    if v.get("max60") is None or (outcomes.thin(o) and left + outcomes.GRACE_S > 0):
         return {"kind": "wait", "word": "mjeri se",
                 "detail": f"rezultat za {max(1, left // 60)} min" if left > 0 else "čeka cijenu"}
+    if outcomes.thin(o):
+        from rangedca import missed
+        return {"kind": "unrel", "word": missed.UNRELIABLE, "detail": missed.detail(o.get("n_points"))}
     if v.get("missed"):
         return {"kind": "miss", "word": "propušteno", "detail": f"najviše {estimate.pct(v['max60'], 0)} u 60 min"}
     tail = f", nakon 60 min {estimate.pct(o.get('60m'), 0)}" if o.get("60m") is not None else ""
@@ -408,9 +412,13 @@ def skip_html(rows, esc, now=None, show=SKIP_SHOW):
         return ""
     now = now or time.time()
     vs = [skip_verdict(v, now) for v in rows]
-    n = {k: sum(1 for x in vs if x["kind"] == k) for k in ("miss", "ok", "wait")}
+    n = {k: sum(1 for x in vs if x["kind"] == k) for k in ("miss", "ok", "wait", "unrel")}
     head = (f"Fast check, zadnja 24 h: {len(rows)} preskočeno · propušteno {n['miss']} (≥ +{outcomes.MISS_PCT:.0f} % u "
-            f"60 min) · dobro preskočeno {n['ok']} · mjeri se {n['wait']}.")
+            f"60 min) · dobro preskočeno {n['ok']} · mjeri se {n['wait']}")
+    if n["unrel"]:   # 12.11. (Jure, točka 4): in neither count, said how many
+        from rangedca import missed
+        head += f" · {missed.note(n['unrel'])}"
+    head += "."
     items = []
     for v, sv in list(zip(rows, vs))[:show]:
         nums = " · ".join(x for x in (ev_line(v), p_line(v), lag_line(v)) if x and x not in ("EV –", "P –"))

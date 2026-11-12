@@ -38,7 +38,8 @@ RULES = ("Every buy of a followed wallet (wallet_follow, insider, pre_shill, gro
          "with run_trade's proof (n >= 10, EV >= +3 % with its 90 % interval above 0) and this signal's EV >= +3 % "
          "(a label: paper mode trades it on the demo account); PRESKOČI = SKIP with the check and its number, or EV "
          "<= 0. An API error is CHECK_FAILED and retried 3x within 30 s, never a skip. "
-         "propušteno = SKIP and max >= +20 % within 60 min.")
+         "propušteno = SKIP and max >= +20 % within 60 min. 12.11.: an outcome on fewer than 3 price points in the "
+         "60 min is nepouzdano (outcome.reliable false, quality 'nepouzdano', missed null): in no count of the missed.")
 
 
 def _mode():
@@ -106,6 +107,12 @@ def _outcome(r):
     o = r.get("out") or {}
     if not o or o.get("max60") is None:
         return None
+    from .outcomes import thin
+    if thin(o):   # 12.11. (Jure, točka 4): fewer than 3 price points in the 60 min: no number that would mislead
+        from rangedca import missed
+        if r.get("out_done"):
+            return f"nakon: {missed.UNRELIABLE}, {missed.detail(o.get('n_points'))}"
+        return f"nakon: mjeri se (zasad {missed.points_hr(o.get('n_points'))} cijene)"
     s = (f"nakon: 1 min {_pct(o.get('1m'))} · 5 min {_pct(o.get('5m'))} · 15 min {_pct(o.get('15m'))} · 60 min "
          f"{_pct(o.get('60m'))} · najviše {_pct(o.get('max60'))}")
     if r.get("missed"):
@@ -277,8 +284,28 @@ def _row_out(r):
             "price_at_decision": r.get("price0"), "mcap_at_decision": r.get("mcap0"),
             "checks": {k: {kk: (res.get(k) or {}).get(kk) for kk in ("status", "text", "values", "threshold", "ms")}
                        for k in ORDER} if res else None,
-            "source_quality": r.get("quality") or None, "outcome": r.get("out") or None, "missed": r.get("missed"),
+            "source_quality": r.get("quality") or None, "outcome": _out_mcp(r), "missed": _missed_mcp(r),
             "traded": r.get("traded") or None}
+
+
+def _out_mcp(r):
+    """12.11. (Jure, točka 4): the outcome with its reliability: reliable false and quality "nepouzdano" (closed
+    window, fewer than 3 price points: max60 and the moves are no answer), also on a row measured before 12.11."""
+    o = r.get("out") or None
+    if not o or o.get("n_points") is None:
+        return o
+    from rangedca import missed
+    from .outcomes import thin
+    o = dict(o, reliable=not thin(o))
+    if thin(o) and r.get("out_done"):
+        o.update(quality=missed.UNRELIABLE, quality_why=missed.detail(o["n_points"]))
+    return o
+
+
+def _missed_mcp(r):
+    """missed of the MCP answer: None (not known) for a thin window (12.11.: nepouzdano is neither 1 nor 0)."""
+    from .outcomes import thin
+    return None if thin(r.get("out")) else r.get("missed")
 
 
 def _ids(x):

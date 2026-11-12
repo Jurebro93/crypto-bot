@@ -455,12 +455,13 @@ def stats(rs, cap=3.0):
 
 
 def light_rows(path=None, since=None, point=None):
-    """Only (point, kupljeno, decision, ret, hit, rug) of labelled points: no features, no path. For the dashboard,
-    which lives 24/7 (Python keeps the memory a big read once took), so it never parses thousands of JSON blobs."""
+    """Only (point, kupljeno, decision, ret, hit, rug, ts, n_pts) of labelled points: no features, no path. For the
+    dashboard, which lives 24/7 (Python keeps the memory a big read once took), so it never parses thousands of JSON
+    blobs. 12.11.: n_pts (the prices of the 24 h path) for the missed winners' reliability (ui/learnpage)."""
     con = _ro(path or DB)
     if con is None:
         return []
-    sql, args = "SELECT point, kupljeno, decision, ret, hit, rug, ts FROM points WHERE status='gotovo'", []
+    sql, args = "SELECT point, kupljeno, decision, ret, hit, rug, ts, n_pts FROM points WHERE status='gotovo'", []
     if since:
         sql += " AND ts>=?"
         args.append(int(since))
@@ -468,8 +469,8 @@ def light_rows(path=None, since=None, point=None):
         sql += " AND point=?"
         args.append(point)
     try:
-        return [{"point": a, "kupljeno": b, "decision": c, "ret": d, "hit": e, "rug": f, "ts": g}
-                for a, b, c, d, e, f, g in con.execute(sql, args)]
+        return [{"point": a, "kupljeno": b, "decision": c, "ret": d, "hit": e, "rug": f, "ts": g, "n_pts": n}
+                for a, b, c, d, e, f, g, n in con.execute(sql, args)]
     except sqlite3.OperationalError:
         return []
     finally:

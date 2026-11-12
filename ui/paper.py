@@ -685,6 +685,10 @@ def page(qs):
                 b.append("<b>Propušteni pobjednici:</b><ul class=r>" + "".join(
                     f"<li class=warn>{tlink(m['token'], m['symbol'])} do {m['raw_max']:+.0%}, preskočen: {esc(labels.reason(m['reason']))}</li>"
                     for m in d["missed"]) + "</ul>")
+            if d.get("missed_unreliable"):   # 12.11. (Jure, točka 4): left out of the list above, said how many
+                from rangedca import missed as rmissed
+                b.append(f"<p class=mut>Propušteni pobjednici, {esc(rmissed.note(d['missed_unreliable']))}: nisu na "
+                         "popisu.</p>")
             done = [x for x in d.get("auto") or [] if x.get("text")]
             obs = [labels.plain(x.get("text")) for x in d.get("suggestions") or []
                    if not x.get("weights") and not (d.get("auto") is not None and x.get("change"))]

@@ -4003,6 +4003,10 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
                        iid="ap-sk-sve", value_tone="mut"))
     note = (f"Mjereno od trenutka odluke, 1-minutnim svijećama, 60 min: propušteno = +{tp} % prije −{sl} %; "
             f"dobro preskočen = prvo −{sl} % ili +{tp} % nije došao.")
+    if any(v["kind"] == "unrel" for v in vs):   # 12.11. (Jure, točka 4): said once, under the box
+        from rangedca import missed
+        note += (f" Nepouzdano = u tih 60 min {missed.WHY} (minuta s trgovanjem): ne broji se ni kao propušteno "
+                 "ni kao dobro preskočen.")
     if paths is None:
         note += " Mjerenje još nije pokrenuto."
     if tp_cfg != tp:   # the target the Autopilot really exits at, only when it is not the +15 % asked about here
@@ -4363,6 +4367,10 @@ def skip_popup(user, mint, t, now=None):
         b.append("<p class=ms-hint>Cijena u minuti poziva nije poznata, pa su pomaci od trenutka preskoka.</p>")
     elif mv and not mv["supply"]:
         b.append("<p class=ms-hint>Supply tokena nije poznat, pa su tu samo pomaci cijene.</p>")
+    elif v["kind"] == "unrel":   # 12.11. (Jure, točka 4): measured, but on too few prices to say anything
+        from rangedca import missed
+        b.append(f"<p class=ms-hint>Nakon preskoka {esc(missed.detail(p.get('n_pts')))}: rezultat je nepouzdan i "
+                 "ne ulazi u statistiku propuštenih.</p>")
     elif not mv and (seen_mc or samples):
         b.append("<p class=ms-hint>Market cap iz trenutka odluke i naših živih uzoraka (DexScreener); točne svijeće "
                  "po minutama dolaze kad se izmjere.</p>")
