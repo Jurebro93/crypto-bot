@@ -158,7 +158,9 @@ class LiveCaps(unittest.TestCase):
 
     def test_the_caps_are_grok_autotrades(self):
         from ui import grokauto
-        self.assertEqual(executor.LIVE_CAPS, {k.replace("grok_", ""): v[0] for k, v in grokauto.LIMITS.items()})
+        # 12.11.: the money limits (grok_*); max_round_trips_per_token_day is a count, not a live cap
+        self.assertEqual(executor.LIVE_CAPS, {k.replace("grok_", ""): v[0] for k, v in grokauto.LIMITS.items()
+                                              if k.startswith("grok_")})
 
     def test_automatic_live_buys_are_held_to_them_the_owners_own_and_dry_are_not(self):
         g = lambda size, live, **k: executor.gate_buy(self.con, self.CFG, size, self.NOW, live, balance=10.0, **k)  # noqa
