@@ -699,7 +699,8 @@ class Mcp(Env):
         names = {t["name"]: t for t in mcpapi.TOOLS}
         g = names["get_fast_checks"]
         self.assertTrue(g["annotations"]["readOnlyHint"])
-        self.assertEqual(sorted(g["inputSchema"]["properties"]), ["decision", "limit", "since"])
+        # 12.11.: id = one fast_check (submit_watch_token's), tests/test_xcall_offline.py
+        self.assertEqual(sorted(g["inputSchema"]["properties"]), ["decision", "id", "limit", "since"])
         self.assertEqual(g["inputSchema"]["properties"]["decision"]["enum"], list(store.DECISIONS))
         self.ingest(REPLAY_TS, REPLAY_TS + 1)
         self.run_worker(good_net(), self.clock(REPLAY_TS + 1.1))

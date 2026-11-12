@@ -427,14 +427,15 @@ def skip_html(rows, esc, now=None, show=SKIP_SHOW):
 # ---------- proposals -----------------------------------------------------------------------------------------------------
 
 def kupi_rows(now=None, path=None, window=KUPI_S):
-    """{token: the best KUPI fast_check of the last `window`} (status done, BUY_PAPER / BUY_LIVE) for proposals/."""
+    """{token: the best KUPI fast_check of the last `window`} (status done, BUY_PAPER / BUY_LIVE) for proposals/.
+    12.11.: an x_call's check is no proposal (submit_watch_token never trades; x_call_scalp only measures it)."""
     now = now or time.time()
     con = store.ro(path)
     if con is None:
         return {}
     try:
-        rows = _rows(con, "status='done' AND decision IN ('BUY_PAPER', 'BUY_LIVE') AND decided_ts >= ?",
-                     (int(now - window),), 500)
+        rows = _rows(con, "status='done' AND decision IN ('BUY_PAPER', 'BUY_LIVE') AND decided_ts >= ? AND "
+                          "COALESCE(kind, '') != 'x_call'", (int(now - window),), 500)
     finally:
         con.close()
     out = {}

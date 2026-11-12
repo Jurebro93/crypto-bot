@@ -9,6 +9,8 @@ Every POLL_S (0.5 s), or at once when a hook touches fast/enqueue.WAKE or the co
      (20) threads; a running job is never taken twice
   5. every SAMPLE_S the outcomes' price points and measurements (fast/outcomes.py), the base rates every 10 min
   6. the costs into fast.db, the 23:30 report and cost line once a Zagreb day, the hourly prune
+  7. 12.11.: every TICK_S, whatever fast_path's mode, x_call_scalp's tick (fast/xscalp.tick: the entries of Grok's
+     submit_watch_token calls, their price points, the measurement after 65 min) while the flag x_call_scalp is not off
 A job: checks (fast/checks.run_all) -> decision (fast/decide.decide) -> fast.db; CHECK_FAILED is retried after
 BACKOFF_S (3, 8, 15 s: three retries within 30 s) and stays CHECK_FAILED (status failed, its reason visible) after the
 last; a BUY wakes the auto loop in run_ui.py (league/copy.wake), which trades it (fast/paper.py).
@@ -22,7 +24,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from zoneinfo import ZoneInfo
 
-from . import checks, decide, enqueue, estimate, outcomes, sources, store
+from . import checks, decide, enqueue, estimate, outcomes, sources, store, xscalp
 
 FLAG = "fast_path"
 WORKERS = 20
@@ -112,7 +114,7 @@ class Worker:
         self.pool = None
         self.running = set()
         self.lock = threading.Lock()
-        self.t = {"sources": 0.0, "scan": 0.0, "sample": 0.0, "rates": 0.0, "prune": 0.0}
+        self.t = {"sources": 0.0, "scan": 0.0, "sample": 0.0, "rates": 0.0, "prune": 0.0, "xcall": 0.0}
         self.rates = {}
         self.priors = None      # 11.11.: fast/estimate.priors of the pooled rates (the strategy prior per kind)
         self.src_rates = {}     # 11.11.: {source id: (hits, n)} of the measured fast.db outcomes
@@ -335,6 +337,18 @@ class Worker:
             con.close()
         return m
 
+    def xcall_tick(self, now=None):
+        """12.11.: fast/xscalp.tick every xscalp.TICK_S (its own flag; it runs while fast_path is off too)."""
+        now = now or self.now_fn()
+        if now - self.t["xcall"] < xscalp.TICK_S:
+            return None
+        self.t["xcall"] = now
+        try:
+            return xscalp.tick(now, self.path, log=self.log)
+        except Exception as e:  # noqa: BLE001 - the queue never waits on the measurement
+            self.log(f"fast: x_call_scalp ({type(e).__name__}: {e})")
+            return None
+
     def loop(self, max_steps=None):
         last_wake, n = time.time(), 0
         while max_steps is None or n < max_steps:
@@ -346,6 +360,7 @@ class Worker:
                 self.log(f"fast: prolaz nije uspio ({type(e).__name__}: {e})")
                 m = "?"
             last_wake = t0
+            self.xcall_tick()
             if m == "off":
                 self.stop(wait=False)
                 time.sleep(15)

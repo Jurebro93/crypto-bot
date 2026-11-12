@@ -1478,7 +1478,8 @@ def scoring_config():
     except Exception:  # noqa: BLE001
         out["grok_autotrade"] = None
     # 10.11. (Phase 0): every flag of the profitability plan with its mode, and the backtest verdicts (read-only)
-    out["flags"] = {n: {"item": settings.FLAGS[n][0], "mode": settings._flag_value(raw.get(f"flag:{n}"))["mode"],
+    out["flags"] = {n: {"item": settings.FLAGS[n][0],
+                        "mode": settings._flag_value(raw.get(f"flag:{n}"), settings.FLAG_DEFAULTS.get(n, "off"))["mode"],
                         "backtest": raw.get(f"backtest:{n}")} for n in settings.FLAGS}
     try:
         from rugfilter import score as rscore

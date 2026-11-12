@@ -43,12 +43,17 @@ WALLET_KINDS = ("wallet_follow", "insider", "pre_shill", "group", "proven")
 LABEL = {"BUY_PAPER": "KUPI (paper)", "BUY_LIVE": "KUPI (live-eligible)", "SKIP": "PRESKOČI",
          "CHECK_FAILED": "provjera nije uspjela"}
 STRATEGY = {"wallet": "kupnje praćenih novčanika", "influencer": "pozivi influencera",
-            "convergence": "konvergencija izvora", "tool": "živi kandidati alata", "none": "bez prednosti"}
+            "convergence": "konvergencija izvora", "tool": "živi kandidati alata", "none": "bez prednosti",
+            "x_call": "X pozivi koje šalje Grok"}
 
 
 def group_of(kind):
+    """12.11.: an X call Grok sends (x_call) is an influencer's call: the author's caller bench / record is its sample,
+    its prior the x_call outcomes first, then the influencers' chain (priors)."""
     if kind in WALLET_KINDS:
         return "wallet"
+    if kind == "x_call":
+        return "influencer"
     return kind if kind in ("influencer", "convergence", "tool") else "tool"
 
 
@@ -101,7 +106,7 @@ def priors(rates=None, pooled=None, kinds=None):
     all_ = _sum(*rates.values())
     wallets = _sum(*(rates.get(k) for k in WALLET_KINDS))
     out = {}
-    for kind in kinds or (WALLET_KINDS + ("influencer", "convergence", "tool")):
+    for kind in kinds or (WALLET_KINDS + ("influencer", "convergence", "tool", "x_call")):
         g = group_of(kind)
         if g == "wallet":
             chain = [(rates.get(kind), f"fast.db ishodi ({kind})", STRATEGY["wallet"]),
@@ -111,7 +116,8 @@ def priors(rates=None, pooled=None, kinds=None):
                      (pooled.get("demo_wallet"), "demo kopije praćenih novčanika (dobitne / zatvorene)",
                       "demo kopije novčanika")]
         elif g == "influencer":
-            chain = [(rates.get("influencer"), "fast.db ishodi (influencer)", STRATEGY["influencer"]),
+            chain = ([(rates.get("x_call"), "fast.db ishodi (x_call)", STRATEGY["x_call"])] if kind == "x_call" else [])
+            chain += [(rates.get("influencer"), "fast.db ishodi (influencer)", STRATEGY["influencer"]),
                      (pooled.get("bench"), "proposals bench: svi pozivi callera, +15 % prije −10 % u 45 min",
                       STRATEGY["influencer"]),
                      (pooled.get("rang_kol"), "rang: svi pozivi dokazanih influencera (dobitni / svi)",
@@ -134,6 +140,8 @@ def prior_for(kind, pri=None, rates=None):
     """The prior of one kind: from priors() when given, else from fast.db rates alone (decide.base_for's rule)."""
     if pri and pri.get(kind):
         return pri[kind]
+    if kind == "x_call" and pri and pri.get("influencer") and not (rates or {}).get("x_call"):
+        return pri["influencer"]   # 12.11.: priors stored before the kind existed: the influencers' prior
     return priors(rates, None, (kind,))[kind]
 
 

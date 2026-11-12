@@ -6,7 +6,7 @@
                 decision and its reason, the source's record, EV, and what happened after (+1/+5/+15/+60 min, max)
   skip_block    the skip pop-up and the token pop-up: the fast_check of that token around that time, as a table
   skip_summary  one line per skipped row of the Autopilot's skip box ("fast_check: SKIP · holderi: top10 62 % > 45 %")
-  mcp           MCP get_fast_checks(since, decision, limit)
+  mcp           MCP get_fast_checks(since, decision, limit, id): 12.11. id = one signal (submit_watch_token's fast_check)
 """
 import time
 
@@ -117,7 +117,7 @@ def head_line(r):
     """"SKIP · 3,2 s od kupnje novčanika · holderi: top10 62 % > 45 %"."""
     if not r.get("decision") or r.get("status") in ("queued", "running"):
         return pending_text(r)
-    who = "kupnje novčanika" if r.get("kind") != "influencer" else "poziva"
+    who = "kupnje novčanika" if r.get("kind") not in ("influencer", "x_call") else "poziva"
     return (f"{r['decision']} · {_c(r.get('latency_s'))} s od {who} · {r.get('reason') or ''}"
             + (f" · {pending_text(r)}" if r.get("status") == "retry" else ""))
 
@@ -281,26 +281,67 @@ def _row_out(r):
             "traded": r.get("traded") or None}
 
 
-def mcp(since=None, decision=None, limit=None, path=None, now=None):
-    """get_fast_checks: every decision since `since` (default 24 h ago), optionally of one decision, newest first."""
+def _ids(x):
+    """12.11.: id / ids of get_fast_checks -> [int] (None when not given); ValueError on anything but integers."""
+    if x in (None, "", []):
+        return None
+    xs = x if isinstance(x, (list, tuple)) else [x]
+    out = []
+    for v in xs[:50]:
+        if isinstance(v, bool) or not str(v).strip().lstrip("-").isdigit() or int(str(v).strip()) <= 0:
+            raise ValueError("id must be a positive integer (the fast_check id submit_watch_token returned)")
+        out.append(int(str(v).strip()))
+    return out
+
+
+def _x_calls(con, ids):
+    """{signal id: the x_call summary} of the submit_watch_token rows checked by these signals (12.11.)."""
+    if not ids:
+        return {}
+    try:
+        q = ",".join("?" * len(ids))
+        rows = con.execute(f"SELECT signal_id, id, author, followers, cls, post_id, submitted_ts, entry_status, entry_why, "
+                           f"mcap0, measured, net FROM x_calls WHERE signal_id IN ({q}) ORDER BY id", list(ids)).fetchall()
+    except Exception:  # noqa: BLE001 - a fast.db without x_calls
+        return {}
+    out = {}
+    for sid, xid, au, fo, cls, pid, ts, es, ew, mc, me, net in rows:
+        out.setdefault(sid, []).append({"x_call_id": xid, "author": au, "followers": fo, "class": cls, "post_id": pid,
+                                        "submitted_ts": ts, "x_call_scalp": es, "entry_why": ew, "entry_mcap_usd": mc,
+                                        "measured": bool(me),
+                                        "net_pct": round(net * 100, 2) if net is not None else None})
+    return out
+
+
+def mcp(since=None, decision=None, limit=None, path=None, now=None, ids=None):
+    """get_fast_checks: every decision since `since` (default 24 h ago), optionally of one decision, newest first.
+    12.11.: ids (id / ids of the tool, e.g. the fast_check id submit_watch_token returned): only those signals, any
+    age, with their state (in progress, done, CHECK_FAILED) and the x_call that asked for them."""
     now = int(now or time.time())
     try:
         since = int(since) if since not in (None, "") else now - 86400
         limit = max(1, min(200, int(limit or 50)))
-    except (TypeError, ValueError):
-        return {"error": "since and limit must be integers"}
+        ids = _ids(ids)
+    except (TypeError, ValueError) as e:
+        return {"error": str(e) if "id must" in str(e) else "since and limit must be integers"}
     if decision not in (None, "") and decision not in store.DECISIONS:
         return {"error": f"decision must be one of {', '.join(store.DECISIONS)}"}
     out = {"mode": _mode(), "rules": RULES, "since": since, "signals": [], "summary": {}, "report": None}
+    if ids:
+        out.update(since=None, ids=ids)
     con = store.ro(path)
     if con is None:
         return out
     try:
-        where, args = "COALESCE(decided_ts, enq_ts) >= ?", [since]
+        if ids:
+            where, args = f"id IN ({','.join('?' * len(ids))})", list(ids)
+        else:
+            where, args = "COALESCE(decided_ts, enq_ts) >= ?", [since]
         if decision:
             where += " AND decision = ?"
             args.append(decision)
         rows = store.read(con, where, args, order="id DESC", limit=limit)
+        xc = _x_calls(con, [r["id"] for r in rows])
         for d, n in con.execute("SELECT COALESCE(decision, 'u tijeku'), COUNT(*) FROM signals WHERE "
                                 "COALESCE(decided_ts, enq_ts) >= ? GROUP BY 1", (since,)):
             out["summary"][d] = n
@@ -309,7 +350,9 @@ def mcp(since=None, decision=None, limit=None, path=None, now=None):
     finally:
         con.close()
     import json
-    out["signals"] = [_row_out(r) for r in rows]
+    out["signals"] = [dict(_row_out(r), **({"x_calls": xc[r["id"]]} if r["id"] in xc else {})) for r in rows]
     out["count"] = len(rows)
+    if ids:
+        out["missing_ids"] = [i for i in ids if i not in {r["id"] for r in rows}]
     out["report"] = json.loads(rep[0]) if rep else None
     return out
