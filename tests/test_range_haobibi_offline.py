@@ -101,8 +101,12 @@ class Labels(TradeBase):
         self.assertIn("HAOBIBI: oznaka vlasnika win (dobitak propušten preranim stopom)", rows[0]["note"])
         self.assertIn("knjiženo -4,26 $ ostaje", rows[0]["note"])
         self.assertTrue(logs[0].startswith("range oznake vlasnika: HAOBIBI"), logs)
-        # 11.11.: a fresh label is not a similarity reference before it has stood 24 h without a rug
-        self.assertTrue(logs[1].startswith("range slični: nema referenci"), logs)
+        # the similarity line (the label's ts is the fixture's, fixed on 11.11.: against the real clock it is a
+        # reference now; the 24 h rule itself is checked against fixed clocks below)
+        self.assertTrue(logs[1].startswith("range slični"), logs)
+        ws_lb = owner.labels()
+        self.assertEqual(owner.wins(lbs=ws_lb, now=T1 + 3600), [])                   # 1 h old: not a reference yet
+        self.assertEqual([w["token"] for w in owner.wins(lbs=ws_lb, now=T1 + 25 * 3600)], [H])   # 25 h: it is
 
 
 # ---------------------------------------------------------------------------------------------------------------

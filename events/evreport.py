@@ -280,7 +280,7 @@ def owner_rows(now, mode, log=print):
             return []
         lab = "; ".join(owner.label_text(lb) for lb in lbs[:5])
         d = view.candidates(0.0, now=now)
-        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs))
+        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs, now=now))   # 12.11.: the report's clock
         pins = ", ".join(f"{p.get('symbol') or p['token'][:6]} ({'preporuka sada' if p.get('pin_ready') else 'čeka'})"
                          for p in d.get("pins") or [])
     except Exception as e:  # noqa: BLE001 - the rest of the report never waits for this row
