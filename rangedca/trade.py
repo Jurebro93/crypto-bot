@@ -67,7 +67,17 @@ FLAG = "range_dca"
 FLIP_FLAG = "range_flip"    # 11.11. (G26): flip / pause / volatility stop, the new rules (rules.new_range)
 SRC1, SRC2 = "range lot 1", "range lot 2"
 RANGE_FRESH_S = 15 * 60     # a range computed longer ago is not traded
-METRICS_FRESH_S = 4 * 60    # the 5-minute numbers (buys share, volume, change) at most this old at an entry
+# 12.11. popodne (owner, točka 1: "prag svježine ~5 min, jednak intervalu, pa svako kašnjenje stavi entry_ready=false na
+# sve"): two limits instead of one 4-minute limit for everything. The hard one holds every automatic buy (lot 1, lot 2,
+# reclaim) of this module: 5 minutes, because "5-minute" numbers computed at t describe t-5..t, and from t+5 on that
+# window shares no minute with the 5 minutes being traded (run_range renews them every pass, ~60 s, so 5 minutes is
+# four missed passes or a deploy). The readiness limit is what entry_ready / entry_now (get_range_candidates), the
+# owner's pin and zonewatch's range zones read: 9 minutes, so one late or lost cycle (a restart) no longer turns every
+# candidate into "5-minutni podaci nisu svježi"; past either limit the real reason (zone, score, breakout) stays in
+# front and the staleness is added after it (entry_view).
+METRICS_FRESH_S = int(os.environ.get("RANGE_METRICS_TRADE_S", "300"))   # hard: an automatic entry (trade gate)
+METRICS_READY_S = int(os.environ.get("RANGE_METRICS_READY_S", "540"))   # entry_ready / pin / range zones
+METRICS_NOTE_S = 150        # numbers older than this (two missed passes) carry a note on the row
 STALE_S = 60                # league/exitplan.STALE_S: an older price fires only the hard stop
 RNG_TTL_S = 10              # the 1-s exit loop reads range.db at most this often
 OFF_CHECK_S = 60
@@ -323,9 +333,42 @@ def _spent_today(con, user, now, sol):
     return usd / sol if sol else 0.0
 
 
+ARCHIVE_LOG_S = 3600
+_ARCH_SAID = {}
+
+
+def archived_why(tok):
+    """12.11. popodne (owner, točka 4: "tokene iz arhive rugova (NOBUSHIBA, Leonida) ne naoružavaj i ne tradaj"): the
+    reason when the token is in the rug archive (rugfilter/archive.blocked, any kind: the archive's own contract is
+    "never tracked again"), else None (also when the archive cannot be read: then the other rug guards decide).
+    league/copy._rugged alone misses them: the archive deletes the token's history from hype.db, so the collapse
+    check has no peak left to compare with. Read by every automatic range buy (_guards), get_range_candidates
+    (rangedca/view.one), zonewatch's range zones and arm_zone, and the range job (no polling, no range)."""
+    try:
+        from rugfilter import archive
+        if tok not in archive.blocked():
+            return None
+        kind = None
+        try:
+            kind = archive.kinds(log=None).get(tok)
+        except Exception:  # noqa: BLE001 - the kind only names it
+            pass
+    except Exception:  # noqa: BLE001
+        return None
+    return f"token je u arhivi rugova ({kind or 'rug'}): ne prati se, ne trguje i ne naoružava"
+
+
 def _guards(tok, m):
-    """The rug / pool guards of the Autopilot's copies (league/copy) at the entry; the reason or None."""
+    """The rug / pool guards of the Autopilot's copies (league/copy) at the entry; the reason or None. 12.11.: the
+    rug archive first (archived_why), logged once an hour per token."""
     from league import copy
+    arch = archived_why(tok)
+    if arch:
+        now = time.time()
+        if now - _ARCH_SAID.get(tok, 0) >= ARCHIVE_LOG_S:
+            _ARCH_SAID[tok] = now
+            print(f"range {tok[:6]}: ulaz blokiran, {arch}", flush=True)
+        return arch
     price, liq, _url, mcap = m[:4]
     if copy._bonding_curve(m) or copy._dex_pair_empty(m):
         return "token je još na pump.fun krivulji ili bez DexScreener para (uzimaju se bondani)"
@@ -381,15 +424,36 @@ def _buy(con, user, tok, sym, usd, price, liq, mcap, src, allow_open):
     return tid
 
 
-def entry_view(rng, price, now):
-    """The entry decision on a range as the MCP API shows it: None (would enter) or the reason."""
+def numbers_age(rng, now):
+    """Seconds since the range's 5-minute numbers were renewed (mts; the computation's ts for an older row)."""
+    return int(now - ((rng or {}).get("mts") or (rng or {}).get("ts") or 0))
+
+
+def stale_why(rng, now, limit=None):
+    """None while the range (RANGE_FRESH_S) and its 5-minute numbers (limit, default the trade gate's METRICS_FRESH_S)
+    are fresh enough, else why in Croatian, with the age and the limit."""
+    limit = METRICS_FRESH_S if limit is None else limit
+    age_r = int(now - ((rng or {}).get("ts") or 0))
+    if age_r > RANGE_FRESH_S:
+        return f"raspon nije svjež (izračunat prije {age_r / 60:.0f} min, granica {RANGE_FRESH_S // 60} min)"
+    age = numbers_age(rng, now)
+    if age > limit:
+        return f"5-minutni podaci nisu svježi (stari {age / 60:.1f} min, granica {limit / 60:g} min)"
+    return None
+
+
+def entry_view(rng, price, now, limit=None):
+    """The entry decision on a range: None (would enter) or the reason. 12.11. (owner, točka 1): the real rule's
+    reason (zone, score, floor, 5-minute numbers) first and the staleness after it ("<real> · <stale>"), so a late
+    cycle never hides why a token is or is not an entry. limit: the numbers' age limit, default the hard trade gate's
+    METRICS_FRESH_S (every automatic buy here); the readiness views pass METRICS_READY_S."""
     if not rng:
         return "nema raspona"
-    if now - (rng.get("ts") or 0) > RANGE_FRESH_S:
-        return "raspon nije svjež"
-    if now - (rng.get("mts") or rng.get("ts") or 0) > METRICS_FRESH_S:
-        return "5-minutni podaci nisu svježi"
-    return rules.entry_check(rules.atr_range(rng), price)   # 11.11.: the floor never under the ATR stop (variant b)
+    real = rules.entry_check(rules.atr_range(rng), price)   # 11.11.: the floor never under the ATR stop (variant b)
+    stale = stale_why(rng, now, limit)
+    if real and stale:
+        return f"{real} · {stale}"
+    return real or stale
 
 
 def run_once(con, market_fn=None, now=None, ranges=None, lim=None, sol=None):

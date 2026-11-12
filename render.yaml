@@ -9,7 +9,7 @@ services:
     disk:
       name: data
       mountPath: /var/data
-      sizeGB: 5
+      sizeGB: 10   # 12.11. (Jure: "Kupit ćemo veći"): 5 -> 10 GB; a Render disk can grow, never shrink
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.0

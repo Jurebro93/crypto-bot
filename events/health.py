@@ -30,6 +30,17 @@ NAMES = {"call": "pozivi (X/Telegram)", "wallet_buy": "kupnje praćenih novčani
          "novčanika", "transfer": "transferi novčanika", "x_post": "X objave", "price_tick": "cijene",
          "trade": "tradeovi Autopilota", "signal": "signali", "zone_alert": "zonski alarmi"}
 NO_GAP = frozenset({"zone_alert"})   # 11.11.: alarms come when prices cross zones; an hour without one is normal
+# 12.11. popodne (owner: "„Nema Autopilot trade eventa" nije rupa u feedu ako taj dan nije bilo tradeova"): a type whose
+# silence is checked against its own source tables: a gap only when the source holds a row newer than the newest event
+# (the sync missed it), never because nothing was traded
+SOURCE_CHECKED = frozenset({"trade"})
+SYNC_SLACK_S = 600      # the sync runs every 5 min: a source row this much newer than the newest event is a real gap
+# 12.11. popodne (owner: "U health/feed-gap dodaj range_compute i range_numbers: last-write, starost, alert ako je
+# computed_ts ili numbers_ts stariji od 8–10 min"): read from range.db (ranges.ts = computed_ts of the active ranges,
+# data.mts = numbers_ts); both run day and night, so no Zagreb window
+RANGE_GAP_MIN = 9.0
+RANGE_TYPES = {"range_compute": "izračun raspona (computed_ts)", "range_numbers": "5-min brojke raspona (numbers_ts)"}
+NAMES.update(RANGE_TYPES)
 
 
 def in_window(now=None, window=WINDOW):
@@ -59,6 +70,60 @@ def status(econ, now=None):
     return out
 
 
+def source_newest(t, paths=None):
+    """The newest row time (unix s) of the sources that write type t (events/sources.Source), None if unreadable."""
+    best = None
+    try:
+        p = paths or sources.paths()
+        for src in sources.sources():
+            if t not in src.types:
+                continue
+            con = sources._ro(p.get(src.db))
+            if con is None:
+                continue
+            try:
+                where = f" WHERE {src.where}" if src.where else ""
+                v = con.execute(f"SELECT MAX({src.ts}) FROM {src.table}{where}").fetchone()[0]
+            except sqlite3.Error:
+                v = None
+            finally:
+                con.close()
+            if v is not None:
+                v = int(v / 1000) if v > 10**11 else int(v)   # ms or s
+                best = v if best is None else max(best, v)
+    except Exception:  # noqa: BLE001 - unknown: the caller treats it as "no proof of a gap"
+        return None
+    return best
+
+
+def range_status(now=None, path=None):
+    """[{type: range_compute | range_numbers, last_ts, gap_min, active, n_active, sources}] from range.db; [] when the
+    range job is off (no range.db or no active range)."""
+    now = int(now or time.time())
+    try:
+        from rangedca import data
+        con = data.ro(path)
+    except Exception:  # noqa: BLE001
+        return []
+    if con is None:
+        return []
+    try:
+        n, comp, nums = con.execute("SELECT COUNT(*), MAX(ts), MAX(CAST(json_extract(data, '$.mts') AS INTEGER)) "
+                                    "FROM ranges WHERE active = 1").fetchone()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    if not n:
+        return []
+    out = []
+    for t, last in (("range_compute", comp), ("range_numbers", nums or comp)):
+        last = int(last) if last else None
+        out.append({"type": t, "last_ts": last, "gap_min": round((now - last) / 60, 1) if last else None,
+                    "active": True, "n_active": int(n), "sources": {}})
+    return out
+
+
 RECENT_MIN = 15
 RECENT_TYPES = ("price_tick", "transfer")
 RECENT_WORDS = {"price_tick": "cijene", "transfer": "transferi"}
@@ -83,16 +148,32 @@ def _hhmm(ts):
     return dt.datetime.fromtimestamp(ts, ZoneInfo(TZ)).strftime("%d.%m. %H:%M")
 
 
-def alerts_for(st, now=None, window=WINDOW, gap_min=GAP_MIN):
-    """The alerts of a status() list (pure: the tests give it any clock)."""
+def alerts_for(st, now=None, window=WINDOW, gap_min=GAP_MIN, newest=None):
+    """The alerts of a status() list (pure: the tests give it any clock). newest: {type: the source's newest row} for
+    SOURCE_CHECKED types (check() reads it); range_* types use RANGE_GAP_MIN at any hour."""
     now = int(now or time.time())
-    if not in_window(now, window):
-        return []
+    day = in_window(now, window)
     out = []
     for s in st:
         if s["type"] in NO_GAP:
             continue
-        if not s["active"] or s["last_ts"] is None or s["gap_min"] is None or s["gap_min"] <= gap_min:
+        rng = s["type"] in RANGE_TYPES
+        if not rng and not day:
+            continue
+        limit = RANGE_GAP_MIN if rng else gap_min
+        if not s["active"] or s["last_ts"] is None or s["gap_min"] is None or s["gap_min"] <= limit:
+            continue
+        if s["type"] in SOURCE_CHECKED:
+            src = (newest or {}).get(s["type"])
+            if src is None or src <= s["last_ts"] + SYNC_SLACK_S:
+                continue   # nothing newer in the source: no trades, not a gap
+        if rng:
+            name = NAMES.get(s["type"], s["type"])
+            out.append({"key": f"range:gap:{s['type']}", "service": SERVICE, "level": "bad" if s["gap_min"] >= 30
+                        else "warn", "type": s["type"], "gap_min": s["gap_min"], "last_ts": s["last_ts"],
+                        "title": f"Raspon: {name} star {s['gap_min']:.0f} min",
+                        "detail": f"Zadnji upis {_hhmm(s['last_ts'])} (Zagreb), aktivnih raspona {s.get('n_active')}; "
+                                  f"prag {RANGE_GAP_MIN:g} min (posao radi svakih ~5 min)."})
             continue
         hours = s["gap_min"] / 60
         name = NAMES.get(s["type"], s["type"])
@@ -132,8 +213,10 @@ def check(econ=None, now=None, log=print, usage_db=None):
     own = econ is None
     econ = econ or store.connect()
     try:
-        st = status(econ, now)
-        al = alerts_for(st, now)
+        st = status(econ, now) + range_status(now)
+        newest = {t: source_newest(t) for t in SOURCE_CHECKED
+                  if any(x["type"] == t and x["gap_min"] and x["gap_min"] > GAP_MIN for x in st)}
+        al = alerts_for(st, now, newest=newest)
         record(al, now, log, usage_db)
         store.kv_put(econ, "health", {"ts": now, "alerts": al, "status": st})
         econ.commit()

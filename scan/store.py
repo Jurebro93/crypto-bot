@@ -145,7 +145,11 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 KEEP_CAND_S, KEEP_META_S, KEEP_SHADOW_S, KEEP_BETA_S = 3 * 86400, 3 * 86400, 90 * 86400, 30 * 86400
 # columns added after a table first shipped: (table, column, type), added to an older scan.db by connect()
 # 11.11.: cand.mcap_first / mcap_first_ts = the run-up anchor (market cap at the first sighting as bonded, scan/market)
-ADDED = (("cand", "mcap_first", "REAL"), ("cand", "mcap_first_ts", "INTEGER"))
+# 12.11. popodne (owner: "get_market_signals scan redovi imaju change_5m_pct=null i txns_1h=0 iako postoji volume_1h"):
+# the 5-minute change and the hour's transactions of the same DexScreener / GeckoTerminal pair the check already read
+# (scan/market.save); NULL on rows checked before (ui/mcpapi says why, never a fake 0)
+ADDED = (("cand", "mcap_first", "REAL"), ("cand", "mcap_first_ts", "INTEGER"), ("cand", "ch_m5", "REAL"),
+         ("cand", "txns_h1", "INTEGER"), ("cand", "buys_h1", "INTEGER"))
 
 
 def connect(path=None):
