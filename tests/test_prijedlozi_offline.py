@@ -620,7 +620,8 @@ class FlagAndPass(unittest.TestCase):
         out = job.once(NOW, S, pairs_fn=lambda now: [], dex_fetch=lambda toks: {})
         self.assertEqual(out["new"], 1)
         view.clear()
-        d, err = mcpapi._tool("get_proposals", {"include_blocked": True})
+        # the fixture's NOW is fixed (10.11. 23:30 UTC); the tool's default window is the last 24 h of the real clock
+        d, err = mcpapi._tool("get_proposals", {"include_blocked": True, "since": NOW - 3600})
         self.assertFalse(err, d)
         p = d["proposals"][0]
         self.assertEqual((p["token"], p["status"], p["strategy"]), (A, "novo", "momentum"))

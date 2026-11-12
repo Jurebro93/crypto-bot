@@ -20,7 +20,8 @@ checkout without it (the test suite of the other modules) writes nothing.
 Retention: price_tick 30 days (older than PRICE_THIN_D days thinned to one per mint per 5 min), everything else 90
 days (EVENTS_KEEP_<TYPE>_D overrides). Disk budget: events.db holding more than EVENTS_MAX_MB (600), or the data disk
 under EVENTS_MIN_FREE_MB (600) free, cuts price ticks and transfers first (to 7 days at most), then the wallet feed (to
-30 days at most), logged; while it is over budget emit() and the sync skip price ticks and transfers.
+EVENTS_WALLET_FLOOR_D, 7 days, at most), logged; only while the DISK is tight emit() and the sync skip price ticks and
+transfers (12.11.: an events.db over its budget no longer stops the live feeds).
 """
 import atexit
 import collections
@@ -51,6 +52,8 @@ def _env_num(name, default):
 MAX_MB = _env_num("EVENTS_MAX_MB", 600)
 MIN_FREE_MB = _env_num("EVENTS_MIN_FREE_MB", 600)
 PRICE_THIN_D = _env_num("EVENTS_PRICE_THIN_D", 3)
+WALLET_FLOOR_D = _env_num("EVENTS_WALLET_FLOOR_D", 7)   # 12.11.: was 30; the wallet feed's copies, see retention()
+BACKFILL_FILL = 0.8   # 12.11.: the night's backfill stops once events.db's pages in use reach this share of MAX_MB
 MIN_MCAP = 30_000   # CLAUDE.md: tokens under 30k are not analysed; their price ticks are not kept
 
 SCHEMA = """
@@ -228,12 +231,22 @@ def over_budget(con=None, path=None):
 _TIGHT = {"at": 0.0, "val": False}
 
 
+def disk_tight(path=None):
+    """The data disk (with the pages SQLite will reuse) has under MIN_FREE_MB free."""
+    used, reusable = used_mb(None, path)
+    free = free_mb(path)
+    return free is not None and free + reusable < MIN_FREE_MB
+
+
 def tight(path=None):
-    """True while events.db is over budget (checked every 60 s): price ticks and transfers are then not written."""
+    """True while the DISK is tight (checked every 60 s): price ticks and transfers are then not written.
+    12.11. (owner: "price-tick i wallet-transfer feedovi nemaju događaja od 03:34"): an events.db above MAX_MB no longer
+    stops the live feeds (the night's backfill had filled it with 14 days of copied wallet trades and the feeds stayed
+    off all day); retention brings the file back under MAX_MB by cutting the copies instead."""
     now = time.monotonic()
     if now - _TIGHT["at"] > 60:
         p = path or db_path()
-        _TIGHT.update(at=now, val=bool(os.path.exists(p) and os.path.getsize(p) and over_budget(path=p)))
+        _TIGHT.update(at=now, val=bool(os.path.exists(p) and os.path.getsize(p) and disk_tight(path=p)))
     return _TIGHT["val"]
 
 
@@ -397,9 +410,10 @@ def retention(con, now=None, log=print, batch=20_000):
         kv_put(con, "thinned_to", hi)
         con.commit()
         out["price_tick (prorijeđeno)"] += n
-    # over budget: cut the cheapest types a week at a time (never below 7 days), then the wallet feed (never below
-    # 30 days); measured on the pages in use (a DELETE does not shrink the file)
-    for types, floor in ((LOW_VALUE, 7), (("wallet_sell", "wallet_buy"), 30)):
+    # over budget: cut the cheapest types a week at a time (never below 7 days), then the wallet feed (12.11.: never
+    # below WALLET_FLOOR_D, 7 days: it is a copy of hype.db chain_trades / wallets.db wallet_trades, which keep the
+    # history; the trades of our own accounts are type "trade" and never cut here); measured on the pages in use
+    for types, floor in ((LOW_VALUE, 7), (("wallet_sell", "wallet_buy"), WALLET_FLOOR_D)):
         for t in types:
             days = keep_days(t)
             while over_budget(con) and days > floor:
