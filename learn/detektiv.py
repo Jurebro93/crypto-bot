@@ -168,7 +168,10 @@ def brief(con, now, cfg, shadow_path=None):
     if len(rs) < 50:
         return None
     srt = sorted(rs, key=lambda r: -r["ret"])
-    missed = [r for r in srt if r["point"] == "kandidat" and not r["kupljeno"] and r["ret"] >= 0.5][:15]
+    from rangedca import missed as rmissed
+    # 12.11. (Jure, točka 4): a missed winner whose path had fewer than 3 prices is nepouzdano, not shown as one
+    missed = [r for r in srt if r["point"] == "kandidat" and not r["kupljeno"] and r["ret"] >= 0.5
+              and not rmissed.unreliable(r.get("n_pts"))][:15]
     sigs = sorted({k for r in rs for k in r["features"]} | {"log_mcap", "log_liq", "hype_ocjena", "sess", "klasa", "point"})
     hyps = [{"naslov": r[0], "uvjeti": json.loads(r[1]), "status": r[2]} for r in
             con.execute("SELECT naslov, uvjeti, status FROM hipoteze ORDER BY id DESC LIMIT 40")]
