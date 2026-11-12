@@ -1445,6 +1445,15 @@ def _change_words(pc):
         return f'težina callera {pc.get("caller")} ({pc.get("platform") or "x"}) → {pc.get("weight")}'
     if "key" in pc:
         return f'{pc.get("key")}: {pc.get("from", "?")} → {pc.get("to", "?")}' + (f' ({pc["file"]})' if pc.get("file") else "")
+    if isinstance(pc.get("insider_label"), dict):   # 12.11.: one wallet or several of one token, in words
+        x = pc["insider_label"]
+        ws = x.get("wallets") if x.get("wallets") not in (None, "", []) else [x.get("wallet")]
+        ws = [str(w or "") for w in (ws if isinstance(ws, list) else [ws])]
+        tok = str(x.get("token") or "")
+        return (f'oznaka {"novčanika" if len(ws) == 1 else f"{len(ws)} novčanika"} '
+                + ", ".join(f"{w[:6]}…" for w in ws[:4]) + ("…" if len(ws) > 4 else "")
+                + f' → {x.get("label") or "?"}' + (f' (token {tok[:6]}…)' if tok else "")
+                + (f' · {str(x.get("note"))[:120]}' if x.get("note") else ""))
     return json.dumps(pc, ensure_ascii=False)[:300]
 
 

@@ -949,8 +949,9 @@ TOOLS += [
                      "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
                      "accepted for a manual change, e.g. a name for a group from get_trader_groups: {\"group_label\": "
                      "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label). "
-                     "A verdict on a wallet from get_insider_candidates: {\"insider_label\": {\"wallet\": <address>, "
-                     "\"label\": insider | team | bot | sniper | legit, \"note\": <why>}}; the owner's 'Primijeni na "
+                     "A verdict on a wallet from get_insider_candidates: {\"insider_label\": {\"wallet\": <full address>, "
+                     "\"label\": insider | team | bot | sniper | legit, \"note\": <why>}} (several wallets of one "
+                     "token with the same verdict: \"wallets\": [<full address>, ...] and \"token\": <mint>); the owner's 'Primijeni na "
                      "bota' stores it (bot and sniper keep the wallet out of the insider copy; nothing else changes)."),
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
@@ -1135,8 +1136,8 @@ TOOLS += [
                      "callers_front_run (caller, tokens, lift against chance), examples (token, buy time, first and "
                      "next call with times, rose30, sold into the call, under_30k). Snipers, bots, relayers, dev-funded "
                      "and same-owner bundles are already out. Your verdict: submit_suggestion with proposed_change "
-                     "{\"insider_label\": {\"wallet\": \"<address>\", \"label\": \"insider|team|bot|sniper|legit\", "
-                     "\"note\": \"<why>\"}}; it counts only after the owner's 'Primijeni na bota'. bot / sniper keep a "
+                     "{\"insider_label\": {\"wallet\": \"<full address>\", \"label\": \"insider|team|bot|sniper|legit\", "
+                     "\"note\": \"<why>\"}} (or \"wallets\": [...] with \"token\" for several of one token); it counts only after the owner's 'Primijeni na bota'. bot / sniper keep a "
                      "wallet out of the copy. Copy is shadow / demo only until the owner's proof; tokens under $30k "
                      "and on the bonding curve are never bought."),
      "inputSchema": {"type": "object", "properties": {

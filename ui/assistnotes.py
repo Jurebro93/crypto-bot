@@ -259,12 +259,19 @@ def submit_suggestion(con, kid, title, interpretation=None, improvement=None, ev
         # on arrival, a shortened address resolved when exactly one pre-call wallet matches, else the assistant hears it
         from kol import precall
         try:
-            w, _lab, _note = precall.parse_label(d["insider_label"])
+            ws, _lab, _note, _token = precall.parse_labels(d["insider_label"])
         except ValueError as e:
-            raise ValueError(f"insider_label: {e}. Send the full wallet address as get_insider_candidates lists it.") \
-                from None
-        if w != d["insider_label"].get("wallet"):
-            d["insider_label"] = {**d["insider_label"], "wallet": w}
+            raise ValueError(f"insider_label: {e}. Send the full wallet address(es) as get_insider_candidates lists "
+                             "them: \"wallet\": <address> or \"wallets\": [<address>, ...].") from None
+        x = dict(d["insider_label"])
+        if "wallets" in x and x["wallets"] not in (None, "", []):
+            changed = x["wallets"] != ws
+            x["wallets"] = ws
+        else:
+            changed = x.get("wallet") != ws[0]
+            x["wallet"] = ws[0]
+        if changed:
+            d["insider_label"] = x
             pc = json.dumps(d, ensure_ascii=False)
     nid = _insert(con, kid, kind="suggestion", title=_text(title, "title", need=True, cap=TITLE_MAX),
                   interpretation=_text(interpretation, "interpretation", need=True),
@@ -443,19 +450,22 @@ INSIDER_LABELS_MAX = 5000
 
 
 def _apply_insider_label(con, x, nid):
-    """10.11. (flag insider_copy, kol/precall.py): Grok's verdict on a pre-call wallet, {"wallet", "label": insider |
-    team | bot | sniper | legit, "note"}, stored in settings insider_labels only by the owner's "Primijeni"; bot and
-    sniper keep the wallet out of the insider copy. Changes no flag and no trading setting. -> (wallet, old, new)."""
+    """10.11. (flag insider_copy, kol/precall.py): Grok's verdict on pre-call wallets, {"wallet" or (12.11.) "wallets":
+    [...], "label": insider | team | bot | sniper | legit, "note", "token"?}, stored in settings insider_labels only by
+    the owner's "Primijeni"; bot and sniper keep the wallet out of the insider copy. Changes no flag and no trading
+    setting. -> ([wallet, ...], [old label, ...], new label, token)."""
     from kol import precall
-    w, lab, note = precall.parse_label(x)
+    ws, lab, note, token = precall.parse_labels(x)
     cur = dict(settings.raw(con).get("insider_labels") or {})
-    old = (cur.get(w) or {}).get("label")
-    cur.pop(w, None)
-    cur[w] = {"label": lab, "note": note, "ts": int(time.time()), "note_id": int(nid)}
+    olds = []
+    for w in ws:
+        olds.append((cur.get(w) or {}).get("label"))
+        cur.pop(w, None)
+        cur[w] = {"label": lab, "note": note, "ts": int(time.time()), "note_id": int(nid), **({"token": token} if token else {})}
     if len(cur) > INSIDER_LABELS_MAX:   # the oldest out (dicts keep insertion order; a re-label moved to the end above)
         cur = dict(list(cur.items())[-INSIDER_LABELS_MAX:])
     _set_settings(con, "insider_labels", cur)
-    return w, old, lab
+    return ws, olds, lab, token
 
 
 def _to_shadow(con, flag):
@@ -919,9 +929,14 @@ def apply(con, nid, owner_note=""):
         applied = {"key": f"caller_weights.{h}", "old": old, "new": new}
         words = f"težina callera {h}: {old} → {new}" + _to_shadow(con, "caller_weights")
     elif pc and isinstance(pc.get("insider_label"), dict):
-        w, old, new = _apply_insider_label(con, pc["insider_label"], d["id"])
-        applied = {"key": f"insider_label.{w}", "old": old, "new": new}
-        words = f"oznaka novčanika {w[:6]}…: {old or 'bez oznake'} → {new}"
+        ws, olds, new, token = _apply_insider_label(con, pc["insider_label"], d["id"])
+        old = olds[0] if len(set(olds)) == 1 else olds
+        applied = {"key": f"insider_label.{ws[0]}" + (f"+{len(ws) - 1}" if len(ws) > 1 else ""), "old": old, "new": new,
+                   **({"wallets": ws} if len(ws) > 1 else {}), **({"token": token} if token else {})}
+        olds_txt = olds[0] or "bez oznake" if len(set(olds)) == 1 else "različite"
+        words = (f"oznaka {'novčanika' if len(ws) == 1 else f'{len(ws)} novčanika'} "
+                 + ", ".join(f"{w[:6]}…" for w in ws[:4]) + ("…" if len(ws) > 4 else "")
+                 + f": {olds_txt} → {new}" + (f" (token {token[:6]}…)" if token else ""))
     elif pc and pc.get("key") in APPLY:
         key = pc["key"]
         old = _current(con, key)
@@ -966,8 +981,10 @@ def change_key(pc):
             h = "tg:" + h
         return f"caller_weights.{h}" if h else None
     if isinstance(pc.get("insider_label"), dict):
-        w = str(pc["insider_label"].get("wallet") or "").strip()
-        return f"insider_label.{w}" if w else None
+        x = pc["insider_label"]
+        ws = x.get("wallets") if x.get("wallets") not in (None, "", []) else [x.get("wallet")]
+        ws = sorted(str(w or "").strip() for w in (ws if isinstance(ws, list) else [ws]) if str(w or "").strip())
+        return ("insider_label." + ",".join(ws)) if ws else None
     k = pc.get("key")
     return k if k in APPLY and k != "auto_skip" else None
 
@@ -978,7 +995,7 @@ def blocker(pc):
     if isinstance(pc, dict) and isinstance(pc.get("insider_label"), dict):
         from kol import precall
         try:
-            precall.parse_label(pc["insider_label"])
+            precall.parse_labels(pc["insider_label"])
         except ValueError as e:
             return str(e)
         except Exception:  # noqa: BLE001 - early.db unreadable: the tap itself says it

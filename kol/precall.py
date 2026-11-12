@@ -773,22 +773,47 @@ def resolve_wallet(w, p=None):
     return None
 
 
-def parse_label(x, p=None):
-    """proposed_change["insider_label"] -> (wallet, label, note); ValueError (Croatian) when it is not one. A shortened
-    address is resolved to the full one when exactly one pre-call wallet matches (resolve_wallet)."""
+MAX_LABEL_WALLETS = 50
+
+
+def parse_labels(x, p=None):
+    """proposed_change["insider_label"] -> ([wallet, ...], label, note, token); ValueError (Croatian) when it is not
+    one. One wallet ("wallet") or several ("wallets": [...], 12.11.: Grok labels the wallets of one token together,
+    e.g. two flip bots, with the token in "token"). A shortened address is resolved to the full one when exactly one
+    pre-call wallet matches (resolve_wallet)."""
     if not isinstance(x, dict):
-        raise ValueError("insider_label mora biti objekt {wallet, label, note}")
-    w = str(x.get("wallet") or "").strip()
+        raise ValueError("insider_label mora biti objekt {wallet ili wallets, label, note}")
+    raw = x.get("wallets")
+    if raw in (None, "", []):
+        raw = [x.get("wallet")] if x.get("wallet") else []
+    elif isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("insider_label nema novčanik: treba \"wallet\": adresa ili \"wallets\": [adrese]")
+    if len(raw) > MAX_LABEL_WALLETS:
+        raise ValueError(f"insider_label: najviše {MAX_LABEL_WALLETS} novčanika u jednoj oznaci")
     lab = str(x.get("label") or "").strip().lower()
-    if not is_address(w):
-        full = resolve_wallet(w, p)
-        if not full:
-            raise ValueError(f"insider_label.wallet nije puna Solana adresa („{w[:24]}”): treba cijela adresa iz "
-                             "get_insider_candidates (skraćena nije jednoznačna ili je nema među insajderima)")
-        w = full
+    out = []
+    for w in raw:
+        w = str(w or "").strip()
+        if not is_address(w):
+            full = resolve_wallet(w, p)
+            if not full:
+                raise ValueError(f"insider_label.wallet nije puna Solana adresa („{w[:24]}”): treba cijela adresa iz "
+                                 "get_insider_candidates (skraćena nije jednoznačna ili je nema među insajderima)")
+            w = full
+        if w not in out:
+            out.append(w)
     if lab not in LABELS:
         raise ValueError(f"insider_label.label mora biti jedno od: {', '.join(LABELS)}")
-    return w, lab, str(x.get("note") or "")[:300]
+    token = str(x.get("token") or "").strip()
+    return out, lab, str(x.get("note") or "")[:300], (token if is_address(token) else "")
+
+
+def parse_label(x, p=None):
+    """parse_labels for one wallet: (the first wallet, label, note)."""
+    ws, lab, note, _token = parse_labels(x, p)
+    return ws[0], lab, note
 
 
 def _relayers(con, c):
