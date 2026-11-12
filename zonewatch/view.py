@@ -7,7 +7,10 @@
                    positions (11.11.: the real account's positions and levels watched), position_alerts_24h by
                    level, range_off_24h}
 11.11.: get_armed_zones also lists `positions`: the real account's open positions (zonewatch/positions.py) with
-their own levels (SL, TP, trailing, DCA / buy orders), the distance % to each and its state.
+their own levels (SL, TP, trailing, DCA / buy orders), the distance % to each and its state. 12.11. (Jure: "Prikazuj
+samo stvarno otvorene lotove iz portfolija"): only REAL open lots (trade.settings.live_lots) are positions; the open
+demo trades of LEAGUE_USER without one (blocked copies, dry / failed swaps) are only counted, apart, in
+positions_demo_excluded.
 Read-only except arm_zone (zonewatch.db armed_zones / arm_log) and the one-time migration (store.migrate_once).
 """
 import json
@@ -20,20 +23,26 @@ LIMIT_DEFAULT, LIMIT_MAX = 100, 300
 HOW = ("Zones are market cap USD. Range zones (source range) come only from MemeSonar's range engine (swing points "
        "of 24 h, touches weighted by age, recomputed about every 5 min; stop = the ATR stop range_low_low - 1.5 x "
        "ATR, 5-20 % under it, x 0.85 while ATR is unknown), for tokens with an open range round, an entry-ready "
-       "range or an open position on the real account, and only while the engine "
+       "range or an open position on the real account (a real lot, never a demo trade), and only while the engine "
        "has an active range for them; each newer computation is a new zone_version (computed_ts = when it was "
        "computed, window_h = the hours of data it spanned), and every alarm of a range zone carries the three. "
        "zone_enter / zone_exit when the market cap crosses a bottom, dca or custom zone, top_hit at >= top lo, "
        "stop_hit at <= the stop; hysteresis 0.5 %; the same mint + zone + event at most once in 30 min (stop_hit: "
        "always, at most once a minute). Tokens within 10 % of a zone are re-priced every 30 s. A hand-armed zone "
        "(arm_zone) lives at most 2 h. Disarm: arm_zone with ttl_h=0 (same mint, zone_type, source). "
-       "Positions: the real account's open positions (manual, Grok auto, approved; never the demo account) alarm on "
+       "Positions: the real account's open positions (only lots really bought and still held: trade.db live "
+       "positions, the same lots get_portfolio_status lists as live; manual, Grok auto, approved; never a demo trade, "
+       "a blocked copy or a dry swap, never the demo account) alarm on "
        "their OWN levels with or without a range (event position_level: sl_near = the price within 3 % above a stop, "
        "once in 30 min per level; sl_hit always, at most once a minute; tp_hit and dca_hit once per crossing; also "
        "when the executor sold / bought there within the second, filled=true); an exit plan in force replaces the "
        "lots' own SL / TP. When rangedca switches off the range of a held token: one range_off alarm with the reason "
        "(reason_key break_up | break_down | weak_volume | other).")
-POS_NOTE = ("the real account (trade.settings.LEAGUE_USER) only; the demo account autopilot-paper is not alarmed. "
+POS_NOTE = ("the real account only: its REAL open lots (trade.db positions mode live, status open with tokens held, "
+            "or a buy still pending under 3 min; the live lots of get_portfolio_status), each with its demo mirror "
+            "on the league account pravi-trade for the levels. Demo trades of pravi-trade without a real lot "
+            "(blocked copies, dry or failed swaps, lots already sold) and the demo account autopilot-paper are not "
+            "positions and never alarm; positions_demo_excluded only counts them, by reason. "
             "distance_pct = the level's distance from the price now in % (negative: below the price)")
 
 
@@ -100,6 +109,10 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
             except Exception as e:  # noqa: BLE001 - the zones are answered without them
                 out["positions"], out["positions_error"] = None, type(e).__name__
             out["positions_note"] = POS_NOTE
+            try:   # 12.11.: the demo trades that are NOT the real account, apart and only counted
+                out["positions_demo_excluded"] = positions.demo_only(now)
+            except Exception as e:  # noqa: BLE001
+                out["positions_demo_excluded"] = {"error": type(e).__name__}
     except sqlite3.Error as e:
         return {"error": f"zonewatch.db: {type(e).__name__}"}
     finally:
@@ -108,9 +121,10 @@ def armed_zones(mint=None, source=None, limit=None, now=None, path=None):
 
 
 def positions_view(con, mint=None, sts=None, now=None):
-    """get_armed_zones.positions: the real account's open positions (positions.load), each with its position block at
-    the newest stored number (no fetch here) and its levels: level_price / level_mcap, distance_pct, state (hit |
-    not_hit | unknown; near for a stop) and the last alarm per level. None when league.db cannot be read."""
+    """get_armed_zones.positions: the real account's open positions (positions.load: real open lots only), each with
+    its position block at the newest stored number (no fetch here) and its levels: level_price / level_mcap,
+    distance_pct, state (hit | not_hit | unknown; near for a stop) and the last alarm per level. None when trade.db or
+    league.db cannot be read."""
     now = int(now or time.time())
     pos = positions.load(now)
     if pos is None:

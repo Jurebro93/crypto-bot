@@ -13,7 +13,16 @@ paused plans:
   stop          {at_pct | at_mc_usd}: the hard stop; it may only be TIGHTENED: never looser than the position's
                 current stop nor than sl_default from the average entry. Without one the position's current stop stays.
   time_stop     {after_min, if_pnl_below_pct}: after_min minutes after the LAST entry, sell everything when the
-                result is under if_pnl_below_pct %
+                result is under if_pnl_below_pct % (GROSS: price vs the average entry; the panel's "time stop" field is
+                this with if_pnl_below_pct 1000 = everything out after X min)
+  time_stop_min, min_profit_pct (12.11., owner's order point 3): from time_stop_min minutes after the LAST entry on,
+                sell everything whenever the result NET of the round-trip cost (trade/cost.round_trip, the same model as
+                every EV: 2 x fee_side + 2 x the impact of the position's stake in the pool) is under min_profit_pct %
+                (default 0 = at least break-even after cost). Trigger "time_stop_min".
+  max_stop_pct  (12.11.) the widest stop the plan accepts, percent below the average entry (12 = never wider than
+                -12 %): a stop the plan gives that is wider is REFUSED with the numbers; a plan without its own stop gets
+                -max_stop_pct when that is tighter than the stop it would keep. sl_default (sl_floor) still holds on top;
+                the owner's own typed SL (a panel plan) is never limited by it (11.11.: "ručno uvijek nadjačava").
   reason        one line
   accounts      (optional, 10.11. range_dca) the Autopilot accounts the plan applies to, e.g. ["autopilot-paper"];
                 without it every Autopilot account holding the token (the old behaviour). A token still has ONE
@@ -189,9 +198,24 @@ def validate(con, token, plan, sl_default, now=None, extra=None, tighten_only=Tr
             raise ValueError("time_stop must be {after_min, if_pnl_below_pct}")
         out["time_stop"] = {"after_min": _num(t.get("after_min"), "time_stop.after_min", 1, 7 * 1440),
                             "if_pnl_below_pct": _num(t.get("if_pnl_below_pct"), "time_stop.if_pnl_below_pct", -99, 1000)}
+    # 12.11. (owner's order point 3): a time stop measured NET of the cost, and the widest stop the plan accepts
+    if plan.get("time_stop_min") is not None:
+        out["time_stop_min"] = _num(plan["time_stop_min"], "time_stop_min", 1, 7 * 1440)
+        out["min_profit_pct"] = (_num(plan["min_profit_pct"], "min_profit_pct", -99, 1000)
+                                 if plan.get("min_profit_pct") is not None else 0.0)
+    elif plan.get("min_profit_pct") is not None:
+        raise ValueError("min_profit_pct goes with time_stop_min (after time_stop_min minutes, sell when the net "
+                         "result is under min_profit_pct)")
+    max_stop = None
+    if plan.get("max_stop_pct") is not None:
+        max_stop = abs(_num(plan["max_stop_pct"], "max_stop_pct", -99, 99))   # 12 and -12 mean the same: -12 %
+        if max_stop < 1:
+            raise ValueError("max_stop_pct must be 1..99 (percent below the average entry)")
+        out["max_stop_pct"] = max_stop
     stop = _level(plan["stop"], "stop") if plan.get("stop") is not None else None
-    if not (out["take_profits"] or out["trailing"] or stop or out["time_stop"]):
-        raise ValueError("an empty plan: give take_profits, trailing, stop or time_stop")
+    if not (out["take_profits"] or out["trailing"] or stop or out["time_stop"] or out.get("time_stop_min")
+            or max_stop):
+        raise ValueError("an empty plan: give take_profits, trailing, stop, time_stop or time_stop_min")
     acc = plan.get("accounts")
     if acc is not None:
         acc = [acc] if isinstance(acc, str) else acc
@@ -214,6 +238,7 @@ def validate(con, token, plan, sl_default, now=None, extra=None, tighten_only=Tr
                     raise ValueError(f"TP MC {mc_words(tp['v'])} je ispod prosječnog ulaza")
                 raise ValueError(f"take profit at MC ${tp['v']:,.0f} is under the average entry")
         floor = avg * (1 - sl_default / 100)
+        cap = avg * (1 - max_stop / 100) if max_stop else None   # 12.11.: the plan's own widest stop
         cur = current_stop_px(con, u, token, lots)
         if stop:
             px = _px(stop[0], stop[1], avg, ratio)
@@ -222,12 +247,21 @@ def validate(con, token, plan, sl_default, now=None, extra=None, tighten_only=Tr
                     raise ValueError(f"SL {stop_words(stop, px, avg)} je širi od zadanog −{sl_default:g} %; "
                                      f"najviše −{sl_default:g} %")
                 raise ValueError(f"stop is looser than sl_default (-{sl_default:g} % from the average entry)")
+            if cap and px < cap * (1 - 1e-9):
+                if hr:
+                    raise ValueError(f"SL {stop_words(stop, px, avg)} je širi od max_stop_pct −{max_stop:g} % ovog "
+                                     f"plana; najviše −{max_stop:g} % od prosječnog ulaza")
+                raise ValueError(f"stop {(px / avg - 1) * 100:+.1f} % from the average entry is wider than "
+                                 f"max_stop_pct (-{max_stop:g} %): set the stop at -{max_stop:g} % or tighter, or "
+                                 "raise max_stop_pct")
             if tighten_only and cur and px < cur - 1e-12:
                 raise ValueError(f"a stop may only be tightened: the position's stop is "
                                  f"{(cur / avg - 1) * 100:+.1f} % from the average entry")
             stop_px[u] = px
         else:
             stop_px[u] = max(cur or 0, floor) if cur else floor
+            if cap and stop_px[u] < cap:   # 12.11.: no stop of its own: the plan sets -max_stop_pct itself
+                stop_px[u] = cap
     out["stop"] = {"kind": stop[0], "v": stop[1]} if stop else None
     return out, stop_px
 
@@ -491,8 +525,22 @@ def _sell(con, user, lots, frac_of_rest, price, liq, mcap, rule):
     return pnl
 
 
-def decide(p, user, lots, price, mcap, age_s, now):
-    """(trigger, share of the ORIGINAL position, frac of what is left) or None, and the state changes (in place)."""
+def net_pnl_pct(lots, price, liq=None):
+    """12.11. (owner's order point 3: "neto"): the position's result at `price` NET of the round-trip cost, percent
+    from the average entry: (price / average entry - 1) - trade/cost.round_trip(the open lots' stake in USD, liq), the
+    one cost model every EV uses (fee_side calibrated from trade.db, else league/store.FEE; liq unknown = its
+    DEFAULT_LIQ). None without an entry price."""
+    avg = _avg(lots)
+    if not avg or not price:
+        return None
+    from trade import cost
+    size = sum(t.get("size_usd") or 0 for t in lots) or None
+    return ((price / avg - 1) - cost.round_trip(size, liq)) * 100
+
+
+def decide(p, user, lots, price, mcap, age_s, now, liq=None):
+    """(trigger, share of the ORIGINAL position, frac of what is left) or None, and the state changes (in place).
+    liq (12.11.): the pool's liquidity now, for the cost of the net time stop (time_stop_min)."""
     st, plan = p["state"], p["plan"]
     avg, ratio = _avg(lots), _mc_ratio(lots)
     if not avg:
@@ -532,6 +580,12 @@ def decide(p, user, lots, price, mcap, age_s, now):
         last_entry = max(t["opened_ts"] or 0 for t in lots)
         if now - last_entry >= ts_["after_min"] * 60 and pnl_pct < ts_["if_pnl_below_pct"]:
             return "time_stop", left, 1.0
+    if plan.get("time_stop_min"):   # 12.11.: X min after the last entry, out unless at least min_profit_pct NET
+        last_entry = max(t["opened_ts"] or 0 for t in lots)
+        if now - last_entry >= plan["time_stop_min"] * 60:
+            net = net_pnl_pct(lots, price, liq)
+            if net is not None and net < (plan.get("min_profit_pct") or 0.0) - 1e-9:
+                return "time_stop_min", left, 1.0
     return None
 
 
@@ -633,7 +687,7 @@ def run_once(con, market, now=None):
             if not (on or sh):
                 continue
             before = json.dumps(p["state"])
-            hit = decide(p, user, lots, price, mcap, age, now)
+            hit = decide(p, user, lots, price, mcap, age, now, liq=liq)
             if not hit:
                 if json.dumps(p["state"]) != before:
                     _save_state(con, p["id"], p["state"])
@@ -689,6 +743,9 @@ def view(con, token, user, price=None, mcap=None):
     out = {"plan_id": p["id"], "set_ts": p["created_ts"], "client": p["client"], "reason": p["reason"], "plan": p["plan"],
            "execution": execution(user, lots, plan=p),   # 11.11.: live (sells on the real account) or paper, and why
            "panel": is_panel(p),   # 11.11.: set by the owner's own exit (a buy from the panel, Uredi SL-TP)
+           # 12.11.: the net time stop and the widest stop, None when the plan has none
+           "time_stop_min": p["plan"].get("time_stop_min"), "min_profit_pct": p["plan"].get("min_profit_pct"),
+           "max_stop_pct": p["plan"].get("max_stop_pct"), "summary": describe(p["plan"]),
            "sold_share": st["sold"].get(user, 0.0), "peak_mc_since_entry": round(peak * ratio) if ratio else None,
            "trailing_active": bool(st["trail_peak_px"].get(user)), "triggers": []}
     if not price:
@@ -714,6 +771,12 @@ def view(con, token, user, price=None, mcap=None):
         last_entry = max(t["opened_ts"] or 0 for t in lots)
         out["triggers"].append({"trigger": "time_stop", "at_ts": int(last_entry + ts_["after_min"] * 60),
                                 "if_pnl_below_pct": ts_["if_pnl_below_pct"]})
+    if p["plan"].get("time_stop_min"):   # 12.11.: the net time stop, with the net result now
+        last_entry = max(t["opened_ts"] or 0 for t in lots)
+        net = net_pnl_pct(lots, price)
+        out["triggers"].append({"trigger": "time_stop_min", "at_ts": int(last_entry + p["plan"]["time_stop_min"] * 60),
+                                "min_profit_pct_net": p["plan"].get("min_profit_pct") or 0.0,
+                                "net_pnl_pct_now": round(net, 2) if net is not None else None})
     return out
 
 
@@ -803,12 +866,16 @@ def field_num(x, name, lo, hi):
     return v
 
 
-def panel_plan(tp="", sl="", trail=None, time_min=None, floor=None, avg_mc=None, reason="", user=None):
+def panel_plan(tp="", sl="", trail=None, time_min=None, floor=None, avg_mc=None, reason="", user=None,
+               min_profit_pct=None, max_stop_pct=None):
     """The plan of the owner's exit fields (set_plan's format) or None when none is filled in (no exit: the old
     behaviour). The fast path's shape (fast/paper.PLAN, trade/edge rule E): TP sells everything, or HALF when a
     trailing is set (the rest trails from the TP on: activate_pct = the TP's percent, avg_mc turns a market-cap TP
     into one); the stop = the SL typed, empty = -floor (sl_floor); time stop = everything out after_min after the
-    last entry. The fields as typed go with it ("panel")."""
+    last entry (GROSS, unconditional). The fields as typed go with it ("panel").
+    12.11.: min_profit_pct (with time_min) makes the time stop the NET one (time_stop_min: out after time_min unless
+    at least min_profit_pct after cost); max_stop_pct limits only the stop the plan sets itself (an empty SL field:
+    -min(floor, max_stop_pct)), never a typed SL (the owner's own)."""
     from trade import settings as ts
     tp, sl = (tp or "").strip(), (sl or "").strip()
     tp_l, sl_l = level_of(tp, "tp"), level_of(sl, "sl")
@@ -826,8 +893,13 @@ def panel_plan(tp="", sl="", trail=None, time_min=None, floor=None, avg_mc=None,
     if floor is None:
         floor = sl_floor()
     st = sl_l or ("pct", -abs(float(floor)))
+    if max_stop_pct and not sl_l:   # 12.11.: the plan's own stop only; a typed SL stays the owner's
+        plan["max_stop_pct"] = abs(float(max_stop_pct))
+        st = ("pct", -min(abs(float(floor)), abs(float(max_stop_pct))))
     plan["stop"] = {("at_pct" if st[0] == "pct" else "at_mc_usd"): st[1]}
-    if time_min:
+    if time_min and min_profit_pct is not None:
+        plan["time_stop_min"], plan["min_profit_pct"] = float(time_min), float(min_profit_pct)
+    elif time_min:
         plan["time_stop"] = {"after_min": float(time_min), "if_pnl_below_pct": 1000}
     return plan
 
@@ -852,6 +924,11 @@ def describe(plan):
     if t:
         cond = "" if (t.get("if_pnl_below_pct") or 0) >= 1000 else f" ako je ispod {pct_words(t['if_pnl_below_pct'])}"
         bits.append(f"time stop {t['after_min']:g} min{cond}")
+    if plan.get("time_stop_min"):   # 12.11.
+        bits.append(f"time stop {plan['time_stop_min']:g} min ako je ispod "
+                    f"{pct_words(plan.get('min_profit_pct') or 0.0)} neto")
+    if plan.get("max_stop_pct"):
+        bits.append(f"SL najviše {pct_words(-plan['max_stop_pct'])}")
     return " · ".join(bits)
 
 
@@ -864,12 +941,17 @@ def denorm(plan, stop_only=False):
         out["accounts"] = list(plan["accounts"])
     if plan.get("stop"):
         out["stop"] = lvl(plan["stop"])
+    if plan.get("max_stop_pct"):   # 12.11.: a stop limit, checked again with the stop
+        out["max_stop_pct"] = plan["max_stop_pct"]
     if not stop_only:
         if plan.get("take_profits"):
             out["take_profits"] = [dict(lvl(t), sell_share=t["sell_share"]) for t in plan["take_profits"]]
         for k in ("trailing", "time_stop", "panel"):
             if plan.get(k):
                 out[k] = dict(plan[k])
+        if plan.get("time_stop_min"):
+            out["time_stop_min"] = plan["time_stop_min"]
+            out["min_profit_pct"] = plan.get("min_profit_pct") or 0.0
     return out
 
 
@@ -938,6 +1020,8 @@ def extend(con, token, floor, client=None):
             st["stop_px"][u] = avg * (1 + s["v"] / 100)
         elif not s:
             st["stop_px"][u] = max(st["stop_px"].get(u) or 0, avg * (1 - floor / 100))
+            if p["plan"].get("max_stop_pct"):   # 12.11.: the plan's own stop never wider than -max_stop_pct
+                st["stop_px"][u] = max(st["stop_px"][u], avg * (1 - p["plan"]["max_stop_pct"] / 100))
         st.setdefault("base_qty", {})[u] = sum(t["qty"] or 0 for t in lots)
     _save_state(con, p["id"], st)
     if client:

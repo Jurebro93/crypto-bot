@@ -66,7 +66,11 @@ class Base(unittest.TestCase):
 
 class Flags(Base):
     def test_every_flag_is_off_by_default_and_unknown_names_are_refused(self):
-        self.assertTrue(all(v["mode"] == "off" for v in settings.flag_state(self.con).values()))
+        # 12.11.: every flag off by default except FLAG_DEFAULTS (x_call_scalp: shadow, it only measures)
+        self.assertTrue(all(v["mode"] == settings.FLAG_DEFAULTS.get(n, "off")
+                            for n, v in settings.flag_state(self.con).items()))
+        self.assertEqual(settings.FLAG_DEFAULTS, {"x_call_scalp": "shadow"})
+        self.assertEqual(settings.flag("x_call_scalp"), "shadow")
         self.assertEqual(settings.flag("dca_guard"), "off")
         for name in ("auto_exit_data", "sl_default_v2", "dca_guard", "caller_ev_rank", "latency_entry", "runup_default",
                      "holder_hard", "proof_v2", "survivor_fix", "xhook_fast", "helius_streams", "holder_snap",

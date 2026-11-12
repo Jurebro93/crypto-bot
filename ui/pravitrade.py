@@ -1541,7 +1541,8 @@ def _grok_rows(rows):
             out.append(f'<li><span class=mut>{esc(when)}</span> {esc(words)} · {esc(r.get("reason") or "")}</li>')
             continue
         amt = (f'{_g(r.get("amount"))} SOL' if r.get("side") == "buy" else f'{float(r.get("amount") or 0):.0%}')
-        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why") or ""}'
+        # 12.11.: a refusal in Croatian when it has one (why_hr), the MCP's English one otherwise
+        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why_hr") or r.get("why") or ""}'
         tok = r.get("token") or ""
         out.append(f'<li><span class=mut>{esc(when)}</span> <span class=ap-tag>Grok auto</span> '
                    f'{"kupnja" if r.get("side") == "buy" else "prodaja"} <a href="/token/{esc(tok)}">{esc(short(tok))}</a> '
@@ -1622,7 +1623,11 @@ def _grok_auto_setup(tcon, owner):
              'kupnja samo unutar ovih limita i nakon ponovne provjere ruga i likvidnosti (iste kao kod Autopilota: samo '
              'bondani, MC 30k+), prodaja bilo koje otvorene pozicije. Ide istim putem kao tvoja ručna kupnja, pa vrijede '
              'i tvoj strop po tokenu i dnevni stop gubitka; pravi novac samo kad je Autopilot uživo. Kad Grokov rezultat '
-             'u danu dođe do granice gubitka, sam stane do ponoći. Grok ga ne može uključiti ni mijenjati limite.</p>')
+             'u danu dođe do granice gubitka, sam stane do ponoći. Grok ga ne može uključiti ni mijenjati limite. '
+             'Isti token smije kupiti ponovno nakon izlaza (novi krug) i dokupiti dok je u njemu najviše '
+             f'{_g(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)} SOL; najviše '
+             f'{lim["max_round_trips_per_token_day"]} krugova u istom tokenu u danu, a nakon '
+             f'{grokauto.MAX_STOP_OUTS_DAY} izlaza stopom u istom tokenu taj token čeka sutra.</p>')
     return _sec("Grok autotrade", "uključen" if st["on"] else "isključen", words + switch + form, sid="grok-postavke")
 
 
@@ -1859,10 +1864,16 @@ def _flags_section(tcon, con, owner):
     raw_ = settings.raw(tcon)
     now = int(time.time())
     week = lflags.shadow_summary(con, now - 7 * 86400)
-    on = [n for n, v in st.items() if v["mode"] != "off"]
+    # 12.11.: a flag still at its default (settings.FLAG_DEFAULTS, never set: x_call_scalp in sjena, it only
+    # measures) is named apart, not counted as one the owner switched on
+    dflt = [n for n, v in st.items() if v["mode"] != "off" and not v["since"]
+            and v["mode"] == settings.FLAG_DEFAULTS.get(n)]
+    on = [n for n, v in st.items() if v["mode"] != "off" and n not in dflt]
     paper_since = min((v["since"] for v in st.values() if v["mode"] == "paper" and v["since"]), default=None)
     pr = lflags.paper_result(con, paper_since) if paper_since else None
     meta = (f"{len(on)} od {len(st)} uključeno" if on else "sve isključeno: bot radi kao prije")
+    if dflt:
+        meta += " · zadano: " + ", ".join(f"{n} {FLAG_WORDS.get(st[n]['mode'], st[n]['mode'])}" for n in dflt)
     if pr:
         meta += f" · paper: {pr['n']} zatvorenih, {pr['pnl']:+.2f} $"
     tz = zoneinfo.ZoneInfo("Europe/Zagreb")
@@ -5270,9 +5281,13 @@ def _edit_plan(con, tok, tp, sl, floor):
     avg_mc = exitplan._avg(lots) * ratio if ratio else None
     was = exitplan.position_fields(old) if old else {}
     pl = (old or {}).get("plan") or {}
-    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)")
+    # 12.11.: a plan's max_stop_pct limits only the stop the plan sets itself (an empty SL); a typed SL is the owner's
+    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)",
+                               max_stop_pct=pl.get("max_stop_pct"))
     if pl.get("time_stop") and not was.get("time"):   # a conditional time stop (Grok's / a proposal's) stays as it was
         plan["time_stop"] = dict(pl["time_stop"])
+    if pl.get("time_stop_min") and not was.get("time"):   # 12.11.: so does the net one (time_stop_min)
+        plan["time_stop_min"], plan["min_profit_pct"] = pl["time_stop_min"], pl.get("min_profit_pct") or 0.0
     exitplan.validate(con, tok, plan, floor, tighten_only=False, hr=True)
     return plan
 
@@ -5642,10 +5657,11 @@ def grok_day_spent(tcon, now=None, mode=None):
     return float(r[0] or 0.0)
 
 
-def _grok_rules(tcon, token, sol, src, raw, now):
+def _grok_rules(tcon, token, sol, src, raw, now, lcon=None):
     """A Grok buy (autotrade or approved) under Grok's limits, never the owner's 1 SOL: grok_max_sol_per_trade (0,1),
     the Autopilot's per-token cap dca_token_cap (0,3) and grok_max_sol_per_day (0,3) for autotrade and approved
-    requests together. Raises ValueError with the reason (also one log line)."""
+    requests together. Raises ValueError with the reason (also one log line). lcon (12.11.): the league database, so
+    a lot bought seconds ago and not mirrored yet counts in the token (held_sol_now)."""
     from ui import grokauto
     lim = grokauto.limits(tcon)
     who = "Grok autotrade" if src == grokauto.SRC else "odobreni Grokov zahtjev"
@@ -5654,7 +5670,7 @@ def _grok_rules(tcon, token, sol, src, raw, now):
         why = f"ulog {sol:g} SOL, najviše {lim['grok_max_sol_per_trade']:g} SOL po kupnji (Grokov limit)"
     if why is None:
         cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
-        held = held_sol(tcon, token)
+        held = held_sol_now(lcon, tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu "
                    "(Grokov limit)")
@@ -5686,6 +5702,34 @@ def held_sol(tcon, token, mode=None):
     return float(r[0] or 0.0)
 
 
+def held_sol_now(lcon, tcon, token, mode=None):
+    """held_sol plus the fresh lots run_trade has not mirrored yet (12.11., owner's order point 4: Grok may DCA while
+    the token stays <= dca_token_cap; a lot bought a second ago has no positions row yet, so two quick buys each saw
+    the other as nothing): the real-trade account's open demo lots of the token opened within PENDING_FRESH_S with no
+    positions row, each at its own stake (trade settings manual_size). A league database without its tables: held_sol."""
+    held = held_sol(tcon, token, mode)
+    if lcon is None:
+        return held
+    try:
+        ids = [r[0] for r in lcon.execute("SELECT id FROM trades WHERE user=? AND token=? AND status='open' AND "
+                                          "opened_ts >= ?", (settings.LEAGUE_USER, token,
+                                                             int(time.time()) - PENDING_FRESH_S))]
+    except sqlite3.Error:
+        return held
+    if not ids:
+        return held
+    seen = {r[0] for r in tcon.execute(f"SELECT league_id FROM positions WHERE league_id IN ({','.join('?' * len(ids))})",
+                                       ids)}
+    sizes = settings.raw(tcon).get("manual_size") or {}
+    for i in ids:
+        if i not in seen:
+            try:
+                held += float(sizes.get(str(i)) or 0)
+            except (TypeError, ValueError):
+                pass
+    return held
+
+
 def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None, soft=None, log=True):
     """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
     dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
@@ -5706,7 +5750,7 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None, soft=None, log=
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
     if _is_grok(src):
-        _grok_rules(tcon, token, sol, src, raw, now)
+        _grok_rules(tcon, token, sol, src, raw, now, lcon)
     elif m != "off" or owner_cap:
         # 11.11. (Jure: "strop od 1 SOL vrijedi samo za kupnje koje sam pokrenem (Kupi, brza kupnja, DCA, nalozi na MC)")
         cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)

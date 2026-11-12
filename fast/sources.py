@@ -28,18 +28,20 @@ import time
 
 from . import store
 
-KINDS = ("wallet_follow", "insider", "pre_shill", "group", "influencer", "proven", "convergence", "tool")
+KINDS = ("wallet_follow", "insider", "pre_shill", "group", "influencer", "proven", "convergence", "tool", "x_call")
 # 11.11. (Jure: every live candidate gets a fast_check): "proven" = a wallets/dokazani wallet whose buy put a token on
 # the live list (ui/zivo smart buys), "convergence" = several sources on one token (kol/converge; the pseudo-source
 # CONVERGENCE, enqueued by the worker's scan of kol.db converge), "tool" = a live pick of the tool itself (topcheck /
 # the Pregled box) with no wallet / call / convergence behind it (fast/live.ensure). The last three come only from the
 # live list and the scan, never from the hooks' followed-source list (except CONVERGENCE, refreshed below).
+# 12.11.: "x_call" = an X post Grok sent with the MCP tool submit_watch_token (fast/xcall.py; the author's handle is the
+# source id); checked in run_ui.py at once and never traded (fast/paper and the proposals skip the kind).
 WALLET_KINDS = frozenset(KINDS[:4] + ("proven",))
 KIND_HR = {"wallet_follow": "praćeni novčanik", "insider": "insajder prije poziva", "pre_shill": "kupac prije shill mreže",
            "group": "skupina novčanika", "influencer": "influencer", "proven": "dokazani novčanik",
-           "convergence": "konvergencija izvora", "tool": "živi kandidat alata"}
+           "convergence": "konvergencija izvora", "tool": "živi kandidat alata", "x_call": "X poziv (Grok)"}
 PRIORITY = {"wallet_follow": 0, "influencer": 1, "insider": 1, "proven": 1, "convergence": 1, "pre_shill": 2, "group": 2,
-            "tool": 3}
+            "tool": 3, "x_call": 1}
 CONVERGENCE = "konvergencija"
 TOOL = "alat"
 REFRESH_S = 60
@@ -271,11 +273,13 @@ def quality(sig, now=None, league_db=None):
     """Check e's numbers for one signal: the record, proof, tier / caller statistics and P's sample (hits, n)."""
     now = int(now or time.time())
     sid, kind = sig["source_id"], sig.get("kind")
+    if kind == "x_call" and str(sid).startswith("x:"):   # 12.11.: an x_call's source id is "x:<handle>"
+        sid = sid[2:]
     from trade import edge
     rec = record(sid, kind, now, league_db)
     ok, why = has_proof(rec["rets"])
     st = edge.ev_stats(rec["rets"])
-    q = {"kind": kind, "kind_hr": KIND_HR.get(kind, kind), "id": sid, "label": sig.get("source_label"),
+    q = {"kind": kind, "kind_hr": KIND_HR.get(kind, kind), "id": sig["source_id"], "label": sig.get("source_label"),
          "closed": rec["closed"], "wins": rec["wins"], "pnl_usd": rec["pnl_usd"],
          "ev_pct": round(st["ev"] * 100, 2) if st["ev"] is not None else None,
          "ev_lo90_pct": round(st["lo90"] * 100, 2) if st["lo90"] is not None else None,

@@ -440,25 +440,16 @@ def _open_lot1_mc():
         con.close()
 
 
-def position_tokens():
-    """{token} with an open trade on the real Autopilot account (league.db trades, user trade.settings.LEAGUE_USER;
-    the owner's manual HOPE position is one), read-only; set() on any error. The demo account (PAPER_USER) is not
-    the real account: its tokens get no zones for it."""
+def position_tokens(now=None):
+    """{token} with a REAL open lot (12.11.: zonewatch.positions.real_tokens = trade.settings.live_lots, trade.db
+    positions mode live, open with tokens held or a fresh pending buy; the owner's manual HOPE position is one),
+    read-only; set() on any error. A demo trade of LEAGUE_USER without a real lot (a blocked copy, a dry or failed
+    swap) and the demo account (PAPER_USER) are not the real account: their tokens get no zones for it."""
     try:
-        from rangedca import data
-        from trade import settings
-        con = data._league_ro()
+        from zonewatch import positions
+        return positions.real_tokens(now) or set()
     except Exception:  # noqa: BLE001
         return set()
-    if con is None:
-        return set()
-    try:
-        return {r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND status='open'",
-                                          (settings.LEAGUE_USER,)) if r[0]}
-    except sqlite3.Error:
-        return set()
-    finally:
-        con.close()
 
 
 def range_zones(row, lot1_mc=None):
@@ -575,8 +566,9 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
     5 min after the range was computed, so a range the engine stops computing goes away by itself) and expire at once
     the range zones of tokens whose range is no longer active. Returns (tokens, zones written).
     11.11. (Jure): only tokens with an open range round, an entry-ready range or an open position on the real account
-    (position_tokens) get range zones, and ONLY when rangedca has an active range for them: an eligible token without
-    one gets no zones, and why goes to the log once (when it changes) and to kv range_why. eligible: that set
+    (position_tokens: 12.11. a REAL open lot of trade.db, never a demo trade alone) get range zones, and ONLY when
+    rangedca has an active range for them: an eligible token without one gets no zones, and why goes to the log once
+    (when it changes) and to kv range_why. eligible: that set
     (computed when rows are read here; None with given rows = no filter, for the callers that pass their own rows).
     Every newer range computation of a token with zones is a new zone_version (range_ver)."""
     from rangedca import trade
@@ -586,7 +578,7 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
         rows = _range_rows(now)
         if eligible is None:
             lot1 = _open_lot1_mc() if lot1 is None else lot1
-            positions = position_tokens() if positions is None else set(positions)
+            positions = position_tokens(now) if positions is None else set(positions)
             ready = _entry_ready(now)
             for t in lot1:
                 reasons.setdefault(t, []).append("otvorena runda")

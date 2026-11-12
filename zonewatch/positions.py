@@ -2,14 +2,21 @@
 rasponu"): the open positions of the REAL account as zonewatch sees them, and their own exit / buy levels. Grok only
 advises from these alarms; nothing here trades.
 
-A position = every open lot of one token on the real Autopilot account (league.db trades, user trade.settings
-.LEAGUE_USER, status open): manual buys (ručno), Grok autotrade (Grok auto), MCP requests the owner approved
-(odobreno), copies and the rest alike. The demo account (PAPER_USER) is not alarmed: the owner asked for his
-positions.
+A position = every REAL open lot of one token (12.11., Jure: "Prikazuj samo stvarno otvorene lotove iz portfolija"):
+trade.settings.live_lots, i.e. trade.db positions with mode live and status open still holding tokens (qty_left > 0),
+or a pending buy younger than LIVE_PENDING_FRESH_S; the same lots the portfolio lists as live. Manual buys (ručno),
+Grok autotrade (Grok auto), MCP requests the owner approved (odobreno), copies and the rest alike, once they are a real
+swap. A league.db trade of LEAGUE_USER is only the demo mirror of a real lot (positions.league_id): its entry, auto
+rule (the exit the real lot follows: run_trade sells the real lot when the demo one sells) and quantity give the
+levels and the numbers. A demo trade without a real open lot (a copy blocked at the gate, a failed or dry swap, a real
+lot already sold, never mirrored) is NOT a position: never listed as the real account, never alarmed (demo_only()
+counts them for get_armed_zones). Before 12.11. every open LEAGUE_USER trade counted, so 11 blocked / demo copies
+showed as positions on the real account. The demo account (PAPER_USER) is not alarmed either.
 
-    load()      one dict per token: lots, qty, qty-weighted average entry (price and MC), size, sources, the exit plan
-                (league/exitplan: in force or not), the real positions' sol_in (trade.db positions by league_id) and the
-                levels, each in the unit its executor compares (basis price | mcap):
+    load()      one dict per token: the real lots (position_ids, sol_in), their demo mirrors' ids (lots), qty,
+                qty-weighted average entry (price and MC), size, sources, the exit plan (league/exitplan: in force or
+                not), the real lots' SOL still in and the levels, each in the unit its executor compares
+                (basis price | mcap):
           sl        a stop: the lots' own TP/SL stop (auto tpsl sl_px; lots with the same stop are one level), Smart
                     sell's stop and its lock after a take profit (auto_state of paper/sim), the open range round's hard
                     stop; trailing=True for Smart sell's trailing stop once it trails and the plan's trailing once it
@@ -26,6 +33,7 @@ positions.
                 with exit_rule sl / tp / smart_*, a Smart sell take profit (tp_done up), dca_log / buy_log
     pnl()       PnL % from the average entry, USD (qty x price + realized - size, before fees), SOL (the real
                 positions' sol_in when the lot maps, else the USD at the SOL price the equity snapshots stored)
+    demo_only() the open LEAGUE_USER demo trades that are not a real open lot, counted by why (get_armed_zones)
 Read-only on league.db and trade.db; no network (prices come from zonewatch/prices.py).
 """
 import json
@@ -136,24 +144,35 @@ def _sol_usd(tcon):
     return _f(r[0]) if r else None
 
 
-def _real_sol(tcon, lot_ids):
-    """{league lot id: SOL still in it} of the open real positions (trade.db positions.league_id: sol_in x the share
-    of qty_raw still held)."""
-    if tcon is None or not lot_ids:
-        return {}
-    ids = sorted(lot_ids)
+def _sol_left(r):
+    """SOL still in one real lot: sol_in x the share of qty_raw still held (a pending buy: its whole stake)."""
+    raw, left = r.get("qty_raw"), r.get("qty_left")
+    share = (left / raw) if raw and left is not None and raw > 0 else 1.0
+    return float(r.get("sol_in") or 0.0) * share
+
+
+def _live(tpath, now):
+    """(trade.settings.live_lots, the open trade.db) of the real account; ([], None) without trade.db (nothing
+    real held), (None, None) when it cannot be read. The caller closes the connection."""
+    from trade import settings
+    if not tpath or not os.path.exists(tpath) or not os.path.getsize(tpath):
+        return [], None
+    tcon = _ro(tpath)
+    if tcon is None:
+        return None, None
     try:
-        rows = tcon.execute(f"SELECT league_id, sol_in, qty_raw, qty_left FROM positions WHERE status='open' AND league_id "
-                            f"IN ({','.join('?' * len(ids))})", ids).fetchall()
+        return settings.live_lots(tcon, now), tcon
     except sqlite3.Error:
-        return {}
-    out = {}
-    for lid, sol_in, raw, left in rows:
-        if lid is None or not sol_in:
-            continue
-        share = (left / raw) if raw and left is not None and raw > 0 else 1.0
-        out[int(lid)] = out.get(int(lid), 0.0) + float(sol_in) * share
-    return out
+        tcon.close()
+        return None, None
+
+
+def real_tokens(now=None, tpath=None):
+    """{token} of the real open lots (trade.settings.live_lots); None when trade.db cannot be read."""
+    real, tcon = _live(tpath or trade_path(), now)
+    if tcon is not None:
+        tcon.close()
+    return None if real is None else {r["token"] for r in real if r.get("token")}
 
 
 def _plans(lcon, user):
@@ -308,41 +327,51 @@ def levels_of(lots, ratio, avg, plan=None, range_stop=None, dca=(), buys=(), use
 
 
 def load(now, user=None, lpath=None, tpath=None):
-    """[position dict] of the real account (see the module text), None when league.db cannot be read (then the job
-    changes no state)."""
+    """[position dict] of the real account (see the module text): one per token of the REAL open lots
+    (trade.settings.live_lots), their demo mirrors on league.db (user LEAGUE_USER, by positions.league_id, open or
+    just closed: the real lot is held until run_trade sold it) giving the entry, the quantity and the lots' own levels.
+    None when trade.db or league.db cannot be read (then the job changes no state)."""
     user = user or real_user()
-    path = lpath or league_path()
-    if not os.path.exists(path) or not os.path.getsize(path):
-        return []   # no league.db: nothing held
-    lcon = _ro(path)
-    if lcon is None:
+    real, tcon = _live(tpath or trade_path(), now)
+    if real is None:
         return None
     try:
-        try:
-            rows = [dict(r) for r in lcon.execute("SELECT * FROM trades WHERE user=? AND status='open' ORDER BY id",
-                                                  (user,))]
-        except sqlite3.Error:
-            return None
-        if not rows:
-            return []
-        plans = _plans(lcon, user)
-        rstops = _range_stops(lcon, user)
-    finally:
-        lcon.close()
-    tcon = _ro(tpath or trade_path())
-    try:
+        if not real:
+            return []   # nothing really bought and held: no position, whatever the demo account holds
         s = _settings(tcon, ["dca_orders", "buy_orders"])
-        sol = _real_sol(tcon, {r["id"] for r in rows})
         sol_usd = _sol_usd(tcon)
     finally:
         if tcon is not None:
             tcon.close()
+    lids = sorted({int(r["league_id"]) for r in real if r.get("league_id")})
+    demo, plans, rstops = {}, {}, {}
+    path = lpath or league_path()
+    if os.path.exists(path) and os.path.getsize(path):
+        lcon = _ro(path)
+        if lcon is None:
+            return None
+        try:
+            try:
+                if lids:
+                    demo = {r["id"]: dict(r) for r in lcon.execute(
+                        f"SELECT * FROM trades WHERE user=? AND id IN ({','.join('?' * len(lids))})", (user, *lids))}
+            except sqlite3.Error:
+                return None
+            plans = _plans(lcon, user)
+            rstops = _range_stops(lcon, user)
+        finally:
+            lcon.close()
     by = {}
-    for r in rows:
+    for r in real:
         if r.get("token"):
             by.setdefault(r["token"], []).append(r)
     out = []
-    for tok, lots in by.items():
+    for tok, reals in by.items():
+        lots = list({int(r["league_id"]): demo[int(r["league_id"])] for r in reals
+                     if r.get("league_id") and int(r["league_id"]) in demo}.values())
+        sol = {int(r["league_id"]): _sol_left(r) for r in reals
+               if r.get("league_id") and int(r["league_id"]) in demo and r.get("sol_in")}
+        bare = len(reals) - len(lots)   # a real lot without a demo mirror (an old paper copy, a CLI buy): no entry
         qty = sum(_f(t.get("qty")) or 0 for t in lots)
         avg = sum((_f(t.get("entry_px")) or 0) * (_f(t.get("qty")) or 0) for t in lots) / qty if qty else None
         ratio = next((t["entry_mcap"] / t["entry_px"] for t in lots if _f(t.get("entry_mcap")) and _f(t.get("entry_px"))),
@@ -351,15 +380,22 @@ def load(now, user=None, lpath=None, tpath=None):
         avg_mc = (sum(m * q for m, q in mq) / sum(q for _, q in mq)) if mq and sum(q for _, q in mq) else \
             (avg * ratio if avg and ratio else None)
         plan = plans.get(tok)
-        p = {"mint": tok, "symbol": next((t["symbol"] for t in lots if t.get("symbol")), None), "account": user,
+        p = {"mint": tok, "symbol": next((t["symbol"] for t in lots + reals if t.get("symbol")), None), "account": user,
+             "real": True, "position_ids": [r["id"] for r in reals],
+             "sol_in": round(sum(_sol_left(r) for r in reals), 6),
+             "pending": sum(1 for r in reals if r.get("status") == "pending"),
              "lots": [t["id"] for t in lots], "qty": qty, "avg_entry_price": avg,
              "avg_entry_mcap": round(avg_mc, 2) if avg_mc else None, "ratio": ratio,
              "size_usd": round(sum(_f(t.get("size_usd")) or 0 for t in lots), 4),
-             "sources": sorted({source_label(t.get("source")) for t in lots}),
+             "sources": sorted({source_label(t.get("source")) for t in lots} |
+                               {source_label(r.get("reason")) for r in reals
+                                if not (r.get("league_id") and int(r["league_id"]) in demo)}),
              "plan_id": plan["id"] if plan else None, "plan_in_force": bool(plan and plan["in_force"]),
-             "opened_ts": min(t.get("opened_ts") or 0 for t in lots),
+             "opened_ts": min(r.get("opened_ts") or 0 for r in reals),
+             # a real lot without its demo mirror has no quantity here: qty 0 = no money figure rather than a wrong one
              "_lots": [{"id": t["id"], "qty": _f(t.get("qty")) or 0, "entry_px": _f(t.get("entry_px")),
-                        "size_usd": _f(t.get("size_usd")) or 0, "realized": _f(t.get("realized")) or 0} for t in lots],
+                        "size_usd": _f(t.get("size_usd")) or 0, "realized": _f(t.get("realized")) or 0} for t in lots]
+             + [{"id": None, "qty": 0, "entry_px": None, "size_usd": 0, "realized": 0}] * bare,
              "_sol": {k: v for k, v in sol.items() if k in {t["id"] for t in lots}}, "_sol_usd": sol_usd,
              "_tp_done": {t["id"]: int((((_js(t.get("auto_state"), {}) or {}).get("pos") or {}).get("tp_done") or 0))
                           for t in lots if (_js(t.get("auto"), {}) or {}).get("mode") == "smart"}}
@@ -368,6 +404,77 @@ def load(now, user=None, lpath=None, tpath=None):
                                 [o for o in s.get("buy_orders") or [] if isinstance(o, dict) and o.get("token") == tok],
                                 user, now)
         out.append(p)
+    return out
+
+
+DEMO_WHY = {"blocked": "copy stopped at the gate before any swap (positions status blocked)",
+            "failed": "the real swap did not go through (status failed)",
+            "dry": "a dry test swap, no real money (mode dry)",
+            "sold": "its real lot is sold already (status closed)",
+            "stale_pending": "a buy never confirmed (pending, older than the fresh window)",
+            "empty": "a real row without tokens left (qty_left 0)",
+            "not_mirrored": "no real buy at all (run_trade never took it)"}
+
+
+def _demo_why(rows):
+    """The DEMO_WHY key of one demo trade from its trade.db positions rows [(mode, status)] (the newest decides)."""
+    if not rows:
+        return "not_mirrored"
+    mode, status = rows[-1]
+    if status in ("blocked", "failed"):
+        return status
+    if mode != "live":
+        return "dry"
+    return {"closed": "sold", "pending": "stale_pending"}.get(status, "empty")
+
+
+def demo_only(now=None, user=None, lpath=None, tpath=None):
+    """{"trades", "tokens", "by_reason", "why"} of the open LEAGUE_USER demo trades that are NOT a real open lot
+    (12.11.): kept apart from the real account's positions, never alarmed; by_reason counts DEMO_WHY keys. None when
+    league.db or trade.db cannot be read."""
+    user = user or real_user()
+    out = {"trades": 0, "tokens": 0, "by_reason": {}, "why": DEMO_WHY}
+    path = lpath or league_path()
+    if not os.path.exists(path) or not os.path.getsize(path):
+        return out
+    lcon = _ro(path)
+    if lcon is None:
+        return None
+    try:
+        rows = lcon.execute("SELECT id, token FROM trades WHERE user=? AND status='open' ORDER BY id", (user,)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        lcon.close()
+    real, tcon = _live(tpath or trade_path(), now)
+    if real is None:
+        return None
+    live_ids = {int(r["league_id"]) for r in real if r.get("league_id")}
+    ids = [int(lid) for lid, _t in rows if int(lid) not in live_ids]
+    mirror = {}
+    try:
+        if tcon is not None and ids and tcon.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND "
+                                                     "name='positions'").fetchone():
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                for lid, mode, status in tcon.execute(f"SELECT league_id, mode, status FROM positions WHERE league_id IN "
+                                                      f"({','.join('?' * len(part))}) ORDER BY id", part):
+                    mirror.setdefault(int(lid), []).append((mode, status))
+    except sqlite3.Error:
+        return None
+    finally:
+        if tcon is not None:
+            tcon.close()
+    toks = set()
+    for lid, tok in rows:
+        if int(lid) in live_ids:
+            continue
+        why = _demo_why(mirror.get(int(lid)))
+        out["by_reason"][why] = out["by_reason"].get(why, 0) + 1
+        out["trades"] += 1
+        if tok:
+            toks.add(tok)
+    out["tokens"] = len(toks)
     return out
 
 
@@ -424,8 +531,13 @@ def pnl(p, price):
 
 
 def block(p, price):
-    """The position part of an alarm."""
-    b = {"lots": len(p.get("lots") or []), "lot_ids": list(p.get("lots") or []), "qty": p.get("qty"),
+    """The position part of an alarm: lots = the real lots (position_ids: trade.db positions), lot_ids = their demo
+    mirrors on league.db (the levels' lots), real = true (only real lots are positions, 12.11.), sol_in = SOL still in
+    them, pending = buys in flight."""
+    ids = p.get("position_ids")
+    b = {"lots": len(ids) if ids is not None else len(p.get("lots") or []), "lot_ids": list(p.get("lots") or []),
+         "position_ids": list(ids or []), "real": bool(p.get("real")), "sol_in": p.get("sol_in"),
+         "pending": p.get("pending") or 0, "qty": p.get("qty"),
          "avg_entry_price": p.get("avg_entry_price"), "avg_entry_mcap": p.get("avg_entry_mcap"),
          "size_usd": p.get("size_usd"), "sources": p.get("sources"), "account": p.get("account"),
          "plan_id": p.get("plan_id"), "plan_in_force": p.get("plan_in_force"), "opened_ts": p.get("opened_ts")}
@@ -455,9 +567,10 @@ def compact(pos):
                           "levels": {lv["key"]: {k: lv.get(k) for k in ("kind", "name", "src", "basis", "price", "mcap",
                                                                          "lots", "trailing", "step", "order_id")}
                                      for lv in p["levels"]},
-                          "pos": {k: p.get(k) for k in ("account", "lots", "qty", "avg_entry_price", "avg_entry_mcap",
-                                                        "size_usd", "sources", "plan_id", "plan_in_force", "opened_ts",
-                                                        "ratio", "_lots", "_sol", "_sol_usd")},
+                          "pos": {k: p.get(k) for k in ("account", "lots", "position_ids", "real", "sol_in", "pending",
+                                                        "qty", "avg_entry_price", "avg_entry_mcap", "size_usd",
+                                                        "sources", "plan_id", "plan_in_force", "opened_ts", "ratio",
+                                                        "_lots", "_sol", "_sol_usd")},
                           "tp_done": {str(k): v for k, v in (p.get("_tp_done") or {}).items()}}
     return out
 
