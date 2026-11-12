@@ -932,6 +932,100 @@ def apply(con, nid, owner_note=""):
     return "primijenjeno", f"Primijenjeno: {words}."
 
 
+# 12.11. (Jure: "Možeš nekako grupirati ove prijedloge od groka ... teško mi je jedan po jedan svaki put otvarati
+# prijedloge i onda ići dolje do prihvati, primjeni na bota"): the ticked suggestions in one tap. Each goes through
+# the same apply() as its own "Primijeni na bota" (the same allow-list, ranges, "from" check, flags at most to shadow,
+# never live), newest first; an older ticked note that changes the SAME setting as a newer applied one is not applied
+# over it: it is rejected as superseded (owner_note says by which), so the newest value is the one in force.
+def change_key(pc):
+    """The setting a proposed_change writes (two notes with the same key conflict), None when it writes none or
+    only appends (auto_skip adds pairs, it never overwrites)."""
+    if not isinstance(pc, dict):
+        return None
+    if "caller" in pc and "weight" in pc:
+        h = str(pc.get("caller") or "").strip().lstrip("@")
+        plat = str(pc.get("platform") or "x").lower()
+        if plat == "telegram" and not h.startswith("tg:"):
+            h = "tg:" + h
+        return f"caller_weights.{h}" if h else None
+    if isinstance(pc.get("insider_label"), dict):
+        w = str(pc["insider_label"].get("wallet") or "").strip()
+        return f"insider_label.{w}" if w else None
+    k = pc.get("key")
+    return k if k in APPLY and k != "auto_skip" else None
+
+
+def _waiting(con, nid):
+    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE id=? AND kind='suggestion' AND status IN "
+                    "('novo', 'prihvaćeno')", (int(nid),)).fetchone()
+    return _row(r) if r else None
+
+
+def apply_many(con, ids, owner_note=""):
+    """The owner's "Primijeni označene": apply() for every id, newest first. Returns {"applied": [(id, words)],
+    "accepted": [id] (no change the bot can make: marked prihvaćeno, as one tap would), "superseded": [(id, newer id,
+    key)], "failed": [(id, reason)]}; failed ones keep waiting."""
+    ensure(con)
+    out = {"applied": [], "accepted": [], "superseded": [], "failed": []}
+    taken = {}
+    for nid in sorted({int(i) for i in ids}, reverse=True):
+        d = _waiting(con, nid)
+        if d is None:
+            out["failed"].append((nid, "više ne čeka (odbijen ili već primijenjen)"))
+            continue
+        key = change_key(d.get("proposed_change"))
+        if key and key in taken:
+            why = f"zamijenio ga je noviji prijedlog #{taken[key]} (ista postavka {key})"
+            con.execute("UPDATE assistant_notes SET status='odbijeno', decided_ts=?, owner_note=? WHERE id=? AND "
+                        "status IN ('novo', 'prihvaćeno')", (int(time.time()), why, nid))
+            con.commit()
+            out["superseded"].append((nid, taken[key], key))
+            continue
+        try:
+            st, words = apply(con, nid, owner_note)
+        except Exception as e:  # noqa: BLE001 - one bad note never stops the rest; it stays waiting with its reason
+            out["failed"].append((nid, str(e) if isinstance(e, ValueError) else f"{type(e).__name__}: {e}"))
+            continue
+        if key:
+            taken[key] = nid
+        if st == "primijenjeno":
+            out["applied"].append((nid, words.removeprefix("Primijenjeno: ").rstrip(".")))
+        else:
+            out["accepted"].append(nid)
+    print(f"pravi trade: skupno primijenjeni prijedlozi asistenta: {len(out['applied'])} primijenjeno, "
+          f"{len(out['accepted'])} samo prihvaćeno, {len(out['superseded'])} zamijenjeno novijim, "
+          f"{len(out['failed'])} nije prošlo" + "".join(f"; #{i}: {w}" for i, w in out["failed"]), flush=True)
+    return out
+
+
+def reject_many(con, ids, owner_note=""):
+    """The owner's "Odbij označene": every ticked suggestion that still waits (novo or prihvaćeno) -> odbijeno."""
+    ensure(con)
+    now, note, n = int(time.time()), (owner_note or "")[:1000] or None, 0
+    for nid in {int(i) for i in ids}:
+        n += con.execute("UPDATE assistant_notes SET status='odbijeno', decided_ts=?, owner_note=? WHERE id=? AND "
+                         "kind='suggestion' AND status IN ('novo', 'prihvaćeno')", (now, note, nid)).rowcount
+    con.commit()
+    print(f"pravi trade: skupno odbijeni prijedlozi asistenta: {n}", flush=True)
+    return n
+
+
+def bulk_words(res):
+    """apply_many's result as the page's one message (short: it travels in the redirect URL)."""
+    parts = []
+    if res["applied"]:
+        parts.append(f"Primijenjeno {len(res['applied'])}: " + "; ".join(w for _i, w in res["applied"][:8])
+                     + (" …" if len(res["applied"]) > 8 else ""))
+    if res["accepted"]:
+        parts.append(f"{len(res['accepted'])} samo prihvaćeno (bot ih ne zna primijeniti sam, ostaju za ručnu izmjenu)")
+    if res["superseded"]:
+        parts.append(f"{len(res['superseded'])} odbijeno jer noviji prijedlog mijenja istu postavku ("
+                     + ", ".join(f"#{i}→#{j}" for i, j, _k in res["superseded"][:6]) + ")")
+    if res["failed"]:
+        parts.append(f"nije prošlo {len(res['failed'])}: " + "; ".join(f"#{i} {w}" for i, w in res["failed"][:4]))
+    return (". ".join(parts) or "Ništa nije primijenjeno.")[:900]
+
+
 # ---------- caller weights: applied on arrival ----------------------------------------------------------------------
 # 11.11. (Jure: "Automatically accept all weight changes and apply them."): a caller weight suggested by the assistant
 # (a suggestion note with proposed_change {"caller", "platform", "weight"}, from submit_suggestion or
