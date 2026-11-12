@@ -1,5 +1,12 @@
 [
  {
+  "datum": "2026-11-12",
+  "naslov": "Izlazi se biraju na našim tradeovima",
+  "tekst": "učenje izlaza za klasu koja ima barem 150 naših demo putanja sad bira pravila samo na njima (starija polovica uči, novija provjerava), a stara povijest služi samo kao provjera da nova pravila tamo nisu jasno lošija. Prije su pravila bolja na povijesti, a lošija na našim tradeovima, stalno padala na provjeri pa se ništa nije mijenjalo.",
+  "naslov_en": "Exits are chosen on our own trades",
+  "tekst_en": "exit learning for a class with at least 150 of our own demo paths now picks the rules on those paths only (the older half learns, the newer half checks); the old history only checks that the new rules are not clearly worse there. Before, rules that were better on history but worse on our trades kept failing the check, so nothing changed."
+ },
+ {
   "datum": "2026-11-11",
   "naslov": "Učenje: sesija koja gubi više ne izgleda dobro, confidence se mijenja postupno",
   "tekst": "faktor sesije za KOL signale sad uzima u obzir i stvarni rezultat dema u toj sesiji: kad demo u nekoj sesiji gubi (faktor dobiti ispod 1 na barem 30 tradeova), signali iz te sesije vrijede manje. Azija s faktorom dobiti 0,12 više ne dobiva prednost. Naučeni confidence model mijenja svaki signal najviše 25% po učenju, pa jedan dan podataka ne može prepoloviti npr. smart money.",

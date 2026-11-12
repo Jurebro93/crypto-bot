@@ -185,7 +185,15 @@ def fit_profile(paths, base, current, ecfg):
     if n < ecfg["min_paths"]:
         out["note"] = f"premalo putanja ({n} od potrebnih {ecfg['min_paths']})"
         return out, None
-    old, new = split(paths)
+    live = [p for p in paths if p["src"] == "live"]
+    # 12.11. (jutarnji izvještaj): for moonshot, rizican and default the fit kept finding rules that were better on
+    # the old study and worse on our own live paths (n=297-1253), so nothing ever changed. With enough live paths
+    # the rules are now searched and judged on live paths only; history (study + shadow) is a check that the
+    # new rules are not clearly worse there.
+    on_live = len(live) >= ecfg.get("live_search_min", 150)
+    pool = live if on_live else paths
+    out["on_live"] = on_live
+    old, new = split(pool)
     cand = search(old, base, current, ecfg)  # learn on the older half only ...
     cfg_now, cfg_new = to_sim(base, current), to_sim(base, cand)
     wts = live_weights(paths, ecfg)
@@ -197,7 +205,14 @@ def fit_profile(paths, base, current, ecfg):
         a, b = evaluate(h, cfg_now, lam, cap)["score"], evaluate(h, cfg_new, lam, cap)["score"]
         halves.append((a, b))
     out["halves"] = [[round(a, 4), round(b, 4)] for a, b in halves]
-    live = [p for p in paths if p["src"] == "live"]
+    if on_live:
+        hist = [p for p in paths if p["src"] != "live"]
+        if hist:
+            a, b = evaluate(hist, cfg_now, lam, cap)["score"], evaluate(hist, cfg_new, lam, cap)["score"]
+            out["hist"] = [round(a, 4), round(b, 4)]
+            if b < a - ecfg.get("hist_margin", 0.02):
+                out["note"] = "novi skup je bolji na našim live putanjama, ali jasno lošiji na povijesti"
+                return out, None
     if len(live) >= ecfg["min_live_check"]:
         a, b = evaluate(live, cfg_now, lam, cap)["score"], evaluate(live, cfg_new, lam, cap)["score"]
         out["live"] = [round(a, 4), round(b, 4)]
@@ -226,7 +241,8 @@ def fit_profile(paths, base, current, ecfg):
     if gain < ecfg["min_gain"]:
         out["note"] = f"dobitak premali ({gain:+.2%} po tradeu)"
         return out, None
-    out["note"] = f"bolje za {gain:+.2%} po tradeu na {n} putanja"
+    out["note"] = f"bolje za {gain:+.2%} po tradeu na {n} putanja" + (
+        f" (birano na {len(live)} live putanja, povijest samo provjera)" if on_live else "")
     return out, cand
 
 
