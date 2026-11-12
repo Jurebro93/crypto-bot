@@ -90,6 +90,11 @@ STATE = ".retencija.json"
 # COMPACT_MARGIN_MB free above the packed copy while it is written (the feeds keep writing meanwhile). Else the reason
 # is logged and the next night tries again. ops/dbs.compact still runs hourly at its own 35 % threshold.
 COMPACT_FILES = ("events", "hype")
+# 12.11. (Jure: "Vidi kako možeš optimizirati i očistiti da nam ostane više memorije"): every other database of the
+# data disk too (the disk report: wallets ~63 MB, kol 29, shadow 27, tg 17, paper 14, early 8, ai 5 of dead space),
+# smallest first (each needs less room and leaves more for the next), hype.db last. Never trade.db / league.db
+# (money: a VACUUM there holds the write lock the trading loop needs; they are small anyway).
+COMPACT_SKIP = ("trade.db", "league.db")
 COMPACT_FROM_H = 4            # Zagreb hour: after the events night batch
 COMPACT_UNTIL = (5, 40)       # no new VACUUM after this (the window closes at 06:00)
 COMPACT_WASTE = float(os.environ.get("RETENCIJA_COMPACT_WASTE", "0.10"))
@@ -713,17 +718,36 @@ def compact_due(st, now):
             and st.get("compacted") != z.date().isoformat())
 
 
-def compact_night(p, now=None, log=print, st=None, compact=None):
+def compact_order(p, files=None):
+    """[(name, path)]: COMPACT_FILES' databases and every other *.db of the data disk (ops/dbs.files), without
+    COMPACT_SKIP, smallest first, hype.db last."""
+    seen, out = set(), []
+    for k in COMPACT_FILES:
+        if _exists(p.get(k)):
+            seen.add(os.path.realpath(p[k]))
+            out.append((k, p[k]))
+    if files is None:   # the *.db next to hype.db (DATA_DIR in production, the test's folder in a test)
+        import glob
+        base = os.path.dirname(p.get("hype") or p.get("events") or "")
+        files = sorted(glob.glob(os.path.join(base, "*.db"))) if base else []
+    for f in files:
+        name = os.path.basename(f)
+        if name in COMPACT_SKIP or os.path.realpath(f) in seen or not _exists(f):
+            continue
+        seen.add(os.path.realpath(f))
+        out.append((name[:-3] if name.endswith(".db") else name, f))
+    size = lambda kp: os.path.getsize(kp[1]) if os.path.exists(kp[1]) else 0  # noqa: E731
+    return sorted(out, key=lambda kp: (kp[0] == "hype", size(kp)))
+
+
+def compact_night(p, now=None, log=print, st=None, compact=None, files=None):
     """12.11.: VACUUM of COMPACT_FILES (above); the caller holds the heavy-job lock. -> {name: result or reason}."""
     from ops import dbs
     compact = compact or dbs.compact
     now = int(now or time.time())
     st = st if st is not None else {}
     out, t0 = {}, time.time()
-    for k in COMPACT_FILES:
-        path = p.get(k)
-        if not _exists(path):
-            continue
+    for k, path in compact_order(p, files):
         z = _zagreb(now + time.time() - t0)   # a VACUUM takes minutes: the clock moves on
         if (z.hour, z.minute) >= COMPACT_UNTIL:
             out[k] = "preskočeno: kraj noćnog prozora"
