@@ -340,11 +340,15 @@ def portfolio(now=None):
         toks = sorted({r[1] for r in rows})
         now_mc, mc_ts = pravitrade._now_mcap(toks) if toks else ({}, None)
         live_toks = {r[1] for r in rows if r[6] == "live"}
+        # 12.11.: per lot mode live | dry and real (a real lot held: trade.settings.live_lots, the definition zonewatch
+        # uses for the real account); the fields are added after the old ones, nothing renamed or reordered
+        real_ids = {r["id"] for r in settings.live_lots(tcon, now)}
         by = {}
         for pid, tok, sym, ts, sin, lid, _mode in rows:
             mc, rule, _o = demo.get(lid, (None, None, False))
             g = by.setdefault(tok, {"token": tok, "symbol": sym, "lots": [], "exit": pravitrade._exit_words(rule)})
-            g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0)})
+            g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0),
+                              "mode": "live" if _mode == "live" else "dry", "real": pid in real_ids})
         out = []
         plans = _plans_for(sorted(by), now_mc)
         modes = _plan_modes(sorted(by), live_toks, executor.is_live(cfg))
@@ -385,7 +389,10 @@ def portfolio(now=None):
                 "momentum_candidates": _momentum_part(now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
                                 # 11.11.: only what can still be approved (not expired, not a sell of a closed position)
-                                "waiting_for_owner": pending(tcon, now)}}
+                                "waiting_for_owner": pending(tcon, now)},
+                # 12.11.: the open lots by mode (live: a real swap; dry: a test swap, no real money)
+                "open_live": sum(1 for r in rows if r[6] == "live"),
+                "open_dry": sum(1 for r in rows if r[6] != "live")}
     finally:
         tcon.close()
 
@@ -753,7 +760,9 @@ TOOLS = [
                      "exit_plans (the flags deciding that), open orders, and "
                      "momentum_candidates: the newest momentum_scalp signals (bonded jumps that met every entry rule, "
                      "with their numbers and outcome), near misses, the base rate and the paper proof, to rate with "
-                     "execute_trade strategy momentum_scalp and p_tp."),
+                     "execute_trade strategy momentum_scalp and p_tp. Each lot has mode (live = a real swap | dry = a "
+                     "test swap, no real money) and real (true only for a lot really bought and still held); "
+                     "open_live / open_dry count the open lots by mode."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "execute_trade",
      "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
