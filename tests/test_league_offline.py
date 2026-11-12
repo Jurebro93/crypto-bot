@@ -246,20 +246,20 @@ class DiskFull(unittest.TestCase):
                 with open(p, "w") as f:
                     f.write("x" * 400_000)
                 os.utime(p, (now - 5000 + i, now - 5000 + i))   # 0 is the oldest
-            fresh = os.path.join(http.CACHE_DIR, "new.json")
+            fresh = os.path.join(http.CACHE_DIR, "w-new.json")
             with open(fresh, "w") as f:
                 f.write("x" * 400_000)
             self.assertEqual(http.prune(max_mb=1.3, max_age=10**12)[0], 3)   # oldest first until under 1.3 MB
-            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["new.json", "w-3.json", "w-4.json"])
+            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["w-3.json", "w-4.json", "w-new.json"])
             self.assertTrue(os.path.exists(fresh))
             self.assertEqual(http.prune(max_mb=100, max_age=3600)[0], 2)   # older than an hour
-            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["w-new.json"])
             rpc = os.path.join(http.CACHE_DIR, "rpc-abc.json")
             with open(rpc, "w") as f:
                 f.write("{}")
             os.utime(rpc, (time.time() - 7200,) * 2)               # Helius RPC cache is dead after its 10 min TTL
             self.assertEqual(http.prune()[0], 1)
-            self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])
+            self.assertEqual(os.listdir(http.CACHE_DIR), ["w-new.json"])
         finally:
             http.CACHE_DIR = saved
 

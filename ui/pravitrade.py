@@ -1483,17 +1483,27 @@ def _suggest_section(tcon, owner):
                 pc = {**pc, "from": cur}
         return _change_words(pc) if pc else ""
 
-    def _tick(r, words, auto):
+    def _tick(r, words, auto, bad=None):
         what = (words if auto and words else "samo označi prihvaćenim (bot je ne zna primijeniti sam)") or ""
         nid = int(r["id"])
         line = ("#%d %s" % (nid, what))[:160]
+        # 12.11.: one that cannot be applied as it stands starts unticked (its reason is under it); "Odbij" takes it
         return (f'<label class=as-pick><input type=checkbox form=as-bulk name=sel_{nid} value=1 data-keep '
-                f'data-what="{esc(line)}" checked> ')
+                f'data-what="{esc(line)}"{"" if bad else " checked"}> ')
+
+    def _bad(pc):
+        try:
+            why = assistnotes.blocker(pc)
+        except Exception:  # noqa: BLE001
+            why = None
+        return (f'<p class=ap-diff style="color:var(--bad,#b42318)">Ne može se primijeniti: {esc(why)}. Odbij ga ili '
+                'neka Grok pošalje punu adresu.</p>') if why else ""
     items = []
     for r in rows:
         pc = r.get("proposed_change")
         auto = _can(r)   # 10.11. kol/precall.py insider labels included
         words = _words(pc)
+        bad = _bad(pc)
         ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
               if r.get("evidence") else "")
         diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code>'
@@ -1501,9 +1511,9 @@ def _suggest_section(tcon, owner):
                                    'označi kao prihvaćenu za ručnu izmjenu)</span>')
                 + "</p>") if pc else '<p class=mut>Bez promjene postavke: primjena je samo oznaka da se slažeš.</p>'
         items.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, auto)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, auto, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
             f' <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
-            + diff
+            + diff + bad
             + f'<details class=as-more id=as-more-{r["id"]}><summary class=mut>Obrazloženje i tipke samo za ovaj</summary>'
             f'<p>{esc(r.get("interpretation") or "")}</p>'
             + (f'<p><b>Poboljšanje:</b> {esc(r["improvement"])}</p>' if r.get("improvement") else "")
@@ -1522,10 +1532,11 @@ def _suggest_section(tcon, owner):
     for r in acc:
         pc = r.get("proposed_change")
         words = _words(pc)
+        bad = _bad(pc)
         acc_rows.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, True)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, True, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
             f' <span class=mut>· prihvaćeno {esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
-            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code></p>' if pc else "")
+            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code></p>' if pc else "") + bad
             + (f'<form method=post action=/pravi-trade/asapply class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
                '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>')
             + '</div>')

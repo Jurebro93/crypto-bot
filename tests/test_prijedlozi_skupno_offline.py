@@ -100,5 +100,63 @@ class Page(Base):
         self.assertIn("input[data-keep]", pravitrade.PATCH_JS)
 
 
+FULL = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+OTHER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+
+
+class InsiderWallet(Base):
+    """12.11. (owner's screenshot: "nije prošlo 3: #190 insider_label.wallet nije Solana adresa")."""
+
+    def setUp(self):
+        super().setUp()
+        self._early = os.environ.get("EARLY_DB")
+        os.environ["EARLY_DB"] = os.path.join(self.tmp.name, "early.db")
+        from kol import precall
+        con = precall.connect(os.environ["EARLY_DB"])
+        con.execute("INSERT INTO precall_wallets (wallet, status) VALUES (?, 'candidate'), (?, 'candidate')",
+                    (FULL, OTHER))
+        con.commit()
+        con.close()
+
+    def tearDown(self):
+        if self._early is None:
+            os.environ.pop("EARLY_DB", None)
+        else:
+            os.environ["EARLY_DB"] = self._early
+        super().tearDown()
+
+    def test_a_shortened_address_with_one_match_is_resolved(self):
+        from kol import precall
+        self.assertEqual(precall.resolve_wallet("7xKX…gAsU"), FULL)
+        self.assertEqual(precall.resolve_wallet("7xKX...gAsU"), FULL)
+        self.assertIsNone(precall.resolve_wallet("7xkx…gasu"))           # base58 is case-sensitive
+        self.assertIsNone(precall.resolve_wallet("Zzzz…zzzz"))
+        out = assistnotes.submit_suggestion(self.tc, "k1", "t", "i", proposed_change={
+            "insider_label": {"wallet": "7xKX…gAsU", "label": "bot", "note": "n"}})
+        nid = out["id"] if isinstance(out, dict) else out
+        pc = assistnotes.notes(self.tc, "novo", "suggestion", 5, 0)[0][0]["proposed_change"]
+        self.assertEqual(pc["insider_label"]["wallet"], FULL)            # stored with the full address
+        res = assistnotes.apply_many(self.tc, [nid])
+        self.assertEqual([i for i, _w in res["applied"]], [nid])
+        self.assertEqual(settings.raw(self.tc)["insider_labels"][FULL]["label"], "bot")
+
+    def test_a_bad_address_is_refused_on_arrival_and_left_unticked_on_the_page(self):
+        with self.assertRaisesRegex(ValueError, "full wallet address"):
+            assistnotes.submit_suggestion(self.tc, "k2", "t", "i", proposed_change={
+                "insider_label": {"wallet": "nekiwallet", "label": "bot"}})
+        # an older note stored before the check (as #175, #176, #190 in production)
+        assistnotes.ensure(self.tc)
+        nid = self.suggest({"key": "tp_default", "to": 30})
+        self.tc.execute("UPDATE assistant_notes SET proposed_change=? WHERE id=?",
+                        ('{"insider_label": {"wallet": "Abc…xyz", "label": "bot"}}', nid))
+        self.tc.commit()
+        from ui import pravitrade
+        html = pravitrade._suggest_section(self.tc, True)
+        self.assertIn("Ne može se primijeniti", html)
+        self.assertRegex(html, rf'name=sel_{nid} value=1 data-keep data-what="[^"]+">')   # no "checked"
+        res = assistnotes.apply_many(self.tc, [nid])
+        self.assertIn("nije puna Solana adresa", res["failed"][0][1])
+
+
 if __name__ == "__main__":
     unittest.main()

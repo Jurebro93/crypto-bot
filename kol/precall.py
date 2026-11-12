@@ -731,14 +731,61 @@ def owner_labels(trade_db=None):
     return d if isinstance(d, dict) else {}
 
 
-def parse_label(x):
-    """proposed_change["insider_label"] -> (wallet, label, note); ValueError (Croatian) when it is not one."""
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def is_address(w):
+    return 32 <= len(w) <= 44 and all(ch in B58 for ch in w)
+
+
+def resolve_wallet(w, p=None):
+    """12.11. (owner's screenshot: "nije prošlo 3: #190 insider_label.wallet nije Solana adresa" on the bulk apply):
+    the full address of a shortened one ("7xKX…gAsU", "7xKX...gAsU", "7xKX..gAsU") when exactly one wallet of the
+    pre-call analysis (early.db precall_wallets, else precall_trades) starts and ends that way; else None.
+    GLOB, not LIKE: base58 is case-sensitive."""
+    w = (w or "").strip()
+    for sep in ("…", "...", ".."):
+        if sep in w:
+            pre, _, suf = w.partition(sep)
+            break
+    else:
+        return None
+    pre, suf = pre.strip(), suf.strip()
+    if len(pre) < 3 or len(suf) < 3 or not all(ch in B58 for ch in pre + suf):
+        return None
+    p = p or paths()
+    con = _ro(p.get("early_db"))
+    if con is None:
+        return None
+    try:
+        for table in ("precall_wallets", "precall_trades"):
+            try:
+                rows = {r[0] for r in con.execute(f"SELECT DISTINCT wallet FROM {table} WHERE wallet GLOB ? LIMIT 3",
+                                                  (f"{pre}*{suf}",))}
+            except sqlite3.Error:
+                continue
+            if len(rows) == 1:
+                return rows.pop()
+            if rows:
+                return None   # several match: ambiguous
+    finally:
+        con.close()
+    return None
+
+
+def parse_label(x, p=None):
+    """proposed_change["insider_label"] -> (wallet, label, note); ValueError (Croatian) when it is not one. A shortened
+    address is resolved to the full one when exactly one pre-call wallet matches (resolve_wallet)."""
     if not isinstance(x, dict):
         raise ValueError("insider_label mora biti objekt {wallet, label, note}")
     w = str(x.get("wallet") or "").strip()
     lab = str(x.get("label") or "").strip().lower()
-    if not 32 <= len(w) <= 44 or not w.isalnum() or any(ch in w for ch in "0OIl"):
-        raise ValueError("insider_label.wallet nije Solana adresa")
+    if not is_address(w):
+        full = resolve_wallet(w, p)
+        if not full:
+            raise ValueError(f"insider_label.wallet nije puna Solana adresa („{w[:24]}”): treba cijela adresa iz "
+                             "get_insider_candidates (skraćena nije jednoznačna ili je nema među insajderima)")
+        w = full
     if lab not in LABELS:
         raise ValueError(f"insider_label.label mora biti jedno od: {', '.join(LABELS)}")
     return w, lab, str(x.get("note") or "")[:300]
