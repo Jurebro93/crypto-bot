@@ -34,6 +34,16 @@ never change for it; only the trader's new rules (rangedca/rules.new_range) read
 min, whatever range_flip's mode) and "stop" (stop_block: the ATR stop every account trades, the old x 0.85 next to it,
 in price and market cap), and logs ONE line per active range when a level moved (3 significant digits): "range stop
 SYM: pravi račun ATR MC $X (range_low_low $Y, ATR $Z) · demo ATR+reclaim · staro 0,85 $W" (rules.stop_line).
+
+12.11. popodne (owner, točka 1: the range compute and the 5-minute numbers late or skipped; 13:34 deploy #156): start.sh
+runs the first pass RANGE_FIRST_S (30 s, was 270 s) after a start and the next ones every RANGE_EVERY_S counted from
+the START of a pass (was 60 s after its end, so the period drifted to 60 s + the pass); a pass more than GAP_S after
+the last one logs the gap and catches up at once (the full detection is due whenever last_detect is DETECT_EVERY_S
+old). A failing fetch (502, overload, timeout) or one token's error costs that snapshot / that token, never the pass:
+the market part falls back to the watched list, the detection commits every COMMIT_EVERY tokens. The readiness and
+trade-gate freshness limits are rangedca/trade's (METRICS_READY_S 9 min, METRICS_FRESH_S 5 min).
+12.11. popodne (točka 4): tokens in the rug archive (rugfilter/archive) are not polled, get no range and leave the
+market list (rangedca/market.drop_archived); a token with an open range round keeps its numbers for its exits.
 """
 import argparse
 import os
@@ -45,6 +55,13 @@ sys.path.insert(0, ROOT)
 
 DETECT_EVERY_S = 290   # "recomputed every 5 min" (a pass a minute; 10 s of slack for the pass's own run time)
 PRUNE_EVERY_S = 3600
+# 12.11. popodne (owner, točka 1): a pass that comes more than GAP_S after the last one (a deploy / restart, a stuck
+# pass) says so in the log; the first pass after a gap catches up at once (the full detection when last_detect is
+# DETECT_EVERY_S old, the 5-minute numbers of every active range in any case). COMMIT_EVERY: the detection writes
+# range.db every this many tokens, so a pass killed by a deploy keeps what it computed (and a failing token, a 502 of
+# one fetch, costs that token only)
+GAP_S = 150
+COMMIT_EVERY = 25
 
 
 def _mode(name="range_dca"):
@@ -80,7 +97,7 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
     m_mis = _missed_mode()   # 11.11. (G27, rangedca/missed.py): the missed tokens on the list for 72 h
     if m_dca == "off" and m_mkt == "off" and m_evt == "off" and m_mis == "off":
         return "off"
-    from rangedca import data, detect, holders, market, rules, view
+    from rangedca import data, holders, market, rules
     now = int(now or time.time())
     m_flip = _flip_mode()
     n_flip = {}
@@ -88,108 +105,62 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
     pinned = _pins()   # 11.11. (owner's pins, rangedca/owner.py): always first in the signal pass, never capped out
     con = data.connect()
     try:
+        last_pass, last_detect = data.kv_get(con, "last_pass") or 0, data.kv_get(con, "last_detect") or 0
+        full = now - last_detect >= DETECT_EVERY_S
+        if last_pass and now - last_pass > GAP_S:   # 12.11.: a restart / deploy or a stuck pass: caught up now
+            log(f"range: rupa od {now - last_pass} s od zadnjeg prolaza (restart, deploy ili spor prolaz): odmah "
+                f"svježi 5-minutni podaci" + (f" i puni izračun raspona (zadnji prije {now - last_detect} s)" if full
+                                              else ""))
+        open_toks = set(data.open_round_tokens())
+        # 12.11. popodne (owner, točka 4): the rug archive's tokens are not polled, get no range and never trade; a
+        # token with an open range round keeps its numbers (its exits)
+        arch = _archived() - open_toks
         sig = data.candidates(con, now, tuple(extra) + tuple(t for t in pinned if t not in extra)) if m_dca != "off" else []
+        if arch and sig:
+            gone = [t for t in sig if t in arch]
+            sig = [t for t in sig if t not in arch]
+            if gone and set(gone) != set(data.kv_get(con, "arch_skip") or []):
+                data.kv_put(con, "arch_skip", sorted(gone))
+                log(f"range: {len(gone)} tokena iz arhive rugova preskočeno (ne prati se, ne trguje, ne naoružava): "
+                    + ", ".join(t[:6] for t in gone[:8]))
         pools = {r[0] for r in con.execute("SELECT token FROM pools")}
         pulse_all = data.pulse_recent(now)
         pulse = pulse_all - (set(sig) - pools)   # a token without a known pool is polled once for it
         got = data.poll(con, sig, now, fetch=fetch, pulse_fresh=pulse) if sig else {}
         if got and m_mkt != "off":   # 12.11. (owner, nalog 3): a liquid token under 30k keeps a 5-minute price there
             market.adopt(con, got, now)
-        open_toks = set(data.open_round_tokens())
+        con.commit()
         srcs = {t: ["signal"] for t in sig}
         mk = {"tokens": [], "src": {}, "stats": {}}
         if m_mkt != "off" or m_evt != "off" or m_mis != "off":
             t_mkt = time.monotonic()
-            mk = market.pass_once(con, now, net or market.Net(fetch), log, signal=sig, pulse=pulse_all,
-                                  market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks,
-                                  missed_on=m_mis != "off")
+            try:
+                mk = market.pass_once(con, now, net or market.Net(fetch), log, signal=sig, pulse=pulse_all,
+                                      market_on=m_mkt != "off", event_on=m_evt != "off", open_toks=open_toks,
+                                      missed_on=m_mis != "off", archived=arch)
+            except Exception as e:  # noqa: BLE001 - 12.11. (točka 1): the watched tokens still get their numbers
+                con.commit()   # what the market part already stored (snapshots) stays
+                log(f"range tržište: prolaz nije uspio ({type(e).__name__}: {str(e)[:120]}), rasponi se računaju sa "
+                    "spremljenim snimkama")
+                mk = _watched_fallback(con, arch)
             t_mkt_s = time.monotonic() - t_mkt
             for t in mk["tokens"]:
                 srcs.setdefault(t, []).append(mk["src"].get(t, "market"))
-        cands = sig + [t for t in mk["tokens"] if t not in set(sig)]
-        full = now - (data.kv_get(con, "last_detect") or 0) >= DETECT_EVERY_S
-        seeds, n_act, n_ok = 0, 0, 0
-        for tok in cands:
-            prev, st = data.load_range(con, tok)
-            if not full and not (prev and (prev.get("active") or tok in open_toks or tok in pinned
-                                           or (m_flip != "off" and _alt_active(prev)))):
-                continue
-            candles, snap = data.series(con, tok, now)
-            if not candles:
-                continue
-            sym = (snap or {}).get("symbol") or (prev or {}).get("symbol")
-            src, src_all = view.source_of(srcs.get(tok) or ["signal"])
-            if full:
-                res = detect.analyze(candles, now, snap)
-                pool = (snap or {}).get("pool")
-                if src == "signal":
-                    want = res["status"] == "premalo podataka" and _minimums_met(snap)
-                else:   # 11.11.: a market / event token only close to an entry, inside its own day cap
-                    has_gt = con.execute("SELECT 1 FROM gt_candles WHERE token=?", (tok,)).fetchone() is not None
-                    want = (data.day_used(con, "mkt_seed_day", now) < market.SEED_DAY and _minimums_met(snap)
-                            and _near_entry(res, candles, snap, now, has_gt))
-                if want and seeds < data.GT_PER_PASS and pool:
-                    if data.seed(con, tok, pool, now, fetch=gt_fetch):
-                        seeds += 1
-                        if src != "signal":
-                            data.day_add(con, "mkt_seed_day", 1, now)
-                        candles, snap = data.series(con, tok, now)
-                        res = detect.analyze(candles, now, snap)
-                # 11.11. (the owner's decision 1): the ATR of every range, whatever range_flip's mode: the hard stop of
-                # every account is range_low_low - 1.5 x ATR (rangedca/rules.atr_range)
-                res["atr"] = detect.atr(candles, now)
-                if m_flip != "off":   # 11.11. (range_flip G26): the flip / pause state next to today's range
-                    fprev = data.flip_load(con, tok)
-                    fst = detect.flip_step(fprev, res, candles, now, snap)
-                    data.flip_save(con, tok, fst)
-                    _flip_into(res, fst)
-                    n_flip[fst["state"]] = n_flip.get(fst["state"], 0) + 1
-                    if ((fprev or {}).get("state") or "normal") != fst["state"]:
-                        data.event(con, tok, "range_flip", f"{fst['state']}: {fst['why']}", now)
-                        log(f"range {sym or tok[:6]}: range_flip {fst['state']} ({fst['why']})")
-                hw = None
-                if tok in open_toks:
-                    hw = holders.check(con, tok, (snap or {}).get("pool"), (snap or {}).get("supply"), now, post)
-                new_st = rules.exclusions(st, res, now, hw)
-                res = rules.apply_exclusion(res, new_st, now)
-                res["mts"] = now
-                if (prev or {}).get("status") != res["status"] and (res["active"] or res["status"] == "isključen"):
-                    note = (f"raspon {res['zones']['mc']['range_low_low'] or 0:,.0f}-{res['zones']['mc']['range_high_top'] or 0:,.0f}, "
-                            f"ocjena {res['score']:.2f}" if res["active"] else res["why"])
-                    data.event(con, tok, res["status"], note, now)
-                    log(f"range {sym or tok[:6]}: {res['status']} ({note})")
-                res["stop"] = stop_block(res)
-                if res.get("active"):   # 11.11. (decision 1): ONE line per active range, only when a level moved
-                    ln = rules.stop_line(sym or tok[:6], res)
-                    if ln:
-                        if ln != (prev or {}).get("stop_line"):
-                            log(ln)
-                        res["stop_line"] = ln
-                st = new_st
-            else:   # between the 5-minute passes: the active range keeps its zones, its 5-minute numbers are renewed
-                res = dict(prev)
-                if m_flip == "off":
-                    res.pop("flip", None)
-                cs = [c for c in candles if c[0] >= now - 6 * 3600]
-                res["metrics"] = detect.metrics(cs, now, snap)
-                px = res["metrics"].get("price")
-                z = res.get("zones")
-                if px and z and z["range_high_top"] > z["range_low_low"]:
-                    res["pos_pct"] = round((px - z["range_low_low"]) / (z["range_high_top"] - z["range_low_low"]) * 100, 1)
-                res["mts"] = now
-            if full and (res.get("active") or tok in pinned):   # 11.11.: the similarity's features (rangedca/owner)
-                res["age_h"], res["holders"] = _age_h(con, tok, now), _holders(tok, now)
-            if tok in pinned:   # 11.11.: the pin's "volume holds" rule (volume 1 h vs the median of 6 hourly volumes)
-                res["pinned"] = True
-                res["pin_vol"] = _pin_vol(candles, now, snap)
-            res.pop("symbol", None)
-            res.pop("state", None)
-            res["source"], res["sources"] = src, src_all
-            data.save_range(con, tok, res, st, sym)
-            n_act += int(bool(res.get("active")))
-            n_ok += int(bool(res.get("active")) and (res.get("score") or 0) >= rules.RULES["score_min"])
+        cands = sig + [t for t in mk["tokens"] if t not in set(sig) and t not in arch]
+        seeds, n_act, n_ok, errs = 0, 0, 0, []
+        for i, tok in enumerate(cands):
+            if i and i % COMMIT_EVERY == 0:
+                con.commit()   # 12.11.: a pass killed by a deploy keeps what it computed so far
+            try:
+                n_act, n_ok, seeds = _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, seeds,
+                                                gt_fetch, post, log, n_act, n_ok)
+            except Exception as e:  # noqa: BLE001 - 12.11. (točka 1): one token (a 502 of its fetch) never ends the pass
+                errs.append(f"{tok[:6]} {type(e).__name__}")
+        if errs:
+            log(f"range: {len(errs)} tokena nije izračunato u ovom prolazu ({', '.join(errs[:5])}); ostali jesu")
         if full:
             data.kv_put(con, "last_detect", now)
+        data.kv_put(con, "last_pass", now)
         if now - (data.kv_get(con, "last_prune") or 0) >= PRUNE_EVERY_S:
             data.prune(con, now)
             _prune_holders(con, now, open_toks)
@@ -213,6 +184,112 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         return text
     finally:
         con.close()
+
+
+def _one_token(con, tok, now, full, open_toks, pinned, m_flip, n_flip, srcs, seeds, gt_fetch, post, log, n_act, n_ok):
+    """One token of a pass (12.11.: its own function, so a failure is that token's only): the full detection, or
+    between the 5-minute detections the active range's fresh 5-minute numbers. Returns (n_act, n_ok, seeds)."""
+    from rangedca import data, detect, holders, market, rules, view
+    prev, st = data.load_range(con, tok)
+    if not full and not (prev and (prev.get("active") or tok in open_toks or tok in pinned
+                                   or (m_flip != "off" and _alt_active(prev)))):
+        return n_act, n_ok, seeds
+    candles, snap = data.series(con, tok, now)
+    if not candles:
+        return n_act, n_ok, seeds
+    sym = (snap or {}).get("symbol") or (prev or {}).get("symbol")
+    src, src_all = view.source_of(srcs.get(tok) or ["signal"])
+    if full:
+        res = detect.analyze(candles, now, snap)
+        pool = (snap or {}).get("pool")
+        if src == "signal":
+            want = res["status"] == "premalo podataka" and _minimums_met(snap)
+        else:   # 11.11.: a market / event token only close to an entry, inside its own day cap
+            has_gt = con.execute("SELECT 1 FROM gt_candles WHERE token=?", (tok,)).fetchone() is not None
+            want = (data.day_used(con, "mkt_seed_day", now) < market.SEED_DAY and _minimums_met(snap)
+                    and _near_entry(res, candles, snap, now, has_gt))
+        if want and seeds < data.GT_PER_PASS and pool:
+            if data.seed(con, tok, pool, now, fetch=gt_fetch):
+                seeds += 1
+                if src != "signal":
+                    data.day_add(con, "mkt_seed_day", 1, now)
+                candles, snap = data.series(con, tok, now)
+                res = detect.analyze(candles, now, snap)
+        # 11.11. (the owner's decision 1): the ATR of every range, whatever range_flip's mode: the hard stop of
+        # every account is range_low_low - 1.5 x ATR (rangedca/rules.atr_range)
+        res["atr"] = detect.atr(candles, now)
+        if m_flip != "off":   # 11.11. (range_flip G26): the flip / pause state next to today's range
+            fprev = data.flip_load(con, tok)
+            fst = detect.flip_step(fprev, res, candles, now, snap)
+            data.flip_save(con, tok, fst)
+            _flip_into(res, fst)
+            n_flip[fst["state"]] = n_flip.get(fst["state"], 0) + 1
+            if ((fprev or {}).get("state") or "normal") != fst["state"]:
+                data.event(con, tok, "range_flip", f"{fst['state']}: {fst['why']}", now)
+                log(f"range {sym or tok[:6]}: range_flip {fst['state']} ({fst['why']})")
+        hw = None
+        if tok in open_toks:
+            hw = holders.check(con, tok, (snap or {}).get("pool"), (snap or {}).get("supply"), now, post)
+        new_st = rules.exclusions(st, res, now, hw)
+        res = rules.apply_exclusion(res, new_st, now)
+        res["mts"] = now
+        if (prev or {}).get("status") != res["status"] and (res["active"] or res["status"] == "isključen"):
+            note = (f"raspon {res['zones']['mc']['range_low_low'] or 0:,.0f}-{res['zones']['mc']['range_high_top'] or 0:,.0f}, "
+                    f"ocjena {res['score']:.2f}" if res["active"] else res["why"])
+            data.event(con, tok, res["status"], note, now)
+            log(f"range {sym or tok[:6]}: {res['status']} ({note})")
+        res["stop"] = stop_block(res)
+        if res.get("active"):   # 11.11. (decision 1): ONE line per active range, only when a level moved
+            ln = rules.stop_line(sym or tok[:6], res)
+            if ln:
+                if ln != (prev or {}).get("stop_line"):
+                    log(ln)
+                res["stop_line"] = ln
+        st = new_st
+    else:   # between the 5-minute passes: the active range keeps its zones, its 5-minute numbers are renewed
+        res = dict(prev)
+        if m_flip == "off":
+            res.pop("flip", None)
+        cs = [c for c in candles if c[0] >= now - 6 * 3600]
+        res["metrics"] = detect.metrics(cs, now, snap)
+        px = res["metrics"].get("price")
+        z = res.get("zones")
+        if px and z and z["range_high_top"] > z["range_low_low"]:
+            res["pos_pct"] = round((px - z["range_low_low"]) / (z["range_high_top"] - z["range_low_low"]) * 100, 1)
+        res["mts"] = now
+    if full and (res.get("active") or tok in pinned):   # 11.11.: the similarity's features (rangedca/owner)
+        res["age_h"], res["holders"] = _age_h(con, tok, now), _holders(tok, now)
+    if tok in pinned:   # 11.11.: the pin's "volume holds" rule (volume 1 h vs the median of 6 hourly volumes)
+        res["pinned"] = True
+        res["pin_vol"] = _pin_vol(candles, now, snap)
+    res.pop("symbol", None)
+    res.pop("state", None)
+    res["source"], res["sources"] = src, src_all
+    data.save_range(con, tok, res, st, sym)
+    n_act += int(bool(res.get("active")))
+    n_ok += int(bool(res.get("active")) and (res.get("score") or 0) >= rules.RULES["score_min"])
+    return n_act, n_ok, seeds
+
+
+def _archived():
+    """12.11. popodne (owner, točka 4): the rug archive's tokens (rugfilter/archive.blocked, cached 5 min); empty when
+    unreadable (then rangedca/trade's guards still refuse a rugged token at the entry)."""
+    try:
+        from rugfilter import archive
+        return set(archive.blocked())
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _watched_fallback(con, arch=()):
+    """The market part's answer when its pass failed (12.11.): the watched tokens as they stand, so their active
+    ranges still get fresh 5-minute numbers from the snapshots range.db already holds."""
+    try:
+        rows = con.execute("SELECT token, src FROM mkt WHERE watched=1").fetchall()
+    except Exception:  # noqa: BLE001 - no market table yet
+        rows = []
+    rows = [(t, s) for t, s in rows if t not in set(arch)]
+    return {"tokens": [t for t, _s in rows], "src": {t: s or "market" for t, s in rows}, "stats": {}}
 
 
 def _pins():

@@ -528,6 +528,13 @@ def save(con, tok, d, m, res, now):
                  json.dumps(res["reasons"], ensure_ascii=False), m.get("price"), m.get("mcap"), m.get("liq"),
                  m.get("vol_h1"), m.get("ch_h1"), m.get("ch_h24"), res["fees_paid_sol"], res["buy_share"],
                  res["holders"], res["top10_pct"], res["wash"], first_pass))
+    # 12.11. popodne: the pair's 5-minute change and the hour's transactions (store.ADDED; the market dict already has
+    # them: dex_markets / gt_market / pp_market), so get_market_signals no longer shows null / 0 for a traded token
+    try:
+        con.execute("UPDATE cand SET ch_m5=?, txns_h1=?, buys_h1=? WHERE token=?",
+                    (m.get("ch_m5"), m.get("txns_h1"), m.get("buys_h1"), tok))
+    except sqlite3.OperationalError:   # a scan.db opened without store.connect (no new columns): as before
+        pass
     return discovered
 
 

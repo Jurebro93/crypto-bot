@@ -191,13 +191,24 @@ def fetch_pairs(tokens):
         return []
 
 
+class PairList(list):
+    """12.11. popodne (owner, točka 1): DexScreener pairs plus `answered`, the tokens whose batch DexScreener answered.
+    A token of a failed (502, overload, timeout) or unsent (the pass's time budget) batch is unknown, not priceless:
+    the market pass leaves it as it is instead of taking it off the list for 3 days as "nema cijene"."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.answered = set()
+
+
 def fetch_pairs_fast(tokens, deadline=None):
     """11.11. (stale 5-minute data): the market watchlist's DexScreener batches on the short leash of tokens_live (a
     few seconds, no retry), one batch of 30 at a time, and no new batch after `deadline` (monotonic). The scanners'
     path (fetch_pairs) waits up to 30 s a try and retries with back-off up to a minute: 30 batches of the market pass
-    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S."""
+    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S.
+    12.11.: a PairList (answered = the tokens of the batches that came back)."""
     import time as _t
-    out = []
+    out = PairList()
     try:
         from dexscreener import client
     except Exception:  # noqa: BLE001
@@ -205,8 +216,10 @@ def fetch_pairs_fast(tokens, deadline=None):
     for i in range(0, len(tokens or []), 30):
         if deadline is not None and _t.monotonic() >= deadline:
             break
+        batch = list(tokens[i:i + 30])
         try:
-            out += client.tokens_live("solana", list(tokens[i:i + 30]), ttl=20) or []
+            out += client.tokens_live("solana", batch, ttl=20) or []
+            out.answered.update(batch)
         except Exception:  # noqa: BLE001 - this batch has no snapshot this pass
             continue
     return out
@@ -233,7 +246,12 @@ def poll(con, tokens, now, fetch=None, pulse_fresh=None):
     got = {}
     if ask:
         day_add(con, "sig_dex_day", -(-len(ask) // 30), now)   # 11.11.: counted for the daily cost line
-        pairs = (fetch or fetch_pairs)(ask)
+        try:
+            pairs = (fetch or fetch_pairs)(ask)
+        except Exception as e:  # noqa: BLE001 - 12.11. (owner, točka 1): a 502 / timeout costs this snapshot, not the pass
+            print(f"range: DexScreener nije odgovorio ({type(e).__name__}), prolaz ide dalje sa spremljenim snimkama",
+                  flush=True)
+            pairs = []
         for t, p in best_pairs(pairs).items():
             if t not in ask:
                 continue

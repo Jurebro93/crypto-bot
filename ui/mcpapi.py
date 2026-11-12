@@ -75,18 +75,27 @@ def _num(x, nd=6):
         return None
 
 
+TXNS_UNKNOWN = ("broj transakcija nije u ovom zapisu (red skenera provjeren prije 12.11. ili izvor bez transakcija); "
+                "nije 0")
+
+
 def _market_row(m):
+    """The market block of a row. 12.11. popodne (owner: scan rows had txns_1h 0 with a volume_1h): an hour's
+    transactions the source did not carry are null with txns_1h_why, never a fake 0 (0 only when it was counted)."""
     if not m:
         return None
-    tx = m.get("txns_h1") or 0
-    buys = m.get("buys_h1") or 0
-    return {"price_usd": _num(m.get("price"), 12), "market_cap_usd": _num(m.get("mcap"), 0),
-            "liquidity_usd": _num(m.get("liq"), 0), "volume_1h_usd": _num(m.get("vol_h1"), 0),
-            "volume_24h_usd": _num(m.get("vol_h24"), 0), "change_5m_pct": _num(m.get("ch_m5"), 2),
-            "change_1h_pct": _num(m.get("ch_h1"), 2), "change_24h_pct": _num(m.get("ch_h24"), 2),
-            "txns_1h": tx, "buys_1h": buys,
-            # the share of buys in the last hour's transactions: the on-chain "sentiment" we can measure
-            "buy_share_1h": round(buys / tx, 3) if tx else None}
+    tx = m.get("txns_h1")
+    buys = m.get("buys_h1")
+    row = {"price_usd": _num(m.get("price"), 12), "market_cap_usd": _num(m.get("mcap"), 0),
+           "liquidity_usd": _num(m.get("liq"), 0), "volume_1h_usd": _num(m.get("vol_h1"), 0),
+           "volume_24h_usd": _num(m.get("vol_h24"), 0), "change_5m_pct": _num(m.get("ch_m5"), 2),
+           "change_1h_pct": _num(m.get("ch_h1"), 2), "change_24h_pct": _num(m.get("ch_h24"), 2),
+           "txns_1h": int(tx) if tx is not None else None, "buys_1h": int(buys) if buys is not None else None,
+           # the share of buys in the last hour's transactions: the on-chain "sentiment" we can measure
+           "buy_share_1h": round(buys / tx, 3) if tx and buys is not None else None}
+    if tx is None:
+        row["txns_1h_why"] = TXNS_UNKNOWN
+    return row
 
 
 SIGNAL_SOURCES = ("caller", "wallet", "scan", "beta", "hidden_group")
@@ -159,8 +168,10 @@ def signals(now=None, source=None, include_hidden=False):
                 continue
             if not kinds:
                 continue
+            # 12.11. popodne: the 5-minute change and the hour's transactions the scanner stores since (scan/store.ADDED)
             m = {"price": r.get("price"), "mcap": r.get("mcap"), "liq": r.get("liq"), "vol_h1": r.get("vol_h1"),
-                 "ch_h1": r.get("ch_h1"), "ch_h24": r.get("ch_h24")}
+                 "ch_h1": r.get("ch_h1"), "ch_h24": r.get("ch_h24"), "ch_m5": r.get("ch_m5"),
+                 "txns_h1": r.get("txns_h1"), "buys_h1": r.get("buys_h1")}
             row = {"token": tok, "symbol": r.get("symbol"), "callers": [], "n_callers": 0, "first_call_ts": None,
                    "last_call_ts": None, "market": _market_row(m), "market_ts": r.get("checked_ts"),
                    "under_30k": (r.get("mcap") or 0) < 30_000, "source": kinds[0], "sources": kinds, **_SCAN_NULL}
@@ -1209,6 +1220,12 @@ TOOLS.append(
                      "PnL) and its own live gate (>= 20 rounds of source missed with EV > 0; paper only before that). "
                      "12.11.: a skip measured on fewer than 3 price points in its 60 min is nepouzdano, never a missed "
                      "token (missed.list.unreliable counts them, missed.unreliable_rule). "
+                     "12.11. afternoon: entry_ready is decided by the real rules while the 5-minute numbers are at most "
+                     "9 min old (freshness.ready_limit_s; the automatic buy itself needs them at most 5 min old, "
+                     "freshness.trade_limit_s and trade_gate_fresh); entry_now always keeps the real reason (zone, "
+                     "score, breakout) and adds a staleness note after it; freshness has numbers_age_s and "
+                     "range_age_s. rug_archive: the reason when the token is in the rug archive (never entry_ready, "
+                     "never armed, never traded). "
                      "While the flag range_flip is not off: per row "
                      "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
                      "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
@@ -1524,7 +1541,8 @@ TOOLS += [
                      "| event (a zone tied to an event topic). Range zones (source range) are not armed here: they "
                      "come only from MemeSonar's range engine (recomputed about every 5 min) for tokens with an open "
                      "range round, an entry-ready range or an open position on the real account, while the engine has "
-                     "an active range for them. At most 100 active armed zones and 60 arm_zone calls an hour per key. "
+                     "an active range for them. A token in the rug archive is never armed (an error with the "
+                     "reason; its zones end). At most 100 active armed zones and 60 arm_zone calls an hour per key. "
                      "The alarm JSON: id, event, mint, symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, "
                      "vol_1h, buys_5m, sells_5m, buy_share_5m, buy_share_1h, uniq_traders_1h, rug_risk, source, ts, "
                      "and for a range zone what it is based on: zone_version (+1 per range computation), computed_ts "
