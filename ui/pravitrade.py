@@ -180,7 +180,7 @@ color:#fff;background:var(--warn,#d97706);cursor:pointer;padding:0 18px}
 border:1px solid var(--line2,var(--line));background:var(--card);color:var(--fg);text-decoration:none;font-weight:600;
 cursor:pointer;font-size:15px}
 .ap-grok{margin:8px 0;padding:10px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}.ap-grok p{margin:4px 0 0}.ap-grok-h{display:flex;gap:8px;align-items:center;font-weight:600}
-.ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
+.ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-sug p{margin:4px 0}.as-pick{display:inline;cursor:pointer}.as-pick input{width:20px;height:20px;vertical-align:-4px;margin:0 6px 0 0}.as-bar{position:sticky;top:0;z-index:2;background:var(--card);padding:6px 0;border-bottom:1px solid var(--line)}.as-more summary{font-size:13px}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
 .ap-sum p{margin:0}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
 .ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .ap-exit input{width:auto}
@@ -210,6 +210,7 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
 # 11.11. (Jure: "kartice se ne otvaraju iz prvoga"): a part that is swapped keeps the open / closed state of its
 # <details> (by id, else by position), so a refresh never closes a box the user has just opened.
+# 12.11.: a tick marked data-keep (the suggestions' bulk ticks) keeps what the user set across a swap too (by name).
 PATCH_JS ="""<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
 addEventListener('pointerdown',()=>{down=Date.now();held=true},true);
 addEventListener('pointerup',()=>{down=Date.now();held=false},true);addEventListener('pointercancel',()=>{held=false},true);
@@ -221,7 +222,9 @@ if((!virgin&&(held||Date.now()-down<1200))||box.contains(document.activeElement)
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
 const ds=e=>[...(e.matches('details')?[e]:[]),...e.querySelectorAll('details')];
-const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open})};
+const kp=e=>[...e.querySelectorAll('input[data-keep]')];
+const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open});
+const m=new Map(kp(o).map(c=>[c.name,c.checked]));kp(n).forEach(c=>{if(m.has(c.name))c.checked=m.get(c.name)})};
 b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o){carry(o,n);o.replaceWith(n)}else box.appendChild(n)});
 a.slice(b.length).forEach(o=>o.remove());
 box.querySelectorAll('[data-meta]').forEach(m=>{const to=document.querySelector(m.dataset.meta);if(to&&to.textContent!==m.textContent)to.textContent=m.textContent});
@@ -1465,22 +1468,46 @@ def _suggest_section(tcon, owner):
     n_acc = len(acc)
     if not rows and not acc:
         return ""
+    # 12.11. (Jure: "Možeš nekako grupirati ove prijedloge od groka ... teško mi je jedan po jedan svaki put otvarati
+    # prijedloge i onda ići dolje do prihvati, primjeni na bota"): one row per suggestion (a tick, the title, the change
+    # in words), its reasoning and its own buttons folded under it, and ONE bar on top: "Primijeni označene na bota" /
+    # "Odbij označene" (ui/assistnotes.apply_many / reject_many). Every waiting one starts ticked; the confirm lists
+    # each change. The ticks belong to the form as-bulk (attribute form=), so they sit inside each row's own form.
+    def _words(pc):   # 12.11.: "max_open: 3 → 2", not "? → 2", when the note did not say what it changes from
+        if isinstance(pc, dict) and pc.get("key") in assistnotes.APPLY and pc.get("from") is None:
+            try:
+                cur = assistnotes._current(tcon, pc["key"])
+            except Exception:  # noqa: BLE001 - the words only
+                cur = None
+            if cur is not None:
+                pc = {**pc, "from": cur}
+        return _change_words(pc) if pc else ""
+
+    def _tick(r, words, auto):
+        what = (words if auto and words else "samo označi prihvaćenim (bot je ne zna primijeniti sam)") or ""
+        nid = int(r["id"])
+        line = ("#%d %s" % (nid, what))[:160]
+        return (f'<label class=as-pick><input type=checkbox form=as-bulk name=sel_{nid} value=1 data-keep '
+                f'data-what="{esc(line)}" checked> ')
     items = []
     for r in rows:
         pc = r.get("proposed_change")
-        auto = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY
-                                         or isinstance(pc.get("insider_label"), dict))   # 10.11. kol/precall.py
+        auto = _can(r)   # 10.11. kol/precall.py insider labels included
+        words = _words(pc)
         ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
               if r.get("evidence") else "")
-        diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code>'
+        diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code>'
                 + ("" if auto else ' <span class=mut>(bot je ne zna primijeniti sam: „Primijeni na bota” je samo '
                                    'označi kao prihvaćenu za ručnu izmjenu)</span>')
-                + "</p>") if pc else ""
+                + "</p>") if pc else '<p class=mut>Bez promjene postavke: primjena je samo oznaka da se slažeš.</p>'
         items.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p><b>{esc(r.get("title") or "")}</b> <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, auto)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f' <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
+            + diff
+            + f'<details class=as-more id=as-more-{r["id"]}><summary class=mut>Obrazloženje i tipke samo za ovaj</summary>'
             f'<p>{esc(r.get("interpretation") or "")}</p>'
             + (f'<p><b>Poboljšanje:</b> {esc(r["improvement"])}</p>' if r.get("improvement") else "")
-            + diff + ev
+            + ev
             + f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
             '<input name=note placeholder="tvoja bilješka (nije obavezno)" maxlength=1000 style="flex:1;min-width:160px" autocomplete=off>'
             # 10.11. (Jure: "prihvaćaju li se promjene kad kliknem Prihvati?"): the words say what each tap does
@@ -1488,26 +1515,42 @@ def _suggest_section(tcon, owner):
             '<button formaction=/pravi-trade/asno class=ap-cancel>Odbij</button>'
             '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">'
             'Primijeni na bota</button>'
-            '</form></div>')
+            '</form></details></div>')
     # 10.11. (Jure: "prihvaćene bilješke nisu ništa promijenile; omogući Primijeni na bota i za njih"): the accepted
     # ones, each still with "Primijeni na bota" (assistnotes.apply takes novo and prihvaćeno)
     acc_rows = []
     for r in acc:
         pc = r.get("proposed_change")
-        can = True   # only applicable ones are left (above)
+        words = _words(pc)
         acc_rows.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p><b>#{r["id"]} {esc(r.get("title") or "")}</b> <span class=mut>· prihvaćeno '
-            f'{esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
-            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code></p>' if pc else "")
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, True)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f' <span class=mut>· prihvaćeno {esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
+            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code></p>' if pc else "")
             + (f'<form method=post action=/pravi-trade/asapply class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
-               '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>'
-               if can else '<p class=mut>Bot ovu promjenu ne zna primijeniti sam: ostaje za ručnu izmjenu.</p>')
+               '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>')
             + '</div>')
     if acc_rows:
         items.append(f'<h3 class=ap-sub><span>Prihvaćeni, još nisu primijenjeni</span><span>{n_acc}</span></h3>'
                      + "".join(acc_rows))
+    n_all = len(rows) + n_acc
+    sel = "document.querySelectorAll('input[form=as-bulk]')"
+    bulk = (f'<form id=as-bulk method=post action=/pravi-trade/asbulk class="ap-exit as-bar">'
+            f'<button class=ap-buy onclick="var c=[...{sel}].filter(x=>x.checked);if(!c.length){{alert(\'Ništa nije '
+            "označeno.');return false}return confirm('Primijeniti '+c.length+' prijedloga na bota?\\n\\n'+c.map(x=>"
+            f'x.dataset.what).join(\'\\n\'))">Primijeni označene na bota</button>'
+            f'<button formaction=/pravi-trade/asbulkno class=ap-cancel onclick="var c=[...{sel}].filter(x=>x.checked);'
+            "if(!c.length){alert('Ništa nije označeno.');return false}return confirm('Odbiti '+c.length+' prijedloga?')\">"
+            'Odbij označene</button>'
+            f'<span class=ap-lnk role=button tabindex=0 onclick="{sel}.forEach(x=>x.checked=true)">označi sve</span>'
+            f'<span class=ap-lnk role=button tabindex=0 onclick="{sel}.forEach(x=>x.checked=false)">nijedan</span>'
+            '</form>'
+            + (f'<p class=mut>Prikazano {len(rows)} od {total} novih; nakon primjene dolaze sljedeći.</p>'
+               if total > len(rows) else ""))
+    items.insert(0, bulk if n_all else "")
     inner = ("".join(items) + '<p class=mut>Prijedloge piše asistent preko MCP-a; ništa se ne mijenja dok ne tapneš. '
-             '„Označi prihvaćenim” samo zapiše da se slažeš, bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
+             '„Primijeni označene na bota” radi isto što i „Primijeni na bota” za svaki označeni redom, od najnovijeg; '
+             'stariji koji mijenja istu postavku kao noviji se odbija. „Označi prihvaćenim” samo zapiše da se slažeš, '
+             'bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
              'stop, ulog, broj pozicija, preskočeni, filtri kopiranja, strop SOL-a po tokenu, prag rasta od prvog poziva, '
              'pravilo bez signala i težina callera; staru i novu vrijednost zapisuje. Pravila iza zastavice (težina '
              'callera, strop po tokenu, prag rasta, bez signala) tako idu u sjenu: zapisuju što bi napravila, a uživo '
@@ -4897,6 +4940,17 @@ def post(path, form, user):
                 return f"{BACK}?ok={qq(words)}#prijedlozi"
             assistnotes.decide(tcon, nid, "prihvaćeno" if path.endswith("asok") else "odbijeno", note)
             return f"{BACK}?ok={qq('Prijedlog prihvaćen.' if path.endswith('asok') else 'Prijedlog odbijen.')}#prijedlozi"
+        if path in ("/pravi-trade/asbulk", "/pravi-trade/asbulkno"):   # 12.11.: the ticked suggestions in one tap
+            from ui import assistnotes
+            ids = [int(k[4:]) for k, v in form.items() if k.startswith("sel_") and k[4:].isdigit() and v]
+            if not ids:
+                raise ValueError("ništa nije označeno")
+            if path.endswith("no"):
+                n = assistnotes.reject_many(tcon, ids)
+                return f"{BACK}?ok={qq(f'Odbijeno prijedloga: {n}.')}#prijedlozi"
+            res = assistnotes.apply_many(tcon, ids)
+            key = "err" if res["failed"] and not (res["applied"] or res["accepted"]) else "ok"
+            return f"{BACK}?{key}={qq(assistnotes.bulk_words(res))}#prijedlozi"
         if path in ("/pravi-trade/sugok", "/pravi-trade/sugno"):   # 10.11.: an assistant's caller weight
             from ui import mcpdata
             ok = path.endswith("ok")
