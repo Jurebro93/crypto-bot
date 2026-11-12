@@ -587,6 +587,56 @@ def caller_weights_flag():
         return None, None
 
 
+def _hygienic(rows, now=None):
+    """11.11. (Grok #85, wallets/hygiene.py): the wallet candidates minus idle (24 h+), bot / sniper / bundler labelled
+    and bot-like ones, tier S included. Only removes (never adds a wallet), so it applies directly; an earlier auto
+    pick that fails it drops out of the candidates and sync_follows unfollows it like any pick that left the top."""
+    if not rows:
+        return rows
+    try:
+        from wallets import hygiene
+        _kept, out = hygiene.screen({"wallet": [r["wallet"] for r in rows]}, "autopilot", now=now,
+                                    log=lambda m: print(f"autopilot: {m}", flush=True))
+    except Exception as e:  # noqa: BLE001 - the auto pick never breaks on the screen
+        print(f"autopilot: higijena: {type(e).__name__}: {e}", flush=True)
+        return rows
+    return [r for r in rows if r["wallet"] not in out]
+
+
+def _rang_gate(kind, rows):
+    """11.11. (Jure, wallets/rang.py): real money copies no source marked "nije kopirljivo" (median pool liquidity at
+    its entries under 15k, or unknown) and none with fewer than rang.MIN_N closed tokens / calls in 30 days. Only
+    removes (an earlier pick that fails it drops out of the candidates and sync_follows unfollows it); while there is
+    no ranking yet (rang.gate None: fresh deploy) nothing is removed."""
+    if not rows:
+        return rows
+    try:
+        from wallets import rang
+    except Exception:  # noqa: BLE001
+        return rows
+    key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
+    out, why = [], {}
+    for r in rows:
+        ok, w = rang.gate(kind, key(r))
+        if ok is False:
+            why[w.split(":")[0]] = why.get(w.split(":")[0], 0) + 1
+            continue
+        out.append(r)
+    if why:
+        print(f"autopilot: rang za kopiranje ({kind}): izbačeno {sum(why.values())} ("
+              + ", ".join(f"{k} {v}" for k, v in sorted(why.items())) + ")", flush=True)
+    return out
+
+
+def _by_rang(rows):
+    """The proven-twice wallets in the order of the copy ranking (Ocjena, wallets/rang.py); unranked last, stable."""
+    try:
+        from wallets import rang
+        return sorted(rows, key=lambda r: -((rang.get("wallet", r["wallet"]) or {}).get("score") or -1))
+    except Exception:  # noqa: BLE001
+        return rows
+
+
 def auto_targets(days, n, keep=(), skip=(), ev=None, weights=None):
     """[(kind, target, label, why)] the tool would follow: the n best live-watched influencers and the n best wallets of
     the window. An earlier pick in `keep` stays while it is still in the top 2n, so the list does not churn every hour.
@@ -599,9 +649,12 @@ def auto_targets(days, n, keep=(), skip=(), ev=None, weights=None):
     # vouches for (MIN_MINUTE+ calls); the 24-h wick fallback ("too optimistic for real money", 9.11.) stays a hint
     # 10.11. (pregled): an earlier pick that is still live and still recommended stays whatever the measure (a count
     # going 10 -> 9 as old calls leave the window must not unfollow it: a new follow id restarts its demo proof)
-    groups = (("kol", _weighted([r for r in (kol_recs(ev=True) if ev else kol_recs()).get(days) or [] if r["live"] and (
-                   r["s"].get("mjera") == "minutna" or ("kol", r["handle"]) in keep)], weights)),
-              ("wallet", proven + [r for r in wallet_recs().get(days) or [] if r["wallet"] not in seen]))
+    # 11.11. (Jure, wallets/rang.py): "nije kopirljivo" and fewer than 10 closed tokens / calls never go to real money
+    groups = (("kol", _rang_gate("kol", _weighted([r for r in (kol_recs(ev=True) if ev else kol_recs()).get(days) or []
+                                                    if r["live"] and (r["s"].get("mjera") == "minutna"
+                                                                      or ("kol", r["handle"]) in keep)], weights))),
+              ("wallet", _rang_gate("wallet", _hygienic(_by_rang(proven) + [r for r in wallet_recs().get(days) or []
+                                                                         if r["wallet"] not in seen]))))
     for kind, rows in groups:
         key = (lambda r: r["handle"]) if kind == "kol" else (lambda r: r["wallet"])
         # earlier picks still in the top 2n stay first, the rest of the n places go to the best new ones

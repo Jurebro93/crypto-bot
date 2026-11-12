@@ -4,7 +4,10 @@
 - **KONSTANTNO preispituj efikasnost: kako više učiti za manje novca i kako postati profitabilniji.** Prije svakog
   novog troška (API, pretplata, SOL za podatke) izmjeri što stvarno koristimo i predloži jeftiniji način; svaki tjedan
   u izvještaju navedi trošak po izvoru i što je od toga donijelo odluku ili trade. (6.11.2026.)
-- Tokeni ispod 30k $ mcapa se ne kupuju, ali se smiju analizirati i mjeriti u sjeni (scanner od 10k $; 10.11.).
+- Tokeni ispod 30k $ mcapa se ne kupuju automatski (ni Grok); vlasnik ih smije kupiti ručno uz upozorenje i upisan
+  razlog (11.11.). Smiju se analizirati i mjeriti u sjeni (scanner od 10k $; 10.11.).
+- Ručna kupnja vlasnika nadjačava limite (ulog, strop po tokenu, broj pozicija, dnevni gubitak, trošak, SL) uz okvir
+  upozorenja i njegovu potvrdu; kill switch, stanje walleta, rug i Autopilot isključen ostaju tvrdi (11.11.).
   Novi pump.fun tokeni se ne kupuju dok su na krivulji; kupuju se bondani.
 - Pravi novac: trade/config.json ostaje "dry" dok strategija ne dokaže edge u demu. SOLANA_PRIVATE_KEY se nikad ne
   kopira u sandbox. PumpPortal novčanik za podatke drži samo male iznose (strop LIVE_MAX_TRADES_DAY).

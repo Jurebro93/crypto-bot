@@ -17,6 +17,29 @@ ride back down to the hard stop; 10 % under the peak keeps most of the move. Har
 ever tightens when the zones move); time stop: 6 h after lot 1 without touching the top zone, out as soon as the
 price is at break-even (fees included) or better, else the hard stop decides. After a round, 20 minutes' cooldown;
 the token stays a candidate.
+
+11.11. (flag range_flip G26, detect.flip_step): new_range() is the range the NEW rules trade, from a computed range and
+its "flip" block: state normal -> today's range with the volatility stop (range_low_low - 1.5 x ATR, 5-20 % under it);
+flipped / resumed -> the range that formed after the break (its zones, score, status), with today's fresh 5-minute
+numbers and the volatility stop on its range_low_low; flip_candidate / paused -> no range (no lot 1, no lot 2). A
+range without a "flip" block (the flag was off when it was computed) is today's range unchanged. levels_of() takes a
+range's own stop_px when it has one (only new_range sets it) and then never lets an entry or lot 2 under it (floor =
+max(range_low_low x 0.92, stop)); without it the levels are today's.
+
+11.11. (the owner's decision 1, "range stopovi", after HAOBIBI and the stop variants of rangedca/stops.py): the hard
+stop of EVERY account is the ATR stop, variant (b), whatever range_flip's mode: atr_range() puts detect.vol_stop
+(range_low_low - 1.5 x ATR, 5-20 % under it) on today's range, with the ATR run_range.py computes at every full
+detection (ranges.data "atr", 14 x 15-minute bars). ATR unknown (fewer than 4 bars): x 0.85 as before ("fixed").
+  real account (LEAGUE_USER)  the ATR stop, never a reclaim until gate.reclaim_refusal() is None (>= 7 nights of the
+                              nightly stop comparison AND >= 20 closed demo reclaim rounds with EV > 0 after cost)
+  demo account (PAPER_USER)   the ATR stop + reclaim: after a stop-out (or the "range broken downward" give-up) of a
+                              round that was no reclaim itself, within RECLAIM["window_s"] (30 min) a lot 1 of a new
+                              round (levels "reclaim": true, the stopped round's take-profit levels) when the 20-s pass's
+                              price is back above range_low (the bottom zone's average) and buys >= 60 % of 5 minutes;
+                              its stop = reclaim_stop(): under the NEW low (the lowest price the loops saw since the
+                              stop-out) by the same ATR rule. Not after 30 min, not with buys under 60 %.
+  event / market / paper_only tokens: only the demo account trades them (rangedca/trade.allowed), so b + reclaim.
+stop_line() is the one log line per active range ("range stop SYM: pravi račun ATR MC ...").
 """
 RULES = {"score_min": 0.7, "entry_bottom": 0.15, "ch5_min": -0.03, "buy_share_min": 0.5, "vol_ratio_min": 0.5,
          "lot2_lo": 0.10, "lot2_hi": 0.15, "floor_x": 0.92, "stop_x": 0.85, "tp1_share": 0.5, "trail": 0.10,
@@ -79,20 +102,165 @@ def _r(cfg):
 
 
 def levels_of(rng):
-    """The exit / entry levels (prices) of a computed range: rll, rlt, rhl, rht, stop_px, floor_px."""
+    """The exit / entry levels (prices) of a computed range: rll, rlt, rhl, rht, stop_px, floor_px. A range with its
+    own stop_px (new_range, flag range_flip) keeps that stop, stop_kind with it, and its floor is never under it."""
     z = rng["zones"]
-    return {"rll": z["range_low_low"], "rlt": z["range_low_top"], "rhl": z["range_high_low"], "rht": z["range_high_top"],
-            "stop_px": z["range_low_low"] * RULES["stop_x"], "floor_px": z["range_low_low"] * RULES["floor_x"]}
+    out = {"rll": z["range_low_low"], "rlt": z["range_low_top"], "rhl": z["range_high_low"], "rht": z["range_high_top"],
+           "stop_px": z["range_low_low"] * RULES["stop_x"], "floor_px": z["range_low_low"] * RULES["floor_x"]}
+    if rng.get("stop_px"):
+        out.update(stop_px=rng["stop_px"], floor_px=max(out["floor_px"], rng["stop_px"]),
+                   stop_kind=rng.get("stop_kind") or "atr")
+    return out
+
+
+FLIP_PARTS = ("flip", "atr")
+
+
+def new_range(rng, parts=FLIP_PARTS):
+    """The range the new rules (flag range_flip) trade, from a computed range with its "flip" block (see the module
+    text); parts: "flip" (the flip / pause states) and / or "atr" (the volatility stop), both by default (the
+    backtest measures each alone). Returns a range dict (with stop_px / stop_kind when "atr" and ATR is known; a
+    blocked one has active False, zones None and flip_block = why) or the range itself without a "flip" block."""
+    if not rng:
+        return rng
+    fl = rng.get("flip")
+    if not fl:
+        return rng
+    from . import detect
+    s = fl.get("state")
+    if "flip" in parts and s in detect.FLIP_BLOCKED:
+        why = fl.get("block") or s
+        return {**{k: rng.get(k) for k in ("ts", "mts", "metrics", "symbol", "state", "source", "sources", "flip")},
+                "active": False, "status": s, "why": why, "flip_block": why, "zones": None, "score": None,
+                "pos_pct": None, "ratio": None, "signals": {}}
+    out = dict(rng)
+    alt = fl.get("alt") if "flip" in parts and s in ("flipped", "resumed") else None
+    if "flip" in parts and s in ("flipped", "resumed"):
+        excluded = rng.get("status") == "isključen"
+        z = (alt or {}).get("zones")
+        out.update(zones=z, score=(alt or {}).get("score"), ratio=(alt or {}).get("ratio"),
+                   status="isključen" if excluded else (alt or {}).get("status") or s,
+                   active=bool(z and (alt or {}).get("active") and not excluded),
+                   why=rng.get("why") if excluded else (alt or {}).get("why") or ("" if z else
+                                                                                 "novi raspon nakon proboja još nije oblikovan"),
+                   touches=None, components=None, recoveries=[], flip_range=s)
+        px = (rng.get("metrics") or {}).get("price")
+        out["pos_pct"] = (round((px - z["range_low_low"]) / (z["range_high_top"] - z["range_low_low"]) * 100, 1)
+                          if z and px and z["range_high_top"] > z["range_low_low"] else None)
+    if "atr" in parts and out.get("zones") and fl.get("atr"):
+        out["stop_px"], out["stop_kind"] = detect.vol_stop(out["zones"]["range_low_low"], fl["atr"])
+    return out
+
+
+def flip_block(rng):
+    """Why the new rules take no entry in this range's token now (flip_candidate / paused), None otherwise."""
+    fl = (rng or {}).get("flip") or {}
+    from . import detect
+    return (fl.get("block") or fl.get("state")) if fl.get("state") in detect.FLIP_BLOCKED else None
 
 
 def merge_levels(frozen, fresh):
     """The levels in force for an open round: the newest range's take-profit levels when it is still known, the stop
-    never looser than the one at the entry (it only tightens)."""
+    never looser than the one at the entry (it only tightens); stop_kind follows the stop that won."""
     if not fresh:
         return dict(frozen)
     out = dict(fresh)
     out["stop_px"] = max(frozen.get("stop_px") or 0, fresh.get("stop_px") or 0)
+    if (frozen.get("stop_px") or 0) >= (fresh.get("stop_px") or 0):
+        if frozen.get("stop_kind"):
+            out["stop_kind"] = frozen["stop_kind"]
+        else:
+            out.pop("stop_kind", None)
     return out
+
+
+# ---------- 11.11. the owner's decision 1: the ATR stop for every account, reclaim on the demo account -----------------
+RECLAIM = {"window_s": 30 * 60, "buy_share_min": 0.6}
+
+
+def atr_of(rng):
+    """The range's ATR in price (ranges.data "atr", run_range.py), None when unknown."""
+    try:
+        a = float((rng or {}).get("atr") or 0)
+    except (TypeError, ValueError):
+        return None
+    return a if a > 0 else None
+
+
+def atr_range(rng):
+    """Variant (b) on a range: the range with stop_px / stop_kind of detect.vol_stop(range_low_low, ATR). A range that
+    already carries its own stop (rules.new_range), has no zones or no known ATR is returned as it is (x 0.85)."""
+    if not rng or not rng.get("zones") or rng.get("stop_px"):
+        return rng
+    a = atr_of(rng)
+    if not a:
+        return rng
+    from . import detect
+    out = dict(rng)
+    out["stop_px"], out["stop_kind"] = detect.vol_stop(rng["zones"]["range_low_low"], a)
+    return out
+
+
+def reclaim_stop(low, atr_px):
+    """(stop price, kind) of a reclaim round: under the new low by the ATR rule (detect.vol_stop on the low: low - 1.5 x
+    ATR, 5-20 % under it; ATR unknown: low x 0.85)."""
+    from . import detect
+    s, kind = detect.vol_stop(low, atr_px)
+    return s, ("reclaim" if kind == "atr" else "reclaim_fixed")
+
+
+def reclaim_check(arm, price, m, now, cfg=None):
+    """None when a reclaim lot 1 may be bought now, else why. arm: the stopped round's state "reclaim" ({until, rl,
+    low, done}); m: the range's FRESH 5-minute numbers (None when stale or unknown)."""
+    c = {**RECLAIM, **(cfg or {})}
+    if not arm or arm.get("done"):
+        return "nema reclaima"
+    if now > (arm.get("until") or 0):
+        return f"više od {c['window_s'] // 60} min od stopa"
+    if not price or price <= (arm.get("rl") or 0):
+        return "cijena nije iznad range_low"
+    bs = (m or {}).get("buy_share_5m")
+    if bs is None:
+        return "udio kupnji u 5 min nepoznat (ili star)"
+    if bs < c["buy_share_min"] - 1e-9:
+        return f"kupnje {bs:.0%} transakcija u 5 min (reclaim traži {c['buy_share_min']:.0%})"
+    return None
+
+
+def stop_parts(rng):
+    """{"atr_px", "stop_px", "kind", "old_px", "rll_px"} of a computed range under the owner's decision 1 (None without
+    zones): the ATR stop of every account and today's old x 0.85 next to it."""
+    z = (rng or {}).get("zones") or {}
+    rll = z.get("range_low_low")
+    if not rll:
+        return None
+    lv = levels_of(atr_range(rng) if rng.get("zones") else rng)
+    return {"atr_px": atr_of(rng), "stop_px": lv["stop_px"], "kind": lv.get("stop_kind") or "fixed",
+            "old_px": rll * RULES["stop_x"], "rll_px": rll}
+
+
+def _mc3(px, supply):
+    """A price as a market cap rounded to 3 significant digits ("$88,600"); "?" unknown."""
+    if not px or not supply:
+        return "?"
+    return f"${float(f'{px * supply:.3g}'):,.0f}"
+
+
+def stop_line(sym, rng):
+    """The one log line of a range's stops (decision 1): "range stop SYM: pravi račun ATR MC $X (range_low_low $Y, ATR
+    $Z) · demo ATR+reclaim · staro 0,85 $W" (3 significant digits, so it changes only when a level really moves);
+    None without zones or supply."""
+    sp = stop_parts(rng)
+    sup = ((rng or {}).get("metrics") or {}).get("supply")
+    if not sp or not sup:
+        return None
+    if sp["kind"] == "atr":
+        real = (f"pravi račun ATR MC {_mc3(sp['stop_px'], sup)} (range_low_low {_mc3(sp['rll_px'], sup)}, ATR "
+                f"{_mc3(sp['atr_px'], sup)})")
+    else:
+        real = (f"pravi račun ATR nepoznat, × 0,85 MC {_mc3(sp['stop_px'], sup)} (range_low_low "
+                f"{_mc3(sp['rll_px'], sup)})")
+    return f"range stop {sym}: {real} · demo ATR+reclaim · staro 0,85 {_mc3(sp['old_px'], sup)}"
 
 
 def entry_check(rng, price, cfg=None, min_score=None):

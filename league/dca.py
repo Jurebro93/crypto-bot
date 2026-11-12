@@ -148,7 +148,7 @@ def _rugged(token, mcap, liq):
     try:
         from rugfilter import collapse
         from ui import data
-        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq, token=token)
     except Exception:  # noqa: BLE001 - a guard, never the reason the DCA loop stops
         return None
 

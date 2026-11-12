@@ -48,7 +48,13 @@ SLS = (10, 15, 20, 30, 40, 50, 60)
 CHOICE_TPS = (10, 15, 20, 30, 50)
 CHOICE_SLS = (10, 15, 20, 30, 40)
 OLD_DOWNS = (10, 15, 20, 25, 30, 40, 50)   # the stop levels a row measured before LV_VERSION 2 has (kol/minute)
-COST = 2.0        # % of the stake per round trip: league/store.FEE is 1 % a side (pool impact comes on top)
+# % of the stake per round trip: trade/cost.FEE_ROUND_TRIP (league/store.FEE 1 % a side; pool impact comes on top): the
+# fixed fee part every measured record is net of (11.11. owner's rule A: one cost model)
+try:
+    from trade import cost as _cost
+    COST = round(_cost.FEE_ROUND_TRIP * 100, 6)
+except Exception:  # noqa: BLE001 - never without the model's value
+    COST = 2.0
 MIN_N = 10        # measured calls (one per token) before the tool decides by itself
 MIN_EV = 1.0      # % per trade the cautious estimate must reach
 PRIOR_N = 10      # pseudo-calls of "no edge" every source starts with
@@ -84,9 +90,14 @@ def _levels(row):
     return got
 
 
-def outcome(row, tp, sl):
-    """('tp' | 'sl' | 'time', gross % of the stake) of one measured call under take profit +tp % / stop -sl %."""
+def outcome(row, tp, sl, horizon_min=None):
+    """('tp' | 'sl' | 'time', gross % of the stake) of one measured call under take profit +tp % / stop -sl %.
+    horizon_min (11.11., the owner's signal benchmark +15 / -10 / 45 min): a level first touched after this minute
+    counts as not touched; the 'time' close is still r60 (no r45 is stored; clamped between -SL and +TP)."""
     up, dn, exact = _levels(row)
+    if horizon_min is not None:
+        up = {k: v for k, v in up.items() if v is not None and v <= horizon_min}
+        dn = {k: v for k, v in dn.items() if v is not None and v <= horizon_min}
     a, b = up.get(tp), dn.get(sl)
     if exact and b is None and row.get("_lv_v", 2) < 2 and sl > max(OLD_DOWNS):
         # 10.11.: a row measured before -60/-70 were stored. When its low went that deep, the stop is taken at the

@@ -35,6 +35,9 @@ if [ -n "${PORT:-}" ]; then python3 deploy_wait.py --port "$PORT" & disown; fi
 # upkeep below (they ran here on every deploy, 20+ a day, while the UI, webhooks and trade waited); only a tight disk
 # (ops/dbs.STARTUP_COMPACT_FREE_MB) still compacts offline here, the one case where nothing else works.
 python3 -m ops.health --startup || echo "baze: priprema nije uspjela"
+# 11.11. (Jure, preporuka 3): one line in the log at every start: which Apify sources are off (hype/apify.json
+# "ugaseno") and which stay on and why ("zadrzano"); reading a small JSON, no network
+python3 -m hype.apify || true
 
 # web service only: dashboard on Render's port, password from UI_PASSWORD (run_ui refuses to start without it).
 # Started first so the page is back as soon as possible after a deploy (it only reads the databases).
@@ -77,7 +80,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # every 10 min one log line with memory per process and the size of every database, so the trend shows on Render
 # 9.11. (audit P9): first pass after HOURLY_FIRST_S (10 min), not an hour: with 20+ deploys a day a loop that sleeps
 # an hour first never got its turn, and the hype_signals slimming + compaction now live only here (under the heavy lock)
-( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; sleep 3600; done ) &
+# 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): right after it, the disk report (ops/diskreport.py, its own
+# low-priority process so the CPU guard may pause it; the upkeep above is protected): read-only, at the first pass after
+# a deploy and once a day from 06:30 Zagreb, never 01-06; otherwise it ends at once. One "disk izvještaj" block in the log.
+# 11.11. (Jure: "ništa se stvarno ne briše bez moje potvrde nakon što vidim brojke"): then the retention of live_trades
+# and the Telegram text (ops/retencija.py, low priority): the hourly aggregate of live_trades every pass, the measurement
+# ("što BI obrisao i koliko MB") at the first pass after a deploy and daily from 06:30; it deletes only behind the
+# owner switches live_trades_retention / tg_text_retention, inside 01-06 Zagreb, under the heavy-job lock.
+( sleep "${HOURLY_FIRST_S:-600}"; while true; do python3 -m ops.heavy -m ops.health --hourly || echo "održavanje nije uspjelo"; low python3 -m ops.diskreport --auto || echo "disk izvještaj nije uspio"; low python3 -m ops.retencija --auto || echo "retencija nije uspjela"; sleep 3600; done ) &
 # (every minute for the first 10 minutes: the start, when everything loads at once, is where memory peaks)
 # 9.11.: every minute the memory watchdog (ops/health.watchdog: one process over MEM_KILL_MB is stopped and restarted
 # by keep, instead of Render killing the whole service at 2 GiB); the log line every 10 min (every minute at the start)
@@ -138,6 +148,8 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
     # 9.11. (Jure): 1000 novčanika / 12.000 kredita svaka 3 h davalo je 9 profitabilnih od 100 bodovanih; pola toga
     python3 -m ops.heavy --night run_wallets.py score --credits "${WALLETS_RUN_CREDITS:-6000}" --max "${WALLETS_RUN_MAX:-500}" >/dev/null || echo "wallets score nije uspio"
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"   # 9.11.: proven-twice list
+    # 11.11. (Jure): rang za kopiranje (wallets/rang.py, DB reads only); the first run logs "prije ... / poslije ..."
+    python3 -m ops.heavy run_wallets.py rang || echo "wallets rang nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))   # 7.11. (Jure): fresher copy list; the credit share cap still holds
   done
@@ -150,6 +162,7 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
   sleep 1200
   while true; do
     python3 -m ops.heavy run_wallets.py dokazani || echo "wallets dokazani nije uspio"
+    python3 -m ops.heavy run_wallets.py rang || echo "wallets rang nije uspio"
     python3 -m ops.heavy run_wallets.py copy >/dev/null || true
     sleep $(( ${WALLETS_EVERY_H:-3} * 3600 ))
   done
@@ -174,6 +187,14 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 ( sleep 2100; while true; do python3 -m ops.heavy --night -m kol.precall night --credits "${INSIDERS_NIGHT_CREDITS:-3000}" || echo "insajderi (noć) nisu uspjeli"; sleep 3600; done ) &
 ( sleep 1020; while true; do low python3 -m kol.precall incr || echo "insajderi (15 min) nisu uspjeli"; sleep 900; done ) &
 
+# 11.11. (Jure, flag pre_shill G15, kol/preshill.py): wallets that buy before the paid shill network, shadow only. The
+# night pass (--night, 01-06 Zagreb; at most once in 20 h): the chain check of the big caller groups, the network's
+# tokens of 14 days, Helius for the 6 h before its first call and the candidates' sells (PRESHILL_NIGHT_CREDITS, default
+# 3000 a pass), the wallet analysis. Every 30 min a cheap pass: our databases, the newest page of the 8 best wallets
+# (PRESHILL_POLL_CREDITS a day, default 1000), signals, the network's calls as exit, results. Flag off: both end at once.
+( sleep 2400; while true; do python3 -m ops.heavy --night -m kol.preshill night --credits "${PRESHILL_NIGHT_CREDITS:-3000}" || echo "shill mreža (noć) nije uspjela"; sleep 3600; done ) &
+( sleep 1080; while true; do low python3 -m kol.preshill incr --credits "${PRESHILL_POLL_CREDITS:-1000}" || echo "shill mreža (30 min) nije uspjela"; sleep 1800; done ) &
+
 # 10.11. (Jure, Hope research, option 1): one read-only run after the deploy, ~120 Helius pages (~1.2k credits);
 # writes DATA_DIR/research/hope-20261110.* (MCP get_research) and a .done marker, so later restarts skip it
 ( sleep "${RESEARCH_FIRST_S:-240}"; python3 -m ops.heavy -m research.hope || echo "research hope nije uspio"; python3 -m research.hope_report || true ) &
@@ -183,8 +204,50 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # from the minute series, at most RANGE_GT_DAY (60) GeckoTerminal seeds a day, Helius only for open range positions
 # (RANGE_HELIUS_CREDITS_DAY 3000, log-only unless RANGE_HOLDER_RULE=act). Flag off: it reads the flag and ends.
 # The backtest over the data we have, nightly (01-06 Zagreb) -> output/range-backtest-*.{json,md} and the log.
+# 11.11. (flags range_market G20 / event_tokens G19): the same pass also keeps the market watchlist (rangedca/market.py):
+# up to RANGE_MARKET_MAX (400) bonded tokens, DexScreener snapshots every 5 / 15 min inside RANGE_MKT_DEX_DAY (3000) and
+# the other per-source day caps, one cost line per source a day. Both flags off: nothing of it runs.
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
+
+# 11.11. (Jure, flag event_tokens G19, topics/): Grok's event topics (MCP submit_event_topic) and their tokens, a short
+# process every TOPICS_EVERY_S: catch-up string matching of stored launches (the PumpPortal feed matches new tokens in
+# real time itself), one DexScreener search per active topic every 10 min (TOPICS_DEX_DAY 1200), Birdeye only with its
+# key (TOPICS_BIRDEYE_DAY 100), roles main / clone / rug, the price 24 h before / at / after the event (GeckoTerminal
+# only for a missing point, TOPICS_GT_DAY 20). Flag off: it reads the flag and ends.
+( sleep 330; while true; do low python3 run_topics.py once || echo "eventi nisu uspjeli"; sleep "${TOPICS_EVERY_S:-120}"; done ) &
+
+# 11.11. (Jure: "real-time zone alarm na Grok Bot", data flag zonewatch G21, zonewatch/): one small process (~20 MB) at
+# low priority, a pass every ZONEWATCH_EVERY_S (30 s): zones of the active ranges + the zones Grok arms (MCP arm_zone,
+# HOPE seeded once), numbers from the snapshots range.db / hype.db already hold, DexScreener (free, 30 tokens a request)
+# only for tokens within 10 % of a zone or armed without a fresh snapshot, at most 4 requests a pass and
+# ZONEWATCH_DEX_DAY (3000) a day; an alarm (zone_enter / zone_exit / stop_hit / top_hit, team_catalyst rows of
+# events.db) is POSTed to GROKBOT_WEBHOOK_URL. Time-sensitive, so not under ops.heavy --night. Flag off: nothing runs.
+low keep zonewatch python3 run_zonewatch.py loop
+
+# 11.11. (Jure, flag momentum_scalp): momentum data (momentum/, run_momentum.py), a short process every MOM_EVERY_S:
+# DexScreener minute snapshots of 60 tokens (free), PumpPortal's unique buyers (free), GeckoTerminal /pools/multi only
+# for prequalified tokens (MOM_GT_DAY 100), Helius top 10 only for a full match (MOM_HELIUS_DAY 2000 credits); the
+# signals' base rate and Grok's EV-gate calibration outcomes. Flag off: it reads the flag and ends. The backtest over
+# the last 7 days of candles, nightly (01-06 Zagreb, MOM_BT_GT 60 GeckoTerminal requests) -> output/momentum-backtest-*.
+( sleep 300; while true; do low python3 run_momentum.py once || echo "momentum nije uspio"; sleep "${MOM_EVERY_S:-60}"; done ) &
+( sleep 960; while true; do python3 -m ops.heavy --night run_momentum.py backtest || echo "momentum backtest nije uspio"; sleep 86400; done ) &
+
+# 11.11. (Jure, flag proposals G21): Prijedlozi (proposals/, run_proposals.py), a short low-priority process every
+# PROPOSALS_EVERY_S (150 s): the merged list over every strategy on ui/kandidati (DexScreener free), proposals.db sync,
+# near misses, after-outcomes from the minute data we keep (+ at most PROPOSALS_DEX_DAY free DexScreener batches a day).
+# The UI and the MCP only read proposals.db. Nightly (01-06 Zagreb, once a day) the callers' quick-exit benchmark from
+# minute.db. Flag off: both read the flag and end.
+( sleep 330; while true; do low python3 run_proposals.py once || echo "prijedlozi nisu uspjeli"; sleep "${PROPOSALS_EVERY_S:-150}"; done ) &
+( sleep 1110; while true; do python3 -m ops.heavy --night run_proposals.py night || echo "prijedlozi (noć) nisu uspjeli"; sleep 3600; done ) &
+
+# 11.11. (Jure, flag fast_path G24): the fast path's worker (fast/, run_fast.py): every buy of a followed wallet and
+# every call of a followed influencer -> fast.db queue -> five checks (rug, holders, flow, price vs the wallet's entry,
+# source) and a decision within seconds, 20 at once. Time-sensitive, so a supervised process polling every 0.5 s (and
+# woken by the webhooks), never under ops.heavy --night; low priority, paused last by the CPU guard. Free sources first
+# (DexScreener, RugCheck), Helius only when RugCheck fails, FAST_HELIUS_DAY (20000) credits a day at most. Flag off: it
+# reads the flag every 15 s and holds no thread pool. The demo trades run in run_ui (league/auto.loop).
+low keep fast python3 run_fast.py loop
 
 # 11.11. (Jure, events.db): the night batch (events/night.py) at 03:00 Zagreb, once a night: call and wallet-buy
 # outcomes, never-measured calls from GeckoTerminal minute candles (600 requests a night at most), scores of callers,

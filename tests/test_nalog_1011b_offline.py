@@ -57,13 +57,45 @@ class LaterOrders(Base):
     def test_each_order_once_never_live(self):
         done = assistnotes.owner_flag_orders(self.tc, now=NOW)
         self.assertEqual(done, ["zastavica market_scan: off → shadow", "zastavica group_discovery: off → shadow",
-                                "zastavica range_dca: off → paper", "zastavica insider_copy: off → shadow"])
+                                "zastavica range_dca: off → paper", "zastavica insider_copy: off → shadow",
+                                "zastavica momentum_scalp: off → paper", "zastavica grok_ev_gate: off → shadow", "zastavica pre_shill: off → shadow",
+                                "zastavica grok_predictions: off → shadow", "zastavica event_tokens: off → shadow",
+                                "zastavica range_market: off → paper", "zastavica proposals: off → paper",
+                                "zastavica fast_path: off → shadow",
+                                "zastavica zonewatch: off → shadow",
+                                "zastavica range_flip: off → shadow",
+                                "zastavica range_missed: off → paper",
+                                "zastavica fast_path: shadow → paper", "zastavica exit_plan_live: off → live"])
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "shadow")
         keys = {x["key"] for x in assistnotes.applied(self.tc)}
         self.assertTrue({"flag:market_scan", "flag:group_discovery", "flag:range_dca", "flag:insider_copy"} <= keys)
         settings.set_flag(self.tc, "market_scan", "off", "Jure")                   # the owner turns it off later
         self.assertEqual(assistnotes.owner_flag_orders(self.tc, now=NOW), [])     # it stays off
         self.assertEqual(settings.flag_state(self.tc)["market_scan"]["mode"], "off")
+
+
+class NoteOrders(Base):
+    """11.11.: Grok's accepted critiques now in the code: each note marked primijenjeno once, with what was done."""
+    def note(self, nid, status):
+        assistnotes.ensure(self.tc)
+        self.tc.execute("INSERT INTO assistant_notes (id, ts, kind, title, status) VALUES (?,?,?,?,?)",
+                        (nid, NOW, "suggestion", f"kritika {nid}", status))
+        self.tc.commit()
+
+    def test_marks_accepted_once_leaves_rejected(self):
+        self.note(54, "prihvaćeno")
+        self.note(96, "novo")
+        self.note(74, "odbijeno")
+        self.note(82, "prihvaćeno")
+        done = assistnotes.owner_note_orders(self.tc, now=NOW)
+        self.assertEqual(done, ["bilješka #54 primijenjena (signals_clean)", "bilješka #96 primijenjena (signals_clean)",
+                                "bilješka #82 primijenjena (caller_weights)"])
+        st = dict(self.tc.execute("SELECT id, status FROM assistant_notes").fetchall())
+        self.assertEqual(st, {54: "primijenjeno", 96: "primijenjeno", 74: "odbijeno", 82: "primijenjeno"})
+        why = self.tc.execute("SELECT owner_note FROM assistant_notes WHERE id=54").fetchone()[0]
+        self.assertIn("include_hidden", why)
+        self.assertIn(54, {x["note_id"] for x in assistnotes.applied(self.tc)})
+        self.assertEqual(assistnotes.owner_note_orders(self.tc, now=NOW), [])      # once
 
 
 class HopeStop(Base):
@@ -169,10 +201,13 @@ class CapForm(Base):
         loc = pravitrade.post("/pravi-trade/limits", dict(form, dca_token_cap="0,5", dca_cap_owner="1"), "Jure")
         self.assertIn("Limiti spremljeni", unquote(loc))
         raw = settings.raw(self.tc)
-        self.assertEqual((raw["dca_token_cap"], raw["dca_cap_owner"]), (0.5, True))
-        pravitrade.post("/pravi-trade/limits", dict(form, dca_token_cap="0.3"), "Jure")
+        # 11.11.: the owner's cap has its own key; an older form's dca_token_cap lands there too (the Autopilot's stays)
+        self.assertEqual((raw["owner_token_cap"], raw["dca_cap_owner"]), (0.5, True))
+        self.assertNotIn("dca_token_cap", raw)
+        pravitrade.post("/pravi-trade/limits", dict(form, owner_token_cap="1"), "Jure")
+        self.assertEqual(settings.raw(self.tc)["owner_token_cap"], 1.0)
         self.assertFalse(settings.raw(self.tc)["dca_cap_owner"])
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: Pravila is under Postavke (ui/apterm, lazy)
         self.assertIn("Najviše SOL po tokenu (tvoje kupnje i DCA)", body)
 
 

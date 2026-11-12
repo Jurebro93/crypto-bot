@@ -386,6 +386,12 @@ def fast_loop(market, user=None, every=FAST_EVERY_S):
                     print(text, flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"range izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            try:   # 11.11. (Jure, flag momentum_scalp): TP1 / trailing / stop / 45 min (momentum/trade.py)
+                from momentum import trade as mtrade
+                for text in mtrade.exits_once(con, market):
+                    print(text, flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"momentum izlazi: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             if time.time() - beat >= FAST_BEAT_S:
                 beat = time.time()
                 n, priced = fast_once.last
@@ -406,6 +412,15 @@ def run_once(con, market, now=None):
     from paper import sim
     now = now or time.time()
     rows = [dict(r) for r in con.execute("SELECT * FROM trades WHERE status='open' AND auto IS NOT NULL")]
+    # 11.11. (zonewatch audit): this 20-s loop sold a lot by its own TP/SL even when an exit plan was in force for its
+    # account (only fast_once skipped them), so a plan's half at +15 % / trailing could be overridden by the lot's TP;
+    # the plan's executor decides for those tokens, as in fast_once (plans paused or flag off: the default is back)
+    try:
+        from . import exitplan
+        planned = {u: exitplan.in_force_tokens(con, u) for u in {r["user"] for r in rows}}
+        rows = [r for r in rows if r["token"] not in planned.get(r["user"], set())]
+    except Exception:  # noqa: BLE001 - plans unreadable: the default TP/SL holds
+        pass
     if not rows:
         return []
     mk = market({r["token"] for r in rows}) or {}
@@ -477,6 +492,12 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"copy trading: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag fast_path G24): the fast path's BUY decisions and copy exits (fast/paper.py),
+                from fast import paper as fpaper   # right after the copy loop: the same wake-up brings both; prices
+                for user, what in fpaper.run_once(con):   # through league/copy.market (it marks the bonding curve)
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"fast path ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:
                 for user, name, what in run_once(con, market):
                     print(f"natjecanje {user} {name}: {what}", flush=True)
@@ -506,6 +527,18 @@ def loop(market, every=EVERY_S):
                     print(f"natjecanje {user} {what}", flush=True)
             except Exception as e:  # noqa: BLE001 - never stops auto sell
                 print(f"range ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag momentum_scalp): entries on fresh signals (momentum/trade.py); off: one flag read
+                from momentum import trade as mtrade
+                for user, what in mtrade.run_once(con):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"momentum ulazi: {type(e).__name__}: {e}", file=sys.stderr)
+            try:   # 11.11. (Jure, flag proposals G21): paper: a proposal in its entry zone (proposals/)
+                from proposals import paper as ppaper
+                for user, what in ppaper.run_once(con, market):
+                    print(f"natjecanje {user} {what}", flush=True)
+            except Exception as e:  # noqa: BLE001 - never stops auto sell
+                print(f"prijedlozi ulazi: {type(e).__name__}: {e}", file=sys.stderr)
             try:   # rekt: a player (or the bot) under $25 starts a new round with $1,000 (league/rekt.py)
                 from . import rekt
                 from ui import leaguedash

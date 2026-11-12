@@ -171,8 +171,9 @@ T("Udio u dobiti", "trading", "Postotak dobiti koji kod copy tradinga na burzi i
   "dobitni i gubitni.", "Kopirani trade zaradi $100, trader s 10% udjela dobije $10.",
   vidi=["copy-trading"], alias=["profit share", "profit sharing"], k="udio-u-dobiti")
 T("Rug", "osnove", "Prevara ili krah: tvorci izvuku novac ili token padne 90%+ i više se ne oporavi.",
-  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je cijena 70%+ "
-  "ispod vrha u zadnja 24 h ili da je likvidnost izvučena. Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
+  "Rug pull znači da tvorac izvuče likvidnost ili proda sve svoje tokene odjednom. U alatu 💀 RUGAN znači da je likvidnost "
+  "izvučena (50 %+ ispod vrha) ili da je cijena 70%+ ispod vrha dok dev ili top holder prodaje ili je rug rizik "
+  "visok; pad bez toga je „dump nakon pumpe” (nije blok, P × 0,7). Rugani tokeni se ne prikazuju i ne mogu se kupiti, ali alat iz "
   "njih uči kako prepoznati sljedeći (stranica Učenje → Rugovi).",
   vidi=["rug-filter", "rug-profil", "likvidnost"], gdje=[("/learn", "Učenje")], alias=["rugan", "rug pull", "rugovi", "💀 rugan"])
 T("Dev", "osnove", "Tvorac tokena (developer). Njegov novčanik je napravio token.",
@@ -602,10 +603,16 @@ T("KOL test", "kol", "7-dnevni pokus: $50 na svaki svjež KOL poziv, da vidimo i
 T("Ocjena profitabilnosti", "walleti", "0-100: koliko novčanik stvarno zarađuje (PnL, ROI, uspješnost, profit factor, 2x tradeovi).",
   "Računa se iz svih njegovih kupnji i prodaja u zadnjih 30-60 dana. Visoka ocjena = dosljedno zarađuje, a ne jednom imao "
   "sreće.", vidi=["copy-ocjena", "profit-factor"], alias=["ocjena", "raspis ocjene profitabilnosti (0-100)"])
-T("Copy ocjena", "walleti", "0-100: koliko se isplati kopirati novčanik. Profitabilnost minus kazne za stvari koje se ne daju kopirati.",
-  "Kazne: prebrzo trguje (ne stigneš ga kopirati), kupuje premale iznose, sva zarada iz jednog tradea, neaktivan, izgleda "
-  "kao bot. Copy 60+ je tier A.", vidi=["tier", "copy-lista", "ocjena-profitabilnosti"], alias=["copy", "raspis copy ocjene"])
-T("Tier", "walleti", "Razred novčanika: A (copy 60+, provjera svakih 6 h), B (dobar), C (ostali), D (bot ili u minusu).",
+T("Copy ocjena", "walleti", "0-100: koliko se isplati kopirati novčanik ili influencera (od 11.11. ocjena za kopiranje).",
+  "Računa se iz zadnjih 30 dana, samo zatvorene pozicije (kod influencera pozivi): donja granica win ratea (Wilson 90 %), "
+  "medijan povrata po tradeu, profit factor, kopirljivost (likvidnost poola kod njegovih ulaza, naš trošak za 0,1-0,15 SOL "
+  "i koliko dobitka ostane nakon našeg kašnjenja) i svježina. Ako jedan trade nosi više od pola zarade, ocjena × 0,6. "
+  "Apsolutna zarada u SOL-u nije u ocjeni. Ispod 10 zatvorenih nije dokazan; medijan likvidnosti na ulazu ispod 15k $ "
+  "znači nije kopirljivo: vidi se, ali ga Autopilot ne kopira pravim novcem.",
+  vidi=["copy-lista", "ocjena-profitabilnosti", "profit-factor"],
+  alias=["copy", "raspis copy ocjene", "ocjena za kopiranje", "za kopiranje", "kopirljivo", "koncentracija",
+         "win (donja granica)", "medijan/trade"])
+T("Tier", "walleti", "Razred novčanika za raspored provjera: A (provjera svakih 6 h), B (dobar), C (ostali), D (bot ili u minusu).",
   vidi=["copy-ocjena"])
 T("Copy lista", "walleti", "Novčanici koji prolaze sve uvjete da ih vrijedi kopirati.", alias=["na listi", "na listi?"])
 T("Profit factor", "walleti", "Ukupni dobici podijeljeni s ukupnim gubicima. Iznad 1 = zarađuje; 2 = zaradi dvostruko više nego izgubi.")

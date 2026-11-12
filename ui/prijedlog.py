@@ -132,6 +132,9 @@ def live_market(tokens, fetch=None):
         # 10.11. (Jure: "stavi to u tablicu kao na DexScreeneru"): every window the pair has, buys and sells apart
         out[t]["w"] = {w: {"ch": ch.get(w), "vol": float(vol.get(w) or 0), "buys": int((tx.get(w) or {}).get("buys") or 0),
                            "sells": int((tx.get(w) or {}).get("sells") or 0)} for w in ("m5", "h1", "h6", "h24")}
+        # 11.11. (Jure: "da nisam krivo pastao adresu"): the name the buy panel shows for an address (ui/apterm.token_info)
+        bt = pr.get("baseToken") or {}
+        out[t].update(symbol=bt.get("symbol"), name=bt.get("name"), created_ms=pr.get("pairCreatedAt"))
     return out
 
 
@@ -588,7 +591,8 @@ def _base(kind, now=None, rows=None, live=None):
     if live is None:   # 9.11. (Jure): the Autopilot's live engine is the source; Pregled follows it
         try:
             from ui import zivo
-            zr = zivo.rows(now, sync=True)
+            # 11.11. (Grok #92): a row 4x+ over its first call is shown on the live list but is not a pick
+            zr = [r for r in zivo.rows(now, sync=True) if r.get("pick", True)]
             if zr:
                 # 9.11. (audit P50/P51): these are the live list's rows, graded 'uživo' and logged under kind 'zivo',
                 # so the box's 7-day record keeps the two methods (freshness + confidence vs. live reasons) apart

@@ -80,7 +80,10 @@ SIGNAL_TIERS = ("S", "A", "B")
 # 10.11. (Grok MCP audit 4, flag stop_grace): a proven follow's copy keeps its stop asleep this long after the entry
 # (league/auto: TP and the rug flags still fire); "proven" is run_trade.PROOF on the follow's own closed demo trades
 GRACE_S = 180
-PROOF = {"closed": 10, "win_rate": 0.4}   # = run_trade.PROOF (tests/test_grok_audit_offline keeps them equal)
+# = run_trade.PROOF (tests/test_grok_audit_offline keeps them equal). 11.11. (owner's rule D, trade/edge.live_proof):
+# n >= 10 closed demo copies, their mean result net of cost >= +3 % and the 90 % interval's lower bound > 0; the old
+# ">= 40 % winners" is gone (under break-even for TP 15 / SL 10)
+PROOF = {"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0}
 
 
 WAKE = os.path.join(os.environ.get("DATA_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".copy_wake")
@@ -328,11 +331,15 @@ def follow_log_summary(con, since, top=3):
 
 
 def follow_results(con):
-    """follow_id -> {'n', 'open', 'closed', 'wins', 'pnl'} of the trades it opened (closed PnL only)."""
+    """follow_id -> {'n', 'open', 'closed', 'wins', 'pnl', 'rets'} of the trades it opened (closed PnL only; rets: each
+    closed trade's pnl / stake, net of the calibrated cost: trade/cost.demo_adjust)."""
     ensure(con)
+    from trade import cost
+    adj = cost.demo_adjust()
     out = {}
-    for fid, status, pnl in con.execute("SELECT follow_id, status, pnl_usd FROM trades WHERE follow_id IS NOT NULL"):
-        r = out.setdefault(fid, {"n": 0, "open": 0, "closed": 0, "wins": 0, "pnl": 0.0})
+    for fid, status, pnl, size in con.execute("SELECT follow_id, status, pnl_usd, size_usd FROM trades WHERE "
+                                              "follow_id IS NOT NULL"):
+        r = out.setdefault(fid, {"n": 0, "open": 0, "closed": 0, "wins": 0, "pnl": 0.0, "rets": []})
         r["n"] += 1
         if status == "open":
             r["open"] += 1
@@ -340,7 +347,15 @@ def follow_results(con):
             r["closed"] += 1
             r["pnl"] += pnl or 0
             r["wins"] += 1 if (pnl or 0) > 0 else 0
+            if pnl is not None and size:
+                r["rets"].append(pnl / size + adj)
     return out
+
+
+def proof_of(rets):
+    """(ok, why not, ev_stats) of a follow's closed results under PROOF (trade/edge.live_proof)."""
+    from trade import edge
+    return edge.live_proof(rets, n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
 
 
 # ---------- events ------------------------------------------------------------------------------------------------
@@ -420,11 +435,24 @@ def _today(con, fid, now):
 
 
 def _rugged(token, mcap, liq):
+    """The rug under the owner's 11.11. rule (rugfilter/collapse.check: the pool pulled, or a crash with the dev / a
+    top holder selling or a high rug risk); a dump after a pump alone is no rug (None)."""
     try:
         from rugfilter import collapse
         from ui import data
-        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
+        return collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq, token=token)
     except Exception:  # noqa: BLE001 - the check is a guard, never the reason the copy loop stops
+        return None
+
+
+def _collapse(token, mcap, liq):
+    """11.11.: the rug OR the dump after a pump ({"kind": "rug" | "dump", "text", ...}, rugfilter/collapse.assess),
+    for ui/kandidati and fast/checks, which turn a dump into a P modifier; None when neither."""
+    try:
+        from rugfilter import collapse
+        from ui import data
+        return collapse.assess(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq, token=token)
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -751,9 +779,10 @@ def close_data(con, t, paths=None):
 
 
 def proven(con, follow_id, user=None):
-    """10.11. (Grok MCP audit 4): True when the follow has the demo proof run_trade asks before real money (PROOF:
-    10+ closed demo trades, PnL above zero, 40 %+ of them winners; run_trade._no_proof). The paper account's follow
-    is judged on the Autopilot follow it copies (league/flags.paper_map), the same evidence live would use."""
+    """10.11. (Grok MCP audit 4): True when the follow has the demo proof run_trade asks before real money (PROOF,
+    11.11.: 10+ closed demo trades whose mean result net of cost is >= +3 % with the 90 % interval above 0;
+    run_trade._no_proof). The paper account's follow is judged on the Autopilot follow it copies
+    (league/flags.paper_map), the same evidence live would use."""
     if follow_id is None:
         return False
     fid = follow_id
@@ -764,9 +793,11 @@ def proven(con, follow_id, user=None):
             fid = r[0] if r else follow_id
     except Exception:  # noqa: BLE001 - no paper map yet: its own trades
         pass
-    n, wins, pnl = con.execute("SELECT COUNT(*), COALESCE(SUM(pnl_usd > 0), 0), COALESCE(SUM(pnl_usd), 0) FROM trades "
-                               "WHERE follow_id = ? AND status = 'closed'", (fid,)).fetchone()
-    return n >= PROOF["closed"] and pnl > 0 and wins / n >= PROOF["win_rate"]
+    from trade import cost
+    adj = cost.demo_adjust()
+    rets = [p / s + adj for p, s in con.execute("SELECT pnl_usd, size_usd FROM trades WHERE follow_id = ? AND "
+                                                "status = 'closed'", (fid,)) if p is not None and s]
+    return proof_of(rets)[0]
 
 
 def _first(cache, tok, paths):
@@ -1185,6 +1216,11 @@ def run_once(con, market_fn=None, now=None, paths=None):
     wals = sorted({f["target"] for f in fl if f["kind"] == "wallet"})
     since = now - max(CFG["max_delay_min"], CFG["sell_lookback_min"]) * 60
     evs = sorted(events(kols, wals, since, paths), key=lambda e: e[3])
+    try:   # 11.11. (Jure, flag fast_path G24): a fresh buy / call of a followed source -> a fast_check (fast/enqueue);
+        from fast import enqueue as _fast   # flag off: one cached flag read; deduped in memory between passes
+        _fast.from_copy(evs, now)
+    except Exception:  # noqa: BLE001 - never stops the copy pass
+        pass
     todo = []   # (follow, token, side, ts)
     win = CFG["crew_window_min"] * 60
     for target, tok, side, ev_ts in evs:
@@ -1223,6 +1259,25 @@ def run_once(con, market_fn=None, now=None, paths=None):
     flags.prune(con, now)
     con.commit()
     return done
+
+
+def _rang_gate(f):
+    """11.11. (Jure, wallets/rang.py "Za kopiranje"): the real-money account (trade.settings.LEAGUE_USER) does not
+    copy a wallet or an influencer the copy ranking marks "nije kopirljivo" (median pool liquidity at its entries under
+    15k, or unknown) or that has fewer than rang.MIN_N closed tokens / calls in 30 days. The paper account and the
+    players are not gated (demo copies keep collecting n under the existing rules); crews ('ekipa') neither. The reason
+    in Croatian, or None. No ranking yet (fresh deploy): None, nothing blocked. Cached reads (wallets.db copy_rank)."""
+    if f["kind"] not in ("wallet", "kol"):
+        return None
+    au, _ts = _autopilot_user()
+    if au is None or f["user"] != au:
+        return None
+    try:
+        from wallets import rang
+        ok, why = rang.gate(f["kind"], f["target"])
+    except Exception:  # noqa: BLE001 - an unreadable ranking never blocks and never crashes the copy pass
+        return None
+    return f"rang za kopiranje: {why}" if ok is False else None
 
 
 def _enter(con, auto, mk, todo, now, paths=None):
@@ -1283,6 +1338,8 @@ def _enter(con, auto, mk, todo, now, paths=None):
             why = "velik token (preko $50M), to nije poziv na memecoin"
         elif mcap and liq and liq > mcap:
             why = "lažni pool (likvidnost veća od market capa), tipičan rug"
+        elif (gw := _rang_gate(f)):
+            why = gw   # 11.11. (Jure, wallets/rang.py): real money never copies "nije kopirljivo" or n < 10
         elif _today(con, f["id"], now) >= f["per_day"]:
             why = f"već {f['per_day']} ulaza danas (tvoj limit)"
         elif con.execute("SELECT 1 FROM trades WHERE user=? AND token=? AND status='open'", (f["user"], tok)).fetchone():

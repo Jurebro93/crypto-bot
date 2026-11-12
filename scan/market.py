@@ -433,6 +433,10 @@ def check(m, cfg, ctx, has_signal):
         out["why"] = out["why_sig"] = g
         return out
     out["reasons"].append("ulazna pravila kopiranja prolaze (likvidnost, MC, pool, arhiva, kolaps)")
+    ru = runup_why(m, stage, cfg, ctx)   # 11.11. (Grok #54 / #96 / #105)
+    if ru:   # 11.11. (owner's rule B): a tag, never a skip; the decision takes P x 0.7 / size x 0.5 (trade/edge)
+        out["reasons"].append(f"oznaka: {ru}")
+        out.setdefault("tags", []).append("runup")
     fee = filters.fees_filter(m, ctx.trades(tok), cfg, ctx.sol_usd)
     out.update(fees_paid_sol=fee["fees_paid_sol"], buy_share=fee["buy_share"], wash=fee["wash"])
     if fee["why"]:
@@ -454,6 +458,51 @@ def check(m, cfg, ctx, has_signal):
     if vol_fail:
         out["why"] = filters.volume_rule_text(m, cfg)
     return out
+
+
+def first_seen(con, tok, now, cfg):
+    """(mcap, ts) of the scanner's first sighting of the token as bonded within runup_window_h (cand.mcap_first), or
+    None (never seen bonded, the anchor is older than the window, or an older scan.db without the column)."""
+    try:
+        r = con.execute("SELECT mcap_first, mcap_first_ts FROM cand WHERE token=?", (tok,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not r or not r[0] or not r[1] or now - r[1] > float(cfg.get("runup_window_h") or 24) * 3600:
+        return None
+    return float(r[0]), int(r[1])
+
+
+def runup_why(m, stage, cfg, ctx):
+    """11.11. (Grok #54 / #96 / #105): the run-up mark. A bonded token at runup_max_x (4x) or more over the market cap
+    at the scanner's first sighting of it as bonded gets the text "kasno: ..." (11.11., owner's rule B: a TAG on the
+    row's reasons, no longer a fail; the P / size modifier is applied where the trade is decided, trade/edge). None
+    when the mark is off, the token is on the curve or the anchor is unknown."""
+    cap = float(cfg.get("runup_max_x") or 0)
+    con = getattr(ctx, "con", None)
+    mc = _f(m.get("mcap"))
+    if cap <= 0 or stage != "migrated" or con is None or not mc:
+        return None
+    fs = first_seen(con, m["token"], getattr(ctx, "now", None) or time.time(), cfg)
+    if not fs or mc / fs[0] < cap:
+        return None
+    return (f"kasno: već {mc / fs[0]:.1f}× od prvog viđenja skenera (MC ${fs[0]:,.0f} -> ${mc:,.0f}, granica "
+            f"{cap:g}×)")
+
+
+def anchor_first(con, tok, m, stage, now, cfg):
+    """Set the run-up anchor (cand.mcap_first / mcap_first_ts) at the first sighting of the token as bonded, and again
+    at the first bonded sighting after runup_window_h; a curve sighting never sets it (graduating is not a run-up)."""
+    mc = _f(m.get("mcap"))
+    if stage != "migrated" or not mc:
+        return False
+    try:
+        r = con.execute("SELECT mcap_first_ts FROM cand WHERE token=?", (tok,)).fetchone()
+        if r is None or (r[0] and now - r[0] <= float(cfg.get("runup_window_h") or 24) * 3600):
+            return False
+        con.execute("UPDATE cand SET mcap_first=?, mcap_first_ts=? WHERE token=?", (mc, int(now), tok))
+    except sqlite3.Error:
+        return False
+    return True
 
 
 def save(con, tok, d, m, res, now):
@@ -568,6 +617,7 @@ def pass_once(now=None, net=None, cfg=None, p=None, settings_path=None):
             m["symbol"] = m.get("symbol") or d.get("symbol")
             res = check(m, cfg, ctx, bool(d["signals"]))
             discovered = save(con, t, d, m, res, now)
+            anchor_first(con, t, m, res["stage"], now, cfg)   # 11.11.: the run-up anchor (runup_why)
             out["checked"] += 1
             entered = []
             if m.get("src") != "dexscreener":   # the shadow path is DexScreener's: no pair there, no shadow entry

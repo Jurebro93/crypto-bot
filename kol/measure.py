@@ -28,7 +28,9 @@ class _Throttle:
 
 
 _GT = _Throttle(float(os.environ.get("KOL_GECKO_GAP", "3.0")))  # free API: ~30 requests per minute, shared per IP
-if http.cg_key() and not os.environ.get("KOL_GECKO_GAP"):   # 10.11.: CoinGecko's paid key (event_calendar/http)
+if http.cg_configured() and not os.environ.get("KOL_GECKO_GAP"):   # 10.11.: CoinGecko's paid key (event_calendar/http)
+    # 11.11.: on whether the key is set, not on the hour's budget (a long-running process outlives the hour);
+    # a call that goes to the free API is paced by the shared gate (event_calendar/http._shared) at the free pace
     _GT = _Throttle(float(os.environ.get("CG_GAP", "0.25")))
 
 

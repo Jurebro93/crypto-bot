@@ -1,0 +1,4 @@
+{
+  "_": "Novčanici (wallets/). copy_hygiene (11.11., Grokova kritika #85, wallets/hygiene.py): novčanik ispada s popisa za kopiranje i s webhooka kad nije tradeao max_idle_h sati, ima oznaku bot/sniper/bundler/... ili po statistici izgleda kao bot (više od max_tpd tradeova dnevno ili medijan držanja ispod min_hold_s sekundi), i kad je tier S. Samo uklanja, nikad ne dodaje.",
+  "copy_hygiene": {"max_idle_h": 24, "max_tpd": 200, "min_hold_s": 30}
+}

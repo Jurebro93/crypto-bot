@@ -25,9 +25,15 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS token_pulse (
     token TEXT, ts INTEGER, price REAL, mcap REAL, liquidity REAL,
     vol_m5 REAL, vol_h1 REAL, buys_m5 INTEGER, sells_m5 INTEGER, buys_h1 INTEGER, sells_h1 INTEGER,
-    holders INTEGER, holders_src TEXT, PRIMARY KEY (token, ts));
+    holders INTEGER, holders_src TEXT, liq_sol REAL, price_native REAL, pool TEXT, dex TEXT, PRIMARY KEY (token, ts));
 CREATE INDEX IF NOT EXISTS token_pulse_ts ON token_pulse (ts);
 """
+# 11.11. (Jure: "mjeri pad likvidnosti na SOL (quote) strani poola"): the pool's SOL side (DexScreener liquidity.quote
+# for a SOL pair), the price in SOL (priceNative), the pool address and the DEX with its labels; rugfilter/collapse
+# reads them for the pool invariant L = SOL side / sqrt(price in SOL). Added to an older table by ensure().
+POOL_COLS = (("liq_sol", "REAL"), ("price_native", "REAL"), ("pool", "TEXT"), ("dex", "TEXT"))
+COLS = ("token", "ts", "price", "mcap", "liquidity", "vol_m5", "vol_h1", "buys_m5", "sells_m5", "buys_h1", "sells_h1",
+        "holders", "holders_src", "liq_sol", "price_native", "pool", "dex")
 DEFAULTS = {"max": 40, "prijedlozi_top": 20, "sati": 24, "holderi_svakih_min": 30, "holderi_kredita_dan": 20000, "holderi_stranica_max": 3,
             "prozor_h": 6, "cuvaj_dana": 7}
 FEATURES = ("snaga_volumen", "snaga_txn", "rast_holdera", "organski")
@@ -43,6 +49,10 @@ def config():
 
 def ensure(con):
     con.executescript(SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(token_pulse)")}
+    for name, kind in POOL_COLS:
+        if name not in have:
+            con.execute(f"ALTER TABLE token_pulse ADD COLUMN {name} {kind}")
 
 
 def _clip(x):
@@ -93,14 +103,36 @@ def retained(con, cfg=None, now=None, featured=None):
 
 # ---------- recording ----------
 
-def record(con, token, p, now=None, holders=None, holders_src=None):
-    """One pulse row from a DexScreener pair (and a holder count when one was fetched this pass)."""
+def record(con, token, p, now=None, holders=None, holders_src=None, sol_usd=None):
+    """One pulse row from a DexScreener pair (and a holder count when one was fetched this pass), with the pool's SOL
+    side (rugfilter/collapse.pair_pool; sol_usd converts a pair quoted in USDC)."""
+    from rugfilter import collapse
     vol, tx = p.get("volume") or {}, p.get("txns") or {}
     m5, h1 = tx.get("m5") or {}, tx.get("h1") or {}
-    con.execute("INSERT OR REPLACE INTO token_pulse VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    pp = collapse.pair_pool(p, sol_usd)
+    con.execute(f"INSERT OR REPLACE INTO token_pulse ({', '.join(COLS)}) VALUES ({','.join('?' * len(COLS))})",
                 (token, int(now or time.time()), float(p.get("priceUsd") or 0), p.get("marketCap") or p.get("fdv") or 0,
                  (p.get("liquidity") or {}).get("usd") or 0, vol.get("m5") or 0, vol.get("h1") or 0,
-                 m5.get("buys", 0), m5.get("sells", 0), h1.get("buys", 0), h1.get("sells", 0), holders, holders_src))
+                 m5.get("buys", 0), m5.get("sells", 0), h1.get("buys", 0), h1.get("sells", 0), holders, holders_src,
+                 pp["liq_sol"], pp["price_native"], pp["pool"], pp["dex"]))
+
+
+def sol_price(rows):
+    """SOL in USD: the median priceUsd / priceNative of this scan's SOL-quoted pairs (None without one)."""
+    from rugfilter import collapse
+    px = []
+    for r in rows:
+        p = r.get("raw") or {}
+        q = p.get("quoteToken") or {}
+        if q.get("address") == collapse.SOL_MINT or str(q.get("symbol") or "").upper() in ("SOL", "WSOL"):
+            try:
+                v = float(p.get("priceUsd")) / float(p.get("priceNative"))
+            except (TypeError, ValueError, ZeroDivisionError):
+                continue
+            if v > 0:
+                px.append(v)
+    px.sort()
+    return px[len(px) // 2] if px else None
 
 
 def prune(con, days=None):
@@ -232,6 +264,7 @@ def apply(con, rows, keep, now=None, cfg=None, log=None):
     ensure(con)
     keep = set(keep)
     fetched = 0
+    sol_usd = sol_price(rows)
     spent = credits_today(con, now)
     can_fetch = bool(os.environ.get("HELIUS_API_KEY")) and spent < cfg["holderi_kredita_dan"]
     for r in rows:
@@ -252,7 +285,7 @@ def apply(con, rows, keep, now=None, cfg=None, log=None):
             except Exception as e:
                 log(f"  holderi {r.get('symbol')}: {e}")
         hist = series(con, t, cfg["prozor_h"], now)
-        record(con, t, r["raw"], now, holders, src)
+        record(con, t, r["raw"], now, holders, src, sol_usd)
         feats = strength(hist + [{"ts": int(now), "vol_h1": (r["raw"].get("volume") or {}).get("h1") or 0,
                                   "buys_h1": ((r["raw"].get("txns") or {}).get("h1") or {}).get("buys", 0),
                                   "sells_h1": ((r["raw"].get("txns") or {}).get("h1") or {}).get("sells", 0),

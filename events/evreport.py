@@ -22,6 +22,21 @@ How each phase is measured (window: since the flag's mode was set, at most WINDO
   groups   group_discovery: early.db group_signals per kind (hidden_group, caller_group_first); baseline = the mean
            EV of all calls of the window (events.db call_outcomes).
   range    range_dca: the paper rounds (league.db range_rounds); baseline: the newest backtest's EV when one exists.
+           11.11. part range_oznake: the owner's learning labels (rangedca/owner.py, counterfactual: the booked rounds
+           above are never changed by them), his pins and the watched ranges most similar to his labelled wins (also
+           two log lines "range oznake vlasnika: ..." and "range slični ...").
+           11.11. (range_missed G27): also split by the round's source, "range:missed" (skipped, then +20 % within
+           60 min) vs "range:ostali" (its baseline): rounds, win rate, EV %, PnL $ and the missed live gate.
+  momentum momentum_scalp (11.11.): the base rate of every signal (momentum.db; hit = +15 % before -10 % in 45 min,
+           EV = the exit rules on the same path after cost) vs the newest backtest, and the paper trades vs that base
+           rate with the live gate's verdict (>= 50 trades, EV > 0, hit >= 45 %; break-even is ~50 %, not 45 %).
+  kalibracija  grok_ev_gate (11.11.): Grok's p_tp against the outcomes (Brier score, hit rate per p bucket).
+  prijedlozi   proposals (11.11., proposals/report.py): per strategy the day's proposals, bought, hit rate (TP before SL
+           within 4 h) and the measured EV vs the expected EV (baseline), the demo account's paper proof, and in the log
+           and proposals.db reports the day's biggest risers we did not propose (seen / near miss / never saw).
+  fast     fast_path (11.11., fast/report.py): the BUY decisions' measured outcome (+15 % before -10 % within 45 min)
+           and per check its rejections, how many of them did >= +20 % within 60 min (false rejects) and how many saved
+           a loss; the cost line per source in the log.
 Max drawdown: the deepest fall of the running sum of results, in percentage points, in time order.
 A promotion proposal (shadow -> paper -> live) only with n >= MIN_N outcomes and EV > 0, and only as text: the owner
 switches flags by hand on the Autopilot page (trade/settings.set_flag); nothing here changes a flag.
@@ -225,7 +240,7 @@ def group_rows(now, mode, econ):
     return out
 
 
-def range_rows(now, mode, lcon):
+def range_rows(now, mode, lcon, log=print):
     from trade import settings
     if lcon is None:
         return []
@@ -247,11 +262,126 @@ def range_rows(now, mode, lcon):
                 base, note = float(ev), f"paper runde vs backtest {files[-1][15:23]}"
     except (OSError, ValueError, TypeError):
         pass
-    return [{"flag": "range_dca", "phase": mode, "part": "range", "n": s["n"], "n_outcomes": s["n"],
-             "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
-             "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base, "baseline_n": None,
-             "delta_ev_pct": _r(s["ev_pct"] - base, 2) if s["ev_pct"] is not None and base is not None else None,
-             "note": note, "proposal": _proposal(mode, s)}]
+    out = [{"flag": "range_dca", "phase": mode, "part": "range", "n": s["n"], "n_outcomes": s["n"],
+            "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+            "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base, "baseline_n": None,
+            "delta_ev_pct": _r(s["ev_pct"] - base, 2) if s["ev_pct"] is not None and base is not None else None,
+            "note": note, "proposal": _proposal(mode, s)}]
+    return out + range_source_rows(now, mode, lcon) + owner_rows(now, mode, log)
+
+
+def owner_rows(now, mode, log=print):
+    """11.11. (rangedca/owner.py): the owner's labels (counterfactual, the booked rounds above stay as booked) and the
+    watched ranges most similar to his labelled wins, as one row "range_oznake" and two log lines; [] without labels."""
+    try:
+        from rangedca import owner, view
+        lbs = owner.labels()
+        if not lbs:
+            return []
+        lab = "; ".join(owner.label_text(lb) for lb in lbs[:5])
+        d = view.candidates(0.0, now=now)
+        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs))
+        pins = ", ".join(f"{p.get('symbol') or p['token'][:6]} ({'preporuka sada' if p.get('pin_ready') else 'čeka'})"
+                         for p in d.get("pins") or [])
+    except Exception as e:  # noqa: BLE001 - the rest of the report never waits for this row
+        log(f"događaji: EV izvještaj, oznake vlasnika nisu pročitane ({type(e).__name__})")
+        return []
+    log(f"range oznake vlasnika: {lab}")
+    log(sim)
+    return [{"flag": "range_dca", "phase": mode, "part": "range_oznake", "n": len(lbs), "n_outcomes": None,
+             "hit_rate": None, "avg_pnl_pct": None, "ev_pct": None, "max_dd_pct": None, "baseline_ev_pct": None,
+             "baseline_n": None, "delta_ev_pct": None, "proposal": None,
+             "note": f"oznake vlasnika (protučinjenične, knjiženo se ne mijenja): {lab}. {sim}"
+                     + (f". Prikvačeni: {pins}" if pins else "")}]
+
+
+def range_source_rows(now, mode, lcon):
+    """11.11. (flag range_missed G27): the same paper rounds split by their source (range_rounds.levels "src"): part
+    "range:missed" (tokens skipped, then >= +20 % within 60 min; rangedca/missed.py) vs "range:ostali" (every other
+    source) = its baseline. Rounds, win rate, EV %, PnL $ (in the note) and the missed live gate's verdict."""
+    from rangedca import gate
+    from trade import settings
+    try:
+        rows = lcon.execute("SELECT closed_ts, ret, pnl_usd, levels FROM range_rounds WHERE user = ? AND status = 'closed' "
+                            "AND closed_ts >= ? ORDER BY closed_ts", (settings.PAPER_USER, now - WINDOW_D * 86400)).fetchall()
+    except sqlite3.Error:
+        return []
+    part = {"missed": [], "ostali": []}
+    for _ts, ret, pnl, lv in rows:
+        part["missed" if gate.round_source(lv) == "missed" else "ostali"].append((ret, pnl or 0.0))
+    sm, so = summary([r for r, _p in part["missed"]]), summary([r for r, _p in part["ostali"]])
+    try:
+        live = gate.missed_refusal() or "prolazi"
+    except Exception as e:  # noqa: BLE001
+        live = f"nečitljivo ({type(e).__name__})"
+    out = []
+    for key, s, base in (("missed", sm, so), ("ostali", so, None)):
+        pnl = sum(p for _r, p in part[key])
+        out.append({"flag": "range_dca", "phase": mode, "part": f"range:{key}", "n": s["n"], "n_outcomes": s["n"],
+                    "hit_rate": s["hit_rate"], "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+                    "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": base["ev_pct"] if base else None,
+                    "baseline_n": base["n"] if base else None,
+                    "delta_ev_pct": (_r(s["ev_pct"] - base["ev_pct"], 2) if base and s["ev_pct"] is not None
+                                     and base["ev_pct"] is not None else None),
+                    "note": (f"izvor missed (preskočen, pa +20 % u 60 min) vs ostali izvori: PnL {pnl:+.2f} $; "
+                             f"live vrata range_missed: {live}") if key == "missed"
+                    else f"range runde svih ostalih izvora (signal, event, market): PnL {pnl:+.2f} $",
+                    "proposal": None})
+    return out
+
+
+def momentum_rows(now, mode, lcon):
+    """momentum_scalp (11.11., momentum/): the base rate of every signal (hit = +15 % before -10 % in 45 min, EV = the
+    exit rules on the same path after cost) vs the newest backtest, and the paper trades vs the live gate."""
+    from momentum import data as mdata, gate, rules, view
+    from trade import settings
+    since = now - WINDOW_D * 86400
+    sigs = sorted((s for s in mdata.read_signals(since) if s.get("status") == "done" and s.get("sim_ret") is not None),
+                  key=lambda s: s["resolved_ts"] or 0)
+    s = summary([x["sim_ret"] for x in sigs])
+    hits = sum(int(x["hit"] or 0) for x in sigs)
+    bt = view.backtest_latest() or {}
+    bev = ((bt.get("variants") or {}).get("osnovno") or {}).get("ev_pct")
+    be = rules.break_even_p(rules.RULES["tp1"], rules.RULES["stop"], rules.round_trip_cost())
+    rows = [{"flag": "momentum_scalp", "phase": mode, "part": "momentum", "n": len(sigs), "n_outcomes": len(sigs),
+             "hit_rate": _r(hits / len(sigs), 3) if sigs else None, "avg_pnl_pct": s["avg_pnl_pct"], "ev_pct": s["ev_pct"],
+             "max_dd_pct": s["max_dd_pct"], "baseline_ev_pct": bev, "baseline_n": None,
+             "delta_ev_pct": _r(s["ev_pct"] - bev, 2) if s["ev_pct"] is not None and bev is not None else None,
+             "note": (f"osnovna stopa svih signala (pogodak = +15 % prije -10 % u 45 min); prag isplativosti ~{be:.0%} "
+                      "pri TP 15 / SL 10 i ~2-3 % troška, ne 45 %; osnovica = backtest "
+                      + (bt.get("file") or "nema")), "proposal": None}]
+    if lcon is not None:
+        try:
+            tr = lcon.execute("SELECT ret, hit FROM momentum_trades WHERE user = ? AND status = 'closed' AND closed_ts >= ? "
+                              "ORDER BY closed_ts", (settings.PAPER_USER, since)).fetchall()
+        except sqlite3.Error:
+            tr = []
+        p = summary([r for r, _h in tr])
+        why = gate.refusal()
+        rows.append({"flag": "momentum_scalp", "phase": mode, "part": "momentum_paper", "n": p["n"], "n_outcomes": p["n"],
+                     "hit_rate": _r(sum(int(h or 0) for _r_, h in tr) / len(tr), 3) if tr else None,
+                     "avg_pnl_pct": p["avg_pnl_pct"], "ev_pct": p["ev_pct"], "max_dd_pct": p["max_dd_pct"],
+                     "baseline_ev_pct": s["ev_pct"], "baseline_n": len(sigs), "delta_ev_pct":
+                     _r(p["ev_pct"] - s["ev_pct"], 2) if p["ev_pct"] is not None and s["ev_pct"] is not None else None,
+                     "note": "paper tradeovi (pogodak = TP1 prije stopa) vs osnovna stopa signala; live vrata: "
+                             + (why or "prolaze"),
+                     "proposal": ("prijedlog: paper → live (>= 50 tradeova, EV > 0, pogodak >= 45 %); odobrava vlasnik "
+                                  "ručno") if mode == "paper" and not why else None})
+    return rows
+
+
+def calib_rows(now, mode):
+    """grok_ev_gate (11.11., momentum/evgate.py): Grok's p_tp against what happened, 30 days."""
+    from momentum import evgate
+    rep = evgate.report(now)
+    a = (rep or {}).get("all") or {}
+    buckets = "; ".join(f"p {b['p_from']:.1f}-{b['p_to']:.1f}: n {b['n']}, pogodak {b['hit_rate']:.0%}"
+                        for b in a.get("buckets") or [])
+    return [{"flag": "grok_ev_gate", "phase": mode, "part": "kalibracija", "n": (rep or {}).get("n_requests") or 0,
+             "n_outcomes": a.get("n") or 0, "hit_rate": a.get("base_rate"), "avg_pnl_pct": None, "ev_pct": None,
+             "max_dd_pct": None, "baseline_ev_pct": None, "baseline_n": None, "delta_ev_pct": None,
+             "note": (f"Brier {a['brier']:.3f}, prosječni p {a['mean_p']:.2f}" if a.get("n") else "još nema riješenih")
+             + (f"; {buckets}" if buckets else ""), "proposal": None}]
 
 
 COLS = ("n", "n_outcomes", "hit_rate", "avg_pnl_pct", "ev_pct", "max_dd_pct", "baseline_ev_pct", "baseline_n",
@@ -278,7 +408,17 @@ def build(now=None, econ=None, log=print):
                 elif name == "group_discovery":
                     out += group_rows(now, st["mode"], econ)
                 elif name == "range_dca":
-                    out += range_rows(now, st["mode"], lcon)
+                    out += range_rows(now, st["mode"], lcon, log)
+                elif name == "momentum_scalp":
+                    out += momentum_rows(now, st["mode"], lcon)
+                elif name == "grok_ev_gate":
+                    out += calib_rows(now, st["mode"])
+                elif name == "proposals":   # 11.11. (proposals/report.py): per strategy, the day's missed risers
+                    from proposals import report as preport
+                    out += preport.ev_rows(now, st["mode"], log=log)
+                elif name == "fast_path":   # 11.11. (fast/report.py): BUY outcomes, false rejects per check, cost
+                    from fast import report as freport
+                    out += freport.ev_rows(now, st["mode"], log=log)
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")
@@ -310,6 +450,24 @@ def md(day, rows):
     return "\n".join(lines) + "\n"
 
 
+def cost_week(now=None, log=print):
+    """11.11. (Jure, preporuka 8): the 7-day sums of the daily cost lines (usage/daily.week), {} when unreadable."""
+    try:
+        from usage import daily
+        return daily.week(now)
+    except Exception as e:  # noqa: BLE001 - the EV report never fails on its cost section
+        log(f"događaji: trošak po izvoru (7 dana) nije pročitan ({type(e).__name__}: {e})")
+        return {}
+
+
+def cost_md(cost):
+    try:
+        from usage import daily
+        return "\n" + "\n".join(daily.week_md(cost or {})) + "\n"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def run(now=None, log=print, econ=None, outdir=None):
     now = int(now or time.time())
     own = econ is None
@@ -325,10 +483,11 @@ def run(now=None, log=print, econ=None, outdir=None):
         try:
             os.makedirs(outdir, exist_ok=True)
             base = os.path.join(outdir, f"ev-report-{day.replace('-', '')}")
+            cost = cost_week(now, log)   # 11.11. (preporuka 8): the cost per source of the last 7 days
             with open(base + ".json", "w") as f:
-                json.dump({"day": day, "ts": now, "rows": rows}, f, ensure_ascii=False, indent=1)
+                json.dump({"day": day, "ts": now, "rows": rows, "trosak_7d": cost}, f, ensure_ascii=False, indent=1)
             with open(base + ".md", "w") as f:
-                f.write(md(day, rows))
+                f.write(md(day, rows) + cost_md(cost))
         except OSError as e:
             log(f"događaji: EV izvještaj nije zapisan u output/ ({e})")
         props = [r for r in rows if r.get("proposal")]

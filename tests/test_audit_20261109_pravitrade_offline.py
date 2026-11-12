@@ -84,8 +84,11 @@ class ManualBuy(unittest.TestCase):
     def test_stake_above_the_per_trade_limit_is_refused_on_the_page(self):
         lim = settings.merged(executor.load_config(), self.con)["max_sol_per_trade"]
         loc = self._buy(sol=str(lim * 3).replace(".", ","))
-        self.assertIn("err=", loc)
-        self.assertIn("iznad%20limita", loc)
+        # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): a warning he may confirm (tests/test_nadjacaj_offline);
+        # nothing is written before he does
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("iznad tvog limita", pravitrade.fetch_answer(loc)["warn"][0])
         self.assertEqual(self._open(), [])
         self.assertEqual(settings.raw(self.con).get("manual_size"), None)   # no orphan stake record either
 
@@ -106,6 +109,9 @@ class ManualBuy(unittest.TestCase):
         from ui import prijedlog
         thin = {**LIVE_ROW, "liq": 16_000.0, "mcap": 50_000.0}
         prijedlog.live_market = lambda toks, fetch=None: {t: dict(thin) for t in toks}
+        # 11.11.: 0,05 SOL (0,02 SOL with the default +15 % target is a warning now: its network fees eat half the
+        # target, run_trade's sell check would skip it; tests/test_nadjacaj_offline)
+        self._buy = lambda _b=self._buy, **f: _b(**{"sol": "0,05", **f})
         loc = self._buy(tp="", exit="smart")
         self.assertIn("ok=", loc)
         self.assertEqual(len(self._open()), 1)
@@ -119,8 +125,11 @@ class ManualBuy(unittest.TestCase):
         small = {**thin, "mcap": 25_000.0}
         prijedlog.live_market = lambda toks, fetch=None: {t: dict(small) for t in toks}
         loc = self._buy(tp="", exit="smart")
-        self.assertIn("err=", loc)
-        self.assertIn("ispod 30k", unquote(loc))
+        # 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): a warning
+        # that asks for his reason; nothing is bought before he gives it
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("ispod 30k", pravitrade.fetch_answer(loc)["warn"][0])
         self.assertEqual(len(self._open()), 2)   # the dead-looking one went through, the one under 30k did not
 
     def test_good_buy_still_goes_through_with_its_stake(self):
@@ -567,11 +576,14 @@ class FollowForms(PageBase):
             self.lg.execute("UPDATE trades SET follow_id=?, status='closed', pnl_usd=? WHERE id=?", (fid, pnl, tid))
         self.lg.commit()
         html = pravitrade._follows(self.lg, True)
-        self.assertIn("Dokaz u demu: zatvorenih 2, dobitnih 1, PnL +3 $", html)
+        # 11.11. (owner's rule D): the proof is n, EV net of cost and its 90 % interval, no share of winners
+        self.assertIn("Dokaz u demu: zatvorenih 2, PnL +3 $, n=2, EV +6,0 %", html)
         self.assertIn("pravi novac: <b>još ne</b>", html)
-        self.assertIn(f"treba {run_trade.PROOF['closed']}+ zatvorenih", html)
-        line = pravitrade._proof_line({"closed": 12, "wins": 6, "pnl": 40.0})
+        self.assertIn(f"treba {run_trade.PROOF['closed']}+ zatvorenih, EV &gt;= +3%", html)
+        line = pravitrade._proof_line({"closed": 12, "wins": 6, "pnl": 40.0, "rets": [0.05, 0.06] * 6})
         self.assertIn("pravi novac: <b>da</b>", line)
+        line = pravitrade._proof_line({"closed": 12, "wins": 5, "pnl": 1.0, "rets": [0.15] * 5 + [-0.10] * 7})
+        self.assertIn("pravi novac: <b>još ne</b>", line)          # 42 % winners, EV +0.4 %: not enough
 
     def test_proven_wallets_show_their_bags(self):
         """P55 (handoff izvori): open losers the wallet never closed, next to its realized result."""
@@ -699,9 +711,14 @@ class LiveFragments(PageBase):
     def test_page_js_marks_stale_boxes(self):
         from ui import pravitrade
         self.assertIn("nema svježih podataka", pravitrade.POP_JS)
+        # 11.11. (ui/apterm): the page's script is the cached /pravi-trade/static/ap.js (the old helpers + the new ones)
+        from ui import apterm
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("nema svježih podataka", body)
-        self.assertIn("if(!r.ok){stale(box,true);return}", body)
+        self.assertIn(apterm.static_url("ap.js"), body)
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertIn("nema svježih podataka", js)
+        self.assertIn("if(!r.ok){stale(box,true);return}", js)
+        self.assertIn("el.classList.add('stale')", js)            # the new lazy parts grey out the same way
 
 
 if __name__ == "__main__":

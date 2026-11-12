@@ -42,6 +42,8 @@ def ensure(con):
     have = {r[1] for r in con.execute("PRAGMA table_info(assistant_notes)")}
     if "key_id" not in have:
         con.execute("ALTER TABLE assistant_notes ADD COLUMN key_id TEXT")
+    if "proposal" not in have:   # 11.11. (proposals/, G21): submit_signal_opinion's optional trade proposal
+        con.execute("ALTER TABLE assistant_notes ADD COLUMN proposal TEXT")
     for sql in INDEXES:
         con.execute(sql)
     con.commit()
@@ -142,15 +144,109 @@ def submit_trade_review(con, kid, position_id, verdict, confidence=None, interpr
     return _done(nid, "trade_review")
 
 
-def submit_signal_opinion(con, kid, token, verdict, confidence=None, interpretation=None, evidence=None):
+# 11.11. (Jure, proposals/ flag proposals G21): submit_signal_opinion may carry a trade proposal. Every field is optional
+# and an opinion without them is stored exactly as before. The proposals pass reads a "kupi" with p_tp as the grok
+# strategy's proposal (its p_tp calibrated on Grok's measured record first); nothing here buys.
+PROPOSAL_STRATEGIES = ("range", "momentum", "influencer", "group", "insider", "event", "catalyst", "grok")
+STRATEGY_ALIAS = {"range_dca": "range", "momentum_scalp": "momentum", "caller": "influencer", "kol": "influencer",
+                  "callers": "influencer", "hidden_group": "group", "pre_shill": "group", "insider_copy": "insider",
+                  "events": "event", "team_catalyst": "catalyst", "other": "grok"}
+PROPOSAL_KEYS = ("strategy", "p_tp", "entry_zone", "exit_zone", "valid_min")
+
+
+def _mc(x, name):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a market cap in USD")
+    if not 0 < v <= 1e12:
+        raise ValueError(f"{name} must be a market cap in USD above 0")
+    return round(v, 2)
+
+
+def proposal_fields(strategy=None, p_tp=None, entry_zone=None, exit_zone=None, valid_min=None):
+    """The optional proposal of a signal opinion, validated -> dict, or None when no field is given."""
+    if all(x in (None, "", {}) for x in (strategy, p_tp, entry_zone, exit_zone, valid_min)):
+        return None
+    out = {}
+    if strategy not in (None, ""):
+        s = str(strategy).strip().lower()
+        s = STRATEGY_ALIAS.get(s, s)
+        if s not in PROPOSAL_STRATEGIES:
+            raise ValueError(f"strategy must be one of {', '.join(PROPOSAL_STRATEGIES)}")
+        out["strategy"] = s
+    if p_tp not in (None, ""):
+        try:
+            p = float(p_tp)
+        except (TypeError, ValueError):
+            raise ValueError("p_tp must be a probability between 0 and 1")
+        if not 0 <= p <= 1:
+            raise ValueError("p_tp must be between 0 and 1")
+        out["p_tp"] = round(p, 4)
+    if entry_zone not in (None, "", {}):
+        if not isinstance(entry_zone, dict):
+            raise ValueError("entry_zone must be {mcap_low, mcap_high}")
+        lo, hi = _mc(entry_zone.get("mcap_low"), "entry_zone.mcap_low"), _mc(entry_zone.get("mcap_high"), "entry_zone.mcap_high")
+        if lo > hi:
+            raise ValueError("entry_zone.mcap_low must not be above mcap_high")
+        out["entry_zone"] = {"mcap_low": lo, "mcap_high": hi}
+    if exit_zone not in (None, "", {}):
+        if not isinstance(exit_zone, dict):
+            raise ValueError("exit_zone must be {tp_mcap, sl_mcap, trailing_pct}")
+        ez = {}
+        for k in ("tp_mcap", "sl_mcap"):
+            if exit_zone.get(k) not in (None, ""):
+                ez[k] = _mc(exit_zone[k], f"exit_zone.{k}")
+        if exit_zone.get("trailing_pct") not in (None, ""):
+            try:
+                tr = float(exit_zone["trailing_pct"])
+            except (TypeError, ValueError):
+                raise ValueError("exit_zone.trailing_pct must be a number 1-90")
+            if not 1 <= tr <= 90:
+                raise ValueError("exit_zone.trailing_pct must be 1-90")
+            ez["trailing_pct"] = round(tr, 2)
+        if "tp_mcap" in ez and "sl_mcap" in ez and ez["sl_mcap"] >= ez["tp_mcap"]:
+            raise ValueError("exit_zone.sl_mcap must be under tp_mcap")
+        ent = out.get("entry_zone")
+        if ent and "tp_mcap" in ez and ez["tp_mcap"] <= ent["mcap_low"]:
+            raise ValueError("exit_zone.tp_mcap must be above the entry zone")
+        if ent and "sl_mcap" in ez and ez["sl_mcap"] >= ent["mcap_high"]:
+            raise ValueError("exit_zone.sl_mcap must be under the entry zone")
+        out["exit_zone"] = ez
+    if valid_min not in (None, ""):
+        try:
+            v = int(float(valid_min))
+        except (TypeError, ValueError):
+            raise ValueError("valid_min must be minutes 5-1440")
+        if not 5 <= v <= 1440:
+            raise ValueError("valid_min must be 5-1440 minutes")
+        out["valid_min"] = v
+    return out
+
+
+def submit_signal_opinion(con, kid, token, verdict, confidence=None, interpretation=None, evidence=None, proposal=None):
+    """proposal (11.11., optional): {strategy, p_tp, entry_zone, exit_zone, valid_min} (proposal_fields)."""
     tok = _text(token, "token", need=True, cap=64)
     if not 32 <= len(tok) <= 64:
         raise ValueError("token must be a Solana token address")
+    v = _verdict(verdict)
+    prop = proposal_fields(**{k: (proposal or {}).get(k) for k in PROPOSAL_KEYS}) if proposal else None
     pos = con.execute("SELECT id, symbol FROM positions WHERE token=? ORDER BY id DESC LIMIT 1", (tok,)).fetchone()
+    extra = {"proposal": json.dumps(prop, ensure_ascii=False)} if prop else {}
     nid = _insert(con, kid, kind="signal_opinion", position_id=pos[0] if pos else None, token=tok,
-                  symbol=pos[1] if pos else None, verdict=_verdict(verdict), confidence=_conf(confidence),
-                  interpretation=_text(interpretation, "interpretation", need=True), evidence=_json(evidence, "evidence"))
-    return _done(nid, "signal_opinion")
+                  symbol=pos[1] if pos else None, verdict=v, confidence=_conf(confidence),
+                  interpretation=_text(interpretation, "interpretation", need=True), evidence=_json(evidence, "evidence"),
+                  **extra)
+    out = _done(nid, "signal_opinion")
+    if prop:
+        out["proposal"] = prop
+        out["proposal_note"] = (
+            "Stored as a proposal source (strategy grok): shown on the Autopilot's Prijedlozi and in get_proposals only "
+            "while verdict is kupi with p_tp, your p_tp CALIBRATED on your measured record gives EV > 0 after cost, "
+            "and no block applies (rug high, liquidity under $15k; wash, run-up and shill only lower p). Valid valid_min "
+            "minutes (default 60). Nothing is bought." if v == "kupi" and "p_tp" in prop else
+            "Stored with the opinion; it becomes a proposal only with verdict kupi and p_tp.")
+    return out
 
 
 def submit_suggestion(con, kid, title, interpretation=None, improvement=None, evidence=None, proposed_change=None):
@@ -160,7 +256,10 @@ def submit_suggestion(con, kid, title, interpretation=None, improvement=None, ev
     nid = _insert(con, kid, kind="suggestion", title=_text(title, "title", need=True, cap=TITLE_MAX),
                   interpretation=_text(interpretation, "interpretation", need=True),
                   improvement=_text(improvement, "improvement"), evidence=_json(evidence, "evidence"), proposed_change=pc)
-    return _done(nid, "suggestion")
+    out = _done(nid, "suggestion")
+    if _is_weight(json.loads(pc) if pc else None):   # 11.11.: a caller weight is applied on arrival (auto_apply_weight)
+        out.update(_auto_weight_answer(con, nid, f"mcp:{kid}"))
+    return out
 
 
 def submit_daily_summary(con, kid, title, interpretation=None, evidence=None):
@@ -409,14 +508,15 @@ def _current(con, key):
     return raw.get(key, None)
 
 
-def record_applied(con, nid, key, old, new, note="", client=None):
+def record_applied(con, nid, key, old, new, note="", client=None, extra=None):
     """An owner-ordered change that is already done: one line in applied_log for note `nid` (with the time) and the
     note marked primijenjeno, so get_assistant_notes / get_scoring_config show it. A note that is missing or was
-    rejected only gets the log line."""
+    rejected only gets the log line. extra: more fields of the log line (e.g. suggestion_id)."""
     ensure(con)
     now = int(time.time())
     log = list(settings.raw(con).get("applied_log") or [])
-    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new, **({"client": client} if client else {})})
+    log.insert(0, {"ts": now, "note_id": int(nid), "key": key, "old": old, "new": new, **({"client": client} if client else {}),
+                   **(extra or {})})
     _set_settings(con, "applied_log", log[:200])
     con.execute("UPDATE assistant_notes SET status='primijenjeno', decided_ts=?, owner_note=COALESCE(owner_note, ?) "
                 "WHERE id=? AND status IN ('novo', 'prihvaćeno')", (now, (note or "")[:1000] or None, int(nid)))
@@ -599,13 +699,56 @@ def hope_stop(con, lcon=None, market=None):
 
 
 # 10.11. later orders of the owner, each applied ONCE (its own settings key, so a new entry added in a later deploy
-# runs once too): (flag, mode, why). Never live from here.
+# runs once too): (flag, mode, why). Never live from here, except an owner switch (settings.OWNER_SWITCHES: live = on,
+# it only sells) the owner ordered in the chat.
 OWNER_FLAG_ORDERS = (
     ("market_scan", "shadow", "vlasnik u chatu 10.11.: skener tržišta, start = shadow"),
     ("group_discovery", "shadow", "vlasnik u chatu 10.11.: grupe tradera i skrivene liste, start = shadow"),
     ("range_dca", "paper", "vlasnik u chatu 10.11.: range_dca, start = paper (samo demo račun)"),
     ("insider_copy", "shadow", "vlasnik u chatu 10.11.: insajderi prije poziva, start = shadow (paper tek na njegov zahtjev)"),
+    ("momentum_scalp", "paper", "vlasnik u chatu 11.11.: momentum_scalp, start = paper (samo demo račun)"),
+    ("grok_ev_gate", "shadow", "vlasnik u chatu 11.11.: Grokov EV gate, prvo shadow"),
+    ("pre_shill", "shadow", "vlasnik u chatu 11.11.: kupci prije shill mreže, prvo shadow (nikad ne kupuje)"),
+    ("grok_predictions", "shadow", "vlasnik u chatu 11.11.: submit_grok_prediction sprema predviđanja i kalibraciju"),
+    ("event_tokens", "shadow", "vlasnik u chatu 11.11.: event tokeni s Grokom, prvo shadow"),
+    ("range_market", "paper", "vlasnik u chatu 11.11.: range watchlist cijelog tržišta, prvo paper (samo demo račun)"),
+    ("proposals", "paper", "vlasnik u chatu 11.11.: Prijedlozi svih strategija, prvo paper (demo račun; pravi samo na tvoj dodir)"),
+    ("fast_path", "shadow", "vlasnik u chatu 11.11.: faza 1 fast_check, prvo shadow (mjeri odluke i latenciju)"),
+    ("zonewatch", "shadow", "vlasnik u chatu 11.11.: zonski alarmi Grok Botu (zone samo iz rangedca), spoji odmah"),
+    ("range_flip", "shadow", "vlasnik u chatu 11.11.: rangedca flip/pauza/ATR stop, prvo shadow (backtest: DD isti, PnL niži)"),
+    ("range_missed", "paper", "vlasnik u chatu 11.11.: propušteni tokeni na range listu 72 h, paper po range pravilima"),
+    ("fast_path", "paper", "vlasnik u chatu 11.11.: živi kandidati KUPI (paper ako n < 10) — fast_check iz shadowa u paper"),
+    ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
 )
+
+
+# 11.11. (Jure: "Svakako promijeni maksimalnu poziciju tokenu na 1 sol"): settings the owner ordered in the chat, each
+# applied ONCE (its own key; the owner can change it again under Pravila). (key, value, why)
+OWNER_SETTING_ORDERS = (
+    ("owner_token_cap", 1.0, "vlasnik u chatu 11.11.: najviše 1 SOL po tokenu za njegove kupnje (ručno, DCA, nalog na MC); "
+                             "Autopilotov strop kopiranja (dca_token_cap) ostaje"),
+)
+
+
+def owner_setting_orders(con, now=None):
+    """Apply the entries of OWNER_SETTING_ORDERS not applied yet. [text] of what was done."""
+    done = []
+    for key, value, why in OWNER_SETTING_ORDERS:
+        once = f"owner_setting_once:{key}:{value}"
+        raw = settings.raw(con)
+        if raw.get(once):
+            continue
+        old = raw.get(key)
+        if old is None and key == "owner_token_cap":
+            old = raw.get("dca_token_cap", settings.DCA_TOKEN_CAP)
+        if old != value:
+            settings.put(con, key, value, "Jure")
+            record_applied(con, 0, f"setting:{key}", old, value, why)
+            done.append(f"postavka {key}: {old} → {value}")
+        settings.put(con, once, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
 
 
 def owner_flag_orders(con, now=None):
@@ -613,7 +756,8 @@ def owner_flag_orders(con, now=None):
     done = []
     for name, mode, why in OWNER_FLAG_ORDERS:
         key = f"owner_flag_once:{name}:{mode}"
-        if mode not in ("off", "shadow", "paper") or name not in settings.FLAGS or settings.raw(con).get(key):
+        if (mode not in ("off", "shadow", "paper") and not (mode == "live" and name in settings.OWNER_SWITCHES)) \
+                or name not in settings.FLAGS or settings.raw(con).get(key):   # live only for an owner switch
             continue
         old = settings.flag_state(con)[name]["mode"]
         if old != mode:
@@ -627,11 +771,66 @@ def owner_flag_orders(con, now=None):
     return done
 
 
+# 11.11. (Jure: "Prihvati ih. Primjeni ih i makni sa liste. Lista treba biti čista ako nema što što zahtjeva pažnju"):
+# Grok's accepted critiques, now in the code; each note marked primijenjeno ONCE (its own settings key) with what was
+# actually done, so Grok reads in get_assistant_notes / get_scoring_config what changed.
+_SIGNALS = ("signali: token s rug ocjenom risk/hard ili rastom 4x+ od prvog poziva skriven je po zadanom (include_hidden="
+            "true ga vraća s razlogom, hidden_count je uvijek u odgovoru); skener ima gornju granicu rasta 4x (runup_max_x)")
+_CALLERS = ("loši calleri: Grokove težine callera primjenjuju se automatski čim stignu (caller_weights, raspon 0-2, "
+            "zapis u applied_log); djeluju kroz zastavicu caller_weights koja je još u shadowu; ocjene ekipa su "
+            "strože (ocjena traži izmjerene pozive, lanac računa se ne označava kao mreža)")
+OWNER_NOTE_ORDERS = (
+    (54, "signals_clean", _SIGNALS),
+    (96, "signals_clean", _SIGNALS),
+    (105, "grok_ev_gate", "Grokova vrata po EV-u (grok_ev_gate, shadow): EV = p x TP - (1 - p) x SL - trošak, execute_trade "
+                          "prima p_tp i strategy, kalibracija u get_hourly_brief.grok_calibration; momentum_scalp (paper) "
+                          "hvata skokove bez callera; " + _SIGNALS),
+    (84, "grok_ev_gate", "Grokova kalibracija: execute_trade prima p_tp (0-1) i strategy, grok_ev_gate (shadow) bilježi što "
+                         "bi odbio po EV-u, Brierova kalibracija u get_hourly_brief.grok_calibration; momentum_scalp (paper)"),
+    (74, "volume_check", "topcheck: nova provjera volumena (wash score, novčanici prema tradeovima, promet prema likvidnosti, "
+                         "simetrija kupnji i prodaja, sitne transakcije); wash 60+ = pad, ostalo oprez; vrijedi i za "
+                         "kopiranja na Autopilotu"),
+    (77, "volume_check", "topcheck: nova provjera botovskog volumena (wash score, novčanici prema tradeovima, promet prema "
+                         "likvidnosti, simetrija kupnji i prodaja, sitne transakcije); wash 60+ = pad, ostalo oprez"),
+    (85, "wallet_hygiene", "higijena novčanika (wallets/hygiene.py): neaktivni i botovski/sniper novčanici izbačeni iz "
+                           "kopiranja Autopilota i webhooka (copy, signal, dokazani); bilježi se koliko je izbačeno"),
+    (82, "caller_weights", _CALLERS),
+    (75, "caller_weights", _CALLERS),
+    (92, "zivo_runup", "živa lista: token 4x+ od prvog poziva označen kao kasno (pick=False), Pregled ga preskače; ekipa "
+                       "se u kandidatima za trade broji jednom"),
+)
+
+
+def owner_note_orders(con, now=None):
+    """Mark the notes of OWNER_NOTE_ORDERS primijenjeno, each once. [text] of what was done."""
+    ensure(con)
+    done = []
+    for nid, key, what in OWNER_NOTE_ORDERS:
+        k = f"owner_note_once:{nid}"
+        if settings.raw(con).get(k):
+            continue
+        r = con.execute("SELECT status FROM assistant_notes WHERE id=?", (nid,)).fetchone()
+        if r and r[0] in ("novo", "prihvaćeno"):
+            record_applied(con, nid, key, r[0], "primijenjeno", what)
+            done.append(f"bilješka #{nid} primijenjena ({key})")
+        settings.put(con, k, int(now or time.time()), "Jure")
+    for t in done:
+        print(f"pravi trade: primijenjeno po nalogu vlasnika: {t}", flush=True)
+    return done
+
+
 def owner_once_b(con, lcon=None, market=None, now=None):
     """Both parts once; the Hope part is retried (HOPE_TRIES times, by dca_loop once a minute) while a price is
     missing. Returns True when nothing is left to do."""
     owner_flags_b(con, now)
     owner_flag_orders(con, now)
+    owner_setting_orders(con, now)
+    owner_note_orders(con, now)
+    try:   # 11.11. (Jure: HAOBIBI): the learning label (league.db) and the range pin, each once (rangedca/owner.py)
+        from rangedca import owner as range_owner
+        range_owner.owner_once(con, lcon, now)
+    except Exception as e:  # noqa: BLE001 - logged; its markers are not set, so the next start tries again
+        print(f"pravi trade: nalog vlasnika 11.11. (HAOBIBI): {type(e).__name__}: {e}", flush=True)
     raw = settings.raw(con)
     if raw.get(HOPE_KEY):
         return True
@@ -731,6 +930,141 @@ def apply(con, nid, owner_note=""):
     con.commit()
     print(f"pravi trade: primijenjen prijedlog asistenta #{d['id']}: {words}", flush=True)
     return "primijenjeno", f"Primijenjeno: {words}."
+
+
+# ---------- caller weights: applied on arrival ----------------------------------------------------------------------
+# 11.11. (Jure: "Automatically accept all weight changes and apply them."): a caller weight suggested by the assistant
+# (a suggestion note with proposed_change {"caller", "platform", "weight"}, from submit_suggestion or
+# submit_caller_weights; or a row of the older table assistant_suggestions) is written into trade settings
+# caller_weights the moment it arrives, through the same path as "Primijeni na bota" (_apply_caller, range 0-2), logged
+# in applied_log (ts, note_id or suggestion_id, key caller_weights.<handle>, old, new, client) and marked applied. The
+# weights act only through the flag caller_weights (ui/autopilot.caller_weights_flag); this NEVER moves that flag.
+AUTO_WEIGHT_WHY = "vlasnik 11.11.: težine callera primjenjuju se automatski"
+WEIGHTS_ONCE_KEY = "owner_once_1111_weights"
+SUGG_COLS = ("applied_ts",)
+
+
+def _is_weight(pc):
+    return isinstance(pc, dict) and "caller" in pc and "weight" in pc
+
+
+def auto_apply_weight(con, nid, client=None):
+    """Apply note `nid`'s caller weight now. (key, old, new); None when the note carries no weight or no longer
+    waits (rejected / applied). ValueError (weight outside 0-2, no handle): the note stays as it is."""
+    ensure(con)
+    r = con.execute("SELECT proposed_change FROM assistant_notes WHERE id=? AND kind='suggestion' AND status IN "
+                    "('novo', 'prihvaćeno')", (int(nid),)).fetchone()
+    try:
+        pc = json.loads(r[0]) if r and r[0] else None
+    except ValueError:
+        pc = None
+    if not _is_weight(pc):
+        return None
+    h, old, new = _apply_caller(con, pc)
+    key = f"caller_weights.{h}"
+    record_applied(con, nid, key, old, new, AUTO_WEIGHT_WHY, client=client or "auto")
+    print(f"pravi trade: težina callera {h}: {old} → {new} (bilješka #{nid}, automatski)", flush=True)
+    return key, old, new
+
+
+def _auto_weight_answer(con, nid, client):
+    """The part of submit_suggestion's answer for a caller weight."""
+    try:
+        got = auto_apply_weight(con, nid, client)
+    except (ValueError, TypeError) as e:
+        return {"status": "novo", "message": f"Stored, NOT applied: {e}. The owner decides it on the Autopilot page."}
+    if not got:
+        return {}
+    key, old, new = got
+    mode = settings.flag("caller_weights", con=con)
+    return {"status": "primijenjeno", "applied": {"key": key, "old": old, "new": new},
+            "flag_caller_weights": mode,
+            "message": (f"Applied at once (the owner's standing order): {key} {old} -> {new}. Caller weights act only "
+                        f"through the flag caller_weights, now {mode}; this never changes the flag.")}
+
+
+def _sugg_ensure(con):
+    """The older table assistant_suggestions (ui/mcpdata.SUGG_SCHEMA) with its applied_ts column."""
+    from ui import mcpdata
+    con.execute(mcpdata.SUGG_SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(assistant_suggestions)")}
+    for c in SUGG_COLS:
+        if c not in have:
+            con.execute(f"ALTER TABLE assistant_suggestions ADD COLUMN {c} INTEGER")
+    con.commit()
+
+
+def apply_suggestion_weight(con, sid, client=None):
+    """A row of assistant_suggestions (pending, or approved by /pravi-trade/sugok and not applied yet): its weight
+    into caller_weights, the log line (suggestion_id), status approved with applied_ts. (key, old, new) or None."""
+    _sugg_ensure(con)
+    r = con.execute("SELECT handle, platform, weight FROM assistant_suggestions WHERE id=? AND (status='pending' OR "
+                    "(status='approved' AND applied_ts IS NULL))", (int(sid),)).fetchone()
+    if not r:
+        return None
+    h, old, new = _apply_caller(con, {"caller": r[0], "platform": r[1] or "x", "weight": r[2]})
+    now = int(time.time())
+    key = f"caller_weights.{h}"
+    record_applied(con, 0, key, old, new, AUTO_WEIGHT_WHY, client=client or "auto", extra={"suggestion_id": int(sid)})
+    con.execute("UPDATE assistant_suggestions SET status='approved', decided_ts=COALESCE(decided_ts, ?), applied_ts=? "
+                "WHERE id=?", (now, now, int(sid)))
+    con.commit()
+    print(f"pravi trade: težina callera {h}: {old} → {new} (prijedlog #{sid}, automatski)", flush=True)
+    return key, old, new
+
+
+def apply_waiting_weights(con, client="vlasnik 11.11. (jednom)"):
+    """Every caller weight still waiting: suggestion notes novo / prihvaćeno with a weight, and assistant_suggestions
+    rows pending or approved-not-applied, oldest first (a newer weight of the same caller wins). [text] of what was
+    done; a weight that fails its check is logged and left waiting."""
+    ensure(con)
+    done = []
+    for nid, pc in con.execute("SELECT id, proposed_change FROM assistant_notes WHERE kind='suggestion' AND status IN "
+                               "('novo', 'prihvaćeno') AND proposed_change IS NOT NULL ORDER BY id").fetchall():
+        try:
+            if not _is_weight(json.loads(pc)):
+                continue
+            got = auto_apply_weight(con, nid, client)
+        except (ValueError, TypeError) as e:
+            done.append(f"#{nid}: nije primijenjeno ({e})")
+            continue
+        if got:
+            done.append(f"#{nid} {got[0]}: {got[1]} → {got[2]}")
+    try:
+        _sugg_ensure(con)
+        ids = [i for (i,) in con.execute("SELECT id FROM assistant_suggestions WHERE status='pending' OR "
+                                         "(status='approved' AND applied_ts IS NULL) ORDER BY id")]
+    except Exception:  # noqa: BLE001 - no older table: nothing waits there
+        ids = []
+    for sid in ids:
+        try:
+            got = apply_suggestion_weight(con, sid, client)
+        except (ValueError, TypeError) as e:
+            done.append(f"prijedlog #{sid}: nije primijenjen ({e})")
+            continue
+        if got:
+            done.append(f"prijedlog #{sid} {got[0]}: {got[1]} → {got[2]}")
+    return done
+
+
+def owner_once_1111(con, now=None):
+    """11.11. (Jure), once at the first start after the deploy (dca_loop): every caller weight still waiting is
+    applied (apply_waiting_weights), and the stale Grok trade requests are tidied (ui/mcpapi.cleanup_requests_once).
+    [text] of what was done ([] when both ran before)."""
+    done = []
+    if not settings.raw(con).get(WEIGHTS_ONCE_KEY):
+        done += apply_waiting_weights(con)
+        settings.put(con, WEIGHTS_ONCE_KEY, int(now or time.time()), "Jure")
+    try:
+        from ui import mcpapi
+        n = mcpapi.cleanup_requests_once(con, now)
+        if n:
+            done.append(f"zastarjelih zahtjeva s Groka pospremljeno: {n}")
+    except Exception as e:  # noqa: BLE001 - the 5-min tick tidies them anyway
+        done.append(f"zahtjevi s Groka nisu pospremljeni ({type(e).__name__})")
+    for t in done:
+        print(f"pravi trade: nalog vlasnika 11.11.: {t}", flush=True)
+    return done
 
 
 def _num(x):

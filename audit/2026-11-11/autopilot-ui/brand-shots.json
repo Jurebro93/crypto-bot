@@ -1,0 +1,29 @@
+[
+ {
+  "width": 375,
+  "file": "brand-375.png",
+  "scrollWidth": 375,
+  "innerWidth": 375,
+  "height": 3686,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 768,
+  "file": "brand-768.png",
+  "scrollWidth": 768,
+  "innerWidth": 768,
+  "height": 2749,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 1440,
+  "file": "brand-1440.png",
+  "scrollWidth": 1440,
+  "innerWidth": 1440,
+  "height": 2586,
+  "noHorizontalScroll": true,
+  "errors": []
+ }
+]

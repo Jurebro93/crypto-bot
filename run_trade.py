@@ -154,9 +154,48 @@ def _league():
 
 
 MIN_MCAP_USD = 30_000   # CLAUDE.md: tokens under $30k are never bought; last line of defence behind league/copy.py
-PROOF = {"closed": 10, "win_rate": 0.4}   # 9.11. (audit P39): a follow needs this much demo proof before real money
+# 9.11. (audit P39): a follow needs this much demo proof before real money. 11.11. (owner's rule D, trade/edge): n >= 10
+# closed demo trades, their mean result net of cost >= +3 % and the 90 % interval's lower bound > 0 (the old "PnL > 0
+# and >= 40 % winners" is gone: 40 % is under break-even for TP +15 / SL -10)
+PROOF = {"closed": 10, "ev_min": 0.03, "ci_lo_min": 0.0}
 COPY_BOOK_WAIT_S = 5   # 9.11. (review novac): league/copy.py commits the demo trade a few ms before its follow_id and
                        # copy_log row; a copy read in that gap looks like a manual buy with a fresh signal
+# 11.11.: the sources of the buys the page books itself (ui/pravitrade._post_buy: the owner's "ručno ...", Grok's
+# "Grok auto (MCP)"): it commits the demo trade a few ms before manual_size / manual_override in trade.db, so such a
+# trade read without its stake waits up to COPY_BOOK_WAIT_S instead of being mirrored as an automatic buy
+PAGE_SOURCES = tuple(p.rstrip("%") for p in executor.OWN_REASONS)
+
+
+def _grok_source(src):
+    """True for a Grok buy (autotrade, or a Grok request the owner approved): its limits stay hard (no override)."""
+    try:
+        from league import exitplan
+        from ui import grokauto
+        return (src or "") in (grokauto.SRC, exitplan.APPROVED_SRC)
+    except Exception:  # noqa: BLE001 - the two literal sources, should an import fail
+        return (src or "") in ("Grok auto (MCP)", "ručno: Grok odobreno (MCP)")
+
+
+REASON_MIN = 10   # = ui/pravitrade.REASON_MIN: the owner's typed reason of a buy under $30k MC, at least this long
+
+
+def _override(cfg, t):
+    """11.11. (owner: "ako se složim, ručno uvijek nadjačava sve ostalo"): (text, keys) of what the owner confirmed he
+    overrides for this manual buy on the page (settings manual_override, written by ui/pravitrade._post_buy before
+    manual_size): the text for executor.buy(override=...), the rule keys for the checks here (MIN_MCAP: "mc30k" with
+    his reason). (None, set()) for a copy or a Grok buy, whatever the settings say."""
+    src = t["source"] or ""
+    if src.startswith("copy ") or _grok_source(src):
+        return None, set()
+    o = (cfg.get("manual_override") or {}).get(str(t["id"]))
+    if not o:
+        return None, set()
+    o = o if isinstance(o, dict) else {}
+    why = o.get("why") or []
+    keys = {str(k) for k in (o.get("keys") or [])}
+    if "mc30k" in keys and len(str(o.get("reason") or "").strip()) < REASON_MIN:
+        keys.discard("mc30k")   # under $30k only with the owner's reason (the page never writes one without)
+    return ("; ".join(str(w) for w in why)[:500] if why else "nadjačano"), keys
 
 
 def _league_fresh(lg, since):
@@ -195,15 +234,17 @@ def _no_proof(lg, follow_id):
     real money yet, or None. Only consulted when live (dry mirrors collect real quotes for exactly this proof)."""
     if follow_id is None:   # 9.11. (review novac): a copy whose follow was never booked has no proof to look up
         return "kopija bez zapisa praćenja (follow_id); bez dokaza u demu ne ide u pravi novac"
+    from trade import edge
     try:
         from league import copy as lcopy
         r = lcopy.follow_results(lg).get(follow_id)
     except Exception:  # noqa: BLE001 - no copy tables: no proof
         r = None
-    closed, wins, pnl = (r["closed"], r["wins"], r["pnl"]) if r else (0, 0, 0.0)
-    if closed < PROOF["closed"] or pnl <= 0 or wins / closed < PROOF["win_rate"]:
-        return (f"praćenje bez dokaza u demu (zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $; "
-                f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih)")
+    rets = list((r or {}).get("rets") or [])
+    ok, why, s = edge.live_proof(rets, n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
+    if not ok:
+        return (f"praćenje bez dokaza u demu ({edge.proof_text(s)}: {why}; treba {PROOF['closed']}+ zatvorenih, "
+                f"EV >= {PROOF['ev_min']:+.0%} i donja granica 90 % intervala > 0)")
     return None
 
 
@@ -263,6 +304,16 @@ def _range_lot(con, lg, t, cfg):
     return None, sol, True
 
 
+def _momentum_gate():
+    """11.11. (flag momentum_scalp): the live gate again before a momentum trade becomes a real swap (momentum/gate.py:
+    >= 50 closed paper trades, EV > 0, hit rate >= 45 %). An unreadable proof refuses."""
+    try:
+        from momentum import gate
+        return gate.refusal(cached=True)
+    except Exception as e:  # noqa: BLE001 - no proof, no real money
+        return f"momentum_scalp: dokaz se ne može pročitati ({type(e).__name__})"
+
+
 def _mirrored(con, league_id):
     """10.11. (Jure: "sekundni poslovi ne smiju čitati cijelu bazu svake sekunde"): has this demo trade its
     positions row already? One lookup through the index on league_id (trade/aplog.INDEXES) per fresh demo trade; the
@@ -312,13 +363,21 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             call_ts = _call_ts(lg, t["id"])
             if is_copy and (t["follow_id"] is None or call_ts is None) and now - t["opened_ts"] < COPY_BOOK_WAIT_S:
                 continue   # 9.11. (review novac): the copy loop is still booking follow_id / copy_log: next tick (`since` is fixed)
+            if not size and not is_copy and (t["source"] or "").startswith(PAGE_SOURCES) \
+                    and now - t["opened_ts"] < COPY_BOOK_WAIT_S:
+                continue   # 11.11.: the page is still writing its stake (and an override): next tick
+            # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the owner's own buy he confirmed over his limits
+            ov, ov_keys = _override(cfg, t) if size and not is_copy else (None, set())
             # 9.11. (audit P30/P31/P32): "fresh" is measured from the CALL (copy_log.ev_ts) when the copy loop wrote
             # it, not from the demo entry; the demo may legally enter up to max_delay_min after the post
             t0 = min(t["opened_ts"], call_ts or t["opened_ts"])
             why = None
             if now - t0 > cfg["max_signal_age_s"]:
                 why = f"signal star {now - t0:.0f} s"
-            elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD:   # known bad only (P1/P7)
+            elif t["entry_mcap"] is not None and t["entry_mcap"] < MIN_MCAP_USD \
+                    and not (ov and "mc30k" in ov_keys and "mc30k" not in executor.HARD_RULES):
+                # known bad only (P1/P7). 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno
+                # dobar razlog"): only his own manual buy he confirmed with a reason passes; copies, Grok, automatics never
                 why = f"MC ${t['entry_mcap']:,.0f} ispod 30k (pravilo: ispod 30k se ne kupuje)"
             elif live and not size and (t["follow_id"] is not None or is_copy):   # a copy never passes as "manual"
                 why = _no_proof(lg, t["follow_id"])
@@ -328,6 +387,8 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
             rng_sol, rng_add = None, False
             if not why and (t["source"] or "").startswith("range lot "):   # 10.11. (Jure, flag range_dca)
                 why, rng_sol, rng_add = _range_lot(con, lg, t, cfg)
+            if not why and (t["source"] or "").startswith("momentum"):     # 11.11. (Jure, flag momentum_scalp)
+                why = _momentum_gate()
             if why:
                 con.execute("INSERT INTO positions (league_id, token, symbol, opened_ts, mode, status, reason) "
                             "VALUES (?,?,?,?,?,?,?)", (t["id"], t["token"], t["symbol"], int(now), tag.lower(), "blocked", why))
@@ -342,9 +403,12 @@ def follow_league_once(con, cfg, since, now=None, quiet=False):
                              league_id=t["id"], size_sol=float(size) if size else rng_sol,
                              tp_pct=_tp_pct(t["auto"], cfg.get("tp_default") or 15),   # 15: the page default (ui/pravitrade)
                              add=(bool(size) and not is_copy) or rng_add,
-                             manual=bool(size) and not is_copy, **kw)   # 10.11. (Jure: "makni limit"): no day spend limit
+                             manual=bool(size) and not is_copy,   # 10.11. (Jure: "makni limit"): no day spend limit
+                             override=ov, **kw)   # 11.11.: only the SOFT limits; kill switch and balance still hold
             if r["status"] == "open":
-                _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})", quiet)
+                over = "; ".join(r.get("overridden") or []) or ov
+                _say(f"{tag} KUPNJA {t['symbol']} {r['amount_in'] / executor.LAMPORTS:.3f} SOL ({t['source']})"
+                     + (f" uz potvrđeno nadjačavanje: {over}" if ov else ""), quiet)
             else:
                 _say(f"{tag} kupnja {t['symbol']} nije prošla: {r.get('error')}", quiet)
         for pos_id, lid, qty_raw, qty_left, sym in con.execute(
@@ -462,6 +526,10 @@ def cmd_follow(a):
                 print(f"pravi trade: mod {'LIVE' if live_now else 'DRY-RUN'} (prekidač {'uključen' if cfg.get('on') else 'isključen'}, "
                       f"TRADE_LIVE={os.environ.get('TRADE_LIVE', '')!r}, ključ {'da' if wallet.can_sign() else 'ne'}, "
                       f"config mode={cfg.get('mode', '?')!r} samo kao napomena)", flush=True)
+                try:   # 11.11. (Jure: "pokaži iz loga da su Grokovi limiti nepromijenjeni"): the limits in force
+                    print(f"pravi trade: {limits_line(con, cfg)}", flush=True)
+                except Exception as e:  # noqa: BLE001 - a log line never stops the loop
+                    print(f"pravi trade: limiti nisu ispisani: {type(e).__name__}: {e}", flush=True)
                 beat["live"] = live_now
             if time.time() - beat["ts"] >= 60:   # the page shows "trade proces ne radi" when this gets old
                 settings.put(con, "heartbeat", int(time.time()), "bot")
@@ -539,6 +607,23 @@ def cmd_status(a):
         for i, sym, tok, ts, st, sin, sback, q, ql, why in rows:
             extra = f"uloženo {sin:.3f}, vraćeno {sback:.4f}, ostalo {ql / q:.0%}" if q else (why or "")
             print(f"  #{i:<4} {dt.datetime.fromtimestamp(ts):%m-%d %H:%M} {sym or tok[:8]:<12} {st:<8} {extra}")
+
+
+def limits_line(con, cfg):
+    """One log line of the limits in force (settings as stored, not defaults): Grok autotrade's own, the caps every
+    automatic live buy gets (executor.LIVE_CAPS), the owner's per-token cap (his manual buys, DCA, MC orders, the Grok
+    requests he approves) and the Autopilot's per-token cap (copies; Grok autotrade too)."""
+    from ui import grokauto
+    g = grokauto.limits(con)
+    raw = settings.raw(con)
+    own = raw.get("owner_token_cap", raw.get("dca_token_cap", settings.DCA_TOKEN_CAP))
+    auto_cap = raw.get("dca_token_cap", settings.DCA_TOKEN_CAP)
+    lc = executor.LIVE_CAPS
+    return (f"limiti: Grok autotrade {g['grok_max_sol_per_trade']:g} SOL po tradeu, {g['grok_max_sol_per_day']:g} SOL "
+            f"na dan, {g['grok_max_open']} otvorene, dnevni gubitak {g['grok_max_loss_day']:g} SOL, {auto_cap:g} SOL po "
+            f"tokenu | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
+            f"{lc['max_open']} otvorene, gubitak {lc['max_loss_day']:g} | tvoje ručne kupnje: {own:g} SOL po tokenu, "
+            f"{cfg.get('max_sol_per_trade')} SOL po tradeu")
 
 
 def main(argv=None):

@@ -28,7 +28,8 @@ ACTIVE_MIN = 7 * 24     # events in 7 days for a type to count as a feed that sh
 SERVICE = "podaci"
 NAMES = {"call": "pozivi (X/Telegram)", "wallet_buy": "kupnje praćenih novčanika", "wallet_sell": "prodaje praćenih "
          "novčanika", "transfer": "transferi novčanika", "x_post": "X objave", "price_tick": "cijene",
-         "trade": "tradeovi Autopilota", "signal": "signali"}
+         "trade": "tradeovi Autopilota", "signal": "signali", "zone_alert": "zonski alarmi"}
+NO_GAP = frozenset({"zone_alert"})   # 11.11.: alarms come when prices cross zones; an hour without one is normal
 
 
 def in_window(now=None, window=WINDOW):
@@ -69,6 +70,8 @@ def alerts_for(st, now=None, window=WINDOW, gap_min=GAP_MIN):
         return []
     out = []
     for s in st:
+        if s["type"] in NO_GAP:
+            continue
         if not s["active"] or s["last_ts"] is None or s["gap_min"] is None or s["gap_min"] <= gap_min:
             continue
         hours = s["gap_min"] / 60

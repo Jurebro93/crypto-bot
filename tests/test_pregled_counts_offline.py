@@ -137,7 +137,10 @@ class WalletRecommendation(unittest.TestCase):
         base = {"closed": 20, "closed_pnl_sol": 10.0, "win_rate": 0.6, "median_hold_min": 40, "last_trade_days": 0.5,
                 "top_trade_share": 0.3}
         base.update(st)
-        return {"wallet": addr, "copy_score": copy, "stats": base, "labels": []}
+        # 11.11. (wallets/rang.py): the copy list reads the copy ranking (proven 10+, copyable, Ocjena), not copy_score
+        rk = {"target": addr, "score": copy, "n": base["closed"], "proven": base["closed"] >= 10, "copyable": True,
+              "roi": 0.3 if base["closed_pnl_sol"] > 0 else -0.1}
+        return {"wallet": addr, "copy_score": None, "ocjena": copy, "rang": rk, "stats": base, "labels": []}
 
     def test_three_picks_with_confidence_and_demo_copies(self):
         from ui import preporuka

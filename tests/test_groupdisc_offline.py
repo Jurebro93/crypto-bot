@@ -172,8 +172,11 @@ class CallerGroups(Base):
         self.assertEqual((met["events"], met["mcap_first_med"], met["public_delay_min_med"]), (3, 40000, 20.0))
         self.assertEqual(met["grade"], "exit_liquidity")
         self.assertAlmostEqual(met["ev_1h"], 0.48)
-        self.assertEqual(got[("c", "d")][2]["grade"], "quality")
+        # 11.11. (Jure): good numbers on 3 events are not "quality" any more (8+ measured at 1 h / 4 h / 24 h needed)
+        self.assertEqual(got[("c", "d")][2]["grade"], "insufficient_data")
+        self.assertEqual(got[("c", "d")][2]["n_measured"], 3)
         self.assertGreaterEqual(met["pairs"][0]["lift_10min"], 5)
+        self.assertEqual((met["n_links"], met["density"]), (1, 1.0))   # a pair: its one link is all there can be
 
 
 class ShadowScoring(Base):

@@ -106,19 +106,20 @@ class Page(Base):
 
     def test_order_of_the_mock_up_and_no_chip_bar(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
-        _, body = pravitrade.page({}, "Jure")
-        # 10.11. (Jure): the floating menu first, "Brza kupnja" right under the chart, not under "Kako trguje"
-        nav_end = body.index("</nav>", body.index("class=ap-fn"))   # the menu's own words ("Pravila", "Još") come first
-        # 10.11. 20:41 (Jure: "fokusirano na trade, sve ostalo ispod"): positions before the decision log
-        at = [body.index(k, nav_end) for k in ('id="apc-ap"', ">Brza kupnja<", ">Otvorene pozicije<", ">Dnevnik odluka<",
-                                      ">Kako trguje<", ">Koga prati<", ">Pravila<", ">Još<", ">Tko sada zove koji token<",
-                                      ">Wallet i uplata<", ">Tko vidi stranicu<", ">Kako je zaštićeno<")]
+        self._follow()   # 11.11.: "Koga pratimo" exists only while somebody is followed
+        # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): chart and tables first, the order panel beside them,
+        # then "Što kupiti" (one line while nothing has EV > 0), "Koga pratimo" and "Postavke" (sve=1: every lazy part)
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
+        at = [body.index(k) for k in ("id=apx-hdr", "id=apx-chartbox", "id=apx-port", ">Pozicije <", ">Otvoreni nalozi <",
+                                      ">Povijest<", ">Dnevnik<", "id=kupi-odmah", "Nema prijedloga s EV &gt; 0",
+                                      ">Koga pratimo <", ">Tko sada zove koji token (60 min)<", ">Postavke<", ">Pravila<",
+                                      ">Uredi praćenja<", ">Wallet i uplata<", ">Kako je zaštićeno<")]
         self.assertEqual(at, sorted(at))
         # no secnav chips: every h2 opts out (10.11. 23:04: the cards' titles had made a chip bar again)
         h2s = re.findall(r"<h2[^>]*>", body)
         self.assertTrue(h2s)
         self.assertEqual([h for h in h2s if 'data-sec=""' not in h and "nosec" not in h], [])
-        self.assertIn('class="ap ms-page"', body)
+        self.assertIn("class=apx id=apx", body)
 
     def test_grok_summary_is_under_jos_not_above_the_trade(self):
         # 10.11. 20:41 (Jure: "Ekran treba biti čist i uredan i fokusiran na trade. Sve ostalo ispod")
@@ -128,20 +129,25 @@ class Page(Base):
         assistnotes.ensure(tc)
         assistnotes.submit_daily_summary(tc, "k1", "Sažetak dana", "Dugi tekst asistenta.", {"x": 1})
         tc.close()
+        # 11.11.: the trade in the first HTML (positions, the order panel), the summary only under "Postavke i
+        # dijagnostika", which is loaded when it is opened
         _, body = pravitrade.page({}, "Jure")
-        self.assertLess(body.index("id=kupi-odmah"), body.index("id=pozicije"))
+        self.assertLess(body.index("id=pozicije"), body.index("id=kupi-odmah"))
         self.assertLess(body.index("id=pozicije"), body.index("id=dnevnik"))
-        self.assertGreater(body.index("id=sazetak"), body.index(">Još<"))
+        self.assertNotIn("id=sazetak", body)
+        _, full = pravitrade.page({"sve": "1"}, "Jure")
+        self.assertGreater(full.index("id=sazetak"), full.index("id=apx-ostalo"))
 
     def test_no_emoji_and_no_capital_shouting_on_the_page(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
         os.environ["TRADE_LIVE"] = "1"
         self.addCleanup(os.environ.pop, "TRADE_LIVE", None)
-        _, body = pravitrade.page({"ok": "Spremljeno."}, "Jure")
+        _, body = pravitrade.page({"ok": "Spremljeno.", "sve": "1"}, "Jure")
         frag = pravitrade.dnevnik_fragment("Jure") + pravitrade.positions_fragment("Jure")
         for ch in ("✓", "✕", "🔒", "⚠", "⛔", "🟡", "🛑", "⏸", "ⓘ", "UKLJUČEN", "ISKLJUČEN", "PRESKOČIO", "KUPIO"):
             self.assertNotIn(ch, body + frag, ch)
-        self.assertIn('<p class="ap-w ok">Spremljeno.</p>', body)   # the answer to a form, as a line with a dot
+        # 11.11.: the answer to a form is the toast over the page (the old header line went with the header)
+        self.assertIn('<div class="ap-toast ok" role=status onclick="this.remove()">Spremljeno.', body)
 
     def test_state_line_says_finish_the_setup_to_the_owner_only(self):
         self.mods(fake_equity(history(), SUMMARY), None)
@@ -152,10 +158,13 @@ class Page(Base):
         with mock.patch.object(executor, "armed", lambda: True):
             pravitrade._EQ.update(ts=0.0)
             self.assertNotIn("Dovrši", pravitrade.head_fragment("Jure"))   # address, SOL (1,772) and key: ready
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the row is under "Postavke i dijagnostika"
         self.assertIn("<details class=ap-sec id=postavljanje>", body)
         self.assertIn("Postavljanje walleta", body)
         self.assertIn(f"1,772{NB}SOL · 9xQe", body)   # the wallet row: balance from the value history, short address
+        # 11.11.: the title bar leads to the steps while the wallet is not ready (here the key is not in Render)
+        self.assertIn('<a class=apx-state href="#postavljanje">Dovrši 2/4</a>', body)
+        self.assertNotIn("Dovrši", pravitrade.page({"sve": "1"}, "Ivan")[1])
 
     def test_positions_are_rows_that_open_the_sell_buttons(self):
         cfg = settings.merged({"size_sol": 0.05, "max_open": 5, "on": True}, self.con)
@@ -241,15 +250,18 @@ class QuickBuyAndMenu(Base):
     """10.11. (Jure): quick buy right under the chart, and a floating menu to the parts of the page."""
 
     def test_owner_sees_quick_buy_under_the_chart_and_the_menu(self):
+        # 11.11. (ui/apterm): the order panel (id=kupi-odmah, the anchor the buy forms return to) beside the chart; on a
+        # phone the sticky "Kupi / Prodaj" bar opens it; tabs instead of the floating menu
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
         _, body = pravitrade.page({}, "Jure")
-        self.assertLess(body.index('id="apc-ap"'), body.index("id=kupi-odmah"))
-        self.assertLess(body.index("id=kupi-odmah"), body.index(">Dnevnik odluka<"))
-        nav = body[body.index("class=ap-fn"):body.index("</nav>", body.index("class=ap-fn"))]
-        for sid in ("#ap-head", "#kupi-odmah", "#dnevnik", "#pozicije", "#pratim", "#pravila", "#jos"):
-            self.assertIn(f'href="{sid}"', nav)
-            self.assertIn(f"id={sid[1:]}", body)                   # every link has its target on the page
+        self.assertLess(body.index("id=apx-chartbox"), body.index("id=kupi-odmah"))
+        for tab in ("pozicije", "nalozi", "povijest", "dnevnik"):
+            self.assertIn(f"data-tab={tab}", body)
+            self.assertIn(f"id={tab}", body)                      # every tab has its pane on the page
+        self.assertIn('data-sheet=buy>Kupi</button>', body)
+        self.assertIn('data-sheet=sell>Prodaj</button>', body)
         self.assertEqual(body.count("action=/pravi-trade/buy"), 1)   # one buy form, not two
+        self.assertNotIn("class=ap-fn", body)
 
     def test_viewer_gets_the_menu_without_buy(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())

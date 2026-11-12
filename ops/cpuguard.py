@@ -136,6 +136,8 @@ PROCESSES = (
      "nadzor memorije svake minute i održavanje baza: drži bravu pisanja i nad trade.db i league.db, "
      "pauza bi produžila čekanje petlje novca"),
     ("heavy", "-m ops.heavy", (), PROTECTED, "omotač teškog posla: čeka dijete i drži bravu; sam ne troši CPU"),
+    # 11.11.: one line at every start (start.sh): which Apify sources are off and why; reads a small JSON, milliseconds
+    ("apify-stanje", "-m hype.apify", (), PROTECTED, "jedan red na startu: ugašeni Apify izvori; čita mali JSON"),
     ("sched", "run_sched.py", (), PROTECTED, "raspored: drži sat i pokreće svoje poslove; sam ne troši CPU"),
     # 2: the hype scan (a child of the demo loop every 2 min) and the nightly smart-wallet learning
     ("hype-status", "run_hype.py", ("status",), JOBS, "status tokena svakih 6 sati (raspored)"),
@@ -163,13 +165,40 @@ PROCESSES = (
     # 10.11. (flag insider_copy): launches from 10k, pre-call insiders; the copy itself runs in the UI's copy loop
     ("insajderi", "-m kol.precall", (), JOBS,
      "insajderi prije poziva i nova lansiranja od 10k: noćni prolaz (Helius, strop kredita) i mali svakih 15 min"),
+    # 11.11. (flag pre_shill): wallets that buy before the paid shill network; shadow only, nobody waits for it
+    ("shill-mreza", "-m kol.preshill", (), JOBS,
+     "kupci prije shill mreže: noćni prolaz (Helius, strop kredita) i mali svakih 30 min, samo sjena"),
     ("research-a", "-m research.hope_report", (), JOBS, "jednokratni sažetak istraživanja u log (samo čitanje)"),
     ("rug-arhiva", "-m rugfilter.archive", (), JOBS, "arhiva rugiranih tokena, jednom na sat"),
+    # 11.11. (Jure: "NIŠTA ne briši bez moje potvrde"): read-only, after a deploy and daily at 06:30; nobody waits for it
+    ("disk", "-m ops.diskreport", (), JOBS,
+     "izvještaj diska (samo čita baze): nakon deploya i dnevno u 06:30, kandidati za čišćenje u log"),
+    # 11.11. (owner switches live_trades_retention / tg_text_retention): the hourly aggregate, the measurement after a
+    # deploy and at 06:30, and only with a switch on the night deletion (01-06, under the heavy-job lock); nobody waits
+    ("retencija", "-m ops.retencija", (), JOBS,
+     "retencija live_trades i tg teksta: satni agregat, mjerenje u log; brisanje samo uz prekidač vlasnika, noću"),
     ("calendar", "run_calendar.py", (), JOBS, "kalendar događaja svakih 6 sati (noću)"),
     ("dex", "run_dex.py", (), JOBS, "DexScreener tokeni događaja svakih 6 sati (noću)"),
     ("dugo", "run_dugo.py", (), JOBS, "dugoročni sloj svakih 6 sati (noću)"),
     # 10.11. (flag range_dca): the entries and exits run in run_ui (protected); this only collects and computes
     ("range", "run_range.py", (), JOBS, "raspon + DCA: snimke kandidata svake minute, rasponi svakih 5 min, noćni backtest"),
+    # 11.11. (flag event_tokens): Grok's event topics and their tokens; measures only, nobody waits for it
+    ("eventi", "run_topics.py", (), JOBS,
+     "event tokeni: podudaranje novih tokena s temama, pretraga DexScreenera svakih 10 min, uloge, cijena oko događaja"),
+    # 11.11. (flag momentum_scalp): the entries and exits run in run_ui (protected); this only collects the signals
+    ("momentum", "run_momentum.py", (), JOBS, "momentum scalp: snimke svake minute, signali i njihov ishod, noćni backtest"),
+    # 11.11. (flag proposals G21): the list is built here and only read by the UI and the MCP; the demo entries run in
+    # run_ui (protected); nobody waits for this by the second
+    ("prijedlozi", "run_proposals.py", (), JOBS,
+     "prijedlozi svih strategija svakih 2,5 min (samo čita i piše proposals.db), noću brzi izlaz callera"),
+    # 11.11. (flag zonewatch): zone alarms to Grok Bot; a few ms of CPU every 30 s (mostly waiting on the network), so
+    # the guard (it pauses only processes above MIN_CPU) practically never touches it, and a pause is a fraction of a s
+    ("zonewatch", "run_zonewatch.py", (), JOBS,
+     "zonski alarmi Grok Botu: svakih 30 s cijene tokena kraj zona i POST webhooka; gotovo bez CPU-a"),
+    # 11.11. (flag fast_path G24): time-sensitive (a decision within 10 s of a followed wallet's buy) but only checks
+    # and decides; the demo entries run in run_ui (protected). Low priority, so paused last of all
+    ("fast", "run_fast.py", (), LAST,
+     "brzi put: svaki signal praćenog izvora odmah dobije provjere i odluku (< 10 s), 20 provjera odjednom"),
     # 11.11. (events.db): the 5-min sync and health check, the 03:00 night batch, the 23:30 EV report; nobody waits
     ("events", "run_events.py", (), JOBS,
      "događaji: sinkronizacija starih tablica svakih 5 min, noćna obrada u 03:00, EV izvještaj u 23:30"),

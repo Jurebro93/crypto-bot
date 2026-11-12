@@ -118,7 +118,7 @@ class PraviTrade(unittest.TestCase):
         self.assertIn("err=", loc)
         self.assertFalse(settings.merged(CFG, self.con)["on"])
 
-        _, body = pravitrade.page({}, "jure")
+        _, body = pravitrade.page({"sve": "1"}, "jure")   # 11.11.: sve=1 renders the lazy parts (ui/apterm)
         self.assertIn("Uključi Autopilot", body)
         # 10.11. (prijedlog dizajna, maketa autopilot.html): the state is a word after a dot, no capitals
         self.assertIn("<span>Isključen</span>", body)
@@ -139,8 +139,8 @@ class PraviTrade(unittest.TestCase):
         try:
             pravitrade.post("/pravi-trade/invite", {"u_list": ["ivan", "Nepoznat"]}, "Jure")
             self.assertEqual(settings.invited(self.con), ["Ivan"])
-            _, body = pravitrade.page({}, "Ivan")
-            self.assertIn("Koga prati", body)   # 10.11. (maketa): the row's name under "Kako trguje"
+            _, body = pravitrade.page({"sve": "1"}, "Ivan")
+            self.assertIn("Koga pratimo", body)   # 11.11.: the card under the tables
             self.assertNotIn("Spremi limite", body)
             self.assertNotIn("Postavljanje walleta", body)   # invited: look only
         finally:
@@ -422,7 +422,7 @@ class AutoPick(PraviTrade):
             pravitrade.post("/pravi-trade/auto", {"on": "0", "days": "14", "n": "2"}, "Jure")
             recs["kol"] = []
             self.assertEqual(autopilot.sync_follows(self.lg, self.con, force=True), [])
-            _, body = pravitrade.page({}, "Jure")
+            _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the follows are in "Koga pratimo" (lazy)
             self.assertIn("Neka alat sam bira", body)
             # 10.11. (Jure: "čista, minimalistička", no row of emojis): the tag is the words "odabrao alat" now
             self.assertIn("odabrao alat", body)
@@ -447,6 +447,6 @@ class LiveLog(PraviTrade):
         # 10.11. (Jure: "log na klik pri vrhu"): the order list is the "Tehnički zapis naloga" pop-up of the closed
         # "Dnevnik Autopilota" (its rows come from /pravi-trade/dnevnik only when it is opened), no "Uživo: nalozi"
         self.assertIn("Tehnički zapis naloga", body)
-        self.assertIn("data-src=/pravi-trade/dnevnik", body)
-        # 10.11. 20:41 (Jure: "fokusirano na trade, sve ostalo ispod"): the row "Dnevnik odluka" right under the positions
-        self.assertGreater(body.index("Dnevnik odluka"), body.index("id=pozicije"))
+        # 11.11. (ui/apterm): the decision log is the tab "Dnevnik" next to the positions, fetched when it is opened
+        self.assertIn("data-x-src=/pravi-trade/dnevnik", body)
+        self.assertGreater(body.index("id=dnevnik"), body.index("id=pozicije"))

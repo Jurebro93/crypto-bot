@@ -1068,7 +1068,8 @@ def copy_step(con, p, c, now, m, log=print):
 def live_refusal(con, now=None, path=None, league_db=None, cfg=None):
     """trade/settings.LIVE_GATES: None when insider_copy may go live (on top of the backtest and 7 days of paper in the
     plus), else why not: >= live_min_closed closed paper copies of this module's follows since the flag went to paper,
-    with EV (mean return) > 0. con: trade.db. A proof that cannot be read refuses."""
+    passing trade/edge.live_proof (11.11.: mean return net of cost >= +3 %, 90 % interval above 0). con: trade.db. A
+    proof that cannot be read refuses."""
     from trade import settings
     c = config(cfg)
     st = settings.flag_state(con)[FLAG]
@@ -1092,9 +1093,12 @@ def live_refusal(con, now=None, path=None, league_db=None, cfg=None):
     need = int(c["live_min_closed"])
     if len(rets) < need:
         return f"paper ima tek {len(rets)} od {need} zatvorenih kopija insajdera"
-    ev = sum(rets) / len(rets)
-    if ev <= 0:
-        return f"EV paper kopija insajdera {ev:+.1%} na {len(rets)} tradeova nije iznad nule"
+    # 11.11. (owner's rule D, trade/edge): EV >= +3 % net of the calibrated cost AND its 90 % interval above 0
+    from trade import cost, edge
+    adj = cost.demo_adjust()
+    ok, why, _s = edge.live_proof([r + adj for r in rets])
+    if not ok:
+        return f"dokaz paper kopija insajdera ({len(rets)} tradeova) nije prošao: {why}"
     return None
 
 

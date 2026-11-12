@@ -62,6 +62,13 @@ class FakeSources(kandidati.Sources):
         self.arch, self.tc, self.rug, self.col, self.conc = frozenset(), {}, {}, {}, {}
         self.lab, self.act = (set(), set()), []
         self.lim = {"grok_max_sol_per_trade": 0.1, "sl_default": 60.0}
+        # 11.11.: tradeable needs a measured EV > 0; every source kind starts with a modest positive record
+        self.recs = {k: {"n": 50, "hit1h": 0.3, "hit4h": 0.4, "sl_first": 0.3, "ev": 0.05}
+                     for k in ("caller", "wallet", "scan", "beta", "hidden_group", "range", "tool", "insider")}
+        self.paid = set()
+
+    def shillers(self):
+        return self.paid
 
     def callers(self, now):
         return self.c
@@ -94,7 +101,12 @@ class FakeSources(kandidati.Sources):
         return self.ins
 
     def live(self, tokens):
+        if getattr(self, "live_err", None):
+            raise self.live_err
         return {t: self.mk[t] for t in tokens if t in self.mk}
+
+    def range_market(self, tokens, now):   # 11.11.: rangedca's snapshots, in memory (never the real range.db)
+        return {t: m for t, m in (getattr(self, "rmk", None) or {}).items() if t in tokens}
 
     def x_latest(self, tokens, now):
         return {t: self.xm[t] for t in tokens if t in self.xm}
@@ -123,6 +135,9 @@ class FakeSources(kandidati.Sources):
 
     def records(self, now):
         return self.recs
+
+    def fast_verdicts(self, tokens, now):   # 11.11. (fast/live): in memory, never the real fast.db
+        return {t: v for t, v in (getattr(self, "fastv", None) or {}).items() if t in tokens}
 
     def rug_tables(self):
         return self.tc, self.rug
@@ -206,9 +221,20 @@ class Build(unittest.TestCase):
         self.assertGreater(got[B]["runup"]["chase"], 0.7)
         self.assertLess(got[B]["score"], got[A]["score"])                       # chasing costs score
         self.assertTrue(got[B]["tradeable"])
-        self.assertFalse(got[C]["tradeable"])                                   # 5x since the first signal: too late
-        self.assertTrue(any("kasno" in w for w in got[C]["why_not"]))
+        # 11.11. (owner's rule B): 5x since the first signal is a tag and a modifier (P x 0.7, size x 0.5), not a block
+        self.assertFalse(any("kasno" in w for w in got[C]["why_not"]))
+        self.assertTrue(all(w.startswith("negativan EV") for w in got[C]["why_not"]), got[C]["why_not"])   # only EV
+        self.assertIn("runup_4x", got[C]["flags"])
+        self.assertIn("runup", [t["key"] for t in got[C]["tags"]])
+        self.assertEqual(got[C]["modifiers"], {"p_mult": 0.7, "size_mult": 0.5})
+        self.assertLess(got[C]["ev_pct"], got[B]["ev_pct"])
         self.assertEqual([r["token"] for r in rows], [A, B, C])
+        # X bursting (x_momentum_score >= 1) and buys >= 60 % of 5 min: no reduction
+        S.xm = {C: {"source": "grok", "ts": NOW - 60, "x_momentum_score": 1.2}}
+        S.c[2] = (C, [("ansem", "x", NOW - 600)], NOW - 600, NOW - 600, "T",
+                  dict(live(mcap=500_000, ch_h24=10.0), w={"m5": {"buys": 70, "sells": 30}}))
+        got, _r, _m = self.build()
+        self.assertEqual(got[C]["modifiers"], {"p_mult": 1.0, "size_mult": 1.0})
         # a 39x 24 h pump with no known first market cap is penalised too
         S.c, S.firsts = [(D, [("ansem", "x", NOW - 60)], NOW - 60, NOW - 60, "D", live(ch_h1=2.0, ch_h24=3800.0))], {}
         got, _r, _m = self.build()
@@ -335,6 +361,98 @@ class Build(unittest.TestCase):
         got, _r, meta = self.build()
         self.assertIn(A, got)
         self.assertEqual(meta["sources_failed"], ["range: ZeroDivisionError"])
+
+
+class EvGate(unittest.TestCase):
+    """11.11. (Jure: Dacity score 2.384, ev -0.166, MC $6.6M, still tradeable): tradeable needs ev_pct > 0."""
+
+    def setUp(self):
+        self.S = FakeSources()
+
+    def build(self):
+        rows, _m = kandidati.build(NOW, self.S)
+        return by_token(rows), rows
+
+    def test_confluence_never_outweighs_a_negative_ev(self):
+        S = self.S
+        S.recs = {"caller": {"n": 200, "ev": -0.08}, "wallet": {"n": 120, "ev": -0.05}, "scan": {"n": 90, "ev": -0.04},
+                  "hidden_group": {"n": 40, "ev": -0.02}, "range": {"n": 25, "ev": 0.01}}
+        # A: five sources, every one losing (Dacity); B: one caller with a good own record
+        S.c = [(A, [("x1", "x", NOW - 600), ("x2", "x", NOW - 500)], NOW - 600, NOW - 500, "DACITY",
+                live(mcap=6_600_000, liq=900_000)),
+               (B, [("good", "x", NOW - 600)], NOW - 600, NOW - 600, "B", live())]
+        S.crec = {"good": {"ev_n": 40, "ev_mean": 0.09, "ev_lower": 0.02}}
+        S.w = [("W1", A, NOW - 400, "S")]
+        S.scan = {A: scan_row(A, mcap=6_600_000)}
+        S.gsig = [(NOW - 700, "hidden_group", "w1", A, "x1,x2,x3", 6_000_000)]
+        S.rng = {A: {"symbol": "DACITY", "score": 0.8, "zones": {}}}
+        got, rows = self.build()
+        a, b = got[A], got[B]
+        self.assertGreater(a["score"], b["score"])                              # confluence lifts the score ...
+        self.assertLess(a["score_parts"]["ev"], 0)
+        self.assertFalse(a["tradeable"])                                        # ... never the tradeable flag
+        self.assertTrue(any(w.startswith("negativan EV") for w in a["why_not"]), a["why_not"])
+        self.assertLess(a["ev_pct"], 0)
+        self.assertEqual(a["n_samples"], 200 + 120 + 90 + 40 + 25)
+        self.assertEqual(a["ev_confidence"], "high")
+        self.assertTrue(b["tradeable"], b["why_not"])
+        self.assertAlmostEqual(b["ev_pct"], round((0.09 * 40 / 60 - 2 * __import__("league.store", fromlist=["x"])
+                                                    .impact(0.1 * kandidati.SOL_USD, 40_000)) * 100, 2))
+        self.assertEqual([r["token"] for r in rows], [B, A])                    # tradeable first
+
+    def test_ranking_by_ev_then_confluence_and_low_confidence(self):
+        S = self.S
+        S.c = [(t, [(h, "x", NOW - 600)], NOW - 600, NOW - 600, "T", live()) for t, h in ((A, "a"), (B, "b"), (C, "c"))]
+        S.crec = {"a": {"ev_n": 30, "ev_mean": 0.04}, "b": {"ev_n": 30, "ev_mean": 0.12},
+                  "c": {"ev_n": 6, "ev_mean": 0.30}}
+        S.w = [("W1", A, NOW - 300, "S"), ("W2", A, NOW - 200, "A")]            # A: more confluence, lower EV
+        S.recs["wallet"] = {"n": 30, "ev": 0.04}
+        got, rows = self.build()
+        self.assertGreater(got[A]["confluence"], got[B]["confluence"])
+        self.assertTrue(all(got[t]["tradeable"] for t in (A, B, C)))
+        evs = [r["ev_pct"] for r in rows]
+        self.assertEqual(evs, sorted(evs, reverse=True))                        # EV decides, not confluence
+        self.assertEqual(rows[-1]["token"], A)
+        self.assertEqual(got[C]["n_samples"], 6)
+        self.assertEqual(got[C]["ev_confidence"], "low")                        # under 10 samples
+
+    def test_unmeasured_ev_is_not_tradeable_and_shill_driven_is_a_modifier(self):
+        S = self.S
+        S.recs = {}
+        S.c = [(A, [("nobody", "x", NOW - 600)], NOW - 600, NOW - 600, "A", live()),
+               (B, [("paid1", "x", NOW - 600), ("tg:paidch", "tg", NOW - 500)], NOW - 600, NOW - 500, "B", live())]
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.2}}
+        S.paid = {"paid1", "tg:paidch"}
+        got, _rows = self.build()
+        self.assertFalse(got[A]["tradeable"])
+        self.assertIsNone(got[A]["ev_pct"])
+        self.assertEqual((got[A]["n_samples"], got[A]["ev_confidence"]), (0, "low"))
+        # 11.11. (Jure: "nikad 'nije izmjeren'"): the block names the fast_check's state instead
+        self.assertTrue(any(w.startswith("EV: izvori bez izmjerenih ishoda") for w in got[A]["why_not"]))
+        self.assertFalse(any("nije izmjeren" in w for w in got[A]["why_not"]))
+        # 11.11. (owner's rule B): only paid shills call it: a tag and P x 0.5 (on the signal exit), never a block
+        self.assertIn("shill_driven", got[B]["flags"])
+        self.assertTrue(any(t["text"].startswith("vođeno shillanjem") for t in got[B]["tags"]))
+        self.assertEqual(got[B]["modifiers"]["p_mult"], 0.5)
+        pooled = 50 * 0.2 / (50 + kandidati.SHRINK_N)
+        self.assertLess(got[B]["ev_pct"], pooled * 100)
+        self.assertEqual(got[B]["tradeable"], got[B]["ev_pct"] > 0)
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.03}}                       # a modest record: P x 0.5 sinks it
+        got, _rows = self.build()
+        self.assertFalse(got[B]["tradeable"])
+        self.assertTrue(any(w.startswith("negativan EV") for w in got[B]["why_not"]))
+        S.crec = {"paid1": {"ev_n": 50, "ev_mean": 0.2}}
+        S.w = [("W1", B, NOW - 300, "S")]                                       # a tiered wallet buys too: not shill-only
+        S.recs = {"wallet": {"n": 40, "ev": 0.05}}
+        got, _rows = self.build()
+        self.assertTrue(got[B]["tradeable"], got[B]["why_not"])
+        self.assertNotIn("shill_driven", got[B]["flags"])
+
+    def test_description_names_the_rule(self):
+        from ui import mcpapi
+        d = {t["name"]: t for t in mcpapi.TOOLS}["get_trade_candidates"]["description"]
+        for w in ("ev_pct", "n_samples", "ev_confidence", "negativan EV"):
+            self.assertIn(w, d)
 
 
 class Tasks(unittest.TestCase):
@@ -628,3 +746,108 @@ class Execute(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RangeMarket(unittest.TestCase):
+    """11.11. (owner: "get_trade_candidates / get_proposals show 'no live market' and MC $0 for most rows, even when
+    rangedca has fresh data for the same token"): the market comes from rangedca's own snapshots first, DexScreener for
+    the rest without the 60-token cut, and a row without any reading says why instead of $0."""
+
+    def setUp(self):
+        self.S = FakeSources()
+
+    def rng_row(self, tok):
+        return {"status": "active", "active": 1, "score": 0.8, "mcap": 120_000, "pos_pct": 10.0, "ts": NOW - 60,
+                "symbol": "DTC", "entry_ready": True, "source": "signal"}
+
+    def test_a_token_with_a_fresh_range_has_its_market_from_rangedca(self):
+        S = self.S
+        S.rng = {A: self.rng_row(A)}
+        S.rmk = {A: {"price": 0.00012, "mcap": 120_000.0, "liq": 28_000.0, "vol_h1": 9_000.0, "vol_m5": 700.0,
+                     "ts": NOW - 60}}
+        rows, meta = kandidati.build(NOW, S)
+        r = by_token(rows)[A]
+        self.assertEqual(r["market"]["market_cap_usd"], 120_000)               # MC > 0 from rangedca
+        self.assertEqual((r["market"]["liquidity_usd"], r["market"]["volume_1h_usd"]), (28_000, 9_000))
+        self.assertIn("range.db", r["market"]["source"])
+        self.assertFalse(any("nema živog tržišta" in w or "market fetch failed" in w for w in r["why_not"]))
+        self.assertEqual(meta["market"]["range"], 1)
+
+    def test_no_market_says_why_never_zero(self):
+        S = self.S
+        S.rng = {B: self.rng_row(B)}
+        S.live_err = RuntimeError("DexScreener nije odgovorio")
+        rows, meta = kandidati.build(NOW, S)
+        r = by_token(rows)[B]
+        self.assertIsNone(r["market"])
+        self.assertIn("market fetch failed: RuntimeError: DexScreener nije odgovorio", r["market_why"])
+        self.assertTrue(any("market fetch failed" in w for w in r["why_not"]))
+        self.assertFalse(any("$0" in w for w in r["why_not"]))          # never "MC $0 ispod 30k"
+        self.assertIsNone(r["under_30k"])
+        self.assertEqual(meta["market"]["none"], 1)
+
+    def test_more_than_sixty_tokens_are_all_priced(self):
+        S = self.S
+        toks = [mint(10 + i) for i in range(80)]
+        S.rng = {t: self.rng_row(t) for t in toks}
+        S.mk = {t: live() for t in toks}
+        rows, meta = kandidati.build(NOW, S)
+        got = by_token(rows)
+        self.assertTrue(all(got[t]["market"] for t in toks if t in got))
+        self.assertEqual(meta["market"]["none"], 0)
+
+
+
+class LiveState(unittest.TestCase):
+    """11.11. (owner): "tradeable (EV > 0) ne znači da se smije kupiti s pravim novcem": live_eligible = tradeable AND
+    ev_pct >= 3 AND n_samples >= 10 AND the EV does not rest more than 50 % on one source with n < 10."""
+
+    def test_jeff_ev_0_28_n_5_is_paper(self):
+        st, why = kandidati.live_state(True, {"ev_pct": 0.28, "n_samples": 5,
+                                              "top_source": {"from": "range", "n": 5, "share": 1.0}})
+        self.assertEqual(st, "paper")
+        self.assertIn("ispod +3 %", why)
+
+    def test_burnie_ev_from_one_caller_with_n_7_is_not_live(self):
+        evx = kandidati.ev_estimate(
+            {"caller": {"callers": [{"who": "burnie_kol", "record": {"ev_n": 7, "ev_mean": 0.40}}]},
+             "scan": {}}, {"scan": {"n": 40, "ev": 0.01}}, 0.1, 500_000)
+        self.assertGreaterEqual(evx["n_samples"], 10)                           # n alone would pass ...
+        self.assertGreaterEqual(evx["ev_pct"], 3)                               # ... and the EV too
+        self.assertEqual(evx["top_source"]["from"], "caller:burnie_kol")
+        self.assertGreater(evx["top_source"]["share"], 0.5)
+        st, why = kandidati.live_state(True, evx)
+        self.assertEqual(st, "paper")
+        self.assertIn("jednog izvora (caller:burnie_kol) s n = 7", why)
+
+    def test_live_and_no(self):
+        evx = kandidati.ev_estimate({"scan": {}, "wallet": {}}, {"scan": {"n": 40, "ev": 0.08},
+                                                                 "wallet": {"n": 30, "ev": 0.07}}, 0.1, 500_000)
+        self.assertEqual(kandidati.live_state(True, evx), ("live", None))
+        self.assertEqual(kandidati.live_state(False, evx)[0], "no")
+        self.assertEqual(kandidati.live_state(True, evx, paper=True)[0], "paper")
+
+    def test_rows_carry_the_state(self):
+        S = FakeSources()
+        S.scan = {A: scan_row(A)}
+        S.mk = {A: live()}
+        rows, _ = kandidati.build(NOW, S)
+        r = by_token(rows)[A]
+        self.assertIn(r["live_state"], ("live", "paper", "no"))
+        self.assertEqual(r["live_eligible"], r["live_state"] == "live")
+        if r["tradeable"]:
+            self.assertNotEqual(r["live_state"], "no")
+
+
+class LiveBadges(unittest.TestCase):
+    def test_three_states_in_the_ui(self):
+        from ui import apterm
+        self.assertIn('class="apx-badge live"', apterm._live_badge("live"))
+        self.assertIn(">samo papir<", apterm._live_badge("paper", "samo papir: n = 5"))
+        self.assertIn('title="samo papir: n = 5"', apterm._live_badge("paper", "samo papir: n = 5"))
+        self.assertIn(">ne<", apterm._live_badge("no"))
+        # a proposal like jeff (EV 0,28 %, n 5): samo papir
+        self.assertEqual(apterm._prop_state({"ev_pct": 0.28}, {"n": 5})[0], "paper")
+        self.assertEqual(apterm._prop_state({"ev_pct": 6.0}, {"n": 40})[0], "live")
+        self.assertEqual(apterm._prop_state({"ev_pct": 6.0}, {"n": 40, "live_state": "paper", "live_why": "x"}),
+                         ("paper", "x"))

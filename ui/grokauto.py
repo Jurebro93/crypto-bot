@@ -8,12 +8,19 @@ an MCP execute_trade with require_approval=false is executed at once instead of 
         get_portfolio_status show them read-only): grok_max_sol_per_trade 0.1, grok_max_sol_per_day 0.3,
         grok_max_open 3 (open Grok positions), grok_max_loss_day 0.15 SOL. Before every buy the rug check and the
         liquidity checks of the Autopilot's copies run again (league/copy: price, bonded only, liquidity, 30k MC,
-        fake pool, pool vs MC, rug, supply concentration); a failed check rejects the buy with the reason. Then it goes
+        fake pool, pool vs MC, rug, supply concentration; 11.11.: liquidity at least $15k, trade/cost.LIQ_HARD_MIN,
+        and never an event token of an active topic, trade/settings.NEVER_LIVE); a failed check rejects the buy. Then it goes
         through the owner's manual buy path (ui/pravitrade._post_buy): the same day-loss stop, wallet balance, the
         owner's per-token cap (dca_cap_owner) and the real swap by run_trade.py in the mode the Autopilot is in
         (dry / trial / live; CLAUDE.md: real money only when the Autopilot is live).
   sell  any open position (Grok's or the Autopilot's / the owner's), any share, no size limit, while the switch is on
         (also while paused by the day loss: a sale only lowers the risk).
+
+11.11. (flag grok_ev_gate, momentum/evgate.py): a buy may carry p_tp (Grok's probability that TP comes before SL) and
+strategy (momentum_scalp | range_dca | other). The gate prices EV = p_tp x TP - (1 - p_tp) x SL - cost with the
+strategy's TP / SL; shadow logs what it would refuse, paper / live refuse (11.11., owner's rule D) an EV under +3 % or
+a strategy without Grok's measured proof (n >= 10, the 90 % interval above 0), and a buy without p_tp, with the reason;
+then the buy gets that strategy's TP / SL as its exit. Every request with p_tp is recorded for calibration.
 
 When Grok's realized result today (Zagreb day, its positions closed today, fees included) reaches -grok_max_loss_day,
 autotrade pauses itself until midnight Zagreb ("paused_until"); the owner's "Ugasi Grok autotrade" turns it off until
@@ -196,8 +203,10 @@ def safety_ex(token, market=None):
     c = copy.CFG
     if copy._bonding_curve(m):
         return "token je još na pump.fun krivulji; uzimaju se samo bondani", []
-    if (liq or 0) < c["min_liq"]:
-        return f"premala likvidnost (${liq or 0:,.0f}, treba ${c['min_liq']:,.0f})", []
+    from trade import cost as tcost
+    floor = max(c["min_liq"], tcost.LIQ_HARD_MIN)   # 11.11. (owner's rule B): never under $15k
+    if (liq or 0) < floor:
+        return f"premala likvidnost (${liq or 0:,.0f}, treba ${floor:,.0f})", []
     if (mcap or 0) < c["min_mcap"]:
         return f"MC ${mcap or 0:,.0f} ispod 30k", []
     if mcap > c["max_mcap"]:
@@ -209,6 +218,10 @@ def safety_ex(token, market=None):
     col = copy._rugged(token, mcap, liq)
     if col:
         return f"token je rugan ({col['text']})", []
+    ev_topic = event_topic(token)
+    if ev_topic:   # 11.11. (trade/settings.NEVER_LIVE): event tokens are measured, at most paper, never real money
+        return (f"event token (tema „{ev_topic}”): event tokeni nikad ne trguju pravim novcem (NEVER_LIVE), najviše "
+                "paper na demo računu"), []
     from scan import filters
     from ui import kandidati
     src = kandidati.Sources()
@@ -220,6 +233,25 @@ def safety_ex(token, market=None):
     if rv["hard"]:
         return f"rug: {rv['hard'][0]}", []
     return None, rv["risk"]
+
+
+def event_topic(token):
+    """The name of an active event topic (topics.db, upcoming / live) the token belongs to, or None."""
+    try:
+        from topics import store as tstore
+        con = tstore.ro()
+    except Exception:  # noqa: BLE001 - no topics module / database: not an event token as far as we know
+        return None
+    if con is None:
+        return None
+    try:
+        r = con.execute("SELECT t.name FROM topic_tokens tt JOIN event_topics t ON t.id = tt.topic_id WHERE tt.token = ? "
+                        "AND t.status IN ('upcoming', 'live') LIMIT 1", (token,)).fetchone()
+    except Exception:  # noqa: BLE001
+        r = None
+    finally:
+        con.close()
+    return r[0] if r else None
 
 
 def notify(text):
@@ -326,13 +358,25 @@ def execute(body, now=None, wait_s=None, market=None):
                                   f"SOL (rug: {risk[0]})", 400)
                 row["override"] = {"rug_risk": risk[0], "strength": ev["strength"]}
                 reason = row["reason"] = (f"[Grok nadjačao rug ocjenu: {risk[0]}] " + reason)[:300]
+            # 11.11. (flag grok_ev_gate, momentum/evgate.py): EV = p_tp x TP - (1 - p_tp) x SL - cost > 0
+            g, cal_id = _ev_gate(body, tok, amount, market, tcon, now)
+            if g:
+                row["ev_gate"] = {k: g.get(k) for k in ("mode", "p_tp", "strategy", "ev", "break_even_p")}
+                if g.get("reject"):
+                    evgate_mark(cal_id, "rejected")
+                    return reject(g["reject"])
             before = lcon.execute("SELECT COALESCE(MAX(id), 0) FROM trades").fetchone()[0]
             tp, sl = pravitrade._last_exit(pravitrade._cfg(tcon))
+            ex = ((g or {}).get("levels") or {}).get("exit")
+            if ex and (g or {}).get("mode") in ("paper", "live"):   # the strategy's TP / SL the gate priced
+                tp, sl = ex
             try:
                 pravitrade._post_buy(lcon, tcon, {"token": tok, "sol": f"{amount:g}", "exit": "tpsl", "tp": tp, "sl": sl},
                                      settings.owner(), src=SRC)
             except ValueError as e:
+                evgate_mark(cal_id, "rejected")
                 return reject(str(e))
+            evgate_mark(cal_id, "executed")
             tid = lcon.execute("SELECT MAX(id) FROM trades WHERE user=? AND token=? AND id>?",
                                (settings.LEAGUE_USER, tok, before)).fetchone()[0]
             _log(tcon, dict(row, status="executed", league_id=tid))
@@ -350,6 +394,39 @@ def execute(body, now=None, wait_s=None, market=None):
             lcon.close()
     finally:
         tcon.close()
+
+
+def _ev_gate(body, tok, amount, market, tcon, now):
+    """(gate result or None, calibration row id or None) of one autotrade buy (momentum/evgate.py). Without p_tp and
+    with the gate off or in shadow there is nothing to check or record. A gate that fails to run refuses only while it
+    enforces (paper / live: no proof, no buy)."""
+    m = "off"
+    try:
+        from momentum import evgate
+        m = evgate.mode()
+        p = body.get("p_tp")
+        if p is None and m not in ("paper", "live"):
+            return None, None
+        g = evgate.check(tok, amount, p, body.get("strategy") or "other", market, now, tcon=tcon, gate_mode=m)
+        cid = evgate.record(g, tok, amount, "autotrade", now)
+        if g.get("shadow_reject"):
+            evgate.shadow_log(g, tok)
+            print(f"grok auto: EV vrata (sjena) bi odbila {tok[:6]}: {g['shadow_reject']}", flush=True)
+        return g, cid
+    except Exception as e:  # noqa: BLE001
+        print(f"grok auto: EV vrata nisu uspjela ({type(e).__name__}: {e})", flush=True)
+        if m in ("paper", "live"):
+            return {"mode": m, "reject": f"grok_ev_gate: the check failed ({type(e).__name__}), no buy without it"}, None
+        return None, None
+
+
+def evgate_mark(cal_id, status):
+    if cal_id:
+        try:
+            from momentum import evgate
+            evgate.mark(cal_id, status)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def portfolio_part(tcon, now=None):

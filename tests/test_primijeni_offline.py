@@ -76,8 +76,10 @@ class Apply(Base):
         self.assertEqual(settings.flag("runup_default", con=self.tc), "paper")   # an owner's choice stays
         assistnotes.apply(self.tc, self.suggest({"key": "require_signal", "to": True}))
         self.assertEqual(settings.flag("require_signal", con=self.tc), "shadow")
-        assistnotes.apply(self.tc, self.suggest({"caller": "@Ansem", "platform": "x", "weight": 1.5}))
-        self.assertEqual(settings.flag("caller_weights", con=self.tc), "shadow")
+        # 11.11. (Jure): a caller weight is applied on arrival and never moves its flag
+        self.suggest({"caller": "@Ansem", "platform": "x", "weight": 1.5})
+        self.assertEqual(settings.raw(self.tc)["caller_weights"], {"Ansem": 1.5})
+        self.assertEqual(settings.flag("caller_weights", con=self.tc), "off")
         with self.assertRaises(ValueError):
             assistnotes.apply(self.tc, self.suggest({"key": "dca_token_cap", "to": 9}))
         for f in ("dca_cap", "require_signal", "runup_default", "caller_weights"):
@@ -166,11 +168,26 @@ class AcceptedAndOwnerList(Base):
         pravitrade._LIVE_FAIL.clear()
         nid = self.suggest({"key": "tp_default", "to": 30})
         assistnotes.decide(self.tc, nid, "prihvaćeno")
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: in "Što kupiti" behind its badge (ui/apterm)
         self.assertIn("Prihvaćeni, još nisu primijenjeni", body)
         self.assertIn("1 prihvaćeno bez promjene", body)
         loc = unquote(pravitrade.post("/pravi-trade/asapply", {"id": str(nid)}, "Jure"))
         self.assertIn("Primijenjeno", loc)
+
+
+class CleanList(Base):
+    def test_accepted_critique_without_an_applicable_change_leaves_the_page(self):
+        """11.11. (Jure: "lista treba biti čista ako nema što što zahtijeva pažnju")."""
+        from ui import pravitrade
+        nid = self.suggest(None)
+        assistnotes.decide(self.tc, nid, "prihvaćeno")
+        self.assertEqual(pravitrade._suggest_section(self.tc, True), "")           # nothing needs the owner
+        nid2 = self.suggest({"key": "tp_default", "to": 30})
+        assistnotes.decide(self.tc, nid2, "prihvaćeno")
+        html = pravitrade._suggest_section(self.tc, True)
+        self.assertIn(f"as-{nid2}", html)
+        self.assertNotIn(f"as-{nid}\"", html)
+        self.assertIn("1 prihvaćeno bez promjene", html)
 
 
 class Page(Base):
@@ -179,8 +196,9 @@ class Page(Base):
         pravitrade._LIVE_CACHE.clear()
         pravitrade._LIVE_FAIL.clear()
         self.suggest({"key": "tp_default", "to": 30})
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("Označi prihvaćenim (bez promjene)", body)
+        self.assertIn("Prijedlozi asistenta <span class=apx-cnt>1 čeka</span>", body)   # the badge with the count
         self.assertIn("Primijeni na bota", body)
         self.assertNotIn(">Prihvati<", body)
 

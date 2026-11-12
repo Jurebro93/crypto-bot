@@ -630,6 +630,16 @@ class Handler(BaseHTTPRequestHandler):
                   "/pravi-trade/ideje": pravitrade.ideas_fragment}[path]
             frag = fn(self.user)
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path == "/pravi-trade/prijedlozi":
+            # 11.11. (Jure, proposals/ flag proposals G21): the card's list, polled every 150 s; owner only (403 for
+            # anybody else); it only reads proposals.db (cached), a failure greys the box
+            from ui import pravitrade
+            try:
+                frag = pravitrade.proposals_fragment(self.user)
+            except Exception:  # noqa: BLE001
+                _error_html()
+                return self._send(500, b"")
+            return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
         if path in ("/pravi-trade/graf", "/pravi-trade/dnevnik", "/pravi-trade/preporuke"):
             # 10.11. (Jure: graf na vrhu, dnevnik na klik, čista stranica): the header with the chart (every 45 s), the
             # open decision log (every second) and the recommendations (once, when opened); same access as the page.
@@ -643,6 +653,11 @@ class Handler(BaseHTTPRequestHandler):
                 _error_html()   # the traceback to the log under a reference; the box only greys out
                 return self._send(500, b"")
             return self._send(200 if frag is not None else 403, (frag or "").encode("utf-8"))
+        if path.startswith(("/pravi-trade/api/", "/pravi-trade/l/", "/pravi-trade/static/")):
+            # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the first view as JSON, the shared live tick (SSE
+            # and the 5-s poll), the chart's candles, the parts loaded on scroll and the page's static files. All
+            # read-only GETs with the page's access; a failure is a 500 with no text (the block greys out).
+            return self._apterm(path, qs)
         if path == "/pravi-trade":
             from ui import pravitrade
             try:
@@ -988,6 +1003,13 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     pass
                 pagecache.clear()
+            from ui import apterm
+            apterm.forget_first()   # 11.11.: the terminal's next first view is built anew (a saved SL/TP shows at once)
+            if self.headers.get("X-Apx-Fetch") == "1":   # ap.js (Uredi SL-TP, Kupi, DCA): the answer in place
+                from json import dumps   # (do_POST imports json further down: the module name is local here)
+                # 11.11.: {"to"} and, for a buy over the owner's limits, {"warn": [reasons], "title", "what"}
+                return self._send(200, dumps(pravitrade.fetch_answer(to), ensure_ascii=False).encode("utf-8"),
+                                  "application/json")
             return self._redirect(to)
         if same_site and path.startswith(("/natjecanje/", "/prijedlozi/")):
             n = int(self.headers.get("Content-Length") or 0)
@@ -1296,6 +1318,92 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _apterm(self, path, qs):
+        """GET /pravi-trade/api/{first,tick,candles,pnl-days,portfelj,stream}, /pravi-trade/l/<part>, /pravi-trade/static/<file>
+        (ui/apterm.py). Same access as the page (403 for anybody else); nothing here writes or trades."""
+        from ui import apterm
+        user = getattr(self, "user", None)
+        if path.startswith("/pravi-trade/static/"):
+            asset = apterm.static_asset(path[len("/pravi-trade/static/"):])
+            if not asset:
+                return self._send(404, b"", "text/plain")
+            raw, gz, ctype, ver = asset
+            zipped = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            out = gz if zipped else raw
+            self.send_response(200)
+            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+            self.send_header("Content-Length", str(len(out)))
+            # the page links the file with ?v=<hash of its content>: a new deploy is a new address, so a year is safe
+            self.send_header("Cache-Control", "private, max-age=31536000, immutable" if qs.get("v") == ver else "no-cache")
+            self.send_header("ETag", f'"{ver}"')
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            try:
+                return self.wfile.write(out)
+            except (BrokenPipeError, ConnectionResetError):
+                return None
+        if path == "/pravi-trade/api/stream":
+            return self._ap_stream(qs)
+        try:
+            if path == "/pravi-trade/api/first":
+                body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
+                                                 sym=qs.get("s", ""), fresh=qs.get("fresh") == "1"), "application/json")
+            elif path == "/pravi-trade/api/tick":
+                body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
+            elif path == "/pravi-trade/api/token":   # 11.11.: the name of the address in the buy panel's Token field
+                d = apterm.token_info(user, qs.get("q", ""))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False)), "application/json"
+            elif path == "/pravi-trade/api/candles":
+                d = apterm.candles_data(user, qs.get("m", ""), qs.get("tf", "5m"), qs.get("u", "mc"))
+                body, ctype = (None if d is None else json.dumps(d, separators=(",", ":"))), "application/json"
+            elif path in ("/pravi-trade/api/pnl-days", "/pravi-trade/api/portfelj"):   # 11.11.: read-only, cached
+                fn = apterm.pnl_days if path.endswith("pnl-days") else apterm.portfelj
+                d = fn(user, qs.get("m", "live"), qs.get("d", "30"))
+                body, ctype = (None if d is None else json.dumps(d, ensure_ascii=False, separators=(",", ":"))), "application/json"
+            elif path.startswith("/pravi-trade/l/"):
+                name = path[len("/pravi-trade/l/"):]
+                body, ctype = apterm.lazy(name, user, qs), "text/html"
+                if body == "" and name not in apterm.LAZY:   # 11.11.: "" of a known part = nothing to show now (200)
+                    return self._send(404, b"", "text/plain")
+            else:
+                return self._send(404, b"", "text/plain")
+        except Exception:  # noqa: BLE001
+            _error_html()   # the traceback to the log under a reference; the block only greys out
+            return self._send(500, b"", "text/plain")
+        if body is None:
+            return self._send(403, b"", "text/plain")
+        return self._send(200, body.encode("utf-8"), ctype)
+
+    def _ap_stream(self, qs):
+        """GET /pravi-trade/api/stream: Server-Sent Events of the shared live tick (ui/apterm.stream). At most
+        apterm.STREAM_MAX at once (each holds one thread of this server); one more gets 503 and the browser polls
+        /pravi-trade/api/tick every 5 s instead. A stream ends after apterm.STREAM_MAX_S (the browser reconnects)."""
+        from ui import apterm
+        if not apterm.can_view(getattr(self, "user", None)):
+            return self._send(403, b"", "text/plain")
+        if not apterm.stream_slot():
+            self.send_response(503)
+            self.send_header("Retry-After", str(apterm.POLL_S))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        try:
+            self.send_response(200)
+            for k, v in apterm.STREAM_HEADERS:
+                self.send_header(k, v)
+            self.end_headers()
+            for chunk in apterm.stream(qs.get("m", ""), alive=lambda: not _peer_gone(self.connection)):
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass   # the viewer left: the slot is freed below
+        finally:
+            apterm.stream_release()
+        return None
+
     def _redirect(self, location, cookie=None, code=303):
         self.send_response(code)
         self.send_header("Location", location)
@@ -1333,6 +1441,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         if self.server.verbose:
             super().log_message(fmt, *args)
+
+
+def _peer_gone(sock):
+    """True when the browser has closed an SSE connection: it never sends anything after its GET, so a readable socket
+    that peeks 0 bytes is a closed one (ui/apterm.stream asks this before every tick)."""
+    import select
+    import socket
+    try:
+        r, _w, _x = select.select([sock], [], [], 0)
+        return bool(r) and sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError, TypeError):
+        return True
 
 
 def _bind(host, port):

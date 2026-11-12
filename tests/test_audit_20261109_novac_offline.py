@@ -505,12 +505,13 @@ class Mirror(unittest.TestCase):
             run_trade.follow_league_once(self.con, cfg, since=0, now=NOW, quiet=True)
             self.assertIn("bez dokaza u demu", self.reasons()["NEW2"])
             self.assertEqual(bought, [])
-            # a follow with 12 closed, 7 winning, positive PnL: real money allowed
+            # a follow with 12 closed, 10 winning: EV net of cost +14.7 %, its 90 % interval above 0 (11.11. owner's
+            # rule D; 7 winning of 12 was enough for the old "PnL > 0 and 40 % winners", its interval reaches under 0)
             fid2 = copy.follow(self.lg, settings.LEAGUE_USER, "kol", "proven", "", 25, 5, "tpsl", "15%", "")
             for i in range(12):
                 self.lg.execute("INSERT INTO trades (user, token, status, follow_id, pnl_usd, size_usd, opened_ts) "
                                 "VALUES (?,?,?,?,?,?,?)", (settings.LEAGUE_USER, f"T{i}", "closed", fid2,
-                                                           5.0 if i < 7 else -3.0, 25, NOW - 1000))
+                                                           5.0 if i < 10 else -3.0, 25, NOW - 1000))
             self.lg.commit()
             tid = self.demo("GOOD", follow_id=fid2)
             run_trade.follow_league_once(self.con, cfg, since=0, now=NOW, quiet=True)

@@ -1,0 +1,20 @@
+[
+ {
+  "width": 375,
+  "file": "prikaz-poslije-375.png",
+  "scrollWidth": 375,
+  "innerWidth": 375,
+  "height": 4368,
+  "noHorizontalScroll": true,
+  "errors": []
+ },
+ {
+  "width": 1440,
+  "file": "prikaz-poslije-1440.png",
+  "scrollWidth": 1440,
+  "innerWidth": 1440,
+  "height": 3267,
+  "noHorizontalScroll": true,
+  "errors": []
+ }
+]

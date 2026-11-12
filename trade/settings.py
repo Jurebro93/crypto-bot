@@ -82,20 +82,111 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     # 10.11. (Jure, kol/groupdisc.py): caller crews and hidden wallet lists; in paper only past PAPER_GATES
     "group_discovery": ("G12", "Ekipe callera i skriveni popisi novčanika: ekipa unutar 10 min = jedan signal, "
                                "ekipa izlazne likvidnosti negativno"),
-    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, EV > 0
+    # 10.11. (Jure, range_dca): range + DCA on bonded tokens (rangedca/); live only after >= 20 paper rounds, trade/edge live proof
     "range_dca": ("G13", "Raspon + DCA: ulaz na dnu raspona, lot 2 na -10 do -15 %, pola van u gornjoj zoni"),
     # 10.11. (Jure, kol/precall.py): wallets that buy before the callers' calls; copied only in paper, live only past
     # live_refusal + LIVE_GATES
     "insider_copy": ("G14", "Insajderi prije poziva: novčanici koji kupuju prije poziva callera, kopiranje u demo"),
+    # 11.11. (Jure, kol/preshill.py): wallets that buy before the paid shill network calls; shadow only, never buys
+    "pre_shill": ("G15", "Kupci prije shill mreže: novčanici koji kupe prije plaćene mreže callera, poziv mreže je "
+                         "znak za izlaz"),
+    # 11.11. (Jure, momentum/): the +20-30 % jumps without callers; paper on the demo account, live only past
+    # LIVE_GATES (>= 50 paper trades, the trade/edge live proof: EV >= +3 % and its 90 % interval above 0)
+    "momentum_scalp": ("G16", "Momentum scalp: ulaz na početku skoka (+5 do +15 % u 5 min, volumen 3x, kupci rastu), "
+                              "pola van na +15 %, ostatak trailing 8 %, stop -10 %, 45 min"),
+    # 11.11. (Jure, momentum/evgate.py): Grok's autotrade buy only with EV = p x TP - (1 - p) x SL - cost > 0
+    "grok_ev_gate": ("G17", "Grokova vrata po EV-u: kupnja samo kad je p(TP prije SL-a) x TP - (1 - p) x SL - trošak "
+                            "iznad nule"),
+    # 11.11. (Jure: GTA's plan was only logged, the real exit went through the default TP): an owner switch, uživo =
+    # Grok's exit plans run on the REAL account for Grok autotrade positions (league/exitplan.grok_live), whatever
+    # exit_plans' mode; it only sells, never buys; default off, only the owner moves it. 11.11. (owner: "Plan izlaza uz
+    # kupnju: DA"): also the plan a buy from the panel / Uredi SL-TP sets (league/exitplan.panel_live)
+    "exit_plan_live": ("G18", "Planovi izlaza na pravom računu: plan uz kupnju iz panela (i spremljen SL/TP pozicije) "
+                              "i Grokove autotrade pozicije (samo prodaja)"),
+    # 11.11. evening (Jure: "Dok se ne preoznači ponovno, za blokiranje vrijedi stroža oznaka ... Nove oznake nemoj
+    # koristiti dok ne prođe korak 3"): an owner switch (live = on, rugfilter/labels). Off (default): blocking takes
+    # the STRICTER of the old and the new rug labels (a rug if any says rug), statistics keep the old labels. Live:
+    # the SOL-side labels (rugfilter/collapse sol_v2) decide both. Only the owner moves it, after checking the relabel.
+    "rug_labels_v2_ok": ("G28", "Nove rug oznake (SOL strana poola) u blokiranju i statistikama; isključeno = blok po "
+                                "strožoj oznaci (stara ili nova), statistike po starim oznakama"),
+    # 11.11. (Jure: "ništa se stvarno ne briše bez moje potvrde nakon što vidim brojke"): owner switches of the data
+    # retention (ops/retencija.py). Off (default): only the measurement in the log (after a deploy and daily at 06:30,
+    # what WOULD go and how many MB); live: the deletion, only 01-06 Zagreb under the heavy-job lock.
+    "live_trades_retention": ("G29", "Retencija živog toka (hype.db live_trades): sirovi PumpPortal tradeovi drugih "
+                                     "tradera stariji od 48 h brišu se noću, nakon satnog agregata; nikad naši "
+                                     "swapovi, praćeni i ocjenjivani novčanici ni redovi koje treba čitač s duljim "
+                                     "prozorom; isključeno = samo mjerenje u logu"),
+    "tg_text_retention": ("G30", "Tekst Telegram objava starijih od 14 dana briše se noću (red i metapodaci ostaju) "
+                                 "kad je svaki poziv objave potpuno izmjeren ili objava nije dala poziv; isključeno = "
+                                 "samo mjerenje u logu"),
+    # 11.11. (Jure: "event tokeni s Grokom", topics/): Grok's event topics, their matching tokens (main / clone / rug),
+    # the price 24 h before / at / after the event; shadow = measure only, paper = range_dca may trade them on the demo
+    # account; never real money (NEVER_LIVE)
+    "event_tokens": ("G19", "Event tokeni: teme događaja od Groka (npr. GTA6), tokeni koji im odgovaraju (glavni, klon, "
+                            "rug) i cijena 24 h prije, u trenutku i 24 h nakon događaja"),
+    # 11.11. (Jure: "širi range watchlist", rangedca/market.py): up to 400 bonded tokens of the whole market in the range
+    # watchlist (5 / 15-min DexScreener snapshots inside daily caps); shadow = data, paper = range_dca may trade them on
+    # the demo account; never real money (NEVER_LIVE)
+    "range_market": ("G20", "Range lista cijelog tržišta: do 400 bondanih tokena (MC 50k-5M, likvidnost 15k+, volumen "
+                            "1 h 10k+, stariji od 6 h), snimke svakih 5/15 min unutar dnevnih stropova"),
+    # 11.11. (Jure, proposals/): one list of proposals from every strategy on the Autopilot card and in get_proposals;
+    # shadow = list and measure, paper = the demo account takes a proposal in its entry zone; never live (LIVE_GATES)
+    "proposals": ("G21", "Prijedlozi svih strategija na Autopilotu: sjena = popis i mjerenje, paper = demo račun uzima "
+                         "svaki prikazani prijedlog s planom izlaza; pravi račun kupuje samo na tvoj dodir"),
+    # 11.11. (Jure: "real-time zone alarm na Grok Bot", zonewatch/): a data flag (DATA_FLAGS): off = nothing watched or
+    # posted; any other mode = the zones are watched and every alarm is POSTed to the Grok Bot webhook (when its env
+    # is set). It never trades.
+    "zonewatch": ("G25", "Zonski alarmi Grok Botu: ulaz cijene u zonu (dno, DCA, vrh, stop) raspona i ručno postavljenih "
+                         "zona, POST na webhook u stvarnom vremenu"),
+    # 11.11. (Jure, fast/): every signal of a followed wallet / influencer gets five checks at once (rug, holders,
+    # flow, price vs the wallet's entry, source) and a decision with its number; shadow = decide and log, paper = the
+    # demo account trades BUY_PAPER and BUY_LIVE with the fast exit plan; live only past LIVE_GATES (G22, G23 reserved)
+    "fast_path": ("G24", "Brzi put: svaki signal praćenog novčanika ili influencera odmah dobije rug, holdere, tok, "
+                         "cijenu prema ulazu novčanika i zapis izvora (< 10 s); paper = demo račun kupuje, pola van na "
+                         "+15 %, trailing 8 %, stop -10 %, 45 min, izlaz kad izvor proda"),
+    # 11.11. (Jure: "rangedca flip / pauza / stop", rangedca/detect.flip_step): off = today's range rules; shadow =
+    # compute the flip / pause state and the volatility stop, log what would differ; paper = range_dca's demo account
+    # trades the new rules; live only past LIVE_GATES (the nightly backtest: new max drawdown <= today's)
+    "range_flip": ("G26", "Raspon flip / pauza / ATR stop: potvrđen proboj gore (zatvaranje + volumen) čini stari vrh "
+                          "kandidatom za novo dno (ulaz tek nakon 2 retesta), proboj dolje = pauza sa starim dnom kao "
+                          "otporom, stop range_low_low - 1,5 × ATR (5-20 %) umjesto × 0,85"),
+    # 11.11. (Jure: "propušteni tokeni u range praćenje", rangedca/missed.py): every token a skip journal labels
+    # propušteno (skipped, then >= +20 % within 60 min) is on the range watchlist as source missed for 72 h, behind the
+    # owner's hard blocks and volume 1 h >= $10k; shadow = data, paper = range_dca trades it on the demo account by the
+    # range rules; live only past LIVE_GATES (>= 20 closed demo rounds of source missed, trade/edge live proof)
+    "range_missed": ("G27", "Propušteni tokeni na range listi: preskočen pa +20 % u 60 min = 72 h praćenja (filteri: "
+                            "rug, honeypot/freeze, dev dump, MC 30k+, likvidnost 15k+, volumen 1 h 10k+), ulaz samo po "
+                            "rasponu; live tek nakon 20 rundi izvora missed s EV > 0"),
+}
+# 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
+NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
+              "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)"}
+# 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
+# never move on their own, only the owner's tap on the page sets them
+OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
+# what "uživo" does, per owner switch (the page /pravi-trade; one without a note gets the exit-plan text)
+OWNER_SWITCH_NOTES = {
+    "rug_labels_v2_ok": "Tvoj prekidač: „uživo” uključuje nove rug oznake (bez backtesta); svaki drugi mod ostavlja "
+                        "stroži blok i stare oznake u statistikama.",
+    "live_trades_retention": "Tvoj prekidač: „uživo” uključuje brisanje (noću 01-06, nakon satnog agregata); svaki drugi "
+                             "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
+    "tg_text_retention": "Tvoj prekidač: „uživo” uključuje brisanje teksta (noću 01-06, red objave ostaje); svaki drugi "
+                         "mod samo mjeri i piše u log što bi se obrisalo i koliko MB.",
 }
 # 10.11. (group_discovery): flags whose move to paper needs a proof of their own, "module:function"(con, now=) -> None
 # or the reason in Croatian. Asked only by set_flag (the owner's tap), so it is enforced and never automatic.
 PAPER_GATES = {"group_discovery": "kol.groupdisc:paper_refusal"}
+PAPER_GATES["pre_shill"] = "kol.preshill:paper_refusal"   # 11.11.: 7 days of shadow, >= 30 measured signals, EV > 0
 # 10.11. (insider_copy): flags whose move to live needs a proof of their own on top of live_refusal's (same shape)
-LIVE_GATES = {"insider_copy": "kol.precall:live_refusal"}
+LIVE_GATES = {"insider_copy": "kol.precall:live_refusal",
+              "momentum_scalp": "momentum.gate:live_refusal"}   # >= 50 paper trades, trade/edge live proof
+LIVE_GATES["proposals"] = "proposals.paper:live_refusal"   # 11.11.: never live (no automatic path to the real account)
+LIVE_GATES["fast_path"] = "fast.paper:live_refusal"   # >= 30 closed fast-path paper trades, trade/edge live proof
+LIVE_GATES["range_flip"] = "rangedca.gate:flip_live_refusal"   # 11.11.: nightly backtest, new max DD <= today's
+LIVE_GATES["range_missed"] = "rangedca.gate:missed_live_refusal"   # 11.11.: >= 20 rounds of source missed, EV proof
 DCA_TOKEN_CAP = 0.3   # SOL in one token at most under dca_cap, until the owner applies another (settings "dca_token_cap")
 DATA_FLAGS = frozenset({"holder_snap", "x_features_ingest", "junk_flags", "event_flags", "grok_predictions",
-                        "early_persist"})
+                        "early_persist", "zonewatch"})
 _FLAG_CACHE = {}       # db path -> (monotonic read time, {name: mode})
 FLAG_CACHE_S = 2.0     # loops ask every second; a change on the page holds within this
 
@@ -158,10 +249,16 @@ def merged(cfg, con):
     out["simianx"] = bool(s.get("simianx", False)) and "simianx" not in LOCKED
     out["dca_cap_owner"] = bool(s.get("dca_cap_owner", False))     # 10.11. ~21:00: the owner's per-token SOL cap
     out["dca_token_cap"] = s.get("dca_token_cap", DCA_TOKEN_CAP)
+    # 11.11. (Jure: "promijeni maksimalnu poziciju tokenu na 1 sol"): the cap of the OWNER's buys (manual, DCA,
+    # buy orders) apart from dca_token_cap, which stays the Autopilot's copy cap (10.11.: 0,3 SOL on autopilot-paper)
+    out["owner_token_cap"] = s.get("owner_token_cap", out["dca_token_cap"])
     out.setdefault("day_tz", "Europe/Zagreb")
     out["sell_all"] = s.get("sell_all") or 0
     out["sell_req"] = s.get("sell_req") or {}
     out["manual_size"] = s.get("manual_size") or {}
+    # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): demo trade id -> {"why": [...], "ts", "who"} of the owner's
+    # buys he confirmed over his limits (ui/pravitrade._post_buy); run_trade hands it to executor.buy(override=...)
+    out["manual_override"] = s.get("manual_override") or {}
     out["heartbeat"] = s.get("heartbeat") or 0
     out["tp_default"] = int(s.get("tp_default") or 15)   # 9.11. (Jure): the exit target for new copies, set at the top of the page
     out["sl_default"] = int(s.get("sl_default") or SL_DEFAULT)
@@ -261,7 +358,9 @@ def live_refusal(con, name, paper=None, now=None):
     """None when `name` may go live, else the reason in Croatian. paper: {"n": closed trades, "pnl": USD} of the
     paper account since the flag went to paper (league/flags.paper_result); None = not known."""
     now = int(now or time.time())
-    if name in DATA_FLAGS:
+    if name in NEVER_LIVE:
+        return NEVER_LIVE[name]
+    if name in DATA_FLAGS or name in OWNER_SWITCHES:
         return None
     bt = raw(con).get(f"backtest:{name}") or {}
     if not (isinstance(bt, dict) and bt.get("pass") is True):
@@ -269,7 +368,7 @@ def live_refusal(con, name, paper=None, now=None):
     st = flag_state(con)[name]
     if st["mode"] == "live":
         return None
-    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds with EV > 0 (rangedca/gate.py), on top
+    if name == "range_dca":   # 10.11. (Jure): >= 20 closed paper rounds, trade/edge live proof (rangedca/gate.py)
         try:
             from rangedca import gate as _range_gate
             why = _range_gate.refusal(now=now)

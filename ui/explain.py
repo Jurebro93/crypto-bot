@@ -11,8 +11,10 @@ try:
 except Exception:  # module missing or mid-edit: fall back to the list from the time of writing
     BAD_LABELS = {"bot", "rugger", "bundler", "insider", "dev", "cex", "mev", "sniper"}
 
-# defaults of `run_wallets.py copy`
-COPY_MIN_SCORE = 50
+# 11.11. (Jure): the copy list follows the copy ranking (wallets/rang.py): proven (10+ closed tokens in 30 days),
+# copyable (median entry liquidity 15k+), Ocjena 0-100 at least COPY_MIN_SCORE, no bad label. The old copy_score
+# (wallets/pnl) no longer decides anything shown or copied.
+COPY_MIN_SCORE = 40
 COPY_MIN_CLOSED = 10
 
 
@@ -80,7 +82,8 @@ def copy_multipliers(s, labels):
 
 
 def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
-    """(passes, [reasons it does not]) for the copytrading list of `run_wallets.py copy`."""
+    """(passes, [reasons it does not]) for the copy list: the copy ranking's row (w["rang"], ui/data.wallets attaches
+    it) proven with min_closed+ closed tokens in 30 days, copyable, Ocjena >= min_score; no bad label."""
     s = w.get("stats") or {}
     why = []
     if not s:
@@ -88,10 +91,16 @@ def shortlist(w, min_score=COPY_MIN_SCORE, min_closed=COPY_MIN_CLOSED):
     bad = set(w.get("labels") or []) & BAD_LABELS
     if bad:
         why.append(f"oznaka {', '.join(sorted(bad))}")
-    if (s.get("closed") or 0) < min_closed:
-        why.append(f"samo {s.get('closed', 0)} zatvorenih pozicija (treba {min_closed})")
-    if (w.get("copy_score") or 0) < min_score:
-        why.append(f"copy ocjena {w.get('copy_score') or 0} < {min_score}")
+    r = w.get("rang")
+    if r is None:
+        why.append("nema zatvorenih tokena u zadnjih 30 dana (nije u rangu za kopiranje)")
+        return False, why
+    if (r.get("n") or 0) < min_closed:
+        why.append(f"samo {r.get('n') or 0} zatvorenih u 30 dana (treba {min_closed})")
+    if not r.get("copyable"):
+        why.append("nije kopirljiv: " + (r.get("why") or "likvidnost na ulazu"))
+    if (r.get("score") or 0) < min_score:
+        why.append(f"ocjena za kopiranje {r.get('score') or 0:.0f} < {min_score:g}")
     return not why, why
 
 

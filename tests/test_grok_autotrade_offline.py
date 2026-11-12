@@ -53,7 +53,8 @@ class Grok(Base):
         # no MCP tool turns it on or changes its limits
         # (10.11.: the read-only work queue get_grok_tasks is allowed; no tool that writes may touch it)
         names = [t["name"] for t in mcpapi.TOOLS if not (t.get("annotations") or {}).get("readOnlyHint")]
-        self.assertFalse([n for n in names if "grok" in n or "autotrade" in n])
+        # (11.11.: submit_grok_prediction writes only events.db grok_predictions, nothing of autotrade)
+        self.assertFalse([n for n in names if ("grok" in n or "autotrade" in n) and n != "submit_grok_prediction"])
         self.assertIn("err=", pravitrade.post("/pravi-trade/grokon", {}, "netko"))   # only the owner
         self.assertFalse(grokauto.state(self.con)["on"])
         # with approval it queues as before
@@ -141,7 +142,7 @@ class Grok(Base):
         self.assertEqual(cfg["grok_autotrade"]["limits"]["grok_max_open"], 2)
 
     def test_page_block_with_label_and_kill_button_only_while_on(self):
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the setup is under Postavke (ui/apterm, lazy)
         self.assertNotIn("Ugasi Grok autotrade", body)
         self.assertIn("Uključi Grok autotrade", body)
         self.post("/pravi-trade/grokon", {})
@@ -149,7 +150,9 @@ class Grok(Base):
         _, body = pravitrade.page({}, "Jure")
         self.assertIn("Ugasi Grok autotrade", body)
         self.assertIn("<span class=ap-tag>Grok auto</span> kupnja", body)
-        self.assertLess(body.index("id=pozicije"), body.index("id=grok-auto"))
+        # 11.11. (ui/apterm): while it is on, the block with its red "Ugasi" is in the title bar's alerts, above the
+        # tables, in the first HTML (a kill switch is never lazy)
+        self.assertLess(body.index("id=grok-auto"), body.index("id=pozicije"))
         self.assertNotIn("Ugasi Grok autotrade", pravitrade.page({}, "netko")[1])
         self.assertEqual(pravitrade._who("Grok auto (MCP)"), "Grok auto")
 

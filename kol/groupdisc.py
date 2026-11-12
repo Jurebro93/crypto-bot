@@ -10,10 +10,13 @@ Two kinds of groups, measured from our own databases first; nothing here buys, s
    tokens and lift >= min_lift in either window; a group is a connected component of links (kol/together.components).
    Per group, over its events (2+ members called the token within 10 min): who calls first, market cap at the first
    member call, the result 1 h / 4 h / 24 h after it (kol.db r1h, r24h; 4 h from minute.db candles when kept), rug
-   share, and the delay of the public calls (anybody outside the group) behind the first. Grade: quality (EV of the
-   1 h result after cost > 0 from the first call), exit_liquidity (the first public call falls in its first hour),
-   bad, or insufficient_data. For scoring (shadow only, league/flags.shadow): calls of one group within 10 min are
-   ONE signal (dedupe), and an exit_liquidity group weighs -1 (weighted).
+   share, and the delay of the public calls (anybody outside the group) behind the first. Grade: quality (11.11.:
+   >= 8 events measured at 1 h, 4 h and 24 h, r4h_med > 0, r24h_med > -30 %, EV after cost > 0 at 1 h and 4 h),
+   exit_liquidity (the first public call falls in its first hour), bad, or insufficient_data; every grade is shown
+   with n_measured, and saved groups are graded again by today's rule when read (grade_of). Also the link density of
+   each group (a component chained through pairs is split by kol/preshill.py before it is called a shill network).
+   For scoring (shadow only, league/flags.shadow): calls of one group within 10 min are ONE signal (dedupe), and an
+   exit_liquidity group weighs -1 (weighted).
 
 2) Wallet groups ("hidden paid lists"). Wallets that bought a token under max_mcap in its first 30 min: early.db
    early_buyers (smart_discovery) and our own Helius cache group_buys (getTransactionsForAddress on the mint, oldest
@@ -50,6 +53,8 @@ import sys
 import time
 from collections import Counter, defaultdict
 
+from trade import cost as _tcost
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FLAG = "group_discovery"
 WSOL = "So11111111111111111111111111111111111111112"
@@ -57,8 +62,12 @@ PUMP_SUPPLY = 1e9
 
 DEFAULT = {
     # 1) caller groups
-    "days": 30, "win_fast_s": 120, "win_s": 600, "min_shared": 3, "min_lift": 5.0, "min_events": 3, "cost": 0.02,
+    "days": 30, "win_fast_s": 120, "win_s": 600, "min_shared": 3, "min_lift": 5.0, "min_events": 3,
+    "cost": _tcost.FEE_ROUND_TRIP,   # 11.11. (owner's rule A): the ONE cost model's fee part (0.02)
     "r_cap": 3.0, "exit_drop": -0.15, "max_rug": 0.34,
+    # 11.11. (Jure): "quality" only on >= q_min_measured measured events at 1 h, 4 h and 24 h, the medians at 4 h above
+    # 0 and at 24 h above q_min_r24h, and EV > 0 at 1 h and at 4 h (LiLiStormX was "quality" with r24h -88 % on 6)
+    "q_min_measured": 8, "q_min_r24h": -0.3,
     # 2) wallet groups
     "early_s": 1800, "max_mcap": 100_000, "slot_gap": 5, "ts_gap": 2, "w_min_shared": 3, "w_min_size": 4,
     "w_max_size": 40, "bot_tx_min": 50, "relayer_min": 5, "hub_min": 20, "hidden_min": 3, "hidden_window_s": 600,
@@ -284,6 +293,8 @@ def caller_metrics(events, c):
         for i, h in enumerate(e["order"]):
             rank[h].append(i)
     r1 = [min(e["r1h"], c["r_cap"]) for e in events if e["r1h"] is not None]
+    r4 = [min(e["r4h"], c["r_cap"]) for e in events if e.get("r4h") is not None]
+    n24 = sum(1 for e in events if e.get("r24h") is not None)
     pub = [e["pub_r1h"] for e in events if e["pub_r1h"] is not None]
     m = {"events": n, "first_counts": dict(firsts.most_common()),
          "typical_order": sorted(rank, key=lambda h: (statistics.mean(rank[h]), -firsts.get(h, 0))),
@@ -291,6 +302,7 @@ def caller_metrics(events, c):
          "r1h_med": _r(_med(e["r1h"] for e in events)), "r4h_med": _r(_med(e["r4h"] for e in events)),
          "r24h_med": _r(_med(e["r24h"] for e in events)),
          "ev_1h": _r(sum(r1) / len(r1) - c["cost"]) if r1 else None, "n_measured": len(r1),
+         "ev_4h": _r(sum(r4) / len(r4) - c["cost"]) if r4 else None, "n_measured_4h": len(r4), "n_measured_24h": n24,
          "rug_share": _r(sum(e["rug"] for e in events) / n, 3) if n else None,
          "public_delay_min_med": _r((_med(e["pub_delay_s"] for e in events) or 0) / 60, 1)
          if any(e["pub_delay_s"] is not None for e in events) else None,
@@ -301,13 +313,63 @@ def caller_metrics(events, c):
 
 
 def caller_grade(m, c):
+    """exit_liquidity | bad | insufficient_data | quality. 11.11. (Jure): quality needs q_min_measured (8) measured
+    events at 1 h, 4 h and 24 h, r4h_med > 0, r24h_med > q_min_r24h (-30 %) and EV > 0 at 1 h AND at 4 h. One bad
+    number on min_events (3) measured events is enough for "bad" (a -88 % median at 24 h on 6 events is no quality
+    group); good numbers on fewer than 8 stay insufficient_data. Metrics saved before 11.11. have no 4 h EV: they can
+    be bad, never quality, until the next night pass measures them again."""
     if m["events"] < c["min_events"] or m["ev_1h"] is None or m["n_measured"] < c["min_events"]:
         return "insufficient_data"
     if m["n_public"] >= c["min_events"] and m["public_r1h_med"] is not None and m["public_r1h_med"] <= c["exit_drop"]:
         return "exit_liquidity"
-    if m["ev_1h"] > 0 and (m["rug_share"] or 0) < c["max_rug"]:
-        return "quality"
-    return "bad"
+    r4, r24, ev4 = m.get("r4h_med"), m.get("r24h_med"), m.get("ev_4h")
+    if (m["ev_1h"] <= 0 or (m["rug_share"] or 0) >= c["max_rug"] or (r4 is not None and r4 <= 0)
+            or (r24 is not None and r24 <= c["q_min_r24h"]) or (ev4 is not None and ev4 <= 0)):
+        return "bad"
+    q = c["q_min_measured"]
+    if (m["n_measured"] < q or (m.get("n_measured_4h") or 0) < q or (m.get("n_measured_24h") or 0) < q
+            or r4 is None or r24 is None or ev4 is None):
+        return "insufficient_data"
+    return "quality"
+
+
+def n_measured_of(kind, met):
+    """The number of measured cases behind a grade: caller groups their events with a 1 h result, wallet groups their
+    closed positions."""
+    met = met if isinstance(met, dict) else {}
+    return met.get("n_measured") if kind == "caller" else met.get("n_closed")
+
+
+def grade_of(kind, grade, met, c=None):
+    """The grade by today's rule: caller groups are graded again from their saved metrics (a group saved under an
+    older rule must not stay "quality" until the next night pass); anything unreadable keeps its saved grade."""
+    if kind != "caller":
+        return grade
+    if isinstance(met, str):
+        try:
+            met = json.loads(met or "{}")
+        except ValueError:
+            return grade
+    if not isinstance(met, dict) or "ev_1h" not in met or "events" not in met:
+        return grade
+    try:
+        return caller_grade(met, c or config())
+    except (KeyError, TypeError):
+        return grade
+
+
+def grade_text(grade, n):
+    """'kvalitetna (n=9)': the grade in Croatian with the measured cases behind it."""
+    return f"{GRADE_HR.get(grade, grade or '?')} (n={n if n is not None else 0})"
+
+
+def link_density(members, n_links, deg, k=3):
+    """{"n_links", "density" (share of member pairs that are linked), "deg_med", "deg_ge3_share" (members with >= k
+    links)} of one group."""
+    n = len(members)
+    ds = sorted(deg.get(h, 0) for h in members)
+    return {"n_links": n_links, "density": _r(2 * n_links / (n * (n - 1)), 4) if n > 1 else None,
+            "deg_med": _med(ds), "deg_ge3_share": _r(sum(1 for d in ds if d >= k) / n, 3) if n else None}
 
 
 def dedupe(calls, member_of, window=600):
@@ -388,10 +450,17 @@ def _build_caller_groups(kcon, c, now, mcon=None):
     wins = (c["win_fast_s"], c["win_s"])
     table, n_of, u, f = lift_table((rows for _t, rows in _first_calls_stream(kcon, since, bots)), wins, cand,
                                    min_n=c["min_shared"])
-    groups = [g for g in components(links(table, c["min_shared"], c["min_lift"])) if len(g) >= 2]
+    lk = links(table, c["min_shared"], c["min_lift"])
+    groups = [g for g in components(lk) if len(g) >= 2]
     if not groups:
         return []
     member_of = {h: i for i, g in enumerate(groups) for h in g}
+    n_links, deg = Counter(), Counter()
+    for a, b in lk:
+        n_links[member_of[a]] += 1
+        deg[a] += 1
+        deg[b] += 1
+    del lk
     in_group = defaultdict(list)
     for (a, b), s in table.items():
         if a in member_of and member_of[a] == member_of.get(b):
@@ -414,6 +483,9 @@ def _build_caller_groups(kcon, c, now, mcon=None):
         m["pairs"] = sorted(in_group[i], key=lambda x: -x["shared_10min"])[:30]
         m["tokens"] = [e["token"] for e in sorted(events[i], key=lambda e: -e["ts"])][:20]
         m["base_rate"] = {"tokens": u, "f_120s": _r(f[0], 5), "f_10min": _r(f[1], 5)}
+        # 11.11.: how tightly the members are linked: a component linked through chains (A~B, B~C ...) is not one
+        # crew; kol/preshill.py splits such a component before it calls any part of it a shill network
+        m.update(link_density(g, n_links[i], deg))
         out.append((gid_of("caller", g), sorted(g, key=lambda h: m["typical_order"].index(h)
                                                 if h in m["typical_order"] else 99), m))
     return out
@@ -1012,11 +1084,12 @@ def load_groups(con, kind):
     member_of = dict(_q(con, "SELECT member, gid FROM group_member WHERE kind = ?", (kind,)))
     grades, owner_of = {}, {}
     for gid, grade, met in _q(con, "SELECT id, grade, metrics FROM group_list WHERE kind = ?", (kind,)):
-        grades[gid] = grade
         try:
-            owner_of.update((json.loads(met or "{}") or {}).get("owner_of") or {})
+            m = json.loads(met or "{}") or {}
         except ValueError:
-            pass
+            m = {}
+        grades[gid] = grade_of(kind, grade, m)   # 11.11.: today's rule, not the one of the night it was saved
+        owner_of.update(m.get("owner_of") or {})
     return member_of, grades, owner_of
 
 
@@ -1183,13 +1256,18 @@ def night(cfg=None, now=None, credits=None, log=print, fetch=None, sol_usd=None,
         _kv(con, "last_night", now)
         g = Counter(x[2]["grade"] for x in callers)
         gw = Counter(x[2]["grade"] for x in wallets)
+        # 11.11.: every grade with the measured cases behind it (n), e.g. "kvalitetna (n=9)"
+        qn = [x[2].get("n_measured") or 0 for x in callers if x[2]["grade"] == "quality"]
         detail = {"caller_groups": len(callers), "caller_grades": dict(g), "wallet_groups": len(wallets),
                   "wallet_grades": dict(gw), "mints_read": n_read, "mints_waiting": max(0, len(mints) - n_read),
-                  "relayers": len(relay), "measured": measured}
+                  "relayers": len(relay), "measured": measured,
+                  "caller_graded": [{"group_id": gid, "size": len(mem), "grade": met["grade"],
+                                     "n_measured": met.get("n_measured")} for gid, mem, met in callers][:50]}
         con.execute("INSERT INTO group_runs VALUES (?,?,?,?,?)", (now, "night", spent, gt, json.dumps(detail)))
         con.commit()
-        log(f"grupe (noć, {m}): {len(callers)} ekipa callera ({g.get('quality', 0)} kvalitetnih, "
-            f"{g.get('exit_liquidity', 0)} izlazna likvidnost), {len(wallets)} grupa novčanika "
+        log(f"grupe (noć, {m}): {len(callers)} ekipa callera ({g.get('quality', 0)} kvalitetnih"
+            + (f", n izmjerenih {', '.join(map(str, sorted(qn, reverse=True)[:8]))}" if qn else "") + ", "
+            f"{g.get('exit_liquidity', 0)} izlazna likvidnost, {g.get('bad', 0)} loših), {len(wallets)} grupa novčanika "
             f"({gw.get('quality', 0)} kvalitetnih); Helius {n_read} tokena za {spent} kredita (strop {budget}), "
             f"{len(relay)} relayera izbačeno; izmjereno {measured} signala/tragova, GeckoTerminal {gt}")
         return detail
@@ -1392,6 +1470,8 @@ def trader_groups(kind="caller", min_quality=None, limit=None, offset=None, path
     rows = _q(ec, "SELECT id, members, size, grade, metrics, updated FROM group_list WHERE kind = ?", (kind,))
     if ec is not None:
         ec.close()
+    c = config()
+    rows = [(gid, mem, sz, grade_of(kind, gr, met, c), met, upd) for gid, mem, sz, gr, met, upd in rows]
     rows = [r for r in rows if r[3] in GRADES and GRADES.index(r[3]) >= floor]
 
     def size(r):
@@ -1399,16 +1479,32 @@ def trader_groups(kind="caller", min_quality=None, limit=None, offset=None, path
         return met.get("events") or met.get("tokens") or 0
     rows.sort(key=lambda r: (-GRADES.index(r[3]), -size(r)))
     labels = _labels_from_notes(trade_db)
+    shill = _shill_marks(path, trade_db) if kind == "caller" else {}
     out = []
     for gid, members, size, grade, metrics, upd in rows[offset:offset + limit]:
         ls = labels.get(gid) or []
         acc = next((x for x in ls if x["status"] in ("prihvaćeno", "primijenjeno")), None)
-        out.append({"group_id": gid, "kind": kind, "members": json.loads(members), "size": size, "grade": grade,
-                    "grade_hr": GRADE_HR.get(grade), "weight_in_shadow_scoring": WEIGHT.get(grade),
-                    "metrics": json.loads(metrics), "label": acc["label"] if acc else None,
-                    "proposed_labels": [x for x in ls if x["status"] == "novo"][:5], "updated_ts": upd})
+        met = json.loads(metrics)
+        n = n_measured_of(kind, met)
+        row = {"group_id": gid, "kind": kind, "members": json.loads(members), "size": size, "grade": grade,
+               "grade_hr": GRADE_HR.get(grade), "n_measured": n, "grade_text": grade_text(grade, n),
+               "weight_in_shadow_scoring": WEIGHT.get(grade), "metrics": met, "label": acc["label"] if acc else None,
+               "proposed_labels": [x for x in ls if x["status"] == "novo"][:5], "updated_ts": upd}
+        if gid in shill:   # 11.11. (kol/preshill.py, flag pre_shill): the paid shill network(s) inside this group
+            row.update(shill[gid])
+        out.append(row)
     nxt = offset + limit if offset + limit < len(rows) else None
     return {**base, "groups": out, "total": len(rows), "next_offset": nxt}
+
+
+def _shill_marks(path=None, trade_db=None):
+    """{group_id: {"shill_network", "label", "shill_parts", "chain_check"}} from kol/preshill.py ({} while its flag
+    is off or nothing was measured)."""
+    try:
+        from kol import preshill
+        return preshill.group_marks(path, trade_db)
+    except Exception:  # noqa: BLE001 - the groups answer without the marks
+        return {}
 
 
 def group_activity(since_ts=None, limit=None, offset=None, path=None, trade_db=None, now=None):
@@ -1425,7 +1521,14 @@ def group_activity(since_ts=None, limit=None, offset=None, path=None, trade_db=N
         return {"error": "since_ts must be unix seconds"}
     limit, offset = _page(limit, offset)
     ec = _ro(path or db_path())
-    grade = {g: (k, gr) for g, k, gr in _q(ec, "SELECT id, kind, grade FROM group_list")}
+    c = config()
+    grade = {}
+    for g, k, gr, met in _q(ec, "SELECT id, kind, grade, metrics FROM group_list"):
+        try:
+            met = json.loads(met or "{}") or {}
+        except ValueError:
+            met = {}
+        grade[g] = (k, grade_of(k, gr, met, c), n_measured_of(k, met))
     rows = _q(ec, "SELECT ts, kind, gid, token, who, mcap_usd, public_called FROM group_activity WHERE ts >= ? "
                   "ORDER BY ts DESC LIMIT ? OFFSET ?", (since, limit + 1, offset))
     total = (_q(ec, "SELECT COUNT(*) FROM group_activity WHERE ts >= ?", (since,)) or [(0,)])[0][0]
@@ -1433,10 +1536,12 @@ def group_activity(since_ts=None, limit=None, offset=None, path=None, trade_db=N
                  "FROM group_signals WHERE ts >= ? ORDER BY ts DESC LIMIT 200", (since,))
     if ec is not None:
         ec.close()
-    act = [{"ts": ts, "kind": k, "group_id": g, "group_kind": (grade.get(g) or (None,))[0],
-            "grade": (grade.get(g) or (None, None))[1], "token": t, "who": w, "mcap_usd": mc,
+    none = (None, None, None)
+    act = [{"ts": ts, "kind": k, "group_id": g, "group_kind": grade.get(g, none)[0], "grade": grade.get(g, none)[1],
+            "n_measured": grade.get(g, none)[2], "token": t, "who": w, "mcap_usd": mc,
             "under_30k": bool(mc and mc < 30000), "public_called": bool(pc)} for ts, k, g, t, w, mc, pc in rows[:limit]]
-    sigs = [{"ts": ts, "source": s, "group_id": g, "token": t, "who": w.split(",") if s == "hidden_group" else w,
+    sigs = [{"ts": ts, "source": s, "group_id": g, "grade": grade.get(g, none)[1], "n_measured": grade.get(g, none)[2],
+             "token": t, "who": w.split(",") if s == "hidden_group" else w,
              "mcap_usd": mc, "under_30k": bool(mc and mc < 30000), "r1h": r1, "r4h": r4, "hit20_before_stop30_1h": h1,
              "hit20_before_stop30_4h": h4, "ev_after_cost": e,
              "public_call_delay_min": round((fp - ts) / 60, 1) if fp else None}

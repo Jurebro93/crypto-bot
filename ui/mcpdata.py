@@ -1,8 +1,9 @@
 """Read-only analysis tools of the MemeSonar MCP endpoint (/mcp), 10.11. (Jure: an external AI assistant analyses
 the full dataset). Every tool reads the databases read-only (file:...?mode=ro), pages its rows (limit 1..500,
 offset >= 0, "next_offset" when more rows exist) and gives times as unix seconds. The one write is
-submit_caller_weights: suggestions go to trade.db table assistant_suggestions with status 'pending'; nothing reads
-them for live scoring, the owner approves or rejects them on the Autopilot page.
+submit_caller_weights: one suggestion note per weight (trade.db assistant_notes), applied on arrival to trade settings
+caller_weights (11.11., the owner's standing order, ui/assistnotes.auto_apply_weight); the weights act only through the
+flag caller_weights, which this never changes.
 
 Data (see the map in the 10.11. PR): kol.db (calls, kols, kol_ids, tokens, snaps), minute.db (call_path,
 call_candles), tg.db, hype.db (chain_trades, live_trades, hype_snapshots, hype_signals, rug_archive), wallets.db
@@ -232,7 +233,8 @@ def wilson_low(k, n, z=WILSON_Z):
 
 
 def _cost():
-    """The round-trip cost as a fraction of the stake (kol/tpsl.COST = 2 %: league/store.FEE 1 % a side)."""
+    """The round-trip cost as a fraction of the stake (kol/tpsl.COST = trade/cost.FEE_ROUND_TRIP: 2 x league/store.FEE,
+    the fee part of the ONE cost model the measured records are net of)."""
     try:
         from kol import tpsl
         return float(tpsl.COST) / 100
@@ -767,16 +769,23 @@ def wallet_leaderboard(kind=None, limit=None, offset=None):
     finally:
         _close(kc)
     wc = _ro("wallets")
+    # 11.11. (Jure): copy_score is the copy ranking's Ocjena (wallets/rang.py: 30 days, closed positions, Wilson win
+    # rate, median, profit factor, copyability, recency; no absolute SOL PnL); copy_proven / copy_copyable its flags
+    rank = {}
+    for t, sc, pr, cp in _q(wc, "SELECT target, score, proven, copyable FROM copy_rank WHERE kind = 'wallet'"):
+        rank[t] = (sc, pr, cp)
     try:
         rows = []
-        for w, tier, score, cscore, stats, labels, last_tx in _q(
+        for w, tier, score, _old, stats, labels, last_tx in _q(
                 wc, "SELECT wallet, tier, score, copy_score, stats, labels, last_tx_ts FROM wallets "
                     "WHERE stats IS NOT NULL ORDER BY COALESCE(score, 0) DESC"):
             st = _json(stats)
             link = ids.get(w) or {}
             meta = _wallet_meta(wc, kidx, ids, w)
             rows.append({"wallet": w, "kind": meta["kind"], "tier": tier, "score": meta["score"],
-                         "score_source": meta["score_source"], "copy_score": _f(cscore, 2),
+                         "score_source": meta["score_source"], "copy_score": _f((rank.get(w) or (None,))[0], 2),
+                         "copy_proven": bool((rank.get(w) or (0, 0, 0))[1]) if w in rank else None,
+                         "copy_copyable": bool((rank.get(w) or (0, 0, 0))[2]) if w in rank else None,
                          "realized_pnl_sol": _f(st.get("realized_sol"), 4), "unrealized_pnl_sol": _f(st.get("unrealized_sol"), 4),
                          "win_rate": _f(st.get("win_rate"), 4), "median_hold_min": _f(st.get("median_hold_min"), 1),
                          "style": st.get("style"), "last_trade_ts": _i(last_tx), "linked_handle": _linked(link)})
@@ -1480,8 +1489,8 @@ def scoring_config():
         out["hype_weights"] = json.load(open(os.path.join(ROOT, "hype", "weights.json")))
     except (OSError, ValueError):
         out["hype_weights"] = None
-    out["notes"] = ("Read-only. Proposals go through submit_caller_weights (owner review); nothing here changes by "
-                    "this API.")
+    out["notes"] = ("Read-only. Caller weights go through submit_caller_weights (applied on arrival, behind the flag "
+                    "caller_weights); nothing here changes by this API.")
     return json.loads(json.dumps(out, default=str))
 
 
@@ -1517,18 +1526,25 @@ def submit_caller_weights(weights, source="mcp", kid="local"):
             return {"error": f"item {i}: handle required and weight must be between 0 and 2"}
         clean.append((h, plat, round(wt, 3), str(w.get("reason") or "")[:assistnotes.TEXT_MAX]))
     con = settings.connect()
-    ids = []
+    ids, applied = [], []
     try:
         for h, plat, wt, why in clean:
             out = assistnotes.submit_suggestion(con, kid, f"Težina callera {h}: {wt:g}", why or "prijedlog težine",
                                                 proposed_change={"caller": h, "platform": plat, "weight": wt})
             ids.append(out["id"])
+            if out.get("applied"):   # 11.11. (Jure): every weight is applied on arrival (assistnotes.auto_apply_weight)
+                applied.append(dict(out["applied"], id=out["id"]))
+        mode = settings.flag("caller_weights", con=con)
     except ValueError as e:
-        return {"error": str(e), "stored": len(ids), "ids": ids}
+        return {"error": str(e), "stored": len(ids), "ids": ids, "applied": applied}
     finally:
         con.close()
-    return {"ts": int(time.time()), "stored": len(ids), "ids": ids, "status": "novo",
-            "message": "Stored for the owner's review on the MemeSonar Autopilot page; live scoring is unchanged."}
+    return {"ts": int(time.time()), "stored": len(ids), "ids": ids, "applied": applied,
+            "status": "primijenjeno" if len(applied) == len(ids) else "djelomično",
+            "flag_caller_weights": mode,
+            "message": (f"Applied at once to trade settings caller_weights (the owner's standing order): {len(applied)} "
+                        f"of {len(ids)}. They act only through the flag caller_weights, now {mode}; the flag is "
+                        "never changed by this tool.")}
 
 
 def suggestions(tcon, status="pending", limit=50):
@@ -1547,4 +1563,10 @@ def decide_suggestion(tcon, sid, status):
     n = tcon.execute("UPDATE assistant_suggestions SET status=?, decided_ts=? WHERE id=? AND status='pending'",
                      (status, int(time.time()), int(sid))).rowcount
     tcon.commit()
+    if n and status == "approved":   # 11.11. (Jure): an approved weight is applied at once (assistnotes)
+        from ui import assistnotes
+        try:
+            assistnotes.apply_suggestion_weight(tcon, sid, client="vlasnik (sugok)")
+        except (ValueError, TypeError) as e:
+            print(f"pravi trade: prijedlog težine #{sid} nije primijenjen ({e})", flush=True)
     return n

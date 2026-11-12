@@ -163,6 +163,22 @@ details.ap-pan[open]>summary::after{transform:rotate(-90deg)}details.ap-pan>.in{
 .ap-toast{position:fixed;left:12px;right:12px;bottom:84px;z-index:60;padding:14px 40px 14px 16px;border-radius:14px;
 font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.18);color:#fff;background:var(--good,#16a34a);max-width:640px;margin:0 auto}
 .ap-toast.bad{background:var(--bad,#dc2626)}
+.ap-warnbox{position:fixed;left:12px;right:12px;bottom:84px;z-index:90;max-width:560px;margin:0 auto;max-height:80vh;
+overflow:auto;padding:16px 18px;border-radius:16px;background:var(--warnbg,#fffbeb);color:var(--fg);
+border:2px solid var(--warn,#d97706);box-shadow:0 12px 32px rgba(0,0,0,.22);font-size:15px}
+.ap-warnbox-h{margin:0 0 6px;font-size:17px;font-weight:700;color:var(--ap-warn-t,var(--warn,#d97706))}
+.ap-warnbox-what{margin:0 0 6px;font-weight:600}.ap-warnbox ul{margin:6px 0 8px;padding-left:20px}.ap-warnbox li{margin:3px 0}
+.ap-warnbox-note{margin:6px 0;font-size:13px;color:var(--mut)}.ap-warnbox-err{margin:6px 0;font-weight:600;color:var(--bad,#dc2626)}
+.ap-warnbox-r{display:block;margin:8px 0;font-weight:600}.ap-warnbox-r small{font-weight:400;color:var(--mut)}
+.ap-warnbox-r textarea{display:block;width:100%;box-sizing:border-box;margin-top:4px;font:inherit;padding:8px 10px;
+border-radius:10px;border:1px solid var(--warn,#d97706);background:var(--card);color:var(--fg)}
+.ap-warnbox-go{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.ap-warnbox .ap-warnbox-yes{flex:1;min-height:44px;border:0;border-radius:999px;font-weight:700;font-size:15px;
+color:#fff;background:var(--warn,#d97706);cursor:pointer;padding:0 18px}
+.ap-warnbox .ap-warnbox-yes:disabled{opacity:.5;cursor:not-allowed}
+.ap-warnbox .ap-warnbox-no{min-height:44px;display:inline-flex;align-items:center;padding:0 18px;border-radius:999px;
+border:1px solid var(--line2,var(--line));background:var(--card);color:var(--fg);text-decoration:none;font-weight:600;
+cursor:pointer;font-size:15px}
 .ap-grok{margin:8px 0;padding:10px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}.ap-grok p{margin:4px 0 0}.ap-grok-h{display:flex;gap:8px;align-items:center;font-weight:600}
 .ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
 .ap-sum p{margin:0}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
@@ -192,7 +208,9 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # A box that still holds only its "učitavam…" is filled even right after the tap that opened it (that tap is what
 # asked for it); a refused swap (finger down, field in focus) returns false and the poller asks again a moment later
 # (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
-PATCH_JS = """<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
+# 11.11. (Jure: "kartice se ne otvaraju iz prvoga"): a part that is swapped keeps the open / closed state of its
+# <details> (by id, else by position), so a refresh never closes a box the user has just opened.
+PATCH_JS ="""<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
 addEventListener('pointerdown',()=>{down=Date.now();held=true},true);
 addEventListener('pointerup',()=>{down=Date.now();held=false},true);addEventListener('pointercancel',()=>{held=false},true);
 addEventListener('touchstart',()=>{down=Date.now();held=true},{capture:true,passive:true});
@@ -202,7 +220,9 @@ window.apPatch=(box,h)=>{const virgin=![...box.children].some(c=>SRC.has(c));
 if((!virgin&&(held||Date.now()-down<1200))||box.contains(document.activeElement))return false;
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
-b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o)o.replaceWith(n);else box.appendChild(n)});
+const ds=e=>[...(e.matches('details')?[e]:[]),...e.querySelectorAll('details')];
+const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open})};
+b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o){carry(o,n);o.replaceWith(n)}else box.appendChild(n)});
 a.slice(b.length).forEach(o=>o.remove());
 box.querySelectorAll('[data-meta]').forEach(m=>{const to=document.querySelector(m.dataset.meta);if(to&&to.textContent!==m.textContent)to.textContent=m.textContent});
 if(window.apOpen)window.apOpen(box);if(window.apcInit)window.apcInit();return true}})()</script>"""
@@ -777,7 +797,7 @@ def _follow_exit_form(f, st):
             'zadani stop iz „Pravila”.</p>')
 
 
-def _follows(con, owner, st=None, prefill=""):
+def _follows(con, owner, st=None, prefill="", title="Koga prati"):
     """"Koga prati" under "Kako trguje" (maketa): one row with the names and how many; opened, the tool's own
     choice, the form to follow anybody (owner), and one row per follow (who, what kind, entries) that opens its
     numbers and "Prestani pratiti"."""
@@ -855,7 +875,8 @@ def _follows(con, owner, st=None, prefill=""):
     inner = (listed + pool_box + '<h3 class=ap-sub><span>Automatski izbor</span></h3>' + _auto_box(st, owner) + anyone)
     # 10.11. (Jure: "nek su sve zatvorene kartice za početak, osim grafa, brze kupnje i otvorenih pozicija"): open
     # only when a crew is being filled in from "Zovu sada" (prefill)
-    return _sec("Koga prati", meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
+    # 11.11.: the Autopilot terminal names it "Uredi praćenja" under "Postavke" (its list is "Koga pratimo")
+    return _sec(title, meta, inner, open_=bool(prefill), sid="pratim", value=str(len(fl)) if fl else None)
 
 
 _DATA_EXIT = {}        # follow id -> (wall time, exit signature, decision): the page asks once a minute, not per render
@@ -933,16 +954,18 @@ def _pool_line():
 
 def _proof_line(r):
     """9.11. (audit P39): what run_trade.follow_league_once needs before a follow's copies go into real money
-    (run_trade.PROOF: closed demo copies, PnL > 0, share of winners), shown per follow so a LIVE buy "blocked:
-    praćenje bez dokaza u demu" is no surprise. Same thresholds, read from run_trade, never a second copy."""
+    (run_trade.PROOF, 11.11. owner's rule D: n closed demo copies, their EV net of cost and its 90 % interval), shown
+    per follow so a LIVE buy "blocked: praćenje bez dokaza u demu" is no surprise. Same thresholds, read from run_trade,
+    never a second copy."""
+    from trade import edge
     try:
         from run_trade import PROOF
     except Exception:  # noqa: BLE001 - the page must render without the trade process module
-        PROOF = {"closed": 10, "win_rate": 0.4}
-    closed, wins, pnl = r.get("closed", 0), r.get("wins", 0), r.get("pnl", 0.0)
-    have = f"zatvorenih {closed}, dobitnih {wins}, PnL {pnl:+.0f} $"
-    need = f"treba {PROOF['closed']}+ zatvorenih, PnL > 0 i {PROOF['win_rate']:.0%}+ dobitnih"
-    proven = closed >= PROOF["closed"] and pnl > 0 and wins / closed >= PROOF["win_rate"]
+        from league.copy import PROOF
+    closed, pnl = r.get("closed", 0), r.get("pnl", 0.0)
+    proven, _why, s = edge.live_proof(r.get("rets") or [], n_min=PROOF["closed"], ev_min=PROOF["ev_min"])
+    have = f"zatvorenih {closed}, PnL {pnl:+.0f} $" + (f", {edge.proof_text(s)}" if s.get("n") else "")
+    need = f"treba {PROOF['closed']}+ zatvorenih, EV >= {PROOF['ev_min']:+.0%} i donja granica 90 % intervala > 0"
     return (f"Dokaz u demu: {esc(have)} · pravi novac: <b>{'da' if proven else 'još ne'}</b> ({esc(need)})"
             + ("" if proven else "; do tada se njegove kopije kupuju samo probno"))
 
@@ -1240,7 +1263,7 @@ def _buy_form(mint, cfg, exit_mode, owner):
                 'walleta (Jupiter) ↗</a></p>')
     opts = "".join(f'<option value={v}{" selected" if v == exit_mode else ""}>{lab}</option>'
                    for v, lab in (("smart", "Smart sell"), ("tpsl", "moj TP/SL"), ("manual", "prodajem sam")))
-    sl0 = _sl0(cfg)
+    sl0 = _plan_sl0(cfg)   # 11.11.: a buy with an exit takes the plan's default stop
     tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure): the TP / SL used last, not always the default
     return ('<form method=post action=/pravi-trade/buy class=ap-buyf onsubmit="return confirm(\'Kupiti ovaj token pravim novcem '
             f'(ako je Autopilot uključen)?\')"><input type=hidden name=token value="{esc(mint)}">'
@@ -1258,18 +1281,40 @@ def _last_exit(cfg):
     return (le.get("tp") or f'{(cfg or {}).get("tp_default", 15)}%'), (le.get("sl") or "")
 
 
-FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("pozicije", "Pozicije", False),
-             ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False), ("pravila", "Pravila", False), ("jos", "Još", False))
+FLOAT_NAV = (("ap-head", "Graf", False), ("kupi-odmah", "Kupi", True), ("prijedlozi-trade", "Prijedlozi", True),
+             ("pozicije", "Pozicije", False), ("dnevnik", "Dnevnik", False), ("pratim", "Prati", False),
+             ("pravila", "Pravila", False), ("jos", "Još", False))
+NAV_OPTIONAL = frozenset({"prijedlozi-trade"})   # 11.11.: linked only while the card is on the page (flag proposals)
 FLOAT_JS = ("<script>(()=>{document.querySelectorAll('.ap-fn a').forEach(a=>a.addEventListener('click',()=>{"
             "const t=document.getElementById(a.getAttribute('href').slice(1));"
             "if(t&&t.tagName==='DETAILS')t.open=true}))})()</script>")
 
 
-def _float_nav(owner):
+def _float_nav(owner, have=()):
     """10.11. (Jure: "dodaj gore floating izbornik da lakše dođem do pojedinih stavki na autopilot stranici"): a
-    sticky row of links under the app header; a link to a closed section also opens it."""
-    links = "".join(f'<a href="#{sid}">{esc(word)}</a>' for sid, word, own in FLOAT_NAV if owner or not own)
+    sticky row of links under the app header; a link to a closed section also opens it. have: the optional sections
+    (NAV_OPTIONAL) that are on the page this time."""
+    links = "".join(f'<a href="#{sid}">{esc(word)}</a>' for sid, word, own in FLOAT_NAV
+                    if (owner or not own) and (sid not in NAV_OPTIONAL or sid in have))
     return f'<nav class=ap-fn aria-label="Dijelovi stranice">{links}</nav>' + FLOAT_JS
+
+
+def _proposals_card(owner):
+    """11.11. (Jure, proposals/, flag proposals G21): "Prijedlozi" right after "Brza kupnja", owner only, nothing while
+    the flag is off: the open proposals of every strategy (top 5, the rest behind "još"), refreshed every 150 s by
+    the page's poller (/pravi-trade/prijedlozi); Kupi fills Brza kupnja, Odbij stores the reason."""
+    if not owner:
+        return ""
+    from proposals import view
+    return view.card(esc, _item, owner)
+
+
+def proposals_fragment(user):
+    """GET /pravi-trade/prijedlozi: the inside of the card (owner only, None for anybody else)."""
+    if not settings.is_owner(user):
+        return None
+    from proposals import view
+    return view.fragment(esc, _item)
 
 
 MCP_URL = os.environ.get("MCP_PUBLIC_URL") or "https://app.memesonar.app/mcp"
@@ -1341,7 +1386,37 @@ def _ev_card(owner):
                 value=str(len(props)) if props else None, sub="prijedloga" if props else None)
 
 
-VERDICT_TONE = {"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
+def _preshill_card(owner):
+    """11.11. (Jure, kol/preshill.py, flag pre_shill): "Kupci prije shill mreže", one closed row under "Još" (owner
+    only, nothing while the flag is off): per wallet the Solscan link, cluster, tokens, minutes before the network,
+    entry MC, PnL, hit rate and a sentence; a tap opens its tokens' timeline. No h2, no chip."""
+    if not owner:
+        return ""
+    from kol import preshill
+    return preshill.card_html(_sec, _item, esc)
+
+
+def _fast_card(owner):
+    """11.11. (Jure, fast/, flag fast_path G24): "Fast path", one closed row under "Još" (owner only, nothing while the
+    flag is off): the last signals of followed wallets and influencers, each with all five checks and their numbers,
+    the seconds from the wallet's buy to the decision, the decision and its reason. The top stays trade-focused."""
+    if not owner:
+        return ""
+    from fast import view
+    return view.card_html(_sec, _item, esc, owner)
+
+
+def _eventi_card(owner):
+    """11.11. (Jure, topics/, flag event_tokens): "Eventi", one closed row under "Još" (owner only, nothing while the
+    flag is off): per topic the event time, the buzz trend (arrow and sparkline text) and its tokens with market cap
+    and role (glavni / klon / rug / ostali). The screen stays trade-focused: nothing above Dnevnik."""
+    if not owner:
+        return ""
+    from topics import view
+    return view.card_html(_sec, _item, esc)
+
+
+VERDICT_TONE ={"dobar": "good", "kupi": "good", "loš": "bad", "preskoči": "warn", "neutralan": ""}
 
 
 def _grok_box(note, compact=False):
@@ -1378,7 +1453,16 @@ def _suggest_section(tcon, owner):
         return ""
     from ui import assistnotes
     rows, total = assistnotes.notes(tcon, "novo", "suggestion", 30, 0)
-    acc, n_acc = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    acc, _n = assistnotes.notes(tcon, "prihvaćeno", "suggestion", 30, 0)
+    # 11.11. (Jure: "lista treba biti čista ako nema što što zahtijeva pažnju"): an accepted note stays on the page only
+    # while it has a change the bot can apply (its "Primijeni na bota" waits for the owner); an accepted critique
+    # without one is the assistant's / developer's work item: logged (status, decided_ts, get_assistant_notes), not shown
+    def _can(r):
+        pc = r.get("proposed_change")
+        return isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY
+                                         or isinstance(pc.get("insider_label"), dict))
+    acc = [r for r in acc if _can(r)]
+    n_acc = len(acc)
     if not rows and not acc:
         return ""
     items = []
@@ -1410,7 +1494,7 @@ def _suggest_section(tcon, owner):
     acc_rows = []
     for r in acc:
         pc = r.get("proposed_change")
-        can = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY)
+        can = True   # only applicable ones are left (above)
         acc_rows.append(
             f'<div class=ap-sug id=as-{r["id"]}><p><b>#{r["id"]} {esc(r.get("title") or "")}</b> <span class=mut>· prihvaćeno '
             f'{esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
@@ -1581,7 +1665,7 @@ def _buy_now_card(cfg, owner):
     are the same."""
     if not owner:
         return ""
-    sl0 = _sl0(cfg)
+    sl0 = _plan_sl0(cfg)   # 11.11.: a buy with an exit takes the plan's default stop
     tp_last, sl_last = _last_exit(cfg)   # 10.11. (Jure: "neka ostane zapamćen za sljedeću narudžbu, a ne default")
     # 10.11. (Jure: "kako mjenjačnice rade na mobitelu"): the order ticket as on an exchange: token, amount, TP and SL
     # in sight (prefilled with the last ones used), one wide green "Kupi"; the exit kind behind "Više"
@@ -1630,12 +1714,30 @@ def _sl0(cfg):
     return settings.sl_text((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
 
 
+def _plan_sl0(cfg):
+    """11.11. (plan uz kupnju): the default stop of a buy with an exit and of a saved SL/TP ("-30%"): the stricter of
+    the owner's (_sl0) and the live plans' limit (league/exitplan.sl_floor)."""
+    try:
+        from league import exitplan
+        return f"-{exitplan.sl_floor(cfg):g}%"
+    except Exception:  # noqa: BLE001
+        return _sl0(cfg)
+
+
 def _sl_card(cfg, owner):
     """10.11. (Jure: "default stop loss treba biti na minus 60 %, a to moram negdje na stranici Autopilota kao
     administrator moći promijeniti"): the stop of every new entry with "moj TP/SL" and no stop typed in (copies,
     the auto pick, crews, manual buys). Open positions keep theirs (changed on the position itself)."""
     cur = int((cfg or {}).get("sl_default") or settings.SL_DEFAULT)
     head = f'<h3 class=ap-sub><span>Zadani stop</span><span>sada −{cur} %</span></h3>'
+    try:   # 11.11.: the exit plan of a buy / Uredi SL-TP takes the stricter of this and the live plans' limit
+        from league import exitplan
+        fl = exitplan.sl_floor(cfg)
+    except Exception:  # noqa: BLE001
+        fl = cur
+    if fl < cur:
+        head += (f'<p class=mut>Plan izlaza (kupnja s izlazom, spremljen SL/TP pozicije, Grok) koristi stroži stop: '
+                 f'−{fl:g} % (granica planova na pravom računu); širi SL se odbija.</p>')
     if not owner:
         return f'<div id=stop>{head}</div>'
     btns = "".join(f'<form method=post action=/pravi-trade/sl style="margin:0"><input type=hidden name=sl value={v}>'
@@ -1776,6 +1878,10 @@ def _flags_section(tcon, con, owner):
         if name in settings.DATA_FLAGS:
             bits.append('<p class=mut>Podatkovna zastavica: bilo koji mod osim „isključeno” uključuje skupljanje '
                         'ili upis; na trgovanje ne utječe.</p>')
+        elif name in settings.OWNER_SWITCHES:   # 11.11.: exit_plan_live, rug_labels_v2_ok, the data retention
+            note = settings.OWNER_SWITCH_NOTES.get(name) or ("Tvoj prekidač: „uživo” ga uključuje (bez backtesta, "
+                                                             "samo prodaja); svaki drugi mod ostavlja sve kako je bilo.")
+            bits.append(f'<p class=mut>{esc(note)}</p>')
         else:
             sh = week.get(name)
             bits.append(f'<p class=mut>Sjena, zadnjih 7 dana: '
@@ -1886,11 +1992,13 @@ def ideas_inner(cfg, owner, now=None, force=False):
             m = r["live"]
             ch5 = f"{m['ch_m5']:+.0f} %" if m.get("ch_m5") is not None else "?"
             ch1 = f"{m['ch_h1']:+.0f} %" if m.get("ch_h1") is not None else "?"
-            why = (r.get("reasons") or [""])[0]
+            why = r.get("why_not") or r.get("tag") or (r.get("reasons") or [""])[0]   # 11.11.: "kasno ..." is a tag
+            fz = r.get("fast") or {}   # 11.11. (fast/live): the row's fast_check (a PRESKOČI is already why_not)
+            fline = "" if not fz or fz.get("decision") == "SKIP" else _fast_short(fz)
             # 10.11. (maketa): the shared row; name, where the reason came from and the reason, the market cap
             # as the one number and the price moves under it; a tap opens the live pop-up as before
             out.append(_prow(r["token"], name=r.get("symbol") or m.get("symbol") or r["token"][:6],
-                             reason=" · ".join(x for x in (r.get("src") or "", why) if x),
+                             reason=" · ".join(x for x in (r.get("src") or "", why, fline) if x),
                              value=redak.usd(m.get("mcap")), sub=f"5 min {ch5} · 1 h {ch1}"))
         html = "".join(out)
     with _LOCK:   # the same HTML for both viewer kinds (one computation in the background thread serves both)
@@ -2415,6 +2523,64 @@ def _supply_line(mint, top, now):
     return f"tko drži supply: {', '.join(parts)} ({shape.get('izvor') or 'izvor nepoznat'}){when}"
 
 
+def _fast_reason(mint, now):
+    """11.11. (fast/, flag fast_path G24): (za, protiv, row) of the token's fast_check of the last 10 min; (None, None,
+    None) without one, without fast.db or on any error (the pop-up never fails on it)."""
+    try:
+        from fast import view
+        return view.token_reason(mint, now)
+    except Exception:  # noqa: BLE001
+        return None, None, None
+
+
+def _fast_block(row):
+    try:
+        from fast import view
+        return view.token_block(row, esc)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip(mint, t, now):
+    """The skip pop-up's fast_check block (its checks and numbers, "fast_check u tijeku" or the CHECK_FAILED reason);
+    '' when there is none."""
+    try:
+        from fast import view
+        return view.skip_block(mint, int(t), esc, now)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_short(v):
+    """One line of a live row's fast_check verdict (fast/live.short); '' without fast/."""
+    try:
+        from fast import live as flive
+        return flive.short(v)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip_block(now, owner):
+    """11.11. (Jure: PRESKOČI -> "Preskočeno" s razlogom): the fast_check skips of the last 24 h with their numbers
+    and what happened after (fast.db outcomes: propušteno = +20 % within 60 min), owner only; '' without fast.db."""
+    if not owner:
+        return ""
+    try:
+        from fast import live as flive
+        return flive.skip_html(flive.skip_rows(now), esc, now)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _fast_skip_lines(rows):
+    """{(token, ts): "fast_check: ..."} for the skip box's rows; {} without fast.db."""
+    try:
+        from fast import view
+        return view.skip_summary([(e.get("token"), int(e.get("ts") or 0)) for e in rows if e.get("token")])
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def token_popup(user, mint, now=None):
     """GET /pravi-trade/token?m=: why this token is (or is not) worth entering RIGHT NOW, re-fetched every second
     by the pop-up: live market, buyers vs sellers, callers in the last hour, smart-wallet buys, the tool's fresh
@@ -2471,6 +2637,12 @@ def token_popup(user, mint, now=None):
             za.append("novi pozivatelj u 10 min: " + ", ".join((h[3:] if h.startswith("tg:") else "@" + h) for h in fresh[:4]))
     if smart:
         za.append(f"{smart} pametnih novčanika kupilo u 10 min")
+    # 11.11. (Jure, fast/: "nema svježeg razloga" for HODL's buy): a followed wallet's buy or a followed influencer's
+    # call of the last 10 min is a fresh reason; its fast_check's verdict (SKIP with the number, CHECK_FAILED) is the
+    # reason against, and the five checks are shown under the verdict
+    fast_za, fast_protiv, fast_row = _fast_reason(mint, now)
+    if fast_za:
+        za.append(fast_za)
     if n_social >= SOCIAL_MIN:   # described, not a verdict by itself: a campaign posts the same address too
         za_static.append(f"društveni signal: {n_social} različitih računa objavilo je adresu u zadnjih 60 min")
     if ((m.get("ch_m5") or 0) >= zivo.MOVE_M5 and (m.get("vol_m5") or 0) >= zivo.MOVE_VOL_M5
@@ -2520,6 +2692,8 @@ def token_popup(user, mint, now=None):
     veto = _callers_veto(caller_hs, mstats)
     if veto:
         protiv.append(veto)
+    if fast_protiv:
+        protiv.append(fast_protiv)
     if not za:
         protiv.append("nema svježeg razloga za ulaz (bez novog pozivatelja u 10 min, kupnje pametnog novčanika ili pokreta "
                       f"+{zivo.MOVE_M5:.0f} % u 5 min s prometom)")
@@ -2544,8 +2718,13 @@ def token_popup(user, mint, now=None):
                  + ".</p>")
     if protiv:
         b.append("<p class=ap-protiv><b>Protiv:</b> " + "; ".join(esc(x) for x in protiv) + ".</p>")
+    if fast_row:
+        b.append(_fast_block(fast_row))
+    fres = ((fast_row or {}).get("checks") or {}).get("res") or {}
     if top:
         sup = _supply_line(mint, top, now)
+    elif fres.get("rug") and fres.get("holders"):   # 11.11. (fast/): the fast_check ran both for this signal's token
+        sup = f"{fres['rug'].get('text')} · {fres['holders'].get('text')} (fast_check)"
     else:
         sup = "rug check alata: nije rađen (token nije među top 20 prijedloga) · tko drži supply: nepoznato"
     b.append(f"<p><b>Holderi:</b> {esc(sup)}.</p>")
@@ -2830,7 +3009,7 @@ def _exit_form(pid, rule, cfg):
     rule = rule or {}
     sl_now = (rule.get("sl_in") or rule.get("sl") or "") if rule.get("mode") == "tpsl" else ""
     tp_now = (rule.get("tp_in") or rule.get("tp") or "") if rule.get("mode") == "tpsl" else ""
-    keep = esc(sl_now or _sl0(cfg))
+    keep = esc(sl_now or _plan_sl0(cfg))   # 11.11.: a saved SL/TP is the position's plan: its default stop
     quick = "".join(
         f'<form method=post action=/pravi-trade/exit style="margin:0"><input type=hidden name=id value={pid}>'
         f'<input type=hidden name=tp value="{v}%"><input type=hidden name=sl value="{keep}">'
@@ -2839,7 +3018,7 @@ def _exit_form(pid, rule, cfg):
     return (f'<div class=ap-btns>{quick}</div>'
             f'<form method=post action=/pravi-trade/exit class=ap-exit><input type=hidden name=id value={pid}>'
             f'<label>TP <input name=tp value="{esc(tp_now)}" placeholder="npr. 30%" size=7 autocomplete=off></label> '
-            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(_sl0(cfg))}" size=9 autocomplete=off></label> '
+            f'<label>SL <input name=sl value="{esc(sl_now)}" placeholder="zadano {esc(_plan_sl0(cfg))}" size=9 autocomplete=off></label> '
             '<button>Spremi izlaz</button></form>'
             '<p class=mut>Postotak od ulaza ili MC (npr. $200k). Prazan TP = bez cilja, samo stop; prazan SL = zadani stop. '
             'Ako je cijena već iznad TP-a ili ispod SL-a, prodaja kreće u sljedećih 20 s.</p>')
@@ -2960,7 +3139,30 @@ def _lot_group(tok, lots, demo, mc_now, pending, owner, viewer_buy, cfg, mixed, 
 # bot buys that amount into the same position (the manual buy path: one more lot, the exit from the new average). One
 # order buys once. Orders live in trade settings "dca_orders"; dca_loop (a thread in run_ui) watches them every second.
 DCA_EVERY_S = 1.0
+DCA_MAX = 5   # DCA orders per position; 11.11.: a SOFT limit (the owner may confirm a sixth)
 _DCA_LOCK = threading.Lock()
+
+
+def _order_mc30k(lvl, hard_text):
+    """11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): an owner's order
+    (DCA, buy at a market cap) whose level is under $30k: the SOFT reason ("mc30k", needs his typed reason) in a list,
+    or ValueError while the rule is hard (executor.HARD_RULES). [] for a level at or above $30k."""
+    if lvl >= 30_000:
+        return []
+    if "mc30k" in executor.HARD_RULES:
+        raise ValueError(hard_text)
+    return [("mc30k", f"MC ${lvl:,.0f} je ispod 30k (pravilo „ispod 30k se ne kupuje automatski”; ručno samo uz "
+                      "tvoj razlog)")]
+
+
+def _live_liq(tok):
+    """The pool's liquidity in USD from the shared live cache (no request), or None."""
+    with _LOCK:
+        hit = _LIVE_CACHE.get((tok,))
+    try:
+        return float(((hit[1] if hit else None) or {}).get(tok, {}).get("liq") or 0) or None
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _dca_orders(tcon):
@@ -3002,7 +3204,10 @@ def _dca_level(txt, avg_mc):
     m = re.fullmatch(r"\$?([0-9.]+)([kmb])?(mc)?", s)
     if not m:
         raise ValueError(f"ne razumijem '{txt}': upiši MC (npr. $70k) ili postotak (npr. -20%)")
-    return float(m.group(1)) * {"k": 1e3, "m": 1e6, "b": 1e9}.get(m.group(2) or "", 1)
+    v = float(m.group(1))
+    if not m.group(2) and v < 1000:   # 11.11. (Jure: "razina MC $50 ... a MC je 149k"): a bare 50 means 50k, never $50
+        return v * 1e3
+    return v * {"k": 1e3, "m": 1e6, "b": 1e9}.get(m.group(2) or "", 1)
 
 
 def _post_dca(con, tcon, form, user):
@@ -3016,27 +3221,42 @@ def _post_dca(con, tcon, form, user):
     wsum = sum(w for m, w in mcs if m and w)
     avg_mc = wsum / sum(w / m for m, w in mcs if m and w) if wsum else None
     lvl = _dca_level(form.get("lvl"), avg_mc)
-    if lvl < 30_000:
-        raise ValueError(f"granica MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
+    low = _order_mc30k(lvl, f"granica MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
     sol = float((form.get("sol") or "0").replace(",", "."))
     lab, _typ, lo, hi = settings.LIMITS["size_sol"]
     cfg = _cfg(tcon)
-    if not lo <= sol <= min(hi, cfg["max_sol_per_trade"]):
-        raise ValueError(f"SOL mora biti između {lo:g} i {min(hi, cfg['max_sol_per_trade']):g}")
+    if not lo <= sol <= hi:   # the field's sane range; the owner's stake limit is a SOFT reason below (11.11.)
+        raise ValueError(f"SOL mora biti između {lo:g} i {hi:g}")
     now_mc, _ = _now_mcap([tok])
     if now_mc.get(tok) and lvl >= now_mc[tok]:
         raise ValueError(f"granica MC ${lvl:,.0f} nije ispod sadašnjeg MC-a ${now_mc[tok]:,.0f}: za kupnju sada koristi Kupi")
     sym = lots[0][2] or tok[:6]
+    # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the order is the owner's buy waiting for its level: his
+    # limits are checked now (the wallet when it buys), over one of them = the warning; "Kupi svejedno" saves the
+    # order with the limits he confirmed, and only those are overridden when it buys (dca_once)
+    _hard, soft = _owner_limits(None, tcon, cfg, tok, sol, liq=_live_liq(tok), form={"tp": "", "exit": "tpsl"},
+                                balance=False)
+    soft = low + soft
+    n_have = len([o for o in _dca_orders(tcon) if o.get("token") == tok])
+    if n_have >= DCA_MAX:
+        soft.append(("dca_max", f"već {n_have} DCA naloga na ovoj poziciji, najviše {DCA_MAX}"))
+    over = _confirm(tok, form, soft, "/pravi-trade/dca", _warn_what("/pravi-trade/dca", dict(form, token=tok), sym))
     with _DCA_LOCK:
         orders = _dca_orders(tcon)
-        if len([o for o in orders if o.get("token") == tok]) >= 5:
-            raise ValueError("najviše 5 DCA naloga po poziciji")
-        orders.append({"id": int(time.time() * 1000), "token": tok, "sym": sym, "mc": round(lvl, 2), "sol": sol,
-                       "txt": (form.get("lvl") or "").strip(), "made": int(time.time())})
+        if len([o for o in orders if o.get("token") == tok]) >= DCA_MAX and "dca_max" not in {k for k, _t in over}:
+            raise ValueError(f"najviše {DCA_MAX} DCA naloga po poziciji")
+        o = {"id": int(time.time() * 1000), "token": tok, "sym": sym, "mc": round(lvl, 2), "sol": sol,
+             "txt": (form.get("lvl") or "").strip(), "made": int(time.time())}
+        if over:
+            o["override"] = sorted({k for k, _t in over})
+            if any(k == "mc30k" for k, _t in over):
+                o["reason"] = _reason(form)
+        orders.append(o)
         settings.put(tcon, "dca_orders", orders, user)
-    print(f"pravi trade: DCA nalog {sym}: dokup {sol:g} SOL na MC ${lvl:,.0f}", flush=True)
+    print(f"pravi trade: DCA nalog {sym}: dokup {sol:g} SOL na MC ${lvl:,.0f}" + _over_words(over, form), flush=True)
     pid = lots[0][0]
-    return f"{BACK}?ok={qq(f'DCA: dokup {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}.')}#poz-{pid}"
+    tail = f" Uz tvoje potvrđeno nadjačavanje limita ({len(over)})." if over else ""
+    return f"{BACK}?ok={qq(f'DCA: dokup {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}.{tail}')}#poz-{pid}"
 
 
 def _post_dcadel(tcon, form, user):
@@ -3085,8 +3305,10 @@ def dca_once(tcon, now=None, live_fn=None, buy_fn=None):
         con = store.connect()
         try:
             copy.ensure(con)
-            (buy_fn or _post_buy)(con, tcon, {"token": o["token"], "sol": f"{o['sol']:g}", "exit": "tpsl", "tp": "",
-                                              "sl": ""}, settings.owner())
+            f = {"token": o["token"], "sol": f"{o['sol']:g}", "exit": "tpsl", "tp": "", "sl": ""}
+            if o.get("override"):   # 11.11.: the limits the owner confirmed when he set it, only those
+                f.update(override=",".join(o["override"]), reason=o.get("reason") or "")
+            (buy_fn or _post_buy)(con, tcon, f, settings.owner())
             done.append((o, f"DCA {o.get('sym')}: dokupljeno {o['sol']:g} SOL na MC ${mc:,.0f} (granica ${o['mc']:,.0f})"))
         except ValueError as e:
             done.append((o, f"DCA {o.get('sym')}: dokup na MC ${mc:,.0f} nije prošao: {e}"))
@@ -3137,23 +3359,28 @@ def _post_limit(con, tcon, form, user):
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: as _post_buy, another token than the chart's only when confirmed
     live = market({token})
     if token not in live:
         raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
     price, _liq, _, mcap = live[token]
     now_mc = (_now_mcap([token])[0] or {}).get(token) or mcap
-    lvl = _dca_level(form.get("at"), now_mc)   # "$50k" / "50k" / "50000", or "-40%" from the market cap now
-    if lvl < 30_000:
-        raise ValueError(f"razina MC ${lvl:,.0f} je ispod 30k (pravilo: ispod 30k se ne kupuje)")
+    lvl = _dca_level(form.get("at"), now_mc)   # "$50k" / "50k" / "50" (= 50k) / "50000", or "-40%" from the MC now
+    low = _order_mc30k(lvl, f"„Kupi na MC” je ${lvl:,.0f}, ispod 30k (pravilo: ispod 30k se ne kupuje). Za kupnju "
+                            f"odmah ostavi to polje prazno (MC je sada ${now_mc or 0:,.0f}).")
     if now_mc and lvl >= now_mc:
         return _post_buy(con, tcon, form, user)   # it is there already: the plain buy, now
     sol = float((form.get("sol") or "0").replace(",", "."))
     lab, _typ, lo, hi = settings.LIMITS["size_sol"]
     cfg = _cfg(tcon)
-    if not lo <= sol <= min(hi, cfg["max_sol_per_trade"]):
-        raise ValueError(f"SOL mora biti između {lo:g} i {min(hi, cfg['max_sol_per_trade']):g}")
+    if not lo <= sol <= hi:   # the field's sane range; the owner's stake limit is a SOFT reason below (11.11.)
+        raise ValueError(f"SOL mora biti između {lo:g} i {hi:g}")
     ex = form.get("exit") or "tpsl"
     tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    # 11.11. (plan uz kupnju): trailing and time stop go with the order and become the plan when it buys (_post_buy)
+    from league import exitplan
+    trail = exitplan.field_num(form.get("trail"), "Trailing %", 1, 90)
+    tmin = exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)
     if ex == "tpsl":   # checked now on the entry the order would get (price scaled to the level), so a typo shows here
         px = price * lvl / mcap if price and mcap else None
         tp_px, _ = auto.parse_level(tp, px or 1.0, lvl, "tp")
@@ -3162,26 +3389,49 @@ def _post_limit(con, tcon, form, user):
             raise ValueError(f"TP mora biti iznad ulaza na MC ${lvl:,.0f}")
         if sl_px is not None and px and sl_px >= px:
             raise ValueError(f"SL mora biti ispod ulaza na MC ${lvl:,.0f}")
+        # 11.11. (owner: "ručno uvijek nadjačava ono što je zapisano programski"): a stop typed on the order is the
+        # owner's for that buy, whatever the default; an empty one takes the default when the order buys (_post_buy)
     elif ex not in ("smart", "manual"):
         raise ValueError("nepoznat način izlaza")
+    if ex != "tpsl" and (trail or tmin):
+        raise ValueError("trailing i time stop idu uz izlaz „moj TP/SL”")
     sym = _symbol(token) or token[:6]
     now = int(time.time())
+    # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the order is the owner's buy waiting for its level: his
+    # limits are checked now (the wallet when it buys), over one of them = the warning; "Kupi svejedno" saves the
+    # order with the limits he confirmed, and only those are overridden when it buys (limit_once)
+    _hard, soft = _owner_limits(None, tcon, cfg, token, sol, liq=_liq, form=form, balance=False)
+    soft = low + soft
+    n_have = len(_limit_orders(tcon))
+    if n_have >= LIMIT_MAX:
+        soft.append(("orders_max", f"već {n_have} naloga za kupnju, najviše {LIMIT_MAX} odjednom"))
+    over = _confirm(token, form, soft, "/pravi-trade/buy", _warn_what("/pravi-trade/buy", form, sym))
     with _LIMIT_LOCK:
         orders = _limit_orders(tcon)
-        if len(orders) >= LIMIT_MAX:
+        if len(orders) >= LIMIT_MAX and "orders_max" not in {k for k, _t in over}:
             raise ValueError(f"najviše {LIMIT_MAX} naloga za kupnju odjednom")
-        orders.append({"id": int(time.time() * 1000), "token": token, "sym": sym, "mc": round(lvl, 2), "sol": sol,
-                       "exit": ex, "tp": tp, "sl": sl, "made": now, "until": now + LIMIT_HOURS * 3600,
-                       "mc_made": round(now_mc or mcap or 0, 2)})
+        o = {"id": int(time.time() * 1000), "token": token, "sym": sym, "mc": round(lvl, 2), "sol": sol,
+             "exit": ex, "tp": tp, "sl": sl, "made": now, "until": now + LIMIT_HOURS * 3600,
+             "mc_made": round(now_mc or mcap or 0, 2), "trail": trail, "time": tmin}
+        if over:
+            o["override"] = sorted({k for k, _t in over})
+            if any(k == "mc30k" for k, _t in over):
+                o["reason"] = _reason(form)
+        orders.append(o)
         settings.put(tcon, "buy_orders", orders, user)
         if ex == "tpsl":
             settings.put(tcon, "last_exit", {"tp": tp, "sl": sl}, user)
-    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})",
-          flush=True)
+    print(f"pravi trade: nalog za kupnju {sym}: {sol:g} SOL kad MC padne na ${lvl:,.0f} (sada ${now_mc or 0:,.0f})"
+          + (f" uz potvrđenu razliku od grafa {chart}" if chart else "") + _over_words(over, form), flush=True)
     words = f"Nalog: kupi {sym} za {sol:g} SOL kad MC padne na ${lvl:,.0f}"
     if ex == "tpsl":
-        words += f", TP {tp or 'zadani'} · SL {sl or _sl0(cfg)} od tog ulaza"
-    return f"{BACK}?ok={qq(words + f' (vrijedi {LIMIT_HOURS} h).')}#kupi-odmah"
+        words += f", TP {tp or 'zadani'} · SL {sl or (_plan_sl0(cfg) if tp or trail or tmin else _sl0(cfg))} od tog ulaza"
+        if trail or tmin:
+            words += "".join((f", trailing {trail:g} %" if trail else "", f", time stop {tmin:g} min" if tmin else ""))
+    words += f" (vrijedi {LIMIT_HOURS} h)."
+    if over:
+        words += f" Uz tvoje potvrđeno nadjačavanje limita ({len(over)})."
+    return f"{BACK}?ok={qq(words)}#kupi-odmah"
 
 
 def _post_limitdel(tcon, form, user):
@@ -3222,8 +3472,11 @@ def limit_once(tcon, now=None, live_fn=None, buy_fn=None):
         con = store.connect()
         try:
             copy.ensure(con)
-            (buy_fn or _post_buy)(con, tcon, {"token": o["token"], "sol": f"{o['sol']:g}", "exit": o.get("exit") or "tpsl",
-                                              "tp": o.get("tp") or "", "sl": o.get("sl") or ""}, settings.owner())
+            f = {"token": o["token"], "sol": f"{o['sol']:g}", "exit": o.get("exit") or "tpsl", "tp": o.get("tp") or "",
+                 "sl": o.get("sl") or "", "trail": o.get("trail") or "", "time": o.get("time") or ""}
+            if o.get("override"):   # 11.11.: the limits the owner confirmed when he set it, only those
+                f.update(override=",".join(o["override"]), reason=o.get("reason") or "")
+            (buy_fn or _post_buy)(con, tcon, f, settings.owner())
             done.append((o, f"Nalog {o.get('sym')}: kupljeno {o['sol']:g} SOL na MC ${mc:,.0f} (razina ${o['mc']:,.0f})"))
         except ValueError as e:
             done.append((o, f"Nalog {o.get('sym')}: kupnja na MC ${mc:,.0f} nije prošla: {e}"))
@@ -3252,7 +3505,8 @@ def _limit_orders_html(cfg):
     rows = []
     for o in orders:
         until = _dt.datetime.fromtimestamp(o.get("until", 0), tz).strftime("%d.%m. %H:%M")
-        ex = (f' · TP {esc(o.get("tp") or "zadani")} · SL {esc(o.get("sl") or _sl0(cfg))}'
+        sl0 = _plan_sl0(cfg) if (o.get("tp") or o.get("trail") or o.get("time")) else _sl0(cfg)
+        ex = (f' · TP {esc(o.get("tp") or "zadani")} · SL {esc(o.get("sl") or sl0)}'
               if (o.get("exit") or "tpsl") == "tpsl" else f' · izlaz {esc(o.get("exit"))}')
         rows.append(f'<div class=ap-ord-r><span><b>{esc(o.get("sym") or "")}</b> · kupi na MC <b>{esc(_usd_short(o["mc"]))}</b>'
                     f' za {esc(redak.sol(o["sol"], 3))}{ex} · do {esc(until)}</span>'
@@ -3277,6 +3531,7 @@ def dca_loop(every=DCA_EVERY_S):
             if not once:   # 10.11. (Jure, chat): his list of Grok's notes, applied once (ui/assistnotes.owner_once)
                 from ui import assistnotes
                 assistnotes.owner_once(con)
+                assistnotes.owner_once_1111(con)   # 11.11.: waiting caller weights applied, stale Grok requests tidied
                 once = True
             if time.time() >= g_next:   # 10.11. (Grok autotrade): the day-loss pause even without a new Grok buy
                 from ui import grokauto
@@ -3640,7 +3895,7 @@ def _skip_line(e, p, v, now):
                raw(f"<span class=ap-sks> · </span><span class=ap-skm>{steps}</span>") if steps else None)
 
 
-def _skip_row(e, v, owner, now, p=None):
+def _skip_row(e, v, owner, now, p=None, fast=None):
     """One skipped buy as the shared row (10.11., maketa): the token; when, whose signal and the reason under it;
     the verdict as a word after a dot on the right and what the price did under it; across the whole row the market
     cap at the call and the moves 5, 10 and 15 minutes after it (_skip_line). A tap opens the pop-up of this skip
@@ -3649,6 +3904,8 @@ def _skip_row(e, v, owner, now, p=None):
     from kol import preskoceni
     tok = e.get("token") or ""
     full = _skip_why(e, owner)
+    if fast and owner:   # 11.11. (fast/): the signal's fast_check with its numbers next to the copy loop's reason
+        full = f"{fast} · {full}" if full else fast
     why = _cut(full)
     meta = " · ".join(x for x in (preskoceni.hm(e.get("ts") or 0, now), _skip_src(e.get("source")),
                                   "nije prošlo (tehnički)" if e.get("kind") == "nije_proslo" else "") if x)
@@ -3683,7 +3940,9 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
     if missed:   # which RULE cost the most: the reasons of the rule skips that would have paid
         b.append("<p class=mut>Propušteni po razlogu: " + esc(", ".join(
             f"{n} {w}" for w, n in sorted(missed.items(), key=lambda kv: (-kv[1], kv[0])))) + ".</p>")
-    items = [_skip_row(e, v, owner, now, (paths or {}).get(k)) for e, v, k in zip(rows, vs, keys)]
+    fast = _fast_skip_lines(rows) if owner else {}   # 11.11. (fast/): {} without fast.db
+    items = [_skip_row(e, v, owner, now, (paths or {}).get(k), fast.get((e.get("token"), int(e.get("ts") or 0))))
+             for e, v, k in zip(rows, vs, keys)]
     b += items[:SKIP_SHOW]
     if len(items) > SKIP_SHOW:
         b.append(_item("Prikaži sve", None, "".join(items[SKIP_SHOW:]), value=f"još {len(items) - SKIP_SHOW}",
@@ -3719,6 +3978,9 @@ def skip_box(tcon, cfg, now=None, owner=True):
         paths = _skip_paths([(e["token"], preskoceni.minute_of(e.get("ts"))) for e in rows])
         tp_cfg = int(cfg.get("tp_default") or 15)
         html = {o: _skip_html(rows, paths, now, o, tp_cfg) for o in (True, False)}
+    fsk = _fast_skip_block(now, True)   # 11.11.: the fast_check skips, the owner's copy only
+    if fsk:
+        html = {True: html[True] + fsk, False: html[False]}
     with _LOCK:
         _SK.update(ts=now, key=settings.DB, html=html, rows=rows or [])   # rows: the pop-up of one skip reads them
     return html[bool(owner)]
@@ -4050,6 +4312,11 @@ def skip_popup(user, mint, t, now=None):
     elif not mv and (seen_mc or samples):
         b.append("<p class=ms-hint>Market cap iz trenutka odluke i naših živih uzoraka (DexScreener); točne svijeće "
                  "po minutama dolaze kad se izmjere.</p>")
+    # 11.11. (Jure, fast/ flag fast_path G24): the signal's fast_check, every check with its number, instead of the bare
+    # reason alone ("fast_check u tijeku" or its CHECK_FAILED reason while it has none)
+    fb = _fast_skip(mint, t, now) if owner else ""
+    if fb:
+        b.append(fb)
     if post_url and owner:
         b.append(f'<p><a href="{esc(post_url)}" target=_blank rel=noopener>{esc(post_words)} ↗</a></p>')
     b.append(link)
@@ -4270,8 +4537,12 @@ def _limits(cfg, owner):
              + box(k="simianx", c=" checked" if cfg.get("simianx") else "",
                    t="kupuj i na SimianX signale „kupi”, s njihovim stopom i ciljem (uključi tek kad se pokažu dobri u demu)"))
     # 10.11. ~21:00 (Jure: "Primijeni ovo", Grok's DCA cap): the owner's own cap on his buys, editable here
-    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=dca_token_cap '
-               f'value="{_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal></label>')
+    fields += (f'<label>Najviše SOL po tokenu (tvoje kupnje i DCA) <input name=owner_token_cap '
+               f'value="{_g(cfg.get("owner_token_cap", settings.DCA_TOKEN_CAP))}" inputmode=decimal>'
+               f'<small>Vrijedi samo za kupnje koje sam pokreneš (Kupi, brza kupnja, DCA, nalozi na MC). Ne vrijedi za '
+               f'Groka: autotrade i zahtjevi koje odobriš ostaju na Grokovim limitima (0,1 SOL po kupnji, 0,3 SOL na dan, '
+               f'3 otvorene, dnevni gubitak 0,15 SOL) i na {_g(cfg.get("dca_token_cap", settings.DCA_TOKEN_CAP))} SOL po '
+               f'tokenu.</small></label>')
     extra += box(k="dca_cap_owner", c=" checked" if cfg.get("dca_cap_owner") else "",
                  t="drži strop po tokenu: kupnja koja bi ga prešla ne prolazi (ručna, DCA i nalog na MC)")
     inner = (f'<form method=post action=/pravi-trade/limits class=ap-lim style="display:block">{fields}{extra}'
@@ -4350,6 +4621,18 @@ def _with_toggle(html_body):
 
 
 def page(qs, user):
+    """11.11. (Jure: "brzo, pregledno, svježe, na svakom uređaju"): the page is the trading terminal of ui/apterm.py
+    (chart + tables left, the order panel right, the rest loaded when it comes into view). Every form still posts to
+    post() below with the same fields. ?stari=1 shows the page as it was (page_classic), for a comparison while the
+    new one settles in; ?sve=1 renders every lazy part into the page (no JavaScript)."""
+    qs = qs if isinstance(qs, dict) else {}
+    if qs.get("stari") == "1":
+        return page_classic(qs, user)
+    from ui import apterm
+    return apterm.page(qs, user)
+
+
+def page_classic(qs, user):
     """10.11. (Jure: "Ostalo mi se sviđa", prijedlog 3.4 and the mock-up audit/2026-11-10/makete/autopilot.html, in
     the order of audit/2026-11-10/dizajn.md section 2; 10.11. 20:41 the trade first): the header (title with the
     owner's switch, one state line, the wallet's value as one big number) with the chart; Grok's trade requests that
@@ -4381,6 +4664,7 @@ def page(qs, user):
                      f'onclick="this.remove()">{"<b>Nije prošlo:</b> " if bad else ""}{esc(qs.get("err") or qs.get("ok"))}'
                      '<span class=ap-toast-x aria-hidden=true>×</span></div>'
                      + ("" if bad else "<script>setTimeout(()=>{const t=document.querySelector('.ap-toast');if(t)t.remove()},6000)</script>"))
+        toast += warn_box(qs, user)   # 11.11.: a buy over the owner's limits: the box until he answers it
         prefill = (qs.get("ekipa") or "") if isinstance(qs, dict) else ""
         setup = {}
         if owner:   # the wallet's setup steps: inside "Wallet i uplata"; the state line says "Dovrši 3/4" until ready
@@ -4389,10 +4673,11 @@ def page(qs, user):
                 n_open = tcon.execute("SELECT COUNT(*) FROM positions WHERE status='open'").fetchone()[0]
                 return _setup(tcon, cfg, addr, key_addr, saved, _balance(addr), _usdc(addr), n_open)
             setup = _safe("postavljanje", _mk_setup, fallback={})
+        props = _safe("prijedlozi-trade", _proposals_card, owner)   # 11.11.: '' while the flag proposals is off
         con = store.connect()
         try:
             copy.ensure(con)
-            b = [CSS, '<div class="ap ms-page">', _float_nav(owner), toast,
+            b = [CSS, '<div class="ap ms-page">', _float_nav(owner, ("prijedlozi-trade",) if props else ()), toast,
                  _safe("zaglavlje", _head, tcon, cfg, con, owner, msg,
                        fallback=_title(owner, cfg.get("on")) + msg
                        + '<p class="ap-w bad">Stanje walleta se trenutno ne može učitati.</p>'),
@@ -4402,6 +4687,7 @@ def page(qs, user):
                  setup.get("warn", ""),
                  _safe("mcp", _mcp_requests, tcon, owner),
                  _safe("kupnja", _buy_now_card, cfg, owner),
+                 props,   # 11.11. (Jure): trade-focused, so right after Brza kupnja, above the positions
                  _safe("pozicije", _positions, tcon, not owner, owner, cfg.get("sell_req"), cfg),
                  _safe("grok-auto", _grok_auto_live, tcon, owner),   # 10.11.: only while the owner has it on
                  _safe("exit-planovi", _exit_plans_block, tcon, owner),   # 10.11.: only while plans exist
@@ -4417,6 +4703,9 @@ def page(qs, user):
         b += [_h2("Još", sid="jos"),
               _safe("sazetak", _summary_card, tcon, owner),
               _group(_safe("ev", _ev_card, owner),   # 11.11.: EV per feature phase, one closed row (events/evreport)
+                     _safe("preshill", _preshill_card, owner),   # 11.11.: kupci prije shill mreže (kol/preshill.py)
+                     _safe("eventi", _eventi_card, owner),   # 11.11.: event teme i njihovi tokeni (topics/)
+                     _safe("fast-path", _fast_card, owner),   # 11.11.: brzi put, svaka provjera signala (fast/)
                      _safe("grok", _mcp_section, tcon, owner), _safe("prijedlozi", _suggest_section, tcon, owner),
                      _callers_section(cfg, owner), _ideas_section(cfg, owner), _recs_section(),
                      _safe("wallet", _wallet_row, tcon, owner, setup),
@@ -4561,11 +4850,14 @@ def post(path, form, user):
             settings.put(tcon, "follow_paper", form.get("follow_paper") == "1", user)
             settings.put(tcon, "use_pump", form.get("use_pump") == "1", user)
             settings.put(tcon, "simianx", form.get("simianx") == "1", user)
-            if "dca_token_cap" in form:   # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL)
-                cap = float(str(form.get("dca_token_cap")).replace(",", ".") or settings.DCA_TOKEN_CAP)
+            # 10.11. ~21:00: the owner's per-token cap (0,01-5 SOL); 11.11.: its own key (owner_token_cap), the
+            # Autopilot's copy cap dca_token_cap stays as it is (an older form still sends dca_token_cap)
+            ck = "owner_token_cap" if "owner_token_cap" in form else "dca_token_cap" if "dca_token_cap" in form else None
+            if ck:
+                cap = float(str(form.get(ck)).replace(",", ".") or settings.DCA_TOKEN_CAP)
                 if not 0.01 <= cap <= 5:
                     raise ValueError("strop po tokenu mora biti 0,01-5 SOL")
-                settings.put(tcon, "dca_token_cap", round(cap, 4), user)
+                settings.put(tcon, "owner_token_cap", round(cap, 4), user)
                 settings.put(tcon, "dca_cap_owner", form.get("dca_cap_owner") == "1", user)
             return f"{BACK}?ok={qq('Limiti spremljeni.')}#limiti"
         if path == "/pravi-trade/sell":
@@ -4636,6 +4928,18 @@ def post(path, form, user):
             settings.set_flag(tcon, name, mode, user, paper=paper)
             print(f"pravi trade: {user} je zastavicu {name} postavio na {mode}", flush=True)
             return f"{BACK}?ok={qq(f'Zastavica {name}: {FLAG_WORDS.get(mode, mode)}.')}#fl-{name}"
+        if path == "/pravi-trade/rangepin":   # 11.11. (rangedca/owner.py): the owner's range pins, add / remove
+            from rangedca import owner
+            tok, act = (form.get("token") or "").strip(), (form.get("action") or "add").strip()
+            if act == "remove":
+                ok = owner.unpin(tcon, tok, user)
+                print(f"pravi trade: {user} je maknuo range pin {tok[:6]}", flush=True)
+                return f"{BACK}?ok={qq('Pin maknut: token više nije stalno na range listi.' if ok else 'Taj token nije bio prikvačen.')}"
+            if act != "add":
+                raise ValueError("action: add ili remove")
+            owner.pin(tcon, tok, user, (form.get("symbol") or "").strip() or None, (form.get("note") or "").strip() or None)
+            print(f"pravi trade: {user} je prikvačio range token {tok[:6]}", flush=True)
+            return f"{BACK}?ok={qq('Token prikvačen: uvijek na range listi, prijedlog u donjoj zoni dok volumen drži.')}"
         if path == "/pravi-trade/triggerprobe":   # 10.11. (Jure: "da, v1"): Jupiter Trigger step 1, no money
             settings.put(tcon, "trigger_probe_req", int(time.time()), user)
             return f"{BACK}?ok={qq('Proba Jupiter Triggera poslana trade procesu; rezultat je pod Pravila za nekoliko sekundi.')}#trigger"
@@ -4733,7 +5037,14 @@ def post(path, form, user):
             if path == "/pravi-trade/buy":
                 if (form.get("at") or "").strip():   # 10.11.: a buy order at a market cap
                     return _post_limit(con, tcon, form, user)
+                if (form.get("prijedlog") or "").strip():   # 11.11. (proposals/): Kupi on a proposal, then Brza kupnja
+                    return _post_proposal_buy(con, tcon, form, user)
                 return _post_buy(con, tcon, form, user)
+            if path == "/pravi-trade/prijedlog-odbij":   # 11.11. (proposals/): Odbij with a reason, stored for learning
+                from proposals import store as pstore, view as pview
+                pstore.reject(int(form.get("id") or 0), form.get("reason") or "", form.get("note") or "", user)
+                pview.clear()
+                return f"{BACK}?ok={qq('Prijedlog odbijen; razlog je zapisan.')}#prijedlozi-trade"
             if path == "/pravi-trade/exit":
                 return _post_exit(con, tcon, form)
             if path == "/pravi-trade/mcpok":
@@ -4785,6 +5096,8 @@ def post(path, form, user):
         finally:
             con.close()
         return BACK
+    except SoftLimits as e:   # 11.11.: the owner's buy over his limits: the warning box, nothing written
+        return warn_url(e)
     except (ValueError, sqlite3.OperationalError) as e:
         return f"{BACK}?err={qq(str(e))}"
     finally:
@@ -4865,13 +5178,17 @@ def _post_mcp_ok(con, tcon, form, user):
     if r["side"] == "buy":
         tp, sl = _last_exit(_cfg(tcon))
         try:
-            out = _post_buy(con, tcon, {"token": r["token"], "sol": f'{r["amount"]:g}', "exit": "tpsl", "tp": tp, "sl": sl}, user)
+            from league import exitplan as _xp   # 11.11.: approved Grok buys are tagged, exit_plan_live covers them
+            out = _post_buy(con, tcon, {"token": r["token"], "sol": f'{r["amount"]:g}', "exit": "tpsl", "tp": tp, "sl": sl}, user,
+                            src=_xp.APPROVED_SRC)
         except ValueError as e:
             mcpapi.decide(tcon, rid, "failed", str(e))
             raise
         mcpapi.decide(tcon, rid, "approved", "kupnja poslana")
         return out
-    ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open'", (r["token"],))]
+    # 11.11.: only the positions the request was about (open when it was made, ui/mcpapi.sell_positions_open)
+    ids = [str(i) for (i,) in tcon.execute("SELECT id FROM positions WHERE token=? AND status='open' AND "
+                                           "COALESCE(opened_ts, 0) <= ?", (r["token"], int(r.get("ts") or 0)))]
     if not ids:
         mcpapi.decide(tcon, rid, "failed", "pozicija više nije otvorena")
         raise ValueError("ta pozicija više nije otvorena")
@@ -4900,9 +5217,25 @@ def _post_exit(con, tcon, form):
         raise ValueError("ova pozicija nema demo par (demo strategija ili stara pozicija): izlaz joj se ne mijenja ovdje")
     # 10.11. (Jure: više ulaza = prosječan ulaz, TP/SL na prosjek, zatvara cijelu poziciju): _group_exit
     tp = (form.get("tp") or "").strip()
-    sl = (form.get("sl") or "").strip() or _sl0(_cfg(tcon))
-    rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, _cfg(tcon))
+    cfg = _cfg(tcon)
+    # 11.11. (owner: "Stop nikad ne smije biti širi od sl_default ... Isto pravilo vrijedi za Uredi SL-TP"): the saved
+    # TP / SL are the position's panel plan (live on the real account under exit_plan_live), its trailing and time
+    # stop kept; a stop looser than the default is refused before anything is written; empty SL = the plan's default
+    from league import exitplan
+    # 11.11. (owner: "ručno uvijek nadjačava ono što je zapisano programski"): a typed SL is the owner's, only an empty
+    # one takes the default
+    floor = exitplan.owner_floor(form.get("sl"), exitplan.sl_floor(cfg))
+    sl = (form.get("sl") or "").strip() or f"-{exitplan.sl_floor(cfg):g}%"
+    plan = _edit_plan(con, tok, tp, sl, floor)
+    rule, avg_mc, n = _group_exit(con, tcon, tok, tp, sl, cfg)
     print(f"pravi trade: izlaz {sym or tok[:6]} promijenjen: {_exit_words(rule)} ({n} ulaza)", flush=True)
+    pnote = ""
+    try:
+        exitplan.set_plan(con, tok, plan, floor, client=f"{exitplan.PANEL_SRC} Uredi SL-TP", tighten_only=False, hr=True)
+        pnote = _plan_words(_plan_status_line(con, tcon, tok, sym, cfg))
+    except ValueError as e:   # checked above: only a race gets here; the lots keep the TP / SL just written
+        print(f"pravi trade: plan izlaza {sym or tok[:6]} nije postavljen ({e})", flush=True)
+        pnote = f" Plan izlaza NIJE postavljen ({e}); vrijedi TP/SL pozicije."
     # 10.11. (Jure: "kad se postavi izlaz za određenog influencera, neka ostane zapamćen za sljedeću narudžbu, a ne da se
     # uvijek vraća na default"): the TP / SL typed here prefill the next manual order, and a position bought on a
     # follow's signal hands them to that follow, so its next entries get them too
@@ -4918,7 +5251,30 @@ def _post_exit(con, tcon, form):
             note = f" Zapamćeno i za sljedeće ulaze od {(f[0] or f[1]) if f else 'tog praćenja'}."
         except ValueError:   # the follow was stopped meanwhile
             pass
-    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}')}#poz-{pid}"
+    return f"{BACK}?ok={qq(f'Izlaz {sym or tok[:6]}: {_exit_words(rule)}.{note}{pnote}')}#poz-{pid}"
+
+
+def _edit_plan(con, tok, tp, sl, floor):
+    """The plan "Uredi SL-TP" saves (checked, nothing written): the TP / SL typed, the trailing and the time stop the
+    position's plan had (the editor has no fields for them); ValueError in the owner's words for a stop looser than
+    the default or a TP under the average entry."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    old = exitplan.active(con, tok)
+    if old and U not in exitplan._scope(old["plan"]):
+        old = None
+    lots = exitplan._lots(con, U, tok)
+    if not lots:
+        raise ValueError("ta pozicija više nije otvorena")
+    ratio = exitplan._mc_ratio(lots)
+    avg_mc = exitplan._avg(lots) * ratio if ratio else None
+    was = exitplan.position_fields(old) if old else {}
+    pl = (old or {}).get("plan") or {}
+    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)")
+    if pl.get("time_stop") and not was.get("time"):   # a conditional time stop (Grok's / a proposal's) stays as it was
+        plan["time_stop"] = dict(pl["time_stop"])
+    exitplan.validate(con, tok, plan, floor, tighten_only=False, hr=True)
+    return plan
 
 
 def _gate_now(tcon, sol, token, now=None):
@@ -4934,12 +5290,412 @@ def _gate_now(tcon, sol, token, now=None):
         return executor.gate_buy(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True, manual=True)
 
 
-def _owner_buy_rules(lcon, tcon, token, sol, now=None):
+# ---- 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss ... ručno uvijek nadjačava ono što
+# je zapisano programski. I ne samo za to, nego za količinu kupljenoga. Može izaći upozorenje, box na kojem piše
+# upozorenje, ali ako se složim, ručno uvijek nadjačava sve ostalo.") ------------------------------------------------
+# The owner's own buy (Kupi, Brza kupnja, Kupi from a proposal, a dokup, his DCA and buy orders at a market cap) is
+# checked against every limit at once: a HARD reason refuses it (kill switch, wallet balance, no price, a bad address,
+# an unconfirmed chart difference, and the CLAUDE.md rules in executor.HARD_RULES); SOFT reasons (his limits) are
+# collected and, without override=1 in the form, answered with one warning box listing them all, nothing written.
+# With override=1 the buy goes through, one log line names what was overridden, and trade settings manual_override
+# marks the demo trade so run_trade passes the same SOFT limits on the real swap (executor.buy(override=...)).
+# Grok's buys (autotrade, an approved request) never take an override: their limits stay hard (_can_override).
+WARN_TITLE = "Upozorenje: ova kupnja prelazi tvoje limite"
+WARN_TTL_S = 15 * 60          # a warning box older than this is not shown again (the limits may have changed)
+WARN_FIELDS = ("token", "sol", "exit", "tp", "sl", "trail", "time", "at", "chart_mint", "confirm_mismatch", "prijedlog",
+               "lvl", "reason")   # the fields "Kupi svejedno" sends again (every buy / DCA form's own; nothing else)
+# 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): a buy under $30k MC
+# (rule key "mc30k", SOFT only for his own buy: executor.HARD_RULES) also needs his reason, at least this long
+REASON_MIN = 10
+REASON_LABEL = "Razlog kupnje ispod 30k MC"
+WARN_PATHS = ("/pravi-trade/buy", "/pravi-trade/dca")
+_WARN_KEY = os.urandom(32)    # signs the warning in the address: only this server's own warning shows the box
+OVERRIDE_KEEP = 200           # manual_override entries kept (as manual_size)
+
+
+class SoftLimits(ValueError):
+    """The owner's own buy is over one or more of his limits and the form had no override=1. Nothing was written;
+    post() answers with the warning box (warn_url) and the same form to send again with override=1. A ValueError,
+    so the callers that only report a refusal (dca_once, limit_once) keep doing so, with the reasons."""
+
+    def __init__(self, reasons, form=None, path="/pravi-trade/buy", what="", note=""):
+        self.reasons = [(k, t) for k, t in reasons]
+        self.form = dict(form or {})
+        self.path = path
+        self.what = what
+        super().__init__(f"{note or 'prelazi tvoje limite'}: " + "; ".join(t for _k, t in self.reasons))
+
+
+def _can_override(user, src=None):
+    """Only the owner's own buy may be confirmed over his limits: never Grok's (autotrade or an approved request),
+    never anyone else's (post() lets only the owner in; this is the second lock)."""
+    return settings.is_owner(user) and not _is_grok(src)
+
+
+def _override_keys(form):
+    """None (no override), "all" (override=1: the page's "Kupi svejedno") or the set of reason keys an order was
+    confirmed with (override=stake,max_open: dca_once / limit_once hand over what the owner confirmed when he set it)."""
+    v = str((form or {}).get("override") or "").strip()
+    if not v or v == "0":
+        return None
+    if v == "1":
+        return "all"
+    return {k.strip() for k in v.split(",") if k.strip()}
+
+
+def _gate_all(tcon, sol, token, now=None, balance=True):
+    """Every reason of the real-money gate (trade/executor.buy_checks) for an owner's buy, as (kind, key, text): a
+    manual buy is "one more lot" (add=True, as run_trade books it). balance=False: the wallet is not asked (an order
+    checked when it is set; the balance counts when it buys). Without an answer from the RPC every other limit is
+    still checked and run_trade checks the balance as before."""
+    cfg = _cfg(tcon)
+    live = executor.is_live(cfg)
+    now = now or time.time()
+    bal = None if balance else float("inf")
+    try:
+        return list(executor.buy_checks(tcon, cfg, sol, now, live, balance=bal, token=token, add=True, manual=True))
+    except Exception:  # noqa: BLE001 - the RPC for the balance did not answer
+        return list(executor.buy_checks(tcon, cfg, sol, now, live, balance=float("inf"), token=token, add=True,
+                                        manual=True))
+
+
+def _sol_usd_now(tcon):
+    """SOL in USD without a request: the header's live rate, else the last wallet snapshot's, else trade/equity's own
+    cache. None when none is known (the cost estimate is then left out)."""
+    with _LOCK:
+        live = _RATES["val"]
+    if live and live.get("sol_usd"):
+        return float(live["sol_usd"])
+    try:
+        v = (equity_data(tcon).get("summary") or {}).get("sol_usd")
+        if v:
+            return float(v)
+    except Exception:  # noqa: BLE001
+        pass
+    eq = _equity_mod()
+    v = (getattr(eq, "_RATES", None) or {}).get("sol") if eq is not None else None
+    return float(v) if v else None
+
+
+def _tp_pct_of(form, cfg):
+    """The exit target in percent run_trade's sell check will use for this buy (run_trade._tp_pct: a "+30%" TP, else
+    the page's default target)."""
+    tp = str((form or {}).get("tp") or "").strip().replace(",", ".").replace(" ", "")
+    m = re.fullmatch(r"\+?([0-9.]+)%?", tp) if (form or {}).get("exit", "tpsl") == "tpsl" and tp else None
+    try:
+        return float(m.group(1)) if m else float(cfg.get("tp_default") or 15)
+    except ValueError:
+        return float(cfg.get("tp_default") or 15)
+
+
+def _cost_reasons(tcon, cfg, sol, liq, form=None):
+    """The SOFT cost reasons of this stake from the one cost model (trade/cost.py: fee + the AMM impact of the buy),
+    the same two lines the real swap is held to: the swap's cost over max_cost_pct (executor.swap), and the round
+    trip with the network fees eating half the exit target (executor.sell_check, when it is on). Unknown pool: none."""
+    from trade import cost
+    out = []
+    try:
+        liq = float(liq or 0)
+    except (TypeError, ValueError):
+        liq = 0.0
+    sol_usd = _sol_usd_now(tcon)
+    imp = cost.impact(sol * sol_usd, liq) if liq > 0 and sol_usd else None
+    cap = cfg.get("max_cost_pct")
+    if imp is not None and cap:
+        est = 100 * (cost.fee_side() + imp)
+        if est > float(cap):
+            out.append(("cost", f"procjena troška kupnje ≈ {est:.1f} % (klizanje {100 * imp:.1f} % u poolu "
+                                f"${liq:,.0f}) je iznad tvoje granice {float(cap):g} % po swapu (Pravila → Limiti)"))
+    if cfg.get("sell_check", True) and sol > 0:
+        tp = _tp_pct_of(form, cfg)
+        fees = 100 * executor.NET_FEES_SOL / sol
+        total = fees + 2 * 100 * (imp or 0.0)
+        if tp and total >= tp / 2:
+            out.append(("edge", f"trošak kupnje i prodaje ≈ {total:.1f} % (mrežne naknade ~{executor.NET_FEES_SOL:g} SOL na "
+                                f"{sol:g} SOL) pojeo bi pola cilja +{tp:g} %"))
+    return out
+
+
+def _owner_limits(con, tcon, cfg, token, sol, src=None, liq=None, form=None, now=None, balance=True):
+    """(hard, soft): every reason the owner's own buy of `sol` SOL in `token` is refused, each (key, text). HARD
+    from the gate (kill switch, wallet balance); SOFT: the stake per trade, the gate's limits (open positions, the day's
+    loss stop, his reserve), his per-token cap and the dca_cap flag (_owner_buy_rules), the cost and edge estimate."""
+    hard, soft = [], []
+    lim = cfg["max_sol_per_trade"]
+    if sol > lim + 1e-12:
+        soft.append(("stake", f"ulog {sol:g} SOL je iznad tvog limita {lim:g} SOL po tradeu (Pravila → Limiti)"))
+    for kind, key, text in _gate_all(tcon, sol, token, now, balance=balance):
+        if key == "stake" and kind == executor.SOFT:
+            continue   # said above, in the owner's words
+        if key == "max_open":
+            text = f"{text}, najviše {cfg.get('max_open')} (Pravila → Limiti)"
+        elif key == "day_loss":
+            text = f"{text} (Pravila → Limiti)"
+        (hard if kind == executor.HARD else soft).append((key, text))
+    _owner_buy_rules(con, tcon, token, sol, now, src=src, soft=soft, log=False)
+    soft += _cost_reasons(tcon, cfg, sol, liq, form)
+    return hard, soft
+
+
+def _reason(form):
+    """The owner's typed reason (the warning box's "Razlog kupnje ispod 30k MC"), one line, at most 300 characters."""
+    return " ".join(str((form or {}).get("reason") or "").split())[:300]
+
+
+def _confirm(token, form, soft, path="/pravi-trade/buy", what=""):
+    """[] when nothing is over a limit; the SOFT reasons the override covers; SoftLimits when it does not. Under $30k
+    MC ("mc30k") the override also needs the owner's reason of at least REASON_MIN characters (11.11., owner: "uz
+    dovoljno dobar razlog"); without it the same warning comes back, asking for it."""
+    if not soft:
+        return []
+    keys = _override_keys(form)
+    left = [r for r in soft if keys != "all" and r[0] not in (keys or ())]
+    note = "nalog nije potvrđen za ovaj limit" if keys and keys != "all" else ""
+    if not left and any(k == "mc30k" for k, _t in soft) and len(_reason(form)) < REASON_MIN:
+        left, note = soft, f"upiši razlog kupnje ispod 30k MC (najmanje {REASON_MIN} znakova)"
+    if left:
+        print(f"pravi trade: kupnja {token[:6]} čeka potvrdu (upozorenje): " + "; ".join(t for _k, t in left), flush=True)
+        raise SoftLimits(left, form, path, what, note)
+    return soft
+
+
+def _over_mc(over):
+    """The MC of an overridden "mc30k" reason (the number in its text), or None."""
+    for k, t in over:
+        if k == "mc30k":
+            m = re.search(r"\$([0-9][0-9,]*)", t)
+            return float(m.group(1).replace(",", "")) if m else None
+    return None
+
+
+def _over_words(over, form=None):
+    """" uz potvrđeno nadjačavanje: …[, razlog: …]" for an order's log line; "" without an override."""
+    if not over:
+        return ""
+    r = _reason(form) if any(k == "mc30k" for k, _t in over) else ""
+    return " uz potvrđeno nadjačavanje: " + "; ".join(t for _k, t in over) + (f", razlog: {r}" if r else "")
+
+
+def _say_override(sym, token, over, form=None):
+    """The one log line of a buy the owner confirmed over his limits (under $30k MC: with his reason)."""
+    who = sym or token[:6]
+    if any(k == "mc30k" for k, _t in over):
+        mc = _over_mc(over)
+        rest = [t for k, t in over if k != "mc30k"]
+        print(f"pravi trade: kupnja {who} ispod 30k MC (${mc or 0:,.0f}) uz potvrđeno nadjačavanje, razlog: "
+              f"{_reason(form)}" + (f"; ostali limiti: {'; '.join(rest)}" if rest else ""), flush=True)
+        return
+    print(f"pravi trade: kupnja {who} uz potvrđeno nadjačavanje: " + "; ".join(t for _k, t in over), flush=True)
+
+
+def _mark_override(tcon, tid, over, user, form=None):
+    """trade settings manual_override[demo trade id]: run_trade passes the same SOFT limits on the real swap (and,
+    with "mc30k" and the reason, its MIN_MCAP check); the reason goes onto the real lot (positions.override). Written
+    BEFORE manual_size: run_trade reads every setting in one go, so a stake it sees always comes with its mark."""
+    why = [t for _k, t in over]
+    reason = _reason(form) if any(k == "mc30k" for k, _t in over) else ""
+    if reason:
+        why = [f"{t}, razlog: {reason}" if k == "mc30k" else t for k, t in over]
+    marks = dict(settings.raw(tcon).get("manual_override") or {})
+    marks[str(tid)] = {"why": why, "keys": [k for k, _t in over], "ts": int(time.time()), "who": user}
+    if reason:
+        marks[str(tid)].update(reason=reason, mc=_over_mc(over))
+    settings.put(tcon, "manual_override", dict(list(marks.items())[-OVERRIDE_KEEP:]), user)
+
+
+def _warn_what(path, form, sym=None):
+    """The buy the warning is about, in a line: "Kupnja HOPE (Ab12…pump) za 0,5 SOL"."""
+    tok = str(form.get("token") or "").strip()
+    who = (f"{sym} ({tok[:4]}…{tok[-4:]})" if sym else f"{tok[:4]}…{tok[-4:]}") if len(tok) > 12 else (sym or tok)
+    sol = str(form.get("sol") or "").replace(".", ",")
+    if path.endswith("/dca"):
+        return f"DCA dokup {who} za {sol} SOL kad MC padne na {str(form.get('lvl') or '').strip()}"
+    at = str(form.get("at") or "").strip()
+    return f"{'Nalog: kupi' if at else 'Kupnja'} {who} za {sol} SOL" + (f" kad MC padne na {at}" if at else "")
+
+
+def _warn_sign(blob):
+    import hashlib
+    import hmac
+    return hmac.new(_WARN_KEY, blob.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def warn_url(e):
+    """The address post() answers a SoftLimits with: the page, a warning box with every reason and the same form
+    (only WARN_FIELDS) with override=1 to send again. Signed, so a link made elsewhere never shows the box."""
+    import base64
+    f = {k: str(e.form[k]) for k in WARN_FIELDS if str(e.form.get(k) or "").strip()}
+    body = {"p": e.path if e.path in WARN_PATHS else "/pravi-trade/buy", "f": f, "w": [t for _k, t in e.reasons],
+            "k": [k for k, _t in e.reasons], "d": e.what or _warn_what(e.path, f), "ts": int(time.time())}
+    if "upiši razlog" in str(e):
+        body["n"] = f"Upiši razlog (najmanje {REASON_MIN} znakova)."
+    blob = base64.urlsafe_b64encode(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()).decode().rstrip("=")
+    return f"{BACK}?warn={blob}.{_warn_sign(blob)}#kupi-odmah"
+
+
+def warn_data(value, now=None):
+    """The warning a ?warn= value carries ({"p", "f", "w", "d", "ts"}), or None when it is not this server's own, is
+    older than WARN_TTL_S or cannot be read."""
+    import base64
+    import hmac
+    try:
+        blob, sig = str(value or "").rsplit(".", 1)
+        if not hmac.compare_digest(sig, _warn_sign(blob)):
+            return None
+        d = json.loads(base64.urlsafe_b64decode(blob + "=" * (-len(blob) % 4)).decode())
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(d, dict) or (now or time.time()) - int(d.get("ts") or 0) > WARN_TTL_S:
+        return None
+    if d.get("p") not in WARN_PATHS or not isinstance(d.get("f"), dict) or not isinstance(d.get("w"), list):
+        return None
+    d["f"] = {k: str(v) for k, v in d["f"].items() if k in WARN_FIELDS}
+    d["k"] = [str(k) for k in d.get("k") or []]
+    return d
+
+
+def fetch_answer(to):
+    """run_ui's answer to ap.js (X-Apx-Fetch): {"to": the address a form would go to}, plus the warning's reasons
+    ({"warn": [...], "title", "what", "need_reason", "reason_min", "note"}) when the buy waits for the owner's
+    "Kupi svejedno" (need_reason: under $30k MC, the box asks for his reason)."""
+    from urllib.parse import parse_qs, urlsplit
+    out = {"to": to}
+    w = (parse_qs(urlsplit(to or "").query).get("warn") or [None])[0]
+    d = warn_data(w) if w else None
+    if d:
+        out.update(warn=d["w"], title=WARN_TITLE, what=d.get("d") or "", need_reason="mc30k" in d["k"],
+                   reason_min=REASON_MIN, reason_label=REASON_LABEL, note=d.get("n") or "")
+    return out
+
+
+# the warning box's own few lines of JavaScript: "Kupi svejedno" waits for the reason when one is asked for
+WARN_JS = ("<script>(()=>{const f=document.querySelector('#ap-warn form');if(!f)return;const r=f.elements.reason,"
+           "b=f.querySelector('.ap-warnbox-yes');if(!r||!b)return;const n=+r.minLength||10,"
+           "u=()=>{b.disabled=r.value.trim().length<n};r.addEventListener('input',u);u()})()</script>")
+
+
+def warn_box(qs, user):
+    """The warning box of a ?warn= answer (the page without JavaScript, or after a full reload): the reasons with
+    their numbers, "Kupi svejedno" (the same form with override=1, after a confirm) and "Odustani". It stays until one
+    of the two is pressed (11.11., Jure: "poruka odmah nestane"). Under $30k MC it asks for the owner's reason (the
+    button waits for it; the server refuses without it). "" for anyone but the owner or a foreign link."""
+    if not isinstance(qs, dict) or not qs.get("warn") or not settings.is_owner(user):
+        return ""
+    d = warn_data(qs.get("warn"))
+    if d is None:
+        return ('<div class=ap-warnbox role=alert><p class=ap-warnbox-h>Upozorenje je isteklo</p><p>Pošalji kupnju '
+                f'ponovno: limiti se provjeravaju u trenutku slanja.</p><div class=ap-warnbox-go><a class=ap-warnbox-no '
+                f'href="{BACK}#kupi-odmah">U redu</a></div></div>')
+    need = "mc30k" in d["k"]
+    hidden = "".join(f'<input type=hidden name="{esc(k)}" value="{esc(v)}">' for k, v in d["f"].items() if k != "reason")
+    items = "".join(f"<li>{esc(w)}</li>" for w in d["w"])
+    why = (f'<label class=ap-warnbox-r>{esc(REASON_LABEL)} <small>(obavezno, najmanje {REASON_MIN} znakova)</small>'
+           f'<textarea name=reason required minlength={REASON_MIN} maxlength=300 rows=2 autocomplete=off '
+           f'placeholder="npr. poznati caller, svjež volumen, likvidnost drži">{esc(d["f"].get("reason") or "")}</textarea>'
+           '</label>' if need else "")
+    note = f'<p class=ap-warnbox-err>{esc(d["n"])}</p>' if d.get("n") else ""
+    return ('<div class=ap-warnbox id=ap-warn role=alertdialog aria-labelledby=ap-warn-h aria-describedby=ap-warn-l>'
+            f'<p class=ap-warnbox-h id=ap-warn-h>{esc(WARN_TITLE)}</p>'
+            f'<p class=ap-warnbox-what>{esc(d.get("d") or "")}</p><ul id=ap-warn-l>{items}</ul>'
+            '<p class=ap-warnbox-note>Ako potvrdiš, tvoja ručna kupnja nadjačava ove limite samo za ovu kupnju. Kill '
+            'switch, stanje walleta i rug i dalje vrijede.</p>'
+            f'<form method=post action="{esc(d["p"])}" onsubmit="return confirm(\'Kupiti svejedno, iznad svojih limita?\')">'
+            f'{hidden}<input type=hidden name=override value=1>{why}{note}<div class=ap-warnbox-go>'
+            '<button class=ap-warnbox-yes>Kupi svejedno</button>'
+            f'<a class=ap-warnbox-no href="{BACK}#kupi-odmah">Odustani</a></div></form></div>' + (WARN_JS if need else ""))
+
+
+def _sl_looser_pct(sl, floor):
+    """True when a percent stop ("-40%") is looser than -floor %; an MC level or anything unreadable: False."""
+    try:
+        return "%" in str(sl) and abs(float(str(sl).strip().replace("%", "").replace(",", "."))) > float(floor) + 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
+def _grok_srcs():
+    from league import exitplan
+    from ui import grokauto
+    return grokauto.SRC, exitplan.APPROVED_SRC
+
+
+def _is_grok(src):
+    """True for a Grok buy: autotrade (ui/grokauto.SRC) or a Grok request the owner approved with a tap
+    (league/exitplan.APPROVED_SRC). 11.11. (Jure: "Grokovi zahtjevi koje odobrim tapom idu pod Grokove limite")."""
+    try:
+        return bool(src) and src in _grok_srcs()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def grok_day_spent(tcon, now=None, mode=None):
+    """SOL of Grok's buys today (Zagreb day), autotrade and approved requests together, on the account the buy goes to
+    (trade.db positions: the reason is the demo trade's source)."""
+    now = now or time.time()
+    if mode is None:
+        mode = "live" if executor.is_live(_cfg(tcon)) else "dry"
+    from ui import grokauto
+    start = grokauto._day_start(now)
+    q = ",".join("?" * len(_grok_srcs()))
+    r = tcon.execute(f"SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE mode=? AND opened_ts>=? AND reason IN ({q})",
+                     (mode, int(start), *_grok_srcs())).fetchone()
+    return float(r[0] or 0.0)
+
+
+def _grok_rules(tcon, token, sol, src, raw, now):
+    """A Grok buy (autotrade or approved) under Grok's limits, never the owner's 1 SOL: grok_max_sol_per_trade (0,1),
+    the Autopilot's per-token cap dca_token_cap (0,3) and grok_max_sol_per_day (0,3) for autotrade and approved
+    requests together. Raises ValueError with the reason (also one log line)."""
+    from ui import grokauto
+    lim = grokauto.limits(tcon)
+    who = "Grok autotrade" if src == grokauto.SRC else "odobreni Grokov zahtjev"
+    why = None
+    if sol > lim["grok_max_sol_per_trade"] + 1e-9:
+        why = f"ulog {sol:g} SOL, najviše {lim['grok_max_sol_per_trade']:g} SOL po kupnji (Grokov limit)"
+    if why is None:
+        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        held = held_sol(tcon, token)
+        if held + sol > cap + 1e-9:
+            why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu "
+                   "(Grokov limit)")
+    if why is None:
+        spent = grok_day_spent(tcon, now)
+        if spent + sol > lim["grok_max_sol_per_day"] + 1e-9:
+            why = (f"Grok je danas kupio {spent:.3f} SOL, s ovom bi bilo {spent + sol:.3f}, najviše "
+                   f"{lim['grok_max_sol_per_day']:g} SOL na dan (Grokov limit)")
+    if why:
+        print(f"pravi trade: kupnja {token[:6]} odbijena: {why} ({who})", flush=True)
+        raise ValueError(f"kupnja nije poslana: {why} ({who})")
+
+
+PENDING_FRESH_S = 15 * 60   # a lot still 'pending' after this never filled: it holds nothing
+
+
+def held_sol(tcon, token, mode=None):
+    """SOL still in this token on ONE account: the open lots of the account the buy goes to (live while the switch is
+    live, else the demo "dry" one), each counted for the part not sold yet (sol_in x qty_left / qty_raw); a pending
+    lot in full while it is fresh (PENDING_FRESH_S). 11.11. (Jure: "u poziciji je 0,3, kupujem 0,1 = 0,4, a piše
+    0,45"): the sum took every open and pending row of the token, the other account's and the sold parts too."""
+    if mode is None:
+        mode = "live" if executor.is_live(_cfg(tcon)) else "dry"
+    since = int(time.time()) - PENDING_FRESH_S
+    r = tcon.execute("SELECT COALESCE(SUM(CASE WHEN status='open' AND qty_raw > 0 AND qty_left IS NOT NULL "
+                     "THEN sol_in * MIN(1.0, MAX(0.0, CAST(qty_left AS REAL) / qty_raw)) ELSE sol_in END), 0) "
+                     "FROM positions WHERE token=? AND mode=? AND (status='open' OR (status='pending' AND opened_ts >= ?))",
+                     (token, mode, since)).fetchone()
+    return float(r[0] or 0.0)
+
+
+def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None, soft=None, log=True):
     """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
     dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
                     live = the buy is refused with the reason; shadow / paper = logged in shadow_decisions.
     require_signal  the owner's own buy always goes through ("ručno mora proći"): a buy without a caller or a tiered
-                    wallet behind it is only logged, in every mode but off, so the rule's effect can be read."""
+                    wallet behind it is only logged, in every mode but off, so the rule's effect can be read.
+    soft (11.11., owner: "ručno uvijek nadjačava sve ostalo"): a list for the owner's own buy: his per-token cap and
+    the dca_cap flag are appended to it as (key, text) instead of refusing (_owner_limits); Grok's limits always
+    refuse (ValueError), whatever is passed. log=False: nothing goes to the shadow log (the check of a buy that may
+    still wait for the owner's confirmation; _post_buy logs once, when the buy is made)."""
     from league import copy as lcopy, flags as lflags
     now = now or time.time()
     U = settings.LEAGUE_USER
@@ -4949,48 +5705,154 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None):
     # the owner's own limit on his buys (manual, DCA orders, buy orders at a market cap), like the stake limits; it
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
-    if m != "off" or owner_cap:
-        cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
-        held = tcon.execute("SELECT COALESCE(SUM(sol_in), 0) FROM positions WHERE token=? AND status IN ('open','pending')",
-                            (token,)).fetchone()[0] or 0.0
+    if _is_grok(src):
+        _grok_rules(tcon, token, sol, src, raw, now)
+    elif m != "off" or owner_cap:
+        # 11.11. (Jure: "strop od 1 SOL vrijedi samo za kupnje koje sam pokrenem (Kupi, brza kupnja, DCA, nalozi na MC)")
+        cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+        held = held_sol(tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu")
-            if owner_cap:
-                raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
-            if lflags.applies("dca_cap", U, m):
-                raise ValueError(f"kupnja nije poslana: {why} (Pravila → Zastavice plana: dca_cap)")
-            if lflags.shadowing("dca_cap", U, m):
-                lflags.shadow(lcon, "dca_cap", None, token, "kupi", "odbij", {"held": held, "sol": sol, "cap": cap}, now)
-    if lflags.mode("require_signal") != "off":
+            if soft is not None and (owner_cap or lflags.applies("dca_cap", U, m)):
+                # the owner's own buy: a reason in his warning box (the caller logs the one line)
+                soft.append(("owner_cap", f"{why} (tvoj strop po tokenu; mijenja se pod Pravila)") if owner_cap else
+                            ("dca_cap", f"{why} (Pravila → Zastavice plana: dca_cap)"))
+            else:
+                # 11.11. (Jure: "poruka odmah nestane"): every refused owner buy is one line in the log too
+                if log or owner_cap or lflags.applies("dca_cap", U, m):
+                    print(f"pravi trade: kupnja {token[:6]} odbijena: {why} (strop vlasnika)", flush=True)
+                if owner_cap:
+                    raise ValueError(f"kupnja nije poslana: {why} (tvoj strop po tokenu; mijenja se pod Pravila)")
+                if lflags.applies("dca_cap", U, m):
+                    raise ValueError(f"kupnja nije poslana: {why} (Pravila → Zastavice plana: dca_cap)")
+                if log and lflags.shadowing("dca_cap", U, m):
+                    lflags.shadow(lcon, "dca_cap", None, token, "kupi", "odbij", {"held": held, "sol": sol, "cap": cap},
+                                  now)
+    if log and lflags.mode("require_signal") != "off":
         ok, why = lcopy.signal_for(token, now)
         if not ok:
             lflags.shadow(lcon, "require_signal", None, token, "kupi (ručno)", "bez signala", {"why": why, "manual": True},
                           now)
 
 
-def _post_buy(con, tcon, form, user, src=None):
+def _post_proposal_buy(con, tcon, form, user):
+    """11.11. (Jure, proposals/ flag proposals G21): the owner's buy of a proposal. "Kupi" on the card only fills Brza
+    kupnja (token, size, TP, SL); the owner confirms there and this is the same _post_buy with every check and limit.
+    The TP / SL in the form become the position's OWN TP/SL (league/auto "tpsl": they work on the real account
+    whatever exit_plans' mode); the proposal's full exit plan (partial TP, trailing, time stop) is the position's
+    panel plan (11.11.: set in the same request, live on the real account under exit_plan_live; _post_buy), and the
+    proposal is marked kupljeno. A form whose token is no longer the proposal's is an ordinary buy."""
+    from league import exitplan
+    from proposals import store as pstore, view as pview
+    from ui import real
+    from ui.league import MINT
+    try:
+        pid = int(form.get("prijedlog") or 0)
+    except ValueError:
+        pid = 0
+    pcon = pstore.ro()
+    try:
+        p = pstore.one(pcon, pid) if pcon is not None and pid else None
+    finally:
+        if pcon is not None:
+            pcon.close()
+    token = (form.get("token") or "").strip()
+    if token and not MINT.fullmatch(token):
+        token = real.resolve(token)[0]
+    if p is None or p["token"] != token:
+        return _post_buy(con, tcon, form, user)
+    if p["status"] != "novo":
+        raise ValueError(f"prijedlog više nije otvoren ({p['status']}): kupnja nije poslana")
+    form = dict(form, token=token)
+    form.setdefault("exit", "tpsl")
+    # 11.11. (owner: "Plan izlaza uz kupnju: DA"): the proposal's whole exit plan (partial TP, trailing, time stop) is
+    # the position's panel plan, set in the same request and checked before the buy (a stop looser than the default
+    # refuses it), as long as the panel's fields are still the proposal's (Kupi filled them); changed fields are the
+    # owner's own exit (an ordinary panel plan of those fields)
+    plan = dict((p.get("row") or {}).get("exit_plan") or {})
+    fill = {}
+    try:
+        from ui import apterm
+        fill = apterm.proposal_fill(p, 0)
+    except Exception:  # noqa: BLE001 - no fill: the fields decide
+        fill = {}
+    floor = exitplan.sl_floor(_cfg(tcon))
+    typed = {"tp": form.get("tp"), "sl": form.get("sl"), "trail": exitplan.field_num(form.get("trail"), "Trailing %", 1, 90),
+             "time": exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)}
+    want = {"tp": fill.get("tp"), "sl": fill.get("sl"), "trail": fill.get("trail"), "time": fill.get("time")}
+    for k in ("trail", "time"):   # a form without those fields (an older page): only TP / SL say whether it changed
+        if k not in form:
+            typed[k] = want[k]
+    same = exitplan.same_exit(typed, want, floor) if fill else True
+    given = None
+    if plan and same:
+        given = dict(plan, accounts=[settings.LEAGUE_USER],
+                     panel={"tp": (form.get("tp") or "").strip(), "sl": (form.get("sl") or "").strip(),
+                            "trail": typed["trail"], "time": typed["time"]})
+    out = _post_buy(con, tcon, form, user, src=f"ručno: prijedlog {p.get('strategy') or ''}".strip(), plan=given,
+                    plan_client=f"{exitplan.PANEL_SRC} prijedlog #{pid}")
+    pstore.mark_bought(pid, float((form.get("sol") or "0").replace(",", ".")), user)
+    pview.clear()
+    print(f"pravi trade: {user} je kupio prijedlog #{pid} ({p.get('strategy')}) {p.get('symbol') or token[:6]}", flush=True)
+    return out
+
+
+def _chart_guard(form, token):
+    """11.11. (owner's rule: "Kupi mora koristiti isključivo mint iz polja za adresu. Ako se mint iz polja i token na
+    grafu razlikuju, prikaži upozorenje i traži potvrdu prije slanja."): the Autopilot's buy form sends the token its
+    chart shows (chart_mint). A buy of another token than that needs confirm_mismatch=1; refused BEFORE anything is
+    written otherwise. The buy is always of the field's token, never of chart_mint; without chart_mint (an older page,
+    MCP, the other buy forms) nothing changes. Returns the chart's mint of a confirmed difference (for the log)."""
+    from ui.league import MINT
+    chart = (form.get("chart_mint") or "").strip()
+    if not chart or not MINT.fullmatch(chart) or chart == token:
+        return None
+    if (form.get("confirm_mismatch") or "").strip() != "1":
+        with _LOCK:   # the symbol from the shared DexScreener cache, no request
+            sym = next((d[token].get("symbol") for _ts, d in _LIVE_CACHE.values() if token in (d or {})), None)
+        # first four + last four: every pump.fun mint ends in "pump"
+        raise ValueError(f"adresa u polju ({sym + ' ' if sym else ''}{token[:4]}…{token[-4:]}) nije token na grafu "
+                         f"({chart[:4]}…{chart[-4:]}); "
+                         "potvrdi kupnju tog tokena")
+    return chart
+
+
+def _post_buy(con, tcon, form, user, src=None, plan=None, plan_client=None):
     """Manual buy: a demo trade on the real-trade account (10.11.: the owner's buy goes through: only a price, no rug
     and MC 30k+ are required), its own SOL stake for the mirror, and its exit rule; run_trade.py turns it into the
-    real swap within the limits."""
+    real swap within the limits.
+    11.11. (owner: "Plan izlaza uz kupnju: DA"): with exit fields (TP / SL / trailing / time stop) the position's
+    exit plan is set right after the demo trade, in this request (a panel plan: under exit_plan_live it sells on the
+    real account); plan = a ready plan in set_plan's format (a proposal's), plan_client its client. Everything is
+    checked before anything is written; a stop looser than the default is refused with the numbers.
+    11.11. (owner: "ako se složim, ručno uvijek nadjačava sve ostalo"): the owner's own buy collects every SOFT
+    reason (his limits) and, without override=1 in the form, raises SoftLimits with all of them (post() shows the
+    warning box), nothing written; with override=1 it goes through, logged, and the demo trade is marked for run_trade
+    (manual_override). HARD reasons refuse it as before. Grok's buys keep every limit hard (_can_override)."""
     from urllib.parse import quote as qq
-    from league import auto
+    from league import auto, exitplan
     from rugfilter import collapse
     from ui import data, real
     from ui.league import MINT, _symbol, market
     token = (form.get("token") or "").strip()
     if not MINT.fullmatch(token):
         token = real.resolve(token)[0]
+    chart = _chart_guard(form, token)   # 11.11.: the field's token, never the chart's; another one only when confirmed
     sol = float((form.get("sol") or "0").replace(",", "."))
     lab, _typ, lo, hi = settings.LIMITS["size_sol"]
-    if not lo <= sol <= hi:
+    if not lo <= sol <= hi:   # the field's sane range (a typo like 50 for 0,50), not a limit of the owner's
         raise ValueError(f"SOL mora biti između {lo:g} i {hi:g}")
     live = market({token})
     if token not in live:
         raise ValueError("nema cijene za tu adresu (je li to adresa tokena, a ne walleta?)")
     price, liq, _, mcap = live[token]
+    can_ov = _can_override(user, src)
+    rules_soft = []   # the CLAUDE.md rules not in executor.HARD_RULES (11.11.: mc30k): SOFT for the owner's own buy only
     col = collapse.check(collapse.peaks(data.HYPE_DB, [token]).get(token), mcap, liq)
     if col:
-        raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
+        if "rug" in executor.HARD_RULES or not can_ov:
+            raise ValueError(f"token je rugan ({col['text']}), kupnja je zaključana")
+        rules_soft.append(("rug", f"token je rugan ({col['text']}): pravilo „rug zaključava kupnju”"))
     # 10.11. (Jure: "ručno sam išao dodati treći ulaz: kupnja odbijena, pada 23 % u zadnjem satu. Kad se ručno dodaje,
     # onda mora proći; program automatski možda ne treba, ali ručno mora proći"): the owner's own buy (and his DCA
     # orders) no longer pass the lists' live gate (activity, volume, the 1-h drop) nor the callers' veto; those stay
@@ -5003,17 +5865,44 @@ def _post_buy(con, tcon, form, user, src=None):
         mc_now = (lv.get(token) or {}).get("mcap") or mcap
     except Exception:  # noqa: BLE001 - DexScreener down: the market() reading above decides
         pass
-    if mc_now and mc_now < 30_000:
-        raise ValueError(f"kupnja odbijena: MC ${mc_now:,.0f}, ispod 30k")
+    # 11.11.: the lower of the two readings: run_trade checks the demo trade's entry MC (market()'s), so a token the
+    # page let through at a live MC above 30k was still skipped there, silently
+    mc_low = min((x for x in (mc_now, mcap) if x), default=None)
+    if mc_low and mc_low < 30_000:
+        # 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): his own buy
+        # only, with the warning and his typed reason (_confirm); Grok and anything automatic never
+        if "mc30k" in executor.HARD_RULES or not can_ov:
+            raise ValueError(f"kupnja odbijena: MC ${mc_low:,.0f}, ispod 30k")
+        rules_soft.append(("mc30k", f"MC ${mc_low:,.0f} je ispod 30k (pravilo „ispod 30k se ne kupuje automatski”; "
+                                    "ručno samo uz tvoj razlog)"))
     # 9.11. (audit N4/N10): everything is checked BEFORE the demo trade is written. A ValueError used to come after
     # store.buy, so the page showed the error while the position already existed, without an exit rule, and
     # run_trade mirrored it (for real in LIVE); a stake above max_sol_per_trade was accepted here and silently
     # blocked by gate_buy, leaving a demo position with no real one behind it.
     ex = form.get("exit") or "smart"
     tp, sl = (form.get("tp") or "").strip(), (form.get("sl") or "").strip()
+    # 11.11. (owner: "Plan izlaza uz kupnju: DA ... Stop nikad ne smije biti širi od sl_default"): the panel's exit
+    # fields (TP / SL / trailing % / time stop) become the position's exit plan in this request (_buy_plan below);
+    # a buy with none of them keeps the old behaviour (the default stop, no plan)
+    cfg = _cfg(tcon)
+    trail = exitplan.field_num(form.get("trail"), "Trailing %", 1, 90)
+    tmin = exitplan.field_num(form.get("time"), "Time stop (min)", 1, 7 * 1440)
+    if ex != "tpsl" and (trail or tmin):
+        raise ValueError("trailing i time stop idu uz izlaz „moj TP/SL”")
+    floor = exitplan.sl_floor(cfg)
+    if _is_grok(src) and sl and _sl_looser_pct(sl, floor):
+        # 11.11.: Grok's buy takes the owner's last exit; a stop looser than the default is the program's, not the
+        # owner's choice for this buy: the default instead (never a refusal of Grok's buy for it)
+        print(f"pravi trade: Grokova kupnja {token[:6]}: SL {sl} širi od zadanog −{floor:g} %, uzet zadani", flush=True)
+        sl = ""
+    # 11.11. (owner: "Ako ja ručno prilikom kupovine postavim drugačiji stop loss nego što je zadan, onda znači da to
+    # želim napraviti samo za tu kupovinu. I tada ručno uvijek nadjačava ono što je zapisano programski"): below, a
+    # typed SL of the owner's own buy is checked against OWNER_SL_MAX only
+    fields = {"tp": tp, "sl": sl, "trail": trail, "time": tmin}
+    has_exit = ex == "tpsl" and bool(tp or sl or trail or tmin or plan)
     if ex == "tpsl":
-        if not sl:
-            sl = _sl0(_cfg(tcon))   # owner rule 9.11.: no explicit stop -> the default one (10.11.: set under "Pravila")
+        if not sl:   # owner rule 9.11.: no explicit stop -> the default one (10.11.: set under "Pravila"); with an exit
+            sl = f"-{floor:g}%" if has_exit else _sl0(cfg)   # plan (11.11.) the plan's, never looser (sl_floor)
         tp_px, _ = auto.parse_level(tp, price, mcap, "tp")   # raises on a typo or an MC level without entry MC
         sl_px, _ = auto.parse_level(sl, price, mcap, "sl")
         if tp_px is None and sl_px is None:
@@ -5022,17 +5911,35 @@ def _post_buy(con, tcon, form, user, src=None):
             raise ValueError("TP mora biti iznad ulaznog MC-a")
     elif ex != "smart":
         raise ValueError("nepoznat način izlaza")
-    lim = _cfg(tcon)["max_sol_per_trade"]
-    if sol > lim:
-        raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
+    # the floor stops are validated with (vfloor): the default's for Grok and for a new plan with an empty SL (filled
+    # with the default above); the owner's own typed SL, or his panel plan a DCA without exit fields keeps, only for
+    # sanity (exitplan.OWNER_SL_MAX: "ručno uvijek nadjačava ono što je zapisano programski")
+    vfloor = floor
+    if not _is_grok(src):
+        act = exitplan.active(con, token)
+        if fields["sl"] or (act and exitplan.is_panel(act) and not any(fields.values())):
+            vfloor = exitplan.OWNER_SL_MAX
     # 10.11. (Jure: "piše da je kupovina prošla, a nema otvorene pozicije"): the day limit, the day's loss stop, the
     # number of positions and the wallet balance were checked only by run_trade, after the page had already said
     # "poslana". The same gate now answers here, before anything is written, with the way out in the message.
-    why = _gate_now(tcon, sol, token)
-    if why:
-        hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
-        raise ValueError(f"kupnja nije poslana: {why}.{hint}")
-    _owner_buy_rules(con, tcon, token, sol)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
+    soft = []
+    if not can_ov:   # Grok's buy (autotrade, an approved request): every limit hard, as before
+        lim = cfg["max_sol_per_trade"]
+        if sol > lim:
+            raise ValueError(f"ulog {sol:g} SOL je iznad limita {lim:g} SOL po tradeu (promijeni limit u postavkama)")
+        why = _gate_now(tcon, sol, token)
+        if why:
+            print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
+            hint = " Promijeni limit pod Pravila → Limiti." if "otvorenih pozicija" in why else ""
+            raise ValueError(f"kupnja nije poslana: {why}.{hint}")
+        _owner_buy_rules(con, tcon, token, sol, src=src)   # 10.11. (Jure): dca_cap and require_signal, each behind its flag
+    else:   # 11.11.: the owner's own buy: every reason at once; HARD refuse, SOFT wait for his "Kupi svejedno"
+        hard, soft = _owner_limits(con, tcon, cfg, token, sol, src=src, liq=liq, form=form)
+        if hard:
+            why = "; ".join(t for _k, t in hard)
+            print(f"pravi trade: kupnja {token[:6]} odbijena: {why}", flush=True)
+            raise ValueError(f"kupnja nije poslana: {why}.")
+        soft = rules_soft + soft
     sym = _symbol(token)
     # 10.11. (Jure: "ako unesem adresu tokena koji je već u poziciji, pozicija se podeblja"): a token already held
     # gets one more lot (its own demo trade and real swap, run_trade passes add=True for a manual stake) with the exit
@@ -5045,13 +5952,27 @@ def _post_buy(con, tcon, form, user, src=None):
             pa = json.loads(prev["auto"]) if prev["auto"] else None
         except ValueError:
             pa = None
+    # 11.11.: the exit plan of this buy, checked on the position as it will be (this lot included), before any write
+    plan_new, plan_keep, was_live = (None, None, False)
+    if ex == "tpsl":
+        plan_new, plan_keep, was_live = _buy_plan(con, token, pa, src, plan, fields, has_exit, price, liq, mcap, vfloor)
+    if prev is not None and not plan_new:
+        # the position's own exit first (new exit fields: the new rule for every lot, _group_exit below)
         if pa and pa.get("mode") == "smart":
             rules.insert(0, ("smart", "", ""))
         elif pa and pa.get("mode") == "tpsl":
             rules.insert(0, ("tpsl", pa.get("tp_in") or pa.get("tp") or "", pa.get("sl_in") or pa.get("sl") or ""))
+    # 11.11.: every other check is through: over a limit without the owner's "Kupi svejedno" = the warning, nothing
+    # written; with it, the limits it overrides (one log line, the mark for run_trade below)
+    over = _confirm(token, form, soft, what=_warn_what("/pravi-trade/buy", form, sym)) if can_ov else []
+    if can_ov:   # the shadow logs of the owner's rules (dca_cap in shadow, require_signal), once, for the buy made
+        _owner_buy_rules(con, tcon, token, sol, src=src, soft=[], log=True)
     # src (10.11., ui/grokauto): "Grok auto (MCP)" for Grok's autotrades, so the position says whose it is
-    tid = store.buy(con, settings.LEAGUE_USER, token, sym, 25, price, liq, src or "ručno (pravi trade)", None, mcap,
+    tid = store.buy(con, settings.LEAGUE_USER, token, sym, DEMO_USD, price, liq, src or "ručno (pravi trade)", None, mcap,
                     allow_open=prev is not None)
+    if over:   # before manual_size (run_trade reads both in one go)
+        _mark_override(tcon, tid, over, user, form)
+        _say_override(sym, token, over, form)
     for r_ex, r_tp, r_sl in rules:
         try:
             if r_ex == "smart":
@@ -5070,15 +5991,124 @@ def _post_buy(con, tcon, form, user, src=None):
         settings.put(tcon, "last_exit", {"tp": (form.get("tp") or "").strip(), "sl": (form.get("sl") or "").strip()}, user)
     if prev is not None and rules[0][0] == "tpsl":
         # 10.11. (Jure): the position's TP/SL from the new average entry, on every lot (the first lot's typed rule;
-        # a rule already made for the position keeps its own text in "grp")
-        g = (pa or {}).get("grp") or {}
+        # a rule already made for the position keeps its own text in "grp"); 11.11.: new exit fields = the new rule
+        g = {} if plan_new else (pa or {}).get("grp") or {}
         try:
-            _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), _cfg(tcon))
+            _group_exit(con, tcon, token, g.get("tp", rules[0][1]), g.get("sl", rules[0][2]), cfg)
         except ValueError as e:   # e.g. an MC target under the new average: the lots keep the rule set above
             print(f"pravi trade: dokupnja {sym or token[:6]}: zajednički izlaz nije postavljen ({e})", flush=True)
+    note = _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, vfloor, cfg, plan_client)
+    if chart:
+        print(f"pravi trade: kupnja {sym or token[:6]} ({token}) uz potvrđenu razliku od grafa {chart}", flush=True)
+    if over:
+        note += f" Uz tvoje potvrđeno nadjačavanje limita ({len(over)})."
     if prev is not None:
-        return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, izlaz kao i prvi.')}#pozicije"
-    return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.')}#pozicije"
+        words = ("novi izlaz vrijedi za cijelu poziciju" if plan_new else "izlaz kao i prvi")
+        return f"{BACK}?ok={qq(f'Dokupnja {sym or token[:6]} za {sol:g} SOL poslana: novi ulaz u istoj poziciji, {words}.{note}')}#pozicije"
+    return f"{BACK}?ok={qq(f'Kupnja {sym or token[:6]} za {sol:g} SOL poslana, za nekoliko sekundi je u tablici.{note}')}#pozicije"
+
+
+DEMO_USD = 25   # the demo trade behind every owner's buy (league/store.buy); the real stake is its manual_size
+# 11.11.: the client of the plan a buy sets (league/exitplan.PANEL_SRC: executes live under exit_plan_live)
+PLAN_CLIENTS = {"Grok auto (MCP)": "Grok autotrade", "ručno: Grok odobreno (MCP)": "Grok odobreno"}
+
+
+def _plan_client(src):
+    from league import exitplan
+    return f"{exitplan.PANEL_SRC} {PLAN_CLIENTS.get(src or '', 'ručna kupnja')}"
+
+
+def _new_lot(price, liq, mcap):
+    """The demo lot store.buy is about to write (its entry, quantity and MC), for the checks before the write."""
+    eff = price * (1 + store.FEE) / (1 - store.impact(DEMO_USD, liq))
+    return {"user": settings.LEAGUE_USER, "entry_px": price, "qty": DEMO_USD / eff, "entry_mcap": mcap,
+            "opened_ts": int(time.time()), "auto": None, "source": ""}
+
+
+def _buy_plan(con, token, pa, src, given, fields, has_exit, price, liq, mcap, floor):
+    """11.11. (owner: "Plan izlaza uz kupnju: DA"): (plan to set, plan to keep, its mode was live) for one buy.
+    - a buy with exit fields (or a ready plan: a proposal's) gets a new panel plan, checked on the position as it will
+      be: the stop never looser than -floor from the average entry (ValueError: the buy is refused, nothing written);
+    - a DCA / one more lot into a token that already has a plan: new exit fields (different from what the position
+      has, exitplan.position_fields; the panel shows those for an open position) replace the plan; the same fields,
+      none, or a Grok buy (it never types an exit) keep it: the plan covers the new lot, its stop checked again from
+      the new average;
+    - no exit fields and no plan: nothing (the old behaviour)."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    old = exitplan.active(con, token)
+    if old and U not in exitplan._scope(old["plan"]):
+        old = None
+    lots = exitplan._lots(con, U, token)
+    nl = _new_lot(price, liq, mcap)
+    extra = {U: [nl]}
+    was_live = bool(old and lots) and exitplan.execution(U, lots, plan=old)["mode"] == "live"
+    if old and lots:
+        typed = not _is_grok(src)
+        new = given is not None or (typed and has_exit and not exitplan.same_exit(
+            fields, exitplan.position_fields(old, pa), floor))
+        if not new:
+            if old["plan"].get("stop"):
+                exitplan.validate(con, token, exitplan.denorm(old["plan"], stop_only=True), floor, extra=extra,
+                                  tighten_only=False, hr=True)
+            return None, old, was_live
+    if given is None:
+        if not has_exit:
+            return None, None, was_live
+        after = lots + [nl]
+        ratio = exitplan._mc_ratio(after)
+        avg_mc = exitplan._avg(after) * ratio if ratio else None
+        given = exitplan.panel_plan(fields["tp"], fields["sl"], fields["trail"], fields["time"], floor, avg_mc,
+                                    reason="plan uz kupnju (panel)")
+        if given is None:
+            return None, None, was_live
+    given = dict(given, accounts=[U])
+    exitplan.validate(con, token, given, floor, extra=extra, tighten_only=False, hr=True)
+    return given, None, was_live
+
+
+def _plan_status_line(con, tcon, token, sym, cfg, kind="panel"):
+    """The plan's mode now and the one log line ("plan izlaza #N TOKEN (panel, live): TP1 +15 % pola · ...")."""
+    from league import exitplan
+    live = executor.is_live(cfg)
+    held_live = live or bool(tcon.execute("SELECT 1 FROM positions WHERE token=? AND status='open' AND mode='live' "
+                                          "LIMIT 1", (token,)).fetchone())   # a real position held from before
+    st = exitplan.status(con, token, pos_live=held_live, autopilot_live=live)
+    word = {"live": "live", "shadow": "sjena"}.get(st["plan_mode"], "paper")
+    print(f"plan izlaza #{st['plan_id']} {sym or token[:6]} ({kind}, {word}): {st['summary']}"
+          + ("" if st["plan_mode"] == "live" else f" · {st['reason']}"), flush=True)
+    return st
+
+
+def _plan_words(st, head="Plan izlaza", tail=""):
+    mode = "live" if st["plan_mode"] == "live" else f"samo paper: {st['reason']}"
+    return f" {head} #{st['plan_id']}{tail}: {st['summary']} ({mode})."
+
+
+def _buy_plan_set(con, tcon, token, sym, src, plan_new, plan_keep, was_live, floor, cfg, plan_client=None):
+    """After the demo trade: set the new plan or let the kept one cover the new lot. Returns the words for the page."""
+    from league import exitplan
+    U = settings.LEAGUE_USER
+    if plan_new:
+        try:
+            exitplan.set_plan(con, token, plan_new, floor, client=plan_client or _plan_client(src), tighten_only=False,
+                              hr=True)
+        except ValueError as e:   # checked before the write: only a race gets here; the lots keep their TP/SL
+            print(f"pravi trade: plan izlaza {sym or token[:6]} nije postavljen ({e})", flush=True)
+            return f" Plan izlaza NIJE postavljen ({e}); vrijedi TP/SL pozicije."
+        st = _plan_status_line(con, tcon, token, sym, cfg)
+        return _plan_words(st, "Plan izlaza prijedloga" if plan_client and "prijedlog" in plan_client else "Plan izlaza")
+    if plan_keep:
+        now_live = exitplan.execution(U, exitplan._lots(con, U, token), plan=plan_keep)["mode"] == "live"
+        # a plan that sold live before this lot stays live (a Grok position the owner adds to by hand): it becomes the
+        # owner's (panel) plan; one in the shadow stays in the shadow
+        retag = (f"{exitplan.PANEL_SRC} dokup (bio {plan_keep['client']})"[:120]
+                 if was_live and not now_live and not exitplan.is_panel(plan_keep) else None)
+        exitplan.extend(con, token, floor, client=retag)
+        st = _plan_status_line(con, tcon, token, sym, cfg, "panel, dokup" if retag or exitplan.is_panel(plan_keep)
+                               else "dokup")
+        return _plan_words(st, tail=" pokriva i novi ulaz")
+    return ""
 
 
 _VIEW = {"ts": 0, "names": set()}

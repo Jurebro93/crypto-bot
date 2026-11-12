@@ -85,9 +85,11 @@ def too_busy(wallets, wallet_db=None, max_tpd=MAX_TRADES_DAY):
 
 
 def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
-    """(copyable, signal) wallets from our own registry (wallets.db, run_wallets.py score): the best by copy_score
-    (tier A/B, without bad labels) and tier S (profitable bots / snipers: a buy is a signal, not a copy). Until
-    5.11. only the public leaderboards (kol_ids) were followed live; the wallets the bot scores itself were not."""
+    """(copyable, signal) wallets from our own registry (wallets.db, run_wallets.py score): the best by the copy
+    ranking (11.11., wallets/rang.py: proven = 10+ closed tokens in 30 days, copyable = median entry liquidity 15k+,
+    Ocjena >= min_copy, no bad label; the old copy_score only while copy_rank has no wallet row yet, i.e. the first
+    minutes after the deploy that added it) and tier S (profitable bots / snipers: a buy is a signal, not a copy).
+    Until 5.11. only the public leaderboards (kol_ids) were followed live; the wallets the bot scores itself were not."""
     try:
         from wallets import store as wstore
     except ImportError:
@@ -101,12 +103,32 @@ def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
         return [], []
     copy, signal = [], []
     try:
-        for w, lab in src.execute("SELECT wallet, labels FROM wallets WHERE copy_score >= ? ORDER BY copy_score DESC, "
-                                  "score DESC LIMIT ?", (min_copy, max(0, n_copy) * 3)):
-            if not set(json.loads(lab or "[]")) & wstore.BAD_LABELS:
-                copy.append(w)
-            if len(copy) >= n_copy:
-                break
+        ranked = []
+        try:
+            from wallets import rang
+            ranked = [r["target"] for r in rang.ranked("wallet", path, proven=True, copyable=True)
+                      if (r.get("score") or 0) >= min_copy]
+        except Exception:  # noqa: BLE001 - no ranking module / table: the old order below
+            ranked = None
+        if ranked is not None and rang.load("wallet", path):
+            labs = {}
+            for i in range(0, len(ranked), 500):
+                part = ranked[i:i + 500]
+                for w, lab in src.execute(f"SELECT wallet, labels FROM wallets WHERE wallet IN ({','.join('?' * len(part))})",
+                                          part):
+                    labs[w] = set(json.loads(lab or "[]"))
+            for w in ranked:
+                if not labs.get(w, set()) & wstore.BAD_LABELS:
+                    copy.append(w)
+                if len(copy) >= n_copy:
+                    break
+        else:
+            for w, lab in src.execute("SELECT wallet, labels FROM wallets WHERE copy_score >= ? ORDER BY copy_score DESC, "
+                                      "score DESC LIMIT ?", (min_copy, max(0, n_copy) * 3)):
+                if not set(json.loads(lab or "[]")) & wstore.BAD_LABELS:
+                    copy.append(w)
+                if len(copy) >= n_copy:
+                    break
         for w, in src.execute("SELECT wallet FROM wallets WHERE tier = 'S' AND score >= 40 ORDER BY score DESC LIMIT ?",
                               (max(0, n_signal),)):
             signal.append(w)
@@ -117,10 +139,13 @@ def own_wallets(n_copy, n_signal, min_copy=35, wallet_db=None):
     return copy, signal
 
 
-def wanted(con, cfg, wallet_db=None):
+def wanted(con, cfg, wallet_db=None, now=None):
     """Wallets to follow (at most chain.max_wallets): public KOL leaderboards (kol_ids, by rank; FOMO traders last),
     then our own best copyable wallets, then our tier-S signal wallets (chain.share, chain.min_copy). Slots a group
-    cannot fill go to the others, so an empty registry still means the full leaderboard list as before."""
+    cannot fill go to the others, so an empty registry still means the full leaderboard list as before.
+    11.11. (Grok #85): our own groups (copy, tier S signal, proven twice) pass wallets/hygiene.screen first: idle
+    24 h+, bot / sniper / bundler labels and bot-like stats leave them (only removes; the freed slots go to the
+    others). now: the time the idle rule is measured at (default: now)."""
     cap = cfg["max_wallets"]
     share = dict(SHARE, **(cfg.get("share") or {}))
     ids = [w for w, in con.execute("""SELECT wallet FROM kol_ids ORDER BY (source = 'fomo'), COALESCE(rank, 999),
@@ -160,6 +185,13 @@ def wanted(con, cfg, wallet_db=None):
         proven = sorted(_dok.current(wallet_db))
     except Exception:  # noqa: BLE001
         proven = []
+    try:   # 11.11. (Grok #85, wallets/hygiene.py): only removes, so applied directly
+        from wallets import hygiene as _hyg
+        kept, _out = _hyg.screen({"copy": copy, "signal": signal, "proven": proven}, "webhook", now=now,
+                                 wallet_db=wallet_db, log=lambda m: print(f"chain: {m}", flush=True))
+        copy, signal, proven = kept["copy"], kept["signal"], kept["proven"]
+    except Exception as e:  # noqa: BLE001 - the webhook list never breaks on the screen
+        print(f"chain: higijena: {type(e).__name__}: {e}", flush=True)
     for w in proven[:max(1, cap // 2)]:
         if w not in seen:
             seen.add(w)
@@ -441,5 +473,10 @@ def ingest(payload, hype_db=None, _spool=True, timeout=None):
             from league import copy as _copy   # 9.11.: the copy loop runs now, not at its next tick
             _copy.wake()
         except Exception:  # noqa: BLE001
+            pass
+        try:   # 11.11. (Jure, flag fast_path G24): a followed wallet's buy -> a fast_check with its own entry price
+            from fast import enqueue as _fast   # (after the copy loop's wake-up: it never waits for this)
+            _fast.from_chain(payload, rows)
+        except Exception:  # noqa: BLE001 - never fails the webhook (the worker's own scan is the backup)
             pass
     return len(rows) + len(transfers)

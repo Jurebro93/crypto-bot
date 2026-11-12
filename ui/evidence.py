@@ -299,7 +299,7 @@ def fragment(mint):
         bad = [s for s in sg if s["role"] in ("dev", "bundler", "sniper")]
         scored = [reg[s["wallet"]] for s in good if s["wallet"] in reg]
         b.append(f"<h3>Walleti na tokenu</h3><p>{len(good)} ranih kupaca/holdera, {len(bad)} dev/bundler/snajper walleta; "
-                 f"{len(scored)} ocijenjenih" + (f", najbolji copy {max(w['copy_score'] or 0 for w in scored):.0f}" if scored else "")
+                 f"{len(scored)} ocijenjenih" + (f", najbolja ocjena za kopiranje {max(w.get('ocjena') or 0 for w in scored):.0f}" if scored else "")
                  + ".</p>" + _src("wallets"))
 
     if rug:

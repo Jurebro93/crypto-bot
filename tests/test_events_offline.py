@@ -857,7 +857,8 @@ class HourlyBrief(TradeBase):
         d = res["structuredContent"]
         for k in ("portfolio", "trade_requests", "signals", "groups", "range_candidates", "grok_predictions", "health"):
             self.assertIn(k, d)
-        self.assertEqual(d["trade_requests"][0]["status"], "obsolete")
+        self.assertEqual(d["trade_requests"], [])                   # 11.11.: only pending ones by default
+        self.assertEqual(d["trade_requests_closed_hidden"], 1)
         sig = d["signals"]["items"]
         self.assertTrue(0 < len(sig) <= 30)
         f = sig[0]["features"]
@@ -870,6 +871,8 @@ class HourlyBrief(TradeBase):
         self.assertTrue(scored and scored[0]["score"]["n_measured"] == 30)
         self.assertEqual(d["grok_predictions"]["items"], [])
         self.assertIn("note", d["grok_predictions"])
+        full = brief.build(None, 5, include_closed=True)
+        self.assertEqual(full["trade_requests"][0]["status"], "obsolete")
         self.assertEqual(d["health"]["alerts"][0]["type"], "wallet_buy")
         self.assertIn("paper_positions", d["portfolio"])
 
@@ -910,19 +913,20 @@ class AutopilotCard(PageBase):
     def test_card_under_jos_without_a_chip(self):
         from ui import pravitrade
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
-        _, body = pravitrade.page({}, "Jure")
+        self.assertNotIn("EV po značajkama", pravitrade.page({}, "Jure")[1])   # 11.11.: lazy (ui/apterm)
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("EV po značajkama", body)
         card = re.search(r"<details class=ap-sec id=ev-znacajke>.*?</details>", body, re.S)
         self.assertIsNotNone(card)
         self.assertNotIn("<h2", card.group(0))
         self.assertNotIn(" open", card.group(0).split(">")[0])     # closed
-        self.assertLess(body.index(">Još<"), body.index("id=ev-znacajke"))
+        self.assertLess(body.index("id=apx-ostalo"), body.index("id=ev-znacajke"))
         h2s = re.findall(r"<h2[^>]*>", body)
         self.assertEqual([h for h in h2s if 'data-sec=""' not in h and "nosec" not in h], [])
         self.assertIn("odobrava vlasnik ručno", card.group(0))
         settings_ = __import__("trade.settings", fromlist=["x"])
         settings_.put(self.con, "invited", ["Ivan"])
-        self.assertNotIn("EV po značajkama", pravitrade.page({}, "Ivan")[1])
+        self.assertNotIn("EV po značajkama", pravitrade.page({"sve": "1"}, "Ivan")[1])
 
 
 if __name__ == "__main__":

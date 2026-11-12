@@ -253,7 +253,9 @@ class Header(Base):
         self.assertIn('24 h <span class="pos">+0,029\u00a0SOL</span>', html)                # last 24 h
         self.assertIn('ukupno <span class="pos">+3,7\u00a0%</span>', html)   # in total, against the money put in
         self.assertNotIn("1 SOL =", html)
-        _, page = pravitrade.page({}, "Jure")
+        # 11.11. (ui/apterm): "Wallet i uplata" is under "Postavke i dijagnostika", loaded when opened; sve=1 (the
+        # no-JavaScript page) renders every lazy part into the page
+        _, page = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("1 SOL = 171 $ · 148 €", page)
         self.assertIn("Uplaćeno 1,750\u00a0SOL, rezultat", page)
         self.assertIn('<span class="pos">+0,065\u00a0SOL</span> (+3,7\u00a0%)', page)
@@ -270,7 +272,7 @@ class Header(Base):
         self.mods(fake_equity(history(), SUMMARY, rates={"sol_usd": None, "usd_eur": None, "ts": 0}), None)
         html = pravitrade.head_fragment("Jure")
         self.assertIn("≈ 309 $ · 265 €", html)               # 1.815 x the summary's sol_usd 170 and usd_eur 0.86
-        _, page = pravitrade.page({}, "Jure")                 # 10.11.: the rate itself is in "Wallet i uplata"
+        _, page = pravitrade.page({"sve": "1"}, "Jure")       # 10.11.: the rate itself is in "Wallet i uplata"
         self.assertIn("1 SOL = 170 $ · 146 €", page)
 
     def test_one_read_per_ttl_for_every_viewer(self):
@@ -387,45 +389,55 @@ class Page(Base):
                 mock.patch.object(autopilot, "token_recs", boom), mock.patch.object(zivo, "rows", boom), \
                 mock.patch.object(pravitrade, "gather_callers", boom), mock.patch.object(pravitrade, "dnevnik_data", boom):
             _, body = pravitrade.page({}, "Jure")
-        # 10.11. (prijedlog dizajna 3.4, maketa autopilot.html): the title with the switch is inside the 45-s header;
-        # "Kako trguje" = Koga prati, Pravila (cilj + limiti), Kupi ručno; "Još" = the two live lists, the
-        # recommendations, Wallet i uplata (setup steps), who sees the page, safety
-        # 10.11. (Jure): "Brza kupnja" (id=kupi-odmah) right under the chart, before the log
-        # 10.11. 20:41 (Jure: "fokusirano na trade"): open positions before the decision log
-        keys = ("id=ap-head", "<h1 class=ms-h1>Autopilot</h1>", 'id="apc-ap"', "id=kupi-odmah", "id=pozicije", "id=dnevnik",
-                "id=pratim", "id=pravila", "id=cilj", "id=limiti", "id=zovu", "id=ideje", "id=preporuke",
-                "id=postavljanje", "id=pozivnice", "id=zastita")
+        # 11.11. (Jure: Autopilot kao terminal, ui/apterm.py): the title with the switch, the token header and the
+        # chart, the tabs (positions, orders, history, log), the order panel, then "Što kupiti", "Koga pratimo" and
+        # "Postavke i dijagnostika"; nothing of the last four is computed for the first HTML (the patches above raise)
+        keys = ("<h1>Autopilot</h1>", "id=apx-hdr", "id=apx-chartbox", "id=pozicije", "id=nalozi", "id=povijest",
+                "id=dnevnik", "id=kupi-odmah", "id=kupiti", "id=pratimo", "id=apx-ostalo")
         at = [body.index(k) for k in keys]
         self.assertEqual(at, sorted(at))
-        for sid, src in (("dnevnik", "/pravi-trade/dnevnik"), ("preporuke", "/pravi-trade/preporuke"),
-                         ("zovu", "/pravi-trade/zovu"), ("ideje", "/pravi-trade/ideje")):
-            self.assertIn(f"<details class=ap-sec id={sid}><summary>", body)       # closed
-            self.assertRegex(body, rf"data-src={src} data-every=\d+ data-lazy")      # fetched only once opened
-        self.assertIn("data-src=/pravi-trade/graf data-every=45", body)             # header + chart every 45 s
-        self.assertIn("Zadnja 24 h: 12 signala", body)                               # the closed log's one line
-        # each list at the bottom says what it is
-        self.assertIn("Tko sada zove koji token", body)
-        self.assertIn("Što alat sada predlaže za kupnju", body)
-        self.assertIn("Dodirni token za provjeru uživo i kupnju", body)
-        self.assertEqual(body.count("<script>(()=>{if(window.apTick)return"), 1)     # one poller
+        for src in ("/pravi-trade/l/kupiti", "/pravi-trade/l/pratimo", "/pravi-trade/l/ostalo", "/pravi-trade/l/povijest",
+                    "/pravi-trade/dnevnik"):
+            self.assertRegex(body, f"data-x-src=\"?{src}")       # fetched when it scrolls into view or is opened
+        for lazy in ("id=pratim>", "id=pravila", "id=limiti", "id=preporuke", "id=postavljanje", "id=pozivnice",
+                     "id=zastita", "Tko sada zove koji token"):
+            self.assertNotIn(lazy, body)
+        self.assertIn('<details class=apx-acc id=apx-ostalo><summary>', body)   # closed until tapped
+        self.assertNotIn("<script>(()=>{if(window.apTick)return", body)          # the poller is in the cached ap.js
+        from ui import apterm
+        js = apterm.static_asset("ap.js")[0].decode("utf-8")
+        self.assertEqual(js.count("(()=>{if(window.apTick)return"), 1)            # one poller
+        self.assertIn(apterm.static_url("ap.js"), body)
+        # the same parts, rendered into the page for a browser without JavaScript (sve=1), in the old order inside
+        _, full = pravitrade.page({"sve": "1"}, "Jure")
+        # 11.11. (Jure: "prikazuj samo ono što ima zaključak ili nešto radi"): the settings first in "Postavke" (the
+        # follow forms, "Uredi praćenja", moved there from "Koga pratimo"), the diagnostics with data after them
+        keys = ("id=kupiti", "id=pratimo", "id=apx-ostalo", "id=pravila", "id=cilj", "id=limiti", "id=pratim>",
+                "id=postavljanje", "id=pozivnice", "id=zastita", "id=preporuke")
+        at = [full.index(k) for k in keys]
+        self.assertEqual(at, sorted(at))
+        self.assertRegex(full, r"data-src=/pravi-trade/preporuke data-every=\d+ data-lazy")   # still only once opened
 
     def test_invited_sees_no_owner_controls(self):
         self.mods(fake_equity(history(), SUMMARY), fake_aplog())
-        _, body = pravitrade.page({}, "Ivan")
+        _, body = pravitrade.page({"sve": "1"}, "Ivan")      # 11.11.: every lazy part rendered in, so all is checked
         for owner_only in ("/pravi-trade/switch", "/pravi-trade/sellall", "Spremi limite", "id=kupi-odmah",
-                           "id=pozivnice", "Postavljanje walleta", "Prodaj 20 %", "Dovrši"):
+                           "id=pozivnice", "Postavljanje walleta", "Prodaj 20 %", "Dovrši", "action=/pravi-trade/buy",
+                           "action=/pravi-trade/sell", "Zatvori 50", "Uredi SL-TP", "data-pk="):
             self.assertNotIn(owner_only, body)
-        self.assertIn("1,815<small>SOL</small>", body)       # 10.11.: decimal comma (pravilo 8)
-        self.assertIn("Dnevnik odluka", body)                 # 10.11.: the row's name in the mock-up
+        self.assertIn("ukupno 1,815\u00a0SOL", body)           # the wallet's value, decimal comma (pravilo 8)
+        self.assertIn("Trguje samo vlasnik", body)
+        self.assertIn(">Dnevnik</button>", body)               # 11.11.: the decision log is a tab
 
     def test_one_broken_part_never_costs_the_switch(self):
         self.mods(None, None)
         with mock.patch.object(pravitrade, "_follows", side_effect=RuntimeError("follow_results pukao")), \
                 mock.patch("builtins.print"):
-            _, body = pravitrade.page({}, "Jure")
+            _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn("Uključi Autopilot", body)
         self.assertIn("id=pozicije", body)
-        self.assertNotIn("id=pratim", body)
+        self.assertIn("id=pratimo", body)            # 11.11.: "Koga pratimo" stays, only its broken part is left out
+        self.assertNotIn("id=pratim>", body)
 
     def test_no_emoji_in_front_of_warnings(self):
         self.mods(None, None)

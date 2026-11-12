@@ -228,7 +228,9 @@ class LimitBuy(Base):
         self.assertEqual(store.trades(self.lg, settings.LEAGUE_USER, "open"), [])      # nothing bought at 90k
         self.assertEqual(len(settings.raw(self.con)["buy_orders"]), 1)
         _, body = pravitrade.page({}, "Jure")
-        self.assertIn("Nalozi za kupnju · 1", body)
+        # 11.11. (ui/apterm): the waiting order is a row of the tab "Otvoreni nalozi", with its Otkaži (same route)
+        self.assertIn("<b id=apx-nord>1</b>", body)
+        self.assertIn(">Limit kupnja<", body)
         self.assertIn("action=/pravi-trade/limitdel", body)
         self.assertEqual(pravitrade.limit_once(self.con, live_fn=self.live), [])       # still 90k: waits
         self.mc["v"] = 49_000.0
@@ -247,7 +249,14 @@ class LimitBuy(Base):
         self.assertIn("ok=", self.order())
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)
         self.mc["v"] = 90_000.0
-        self.assertIn("ispod 30k", self.order(at="$20k"))
+        # 11.11. (owner: "Mogu se kupovati tokeni ispod 30.000 market capa uz dovoljno dobar razlog"): his order under
+        # 30k is a warning that asks for his reason (tests/test_nadjacaj_offline), never an order before he answers
+        loc = self.order(at="$20k")
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("ispod 30k", pravitrade.fetch_answer(loc)["warn"][0])
+        self.assertTrue(pravitrade.fetch_answer(loc)["need_reason"])
+        self.assertEqual(settings.raw(self.con).get("buy_orders") or [], [])
         self.assertIn("TP mora biti iznad", self.order(tp="$40k"))
         self.assertIn("err=", self.order(at="bilo kad"))
 
@@ -317,8 +326,11 @@ class AddToPosition(Base):
         self.mirror(time.time())
         other = MINT[:-4] + "abcd"
         loc = unquote(self.post("/pravi-trade/buy", {"token": other, "sol": "0,05", "exit": "tpsl", "tp": "30%", "sl": ""}))
-        self.assertIn("err=", loc)
-        self.assertIn("kupnja nije poslana", loc)
+        # 11.11. (owner: "ručno uvijek nadjačava sve ostalo"): the owner's own buy over a limit is a warning he may
+        # confirm (tests/test_nadjacaj_offline), never written before he does
+        self.assertIn("warn=", loc)
+        from ui import pravitrade
+        self.assertIn("1 otvorenih pozicija, najviše 1", pravitrade.fetch_answer(loc)["warn"][0])
         self.assertEqual(len(store.trades(self.lg, settings.LEAGUE_USER, "open")), 1)   # no demo lot without a real one
 
     def test_second_buy_of_a_held_token_is_a_second_lot_with_the_same_exit(self):
@@ -328,9 +340,12 @@ class AddToPosition(Base):
         # the price ran from $82k to $100k: the owner buys again
         uleague.market = lambda toks: {t: (100 / 82, 1e6, None, 100_000.0) for t in toks}
         prijedlog.live_market = lambda toks, fetch=None: {t: {**LIVE_ROW, "price": 100 / 82, "mcap": 100_000.0} for t in toks}
-        loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "15%", "sl": ""})
+        # 11.11. (plan uz kupnju): the panel shows the position's exit for a dokup; left as it is, the position's plan
+        # and exit cover the new lot (new fields replace them: tests/test_plan_uz_kupnju_offline)
+        loc = self.post("/pravi-trade/buy", {"token": MINT, "sol": "0,04", "exit": "tpsl", "tp": "30%", "sl": ""})
         self.assertIn("ok=", loc)
         self.assertIn("Dokupnja", unquote(loc))
+        self.assertIn("pokriva i novi ulaz", unquote(loc))
         lots = store.trades(self.lg, settings.LEAGUE_USER, "open")
         self.assertEqual(len(lots), 2)
         a = {t["entry_mcap"]: json.loads(t["auto"]) for t in lots}
@@ -485,7 +500,8 @@ class ManualDca(Base):
         orders = settings.raw(self.con)["dca_orders"]
         self.assertEqual([round(o["mc"]) for o in orders], [65_600, 50_000])
         self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$90k", "sol": "0,04"}))   # above MC now
-        self.assertIn("err=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))   # under 30k
+        # under 30k (11.11.): the warning asking for the owner's reason, no order before he answers
+        self.assertIn("warn=", self.post("/pravi-trade/dca", {"token": MINT, "lvl": "$20k", "sol": "0,04"}))
         cfg = settings.merged(executor.load_config(), self.con)
         inner, _, _ = pravitrade.positions_inner(self.con, False, True, {}, cfg)
         self.assertIn("<summary>DCA dokup · 2</summary>", inner)
@@ -652,17 +668,20 @@ class McpHosted(Base):
     def test_owner_makes_the_key_and_the_page_shows_it_only_to_him(self):
         from ui import mcpapi, pravitrade
         self.assertIsNone(mcpapi.authorized("Bearer x"))                       # no key yet: the endpoint is off
-        _, body = pravitrade.page({}, "Jure")
+        _, body = pravitrade.page({"sve": "1"}, "Jure")   # 11.11.: the Grok row is under Postavke (lazy)
         self.assertIn("Napravi MCP ključ", body)
         self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))
         k = settings.raw(self.con)["mcp_key"]
         self.assertTrue(k.startswith("ms_") and len(k) > 40)
         self.assertTrue(mcpapi.authorized(f"Bearer {k}"))
-        _, body = pravitrade.page({}, "Jure")
+        self.assertNotIn(k, pravitrade.page({}, "Jure")[1])                   # 11.11.: never in the first HTML
+        _, body = pravitrade.page({"sve": "1"}, "Jure")
         self.assertIn(f'value="{k}"', body)
         self.assertIn("https://app.memesonar.app/mcp", body)
         settings.put(self.con, "invited", ["gost"], "Jure")
-        self.assertNotIn(k, pravitrade.page({}, "gost")[1])
+        self.assertNotIn(k, pravitrade.page({"sve": "1"}, "gost")[1])
+        from ui import apterm
+        self.assertNotIn(k, apterm.lazy("ostalo", "gost"))
         self.assertIn("ok=", self.post("/pravi-trade/mcpkey", {}))             # a new key: the old one stops
         self.assertFalse(mcpapi.authorized(f"Bearer {k}"))
         self.assertIn("ok=", self.post("/pravi-trade/mcpkeyoff", {}))

@@ -169,7 +169,12 @@ class Page(unittest.TestCase):
         # 9.11. (audit P10/P17): "moj TP/SL" without a stop typed in gets the default stop; 10.11.: stored as "" and
         # put on each entry from the owner's setting (league/copy.default_sl)
         self.assertEqual(fl[0]["exit"], {"mode": "tpsl", "tp": "15%", "sl": "", "max_mcap": 1e6, "max_runup": 0.25, "min_callers": 1})
-        _, body = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")
+        # 11.11. (ui/apterm): the follows' forms are in "Koga pratimo" (loaded on scroll; sve=1 renders it in), the
+        # prefill rides on its address and opens "Uredi praćenja"
+        first = pravitrade.page({"ekipa": "tg:x,tg:y"}, "Jure")[1]
+        self.assertIn('data-x-src="/pravi-trade/l/pratimo?ekipa=tg%3Ax%2Ctg%3Ay"', first)
+        _, body = pravitrade.page({"ekipa": "tg:x,tg:y", "sve": "1"}, "Jure")
+        self.assertIn("id=pratim open>", body)
         # 10.11. (Jure: "čista, minimalistička"): the crew tag is the word "ekipa", without the 🤝 in front;
         # 10.11. (prijedlog dizajna, maketa autopilot.html): the follow is a shared row, the word starts its line
         self.assertIn('<div class="ms-s">ekipa · ', body)

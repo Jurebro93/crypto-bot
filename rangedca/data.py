@@ -7,11 +7,21 @@ Tables
   ranges      the newest computed range of every candidate (detect.analyze) + its exclusion state, JSON in `data`
   events      breakdowns, exclusions, give-ups, holder checks (for the owner and the backtest's comparison)
   kv          day counters (GeckoTerminal requests, Helius credits), the last detection, tokens put aside
+  range_flip  11.11. (flag range_flip G26): the flip / pause state of every candidate (detect.flip_step), one row a
+              token: v (the state's format version, detect.FLIP["v"]; another version is read as none), ver (+1 on every
+              change of state), state, since, ts, alt_active (the range after a break is active: the trader reads
+              those tokens too), data (the state, JSON). Written only while the flag is not off.
 
 The minute series (candles) of a token is merged from, best first: GeckoTerminal candles we hold (range.db gt_candles,
 minute.db call_candles: real OHLCV), then DexScreener snapshots (range.db snaps, hype.db token_pulse: one price per
 minute; the minute's volume and transactions estimated from the 5-minute numbers, vol_m5 / 5 for every minute the
 snapshot stands for, at most 5).
+11.11. (market watchlist, rangedca/market.py): a token of the market list has a snapshot every 5 or 15 minutes, not
+every minute. Such a series is one candle per snapshot (detect.py reads timestamps, never candle counts), and a
+candle standing for more than 5 minutes gets the volume / transactions of the minutes its 5-minute numbers do not
+cover from the rest of the hour's rate ((vol_h1 - vol_m5) / 55 per minute, at most the hour), so the 15-minute and
+1-hour volumes of a 15-minute series are not a third of the truth. ranges.src: signal | market | event (the watchlist
+that brought the token; JSON data also lists every source).
 """
 import json
 import os
@@ -41,6 +51,8 @@ CREATE TABLE IF NOT EXISTS ranges (token TEXT PRIMARY KEY, ts INTEGER, symbol TE
 CREATE TABLE IF NOT EXISTS events (token TEXT, ts INTEGER, kind TEXT, note TEXT);
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS range_flip (token TEXT PRIMARY KEY, v INTEGER, ver INTEGER, state TEXT, since INTEGER,
+    ts INTEGER, alt_active INTEGER, data TEXT);
 """
 
 
@@ -61,7 +73,18 @@ def connect(path=None):
     if new:
         con.execute("PRAGMA auto_vacuum=INCREMENTAL")
     con.executescript(SCHEMA)
+    if "src" not in {r[1] for r in con.execute("PRAGMA table_info(ranges)")}:   # 11.11.: the watchlist source
+        con.execute("ALTER TABLE ranges ADD COLUMN src TEXT")
+        con.commit()
     return con
+
+
+def has_src(con):
+    """True when ranges has the src column (a range.db written before 11.11. and not opened by the job since)."""
+    try:
+        return "src" in {r[1] for r in con.execute("PRAGMA table_info(ranges)")}
+    except sqlite3.Error:
+        return False
 
 
 def ro(path=None):
@@ -164,6 +187,27 @@ def fetch_pairs(tokens):
         return []
 
 
+def fetch_pairs_fast(tokens, deadline=None):
+    """11.11. (stale 5-minute data): the market watchlist's DexScreener batches on the short leash of tokens_live (a
+    few seconds, no retry), one batch of 30 at a time, and no new batch after `deadline` (monotonic). The scanners'
+    path (fetch_pairs) waits up to 30 s a try and retries with back-off up to a minute: 30 batches of the market pass
+    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S."""
+    import time as _t
+    out = []
+    try:
+        from dexscreener import client
+    except Exception:  # noqa: BLE001
+        return out
+    for i in range(0, len(tokens or []), 30):
+        if deadline is not None and _t.monotonic() >= deadline:
+            break
+        try:
+            out += client.tokens_live("solana", list(tokens[i:i + 30]), ttl=20) or []
+        except Exception:  # noqa: BLE001 - this batch has no snapshot this pass
+            continue
+    return out
+
+
 def save_snap(con, token, s):
     con.execute("INSERT OR REPLACE INTO snaps VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (token, s["ts"], s["price"], s["mcap"], s["liq"], s["vol_m5"], s["vol_h1"], s["vol_h6"], s["buys_m5"],
@@ -181,6 +225,7 @@ def poll(con, tokens, now, fetch=None, pulse_fresh=None):
     ask = [t for t in tokens if t not in fresh and t not in cold][:MAX_TOKENS]
     got = {}
     if ask:
+        day_add(con, "sig_dex_day", -(-len(ask) // 30), now)   # 11.11.: counted for the daily cost line
         pairs = (fetch or fetch_pairs)(ask)
         for t, p in best_pairs(pairs).items():
             if t not in ask:
@@ -237,9 +282,9 @@ def pulse_rows(token, t0, path=None):
         return []
     try:
         return [{"ts": r[0], "price": r[1], "mcap": r[2], "liq": r[3], "vol_m5": r[4], "vol_h1": r[5], "buys_m5": r[6],
-                 "sells_m5": r[7], "vol_h6": None, "ch_m5": None}
-                for r in con.execute("SELECT ts, price, mcap, liquidity, vol_m5, vol_h1, buys_m5, sells_m5 FROM token_pulse "
-                                     "WHERE token=? AND ts>=? ORDER BY ts", (token, int(t0)))]
+                 "sells_m5": r[7], "buys_h1": r[8], "sells_h1": r[9], "vol_h6": None, "ch_m5": None}
+                for r in con.execute("SELECT ts, price, mcap, liquidity, vol_m5, vol_h1, buys_m5, sells_m5, buys_h1, sells_h1 "
+                                     "FROM token_pulse WHERE token=? AND ts>=? ORDER BY ts", (token, int(t0)))]
     except sqlite3.Error:
         return []
     finally:
@@ -248,9 +293,9 @@ def pulse_rows(token, t0, path=None):
 
 def own_rows(con, token, t0):
     return [{"ts": r[0], "price": r[1], "mcap": r[2], "liq": r[3], "vol_m5": r[4], "vol_h1": r[5], "vol_h6": r[6],
-             "buys_m5": r[7], "sells_m5": r[8], "ch_m5": r[9]}
-            for r in con.execute("SELECT ts, price, mcap, liq, vol_m5, vol_h1, vol_h6, buys_m5, sells_m5, ch_m5 FROM snaps "
-                                 "WHERE token=? AND ts>=? ORDER BY ts", (token, int(t0)))]
+             "buys_m5": r[7], "sells_m5": r[8], "ch_m5": r[9], "buys_h1": r[10], "sells_h1": r[11]}
+            for r in con.execute("SELECT ts, price, mcap, liq, vol_m5, vol_h1, vol_h6, buys_m5, sells_m5, ch_m5, buys_h1, "
+                                 "sells_h1 FROM snaps WHERE token=? AND ts>=? ORDER BY ts", (token, int(t0)))]
 
 
 def call_candles(token, t0, t1, path=None):
@@ -272,10 +317,24 @@ def gt_rows(con, token, t0, t1):
     return [c for c in unpack(r[0]) if t0 <= c[0] <= t1] if r else []
 
 
+def _spread(s, k5, kh, gap, extra):
+    """What a snapshot's 5-minute number k5 stands for over `gap` minutes (<= 5) plus `extra` minutes beyond the 5
+    its numbers cover, those at the rest of the hour's rate ((kh - k5) / 55 a minute). None when k5 is unknown."""
+    v5 = s.get(k5)
+    if v5 is None:
+        return None
+    out = v5 / 5 * gap
+    vh = s.get(kh)
+    if extra and vh is not None and vh > v5:
+        out += (vh - v5) / 55 * extra
+    return out
+
+
 def merge(true_candles, snaps):
     """[(ts, o, h, l, c, v, buys, sells)] by minute, oldest first: real OHLCV where we have it (buys / sells from the
     snapshot of that minute when one exists), else the snapshot's price with the volume and transactions it stands
-    for (vol_m5 / 5 for each minute since the previous data minute, at most 5)."""
+    for (vol_m5 / 5 for each minute since the previous data minute, at most 5; 11.11.: the minutes beyond 5 of a
+    sparser series at the rest of the hour's rate, _spread)."""
     real = {}
     for c in true_candles:
         m = int(c[0]) - int(c[0]) % 60
@@ -291,15 +350,16 @@ def merge(true_candles, snaps):
     for m in minutes:
         ss = snap_min.get(m)
         last = ss[-1] if ss else None
-        gap = 1 if prev is None else max(1, min(5, (m - prev) // 60))
+        raw_gap = 1 if prev is None else max(1, (m - prev) // 60)
+        gap, extra = min(5, raw_gap), max(0, min(55, raw_gap - 5))
         b = s_ = None
         if last is not None and last.get("buys_m5") is not None and last.get("sells_m5") is not None:
-            b, s_ = last["buys_m5"] / 5 * gap, last["sells_m5"] / 5 * gap
+            b, s_ = _spread(last, "buys_m5", "buys_h1", gap, extra), _spread(last, "sells_m5", "sells_h1", gap, extra)
         if m in real:
             out.append((*real[m], b, s_))
         else:
             px = [x["price"] for x in ss]
-            out.append((m, px[0], max(px), min(px), px[-1], (last.get("vol_m5") or 0) / 5 * gap, b, s_))
+            out.append((m, px[0], max(px), min(px), px[-1], _spread(last, "vol_m5", "vol_h1", gap, extra) or 0.0, b, s_))
         prev = m
     return out
 
@@ -330,6 +390,10 @@ def series(con, token, now, hours=24, pulse_path=None, minute_db=None):
                     pick.append(near.get("vol_m5") or 0)
             if len(pick) == 3:
                 snap["vol_15m"] = sum(pick)
+            elif now - last["ts"] <= 300 and last.get("vol_m5") is not None:
+                # 11.11.: a 15-minute series (market watchlist) has no snapshot at t-5 / t-10: the last 5 minutes
+                # plus 10 minutes at the rest of the hour's rate
+                snap["vol_15m"] = _spread(last, "vol_m5", "vol_h1", 5, 10)
         p = con.execute("SELECT pool, dex, symbol FROM pools WHERE token=?", (token,)).fetchone()
         if p:
             snap.update(pool=p[0], dex=p[1], symbol=p[2])
@@ -358,13 +422,18 @@ def open_round_tokens():
 
 
 def autopilot_tokens():
+    """The open tokens of the Autopilot accounts, newest first, at most 15. 11.11.: the real account's (LEAGUE_USER)
+    first, so its positions (the owner's manual HOPE one, whose zones zonewatch alarms) are never pushed out of the
+    signal pass by the demo account's newer ones."""
     con = _league_ro()
     if con is None:
         return []
     try:
         from trade import settings as ts
-        return [r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE status='open' AND user IN (?,?) "
-                                          "ORDER BY opened_ts DESC LIMIT 15", (ts.LEAGUE_USER, ts.PAPER_USER))]
+        return [r[0] for r in con.execute("SELECT token, MAX(user = ?) AS real_acc, MAX(opened_ts) AS last FROM trades "
+                                          "WHERE status='open' AND user IN (?,?) GROUP BY token "
+                                          "ORDER BY real_acc DESC, last DESC LIMIT 15",
+                                          (ts.LEAGUE_USER, ts.LEAGUE_USER, ts.PAPER_USER))]
     except (sqlite3.Error, ImportError):
         return []
     finally:
@@ -470,10 +539,12 @@ def seed(con, token, pool, now, fetch=None, span_s=998 * 60):
 
 # ---------- the computed ranges -------------------------------------------------------------------------------------
 def save_range(con, token, res, state, symbol=None):
-    con.execute("INSERT OR REPLACE INTO ranges VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT OR REPLACE INTO ranges (token, ts, symbol, status, active, score, price, mcap, pos_pct, data, "
+                "state, src) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (token, res["ts"], symbol, res["status"], int(bool(res["active"])), res.get("score"),
                  (res.get("metrics") or {}).get("price"), (res.get("metrics") or {}).get("mcap"), res.get("pos_pct"),
-                 json.dumps(res, separators=(",", ":")), json.dumps(state or {}, separators=(",", ":"))))
+                 json.dumps(res, separators=(",", ":")), json.dumps(state or {}, separators=(",", ":")),
+                 res.get("source") or "signal"))
 
 
 def load_range(con, token):
@@ -488,8 +559,10 @@ def load_range(con, token):
         return None, {}
 
 
-def read_ranges(path=None, since=None, tokens=None):
-    """{token: range dict with "state" and "symbol"} read-only (for the trader and the MCP API); {} without range.db."""
+def read_ranges(path=None, since=None, tokens=None, active_only=False):
+    """{token: range dict with "state" and "symbol"} read-only (for the trader and the MCP API); {} without range.db.
+    active_only: only the active ranges (11.11.: with the market watchlist range.db holds ~400 ranges; the trader's
+    loops parse only what they can trade)."""
     con = ro(path)
     if con is None:
         return {}
@@ -498,6 +571,8 @@ def read_ranges(path=None, since=None, tokens=None):
         if since:
             sql += " AND ts >= ?"
             args.append(int(since))
+        if active_only:
+            sql += " AND active = 1"
         if tokens:
             sql += f" AND token IN ({','.join('?' * len(tokens))})"
             args += list(tokens)
@@ -516,10 +591,65 @@ def read_ranges(path=None, since=None, tokens=None):
         con.close()
 
 
+# ---------- range_flip state (11.11., flag range_flip G26) ----------------------------------------------------------
+def flip_load(con, token):
+    """The token's range_flip state (detect.flip_step), None when there is none or it is of another version."""
+    from . import detect
+    try:
+        r = con.execute("SELECT v, data FROM range_flip WHERE token=?", (token,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not r or r[0] != detect.FLIP["v"]:
+        return None
+    try:
+        return json.loads(r[1])
+    except ValueError:
+        return None
+
+
+def flip_save(con, token, st):
+    alt = st.get("alt") or {}
+    con.execute("INSERT OR REPLACE INTO range_flip (token, v, ver, state, since, ts, alt_active, data) VALUES "
+                "(?,?,?,?,?,?,?,?)", (token, st.get("v"), st.get("ver") or 0, st.get("state"), st.get("since"), st.get("ts"),
+                                      int(bool(st.get("state") in ("flipped", "resumed") and alt.get("active"))),
+                                      json.dumps(st, separators=(",", ":"))))
+
+
+def flip_rows(path=None, since=None, states=None, alt_active=False):
+    """{token: state} of range_flip read-only (current version only): since (ts >=), states (only these), alt_active
+    (only the tokens whose range after a break is active); {} without range.db or the table."""
+    from . import detect
+    con = ro(path)
+    if con is None:
+        return {}
+    try:
+        sql, args = "SELECT token, data FROM range_flip WHERE v = ?", [detect.FLIP["v"]]
+        if since:
+            sql += " AND ts >= ?"
+            args.append(int(since))
+        if states:
+            sql += f" AND state IN ({','.join('?' * len(states))})"
+            args += list(states)
+        if alt_active:
+            sql += " AND alt_active = 1"
+        out = {}
+        for tok, d in con.execute(sql, args):
+            try:
+                out[tok] = json.loads(d)
+            except ValueError:
+                continue
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        con.close()
+
+
 def prune(con, now):
     con.execute("DELETE FROM snaps WHERE ts < ?", (int(now - KEEP_DAYS * 86400),))
     con.execute("DELETE FROM gt_candles WHERE last_ts < ?", (int(now - GT_KEEP_DAYS * 86400),))
     con.execute("DELETE FROM ranges WHERE ts < ?", (int(now - 3 * 86400),))
+    con.execute("DELETE FROM range_flip WHERE ts < ?", (int(now - 3 * 86400),))
     con.execute("DELETE FROM events WHERE ts < ?", (int(now - 30 * 86400),))
     con.commit()
     try:
