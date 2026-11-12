@@ -5,6 +5,7 @@ flags at most to shadow), newest first, and an older one changing the same setti
 
     python3 -m unittest tests.test_prijedlozi_skupno_offline
 """
+import json
 import os
 import re
 import sys
@@ -156,6 +157,45 @@ class InsiderWallet(Base):
         self.assertRegex(html, rf'name=sel_{nid} value=1 data-keep data-what="[^"]+">')   # no "checked"
         res = assistnotes.apply_many(self.tc, [nid])
         self.assertIn("nije puna Solana adresa", res["failed"][0][1])
+
+
+class InsiderWallets(InsiderWallet):
+    """12.11. 13:28 (owner's screenshot): Grok labels the wallets of one token together:
+    {"insider_label": {"token": <mint>, "wallets": [a, b], "label": "bot", "note": ...}}."""
+
+    TOKEN = "A2sdaK6XiHLnREKQtqyosScUd1XBCK8xKBu6iMgDpump"
+
+    def test_several_wallets_of_one_token_apply_together(self):
+        pc = {"insider_label": {"token": self.TOKEN, "wallets": [FULL, "9WzD…AWWM"], "label": "bot",
+                                "note": "flip botovi"}}
+        out = assistnotes.submit_suggestion(self.tc, "k3", "t", "i", proposed_change=pc)
+        nid = out["id"] if isinstance(out, dict) else out
+        stored = assistnotes.notes(self.tc, "novo", "suggestion", 5, 0)[0][0]["proposed_change"]["insider_label"]
+        self.assertEqual(stored["wallets"], [FULL, OTHER])              # the shortened one resolved
+        from ui import pravitrade
+        html = pravitrade._suggest_section(self.tc, True)
+        self.assertIn("oznaka 2 novčanika 7xKXtg…, 9WzDXw… → bot (token A2sdaK…)", html)
+        self.assertNotIn("Ne može se primijeniti", html)
+        res = assistnotes.apply_many(self.tc, [nid])
+        self.assertEqual([i for i, _w in res["applied"]], [nid])
+        labels = settings.raw(self.tc)["insider_labels"]
+        self.assertEqual((labels[FULL]["label"], labels[OTHER]["label"]), ("bot", "bot"))
+        self.assertEqual(labels[OTHER]["token"], self.TOKEN)
+        self.assertIn("oznaka 2 novčanika", res["applied"][0][1])
+
+    def test_an_old_note_with_full_wallets_is_applied(self):
+        """As #175 / #176 / #190 in production: stored before 12.11. with "wallets", full addresses."""
+        nid = self.suggest({"key": "tp_default", "to": 30})
+        self.tc.execute("UPDATE assistant_notes SET proposed_change=? WHERE id=?", (json.dumps(
+            {"insider_label": {"token": self.TOKEN, "wallets": [FULL, OTHER], "label": "bot", "note": "x"}}), nid))
+        self.tc.commit()
+        self.assertIsNone(assistnotes.blocker({"insider_label": {"wallets": [FULL, OTHER], "label": "bot"}}))
+        res = assistnotes.apply_many(self.tc, [nid])
+        self.assertEqual(res["failed"], [])
+        self.assertEqual(settings.raw(self.tc)["insider_labels"][OTHER]["label"], "bot")
+
+    def test_no_wallet_at_all_says_so(self):
+        self.assertIn("nema novčanik", assistnotes.blocker({"insider_label": {"token": self.TOKEN, "label": "bot"}}))
 
 
 if __name__ == "__main__":
