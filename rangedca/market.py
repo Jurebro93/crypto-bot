@@ -28,11 +28,19 @@ event token only needs what every analysed token needs: bonded and MC >= $30k (C
 
 Price series: DexScreener /tokens batches (free, 30 tokens a request, data.fetch_pairs) stored as range.db snaps,
 the same table the signal pass writes: the HOT_N (100) most important tokens every HOT_EVERY_S (5 min), the rest
-every COLD_EVERY_S (15 min). Order: active ranges near the bottom (entry close), event tokens, then 1 h volume. A
-token the hype scan snapshotted in the last 150 s is not asked again (its token_pulse rows are merged by
-data.series). A token of the signal pass is left to it (one snapshot a minute). Minute OHLCV from GeckoTerminal for
-300 tokens would be ~28,800 requests a day: impossible inside 3000; a GeckoTerminal seed is spent only on a token
-close to an entry (run_range.py, inside RANGE_GT_DAY and MKT_SEED_DAY).
+every COLD_EVERY_S (15 min). 12.11. (owner, nalog 3: "STC ima cijene samo do 10:55 CET, iako je likvidnost bila 16k";
+test: "token na watch listi s likvidnošću >= 15k dobiva cijenu barem svakih 5 min"): every watched token with
+liquidity >= KEEP_LIQ gets a price at least every PRICE_EVERY_S (5 min), whatever its place in the order (it is asked
+one run_range pass early, PASS_GAP_S, so a late pass never makes the gap longer), and served first when the hour's
+budget is short; a watched token whose MC fell under 30k (or under the market band's 50k) stays on the list while its
+liquidity holds (>= KEEP_LIQ) and it trades (KEEP_VOL_H1): under 30k it is only measured (CLAUDE.md: "smiju se
+analizirati i mjeriti u sjeni"), never bought (rangedca/detect marks it "ispod 30k", rangedca/trade._guards refuses
+it). The signal pass hands such a token over (adopt()), so it keeps its price once it leaves the signal candidates.
+Order: active ranges near the bottom (entry close), event tokens, then 1 h volume. A token the hype scan snapshotted
+in the last 150 s is not asked again (its token_pulse rows are merged by data.series). A token of the signal pass is
+left to it (one snapshot a minute). Minute OHLCV from GeckoTerminal for 300 tokens would be ~28,800 requests a day:
+impossible inside 3000; a GeckoTerminal seed is spent only on a token close to an entry (run_range.py, inside
+RANGE_GT_DAY and MKT_SEED_DAY).
 
 Budget per source per UTC day (env-overridable), hour-sliced (by the end of hour h at most cap * (h + 1) / 24), so a
 busy morning never spends the night's share. When a pass needs more DexScreener requests than its slice allows, the
@@ -41,7 +49,10 @@ a new day one line per source: "range watchlist trošak (dan): dexscreener N/cap
 Estimate at 400 watched: 100 x 288 / 30 + 300 x 96 / 30 = ~2,100 requests a day for the series (less what the hype
 scan already snapshots), plus discovery (<= DISC_REQ_PASS a pass and its own DISC_DAY 600, so it never eats the
 refresh's share) = at most ~2,700 a day under DEX_DAY 3000, ~2 a minute against DexScreener's 300 a minute (a pass
-sends at most MAX_REQ_PASS 20).
+sends at most MAX_REQ_PASS 20). 12.11. (5 minutes for every liquid token): measured 12.11. 11:07 UTC, 29 watched and
+910 requests since midnight (~2,000 a day); at that size the change adds ~70 a day (one batch every ~4 passes instead
+of every 5). Worst case, 400 liquid tokens: 14 batches every ~248 s = ~4,900 a day + discovery <= 1,500, hence
+DEX_DAY 6500 (~4.5 a minute against the free 300; DexScreener costs nothing, the cap only guards the rate limit).
 Nothing here trades. range_dca may enter a market / event token only on the demo account (paper), while its flag
 (range_market / event_tokens) is paper; never on the real account (rangedca/trade.py). A missed token: the demo
 account while range_missed is paper; the real account only while it is live AND >= 20 closed demo rounds of source
@@ -63,7 +74,14 @@ HOT_N = int(os.environ.get("RANGE_MKT_HOT_N", "100"))
 HOT_EVERY_S = 300
 COLD_EVERY_S = 900
 SLACK_S = 30              # the pass runs every 60 s: a token due within 30 s is taken now
-DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "4000"))
+# 12.11. (owner, nalog 3): a watched token with liquidity >= KEEP_LIQ gets a price at least every PRICE_EVERY_S. A
+# run_range pass comes every ~62 s (start.sh: 60 s sleep + the pass), so such a token is asked once its price is
+# PRICE_EVERY_S - PASS_GAP_S old: the next pass would already be past the 5 minutes (HOT_EVERY_S - SLACK_S = 270 s
+# with 62-s passes gave 310 s)
+PRICE_EVERY_S = 300
+PASS_GAP_S = 70
+MEASURE_WHY = "MC ispod 30k: samo mjerenje, ne kupuje se"
+DEX_DAY = int(os.environ.get("RANGE_MKT_DEX_DAY", "6500"))   # 12.11.: was 4000 (see the module text, worst case)
 DISC_DAY = int(os.environ.get("RANGE_MKT_DISC_DAY", "1500"))   # of DEX_DAY at most this for discovery (the rest refreshes)
 LISTS_DAY = int(os.environ.get("RANGE_MKT_LISTS_DAY", "300"))
 GT_DAY = int(os.environ.get("RANGE_MKT_GT_DAY", "130"))
@@ -229,6 +247,14 @@ def check(s, created_ts, src, now, keep=False):
     if not s.get("bonded"):
         return False, "još na krivulji (uzimaju se bondani)", 6 * 3600
     mc = s.get("mcap") or 0
+    if keep and (s.get("liq") or 0) >= KEEP_LIQ and not (src == "market" and mc > MAX_MCAP):
+        # 12.11. (owner, nalog 3: STC under 30k with $16k of liquidity lost its prices): a WATCHED token with liquidity
+        # >= KEEP_LIQ stays whatever its MC (under 30k: measured only, never bought; between 30k and the market band's
+        # 50k: as any 30k+ token); it leaves when it stops trading (an event token excepted, as before), when its
+        # liquidity goes under KEEP_LIQ, or a market token above MAX_MCAP
+        if src != "event" and (s.get("vol_h1") or 0) < KEEP_VOL_H1:
+            return False, f"volumen 1 h ${s.get('vol_h1') or 0:,.0f}", 3600
+        return True, "", 0
     if mc < MIN_ANALYSED:
         return False, "MC ispod 30k (ne analizira se)", 86400
     if src == "event":
@@ -281,6 +307,26 @@ def add(con, tok, via, now, src="market", symbol=None, created_ts=None, due=None
     if upd:
         con.execute(f"UPDATE mkt SET {', '.join(k + '=?' for k in upd)} WHERE token=?", (*upd.values(), tok))
     return False
+
+
+def adopt(con, snaps, now):
+    """12.11. (owner, nalog 3): the signal pass's tokens measured under 30k (rangedca/data.poll: bonded, liquidity >=
+    KEEP_LIQ) join the watched list, src market, via "signal": a range "ispod 30k" is no longer a recent range there,
+    so without this the token fell out of the signal candidates and nobody asked its price again. Here it keeps a
+    price every 5 min while check()'s keep rule holds (liquidity, volume). snaps: {token: data.snap_of dict}. Returns
+    how many were put on the list."""
+    ensure(con)
+    n = 0
+    for tok, s in (snaps or {}).items():
+        if not s or not s.get("price") or not s.get("bonded") or (s.get("mcap") or 0) >= MIN_ANALYSED:
+            continue
+        if (s.get("liq") or 0) < KEEP_LIQ or (s.get("vol_h1") or 0) < KEEP_VOL_H1:
+            continue
+        add(con, tok, "signal", now, symbol=s.get("symbol"),
+            nums={"mcap": s.get("mcap"), "liq": s.get("liq"), "vol_h1": s.get("vol_h1")})
+        n += con.execute("UPDATE mkt SET watched=1, watched_ts=?, checked_ts=?, last_snap=?, why=? WHERE token=? AND "
+                         "watched=0", (int(now), int(now), int(s.get("ts") or now), MEASURE_WHY, tok)).rowcount
+    return n
 
 
 def _ro(path):
@@ -496,10 +542,16 @@ def _store(con, tok, s, now, src, created_ts, keep, watched=False):
         hb = missed.hard_block(con, tok, s, now)
         if hb:
             ok, why, wait = False, hb, missed.HARD_WAIT_S
-    if s and s.get("price") and s.get("bonded") and (s.get("mcap") or 0) >= MIN_ANALYSED:
+    under = bool(s) and (s.get("mcap") or 0) < MIN_ANALYSED
+    # 12.11. (owner, nalog 3): a watched token kept under 30k (liquidity >= KEEP_LIQ, check()) is stored too: its price
+    # every 5 minutes, measured only (rangedca/detect: "ispod 30k")
+    saved = bool(s and s.get("price") and s.get("bonded") and (not under or (watched and ok)))
+    if saved:
         data.save_snap(con, tok, s)
     if keep:
         ok, why = True, ""
+    if saved and under:
+        why = MEASURE_WHY
     con.execute("UPDATE mkt SET checked_ts=?, last_snap=?, mcap=?, liq=?, vol_h1=?, symbol=COALESCE(?, symbol), "
                 "why=? WHERE token=?", (int(now), int(now) if s else None, (s or {}).get("mcap"), (s or {}).get("liq"),
                                          (s or {}).get("vol_h1"), (s or {}).get("symbol"), why or None, tok))
@@ -553,23 +605,30 @@ def pass_once(con, now, net=None, log=print, signal=(), pulse=None, market_on=Tr
     pulse = set(pulse if pulse is not None else data.pulse_recent(now))
     open_toks = set(open_toks)
     near = _near_entry(con)
-    rows = con.execute("SELECT token, src, vol_h1, last_snap FROM mkt WHERE watched=1").fetchall()
-    ordered = order([(t, s, v) for t, s, v, _l in rows], near, open_toks)
-    last = {t: l for t, _s, _v, l in rows}
+    rows = con.execute("SELECT token, src, vol_h1, last_snap, liq FROM mkt WHERE watched=1").fetchall()
+    ordered = order([(t, s, v) for t, s, v, _l, _q in rows], near, open_toks)
+    last = {t: l for t, _s, _v, l, _q in rows}
+    liquid = {t for t, _s, _v, _l, q in rows if (q or 0) >= KEEP_LIQ}   # 12.11.: a price at least every 5 min
     srcs = {t: s for t, s, _v in ordered}
     hot = {t for t, _s, _v in ordered[:HOT_N]}
-    due = []
+    due, due_rest = [], []
     for t, s, v in ordered:
         if t in signal:
             continue   # the signal pass snapshots it every minute
-        every = HOT_EVERY_S if t in hot else COLD_EVERY_S
-        if now - (last.get(t) or 0) < every - SLACK_S:
+        if t in liquid:   # 12.11. (owner, nalog 3): every 5 min whatever its place in the order (HOT_N)
+            every = PRICE_EVERY_S - PASS_GAP_S
+        else:
+            every = (HOT_EVERY_S if t in hot else COLD_EVERY_S) - SLACK_S
+        if now - (last.get(t) or 0) < every:
             continue
         if t in pulse:   # the hype scan snapshotted it in the last 150 s: its token_pulse rows are the series
             stats["reused"] += 1
-            con.execute("UPDATE mkt SET last_snap=? WHERE token=?", (int(now), t))
+            # 12.11.: that row may be PULSE_FRESH_S old; a liquid token counts from there, so its 5 minutes hold
+            con.execute("UPDATE mkt SET last_snap=? WHERE token=?",
+                        (int(now) - (data.PULSE_FRESH_S if t in liquid else 0), t))
             continue
-        due.append(t)
+        (due if t in liquid else due_rest).append(t)
+    due += due_rest   # 12.11.: the liquid tokens first, so a short hour drops the others first
     if stats["reused"]:
         data.day_add(con, "mkt_reuse_day", stats["reused"], now)
     allowed = min(MAX_REQ_PASS, slice_left(con, "mkt_dex_day", DEX_DAY, now))

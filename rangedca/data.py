@@ -37,6 +37,10 @@ GT_DAY = int(os.environ.get("RANGE_GT_DAY", "60"))          # GeckoTerminal requ
 GT_PER_PASS = 3
 GT_RESEED_S = 86400
 COLD_S = 6 * 3600      # a token under 30k or still on the curve is not polled again for this long
+# 12.11. (owner, nalog 3: "STC ima cijene samo do 10:55 CET, iako je likvidnost bila 16k"): a bonded token under 30k
+# with at least this much liquidity (= trade/cost.LIQ_HARD_MIN, rangedca/market.KEEP_LIQ) is no longer put aside: it
+# is measured (CLAUDE.md: "smiju se analizirati i mjeriti u sjeni"), never bought (detect: "ispod 30k")
+MEASURE_LIQ = 15_000
 PULSE_FRESH_S = 150    # a token_pulse row this fresh: the hype scan already snapshots it, we do not poll it
 MIN_MCAP = 30_000
 
@@ -219,7 +223,10 @@ def save_snap(con, token, s):
 def poll(con, tokens, now, fetch=None, pulse_fresh=None):
     """One DexScreener snapshot of every token in `tokens` the hype scan has not snapshotted in the last
     PULSE_FRESH_S. Tokens under 30k or on the bonding curve are put aside for COLD_S (not stored: CLAUDE.md, under
-    30k is not analysed). Returns {token: snapshot} of what was stored."""
+    30k is not analysed). Returns {token: snapshot} of what was stored.
+    12.11. (owner, nalog 3): a bonded token under 30k with liquidity >= MEASURE_LIQ is stored, not put aside: a call
+    candidate stays a signal candidate for 24 h, so the 6 h aside left it on the list with no price (and the market
+    pass skips the signal pass's tokens); run_range.py hands it to the market list (market.adopt)."""
     fresh = pulse_fresh if pulse_fresh is not None else pulse_recent(now)
     cold = {t: u for t, u in (kv_get(con, "cold") or {}).items() if u > now}
     ask = [t for t in tokens if t not in fresh and t not in cold][:MAX_TOKENS]
@@ -231,7 +238,7 @@ def poll(con, tokens, now, fetch=None, pulse_fresh=None):
             if t not in ask:
                 continue
             s = snap_of(p, now)
-            if not s["price"] or not s["bonded"] or (s["mcap"] or 0) < MIN_MCAP:
+            if not s["price"] or not s["bonded"] or ((s["mcap"] or 0) < MIN_MCAP and (s["liq"] or 0) < MEASURE_LIQ):
                 cold[t] = int(now + COLD_S)
                 continue
             save_snap(con, t, s)
