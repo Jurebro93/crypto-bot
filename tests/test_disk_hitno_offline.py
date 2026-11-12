@@ -213,8 +213,16 @@ class NightCompact(unittest.TestCase):
             self.assertFalse(retencija.compact_due(st, zg(2, 30)))      # before the events night batch is done
             self.assertTrue(retencija.compact_due(st, zg(4, 5)))
             self.assertFalse(retencija.compact_due(st, zg(5, 45)))      # too close to 06:00
-            out = retencija.compact_night(self.p, zg(4, 5), self.lines.append, st, compact=self.fake)
+            out = retencija.compact_night(self.p, zg(4, 5), self.lines.append, st, compact=self.fake, files=[])
             self.assertEqual(self.calls, [("events.db", 0.10, 250.0), ("hype.db", 0.10, 250.0)])
+            # 12.11. ("optimiziraj i očisti"): every other database too, smallest first, hype last, never trade/league
+            for name, size in (("wallets.db", 300), ("kol.db", 100), ("trade.db", 5), ("league.db", 5)):
+                touch(os.path.join(self.tmp.name, name), b"x" * size)
+            touch(self.p["events"], b"x" * 200)
+            touch(self.p["hype"], b"x" * 50)
+            files = [os.path.join(self.tmp.name, n) for n in ("wallets.db", "kol.db", "trade.db", "league.db")]
+            order = [k for k, _p in retencija.compact_order(self.p, files)]
+            self.assertEqual(order, ["kol", "events", "wallets", "hype"])
             self.assertIn("600 MB", out["events"])
             self.assertIn("premalo mjesta", out["hype"])
             self.assertIn("noćno sažimanje", self.lines[0])
