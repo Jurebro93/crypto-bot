@@ -207,6 +207,8 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # 11.11. (flags range_market G20 / event_tokens G19): the same pass also keeps the market watchlist (rangedca/market.py):
 # up to RANGE_MARKET_MAX (400) bonded tokens, DexScreener snapshots every 5 / 15 min inside RANGE_MKT_DEX_DAY (3000) and
 # the other per-source day caps, one cost line per source a day. Both flags off: nothing of it runs.
+# 12.11. (nalog 3): every watched token with liquidity >= $15k at least every 5 min, also under 30k (measured only,
+# never bought); RANGE_MKT_DEX_DAY default 6500 (rangedca/market.py: the worst case of a full list).
 ( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
 

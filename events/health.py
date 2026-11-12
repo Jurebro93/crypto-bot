@@ -59,6 +59,26 @@ def status(econ, now=None):
     return out
 
 
+RECENT_MIN = 15
+RECENT_TYPES = ("price_tick", "transfer")
+RECENT_WORDS = {"price_tick": "cijene", "transfer": "transferi"}
+
+
+def recent_counts(econ, now=None, minutes=RECENT_MIN, types=RECENT_TYPES):
+    """{type: events whose time is in the last `minutes`} from the (type, ts) index. 12.11. (owner, nalog 3: "potvrdi da
+    price_tick i transfer događaji ponovno pišu nakon PR #149 (broj događaja u zadnjih 15 min)"): the sync line counts
+    only what the sync itself added (kol/snap and the Helius webhook write their rows directly, events/hooks.py), so
+    the 5-min tick also logs these counts, whoever wrote the rows."""
+    since = (int(now or time.time()) - int(minutes * 60)) * 1000
+    return {t: int(econ.execute("SELECT COUNT(*) FROM events WHERE type = ? AND ts >= ?", (t, since)).fetchone()[0])
+            for t in types}
+
+
+def recent_text(counts, minutes=RECENT_MIN):
+    """"zadnjih 15 min: cijene 812, transferi 37" for the tick's log line."""
+    return f"zadnjih {minutes} min: " + ", ".join(f"{RECENT_WORDS.get(t, t)} {n}" for t, n in counts.items())
+
+
 def _hhmm(ts):
     return dt.datetime.fromtimestamp(ts, ZoneInfo(TZ)).strftime("%d.%m. %H:%M")
 
