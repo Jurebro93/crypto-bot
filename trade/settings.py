@@ -218,6 +218,28 @@ def connect(path=None):
     return con
 
 
+# 12.11. (Jure, nalog točka 6: "Prikazuj samo stvarno otvorene lotove iz portfolija"): ONE definition of a real open
+# lot for every reader that says "the real account" (zonewatch's positions, their alarms, get_armed_zones): a trade.db
+# positions row with mode 'live' and status 'open' that still holds tokens (qty_left > 0), or a 'pending' one younger
+# than LIVE_PENDING_FRESH_S (its swap is in flight: executor.buy books the quantity when it lands, reconcile_pending
+# settles an older one). These are the live rows of the portfolio (get_portfolio_status, the Autopilot page's live
+# positions). A league.db trade of LEAGUE_USER alone is never one: that account also holds the demo copies whose real
+# swap was blocked, failed or ran dry (positions status blocked / failed, mode dry) or never started.
+LIVE_PENDING_FRESH_S = 180
+LIVE_LOT_COLS = ("id", "token", "symbol", "opened_ts", "status", "sol_in", "qty_raw", "qty_left", "league_id", "reason")
+
+
+def live_lots(con, now=None):
+    """[dict LIVE_LOT_COLS] of the real open lots (see above), oldest first; [] while trade.db has no positions table.
+    Any other sqlite3 error propagates: the caller decides what an unreadable trade.db means."""
+    now = int(now or time.time())
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='positions'").fetchone():
+        return []
+    return [dict(zip(LIVE_LOT_COLS, r)) for r in con.execute(
+        f"SELECT {', '.join(LIVE_LOT_COLS)} FROM positions WHERE mode='live' AND ((status='open' AND qty_left > 0) "
+        "OR (status='pending' AND opened_ts >= ?)) ORDER BY id", (now - LIVE_PENDING_FRESH_S,))]
+
+
 def owner():
     return (os.environ.get("TRADE_OWNER") or "Jure").strip().lower()
 

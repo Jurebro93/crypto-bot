@@ -110,18 +110,50 @@ class Base(unittest.TestCase):
         settings._FLAG_CACHE.clear()
 
     def lot(self, tok=MINT, user=None, entry_px=1e-4, qty=None, size=50.0, source="ručno (pravi trade)", auto=None,
-            auto_state=None, symbol="TST", opened=NOW - 600):
+            auto_state=None, symbol="TST", opened=NOW - 600, real="live", sol_in=None, status="open"):
+        """A league.db trade of LEAGUE_USER (the demo mirror) and, with real="live" (default), the REAL lot behind it
+        (trade.db positions, mode live, open, tokens held, league_id = the trade): what run_trade books after a real
+        swap. real=None: a demo trade with no real lot; real="dry" / "blocked" / "failed" / "closed": the other rows
+        run_trade leaves (12.11.: none of them is the real account)."""
         from league import store as lstore
         c = lstore.connect(self.league)
         cur = c.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px, entry_eff, qty, "
                         "source, entry_mcap, auto, auto_state) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (user or settings.LEAGUE_USER, tok, symbol, opened, "open", size, entry_px, entry_px,
+                        (user or settings.LEAGUE_USER, tok, symbol, opened, status, size, entry_px, entry_px,
                          qty if qty is not None else size / entry_px, source, entry_px * 1e9,
                          json.dumps(auto) if auto else None, json.dumps(auto_state) if auto_state else None))
         c.commit()
         lid = cur.lastrowid
         c.close()
+        if real:
+            self.real_lot(tok, lid, real, sol_in=size / 200.0 if sol_in is None else sol_in, symbol=symbol,
+                          opened=opened, reason=source)
         return lid
+
+    def real_lot(self, tok, league_id, kind="live", sol_in=0.25, symbol="TST", opened=NOW - 600, reason="x", qty=1000):
+        """One trade.db positions row: kind live (open, held) | pending (a buy in flight) | dry (open, mode dry) |
+        blocked | failed | closed (live, sold) | empty (live, open, qty_left 0)."""
+        from trade import executor
+        mode = "dry" if kind == "dry" else "live"
+        status = {"live": "open", "dry": "open", "empty": "open"}.get(kind, kind)
+        raw, left = {"live": (qty, qty), "dry": (qty, qty), "empty": (qty, 0), "closed": (qty, 0)}.get(kind, (0, 0))
+        ec = executor.connect(settings.DB)
+        cur = ec.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, "
+                         "qty_left, league_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         (tok, symbol, opened, mode, status, reason, 0 if kind in ("blocked", "failed") else sol_in,
+                          raw, left, league_id))
+        ec.commit()
+        pid = cur.lastrowid
+        ec.close()
+        return pid
+
+    def close_real(self, league_id, now=NOW):
+        """run_trade sold the real lot behind this demo trade."""
+        from trade import executor
+        ec = executor.connect(settings.DB)
+        ec.execute("UPDATE positions SET status='closed', qty_left=0, closed_ts=? WHERE league_id=?", (now, league_id))
+        ec.commit()
+        ec.close()
 
     def league_con(self):
         from league import store as lstore
@@ -278,7 +310,7 @@ class WhosePositions(Base):
         self.lot(source="ručno (pravi trade)", auto=TPSL)
         self.lot(source="Grok auto (MCP)", auto=TPSL)
         self.lot(tok=MINT2, source="ručno: Grok odobreno (MCP)", auto=TPSL)
-        self.lot(tok=DEMO, user=settings.PAPER_USER, source="paper", auto=TPSL)  # the demo account
+        self.lot(tok=DEMO, user=settings.PAPER_USER, source="paper", auto=TPSL, real=None)  # the demo account
         pos = {p["mint"]: p for p in positions.load(NOW)}
         self.assertEqual(set(pos), {MINT, MINT2})
         self.assertEqual(pos[MINT]["sources"], ["Grok auto", "ručno"])
@@ -288,24 +320,145 @@ class WhosePositions(Base):
         got, _, out = self.run_at(79_000, NOW + 30, more={DEMO: 70_000, MINT2: 79_000})
         self.assertEqual(sorted((p["mint"], p["level"]) for p in out), [(MINT, "sl_hit"), (MINT2, "sl_hit")])
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM alerts WHERE mint=?", (DEMO,)).fetchone()[0], 0)
-        # a token no longer held: its levels' states go, a new position starts afresh
+        # a token no longer held (the demo trade closed and run_trade sold the real lot): its levels' states go, a
+        # new position starts afresh
         c = self.league_con()
         c.execute("UPDATE trades SET status='closed' WHERE token=?", (MINT2,))
         c.commit()
+        for (lid,) in c.execute("SELECT id FROM trades WHERE token=?", (MINT2,)).fetchall():
+            self.close_real(lid, NOW + 50)
         self.run_at(80_000, NOW + 60)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM zone_state WHERE mint=? AND source='position'",
                                           (MINT2,)).fetchone()[0], 0)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+def _m(c):
+    return f"Pos{c}" + "1" * 33 + "pump"
+
+
+class RealLotsOnly(Base):
+    """12.11. (Jure, nalog točka 6: "Zonewatch i dalje prikazuje 11 demo/blokiranih kopija (BACKERS, PEAK, FLOAT…) kao
+    pozicije na pravom računu. Prikazuj samo stvarno otvorene lotove iz portfolija."): a position on the real account
+    is a REAL open lot (trade.settings.live_lots: trade.db positions mode live, open with tokens held, or a fresh
+    pending buy), never a league.db demo trade of LEAGUE_USER alone; the demo trades without one are only counted,
+    apart; position_level alarms, range zones for being held and get_armed_zones follow the same definition."""
+
+    REAL, NOREAL, BLOCKED, DRY, FAILED, SOLD, EMPTY, PEND, OLDPEND, BARE, HELD = (_m(c) for c in "EFGHJKLMNPQ")
+
+    def book(self):
+        lid = {}
+        lid["real"] = self.lot(tok=self.REAL, auto=TPSL, symbol="REAL")                   # a real swap, held
+        self.lot(tok=self.NOREAL, auto=TPSL, real=None, symbol="BACKERS")                 # demo only, never mirrored
+        self.lot(tok=self.BLOCKED, auto=TPSL, real="blocked", source="copy KOL x", symbol="PEAK")   # blocked copy
+        self.lot(tok=self.DRY, auto=TPSL, real="dry", symbol="FLOAT")                     # dry test swap
+        self.lot(tok=self.FAILED, auto=TPSL, real="failed", symbol="FAIL")                # the swap did not land
+        self.lot(tok=self.SOLD, auto=TPSL, real="closed", symbol="SOLD")                  # real lot sold, demo open
+        self.lot(tok=self.EMPTY, auto=TPSL, real="empty", symbol="EMPTY")                 # open row, 0 tokens left
+        self.lot(tok=self.PEND, auto=TPSL, real="pending", opened=NOW - 60, symbol="PEND")         # swap in flight
+        self.lot(tok=self.OLDPEND, auto=TPSL, real="pending", opened=NOW - 3600, symbol="OLDP")    # never confirmed
+        # a real lot without a demo mirror (a CLI buy): held, no levels, no money figure
+        lid["bare"] = self.real_lot(self.BARE, None, "live", reason="ručno", symbol="BARE")
+        # the demo trade closed at its stop, run_trade has not sold the real lot yet: still held
+        lid["held"] = self.lot(tok=self.HELD, auto=TPSL, status="closed", symbol="HELD")
+        return lid
+
+    def test_demo_blocked_dry_failed_sold_trades_are_not_the_real_account(self):
+        lid = self.book()
+        pos = {p["mint"]: p for p in positions.load(NOW)}
+        self.assertEqual(set(pos), {self.REAL, self.PEND, self.BARE, self.HELD})
+        self.assertEqual(store.position_tokens(NOW), {self.REAL, self.PEND, self.BARE, self.HELD})
+        for m in (self.REAL, self.PEND, self.BARE, self.HELD):
+            b = positions.block(pos[m], 1e-4)
+            self.assertTrue(b["real"], m)
+            self.assertEqual(b["lots"], 1, m)
+        self.assertEqual(pos[self.PEND]["pending"], 1)
+        bare = positions.block(pos[self.BARE], 1e-4)
+        self.assertEqual((bare["lot_ids"], bare["position_ids"], bare["sources"], pos[self.BARE]["levels"]),
+                         ([], [lid["bare"]], ["ručno"], []))
+        self.assertIsNone(bare["pnl_usd"])                                      # no entry known: no money figure
+        self.assertEqual({x["name"] for x in pos[self.REAL]["levels"]}, {"sl", "tp"})
+        # the demo trades without a real open lot: only counted, apart, by why
+        d = positions.demo_only(NOW)
+        self.assertEqual((d["trades"], d["tokens"]), (7, 7))
+        self.assertEqual(d["by_reason"], {"not_mirrored": 1, "blocked": 1, "dry": 1, "failed": 1, "sold": 1,
+                                          "empty": 1, "stale_pending": 1})
+        # position_level alarms only for the real lots: every token crosses its stop (SL 80k)
+        every = [self.REAL, self.NOREAL, self.BLOCKED, self.DRY, self.FAILED, self.SOLD, self.EMPTY, self.PEND,
+                 self.OLDPEND, self.BARE, self.HELD]
+        self.run_at(100_000, NOW, more={m: 100_000 for m in every})
+        got, _, out = self.run_at(79_000, NOW + 30, more={m: 79_000 for m in every})
+        self.assertEqual(sorted((p["mint"], p["level"]) for p in out),
+                         sorted([(self.REAL, "sl_hit"), (self.PEND, "sl_hit"), (self.HELD, "sl_hit")]))
+        for p in out:
+            self.assertTrue(p["position"]["real"])
+        alarmed = {r[0] for r in self.con.execute("SELECT DISTINCT mint FROM alerts")}
+        self.assertEqual(alarmed, {self.REAL, self.PEND, self.HELD})
+        self.assertEqual(store.kv_get(self.con, "pos_watch")["positions"], 4)
+        # the real lot is sold (the owner's "Prodaj sve", the demo trade stays open): no longer a position, no alarm
+        self.close_real(lid["real"], NOW + 40)
+        self.assertNotIn(self.REAL, {p["mint"] for p in positions.load(NOW + 60)})
+        self.assertEqual(positions.demo_only(NOW + 60)["by_reason"]["sold"], 2)
+        got, _, out = self.run_at(70_000, NOW + 100, more={m: 70_000 for m in every})
+        self.assertNotIn(self.REAL, {p["mint"] for p in out})
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM zone_state WHERE mint=? AND source='position'",
+                                          (self.REAL,)).fetchone()[0], 0)
+
+    def test_no_real_lot_at_all_is_no_position(self):
+        """Only demo trades on LEAGUE_USER (the production state of 12.11.: 11 copies, none a real swap): no
+        position, no alarm, whatever their price does; a trade.db without a positions table is nothing held."""
+        self.lot(tok=self.NOREAL, auto=TPSL, real=None)
+        self.assertEqual(positions.load(NOW), [])                               # trade.db: settings only
+        self.lot(tok=self.BLOCKED, auto=TPSL, real="blocked")
+        self.lot(tok=self.DRY, auto=TPSL, real="dry")
+        self.assertEqual(positions.load(NOW), [])
+        self.assertEqual(store.position_tokens(NOW), set())
+        self.run_at(100_000, NOW, mint=self.NOREAL, more={self.BLOCKED: 100_000, self.DRY: 100_000})
+        got, _, _ = self.run_at(70_000, NOW + 30, mint=self.NOREAL, more={self.BLOCKED: 70_000, self.DRY: 70_000})
+        self.assertEqual(got, [])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM alerts").fetchone()[0], 0)
+        self.assertEqual(store.kv_get(self.con, "pos_watch")["positions"], 0)
+
+    def test_get_armed_zones_over_mcp_lists_only_real_lots(self):
+        from ui import mcpapi
+        self.lot(tok=self.REAL, auto=TPSL, symbol="REAL")
+        self.lot(tok=self.NOREAL, auto=TPSL, real=None, symbol="BACKERS")
+        self.lot(tok=self.BLOCKED, auto=TPSL, real="blocked", source="copy KOL x", symbol="PEAK")
+        self.lot(tok=self.SOLD, auto=TPSL, real="closed", symbol="SOLD")
+        g, err = mcpapi._tool("get_armed_zones", {}, kid="abc123")
+        self.assertFalse(err, g)
+        self.assertEqual([p["mint"] for p in g["positions"]], [self.REAL])
+        (p,) = g["positions"]
+        self.assertEqual((p["symbol"], p["position"]["real"], p["position"]["lots"]), ("REAL", True, 1))
+        self.assertEqual({x["name"] for x in p["levels"]}, {"sl", "tp"})
+        ex = g["positions_demo_excluded"]
+        self.assertEqual((ex["trades"], ex["by_reason"]), (3, {"not_mirrored": 1, "blocked": 1, "sold": 1}))
+        self.assertIn("REAL open lots", g["positions_note"])
+        self.assertIn("demo", g["positions_note"])
+        # a mint filter on a demo-only token: no position
+        g, err = mcpapi._tool("get_armed_zones", {"mint": self.BLOCKED}, kid="abc123")
+        self.assertFalse(err, g)
+        self.assertEqual(g["positions"], [])
+        # over the JSON-RPC body too, as Grok calls it
+        code, body = mcpapi.rpc(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                            "params": {"name": "get_armed_zones", "arguments": {}}}).encode())
+        self.assertEqual(code, 200)
+        res = json.loads(body)["result"]
+        got = json.loads(res["content"][0]["text"])
+        self.assertEqual([p["mint"] for p in got["positions"]], [self.REAL])
+        for bad in (self.NOREAL, self.BLOCKED, self.SOLD):
+            self.assertNotIn(bad, res["content"][0]["text"])
+        tool = {t["name"]: t for t in mcpapi.TOOLS}["get_armed_zones"]
+        self.assertIn("never a demo trade, a blocked copy", tool["description"])
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 class Payload(Base):
     def test_owner_fields_level_and_position_block_with_pnl(self):
         from trade import executor
-        l1 = self.lot(entry_px=1e-4, size=50.0, auto=dict(TPSL, sl_px=0.7e-4))
-        l2 = self.lot(entry_px=0.8e-4, size=50.0, auto=dict(TPSL, sl_px=0.7e-4), source="Grok auto (MCP)")
+        l1 = self.lot(entry_px=1e-4, size=50.0, auto=dict(TPSL, sl_px=0.7e-4), sol_in=0.3)
+        l2 = self.lot(entry_px=0.8e-4, size=50.0, auto=dict(TPSL, sl_px=0.7e-4), source="Grok auto (MCP)", sol_in=0.25)
         ec = executor.connect(settings.DB)
-        ec.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, sol_in, qty_raw, qty_left, league_id) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)", (MINT, "TST", NOW - 600, "live", "open", 0.3, 1000, 1000, l1))
         ec.execute("CREATE TABLE IF NOT EXISTS equity (ts INTEGER PRIMARY KEY, sol REAL, usdc REAL, tokens_sol REAL, "
                    "sol_usd REAL, usd_eur REAL, flow_sol REAL DEFAULT 0, src TEXT DEFAULT 'live')")
         ec.execute("INSERT INTO equity (ts, sol_usd) VALUES (?, ?)", (NOW - 60, 200.0))
@@ -325,15 +478,16 @@ class Payload(Base):
         self.assertEqual((p["mcap"], p["rug_risk"], p["uniq_traders_1h"], p["buy_share_5m"]), (72_000, "ok", 42, 0.7))
         self.assertEqual(p["distance_pct"], -2.78)                               # the stop 2.78 % under the price
         b = p["position"]
-        self.assertEqual((b["lots"], b["lot_ids"], b["account"], b["sources"]),
-                         (2, [l1, l2], settings.LEAGUE_USER, ["Grok auto", "ručno"]))
+        self.assertEqual((b["lots"], b["lot_ids"], b["account"], b["sources"], b["real"], b["sol_in"], b["pending"]),
+                         (2, [l1, l2], settings.LEAGUE_USER, ["Grok auto", "ručno"], True, 0.55, 0))
+        self.assertEqual(len(b["position_ids"]), 2)
         self.assertAlmostEqual(b["qty"], 1_125_000)
         self.assertAlmostEqual(b["avg_entry_price"], 100 / 1_125_000)            # $100 for 1.125M tokens
         self.assertEqual(round(b["avg_entry_mcap"]), 88_889)
         self.assertEqual(b["pnl_pct"], -19.0)                                    # 72k vs 88.9k
         self.assertEqual(b["pnl_usd"], -19.0)                                    # 1.125M x 72e-6 - $100
-        self.assertEqual(b["pnl_sol"], -0.109)                                   # 0.3 x -28 % + (-$5 / $200)
-        self.assertEqual(b["pnl_sol_src"], "mješovito")
+        self.assertEqual(b["pnl_sol"], -0.109)                                   # 0.3 x -28 % + 0.25 x -10 %
+        self.assertEqual(b["pnl_sol_src"], "sol_in")                             # both real lots' own SOL
         # the stored body is what is posted, and get_armed_zones lists the position with its levels
         row = self.con.execute("SELECT event, zone_type, source, payload FROM alerts WHERE id=?", (p["id"],)).fetchone()
         self.assertEqual(row[:3], ("position_level", "position_sl", "position"))
@@ -380,6 +534,7 @@ class Fills(Base):
         self.assertEqual(self.run_at(100_000, NOW)[0], [])
         c = self.league_con()
         lstore.sell(c, settings.LEAGUE_USER, lid, 0.79e-4, 40_000, "auto SL -20%", mcap=79_000, exit_rule="sl")
+        self.close_real(lid, NOW + 11)                # run_trade sells the real lot within the second
         got, _, out = self.run_at(85_000, NOW + 30)   # the position is gone before a pass saw the price at the stop
         self.assertEqual(got, ["sl_hit"])
         p = out[0]
@@ -394,6 +549,7 @@ class Fills(Base):
         self.run_at(100_000, NOW)
         self.assertEqual(self.run_at(79_500, NOW + 30)[0], ["sl_hit"])
         lstore.sell(self.league_con(), settings.LEAGUE_USER, lid, 0.79e-4, 40_000, "auto SL -20%", exit_rule="sl")
+        self.close_real(lid, NOW + 41)
         self.assertEqual(self.run_at(79_000, NOW + 60)[:2], ([], 1))
 
     def test_dca_buy_plan_take_profit_and_smart_take_profit(self):
@@ -501,6 +657,7 @@ class RangeOff(Base):
         self.save(MINT2, NOW + 300, active=False, status="probijen gore", why="x")
         from league import store as lstore
         lstore.sell(self.league_con(), settings.LEAGUE_USER, lid, 0.8e-4, 40_000, "ručno")   # sold first
+        self.close_real(lid, NOW + 290)
         self.save(MINT, NOW + 300, active=False, status="probijen dolje", why="x")
         self.assertEqual(self.step(NOW + 330), [])
         self.assertEqual(job.range_reason("raspon bez zona u MC iznad 30k"), (None, "raspon bez zona u MC iznad 30k"))

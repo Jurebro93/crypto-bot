@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from urllib.parse import unquote
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -711,6 +712,46 @@ class McpHosted(Base):
         bad = json.loads(mcpapi.rpc(b'{"jsonrpc":"2.0","id":4,"method":"nope"}')[1])
         self.assertEqual(bad["error"]["code"], -32601)
         self.assertEqual(json.loads(mcpapi.rpc(b"{not json")[1])["error"]["code"], -32700)
+
+
+class PortfolioModes(Base):
+    """12.11. (nalog točka 6, coordinator): get_portfolio_status tells a real lot from a test one. Each lot gets mode
+    (live | dry) and real (trade.settings.live_lots: mode live, open, tokens held), the answer open_live / open_dry;
+    every old field stays where it was (only added after), so Grok's parsing does not break."""
+
+    def row(self, tok, mode, status, left=1000, sym="TST"):
+        cur = self.con.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, "
+                               "qty_left) VALUES (?,?,?,?,?,?,?,?,?)",
+                               (tok, sym, int(time.time()) - 600, mode, status, "x", 0.1, 1000, left))
+        self.con.commit()
+        return cur.lastrowid
+
+    def test_each_lot_has_mode_and_real_and_the_answer_counts_them(self):
+        from ui import mcpapi, pravitrade
+        other = MINT[:-1] + "8"
+        live = self.row(MINT, "live", "open")
+        empty = self.row(MINT, "live", "open", left=0)              # an open row without tokens left: not real
+        dry = self.row(other, "dry", "open")                         # a dry test swap: shown, never real
+        self.row(other, "live", "blocked")                           # a blocked copy and a sold lot: not open at all
+        self.row(other, "live", "closed", left=0)
+        with mock.patch.object(pravitrade, "equity_data", lambda tcon, now=None: {"summary": {}}):
+            d = mcpapi.portfolio()
+            g, err = mcpapi._tool("get_portfolio_status", {})
+        self.assertFalse(err)
+        lots = {lot["id"]: lot for p in d["open_positions"] for lot in p["lots"]}
+        self.assertEqual(set(lots), {live, empty, dry})
+        self.assertEqual({k: (v["mode"], v["real"]) for k, v in lots.items()},
+                         {live: ("live", True), empty: ("live", False), dry: ("dry", False)})
+        for lot in lots.values():   # the old fields first, in their old order; the new ones after them
+            self.assertEqual(list(lot), ["id", "opened_ts", "sol_in", "entry_market_cap_usd", "mode", "real"])
+        self.assertEqual((d["open_live"], d["open_dry"]), (2, 1))
+        before = ["ts", "price_ts", "mode", "wallet", "limits", "open_positions", "exit_plans", "grok_autotrade",
+                  "momentum_candidates", "open_orders"]
+        self.assertEqual(list(d), before + ["open_live", "open_dry"])
+        self.assertEqual(list(g), list(d))
+        self.assertEqual([lot["real"] for p in g["open_positions"] for lot in p["lots"] if lot["id"] == live], [True])
+        tool = {t["name"]: t for t in mcpapi.TOOLS}["get_portfolio_status"]
+        self.assertIn("open_live / open_dry", tool["description"])
 
 
 class Header(unittest.TestCase):
