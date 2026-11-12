@@ -1864,10 +1864,16 @@ def _flags_section(tcon, con, owner):
     raw_ = settings.raw(tcon)
     now = int(time.time())
     week = lflags.shadow_summary(con, now - 7 * 86400)
-    on = [n for n, v in st.items() if v["mode"] != "off"]
+    # 12.11.: a flag still at its default (settings.FLAG_DEFAULTS, never set: x_call_scalp in sjena, it only
+    # measures) is named apart, not counted as one the owner switched on
+    dflt = [n for n, v in st.items() if v["mode"] != "off" and not v["since"]
+            and v["mode"] == settings.FLAG_DEFAULTS.get(n)]
+    on = [n for n, v in st.items() if v["mode"] != "off" and n not in dflt]
     paper_since = min((v["since"] for v in st.values() if v["mode"] == "paper" and v["since"]), default=None)
     pr = lflags.paper_result(con, paper_since) if paper_since else None
     meta = (f"{len(on)} od {len(st)} uključeno" if on else "sve isključeno: bot radi kao prije")
+    if dflt:
+        meta += " · zadano: " + ", ".join(f"{n} {FLAG_WORDS.get(st[n]['mode'], st[n]['mode'])}" for n in dflt)
     if pr:
         meta += f" · paper: {pr['n']} zatvorenih, {pr['pnl']:+.2f} $"
     tz = zoneinfo.ZoneInfo("Europe/Zagreb")

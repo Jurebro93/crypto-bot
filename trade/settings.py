@@ -157,10 +157,22 @@ FLAGS = {   # name -> (item of the plan, what it does, in Croatian for the page)
     "range_missed": ("G27", "Propušteni tokeni na range listi: preskočen pa +20 % u 60 min = 72 h praćenja (filteri: "
                             "rug, honeypot/freeze, dev dump, MC 30k+, likvidnost 15k+, volumen 1 h 10k+), ulaz samo po "
                             "rasponu; live tek nakon 20 rundi izvora missed s EV > 0"),
+    # 12.11. (Jure, nalog točka 2, fast/xscalp.py): every token Grok sends with the MCP tool submit_watch_token that
+    # passes the hard blocks gets a VIRTUAL paper entry at the market cap of the detection; measured net of cost (max
+    # gain before -8 %, +15 min, +1 h, the dev / top holder dump) per author class. shadow and paper do the same (no
+    # account buys, not even the demo one: submit_watch_token never trades); never live (NEVER_LIVE). Default shadow
+    # (FLAG_DEFAULTS): it only measures.
+    "x_call_scalp": ("G31", "X call scalp: token koji Grok pošalje (submit_watch_token) i prođe tvrde blokove (rug, "
+                            "honeypot, likvidnost 15k+, MC 30k+, bondan) dobiva papirnati ulaz na MC u trenutku "
+                            "detekcije; mjeri se max dobit prije −8 %, +15 min i +1 h neto nakon troška i dump deva / "
+                            "top holdera, po razredu autora (followeri × brzina); nijedan račun ne kupuje"),
 }
+# 12.11. (owner: "zadano shadow ili paper"): a flag's mode while the owner has never set it; every other flag is off
+FLAG_DEFAULTS = {"x_call_scalp": "shadow"}
 # 11.11.: flags that never go live, whatever the proofs say (their tokens are traded at most on the demo account)
 NEVER_LIVE = {"event_tokens": "event tokeni nikad ne trguju pravim novcem (najviše paper na demo računu)",
-              "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)"}
+              "range_market": "tržišna range lista nikad ne trguje pravim novcem (najviše paper na demo računu)",
+              "x_call_scalp": "x_call_scalp nikad ne trguje pravim novcem (samo papirnati ulazi, bez računa)"}
 # 11.11.: owner switches: "live" means on, without a backtest or paper days (live_refusal lets them through); they
 # never move on their own, only the owner's tap on the page sets them
 OWNER_SWITCHES = frozenset({"exit_plan_live", "rug_labels_v2_ok", "live_trades_retention", "tg_text_retention"})
@@ -311,8 +323,11 @@ def sl_default(path=None):
     return sl_text(v if v in SL_CHOICES else SL_DEFAULT)
 
 
-def _flag_value(v):
-    """Stored flag value -> {"mode", "since", "who"} (a bare string from a hand edit counts too)."""
+def _flag_value(v, default="off"):
+    """Stored flag value -> {"mode", "since", "who"} (a bare string from a hand edit counts too). default: the mode of
+    a flag never set (FLAG_DEFAULTS; "off" for every other)."""
+    if v is None:
+        v = {"mode": default}
     if isinstance(v, str):
         v = {"mode": v}
     v = v if isinstance(v, dict) else {}
@@ -321,9 +336,9 @@ def _flag_value(v):
 
 
 def flag_state(con):
-    """{name: {"mode", "since", "who"}} of every flag in FLAGS ("off" when never set)."""
+    """{name: {"mode", "since", "who"}} of every flag in FLAGS (never set: FLAG_DEFAULTS, else "off"; since 0)."""
     s = raw(con)
-    return {n: _flag_value(s.get(f"flag:{n}")) for n in FLAGS}
+    return {n: _flag_value(s.get(f"flag:{n}"), FLAG_DEFAULTS.get(n, "off")) for n in FLAGS}
 
 
 def _flags_ro(path):
@@ -334,7 +349,7 @@ def _flags_ro(path):
         finally:
             con.close()
     except sqlite3.Error:
-        return {}
+        return None   # unreadable: flag() answers "off" for every flag, defaults included
     out = {}
     for k, v in rows:
         try:
@@ -352,7 +367,7 @@ def flag(name, con=None, path=None):
         raise KeyError(f"nepoznata zastavica {name}")
     if con is not None:
         try:
-            return _flag_value(raw(con).get(f"flag:{name}"))["mode"]
+            return _flag_value(raw(con).get(f"flag:{name}"), FLAG_DEFAULTS.get(name, "off"))["mode"]
         except (sqlite3.Error, ValueError, TypeError):
             return "off"
     path = path or DB
@@ -361,7 +376,9 @@ def flag(name, con=None, path=None):
     if hit is None or now - hit[0] > FLAG_CACHE_S:
         hit = (now, _flags_ro(path))
         _FLAG_CACHE[path] = hit
-    return hit[1].get(name, "off")
+    if hit[1] is None:   # trade.db unreadable: the old behaviour, every flag off
+        return "off"
+    return hit[1].get(name, FLAG_DEFAULTS.get(name, "off"))
 
 
 def flag_on(name, con=None, path=None):

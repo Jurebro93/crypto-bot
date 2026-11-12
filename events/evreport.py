@@ -419,6 +419,9 @@ def build(now=None, econ=None, log=print):
                 elif name == "fast_path":   # 11.11. (fast/report.py): BUY outcomes, false rejects per check, cost
                     from fast import report as freport
                     out += freport.ev_rows(now, st["mode"], log=log)
+                elif name == "x_call_scalp":   # 12.11. (fast/xscalp.py): per author class, 7 days, own requests
+                    from fast import xscalp
+                    out += xscalp.ev_rows(now, st["mode"], log=log)
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")

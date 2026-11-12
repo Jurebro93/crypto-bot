@@ -1357,12 +1357,71 @@ TOOLS.append(
                      "PnL, tier, proof = run_trade's real-money proof); outcome (+1/+5/+15/+60 min, max and min within "
                      "60 min, hit = +15 % before -10 % within 45 min) and missed (SKIP that did >= +20 %); traded (the "
                      "demo trade). report: the newest daily report (false rejects per check, latency, cost per source). "
-                     "since: unix time (default 24 h ago); decision: only that one; limit 1-200 (default 50). Read-only: "
+                     "since: unix time (default 24 h ago); decision: only that one; limit 1-200 (default 50). "
+                     "id (12.11.): only that fast_check, any age (the id submit_watch_token returned), with its state "
+                     "(in progress, done, CHECK_FAILED) and x_calls (the X call that asked for it). Read-only: "
                      "give your opinion with submit_signal_opinion."),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "integer", "minimum": 0},
          "decision": {"type": "string", "enum": ["BUY_PAPER", "BUY_LIVE", "SKIP", "CHECK_FAILED"]},
-         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+         "id": {"type": "integer", "minimum": 1, "description": "one fast_check id (submit_watch_token's fast_check.id)"}}}})
+# 12.11. (Jure, nalog točke 1 i 2, fast/xcall.py + fast/xscalp.py): Grok's X calls onto the watch list at once with a
+# fast_check, and the paper strategy x_call_scalp's record per author class. Neither tool trades.
+_ENG = {"type": "integer", "minimum": 0, "maximum": 100_000_000_000}
+TOOLS += [
+    {"name": "submit_watch_token",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+     "description": ("Put a token an X account just called on MemeSonar's watch list and run its fast_check AT ONCE "
+                     "(rug, holders, flow, price / market cap / liquidity, the author's own caller record). Buys "
+                     "nothing. mint: Solana token address (base58); source: x_call; author: the X handle; followers; "
+                     "post_id (digits, or the post's status URL); post_ts: unix seconds of the post (at most 24 h old); "
+                     "engagement_baseline: {likes, replies, reposts, views} at the moment you send it (views optional); "
+                     "velocity: interactions (likes + replies + reposts) per minute since the post (omitted: computed "
+                     "from engagement_baseline and post_ts). Answers within ~10 s: fast_check {id, state done | "
+                     "in_progress | retrying | failed, decision BUY_PAPER | BUY_LIVE | SKIP | CHECK_FAILED, label, "
+                     "reason, ev_pct, p_tp, market, checks}; still in progress: ask get_fast_checks with id. Also the "
+                     "author class (followers <10k / 10-50k / 50-200k / 200k+ x velocity niska < 2 / srednja 2-20 / "
+                     "visoka >= 20 per min) and x_call_scalp: a PAPER entry at the detection's market cap when no hard "
+                     "block applies (rug hard, honeypot, liquidity < $15k, MC < $30k, bonding curve), measured 65 min "
+                     "(get_x_call_stats); the fast_check decision is only a label, never a trade. The same token and "
+                     "author within 10 min returns the stored call (duplicate). At most 60 calls an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "mint": {"type": "string", "minLength": 32, "maxLength": 44, "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$",
+                  "description": "Solana token mint address"},
+         "source": {"type": "string", "enum": ["x_call"], "default": "x_call"},
+         "author": {"type": "string", "minLength": 1, "maxLength": 16, "description": "X handle of the post's author"},
+         "followers": {"type": "integer", "minimum": 0, "maximum": 1_000_000_000},
+         "post_id": {"type": "string", "maxLength": 200, "description": "X post id (digits) or its status URL"},
+         "post_ts": {"type": "integer", "description": "unix seconds of the post"},
+         "engagement_baseline": {"type": "object", "properties": {"likes": _ENG, "replies": _ENG, "reposts": _ENG,
+                                                                  "views": _ENG},
+                                 "required": ["likes", "replies", "reposts"], "additionalProperties": False},
+         "velocity": {"type": "number", "minimum": 0, "maximum": 10_000_000,
+                      "description": "interactions per minute since the post"}},
+         "required": ["mint", "author", "followers", "post_id", "post_ts", "engagement_baseline"]}},
+    {"name": "get_x_call_stats", "annotations": _READ,
+     "description": ("x_call_scalp's measured record of the X calls sent with submit_watch_token, per author class "
+                     "(followers_band <10k | 10-50k | 50-200k | 200k+ x velocity_band niska | srednja | visoka; class "
+                     "\"10-50k/srednja\"). Per class: n (measured paper entries), hit_rate (+10 % NET of cost before "
+                     "-8 % within 60 min), median_net_pct and ev_net_pct (the trade: +10 % at the target, -8 % - cost "
+                     "at the stop, else the +1 h result), median r15 / r60 net, median max gain before -8 %, dumps "
+                     "(the dev or a top-10 holder sold in the hour) with the median low after the dump, open / pending "
+                     "/ blocked (with the hard block), live_record_ok (n >= 10 and EV net >= +3 %: only then can a "
+                     "candidate of that class be live_eligible in get_trade_candidates). days 1-90 (default 30); "
+                     "limit 0-100 recent calls (default 20). Read-only; prices only from cheap sources MemeSonar "
+                     "already has (no paid API)."),
+     "inputSchema": {"type": "object", "properties": {
+         "followers_band": {"type": "string", "enum": ["<10k", "10-50k", "50-200k", "200k+"]},
+         "velocity_band": {"type": "string", "enum": ["niska", "srednja", "visoka"]},
+         "class": {"type": "string", "description": "followers_band/velocity_band, e.g. 10-50k/srednja"},
+         "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 30},
+         "limit": {"type": "integer", "minimum": 0, "maximum": 100, "default": 20}}}},
+]
+INSTRUCTIONS += (" X calls: when an account you read posts a Solana token, send it with submit_watch_token (mint, "
+                 "author, followers, post_id, post_ts, engagement_baseline, velocity): MemeSonar runs a fast_check at "
+                 "once and records a paper entry for x_call_scalp (never a trade); get_x_call_stats shows the record "
+                 "per author class.")
 # 11.11. (Jure, part D, momentum/evgate.py): the buy gate is an EV with the strategy's TP / SL
 INSTRUCTIONS += (" Buy gate: send execute_trade with p_tp (your probability 0-1 that the take profit comes before the "
                  "stop) and strategy (momentum_scalp: +15 % / -10 % in 45 min; range_dca: the range's zones; other: "
@@ -1581,9 +1640,22 @@ def _tool(name, args, kid="local"):
         d = pview.mcp(args.get("since"), args.get("min_ev"), _truthy(args.get("include_blocked")), args.get("status"),
                       args.get("limit"))
         return d, "error" in d
-    if name == "get_fast_checks":   # 11.11. fast/ (flag fast_path G24), read-only
+    if name == "get_fast_checks":   # 11.11. fast/ (flag fast_path G24), read-only; 12.11.: id
         from fast import view as fview
-        d = fview.mcp(args.get("since"), args.get("decision"), args.get("limit"))
+        d = fview.mcp(args.get("since"), args.get("decision"), args.get("limit"),
+                      ids=args.get("id") if args.get("id") not in (None, "") else args.get("ids"))
+        return d, "error" in d
+    if name == "submit_watch_token":   # 12.11. fast/xcall.py: watch list + fast_check at once, never a trade
+        from fast import xcall
+        try:
+            d = xcall.submit(args, kid=f"mcp:{kid}")
+        except ValueError as e:
+            d = {"error": str(e)}
+        return d, "error" in d
+    if name == "get_x_call_stats":   # 12.11. fast/xscalp.py (flag x_call_scalp), read-only
+        from fast import xscalp
+        d = xscalp.stats(args.get("followers_band"), args.get("velocity_band"), args.get("class"), args.get("days"),
+                         args.get("limit"))
         return d, "error" in d
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc
