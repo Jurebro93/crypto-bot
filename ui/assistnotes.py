@@ -253,6 +253,19 @@ def submit_suggestion(con, kid, title, interpretation=None, improvement=None, ev
     pc = _json(proposed_change, "proposed_change")
     if pc and not isinstance(json.loads(pc), dict):
         raise ValueError("proposed_change must be one JSON object, e.g. {\"key\": \"sl_default\", \"from\": 60, \"to\": 40}")
+    d = json.loads(pc) if pc else None
+    if isinstance(d, dict) and isinstance(d.get("insider_label"), dict):
+        # 12.11. (owner: three insider labels failed on "Primijeni označene": the wallet was no full address): checked
+        # on arrival, a shortened address resolved when exactly one pre-call wallet matches, else the assistant hears it
+        from kol import precall
+        try:
+            w, _lab, _note = precall.parse_label(d["insider_label"])
+        except ValueError as e:
+            raise ValueError(f"insider_label: {e}. Send the full wallet address as get_insider_candidates lists it.") \
+                from None
+        if w != d["insider_label"].get("wallet"):
+            d["insider_label"] = {**d["insider_label"], "wallet": w}
+            pc = json.dumps(d, ensure_ascii=False)
     nid = _insert(con, kid, kind="suggestion", title=_text(title, "title", need=True, cap=TITLE_MAX),
                   interpretation=_text(interpretation, "interpretation", need=True),
                   improvement=_text(improvement, "improvement"), evidence=_json(evidence, "evidence"), proposed_change=pc)
@@ -957,6 +970,20 @@ def change_key(pc):
         return f"insider_label.{w}" if w else None
     k = pc.get("key")
     return k if k in APPLY and k != "auto_skip" else None
+
+
+def blocker(pc):
+    """Why this proposed_change cannot be applied as it stands (shown before the tap, the tick left off), or None.
+    12.11.: an insider label whose wallet is no full address and matches no single pre-call wallet."""
+    if isinstance(pc, dict) and isinstance(pc.get("insider_label"), dict):
+        from kol import precall
+        try:
+            precall.parse_label(pc["insider_label"])
+        except ValueError as e:
+            return str(e)
+        except Exception:  # noqa: BLE001 - early.db unreadable: the tap itself says it
+            return None
+    return None
 
 
 def _waiting(con, nid):

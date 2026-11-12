@@ -164,7 +164,12 @@ def main(argv):
         from event_calendar import http   # HTTP cache first: it shares the disk the databases need to work
         free = disk.free_mb() or 0
         n, mb = http.prune(max_mb=100 if free < 250 else None)   # tight disk: the cache gives way to the databases
-        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB", flush=True)
+        try:   # 12.11.: what fills it (TTL class s/m/l/w, rpc, paid Helius and other files from before)
+            b = http.breakdown()
+            left = f"; ostalo {sum(b.values()):.0f} MB (" + ", ".join(f"{k} {v:.0f}" for k, v in b.items()) + ")"
+        except Exception:  # noqa: BLE001 - the line without it
+            left = ""
+        print(f"cache: obrisano {n} datoteka, {mb:.0f} MB{left}", flush=True)
     if "--startup" in argv:
         dbs.startup()
     elif "--hourly" in argv:

@@ -22,7 +22,9 @@ CACHE_DIR = os.environ.get("CAL_CACHE_DIR", os.path.join(os.path.dirname(__file_
 CACHE_TTL = int(os.environ.get("CAL_CACHE_TTL", "21600"))  # 6 h
 # The cache lives on the same small disk as the databases (Render: 1 GB) and grew ~1 GB a day with nothing
 # deleting it. Entries older than the longest TTL in use (a week) are useless; above the size cap the oldest go first.
-CACHE_MAX_MB = float(os.environ.get("CAL_CACHE_MAX_MB", "250"))
+# 12.11. 12:42: 250 -> 120 MB: the expiry by TTL class freed nothing at start-up (the cache at its cap only holds the
+# last hours); over the cap the cheap answers go first, paid Helius ones last (prune)
+CACHE_MAX_MB = float(os.environ.get("CAL_CACHE_MAX_MB", "120"))
 CACHE_MAX_AGE = int(os.environ.get("CAL_CACHE_MAX_AGE", str(7 * 86400)))
 SHORT_LIVED = {"rpc-": 3600}   # wallets/rpc.py caches Helius RPC for 10 min; those files are dead after that
 # 12.11. (Jure: "Očisti cache (oko 250 MB): snapshote i DexScreener/rangedca cache starije od 24 h"): a file's name
@@ -595,9 +597,29 @@ def _limit(path, max_age, age=None):
     return min(LEGACY_MAX_AGE, max_age)
 
 
+def _kind(path):
+    """The file's kind for the log and the eviction order: s / m / l / w (TTL class), rpc, paid (a Helius answer from
+    before 12.11.), stari (another file from before)."""
+    name = os.path.basename(path)
+    if name.startswith("rpc-"):
+        return "rpc"
+    if len(name) > 2 and name[1] == "-" and name[0] in _CLASS_AGE:
+        return name[0]
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        return "paid" if any(m in head for m in PAID_MARKS) else "stari"
+    except OSError:
+        return "stari"
+
+
+EVICT_ORDER = {"rpc": 0, "s": 0, "stari": 0, "m": 1, "l": 2, "w": 3, "paid": 3}   # cheapest to fetch again first
+
+
 def prune(max_mb=None, max_age=None):
-    """Delete cache files older than their limit (_limit: no reader can use them), then the oldest until the cache
-    is under max_mb. Returns (files, MB) removed."""
+    """Delete cache files older than their limit (_limit: no reader can use them); then, while the cache is over
+    max_mb, the cheapest to fetch again first (EVICT_ORDER: short TTL and old-format files, then 6 h, 24 h, finally
+    the week-long and paid Helius answers), oldest first within each. Returns (files, MB) removed."""
     max_mb = CACHE_MAX_MB if max_mb is None else max_mb
     max_age = CACHE_MAX_AGE if max_age is None else max_age
     if not os.path.isdir(CACHE_DIR):
@@ -611,8 +633,10 @@ def prune(max_mb=None, max_age=None):
             pass
     files.sort()
     total, now, gone, freed = sum(f[1] for f in files), time.time(), 0, 0
+    left = []
     for mtime, size, path in files:
-        if total <= max_mb * 1e6 and now - mtime < _limit(path, max_age, now - mtime):
+        if now - mtime < _limit(path, max_age, now - mtime):
+            left.append((mtime, size, path))
             continue
         try:
             os.remove(path)
@@ -620,7 +644,31 @@ def prune(max_mb=None, max_age=None):
             continue
         total -= size
         gone, freed = gone + 1, freed + size
+    if total > max_mb * 1e6:
+        for mtime, size, path in sorted(left, key=lambda f: (EVICT_ORDER.get(_kind(f[2]), 0), f[0])):
+            if total <= max_mb * 1e6:
+                break
+            try:
+                os.remove(path)
+            except OSError:
+                continue
+            total -= size
+            gone, freed = gone + 1, freed + size
     return gone, freed / 1e6
+
+
+def breakdown():
+    """{kind: MB} of what the cache holds now (the hourly log line: what fills it)."""
+    out = {}
+    if not os.path.isdir(CACHE_DIR):
+        return out
+    for e in os.scandir(CACHE_DIR):
+        try:
+            k = _kind(e.path)
+            out[k] = out.get(k, 0.0) + e.stat().st_size / 1e6
+        except OSError:
+            pass
+    return {k: round(v, 1) for k, v in sorted(out.items(), key=lambda kv: -kv[1])}
 
 
 def _write(path, text):

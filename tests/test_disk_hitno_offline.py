@@ -80,6 +80,23 @@ class Cache(unittest.TestCase):
         self.assertEqual(n, len(gone))
         self.assertEqual(sorted(os.listdir(d)), sorted(os.path.basename(p) for p in keep))
 
+    def test_over_the_cap_cheapest_first_paid_last_and_breakdown(self):
+        """12.11. 12:42: the cap 120 MB; over it the short-TTL and old-format answers go first, paid Helius last."""
+        self.assertEqual(http.CACHE_MAX_MB, 120)
+        d, big = http.CACHE_DIR, b"x" * 300_000
+        paid = touch(os.path.join(d, "0" * 40 + ".json"), b'[{"feePayer": "y"}' + big + b"]", age=5 * 3600)  # oldest
+        week = touch(os.path.join(d, "w-a.json"), big, age=4 * 3600)
+        day = touch(os.path.join(d, "l-b.json"), big, age=3 * 3600)
+        six = touch(os.path.join(d, "m-c.json"), big, age=600)
+        short = touch(os.path.join(d, "s-d.json"), big, age=60)
+        old = touch(os.path.join(d, "1" * 40 + ".json"), big, age=3600)
+        b = http.breakdown()
+        self.assertEqual(set(b), {"paid", "w", "l", "m", "s", "stari"})
+        http.prune(max_mb=0.95)                                           # room for 3 of 6
+        left = set(os.listdir(d))
+        self.assertEqual(left, {os.path.basename(p) for p in (paid, week, day)})
+        self.assertFalse(any(os.path.exists(p) for p in (six, short, old)))
+
 
 class Logs(unittest.TestCase):
     def setUp(self):
