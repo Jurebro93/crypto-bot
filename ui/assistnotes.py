@@ -719,6 +719,10 @@ OWNER_FLAG_ORDERS = (
     ("range_missed", "paper", "vlasnik u chatu 11.11.: propušteni tokeni na range listu 72 h, paper po range pravilima"),
     ("fast_path", "paper", "vlasnik u chatu 11.11.: živi kandidati KUPI (paper ako n < 10) — fast_check iz shadowa u paper"),
     ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
+    # 12.11. (Jure: "Uključi live_trades_retention (vlasnik odobrava): tuđi tradeovi stariji od 48 h brišu se nakon
+    # satnog sažetka; naši swapovi i praćeni novčanici ostaju"): ops/retencija part A, deletes only 01-06 Zagreb
+    ("live_trades_retention", "live", "vlasnik u chatu 12.11.: live_trades_retention DA, tuđi tradeovi stariji od 48 h "
+                                      "brišu se noću nakon satnog sažetka; naši swapovi i praćeni novčanici ostaju"),
 )
 
 
