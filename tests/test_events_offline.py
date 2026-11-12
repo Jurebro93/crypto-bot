@@ -372,7 +372,7 @@ class Backfill(Env):
         with mock.patch.object(sources, "BATCH", 7):
             out = sources.backfill(14, NOW, self.econ, log=lambda *a: None, est=est)
         self.assertEqual(out["chain_trades"], est["chain_trades"]["rows"])
-        self.assertEqual(out["chain_transfers"], 50)
+        self.assertNotIn("chain_transfers", out)   # 12.11.: price ticks / transfers are live only, never backfilled
         self.assertFalse(self.events("ts < ?", ((NOW - 14 * DAY) * 1000,)))
         self.assertEqual(sources.backfill(14, NOW, self.econ, log=lambda *a: None, est=est)["chain_trades"], 0)
         self.assertTrue(store.kv_get(self.econ, "backfill"))
@@ -931,3 +931,56 @@ class AutopilotCard(PageBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FeedsNeverStopForSize(Env):
+    """12.11. (owner: "price-tick i wallet-transfer feedovi nemaju događaja od 03:34"): the night's backfill filled
+    events.db over MAX_MB and tight() kept the live price / transfer feeds off all day. Now only a tight DISK stops
+    them; the size is brought back by cutting the wallet feed's copies (to 7 days) and the backfill stops at 80 %."""
+
+    def test_over_max_mb_with_a_free_disk_is_not_tight(self):
+        store._TIGHT.update(at=0.0)
+        with mock.patch.object(store, "used_mb", lambda con=None, path=None: (900.0, 0.0)), \
+                mock.patch.object(store, "free_mb", lambda path=None: 1100.0), \
+                mock.patch.object(store, "size_mb", lambda path=None: 900.0):
+            self.assertTrue(store.over_budget(path=store.db_path()))
+            self.assertFalse(store.disk_tight(path=store.db_path()))
+            self.assertFalse(store.tight())
+        store._TIGHT.update(at=0.0)
+        with mock.patch.object(store, "used_mb", lambda con=None, path=None: (300.0, 0.0)), \
+                mock.patch.object(store, "free_mb", lambda path=None: 200.0):
+            self.assertTrue(store.tight())                                # a full disk still stops them
+        store._TIGHT.update(at=0.0)
+
+    def test_retention_cuts_the_wallet_copies_to_seven_days_when_over_budget(self):
+        rows = [store.row("wallet_buy", NOW - d * DAY, TOK, "chain", W1, key=f"b{d}") for d in range(1, 15)]
+        rows += [store.row("trade", NOW - 13 * DAY, TOK, "trade", "pravi", key="own")]
+        store.insert(self.econ, rows)
+        self.econ.commit()
+        calls = {"n": 0}
+
+        def over(con=None, path=None):
+            calls["n"] += 1
+            return True
+
+        with mock.patch.object(store, "over_budget", over):
+            store.retention(self.econ, NOW, log=lambda *a: None)
+        left = [r[0] for r in self.econ.execute("SELECT ts FROM events WHERE type='wallet_buy'")]
+        self.assertTrue(left and min(left) >= (NOW - 7 * DAY - 60) * 1000)       # nothing older than 7 days
+        self.assertEqual(self.econ.execute("SELECT COUNT(*) FROM events WHERE type='trade'").fetchone()[0], 1)   # ours stay
+
+    def test_the_backfill_stops_at_eighty_percent(self):
+        hc = self.hype()
+        hc.executemany("INSERT INTO chain_trades VALUES (?,?,?,?,?,?)",
+                       [(f"S{i}", W1, TOK, "buy", NOW - 5 * DAY + i * 60, 0.1) for i in range(50)])
+        hc.commit()
+        hc.close()
+        lines = []
+        with mock.patch.object(sources, "BATCH", 5), \
+                mock.patch.object(store, "used_mb", lambda con=None, path=None: (500.0, 0.0)), \
+                mock.patch.object(store, "size_mb", lambda path=None: 0.0), \
+                mock.patch.object(store, "free_mb", lambda path=None: 5000.0):
+            out = sources.backfill(14, NOW, self.econ, log=lines.append)
+        self.assertEqual(out.get("chain_trades"), 5)                              # one batch, then 500 >= 0.8 x 600
+        self.assertTrue(any("zaustavljen" in ln for ln in lines))
+
