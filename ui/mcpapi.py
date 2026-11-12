@@ -427,6 +427,7 @@ def set_exit_plan(token, plan, kid="mcp"):
         # 11.11.: per account whether the plan sells live (the real account) or paper, and why (league/exitplan)
         out["execution"] = {u: exitplan.execution(u, exitplan._lots(lcon, u, tok)) for u in out.get("stop_price") or {}}
         out["exit_plan_live"] = settings.flag("exit_plan_live", con=tcon)
+        out["summary"] = exitplan.describe(out["plan"])   # 12.11.: the plan in one line, the new fields included
         return out
     finally:
         lcon.close()
@@ -771,7 +772,12 @@ TOOLS = [
                      "executed at once ONLY while the owner has switched grok_autotrade on (get_portfolio_status shows "
                      "it and the limits left today); buys within Grok's own limits (grok_max_sol_per_trade, "
                      "grok_max_sol_per_day, grok_max_open; after grok_max_loss_day it pauses until midnight Zagreb) "
-                     "and after a fresh rug and liquidity check; sells of any open position, any share. Answer: "
+                     "and after a fresh rug and liquidity check; sells of any open position, any share. 12.11.: the "
+                     "same token may be bought again after its position closed (a new round) and DCA'd while your SOL "
+                     "in it stays <= dca_token_cap (0.3); at most max_round_trips_per_token_day rounds per token per "
+                     "Zagreb day (a round starts with a buy while you hold no open position in it; a DCA lot is not a "
+                     "new round) and no buy of a token after 2 stop-outs in it that day (get_portfolio_status "
+                     "grok_autotrade.tokens_today). Answer: "
                      "status executed (with tx_signature when the swap landed in the wait, else tx_status submitted) "
                      "or rejected with the reason. side 'buy': amount in SOL; side 'sell': amount as a share of the "
                      "open position (0.25 = 25 %, 1 = all). reason: one line for the owner. "
@@ -1007,7 +1013,14 @@ TOOLS += [
                      "up to at most 1, each fires once), trailing {activate_pct, trail_pct} (from +activate_pct, sell "
                      "all at -trail_pct from the peak after the activation), stop {at_pct OR at_mc_usd} (hard stop: may "
                      "only be TIGHTENED, never looser than the current stop nor than sl_default), time_stop "
-                     "{after_min, if_pnl_below_pct} (counted from the last entry), reason (one line). Runs under the "
+                     "{after_min, if_pnl_below_pct} (counted from the last entry; GROSS: price vs the average entry), "
+                     "time_stop_min + min_profit_pct (12.11.: from time_stop_min minutes after the last entry on, sell "
+                     "everything whenever the result NET of the round-trip cost, trade/cost.round_trip = 2 x fee a side "
+                     "+ 2 x pool impact of the stake, is under min_profit_pct %; default 0 = break-even after cost; "
+                     "trigger time_stop_min), max_stop_pct (12.11.: the widest stop this plan accepts, percent below "
+                     "the average entry, e.g. 12 = never wider than -12 %: a wider stop in the plan is rejected with "
+                     "the numbers; without a stop the plan gets -max_stop_pct when that is tighter than the stop it "
+                     "would keep; sl_default still holds on top), reason (one line). Runs under the "
                      "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
                      "one; live = both. The owner's switch exit_plan_live (live = on) executes a plan on the REAL "
                      "account for a Grok autotrade position (every lot bought by your execute_trade "
@@ -1028,11 +1041,18 @@ TOOLS += [
              "stop": {"type": "object", "properties": {"at_pct": {"type": "number"}, "at_mc_usd": {"type": "number"}}},
              "time_stop": {"type": "object", "properties": {"after_min": {"type": "number"},
                                                             "if_pnl_below_pct": {"type": "number"}}},
+             "time_stop_min": {"type": "number", "minimum": 1, "maximum": 10080,
+                               "description": "minutes after the last entry; then out unless min_profit_pct NET"},
+             "min_profit_pct": {"type": "number", "default": 0,
+                                "description": "percent NET of the round-trip cost (needs time_stop_min)"},
+             "max_stop_pct": {"type": "number", "minimum": 1, "maximum": 99,
+                              "description": "the widest stop accepted, percent below the average entry (12 = -12 %)"},
              "reason": {"type": "string"}}}},
          "required": ["token_address", "plan"]}},
     {"name": "get_exit_events", "annotations": _READ,
      "description": ("Executed exit-plan triggers since since_ts (unix s), newest first: plan_id, account, token, "
-                     "trigger (tp1, tp2, trailing, stop, time_stop), price, market cap, share sold, PnL in USD of the "
+                     "trigger (tp1, tp2, trailing, stop, time_stop, time_stop_min), price, market cap, share sold, PnL in "
+                     "USD of the "
                      "demo side, mode (izvršeno = executed, sjena = logged only), stale (the price was older than 60 s), "
                      "and the real sell's cost/slippage %, tx signature and status when it landed."),
      "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},

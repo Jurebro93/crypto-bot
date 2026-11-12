@@ -49,7 +49,22 @@ LIMITS = {   # key: (default, label, lo, hi)
     "grok_max_sol_per_day": (0.3, "Grok: najviše SOL kupnji u danu", 0.01, 5.0),
     "grok_max_open": (3, "Grok: najviše otvorenih pozicija", 1, 10),
     "grok_max_loss_day": (0.15, "Grok: dnevni gubitak nakon kojeg staje do ponoći (SOL)", 0.01, 2.0),
+    # 12.11. (owner's order point 4): rounds in ONE token per Zagreb day (round_info: a round = a buy while Grok holds
+    # no open position in the token; a DCA lot into the open one is not a new round). Not a money cap: no "grok_"
+    # prefix, so trade/executor.LIVE_CAPS (Grok's money limits) stays as it is
+    "max_round_trips_per_token_day": (3, "Grok: najviše krugova (kupnja → izlaz) u istom tokenu u danu", 1, 20),
 }
+INT_LIMITS = ("grok_max_open", "max_round_trips_per_token_day")
+# 12.11. (owner's order point 4): after this many stop-outs in one token in a Zagreb day, no new buy of it that day
+MAX_STOP_OUTS_DAY = 2
+# what closes a lot by a STOP (league trades exit_rule / note): the Autopilot's SL ("auto SL …" -> sl), the Smart sell's
+# own stop (smart_sl), a stop the grace turned into a rug (rug) and an exit plan's hard stop ("plan izlaza: plan_stop",
+# stored as exit_rule manual because plan_* is not in league/store.EXIT_RULES)
+STOP_RULES = ("sl", "smart_sl", "rug")
+STOP_NOTES = ("auto SL", "plan izlaza: plan_stop")
+REAL_FIRST_S = 120   # a real position closed this long before its demo lot was sold first (a sell button / Grok's sell)
+ROUND_KEY = "grok_round_marks"   # trade settings {league trade id: "new" | "dca"}: what each Grok buy opened (last 300)
+
 TX_WAIT_S = float(os.environ.get("GROK_TX_WAIT_S", "20"))   # how long execute_trade waits for the swap's signature
 TZ = "Europe/Zagreb"
 
@@ -67,7 +82,7 @@ def limits(tcon):
             v = float(raw.get(k, d))
         except (TypeError, ValueError):
             v = d
-        out[k] = int(v) if k == "grok_max_open" else v
+        out[k] = int(v) if k in INT_LIMITS else v
         if not lo <= out[k] <= hi:
             out[k] = d
     return out
@@ -81,7 +96,7 @@ def set_limits(tcon, form, who):
         v = float(str(form[k]).replace(",", "."))
         if not lo <= v <= hi:
             raise ValueError(f"{lab}: mora biti {lo:g}-{hi:g}")
-        settings.put(tcon, k, int(v) if k == "grok_max_open" else round(v, 4), who)
+        settings.put(tcon, k, int(v) if k in INT_LIMITS else round(v, 4), who)
 
 
 def state(tcon, now=None):
@@ -158,6 +173,137 @@ def remaining(tcon, now=None, lcon=None):
             "open_slots": max(0, lim["grok_max_open"] - u["open"]),
             "loss_left_sol": round(max(0.0, lim["grok_max_loss_day"] + min(0.0, u["pnl_sol"])), 6),
             "used": u}
+
+
+def _mark_round(tcon, tid, new):
+    marks = dict(settings.raw(tcon).get(ROUND_KEY) or {})
+    marks[str(tid)] = "new" if new else "dca"
+    settings.put(tcon, ROUND_KEY, dict(list(marks.items())[-300:]), CLIENT)
+
+
+def _stop_exit(rule, note):
+    n = note or ""
+    return (rule or "") in STOP_RULES or n.startswith(STOP_NOTES)
+
+
+def _lot_end(lot, real):
+    """(closed at, closed by a stop) of one Grok lot, None while it is open. The demo lot is the book the exits run on
+    (league auto TP/SL, the exit plan); run_trade sells the real position seconds after it closes. A real position
+    sold FIRST (a sell button, Grok's execute_trade sell, Prodaj sve: the demo lot stays open) ends the lot when the
+    real one closed, and that is no stop-out."""
+    lc = lot["closed_ts"] if lot.get("status") == "closed" else None
+    rc = real[1] if real and real[0] == "closed" else None
+    if lc is not None and not (rc is not None and rc < lc - REAL_FIRST_S):
+        return lc, _stop_exit(lot.get("exit_rule"), lot.get("note"))
+    if rc is not None:
+        return rc, False
+    return None, False
+
+
+def round_info(tcon, lcon, token, now=None):
+    """12.11. (owner's order point 4: "više krugova na istom tokenu"): Grok autotrade's rounds in one token.
+    A lot = one Grok autotrade buy (league trades of the real-trade account, source SRC). A ROUND starts with a lot
+    bought while no earlier Grok lot of the token is open; a lot bought while one is open is a DCA lot of that round.
+    A round ends when its last lot closes (_lot_end) and is a STOP-OUT when that last close was a stop (STOP_RULES /
+    STOP_NOTES; a time stop, TP, trailing or a sale is not). Zagreb day as Grok's other day limits: a round counts on
+    the day it STARTED, a stop-out on the day it HAPPENED.
+    {"open": a round is open now, "rounds_today", "stop_outs_today", "rounds": [{start, end, stop, lots}]}."""
+    now = now or time.time()
+    start = _day_start(now)
+    try:
+        lots = [dict(r) for r in lcon.execute("SELECT * FROM trades WHERE user=? AND token=? AND source=? "
+                                              "ORDER BY opened_ts, id", (settings.LEAGUE_USER, token, SRC))]
+    except Exception:  # noqa: BLE001 - no league tables yet: no rounds
+        lots = []
+    real = {}
+    if lots:
+        ids = [t["id"] for t in lots]
+        for lid, st, cts in tcon.execute(f"SELECT league_id, status, closed_ts FROM positions WHERE league_id IN "
+                                         f"({','.join('?' * len(ids))}) ORDER BY id", ids):
+            real[lid] = (st, cts)
+    marks = settings.raw(tcon).get(ROUND_KEY) or {}
+    rounds = []
+    for t in lots:
+        end, stop = _lot_end(t, real.get(t["id"]))
+        cur = rounds[-1] if rounds else None
+        mark = marks.get(str(t["id"]))   # what the buy itself saw (exact); older lots: their times
+        if cur is None or (mark == "new" if mark in ("new", "dca")
+                           else cur["end"] is not None and cur["end"] <= (t["opened_ts"] or 0)):
+            rounds.append({"start": t["opened_ts"] or 0, "end": end, "stop": stop, "lots": [t["id"]],
+                           "_ends": [(end, stop)]})
+            continue
+        cur["lots"].append(t["id"])
+        cur["_ends"].append((end, stop))
+        if any(e is None for e, _s in cur["_ends"]):
+            cur["end"], cur["stop"] = None, False
+        else:
+            last = max(e for e, _s in cur["_ends"])
+            cur["end"], cur["stop"] = last, any(s for e, s in cur["_ends"] if e == last)
+    for r in rounds:
+        r.pop("_ends", None)
+    return {"open": bool(rounds) and rounds[-1]["end"] is None,
+            "rounds_today": sum(1 for r in rounds if r["start"] >= start),
+            "stop_outs_today": sum(1 for r in rounds if r["stop"] and r["end"] is not None and r["end"] >= start),
+            "rounds": rounds}
+
+
+def round_block(tcon, lcon, token, amount, now=None):
+    """12.11.: (English reason for MCP, Croatian for the page and the log) when the round rules refuse this buy, else
+    None: MAX_STOP_OUTS_DAY stop-outs in the token today (any buy, a DCA too), or a NEW round over
+    max_round_trips_per_token_day. Grok's SOL in the token (dca_token_cap) is checked by token_cap_block."""
+    ri = round_info(tcon, lcon, token, now)
+    lim = limits(tcon)["max_round_trips_per_token_day"]
+    if ri["stop_outs_today"] >= MAX_STOP_OUTS_DAY:
+        return ((f"{ri['stop_outs_today']} stop-outs in this token today (Zagreb day): after {MAX_STOP_OUTS_DAY} "
+                 "no new buy of it until midnight Zagreb"),
+                (f"{ri['stop_outs_today']} izlaza stopom u ovom tokenu danas: nakon {MAX_STOP_OUTS_DAY} nova kupnja tog "
+                 "tokena tek sutra (zagrebački dan)"))
+    if not ri["open"] and ri["rounds_today"] >= lim:
+        return ((f"max_round_trips_per_token_day: {ri['rounds_today']} rounds in this token today (Zagreb day), at "
+                 f"most {lim}; a round starts with a buy while you hold no open position in the token (a DCA into an "
+                 "open one is not a new round)"),
+                (f"najviše {lim} krugova u istom tokenu u danu: danas ih je već {ri['rounds_today']} (krug počinje "
+                 "kupnjom kad Grok u tokenu nema otvorenu poziciju; dokup u otvorenu nije novi krug)"))
+    return None
+
+
+def token_cap_block(tcon, lcon, token, amount):
+    """12.11.: (English, Croatian) when this buy would put more than dca_token_cap SOL in the token (what is still held
+    on the account the buy goes to, a fresh lot run_trade has not mirrored yet included: pravitrade.held_sol_now),
+    else None. ui/pravitrade._grok_rules refuses the same again on the buy path (also for approved requests)."""
+    from ui import pravitrade
+    cap = float(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)
+    held = pravitrade.held_sol_now(lcon, tcon, token)
+    if held + amount > cap + 1e-9:
+        return ((f"dca_token_cap: {held:.3f} SOL already in this token + {amount:g} = {held + amount:.3f}, at most "
+                 f"{cap:g} SOL per token"),
+                (f"u tokenu bi bilo {held + amount:.3f} SOL (otvoreno {held:.3f} + {amount:g}), najviše {cap:g} SOL po "
+                 "tokenu (Grokov limit)"))
+    return None
+
+
+def close_stale(tcon, lcon, token, price, liq, mcap=None):
+    """12.11. ("otvori, zatvori, ponovno otvori"): Grok's open demo lots in the token whose real position is already
+    closed (sold by a button or by Grok's execute_trade sell: the demo lot stays open) are closed on the demo book
+    before a new round, so the new round's exit (average entry, TP/SL, plan) is its own. Only demo bookkeeping: their
+    real position is closed, run_trade has nothing left to sell. Returns how many lots were closed."""
+    from league import store as lstore
+    lots = lcon.execute("SELECT id FROM trades WHERE user=? AND token=? AND source=? AND status='open'",
+                        (settings.LEAGUE_USER, token, SRC)).fetchall()
+    n = 0
+    for (lid,) in lots:
+        r = tcon.execute("SELECT status FROM positions WHERE league_id=? ORDER BY id DESC LIMIT 1", (lid,)).fetchone()
+        if not r or r[0] != "closed":
+            continue
+        try:
+            lstore.sell(lcon, settings.LEAGUE_USER, lid, price, liq, "Grok auto: pravi račun već prodan (novi krug)",
+                        mcap=mcap, exit_rule="manual")
+            n += 1
+        except ValueError:
+            pass
+    if n:
+        print(f"grok auto: {token[:6]} {n} demo lot(a) zatvoreno (pravi račun već prodan), novi krug", flush=True)
+    return n
 
 
 def maybe_pause(tcon, now=None, lcon=None):
@@ -304,9 +450,10 @@ def execute(body, now=None, wait_s=None, market=None):
                          "Autopilot page); send require_approval=true to queue the trade for the owner"}
         row = {"ts": int(now), "side": side, "token": tok, "amount": amount, "reason": reason}
 
-        def reject(why, code=409):
-            _log(tcon, dict(row, status="rejected", why=why))
-            print(f"grok auto: odbijeno {side} {tok[:6]} {amount:g}: {why}", flush=True)
+        def reject(why, code=409, hr=None):
+            # 12.11.: why = the MCP's English reason; hr = the same in Croatian for the page and the log
+            _log(tcon, dict(row, status="rejected", why=why, **({"why_hr": hr} if hr else {})))
+            print(f"grok auto: odbijeno {side} {tok[:6]} {amount:g}: {hr or why}", flush=True)
             return code, {"status": "rejected", "reason": why}
         lcon = lstore.connect()
         try:
@@ -342,6 +489,11 @@ def execute(body, now=None, wait_s=None, market=None):
                 _league_ids(tcon))}
             if tok not in held and u["open"] >= lim["grok_max_open"]:
                 return reject(f"{u['open']} Grok positions open, at most {lim['grok_max_open']} (grok_max_open)")
+            # 12.11. (owner's order point 4): more rounds in one token (open, close, open again, DCA lots) within
+            # max_round_trips_per_token_day, none after MAX_STOP_OUTS_DAY stop-outs, the token at most dca_token_cap
+            for blk in (round_block(tcon, lcon, tok, amount, now), token_cap_block(tcon, lcon, tok, amount)):
+                if blk:
+                    return reject(blk[0], hr=blk[1])
             why, risk = safety_ex(tok, market)
             if why:
                 return reject(f"safety check failed: {why}")
@@ -365,6 +517,11 @@ def execute(body, now=None, wait_s=None, market=None):
                 if g.get("reject"):
                     evgate_mark(cal_id, "rejected")
                     return reject(g["reject"])
+            opening = not round_info(tcon, lcon, tok, now)["open"]
+            if opening:   # 12.11.: a new round starts from its own entry
+                m = ((market or copy.market)({tok}) or {}).get(tok)
+                if m and m[0]:
+                    close_stale(tcon, lcon, tok, m[0], m[1], m[3] if len(m) > 3 else None)
             before = lcon.execute("SELECT COALESCE(MAX(id), 0) FROM trades").fetchone()[0]
             tp, sl = pravitrade._last_exit(pravitrade._cfg(tcon))
             ex = ((g or {}).get("levels") or {}).get("exit")
@@ -379,7 +536,9 @@ def execute(body, now=None, wait_s=None, market=None):
             evgate_mark(cal_id, "executed")
             tid = lcon.execute("SELECT MAX(id) FROM trades WHERE user=? AND token=? AND id>?",
                                (settings.LEAGUE_USER, tok, before)).fetchone()[0]
-            _log(tcon, dict(row, status="executed", league_id=tid))
+            if tid:
+                _mark_round(tcon, tid, opening)
+            _log(tcon, dict(row, status="executed", league_id=tid, round="new" if opening else "dca"))
             left = remaining(tcon, now, lcon)
             notify(f"Grok auto KUPNJA {tok[:6]}… za {amount:g} SOL. Razlog: {reason or '—'}. Danas još "
                    f"{left['sol_today']:g} SOL, slobodnih mjesta {left['open_slots']}.")
@@ -438,4 +597,23 @@ def portfolio_part(tcon, now=None):
         out["remaining_today"] = remaining(tcon, now)
     except Exception as e:  # noqa: BLE001
         out["remaining_today"] = {"error": type(e).__name__}
+    # 12.11. (owner's order point 4): per token Grok bought today, its rounds and stop-outs (Zagreb day)
+    out["round_rules"] = (f"a round starts with a buy while you hold no open position in the token (a DCA lot into the "
+                          f"open one is not a new round); at most max_round_trips_per_token_day rounds per token per "
+                          f"Zagreb day; after {MAX_STOP_OUTS_DAY} stop-outs in a token no buy of it until midnight "
+                          "Zagreb; your SOL in one token at most dca_token_cap")
+    try:
+        start = _day_start(now or time.time())
+        toks = {r.get("token") for r in log_rows(tcon, 300) if r.get("side") == "buy" and r.get("status") == "executed"
+                and (r.get("ts") or 0) >= start and r.get("token")}
+        if toks:
+            from league import store as lstore
+            lcon = lstore.connect()
+            try:
+                out["tokens_today"] = {t: {k: v for k, v in round_info(tcon, lcon, t, now).items() if k != "rounds"}
+                                       for t in sorted(toks)}
+            finally:
+                lcon.close()
+    except Exception as e:  # noqa: BLE001
+        out["tokens_today"] = {"error": type(e).__name__}
     return out

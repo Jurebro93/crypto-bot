@@ -453,7 +453,8 @@ class GrokAutotrade(GrokBase):
         # Grok's limits are untouched: 0,1 / 0,3 / 3 / 0,15
         self.assertEqual(grokauto.LIMITS, limits0)
         self.assertEqual(grokauto.limits(self.con), {"grok_max_sol_per_trade": 0.1, "grok_max_sol_per_day": 0.3,
-                                                     "grok_max_open": 3, "grok_max_loss_day": 0.15})
+                                                     "grok_max_open": 3, "grok_max_loss_day": 0.15,
+                                                     "max_round_trips_per_token_day": 3})   # 12.11.
 
     def test_a_looser_stop_from_the_owners_last_exit_gives_grok_the_default(self):
         # 11.11.: Grok's buy takes the owner's last exit; a stop looser than the default is the program's, so Grok's
