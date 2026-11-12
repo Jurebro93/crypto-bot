@@ -7,6 +7,11 @@ The path: the minute data we already keep, merged per minute by events/predictio
 minute.db call candles, range.db snapshots and seed candles, hype.db token_pulse), plus momentum.db snapshots and
 proposals.db px (the pass's own market reads and its capped DexScreener batch). No paid call. A horizon with no
 point at all is "nema podataka" (UNAVAILABLE_S after it ended); TP and SL in the same minute count as SL.
+
+12.11. (Jure, točka 4): a horizon measured on fewer than rangedca/missed.MIN_POINTS (3) minutes is marked "reliable":
+false, "quality": "nepouzdano": for an expired or rejected proposal (the missed opportunity) it is no missed rise
+(rangedca/missed), and the list shows the word instead of its numbers (proposals/view). Every stored horizon carries
+n_points, so the ones measured before 12.11. are read alike.
 """
 import json
 import sqlite3
@@ -72,9 +77,13 @@ def score(cs, px0, t0, secs, tp, sl, cost):
     hi, lo = max(c[2] for c in seg), min(c[3] for c in seg)
     first = predictions.first_touch(seg, px0, tp * 100, sl * 100)
     ret = tp if first == "tp" else -sl if first == "sl" else seg[-1][4] / px0 - 1
-    return {"status": "ok", "max_gain_pct": round((hi / px0 - 1) * 100, 2), "max_dd_pct": round((lo / px0 - 1) * 100, 2),
-            "first": first, "ret_pct": round((ret - cost) * 100, 2), "n_points": len(seg),
-            "coverage": round(min(1.0, len(seg) / (secs / 60)), 3)}
+    from rangedca import missed
+    out = {"status": "ok", "max_gain_pct": round((hi / px0 - 1) * 100, 2), "max_dd_pct": round((lo / px0 - 1) * 100, 2),
+           "first": first, "ret_pct": round((ret - cost) * 100, 2), "n_points": len(seg),
+           "coverage": round(min(1.0, len(seg) / (secs / 60)), 3), "reliable": len(seg) >= missed.MIN_POINTS}
+    if not out["reliable"]:   # 12.11. (Jure, točka 4)
+        out["quality"] = missed.UNRELIABLE
+    return out
 
 
 def exit_sim(cs, entry_px, t0, plan, supply=None, t_end=None):

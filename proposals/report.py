@@ -9,6 +9,12 @@ and the momentum universe (momentum.db snapshots: the day's highest market cap o
 strategy whether it saw the token (proposed it), nearly did (seen: blocked or EV <= 0, with the reason; momentum also
 a token it watched without a signal) or never saw it. Stored in proposals.db reports (get_proposals "report") and as
 log lines.
+
+12.11. (Jure, točka 4: "kad token ima manje od 3 točke cijene u prozoru, označi rezultat kao 'nepouzdano' i ne
+računaj ga u statistiku propuštenih"): a momentum riser seen in fewer than 3 snapshots of the day is no missed riser
+(missed_risers_unreliable counts them; the scanner's 24 h change is DexScreener's own number, no points of ours), and
+a proposal through its zone whose hypothetical lot had fewer than 3 minutes of prices after the entry is "propušten
+ulaz" with quality "nepouzdano": no outcome, not in the outcome counts or the average (unreliable counts them).
 """
 import datetime as dt
 import json
@@ -42,8 +48,11 @@ def _summ(ps):
             "ev_expected_pct": round(sum(p.get("ev_pct") or 0 for p in ps) / len(ps), 2) if ps else None}
 
 
-def risers(now, start, scan_con=None, mom_con=None):
-    """[{"token", "symbol", "rise_x", "mcap", "from"}] of the day, mcap >= 30k, rise >= RISE_MIN_X, biggest first."""
+def risers(now, start, scan_con=None, mom_con=None, thin=None):
+    """[{"token", "symbol", "rise_x", "mcap", "from"}] of the day, mcap >= 30k, rise >= RISE_MIN_X, biggest first.
+    12.11. (Jure, točka 4): a momentum rise read from fewer than 3 snapshots of the day is nepouzdano: not a riser;
+    thin (a list) gets those risers (with "n_points") for the count."""
+    from rangedca import missed as rmissed
     by = {}
     own_s = scan_con is None
     try:
@@ -73,7 +82,7 @@ def risers(now, start, scan_con=None, mom_con=None):
         mom_con = None
     if mom_con is not None:
         try:
-            lo, best, last = {}, {}, {}
+            lo, best, last, pts = {}, {}, {}, {}
             for tok, mc in mom_con.execute("SELECT token, mcap FROM snaps WHERE ts >= ? AND ts <= ? AND mcap > 0 ORDER BY "
                                            "token, ts", (int(start), int(now))):
                 lo[tok] = min(lo.get(tok, mc), mc)
@@ -81,7 +90,13 @@ def risers(now, start, scan_con=None, mom_con=None):
                 if mc >= MIN_MCAP and x > best.get(tok, (0, 0))[0]:
                     best[tok] = (x, mc)
                 last[tok] = mc
+                pts[tok] = pts.get(tok, 0) + 1
             for tok, (x, mc) in best.items():
+                if x >= RISE_MIN_X and rmissed.unreliable(pts.get(tok)):   # 12.11.: too few snapshots for a rise
+                    if thin is not None and tok not in by:
+                        thin.append({"token": tok, "symbol": None, "rise_x": round(x, 2), "mcap": mc,
+                                     "from": "momentum svemir (dan)", "n_points": pts.get(tok)})
+                    continue
                 if x >= RISE_MIN_X and x > (by.get(tok) or {}).get("rise_x", 0):
                     by[tok] = {"token": tok, "symbol": (by.get(tok) or {}).get("symbol"), "rise_x": round(x, 2), "mcap": mc,
                                "from": "momentum svemir (dan)"}
@@ -118,8 +133,8 @@ def _momentum_seen(tokens, start, mom_con=None):
             mom_con.close()
 
 
-def missed(con, rs, day, start, mom_con=None):
-    """The risers we did not propose, each with per strategy vidio / skoro / nikad."""
+def missed(con, rs, day, start, mom_con=None, limit=RISERS):
+    """The risers we did not propose, each with per strategy vidio / skoro / nikad (at most `limit`)."""
     toks = [r["token"] for r in rs]
     if not toks:
         return []
@@ -147,7 +162,7 @@ def missed(con, rs, day, start, mom_con=None):
             else:
                 per[k] = "nikad"
         out.append({**r, "strategies": per})
-        if len(out) >= RISERS:
+        if len(out) >= limit:
             break
     return out
 
@@ -169,9 +184,12 @@ def daily(now=None, path=None, lcon=None, scan_con=None, mom_con=None):
             proof = paper.proof(lcon)
         except Exception:  # noqa: BLE001
             proof = {}
-        rs = risers(now, start, scan_con, mom_con)
+        thin = []
+        rs = risers(now, start, scan_con, mom_con, thin)
         rep = {"day": day, "ts": now, "all": _summ(ps), "per_strategy": per, "paper": proof,
                "reject_reasons": reasons, "missed_risers": missed(con, rs, day, start, mom_con),
+               # 12.11. (Jure, točka 4): the risers we did not propose seen in fewer than 3 snapshots (not listed)
+               "missed_risers_unreliable": len(missed(con, thin, day, start, mom_con, len(thin))) if thin else 0,
                "how": ("hit = TP prije SL-a u 4 h od prijedloga; EV = izmjereni rezultat trejda po izlazu prijedloga "
                        "nakon troška (TP -> +TP, SL -> -SL, ništa -> zatvaranje); paper = demo račun (ret > 0)")}
         con.execute("INSERT OR REPLACE INTO reports VALUES (?,?,?)", (day, now, json.dumps(rep, ensure_ascii=False)))
@@ -221,6 +239,10 @@ def lines(rep):
             "nijedna strategija ga nije vidjela"
         out.append(f"  Propušten rast: {m.get('symbol') or m['token'][:6]} {m['rise_x']:.1f}x (MC ${m.get('mcap') or 0:,.0f}, "
                    f"{m['from']}): {saw}.")
+    if rep.get("missed_risers_unreliable"):   # 12.11. (Jure, točka 4)
+        from rangedca import missed as rmissed
+        out.append(f"  Propušten rast, {rmissed.note(rep['missed_risers_unreliable'])} u snimkama dana: "
+                   "nije na popisu.")
     return out
 
 
@@ -348,10 +370,17 @@ def zone_miss_one(p, cs, now, taken, rounds, lcon=None, user=None, cooldown_s=12
     if lcon is not None and user and _held_at(lcon, user, p["token"], t_in):
         out["kind"] = "skipped_held"
         return out
-    first, gross, _m = outcomes.exit_sim(cs, entry[4], entry[0], r.get("exit_plan") or {}, supply,
-                                         min(int(now), t_in + MISS_HORIZON_S))
+    t_end_sim = min(int(now), t_in + MISS_HORIZON_S)
+    # 12.11. (Jure, točka 4): the minutes of prices the hypothetical lot is followed on (exit_sim's own walk); fewer
+    # than 3 = its outcome is nepouzdano: kept as a missed entry, no outcome, in no outcome count or average
+    from rangedca import missed as rmissed
+    n_pts = sum(1 for c in cs if entry[0] < c[0] <= t_end_sim)
+    if rmissed.unreliable(n_pts):
+        out.update(kind="missed", n_points=n_pts, quality=rmissed.UNRELIABLE)
+        return out
+    first, gross, _m = outcomes.exit_sim(cs, entry[4], entry[0], r.get("exit_plan") or {}, supply, t_end_sim)
     cost = tcost.round_trip(float(p.get("size_sol") or 0.1) * (sol_usd or _sol_usd()), p.get("liq0") or r.get("liq0"))
-    out.update(kind="missed", outcome=first, ret_pct=round((gross - cost) * 100, 2))
+    out.update(kind="missed", outcome=first, ret_pct=round((gross - cost) * 100, 2), n_points=n_pts)
     return out
 
 
@@ -410,12 +439,13 @@ def zone_misses(now=None, hours=ZONE_HOURS, path=None, con=None, econ=None, lcon
 
 
 def _agg(rs):
-    miss = [r for r in rs if r["kind"] == "missed"]
+    miss = [r for r in rs if r["kind"] == "missed" and not r.get("quality")]   # 12.11.: nepouzdano apart
     rets = [r["ret_pct"] for r in miss if r.get("ret_pct") is not None]
     return {"n": len(rs), **{k: sum(1 for r in rs if r["kind"] == k) for k in KINDS},
             "paper_outside_zone": sum(1 for r in rs if r["kind"] == "paper" and r.get("paper_in_zone") is False),
             "outcomes": {o: sum(1 for r in miss if r["outcome"] == o) for o in OUT_HR},
-            "avg_ret_pct": round(sum(rets) / len(rets), 2) if rets else None}
+            "avg_ret_pct": round(sum(rets) / len(rets), 2) if rets else None,
+            "unreliable": sum(1 for r in rs if r["kind"] == "missed" and r.get("quality"))}
 
 
 def summarize(rows, now, hours=ZONE_HOURS):
@@ -425,7 +455,8 @@ def summarize(rows, now, hours=ZONE_HOURS):
     miss = sorted([r for r in rows if r["kind"] == "missed"], key=lambda r: -(r["first_in_zone_ts"] or 0))
     return {"ts": int(now), "hours": hours, **_agg(rows), "per_strategy": {k: _agg(v) for k, v in sorted(by.items())},
             "list": [{k: r.get(k) for k in ("id", "token", "symbol", "strategy", "zone", "sl", "first_in_zone_ts",
-                                            "first_in_zone_mc", "outcome", "ret_pct")} for r in miss[:MISS_LIST * 3]],
+                                            "first_in_zone_mc", "outcome", "ret_pct", "n_points", "quality")}
+                     for r in miss[:MISS_LIST * 3]],
             "skipped": [{k: r.get(k) for k in ("id", "token", "symbol", "strategy", "kind", "zone", "first_in_zone_ts",
                                                "first_in_zone_mc")}
                         for r in rows if r["kind"] in ("skipped_range", "skipped_held")][:MISS_LIST * 3],
@@ -434,7 +465,8 @@ def summarize(rows, now, hours=ZONE_HOURS):
             "how": ("ulaz = prva minuta (zatvaranje) u zoni ulaza i iznad stopa dok je prijedlog čekao (novo, ili istekao "
                     "samo jer mu je nestao izvor); stop prije zone ga gasi ako je pri prijedlogu bio iznad stopa; ishod = "
                     "izlaz prijedloga (TP / SL / trailing / vrijeme) najviše 24 h, nakon trade/cost.round_trip; "
-                    "preskočeno = range runda ili njen cooldown na demo računu, ili demo već drži token")}
+                    "preskočeno = range runda ili njen cooldown na demo računu, ili demo već drži token; "
+                    "nepouzdano = manje od 3 minute s cijenom nakon ulaza: bez ishoda, nije u ishodima ni prosjeku")}
 
 
 def zone_lines(rep):
@@ -445,22 +477,27 @@ def zone_lines(rep):
     def pct(x):
         return f"{x:+.1f} %".replace(".", ",") if x is not None else "-"
 
-    def oc(o):
-        return ", ".join(f"{OUT_HR[k]} {o.get(k, 0)}" for k in OUT_HR)
+    from rangedca import missed as rmissed
+
+    def oc(o, n_unrel=0):   # 12.11. (Jure, točka 4): the nepouzdano ones are in no outcome, said how many
+        return ", ".join([f"{OUT_HR[k]} {o.get(k, 0)}" for k in OUT_HR]
+                         + ([rmissed.note(n_unrel)] if n_unrel else []))
     out = [f"prijedlozi kroz zonu bez paper ulaza ({rep['hours']} h): {rep['missed']} od {rep['n']}, ishod: "
-           f"{oc(rep['outcomes'])}, prosjek {pct(rep['avg_ret_pct'])} nakon troška; paper ulaz {rep['paper']} (od toga "
+           f"{oc(rep['outcomes'], rep.get('unreliable'))}, prosjek {pct(rep['avg_ret_pct'])} nakon troška; paper ulaz "
+           f"{rep['paper']} (od toga "
            f"izvan zone ili ispod SL-a {rep.get('paper_outside_zone', 0)}), "
            f"{KIND_HR['skipped_range']} {rep['skipped_range']}, {KIND_HR['skipped_held']} {rep['skipped_held']}, "
            f"zona nije dosegnuta {rep['not_in_zone']}, bez cijena {rep['no_data']}"]
-    per = [f"{strategies.HR.get(k, k)} {s['missed']} od {s['n']} ({oc(s['outcomes'])}, {pct(s['avg_ret_pct'])})"
-           for k, s in rep["per_strategy"].items() if s["n"]]
+    per = [f"{strategies.HR.get(k, k)} {s['missed']} od {s['n']} ({oc(s['outcomes'], s.get('unreliable'))}, "
+           f"{pct(s['avg_ret_pct'])})" for k, s in rep["per_strategy"].items() if s["n"]]
     if per:
         out.append("  po strategiji: " + "; ".join(per))
     for r in rep["list"][:MISS_LIST]:
         z = r.get("zone")
         out.append(f"  {r.get('symbol') or r['token'][:6]} ({strategies.HR.get(r.get('strategy'), r.get('strategy'))}) "
                    f"zona {strategies.zone_text(z)}, prvi u zoni {strategies._usd(r.get('first_in_zone_mc'))} -> "
-                   f"{OUT_HR.get(r.get('outcome'), r.get('outcome'))} {pct(r.get('ret_pct'))}")
+                   + (f"{rmissed.UNRELIABLE}, {rmissed.detail(r.get('n_points'), '24 h')}" if r.get("quality") else
+                      f"{OUT_HR.get(r.get('outcome'), r.get('outcome'))} {pct(r.get('ret_pct'))}"))
     return out
 
 

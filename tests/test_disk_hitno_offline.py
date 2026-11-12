@@ -70,11 +70,11 @@ class Cache(unittest.TestCase):
                 touch(os.path.join(d, "l-b.json"), age=20 * 3600),
                 touch(os.path.join(d, "w-c.json"), age=3 * 86400),       # Helius first transactions: a week
                 touch(os.path.join(d, "0" * 40 + ".json"), b'[{"signature": "x", "feePayer": "y"}]', age=3 * 86400),
-                touch(os.path.join(d, "1" * 40 + ".json"), age=3600)]     # from before, under 24 h
+                touch(os.path.join(d, "1" * 40 + ".json"), age=3600)]     # from before, under 6 h
         gone = [touch(os.path.join(d, "s-d.json"), age=2 * 3600),         # no reader takes it any more
                 touch(os.path.join(d, "m-e.json"), age=7 * 3600),
                 touch(os.path.join(d, "l-f.json"), age=25 * 3600),
-                touch(os.path.join(d, "2" * 40 + ".json"), b'{"pairs": []}', age=25 * 3600),   # DexScreener, old
+                touch(os.path.join(d, "2" * 40 + ".json"), b'{"pairs": []}', age=7 * 3600),    # DexScreener, old
                 touch(os.path.join(d, "rpc-g.json"), age=7200)]
         n, _mb = http.prune()
         self.assertEqual(n, len(gone))

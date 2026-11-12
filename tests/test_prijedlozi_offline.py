@@ -1174,10 +1174,11 @@ class ZoneMisses(unittest.TestCase):
                         (settings.PAPER_USER, B, T + 100, T + 250, "closed"))
         self.add(hao_row(tok=C, mcap0=96_000, created=T), T, pts=[(60, 97_000), (600, 99_000)])   # never in the zone
         self.add(hao_row(tok=D, mcap0=96_000, created=T), T)                                      # no prices at all
-        # a momentum proposal through its zone, then its -10 % stop
+        # a momentum proposal through its zone, then its -10 % stop (12.11.: >= 3 minutes of prices after the entry,
+        # else its outcome is nepouzdano; test_missed_nepouzdano_offline)
         r = prow(G, exp=T + 900)
         r.update(entry_zone={"mcap_low": 100_000, "mcap_high": 105_000}, mcap0=100_000, price0=100_000 / 1e9)
-        self.add(r, T, pts=[(60, 101_000), (300, 89_000)])
+        self.add(r, T, pts=[(60, 101_000), (300, 89_000), (600, 88_000), (900, 87_000)])
         # one older than 48 h is not in the window
         self.add(hao_row(tok=H, mcap0=108_000, created=NOW - 50 * 3600), NOW - 50 * 3600, pts=[(60, 108_000)])
         self.con.commit()

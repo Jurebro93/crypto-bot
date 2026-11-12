@@ -92,8 +92,9 @@ def once(now=None, log=print, fetch=None, gt_fetch=None, post=None, extra=(), ne
         pools = {r[0] for r in con.execute("SELECT token FROM pools")}
         pulse_all = data.pulse_recent(now)
         pulse = pulse_all - (set(sig) - pools)   # a token without a known pool is polled once for it
-        if sig:
-            data.poll(con, sig, now, fetch=fetch, pulse_fresh=pulse)
+        got = data.poll(con, sig, now, fetch=fetch, pulse_fresh=pulse) if sig else {}
+        if got and m_mkt != "off":   # 12.11. (owner, nalog 3): a liquid token under 30k keeps a 5-minute price there
+            market.adopt(con, got, now)
         open_toks = set(data.open_round_tokens())
         srcs = {t: ["signal"] for t in sig}
         mk = {"tokens": [], "src": {}, "stats": {}}

@@ -32,7 +32,11 @@ SHORT_LIVED = {"rpc-": 3600}   # wallets/rpc.py caches Helius RPC for 10 min; th
 # A file from before (no class in its name) goes after LEGACY_MAX_AGE, except paid Helius answers (kept to the
 # week CACHE_MAX_AGE, so no credits are spent again).
 TTL_CLASSES = (("s", 3600), ("m", 6 * 3600), ("l", 86400), ("w", 7 * 86400))
-LEGACY_MAX_AGE = int(os.environ.get("CAL_CACHE_LEGACY_MAX_AGE", "86400"))
+# 12.11. 12:18: the start-up prune after the deploy freed nothing: at its 250 MB cap the cache only holds the last
+# hours, all younger than 24 h. A file from before older than the default TTL (6 h) is useless to every reader
+# whose TTL is at most that (DexScreener, rangedca, zonewatch, GeckoTerminal, rugcheck); the longer ones are the
+# free calendar / Wikipedia feeds (fetched again once) and paid Helius answers (kept, below).
+LEGACY_MAX_AGE = int(os.environ.get("CAL_CACHE_LEGACY_MAX_AGE", str(6 * 3600)))
 PAID_MARKS = (b'"feePayer"', b'"nativeTransfers"', b'"tokenTransfers"')   # Helius Enhanced / first-transactions
 PRUNE_EVERY = 200   # writes between automatic prunes
 _writes = 0
