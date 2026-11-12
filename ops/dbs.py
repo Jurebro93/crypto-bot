@@ -143,9 +143,11 @@ def waste(path):
         return None
 
 
-def compact(path, min_waste=COMPACT_WASTE, offline=False):
+def compact(path, min_waste=COMPACT_WASTE, offline=False, margin_mb=50, why=None):
     """VACUUM when at least min_waste of the file is dead space and the disk can hold the rewritten copy (in WAL
-    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None.
+    mode the new content goes through the WAL first). Returns 'a->b MB (s)' or None. margin_mb (12.11.): free space
+    kept above the packed size while it is written (the other writers keep writing during a VACUUM). why: a list that
+    gets the reason when nothing is done (the night compaction logs it).
 
     offline=True (start-up only, nothing else has the file open): when the data disk is too full for that, the
     packed copy is built on the container's own temporary disk (VACUUM INTO), copied next to the file and swapped
@@ -153,10 +155,14 @@ def compact(path, min_waste=COMPACT_WASTE, offline=False):
     w = waste(path)
     mb = os.path.getsize(path) / 1e6
     new_mb = mb * (1 - (w or 0))
-    need = new_mb + 50
+    need = new_mb + margin_mb
     if w is None or w < min_waste or mb * w < 10:   # < 10 MB to win: not worth it
+        if why is not None:
+            why.append("mrtvog prostora " + ("?" if w is None else f"{w:.0%} ({mb * w:.0f} MB)") + f", prag {min_waste:.0%}")
         return None
     if (disk.free_mb() or 0) < need:
+        if why is not None:
+            why.append(f"premalo mjesta: treba {need:.0f} MB slobodno, ima {disk.free_mb() or 0:.0f}")
         return _compact_via_tmp(path, mb, new_mb) if offline else None
     t = time.time()
     con = _con(path, timeout=120)

@@ -49,7 +49,7 @@ QUERY_S = float(os.environ.get("DISKREPORT_QUERY_S", "20"))
 BUSY_MS = 2000
 DAILY_AT = (6, 30)          # Zagreb
 TZ = "Europe/Zagreb"
-ALARM_USED = 0.80
+ALARM_USED = 0.75          # 12.11. (Jure: "upozorenje kad je disk >= 75 % ili ostane < 3 dana"); was 0.80
 ALARM_RUNWAY_D = 3.0
 TOP = 15
 TOP_CAND = 12
@@ -634,7 +634,7 @@ def alarm(rep):
     """[Croatian lines] when the disk is over ALARM_USED or the runway under ALARM_RUNWAY_D days; [] otherwise."""
     out = []
     tot, used = rep.get("total_b"), rep.get("used_b")
-    if tot and used is not None and used / tot > ALARM_USED:
+    if tot and used is not None and used / tot >= ALARM_USED:
         out.append(f"disk {used / tot:.0%} pun (prag {ALARM_USED:.0%})")
     rw = (rep.get("growth") or {}).get("runway_days")
     if rw is not None and rw < ALARM_RUNWAY_D:

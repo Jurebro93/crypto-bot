@@ -240,16 +240,17 @@ class DiskFull(unittest.TestCase):
         saved = http.CACHE_DIR
         http.CACHE_DIR = tempfile.mkdtemp()
         try:
-            for i in range(5):
-                p = os.path.join(http.CACHE_DIR, f"{i}.json")
+            now = time.time()
+            for i in range(5):   # 12.11.: week-class files (a reader keeps them for days)
+                p = os.path.join(http.CACHE_DIR, f"w-{i}.json")
                 with open(p, "w") as f:
                     f.write("x" * 400_000)
-                os.utime(p, (1000 + i, 1000 + i))   # 0 is the oldest
+                os.utime(p, (now - 5000 + i, now - 5000 + i))   # 0 is the oldest
             fresh = os.path.join(http.CACHE_DIR, "new.json")
             with open(fresh, "w") as f:
                 f.write("x" * 400_000)
             self.assertEqual(http.prune(max_mb=1.3, max_age=10**12)[0], 3)   # oldest first until under 1.3 MB
-            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["3.json", "4.json", "new.json"])
+            self.assertEqual(sorted(os.listdir(http.CACHE_DIR)), ["new.json", "w-3.json", "w-4.json"])
             self.assertTrue(os.path.exists(fresh))
             self.assertEqual(http.prune(max_mb=100, max_age=3600)[0], 2)   # older than an hour
             self.assertEqual(os.listdir(http.CACHE_DIR), ["new.json"])

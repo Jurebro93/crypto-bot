@@ -317,6 +317,7 @@ class Switches(Base):
         self.assertEqual([r[0] for r in self.hc.execute("SELECT sig FROM live_trades")], ["k1"])
         self.assertEqual(self.tg_text(), "$ABC")                     # its own switch is still off
         out = rt.run_auto(self.p, NIGHT + D + H, self.log, data_dir=self.tmp.name, commit="abc")
+        out["night"].pop("compact", None)                            # 12.11.: the VACUUM step has its own once-a-night
         self.assertEqual(out["night"], {})                           # once a night
         self.switch(rt.SWITCH_TG)
         out = rt.run_auto(self.p, NIGHT + D + 2 * H, self.log, data_dir=self.tmp.name, commit="abc")

@@ -25,6 +25,15 @@ CACHE_TTL = int(os.environ.get("CAL_CACHE_TTL", "21600"))  # 6 h
 CACHE_MAX_MB = float(os.environ.get("CAL_CACHE_MAX_MB", "250"))
 CACHE_MAX_AGE = int(os.environ.get("CAL_CACHE_MAX_AGE", str(7 * 86400)))
 SHORT_LIVED = {"rpc-": 3600}   # wallets/rpc.py caches Helius RPC for 10 min; those files are dead after that
+# 12.11. (Jure: "Očisti cache (oko 250 MB): snapshote i DexScreener/rangedca cache starije od 24 h"): a file's name
+# starts with its TTL class, so prune() deletes it once no reader can use it any more (a reader only takes a file
+# younger than its own TTL): s <= 1 h (DexScreener 20 s, rangedca, zonewatch, GeckoTerminal), m <= 6 h (the default
+# TTL, rugcheck), l <= 24 h (Helius dev creations), w = longer (Helius first transactions, a week: paid credits).
+# A file from before (no class in its name) goes after LEGACY_MAX_AGE, except paid Helius answers (kept to the
+# week CACHE_MAX_AGE, so no credits are spent again).
+TTL_CLASSES = (("s", 3600), ("m", 6 * 3600), ("l", 86400), ("w", 7 * 86400))
+LEGACY_MAX_AGE = int(os.environ.get("CAL_CACHE_LEGACY_MAX_AGE", "86400"))
+PAID_MARKS = (b'"feePayer"', b'"nativeTransfers"', b'"tokenTransfers"')   # Helius Enhanced / first-transactions
 PRUNE_EVERY = 200   # writes between automatic prunes
 _writes = 0
 
@@ -531,13 +540,60 @@ def _fetch(req, timeout, retries=None):
             time.sleep(min(60, max(delay, 2 ** attempt)))
 
 
-def _cache_path(key):
+def ttl_class(ttl):
+    t = ttl or 0
+    return next((c for c, lim in TTL_CLASSES if t <= lim), TTL_CLASSES[-1][0])
+
+
+def _named(digest, ext, ttl):
     os.makedirs(CACHE_DIR, exist_ok=True)
-    return os.path.join(CACHE_DIR, hashlib.sha1(key.encode()).hexdigest() + ".json")
+    return os.path.join(CACHE_DIR, f"{ttl_class(ttl)}-{digest}{ext}")
+
+
+def _fresh(digest, ext, ttl):
+    """The cached file a reader with this TTL may use (its class name, else the name from before 12.11.), or None."""
+    if not ttl:
+        return None
+    for p in (_named(digest, ext, ttl), os.path.join(CACHE_DIR, digest + ext)):
+        try:
+            if time.time() - os.path.getmtime(p) < ttl:
+                return p
+        except OSError:
+            pass
+    return None
+
+
+def _cache_path(key, ttl=None):
+    return _named(hashlib.sha1(key.encode()).hexdigest(), ".json", ttl)
+
+
+_CLASS_AGE = dict(TTL_CLASSES)
+
+
+def _limit(path, max_age, age=None):
+    """How old this file may get (seconds): its TTL class, the rpc- prefix, or for a file from before 12.11.
+    LEGACY_MAX_AGE (paid Helius answers: max_age; the file is read only once it is that old)."""
+    name = os.path.basename(path)
+    pre = next((a for p, a in SHORT_LIVED.items() if name.startswith(p)), None)
+    if pre is not None:
+        return min(pre, max_age)
+    if len(name) > 2 and name[1] == "-" and name[0] in _CLASS_AGE:
+        return min(_CLASS_AGE[name[0]], max_age)
+    if age is not None and age < min(LEGACY_MAX_AGE, max_age):
+        return min(LEGACY_MAX_AGE, max_age)
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        if any(m in head for m in PAID_MARKS):
+            return max_age
+    except OSError:
+        pass
+    return min(LEGACY_MAX_AGE, max_age)
 
 
 def prune(max_mb=None, max_age=None):
-    """Delete expired cache files, then the oldest until the cache is under max_mb. Returns (files, MB) removed."""
+    """Delete cache files older than their limit (_limit: no reader can use them), then the oldest until the cache
+    is under max_mb. Returns (files, MB) removed."""
     max_mb = CACHE_MAX_MB if max_mb is None else max_mb
     max_age = CACHE_MAX_AGE if max_age is None else max_age
     if not os.path.isdir(CACHE_DIR):
@@ -551,11 +607,8 @@ def prune(max_mb=None, max_age=None):
             pass
     files.sort()
     total, now, gone, freed = sum(f[1] for f in files), time.time(), 0, 0
-    short = lambda p: next((age for pre, age in SHORT_LIVED.items()  # noqa: E731
-                             if os.path.basename(p).startswith(pre)), None)
     for mtime, size, path in files:
-        age = short(path)
-        if now - mtime < max_age and total <= max_mb * 1e6 and (age is None or now - mtime < age):
+        if total <= max_mb * 1e6 and now - mtime < _limit(path, max_age, now - mtime):
             continue
         try:
             os.remove(path)
@@ -586,25 +639,27 @@ def _write(path, text):
 
 
 def cache_get(key, ttl):
-    path = _cache_path(key)
-    if ttl and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
+    path = _fresh(hashlib.sha1(key.encode()).hexdigest(), ".json", ttl)
+    if path:
         with open(path) as f:
             return json.load(f)
     return None
 
 
-def cache_put(key, data):
-    _write(_cache_path(key), json.dumps(data))
+def cache_put(key, data, ttl=None):
+    """ttl: the TTL its readers use (names the file's class, so prune keeps it as long as it is useful)."""
+    _write(_cache_path(key, ttl), json.dumps(data))
 
 
 def get_json(url, params=None, ttl=CACHE_TTL, timeout=30, headers=None, retries=None):
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, hashlib.sha1(url.encode()).hexdigest() + ".json")
-    if ttl and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
-        with open(path) as f:
+    digest = hashlib.sha1(url.encode()).hexdigest()
+    hit = _fresh(digest, ".json", ttl)
+    if hit:
+        with open(hit) as f:
             return json.load(f)
+    path = _named(digest, ".json", ttl)
     if reserved_by_other(url):   # another job holds this shared host: no call, the caller retries next round
         return None
     url, headers = _cg_route(url, headers)
@@ -618,11 +673,12 @@ def get_text(url, params=None, ttl=CACHE_TTL, timeout=30):
     """Like get_json, for RSS/XML; cached as text."""
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, hashlib.sha1(url.encode()).hexdigest() + ".txt")
-    if ttl and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
-        with open(path) as f:
+    digest = hashlib.sha1(url.encode()).hexdigest()
+    hit = _fresh(digest, ".txt", ttl)
+    if hit:
+        with open(hit) as f:
             return f.read()
+    path = _named(digest, ".txt", ttl)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     for attempt in range(RETRIES + 1):
         _pace(url)
