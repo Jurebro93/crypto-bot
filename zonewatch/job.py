@@ -5,7 +5,9 @@ pass reads the flag and ends (nothing watched, nothing fetched, nothing posted).
        again); the range engine's active ranges -> zones (source range) when range.db has a newer computation or
        every 5 min, for the tokens with an open range round, an entry-ready range or an open position on the real
        account, and only while rangedca has an active range for them (store.sync_range); each newer computation is
-       a new zone_version
+       a new zone_version; 12.11. popodne (owner, točka 4): never for a token in the rug archive (rugfilter/archive),
+       whose zones of any source end at the sync (store.disarm_archived) and which arm_zone refuses; entry-ready under
+       the readiness limit of rangedca/trade (METRICS_READY_S, 9 min), so a late range cycle does not drop the zones
     2. the numbers of every token with a zone (prices.py: stored snapshots first, one DexScreener batch for the near
        / armed ones, inside the day cap)
     3. every zone's state (zones.step): an event on a crossing; the same mint + zone_type + event at most once in

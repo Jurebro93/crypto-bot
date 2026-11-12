@@ -74,18 +74,50 @@ def _pin_part(r, p, now):
                     "notes": det.get("notes") or [], "rule": owner.PIN_RULE}}
 
 
+def _fresh_part(r, now):
+    """12.11. popodne (owner, točka 1): how old the row's numbers are against both limits (rangedca/trade): numbers_age_s,
+    range_age_s, ready_limit_s (entry_ready), trade_limit_s (every automatic buy), trade_gate_fresh (the automatic
+    buy's freshness passes now) and note (None while the numbers are at most METRICS_NOTE_S old)."""
+    age = trade.numbers_age(r, now)
+    hard = trade.stale_why(r, now)
+    note = None
+    if age > trade.METRICS_READY_S or now - (r.get("ts") or 0) > trade.RANGE_FRESH_S:
+        note = trade.stale_why(r, now, trade.METRICS_READY_S)
+    elif hard:
+        note = (f"5-minutni podaci stari {age / 60:.1f} min: spremnost se procjenjuje po njima, automatski ulaz čeka "
+                f"svježe (granica {trade.METRICS_FRESH_S / 60:g} min)")
+    elif age > trade.METRICS_NOTE_S:
+        note = f"5-minutni podaci kasne {age / 60:.1f} min (osvježavaju se svakog prolaza, ~1 min)"
+    return {"numbers_age_s": age, "range_age_s": int(now - (r.get("ts") or 0)),
+            "ready_limit_s": trade.METRICS_READY_S, "trade_limit_s": trade.METRICS_FRESH_S,
+            "trade_gate_fresh": hard is None, "note": note}
+
+
 def one(tok, r, now=None, pin=None, ws=None):
-    """One range as the MCP API shows it. entry_ready: an entry would pass now (no breakout, entry_now passes);
-    status "breakout" when the price is above 100 % of the range. pin: the owner's pin of the token (pinned, pin,
-    pin_ready, pin_entry); ws: the labelled wins (similar_to; the row's features under "_features" for the ranking,
-    the caller pops them)."""
+    """One range as the MCP API shows it. entry_ready: an entry would pass now (no breakout, entry_now passes, numbers
+    within trade.METRICS_READY_S, not in the rug archive); status "breakout" when the price is above 100 % of the
+    range. 12.11.: entry_now keeps the real reason and adds the staleness note (freshness: both limits, the ages).
+    pin: the owner's pin of the token (pinned, pin, pin_ready, pin_entry); ws: the labelled wins (similar_to; the
+    row's features under "_features" for the ranking, the caller pops them)."""
     now = now or time.time()
     m = r.get("metrics") or {}
     st = r.get("state") or {}
     brk = is_breakout(r)
-    why = None if brk else trade.entry_view(r, m.get("price"), now)
+    # 12.11. popodne (owner, točka 1): entry_ready under the readiness limit (trade.METRICS_READY_S, 9 min), so one
+    # late cycle keeps the real rules deciding; the real reason first, the staleness added (never only "nisu svježi")
+    why = None if brk else trade.entry_view(r, m.get("price"), now, trade.METRICS_READY_S)
+    fresh = _fresh_part(r, now)
+    arch = trade.archived_why(tok)   # 12.11. (owner, točka 4): a rug-archive token is never an entry, nor armed
     src, srcs = source_of(r.get("sources") or [r.get("source") or "signal"])
     pp = _pin_part(r, pin, now)
+    if arch and pp.get("pinned"):
+        pp = {**pp, "pin_ready": False, "pin_entry": arch}
+    entry_now = (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
+                 why or "ulaz bi prošao (uz provjeru ruga i limite)")
+    if fresh["note"] and fresh["note"] not in entry_now:
+        entry_now += f" · {fresh['note']}"
+    if arch:
+        entry_now = f"{arch} · {entry_now}"
     zones = _zones(r)
     if pp.get("pinned") and pp["pin"]["zones_from"] == "pin":   # no pair of zones now: the pinned ones (in MC)
         zones = {"price": None, "market_cap_usd": pp["pin"]["zones_market_cap_usd"], "from": "pin"}
@@ -97,8 +129,10 @@ def one(tok, r, now=None, pin=None, ws=None):
                "_features": f}
     return {"token": tok, "symbol": r.get("symbol"), "source": src, "sources": srcs, **pp, **sim,
             "status": BREAKOUT if brk else r.get("status"),
-            "range_status": r.get("status"), "entry_ready": not brk and why is None, "active": bool(r.get("active")),
+            "range_status": r.get("status"), "entry_ready": not brk and why is None and not arch,
+            "active": bool(r.get("active")),
             "why": r.get("why") or None, "computed_ts": r.get("ts"), "numbers_ts": r.get("mts"),
+            "freshness": fresh, "rug_archive": arch,
             "range_score": r.get("score"), "range_high_to_low": r.get("ratio"),
             "position_in_range_pct": r.get("pos_pct"), "zones": zones, "touches": _touches(r, m.get("supply")),
             "recoveries": r.get("recoveries"),
@@ -110,8 +144,7 @@ def one(tok, r, now=None, pin=None, ws=None):
             "signals": r.get("signals"),
             "excluded_until": st.get("excluded_until") if (st.get("excluded_until") or 0) > now else None,
             "excluded_why": st.get("excluded_why") if (st.get("excluded_until") or 0) > now else None,
-            "entry_now": (f"probijen gore: cijena na {r.get('pos_pct'):.0f} % raspona, nije ulaz u raspon" if brk else
-                          why or "ulaz bi prošao (uz provjeru ruga i limite)"),
+            "entry_now": entry_now,
             "paper_only": src != "signal" and not (src == "missed" and trade.missed_live(now)),
             "stop": stop_view(r), **_flip_part(r, m, now)}
 
@@ -196,7 +229,7 @@ def _flip_part(r, m, now):
     if not fl or flags.mode(trade.FLIP_FLAG) == "off":
         return {}
     nr = rules.new_range(r)
-    why = trade.entry_view(nr, m.get("price"), now)
+    why = trade.entry_view(nr, m.get("price"), now, trade.METRICS_READY_S)   # 12.11.: the readiness limit, as one()
     return {"range_flip": flip_view(fl, r), "flip_status": fl.get("state"),
             "entry_ready_new_rules": why is None and not is_breakout(nr), "entry_new_rules": why or "ulaz bi prošao"}
 
