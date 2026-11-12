@@ -1450,14 +1450,20 @@ TOOLS += [
                      "one), state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone (0 "
                      "inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also the "
                      "flag, whether the Grok Bot webhook is configured, the counts by source and the limits (ttl_h at "
-                     "most 2). positions (without a source filter): the REAL account's open positions (manual, Grok "
-                     "auto, approved; never the demo account) with lots, qty, avg_entry_price / avg_entry_mcap, "
+                     "most 2). positions (without a source filter): the REAL account's open positions, i.e. only "
+                     "lots really bought and still held (the live lots of get_portfolio_status: trade.db positions "
+                     "mode live, open with tokens, or a buy pending under 3 min; manual, Grok auto, approved; never a "
+                     "demo trade, a blocked copy, a dry swap or the demo account) with lots (real lots), position_ids, "
+                     "sol_in, qty, avg_entry_price / avg_entry_mcap, "
                      "pnl_pct / pnl_usd / pnl_sol, sources and their OWN levels watched with or without a range (stop "
                      "/ trailing / take profit of the lots, Smart sell or an exit plan in force, DCA and buy orders): "
                      "level_price, level_mcap, distance_pct (negative = below the price), state and the last alarm; "
                      "these alarm as event position_level (sl_near within 3 % above a stop, sl_hit, tp_hit, dca_hit) "
                      "and a held token whose range rangedca switches off as range_off (reason_key break_up | "
-                     "break_down | weak_volume | other). mint / source filter; limit 1-300 (default 100)."),
+                     "break_down | weak_volume | other). positions_demo_excluded: only the COUNT of open demo trades "
+                     "of the league account pravi-trade that are no real lot (by_reason blocked | failed | dry | sold "
+                     "| stale_pending | empty | not_mirrored), never positions, never alarmed. mint / source filter; "
+                     "limit 1-300 (default 100)."),
      "inputSchema": {"type": "object", "properties": {
          "mint": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "event", "range"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 100}}}},
@@ -1466,8 +1472,9 @@ INSTRUCTIONS += (" Zone alarms: MemeSonar watches its range engine's zones (bott
                  "computed_ts and window_h in every alarm) and POSTs to your Grok Bot webhook when the price crosses "
                  "one; arm_zone(mint, zone_type, lo, hi, note, ttl_h) adds a market-cap zone by hand for at most 2 h "
                  "(ttl_h=0 disarms); get_armed_zones lists them with their state. The real account's open positions "
-                 "alarm on their own SL / TP / trailing / DCA levels (event position_level) and when the range of a "
-                 "held token is switched off (event range_off); advise from these, never trade on them alone.")
+                 "(real lots only, never a demo or blocked copy) alarm on their own SL / TP / trailing / DCA levels "
+                 "(event position_level) and when the range of a held token is switched off (event range_off); "
+                 "advise from these, never trade on them alone.")
 ZONE_TOOLS = ("arm_zone", "get_armed_zones")
 
 
