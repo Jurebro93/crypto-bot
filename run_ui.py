@@ -464,10 +464,43 @@ def build_in_child(path):
 
 
 def english(raw, gz, lang):
-    """(200, html bytes) in `lang` from a Croatian page as pagecache keeps it."""
+    """(200, html bytes, keep) in `lang` from a Croatian page as pagecache keeps it. 13.11. (Jure: the token page was
+    Croatian in English): new text is translated while the visitor waits (up to i18n.SYNC_S), and a copy that is still
+    partly Croatian is not cached (keep=False), so the next view is built again with the translations that arrived."""
     html = (raw if raw is not None else gzip.decompress(gz)).decode("utf-8")
     i18n.LANG.set(lang)
-    return 200, i18n.translate(html).encode("utf-8")
+    out = i18n.translate(html, wait=i18n.SYNC_S)
+    return 200, out.encode("utf-8"), i18n.last_missing() == 0
+
+
+def english_json_html(body):
+    """A JSON answer whose "html" holds page parts (Autopilot's /api/first): those parts in English (ui/i18n), the
+    numbers as they are. Unreadable JSON is returned unchanged."""
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return body
+    parts = d.get("html") if isinstance(d, dict) else None
+    if not isinstance(parts, dict):
+        return body
+    d["html"] = {k: i18n.translate(v) if isinstance(v, str) else v for k, v in parts.items()}
+    return json.dumps(d, ensure_ascii=False)
+
+
+def english_search_json(body):
+    """/api/trazi in English: page names, descriptions and sections and the tokens' "seen in" words through ui/i18n
+    (dictionary only; names of tokens, KOLs and wallets stay as they are)."""
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return body
+    for p in d.get("pages") or []:
+        for k in ("name", "desc", "sec"):
+            if isinstance(p.get(k), str):
+                p[k] = i18n.t(p[k])
+    for t in d.get("tokens") or []:
+        t["src"] = [i18n.t(x) if isinstance(x, str) else x for x in t.get("src") or []]
+    return json.dumps(d, ensure_ascii=False)
 
 
 def _banner(path):
@@ -702,7 +735,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200 if body else 404, body or b"nema izvjestaja")
         if path == "/api/trazi":
             from ui import search
-            return self._send(200, search.api(qs.get("q", "")).encode("utf-8"), "application/json")
+            out = search.api(qs.get("q", ""))
+            if self.lang == "en":   # 13.11.: the search drop-down's words come from this JSON, not from the page
+                out = english_search_json(out)
+            return self._send(200, out.encode("utf-8"), "application/json")
         if path == "/api/pojam":
             from ui import glossarypage
             frag = glossarypage.fragment(qs.get("k", ""), qs.get("l", "")[:80], qs.get("t", "")[:800])
@@ -739,7 +775,7 @@ class Handler(BaseHTTPRequestHandler):
         else:   # English = the (pre-rendered) Croatian page translated, so it is as fast as the Croatian one
             code, raw, gz = fetch(key, mk)   # cached Croatian page, then translated
             if code == 200:
-                code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang))
+                code, raw, gz = pagecache.get(key + (self.lang,), lambda r=raw, g=gz: english(r, g, self.lang), light=True)
         if AUTH and self.role != "admin":   # non-admins get a copy without the adm-only parts (audit 4.11. §4.2)
             code, raw, gz = pagecache.get(key + (self.lang, "noadm"), lambda c=code, r=raw, g=gz: _no_admin(c, r, g))
         self._send(code, raw, gz=gz, translated=True)
@@ -844,7 +880,9 @@ class Handler(BaseHTTPRequestHandler):
         """gzip when the browser takes it: tables shrink ~10x, which is most of a phone's wait."""
         if (body is not None and not translated and ctype == "text/html" and getattr(self, "lang", "hr") == "en"
                 and not getattr(self, "_public", False)):
-            body = i18n.translate(body.decode("utf-8")).encode("utf-8")
+            # a whole page may wait a few seconds for new text (13.11.); the 1-s fragments and pop-ups never wait
+            html = body.decode("utf-8")
+            body = i18n.translate(html, wait=i18n.SYNC_S if html[:15].lower().startswith("<!doctype") else 0).encode("utf-8")
         accepts = "gzip" in (self.headers.get("Accept-Encoding") or "")
         if body is None:            # cached page: only the gzipped copy is kept
             zipped = accepts
@@ -1277,7 +1315,8 @@ class Handler(BaseHTTPRequestHandler):
             html = page("Greška", err, path) if ok else f"<!doctype html><meta charset=utf-8><title>Greška</title>{err}"
             return self._send(500, html.encode("utf-8"))
         i18n.LANG.set(lang)
-        return self._send(200, i18n.translate(html).encode("utf-8"), translated=True)
+        wait = i18n.SYNC_S if html[:15].lower().startswith("<!doctype") else 0   # 13.11.: whole pages only
+        return self._send(200, i18n.translate(html, wait=wait).encode("utf-8"), translated=True)
 
     def _autopilot_post(self, path):
         """Chat of /autopilot (message, +1, hide a message): logged-in players only, with a same-site Origin and the
@@ -1351,6 +1390,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pravi-trade/api/first":
                 body, ctype = (apterm.first_json(user, qs.get("m", ""), with_html=qs.get("html") == "1",
                                                  sym=qs.get("s", ""), fresh=qs.get("fresh") == "1"), "application/json")
+                if body and self.lang == "en" and qs.get("html") == "1":   # 13.11.: its tables are HTML inside JSON
+                    body = english_json_html(body)
             elif path == "/pravi-trade/api/tick":
                 body, ctype = apterm.tick_json(user, qs.get("m", "")), "application/json"
             elif path == "/pravi-trade/api/token":   # 11.11.: the name of the address in the buy panel's Token field

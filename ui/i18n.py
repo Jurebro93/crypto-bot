@@ -14,6 +14,17 @@ How it works
     and stores the result, so the next view is English. I18N_DAILY_MAX caps how many segments a day are sent.
   * ui/i18n_seed.json lists the segments of every page seen when this was built, so right after a deploy the whole
     app is translated in the background before anybody asks for it.
+  * 13.11. (Jure: the token page "bude na engleskom, a tekst je i sav kontent na hrvatskom"): the first English view
+    of a page with new segments was Croatian, because every token's sentences were new keys (its symbol, its wallets,
+    its list of reasons) and the English copy of the page was cached for 45 s. Now
+      - the page's names (text marked translate=no: the token symbol in the h1, handles) and short addresses
+        (7xKX…9fGh) become {n} like numbers, so "Kupi BONK" and "Kupi WIF" are one entry;
+      - a segment missing as a whole is looked up sentence by sentence (". ", "; ", ": " where no tag or bracket is
+        open), so a paragraph of four measured facts reuses four entries instead of needing one per combination;
+        only the missing sentences are queued;
+      - translate(page, wait=s) sends the page's missing segments at once (in parallel batches) and waits up to `wait`
+        seconds (I18N_SYNC_S, run_ui: full pages only, never the 1-s fragments), then walks the page again; what
+        arrives later is stored for the next view. last_missing() tells run_ui not to cache a partial English copy.
 Croatian stays the default and costs nothing: with lang 'hr' nothing here runs.
 """
 import contextvars
@@ -29,6 +40,10 @@ COOKIE = "cb_lang"
 MODEL = os.environ.get("I18N_MODEL", "claude-opus-5-5")
 DAILY_MAX = int(os.environ.get("I18N_DAILY_MAX", "6000"))
 BATCH = 60
+SYNC_S = float(os.environ.get("I18N_SYNC_S", "4"))        # how long a visitor's first English view waits for new text
+SYNC_MAX = int(os.environ.get("I18N_SYNC_MAX", "60"))     # segments sent while a visitor waits (the rest: the queue)
+SYNC_CHUNK = 12                                           # per parallel request: small batches answer within seconds
+SYNC_PARALLEL = 4
 
 FORMAT = {"b", "strong", "i", "em", "small", "u", "s", "mark", "sup", "sub", "br", "wbr"}
 OPAQUE = {"a", "span", "code", "kbd", "abbr", "img", "time", "q", "cite", "bdi", "var", "data"}
@@ -38,10 +53,15 @@ ATTRS = ("title", "placeholder", "aria-label", "data-tip", "alt", "data-ready", 
 
 _TOK = re.compile(r"<!--.*?-->|<![^>]*>|<(/?)([a-zA-Z][a-zA-Z0-9\-]*)((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>|[^<]+|<", re.S)
 _ATTR = re.compile(r"""(\s(?:%s)\s*=\s*)("([^"]*)"|'([^']*)')""" % "|".join(ATTRS))
-_NUM = re.compile(r"[1-9A-HJ-NP-Za-km-z]{30,}|\d+(?:[.,:]\d+)*")   # numbers and Solana addresses
+# numbers, Solana addresses and shortened ones (7xKX…9fGh, ui/html.short)
+_NUM = re.compile(r"[1-9A-HJ-NP-Za-km-z]{30,}|[1-9A-HJ-NP-Za-km-z]{1,8}…[1-9A-HJ-NP-Za-km-z]{1,8}|\d+(?:[.,:]\d+)*")
 _WORD = re.compile(r"[A-Za-zČčĆćŠšŽžĐđ]{2,}")
 _ADDR = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{25,}$|^https?://|^[\w.\-]+\.(com|io|fun|xyz|net|org)\b")
 _PH = re.compile(r"</?\d+/?>|\{\d+\}")
+_NOTR = re.compile(r"<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\stranslate\s*=\s*[\"']?no\b[^>]*>([^<>]{2,40})</\1\s*>")
+_NAMES = contextvars.ContextVar("i18n_names", default=None)      # this page's names as one regex (or None)
+_COLLECT = contextvars.ContextVar("i18n_collect", default=None)  # keys missing in the translate() running now
+_LAST = contextvars.ContextVar("i18n_last", default=0)           # missing segments of the last translate()
 
 
 def lang():
@@ -95,27 +115,55 @@ def t(text):
     """One plain string (a menu name, a JS label) in the current language."""
     if not is_en() or not text:
         return text
-    key, nums = _template(text)
+    key, nums, v = _find(text)
     if not key:
         return text
-    v = lookup(key)
     if v is None:
         _queue(key)
         return text
     return _fill(v, nums) or text
 
 
-def _template(text):
+def _template(text, names=None):
     nums = []
 
     def sub(m):
         nums.append(m.group(0))
         return "{%d}" % (len(nums) - 1)
-    key = "".join(part if re.fullmatch(r"</?\d+/?>", part) else _NUM.sub(sub, part)
+    rx = names or _NUM
+    key = "".join(part if re.fullmatch(r"</?\d+/?>", part) else rx.sub(sub, part)
                   for part in re.split(r"(</?\d+/?>)", " ".join(text.split())))
     if not wants(key):
         return None, nums
     return key, nums
+
+
+def _find(text):
+    """(key, values, translation or None): the plain key first (numbers and addresses as {n}), then, when this page
+    has names, the key with the names as {n} too. A miss returns the most general key (the one worth queueing)."""
+    key, nums = _template(text)
+    v = lookup(key) if key else None
+    names = _NAMES.get()
+    if v is None and names is not None:
+        k2, n2 = _template(text, names)
+        if k2 and k2 != key:
+            key, nums, v = k2, n2, lookup(k2)
+    return key, nums, v
+
+
+def _names_rx(page):
+    """One regex for this page's names (the text of short translate=no elements) and the numbers/addresses, or None."""
+    names = set()
+    for m in _NOTR.finditer(page):
+        n = m.group(2).strip()
+        if 2 <= len(n) <= 40 and _WORD.search(n) and "{" not in n:
+            names.add(n)
+        if len(names) >= 60:
+            break
+    if not names:
+        return None
+    alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(r"(?<!\w)(?:%s)(?!\w)|%s" % (alt, _NUM.pattern))
 
 
 def wants(key):
@@ -135,11 +183,16 @@ def _fill(v, nums):
         return None
 
 
-def _queue(key):
+def _queue(key, label=False):
     # one word on its own (a token or a player name, mostly) is never sent: the menu words are in the dictionaries
-    if " " not in _PH.sub("", key).strip():
+    if " " not in _PH.sub("", key).strip() and not label:
         return
-    if key in _pending or _failed.get(key, 0) >= 2 or len(_pending) > 20000:
+    if _failed.get(key, 0) >= 2:
+        return
+    coll = _COLLECT.get()
+    if coll is not None and key not in coll:
+        coll.append(key)
+    if key in _pending or len(_pending) > 20000:
         return
     with _lock:
         _pending.setdefault(key, time.time())
@@ -161,10 +214,41 @@ def _attr_sub(tag):
     return _ATTR.sub(sub, tag)
 
 
-def translate(page):
-    """The page in English as far as the dictionaries go; unknown segments are queued for translation."""
+def translate(page, wait=0.0, call=None):
+    """The page in English as far as the dictionaries go; unknown segments are queued for translation. wait > 0 (a
+    whole page a visitor is waiting for): the missing segments are sent at once and the page is walked again with
+    whatever arrived within `wait` seconds. last_missing() then says how many are still Croatian."""
     if not page or not is_en():
+        _LAST.set(0)
         return page
+    names = _NAMES.set(_names_rx(page))
+    try:
+        coll = []
+        tok = _COLLECT.set(coll)
+        try:
+            out = _walk(page)
+        finally:
+            _COLLECT.reset(tok)
+        if coll and wait > 0 and (call or _can_call()):
+            if translate_now(coll, wait, call):
+                coll = []
+                tok = _COLLECT.set(coll)
+                try:
+                    out = _walk(page)
+                finally:
+                    _COLLECT.reset(tok)
+        _LAST.set(len(coll) if _day_left() > 0 else 0)   # over the daily cap nothing more will come today
+        return out
+    finally:
+        _NAMES.reset(names)
+
+
+def last_missing():
+    """Segments the last translate() in this context left Croatian (0 = the page is fully English, cache it)."""
+    return _LAST.get()
+
+
+def _walk(page):
     toks = [m.group(0) for m in _TOK.finditer(page)]
     kinds = []
     for m in _TOK.finditer(page):
@@ -259,7 +343,29 @@ def translate(page):
     # placeholders whose element was skipped (code, translate=no): close them at the matching end tag
     # the page itself says it is English (the Croatian copy it came from said lang=hr; browsers then offer to
     # "translate from Croatian" and screen readers read English with Croatian rules)
-    return re.sub(r"<html lang=(hr|\"hr\")>", "<html lang=en>", "".join(out), count=1)
+    return figures(re.sub(r"<html lang=(hr|\"hr\")>", "<html lang=en>", "".join(out), count=1))
+
+
+# 13.11.: ui/redak writes amounts the Croatian way ("412k $", "0,000412 $", "+142 %", "3 638"); English readers
+# expect "$412k", "$0.000412", "+142%", "3,638". Only the page text is touched, never scripts, styles or tags.
+_SP = "[\u00a0 ]"
+_MONEY = re.compile(r"(?<![\w.,$])([−+-]?)(\d{1,3}(?:\u00a0\d{3})+|\d+)(?:,(\d+))?([kMB]?)" + _SP + r"\$")
+_PCT = re.compile(r"(?<![\w.,])(\d+)(?:,(\d+))?" + _SP + r"%")
+_THOUS = re.compile(r"(?<=\d)\u00a0(?=\d{3}(?!\d))")
+_PARTS = re.compile(r"(<script\b.*?</script>|<style\b.*?</style>|<[^>]*>)", re.S | re.I)
+
+
+def _figures_text(t):
+    if not any(c in t for c in "$%\u00a0"):
+        return t
+    t = _MONEY.sub(lambda m: f"{m.group(1)}${m.group(2)}{'.' + m.group(3) if m.group(3) else ''}{m.group(4)}", t)
+    t = _PCT.sub(lambda m: f"{m.group(1)}{'.' + m.group(2) if m.group(2) else ''}%", t)
+    return _THOUS.sub(",", t)
+
+
+def figures(html):
+    """Croatian number formats in the text of an English page turned English (amounts, percentages, thousands)."""
+    return "".join(p if i % 2 else _figures_text(p) for i, p in enumerate(_PARTS.split(html)))
 
 
 def _render_run(items, out, toks):
@@ -325,14 +431,15 @@ def _render_part(items, out, toks):
     raw = "".join(key_parts)
     lead = raw[:len(raw) - len(raw.lstrip())]
     trail = raw[len(raw.rstrip()):]
-    key, nums = _template(raw)
+    key, nums, v = _find(raw)
     if not key:
         return
-    v = lookup(key)
     if v is None:
-        _queue(key)
-        return
-    v = _fill(v, nums)
+        v = _by_sentences(raw, key)
+        if v is None:
+            return
+    else:
+        v = _fill(v, nums)
     if v is None or sorted(_PH.findall(v)) != sorted(p for p in _PH.findall(key) if not p.startswith("{")):
         return     # a stored translation that lost a placeholder would break the page: keep Croatian
     # rebuild: text escaped, placeholders back to the original tags / elements
@@ -346,6 +453,111 @@ def _render_part(items, out, toks):
     for j in range(first, last + 1):
         out[j] = ""
     out[first] = lead + "".join(pieces).strip() + trail
+
+
+_TAGTOK = re.compile(r"(</?\d+/?>)")
+
+
+def _pieces(raw):
+    """raw cut after ". ", "! ", "? ", "; " and ": " where no placeholder pair and no bracket is open; [raw] if it
+    does not split. A full stop after a digit (dates, "1. sloj") never cuts."""
+    out, cur, depth, paren = [], [], 0, 0
+    for part in _TAGTOK.split(raw):
+        if not part:
+            continue
+        if _TAGTOK.fullmatch(part):
+            depth += 1 if re.fullmatch(r"<\d+>", part) else -1 if part.startswith("</") else 0
+            cur.append(part)
+            continue
+        i = 0
+        while i < len(part):
+            c = part[i]
+            cur.append(c)
+            if c in "([„“\"":
+                paren += 1 if c in "([„" else (-1 if c == "“" and paren else 0)
+            elif c in ")]":
+                paren = max(0, paren - 1)
+            elif (c in ".!?;:" and depth == 0 and paren == 0 and i + 1 < len(part) and part[i + 1].isspace()
+                  and not (c == "." and i and part[i - 1].isdigit())):
+                j = i + 1
+                while j < len(part) and part[j].isspace():
+                    j += 1
+                out.append("".join(cur))
+                cur = []
+                i = j
+                continue
+            i += 1
+    if cur:
+        out.append("".join(cur))
+    merged = []
+    for p in (p.strip() for p in out):
+        if not p:
+            continue
+        if merged and not _WORD.search(_PH.sub(" ", p)):   # "<1/>" or "12." alone: stays with the sentence before
+            merged[-1] += " " + p
+        elif merged and not _WORD.search(_PH.sub(" ", merged[-1])):
+            merged[-1] += " " + p
+        else:
+            merged.append(p)
+    return merged if len(merged) > 1 else [raw]
+
+
+def _local(p):
+    """(key, values, translation or None, back): p looked up with its placeholders renumbered from 1; back() puts the
+    page's own numbers back into a translation."""
+    order = []
+    for tag in _TAGTOK.findall(p):
+        n = re.search(r"\d+", tag).group(0)
+        if n not in order:
+            order.append(n)
+    to_new = {old: str(i + 1) for i, old in enumerate(order)}
+    to_old = {v: k for k, v in to_new.items()}
+    local = _TAGTOK.sub(lambda m: re.sub(r"\d+", lambda d: to_new[d.group(0)], m.group(0)), p)
+    k, nums, v = _find(local)
+    if v is not None:
+        v = _fill(v, nums)
+        if v is not None and sorted(_TAGTOK.findall(v)) != sorted(_TAGTOK.findall(local)):
+            v = None
+    return k, v, (lambda t: _TAGTOK.sub(lambda m: re.sub(r"\d+", lambda d: to_old[d.group(0)], m.group(0)), t))
+
+
+def _by_sentences(raw, key):
+    """The translation of `raw` put together from its sentences (each looked up on its own, placeholders renumbered
+    from 1 so the same sentence matches on every page), or None: then the missing sentences are queued (or raw as a
+    whole when it does not split)."""
+    pieces = _pieces(raw.strip())
+    if len(pieces) == 1:
+        _queue(key)
+        return None
+    done, missing = [], []
+    for whole in pieces:
+        if not _WORD.search(_PH.sub(" ", whole)):
+            done.append(whole)
+            continue
+        k, v, back = _local(whole)
+        if not k:              # nothing to translate in it (a number, a name): kept as it is
+            done.append(whole)
+            continue
+        if v is None:
+            # lone elements at the edges (a status dot, a link after the sentence) are left outside the lookup
+            m = re.fullmatch(r"((?:<\d+/>\s*)*)(.*?)((?:\s*<\d+/>)*)", whole, re.S)
+            if m.group(1) or m.group(3):
+                k2, v2, back2 = _local(m.group(2))
+                if v2 is not None:
+                    done.append(m.group(1) + back2(v2) + m.group(3))
+                    continue
+            missing.append(k)
+            continue
+        done.append(back(v))
+    if missing:
+        lone = [k for k in missing if " " not in _PH.sub("", k).strip()]
+        if any(not k.endswith(":") for k in lone):
+            _queue(key)        # a lone word ("dobro.") is never sent on its own: the whole segment goes instead
+            return None
+        for k in missing:
+            _queue(k, label=k in lone)   # a lone label ("Kupnja:") is: it is a word of the app, not a name
+        return None
+    return " ".join(done)
 
 
 # --- background translation -------------------------------------------------------------------------------------
@@ -394,22 +606,32 @@ def _ok(key, val):
     return isinstance(val, str) and val.strip() and sorted(_PH.findall(val)) == sorted(_PH.findall(key))
 
 
+def _day_left():
+    today = time.strftime("%Y-%m-%d")
+    if _day["d"] != today:
+        _day["d"], _day["n"] = today, 0
+    return DAILY_MAX - _day["n"]
+
+
 def run_once(call=None):
     """Translate one batch of the queue; returns how many were stored."""
     _load()
     with _lock:
-        keys = [k for k in _pending if k not in _auto and k not in _static][:BATCH]
+        keys = [k for k in _pending if k not in _auto and k not in _static and k not in _inflight][:BATCH]
         for k in list(_pending):
             if k in _auto or k in _static:
                 _pending.pop(k, None)
     if not keys:
         return 0
-    today = time.strftime("%Y-%m-%d")
-    if _day["d"] != today:
-        _day["d"], _day["n"] = today, 0
-    if _day["n"] >= DAILY_MAX:
-        return 0
-    _day["n"] += len(keys)
+    return _translate_keys(keys, call)
+
+
+def _translate_keys(keys, call=None):
+    """Send `keys` to the model (one request), store the good answers; returns how many were stored."""
+    with _lock:
+        if _day_left() <= 0:
+            return 0
+        _day["n"] += len(keys)
     try:
         res = (call or _call)(keys)
     except Exception as e:   # no key, network, model error: try again later
@@ -435,6 +657,61 @@ def run_once(call=None):
     if stored:
         print(f"i18n: prevedeno {stored} novih dijelova stranica na engleski", flush=True)
     return stored
+
+
+_inflight = {}   # key -> threading.Event while a visitor's request translates it
+
+
+def _can_call():
+    return SYNC_S > 0 and bool(os.environ.get("ANTHROPIC_API_KEY")) and not os.environ.get("I18N_OFF")
+
+
+def translate_now(keys, wait, call=None):
+    """Translate `keys` now in parallel batches of SYNC_CHUNK and wait up to `wait` seconds; True when any of them is
+    in a dictionary afterwards. Keys another request is already translating are waited for, not sent twice; what
+    arrives after `wait` is stored all the same (the next view has it)."""
+    _load()
+    with _lock:
+        todo = [k for k in keys if k not in _static and k not in _auto and k not in _inflight
+                and _failed.get(k, 0) < 2][:SYNC_MAX]
+        if todo and _day_left() < len(todo):
+            todo = todo[:max(0, _day_left())]
+        events = [_inflight[k] for k in keys if k in _inflight]
+        mine = []
+        for i in range(0, len(todo), SYNC_CHUNK):
+            chunk = todo[i:i + SYNC_CHUNK]
+            ev = threading.Event()
+            for k in chunk:
+                _inflight[k] = ev
+            mine.append((chunk, ev))
+    if not mine and not events:
+        return False
+
+    def run(chunk, ev):
+        try:
+            _translate_keys(chunk, call)
+        except Exception as e:  # noqa: BLE001 - a failed batch stays queued for the background worker
+            print(f"i18n: odmah nije uspjelo ({type(e).__name__}: {str(e)[:120]})", flush=True)
+        finally:
+            with _lock:
+                for k in chunk:
+                    if _inflight.get(k) is ev:
+                        _inflight.pop(k, None)
+            ev.set()
+    sem = threading.Semaphore(SYNC_PARALLEL)
+
+    def gated(chunk, ev):
+        with sem:
+            run(chunk, ev)
+    for chunk, ev in mine:
+        threading.Thread(target=gated, args=(chunk, ev), daemon=True, name="i18n-now").start()
+    end = time.time() + wait
+    for ev in [e for _, e in mine] + events:
+        left = end - time.time()
+        if left <= 0 or not ev.wait(left):
+            break
+    with _lock:
+        return any(k in _auto or k in _static for k in keys)
 
 
 def _loop():

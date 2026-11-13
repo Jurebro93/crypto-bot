@@ -77,7 +77,7 @@ rarely are, which is why the routine above matters more than the recovery.</p>
 post(
     "zero-trust-support-calls", "Scams",
     "\"Ledger support is calling\": a 5-question check that stops fake support scams",
-    "Fake Ledger and exchange support scams: how to check a call in 5 questions | MemeSonar",
+    "Fake Ledger and exchange support scams: 5 questions to check a call | MemeSonar",
     "The largest crypto thefts lately were not hacks but people pretending to be support. Five questions to ask "
     "before you do anything a 'support agent' asks.",
     ["ledger support scam", "fake crypto support", "crypto social engineering", "seed phrase scam"], 6,
@@ -253,7 +253,7 @@ before the crowd does.</p>
 post(
     "perps-settings-after-october-10", "Trading",
     "5 perps settings that would have saved you on October 10",
-    "Crypto perps risk settings: isolated margin, ADL and the October 10 crash | MemeSonar",
+    "Crypto perps risk settings: isolated margin, ADL, the Oct 10 crash | MemeSonar",
     "On 10 October 2025 about $19 billion of crypto positions were liquidated in a day. Five settings that decide "
     "whether a crash like that takes your trade or your whole account.",
     ["auto deleveraging", "isolated margin vs cross margin", "crypto liquidation", "hyperliquid adl"], 7,

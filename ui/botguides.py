@@ -23,32 +23,32 @@ def T(en, hr):
 BOTS = [
     dict(key="trojan", name="Trojan", slug=T("trojan-setup-guide", "trojan-vodic"),
          links=[("trojan.com", "https://trojan.com"), ("Telegram: t.me/trojan", "https://t.me/trojan")],
-         docs="https://docs.trojan.com", chains="Solana",
+         docs="https://docs.trojan.com", chains=T("Solana", "Solana"),
          fee=T("1% per trade, SOL cashback that grows with your rank", "1% po tradeu, SOL povrat koji raste s rangom"),
          known=T("Most features: presets, DCA, limit orders, copy trading, web Terminal",
                  "Najviše funkcija: profili, DCA, limit nalozi, copy trading, web Terminal")),
     dict(key="bonkbot", name="BonkBot", slug=T("bonkbot-setup-guide", "bonkbot-vodic"),
          links=[("Telegram: @bonkbot_bot", "https://t.me/bonkbot_bot"), ("bonkbot.io", "https://bonkbot.io")],
-         docs="https://docs.bonkbot.io", chains="Solana",
+         docs="https://docs.bonkbot.io", chains=T("Solana", "Solana"),
          fee=T("1% per successful swap", "1% po uspješnoj zamjeni"),
          known=T("Simplest start; MEV Turbo/Secure; trailing stop loss", "Najjednostavniji početak; MEV Turbo/Secure; "
                  "trailing stop loss")),
     dict(key="maestro", name="Maestro", slug=T("maestro-setup-guide", "maestro-vodic"),
          links=[("Telegram: t.me/maestro", "https://t.me/maestro"), ("Pro: @MaestroProBot", "https://t.me/MaestroProBot")],
-         docs="https://docs.maestrobots.com", chains="Solana, BSC, Base, Ethereum and 8 more",
+         docs="https://docs.maestrobots.com", chains=T("Solana, BSC, Base, Ethereum and 8 more", "Solana, BSC, Base, Ethereum i još 8"),
          fee=T("1% on every buy and sell; Premium $200/month optional", "1% na svaku kupnju i prodaju; Premium "
                "$200 mjesečno po želji"),
          known=T("12 chains, auto-snipe, copytrade, detailed buy and sell checks",
                  "12 mreža, auto-snipe, copytrade, detaljne provjere kupnje i prodaje")),
     dict(key="gmgn", name="GMGN Bot", slug=T("gmgn-bot-setup-guide", "gmgn-bot-vodic"),
          links=[("Telegram: @GMGN_sol_bot", "https://t.me/GMGN_sol_bot"), ("gmgn.ai", "https://gmgn.ai")],
-         docs="https://docs.gmgn.ai", chains="Solana (separate bots for ETH, Base, BSC, Tron)",
+         docs="https://docs.gmgn.ai", chains=T("Solana (separate bots for ETH, Base, BSC, Tron)", "Solana (zasebni botovi za ETH, Base, BSC, Tron)"),
          fee=T("1% per trade", "1% po tradeu"),
          known=T("Smart money signals, copy trade, published recommended settings",
                  "Smart money signali, copy trade, objavljene preporučene postavke")),
     dict(key="banana", name="Banana Gun", slug=None,
-         links=[("bananagun.io", "https://bananagun.io"), ("Official links", "https://docs.bananagun.io/resources/official-links")],
-         docs="https://docs.bananagun.io", chains="Solana + EVM chains",
+         links=[("bananagun.io", "https://bananagun.io"), (T("Official links", "Službeni linkovi"), "https://docs.bananagun.io/resources/official-links")],
+         docs="https://docs.bananagun.io", chains=T("Solana + EVM chains", "Solana + EVM mreže"),
          fee=T("Not listed in its docs; check the fee line in the bot", "Nije navedena u dokumentaciji; provjeri "
                "naknadu u botu"),
          known=T("Launch sniping on EVM and Solana; Banana Pro web app", "Sniping lansiranja na EVM-u i Solani; web "
@@ -215,8 +215,8 @@ GUIDES = {
     "maestro": dict(
         h1=T("How to set up Maestro bot: step-by-step guide and best settings (2026)",
              "Kako postaviti Maestro bot: vodič korak po korak i najbolje postavke (2026.)"),
-        title=T("Maestro bot setup guide 2026: best settings, Anti-MEV, gas delta, sell limits | MemeSonar",
-                "Maestro bot vodič 2026: najbolje postavke, Anti-MEV, gas delta, sell limiti | MemeSonar"),
+        title=T("Maestro bot setup guide 2026: best settings, Anti-MEV, gas delta | MemeSonar",
+                "Maestro bot vodič 2026: najbolje postavke, Anti-MEV, gas delta | MemeSonar"),
         desc=T("Set up Maestro on Telegram for Solana: official link, chains, wallets, Global Settings explained "
                "(Anti-MEV, Degen Mode, Gas Delta, slippage, auto-buy checks, sell limits) and our starting values.",
                "Postavi Maestro na Telegramu za Solanu: službeni link, novčanici, Global Settings objašnjene "
@@ -281,7 +281,7 @@ GUIDES = {
         h1=T("How to set up the GMGN Telegram bot: guide and recommended settings (2026)",
              "Kako postaviti GMGN Telegram bota: vodič i preporučene postavke (2026.)"),
         title=T("GMGN bot setup guide 2026: slippage, priority fee, Anti-MEV, auto sell | MemeSonar",
-                "GMGN bot vodič 2026: slippage, prioritetna naknada, Anti-MEV, auto sell | MemeSonar"),
+                "GMGN bot vodič 2026: slippage, prioritetna naknada, Anti-MEV | MemeSonar"),
         desc=T("Set up the GMGN Solana Telegram bot: the official bot list, wallet, settings explained and GMGN's own "
                "recommended slippage and fees, plus auto sell with take profit and stop loss.",
                "Postavi GMGN Solana Telegram bota: službeni popis botova, novčanik, objašnjene postavke i GMGN-ove "
@@ -341,8 +341,8 @@ GUIDES = {
     "trojan": dict(
         h1=T("How to set up Trojan: step-by-step guide and best settings (2026)",
              "Kako postaviti Trojan: vodič korak po korak i najbolje postavke (2026.)"),
-        title=T("Trojan bot setup guide 2026: trade presets, slippage, priority fee, bribe, auto sell | MemeSonar",
-                "Trojan vodič 2026: profili, slippage, prioritetna naknada, bribe, auto sell | MemeSonar"),
+        title=T("Trojan bot setup guide 2026: presets, slippage, priority fee, bribe | MemeSonar",
+                "Trojan vodič 2026: profili, slippage, prioritetna naknada, bribe | MemeSonar"),
         desc=T("Set up Trojan for Solana: official links, wallet, Trade Settings profiles explained (quick amounts, "
                "priority fee, bribe, slippage, spam buy, auto sell) and our starting values.",
                "Postavi Trojan za Solanu: službeni linkovi, novčanik, Trade Settings profili objašnjeni (brzi iznosi, "
@@ -405,7 +405,7 @@ ORDER = ("trojan", "bonkbot", "maestro", "gmgn")
 TX = {
     "en": dict(
         h1="The best-known Telegram trading bots in 2026, and how to set them up",
-        title="Best Telegram trading bots 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + settings | MemeSonar",
+        title="Best Telegram trading bots 2026: Trojan, BonkBot, Maestro, GMGN | MemeSonar",
         desc="The most used Telegram crypto trading bots compared (fees, chains, official links) with every setting "
              "explained: slippage, priority fee, MEV, auto buy, take profit, stop loss. A setup guide per bot.",
         tag="Telegram bots", crumb="← Best crypto tools",
@@ -468,7 +468,7 @@ TX = {
                "Facts from the bot's official docs, checked 1 November 2026. No affiliate links."),
     "hr": dict(
         h1="Najpoznatiji Telegram trading botovi 2026. i kako ih postaviti",
-        title="Najbolji Telegram trading botovi 2026: Trojan, BonkBot, Maestro, GMGN, Banana Gun + postavke | MemeSonar",
+        title="Najbolji Telegram trading botovi 2026: Trojan, BonkBot, Maestro, GMGN | MemeSonar",
         desc="Najkorišteniji Telegram trading botovi uspoređeni (naknade, mreže, službeni linkovi) uz "
              "objašnjenje svake postavke: slippage, prioritet, MEV, auto buy, take profit, stop loss. Vodič za svaki.",
         tag="Telegram botovi", crumb="← Najbolji kripto alati",
@@ -651,9 +651,9 @@ def overview(lang):
     t, s = TX[lang], TL[lang]
     rows = []
     for b in BOTS:
-        links = "<br>".join(_ext(u, n) for n, u in b["links"])
+        links = "<br>".join(_ext(u, n[lang] if isinstance(n, dict) else n) for n, u in b["links"])
         guide = f"<a href={gpath(b['key'], lang)}>{t['guide']} →</a>" if b["slug"] else t["no_guide"]
-        rows.append((f"<b>{esc(b['name'])}</b>", esc(b["chains"]), esc(b["fee"][lang]), links, esc(b["known"][lang]),
+        rows.append((f"<b>{esc(b['name'])}</b>", esc(b["chains"][lang]), esc(b["fee"][lang]), links, esc(b["known"][lang]),
                      guide))
     i = 0 if lang == "en" else 1
     sets = [(f"<b>{esc(r[0 + i])}</b>", esc(r[2 + i]), esc(r[4 + i])) for r in SETTINGS]
@@ -702,8 +702,8 @@ def guide(key, lang):
     from ui.public import _shell
     from ui.tools import L as TL
     t, s, g, b = TX[lang], TL[lang], GUIDES[key], BY_KEY[key]
-    links = " · ".join(_ext(u, n) for n, u in b["links"])
-    facts = (f"<div class=facts><div><b>{t['facts'][0]}</b>{links}</div><div><b>{t['facts'][1]}</b>{esc(b['chains'])}"
+    links = " · ".join(_ext(u, n[lang] if isinstance(n, dict) else n) for n, u in b["links"])
+    facts = (f"<div class=facts><div><b>{t['facts'][0]}</b>{links}</div><div><b>{t['facts'][1]}</b>{esc(b['chains'][lang])}"
              f"</div><div><b>{t['facts'][2]}</b>{esc(b['fee'][lang])}</div><div><b>{t['facts'][3]}</b>"
              f"{_ext(b['docs'], b['docs'].replace('https://', ''))}</div></div>")
     j = 0 if lang == "en" else 2

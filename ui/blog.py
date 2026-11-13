@@ -144,7 +144,7 @@ def cat_nav(lang, active=None):
 
 
 L = {
-    "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: MemeSonar blog",
+    "en": dict(base="/blog", home="/", crumb="← Blog", all="All posts", c_title="{c}: crypto articles on the MemeSonar blog",
                c_more="More on MemeSonar", read="min read", by="MemeSonar research", short="Short answer",
                terms="Terms in this post", all_terms="All terms →", next="Read next", cta="Request access",
                lock="MemeSonar does this for you in real time: every new Solana token, every influencer call and every "
@@ -156,12 +156,12 @@ L = {
                       "the EU, and how it is taxed. Measured on thousands of tokens we track every day.",
                i_lock="Members see these signals live: new tokens, influencer calls and wallets worth copying, with a rug "
                       "shield on every buy.",
-               i_title="MemeSonar blog: Solana meme coins, exchanges, crypto tax in Croatia and rug pulls",
+               i_title="MemeSonar blog: Solana meme coins, crypto tax in Croatia, rug pulls",
                i_desc="Data-backed crypto guides: buying Solana meme coins, MiCA-licensed exchanges and cards in Croatia, "
                       "crypto tax, wallet tracking, copy trading and how to spot a rug pull.",
                months=("January", "February", "March", "April", "May", "June", "July", "August", "September",
                        "October", "November", "December")),
-    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: MemeSonar blog",
+    "hr": dict(base="/hr/blog", home="/hr", crumb="← Blog", all="Svi članci", c_title="{c}: kripto članci na MemeSonar blogu",
                c_more="Još na MemeSonaru", read="min čitanja", by="MemeSonar istraživanje",
                short="Kratki odgovor", terms="Pojmovi u ovom tekstu", all_terms="Svi pojmovi →", next="Pročitaj još",
                cta="Zatraži pristup",
@@ -174,7 +174,7 @@ L = {
                       "Hrvatskoj i EU i kako se oporezuje. Izmjereno na tisućama tokena koje pratimo svaki dan.",
                i_lock="Članovi vide ove signale uživo: nove tokene, pozive influencera i novčanike koje vrijedi "
                       "kopirati, uz zaštitu od ruga na svakoj kupnji.",
-               i_title="MemeSonar blog: Solana meme coini, mjenjačnice, porez na kripto i rug pullovi",
+               i_title="MemeSonar blog: Solana meme coini, porez na kripto, rug pullovi",
                i_desc="Kripto vodiči uz stvarne podatke: kupnja Solana meme coina, mjenjačnice i kartice s MiCA licencom u "
                       "Hrvatskoj, porez na kriptovalute, praćenje novčanika, copy trading i rug pullovi.",
                months=("siječnja", "veljače", "ožujka", "travnja", "svibnja", "lipnja", "srpnja", "kolovoza", "rujna",

@@ -675,6 +675,22 @@ class Page(Base):
         self.assertIn("maxlength=500", body)
         self.assertNotIn("/pravi-trade", body)
 
+    def test_guest_page_names_its_other_language(self):
+        """13.11. (SEO audit): both copies carry hreflang en/hr/x-default; the English one says its own description
+        and words (ui/i18n never translates meta content), the Croatian one stays Croatian."""
+        self.seed()
+        self.live()
+        en, hr = apjavno.guest_html({}, "en"), apjavno.guest_html({}, "hr")
+        for html in (en, hr):
+            self.assertIn('hreflang=en href="', html)
+            self.assertIn(f'{apjavno.PATH_EN}"><link rel=alternate hreflang=hr href="', html)
+            self.assertIn("hreflang=x-default", html)
+        self.assertIn(f'<meta name=description content="{apjavno.GUEST_DESC["en"]}', en.replace("&#x27;", "'"))
+        self.assertIn(">Request access<", en)
+        self.assertIn(">Influencers<", en)
+        self.assertIn(">Zatraži pristup<", hr)
+        self.assertIn(apjavno.GUEST_DESC["hr"], hr)
+
     def test_address_must_look_like_an_address(self):
         self.assertEqual(apjavno._address({"wallet_pub": WALLET}), WALLET)
         self.assertIsNone(apjavno._address({"wallet_pub": "5" * 88}))    # as long as a secret key: never printed

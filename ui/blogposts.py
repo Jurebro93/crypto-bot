@@ -333,7 +333,7 @@ labelled, and every hour the system learns the profile of the rugs it caught.</p
 post(
     "what-is-pump-fun", "Basics",
     "What is pump.fun? How it works, and what our data says about your odds",
-    "What is pump.fun and how does it work? Bonding curve, graduation and real odds | MemeSonar",
+    "What is pump.fun? Bonding curve, graduation and real odds | MemeSonar",
     "Pump.fun lets anyone launch a Solana meme coin in a minute. How the bonding curve and graduation work, and why "
     "only 0.8% of random new tokens ever double after their first 15 minutes.",
     ["what is pump fun", "how does pump fun work", "pump fun bonding curve", "pump fun graduation"], 6,
@@ -759,7 +759,7 @@ a plan the decision gets made by emotion. See <a href=/blog/how-to-trade-meme-co
 post(
     "how-to-use-jupiter-swap", "Guides",
     "How to use Jupiter swap on Solana: settings that save you money",
-    "How to use Jupiter swap (jup.ag): slippage, priority fees, limit orders | MemeSonar",
+    "How to use Jupiter swap: slippage, priority fees, limit orders | MemeSonar",
     "A practical Jupiter swap guide: connecting a wallet, checking the token, slippage and priority fee settings, "
     "limit orders and DCA, and the mistakes that cost the most.",
     ["jupiter swap", "how to use jupiter swap", "jup.ag", "jupiter exchange solana"], 6,
@@ -874,7 +874,7 @@ TAX_SRC = "Porezna uprava opinion 410-01/17-08/29 (19 Mar 2018), Porezna uprava 
 post(
     "crypto-cards-croatia", "Cards",
     "Crypto cards in Croatia (2026): which ones work, what they cost, and the tax catch",
-    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit, Bitpanda compared | MemeSonar",
+    "Best crypto cards in Croatia 2026: Revolut, Crypto.com, Bybit | MemeSonar",
     "Which crypto debit cards can you use in Croatia in 2026? Revolut, Crypto.com, Bybit EU, Bitpanda, Kraken and OKX "
     "compared by licence, fees and cashback, plus why every card payment is a crypto sale.",
     ["crypto card croatia", "crypto debit card europe", "best crypto card", "kripto kartica"], 7,
@@ -935,7 +935,7 @@ gain into a taxed one.</li>
 post(
     "crypto-tax-croatia", "Tax",
     "Crypto tax in Croatia (2026): 12%, the two-year rule and how to file JOPPD",
-    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD step by step | MemeSonar",
+    "Crypto tax in Croatia 2026: 12% rate, two-year rule, JOPPD guide | MemeSonar",
     "How crypto is taxed in Croatia: 12% on gains, tax-free after two years, crypto-to-crypto swaps not taxed, losses "
     "within the year, and how to file the JOPPD form by the end of February. With examples.",
     ["crypto tax croatia", "porez na kriptovalute", "croatia capital gains tax crypto", "joppd kriptovalute"], 8,
@@ -1010,7 +1010,7 @@ CO_SRC = ("Zakon o porezu na dobit (10%/18%), dividend tax 12% since 2024, HSFI 
 post(
     "company-crypto-investment-croatia", "Business",
     "Can a company invest in crypto in Croatia? d.o.o., obrt, tax and accounting",
-    "Can a Croatian company (d.o.o.) invest in crypto? Tax, accounting, banks | MemeSonar",
+    "Can a Croatian d.o.o. invest in crypto? Tax, accounting, banks | MemeSonar",
     "Yes, a Croatian d.o.o. can buy crypto with its own money. How it is booked (HSFI 5 or 10), taxed (10% or 18% "
     "profit tax, no two-year exemption), VAT, banks, and when holding privately is cheaper.",
     ["can a company invest in crypto", "business crypto account", "d.o.o. kriptovalute", "company crypto tax croatia"], 8,
@@ -1088,7 +1088,7 @@ Personal crypto tax rules: <a href=/blog/crypto-tax-croatia>crypto tax in Croati
 post(
     "why-big-influencer-calls-are-hard-to-trade", "Influencers",
     "Why trading calls from the biggest crypto influencers is so hard (and where the edge is)",
-    "Why copying big crypto influencers fails: sniper bots, priority fees, front-running | MemeSonar",
+    "Why copying big crypto influencers fails: snipers and priority fees | MemeSonar",
     "Big influencer calls are watched by thousands of people and sniper bots that pay higher fees to buy first. How "
     "priority fees and Jito tips work, and why rising stars leave more room.",
     ["crypto influencer calls", "front running crypto", "solana priority fee", "sniper bot solana"], 7,

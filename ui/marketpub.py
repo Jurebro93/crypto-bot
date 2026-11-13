@@ -735,7 +735,7 @@ def market(lang):
                "From DefiLlama's public Solana DEX and launchpad volumes, checked every hour. DefiLlama finalises a day once, so "
                "every number here is for full UTC days. The season index and the charts are our own calculations."),
               ("How often is the page updated?", "Automatically: the source is checked every hour and the page refreshes within 30 minutes.")]
-        title = f"Solana Meme Coin Market Volume as of {_date(day, lang)} (last full day): Launchpads, DEX, Trend | MemeSonar"
+        title = f"Solana Meme Coin Market Volume ({_date(day, lang)}): Launchpads, DEX, Trend | MemeSonar"
         desc = (f"Live Solana meme coin market: launchpad volume {usd(lp7)} in 7 days ({pct(g(lp7, lpp))}), Solana DEX "
                 f"{usd(dx7)}, trading terminals {usd(tm7)}. Charts and daily data, updated automatically.")
     else:
@@ -749,7 +749,7 @@ def market(lang):
                "Iz javnih podataka DefiLlame o volumenu Solana DEX-ova i launchpada, provjera svaki sat. DefiLlama dan zaključa "
                "jednom, pa su svi brojevi za pune UTC dane. Indeks sezone i grafovi su naš izračun."),
               ("Koliko se često stranica osvježava?", "Automatski: izvor se provjerava svaki sat, a stranica se osvježi unutar 30 minuta.")]
-        title = f"Volumen Solana meme coin tržišta na dan {_date(day, lang)} (zadnji puni dan): launchpadi, DEX, trend | MemeSonar"
+        title = f"Solana meme coin tržište ({_date(day, lang)}): launchpadi, DEX, trend | MemeSonar"
         desc = (f"Solana meme coin tržište uživo: volumen launchpada {usd(lp7, lang)} u 7 dana ({pct(g(lp7, lpp), lang)}), "
                 f"Solana DEX {usd(dx7, lang)}, trading terminali {usd(tm7, lang)}. Grafovi i dnevni podaci, osvježava se samo.")
     body.append(_faq(qa, lang))
@@ -867,7 +867,7 @@ def launchpads(lang):
               ("Is a launchpad safe?", "The launchpad itself is just the place where tokens are made. Most new tokens fail and "
                "many are scams, so check every token before buying. See our <a href=/rug-check>rug checks</a>."),
               ("Where does the data come from?", "DefiLlama's public launchpad volumes on Solana, full UTC days, updated daily.")]
-        title = f"Solana Launchpads by Volume: pump.fun vs bonk.fun vs Meteora ({_month(day, lang)}) | MemeSonar"
+        title = f"Solana Launchpads by Volume ({_month(day, lang)}): pump.fun vs bonk.fun | MemeSonar"
         desc = (f"Which Solana launchpad trades the most? {names[top['slug']]} has {pct(top['v7'] / tot7, signed=False)} of "
                 f"launchpad volume ({usd(top['v7'])} in 7 days). Market share chart and daily data for every launchpad.")
     else:
@@ -882,7 +882,7 @@ def launchpads(lang):
               ("Je li launchpad siguran?", "Launchpad je samo mjesto gdje tokeni nastaju. Većina novih tokena propadne, a mnogi su "
                "prevare, pa provjeri svaki token prije kupnje. Pogledaj naše <a href=/hr/provjera>provjere ruga</a>."),
               ("Odakle su podaci?", "Javni podaci DefiLlame o volumenu launchpada na Solani, puni UTC dani, osvježava se svaki dan.")]
-        title = f"Solana launchpadi po volumenu: pump.fun, bonk.fun, Meteora ({_month(day, lang)}) | MemeSonar"
+        title = f"Solana launchpadi po volumenu ({_month(day, lang)}): pump.fun, bonk.fun | MemeSonar"
         desc = (f"Koji Solana launchpad ima najviše trgovanja? {names[top['slug']]} ima {pct(top['v7'] / tot7, lang, signed=False)} "
                 f"volumena ({usd(top['v7'], lang)} u 7 dana). Graf tržišnog udjela i dnevni podaci za svaki launchpad.")
     body.append(_faq(qa, lang))
