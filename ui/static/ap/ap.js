@@ -1204,6 +1204,35 @@
     saveExit(f);
   });
 
+  // 13.11. (Jure: "Kako da odaberem token da bi se prikazao graf kad gdje god kliknem otvori mi novi pop-up i onda ako
+  // kliknem na token odvede me na DexScreener ... trebao bi se učitavati ovaj graf"): on this page a tap on a token (a row
+  // or a name that opened the token pop-up, a link to /token/<mint>, a "Prikaži na grafu" button, also inside an open
+  // pop-up) loads it into the chart, the header and the panel above. Capture phase, so the pop-up's own handler never
+  // sees it. What keeps the pop-up: anything marked data-popkeep ("provjera"), the small ↗ links to other sites, and
+  // a click with a modifier key (new tab).
+  const MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  const tokOf = el => {
+    if (el.dataset.sel) return el.dataset.sel;
+    if (el.dataset.pop) { try { return new URL(el.dataset.pop, location.href).searchParams.get('m') || ''; } catch (x) { return ''; } }
+    const h = el.getAttribute('href') || '';
+    return h.startsWith('/token/') ? decodeURIComponent(h.slice(7).split(/[?#/]/)[0]) : '';
+  };
+  document.addEventListener('click', e => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const el = e.target.closest('[data-pop^="/pravi-trade/token?"], a[href^="/token/"], [data-sel]');
+    if (!el || el.closest('[data-popkeep]')) return;
+    // a button, link or field INSIDE a token row (Kupi, Uredi, ↗, a tab) keeps doing its own job
+    const inner = e.target.closest('a,button,input,select,textarea,label,summary');
+    if (inner && inner !== el && el.contains(inner)) return;
+    const m = tokOf(el);
+    if (!MINT_RE.test(m)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const d = document.getElementById('ap-pop'); if (d && d.open) d.close();
+    const name = el.dataset.sym || ((el.querySelector('b') || el).textContent || '').trim().split(/\s+/)[0].slice(0, 24);
+    selectToken(m, name);
+    const hd = $('#apx-hdr'); if (hd && hd.getBoundingClientRect().top < 0) hd.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, true);
+
   root.addEventListener('click', e => {
     const g = s => e.target.closest(s);
     let b;

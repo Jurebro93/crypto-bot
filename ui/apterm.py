@@ -2055,7 +2055,7 @@ def kupiti_html(tcon, cfg, owner, now):
             f'<span class=n data-l="MC">{mc(m.get("mcap"))}</span><span class=n data-l="5 min / 1 h">'
             f'{_pct(m.get("ch_m5"), 0)}<small>{_pct(m.get("ch_h1"), 0)}</small></span>'
             f'<span class=apx-act>{fill_btn}'
-            f'<span class="ap-lnk" role=button tabindex=0{pt._pop(z["token"])}>provjera</span></span></div>')})
+            f'<span class="ap-lnk" role=button tabindex=0 data-popkeep{pt._pop(z["token"])}>provjera</span></span></div>')})
     rows.sort(key=lambda r: -(r["epm"] or 0))
     wait.sort(key=lambda r: -(r["epm"] or 0))
     sug = ""
