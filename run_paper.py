@@ -647,25 +647,57 @@ def trigger_entries(con, cfg, rst, now):
 RETRY_DECISIONS = ("skip_score", "skip_liq", "skip_mcap", "ignored")   # earlier verdicts a better score can overturn
 
 
-def reconsider(decision, c, cfg):
+# 13.11.: on a quiet day the scan reports ~108 tokens, but almost all of them were decided once before (the scanner
+# keeps tokens it already saw), and only a score >= min_score reopened them. With the day's best at 32 the demo saw
+# 1-2 brand-new tokens a minute and made 0 trades: exploration (the top of the day's scores) reached only tokens
+# never seen before. Now an earlier skip is looked at again for exploration too, at most every RETRY_MIN minutes.
+RETRY_EXPLORE = RETRY_DECISIONS + ("skip_gate", "skip_full", "skip_sesija", "skip_ab")
+RETRY_NEVER = ("T0: mehanika", "lažni pool", "tokenizirana dionica")   # gate reasons that do not change with time
+RETRY_MIN = 30
+_LOOKED = {}   # token -> when intake last re-looked at it (this process)
+
+
+def reconsider(decision, c, cfg, ex_need=None, reason="", now=None):
     """A token decided earlier gets a new look when it is a hype candidate whose score now clears min_score and the
-    old verdict was one a better score can overturn (not taken, not rug, not gate)."""
-    return decision in RETRY_DECISIONS and c["origin"] == "hype" and (c["score"] or 0) >= cfg["min_score"]
+    old verdict was one a better score can overturn (not taken, not rug, not gate); or, every RETRY_MIN minutes,
+    when its score is in the day's exploration band (>= ex_need) and the old verdict could have changed since
+    (a skip by score, liquidity, market cap, a full book or a gate reason other than rug mechanics)."""
+    if c["origin"] != "hype":
+        return False
+    s = c["score"] or 0
+    if decision in RETRY_DECISIONS and s >= cfg["min_score"]:
+        return True
+    if ex_need is None or s < ex_need or decision not in RETRY_EXPLORE:
+        return False
+    if any(x in (reason or "") for x in RETRY_NEVER):
+        return False
+    now = now or time.time()
+    if now - _LOOKED.get(c["token"], 0) < RETRY_MIN * 60:
+        return False
+    _LOOKED[c["token"]] = now
+    if len(_LOOKED) > 5000:
+        for k in sorted(_LOOKED, key=_LOOKED.get)[:2500]:
+            _LOOKED.pop(k, None)
+    return True
 
 
 def intake(cfg, now=None, quiet=False):
     """Decide every new candidate once; a skipped one is taken later if its hype score climbs over min_score."""
     now = now or time.time()
     con = store.connect(DB)
-    seen = {t: d for t, d in con.execute("SELECT token, decision FROM candidates")}
+    seen, why_seen = {}, {}
+    for t, d, r in con.execute("SELECT token, decision, reason FROM candidates"):
+        seen[t], why_seen[t] = d, r or ""
     cands = {}
     sigs = event_tokens(cfg, now) + hype_signals(now=now)
+    ex_need0 = explore_need(con, cfg, now)
     for c in sigs:
-        # a token decided once is looked at again only when its hype score now clears the bar; until 4.11. only an
-        # earlier "skip_score" qualified, so a token first seen with a thin pool ("skip_liq") or a tiny score
-        # ("ignored") could later score 60 with a $45k pool and never be considered (AMD 55.7 in the scan, no entry)
-        if c["token"] not in seen or reconsider(seen[c["token"]], c, cfg):
-            cands[c["token"]] = c
+        # a token decided once is looked at again when its hype score now clears the bar, or (13.11.) when it is in
+        # the day's exploration band; until 4.11. only an earlier "skip_score" qualified, so a token first seen with a
+        # thin pool ("skip_liq") could later score 60 with a $45k pool and never be considered (AMD 55.7, no entry)
+        t = c["token"]
+        if t not in seen or reconsider(seen[t], c, cfg, ex_need0, why_seen.get(t), now):
+            cands[t] = c
     kc = cfg.get("konv") or {}
     conv = {}
     if kc.get("enabled"):

@@ -1,6 +1,13 @@
 [
  {
   "datum": "2026-11-13",
+  "naslov": "Demo ponovno gleda tokene koje je ranije preskočio",
+  "tekst": "demo bot je mirnih dana stajao bez ijednog tradea: skener je vidio stotinjak tokena, ali bot je gledao samo one koje nikad prije nije vidio. Token koji je jednom preskočio vratio se tek s ocjenom 50+, a najbolja ocjena dana bila je 32. Sada se token kojeg je bot ranije preskočio ponovno pogleda svakih 30 minuta ako je među najbolje ocijenjenima tog dana. Ne vraćaju se tokeni s rug mehanikom, lažnim poolom i tokenizirane dionice.",
+  "naslov_en": "The demo looks again at tokens it skipped earlier",
+  "tekst_en": "on quiet days the demo bot sat without a single trade: the scanner saw about a hundred tokens, but the bot only looked at ones it had never seen before. A token it skipped once came back only with a score of 50+, and the best score of the day was 32. Now a token the bot skipped earlier gets another look every 30 minutes if it is among the best scored of the day. Tokens with rug mechanics, fake pools and tokenised stocks do not come back."
+ },
+ {
+  "datum": "2026-11-13",
   "naslov": "Demo: pauza nakon stop lossa",
   "tekst": "demo bot više ne kupuje isti token odmah nakon što ga je izbacio stop loss. Čeka 8 sati, a ako se to ponovi unutar 48 sati, pauza se udvostručuje (16 h, 32 h, najviše 48 h). Povod: token JENSEN je zaredom tri puta pogodio stop loss (prvi ulaz i dva ponovna ulaza u razmaku od sat vremena).",
   "naslov_en": "Demo: a pause after a stop loss",
