@@ -269,6 +269,34 @@ def validate(mint, zone_type, lo, hi, ttl_h, source):
     return m, zt, lo_v, hi_v, ttl, src
 
 
+def archived_why(mint):
+    """12.11. popodne (owner, točka 4: "tokene iz arhive rugova (NOBUSHIBA, Leonida) ne naoružavaj"): the reason when
+    the mint is in the rug archive (rangedca/trade.archived_why: rugfilter/archive, any kind), else None."""
+    try:
+        from rangedca import trade
+        return trade.archived_why(mint)
+    except Exception:  # noqa: BLE001 - unreadable: the other rug guards (the alarm's rug level) still apply
+        return None
+
+
+def disarm_archived(con, now, log=print):
+    """Every zone still in force (any source) of a mint in the rug archive ends now; one log line per mint and zone.
+    Returns how many zones ended."""
+    rows = con.execute("SELECT mint, zone_type, source FROM armed_zones WHERE expires_at > ?", (int(now),)).fetchall()
+    n = 0
+    for m in sorted({r[0] for r in rows}):
+        why = archived_why(m)
+        if not why:
+            continue
+        for _m, zt, src in (r for r in rows if r[0] == m):
+            con.execute("UPDATE armed_zones SET expires_at=?, updated_ts=? WHERE mint=? AND zone_type=? AND source=?",
+                        (int(now), int(now), m, zt, src))
+            con.execute("DELETE FROM zone_state WHERE mint=? AND zone_type=? AND source=?", (m, zt, src))
+            log(f"zonewatch: {m[:6]}… zona {zt} ({src}) razoružana: {why}")
+            n += 1
+    return n
+
+
 def arm(mint, zone_type, lo=None, hi=None, note=None, ttl_h=None, source="manual", kid="local", now=None, con=None,
         path=None):
     """MCP arm_zone (and the owner's CLI): upsert one zone on (mint, zone_type, source) for at most TTL_MAX_H (2 h);
@@ -277,6 +305,11 @@ def arm(mint, zone_type, lo=None, hi=None, note=None, ttl_h=None, source="manual
     of RATE_PER_HOUR writes per key, more than MAX_ARMED active hand-armed zones, nothing to disarm)."""
     now = int(now or time.time())
     m, zt, lo_v, hi_v, ttl, src = validate(mint, zone_type, lo, hi, ttl_h, source)
+    if ttl != 0:   # 12.11. (owner, točka 4): a rug-archive token is never armed (disarming it always works)
+        aw = archived_why(m)
+        if aw:
+            print(f"zonewatch: arm_zone {zt} {m[:6]}… odbijen ({kid}): {aw}", flush=True)
+            raise ValueError(f"not armed: {aw}")
     nt = str(note).strip()[:NOTE_MAX] if note not in (None, "") else None
     owner = kid == OWNER
     own = con is None
@@ -440,25 +473,16 @@ def _open_lot1_mc():
         con.close()
 
 
-def position_tokens():
-    """{token} with an open trade on the real Autopilot account (league.db trades, user trade.settings.LEAGUE_USER;
-    the owner's manual HOPE position is one), read-only; set() on any error. The demo account (PAPER_USER) is not
-    the real account: its tokens get no zones for it."""
+def position_tokens(now=None):
+    """{token} with a REAL open lot (12.11.: zonewatch.positions.real_tokens = trade.settings.live_lots, trade.db
+    positions mode live, open with tokens held or a fresh pending buy; the owner's manual HOPE position is one),
+    read-only; set() on any error. A demo trade of LEAGUE_USER without a real lot (a blocked copy, a dry or failed
+    swap) and the demo account (PAPER_USER) are not the real account: their tokens get no zones for it."""
     try:
-        from rangedca import data
-        from trade import settings
-        con = data._league_ro()
+        from zonewatch import positions
+        return positions.real_tokens(now) or set()
     except Exception:  # noqa: BLE001
         return set()
-    if con is None:
-        return set()
-    try:
-        return {r[0] for r in con.execute("SELECT DISTINCT token FROM trades WHERE user=? AND status='open'",
-                                          (settings.LEAGUE_USER,)) if r[0]}
-    except sqlite3.Error:
-        return set()
-    finally:
-        con.close()
 
 
 def range_zones(row, lot1_mc=None):
@@ -497,7 +521,9 @@ def _entry_ready(now):
         for tok, r in (data.read_ranges(since=now - trade.RANGE_FRESH_S) or {}).items():
             if not r.get("active") or view.is_breakout(r):
                 continue
-            if trade.entry_view(r, (r.get("metrics") or {}).get("price"), now) is None:
+            # 12.11. popodne (owner, točka 1): the readiness limit (9 min) as get_range_candidates' entry_ready, so a
+            # late range cycle does not take every range zone down
+            if trade.entry_view(r, (r.get("metrics") or {}).get("price"), now, trade.METRICS_READY_S) is None:
                 out.add(tok)
         return out
     except Exception:  # noqa: BLE001
@@ -575,8 +601,9 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
     5 min after the range was computed, so a range the engine stops computing goes away by itself) and expire at once
     the range zones of tokens whose range is no longer active. Returns (tokens, zones written).
     11.11. (Jure): only tokens with an open range round, an entry-ready range or an open position on the real account
-    (position_tokens) get range zones, and ONLY when rangedca has an active range for them: an eligible token without
-    one gets no zones, and why goes to the log once (when it changes) and to kv range_why. eligible: that set
+    (position_tokens: 12.11. a REAL open lot of trade.db, never a demo trade alone) get range zones, and ONLY when
+    rangedca has an active range for them: an eligible token without one gets no zones, and why goes to the log once
+    (when it changes) and to kv range_why. eligible: that set
     (computed when rows are read here; None with given rows = no filter, for the callers that pass their own rows).
     Every newer range computation of a token with zones is a new zone_version (range_ver)."""
     from rangedca import trade
@@ -586,7 +613,7 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
         rows = _range_rows(now)
         if eligible is None:
             lot1 = _open_lot1_mc() if lot1 is None else lot1
-            positions = position_tokens() if positions is None else set(positions)
+            positions = position_tokens(now) if positions is None else set(positions)
             ready = _entry_ready(now)
             for t in lot1:
                 reasons.setdefault(t, []).append("otvorena runda")
@@ -597,11 +624,16 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
             eligible = set(lot1) | ready | positions
     lot1 = _open_lot1_mc() if lot1 is None else lot1
     keep, n, keep_ts = set(), 0, {}
+    arch = {}   # 12.11. popodne (owner, točka 4): a rug-archive token is never armed, whatever made it eligible
     for row in rows:
         tok, sym, ts, src = row[0], row[1], int(row[2] or now), row[3] or "signal"
         if not tok or not MINT_RE.match(tok):
             continue
         if eligible is not None and tok not in eligible:
+            continue
+        aw = archived_why(tok)
+        if aw:
+            arch[tok] = aw
             continue
         sc = row[4]
         why = reasons.get(tok) or (["lot 1 otvoren"] if lot1.get(tok) else [])
@@ -623,9 +655,11 @@ def sync_range(con, now, rows=None, lot1=None, log=print, eligible=None, positio
                                              "expires_at > ?", (int(now),)) if (m, zt) not in keep]
     for m, zt in gone:
         con.execute("UPDATE armed_zones SET expires_at=? WHERE mint=? AND zone_type=? AND source='range'", (int(now), m, zt))
+    disarm_archived(con, now, log)   # 12.11.: hand-armed zones of a token that went into the rug archive end too
     if eligible is not None:
         missing = {t for t in eligible if t not in keep_ts and MINT_RE.match(t or "")}
-        whys = no_range_why(missing, now) if read_here else {t: "nema aktivnog raspona" for t in missing}
+        whys = no_range_why(missing - set(arch), now) if read_here else {t: "nema aktivnog raspona" for t in missing}
+        whys.update({t: w for t, w in arch.items() if t in missing})
         said = kv_get(con, "range_why") or {}
         for t, w in sorted(whys.items()):
             if _why_key(said.get(t)) != _why_key(w):   # once per status, not on every changed number

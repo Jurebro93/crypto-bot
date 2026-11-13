@@ -84,6 +84,21 @@ HEAVY_WAIT_S = 1200
 SWITCH_LIVE = "live_trades_retention"
 SWITCH_TG = "tg_text_retention"
 STATE = ".retencija.json"
+# 12.11. (Jure: "VACUUM / sažimanje hype.db (oko 250 MB) i events.db nakon rezanja wallet kopija na 7 dana"): once a
+# night, after the deletions and after the events night batch (03:00 Zagreb, its retention cuts the wallet copies to
+# 7 days), VACUUM of these files when at least COMPACT_WASTE of the file is dead space and the disk keeps
+# COMPACT_MARGIN_MB free above the packed copy while it is written (the feeds keep writing meanwhile). Else the reason
+# is logged and the next night tries again. ops/dbs.compact still runs hourly at its own 35 % threshold.
+COMPACT_FILES = ("events", "hype")
+# 12.11. (Jure: "Vidi kako možeš optimizirati i očistiti da nam ostane više memorije"): every other database of the
+# data disk too (the disk report: wallets ~63 MB, kol 29, shadow 27, tg 17, paper 14, early 8, ai 5 of dead space),
+# smallest first (each needs less room and leaves more for the next), hype.db last. Never trade.db / league.db
+# (money: a VACUUM there holds the write lock the trading loop needs; they are small anyway).
+COMPACT_SKIP = ("trade.db", "league.db")
+COMPACT_FROM_H = 4            # Zagreb hour: after the events night batch
+COMPACT_UNTIL = (5, 40)       # no new VACUUM after this (the window closes at 06:00)
+COMPACT_WASTE = float(os.environ.get("RETENCIJA_COMPACT_WASTE", "0.10"))
+COMPACT_MARGIN_MB = float(os.environ.get("RETENCIJA_COMPACT_MARGIN_MB", "250"))
 DAILY_AT = (6, 30)
 TZ = "Europe/Zagreb"
 # long readers (module text): the owner sets these windows; the defaults are the readers' own
@@ -696,14 +711,69 @@ def measure(p, now=None, log=print):
     return out
 
 
+def compact_due(st, now):
+    """True once a night from COMPACT_FROM_H Zagreb until COMPACT_UNTIL, inside the night window."""
+    z = _zagreb(now)
+    return (in_night(now, default=False) and z.hour >= COMPACT_FROM_H and (z.hour, z.minute) < COMPACT_UNTIL
+            and st.get("compacted") != z.date().isoformat())
+
+
+def compact_order(p, files=None):
+    """[(name, path)]: COMPACT_FILES' databases and every other *.db of the data disk (ops/dbs.files), without
+    COMPACT_SKIP, smallest first, hype.db last."""
+    seen, out = set(), []
+    for k in COMPACT_FILES:
+        if _exists(p.get(k)):
+            seen.add(os.path.realpath(p[k]))
+            out.append((k, p[k]))
+    if files is None:   # the *.db next to hype.db (DATA_DIR in production, the test's folder in a test)
+        import glob
+        base = os.path.dirname(p.get("hype") or p.get("events") or "")
+        files = sorted(glob.glob(os.path.join(base, "*.db"))) if base else []
+    for f in files:
+        name = os.path.basename(f)
+        if name in COMPACT_SKIP or os.path.realpath(f) in seen or not _exists(f):
+            continue
+        seen.add(os.path.realpath(f))
+        out.append((name[:-3] if name.endswith(".db") else name, f))
+    size = lambda kp: os.path.getsize(kp[1]) if os.path.exists(kp[1]) else 0  # noqa: E731
+    return sorted(out, key=lambda kp: (kp[0] == "hype", size(kp)))
+
+
+def compact_night(p, now=None, log=print, st=None, compact=None, files=None):
+    """12.11.: VACUUM of COMPACT_FILES (above); the caller holds the heavy-job lock. -> {name: result or reason}."""
+    from ops import dbs
+    compact = compact or dbs.compact
+    now = int(now or time.time())
+    st = st if st is not None else {}
+    out, t0 = {}, time.time()
+    for k, path in compact_order(p, files):
+        z = _zagreb(now + time.time() - t0)   # a VACUUM takes minutes: the clock moves on
+        if (z.hour, z.minute) >= COMPACT_UNTIL:
+            out[k] = "preskočeno: kraj noćnog prozora"
+            continue
+        why = []
+        try:
+            res = compact(path, min_waste=COMPACT_WASTE, margin_mb=COMPACT_MARGIN_MB, why=why)
+        except Exception as e:  # noqa: BLE001 - one file must not stop the other; the next night tries again
+            res, why = None, [f"{type(e).__name__}: {str(e)[:120]}"]
+        out[k] = res or ("nije sažeto: " + ("; ".join(why) or "?"))
+    st["compacted"] = _zagreb(now).date().isoformat()
+    log("retencija: noćno sažimanje (VACUUM): " + "; ".join(f"{k}.db {v}" for k, v in out.items())
+        + f" | disk slobodno {disk.free_mb() or 0:.0f} MB")
+    return out
+
+
 def night(p, now=None, log=print, st=None, stop=None):
-    """With a switch on, inside the night window, once a night: the deletion under the heavy-job lock."""
+    """With a switch on, inside the night window, once a night: the deletion under the heavy-job lock; from
+    COMPACT_FROM_H, once a night, the VACUUM of COMPACT_FILES (compact_night)."""
     now = int(now or time.time())
     st = st if st is not None else {}
     want = [k for k, name in (("live", SWITCH_LIVE), ("tg", SWITCH_TG)) if switch_on(name, p.get("trade"))]
     day = _zagreb(now).date().isoformat()
     want = [k for k in want if st.get(f"deleted_{k}") != day]
-    if not want or not in_night(now):
+    pack = compact_due(st, now)
+    if (not want and not pack) or not in_night(now):
         return {}
     from ops import heavy
     t0 = time.time()
@@ -720,6 +790,8 @@ def night(p, now=None, log=print, st=None, stop=None):
                     st[f"deleted_{k}"] = day
             except Exception as e:  # noqa: BLE001
                 log(f"retencija {k}: brisanje nije uspjelo: {type(e).__name__}: {str(e)[:160]}")
+        if pack and not stop():
+            out["compact"] = compact_night(p, now, log, st)
     return out
 
 

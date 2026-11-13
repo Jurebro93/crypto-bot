@@ -32,6 +32,13 @@ For the page (ui/pravitrade.py, the box under the log's one-line summary and the
 rows by key, verdict() turns one into "propušteno" / "dobro preskočen" / "mjeri se" / "nema podataka" with its
 numbers, sentence() the one-line answer, moves() the market caps and moves from the call. All pure: no network, no
 write.
+
+12.11. (Jure, točka 4: "kad token ima manje od 3 točke cijene u prozoru, označi rezultat kao 'nepouzdano' i ne
+računaj ga u statistiku propuštenih"): every measured row keeps n_pts, the 1-minute candles (minutes with a trade)
+inside its 60 minutes after the decision minute; with fewer than rangedca/missed.MIN_POINTS (3) the verdict is
+"nepouzdano" (kind "unrel") instead of propušteno / dobro preskočen, hit() claims nothing, the sentence counts it
+apart ("nepouzdano: N (manje od 3 točke cijene)") and rangedca/missed never labels it. Rows measured before 12.11.
+have n_pts NULL (their candles were not kept): unknown, judged as before.
 """
 import datetime
 import json
@@ -57,11 +64,12 @@ DEFAULT = {"budget_s": 60, "per_run": 20, "per_run_busy": 5, "every_s": 120}
 SCHEMA = """CREATE TABLE IF NOT EXISTS skip_path (
     token TEXT, ts INTEGER, pool TEXT, entry REAL, lag_s INTEGER, t15 INTEGER, sl_min INTEGER, hi60 REAL, lo60 REAL,
     r60 REAL, max_min INTEGER, lv TEXT, bad TEXT, retry_ts INTEGER, done_ts INTEGER, sig_ts INTEGER, p_sig REAL,
-    p5 REAL, p10 REAL, p15 REAL, supply REAL, ver INTEGER, PRIMARY KEY (token, ts));
+    p5 REAL, p10 REAL, p15 REAL, supply REAL, ver INTEGER, n_pts INTEGER, PRIMARY KEY (token, ts));
 CREATE INDEX IF NOT EXISTS skip_path_ts ON skip_path (ts)"""
 # 10.11. (Jure): added to tables made before (ensure); NULL in the rows measured before
 NEW_COLS = (("sig_ts", "INTEGER"), ("p_sig", "REAL"), ("p5", "REAL"), ("p10", "REAL"), ("p15", "REAL"),
-            ("supply", "REAL"), ("ver", "INTEGER"))
+            ("supply", "REAL"), ("ver", "INTEGER"),
+            ("n_pts", "INTEGER"))   # 12.11. (Jure, točka 4): the price points of the 60 min (NULL: measured before)
 COLS = ("token", "ts", "pool", "entry", "lag_s", "t15", "sl_min", "hi60", "lo60", "r60", "max_min", "lv", "bad",
         "retry_ts", "done_ts") + tuple(c for c, _ in NEW_COLS)
 TZ = "Europe/Zagreb"
@@ -294,6 +302,13 @@ def last_close(candles, until):
     return out
 
 
+def window_points(candles, ts, horizon_min=HORIZON_MIN):
+    """12.11. (Jure, točka 4): the price points the measurement of one skip stands on: the 1-minute candles (a minute
+    with a trade) after the decision minute and within horizon_min, the same ones kol/minute.path walks."""
+    m0 = minute_of(ts)
+    return sum(1 for c in candles or () if m0 < c[0] <= m0 + horizon_min * MIN)
+
+
 def at_signal(candles, ts, sig_ts=None):
     """10.11. (Jure: "koliko se cijena makla u 5, 10, 15 minuta"): {"sig_ts", "p_sig", "p5", "p10", "p15"}.
     p_sig: the price at the call; p5/p10/p15: the last close at or before the call's minute + 5/10/15. Without a call
@@ -318,7 +333,7 @@ def _put(mcon, tok, ts, pool, o, peak, now, supply=None):
          "sl_min": o["sl_min"], "hi60": o["hi60"], "lo60": o["lo60"], "r60": o["r60"], "max_min": peak,
          "lv": json.dumps(o["lv"], separators=(",", ":")), "bad": None, "retry_ts": None, "done_ts": now,
          "sig_ts": o.get("sig_ts"), "p_sig": o.get("p_sig"), "p5": o.get("p5"), "p10": o.get("p10"),
-         "p15": o.get("p15"), "supply": supply, "ver": VER}
+         "p15": o.get("p15"), "supply": supply, "ver": VER, "n_pts": o.get("n_pts")}
     mcon.execute(f"INSERT OR REPLACE INTO skip_path ({', '.join(v)}) VALUES ({','.join('?' * len(v))})", tuple(v.values()))
 
 
@@ -402,6 +417,7 @@ def run(mcon, kcon, cfg=None, now=None, fetch=None, log=print, busy=False, entri
                     _put_bad(mcon, tok, ts, pool, "svijeca", now + RETRY_EMPTY_S, now)
                 continue
             o.update(at_signal(candles, ts, sigs.get((tok, ts))))
+            o["n_pts"] = window_points(candles, ts)   # 12.11.: fewer than 3 = nepouzdano (verdict, rangedca/missed)
             _put(mcon, tok, ts, pool, o, peak_minute(candles, ts, mc["wick_x"]), now, supply.get(tok))
             n_rows += 1
         mcon.commit()
@@ -478,10 +494,17 @@ def _first(row, key, level, std, col):
         return None, False
 
 
+def unreliable(row):
+    """12.11. (Jure, točka 4): a measured row whose 60 min had fewer than 3 price points (n_pts); False for a row
+    measured before 12.11. (n_pts NULL: judged as before)."""
+    from rangedca import missed
+    return bool(row) and isinstance(row, dict) and missed.unreliable(row.get("n_pts"))
+
+
 def hit(row, tp=TP, sl=SL):
     """True: +tp % came before -sl % within the hour; False: it did not; None: no measured path, or a level that is
-    not stored (then nothing is claimed)."""
-    if not row or row.get("entry") is None or row.get("bad"):
+    not stored (then nothing is claimed). 12.11.: None also for a nepouzdano row (fewer than 3 price points)."""
+    if not row or row.get("entry") is None or row.get("bad") or unreliable(row):
         return None
     t, ok_t = _first(row, "u", tp, TP, "t15")
     s, ok_s = _first(row, "d", sl, SL, "sl_min")
@@ -566,7 +589,8 @@ def moves(row, supply=None):
 def verdict(row, ts, now, tp=TP, sl=SL):
     """{"kind", "word", "detail"} of one skip. kind: "miss" (propušteno: +tp % before -sl % within the hour),
     "ok" (dobro preskočen: the stop first, or no +tp % within the hour), "wait" (mjeri se: younger than WAIT_S,
-    not measured yet, or a network error to be retried), "none" (nema podataka: no pool, no candle)."""
+    not measured yet, or a network error to be retried), "none" (nema podataka: no pool, no candle), 12.11. "unrel"
+    (nepouzdano: fewer than 3 price points in the hour; neither propušteno nor dobro preskočen, no number)."""
     if row == UNDER_FLOOR:
         return {"kind": "floor", "word": "ispod 30k", "detail": "po pravilu se ne kupuje ni ne mjeri"}
     if now - ts < WAIT_S:
@@ -576,6 +600,9 @@ def verdict(row, ts, now, tp=TP, sl=SL):
     if row.get("bad") or row.get("entry") is None:
         return {"kind": "none", "word": "nema podataka",
                 "detail": "pool nije pronađen" if row.get("bad") == "pool" else "nema svijeća za taj sat"}
+    if unreliable(row):   # 12.11. (Jure, točka 4): its number would mislead, it is in no statistic of the missed
+        from rangedca import missed
+        return {"kind": "unrel", "word": missed.UNRELIABLE, "detail": missed.detail(row.get("n_pts"))}
     t, _ = _first(row, "u", tp, TP, "t15")
     s, _ = _first(row, "d", sl, SL, "sl_min")
     hi, lo, r60 = row.get("hi60"), row.get("lo60"), row.get("r60")
@@ -601,7 +628,7 @@ def _few(n):
 
 
 def counts(verdicts):
-    out = {"miss": 0, "ok": 0, "wait": 0, "none": 0, "floor": 0}
+    out = {"miss": 0, "ok": 0, "wait": 0, "none": 0, "floor": 0, "unrel": 0}
     for v in verdicts:
         out[v["kind"]] = out.get(v["kind"], 0) + 1
     return out
@@ -617,6 +644,9 @@ def _parts(c, tp, sl):
         parts.append(f"nijedan nije dosegao +{tp} % prije −{sl} % (izmjereno {c['ok']})")
     if c["wait"]:
         parts.append(f"{c['wait']} se još {'mjeri' if _one(c['wait']) else 'mjere'}")
+    if c.get("unrel"):   # 12.11. (Jure, točka 4): left out of the counts above, said how many
+        from rangedca import missed
+        parts.append(missed.note(c["unrel"]))
     if c["none"]:
         parts.append(f"{c['none']} bez podataka")
     if c.get("floor"):
@@ -626,7 +656,8 @@ def _parts(c, tp, sl):
 
 def sentence(skips, tech, tp=TP, sl=SL):
     """The one-line answer above the rows. skips / tech: verdicts of the rule skips and of the technical failures.
-    'Od 12 preskočenih: 3 bi dosegla +15 % prije −20 %, 7 nisu, 2 se još mjere.'"""
+    'Od 12 preskočenih: 3 bi dosegla +15 % prije −20 %, 7 nisu, 2 se još mjere.' 12.11.: '..., nepouzdano: 1 (manje
+    od 3 točke cijene)' for the rows measured on too few prices (in neither count)."""
     out = []
     n = len(skips)
     if n:

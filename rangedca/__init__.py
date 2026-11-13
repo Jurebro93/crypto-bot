@@ -32,9 +32,11 @@ the 40 above (RANGE_MAX_TOKENS) is both a cap and a narrow universe: only tokens
 watchlist adds up to RANGE_MARKET_MAX (400) bonded tokens of the whole market (PumpPortal migrations, KOL graduates,
 the scanner's priced tokens, DexScreener lists, GeckoTerminal trending / top volume, Birdeye only with its key) and
 the event topics' tokens, with their own per-source day caps; their series are 5 / 15-minute DexScreener snapshots
-in the same range.db snaps (detection reads timestamps, so a 5-minute series finds a range). Every range carries its
-source: signal > event > market. A market / event token is traded only on the demo account (paper), never with real
-money.
+in the same range.db snaps (detection reads timestamps, so a 5-minute series finds a range); 12.11. (nalog 3): a
+watched token with liquidity >= $15k at least every 5 min, kept and measured under 30k too (never bought, detect
+"ispod 30k"); the signal pass no longer puts such a token aside for 6 h and hands it to the list (market.adopt). Every
+range carries its source: signal > event > market. A market / event token is traded only on the demo account (paper),
+never with real money.
     market.py    the market watchlist: universe, filter, budgeted refresh, the daily cost line per source
 
 11.11. (Jure: "rangedca flip / pauza / stop", flag range_flip G26, default off): a confirmed break up (a 5-minute close

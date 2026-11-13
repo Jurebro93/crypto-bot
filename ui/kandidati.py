@@ -30,6 +30,11 @@ ONE row per token. The sources (a loader that fails is named in sources_failed, 
                 are the callers and wallets above)
   insider       2+ pre-call insider wallets (kol/insiders, snipers out) bought it in the last hour and nobody called it
                 yet; kol.insiders.mcp_candidates(now) is used instead when that module has it
+  x_call        12.11. (fast/xscalp.py, MCP submit_watch_token): X calls Grok sent in the last hour, each with its
+                author class (followers x velocity) and that class's measured x_call_scalp record (fast.db x_calls:
+                n, EV net of the fee part as every record here, EV net of the full round trip for the gate). A row
+                whose EV rests on an x_call record, or whose only source is x_call, is live_eligible only when the
+                class of one of its calls has n >= 10 and EV net >= +3 % (xscalp.live_gate, on top of live_state)
   pre_shill     11.11. (kol/preshill.py, flag pre_shill on): 2+ wallets that buy before the paid shill network (or
                 one of their clusters) bought in the last hour, no public call. A call of the shill network itself
                 counts 0 in the confluence and -1 in the score (exit liquidity: flag shill_network_call); on a token
@@ -544,6 +549,16 @@ class Sources:
         from kol import tpsl
         return tpsl.for_handles(handles)
 
+    def x_calls(self, now):
+        """12.11. (fast/xscalp.py): Grok's X calls (submit_watch_token) of the last hour, newest first."""
+        from fast import xscalp
+        return xscalp.kandidati_rows(now, WINDOW_S)
+
+    def x_call_records(self, now):
+        """12.11.: {author class: x_call_scalp record} of the last 30 days (fast.db x_calls)."""
+        from fast import xscalp
+        return xscalp.class_records(now)
+
     def fast_verdicts(self, tokens, now):
         """11.11. (fast/live): {token: the fast_check verdict of the last 15 min} (fast.db read-only, {} without it)."""
         from fast import live
@@ -1026,6 +1041,17 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
         r["count"]["insider"] = 1
         if t.get("ts"):
             r["sig"].append((int(t["ts"]), t.get("mcap_usd"), "insider"))
+    # 12.11. (fast/xscalp.py): Grok's X calls sent with submit_watch_token in the last hour
+    for t in safe("x_call", lambda: getattr(S, "x_calls", lambda _n: [])(now), []) or []:
+        if not t.get("token"):
+            continue
+        r = row(t["token"])
+        ev = r["sources"].setdefault("x_call", {"calls": []})
+        ev["calls"].append({k: t.get(k) for k in ("author", "followers", "class", "velocity", "post_id", "ts",
+                                                   "x_call_id", "entry")})
+        r["count"]["x_call"] = 1
+        if t.get("ts"):
+            r["sig"].append((int(t["ts"]), t.get("mcap"), "x_call"))
     # 11.11. (proposals/): the proposals pass's own sources, each its own kind (never passed by the MCP answer)
     for t in extra or []:
         if not isinstance(t, dict) or not t.get("token") or not t.get("kind") or t["kind"] in rows.get(t["token"], {}).get(
@@ -1097,6 +1123,8 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
     sfirst = safe("scan_first", lambda: S.scan_first(toks), {})
     archived = safe("archive", S.archived, frozenset())
     lim = safe("limits", S.limits, {"grok_max_sol_per_trade": 0.1, "sl_default": 30.0})
+    xrec = (safe("x_call_records", lambda: getattr(S, "x_call_records", lambda _n: {})(now), {}) or {}
+            if any("x_call" in r["sources"] for r in rows.values()) else {})
     # 11.11. (fast/live, Jure: "nikad 'nije izmjeren'"): the tokens' fast_check verdicts (a source without the reader,
     # e.g. a test double, has none)
     fastv = safe("fast", lambda: getattr(S, "fast_verdicts", lambda _t, _n: {})(toks, now), {}) or {}
@@ -1107,7 +1135,7 @@ def build(now=None, src=None, details=True, extra=None, raw=False):
         mine = lcopy._CONC_CACHE = {"tc": tables[0], "rug": tables[1]}
     try:
         out = [_finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details,
-                       raw, fastv=fastv) for r in rows.values()]
+                       raw, fastv=fastv, xrec=xrec) for r in rows.values()]
     finally:
         # the dashboard's copy loop (league/auto -> copy.run_once) sets and clears the same cache in its own thread:
         # only our own dict is taken back, never one a running pass put there
@@ -1154,6 +1182,14 @@ def ev_estimate(srcs, records, size_sol, liq):
     ev_pct None when no source has a measured outcome; ev_confidence low under 10 samples, medium under 30."""
     samples = []
     for k, ev in srcs.items():
+        if k == "x_call":   # 12.11.: each author class's x_call_scalp record once (fast/xscalp.class_records)
+            seen = set()
+            for c in ev.get("calls") or []:
+                rec = c.get("record") or {}
+                if c.get("class") not in seen and rec.get("n") and rec.get("ev") is not None:
+                    seen.add(c["class"])
+                    samples.append(("x_call:" + str(c["class"]), rec["n"], rec["ev"]))
+            continue
         if k == "caller":
             own = [("caller:" + str(c["who"]), c["record"]["ev_n"], c["record"]["ev_mean"])
                    for c in ev.get("callers") or []
@@ -1189,17 +1225,21 @@ LIVE_N_MIN = 10            # ... on at least 10 measured outcomes ...
 LIVE_TOP_SHARE = 0.5       # ... and not more than half of it from one source with n < LIVE_N_MIN
 
 
-def live_state(tradeable, evx, paper=False):
+def live_state(tradeable, evx, paper=False, xcall=None):
     """("live" | "paper" | "no", why or None). 11.11. (owner: "tradeable (EV > 0) ne znači da se smije kupiti s pravim
     novcem"): live = tradeable AND ev_pct >= LIVE_EV_MIN AND n_samples >= LIVE_N_MIN AND the EV does not rest more
     than LIVE_TOP_SHARE on one source with n < LIVE_N_MIN (and the row is not paper only); tradeable but short of that
-    = "paper" (samo papir, the demo account); not tradeable = "no"."""
+    = "paper" (samo papir, the demo account); not tradeable = "no". xcall (12.11.): fast/xscalp.live_gate of a row
+    whose EV rests on an x_call record or whose only source is x_call: live only when it is ok (the author class has
+    n >= 10 and EV net >= +3 %)."""
     if not tradeable:
         return "no", None
     ev, n = evx.get("ev_pct"), int(evx.get("n_samples") or 0)
     top = evx.get("top_source") or {}
     if paper:
         return "paper", "samo papir: izvor je samo event / tržišna lista (nikad pravi novac)"
+    if xcall is not None and not xcall.get("ok"):
+        return "paper", xcall.get("why") or "samo papir: x_call razred bez dokaza"
     if ev is None or ev < LIVE_EV_MIN:
         return "paper", f"samo papir: EV {ev if ev is not None else 0:+.2f} % ispod +{LIVE_EV_MIN:g} %"
     if n < LIVE_N_MIN:
@@ -1281,7 +1321,7 @@ class _WhyNot(list):
 
 
 def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, archived, lim, tables, details, raw=False,
-            fastv=None):
+            fastv=None, xrec=None):
     tok, m = r["token"], r["m"] or {}
     from league import copy as lcopy
     srcs = r["sources"]
@@ -1301,6 +1341,15 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
             ev_parts[k] = (sum(_ev_part(x) for x in recs) / len(recs)) if recs else _ev_part(records.get("caller"))
             if ev.get("crew_first"):
                 ev["crew_first"]["record"] = _record_of("caller_group_first", records)
+        elif k == "x_call":   # 12.11.: the author class's own record on each call (fast/xscalp.class_records)
+            recs = []
+            for c in ev["calls"]:
+                cr = (xrec or {}).get(c.get("class"))
+                c["record"] = dict(cr) if cr else None
+                if cr:
+                    recs.append(cr)
+            ev["record"] = max(recs, key=lambda x: x.get("n") or 0) if recs else None
+            ev_parts[k] = (sum(_ev_part(x) for x in recs) / len(recs)) if recs else 0.0
         else:
             ev["record"] = _record_of(k, records)
             ev_parts[k] = _ev_part(records.get(k))
@@ -1407,9 +1456,14 @@ def _finish(r, now, S, records, crec, xm, grows, ops, known, firsts, sfirst, arc
     # a row whose only block is "paper only" (event / market range list) with a positive EV is "samo papir", not "ne"
     papered = (not tradeable and {k["key"] for k in why_not.keys} == {"paper_only"}
                and evx.get("ev_pct") is not None and evx["ev_pct"] > 0)
-    lstate, lwhy = live_state(tradeable or papered, evx, paper_only(srcs))
+    xg = None
+    xc = srcs.get("x_call")
+    if xc and (set(srcs) == {"x_call"} or any(((c.get("record") or {}).get("n") or 0) > 0 for c in xc["calls"])):
+        from fast import xscalp   # 12.11.: the author class must prove itself before an x_call row is live
+        xg = xscalp.live_gate([c.get("class") for c in xc["calls"]], xrec)
+    lstate, lwhy = live_state(tradeable or papered, evx, paper_only(srcs), xcall=xg)
     out = {"token": tok, "symbol": r["symbol"] or sr.get("symbol"), "tradeable": tradeable, "why_not": list(why_not),
-           "live_eligible": lstate == "live", "live_state": lstate, "live_why": lwhy,
+           "live_eligible": lstate == "live", "live_state": lstate, "live_why": lwhy, "x_call_gate": xg,
            "ev_top_source": evx.get("top_source"),
            "ev_pct": evx["ev_pct"], "n_samples": evx["n_samples"], "ev_confidence": evx["ev_confidence"],
            "ev_detail": evx["detail"], "fast": _fast_out(fv),
@@ -1494,7 +1548,9 @@ def candidates(min_sources=1, limit=30, now=None, src=None):
             "notes": ("Read-only: nothing is bought here. 11.11. (owner): tradeable (EV > 0) is NOT a real-money buy: "
                       "live_eligible = tradeable AND ev_pct >= 3 AND n_samples >= 10 AND the EV does not rest more than "
                       "50 % on one source with n < 10 (ev_top_source); live_state = live | paper (samo papir: demo only) | "
-                      "no, live_why says why not live. Buy with real money only a live_eligible row. "
+                      "no, live_why says why not live. 12.11.: a row whose EV rests on an x_call (submit_watch_token) "
+                      "record, or with x_call as its only source, also needs its author class proven (x_call_gate: n "
+                      ">= 10 and EV net >= +3 %, get_x_call_stats). Buy with real money only a live_eligible row. "
                       "tradeable = ev_pct > 0 (the measured EV after the cost model "
                       "and the P modifiers; n_samples = the measured outcomes it rests on, ev_confidence low under 10), "
                       "bonded, 30k+, liquidity $15k+, 1 h volume $3k+, no confirmed rug, trading now, and no rug risk "

@@ -2,6 +2,8 @@
 
 Writers: run_fast.py (the worker: decisions, outcomes, sources, costs, reports), the ingestion hooks (enqueue: one
 INSERT, short busy wait, a failure is caught by the worker's own scan) and run_ui.py's demo trades (signals.traded).
+12.11.: x_calls (Grok's submit_watch_token, fast/xcall.py: written by run_ui.py's MCP call and its check thread) and
+x_call_px (the x_call_scalp measurement's own DexScreener points, fast/xscalp.py: written by run_fast.py).
 Readers: the Autopilot card, the skip pop-up and the MCP tool get_fast_checks, read-only. WAL, so a reader never
 waits for the worker.
 
@@ -19,6 +21,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TZ = "Europe/Zagreb"
 KEEP_DAYS = 30
 PX_KEEP_S = 3 * 3600
+XCALL_KEEP_DAYS = 180       # 12.11. x_calls (fast/xcall.py): ~1 kB a row, the author-class record needs months
+XPX_KEEP_S = 3 * 86400      # x_call_px: the measurement closes 65 min after the entry
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -39,6 +43,18 @@ CREATE TABLE IF NOT EXISTS costs (day TEXT, source TEXT, calls INTEGER DEFAULT 0
     PRIMARY KEY (day, source));
 CREATE TABLE IF NOT EXISTS reports (day TEXT PRIMARY KEY, ts INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS x_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, mint TEXT NOT NULL, source TEXT, author TEXT, followers INTEGER, post_id TEXT,
+    post_ts INTEGER, likes INTEGER, replies INTEGER, reposts INTEGER, views INTEGER, velocity REAL, velocity_src TEXT,
+    fol_band TEXT, vel_band TEXT, cls TEXT, submitted_ts INTEGER NOT NULL, kid TEXT, signal_id INTEGER, decision TEXT,
+    fast_reason TEXT, ev_pct REAL, xmode TEXT, entry_status TEXT, entry_why TEXT, entry_ts REAL, mcap0 REAL,
+    price0 REAL, liq0 REAL, stake_usd REAL, cost REAL, dev TEXT, holders TEXT, measured INTEGER DEFAULT 0,
+    measured_ts INTEGER, max_net REAL, r15 REAL, r60 REAL, hit INTEGER, net REAL, dump_ts INTEGER, dump_who TEXT,
+    dump_low REAL, res TEXT);
+CREATE INDEX IF NOT EXISTS x_calls_mint ON x_calls (mint, submitted_ts);
+CREATE INDEX IF NOT EXISTS x_calls_kid ON x_calls (kid, submitted_ts);
+CREATE INDEX IF NOT EXISTS x_calls_open ON x_calls (entry_status, measured);
+CREATE TABLE IF NOT EXISTS x_call_px (token TEXT, ts INTEGER, price REAL, mcap REAL, PRIMARY KEY (token, ts));
 """
 COLS = ("id", "token", "symbol", "kind", "source_id", "source_label", "follow_id", "via", "sig_ts", "enq_ts",
         "entry_px", "entry_sol_px", "entry_mcap", "priority", "status", "attempts", "next_ts", "started_ts",
@@ -148,3 +164,5 @@ def prune(con, now):
     con.execute("DELETE FROM px WHERE ts < ?", (int(now) - PX_KEEP_S,))
     con.execute("DELETE FROM costs WHERE day < ?", (day_of(now - 120 * 86400),))
     con.execute("DELETE FROM reports WHERE ts < ?", (int(now) - 120 * 86400,))
+    con.execute("DELETE FROM x_calls WHERE submitted_ts < ?", (int(now) - XCALL_KEEP_DAYS * 86400,))
+    con.execute("DELETE FROM x_call_px WHERE ts < ?", (int(now) - XPX_KEEP_S,))

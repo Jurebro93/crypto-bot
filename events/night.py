@@ -266,10 +266,14 @@ def tick(now=None, log=print):
     Grok's predictions scored from the candles we have (no network), stale MCP requests."""
     now = int(now or time.time())
     econ = store.connect()
-    out, al, late, scored, tidy = {}, [], None, 0, 0
+    out, al, late, scored, tidy, recent = {}, [], None, 0, 0, {}
     try:
         out = sources.sync(econ, now, log)
         al = health.check(econ, now, log)
+        try:   # 12.11. (owner, nalog 3): price ticks / transfers of the last 15 min, whoever wrote them
+            recent = health.recent_counts(econ, now)
+        except Exception as e:  # noqa: BLE001 - the line goes out without them
+            log(f"događaji: broj zadnjih {health.RECENT_MIN} min nije pročitan ({type(e).__name__})")
         late = _late_check(econ, now, log)
         try:
             from events import predictions
@@ -284,11 +288,16 @@ def tick(now=None, log=print):
             tidy = mcpapi.tidy_requests(now=now)
         except Exception as e:  # noqa: BLE001 - the requests are tidied at the next tick
             log(f"događaji: zahtjevi s Groka nisu pospremljeni ({type(e).__name__})")
-    if out or al or tidy or late or scored:
+    # 12.11.: logged every tick (the 15-min counts answer "do the price / transfer feeds write?" from the log alone)
+    if out or al or tidy or late or scored or recent:
         log("događaji: " + (", ".join(f"{k} +{v}" for k, v in out.items()) or "bez novih")
-            + (f"; upozorenja {len(al)}" if al else "") + (f"; zahtjeva s Groka zastarjelo {tidy}" if tidy else "")
+            + (f"; {health.recent_text(recent)}" if recent else "")
+            # 12.11.: which feed is silent (usage/watch logs an alert only when it is new or worse, once a day)
+            + (f"; upozorenja {len(al)} ({', '.join(health.NAMES.get(a.get('type'), a.get('key', '?')) for a in al)})"
+               if al else "") + (f"; zahtjeva s Groka zastarjelo {tidy}" if tidy else "")
             + (f"; {late['title']}" if late else "") + (f"; ocijenjeno predviđanja {scored}" if scored else ""))
-    return {"synced": out, "alerts": al, "tidied": tidy, "night_late": late, "predictions_scored": scored}
+    return {"synced": out, "alerts": al, "tidied": tidy, "night_late": late, "predictions_scored": scored,
+            "recent": recent}
 
 
 def report(econ=None):

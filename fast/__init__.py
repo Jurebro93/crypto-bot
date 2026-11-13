@@ -29,7 +29,12 @@ and the holders run for every signal's token.
                  the demo account with the fast exit plan; live = BUY_LIVE through the real-trade copy path; the copy
                  exit when the source wallet sells; the live gate (LIVE_GATES)
     report.py    the 23:30 day: decisions, latency, false rejects per check, cost per source
-    view.py      the Autopilot card (under "Još"), the skip pop-up block, MCP get_fast_checks
+    view.py      the Autopilot card (under "Još"), the skip pop-up block, MCP get_fast_checks (12.11.: by id too)
+    xcall.py     12.11.: MCP submit_watch_token: Grok's X call onto the watch list (fast.db x_calls) and its fast_check
+                 at once in run_ui.py (kind x_call, never traded: fast/paper and the proposals skip it)
+    xscalp.py    12.11.: the paper strategy x_call_scalp (flag G31, default shadow, never live): a virtual entry when the
+                 hard blocks pass, measured net of cost per author class; MCP get_x_call_stats; ui/kandidati's x_call
+                 source and its live gate
 
 Modes (trade settings flag fast_path): off nothing at all (hooks return at once, the worker idles); shadow every check
 and every decision, logged, no trade; paper the demo account (autopilot-paper) trades BUY_PAPER and BUY_LIVE (BUY_LIVE

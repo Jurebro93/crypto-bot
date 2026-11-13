@@ -19,7 +19,9 @@ cap enters a zone the bot POSTs one JSON alarm to the Grok Bot webhook (GROKBOT_
     notify.py   the POST: payload, Bearer or Standard Webhooks signing, timeout 5 s, 3 retries with backoff only on a
                 network error / timeout / 429 / 5xx, zonewatch_log without the key or the URL path; post_alert(dict)
                 for direct callers (team_catalyst)
-    positions.py  11.11. (Jure): the real account's open positions (league.db, LEAGUE_USER; never the demo account)
+    positions.py  11.11. (Jure): the real account's open positions (12.11.: only its REAL open lots, trade.settings
+                .live_lots = trade.db positions mode live; their league.db mirrors on LEAGUE_USER give the levels; a
+                demo trade without a real lot, a blocked copy or the demo account is never one)
                 with their OWN levels: the lots' SL / TP, Smart sell's stop / trailing / next TP, an exit plan in force
                 (it replaces the lots' own), the range round's stop, the owner's DCA and buy orders; PnL in % / USD /
                 SOL; what the executors did since the last pass (a level sold within the second)

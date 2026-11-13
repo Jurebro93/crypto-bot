@@ -253,6 +253,28 @@ class Pass(Base):
             code, out = mcpapi.answer("/api/mcp/signals", {"source": "scan"})
             self.assertEqual(code, 200)
 
+    def test_signals_scan_row_has_the_5m_change_and_the_hours_transactions(self):
+        """12.11. popodne (owner: 18/18 scan rows had change_5m_pct null and txns_1h 0 next to a volume_1h): the
+        scanner keeps the pair's 5-minute change and the hour's transactions; an older row without them says so
+        (txns_1h null with txns_1h_why), never a fake 0."""
+        self.run_pass()
+        from ui import mcpapi
+        with mock.patch("ui.pravitrade.gather_callers", return_value=[]), \
+                mock.patch("scan.store.on", return_value=True):
+            m = mcpapi.signals(NOW + 700, source="scan")["signals"][0]["market"]
+            self.assertEqual((m["change_5m_pct"], m["txns_1h"], m["buys_1h"], m["buy_share_1h"]),
+                             (1.0, 400, 250, 0.625))
+            self.assertNotIn("txns_1h_why", m)
+            con = self.scan()
+            con.execute("UPDATE cand SET ch_m5=NULL, txns_h1=NULL, buys_h1=NULL")   # a row checked before 12.11.
+            con.commit()
+            con.close()
+            m = mcpapi.signals(NOW + 700, source="scan")["signals"][0]["market"]
+            self.assertEqual((m["change_5m_pct"], m["txns_1h"], m["buys_1h"], m["buy_share_1h"]), (None, None, None, None))
+            self.assertIn("nije 0", m["txns_1h_why"])
+        counted = mcpapi._market_row({"price": 1.0, "txns_h1": 0, "buys_h1": 0})   # counted and zero: a real 0
+        self.assertEqual((counted["txns_1h"], counted.get("txns_1h_why")), (0, None))
+
     def test_lead_time_from_the_first_call(self):
         self.run_pass()
         kc = sqlite3.connect(self.p["kol"])

@@ -180,7 +180,7 @@ color:#fff;background:var(--warn,#d97706);cursor:pointer;padding:0 18px}
 border:1px solid var(--line2,var(--line));background:var(--card);color:var(--fg);text-decoration:none;font-weight:600;
 cursor:pointer;font-size:15px}
 .ap-grok{margin:8px 0;padding:10px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}.ap-grok p{margin:4px 0 0}.ap-grok-h{display:flex;gap:8px;align-items:center;font-weight:600}
-.ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
+.ap-sug{border-top:1px solid var(--line);padding:10px 0}.ap-sug:first-child{border-top:0}.ap-sug p{margin:4px 0}.as-pick{display:inline;cursor:pointer}.as-pick input{width:20px;height:20px;vertical-align:-4px;margin:0 6px 0 0}.as-bar{position:sticky;top:0;z-index:2;background:var(--card);padding:6px 0;border-bottom:1px solid var(--line)}.as-more summary{font-size:13px}.ap-ev{white-space:pre-wrap;font-size:13px;max-height:240px;overflow:auto}
 .ap-sum p{margin:0}.ap-toast-x{position:absolute;right:14px;top:10px;font-size:22px}
 .ap-exit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .ap-exit input{width:auto}
@@ -210,6 +210,7 @@ else{location.href='https://phantom.app/ul/browse/'+encodeURIComponent(location.
 # (10.11., screenshots: the recommendations, fetched once, stayed at "učitavam…" for ever).
 # 11.11. (Jure: "kartice se ne otvaraju iz prvoga"): a part that is swapped keeps the open / closed state of its
 # <details> (by id, else by position), so a refresh never closes a box the user has just opened.
+# 12.11.: a tick marked data-keep (the suggestions' bulk ticks) keeps what the user set across a swap too (by name).
 PATCH_JS ="""<script>(()=>{if(window.apPatch)return;const SRC=new WeakMap();let down=0,held=false;
 addEventListener('pointerdown',()=>{down=Date.now();held=true},true);
 addEventListener('pointerup',()=>{down=Date.now();held=false},true);addEventListener('pointercancel',()=>{held=false},true);
@@ -221,7 +222,9 @@ if((!virgin&&(held||Date.now()-down<1200))||box.contains(document.activeElement)
 if(!h.trim()&&box.dataset.empty){const p=document.createElement('p');p.className='mut';p.textContent=box.dataset.empty;h=p.outerHTML}
 const t=document.createElement('template');t.innerHTML=h;const a=[...box.children],b=[...t.content.children];
 const ds=e=>[...(e.matches('details')?[e]:[]),...e.querySelectorAll('details')];
-const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open})};
+const kp=e=>[...e.querySelectorAll('input[data-keep]')];
+const carry=(o,n)=>{const x=ds(o),y=ds(n);x.forEach((d,i)=>{const e=d.id?y.find(z=>z.id===d.id):(x.length===y.length?y[i]:null);if(e)e.open=d.open});
+const m=new Map(kp(o).map(c=>[c.name,c.checked]));kp(n).forEach(c=>{if(m.has(c.name))c.checked=m.get(c.name)})};
 b.forEach((n,i)=>{const s=n.outerHTML,o=a[i];if(o&&SRC.get(o)===s)return;SRC.set(n,s);if(o){carry(o,n);o.replaceWith(n)}else box.appendChild(n)});
 a.slice(b.length).forEach(o=>o.remove());
 box.querySelectorAll('[data-meta]').forEach(m=>{const to=document.querySelector(m.dataset.meta);if(to&&to.textContent!==m.textContent)to.textContent=m.textContent});
@@ -1442,6 +1445,15 @@ def _change_words(pc):
         return f'težina callera {pc.get("caller")} ({pc.get("platform") or "x"}) → {pc.get("weight")}'
     if "key" in pc:
         return f'{pc.get("key")}: {pc.get("from", "?")} → {pc.get("to", "?")}' + (f' ({pc["file"]})' if pc.get("file") else "")
+    if isinstance(pc.get("insider_label"), dict):   # 12.11.: one wallet or several of one token, in words
+        x = pc["insider_label"]
+        ws = x.get("wallets") if x.get("wallets") not in (None, "", []) else [x.get("wallet")]
+        ws = [str(w or "") for w in (ws if isinstance(ws, list) else [ws])]
+        tok = str(x.get("token") or "")
+        return (f'oznaka {"novčanika" if len(ws) == 1 else f"{len(ws)} novčanika"} '
+                + ", ".join(f"{w[:6]}…" for w in ws[:4]) + ("…" if len(ws) > 4 else "")
+                + f' → {x.get("label") or "?"}' + (f' (token {tok[:6]}…)' if tok else "")
+                + (f' · {str(x.get("note"))[:120]}' if x.get("note") else ""))
     return json.dumps(pc, ensure_ascii=False)[:300]
 
 
@@ -1465,22 +1477,56 @@ def _suggest_section(tcon, owner):
     n_acc = len(acc)
     if not rows and not acc:
         return ""
+    # 12.11. (Jure: "Možeš nekako grupirati ove prijedloge od groka ... teško mi je jedan po jedan svaki put otvarati
+    # prijedloge i onda ići dolje do prihvati, primjeni na bota"): one row per suggestion (a tick, the title, the change
+    # in words), its reasoning and its own buttons folded under it, and ONE bar on top: "Primijeni označene na bota" /
+    # "Odbij označene" (ui/assistnotes.apply_many / reject_many). Every waiting one starts ticked; the confirm lists
+    # each change. The ticks belong to the form as-bulk (attribute form=), so they sit inside each row's own form.
+    def _words(pc):   # 12.11.: "max_open: 3 → 2", not "? → 2", when the note did not say what it changes from
+        if isinstance(pc, dict) and pc.get("key") in assistnotes.APPLY and pc.get("from") is None:
+            try:
+                cur = assistnotes._current(tcon, pc["key"])
+            except Exception:  # noqa: BLE001 - the words only
+                cur = None
+            if cur is not None:
+                pc = {**pc, "from": cur}
+        return _change_words(pc) if pc else ""
+
+    def _tick(r, words, auto, bad=None):
+        what = (words if auto and words else "samo označi prihvaćenim (bot je ne zna primijeniti sam)") or ""
+        nid = int(r["id"])
+        line = ("#%d %s" % (nid, what))[:160]
+        # 12.11.: one that cannot be applied as it stands starts unticked (its reason is under it); "Odbij" takes it
+        return (f'<label class=as-pick><input type=checkbox form=as-bulk name=sel_{nid} value=1 data-keep '
+                f'data-what="{esc(line)}"{"" if bad else " checked"}> ')
+
+    def _bad(pc):
+        try:
+            why = assistnotes.blocker(pc)
+        except Exception:  # noqa: BLE001
+            why = None
+        return (f'<p class=ap-diff style="color:var(--bad,#b42318)">Ne može se primijeniti: {esc(why)}. Odbij ga ili '
+                'neka Grok pošalje punu adresu.</p>') if why else ""
     items = []
     for r in rows:
         pc = r.get("proposed_change")
-        auto = isinstance(pc, dict) and ("caller" in pc or pc.get("key") in assistnotes.APPLY
-                                         or isinstance(pc.get("insider_label"), dict))   # 10.11. kol/precall.py
+        auto = _can(r)   # 10.11. kol/precall.py insider labels included
+        words = _words(pc)
+        bad = _bad(pc)
         ev = (f'<details><summary class=mut>Dokazi</summary><pre class=ap-ev>{esc(json.dumps(r["evidence"], ensure_ascii=False, indent=1)[:4000])}</pre></details>'
               if r.get("evidence") else "")
-        diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code>'
+        diff = (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code>'
                 + ("" if auto else ' <span class=mut>(bot je ne zna primijeniti sam: „Primijeni na bota” je samo '
                                    'označi kao prihvaćenu za ručnu izmjenu)</span>')
-                + "</p>") if pc else ""
+                + "</p>") if pc else '<p class=mut>Bez promjene postavke: primjena je samo oznaka da se slažeš.</p>'
         items.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p><b>{esc(r.get("title") or "")}</b> <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, auto, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f' <span class=mut>· {esc(redak.ago(r["ts"]))}</span></p>'
+            + diff + bad
+            + f'<details class=as-more id=as-more-{r["id"]}><summary class=mut>Obrazloženje i tipke samo za ovaj</summary>'
             f'<p>{esc(r.get("interpretation") or "")}</p>'
             + (f'<p><b>Poboljšanje:</b> {esc(r["improvement"])}</p>' if r.get("improvement") else "")
-            + diff + ev
+            + ev
             + f'<form method=post action=/pravi-trade/asok class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
             '<input name=note placeholder="tvoja bilješka (nije obavezno)" maxlength=1000 style="flex:1;min-width:160px" autocomplete=off>'
             # 10.11. (Jure: "prihvaćaju li se promjene kad kliknem Prihvati?"): the words say what each tap does
@@ -1488,26 +1534,43 @@ def _suggest_section(tcon, owner):
             '<button formaction=/pravi-trade/asno class=ap-cancel>Odbij</button>'
             '<button formaction=/pravi-trade/asapply class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">'
             'Primijeni na bota</button>'
-            '</form></div>')
+            '</form></details></div>')
     # 10.11. (Jure: "prihvaćene bilješke nisu ništa promijenile; omogući Primijeni na bota i za njih"): the accepted
     # ones, each still with "Primijeni na bota" (assistnotes.apply takes novo and prihvaćeno)
     acc_rows = []
     for r in acc:
         pc = r.get("proposed_change")
-        can = True   # only applicable ones are left (above)
+        words = _words(pc)
+        bad = _bad(pc)
         acc_rows.append(
-            f'<div class=ap-sug id=as-{r["id"]}><p><b>#{r["id"]} {esc(r.get("title") or "")}</b> <span class=mut>· prihvaćeno '
-            f'{esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
-            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(_change_words(pc))}</code></p>' if pc else "")
+            f'<div class=ap-sug id=as-{r["id"]}><p>{_tick(r, words, True, bad)}<b>#{r["id"]} {esc(r.get("title") or "")}</b></label>'
+            f' <span class=mut>· prihvaćeno {esc(redak.ago(r.get("decided_ts") or r["ts"]))}, bez promjene</span></p>'
+            + (f'<p class=ap-diff><b>Promjena:</b> <code>{esc(words)}</code></p>' if pc else "") + bad
             + (f'<form method=post action=/pravi-trade/asapply class=ap-exit><input type=hidden name=id value={int(r["id"])}>'
-               '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>'
-               if can else '<p class=mut>Bot ovu promjenu ne zna primijeniti sam: ostaje za ručnu izmjenu.</p>')
+               '<button class=ap-buy onclick="return confirm(\'Primijeniti ovu promjenu na bota?\')">Primijeni na bota</button></form>')
             + '</div>')
     if acc_rows:
         items.append(f'<h3 class=ap-sub><span>Prihvaćeni, još nisu primijenjeni</span><span>{n_acc}</span></h3>'
                      + "".join(acc_rows))
+    n_all = len(rows) + n_acc
+    sel = "document.querySelectorAll('input[form=as-bulk]')"
+    bulk = (f'<form id=as-bulk method=post action=/pravi-trade/asbulk class="ap-exit as-bar">'
+            f'<button class=ap-buy onclick="var c=[...{sel}].filter(x=>x.checked);if(!c.length){{alert(\'Ništa nije '
+            "označeno.');return false}return confirm('Primijeniti '+c.length+' prijedloga na bota?\\n\\n'+c.map(x=>"
+            f'x.dataset.what).join(\'\\n\'))">Primijeni označene na bota</button>'
+            f'<button formaction=/pravi-trade/asbulkno class=ap-cancel onclick="var c=[...{sel}].filter(x=>x.checked);'
+            "if(!c.length){alert('Ništa nije označeno.');return false}return confirm('Odbiti '+c.length+' prijedloga?')\">"
+            'Odbij označene</button>'
+            f'<span class=ap-lnk role=button tabindex=0 onclick="{sel}.forEach(x=>x.checked=true)">označi sve</span>'
+            f'<span class=ap-lnk role=button tabindex=0 onclick="{sel}.forEach(x=>x.checked=false)">nijedan</span>'
+            '</form>'
+            + (f'<p class=mut>Prikazano {len(rows)} od {total} novih; nakon primjene dolaze sljedeći.</p>'
+               if total > len(rows) else ""))
+    items.insert(0, bulk if n_all else "")
     inner = ("".join(items) + '<p class=mut>Prijedloge piše asistent preko MCP-a; ništa se ne mijenja dok ne tapneš. '
-             '„Označi prihvaćenim” samo zapiše da se slažeš, bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
+             '„Primijeni označene na bota” radi isto što i „Primijeni na bota” za svaki označeni redom, od najnovijeg; '
+             'stariji koji mijenja istu postavku kao noviji se odbija. „Označi prihvaćenim” samo zapiše da se slažeš, '
+             'bot radi isto. „Primijeni na bota” mijenja postavku: TP, '
              'stop, ulog, broj pozicija, preskočeni, filtri kopiranja, strop SOL-a po tokenu, prag rasta od prvog poziva, '
              'pravilo bez signala i težina callera; staru i novu vrijednost zapisuje. Pravila iza zastavice (težina '
              'callera, strop po tokenu, prag rasta, bez signala) tako idu u sjenu: zapisuju što bi napravila, a uživo '
@@ -1541,7 +1604,8 @@ def _grok_rows(rows):
             out.append(f'<li><span class=mut>{esc(when)}</span> {esc(words)} · {esc(r.get("reason") or "")}</li>')
             continue
         amt = (f'{_g(r.get("amount"))} SOL' if r.get("side") == "buy" else f'{float(r.get("amount") or 0):.0%}')
-        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why") or ""}'
+        # 12.11.: a refusal in Croatian when it has one (why_hr), the MCP's English one otherwise
+        st = "izvršeno" if r.get("status") == "executed" else f'odbijeno: {r.get("why_hr") or r.get("why") or ""}'
         tok = r.get("token") or ""
         out.append(f'<li><span class=mut>{esc(when)}</span> <span class=ap-tag>Grok auto</span> '
                    f'{"kupnja" if r.get("side") == "buy" else "prodaja"} <a href="/token/{esc(tok)}">{esc(short(tok))}</a> '
@@ -1622,7 +1686,11 @@ def _grok_auto_setup(tcon, owner):
              'kupnja samo unutar ovih limita i nakon ponovne provjere ruga i likvidnosti (iste kao kod Autopilota: samo '
              'bondani, MC 30k+), prodaja bilo koje otvorene pozicije. Ide istim putem kao tvoja ručna kupnja, pa vrijede '
              'i tvoj strop po tokenu i dnevni stop gubitka; pravi novac samo kad je Autopilot uživo. Kad Grokov rezultat '
-             'u danu dođe do granice gubitka, sam stane do ponoći. Grok ga ne može uključiti ni mijenjati limite.</p>')
+             'u danu dođe do granice gubitka, sam stane do ponoći. Grok ga ne može uključiti ni mijenjati limite. '
+             'Isti token smije kupiti ponovno nakon izlaza (novi krug) i dokupiti dok je u njemu najviše '
+             f'{_g(settings.raw(tcon).get("dca_token_cap") or settings.DCA_TOKEN_CAP)} SOL; najviše '
+             f'{lim["max_round_trips_per_token_day"]} krugova u istom tokenu u danu, a nakon '
+             f'{grokauto.MAX_STOP_OUTS_DAY} izlaza stopom u istom tokenu taj token čeka sutra.</p>')
     return _sec("Grok autotrade", "uključen" if st["on"] else "isključen", words + switch + form, sid="grok-postavke")
 
 
@@ -1859,10 +1927,16 @@ def _flags_section(tcon, con, owner):
     raw_ = settings.raw(tcon)
     now = int(time.time())
     week = lflags.shadow_summary(con, now - 7 * 86400)
-    on = [n for n, v in st.items() if v["mode"] != "off"]
+    # 12.11.: a flag still at its default (settings.FLAG_DEFAULTS, never set: x_call_scalp in sjena, it only
+    # measures) is named apart, not counted as one the owner switched on
+    dflt = [n for n, v in st.items() if v["mode"] != "off" and not v["since"]
+            and v["mode"] == settings.FLAG_DEFAULTS.get(n)]
+    on = [n for n, v in st.items() if v["mode"] != "off" and n not in dflt]
     paper_since = min((v["since"] for v in st.values() if v["mode"] == "paper" and v["since"]), default=None)
     pr = lflags.paper_result(con, paper_since) if paper_since else None
     meta = (f"{len(on)} od {len(st)} uključeno" if on else "sve isključeno: bot radi kao prije")
+    if dflt:
+        meta += " · zadano: " + ", ".join(f"{n} {FLAG_WORDS.get(st[n]['mode'], st[n]['mode'])}" for n in dflt)
     if pr:
         meta += f" · paper: {pr['n']} zatvorenih, {pr['pnl']:+.2f} $"
     tz = zoneinfo.ZoneInfo("Europe/Zagreb")
@@ -3949,6 +4023,10 @@ def _skip_html(rows, paths, now, owner, tp_cfg):
                        iid="ap-sk-sve", value_tone="mut"))
     note = (f"Mjereno od trenutka odluke, 1-minutnim svijećama, 60 min: propušteno = +{tp} % prije −{sl} %; "
             f"dobro preskočen = prvo −{sl} % ili +{tp} % nije došao.")
+    if any(v["kind"] == "unrel" for v in vs):   # 12.11. (Jure, točka 4): said once, under the box
+        from rangedca import missed
+        note += (f" Nepouzdano = u tih 60 min {missed.WHY} (minuta s trgovanjem): ne broji se ni kao propušteno "
+                 "ni kao dobro preskočen.")
     if paths is None:
         note += " Mjerenje još nije pokrenuto."
     if tp_cfg != tp:   # the target the Autopilot really exits at, only when it is not the +15 % asked about here
@@ -4309,6 +4387,10 @@ def skip_popup(user, mint, t, now=None):
         b.append("<p class=ms-hint>Cijena u minuti poziva nije poznata, pa su pomaci od trenutka preskoka.</p>")
     elif mv and not mv["supply"]:
         b.append("<p class=ms-hint>Supply tokena nije poznat, pa su tu samo pomaci cijene.</p>")
+    elif v["kind"] == "unrel":   # 12.11. (Jure, točka 4): measured, but on too few prices to say anything
+        from rangedca import missed
+        b.append(f"<p class=ms-hint>Nakon preskoka {esc(missed.detail(p.get('n_pts')))}: rezultat je nepouzdan i "
+                 "ne ulazi u statistiku propuštenih.</p>")
     elif not mv and (seen_mc or samples):
         b.append("<p class=ms-hint>Market cap iz trenutka odluke i naših živih uzoraka (DexScreener); točne svijeće "
                  "po minutama dolaze kad se izmjere.</p>")
@@ -4886,6 +4968,17 @@ def post(path, form, user):
                 return f"{BACK}?ok={qq(words)}#prijedlozi"
             assistnotes.decide(tcon, nid, "prihvaćeno" if path.endswith("asok") else "odbijeno", note)
             return f"{BACK}?ok={qq('Prijedlog prihvaćen.' if path.endswith('asok') else 'Prijedlog odbijen.')}#prijedlozi"
+        if path in ("/pravi-trade/asbulk", "/pravi-trade/asbulkno"):   # 12.11.: the ticked suggestions in one tap
+            from ui import assistnotes
+            ids = [int(k[4:]) for k, v in form.items() if k.startswith("sel_") and k[4:].isdigit() and v]
+            if not ids:
+                raise ValueError("ništa nije označeno")
+            if path.endswith("no"):
+                n = assistnotes.reject_many(tcon, ids)
+                return f"{BACK}?ok={qq(f'Odbijeno prijedloga: {n}.')}#prijedlozi"
+            res = assistnotes.apply_many(tcon, ids)
+            key = "err" if res["failed"] and not (res["applied"] or res["accepted"]) else "ok"
+            return f"{BACK}?{key}={qq(assistnotes.bulk_words(res))}#prijedlozi"
         if path in ("/pravi-trade/sugok", "/pravi-trade/sugno"):   # 10.11.: an assistant's caller weight
             from ui import mcpdata
             ok = path.endswith("ok")
@@ -5270,9 +5363,13 @@ def _edit_plan(con, tok, tp, sl, floor):
     avg_mc = exitplan._avg(lots) * ratio if ratio else None
     was = exitplan.position_fields(old) if old else {}
     pl = (old or {}).get("plan") or {}
-    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)")
+    # 12.11.: a plan's max_stop_pct limits only the stop the plan sets itself (an empty SL); a typed SL is the owner's
+    plan = exitplan.panel_plan(tp, sl, was.get("trail"), was.get("time"), floor, avg_mc, reason="Uredi SL-TP (panel)",
+                               max_stop_pct=pl.get("max_stop_pct"))
     if pl.get("time_stop") and not was.get("time"):   # a conditional time stop (Grok's / a proposal's) stays as it was
         plan["time_stop"] = dict(pl["time_stop"])
+    if pl.get("time_stop_min") and not was.get("time"):   # 12.11.: so does the net one (time_stop_min)
+        plan["time_stop_min"], plan["min_profit_pct"] = pl["time_stop_min"], pl.get("min_profit_pct") or 0.0
     exitplan.validate(con, tok, plan, floor, tighten_only=False, hr=True)
     return plan
 
@@ -5642,10 +5739,11 @@ def grok_day_spent(tcon, now=None, mode=None):
     return float(r[0] or 0.0)
 
 
-def _grok_rules(tcon, token, sol, src, raw, now):
+def _grok_rules(tcon, token, sol, src, raw, now, lcon=None):
     """A Grok buy (autotrade or approved) under Grok's limits, never the owner's 1 SOL: grok_max_sol_per_trade (0,1),
     the Autopilot's per-token cap dca_token_cap (0,3) and grok_max_sol_per_day (0,3) for autotrade and approved
-    requests together. Raises ValueError with the reason (also one log line)."""
+    requests together. Raises ValueError with the reason (also one log line). lcon (12.11.): the league database, so
+    a lot bought seconds ago and not mirrored yet counts in the token (held_sol_now)."""
     from ui import grokauto
     lim = grokauto.limits(tcon)
     who = "Grok autotrade" if src == grokauto.SRC else "odobreni Grokov zahtjev"
@@ -5654,7 +5752,7 @@ def _grok_rules(tcon, token, sol, src, raw, now):
         why = f"ulog {sol:g} SOL, najviše {lim['grok_max_sol_per_trade']:g} SOL po kupnji (Grokov limit)"
     if why is None:
         cap = float(raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)
-        held = held_sol(tcon, token)
+        held = held_sol_now(lcon, tcon, token)
         if held + sol > cap + 1e-9:
             why = (f"u tokenu bi bilo {held + sol:.3f} SOL (otvoreno {held:.3f} + {sol:g}), najviše {cap:g} SOL po tokenu "
                    "(Grokov limit)")
@@ -5686,6 +5784,34 @@ def held_sol(tcon, token, mode=None):
     return float(r[0] or 0.0)
 
 
+def held_sol_now(lcon, tcon, token, mode=None):
+    """held_sol plus the fresh lots run_trade has not mirrored yet (12.11., owner's order point 4: Grok may DCA while
+    the token stays <= dca_token_cap; a lot bought a second ago has no positions row yet, so two quick buys each saw
+    the other as nothing): the real-trade account's open demo lots of the token opened within PENDING_FRESH_S with no
+    positions row, each at its own stake (trade settings manual_size). A league database without its tables: held_sol."""
+    held = held_sol(tcon, token, mode)
+    if lcon is None:
+        return held
+    try:
+        ids = [r[0] for r in lcon.execute("SELECT id FROM trades WHERE user=? AND token=? AND status='open' AND "
+                                          "opened_ts >= ?", (settings.LEAGUE_USER, token,
+                                                             int(time.time()) - PENDING_FRESH_S))]
+    except sqlite3.Error:
+        return held
+    if not ids:
+        return held
+    seen = {r[0] for r in tcon.execute(f"SELECT league_id FROM positions WHERE league_id IN ({','.join('?' * len(ids))})",
+                                       ids)}
+    sizes = settings.raw(tcon).get("manual_size") or {}
+    for i in ids:
+        if i not in seen:
+            try:
+                held += float(sizes.get(str(i)) or 0)
+            except (TypeError, ValueError):
+                pass
+    return held
+
+
 def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None, soft=None, log=True):
     """10.11. (Jure: "Primijeni" na Grokove prijedloge, svaki iza zastavice):
     dca_cap         SOL in this token (open lots + this buy) at most settings "dca_token_cap" (DCA_TOKEN_CAP):
@@ -5706,7 +5832,7 @@ def _owner_buy_rules(lcon, tcon, token, sol, now=None, src=None, soft=None, log=
     # only stops a buy, so it does not wait for the backtest the strategy flags need (settings dca_cap_owner)
     owner_cap = bool(raw.get("dca_cap_owner"))
     if _is_grok(src):
-        _grok_rules(tcon, token, sol, src, raw, now)
+        _grok_rules(tcon, token, sol, src, raw, now, lcon)
     elif m != "off" or owner_cap:
         # 11.11. (Jure: "strop od 1 SOL vrijedi samo za kupnje koje sam pokrenem (Kupi, brza kupnja, DCA, nalozi na MC)")
         cap = float(raw.get("owner_token_cap") or raw.get("dca_token_cap") or settings.DCA_TOKEN_CAP)

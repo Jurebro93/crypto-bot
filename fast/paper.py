@@ -109,13 +109,14 @@ def live_refusal(con=None, now=None):
 # ---------- entries ------------------------------------------------------------------------------------------------------
 
 def fresh(now, path=None):
-    """BUY decisions of the last FRESH_S (fast.db, read-only)."""
+    """BUY decisions of the last FRESH_S (fast.db, read-only). 12.11.: never an x_call (Grok's submit_watch_token:
+    only checked and measured by x_call_scalp, no account trades it)."""
     con = store.ro(path)
     if con is None:
         return []
     try:
-        return store.read(con, "status='done' AND decision IN ('BUY_PAPER', 'BUY_LIVE') AND decided_ts >= ?",
-                          (now - FRESH_S,), order="decided_ts", limit=100)
+        return store.read(con, "status='done' AND decision IN ('BUY_PAPER', 'BUY_LIVE') AND decided_ts >= ? AND "
+                               "COALESCE(kind, '') != 'x_call'", (now - FRESH_S,), order="decided_ts", limit=100)
     finally:
         con.close()
 

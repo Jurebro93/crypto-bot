@@ -5,7 +5,9 @@ pass reads the flag and ends (nothing watched, nothing fetched, nothing posted).
        again); the range engine's active ranges -> zones (source range) when range.db has a newer computation or
        every 5 min, for the tokens with an open range round, an entry-ready range or an open position on the real
        account, and only while rangedca has an active range for them (store.sync_range); each newer computation is
-       a new zone_version
+       a new zone_version; 12.11. popodne (owner, točka 4): never for a token in the rug archive (rugfilter/archive),
+       whose zones of any source end at the sync (store.disarm_archived) and which arm_zone refuses; entry-ready under
+       the readiness limit of rangedca/trade (METRICS_READY_S, 9 min), so a late range cycle does not drop the zones
     2. the numbers of every token with a zone (prices.py: stored snapshots first, one DexScreener batch for the near
        / armed ones, inside the day cap)
     3. every zone's state (zones.step): an event on a crossing; the same mint + zone_type + event at most once in
@@ -20,6 +22,10 @@ pass reads the flag and ends (nothing watched, nothing fetched, nothing posted).
 (their levels in the fast poll near a level) and alarm on their OWN levels, with or without a range (event
 position_level, level sl_near | sl_hit | tp_hit | dca_hit; evaluate_positions), and a held token whose range rangedca
 switches off alarms once (event range_off, with the reason; range_off). The demo account is never alarmed.
+12.11. (Jure, nalog točka 6): "the real account" = its REAL open lots only (trade.settings.live_lots: trade.db positions
+mode live, open with tokens held or a fresh pending buy, as the portfolio lists them); a demo trade of LEAGUE_USER
+without one (a blocked copy, a dry or failed swap) is no position, gets no position_level / range_off alarm and no
+range zones for being held.
 """
 import json
 import sqlite3
@@ -132,10 +138,11 @@ def evaluate(con, zs, snaps, now, rug_fn=None, uniq_fn=None):
 # ---------- the real account's positions (11.11., zonewatch/positions.py) -------------------------------------------
 
 def load_positions(now, log=print, **kw):
-    """positions.load, None when league.db cannot be read (logged once a UTC day; no position state changes then)."""
+    """positions.load (the real open lots only), None when trade.db or league.db cannot be read (logged once a UTC
+    day; no position state changes then)."""
     try:
         pos = positions.load(now, **kw)
-        why = None if pos is not None else "league.db nije čitljiv"
+        why = None if pos is not None else "trade.db ili league.db nije čitljiv"
     except Exception as e:  # noqa: BLE001 - the zones are watched without it
         pos, why = None, type(e).__name__
     if why and _SAID.get("positions") != store.day(now):

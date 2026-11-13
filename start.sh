@@ -207,7 +207,12 @@ if [ -n "${PORT:-}" ]; then keep uptime python3 -m ops.uptime; fi
 # 11.11. (flags range_market G20 / event_tokens G19): the same pass also keeps the market watchlist (rangedca/market.py):
 # up to RANGE_MARKET_MAX (400) bonded tokens, DexScreener snapshots every 5 / 15 min inside RANGE_MKT_DEX_DAY (3000) and
 # the other per-source day caps, one cost line per source a day. Both flags off: nothing of it runs.
-( sleep 270; while true; do low python3 run_range.py once || echo "range nije uspio"; sleep "${RANGE_EVERY_S:-60}"; done ) &
+# 12.11. (nalog 3): every watched token with liquidity >= $15k at least every 5 min, also under 30k (measured only,
+# never bought); RANGE_MKT_DEX_DAY default 6500 (rangedca/market.py: the worst case of a full list).
+# 12.11. popodne (owner, točka 1: after deploy #156 no range pass for ~6 min, every candidate "5-minutni podaci nisu
+# svježi"): the first pass RANGE_FIRST_S (30 s, was 270 s) after a start, then every RANGE_EVERY_S counted from the start
+# of a pass (deadline, not 60 s after its end: no drift), at least 5 s apart; run_range.py catches up after a gap itself
+( sleep "${RANGE_FIRST_S:-30}"; while true; do r0=$(date +%s); low python3 run_range.py once || echo "range nije uspio"; rs=$(( ${RANGE_EVERY_S:-60} - $(date +%s) + r0 )); [ "$rs" -lt 5 ] && rs=5; sleep "$rs"; done ) &
 ( sleep 900; while true; do python3 -m ops.heavy --night run_range.py backtest || echo "range backtest nije uspio"; sleep 86400; done ) &
 
 # 11.11. (Jure, flag event_tokens G19, topics/): Grok's event topics (MCP submit_event_topic) and their tokens, a short

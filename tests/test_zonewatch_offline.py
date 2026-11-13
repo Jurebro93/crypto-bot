@@ -679,14 +679,30 @@ class Faza11(Base):
 
 # ---------------------------------------------------------------------------------------------------------------------
 def _league(path, rows):
-    """league.db with trades rows (user, token, status, opened_ts)."""
+    """league.db with trades rows (user, token, status, opened_ts); {token: the newest trade id}."""
     from league import store as lstore
     c = lstore.connect(path)
+    ids = {}
     for user, tok, status, ts in rows:
-        c.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px) VALUES (?,?,?,?,?,?,?)",
-                  (user, tok, tok[:4], ts, status, 50.0, 1e-4))
+        cur = c.execute("INSERT INTO trades (user, token, symbol, opened_ts, status, size_usd, entry_px) VALUES "
+                        "(?,?,?,?,?,?,?)", (user, tok, tok[:4], ts, status, 50.0, 1e-4))
+        ids[tok] = cur.lastrowid
     c.commit()
     c.close()
+    return ids
+
+
+def _real(rows):
+    """trade.db positions rows behind league trades: (token, league id, mode, status, opened_ts). 12.11.: only a
+    live open lot with tokens held (trade.settings.live_lots) is a position on the real account."""
+    from trade import executor
+    ec = executor.connect(settings.DB)
+    for tok, lid, mode, status, ts in rows:
+        held = 1000 if status == "open" else 0
+        ec.execute("INSERT INTO positions (token, symbol, opened_ts, mode, status, reason, sol_in, qty_raw, qty_left, "
+                   "league_id) VALUES (?,?,?,?,?,?,?,?,?,?)", (tok, tok[:4], ts, mode, status, "x", 0.25, held, held, lid))
+    ec.commit()
+    ec.close()
 
 
 class Eligibility(Base):
@@ -717,13 +733,20 @@ class Eligibility(Base):
 
     def test_real_account_positions_only_and_only_with_an_active_range(self):
         from trade import settings as ts
-        a, b, c, d = ("A" * 43), ("B" * 43), ("C" * 43), ("D" * 43)
-        _league(self.league, [(ts.LEAGUE_USER, a, "open", NOW - 600), (ts.PAPER_USER, b, "open", NOW - 600),
-                              (ts.LEAGUE_USER, b, "closed", NOW - 900), (ts.LEAGUE_USER, c, "open", NOW - 300),
-                              (ts.LEAGUE_USER, d, "open", NOW - 200)])
-        self.assertEqual(store.position_tokens(), {a, c, d})                  # the demo account is not the real one
+        a, b, c, d, e, f = ("A" * 43), ("B" * 43), ("C" * 43), ("D" * 43), ("E" * 43), ("F" * 43)
+        ids = _league(self.league, [(ts.LEAGUE_USER, a, "open", NOW - 600), (ts.PAPER_USER, b, "open", NOW - 600),
+                                    (ts.LEAGUE_USER, b, "closed", NOW - 900), (ts.LEAGUE_USER, c, "open", NOW - 300),
+                                    (ts.LEAGUE_USER, d, "open", NOW - 200), (ts.LEAGUE_USER, e, "open", NOW - 200),
+                                    (ts.LEAGUE_USER, f, "open", NOW - 200)])
+        # 12.11.: a, c, d are real swaps still held; e is a copy blocked at the gate, f a dry test swap (demo only)
+        _real([(a, ids[a], "live", "open", NOW - 600), (c, ids[c], "live", "open", NOW - 300),
+               (d, ids[d], "live", "open", NOW - 200), (e, ids[e], "live", "blocked", NOW - 200),
+               (f, ids[f], "dry", "open", NOW - 200)])
+        self.assertEqual(store.position_tokens(NOW), {a, c, d})               # the demo trades are not the real account
         self.save(a)                                                           # active range
         self.save(b)                                                           # active, but only a demo position
+        self.save(e)                                                           # active, but a blocked copy
+        self.save(f)                                                           # active, but a dry swap
         self.save(c, active=False, status="probijen gore", why="cijena iznad range_high_top × 1,15")
         logs = []
         with mock.patch.object(store, "_entry_ready", lambda now: set()):
@@ -806,7 +829,8 @@ class HopeFixture(Base):
         p = mock.patch.object(lstore, "DB", league)
         p.start()
         self.addCleanup(p.stop)
-        _league(league, [(ts.LEAGUE_USER, HOPE, "open", self.fx["candles"][0][0])])
+        ids = _league(league, [(ts.LEAGUE_USER, HOPE, "open", self.fx["candles"][0][0])])
+        _real([(HOPE, ids[HOPE], "live", "open", self.fx["candles"][0][0])])   # the owner's real HOPE lot
         self.rc = data.connect()
         self.addCleanup(self.rc.close)
         self.rc.execute("INSERT INTO pools VALUES (?,?,?,?,?)", (HOPE, self.fx["pool"], "pumpswap", "HOPE",

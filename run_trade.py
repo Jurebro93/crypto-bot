@@ -621,7 +621,8 @@ def limits_line(con, cfg):
     lc = executor.LIVE_CAPS
     return (f"limiti: Grok autotrade {g['grok_max_sol_per_trade']:g} SOL po tradeu, {g['grok_max_sol_per_day']:g} SOL "
             f"na dan, {g['grok_max_open']} otvorene, dnevni gubitak {g['grok_max_loss_day']:g} SOL, {auto_cap:g} SOL po "
-            f"tokenu | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
+            f"tokenu, {g.get('max_round_trips_per_token_day', 3)} kruga po tokenu na dan (stop nakon "
+            f"{grokauto.MAX_STOP_OUTS_DAY} izlaza stopom) | automatske live kupnje (LIVE_CAPS) {lc['max_sol_per_trade']:g}/{lc['max_sol_per_day']:g} SOL, "
             f"{lc['max_open']} otvorene, gubitak {lc['max_loss_day']:g} | tvoje ručne kupnje: {own:g} SOL po tokenu, "
             f"{cfg.get('max_sol_per_trade')} SOL po tradeu")
 

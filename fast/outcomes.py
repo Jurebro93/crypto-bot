@@ -9,6 +9,12 @@ Price points (fast.db px): the price every fast_check read anyway (free), and on
 <= 30 tokens) per SAMPLE_EVERY_S (60 s) for tokens whose 60-min window is open, at most FAST_DEX_DAY requests a
 Zagreb day (default 2000, counted in fast.db costs as dexscreener_ishodi). No GeckoTerminal, no paid source. A point
 counts for +k min when it is within [-30 s, +150 s] of that minute.
+
+12.11. (Jure, točka 4: "kad token ima manje od 3 točke cijene u prozoru, označi rezultat kao 'nepouzdano' i ne
+računaj ga u statistiku propuštenih"): n_points (the px points in the 60 min after the decision) below
+rangedca/missed.MIN_POINTS (3) leaves missed NULL (neither propušteno nor not; while the window is open its next points
+decide) and a closed window gets "reliable": false, "quality": "nepouzdano" in out. hit and the base rates are not the
+missed statistics and stay as they were. Rows measured before 12.11. carry n_points too: thin() reads them alike.
 """
 import json
 import os
@@ -106,7 +112,18 @@ def outcome(path, t0, done):
     if hit is None and done and path:
         hit = 0
     out["hit"] = hit
+    from rangedca import missed
+    out["reliable"] = len(path) >= missed.MIN_POINTS   # 12.11. (Jure, točka 4)
+    if done and not out["reliable"]:
+        out["quality"] = missed.UNRELIABLE
     return out
+
+
+def thin(o):
+    """12.11. (Jure, točka 4): the outcome stands on fewer than 3 px points in its 60 min (out.n_points; also on rows
+    measured before 12.11.). Such a SKIP is nepouzdano once its window is closed: in no statistic of the missed."""
+    from rangedca import missed
+    return missed.unreliable((o or {}).get("n_points"))
 
 
 def measure(con, now):
@@ -128,7 +145,8 @@ def measure(con, now):
                 closed += 1
             continue
         o = outcome(path_of(con, tok, t0, p0), t0, done)
-        missed = None if o["max60"] is None else int(dec == "SKIP" and o["max60"] >= MISS_PCT)
+        # 12.11.: a thin window (fewer than 3 points) is not labelled either way (nepouzdano once closed)
+        missed = None if o["max60"] is None or not o["reliable"] else int(dec == "SKIP" and o["max60"] >= MISS_PCT)
         con.execute("UPDATE signals SET out=?, max60=?, missed=?, hit=?, out_done=? WHERE id=?",
                     (json.dumps(o), o["max60"], missed, o["hit"], int(done), sid))
         closed += int(done)

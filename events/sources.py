@@ -25,6 +25,7 @@ BATCH = 5000
 TICK_MAX_ROWS = 20_000   # per source per sync: a long outage catches up over several ticks, the tick stays light
 INIT_S = 24 * 3600       # a source the sync has never seen starts this far back (the backfill does the rest)
 BACKFILL_DAYS = 14
+INDEX_FACTOR = 1.8   # 12.11.: the rows' bytes x this = with events' indexes (measured: 951 MB for ~530 MB of rows)
 TRANSFER_MIN_SOL = store._env_num("EVENTS_TRANSFER_MIN_SOL", 0.5)
 MINT = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
 # measured 10.11. on synthetic rows (events/store.py schema, 100k rows each, time-ordered): bytes per event incl. indexes
@@ -515,8 +516,12 @@ def backfill(days=BACKFILL_DAYS, now=None, econ=None, log=print, est=None, budge
             e = est.get(name)
             if src is None or e is None:
                 continue
-            if e["mb"] > left:
-                log(f"događaji: backfill {name} preskočen: ~{e['mb']:.0f} MB, u budžetu ostaje {max(0, left):.0f} MB")
+            if src.low_value():   # 12.11.: price ticks / transfers are live only (the copies filled the budget)
+                log(f"događaji: backfill {name} preskočen: samo živi feed (cijene / transferi se ne kopiraju unatrag)")
+                continue
+            mb = e["mb"] * INDEX_FACTOR   # 12.11.: the indexes too (the estimate was the rows only)
+            if mb > left:
+                log(f"događaji: backfill {name} preskočen: ~{mb:.0f} MB s indeksima, u budžetu ostaje {max(0, left):.0f} MB")
                 continue
             scon = _open(src, paths)
             if scon is None:
@@ -531,6 +536,7 @@ def backfill(days=BACKFILL_DAYS, now=None, econ=None, log=print, est=None, budge
                 else:
                     after = _window_start(scon, src, since)
                     top = _max_rowid(scon, src.table)
+                    full = False
                     while True:
                         rows = _page(scon, src, after, BATCH, since=since, upto=top)
                         if not rows:
@@ -538,9 +544,17 @@ def backfill(days=BACKFILL_DAYS, now=None, econ=None, log=print, est=None, budge
                         after = int(rows[-1][0])
                         n += store.insert(econ, _map(src, rows))
                         econ.commit()
+                        # 12.11.: stop at BACKFILL_FILL of the budget, measured, not estimated
+                        if store.used_mb(econ)[0] >= store.BACKFILL_FILL * store.MAX_MB:
+                            full = True
+                            log(f"događaji: backfill {name} zaustavljen na {store.used_mb(econ)[0]:.0f} MB "
+                                f"({store.BACKFILL_FILL:.0%} budžeta {store.MAX_MB:.0f} MB)")
+                            break
                         if len(rows) < BATCH:
                             break
-                    # the sync goes on from here: the window up to now is in
+                    # the sync goes on from here: the window up to now is in (a stopped backfill: from where it got)
+                    if full:
+                        top = after
                     wm = store.kv_get(econ, f"wm:{name}")
                     if not isinstance(wm, dict) or int(wm.get("rowid") or 0) < top:
                         store.kv_put(econ, f"wm:{name}", {"rowid": top, "ts": now})

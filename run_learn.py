@@ -76,8 +76,12 @@ def cmd_status(a):
 def cmd_missed(a):
     con = store.connect(DB)
     rows, thr = outcomes.rows(con)
-    for m in outcomes.missed(con, thr, hours=a.hours)[:a.top]:
+    unrel = []   # 12.11. (Jure, točka 4): pumps read from fewer than 3 snapshots, not listed
+    for m in outcomes.missed(con, thr, hours=a.hours, excluded=unrel)[:a.top]:
         print(f"{m['max_ret']:+6.0%}  {m['symbol'] or m['token'][:8]:<12} {m['klasa']:<9} T{m['razina']}  {m['reason']}")
+    if unrel:
+        from rangedca import missed as rmissed
+        print(f"{rmissed.note(len(unrel))} u snimkama: nisu na popisu")
 
 
 def cmd_model(a, con=None):

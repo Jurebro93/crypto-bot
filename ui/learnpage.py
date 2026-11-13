@@ -270,11 +270,15 @@ def hypotheses_html():
 
 
 def missed_shadow_html(now=None):
-    """Candidates the demo skipped that the shadow book shows would have paid +50% or more, by the reason."""
+    """Candidates the demo skipped that the shadow book shows would have paid +50% or more, by the reason. 12.11.
+    (Jure, točka 4): a point whose 24 h path had fewer than 3 prices is nepouzdano: in no count, said how many."""
     import time
     from learn import shadow
+    from rangedca import missed as rmissed
     now = now or time.time()
     rs = [r for r in shadow.light_rows(point="kandidat", since=now - 7 * 86400) if not r["kupljeno"]]
+    n_unrel = sum(1 for r in rs if rmissed.unreliable(r.get("n_pts")))
+    rs = [r for r in rs if not rmissed.unreliable(r.get("n_pts"))]
     if not rs:
         return ""
     big = [r for r in rs if r["ret"] >= 0.5]
@@ -290,7 +294,8 @@ def missed_shadow_html(now=None):
     return ("<h2>Propušteni pobjednici (sjenovita knjiga)</h2>" + tdesc(
         "Demo kandidati koje alat nije kupio, a nakon 24 h bi s našim pravilima izlaza zaradili +50% ili više. Po razlogu "
         "zašto nisu kupljeni: ako jedan razlog reže puno pobjednika, taj filter je preoštar.")
-            + f"<p>Zadnjih 7 dana: {len(big)} od {len(rs)} preskočenih bi zaradilo +50% ili više.</p>"
+            + f"<p>Zadnjih 7 dana: {len(big)} od {len(rs)} preskočenih bi zaradilo +50% ili više"
+            + (f"; {esc(rmissed.note(n_unrel))}, nisu u brojkama" if n_unrel else "") + ".</p>"
             + table(["Zašto nije kupljen", ("Preskočeno", "n"), ("Od toga +50%", "n"), ("Udio", "n")], rows))
 
 
@@ -456,11 +461,15 @@ def page(qs):
                  + table(["Kad", "Klasa", ("Ishoda", "n"), "Odluka", ("Pogađanje staro → novo", "n"), ("Zašto", "wrap"), ("Pomaci težina", "wrap")], rr))
 
     # 6. missed
+    unrel = []   # 12.11. (Jure, točka 4): pumps read from fewer than 3 snapshots, left out and counted
     try:
-        ms = outcomes.missed(con, thr)
+        ms = outcomes.missed(con, thr, excluded=unrel)
     except Exception:
         ms = []
     b.append("<h2>Što smo propustili</h2>")
+    if unrel:
+        from rangedca import missed as rmissed
+        b.append(f"<p class=mut>{esc(rmissed.note(len(unrel)).capitalize())} u snimkama: ti tokeni nisu u tablici.</p>")
     b.append(tdesc("Tokeni iz zadnjih 7 dana koji nisu dobili nijednu plaćenu provjeru (ostali na T0, pali na situ ili bili izvan "
                    "pragova skena), a svejedno napravili skok svoje klase. Razlog kaže gdje su stali; to je trošak sadašnjih pragova.")
              + table(["Token", "Klasa", ("Razina", "n"), "T0", ("Max rast", "n"), ("Mcap", "n"), ("Gdje je stao", "wrap"), "Prvi put"],

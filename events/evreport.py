@@ -280,7 +280,7 @@ def owner_rows(now, mode, log=print):
             return []
         lab = "; ".join(owner.label_text(lb) for lb in lbs[:5])
         d = view.candidates(0.0, now=now)
-        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs))
+        sim = owner.similar_line(d.get("similar") or [], owner.wins(lbs=lbs, now=now))   # 12.11.: the report's clock
         pins = ", ".join(f"{p.get('symbol') or p['token'][:6]} ({'preporuka sada' if p.get('pin_ready') else 'čeka'})"
                          for p in d.get("pins") or [])
     except Exception as e:  # noqa: BLE001 - the rest of the report never waits for this row
@@ -298,8 +298,10 @@ def owner_rows(now, mode, log=print):
 def range_source_rows(now, mode, lcon):
     """11.11. (flag range_missed G27): the same paper rounds split by their source (range_rounds.levels "src"): part
     "range:missed" (tokens skipped, then >= +20 % within 60 min; rangedca/missed.py) vs "range:ostali" (every other
-    source) = its baseline. Rounds, win rate, EV %, PnL $ (in the note) and the missed live gate's verdict."""
-    from rangedca import gate
+    source) = its baseline. Rounds, win rate, EV %, PnL $ (in the note) and the missed live gate's verdict.
+    12.11. (Jure, točka 4): a token whose every rise was measured on fewer than 3 prices is nepouzdano, never a missed
+    token (rangedca/missed.labelled), so in no round here: the note says how many the list left out."""
+    from rangedca import gate, missed as rmissed
     from trade import settings
     try:
         rows = lcon.execute("SELECT closed_ts, ret, pnl_usd, levels FROM range_rounds WHERE user = ? AND status = 'closed' "
@@ -314,6 +316,10 @@ def range_source_rows(now, mode, lcon):
         live = gate.missed_refusal() or "prolazi"
     except Exception as e:  # noqa: BLE001
         live = f"nečitljivo ({type(e).__name__})"
+    try:
+        unrel = rmissed.unreliable_now()["n"]
+    except Exception:  # noqa: BLE001 - the count unreadable: the row still comes, without it
+        unrel = None
     out = []
     for key, s, base in (("missed", sm, so), ("ostali", so, None)):
         pnl = sum(p for _r, p in part[key])
@@ -324,7 +330,9 @@ def range_source_rows(now, mode, lcon):
                     "delta_ev_pct": (_r(s["ev_pct"] - base["ev_pct"], 2) if base and s["ev_pct"] is not None
                                      and base["ev_pct"] is not None else None),
                     "note": (f"izvor missed (preskočen, pa +20 % u 60 min) vs ostali izvori: PnL {pnl:+.2f} $; "
-                             f"live vrata range_missed: {live}") if key == "missed"
+                             f"live vrata range_missed: {live}"
+                             + (f"; {rmissed.note(unrel)} u 60 min nakon preskoka, nije na listi ni u ovim rundama"
+                                if unrel is not None else "")) if key == "missed"
                     else f"range runde svih ostalih izvora (signal, event, market): PnL {pnl:+.2f} $",
                     "proposal": None})
     return out
@@ -419,6 +427,9 @@ def build(now=None, econ=None, log=print):
                 elif name == "fast_path":   # 11.11. (fast/report.py): BUY outcomes, false rejects per check, cost
                     from fast import report as freport
                     out += freport.ev_rows(now, st["mode"], log=log)
+                elif name == "x_call_scalp":   # 12.11. (fast/xscalp.py): per author class, 7 days, own requests
+                    from fast import xscalp
+                    out += xscalp.ev_rows(now, st["mode"], log=log)
                 out += flag_rows(name, st, lcon, econ, now, paper)
             except Exception as e:  # noqa: BLE001 - one flag costs only its row
                 log(f"događaji: EV izvještaj za {name} nije uspio ({type(e).__name__}: {e})")

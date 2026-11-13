@@ -358,9 +358,12 @@ class SkipJournal(Env):
         self.assertIn("EV ", html)                                           # the fast_check's numbers
         self.assertIn("P ", html)
         self.assertIn("mjeri se", html)
-        # +25 % within the hour: propušteno (fast/outcomes, +20 % within 60 min)
+        # +25 % within the hour: propušteno (fast/outcomes, +20 % within 60 min; 12.11.: on >= 3 price points, else
+        # nepouzdano)
         fc = store.connect(self.fp)
+        outcomes.put_px(fc, TOK, r["price0"] * 1.05, None, r["decided_ts"] + 300)
         outcomes.put_px(fc, TOK, r["price0"] * 1.25, None, r["decided_ts"] + 600)
+        outcomes.put_px(fc, TOK, r["price0"] * 1.10, None, r["decided_ts"] + 900)
         outcomes.measure(fc, r["decided_ts"] + outcomes.HORIZON_S + outcomes.GRACE_S + 1)
         fc.commit()
         fc.close()

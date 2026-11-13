@@ -214,13 +214,34 @@ def _row_inner(p, esc):
             '<button>Odbij</button></form></details>')
 
 
+MISSED_STATUS = ("isteklo", "odbijeno")   # what happened after these is the missed (or avoided) opportunity
+
+
 def _after_text(p):
     a = (p.get("after") or {}).get("4h") or (p.get("after") or {}).get("1h") or {}
     if a.get("status") != "ok":
         return "ishod se još mjeri"
-    first = {"tp": "TP prije SL-a", "sl": "SL prije TP-a", "none": "ni TP ni SL"}.get(a.get("first"), "?")
     k = "4 h" if (p.get("after") or {}).get("4h") else "1 h"
+    from rangedca import missed
+    if p.get("status") in MISSED_STATUS and missed.unreliable(a.get("n_points")):
+        # 12.11. (Jure, točka 4): a missed opportunity measured on fewer than 3 prices: the word, not its numbers
+        return f"{k}: {missed.UNRELIABLE}, {missed.detail(a.get('n_points'), k)}"
+    first = {"tp": "TP prije SL-a", "sl": "SL prije TP-a", "none": "ni TP ni SL"}.get(a.get("first"), "?")
     return f"{k}: najviše {_pct(a.get('max_gain_pct'))}, najdublje {_pct(a.get('max_dd_pct'))}, {first}"
+
+
+def _after_mcp(p):
+    """get_proposals' after: 12.11. (Jure, točka 4) every horizon of an expired / rejected proposal measured on fewer
+    than 3 prices carries reliable false and quality "nepouzdano" (also one measured before 12.11.)."""
+    after = p.get("after") or None
+    if not after or p.get("status") not in MISSED_STATUS:
+        return after
+    from rangedca import missed
+    out = dict(after)
+    for k, v in after.items():
+        if isinstance(v, dict) and v.get("status") == "ok" and missed.unreliable(v.get("n_points")):
+            out[k] = dict(v, reliable=False, quality=missed.UNRELIABLE)
+    return out
 
 
 def fragment(esc, item, now=None, path=None):
@@ -309,7 +330,7 @@ def _mcp_row(p):
             "range_tier": r.get("range_tier"), "ev_lo_pct": r.get("ev_lo_pct"), "ev_per_min": r.get("ev_per_min"),
             "duration_min": r.get("duration_min"), "modifiers": r.get("modifiers"), "paper_only": bool(r.get("paper_only")),
             "cost_pct": r.get("cost_pct"), "risks": r.get("risks"), "why": r.get("why"), "market_at_update": r.get("market"),
-            "rug": r.get("rug"), "runup_x": r.get("runup_x"), "after": p.get("after") or None,
+            "rug": r.get("rug"), "runup_x": r.get("runup_x"), "after": _after_mcp(p),
             "reject_reason": p.get("reject_reason"), "reject_note": p.get("reject_note"), "bought_sol": p.get("bought_sol"),
             # 11.11. (rangedca/owner.py): the owner's pin (never an automatic real-money buy) and the similarity's
             # shadow P bonus (recorded only, P unchanged)

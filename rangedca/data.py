@@ -37,6 +37,10 @@ GT_DAY = int(os.environ.get("RANGE_GT_DAY", "60"))          # GeckoTerminal requ
 GT_PER_PASS = 3
 GT_RESEED_S = 86400
 COLD_S = 6 * 3600      # a token under 30k or still on the curve is not polled again for this long
+# 12.11. (owner, nalog 3: "STC ima cijene samo do 10:55 CET, iako je likvidnost bila 16k"): a bonded token under 30k
+# with at least this much liquidity (= trade/cost.LIQ_HARD_MIN, rangedca/market.KEEP_LIQ) is no longer put aside: it
+# is measured (CLAUDE.md: "smiju se analizirati i mjeriti u sjeni"), never bought (detect: "ispod 30k")
+MEASURE_LIQ = 15_000
 PULSE_FRESH_S = 150    # a token_pulse row this fresh: the hype scan already snapshots it, we do not poll it
 MIN_MCAP = 30_000
 
@@ -187,13 +191,24 @@ def fetch_pairs(tokens):
         return []
 
 
+class PairList(list):
+    """12.11. popodne (owner, točka 1): DexScreener pairs plus `answered`, the tokens whose batch DexScreener answered.
+    A token of a failed (502, overload, timeout) or unsent (the pass's time budget) batch is unknown, not priceless:
+    the market pass leaves it as it is instead of taking it off the list for 3 days as "nema cijene"."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.answered = set()
+
+
 def fetch_pairs_fast(tokens, deadline=None):
     """11.11. (stale 5-minute data): the market watchlist's DexScreener batches on the short leash of tokens_live (a
     few seconds, no retry), one batch of 30 at a time, and no new batch after `deadline` (monotonic). The scanners'
     path (fetch_pairs) waits up to 30 s a try and retries with back-off up to a minute: 30 batches of the market pass
-    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S."""
+    held a run_range pass for minutes, so the active ranges' 5-minute numbers went older than METRICS_FRESH_S.
+    12.11.: a PairList (answered = the tokens of the batches that came back)."""
     import time as _t
-    out = []
+    out = PairList()
     try:
         from dexscreener import client
     except Exception:  # noqa: BLE001
@@ -201,8 +216,10 @@ def fetch_pairs_fast(tokens, deadline=None):
     for i in range(0, len(tokens or []), 30):
         if deadline is not None and _t.monotonic() >= deadline:
             break
+        batch = list(tokens[i:i + 30])
         try:
-            out += client.tokens_live("solana", list(tokens[i:i + 30]), ttl=20) or []
+            out += client.tokens_live("solana", batch, ttl=20) or []
+            out.answered.update(batch)
         except Exception:  # noqa: BLE001 - this batch has no snapshot this pass
             continue
     return out
@@ -219,19 +236,27 @@ def save_snap(con, token, s):
 def poll(con, tokens, now, fetch=None, pulse_fresh=None):
     """One DexScreener snapshot of every token in `tokens` the hype scan has not snapshotted in the last
     PULSE_FRESH_S. Tokens under 30k or on the bonding curve are put aside for COLD_S (not stored: CLAUDE.md, under
-    30k is not analysed). Returns {token: snapshot} of what was stored."""
+    30k is not analysed). Returns {token: snapshot} of what was stored.
+    12.11. (owner, nalog 3): a bonded token under 30k with liquidity >= MEASURE_LIQ is stored, not put aside: a call
+    candidate stays a signal candidate for 24 h, so the 6 h aside left it on the list with no price (and the market
+    pass skips the signal pass's tokens); run_range.py hands it to the market list (market.adopt)."""
     fresh = pulse_fresh if pulse_fresh is not None else pulse_recent(now)
     cold = {t: u for t, u in (kv_get(con, "cold") or {}).items() if u > now}
     ask = [t for t in tokens if t not in fresh and t not in cold][:MAX_TOKENS]
     got = {}
     if ask:
         day_add(con, "sig_dex_day", -(-len(ask) // 30), now)   # 11.11.: counted for the daily cost line
-        pairs = (fetch or fetch_pairs)(ask)
+        try:
+            pairs = (fetch or fetch_pairs)(ask)
+        except Exception as e:  # noqa: BLE001 - 12.11. (owner, točka 1): a 502 / timeout costs this snapshot, not the pass
+            print(f"range: DexScreener nije odgovorio ({type(e).__name__}), prolaz ide dalje sa spremljenim snimkama",
+                  flush=True)
+            pairs = []
         for t, p in best_pairs(pairs).items():
             if t not in ask:
                 continue
             s = snap_of(p, now)
-            if not s["price"] or not s["bonded"] or (s["mcap"] or 0) < MIN_MCAP:
+            if not s["price"] or not s["bonded"] or ((s["mcap"] or 0) < MIN_MCAP and (s["liq"] or 0) < MEASURE_LIQ):
                 cold[t] = int(now + COLD_S)
                 continue
             save_snap(con, t, s)

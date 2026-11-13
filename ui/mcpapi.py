@@ -75,18 +75,27 @@ def _num(x, nd=6):
         return None
 
 
+TXNS_UNKNOWN = ("broj transakcija nije u ovom zapisu (red skenera provjeren prije 12.11. ili izvor bez transakcija); "
+                "nije 0")
+
+
 def _market_row(m):
+    """The market block of a row. 12.11. popodne (owner: scan rows had txns_1h 0 with a volume_1h): an hour's
+    transactions the source did not carry are null with txns_1h_why, never a fake 0 (0 only when it was counted)."""
     if not m:
         return None
-    tx = m.get("txns_h1") or 0
-    buys = m.get("buys_h1") or 0
-    return {"price_usd": _num(m.get("price"), 12), "market_cap_usd": _num(m.get("mcap"), 0),
-            "liquidity_usd": _num(m.get("liq"), 0), "volume_1h_usd": _num(m.get("vol_h1"), 0),
-            "volume_24h_usd": _num(m.get("vol_h24"), 0), "change_5m_pct": _num(m.get("ch_m5"), 2),
-            "change_1h_pct": _num(m.get("ch_h1"), 2), "change_24h_pct": _num(m.get("ch_h24"), 2),
-            "txns_1h": tx, "buys_1h": buys,
-            # the share of buys in the last hour's transactions: the on-chain "sentiment" we can measure
-            "buy_share_1h": round(buys / tx, 3) if tx else None}
+    tx = m.get("txns_h1")
+    buys = m.get("buys_h1")
+    row = {"price_usd": _num(m.get("price"), 12), "market_cap_usd": _num(m.get("mcap"), 0),
+           "liquidity_usd": _num(m.get("liq"), 0), "volume_1h_usd": _num(m.get("vol_h1"), 0),
+           "volume_24h_usd": _num(m.get("vol_h24"), 0), "change_5m_pct": _num(m.get("ch_m5"), 2),
+           "change_1h_pct": _num(m.get("ch_h1"), 2), "change_24h_pct": _num(m.get("ch_h24"), 2),
+           "txns_1h": int(tx) if tx is not None else None, "buys_1h": int(buys) if buys is not None else None,
+           # the share of buys in the last hour's transactions: the on-chain "sentiment" we can measure
+           "buy_share_1h": round(buys / tx, 3) if tx and buys is not None else None}
+    if tx is None:
+        row["txns_1h_why"] = TXNS_UNKNOWN
+    return row
 
 
 SIGNAL_SOURCES = ("caller", "wallet", "scan", "beta", "hidden_group")
@@ -159,8 +168,10 @@ def signals(now=None, source=None, include_hidden=False):
                 continue
             if not kinds:
                 continue
+            # 12.11. popodne: the 5-minute change and the hour's transactions the scanner stores since (scan/store.ADDED)
             m = {"price": r.get("price"), "mcap": r.get("mcap"), "liq": r.get("liq"), "vol_h1": r.get("vol_h1"),
-                 "ch_h1": r.get("ch_h1"), "ch_h24": r.get("ch_h24")}
+                 "ch_h1": r.get("ch_h1"), "ch_h24": r.get("ch_h24"), "ch_m5": r.get("ch_m5"),
+                 "txns_h1": r.get("txns_h1"), "buys_h1": r.get("buys_h1")}
             row = {"token": tok, "symbol": r.get("symbol"), "callers": [], "n_callers": 0, "first_call_ts": None,
                    "last_call_ts": None, "market": _market_row(m), "market_ts": r.get("checked_ts"),
                    "under_30k": (r.get("mcap") or 0) < 30_000, "source": kinds[0], "sources": kinds, **_SCAN_NULL}
@@ -340,11 +351,15 @@ def portfolio(now=None):
         toks = sorted({r[1] for r in rows})
         now_mc, mc_ts = pravitrade._now_mcap(toks) if toks else ({}, None)
         live_toks = {r[1] for r in rows if r[6] == "live"}
+        # 12.11.: per lot mode live | dry and real (a real lot held: trade.settings.live_lots, the definition zonewatch
+        # uses for the real account); the fields are added after the old ones, nothing renamed or reordered
+        real_ids = {r["id"] for r in settings.live_lots(tcon, now)}
         by = {}
         for pid, tok, sym, ts, sin, lid, _mode in rows:
             mc, rule, _o = demo.get(lid, (None, None, False))
             g = by.setdefault(tok, {"token": tok, "symbol": sym, "lots": [], "exit": pravitrade._exit_words(rule)})
-            g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0)})
+            g["lots"].append({"id": pid, "opened_ts": ts, "sol_in": _num(sin, 4), "entry_market_cap_usd": _num(mc, 0),
+                              "mode": "live" if _mode == "live" else "dry", "real": pid in real_ids})
         out = []
         plans = _plans_for(sorted(by), now_mc)
         modes = _plan_modes(sorted(by), live_toks, executor.is_live(cfg))
@@ -385,7 +400,10 @@ def portfolio(now=None):
                 "momentum_candidates": _momentum_part(now),
                 "open_orders": {"dca": raw.get("dca_orders") or [],
                                 # 11.11.: only what can still be approved (not expired, not a sell of a closed position)
-                                "waiting_for_owner": pending(tcon, now)}}
+                                "waiting_for_owner": pending(tcon, now)},
+                # 12.11.: the open lots by mode (live: a real swap; dry: a test swap, no real money)
+                "open_live": sum(1 for r in rows if r[6] == "live"),
+                "open_dry": sum(1 for r in rows if r[6] != "live")}
     finally:
         tcon.close()
 
@@ -420,6 +438,7 @@ def set_exit_plan(token, plan, kid="mcp"):
         # 11.11.: per account whether the plan sells live (the real account) or paper, and why (league/exitplan)
         out["execution"] = {u: exitplan.execution(u, exitplan._lots(lcon, u, tok)) for u in out.get("stop_price") or {}}
         out["exit_plan_live"] = settings.flag("exit_plan_live", con=tcon)
+        out["summary"] = exitplan.describe(out["plan"])   # 12.11.: the plan in one line, the new fields included
         return out
     finally:
         lcon.close()
@@ -753,7 +772,9 @@ TOOLS = [
                      "exit_plans (the flags deciding that), open orders, and "
                      "momentum_candidates: the newest momentum_scalp signals (bonded jumps that met every entry rule, "
                      "with their numbers and outcome), near misses, the base rate and the paper proof, to rate with "
-                     "execute_trade strategy momentum_scalp and p_tp."),
+                     "execute_trade strategy momentum_scalp and p_tp. Each lot has mode (live = a real swap | dry = a "
+                     "test swap, no real money) and real (true only for a lot really bought and still held); "
+                     "open_live / open_dry count the open lots by mode."),
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "execute_trade",
      "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
@@ -762,7 +783,12 @@ TOOLS = [
                      "executed at once ONLY while the owner has switched grok_autotrade on (get_portfolio_status shows "
                      "it and the limits left today); buys within Grok's own limits (grok_max_sol_per_trade, "
                      "grok_max_sol_per_day, grok_max_open; after grok_max_loss_day it pauses until midnight Zagreb) "
-                     "and after a fresh rug and liquidity check; sells of any open position, any share. Answer: "
+                     "and after a fresh rug and liquidity check; sells of any open position, any share. 12.11.: the "
+                     "same token may be bought again after its position closed (a new round) and DCA'd while your SOL "
+                     "in it stays <= dca_token_cap (0.3); at most max_round_trips_per_token_day rounds per token per "
+                     "Zagreb day (a round starts with a buy while you hold no open position in it; a DCA lot is not a "
+                     "new round) and no buy of a token after 2 stop-outs in it that day (get_portfolio_status "
+                     "grok_autotrade.tokens_today). Answer: "
                      "status executed (with tx_signature when the swap landed in the wait, else tx_status submitted) "
                      "or rejected with the reason. side 'buy': amount in SOL; side 'sell': amount as a share of the "
                      "open position (0.25 = 25 %, 1 = all). reason: one line for the owner. "
@@ -934,8 +960,9 @@ TOOLS += [
                      "Check the result with get_scoring_config (applied_suggestions, effective_values). Anything else is "
                      "accepted for a manual change, e.g. a name for a group from get_trader_groups: {\"group_label\": "
                      "{\"group_id\": ..., \"label\": ..., \"note\": ...}} (an accepted one shows as the group's label). "
-                     "A verdict on a wallet from get_insider_candidates: {\"insider_label\": {\"wallet\": <address>, "
-                     "\"label\": insider | team | bot | sniper | legit, \"note\": <why>}}; the owner's 'Primijeni na "
+                     "A verdict on a wallet from get_insider_candidates: {\"insider_label\": {\"wallet\": <full address>, "
+                     "\"label\": insider | team | bot | sniper | legit, \"note\": <why>}} (several wallets of one "
+                     "token with the same verdict: \"wallets\": [<full address>, ...] and \"token\": <mint>); the owner's 'Primijeni na "
                      "bota' stores it (bot and sniper keep the wallet out of the insider copy; nothing else changes)."),
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "maxLength": 200}, "interpretation": {"type": "string", "maxLength": 4000},
@@ -998,7 +1025,14 @@ TOOLS += [
                      "up to at most 1, each fires once), trailing {activate_pct, trail_pct} (from +activate_pct, sell "
                      "all at -trail_pct from the peak after the activation), stop {at_pct OR at_mc_usd} (hard stop: may "
                      "only be TIGHTENED, never looser than the current stop nor than sl_default), time_stop "
-                     "{after_min, if_pnl_below_pct} (counted from the last entry), reason (one line). Runs under the "
+                     "{after_min, if_pnl_below_pct} (counted from the last entry; GROSS: price vs the average entry), "
+                     "time_stop_min + min_profit_pct (12.11.: from time_stop_min minutes after the last entry on, sell "
+                     "everything whenever the result NET of the round-trip cost, trade/cost.round_trip = 2 x fee a side "
+                     "+ 2 x pool impact of the stake, is under min_profit_pct %; default 0 = break-even after cost; "
+                     "trigger time_stop_min), max_stop_pct (12.11.: the widest stop this plan accepts, percent below "
+                     "the average entry, e.g. 12 = never wider than -12 %: a wider stop in the plan is rejected with "
+                     "the numbers; without a stop the plan gets -max_stop_pct when that is tighter than the stop it "
+                     "would keep; sl_default still holds on top), reason (one line). Runs under the "
                      "flag exit_plans: paper = executed only on the demo account autopilot-paper, logged for the real "
                      "one; live = both. The owner's switch exit_plan_live (live = on) executes a plan on the REAL "
                      "account for a Grok autotrade position (every lot bought by your execute_trade "
@@ -1019,11 +1053,18 @@ TOOLS += [
              "stop": {"type": "object", "properties": {"at_pct": {"type": "number"}, "at_mc_usd": {"type": "number"}}},
              "time_stop": {"type": "object", "properties": {"after_min": {"type": "number"},
                                                             "if_pnl_below_pct": {"type": "number"}}},
+             "time_stop_min": {"type": "number", "minimum": 1, "maximum": 10080,
+                               "description": "minutes after the last entry; then out unless min_profit_pct NET"},
+             "min_profit_pct": {"type": "number", "default": 0,
+                                "description": "percent NET of the round-trip cost (needs time_stop_min)"},
+             "max_stop_pct": {"type": "number", "minimum": 1, "maximum": 99,
+                              "description": "the widest stop accepted, percent below the average entry (12 = -12 %)"},
              "reason": {"type": "string"}}}},
          "required": ["token_address", "plan"]}},
     {"name": "get_exit_events", "annotations": _READ,
      "description": ("Executed exit-plan triggers since since_ts (unix s), newest first: plan_id, account, token, "
-                     "trigger (tp1, tp2, trailing, stop, time_stop), price, market cap, share sold, PnL in USD of the "
+                     "trigger (tp1, tp2, trailing, stop, time_stop, time_stop_min), price, market cap, share sold, PnL in "
+                     "USD of the "
                      "demo side, mode (izvršeno = executed, sjena = logged only), stale (the price was older than 60 s), "
                      "and the real sell's cost/slippage %, tx signature and status when it landed."),
      "inputSchema": {"type": "object", "properties": {"since_ts": {"type": "integer"},
@@ -1106,8 +1147,8 @@ TOOLS += [
                      "callers_front_run (caller, tokens, lift against chance), examples (token, buy time, first and "
                      "next call with times, rose30, sold into the call, under_30k). Snipers, bots, relayers, dev-funded "
                      "and same-owner bundles are already out. Your verdict: submit_suggestion with proposed_change "
-                     "{\"insider_label\": {\"wallet\": \"<address>\", \"label\": \"insider|team|bot|sniper|legit\", "
-                     "\"note\": \"<why>\"}}; it counts only after the owner's 'Primijeni na bota'. bot / sniper keep a "
+                     "{\"insider_label\": {\"wallet\": \"<full address>\", \"label\": \"insider|team|bot|sniper|legit\", "
+                     "\"note\": \"<why>\"}} (or \"wallets\": [...] with \"token\" for several of one token); it counts only after the owner's 'Primijeni na bota'. bot / sniper keep a "
                      "wallet out of the copy. Copy is shadow / demo only until the owner's proof; tokens under $30k "
                      "and on the bonding curve are never bought."),
      "inputSchema": {"type": "object", "properties": {
@@ -1177,6 +1218,14 @@ TOOLS.append(
                      "and then >= +20 % within 60 min, watched 72 h (signal > event > missed > market); the answer's "
                      "missed part has its filter, the closed rounds of source missed vs the others (rounds, wins, EV, "
                      "PnL) and its own live gate (>= 20 rounds of source missed with EV > 0; paper only before that). "
+                     "12.11.: a skip measured on fewer than 3 price points in its 60 min is nepouzdano, never a missed "
+                     "token (missed.list.unreliable counts them, missed.unreliable_rule). "
+                     "12.11. afternoon: entry_ready is decided by the real rules while the 5-minute numbers are at most "
+                     "9 min old (freshness.ready_limit_s; the automatic buy itself needs them at most 5 min old, "
+                     "freshness.trade_limit_s and trade_gate_fresh); entry_now always keeps the real reason (zone, "
+                     "score, breakout) and adds a staleness note after it; freshness has numbers_age_s and "
+                     "range_age_s. rug_archive: the reason when the token is in the rug archive (never entry_ready, "
+                     "never armed, never traded). "
                      "While the flag range_flip is not off: per row "
                      "range_flip (status normal | flip_candidate | flipped | paused | resumed, the confirmed break, the "
                      "flip zone or the resistance in market cap, retests, ATR, stop_kind, the stop of today's rules and "
@@ -1299,8 +1348,11 @@ TOOLS.append(
                      "paper_only (event / market watchlist rows: never real money), per strategy its p_tp, n, EV, entry "
                      "zone and exits in market cap, your raw and calibrated p_tp (grok, grok_calibration), exit_plan in "
                      "set_exit_plan's format, size_sol (<= 0.15 SOL, the owner's caps and the stake with <= 2 % "
-                     "slippage), risks, why, expires_ts, and for decided / expired ones what happened after (after: max gain, max drawdown, TP before SL at 1 h and 4 h). report: "
-                     "the newest daily report per strategy with the day's missed risers. since: unix time (default "
+                     "slippage), risks, why, expires_ts, and for decided / expired ones what happened after (after: max gain, max drawdown, TP before SL at 1 h and 4 h; "
+                     "12.11.: an expired / rejected one measured on fewer than 3 prices has reliable false, quality "
+                     "nepouzdano: no missed rise). report: the newest daily report per strategy with the day's missed "
+                     "risers (missed_risers_unreliable: seen in fewer than 3 snapshots, not listed). "
+                     "since: unix time (default "
                      "24 h ago); min_ev: at least this ev_pct (default 0); status: only this status; include_blocked: "
                      "also the last pass's near misses with their blocks; limit 1-200 (default 50). Read-only: buy a "
                      "proposal only through execute_trade within your grok_autotrade limits; add one with "
@@ -1326,14 +1378,75 @@ TOOLS.append(
                      "size_sol, checks {rug, holders, flow, price, source}: status ok | fail | error, text, values "
                      "(numbers), threshold, ms; wallet_entry and price_at_decision; source_quality (closed, winners, "
                      "PnL, tier, proof = run_trade's real-money proof); outcome (+1/+5/+15/+60 min, max and min within "
-                     "60 min, hit = +15 % before -10 % within 45 min) and missed (SKIP that did >= +20 %); traded (the "
+                     "60 min, hit = +15 % before -10 % within 45 min) and missed (SKIP that did >= +20 %; 12.11.: "
+                     "fewer than 3 price points in the 60 min = outcome.reliable false, quality nepouzdano, missed "
+                     "null, in no count of the missed); traded (the "
                      "demo trade). report: the newest daily report (false rejects per check, latency, cost per source). "
-                     "since: unix time (default 24 h ago); decision: only that one; limit 1-200 (default 50). Read-only: "
+                     "since: unix time (default 24 h ago); decision: only that one; limit 1-200 (default 50). "
+                     "id (12.11.): only that fast_check, any age (the id submit_watch_token returned), with its state "
+                     "(in progress, done, CHECK_FAILED) and x_calls (the X call that asked for it). Read-only: "
                      "give your opinion with submit_signal_opinion."),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "integer", "minimum": 0},
          "decision": {"type": "string", "enum": ["BUY_PAPER", "BUY_LIVE", "SKIP", "CHECK_FAILED"]},
-         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}}})
+         "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+         "id": {"type": "integer", "minimum": 1, "description": "one fast_check id (submit_watch_token's fast_check.id)"}}}})
+# 12.11. (Jure, nalog točke 1 i 2, fast/xcall.py + fast/xscalp.py): Grok's X calls onto the watch list at once with a
+# fast_check, and the paper strategy x_call_scalp's record per author class. Neither tool trades.
+_ENG = {"type": "integer", "minimum": 0, "maximum": 100_000_000_000}
+TOOLS += [
+    {"name": "submit_watch_token",
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+     "description": ("Put a token an X account just called on MemeSonar's watch list and run its fast_check AT ONCE "
+                     "(rug, holders, flow, price / market cap / liquidity, the author's own caller record). Buys "
+                     "nothing. mint: Solana token address (base58); source: x_call; author: the X handle; followers; "
+                     "post_id (digits, or the post's status URL); post_ts: unix seconds of the post (at most 24 h old); "
+                     "engagement_baseline: {likes, replies, reposts, views} at the moment you send it (views optional); "
+                     "velocity: interactions (likes + replies + reposts) per minute since the post (omitted: computed "
+                     "from engagement_baseline and post_ts). Answers within ~10 s: fast_check {id, state done | "
+                     "in_progress | retrying | failed, decision BUY_PAPER | BUY_LIVE | SKIP | CHECK_FAILED, label, "
+                     "reason, ev_pct, p_tp, market, checks}; still in progress: ask get_fast_checks with id. Also the "
+                     "author class (followers <10k / 10-50k / 50-200k / 200k+ x velocity niska < 2 / srednja 2-20 / "
+                     "visoka >= 20 per min) and x_call_scalp: a PAPER entry at the detection's market cap when no hard "
+                     "block applies (rug hard, honeypot, liquidity < $15k, MC < $30k, bonding curve), measured 65 min "
+                     "(get_x_call_stats); the fast_check decision is only a label, never a trade. The same token and "
+                     "author within 10 min returns the stored call (duplicate). At most 60 calls an hour."),
+     "inputSchema": {"type": "object", "properties": {
+         "mint": {"type": "string", "minLength": 32, "maxLength": 44, "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$",
+                  "description": "Solana token mint address"},
+         "source": {"type": "string", "enum": ["x_call"], "default": "x_call"},
+         "author": {"type": "string", "minLength": 1, "maxLength": 16, "description": "X handle of the post's author"},
+         "followers": {"type": "integer", "minimum": 0, "maximum": 1_000_000_000},
+         "post_id": {"type": "string", "maxLength": 200, "description": "X post id (digits) or its status URL"},
+         "post_ts": {"type": "integer", "description": "unix seconds of the post"},
+         "engagement_baseline": {"type": "object", "properties": {"likes": _ENG, "replies": _ENG, "reposts": _ENG,
+                                                                  "views": _ENG},
+                                 "required": ["likes", "replies", "reposts"], "additionalProperties": False},
+         "velocity": {"type": "number", "minimum": 0, "maximum": 10_000_000,
+                      "description": "interactions per minute since the post"}},
+         "required": ["mint", "author", "followers", "post_id", "post_ts", "engagement_baseline"]}},
+    {"name": "get_x_call_stats", "annotations": _READ,
+     "description": ("x_call_scalp's measured record of the X calls sent with submit_watch_token, per author class "
+                     "(followers_band <10k | 10-50k | 50-200k | 200k+ x velocity_band niska | srednja | visoka; class "
+                     "\"10-50k/srednja\"). Per class: n (measured paper entries), hit_rate (+10 % NET of cost before "
+                     "-8 % within 60 min), median_net_pct and ev_net_pct (the trade: +10 % at the target, -8 % - cost "
+                     "at the stop, else the +1 h result), median r15 / r60 net, median max gain before -8 %, dumps "
+                     "(the dev or a top-10 holder sold in the hour) with the median low after the dump, open / pending "
+                     "/ blocked (with the hard block), live_record_ok (n >= 10 and EV net >= +3 %: only then can a "
+                     "candidate of that class be live_eligible in get_trade_candidates). days 1-90 (default 30); "
+                     "limit 0-100 recent calls (default 20). Read-only; prices only from cheap sources MemeSonar "
+                     "already has (no paid API)."),
+     "inputSchema": {"type": "object", "properties": {
+         "followers_band": {"type": "string", "enum": ["<10k", "10-50k", "50-200k", "200k+"]},
+         "velocity_band": {"type": "string", "enum": ["niska", "srednja", "visoka"]},
+         "class": {"type": "string", "description": "followers_band/velocity_band, e.g. 10-50k/srednja"},
+         "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 30},
+         "limit": {"type": "integer", "minimum": 0, "maximum": 100, "default": 20}}}},
+]
+INSTRUCTIONS += (" X calls: when an account you read posts a Solana token, send it with submit_watch_token (mint, "
+                 "author, followers, post_id, post_ts, engagement_baseline, velocity): MemeSonar runs a fast_check at "
+                 "once and records a paper entry for x_call_scalp (never a trade); get_x_call_stats shows the record "
+                 "per author class.")
 # 11.11. (Jure, part D, momentum/evgate.py): the buy gate is an EV with the strategy's TP / SL
 INSTRUCTIONS += (" Buy gate: send execute_trade with p_tp (your probability 0-1 that the take profit comes before the "
                  "stop) and strategy (momentum_scalp: +15 % / -10 % in 45 min; range_dca: the range's zones; other: "
@@ -1428,7 +1541,8 @@ TOOLS += [
                      "| event (a zone tied to an event topic). Range zones (source range) are not armed here: they "
                      "come only from MemeSonar's range engine (recomputed about every 5 min) for tokens with an open "
                      "range round, an entry-ready range or an open position on the real account, while the engine has "
-                     "an active range for them. At most 100 active armed zones and 60 arm_zone calls an hour per key. "
+                     "an active range for them. A token in the rug archive is never armed (an error with the "
+                     "reason; its zones end). At most 100 active armed zones and 60 arm_zone calls an hour per key. "
                      "The alarm JSON: id, event, mint, symbol, zone_type, zone_lo, zone_hi, mcap, price, liq, vol_5m, "
                      "vol_1h, buys_5m, sells_5m, buy_share_5m, buy_share_1h, uniq_traders_1h, rug_risk, source, ts, "
                      "and for a range zone what it is based on: zone_version (+1 per range computation), computed_ts "
@@ -1450,14 +1564,20 @@ TOOLS += [
                      "one), state (inside | outside | unknown), mcap_now with its age, distance_pct to the zone (0 "
                      "inside) and zone_is (below / above the price), and the last alarm (event, ts, status). Also the "
                      "flag, whether the Grok Bot webhook is configured, the counts by source and the limits (ttl_h at "
-                     "most 2). positions (without a source filter): the REAL account's open positions (manual, Grok "
-                     "auto, approved; never the demo account) with lots, qty, avg_entry_price / avg_entry_mcap, "
+                     "most 2). positions (without a source filter): the REAL account's open positions, i.e. only "
+                     "lots really bought and still held (the live lots of get_portfolio_status: trade.db positions "
+                     "mode live, open with tokens, or a buy pending under 3 min; manual, Grok auto, approved; never a "
+                     "demo trade, a blocked copy, a dry swap or the demo account) with lots (real lots), position_ids, "
+                     "sol_in, qty, avg_entry_price / avg_entry_mcap, "
                      "pnl_pct / pnl_usd / pnl_sol, sources and their OWN levels watched with or without a range (stop "
                      "/ trailing / take profit of the lots, Smart sell or an exit plan in force, DCA and buy orders): "
                      "level_price, level_mcap, distance_pct (negative = below the price), state and the last alarm; "
                      "these alarm as event position_level (sl_near within 3 % above a stop, sl_hit, tp_hit, dca_hit) "
                      "and a held token whose range rangedca switches off as range_off (reason_key break_up | "
-                     "break_down | weak_volume | other). mint / source filter; limit 1-300 (default 100)."),
+                     "break_down | weak_volume | other). positions_demo_excluded: only the COUNT of open demo trades "
+                     "of the league account pravi-trade that are no real lot (by_reason blocked | failed | dry | sold "
+                     "| stale_pending | empty | not_mirrored), never positions, never alarmed. mint / source filter; "
+                     "limit 1-300 (default 100)."),
      "inputSchema": {"type": "object", "properties": {
          "mint": {"type": "string"}, "source": {"type": "string", "enum": ["manual", "event", "range"]},
          "limit": {"type": "integer", "minimum": 1, "maximum": 300, "default": 100}}}},
@@ -1466,8 +1586,9 @@ INSTRUCTIONS += (" Zone alarms: MemeSonar watches its range engine's zones (bott
                  "computed_ts and window_h in every alarm) and POSTs to your Grok Bot webhook when the price crosses "
                  "one; arm_zone(mint, zone_type, lo, hi, note, ttl_h) adds a market-cap zone by hand for at most 2 h "
                  "(ttl_h=0 disarms); get_armed_zones lists them with their state. The real account's open positions "
-                 "alarm on their own SL / TP / trailing / DCA levels (event position_level) and when the range of a "
-                 "held token is switched off (event range_off); advise from these, never trade on them alone.")
+                 "(real lots only, never a demo or blocked copy) alarm on their own SL / TP / trailing / DCA levels "
+                 "(event position_level) and when the range of a held token is switched off (event range_off); "
+                 "advise from these, never trade on them alone.")
 ZONE_TOOLS = ("arm_zone", "get_armed_zones")
 
 
@@ -1545,9 +1666,22 @@ def _tool(name, args, kid="local"):
         d = pview.mcp(args.get("since"), args.get("min_ev"), _truthy(args.get("include_blocked")), args.get("status"),
                       args.get("limit"))
         return d, "error" in d
-    if name == "get_fast_checks":   # 11.11. fast/ (flag fast_path G24), read-only
+    if name == "get_fast_checks":   # 11.11. fast/ (flag fast_path G24), read-only; 12.11.: id
         from fast import view as fview
-        d = fview.mcp(args.get("since"), args.get("decision"), args.get("limit"))
+        d = fview.mcp(args.get("since"), args.get("decision"), args.get("limit"),
+                      ids=args.get("id") if args.get("id") not in (None, "") else args.get("ids"))
+        return d, "error" in d
+    if name == "submit_watch_token":   # 12.11. fast/xcall.py: watch list + fast_check at once, never a trade
+        from fast import xcall
+        try:
+            d = xcall.submit(args, kid=f"mcp:{kid}")
+        except ValueError as e:
+            d = {"error": str(e)}
+        return d, "error" in d
+    if name == "get_x_call_stats":   # 12.11. fast/xscalp.py (flag x_call_scalp), read-only
+        from fast import xscalp
+        d = xscalp.stats(args.get("followers_band"), args.get("velocity_band"), args.get("class"), args.get("days"),
+                         args.get("limit"))
         return d, "error" in d
     if name in ("get_trader_groups", "get_group_activity"):   # 10.11. group_discovery (kol/groupdisc.py)
         from kol import groupdisc

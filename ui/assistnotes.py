@@ -253,6 +253,26 @@ def submit_suggestion(con, kid, title, interpretation=None, improvement=None, ev
     pc = _json(proposed_change, "proposed_change")
     if pc and not isinstance(json.loads(pc), dict):
         raise ValueError("proposed_change must be one JSON object, e.g. {\"key\": \"sl_default\", \"from\": 60, \"to\": 40}")
+    d = json.loads(pc) if pc else None
+    if isinstance(d, dict) and isinstance(d.get("insider_label"), dict):
+        # 12.11. (owner: three insider labels failed on "Primijeni označene": the wallet was no full address): checked
+        # on arrival, a shortened address resolved when exactly one pre-call wallet matches, else the assistant hears it
+        from kol import precall
+        try:
+            ws, _lab, _note, _token = precall.parse_labels(d["insider_label"])
+        except ValueError as e:
+            raise ValueError(f"insider_label: {e}. Send the full wallet address(es) as get_insider_candidates lists "
+                             "them: \"wallet\": <address> or \"wallets\": [<address>, ...].") from None
+        x = dict(d["insider_label"])
+        if "wallets" in x and x["wallets"] not in (None, "", []):
+            changed = x["wallets"] != ws
+            x["wallets"] = ws
+        else:
+            changed = x.get("wallet") != ws[0]
+            x["wallet"] = ws[0]
+        if changed:
+            d["insider_label"] = x
+            pc = json.dumps(d, ensure_ascii=False)
     nid = _insert(con, kid, kind="suggestion", title=_text(title, "title", need=True, cap=TITLE_MAX),
                   interpretation=_text(interpretation, "interpretation", need=True),
                   improvement=_text(improvement, "improvement"), evidence=_json(evidence, "evidence"), proposed_change=pc)
@@ -430,19 +450,22 @@ INSIDER_LABELS_MAX = 5000
 
 
 def _apply_insider_label(con, x, nid):
-    """10.11. (flag insider_copy, kol/precall.py): Grok's verdict on a pre-call wallet, {"wallet", "label": insider |
-    team | bot | sniper | legit, "note"}, stored in settings insider_labels only by the owner's "Primijeni"; bot and
-    sniper keep the wallet out of the insider copy. Changes no flag and no trading setting. -> (wallet, old, new)."""
+    """10.11. (flag insider_copy, kol/precall.py): Grok's verdict on pre-call wallets, {"wallet" or (12.11.) "wallets":
+    [...], "label": insider | team | bot | sniper | legit, "note", "token"?}, stored in settings insider_labels only by
+    the owner's "Primijeni"; bot and sniper keep the wallet out of the insider copy. Changes no flag and no trading
+    setting. -> ([wallet, ...], [old label, ...], new label, token)."""
     from kol import precall
-    w, lab, note = precall.parse_label(x)
+    ws, lab, note, token = precall.parse_labels(x)
     cur = dict(settings.raw(con).get("insider_labels") or {})
-    old = (cur.get(w) or {}).get("label")
-    cur.pop(w, None)
-    cur[w] = {"label": lab, "note": note, "ts": int(time.time()), "note_id": int(nid)}
+    olds = []
+    for w in ws:
+        olds.append((cur.get(w) or {}).get("label"))
+        cur.pop(w, None)
+        cur[w] = {"label": lab, "note": note, "ts": int(time.time()), "note_id": int(nid), **({"token": token} if token else {})}
     if len(cur) > INSIDER_LABELS_MAX:   # the oldest out (dicts keep insertion order; a re-label moved to the end above)
         cur = dict(list(cur.items())[-INSIDER_LABELS_MAX:])
     _set_settings(con, "insider_labels", cur)
-    return w, old, lab
+    return ws, olds, lab, token
 
 
 def _to_shadow(con, flag):
@@ -719,6 +742,10 @@ OWNER_FLAG_ORDERS = (
     ("range_missed", "paper", "vlasnik u chatu 11.11.: propušteni tokeni na range listu 72 h, paper po range pravilima"),
     ("fast_path", "paper", "vlasnik u chatu 11.11.: živi kandidati KUPI (paper ako n < 10) — fast_check iz shadowa u paper"),
     ("exit_plan_live", "live", "vlasnik u chatu 11.11.: exit_plan_live DA, svaka live Grok pozicija (autotrade i odobreni tradeovi) ima aktivan plan izlaza"),
+    # 12.11. (Jure: "Uključi live_trades_retention (vlasnik odobrava): tuđi tradeovi stariji od 48 h brišu se nakon
+    # satnog sažetka; naši swapovi i praćeni novčanici ostaju"): ops/retencija part A, deletes only 01-06 Zagreb
+    ("live_trades_retention", "live", "vlasnik u chatu 12.11.: live_trades_retention DA, tuđi tradeovi stariji od 48 h "
+                                      "brišu se noću nakon satnog sažetka; naši swapovi i praćeni novčanici ostaju"),
 )
 
 
@@ -902,9 +929,14 @@ def apply(con, nid, owner_note=""):
         applied = {"key": f"caller_weights.{h}", "old": old, "new": new}
         words = f"težina callera {h}: {old} → {new}" + _to_shadow(con, "caller_weights")
     elif pc and isinstance(pc.get("insider_label"), dict):
-        w, old, new = _apply_insider_label(con, pc["insider_label"], d["id"])
-        applied = {"key": f"insider_label.{w}", "old": old, "new": new}
-        words = f"oznaka novčanika {w[:6]}…: {old or 'bez oznake'} → {new}"
+        ws, olds, new, token = _apply_insider_label(con, pc["insider_label"], d["id"])
+        old = olds[0] if len(set(olds)) == 1 else olds
+        applied = {"key": f"insider_label.{ws[0]}" + (f"+{len(ws) - 1}" if len(ws) > 1 else ""), "old": old, "new": new,
+                   **({"wallets": ws} if len(ws) > 1 else {}), **({"token": token} if token else {})}
+        olds_txt = olds[0] or "bez oznake" if len(set(olds)) == 1 else "različite"
+        words = (f"oznaka {'novčanika' if len(ws) == 1 else f'{len(ws)} novčanika'} "
+                 + ", ".join(f"{w[:6]}…" for w in ws[:4]) + ("…" if len(ws) > 4 else "")
+                 + f": {olds_txt} → {new}" + (f" (token {token[:6]}…)" if token else ""))
     elif pc and pc.get("key") in APPLY:
         key = pc["key"]
         old = _current(con, key)
@@ -930,6 +962,116 @@ def apply(con, nid, owner_note=""):
     con.commit()
     print(f"pravi trade: primijenjen prijedlog asistenta #{d['id']}: {words}", flush=True)
     return "primijenjeno", f"Primijenjeno: {words}."
+
+
+# 12.11. (Jure: "Možeš nekako grupirati ove prijedloge od groka ... teško mi je jedan po jedan svaki put otvarati
+# prijedloge i onda ići dolje do prihvati, primjeni na bota"): the ticked suggestions in one tap. Each goes through
+# the same apply() as its own "Primijeni na bota" (the same allow-list, ranges, "from" check, flags at most to shadow,
+# never live), newest first; an older ticked note that changes the SAME setting as a newer applied one is not applied
+# over it: it is rejected as superseded (owner_note says by which), so the newest value is the one in force.
+def change_key(pc):
+    """The setting a proposed_change writes (two notes with the same key conflict), None when it writes none or
+    only appends (auto_skip adds pairs, it never overwrites)."""
+    if not isinstance(pc, dict):
+        return None
+    if "caller" in pc and "weight" in pc:
+        h = str(pc.get("caller") or "").strip().lstrip("@")
+        plat = str(pc.get("platform") or "x").lower()
+        if plat == "telegram" and not h.startswith("tg:"):
+            h = "tg:" + h
+        return f"caller_weights.{h}" if h else None
+    if isinstance(pc.get("insider_label"), dict):
+        x = pc["insider_label"]
+        ws = x.get("wallets") if x.get("wallets") not in (None, "", []) else [x.get("wallet")]
+        ws = sorted(str(w or "").strip() for w in (ws if isinstance(ws, list) else [ws]) if str(w or "").strip())
+        return ("insider_label." + ",".join(ws)) if ws else None
+    k = pc.get("key")
+    return k if k in APPLY and k != "auto_skip" else None
+
+
+def blocker(pc):
+    """Why this proposed_change cannot be applied as it stands (shown before the tap, the tick left off), or None.
+    12.11.: an insider label whose wallet is no full address and matches no single pre-call wallet."""
+    if isinstance(pc, dict) and isinstance(pc.get("insider_label"), dict):
+        from kol import precall
+        try:
+            precall.parse_labels(pc["insider_label"])
+        except ValueError as e:
+            return str(e)
+        except Exception:  # noqa: BLE001 - early.db unreadable: the tap itself says it
+            return None
+    return None
+
+
+def _waiting(con, nid):
+    r = con.execute(f"SELECT {', '.join(COLS)} FROM assistant_notes WHERE id=? AND kind='suggestion' AND status IN "
+                    "('novo', 'prihvaćeno')", (int(nid),)).fetchone()
+    return _row(r) if r else None
+
+
+def apply_many(con, ids, owner_note=""):
+    """The owner's "Primijeni označene": apply() for every id, newest first. Returns {"applied": [(id, words)],
+    "accepted": [id] (no change the bot can make: marked prihvaćeno, as one tap would), "superseded": [(id, newer id,
+    key)], "failed": [(id, reason)]}; failed ones keep waiting."""
+    ensure(con)
+    out = {"applied": [], "accepted": [], "superseded": [], "failed": []}
+    taken = {}
+    for nid in sorted({int(i) for i in ids}, reverse=True):
+        d = _waiting(con, nid)
+        if d is None:
+            out["failed"].append((nid, "više ne čeka (odbijen ili već primijenjen)"))
+            continue
+        key = change_key(d.get("proposed_change"))
+        if key and key in taken:
+            why = f"zamijenio ga je noviji prijedlog #{taken[key]} (ista postavka {key})"
+            con.execute("UPDATE assistant_notes SET status='odbijeno', decided_ts=?, owner_note=? WHERE id=? AND "
+                        "status IN ('novo', 'prihvaćeno')", (int(time.time()), why, nid))
+            con.commit()
+            out["superseded"].append((nid, taken[key], key))
+            continue
+        try:
+            st, words = apply(con, nid, owner_note)
+        except Exception as e:  # noqa: BLE001 - one bad note never stops the rest; it stays waiting with its reason
+            out["failed"].append((nid, str(e) if isinstance(e, ValueError) else f"{type(e).__name__}: {e}"))
+            continue
+        if key:
+            taken[key] = nid
+        if st == "primijenjeno":
+            out["applied"].append((nid, words.removeprefix("Primijenjeno: ").rstrip(".")))
+        else:
+            out["accepted"].append(nid)
+    print(f"pravi trade: skupno primijenjeni prijedlozi asistenta: {len(out['applied'])} primijenjeno, "
+          f"{len(out['accepted'])} samo prihvaćeno, {len(out['superseded'])} zamijenjeno novijim, "
+          f"{len(out['failed'])} nije prošlo" + "".join(f"; #{i}: {w}" for i, w in out["failed"]), flush=True)
+    return out
+
+
+def reject_many(con, ids, owner_note=""):
+    """The owner's "Odbij označene": every ticked suggestion that still waits (novo or prihvaćeno) -> odbijeno."""
+    ensure(con)
+    now, note, n = int(time.time()), (owner_note or "")[:1000] or None, 0
+    for nid in {int(i) for i in ids}:
+        n += con.execute("UPDATE assistant_notes SET status='odbijeno', decided_ts=?, owner_note=? WHERE id=? AND "
+                         "kind='suggestion' AND status IN ('novo', 'prihvaćeno')", (now, note, nid)).rowcount
+    con.commit()
+    print(f"pravi trade: skupno odbijeni prijedlozi asistenta: {n}", flush=True)
+    return n
+
+
+def bulk_words(res):
+    """apply_many's result as the page's one message (short: it travels in the redirect URL)."""
+    parts = []
+    if res["applied"]:
+        parts.append(f"Primijenjeno {len(res['applied'])}: " + "; ".join(w for _i, w in res["applied"][:8])
+                     + (" …" if len(res["applied"]) > 8 else ""))
+    if res["accepted"]:
+        parts.append(f"{len(res['accepted'])} samo prihvaćeno (bot ih ne zna primijeniti sam, ostaju za ručnu izmjenu)")
+    if res["superseded"]:
+        parts.append(f"{len(res['superseded'])} odbijeno jer noviji prijedlog mijenja istu postavku ("
+                     + ", ".join(f"#{i}→#{j}" for i, j, _k in res["superseded"][:6]) + ")")
+    if res["failed"]:
+        parts.append(f"nije prošlo {len(res['failed'])}: " + "; ".join(f"#{i} {w}" for i, w in res["failed"][:4]))
+    return (". ".join(parts) or "Ništa nije primijenjeno.")[:900]
 
 
 # ---------- caller weights: applied on arrival ----------------------------------------------------------------------

@@ -18,7 +18,8 @@ PINS    trade settings "range_pins" ({token: {symbol, ts, who, note, zones_mc}})
                         owner pinned it with)
           volume holds  volume of the last hour >= 50 % of the median of the last 6 hourly volumes AND >= $10k
                         (vol_hold(), computed by run_range.py from the token's minute series: pin_vol in the range JSON)
-          fresh         the range's 5-minute numbers at most 4 min old
+          fresh         the range's 5-minute numbers at most 9 min old (12.11.: rangedca/trade.METRICS_READY_S; a pin
+                        never buys automatically, the trade gate's own 5 minutes hold every automatic buy)
         The hard blocks of the owner's rules B (rug, liquidity < $15k, 1 h volume < $3k, under $30k, curve, fake pool)
         still apply in proposals/build. The score threshold, the exclusions, the 5-minute change and the buys share are
         NOT required for a pinned token (they are listed in pin.notes): the owner vouches for the range. Nothing buys
@@ -48,7 +49,7 @@ PIN_ZONE_BOTTOM = 0.15        # rules.RULES["entry_bottom"]
 PIN_FLOOR_X = 0.92            # rules.RULES["floor_x"]
 PIN_VOL_SHARE = 0.5           # volume 1 h >= 50 % of the median of the last 6 hourly volumes ...
 PIN_VOL_MIN = 10_000.0        # ... and >= $10k
-PIN_FRESH_S = 4 * 60          # rangedca/trade.METRICS_FRESH_S
+PIN_FRESH_S = None            # 12.11.: rangedca/trade.METRICS_READY_S (9 min), read at the check
 SIM_BONUS_MIN = 0.8
 SIM_P_BONUS = 0.05            # shadow only: P + 0.05 (never above 0.95)
 MIN_FEATURES = 5
@@ -299,8 +300,14 @@ def pin_check(r, p, now=None):
     detail = {"zones_from": zfrom, "zones_mc": z, "mcap": mc, "volume": (r or {}).get("pin_vol"), "notes": []}
     if not r:
         return False, "token još nema izračunat raspon (run_range ga prati od sljedećeg prolaza)", detail
-    if now - (r.get("mts") or r.get("ts") or 0) > PIN_FRESH_S:
-        return False, "5-minutni podaci nisu svježi", detail
+    from . import trade
+    # 12.11. (owner, točka 1): stale numbers no longer hide the pin's real reason: the zone / volume rule decides
+    # what is said, the staleness is added to it (and alone makes the pin not ready)
+    stale = trade.stale_why(r, now, PIN_FRESH_S or trade.METRICS_READY_S)
+    if stale:
+        ready, why, det = pin_check(dict(r, mts=now, ts=now), p, now)
+        det["stale"] = stale
+        return False, (f"{why} · {stale}" if why else stale), det
     if not z:
         return False, "nema zona raspona", detail
     if not mc:
