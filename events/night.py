@@ -173,6 +173,7 @@ def run(now=None, force=False, log=print, steps=None, econ=None):
             rep["steps"][name] = {"s": round(time.time() - s, 1), "result": res}
             store.kv_put(econ, f"night:{name}", {"ts": now, "result": res})
             econ.commit()
+            store.checkpoint(econ, "TRUNCATE")   # 13.11.: the WAL back to zero after every step (it grew ~460 MB)
 
         do("sync", lambda: sources.sync(econ, now, log))
         if not store.kv_get(econ, "backfill"):

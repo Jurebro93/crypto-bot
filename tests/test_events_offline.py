@@ -949,7 +949,11 @@ class FeedsNeverStopForSize(Env):
         store._TIGHT.update(at=0.0)
         with mock.patch.object(store, "used_mb", lambda con=None, path=None: (300.0, 0.0)), \
                 mock.patch.object(store, "free_mb", lambda path=None: 200.0):
-            self.assertTrue(store.tight())                                # a full disk still stops them
+            self.assertFalse(store.tight())   # 13.11. (owner): 200 MB free is not "full": feeds go on (was True at 600)
+        store._TIGHT.update(at=0.0)
+        with mock.patch.object(store, "used_mb", lambda con=None, path=None: (300.0, 0.0)), \
+                mock.patch.object(store, "free_mb", lambda path=None: 100.0):
+            self.assertTrue(store.tight())                                # a really full disk still stops them
         store._TIGHT.update(at=0.0)
 
     def test_retention_cuts_the_wallet_copies_to_seven_days_when_over_budget(self):

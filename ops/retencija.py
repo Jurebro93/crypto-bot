@@ -98,7 +98,10 @@ COMPACT_SKIP = ("trade.db", "league.db")
 COMPACT_FROM_H = 4            # Zagreb hour: after the events night batch
 COMPACT_UNTIL = (5, 40)       # no new VACUUM after this (the window closes at 06:00)
 COMPACT_WASTE = float(os.environ.get("RETENCIJA_COMPACT_WASTE", "0.10"))
-COMPACT_MARGIN_MB = float(os.environ.get("RETENCIJA_COMPACT_MARGIN_MB", "250"))
+# 13.11.: 250 -> 100 MB: at 04:00 the inflow is ~0.3 MB a minute and the big writers now checkpoint their WAL
+# (events/store.checkpoint, delete_live), so 100 MB above the packed copy is room enough; with 250 the night of
+# 12./13.11. could not pack events.db (needed 843 MB, had 407)
+COMPACT_MARGIN_MB = float(os.environ.get("RETENCIJA_COMPACT_MARGIN_MB", "100"))
 DAILY_AT = (6, 30)
 TZ = "Europe/Zagreb"
 # long readers (module text): the owner sets these windows; the defaults are the readers' own
@@ -194,6 +197,14 @@ def _rw(path, timeout=60):
     con = sqlite3.connect(path, timeout=timeout)
     con.execute(f"PRAGMA busy_timeout = {timeout * 1000}")
     return con
+
+
+def _checkpoint(con, mode="PASSIVE"):
+    """A WAL checkpoint (13.11.); PASSIVE never waits, TRUNCATE waits up to the busy timeout. Never raises."""
+    try:
+        con.execute(f"PRAGMA wal_checkpoint({mode})")
+    except sqlite3.Error:
+        pass
 
 
 def _q(con, sql, args=()):
@@ -502,8 +513,11 @@ def delete_live(p, now=None, log=print, stop=None, keep_h=KEEP_H):
             hc.commit()
             gone += k
             lo = hi
+            if k:   # 13.11.: the night of 12./13.11. this deletion grew hype.db's WAL by ~480 MB (350 MB free)
+                _checkpoint(hc)
             if k and PAUSE_S:
                 time.sleep(PAUSE_S)
+        _checkpoint(hc, "TRUNCATE")
         left = hc.execute("SELECT COUNT(*) FROM live_trades WHERE ts < ?", (lim,)).fetchone()[0]
         agg = hc.execute("SELECT COUNT(*) FROM live_trades_hourly").fetchone()[0]
         out = {"gone": gone, "gone_b": gone * rb, "left": left, "agg": agg, "stopped": stopped, "lim": lim}
@@ -747,6 +761,7 @@ def compact_night(p, now=None, log=print, st=None, compact=None, files=None):
     now = int(now or time.time())
     st = st if st is not None else {}
     out, t0 = {}, time.time()
+    free0 = disk.free_mb() or 0
     for k, path in compact_order(p, files):
         z = _zagreb(now + time.time() - t0)   # a VACUUM takes minutes: the clock moves on
         if (z.hour, z.minute) >= COMPACT_UNTIL:
@@ -760,7 +775,7 @@ def compact_night(p, now=None, log=print, st=None, compact=None, files=None):
         out[k] = res or ("nije sažeto: " + ("; ".join(why) or "?"))
     st["compacted"] = _zagreb(now).date().isoformat()
     log("retencija: noćno sažimanje (VACUUM): " + "; ".join(f"{k}.db {v}" for k, v in out.items())
-        + f" | disk slobodno {disk.free_mb() or 0:.0f} MB")
+        + f" | disk slobodno prije {free0:.0f} MB, poslije {disk.free_mb() or 0:.0f} MB")
     return out
 
 
@@ -773,7 +788,8 @@ def night(p, now=None, log=print, st=None, stop=None):
     day = _zagreb(now).date().isoformat()
     want = [k for k in want if st.get(f"deleted_{k}") != day]
     pack = compact_due(st, now)
-    if (not want and not pack) or not in_night(now):
+    sig = st.get("signals") != day
+    if (not want and not pack and not sig) or not in_night(now):
         return {}
     from ops import heavy
     t0 = time.time()
@@ -790,6 +806,18 @@ def night(p, now=None, log=print, st=None, stop=None):
                     st[f"deleted_{k}"] = day
             except Exception as e:  # noqa: BLE001
                 log(f"retencija {k}: brisanje nije uspjelo: {type(e).__name__}: {str(e)[:160]}")
+        if sig and not stop():   # 13.11. (owner): hype_signals older than 7 days, once a night, before the VACUUM
+            try:
+                from ops import dbs
+                t1 = time.time()
+                n = dbs.prune_signals(p.get("hype"), now, stop=stop)
+                st["signals"] = day
+                out["signals"] = n
+                log(f"retencija hype_signals: obrisano {_n(n)} redova starijih od {dbs.SIGNALS_KEEP_D:g} d (po tokenu "
+                    f"ostaju prvi, zadnji, najveći MC i najveća likvidnost) za {time.time() - t1:.0f} s; stranice se "
+                    "ponovno koriste, datoteka se smanjuje VACUUM-om")
+            except Exception as e:  # noqa: BLE001
+                log(f"retencija hype_signals: nije uspjelo: {type(e).__name__}: {str(e)[:160]}")
         if pack and not stop():
             out["compact"] = compact_night(p, now, log, st)
     return out
