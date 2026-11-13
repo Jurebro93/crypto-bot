@@ -20,6 +20,26 @@
     return `<span class="tip apx-i" tabindex=0 role=button aria-label="Što znači: ${e(label || k)}" data-tip="${e(t)}">i</span>`;
   };
   const S = { m: F.m || '', tf: '5m', unit: 'mc', side: 'buy', live: {}, tsig: null, fit: true };
+  // 13.11. (Jure: "Svaki put kada osvježim stranicu autopilota na mobitelu, ona me centrira dolje na graf"): the address
+  // a form sends back (#pozicije and #poz-12 after a sale or an SL/TP edit, #kupi-odmah after a buy, #grok-auto) stayed
+  // in the URL, so every reload scrolled to it again: to the positions right under the chart. It is used once, right
+  // after the form (S.hash), and taken out of the URL; a reload opens at the top, where Grok's positions are.
+  const NAV = (() => {
+    try { const n = performance.getEntriesByType('navigation')[0]; if (n) return n.type; } catch (e) { /* old browser */ }
+    try { return performance.navigation.type === 1 ? 'reload' : ''; } catch (e) { return ''; }
+  })();
+  S.hash = NAV === 'reload' ? '' : decodeURIComponent(location.hash.slice(1));
+  const dropHash = () => {
+    if (location.hash) try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) { /* file:// */ }
+  };
+  dropHash();
+  if (NAV === 'reload') {
+    try { history.scrollRestoration = 'manual'; } catch (e) { /* not supported */ }
+    let touched = false;   // the owner's own scroll after the reload wins over the jump to the top below
+    for (const ev of ['touchstart', 'wheel', 'keydown', 'pointerdown']) addEventListener(ev, () => { touched = true; }, { once: true, passive: true });
+    const top = () => { if (!touched && scrollY) scrollTo(0, 0); };
+    top(); addEventListener('load', () => { top(); setTimeout(top, 300); });
+  }
   try { S.tf = localStorage.getItem('apx.tf') || '5m'; S.unit = localStorage.getItem('apx.unit') || 'mc'; } catch (e) { /* private mode */ }
   if (!['1m', '5m', '15m', '1h'].includes(S.tf)) S.tf = '5m';
   const STEP = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600 };
@@ -190,7 +210,7 @@
   // 11.11.: "Uredi praćenja" (#pratim, #prati-<id> after a follow form) is under "Postavke" now
   const OSTALO = /^(limiti|cilj|stop|trigger|mcp|grok|pozivnice|postavljanje|exit-planovi|pregled|jos|zastita|sazetak|ev-|zastavice|fl-|pravila|fast|preporuke|zatvorene|pratim|prati-)/;
   function scrollHash() {
-    const h = decodeURIComponent(location.hash.slice(1));
+    const h = S.hash;   // 13.11.: the one-shot address of this navigation (never the URL's: it is dropped)
     if (!h || S.hashDone === h) return;
     const t = document.getElementById(h);
     if (t) {
@@ -1321,12 +1341,14 @@
   // ---- start: lazy parts, the remembered tab, the panel's numbers; the chart and the stream after the first paint ----
   // what is on the first screen now; the rest after the token's chart (go, below), so they do not race it
   for (const el of $$('[data-x-src]')) if (shown(el) && inView(el)) watch(el);
-  try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !location.hash) showTab(t); } catch (e) { /* no storage */ }
+  try { const t = sessionStorage.getItem('apx.tab'); if (t && t !== 'pozicije' && !S.hash) showTab(t); } catch (e) { /* no storage */ }
   for (const b of $$('[data-tf]')) b.classList.toggle('on', b.dataset.tf === S.tf);
   for (const b of $$('[data-unit]')) b.classList.toggle('on', b.dataset.unit === S.unit);
   setSide('buy'); hints(); costEst(); age(); tokCheck(true);
   scrollHash();
-  window.addEventListener('hashchange', () => { S.hashDone = null; S.hashTried = null; scrollHash(); });
+  window.addEventListener('hashchange', () => {   // a link to an anchor on the page: used once as well
+    S.hash = decodeURIComponent(location.hash.slice(1)); S.hashDone = null; S.hashTried = null; scrollHash(); dropHash();
+  });
   const later = fn => ('requestIdleCallback' in window) ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300);
   const go = () => {
     setTimeout(startLive, 400);
