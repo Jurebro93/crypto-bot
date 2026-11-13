@@ -23,6 +23,13 @@ paused plans:
                 -12 %): a stop the plan gives that is wider is REFUSED with the numbers; a plan without its own stop gets
                 -max_stop_pct when that is tighter than the stop it would keep. sl_default (sl_floor) still holds on top;
                 the owner's own typed SL (a panel plan) is never limited by it (11.11.: "ručno uvijek nadjačava").
+  breakeven_after_tp1, breakeven_buffer_pct (13.11., owner's order point 4: "Nativni break-even stop nakon TP1"): once
+                TP1 (the plan's first take profit) has sold, the stop of what is left moves to break-even: the average
+                entry + breakeven_buffer_pct % (default: the round-trip cost of the rest, trade/cost.round_trip, the
+                same model as min_profit_pct). Never lower than the stop in force (a tighter stop stays), so never
+                wider than sl_default either; works wherever the plan executes (paper and live). An exit_events row
+                trigger "breakeven" (share 0) and the plan's view / describe() show it; the stop that then fires is
+                the trigger "stop" with the note "break-even".
   reason        one line
   accounts      (optional, 10.11. range_dca) the Autopilot accounts the plan applies to, e.g. ["autopilot-paper"];
                 without it every Autopilot account holding the token (the old behaviour). A token still has ONE
@@ -35,6 +42,16 @@ entry and since the trailing activation, and on a trigger sells the demo lots at
 sell): the real positions follow within seconds through run_trade.py, which mirrors full and partial demo sales
 with its cost cap (max_cost_pct) and retries ("pokušavam opet"). No owner tap: a plan only protects or takes profit
 on an open position, it never buys.
+
+13.11. (owner's order point 2: "Slippage na stop i trailing izlazima (~5 % preko triggera)"; the 12.11. logs: X's
+stop at MC $62.6k fired at $58.3k, ber's trailing at ~$446k fired at $425k, and the real sells landed 1.3-1.9 s after
+the trigger at about those prices, so the gap opened BEFORE the trigger, between the level and the first price the
+executor saw): the stop and the trailing also read the newest trade the PumpPortal feed saw in the token (run_live.py
+-> hype.db live_trades, sub-second, local, no API cost; fresh_prices) and fire on the lower of that and the market
+quote (DexScreener 3-s cache); the peaks and the take profits keep the market quote. Every executed trigger records
+the level it crossed, the price that crossed it, its feed and its age (exit_events level_px, px_src, px_age_s,
+trig_ts), and a sale on the real account rings trade/wake, so run_trade sends the real sell within ~0.1 s instead
+of its next pass (it measures the fill against the level: trade.db exit_fills).
 
 Safety: a price older than STALE_S (60 s) fires only the hard stop, never a TP or the trailing; the owner's
 "Pauziraj exit planove" (trade settings exit_plans_paused) stops every plan at once and the default TP/SL of each
@@ -75,11 +92,22 @@ CREATE TABLE IF NOT EXISTS exit_events (
     price REAL, mcap REAL, share REAL, pnl_usd REAL, mode TEXT, stale INTEGER, note TEXT);
 CREATE INDEX IF NOT EXISTS exit_events_ts ON exit_events (ts);
 """
+# 13.11. (owner's order point 2): the level a trigger crossed (USD per token), the feed and age of the price that
+# crossed it, and the trigger's time to the millisecond (run_trade measures the real sale's latency and slip by them)
+EVENT_COLS = (("level_px", "REAL"), ("px_src", "TEXT"), ("px_age_s", "REAL"), ("trig_ts", "REAL"))
 _LAST = {}   # token -> (price, mcap, liq, ts): the last good quote, for the staleness rule
 
 
 def ensure(con):
     con.executescript(SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(exit_events)")}
+    for col, typ in EVENT_COLS:
+        if col not in have:
+            try:
+                con.execute(f"ALTER TABLE exit_events ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError as e:   # another connection added it a moment ago
+                if "duplicate column" not in str(e):
+                    raise
 
 
 def _users():
@@ -216,6 +244,26 @@ def validate(con, token, plan, sl_default, now=None, extra=None, tighten_only=Tr
     if not (out["take_profits"] or out["trailing"] or stop or out["time_stop"] or out.get("time_stop_min")
             or max_stop):
         raise ValueError("an empty plan: give take_profits, trailing, stop, time_stop or time_stop_min")
+    # 13.11. (owner's order point 4): the rest's stop to break-even (entry + cost) once TP1 has sold
+    be = plan.get("breakeven_after_tp1")
+    if be not in (None, True, False):
+        raise ValueError("breakeven_after_tp1 must be true or false")
+    if be:
+        if not out["take_profits"]:
+            raise ValueError("breakeven_after_tp1 needs take_profits: the stop moves to break-even after TP1 sold")
+        if out["take_profits"][0]["sell_share"] >= 1 - 1e-9:
+            raise ValueError("breakeven_after_tp1: TP1 sells the whole position, nothing is left for a break-even stop")
+        out["breakeven_after_tp1"] = True
+        out["breakeven_buffer_pct"] = None
+        if plan.get("breakeven_buffer_pct") is not None:
+            buf = _num(plan["breakeven_buffer_pct"], "breakeven_buffer_pct", 0, 50)
+            tp1 = out["take_profits"][0]
+            if tp1["kind"] == "pct" and tp1["v"] <= buf + 1e-9:
+                raise ValueError(f"TP1 +{tp1['v']:g} % is not above the break-even level +{buf:g} %: "
+                                 "the stop would sell the rest at once")
+            out["breakeven_buffer_pct"] = buf
+    elif plan.get("breakeven_buffer_pct") is not None:
+        raise ValueError("breakeven_buffer_pct goes with breakeven_after_tp1 true")
     acc = plan.get("accounts")
     if acc is not None:
         acc = [acc] if isinstance(acc, str) else acc
@@ -496,10 +544,62 @@ def quote(market, tokens, now):
     return out
 
 
-def _event(con, p, user, token, trig, price, mcap, share, pnl, mode, stale, note=""):
-    con.execute("INSERT INTO exit_events (ts, plan_id, user, token, trigger, price, mcap, share, pnl_usd, mode, stale, note) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (int(time.time()), p["id"], user, token, trig, price, mcap, share, pnl,
-                                                     mode, int(bool(stale)), note))
+FRESH_S = 5   # 13.11.: a PumpPortal trade older than this is no fresher than the market quote
+FRESH_BAND = (0.5, 2.0)   # 13.11.: a trade price this far from a fresh market quote is a bad print (or units), not used
+
+
+def _sol_usd():
+    """SOL/USD without a network call (trade/equity.sol_usd_cached: the process' cache, else the last wallet
+    snapshot's, at most minutes old): the 1-s exit loop never waits on a price request for it."""
+    try:
+        from trade import equity
+        return equity.sol_usd_cached()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def fresh_prices(tokens, now, path=None):
+    """13.11. (owner's order point 2): {token: (USD per token, age in s, "pumpportal")} of the newest trade the
+    PumpPortal feed (run_live.py, hype.db live_trades: every trade of a subscribed token, written once a second)
+    saw in each token within FRESH_S, at the SOL price already known (_sol_usd). A local read-only query per token:
+    no network, no API cost (the feed subscribes the Autopilot's open lots and planned tokens, live/pumpportal.wanted).
+    {} when the feed has nothing fresh (a token PumpPortal does not cover, no trade in FRESH_S, no SOL price)."""
+    if not tokens:
+        return {}
+    try:
+        from live import store as live_store
+        con = live_store.ro(path)
+    except Exception:  # noqa: BLE001
+        return {}
+    if con is None:
+        return {}
+    out = {}
+    try:
+        rows = {}
+        for t in tokens:
+            r = con.execute("SELECT price_sol, ts FROM live_trades WHERE mint=? AND ts>=? ORDER BY ts DESC, rowid DESC "
+                            "LIMIT 1", (t, int(now - FRESH_S))).fetchone()
+            if r and r[0] and r[0] > 0:
+                rows[t] = r
+        sol = _sol_usd() if rows else None
+        if sol:
+            for t, (px_sol, ts) in rows.items():
+                out[t] = (px_sol * sol, max(0.0, now - ts), "pumpportal")
+    except sqlite3.Error:
+        pass
+    finally:
+        con.close()
+    return out
+
+
+def _event(con, p, user, token, trig, price, mcap, share, pnl, mode, stale, note="", level_px=None, px_src=None,
+           px_age_s=None, trig_ts=None):
+    """One exit_events row. 13.11.: level_px / px_src / px_age_s / trig_ts (EVENT_COLS) when the caller knows them."""
+    t = time.time() if trig_ts is None else trig_ts
+    con.execute("INSERT INTO exit_events (ts, plan_id, user, token, trigger, price, mcap, share, pnl_usd, mode, stale, "
+                "note, level_px, px_src, px_age_s, trig_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (int(t), p["id"], user, token, trig, price, mcap, share, pnl, mode, int(bool(stale)), note, level_px,
+                 px_src, px_age_s, t))
     con.commit()
 
 
@@ -538,10 +638,23 @@ def net_pnl_pct(lots, price, liq=None):
     return ((price / avg - 1) - cost.round_trip(size, liq)) * 100
 
 
-def decide(p, user, lots, price, mcap, age_s, now, liq=None):
+def levels(p, user):
+    """13.11.: {"stop": USD per token, "trailing": the trailing's level now (its peak - trail_pct) or None} of one
+    account; the price a downside trigger fires at."""
+    st, tr = p["state"], p["plan"].get("trailing")
+    pk = st.get("trail_peak_px", {}).get(user)
+    return {"stop": st.get("stop_px", {}).get(user),
+            "trailing": pk * (1 - tr["trail_pct"] / 100) if tr and pk else None}
+
+
+def decide(p, user, lots, price, mcap, age_s, now, liq=None, low_px=None):
     """(trigger, share of the ORIGINAL position, frac of what is left) or None, and the state changes (in place).
-    liq (12.11.): the pool's liquidity now, for the cost of the net time stop (time_stop_min)."""
+    liq (12.11.): the pool's liquidity now, for the cost of the net time stop (time_stop_min).
+    low_px (13.11., owner's order point 2): a fresher price of the token (fresh_prices: the newest PumpPortal trade);
+    the stop and the trailing fire on the lower of it and `price`, everything else (peaks, take profits, time stops)
+    stays on `price`."""
     st, plan = p["state"], p["plan"]
+    dn = min(price, low_px) if low_px and low_px > 0 else price
     avg, ratio = _avg(lots), _mc_ratio(lots)
     if not avg:
         return None
@@ -559,7 +672,7 @@ def decide(p, user, lots, price, mcap, age_s, now, liq=None):
             if price > st["trail_peak_px"].get(user, 0):
                 st["trail_peak_px"][user] = price
     stop = st["stop_px"].get(user)
-    if stop and price <= stop:
+    if stop and dn <= stop:
         return "stop", left, 1.0
     if stale:
         return None   # a late feed: only the hard stop
@@ -573,7 +686,7 @@ def decide(p, user, lots, price, mcap, age_s, now, liq=None):
             return f"tp{i + 1}", share, share / left
     tr = plan.get("trailing")
     tp_peak = st["trail_peak_px"].get(user)
-    if tr and tp_peak and price <= tp_peak * (1 - tr["trail_pct"] / 100):
+    if tr and tp_peak and dn <= tp_peak * (1 - tr["trail_pct"] / 100):
         return "trailing", left, 1.0
     ts_ = plan.get("time_stop")
     if ts_:
@@ -587,6 +700,61 @@ def decide(p, user, lots, price, mcap, age_s, now, liq=None):
             if net is not None and net < (plan.get("min_profit_pct") or 0.0) - 1e-9:
                 return "time_stop_min", left, 1.0
     return None
+
+
+def _ring(why):
+    try:
+        from trade import wake
+        wake.ring(why)
+    except Exception:  # noqa: BLE001 - run_trade then finds the sale at its next pass, as before
+        pass
+
+
+def _level_words(level, px, mcap, src, age):
+    """13.11.: ", razina MC $62,600 (cijena −6,9 % od razine, pumpportal, 1 s)" for the notice of an execution."""
+    if not level or not px:
+        return ""
+    ratio = mcap / px if mcap and px else None
+    lvl = f"MC ${level * ratio:,.0f}" if ratio else f"${level:.6g}"
+    return f", razina {lvl} (cijena {(px / level - 1) * 100:+.1f} % od razine, {src}, {age or 0:.0f} s)"
+
+
+BE_MIN_GAP = 0.005   # 13.11.: a break-even level at or over the TP1 price goes this far under it (never fires at once)
+
+
+def breakeven(con, p, user, tok, lots, price, mcap, liq, frac, mode):
+    """13.11. (owner's order point 4: "Ako set_exit_plan ... ne podržava automatsko pomicanje stopa na break-even
+    (entry + trošak) nakon izvršenja TP1, dodaj tu opciju za preostali dio pozicije"): after TP1 of a plan with
+    breakeven_after_tp1, the stop of `user` moves to the average entry + breakeven_buffer_pct, by default + the
+    round-trip cost of what is left (trade/cost.round_trip: the rest's stake in the pool's liquidity now), but never
+    under the stop in force (state stop_px only goes up here) and never at / over the TP1 price itself (BE_MIN_GAP
+    under it, so the rest is not sold the next second when TP1 sat under the cost). An exit_events row (trigger
+    "breakeven", share 0) and state["be"][user]. Returns the words for the TP1 notice."""
+    st, plan = p["state"], p["plan"]
+    avg = _avg(lots)
+    if not avg:
+        return ""
+    buf = plan.get("breakeven_buffer_pct")
+    if buf is None:
+        from trade import cost
+        rest = sum(t.get("size_usd") or 0 for t in lots) * max(0.0, 1.0 - frac)
+        buf = cost.round_trip(rest or None, liq) * 100
+    be_px = avg * (1 + buf / 100)
+    capped = be_px >= price * (1 - BE_MIN_GAP)
+    if capped:
+        be_px = price * (1 - BE_MIN_GAP)
+    cur = st["stop_px"].get(user) or 0
+    new = max(cur, be_px)
+    st["stop_px"][user] = new
+    st.setdefault("be", {})[user] = {"px": new, "buf_pct": round(buf, 3), "ts": int(time.time()), "capped": capped}
+    ratio = mcap / price if mcap and price else None
+    words = f"MC ${new * ratio:,.0f}" if ratio else f"${new:.6g}"
+    note = (f"stop na break-even: prosječni ulaz + {buf:.2f} % troška = {words}"
+            + ("; TP1 je ispod troška: stop tik ispod cijene TP1" if capped else "")
+            + ("; stop u snazi je već bio viši, ostaje" if new > be_px + 1e-15 else ""))
+    _event(con, p, user, tok, "breakeven", new, new * ratio if ratio else None, 0.0, None, mode, False, note,
+           level_px=be_px, px_src="plan")
+    return f"; {note}"
 
 
 DEFAULT_CLIENT = "auto: zadani plan (vlasnik 11.11.)"
@@ -668,12 +836,20 @@ def run_once(con, market, now=None):
     for p in plans:
         p["plan"], p["state"] = json.loads(p["plan"]), json.loads(p["state"] or "{}")
     q = quote(market, {p["token"] for p in plans}, now)
+    try:   # 13.11. (owner's order point 2): the newest PumpPortal trade, for the stop and the trailing
+        fr = fresh_prices(sorted(q), now)
+    except Exception:  # noqa: BLE001 - the market quote alone, as before
+        fr = {}
     done = []
     for p in plans:
         tok = p["token"]
         if tok not in q:
             continue
         price, mcap, liq, age = q[tok]
+        low, low_age = None, None
+        f = fr.get(tok)
+        if f and f[0] < price and (age > STALE_S or FRESH_BAND[0] <= f[0] / price <= FRESH_BAND[1]):
+            low, low_age = f[0], f[1]
         any_open = False
         for user in _scope(p["plan"]):   # 10.11.: a plan with "accounts" leaves the other account's lots alone
             lots = _lots(con, user, tok)
@@ -687,36 +863,58 @@ def run_once(con, market, now=None):
             if not (on or sh):
                 continue
             before = json.dumps(p["state"])
-            hit = decide(p, user, lots, price, mcap, age, now, liq=liq)
+            hit = decide(p, user, lots, price, mcap, age, now, liq=liq, low_px=low)
             if not hit:
                 if json.dumps(p["state"]) != before:
                     _save_state(con, p["id"], p["state"])
                 continue
             trig, share, frac = hit
+            # 13.11. (owner's order point 2): the price that crossed the level (the lower, fresher one for a stop or a
+            # trailing, as decide compared), its feed and age, and the level itself (after decide moved the peak)
+            lv = levels(p, user)
+            px, mc, src, px_age = price, mcap, "tržište", age
+            if trig in ("stop", "trailing") and low is not None:
+                px, src, px_age = low, "pumpportal", low_age
+                mc = mcap * low / price if mcap and price else mcap
+            tp = p["plan"]["take_profits"][int(trig[2:]) - 1] if trig.startswith("tp") else None
+            level = (lv.get(trig) if trig in ("stop", "trailing") else
+                     _px(tp["kind"], tp["v"], _avg(lots), _mc_ratio(lots)) if tp else None)
+            be_note = "break-even" if trig == "stop" and (p["state"].get("be") or {}).get(user) else ""
             if trig.startswith("tp"):
                 p["state"]["fired"].setdefault(user, []).append(int(trig[2:]) - 1)
             p["state"]["sold"][user] = min(1.0, p["state"]["sold"].get(user, 0.0) + share)
+            t_trig = time.time()
             if on:
                 try:
-                    pnl = _sell(con, user, lots, frac, price, liq, mcap, f"plan_{trig}")
+                    pnl = _sell(con, user, lots, frac, px, liq, mc, f"plan_{trig}")
                 except ValueError as e:   # closed meanwhile: next pass sees it
                     print(f"plan izlaza #{p['id']} {tok[:6]}: {e}", flush=True)
                     continue
-                _event(con, p, user, tok, trig, price, mcap, share, pnl, "izvršeno", age > STALE_S, via)
+                note = "; ".join(x for x in (via, be_note) if x)
+                _event(con, p, user, tok, trig, px, mc, share, pnl, "izvršeno", age > STALE_S, note,
+                       level_px=level, px_src=src, px_age_s=px_age, trig_ts=t_trig)
+                if user == ts.LEAGUE_USER:   # 13.11.: run_trade sends the real sell now, not at its next pass (rung
+                    _ring(f"{tok[:6]} {trig}")   # after the sale and its event are committed: it reads both)
                 # 11.11.: the account in words (pravi račun = run_trade mirrors it into the real swap), never "sjena"
                 acc = "pravi račun, live" if user == ts.LEAGUE_USER else "demo račun, paper"
-                text = (f"plan izlaza #{p['id']} {lots[0].get('symbol') or tok[:6]} ({user}, {acc}): {trig}, prodano "
-                        f"{share:.0%} pozicije na MC ${mcap or 0:,.0f}, {pnl:+.2f} $")
+                text = (f"plan izlaza #{p['id']} {lots[0].get('symbol') or tok[:6]} ({user}, {acc}): {trig}"
+                        + (" (break-even)" if be_note else "")
+                        + f", prodano {share:.0%} pozicije na MC ${mc or 0:,.0f}, {pnl:+.2f} $"
+                        + _level_words(level, px, mc, src, px_age))
+            else:
+                flags.shadow(con, "exit_plans", None, tok, f"izlaz {trig}", f"prodaj {share:.0%}",
+                             {"plan_id": p["id"], "price": px, "mcap": mc}, now)
+                _event(con, p, user, tok, trig, px, mc, share, None, "sjena", age > STALE_S, be_note,
+                       level_px=level, px_src=src, px_age_s=px_age, trig_ts=t_trig)
+                text = f"plan izlaza #{p['id']} {tok[:6]} ({user}, sjena): bi {trig} {share:.0%}"
+            if trig == "tp1" and p["plan"].get("breakeven_after_tp1"):   # 13.11. (owner's order point 4)
+                text += breakeven(con, p, user, tok, lots, px, mc, liq, frac, "izvršeno" if on else "sjena")
+            if on:
                 try:
                     from ui import grokauto
                     grokauto.notify(text)
                 except Exception:  # noqa: BLE001
                     print(text, flush=True)
-            else:
-                flags.shadow(con, "exit_plans", None, tok, f"izlaz {trig}", f"prodaj {share:.0%}",
-                             {"plan_id": p["id"], "price": price, "mcap": mcap}, now)
-                _event(con, p, user, tok, trig, price, mcap, share, None, "sjena", age > STALE_S)
-                text = f"plan izlaza #{p['id']} {tok[:6]} ({user}, sjena): bi {trig} {share:.0%}"
             _save_state(con, p["id"], p["state"])
             done.append((user, tok, trig, text))
         if not any_open:
@@ -748,6 +946,14 @@ def view(con, token, user, price=None, mcap=None):
            "max_stop_pct": p["plan"].get("max_stop_pct"), "summary": describe(p["plan"]),
            "sold_share": st["sold"].get(user, 0.0), "peak_mc_since_entry": round(peak * ratio) if ratio else None,
            "trailing_active": bool(st["trail_peak_px"].get(user)), "triggers": []}
+    if p["plan"].get("breakeven_after_tp1"):   # 13.11. (owner's order point 4): armed, and moved once TP1 sold
+        be = (st.get("be") or {}).get(user)
+        out["breakeven"] = {"after_tp1": True, "buffer_pct": p["plan"].get("breakeven_buffer_pct"),
+                            "buffer": "round-trip cost (trade/cost.round_trip)"
+                            if p["plan"].get("breakeven_buffer_pct") is None else "fixed",
+                            "active": bool(be), "stop_px": be["px"] if be else None,
+                            "stop_mc": round(be["px"] * ratio) if be and ratio else None,
+                            "buffer_pct_used": be["buf_pct"] if be else None}
     if not price:
         return out
 
@@ -759,7 +965,8 @@ def view(con, token, user, price=None, mcap=None):
                                 "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px)})
     if st["stop_px"].get(user):
         px = st["stop_px"][user]
-        out["triggers"].append({"trigger": "stop", "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px)})
+        out["triggers"].append({"trigger": "stop", "mc": round(px * ratio) if ratio else None, "distance_pct": dist(px),
+                                "breakeven": bool((st.get("be") or {}).get(user))})
     tr = p["plan"].get("trailing")
     if tr:
         tpk = st["trail_peak_px"].get(user)
@@ -781,19 +988,37 @@ def view(con, token, user, price=None, mcap=None):
 
 
 def events(con, since_ts=0, limit=200):
-    """get_exit_events: executed (and shadow) triggers since since_ts, with the real sell's cost when known."""
+    """get_exit_events: executed (and shadow) triggers since since_ts, with the real sell's cost when known.
+    13.11.: newest first by id (a TP1 and its "breakeven" row share a second); a "breakeven" row sold nothing, so it
+    has no real sell; the real sell also carries run_trade's measurement (trade.db exit_fills: the fill in USD per
+    token and market cap, slip against the level and against the price seen, seconds from the trigger to the order
+    and to its answer, the protective slippage try)."""
     ensure(con)
-    rows = [dict(r) for r in con.execute("SELECT * FROM exit_events WHERE ts>=? ORDER BY ts DESC LIMIT ?",
+    rows = [dict(r) for r in con.execute("SELECT * FROM exit_events WHERE ts>=? ORDER BY ts DESC, id DESC LIMIT ?",
                                          (int(since_ts or 0), int(limit)))]
     try:
         from trade import settings as ts
         tcon = ts.connect()
         try:
             for r in rows:
+                if r["trigger"] == "breakeven" or not r.get("share"):
+                    r["real_sell"] = None
+                    continue
                 o = tcon.execute("SELECT o.cost_pct, o.signature, o.status FROM orders o JOIN positions p ON p.id=o.position_id "
                                  "WHERE p.token=? AND o.side='sell' AND o.ts BETWEEN ? AND ? ORDER BY o.ts LIMIT 1",
                                  (r["token"], r["ts"] - 5, r["ts"] + 180)).fetchone()
                 r["real_sell"] = ({"slippage_cost_pct": o[0], "tx_signature": o[1], "status": o[2]} if o else None)
+                try:
+                    fills = tcon.execute("SELECT fill_px, mc_ratio, slip_level_pct, slip_seen_pct, sent_after_s, "
+                                         "latency_s, cap_pct, cap_result FROM exit_fills WHERE event_id=? ORDER BY id",
+                                         (r["id"],)).fetchall()
+                except sqlite3.Error:   # run_trade has not created the table yet
+                    fills = []
+                if fills and r["real_sell"] is not None:
+                    r["real_sell"]["fills"] = [
+                        {"fill_px": f[0], "fill_mc": round(f[0] * f[1]) if f[0] and f[1] else None,
+                         "slip_vs_level_pct": f[2], "slip_vs_seen_pct": f[3], "order_after_trigger_s": f[4],
+                         "done_after_trigger_s": f[5], "slip_cap_pct": f[6], "slip_cap_result": f[7]} for f in fills]
         finally:
             tcon.close()
     except Exception:  # noqa: BLE001
@@ -929,6 +1154,10 @@ def describe(plan):
                     f"{pct_words(plan.get('min_profit_pct') or 0.0)} neto")
     if plan.get("max_stop_pct"):
         bits.append(f"SL najviše {pct_words(-plan['max_stop_pct'])}")
+    if plan.get("breakeven_after_tp1"):   # 13.11. (owner's order point 4)
+        buf = plan.get("breakeven_buffer_pct")
+        bits.append("nakon TP1 stop na break-even ("
+                    + (f"ulaz {pct_words(buf)}" if buf is not None else "ulaz + trošak") + ")")
     return " · ".join(bits)
 
 
@@ -952,6 +1181,10 @@ def denorm(plan, stop_only=False):
         if plan.get("time_stop_min"):
             out["time_stop_min"] = plan["time_stop_min"]
             out["min_profit_pct"] = plan.get("min_profit_pct") or 0.0
+        if plan.get("breakeven_after_tp1"):   # 13.11.
+            out["breakeven_after_tp1"] = True
+            if plan.get("breakeven_buffer_pct") is not None:
+                out["breakeven_buffer_pct"] = plan["breakeven_buffer_pct"]
     return out
 
 
@@ -1022,6 +1255,10 @@ def extend(con, token, floor, client=None):
             st["stop_px"][u] = max(st["stop_px"].get(u) or 0, avg * (1 - floor / 100))
             if p["plan"].get("max_stop_pct"):   # 12.11.: the plan's own stop never wider than -max_stop_pct
                 st["stop_px"][u] = max(st["stop_px"][u], avg * (1 - p["plan"]["max_stop_pct"] / 100))
+        be = (st.get("be") or {}).get(u)
+        if be:   # 13.11.: after TP1 the break-even holds, measured from the NEW average entry
+            be["px"] = avg * (1 + (be.get("buf_pct") or 0) / 100)
+            st["stop_px"][u] = max(st["stop_px"].get(u) or 0, be["px"])
         st.setdefault("base_qty", {})[u] = sum(t["qty"] or 0 for t in lots)
     _save_state(con, p["id"], st)
     if client:

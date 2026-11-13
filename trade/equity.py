@@ -190,6 +190,15 @@ def _stored(now):
     return out
 
 
+def sol_usd_cached(now=None):
+    """13.11. (owner's order point 2, run_trade._exit_fill): the SOL price this process already knows (rates()' cache,
+    else the last snapshot's), never a network call: the measurement of an exit must not delay the next one."""
+    try:
+        return _RATES["sol"] or _stored(time.time() if now is None else now)["sol"]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def rates(now=None):
     """{"sol_usd", "usd_eur", "ts"}: SOL price in USD (DexScreener, cached 60 s) and EUR for one USD (ECB rate, cached
     6 h); ts = when the SOL price was read. A source that does not answer is asked again only after its cache time
