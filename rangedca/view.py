@@ -359,7 +359,7 @@ def candidates(min_score=None, now=None, limit=50, source=None):
             "positions": positions(),
             "paper_proof": {**gate.proof(), "live_gate": gate.refusal() or "prolazi (>= 20 rundi, EV > 0)"},
             "missed": missed_meta(now),
-            "rules": ("lot 1 in the bottom 15 % of the range or inside the bottom zone, 5m change > -3 %, buys >= 50 % "
+            "rules": ("lot 1 in the bottom 15 % of the range or inside the bottom zone, 5m change > -3 %, buys >= 45 % "
                       "of 5m transactions, 15m volume x4 >= 50 % of the 1h average, range_score >= 0.7; lot 2 at -10 to "
                       "-15 % from lot 1 above range_low_low x 0.92; half out at range_high_low, the rest at "
                       "range_high_top or a 10 % trailing stop above it; hard stop (11.11., the owner's decision 1, "

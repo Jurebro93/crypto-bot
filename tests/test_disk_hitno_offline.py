@@ -214,7 +214,7 @@ class NightCompact(unittest.TestCase):
             self.assertTrue(retencija.compact_due(st, zg(4, 5)))
             self.assertFalse(retencija.compact_due(st, zg(5, 45)))      # too close to 06:00
             out = retencija.compact_night(self.p, zg(4, 5), self.lines.append, st, compact=self.fake, files=[])
-            self.assertEqual(self.calls, [("events.db", 0.10, 250.0), ("hype.db", 0.10, 250.0)])
+            self.assertEqual(self.calls, [("events.db", 0.10, 100.0), ("hype.db", 0.10, 100.0)])
             # 12.11. ("optimiziraj i očisti"): every other database too, smallest first, hype last, never trade/league
             for name, size in (("wallets.db", 300), ("kol.db", 100), ("trade.db", 5), ("league.db", 5)):
                 touch(os.path.join(self.tmp.name, name), b"x" * size)
@@ -251,3 +251,64 @@ class OwnerOrder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Dan13(unittest.TestCase):
+    """13.11. (owner, točka 1): hype_signals older than 7 d without the rows the readers need; our trades never deleted
+    from events.db, the followed wallets' trades kept 7 days; the feeds stop only on a really full disk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_signals_older_than_7_days_keep_first_last_peak(self):
+        import sqlite3
+        from ops import dbs
+        path = os.path.join(self.tmp.name, "hype.db")
+        con = sqlite3.connect(path)
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("CREATE TABLE hype_signals (token TEXT, ts INTEGER, score REAL, mcap REAL, liquidity REAL, "
+                    "features TEXT)")
+        now = 2_000_000_000
+        d = 86400
+        rows = [("A", now - 20 * d, 1, 50_000, 10_000),      # first: kept
+                ("A", now - 15 * d, 1, 90_000, 12_000),      # highest mcap: kept
+                ("A", now - 14 * d, 1, 60_000, 30_000),      # highest liquidity: kept
+                ("A", now - 12 * d, 1, 40_000, 9_000),       # gone
+                ("A", now - 10 * d, 1, 45_000, 9_500),       # gone
+                ("A", now - 2 * d, 1, 70_000, 20_000),       # newer than 7 d: kept
+                ("B", now - 30 * d, 1, 33_000, 8_000),       # B's only (first and last): kept
+                ("C", now - 9 * d, 1, 31_000, 7_000),        # C first
+                ("C", now - 8 * d, 1, 30_000, 6_000)]        # C last (newest): kept
+        con.executemany("INSERT INTO hype_signals VALUES (?,?,?,?,?,NULL)", rows)
+        con.commit()
+        con.close()
+        self.assertEqual(dbs.prune_signals(path, now), 2)
+        con = sqlite3.connect(path)
+        left = sorted((t, (now - ts) // d) for t, ts in con.execute("SELECT token, ts FROM hype_signals"))
+        con.close()
+        self.assertEqual(left, [("A", 2), ("A", 14), ("A", 15), ("A", 20), ("B", 30), ("C", 8), ("C", 9)])
+
+    def test_our_trades_never_deleted_wallet_copies_7_days(self):
+        from events import store
+        self.assertEqual(store.keep_days("wallet_buy"), 7)
+        self.assertEqual(store.keep_days("wallet_sell"), 7)
+        self.assertIn("trade", store.NEVER_DELETE)
+        con = store.connect(os.path.join(self.tmp.name, "events.db"))
+        now = 2_000_000_000
+        rows = [store.row("trade", now - 400 * 86400, "TOK", "trade", "pravi", key="own-old"),
+                store.row("wallet_buy", now - 8 * 86400, "TOK", "chain", "W", key="w8"),
+                store.row("wallet_buy", now - 6 * 86400, "TOK", "chain", "W", key="w6")]
+        store.insert(con, rows)
+        con.commit()
+        store.retention(con, now, log=lambda s: None)
+        left = sorted(t for (t,) in con.execute("SELECT type FROM events"))
+        con.close()
+        self.assertEqual(left, ["trade", "wallet_buy"])                 # a year-old trade of ours stays
+
+    def test_feeds_stop_only_on_a_really_full_disk(self):
+        from events import store
+        self.assertEqual(store.FEED_MIN_FREE_MB, 150)
+        self.assertGreater(store.MIN_FREE_MB, store.FEED_MIN_FREE_MB)   # the retention still cuts copies earlier

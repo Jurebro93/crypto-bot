@@ -286,6 +286,7 @@ class Switches(Base):
         self.fill()
         before = os.path.getsize(self.p["hype"])
         out = rt.run_auto(self.p, NIGHT, self.log, data_dir=self.tmp.name, commit="abc")
+        self.assertEqual(out["night"].pop("signals", 0), 0)   # 13.11.: the hype_signals step (owner's order) has no rows here
         self.assertEqual(out["night"], {})
         self.assertEqual(self.count(), 3)
         self.assertEqual(self.tg_text(), "$ABC")

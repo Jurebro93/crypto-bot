@@ -99,6 +99,51 @@ def slim_signals(path=None, now=None, batch=SLIM_BATCH):
     return nw, nf
 
 
+SIGNALS_KEEP_D = float(os.environ.get("SIGNALS_KEEP_D", "7"))
+SIGNALS_BATCH = 5_000
+
+
+def prune_signals(path=None, now=None, days=None, batch=SIGNALS_BATCH, stop=None):
+    """13.11. (owner: "Očisti hype_signals starije od 7 dana"): delete hype_signals rows older than `days` EXCEPT, per
+    token, the first row (the entry features: learn/masovno, confmodel, shadow, rugprofile, outcomes, hype/evaluate,
+    the rug archive's entry_profile, learn/correlations), the newest row (run_paper and the newest-per-token reads),
+    the row with the highest mcap and the one with the highest liquidity (dugo/sources: MAX(liquidity) per token; the
+    peak). Every other reader looks at the last 24 h (rugfilter/collapse WINDOW_H) up to 7 days (rugfilter/relabel,
+    strat/signals, hype/tokenstatus). Batched by rowid, a WAL checkpoint after each batch. stop(): ends early (the
+    night window). Returns rows deleted."""
+    path = path or os.path.join(disk.DATA_DIR, "hype.db")
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return 0
+    cut = int((now or time.time()) - (SIGNALS_KEEP_D if days is None else days) * 86400)
+    con = _con(path)
+    gone = 0
+    try:
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS sig_keep (rid INTEGER PRIMARY KEY)")
+        con.execute("DELETE FROM sig_keep")
+        for agg in ("MIN(ts)", "MAX(ts)"):
+            con.execute(f"INSERT OR IGNORE INTO sig_keep SELECT s.rowid FROM hype_signals s JOIN (SELECT token, {agg} v "
+                        f"FROM hype_signals GROUP BY token) k ON s.token = k.token AND s.ts = k.v")
+        for col in ("mcap", "liquidity"):
+            con.execute(f"INSERT OR IGNORE INTO sig_keep SELECT (SELECT s.rowid FROM hype_signals s WHERE s.token = t.token "
+                        f"ORDER BY s.{col} DESC LIMIT 1) FROM (SELECT DISTINCT token FROM hype_signals WHERE ts < ?) t",
+                        (cut,))
+        top = con.execute("SELECT MAX(rowid) FROM hype_signals WHERE ts < ?", (cut,)).fetchone()[0] or 0
+        for lo in range(0, top + 1, batch):
+            if stop and stop():
+                break
+            gone += con.execute("DELETE FROM hype_signals WHERE rowid >= ? AND rowid < ? AND ts < ? AND rowid NOT IN "
+                                "(SELECT rid FROM sig_keep)", (lo, lo + batch, cut)).rowcount
+            con.commit()
+            con.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e):
+            print(f"hype_signals čišćenje nije uspjelo: {e}", flush=True)
+    finally:
+        con.close()
+    return gone
+
+
 # 9.11. 23:10 (Jure: pop-up on the Autopilot page stays at "Učitavam…"): kol/converge.events reads the last hour of
 # these tables BY TIME every second (the "Zovu sada" box, every open pop-up), and neither had an index on ts, so each
 # read scanned the whole table (tg.db posts 85 MB). One index each turns the scan into a range read.
