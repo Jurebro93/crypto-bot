@@ -595,18 +595,21 @@ const f=s=>(s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'
 const e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sh=a=>a&&a.length>10?a.slice(0,4)+'…'+a.slice(-4):(a||'');
 let t=null,sel=-1,last='';
+/* 13.11.: the words as plain strings, so ui/i18n.js puts the English ones in on the English app */
+const W={pg:'Stranice',tk:'Tokeni',kc:'KOL-ovi i kanali',wl:'Novčanici',ad:'Adresa',ot:'Otvori kao token',
+ ow:'Otvori kao novčanik',no:'Ništa nije pronađeno',wt:'Tražim tokene, KOL-ove i novčanike…',all:'Svi rezultati za'};
 const it=(href,ic,main,sub)=>`<a href="${href}"><span class=ic>${ic}</span><span><b>${main}</b>${sub?'<br><span class=mut>'+sub+'</span>':''}</span></a>`;
 function render(q,j){const w=f(q).split(/\\s+/).filter(Boolean);let h='';
  const pg=P.filter(p=>w.every(x=>f(p.name+' '+p.desc+' '+p.kw+' '+p.sec).includes(x))).slice(0,5);
- if(pg.length)h+='<div class=sh>Stranice</div>'+pg.map(p=>it(p.href,p.icon,e(p.name),e(p.desc))).join('');
- if(j){if(j.tokens.length)h+='<div class=sh>Tokeni</div>'+j.tokens.slice(0,6).map(x=>it('/token/'+encodeURIComponent(x.mint),'🪙',
+ if(pg.length)h+='<div class=sh>'+W.pg+'</div>'+pg.map(p=>it(p.href,p.icon,e(p.name),e(p.desc))).join('');
+ if(j){if(j.tokens.length)h+='<div class=sh>'+W.tk+'</div>'+j.tokens.slice(0,6).map(x=>it('/token/'+encodeURIComponent(x.mint),'🪙',
    e(x.sym||sh(x.mint))+(x.name&&x.name!==x.sym?' <span class=mut>'+e(x.name)+'</span>':''),sh(x.mint)+' · '+e(x.src.join(', ')))).join('');
-  if(j.kols.length)h+='<div class=sh>KOL-ovi i kanali</div>'+j.kols.slice(0,5).map(x=>it('/kol/'+encodeURIComponent(x.handle),'📣',e(x.label),e(x.name||''))).join('');
-  if(j.wallets.length)h+='<div class=sh>Novčanici</div>'+j.wallets.slice(0,5).map(x=>it('/wallet/'+encodeURIComponent(x.wallet),'👛',e(x.label||sh(x.wallet)),x.label?sh(x.wallet):'')).join('');
-  if(j.addr&&!j.tokens.length)h+='<div class=sh>Adresa</div>'+it('/token/'+encodeURIComponent(q),'🪙','Otvori kao token','')+it('/wallet/'+encodeURIComponent(q),'👛','Otvori kao novčanik','');
-  if(!h)h='<div class=sh>Ništa nije pronađeno</div>';}
- else if(q.length>=2)h+='<div class=sh>Tražim tokene, KOL-ove i novčanike…</div>';
- h+=`<a class=all href="/trazi?q=${encodeURIComponent(q)}">Svi rezultati za „${e(q)}” →</a>`;dd.innerHTML=h;dd.hidden=false;sel=-1}
+  if(j.kols.length)h+='<div class=sh>'+W.kc+'</div>'+j.kols.slice(0,5).map(x=>it('/kol/'+encodeURIComponent(x.handle),'📣',e(x.label),e(x.name||''))).join('');
+  if(j.wallets.length)h+='<div class=sh>'+W.wl+'</div>'+j.wallets.slice(0,5).map(x=>it('/wallet/'+encodeURIComponent(x.wallet),'👛',e(x.label||sh(x.wallet)),x.label?sh(x.wallet):'')).join('');
+  if(j.addr&&!j.tokens.length)h+='<div class=sh>'+W.ad+'</div>'+it('/token/'+encodeURIComponent(q),'🪙',W.ot,'')+it('/wallet/'+encodeURIComponent(q),'👛',W.ow,'');
+  if(!h)h='<div class=sh>'+W.no+'</div>';}
+ else if(q.length>=2)h+='<div class=sh>'+W.wt+'</div>';
+ h+=`<a class=all href="/trazi?q=${encodeURIComponent(q)}">${W.all} „${e(q)}” →</a>`;dd.innerHTML=h;dd.hidden=false;sel=-1}
 inp.addEventListener('input',()=>{const q=inp.value.trim();last=q;clearTimeout(t);if(!q){dd.hidden=true;return}render(q,null);if(q.length<2)return;
  t=setTimeout(async()=>{try{const r=await fetch('/api/trazi?q='+encodeURIComponent(q));const j=await r.json();if(last===q)render(q,j)}catch(err){}},250)});
 inp.addEventListener('keydown',ev=>{const a=[...dd.querySelectorAll('a')];

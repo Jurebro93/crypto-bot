@@ -295,7 +295,7 @@ class TokenPage(unittest.TestCase):
                  ">Smart walleti<", ">Provjera ruga<", ">Kako je dobio ocjenu<"]
         pos = [html.index(x) for x in order]
         self.assertEqual(pos, sorted(pos))
-        self.assertIn("Giga Frog · ", html)
+        self.assertIn("Giga Frog</bdi> · ", html)   # 13.11.: the name is marked translate=no (ui/i18n)
         self.assertIn(f"412k{NB}$", html)
         self.assertIn(f"+142{NB}%", html)
         self.assertIn("da, PumpSwap", html)

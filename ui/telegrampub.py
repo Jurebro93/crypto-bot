@@ -52,7 +52,7 @@ T = {
         foot="Not financial advice. Measurements of past calls, not accusations or endorsements.",
         home="/", hub="/telegram-channels", prof="/telegram/"),
     "hr": dict(
-        hub_title="Najbolji kripto Telegram call kanali, izmjereni po tome što su im pozivi napravili | MemeSonar",
+        hub_title="Najbolji kripto Telegram call kanali, izmjereni po pozivima | MemeSonar",
         hub_desc="{n} kripto Telegram kanala izmjereno na svakom pozivu Solana tokena: cijena viša nakon sat vremena, "
                  "pozivi koji su dosegli +15 %, medijan nakon 24 h i rugovi. Osvježava se svaki dan.",
         hub_h1="Kripto Telegram call kanali, izmjereni",

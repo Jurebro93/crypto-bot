@@ -136,7 +136,7 @@ sve što je još tamo, počevši od najvećeg iznosa. Staru seed frazu više ne 
 post(
     "polymarket-rules-checklist", "polymarket-pravila-provjera", "Prediction marketi",
     "Metoda: kako pročitati pravila Polymarket tržišta prije nego uložiš (6 točaka)",
-    "Kako se rješavaju Polymarket tržišta: pravila, UMA sporovi i checklista | MemeSonar",
+    "Kako se rješavaju Polymarket tržišta: pravila i UMA sporovi | MemeSonar",
     "Na Polymarketu možeš točno predvidjeti događaj i svejedno izgubiti, jer tržište rješavaju napisana pravila. "
     "Checklista od 6 točaka i kako rade UMA sporovi.", 7,
     "Polymarket tržište isplaćuje prema napisanim pravilima i izvoru rješavanja, a ne prema onome što većina misli da "
@@ -195,7 +195,7 @@ gubili novac iako su bili u pravu o svijetu.</p>
 post(
     "polymarket-insider-moves", "polymarket-curenje-informacija", "Prediction marketi",
     "Kako uočiti curenje informacija na Polymarketu: kvote se pomaknu prije vijesti",
-    "Insider trading na Polymarketu: kako uočiti kvote koje se mijenjaju prije vijesti | MemeSonar",
+    "Insider trading na Polymarketu: kvote koje se miču prije vijesti | MemeSonar",
     "Kvote na Polymarketu više su puta skočile satima prije službene vijesti, od Nobelove nagrade za mir do "
     "Venezuele. Kako su ti pomaci izgledali i kako ih pratiti sam.", 6,
     "Curenje na prediction marketu izgleda kao nagli skok kvote za malo vjerojatan ishod bez javne vijesti, iza kojeg "
@@ -456,7 +456,7 @@ slippage</a> i <a href=/hr/blog/sto-je-pump-and-dump>pump and dump</a>.</p>
 post(
     "after-kaito-yaps", "nakon-kaito-yapsa", "Za kripto projekte",
     "Metoda: Kaito Yaps je ugašen, kako kripto projekt sada dobiva vidljivost na X-u",
-    "Nakon Kaito Yapsa: kako kripto projekti dobivaju vidljivost na X-u u 2026. | MemeSonar",
+    "Nakon Kaito Yapsa: kako kripto projekti dobivaju vidljivost na X-u | MemeSonar",
     "X je u siječnju 2026. odrezao aplikacije koje plaćaju objavljivanje, a Kaito je ugasio Yaps. Što nije valjalo s "
     "plaćenim mindshareom i checklista za svaku plaćenu kampanju na X-u.", 6,
     "U siječnju 2026. X je ukinuo API pristup aplikacijama koje nagrađuju objavljivanje, a Kaito je ugasio Yaps i "
