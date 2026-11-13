@@ -11,3 +11,5 @@
 - Teški poslovi koji ne smiju biti prekinuti: 01–06 CET. Deploy skuplja više promjena u jedan merge.
 - Za sve što se ne može poništiti (brisanje, plaćanje, slanje van, produkcija) pitaj prije.
 - X objave (Buffer): samo sadržaj iz share/novosti.json, bez env imena, ključeva, adresa, troškova, internih servisa.
+- Sve objave (X, LinkedIn, Buffer, privatni i MemeSonar profili): nikad hashtagovi i nikad zaključak tipa "Lesson:",
+  "Takeaway:", "My take:" (preočito AI). Jureovi privatni profili: engleski, prvo lice jednine ("I", ne "we"). (13.11.)
