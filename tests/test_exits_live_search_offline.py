@@ -40,6 +40,21 @@ class LiveSearch(unittest.TestCase):
             self.assertIsNone(cand)
             self.assertIn("povijesti", out["note"])
 
+    def test_median_guard(self):
+        from unittest import mock
+        ps = _fake_paths(400, seed=3)
+        real = learn.evaluate
+
+        def fake(paths, cfg, *a, **k):
+            r = real(paths, cfg, *a, **k)
+            if cfg.get("sl") != self.base.get("sl") or cfg.get("tp") != self.base.get("tp"):
+                r = {**r, "median": (r.get("median") or 0) - 0.5}
+            return r
+        with mock.patch.object(learn, "evaluate", side_effect=fake):
+            out, cand = learn.fit_profile(ps, self.base, self.cur, self.ecfg)
+        if out.get("new_params") != self.cur and "medijan" in out.get("note", ""):
+            self.assertIsNone(cand)
+
 
 if __name__ == "__main__":
     unittest.main()

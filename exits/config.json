@@ -21,6 +21,8 @@
  "rollback_hold_days": 3,
  "live_search_min": 150,
  "hist_margin": 0.02,
+ "median_margin": 0.02,
+ "_median_margin": "13.11.: novi skup se ne primjenjuje ako mu je medijan tradea lošiji od sadašnjeg za više od median_margin (prosjek koji dižu rijetki moonshotovi nije dovoljan).",
  "_live_search_min": "12.11.: klasa s barem live_search_min naših live putanja bira izlaze samo na njima (starija polovica uči, novija provjerava); povijest (studija + sjenovita knjiga) je samo provjera da novi skup na njoj nije lošiji za više od hist_margin po tradeu.",
  "grid": {
   "panic_liq": [

@@ -222,6 +222,13 @@ def fit_profile(paths, base, current, ecfg):
     if cand == current:
         out["note"] = "trenutna pravila su već najbolja u dopuštenom koraku"
         return out, None
+    # 13.11. (jutarnji izvještaj): the new rizican (v3) and rizican/asia (v2) rules had a median trade of -10% and
+    # -17%; the mean was carried by a few moonshots. A typical trade may not get clearly worse for a better mean.
+    mo, mn = out["now"].get("median"), out["new"].get("median")
+    if mo is not None and mn is not None and mn < mo - ecfg.get("median_margin", 0.02):
+        out["note"] = (f"novi skup ima bolji prosjek, ali lošiji tipičan trade (medijan {mn:+.1%} prema {mo:+.1%}); "
+                       "ostaju stara pravila")
+        return out, None
     if not moon_ok(out["new"], out["now"], ecfg):
         out["note"] = "novi skup bi izgubio previše na moonshotovima"
         return out, None
